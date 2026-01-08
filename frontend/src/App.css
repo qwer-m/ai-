@@ -1,0 +1,100 @@
+/* Mobile Responsive Sidebar */
+@media (max-width: 768px) {
+    /* Hide sidebar by default on mobile */
+    .d-flex.flex-column.bg-white.border-end.shadow-sm {
+        display: none !important;
+        position: absolute;
+        height: 100%;
+        width: 240px !important;
+        z-index: 1050; /* Higher than main content */
+    }
+
+    /* Maybe add a toggle button in header later, but for now just hide to fulfill requirement */
+}
+
+/* Animations */
+@keyframes marquee {
+    0% { transform: translateX(100%); }
+    100% { transform: translateX(-100%); }
+}
+
+/* Global Layout Fixes */
+html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden; /* Prevent body scroll */
+}
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.25);
+}
+
+/* --- Knowledge Base God-tier Styles --- */
+
+/* Smart Hover Feedback */
+.doc-card {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid rgba(0,0,0,0.08);
+    border-left: 3px solid transparent;
+}
+
+.doc-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(0,0,0,0.08);
+    border-left-color: var(--primary-500);
+}
+
+.doc-card:focus-within {
+    outline: 2px solid var(--primary-500);
+    outline-offset: 2px;
+}
+
+/* Color Science: Texture Mode for Incomplete/Warning docs */
+/* Simulates 'Warning' texture for Color Blindness accessibility */
+.doc-card-texture-warning {
+    background-image: repeating-linear-gradient(
+        45deg,
+        rgba(255, 193, 7, 0.05),
+        rgba(255, 193, 7, 0.05) 10px,
+        rgba(255, 193, 7, 0.1) 10px,
+        rgba(255, 193, 7, 0.1) 20px
+    );
+}
+
+/* Success Texture */
+.doc-card-texture-success {
+    background-image: radial-gradient(circle at 10% 20%, rgba(40, 167, 69, 0.03) 0%, transparent 20%);
+}
+
+/* Search Area Card */
+.search-card {
+    background: linear-gradient(to right, #ffffff, #f8f9fa);
+    border: 1px solid #e9ecef;
+}
+
+/* Offline Indicator */
+.offline-badge {
+    animation: pulse-gray 2s infinite;
+}
+
+@keyframes pulse-gray {
+    0% { opacity: 0.6; }
+    50% { opacity: 1; }
+    100% { opacity: 0.6; }
+}

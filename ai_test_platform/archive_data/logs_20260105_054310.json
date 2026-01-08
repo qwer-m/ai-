@@ -1,0 +1,1304 @@
+[
+  {
+    "id": 2,
+    "project_id": 8,
+    "type": "user",
+    "msg": "切换项目: 2",
+    "created_at": "2025-12-25 09:54:29"
+  },
+  {
+    "id": 3,
+    "project_id": 2,
+    "type": "user",
+    "msg": "切换项目: 9",
+    "created_at": "2025-12-25 09:54:35"
+  },
+  {
+    "id": 4,
+    "project_id": 9,
+    "type": "user",
+    "msg": "切换项目: 8",
+    "created_at": "2025-12-25 09:54:44"
+  },
+  {
+    "id": 5,
+    "project_id": 8,
+    "type": "user",
+    "msg": "上传文档: 【书课包产品】第1次产品讨论会--2025-12-11.pdf (类型: product_requirement)",
+    "created_at": "2025-12-25 09:55:10"
+  },
+  {
+    "id": 6,
+    "project_id": 8,
+    "type": "system",
+    "msg": "上传文档结果: 成功",
+    "created_at": "2025-12-25 09:55:11"
+  },
+  {
+    "id": 7,
+    "project_id": 8,
+    "type": "user",
+    "msg": "上传文档: 书课包学生端简单原型.pdf (类型: prototype)",
+    "created_at": "2025-12-25 09:55:19"
+  },
+  {
+    "id": 8,
+    "project_id": 8,
+    "type": "system",
+    "msg": "上传文档结果: 成功",
+    "created_at": "2025-12-25 09:55:19"
+  },
+  {
+    "id": 9,
+    "project_id": 8,
+    "type": "user",
+    "msg": "更新文档关联: 文档ID 37 -> 源文档ID 36",
+    "created_at": "2025-12-25 09:55:56"
+  },
+  {
+    "id": 10,
+    "project_id": 8,
+    "type": "user",
+    "msg": "发起请求: /api/knowledge/update-relation",
+    "created_at": "2025-12-25 09:55:56"
+  },
+  {
+    "id": 11,
+    "project_id": 8,
+    "type": "system",
+    "msg": "请求成功: /api/knowledge/update-relation",
+    "created_at": "2025-12-25 09:55:56"
+  },
+  {
+    "id": 12,
+    "project_id": 8,
+    "type": "user",
+    "msg": "删除项目 ID: 1",
+    "created_at": "2025-12-25 09:56:21"
+  },
+  {
+    "id": 13,
+    "project_id": 8,
+    "type": "user",
+    "msg": "删除项目 ID: 1",
+    "created_at": "2025-12-25 09:56:27"
+  },
+  {
+    "id": 15,
+    "project_id": 8,
+    "type": "user",
+    "msg": "删除项目 ID: 1",
+    "created_at": "2025-12-25 10:01:38"
+  },
+  {
+    "id": 16,
+    "project_id": 8,
+    "type": "user",
+    "msg": "删除项目 ID: 10",
+    "created_at": "2025-12-25 10:01:41"
+  },
+  {
+    "id": 29,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 13:31:43"
+  },
+  {
+    "id": 30,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 13:31:43"
+  },
+  {
+    "id": 37,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 13:57:00"
+  },
+  {
+    "id": 38,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 13:57:00"
+  },
+  {
+    "id": 39,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 14:01:32"
+  },
+  {
+    "id": 40,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 14:01:32"
+  },
+  {
+    "id": 41,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 14:02:23"
+  },
+  {
+    "id": 42,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 14:02:24"
+  },
+  {
+    "id": 45,
+    "project_id": 8,
+    "type": "system",
+    "msg": "Redis端口测试：可连接 +PONG\r\n",
+    "created_at": "2025-12-25 14:24:42"
+  },
+  {
+    "id": 46,
+    "project_id": 8,
+    "type": "user",
+    "msg": "健康检查重试",
+    "created_at": "2025-12-25 14:24:46"
+  },
+  {
+    "id": 47,
+    "project_id": 8,
+    "type": "user",
+    "msg": "健康检查重试",
+    "created_at": "2025-12-25 14:24:48"
+  },
+  {
+    "id": 48,
+    "project_id": 8,
+    "type": "user",
+    "msg": "健康检查重试",
+    "created_at": "2025-12-25 14:24:53"
+  },
+  {
+    "id": 49,
+    "project_id": 8,
+    "type": "user",
+    "msg": "健康检查重试",
+    "created_at": "2025-12-25 14:24:53"
+  },
+  {
+    "id": 50,
+    "project_id": 8,
+    "type": "system",
+    "msg": "Redis端口测试：可连接 +PONG\r\n",
+    "created_at": "2025-12-25 14:25:02"
+  },
+  {
+    "id": 51,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 14:25:08"
+  },
+  {
+    "id": 52,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 14:25:08"
+  },
+  {
+    "id": 55,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 14:30:57"
+  },
+  {
+    "id": 56,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 14:30:57"
+  },
+  {
+    "id": 57,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 14:31:50"
+  },
+  {
+    "id": 58,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 14:31:50"
+  },
+  {
+    "id": 61,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 14:39:49"
+  },
+  {
+    "id": 62,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 14:39:49"
+  },
+  {
+    "id": 65,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 14:43:08"
+  },
+  {
+    "id": 66,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 14:43:08"
+  },
+  {
+    "id": 67,
+    "project_id": 8,
+    "type": "user",
+    "msg": "通过文件上传生成测试用例 (incomplete)",
+    "created_at": "2025-12-25 14:43:23"
+  },
+  {
+    "id": 72,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: 健康检查请求失败",
+    "created_at": "2025-12-25 14:52:21"
+  },
+  {
+    "id": 73,
+    "project_id": 8,
+    "type": "user",
+    "msg": "健康检查重试",
+    "created_at": "2025-12-25 14:52:23"
+  },
+  {
+    "id": 74,
+    "project_id": 8,
+    "type": "user",
+    "msg": "健康检查重试",
+    "created_at": "2025-12-25 14:52:25"
+  },
+  {
+    "id": 75,
+    "project_id": 8,
+    "type": "user",
+    "msg": "健康检查重试",
+    "created_at": "2025-12-25 14:52:28"
+  },
+  {
+    "id": 76,
+    "project_id": 8,
+    "type": "system",
+    "msg": "Redis端口测试：可连接 +PONG\r\n",
+    "created_at": "2025-12-25 14:52:41"
+  },
+  {
+    "id": 79,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 14:54:35"
+  },
+  {
+    "id": 80,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 14:54:35"
+  },
+  {
+    "id": 81,
+    "project_id": 8,
+    "type": "user",
+    "msg": "通过文件上传生成测试用例 (incomplete)",
+    "created_at": "2025-12-25 14:55:10"
+  },
+  {
+    "id": 82,
+    "project_id": 8,
+    "type": "system",
+    "msg": "文件生成测试用例: 主文档长度=2709, 类型=incomplete, 压缩=True, 预期数量=50, 模型=qwen-plus, max_tokens=3000",
+    "created_at": "2025-12-25 14:55:11"
+  },
+  {
+    "id": 83,
+    "project_id": 8,
+    "type": "system",
+    "msg": "文件生成完成: 数量=0",
+    "created_at": "2025-12-25 14:58:57"
+  },
+  {
+    "id": 84,
+    "project_id": 8,
+    "type": "user",
+    "msg": "导出测试用例为 Excel",
+    "created_at": "2025-12-25 14:59:30"
+  },
+  {
+    "id": 93,
+    "project_id": 8,
+    "type": "user",
+    "msg": "导出测试用例为 Excel",
+    "created_at": "2025-12-25 15:16:21"
+  },
+  {
+    "id": 94,
+    "project_id": 8,
+    "type": "user",
+    "msg": "导出测试用例为 Excel",
+    "created_at": "2025-12-25 15:16:23"
+  },
+  {
+    "id": 95,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 15:20:18"
+  },
+  {
+    "id": 96,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 15:20:18"
+  },
+  {
+    "id": 97,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 15:20:23"
+  },
+  {
+    "id": 98,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 15:20:23"
+  },
+  {
+    "id": 101,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 15:22:09"
+  },
+  {
+    "id": 102,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 15:22:09"
+  },
+  {
+    "id": 105,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 15:32:07"
+  },
+  {
+    "id": 106,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 15:32:07"
+  },
+  {
+    "id": 107,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 15:32:38"
+  },
+  {
+    "id": 108,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 15:32:38"
+  },
+  {
+    "id": 111,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 15:35:41"
+  },
+  {
+    "id": 112,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 15:35:41"
+  },
+  {
+    "id": 115,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 15:38:53"
+  },
+  {
+    "id": 116,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 15:38:53"
+  },
+  {
+    "id": 117,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 15:38:55"
+  },
+  {
+    "id": 118,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 15:38:55"
+  },
+  {
+    "id": 121,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 15:46:12"
+  },
+  {
+    "id": 122,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 15:46:12"
+  },
+  {
+    "id": 123,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 15:49:44"
+  },
+  {
+    "id": 124,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 15:49:44"
+  },
+  {
+    "id": 127,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 15:55:03"
+  },
+  {
+    "id": 128,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 15:55:03"
+  },
+  {
+    "id": 129,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 15:55:13"
+  },
+  {
+    "id": 130,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 15:55:13"
+  },
+  {
+    "id": 133,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 15:58:53"
+  },
+  {
+    "id": 134,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 15:58:53"
+  },
+  {
+    "id": 137,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 16:01:59"
+  },
+  {
+    "id": 138,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 16:01:59"
+  },
+  {
+    "id": 141,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 16:08:41"
+  },
+  {
+    "id": 142,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 16:08:41"
+  },
+  {
+    "id": 145,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 16:11:08"
+  },
+  {
+    "id": 146,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 16:11:08"
+  },
+  {
+    "id": 149,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 16:14:29"
+  },
+  {
+    "id": 150,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 16:14:29"
+  },
+  {
+    "id": 153,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 16:17:58"
+  },
+  {
+    "id": 154,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 16:17:58"
+  },
+  {
+    "id": 157,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 16:19:54"
+  },
+  {
+    "id": 158,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 16:19:54"
+  },
+  {
+    "id": 159,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 16:21:10"
+  },
+  {
+    "id": 160,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 16:21:10"
+  },
+  {
+    "id": 161,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 16:21:11"
+  },
+  {
+    "id": 162,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 16:21:11"
+  },
+  {
+    "id": 165,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 16:21:33"
+  },
+  {
+    "id": 166,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 16:21:33"
+  },
+  {
+    "id": 169,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 16:24:05"
+  },
+  {
+    "id": 170,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 16:24:05"
+  },
+  {
+    "id": 171,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 16:24:19"
+  },
+  {
+    "id": 172,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 16:24:19"
+  },
+  {
+    "id": 173,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 16:24:20"
+  },
+  {
+    "id": 174,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 16:24:20"
+  },
+  {
+    "id": 175,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 16:24:21"
+  },
+  {
+    "id": 176,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 16:24:21"
+  },
+  {
+    "id": 177,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 16:24:21"
+  },
+  {
+    "id": 178,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 16:24:21"
+  },
+  {
+    "id": 181,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 16:25:43"
+  },
+  {
+    "id": 182,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 16:25:43"
+  },
+  {
+    "id": 185,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 17:01:45"
+  },
+  {
+    "id": 186,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 17:01:45"
+  },
+  {
+    "id": 187,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 17:19:16"
+  },
+  {
+    "id": 188,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 17:19:16"
+  },
+  {
+    "id": 189,
+    "project_id": 8,
+    "type": "user",
+    "msg": "通过文件上传直接导出Excel (incomplete, 压缩=true)",
+    "created_at": "2025-12-25 17:19:41"
+  },
+  {
+    "id": 190,
+    "project_id": 8,
+    "type": "system",
+    "msg": "文件生成Excel: 主文档长度=2709, 类型=incomplete, 压缩=True, 预期数量=20, 模型=qwen-plus, max_tokens=3000",
+    "created_at": "2025-12-25 17:19:42"
+  },
+  {
+    "id": 191,
+    "project_id": 8,
+    "type": "user",
+    "msg": "通过文件上传生成测试用例 (incomplete)",
+    "created_at": "2025-12-25 17:20:59"
+  },
+  {
+    "id": 192,
+    "project_id": 8,
+    "type": "system",
+    "msg": "文件生成测试用例: 主文档长度=2709, 类型=incomplete, 压缩=True, 预期数量=50, 模型=qwen-plus, max_tokens=3000",
+    "created_at": "2025-12-25 17:21:00"
+  },
+  {
+    "id": 193,
+    "project_id": 8,
+    "type": "system",
+    "msg": "文件生成完成: 数量=0",
+    "created_at": "2025-12-25 17:21:00"
+  },
+  {
+    "id": 194,
+    "project_id": 8,
+    "type": "user",
+    "msg": "通过文件上传直接导出Excel (incomplete, 压缩=true)",
+    "created_at": "2025-12-25 17:25:24"
+  },
+  {
+    "id": 195,
+    "project_id": 8,
+    "type": "system",
+    "msg": "文件生成Excel: 主文档长度=2709, 类型=incomplete, 压缩=True, 预期数量=20, 模型=qwen-plus, max_tokens=3000",
+    "created_at": "2025-12-25 17:25:25"
+  },
+  {
+    "id": 202,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 17:46:05"
+  },
+  {
+    "id": 203,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 17:46:05"
+  },
+  {
+    "id": 204,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 17:50:00"
+  },
+  {
+    "id": 205,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 17:50:00"
+  },
+  {
+    "id": 206,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 18:03:14"
+  },
+  {
+    "id": 207,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 18:03:14"
+  },
+  {
+    "id": 208,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 18:03:15"
+  },
+  {
+    "id": 209,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 18:03:15"
+  },
+  {
+    "id": 210,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 18:03:17"
+  },
+  {
+    "id": 211,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 18:03:17"
+  },
+  {
+    "id": 214,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 18:10:27"
+  },
+  {
+    "id": 215,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 18:10:27"
+  },
+  {
+    "id": 216,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-25 18:10:40"
+  },
+  {
+    "id": 217,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-25 18:10:40"
+  },
+  {
+    "id": 222,
+    "project_id": 8,
+    "type": "system",
+    "msg": "Redis端口测试：不可连接 timed out",
+    "created_at": "2025-12-26 09:16:58"
+  },
+  {
+    "id": 223,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 09:16:58"
+  },
+  {
+    "id": 224,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 未连接 (timed out)",
+    "created_at": "2025-12-26 09:16:58"
+  },
+  {
+    "id": 226,
+    "project_id": 8,
+    "type": "system",
+    "msg": "Redis端口测试：不可连接 timed out",
+    "created_at": "2025-12-26 09:17:13"
+  },
+  {
+    "id": 228,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 09:17:24"
+  },
+  {
+    "id": 229,
+    "project_id": 8,
+    "type": "user",
+    "msg": "Redis 恢复正常 (PONG)",
+    "created_at": "2025-12-26 09:17:24"
+  },
+  {
+    "id": 233,
+    "project_id": 8,
+    "type": "user",
+    "msg": "通过文件上传生成测试用例 (incomplete)",
+    "created_at": "2025-12-26 09:20:20"
+  },
+  {
+    "id": 234,
+    "project_id": 8,
+    "type": "system",
+    "msg": "文件生成测试用例: 主文档长度=2709, 类型=incomplete, 压缩=True, 预期数量=50, 模型=qwen-plus, max_tokens=10000",
+    "created_at": "2025-12-26 09:20:21"
+  },
+  {
+    "id": 235,
+    "project_id": 8,
+    "type": "system",
+    "msg": "文件生成完成: 数量=0",
+    "created_at": "2025-12-26 09:23:43"
+  },
+  {
+    "id": 236,
+    "project_id": 8,
+    "type": "system",
+    "msg": "GEN_DIAG:{\"kind\": \"gen_diag\", \"mode\": \"file\", \"doc_type\": \"incomplete\", \"compress\": true, \"expected_count\": 50, \"generated_count\": 0, \"content_length\": 2709, \"kb_length\": 148535, \"prototype_included\": true, \"model\": \"qwen-plus\", \"max_tokens\": 10000}",
+    "created_at": "2025-12-26 09:23:43"
+  },
+  {
+    "id": 237,
+    "project_id": 8,
+    "type": "system",
+    "msg": "GEN_QM:{\"positive\": 0, \"negative\": 0, \"edge\": 0, \"avg_steps\": 0.0, \"pending\": 0, \"generated_count\": 0}",
+    "created_at": "2025-12-26 09:23:43"
+  },
+  {
+    "id": 238,
+    "project_id": 8,
+    "type": "system",
+    "msg": "Redis端口测试：可连接 +PONG\r\n",
+    "created_at": "2025-12-26 09:28:53"
+  },
+  {
+    "id": 245,
+    "project_id": 8,
+    "type": "user",
+    "msg": "健康检查重试",
+    "created_at": "2025-12-26 09:47:03"
+  },
+  {
+    "id": 246,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 09:47:05"
+  },
+  {
+    "id": 247,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 09:47:05"
+  },
+  {
+    "id": 248,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 09:56:06"
+  },
+  {
+    "id": 249,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 09:56:06"
+  },
+  {
+    "id": 250,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 11:22:34"
+  },
+  {
+    "id": 251,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 11:22:34"
+  },
+  {
+    "id": 252,
+    "project_id": 8,
+    "type": "user",
+    "msg": "删除项目 ID: 12",
+    "created_at": "2025-12-26 11:24:16"
+  },
+  {
+    "id": 253,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 11:28:28"
+  },
+  {
+    "id": 254,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 11:28:28"
+  },
+  {
+    "id": 255,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 12:00:52"
+  },
+  {
+    "id": 256,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 12:00:52"
+  },
+  {
+    "id": 257,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 13:37:26"
+  },
+  {
+    "id": 258,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 13:37:26"
+  },
+  {
+    "id": 259,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 13:47:29"
+  },
+  {
+    "id": 260,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 13:47:29"
+  },
+  {
+    "id": 261,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 13:47:31"
+  },
+  {
+    "id": 262,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 13:47:31"
+  },
+  {
+    "id": 263,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 13:47:31"
+  },
+  {
+    "id": 264,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 13:47:31"
+  },
+  {
+    "id": 265,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 13:47:32"
+  },
+  {
+    "id": 266,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 13:47:32"
+  },
+  {
+    "id": 267,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 13:54:19"
+  },
+  {
+    "id": 268,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 13:54:19"
+  },
+  {
+    "id": 269,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 13:54:22"
+  },
+  {
+    "id": 270,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 13:54:22"
+  },
+  {
+    "id": 271,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 13:54:22"
+  },
+  {
+    "id": 272,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 13:54:22"
+  },
+  {
+    "id": 273,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 13:54:23"
+  },
+  {
+    "id": 274,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 13:54:23"
+  },
+  {
+    "id": 275,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 正常 (PONG)",
+    "created_at": "2025-12-26 13:54:23"
+  },
+  {
+    "id": 276,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 正常 (ok)",
+    "created_at": "2025-12-26 13:54:23"
+  },
+  {
+    "id": 277,
+    "project_id": 8,
+    "type": "system",
+    "msg": "Redis端口测试请求失败",
+    "created_at": "2025-12-26 13:57:44"
+  },
+  {
+    "id": 278,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: MySQL 异常",
+    "created_at": "2025-12-26 13:57:44"
+  },
+  {
+    "id": 279,
+    "project_id": 8,
+    "type": "system",
+    "msg": "系统健康: Redis 未连接",
+    "created_at": "2025-12-26 13:57:44"
+  },
+  {
+    "id": 280,
+    "project_id": 8,
+    "type": "system",
+    "msg": "Redis端口测试请求失败",
+    "created_at": "2025-12-26 13:58:03"
+  },
+  {
+    "id": 281,
+    "project_id": 13,
+    "type": "system",
+    "msg": "smoke log",
+    "created_at": "2025-12-26 14:12:39"
+  },
+  {
+    "id": 282,
+    "project_id": 8,
+    "type": "system",
+    "msg": "已删除: 【书课包产品】第1次产品讨论会--2025-12-11.pdf",
+    "created_at": "2025-12-26 15:38:27"
+  },
+  {
+    "id": 283,
+    "project_id": 8,
+    "type": "system",
+    "msg": "已删除: 【书课包产品】第1次产品讨论会--2025-12-11.pdf",
+    "created_at": "2025-12-26 15:38:30"
+  },
+  {
+    "id": 284,
+    "project_id": 8,
+    "type": "system",
+    "msg": "已删除: 书课包学生端简单原型.pdf",
+    "created_at": "2025-12-26 15:38:36"
+  },
+  {
+    "id": 285,
+    "project_id": 14,
+    "type": "test_p2",
+    "msg": "Old Log",
+    "created_at": "2026-01-05 13:43:10"
+  }
+]
