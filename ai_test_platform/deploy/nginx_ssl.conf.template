@@ -1,0 +1,52 @@
+server {
+    listen 80;
+    server_name your-domain.com; # 替换为您的域名
+
+    # 强制跳转 HTTPS
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name your-domain.com; # 替换为您的域名
+
+    # SSL 证书配置 (需要您上传证书文件到 deploy/certs 目录)
+    ssl_certificate /etc/nginx/certs/your-domain.pem;
+    ssl_certificate_key /etc/nginx/certs/your-domain.key;
+
+    # 推荐的 SSL 设置
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:50m;
+    ssl_session_tickets off;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    # 前端静态文件目录
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 后端 API 代理
+    location /api {
+        proxy_pass http://app:8000/api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # API 文档
+    location /docs {
+        proxy_pass http://app:8000/docs;
+        proxy_set_header Host $host;
+    }
+
+    location /openapi.json {
+        proxy_pass http://app:8000/openapi.json;
+        proxy_set_header Host $host;
+    }
+}
