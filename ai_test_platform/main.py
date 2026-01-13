@@ -4,6 +4,7 @@ import uuid
 import json
 import httpx
 import socket
+import io
 from datetime import datetime, timedelta
 from typing import List, Optional, Any, Dict
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks, Request, Query
@@ -34,7 +35,8 @@ from slowapi.middleware import SlowAPIMiddleware
 from celery.result import AsyncResult
 from celery_config import celery_app
 from modules.tasks import generate_test_cases_task
-from modules.test_generation import test_generator
+from modules.test_generation import test_generator, clean_and_parse_json
+from modules.evaluation import evaluator
 from core.redis_pool import redis_pool
 from core.browser_pool import browser_pool
 
@@ -120,7 +122,7 @@ app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     TrustedHostMiddleware, 
-    allowed_hosts=["localhost", "127.0.0.1", "0.0.0.0"]
+    allowed_hosts=["localhost", "127.0.0.1", "0.0.0.0", "8.130.106.199", "*"]
 )
 
 app.add_middleware(
@@ -322,11 +324,13 @@ class UIAutoEvalRequest(BaseModel):
     script: str
     execution_result: str
     project_id: int
+    journey_json: Optional[str] = None
 
 class APITestEvalRequest(BaseModel):
     script: str
     execution_result: str
     project_id: int
+    openapi_spec: Optional[str] = None
 
 class TestComparisonRequest(BaseModel):
     generated_test_case: str
@@ -933,7 +937,14 @@ def evaluate_ui_automation(req: UIAutoEvalRequest, db: Session = Depends(get_db)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    result = evaluator.evaluate_ui_automation(req.script, req.execution_result, db, req.project_id, user_id=current_user.id)
+    journey_dict = None
+    if req.journey_json:
+        try:
+            journey_dict = json.loads(req.journey_json)
+        except Exception:
+            pass # Or handle error more gracefully
+
+    result = evaluator.evaluate_ui_automation(req.script, req.execution_result, db, req.project_id, user_id=current_user.id, journey_json=journey_dict)
     return {"result": result}
 
 @app.post("/api/evaluate-api-test")
@@ -942,16 +953,55 @@ def evaluate_api_test(req: APITestEvalRequest, db: Session = Depends(get_db), cu
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    result = evaluator.evaluate_api_test(req.script, req.execution_result, db, req.project_id, user_id=current_user.id)
+    result = evaluator.evaluate_api_test(req.script, req.execution_result, db, req.project_id, user_id=current_user.id, openapi_spec=req.openapi_spec)
     return {"result": result}
 
 @app.post("/api/compare-test-cases")
-def compare_test_cases(req: TestComparisonRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    project = db.query(Project).filter(Project.id == req.project_id, Project.user_id == current_user.id).first()
+async def compare_test_cases(
+    generated_test_case: str = Form(...),
+    modified_test_case: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    project_id: int = Form(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    project = db.query(Project).filter(Project.id == project_id, Project.user_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    result = evaluator.compare_test_cases(req.generated_test_case, req.modified_test_case, db, req.project_id, user_id=current_user.id)
+    modified_content = modified_test_case or ""
+
+    if file:
+        try:
+            # Parse file content
+            file_content = ""
+            if file.filename.endswith(('.xlsx', '.xls', '.csv')):
+                contents = await file.read()
+                if file.filename.endswith('.csv'):
+                    df = pd.read_csv(io.BytesIO(contents))
+                else:
+                    df = pd.read_excel(io.BytesIO(contents))
+                file_content = df.to_json(orient='records', force_ascii=False)
+            elif file.filename.endswith(('.png', '.jpg', '.jpeg')):
+                 # Use existing file processing for OCR
+                 base_prompt = "OCR: Extract all text from this image representing test cases."
+                 file_content = await parse_file_content(file, base_prompt)
+            else:
+                 # Try text
+                 contents = await file.read()
+                 file_content = contents.decode('utf-8')
+            
+            if modified_content:
+                modified_content += "\n\n[Uploaded File Content]:\n" + file_content
+            else:
+                modified_content = file_content
+        except Exception as e:
+            return {"error": f"Failed to process file: {str(e)}"}
+
+    if not modified_content:
+        return {"error": "No modified test case provided (text or file)."}
+
+    result = evaluator.compare_test_cases(generated_test_case, modified_content, db, project_id, user_id=current_user.id)
     return {"result": result}
 
 @app.post("/api/upload-knowledge")
@@ -982,6 +1032,149 @@ async def upload_knowledge(
 
     except ValueError as e:
         return {"error": str(e)}
+
+@app.post("/api/evaluation/save-knowledge")
+async def save_evaluation_knowledge(
+    project_id: int = Form(...),
+    defect_analysis: str = Form(...),
+    user_supplement: str = Form(...),
+    file: Optional[UploadFile] = File(None),
+    doc_id: Optional[int] = Form(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Verify project
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # If updating, delete the old document first
+    if doc_id:
+        old_doc = db.query(KnowledgeDocument).filter(
+            KnowledgeDocument.id == doc_id, 
+            KnowledgeDocument.project_id == project_id
+        ).first()
+        if old_doc:
+            knowledge_base.delete_document(doc_id, db, current_user.id)
+
+    content = f"【缺陷归因分析】\n{defect_analysis}\n\n【用户补充描述】\n{user_supplement}"
+    
+    filename = f"Evaluation_Feedback_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    
+    if file:
+        file_content = await file.read()
+        # If it's a text file, append content
+        if file.filename.endswith(('.txt', '.md', '.csv', '.json', '.py', '.js', '.java')):
+             try:
+                 text_content = file_content.decode('utf-8')
+                 content += f"\n\n【附件: {file.filename}】\n{text_content}"
+             except:
+                 content += f"\n\n【附件: {file.filename}】\n(Binary content not displayed)"
+        else:
+             content += f"\n\n【附件: {file.filename}】\n(Image/Binary file attached)"
+    
+    # Save to Knowledge Base
+    # doc_type='evaluation_report' is now supported in knowledge_base.py
+    result = knowledge_base.add_document(
+        filename=filename,
+        content=content,
+        doc_type="evaluation_report",
+        project_id=project_id,
+        db=db,
+        user_id=current_user.id
+    )
+    
+    return {"success": True, "result": result}
+
+@app.get("/api/evaluation/history/{project_id}")
+def get_evaluation_history(project_id: int, limit: int = 20, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    project = db.query(Project).filter(Project.id == project_id, Project.user_id == current_user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    history = db.query(TestGenerationComparison).filter(
+        TestGenerationComparison.project_id == project_id
+    ).order_by(TestGenerationComparison.created_at.asc()).limit(limit).all()
+    
+    data = []
+    for h in history:
+        try:
+            res = json.loads(h.comparison_result)
+            metrics = res.get("metrics", {})
+            defects = res.get("defect_analysis", {})
+            
+            # Handle string or dict (just in case)
+            if isinstance(defects, str):
+                 try: defects = json.loads(defects)
+                 except: defects = {}
+            if isinstance(metrics, str):
+                 try: metrics = json.loads(metrics)
+                 except: metrics = {}
+            
+            # If metrics are not in 'metrics' key (backward compatibility or top-level)
+            # Some older prompts might have returned them at top level?
+            # Based on current prompt, they are in 'metrics'.
+            
+            # If metrics is still empty, maybe they are at top level
+            if not metrics and "precision" in res:
+                metrics = res
+            
+            data.append({
+                "id": h.id,
+                "created_at": h.created_at.strftime("%m-%d %H:%M"),
+                "precision": metrics.get("precision", 0),
+                "recall": metrics.get("recall", 0),
+                "f1_score": metrics.get("f1_score", 0),
+                "semantic_similarity": metrics.get("semantic_similarity", 0),
+                "missing_count": len(defects.get("missing_points", [])),
+                "hallucination_count": len(defects.get("hallucinations", [])),
+                "modification_count": len(defects.get("modifications", []))
+            })
+        except:
+            pass
+            
+    return {"history": data}
+
+@app.get("/api/evaluation/latest-supplement/{project_id}")
+def get_latest_evaluation_supplement(project_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    project = db.query(Project).filter(Project.id == project_id, Project.user_id == current_user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Find the latest knowledge document of type 'evaluation_report'
+    latest_doc = db.query(KnowledgeDocument).filter(
+        KnowledgeDocument.project_id == project_id,
+        KnowledgeDocument.doc_type == "evaluation_report"
+    ).order_by(KnowledgeDocument.created_at.desc()).first()
+
+    if not latest_doc:
+        return {"found": False}
+
+    content = latest_doc.content
+    supplement = ""
+    
+    # Extract User Supplement using markers
+    try:
+        start_marker = "【用户补充描述】"
+        end_marker = "【附件:" # Optional end marker if attachments exist
+        
+        start_idx = content.find(start_marker)
+        if start_idx != -1:
+            start_idx += len(start_marker)
+            end_idx = content.find(end_marker, start_idx)
+            if end_idx != -1:
+                supplement = content[start_idx:end_idx].strip()
+            else:
+                supplement = content[start_idx:].strip()
+    except:
+        pass
+
+    return {
+        "found": True,
+        "doc_id": latest_doc.id,
+        "supplement": supplement,
+        "created_at": latest_doc.created_at.isoformat()
+    }
 
 @app.get("/api/knowledge-list")
 def get_knowledge_list(
@@ -1285,10 +1478,19 @@ def get_test_generation(gen_id: int, db: Session = Depends(get_db), current_user
     gen = db.query(TestGeneration).filter(TestGeneration.id == gen_id, TestGeneration.user_id == current_user.id).first()
     if not gen:
         raise HTTPException(status_code=404, detail="Test generation not found")
-    try:
-        return json.loads(gen.generated_result)
-    except:
-        return {"error": "Failed to parse stored JSON", "raw": gen.generated_result}
+    
+    # Try robust parsing first
+    result = clean_and_parse_json(gen.generated_result)
+    
+    # Check if result indicates error
+    if isinstance(result, dict) and "error" in result:
+        # If robust parsing failed, return the error structure
+        # We can add the raw content if not present
+        if "raw" not in result:
+            result["raw"] = gen.generated_result
+        return result
+        
+    return result
 
 @app.post("/api/generate-tests-stream")
 async def generate_tests_stream(
@@ -1308,111 +1510,87 @@ async def generate_tests_stream(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    async def stream_generator():
+    content = ""
+    if file:
+        base_prompt = "OCR: Extract all text from this image."
         try:
-            content = ""
-            
-            if file:
-                 yield f"正在解析文件 {file.filename}，请稍候...\n"
-                 base_prompt = "OCR: Extract all text from this image."
-                 try:
-                    content = await parse_file_content(file, base_prompt)
-                    yield "文件解析完成。\n"
-                 except Exception as e:
-                    yield f"文件解析失败: {e}\n"
-                    logger.error(f"File parse error: {e}")
-                    return
+            content = await parse_file_content(file, base_prompt)
+        except Exception as e:
+            logger.error(f"File parse error: {e}")
+            raise HTTPException(status_code=400, detail=f"文件解析失败: {e}")
 
-                 # Add to KB
-                 yield "正在存入知识库...\n"
-                 try:
-                    kb_add = knowledge_base.add_document(file.filename, content, doc_type, project_id, db, force=force)
-                    if isinstance(kb_add, dict) and kb_add.get("status") == "duplicate":
-                        # Check for existing generation result
+        try:
+            kb_add = knowledge_base.add_document(file.filename, content, doc_type, project_id, db, force=force)
+            if isinstance(kb_add, dict) and kb_add.get("status") == "duplicate":
+                existing_gen = db.query(TestGeneration).filter(
+                    TestGeneration.project_id == project_id,
+                    TestGeneration.requirement_text == content,
+                    TestGeneration.user_id == current_user.id
+                ).order_by(desc(TestGeneration.created_at)).first()
+
+                if not existing_gen and kb_add.get("existing_doc_id"):
+                    existing_doc = db.query(KnowledgeDocument).filter(
+                        KnowledgeDocument.id == kb_add.get("existing_doc_id")
+                    ).first()
+                    if existing_doc and existing_doc.content:
                         existing_gen = db.query(TestGeneration).filter(
                             TestGeneration.project_id == project_id,
-                            TestGeneration.requirement_text == content,
+                            TestGeneration.requirement_text == existing_doc.content,
                             TestGeneration.user_id == current_user.id
                         ).order_by(desc(TestGeneration.created_at)).first()
 
-                        # Fallback: if exact match fails, try to use content from the existing KnowledgeDocument
-                        if not existing_gen and kb_add.get("existing_doc_id"):
-                            existing_doc = db.query(KnowledgeDocument).filter(
-                                KnowledgeDocument.id == kb_add.get("existing_doc_id")
-                            ).first()
-                            if existing_doc and existing_doc.content:
-                                existing_gen = db.query(TestGeneration).filter(
-                                    TestGeneration.project_id == project_id,
-                                    TestGeneration.requirement_text == existing_doc.content,
-                                    TestGeneration.user_id == current_user.id
-                                ).order_by(desc(TestGeneration.created_at)).first()
-
-                        if existing_gen and existing_gen.generated_result:
-                            yield f"@@DUPLICATE@@:{{\"id\": {existing_gen.id}}}"
-                            return
-                        else:
-                            yield f"【提示】文档 '{kb_add.get('existing_filename')}' 内容未发生变化，但未找到历史生成结果，将重新生成。\n"
-                    else:
-                        yield "知识库更新完成。\n"
-                 except Exception as e:
-                    yield f"存入知识库失败 (不影响生成): {e}\n"
-                    logger.error(f"Failed to add to KB: {e}")
-
-            elif requirement_text:
-                 content = requirement_text
-                 yield "已接收需求文本。\n"
-                 
-                 # BUG1 Fix: Check for duplicate requirement_text if not forced
-                 if not force:
-                     existing_gen = db.query(TestGeneration).filter(
-                        TestGeneration.project_id == project_id,
-                        TestGeneration.requirement_text == content,
-                        TestGeneration.user_id == current_user.id
-                     ).order_by(desc(TestGeneration.created_at)).first()
-                     
-                     if existing_gen and existing_gen.generated_result:
+                if existing_gen and existing_gen.generated_result:
+                    async def duplicate_stream():
                         yield f"@@DUPLICATE@@:{{\"id\": {existing_gen.id}}}"
-                        return
+                    return StreamingResponse(duplicate_stream(), media_type="text/event-stream")
+        except Exception as e:
+            logger.error(f"Failed to add to KB: {e}")
 
-            
-            if doc_type == "incomplete" and prototype_file:
-                 yield "正在解析原型图...\n"
-                 proto_prompt = (
-                    "Analyze this UI prototype image. Describe every UI element, their layout, text content, and likely interactions. "
-                    "Identify input fields, buttons, navigation menus, and any visual indicators of state."
-                )
-                 try:
-                    proto_text = await parse_file_content(prototype_file, proto_prompt)
-                    content = f"{content}\n\n[Prototype Analysis]\n{proto_text}"
-                    yield "原型图解析完成。\n"
-                 except Exception as e:
-                    yield f"原型图解析失败: {e}\n"
-                    logger.error(f"Prototype parse error: {e}")
-            
-            if not content:
-                yield "错误: 未提供有效内容。\n"
-                return
+    elif requirement_text:
+        content = requirement_text
+        if not force:
+            existing_gen = db.query(TestGeneration).filter(
+                TestGeneration.project_id == project_id,
+                TestGeneration.requirement_text == content,
+                TestGeneration.user_id == current_user.id
+            ).order_by(desc(TestGeneration.created_at)).first()
 
-            yield "正在根据内容生成测试用例，AI 思考中...\n\n"
-            
-            full_response_content = ""
+            if existing_gen and existing_gen.generated_result:
+                async def duplicate_stream():
+                    yield f"@@DUPLICATE@@:{{\"id\": {existing_gen.id}}}"
+                return StreamingResponse(duplicate_stream(), media_type="text/event-stream")
+
+    if doc_type == "incomplete" and prototype_file:
+        proto_prompt = (
+            "Analyze this UI prototype image. Describe every UI element, their layout, text content, and likely interactions. "
+            "Identify input fields, buttons, navigation menus, and any visual indicators of state."
+        )
+        try:
+            proto_text = await parse_file_content(prototype_file, proto_prompt)
+            content = f"{content}\n\n[Prototype Analysis]\n{proto_text}"
+        except Exception as e:
+            logger.error(f"Prototype parse error: {e}")
+            raise HTTPException(status_code=400, detail=f"原型图解析失败: {e}")
+
+    if not content:
+        raise HTTPException(status_code=400, detail="未提供有效内容")
+
+    async def stream_generator():
+        try:
             async for chunk in test_generator.generate_test_cases_stream(
-                content, 
-                project_id, 
-                db, 
-                doc_type, 
-                compress, 
+                content,
+                project_id,
+                db,
+                doc_type,
+                compress,
                 expected_count,
                 overwrite=force,
                 user_id=current_user.id
             ):
-                full_response_content += chunk
                 yield chunk
-            
-            # Post-processing: Saving is handled by test_generation module.
         except Exception as e:
             logger.error(f"Stream generation error: {e}")
-            yield f"\n\n生成过程中发生错误: {str(e)}"
+            yield "[]"
 
     return StreamingResponse(
         stream_generator(),
@@ -1446,6 +1624,8 @@ class ConfigSaveRequest(BaseModel):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     model_name: str
+    vl_model_name: Optional[str] = None
+    turbo_model_name: Optional[str] = None
 
 class ConfigDetectRequest(BaseModel):
     candidates: List[str]
@@ -1496,16 +1676,41 @@ async def validate_config(req: ConfigValidateRequest):
         return {"valid": False, "error": f"Validation exception: {str(e)}"}
 
 @app.post("/api/config/save")
-async def save_config(req: ConfigSaveRequest, db: Session = Depends(get_db)):
+async def save_config(req: ConfigSaveRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
+        prev_config = config_manager.get_active_config(db, user_id=current_user.id)
+
+        api_key = req.api_key
+        if not api_key or api_key.strip() == "******":
+            if prev_config and prev_config.provider == req.provider and prev_config.api_key:
+                try:
+                    api_key = config_manager.get_decrypted_api_key(prev_config)
+                except Exception:
+                    api_key = None
+
+        base_url = req.base_url
+        if base_url is None and prev_config and prev_config.provider == req.provider:
+            base_url = prev_config.base_url
+
+        vl_model_name = req.vl_model_name
+        if vl_model_name is None and prev_config and prev_config.provider == req.provider:
+            vl_model_name = prev_config.vl_model_name
+
+        turbo_model_name = req.turbo_model_name
+        if turbo_model_name is None and prev_config and prev_config.provider == req.provider:
+            turbo_model_name = prev_config.turbo_model_name
+
         # Create and activate config
         new_config = config_manager.create_config(
             db, 
             provider=req.provider,
             model_name=req.model_name,
-            api_key=req.api_key,
-            base_url=req.base_url,
-            activate=True
+            api_key=api_key,
+            base_url=base_url,
+            activate=True,
+            vl_model_name=vl_model_name,
+            turbo_model_name=turbo_model_name,
+            user_id=current_user.id
         )
         
         # Update global AI Client
@@ -1619,8 +1824,8 @@ async def test_stream(
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.get("/api/config/current")
-def get_current_config(db: Session = Depends(get_db)):
-    config = config_manager.get_active_config(db)
+def get_current_config(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    config = config_manager.get_active_config(db, user_id=current_user.id)
     if not config:
         return {"active": False}
     

@@ -70,7 +70,7 @@ class KnowledgeBaseModule:
         # Add to ChromaDB for RAG
         # We only index 'requirement' and 'product_requirement' for now, or maybe all text docs?
         # Let's index everything that is text-heavy.
-        if doc_type in ['requirement', 'product_requirement', 'incomplete']:
+        if doc_type in ['requirement', 'product_requirement', 'incomplete', 'evaluation_report']:
              chroma_client.add_document(
                  doc_id=str(doc.id),
                  content=content,
