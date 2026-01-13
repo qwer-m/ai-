@@ -30,6 +30,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           // Verify token and get user info
           const userData = await api.get<User>('/api/auth/me');
+          if (!userData || typeof userData !== 'object' || !('id' in userData)) {
+            throw new Error('Invalid user response');
+          }
           setUser(userData);
           setToken(storedToken);
         } catch (error) {

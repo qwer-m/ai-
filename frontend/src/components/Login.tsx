@@ -4,6 +4,11 @@ import { api } from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 
+type TokenResponse = {
+  access_token: string;
+  token_type: string;
+};
+
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -21,18 +26,11 @@ const Login: React.FC = () => {
       const formData = new FormData();
       formData.append('username', username);
       formData.append('password', password);
-      
-      const response = await fetch('/api/auth/token', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.detail || 'Login failed');
+
+      const data = await api.upload<TokenResponse>('/api/auth/token', formData);
+      if (!data || !data.access_token) {
+        throw new Error('Login failed');
       }
-      
-      const data = await response.json();
       const token = data.access_token;
       
       // Store token first so api.get uses it

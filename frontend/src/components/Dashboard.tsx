@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Nav, Button, Form, Container, Badge, Spinner } from 'react-bootstrap';
-import { FaFileCode, FaMousePointer, FaNetworkWired, FaClipboardCheck, FaDatabase, FaFolder, FaCog, FaPlus, FaCheckCircle, FaExclamationTriangle, FaServer, FaSignOutAlt } from 'react-icons/fa';
+import { Nav, Button, Form, Container, Badge, Spinner, Collapse } from 'react-bootstrap';
+import { FaFileCode, FaMousePointer, FaNetworkWired, FaClipboardCheck, FaDatabase, FaFolder, FaCog, FaPlus, FaCheckCircle, FaExclamationTriangle, FaServer, FaSignOutAlt, FaChevronDown, FaRobot } from 'react-icons/fa';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import '../theme.css'; 
 import '../App.css';
 import { ConfigModal } from './ConfigModal';
 import { ProjectManagement, type Project } from './ProjectManagement';
-import { TestGeneration } from './TestGeneration';
 import { KnowledgeBase } from './KnowledgeBase';
-import { UIAutomation } from './UIAutomation';
 import { APITesting } from './APITesting';
+import { TestGeneration } from './TestGeneration';
+import { UIAutomation } from './UIAutomation';
 import { Evaluation } from './Evaluation';
 import { LogPanel } from './LogPanel';
 import { api } from '../utils/api';
@@ -43,23 +43,51 @@ export const Dashboard = () => {
   const navigate = useNavigate();
 
   const navItems = [
-    { key: 'gen', label: '测试用例生成', icon: <FaFileCode /> },
-    { key: 'ui', label: 'UI自动化执行', icon: <FaMousePointer /> },
-    { key: 'api', label: '接口测试执行', icon: <FaNetworkWired /> },
-    { key: 'eval', label: '质量评估与召回', icon: <FaClipboardCheck /> },
+    { key: 'api-gen', label: '测试用例', icon: <FaFileCode /> },
+    { 
+        key: 'api', 
+        label: '接口测试', 
+        icon: <FaNetworkWired />,
+        children: [
+            { key: 'api-exec', label: '用例执行', icon: <FaFileCode /> }
+        ]
+    },
+    { 
+        key: 'ui-exec', 
+        label: '自动化', 
+        icon: <FaMousePointer />,
+        children: [
+            { key: 'ui-exec-ui', label: 'UI自动化', icon: <FaMousePointer /> },
+            { key: 'ui-exec-api', label: '接口自动化', icon: <FaNetworkWired /> }
+        ]
+    },
+    { 
+        key: 'eval', 
+        label: '质量评估与召回', 
+        icon: <FaClipboardCheck />,
+        children: [
+            { key: 'eval-testcase', label: '测试用例质量评估', icon: <FaClipboardCheck /> },
+            { key: 'eval-ui', label: 'UI自动化评估', icon: <FaRobot /> },
+            { key: 'eval-api', label: '接口测试评估', icon: <FaNetworkWired /> },
+        ]
+    },
     { key: 'kb', label: '知识库管理', icon: <FaDatabase /> },
     { key: 'proj', label: '项目管理', icon: <FaFolder /> },
   ];
 
   const [activeTab, setActiveTab] = useState(() => {
       const saved = safeGetItem('currentActiveTab');
-      const validKeys = navItems.map(i => i.key);
-      return (saved && validKeys.includes(saved)) ? saved : 'gen';
+      const validKeys = navItems.flatMap(i => [i.key, ...(i.children ? i.children.map(c => c.key) : [])]);
+      return (saved && validKeys.includes(saved)) ? saved : 'api-gen';
   });
   
-  useEffect(() => {
-      safeSetItem('currentActiveTab', activeTab);
-  }, [activeTab]);
+  const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
+
+  const toggleExpand = (key: string) => {
+      setExpandedKeys(prev => 
+          prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+      );
+  };
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
@@ -75,7 +103,6 @@ export const Dashboard = () => {
   const [healthError, setHealthError] = useState<string | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   
-  // Shared state for Evaluation Module import
   const [evalGenerated, setEvalGenerated] = useState('');
   const [evalModified, setEvalModified] = useState('');
   const [evalResult, setEvalResult] = useState<string | null>(null);
@@ -89,7 +116,6 @@ export const Dashboard = () => {
   const [apiEvalExec, setApiEvalExec] = useState('');
   const [apiEvalOutput, setApiEvalOutput] = useState<string | null>(null);
 
-  // Modals
   const [showConfig, setShowConfig] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
 
@@ -263,18 +289,77 @@ export const Dashboard = () => {
                 </div>
 
                 <div className="flex-grow-1 p-3 overflow-auto">
-                    <Nav variant="pills" className="flex-column gap-2" activeKey={activeTab} onSelect={(k) => setActiveTab(k || 'gen')}>
+                    <Nav variant="pills" className="flex-column gap-2" activeKey={activeTab}>
                         {navItems.map(item => (
-                            <Nav.Link 
-                                key={item.key} 
-                                eventKey={item.key} 
-                                className={`sidebar-link d-flex align-items-center gap-3 px-3 py-2 rounded-lg transition-all ${activeTab === item.key ? 'active-pro shadow-sm bg-primary text-white fw-bold' : 'text-secondary hover-bg-light'}`}
-                                style={{ transition: 'all 0.2s ease' }}
-                            >
-                                <span className={activeTab === item.key ? 'text-white' : 'text-tertiary'}>{item.icon}</span>
-                                <span>{item.label}</span>
-                                {activeTab === item.key && <div className="ms-auto rounded-circle bg-white" style={{width: '6px', height: '6px'}}></div>}
-                            </Nav.Link>
+                            <div key={item.key} className="d-flex flex-column">
+                                <Nav.Link
+                                    as="button"
+                                    eventKey={item.key}
+                                    className={`sidebar-link d-flex align-items-center gap-3 px-3 py-2 rounded-lg transition-all ${
+                                        (activeTab === item.key)
+                                            ? 'active-pro shadow-sm bg-primary text-white fw-bold' 
+                                            : 'text-secondary hover-bg-light'
+                                    }`}
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        if (item.children) {
+                                            setActiveTab(item.key);
+                                            return;
+                                        }
+                                        setActiveTab(item.key);
+                                    }}
+                                    onDoubleClick={(e) => {
+                                        e.preventDefault();
+                                        if (item.children) toggleExpand(item.key);
+                                    }}
+                                    style={{ transition: 'all 0.2s ease', cursor: 'pointer', minHeight: '42px' }}
+                                >
+                                    <span className={
+                                        (activeTab === item.key)
+                                            ? 'text-white' 
+                                            : 'text-tertiary'
+                                    }>{item.icon}</span>
+                                    <span className={`flex-grow-1 text-start ${item.key === 'eval' ? 'text-nowrap text-truncate' : ''}`} style={item.key === 'eval' ? { overflow: 'hidden' } : undefined}>
+                                        {item.label}
+                                    </span>
+                                    {item.children && (
+                                        <span
+                                            className="d-flex align-items-center justify-content-center"
+                                            style={{ minWidth: '40px' }}
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                toggleExpand(item.key);
+                                            }}
+                                        >
+                                            <FaChevronDown className={`transition-transform ${expandedKeys.includes(item.key) ? 'rotate-180' : ''}`} size={10} />
+                                        </span>
+                                    )}
+                                </Nav.Link>
+                                <Collapse in={!!item.children && expandedKeys.includes(item.key)}>
+                                    <div className="mt-1 ms-4 ps-2 border-start border-light">
+                                        <div className="d-flex flex-column gap-1">
+                                            {item.children?.map(child => (
+                                                <Nav.Link
+                                                    key={child.key}
+                                                    as="button"
+                                                    eventKey={child.key}
+                                                    className={`sidebar-link d-flex align-items-center px-3 py-1 rounded transition-all small ${activeTab === child.key ? 'text-primary fw-bold bg-primary bg-opacity-10' : 'text-muted hover-text-primary'}`}
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        setActiveTab(child.key);
+                                                    }}
+                                                >
+                                                    <span className="me-2 d-flex align-items-center justify-content-center" style={{ width: '16px' }}>
+                                                        {child.icon}
+                                                    </span>
+                                                    <span className="text-nowrap text-truncate" style={{ overflow: 'hidden' }}>{child.label}</span>
+                                                </Nav.Link>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </Collapse>
+                            </div>
                         ))}
                     </Nav>
                 </div>
@@ -357,7 +442,21 @@ export const Dashboard = () => {
                             }`} 
                             style={activeTab === 'kb' ? { minHeight: '0' } : {}}
                         >
-                            {activeTab === 'gen' && (
+                            {activeTab === 'api' && (
+                                <APITesting 
+                                    key={projectId}
+                                    projectId={projectId} 
+                                    onLog={msg => handleLog(msg, 'user')} 
+                                />
+                            )}
+                            {activeTab === 'api-exec' && (
+                                <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted">
+                                    <FaNetworkWired size={48} className="mb-3 opacity-50" />
+                                    <h5>用例执行</h5>
+                                    <p>功能已移动至“接口测试”</p>
+                                </div>
+                            )}
+                            {activeTab === 'api-gen' && (
                                 <TestGeneration 
                                     key={projectId}
                                     projectId={projectId} 
@@ -369,8 +468,27 @@ export const Dashboard = () => {
                                     }}
                                 />
                             )}
-                            {activeTab === 'ui' && <UIAutomation projectId={projectId} onLog={msg => handleLog(msg, 'user')} />}
-                            {activeTab === 'api' && <APITesting projectId={projectId} onLog={msg => handleLog(msg, 'user')} />}
+                            {activeTab === 'ui-exec' && (
+                                <UIAutomation 
+                                    key={projectId}
+                                    projectId={projectId} 
+                                    onLog={msg => handleLog(msg, 'user')} 
+                                />
+                            )}
+                            {activeTab === 'ui-exec-ui' && (
+                                <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted">
+                                    <FaMousePointer size={48} className="mb-3 opacity-50" />
+                                    <h5>UI自动化</h5>
+                                    <p>功能开发中...</p>
+                                </div>
+                            )}
+                            {activeTab === 'ui-exec-api' && (
+                                <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted">
+                                    <FaNetworkWired size={48} className="mb-3 opacity-50" />
+                                    <h5>接口自动化</h5>
+                                    <p>功能开发中...</p>
+                                </div>
+                            )}
                             {activeTab === 'kb' && <KnowledgeBase projectId={projectId} onLog={msg => handleLog(msg, 'system')} />}
                             {activeTab === 'proj' && (
                                 <ProjectManagement 
@@ -387,6 +505,67 @@ export const Dashboard = () => {
                                     projectId={projectId} 
                                     logs={logs}
                                     onLog={msg => handleLog(msg, 'user')}
+                                    view="root"
+                                    evalGenerated={evalGenerated} setEvalGenerated={setEvalGenerated}
+                                    evalModified={evalModified} setEvalModified={setEvalModified}
+                                    evalResult={evalResult} setEvalResult={setEvalResult}
+                                    recallRetrieved={recallRetrieved} setRecallRetrieved={setRecallRetrieved}
+                                    recallRelevant={recallRelevant} setRecallRelevant={setRecallRelevant}
+                                    recallResult={recallResult} setRecallResult={setRecallResult}
+                                    uiEvalScript={uiEvalScript} setUiEvalScript={setUiEvalScript}
+                                    uiEvalExec={uiEvalExec} setUiEvalExec={setUiEvalExec}
+                                    uiEvalOutput={uiEvalOutput} setUiEvalOutput={setUiEvalOutput}
+                                    apiEvalScript={apiEvalScript} setApiEvalScript={setApiEvalScript}
+                                    apiEvalExec={apiEvalExec} setApiEvalExec={setApiEvalExec}
+                                    apiEvalOutput={apiEvalOutput} setApiEvalOutput={setApiEvalOutput}
+                                />
+                            )}
+                            {activeTab === 'eval-testcase' && (
+                                <Evaluation 
+                                    projectId={projectId} 
+                                    logs={logs}
+                                    onLog={msg => handleLog(msg, 'user')}
+                                    view="testcase"
+                                    evalGenerated={evalGenerated} setEvalGenerated={setEvalGenerated}
+                                    evalModified={evalModified} setEvalModified={setEvalModified}
+                                    evalResult={evalResult} setEvalResult={setEvalResult}
+                                    recallRetrieved={recallRetrieved} setRecallRetrieved={setRecallRetrieved}
+                                    recallRelevant={recallRelevant} setRecallRelevant={setRecallRelevant}
+                                    recallResult={recallResult} setRecallResult={setRecallResult}
+                                    uiEvalScript={uiEvalScript} setUiEvalScript={setUiEvalScript}
+                                    uiEvalExec={uiEvalExec} setUiEvalExec={setUiEvalExec}
+                                    uiEvalOutput={uiEvalOutput} setUiEvalOutput={setUiEvalOutput}
+                                    apiEvalScript={apiEvalScript} setApiEvalScript={setApiEvalScript}
+                                    apiEvalExec={apiEvalExec} setApiEvalExec={setApiEvalExec}
+                                    apiEvalOutput={apiEvalOutput} setApiEvalOutput={setApiEvalOutput}
+                                />
+                            )}
+                            {activeTab === 'eval-ui' && (
+                                <Evaluation 
+                                    projectId={projectId} 
+                                    logs={logs}
+                                    onLog={msg => handleLog(msg, 'user')}
+                                    view="ui"
+                                    evalGenerated={evalGenerated} setEvalGenerated={setEvalGenerated}
+                                    evalModified={evalModified} setEvalModified={setEvalModified}
+                                    evalResult={evalResult} setEvalResult={setEvalResult}
+                                    recallRetrieved={recallRetrieved} setRecallRetrieved={setRecallRetrieved}
+                                    recallRelevant={recallRelevant} setRecallRelevant={setRecallRelevant}
+                                    recallResult={recallResult} setRecallResult={setRecallResult}
+                                    uiEvalScript={uiEvalScript} setUiEvalScript={setUiEvalScript}
+                                    uiEvalExec={uiEvalExec} setUiEvalExec={setUiEvalExec}
+                                    uiEvalOutput={uiEvalOutput} setUiEvalOutput={setUiEvalOutput}
+                                    apiEvalScript={apiEvalScript} setApiEvalScript={setApiEvalScript}
+                                    apiEvalExec={apiEvalExec} setApiEvalExec={setApiEvalExec}
+                                    apiEvalOutput={apiEvalOutput} setApiEvalOutput={setApiEvalOutput}
+                                />
+                            )}
+                            {activeTab === 'eval-api' && (
+                                <Evaluation 
+                                    projectId={projectId} 
+                                    logs={logs}
+                                    onLog={msg => handleLog(msg, 'user')}
+                                    view="api"
                                     evalGenerated={evalGenerated} setEvalGenerated={setEvalGenerated}
                                     evalModified={evalModified} setEvalModified={setEvalModified}
                                     evalResult={evalResult} setEvalResult={setEvalResult}

@@ -281,6 +281,8 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
   const validateAndSetFile = (f: File | null) => {
       if (!f) {
           setFile(null);
+          setFileResult(null);
+          setFileStreamingContent('');
           return;
       }
       
@@ -295,6 +297,8 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
       // Simplified: Just check if it looks like a document or image
       
       setFile(f);
+      setFileResult(null);
+      setFileStreamingContent('');
       if (f) setSavedFileName(f.name);
       if (projectId) {
           saveFileToDB(`tg_file_${projectId}`, f).catch(e => console.error("Save failed:", e));
@@ -324,7 +328,126 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
   };
 
   // Generation Logic
-  const handleGenerateStream = async (isText: boolean, forceOverride?: boolean) => {
+  const extractFirstJsonArray = (content: string): any[] | null => {
+    if (!content) return null;
+    const foundItems: any[] = [];
+    let cursor = 0;
+    while (cursor < content.length) {
+        const start = content.indexOf('[', cursor);
+        if (start === -1) break;
+        let balance = 0;
+        let end = -1;
+        let inString = false;
+        let escape = false;
+        for (let i = start; i < content.length; i++) {
+            const char = content[i];
+            if (escape) { escape = false; continue; }
+            if (char === '\\') { escape = true; continue; }
+            if (char === '"') { inString = !inString; continue; }
+            if (!inString) {
+                if (char === '[') balance++;
+                else if (char === ']') {
+                    balance--;
+                    if (balance === 0) { end = i; break; }
+                }
+            }
+        }
+        if (end !== -1) {
+            const jsonStr = content.substring(start, end + 1);
+            try {
+                const parsed = JSON.parse(jsonStr);
+                if (Array.isArray(parsed)) foundItems.push(...parsed);
+            } catch {}
+            cursor = end + 1;
+        } else {
+            cursor = start + 1;
+        }
+        if (foundItems.length > 0) return foundItems;
+    }
+    return null;
+  };
+
+  const normalizeTestCaseId = (n: number) => `TC-${String(n).padStart(3, '0')}`;
+
+  const normalizeStringList = (v: unknown, fallback?: string) => {
+    if (Array.isArray(v)) return v.map(x => String(x)).map(s => s.trim()).filter(Boolean);
+    if (typeof v === 'string') {
+      const s = v.trim();
+      if (!s) return [];
+      return s.split('\n').map(x => x.trim()).filter(Boolean);
+    }
+    return fallback ? [fallback] : [];
+  };
+
+  const normalizePriority = (v: unknown) => {
+    const s = String(v ?? '').trim().toUpperCase();
+    if (s === 'P0' || s === 'P1' || s === 'P2') return s;
+    if (s === '高' || s === 'HIGH') return 'P0';
+    if (s === '中' || s === 'MEDIUM') return 'P1';
+    if (s === '低' || s === 'LOW') return 'P2';
+    return 'P1';
+  };
+
+  const normalizeId = (v: unknown, fallbackIndex: number) => {
+    const raw = String(v ?? '').trim();
+    if (/^TC-\d{3,}$/.test(raw)) return raw;
+    if (/^\d+$/.test(raw)) return normalizeTestCaseId(Number(raw));
+    return normalizeTestCaseId(fallbackIndex + 1);
+  };
+
+  const normalizeStandardCases = (items: any[]) => {
+    const out: any[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const id = normalizeId((item as any).id, i);
+      const description = String((item as any).description ?? '').trim();
+      const test_module = String((item as any).test_module ?? '').trim();
+      const preconditions = normalizeStringList((item as any).preconditions);
+      const steps = normalizeStringList((item as any).steps);
+      const test_input = String((item as any).test_input ?? '').trim();
+      const expected_result = String((item as any).expected_result ?? '').trim();
+      const priority = normalizePriority((item as any).priority);
+      out.push({ id, description, test_module, preconditions, steps, test_input, expected_result, priority });
+    }
+    return out;
+  };
+
+  const validateStandardCases = (items: any[]) => {
+    if (!Array.isArray(items)) return { ok: false as const, error: '结果不是 JSON 数组' };
+    if (items.length === 0) return { ok: false as const, error: '结果为空数组，请重试生成' };
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!it || typeof it !== 'object' || Array.isArray(it)) return { ok: false as const, error: `第 ${i + 1} 条不是对象` };
+      const keys = Object.keys(it);
+      const required = ['id','description','test_module','preconditions','steps','test_input','expected_result','priority'];
+      for (const k of required) {
+        if (!(k in it)) return { ok: false as const, error: `第 ${i + 1} 条缺少字段: ${k}` };
+      }
+      for (const k of keys) {
+        if (!required.includes(k)) return { ok: false as const, error: `第 ${i + 1} 条包含多余字段: ${k}` };
+      }
+    }
+    return { ok: true as const };
+  };
+
+  const getExistingCases = (isText: boolean) => {
+    const existing = isText ? textResult : fileResult;
+    if (Array.isArray(existing)) return existing;
+    const stream = isText ? textStreamingContent : fileStreamingContent;
+    const parsed = extractFirstJsonArray(cleanStreamingContent(stream));
+    return parsed ?? [];
+  };
+
+  const hasJsonInResultBox = useMemo(() => {
+    if (Array.isArray(result) && result.length > 0) return true;
+    if (result && typeof result === 'object') return true;
+    const parsed = extractFirstJsonArray(cleanStreamingContent(streamingContent));
+    return Array.isArray(parsed) && parsed.length > 0;
+  }, [result, streamingContent]);
+  const [appendModeActive, setAppendModeActive] = useState(false);
+
+  const handleGenerateStream = async (isText: boolean, forceOverride?: boolean, appendMode?: boolean) => {
     if (!navigator.onLine) return alert('网络已断开，无法生成');
     if (!projectId) return alert('请先选择项目');
     if (isText && !requirement.trim()) return alert('请输入需求内容');
@@ -332,12 +455,14 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
 
     const setCurrentResult = isText ? setTextResult : setFileResult;
     const setCurrentStreamingContent = isText ? setTextStreamingContent : setFileStreamingContent;
+    const existingCases = appendMode ? getExistingCases(isText) : [];
 
     setLoading(true);
     setError(null);
-    setCurrentResult(null);
+    if (!appendMode) setCurrentResult(null);
     setCurrentStreamingContent('');
     setPollStatus('正在实时生成...');
+    setAppendModeActive(!!appendMode);
     onLog(isText ? '开始实时生成测试用例 (文本模式) - 已启用等价类/边界值分析...' : `开始实时生成测试用例 (文件模式: ${file?.name}) - 已启用等价类/边界值分析...`);
 
     const formData = new FormData();
@@ -408,10 +533,27 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
             if (clean.includes("```")) clean = clean.split("```")[0];
             clean = clean.trim();
             const json = JSON.parse(clean);
-            setCurrentResult(json);
-            onGenerated(json);
+            if (!Array.isArray(json)) {
+                throw new Error('生成结果不是标准 JSON 数组');
+            }
+            const normalizedNew = normalizeStandardCases(json);
+            const validNew = validateStandardCases(normalizedNew);
+            if (!validNew.ok) throw new Error(`生成结果不符合标准JSON结构: ${validNew.error}`);
+            if (appendMode) {
+                const normalizedExisting = normalizeStandardCases(existingCases);
+                const merged = normalizeStandardCases([...normalizedExisting, ...normalizedNew]);
+                const validMerged = validateStandardCases(merged);
+                if (!validMerged.ok) throw new Error(`合并后结果不符合标准JSON结构: ${validMerged.error}`);
+                setCurrentResult(merged);
+                onGenerated(merged);
+            } else {
+                setCurrentResult(normalizedNew);
+                onGenerated(normalizedNew);
+            }
         } catch (e) {
-            onLog("生成完成 (解析JSON失败，显示原始内容)");
+            const msg = e instanceof Error ? e.message : String(e);
+            setError(msg);
+            onLog(`生成完成但结果不符合标准JSON结构: ${msg}`);
         }
         
         onLog("生成完成");
@@ -426,6 +568,7 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
     } finally {
         setLoading(false);
         setPollStatus('');
+        setAppendModeActive(false);
     }
   };
 
@@ -720,9 +863,9 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
             <Button 
                 className="btn-pro-primary w-100 py-2 fw-bold shadow-sm d-flex align-items-center justify-content-center"
                 disabled={loading || !projectId}
-                onClick={() => mode === 'text' ? handleGenerateStream(true) : handleGenerateStream(false)}
+                onClick={() => mode === 'text' ? handleGenerateStream(true, undefined, hasJsonInResultBox) : handleGenerateStream(false, undefined, hasJsonInResultBox)}
             >
-                {loading ? <><Spinner size="sm" animation="border" className="me-2" /> 生成中...</> : <><FaPlay className="me-2" /> 开始生成</>}
+                {loading ? <><Spinner size="sm" animation="border" className="me-2" /> 生成中...</> : <><FaPlay className="me-2" /> {hasJsonInResultBox ? '继续生成' : '开始生成'}</>}
             </Button>
 
             {(result || streamingContent) && (
@@ -759,27 +902,60 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
           </div>
       )}
 
-      {/* Results Section */}
-      <div className="bento-card col-span-12 p-0 overflow-hidden d-flex flex-column" style={{ minHeight: '500px' }}>
-         <div className="bg-light border-bottom d-flex justify-content-between align-items-center px-4 py-3">
-            <h6 className="mb-0 fw-bold d-flex align-items-center gap-2">
-                <FaCheckCircle className={result ? "text-success" : "text-muted"} /> 生成结果
-            </h6>
+      <div className="bento-card col-span-12 p-0 overflow-hidden d-flex flex-column" style={{ minHeight: '600px' }}>
+        <div className="bg-light border-bottom d-flex justify-content-between align-items-center px-4 py-3">
+          <h6 className="mb-0 fw-bold d-flex align-items-center gap-2">
+            <FaCheckCircle className={result ? "text-success" : "text-muted"} /> 生成结果
+          </h6>
+          <div className="d-flex align-items-center gap-2">
             {result && (
                 <Badge bg="success" className="d-flex align-items-center gap-1">
-                    已生成 {stats.count} 条用例
+                总计 {stats.count} 条
                 </Badge>
             )}
-         </div>
-         <div className="flex-grow-1 bg-white p-0 overflow-hidden position-relative">
-            <div className="position-absolute top-0 start-0 w-100 h-100 overflow-auto p-4 font-monospace">
-                {mode === 'text' ? (
-                    textResult ? JSON.stringify(textResult, null, 2) : (textStreamingContent ? cleanStreamingContent(textStreamingContent) : <div className="text-center text-muted mt-5 py-5"><div className="mb-3 opacity-25"><FaFileCode size={48} /></div>暂无生成结果</div>)
-                ) : (
-                    fileResult ? JSON.stringify(fileResult, null, 2) : (fileStreamingContent ? cleanStreamingContent(fileStreamingContent) : <div className="text-center text-muted mt-5 py-5"><div className="mb-3 opacity-25"><FaFileCode size={48} /></div>暂无生成结果</div>)
-                )}
+            {streamingContent && (
+                <Badge bg="primary" className="d-flex align-items-center gap-1">
+                    {loading ? '生成中...' : '最新批次'}
+                </Badge>
+            )}
+          </div>
+        </div>
+        
+        <div className="flex-grow-1 d-flex flex-column md:flex-row h-100 position-relative">
+            {/* Left Panel: Main/Historical Result */}
+            <div className={classNames("h-100 position-relative transition-all", { 
+                "col-12": !streamingContent, 
+                "col-12 md:col-6 border-end": streamingContent 
+            })}>
+                <div className="position-absolute top-0 start-0 w-100 px-4 py-2 bg-light border-bottom small fw-bold text-secondary z-10">
+                    {streamingContent ? '合并后结果 / 历史结果' : '生成结果'}
+                </div>
+                <div className="position-absolute top-0 start-0 w-100 h-100 overflow-auto p-4 pt-5 font-monospace">
+                    {mode === 'text' ? (
+                    textResult
+                        ? JSON.stringify(textResult, null, 2)
+                        : <div className="text-center text-muted mt-5 py-5"><div className="mb-3 opacity-25"><FaFileCode size={48} /></div>暂无历史结果</div>
+                    ) : (
+                    fileResult
+                        ? JSON.stringify(fileResult, null, 2)
+                        : <div className="text-center text-muted mt-5 py-5"><div className="mb-3 opacity-25"><FaFileCode size={48} /></div>暂无历史结果</div>
+                    )}
+                </div>
             </div>
-         </div>
+
+            {/* Right Panel: Streaming Content */}
+            {streamingContent && (
+                <div className="col-12 md:col-6 h-100 position-relative bg-white">
+                    <div className="position-absolute top-0 start-0 w-100 px-4 py-2 bg-primary-subtle border-bottom small fw-bold text-primary z-10 d-flex justify-content-between align-items-center">
+                        <span><FaPlay size={10} className="me-1"/> 新增批次流式输出</span>
+                        {loading && <Spinner size="sm" animation="grow" variant="primary" />}
+                    </div>
+                    <div className="position-absolute top-0 start-0 w-100 h-100 overflow-auto p-4 pt-5 font-monospace bg-light bg-opacity-10">
+                        {cleanStreamingContent(streamingContent)}
+                    </div>
+                </div>
+            )}
+        </div>
       </div>
 
       {/* Duplicate Modal */}

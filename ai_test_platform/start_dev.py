@@ -5,29 +5,39 @@ import time
 
 def main():
     print("Starting AI Test Platform (Dev Mode)...")
+    backend_port = int(os.environ.get("AI_TEST_PLATFORM_PORT", os.environ.get("PORT", "8000")))
     
+    # Define the working directory as the 'ai_test_platform' subdirectory
+    # Assuming start_dev.py is inside 'ai_test_platform' directory, we use its parent if we run from root
+    # But current script is c:\Users\Administrator\Desktop\ai技术辅助测试\ai_test_platform\start_dev.py
+    # So if we run `python ai_test_platform/start_dev.py` from root, __file__ is relative.
+    
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # The actual app code is in the same directory as this script
+    app_dir = current_dir
+
     # Start Celery Worker
-    print("Starting Celery Worker...")
+    print(f"Starting Celery Worker in {app_dir}...")
     # Windows often requires pool=solo or threads for Celery
-    celery_cmd = [sys.executable, "-m", "celery", "-A", "celery_config.celery_app", "worker", "--loglevel=info", "--pool=solo"]
-    celery_process = subprocess.Popen(celery_cmd, cwd=os.getcwd(), env=os.environ.copy())
+    celery_cmd = [sys.executable, "-m", "celery", "-A", "celery_worker.celery_app", "worker", "--loglevel=info", "--pool=solo"]
+    celery_process = subprocess.Popen(celery_cmd, cwd=app_dir, env=os.environ.copy())
 
     # Start Celery Beat (for periodic tasks)
-    print("Starting Celery Beat...")
-    beat_cmd = [sys.executable, "-m", "celery", "-A", "celery_config.celery_app", "beat", "--loglevel=info"]
-    beat_process = subprocess.Popen(beat_cmd, cwd=os.getcwd(), env=os.environ.copy())
+    print(f"Starting Celery Beat in {app_dir}...")
+    beat_cmd = [sys.executable, "-m", "celery", "-A", "celery_worker.celery_app", "beat", "--loglevel=info"]
+    beat_process = subprocess.Popen(beat_cmd, cwd=app_dir, env=os.environ.copy())
     
     # Start FastAPI
-    print("Starting FastAPI Server...")
-    uvicorn_cmd = [sys.executable, "-m", "uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+    print(f"Starting FastAPI Server in {app_dir}...")
+    uvicorn_cmd = [sys.executable, "-m", "uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", str(backend_port)]
     
     try:
-        uvicorn_process = subprocess.Popen(uvicorn_cmd, cwd=os.getcwd(), env=os.environ.copy())
+        uvicorn_process = subprocess.Popen(uvicorn_cmd, cwd=app_dir, env=os.environ.copy())
         
         print("\n" + "="*50)
         print("Service started successfully!")
-        print("Access the API at: http://localhost:8000")
-        print("Swagger UI: http://localhost:8000/docs")
+        print(f"Access the API at: http://localhost:{backend_port}")
+        print(f"Swagger UI: http://localhost:{backend_port}/docs")
         print("="*50 + "\n")
         
         # Keep alive loop to monitor processes
@@ -38,21 +48,21 @@ def main():
             if celery_process.poll() is not None:
                 print(f"Celery worker stopped (code {celery_process.returncode}). Restarting in 3s...")
                 time.sleep(3)
-                celery_process = subprocess.Popen(celery_cmd, cwd=os.getcwd(), env=os.environ.copy())
+                celery_process = subprocess.Popen(celery_cmd, cwd=app_dir, env=os.environ.copy())
                 print("Celery worker restarted.")
 
             # Check Celery Beat
             if beat_process.poll() is not None:
                 print(f"Celery beat stopped (code {beat_process.returncode}). Restarting in 3s...")
                 time.sleep(3)
-                beat_process = subprocess.Popen(beat_cmd, cwd=os.getcwd(), env=os.environ.copy())
+                beat_process = subprocess.Popen(beat_cmd, cwd=app_dir, env=os.environ.copy())
                 print("Celery beat restarted.")
 
             # Check Uvicorn
             if uvicorn_process.poll() is not None:
                 print(f"Uvicorn server stopped (code {uvicorn_process.returncode}). Restarting in 3s...")
                 time.sleep(3)
-                uvicorn_process = subprocess.Popen(uvicorn_cmd, cwd=os.getcwd(), env=os.environ.copy())
+                uvicorn_process = subprocess.Popen(uvicorn_cmd, cwd=app_dir, env=os.environ.copy())
                 print("Uvicorn server restarted.")
                 
     except KeyboardInterrupt:

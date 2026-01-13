@@ -43,14 +43,38 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
         // We'll let the UI handle the error or redirect
     }
 
-    const data = await response.json();
+    const contentType = response.headers.get('content-type') || '';
+    const rawText = await response.text();
+    let data: any = null;
+    if (rawText) {
+      const shouldTryJson = contentType.includes('application/json') || contentType.includes('+json');
+      if (shouldTryJson) {
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          data = rawText;
+        }
+      } else {
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          data = rawText;
+        }
+      }
+    }
 
     if (!response.ok) {
-      throw new APIError(data.error || data.detail || data.message || 'Request failed', response.status, data);
+      const message =
+        data && typeof data === 'object'
+          ? (data.error || data.detail || data.message || response.statusText || 'Request failed')
+          : (typeof data === 'string' && data.trim()
+              ? data
+              : (response.statusText || 'Request failed'));
+      throw new APIError(message, response.status, data);
     }
     
     // Check for application-level error in 200 OK response (common in some backends)
-    if (data.error) {
+    if (data && typeof data === 'object' && data.error) {
         throw new APIError(data.error, 200, data);
     }
 

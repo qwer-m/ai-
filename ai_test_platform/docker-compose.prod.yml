@@ -6,6 +6,8 @@ services:
     image: ai_test_platform:latest
     container_name: ai_test_platform_app
     restart: always
+    ports:
+      - "8000:8000"
     environment:
       - DB_HOST=mysql
       - DB_USER=root

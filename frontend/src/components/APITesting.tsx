@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type MouseEvent } from 'react';
 import { Button, Form, Spinner, Card, Row, Col, Badge, Accordion, Collapse, Nav, ListGroup } from 'react-bootstrap';
 import { FaCheckCircle, FaExclamationTriangle, FaBug, FaCode, FaTerminal, FaPlay, FaPlus, FaTrash, FaChevronDown, FaChevronRight } from 'react-icons/fa';
 import { api } from '../utils/api';
-import { TestGeneration } from './TestGeneration';
 
-type Props = {
+type APITestingProps = {
   projectId: number | null;
   onLog: (msg: string) => void;
 };
@@ -71,7 +70,7 @@ const ErrorTrace = ({ details }: { details: string }) => {
     );
 };
 
-function APIExecution({ projectId, onLog }: Props) {
+export function APITesting({ projectId, onLog }: APITestingProps) {
   const [mode, setMode] = useState<'natural' | 'structured'>('natural');
   const [requirement, setRequirement] = useState('');
   const [baseUrl, setBaseUrl] = useState('http://localhost:8000');
@@ -139,7 +138,7 @@ function APIExecution({ projectId, onLog }: Props) {
       setTestTypes(item.testTypes);
   };
 
-  const handleDeleteInterface = (id: string, e: React.MouseEvent) => {
+  const handleDeleteInterface = (id: string, e: MouseEvent) => {
       e.stopPropagation();
       setSavedInterfaces(prev => prev.filter(i => i.id !== id));
   };
@@ -520,37 +519,3 @@ function APIExecution({ projectId, onLog }: Props) {
   );
 }
 
-export function APITesting(props: Props) {
-    const [activeTab, setActiveTab] = useState<'exec' | 'gen'>('exec');
-
-    return (
-        <div className="h-100 d-flex flex-column gap-3">
-             <Card className="border-0 shadow-sm flex-shrink-0">
-                <Card.Header className="bg-white border-bottom-0 pt-3 px-3 pb-0">
-                    <Nav variant="tabs" activeKey={activeTab} onSelect={(k) => setActiveTab(k as any)}>
-                        <Nav.Item>
-                            <Nav.Link eventKey="exec" className="fw-medium">脚本生成与执行</Nav.Link>
-                        </Nav.Item>
-                        <Nav.Item>
-                            <Nav.Link eventKey="gen" className="fw-medium">接口用例生成</Nav.Link>
-                        </Nav.Item>
-                    </Nav>
-                </Card.Header>
-            </Card>
-
-            <div className="flex-grow-1 overflow-hidden position-relative">
-                {activeTab === 'exec' ? (
-                    <APIExecution {...props} />
-                ) : (
-                    <div className="h-100 p-1">
-                        <TestGeneration 
-                            projectId={props.projectId} 
-                            onLog={props.onLog} 
-                            onGenerated={() => {}} 
-                        />
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}

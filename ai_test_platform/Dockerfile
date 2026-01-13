@@ -9,6 +9,9 @@ ENV PYTHONPATH=/app
 # Set work directory
 WORKDIR /app
 
+# Replace Debian sources with Aliyun mirrors for faster download
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources || sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
@@ -17,10 +20,11 @@ RUN apt-get update && apt-get install -y \
 
 # Install python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 
 # Install Playwright browsers (for UI Automation)
-RUN playwright install --with-deps chromium
+# Use python -m playwright to ensure we use the installed module
+RUN python -m playwright install --with-deps chromium
 
 # Copy project
 COPY . .

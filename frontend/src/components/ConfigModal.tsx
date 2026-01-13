@@ -56,14 +56,13 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
       api.get<any>('/api/config/current')
         .then(data => {
           if (data.active) {
-            if (['dashscope'].includes(data.provider)) {
+            if (['dashscope', 'openai'].includes(data.provider)) {
               setActiveTab('cloud');
               setProvider(data.provider);
               setModel(data.model_name);
               setVlModel(data.vl_model_name || 'qwen3-vl-plus-2025-12-19');
               setTurboModel(data.turbo_model_name || 'qwen-turbo');
-              // API Key is hidden, maybe show placeholder?
-              setApiKey('******'); 
+              setApiKey(data.has_api_key ? '******' : '');
             } else {
               setActiveTab('local');
               setLocalBaseUrl(data.base_url || '');
@@ -183,7 +182,13 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
     setLoading(true);
     try {
       const payload = activeTab === 'cloud' 
-        ? { provider, api_key: apiKey === '******' ? undefined : apiKey, model_name: model }
+        ? { 
+            provider, 
+            api_key: apiKey === '******' ? undefined : apiKey, 
+            model_name: model,
+            vl_model_name: vlModel,
+            turbo_model_name: turboModel
+          }
         : { provider: 'local', base_url: localBaseUrl, model_name: localModel };
 
       const data = await api.post<any>('/api/config/save', payload);

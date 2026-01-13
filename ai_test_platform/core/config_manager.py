@@ -37,9 +37,31 @@ class ConfigManager:
 
     def get_active_config(self, db: Session, user_id: int = None) -> SystemConfig:
         """Get the currently active configuration for the user"""
+        active_query = db.query(SystemConfig).filter(SystemConfig.is_active == 1)
+
         if user_id is None:
-            return None
-        return db.query(SystemConfig).filter(SystemConfig.is_active == 1, SystemConfig.user_id == user_id).first()
+            config = (
+                active_query.filter(SystemConfig.user_id.is_(None))
+                .order_by(SystemConfig.updated_at.desc(), SystemConfig.id.desc())
+                .first()
+            )
+            if config:
+                return config
+            return active_query.order_by(SystemConfig.updated_at.desc(), SystemConfig.id.desc()).first()
+
+        config = (
+            active_query.filter(SystemConfig.user_id == user_id)
+            .order_by(SystemConfig.updated_at.desc(), SystemConfig.id.desc())
+            .first()
+        )
+        if config:
+            return config
+
+        return (
+            active_query.filter(SystemConfig.user_id.is_(None))
+            .order_by(SystemConfig.updated_at.desc(), SystemConfig.id.desc())
+            .first()
+        )
 
     def activate_config(self, db: Session, config_id: int, user_id: int = None):
         """
