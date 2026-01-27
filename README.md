@@ -15,6 +15,7 @@
 
 ### 前置要求
 
+- **操作系统**: 需要在电脑上安装 Ubuntu (推荐使用 WSL 子系统)
 - Python 3.10+
 - Node.js 16+
 - MySQL 8.0+
@@ -52,7 +53,11 @@ npm run dev
 
 ### 3. 启动服务
 
-**方式一：一键启动 (推荐)**
+**方式一：Windows 一键启动 (强烈推荐)**
+进入 `ai_test_platform` 文件夹，直接双击运行 **`启动服务.bat`** 脚本。
+该脚本会自动检测虚拟环境并启动所有服务（后端、Celery、前端）。
+
+**方式二：命令行启动**
 在根目录运行：
 ```bash
 python ai_test_platform/start_dev.py
