@@ -1,6 +1,63 @@
-import { Modal, Button, Form, Alert, Tabs, Tab, Spinner, Badge, InputGroup } from 'react-bootstrap';
+import { Modal, Button, Form, Alert, Tabs, Tab, Spinner, Badge, InputGroup, OverlayTrigger, Tooltip } from 'react-bootstrap';
 import { useState, useEffect } from 'react';
 import { api } from '../utils/api';
+
+const QuotaRing = ({ provider, apiKey, baseUrl, model }: { provider: string, apiKey: string, baseUrl: string, model: string }) => {
+  const [quota, setQuota] = useState<{ total: number; remaining: number; supported: boolean; loading: boolean }>({
+    total: 0, remaining: 0, supported: false, loading: true
+  });
+  
+  const fetchData = async () => {
+      if (!apiKey && provider !== 'local') return;
+      
+      try {
+          const res = await api.post<any>('/api/config/quota', {
+              provider, 
+              api_key: apiKey,
+              base_url: baseUrl,
+              model_name: model
+          });
+          
+          if (res.supported) {
+              setQuota({
+                  total: parseFloat(res.total),
+                  remaining: parseFloat(res.remaining),
+                  supported: true,
+                  loading: false
+              });
+          } else {
+              setQuota(prev => ({ ...prev, supported: false, loading: false }));
+          }
+      } catch (e) {
+          setQuota(prev => ({ ...prev, loading: false }));
+      }
+  };
+
+  useEffect(() => {
+      fetchData();
+      const interval = setInterval(fetchData, 10000);
+      return () => clearInterval(interval);
+  }, [provider, apiKey, baseUrl]);
+
+  if (!quota.supported) return null;
+
+  const percent = quota.total > 0 ? (quota.remaining / quota.total) * 100 : 0;
+  const color = percent < 20 ? '#dc3545' : percent < 50 ? '#ffc107' : '#28a745'; 
+
+  return (
+    <OverlayTrigger
+      placement="top"
+      overlay={<Tooltip>余额: ${quota.remaining.toFixed(2)} / ${quota.total.toFixed(2)}</Tooltip>}
+    >
+        <div style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', width: '20px', height: '20px', cursor: 'help', zIndex: 5 }}>
+            <svg viewBox="0 0 36 36">
+                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#eee" strokeWidth="4" />
+                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke={color} strokeWidth="4" strokeDasharray={`${percent}, 100`} />
+            </svg>
+        </div>
+    </OverlayTrigger>
+  );
+};
 
 type Props = {
   show: boolean;
@@ -253,12 +310,16 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
                 <div className="col-md-4">
                   <Form.Group className="mb-3">
                     <Form.Label>文本模型</Form.Label>
-                    <Form.Control 
-                      type="text" 
-                      value={model} 
-                      onChange={(e) => setModel(e.target.value)} 
-                      list="cloud-models"
-                    />
+                    <div style={{ position: 'relative' }}>
+                        <Form.Control 
+                          type="text" 
+                          value={model} 
+                          onChange={(e) => setModel(e.target.value)} 
+                          list="cloud-models"
+                          style={{ paddingRight: '35px' }}
+                        />
+                        <QuotaRing provider={provider} apiKey={apiKey} baseUrl="" model={model} />
+                    </div>
                     <datalist id="cloud-models">
                       <option value="qwen-plus" />
                       <option value="qwen-max" />

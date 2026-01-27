@@ -35,6 +35,12 @@ class DashScopeEmbeddingFunction(EmbeddingFunction):
             raise e
 
 class ChromaClient:
+    """
+    ChromaDB 客户端封装 (ChromaDB Client Wrapper)
+    
+    管理向量数据库的连接、集合创建和文档操作。
+    支持自动切换 Embedding 提供商 (DashScope 或默认)。
+    """
     def __init__(self, persist_path="./chroma_db"):
         try:
             self.client = chromadb.PersistentClient(path=persist_path)
@@ -58,6 +64,16 @@ class ChromaClient:
             self.collection = None
 
     def add_document(self, doc_id: str, content: str, metadata: dict = None):
+        """
+        添加文档到向量库 (Add Document)
+        
+        自动对长文本进行分块，并注入 doc_id 到 metadata 中以便后续删除。
+        
+        Args:
+            doc_id: 文档唯一标识 ID。
+            content: 文档内容。
+            metadata: 额外的元数据 (如 project_id, filename)。
+        """
         if not self.collection:
             return
         try:
@@ -74,7 +90,12 @@ class ChromaClient:
             # Simple chunking strategy
             chunks = [content[i:i+max_chars] for i in range(0, len(content), max_chars)]
             ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
-            metadatas = [metadata or {} for _ in range(len(chunks))]
+            
+            # 确保 doc_id 存在于 metadata 中，用于删除
+            base_metadata = metadata.copy() if metadata else {}
+            base_metadata["doc_id"] = str(doc_id)
+            
+            metadatas = [base_metadata for _ in range(len(chunks))]
             
             self.collection.add(
                 documents=chunks,
@@ -85,6 +106,17 @@ class ChromaClient:
             logger.error(f"ChromaDB add failed: {e}")
 
     def search(self, query: str, n_results: int = 5, where: dict = None):
+        """
+        检索相似文档 (Search)
+        
+        Args:
+            query: 查询文本。
+            n_results: 返回结果数量。
+            where: 过滤条件 (如 {"project_id": 1})。
+            
+        Returns:
+            list: 检索结果。
+        """
         if not self.collection:
             return []
         try:
@@ -99,21 +131,20 @@ class ChromaClient:
             return []
 
     def delete_document(self, doc_id: str):
+        """
+        删除文档 (Delete Document)
+        
+        根据 metadata 中的 doc_id 删除该文档的所有分块。
+        
+        Args:
+            doc_id: 文档 ID。
+        """
         if not self.collection:
             return
         try:
-            # Delete all chunks for this doc_id (using where filter if we stored doc_id in metadata)
-            # But we used doc_id prefix in IDs. 
-            # Chroma doesn't support "starts_with" in delete IDs easily?
-            # Actually, using metadata filter is better.
-            # Let's assume we pass doc_id in metadata.
-            
-            # Wait, in add_document I used ids=[f"{doc_id}_{i}"...]
-            # I should definitely store original doc_id in metadata for deletion.
-            
-            # Re-implement delete using metadata
+            # Delete all chunks for this doc_id (using where filter)
             self.collection.delete(
-                where={"doc_id": doc_id}
+                where={"doc_id": str(doc_id)}
             )
         except Exception as e:
             logger.error(f"ChromaDB delete failed: {e}")

@@ -1,16 +1,108 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Nav, Button, Form, Spinner, Alert, ProgressBar, Modal, Badge, Toast } from 'react-bootstrap';
-import { FaFileUpload, FaFileAlt, FaFileImage, FaPlay, FaDownload, FaTrash, FaLightbulb, FaCheckCircle, FaExclamationCircle, FaFileCode, FaCog, FaChartBar } from 'react-icons/fa';
+import { Nav, Button, Form, Spinner, Alert, ProgressBar, Modal, Badge, Toast, InputGroup } from 'react-bootstrap';
+import { FaFileUpload, FaFileAlt, FaFileImage, FaPlay, FaDownload, FaTrash, FaLightbulb, FaCheckCircle, FaExclamationCircle, FaFileCode, FaCog, FaChartBar, FaCopy } from 'react-icons/fa';
 import { saveFileToDB, getFileFromDB } from '../utils/storage';
 import { api, getAuthHeaders } from '../utils/api';
 import classNames from 'classnames';
 
 // --- Helper Functions ---
 function cleanStreamingContent(content: string) {
-    const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/;
-    const match = content.match(codeBlockRegex);
-    return match ? match[1] : content;
+    if (!content) return '';
+    // Strip markdown code blocks (```json ... ``` or just ``` ...)
+    let cleaned = content.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+    return cleaned;
 }
+
+function parseMultipleJsonArrays(text: string): any[] {
+    const clean = cleanStreamingContent(text).trim();
+    if (!clean) return [];
+
+    const foundItems: any[] = [];
+    
+    // Robust streaming parser: extracts complete objects {...} from potential arrays [...]
+    let cursor = 0;
+    while (cursor < clean.length) {
+        // Find start of an array
+        const startArray = clean.indexOf('[', cursor);
+        if (startArray === -1) break; // No more arrays
+        
+        cursor = startArray + 1;
+        
+        // Scan for objects inside this array
+        while (cursor < clean.length) {
+            // Skip whitespace and commas
+            while (cursor < clean.length && /[\s,]/.test(clean[cursor])) {
+                cursor++;
+            }
+            
+            if (cursor >= clean.length) break;
+            
+            // If we hit closing array, we are done with this array
+            if (clean[cursor] === ']') {
+                cursor++;
+                break;
+            }
+            
+            // We expect an object '{'
+            if (clean[cursor] === '{') {
+                const startObj = cursor;
+                let balance = 0;
+                let endObj = -1;
+                let inString = false;
+                let escape = false;
+                
+                for (let i = startObj; i < clean.length; i++) {
+                    const char = clean[i];
+                    if (escape) { escape = false; continue; }
+                    if (char === '\\') { escape = true; continue; }
+                    if (char === '"') { inString = !inString; continue; }
+                    
+                    if (!inString) {
+                        if (char === '{') balance++;
+                        else if (char === '}') {
+                            balance--;
+                            if (balance === 0) {
+                                endObj = i;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if (endObj !== -1) {
+                    // Try parse this object
+                    const jsonStr = clean.substring(startObj, endObj + 1);
+                    try {
+                        const obj = JSON.parse(jsonStr);
+                        if (obj && typeof obj === 'object') {
+                             foundItems.push(obj);
+                        }
+                    } catch (e) {
+                        // ignore malformed objects
+                    }
+                    cursor = endObj + 1;
+                } else {
+                    // Object not closed yet (streaming), stop parsing this array
+                    cursor = clean.length; // exit loop
+                }
+            } else {
+                // Unexpected char, skip
+                cursor++;
+            }
+        }
+    }
+
+    // Fallback: If standard parsing works (e.g. for simple arrays), use it if our custom parser failed or found nothing
+    if (foundItems.length === 0) {
+        try {
+            const parsed = JSON.parse(clean);
+            if (Array.isArray(parsed)) return parsed;
+        } catch {}
+    }
+
+    return foundItems;
+}
+
 
 // --- AIHintBubble Component (Inline) ---
 function AIHintBubble({ onClose }: { onClose: () => void }) {
@@ -128,6 +220,62 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
   const [expectedCount, setExpectedCount] = useState(() => 
     Number(window.localStorage.getItem('tg_expectedCount')) || 20
   );
+  const [appendCount, setAppendCount] = useState(() => 
+    Number(window.localStorage.getItem('tg_appendCount')) || 10
+  );
+  
+  // Auto-calculate recommended count
+  const [isManualCount, setIsManualCount] = useState(false);
+  const [isEstimating, setIsEstimating] = useState(false);
+
+  useEffect(() => {
+      setIsManualCount(false);
+  }, [mode]);
+
+  useEffect(() => {
+      if (isManualCount) return;
+
+      const estimate = async () => {
+        setIsEstimating(true);
+        try {
+            const formData = new FormData();
+            formData.append('project_id', String(projectId || 0));
+            formData.append('doc_type', 'requirement');
+            
+            if (mode === 'text') {
+                if (!requirement || requirement.trim().length === 0) {
+                    setExpectedCount(20);
+                    setIsEstimating(false);
+                    return;
+                }
+                formData.append('requirement', requirement);
+            } else {
+                if (!file) {
+                    setExpectedCount(20);
+                    setIsEstimating(false);
+                    return;
+                }
+                formData.append('file', file);
+            }
+
+            const res = await api.upload<{count: number}>('/api/estimate-test-count', formData);
+            
+            if (res && typeof res.count === 'number') {
+                setExpectedCount(res.count);
+            }
+        } catch (e) {
+            console.error("Estimation failed", e);
+            setToastMsg(`智能估算失败，已使用默认值。错误: ${e instanceof Error ? e.message : String(e)}`);
+            // Fallback logic removed as per user request - rely on default value (20) or user manual input
+        } finally {
+            setIsEstimating(false);
+        }
+      };
+
+      const timer = setTimeout(estimate, mode === 'text' ? 800 : 600);
+      return () => clearTimeout(timer);
+  }, [requirement, file, mode, isManualCount, projectId]);
+
   const [loading, setLoading] = useState(false);
   const [pollStatus, setPollStatus] = useState<string>('');
   
@@ -215,7 +363,14 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
   }, [requirement, projectId]);
   useEffect(() => { window.localStorage.setItem('tg_docType', docType); }, [docType]);
   useEffect(() => { window.localStorage.setItem('tg_compress', String(compress)); }, [compress]);
-  useEffect(() => { window.localStorage.setItem('tg_expectedCount', String(expectedCount)); }, [expectedCount]);
+  useEffect(() => { 
+      const key = projectId ? `tg_expectedCount_${projectId}` : 'tg_expectedCount';
+      window.localStorage.setItem(key, String(expectedCount)); 
+  }, [expectedCount, projectId]);
+  useEffect(() => { 
+      const key = projectId ? `tg_appendCount_${projectId}` : 'tg_appendCount';
+      window.localStorage.setItem(key, String(appendCount)); 
+  }, [appendCount, projectId]);
   
   useEffect(() => { 
     const key = projectId ? `tg_text_result_${projectId}` : 'tg_text_result';
@@ -248,6 +403,19 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
           window.removeEventListener('offline', handleOffline);
       };
   }, []);
+
+  // Prevent accidental navigation/close during generation
+  useEffect(() => {
+      const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+          if (loading) {
+              e.preventDefault();
+              e.returnValue = ''; 
+              return '';
+          }
+      };
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [loading]);
 
   // AI Hint Hover Trigger
   useEffect(() => {
@@ -395,19 +563,38 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
     return normalizeTestCaseId(fallbackIndex + 1);
   };
 
+  const pickField = (item: any, keys: string[]) => {
+    for (const k of keys) {
+      const v = item?.[k];
+      if (v === undefined || v === null) continue;
+      if (typeof v === 'string') {
+        const s = v.trim();
+        if (s) return s;
+        continue;
+      }
+      if (Array.isArray(v) && v.length > 0) return v;
+      if (typeof v === 'number' || typeof v === 'boolean') return v;
+      if (typeof v === 'object') return v;
+    }
+    return undefined;
+  };
+
   const normalizeStandardCases = (items: any[]) => {
     const out: any[] = [];
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
-      const id = normalizeId((item as any).id, i);
-      const description = String((item as any).description ?? '').trim();
-      const test_module = String((item as any).test_module ?? '').trim();
-      const preconditions = normalizeStringList((item as any).preconditions);
-      const steps = normalizeStringList((item as any).steps);
-      const test_input = String((item as any).test_input ?? '').trim();
-      const expected_result = String((item as any).expected_result ?? '').trim();
-      const priority = normalizePriority((item as any).priority);
+      const id = normalizeId(
+        pickField(item, ['id', 'ID', 'test_case_id', 'case_id', '用例编号', '用例ID', '编号', 'ID号']),
+        i
+      );
+      const description = String(pickField(item, ['description', 'desc', 'name', '描述', '用例描述', '场景']) ?? '').trim();
+      const test_module = String(pickField(item, ['test_module', 'module', '模块', '测试模块']) ?? '').trim();
+      const preconditions = normalizeStringList(pickField(item, ['preconditions', 'precondition', '前置条件']) ?? (item as any).preconditions);
+      const steps = normalizeStringList(pickField(item, ['steps', 'step', '步骤', '测试步骤']) ?? (item as any).steps);
+      const test_input = String(pickField(item, ['test_input', 'input', '输入', '测试输入']) ?? '').trim();
+      const expected_result = String(pickField(item, ['expected_result', 'expected', 'expect', '预期', '预期结果']) ?? '').trim();
+      const priority = normalizePriority(pickField(item, ['priority', 'p', '优先级']) ?? (item as any).priority);
       out.push({ id, description, test_module, preconditions, steps, test_input, expected_result, priority });
     }
     return out;
@@ -445,7 +632,6 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
     const parsed = extractFirstJsonArray(cleanStreamingContent(streamingContent));
     return Array.isArray(parsed) && parsed.length > 0;
   }, [result, streamingContent]);
-  const [appendModeActive, setAppendModeActive] = useState(false);
 
   const handleGenerateStream = async (isText: boolean, forceOverride?: boolean, appendMode?: boolean) => {
     if (!navigator.onLine) return alert('网络已断开，无法生成');
@@ -456,21 +642,51 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
     const setCurrentResult = isText ? setTextResult : setFileResult;
     const setCurrentStreamingContent = isText ? setTextStreamingContent : setFileStreamingContent;
     const existingCases = appendMode ? getExistingCases(isText) : [];
+    
+    let targetVal = expectedCount;
+    if (appendMode) {
+         // Logic: If existing < expected, try to bridge the gap in batches of 25.
+         // If existing >= expected, use appendCount.
+         const currentCount = existingCases.length || 0;
+         if (currentCount < expectedCount) {
+             const remaining = expectedCount - currentCount;
+             if (remaining > 25) {
+                 targetVal = currentCount + 25;
+             } else {
+                 targetVal = currentCount + remaining; // Finish it
+             }
+         } else {
+             // Already met expectation, user wants more
+             const toAdd = appendCount;
+             if (toAdd > 25) {
+                 targetVal = currentCount + 25;
+             } else {
+                 targetVal = currentCount + toAdd;
+             }
+         }
+    }
+
+    const safeExpectedCount = Math.max(1, Math.floor(Number(targetVal) || 1));
+    
+    // Only update state if not appending (to keep base config stable)
+    if (!appendMode && safeExpectedCount !== expectedCount) {
+        setExpectedCount(safeExpectedCount);
+    }
 
     setLoading(true);
     setError(null);
     if (!appendMode) setCurrentResult(null);
     setCurrentStreamingContent('');
     setPollStatus('正在实时生成...');
-    setAppendModeActive(!!appendMode);
     onLog(isText ? '开始实时生成测试用例 (文本模式) - 已启用等价类/边界值分析...' : `开始实时生成测试用例 (文件模式: ${file?.name}) - 已启用等价类/边界值分析...`);
 
     const formData = new FormData();
     formData.append('project_id', String(projectId));
     formData.append('doc_type', isText ? 'requirement' : docType);
     formData.append('compress', String(compress));
-    formData.append('expected_count', String(expectedCount));
+    formData.append('expected_count', String(safeExpectedCount));
     formData.append('force', String(forceOverride !== undefined ? forceOverride : force));
+    if (appendMode) formData.append('append', 'true');
     
     if (isText) {
         formData.append('requirement_text', requirement);
@@ -497,8 +713,16 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
         if (!reader) throw new Error("No response body");
 
         const decoder = new TextDecoder();
-        let fullText = '';
+        let rawText = '';
         let duplicateDetected = false;
+        let buffer = '';
+        let pendingDuplicateJson: string | null = null;
+        let lastParseTime = 0; // Throttle parsing
+
+        // Safety timeout to detect if component unmounted or stuck?
+        // Actually, we can't easily detect unmount inside this async function.
+        // But we can check a ref if we passed one. 
+        // For now, rely on reader.read() throwing or returning done if cancelled.
 
         while (true) {
             const { done, value } = await reader.read();
@@ -506,49 +730,308 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
             
             const chunk = decoder.decode(value, { stream: true });
             
-            if (!duplicateDetected && chunk.includes('@@DUPLICATE@@')) {
-                duplicateDetected = true;
-                const parts = (fullText + chunk).split('@@DUPLICATE@@');
+            buffer += chunk;
+
+            if (pendingDuplicateJson !== null) {
+                pendingDuplicateJson += buffer;
+                buffer = '';
                 try {
-                    let jsonStr = parts[1];
+                    let jsonStr = pendingDuplicateJson;
                     if (jsonStr.startsWith(':')) jsonStr = jsonStr.substring(1);
                     const prevData = JSON.parse(jsonStr);
                     setDuplicateData(prevData);
                     setShowDuplicateModal(true);
                     onLog("检测到重复文档，等待用户确认...");
-                    reader.cancel();
-                    return; 
-                } catch (e) {
-                    console.error("Failed to parse duplicate data", e);
+                reader.cancel();
+                    return;
+                } catch {
+                    continue;
                 }
             }
 
-            fullText += chunk;
-            setCurrentStreamingContent(fullText);
+            while (true) {
+                const statusMatch = buffer.match(/@@STATUS@@:(.*?)(?:\r?\n)/);
+                if (statusMatch) {
+                    const statusMsg = statusMatch[1].trim();
+                    setPollStatus(statusMsg);
+                    onLog(statusMsg);
+                    buffer = buffer.replace(statusMatch[0], '');
+                    continue;
+                }
+
+                const diagMatch = buffer.match(/GEN_DIAG:({.*?})(?:\r?\n)/);
+                if (diagMatch) {
+                    try {
+                        const diagJson = JSON.parse(diagMatch[1]);
+                        onLog(`GEN_DIAG:${JSON.stringify(diagJson)}`);
+                    } catch {}
+                    buffer = buffer.replace(diagMatch[0], '');
+                    continue;
+                }
+
+                const qmMatch = buffer.match(/GEN_QM:({.*?})(?:\r?\n)/);
+                if (qmMatch) {
+                    try {
+                        const qmJson = JSON.parse(qmMatch[1]);
+                        onLog(`GEN_QM:${JSON.stringify(qmJson)}`);
+                    } catch {}
+                    buffer = buffer.replace(qmMatch[0], '');
+                    continue;
+                }
+
+                const errLineMatch = buffer.match(/(?:^|\r?\n)Error:(.*?)(?:\r?\n|$)/);
+                if (errLineMatch) {
+                    const errorMsg = errLineMatch[1].trim();
+                    throw new Error(errorMsg);
+                }
+
+                break;
+            }
+
+            if (!duplicateDetected && buffer.includes('@@DUPLICATE@@')) {
+                duplicateDetected = true;
+                const idx = buffer.indexOf('@@DUPLICATE@@');
+                const before = buffer.slice(0, idx);
+                const after = buffer.slice(idx + '@@DUPLICATE@@'.length);
+                buffer = before;
+                pendingDuplicateJson = after;
+                
+                // Try to parse immediately
+                try {
+                    let jsonStr = pendingDuplicateJson;
+                    if (jsonStr.startsWith(':')) jsonStr = jsonStr.substring(1);
+                        const prevData = JSON.parse(jsonStr);
+                        setDuplicateData(prevData);
+                        setShowDuplicateModal(true);
+                        onLog("检测到重复文档，等待用户确认...");
+                        reader.cancel();
+                        return;
+                } catch {
+                    // Wait for more data
+                }
+            }
+
+            // Check if buffer ends with a partial tag to avoid splitting tags across chunks
+            const potentialTags = ['@@STATUS@@:', 'GEN_DIAG:', 'GEN_QM:', '@@DUPLICATE@@', 'Error:'];
+            let safeEndIndex = buffer.length;
+            
+            // Look for partial tags at the end of the buffer (up to 20 chars back)
+            // We iterate backwards to find the earliest start of a potential tag
+            const searchLimit = Math.max(0, buffer.length - 20);
+            for (let i = buffer.length - 1; i >= searchLimit; i--) {
+                const suffix = buffer.slice(i);
+                // Check if this suffix is a prefix of any potential tag
+                const isPrefix = potentialTags.some(tag => tag.startsWith(suffix));
+                if (isPrefix) {
+                    safeEndIndex = i;
+                }
+            }
+
+            let flushText = buffer.slice(0, safeEndIndex);
+            buffer = buffer.slice(safeEndIndex);
+
+            if (flushText) {
+                rawText += flushText;
+                setCurrentStreamingContent(rawText);
+            }
+
+            // Real-time parsing attempt to show progress in table
+            // Throttle: Only parse every 500ms to avoid blocking UI/Timer
+            const now = Date.now();
+            if (now - lastParseTime > 500) {
+                lastParseTime = now;
+                try {
+                    // Try simple parse first
+                    const parsed = parseMultipleJsonArrays(rawText);
+                    if (parsed.length > 0) {
+                        const normalizedNew = normalizeStandardCases(parsed);
+                        if (normalizedNew.length > 0) {
+                            if (appendMode) {
+                                const normalizedExisting = normalizeStandardCases(existingCases);
+                                setCurrentResult([...normalizedExisting, ...normalizedNew]);
+                            } else {
+                                setCurrentResult(normalizedNew);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // If full parse fails, try heuristic for incomplete JSON
+                    try {
+                        let clean = rawText;
+                        if (rawText.includes("```json")) clean = rawText.split("```json")[1];
+                        if (clean.includes("```")) clean = clean.split("```")[0];
+                        clean = clean.trim();
+                        
+                        // If we have multiple blocks, try to take the last one or all valid ones
+                        // The parseMultipleJsonArrays might fail on incomplete last block
+                        
+                        // Try to close the string if it looks like an incomplete array
+                        const start = clean.lastIndexOf('[');
+                        if (start !== -1) {
+                            let candidate = clean.substring(start);
+                            if (!candidate.endsWith(']')) {
+                                const lastBrace = candidate.lastIndexOf('}');
+                                if (lastBrace !== -1) {
+                                    candidate = candidate.substring(0, lastBrace + 1) + ']';
+                                    const parsed = JSON.parse(candidate);
+                                    if (Array.isArray(parsed)) {
+                                        // This gives us the LATEST chunk. 
+                                        // To get ALL, we need to parse previous chunks too.
+                                        // This is getting complicated for real-time.
+                                        // Let's rely on parseMultipleJsonArrays for completed chunks
+                                        // and just try to show what we have.
+                                    }
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        // ignore
+                    }
+                }
+            }
+        }
+
+        if (pendingDuplicateJson !== null) {
+            duplicateDetected = true;
+            try {
+                let jsonStr = pendingDuplicateJson;
+                if (jsonStr.startsWith(':')) jsonStr = jsonStr.substring(1);
+                const prevData = JSON.parse(jsonStr);
+                setDuplicateData(prevData);
+                setShowDuplicateModal(true);
+                onLog("检测到重复文档，等待用户确认...");
+                return;
+            } catch {
+                // If we still can't parse it, show modal with fallback
+                onLog("Duplicate detected but failed to parse details.");
+                setDuplicateData({ id: null });
+                setShowDuplicateModal(true);
+                return;
+            }
+        }
+
+        if (buffer) {
+            const tail = buffer.replace(/@@STATUS@@:.*$/g, '').replace(/GEN_DIAG:.*$/g, '').replace(/GEN_QM:.*$/g, '');
+            rawText += tail;
+            setCurrentStreamingContent(rawText);
+            buffer = '';
         }
         
         try {
-            let clean = fullText;
-            if (fullText.includes("```json")) clean = fullText.split("```json")[1];
-            if (clean.includes("```")) clean = clean.split("```")[0];
-            clean = clean.trim();
-            const json = JSON.parse(clean);
-            if (!Array.isArray(json)) {
-                throw new Error('生成结果不是标准 JSON 数组');
+            // Late detection check: If @@DUPLICATE@@ was split across chunks and missed by buffer check,
+            // it will be in rawText. We catch it here to prevent "Empty Result" error.
+            if (!duplicateDetected && rawText.includes('@@DUPLICATE@@')) {
+                duplicateDetected = true;
+                try {
+                    const idx = rawText.indexOf('@@DUPLICATE@@');
+                    let jsonStr = rawText.slice(idx + '@@DUPLICATE@@'.length).trim();
+                    if (jsonStr.startsWith(':')) jsonStr = jsonStr.substring(1).trim();
+                    
+                    // Try to extract just the JSON object if there's trailing text
+                    const braceStart = jsonStr.indexOf('{');
+                    const braceEnd = jsonStr.lastIndexOf('}');
+                    if (braceStart !== -1 && braceEnd !== -1 && braceEnd > braceStart) {
+                        jsonStr = jsonStr.substring(braceStart, braceEnd + 1);
+                    }
+
+                    const prevData = JSON.parse(jsonStr);
+                    setDuplicateData(prevData);
+                    setShowDuplicateModal(true);
+                    onLog("检测到重复文档，等待用户确认...");
+                    return;
+                } catch {
+                    // Fallback if parsing fails
+                    onLog("检测到重复文档，但解析详情失败。");
+                    setDuplicateData({ id: null });
+                    setShowDuplicateModal(true);
+                    return;
+                }
             }
-            const normalizedNew = normalizeStandardCases(json);
-            const validNew = validateStandardCases(normalizedNew);
-            if (!validNew.ok) throw new Error(`生成结果不符合标准JSON结构: ${validNew.error}`);
-            if (appendMode) {
-                const normalizedExisting = normalizeStandardCases(existingCases);
-                const merged = normalizeStandardCases([...normalizedExisting, ...normalizedNew]);
-                const validMerged = validateStandardCases(merged);
-                if (!validMerged.ok) throw new Error(`合并后结果不符合标准JSON结构: ${validMerged.error}`);
+
+            if (duplicateDetected) return;
+
+            const skipNormalize = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('skipNormalize') === '1';
+            const cleaned = cleanStreamingContent(rawText).trim();
+            if (!cleaned) throw new Error('生成结果为空（模型未返回内容或被流式解析丢弃），请检查模型配置/额度/网络后重试');
+            const errMatches = Array.from(cleaned.matchAll(/(?:^|\r?\n)Error:\s*([^\r\n]+)/g));
+            let json: any[] = [];
+            try {
+                json = parseMultipleJsonArrays(rawText);
+            } catch (e) {
+                console.warn("Standard parse failed, trying heuristic recovery...", e);
+                let recovered = false;
+                try {
+                    const clean = cleanStreamingContent(rawText).trim();
+                    const start = clean.indexOf('[');
+                    if (start !== -1) {
+                        // Try to salvage valid objects by finding the last closing brace
+                        // Backtrack from end to find the valid JSON structure
+                        let lastBrace = clean.lastIndexOf('}');
+                        while (lastBrace !== -1 && lastBrace > start) {
+                            try {
+                                let candidate = clean.substring(start, lastBrace + 1);
+                                // Remove potential trailing comma if present inside the candidate (at the end)
+                                // Actually, candidate ends with '}'. 
+                                // We need to check if we need to append ']'
+                                
+                                // Check if the candidate itself is a valid array (unlikely if we just cut at '}')
+                                // Usually we need to append ']'
+                                const candidateWithBracket = candidate + ']';
+                                
+                                // Try parsing with bracket appended
+                                const parsed = JSON.parse(candidateWithBracket);
+                                if (Array.isArray(parsed)) {
+                                    json = parsed;
+                                    recovered = true;
+                                    onLog("警告: 生成内容可能不完整，已尝试自动修复并提取有效测试用例");
+                                    break;
+                                }
+                            } catch {
+                                // Ignore
+                            }
+                            
+                            // Move to previous brace
+                            lastBrace = clean.lastIndexOf('}', lastBrace - 1);
+                        }
+                    }
+                } catch (err) {
+                    console.warn("Heuristic recovery failed", err);
+                }
+                
+                if (!recovered) throw e;
+            }
+
+            if (skipNormalize) {
+                const merged = appendMode ? [...(Array.isArray(existingCases) ? existingCases : []), ...json] : json;
                 setCurrentResult(merged);
                 onGenerated(merged);
             } else {
-                setCurrentResult(normalizedNew);
-                onGenerated(normalizedNew);
+                const normalizedNew = normalizeStandardCases(json);
+                if (normalizedNew.length === 0) {
+                    if (errMatches.length > 0) {
+                        const lastErr = errMatches[errMatches.length - 1]?.[1] || '';
+                        throw new Error(lastErr ? `生成失败: ${lastErr}` : '生成失败: 后端返回错误');
+                    }
+                    if (Array.isArray(json) && json.length === 0) {
+                        throw new Error('生成结果为空数组：模型可能拒绝生成/输出被截断/内容解析失败，请检查模型配置与提示词后重试');
+                    }
+                    const first = Array.isArray(json) && json.length > 0 ? json[0] : undefined;
+                    const kind = Array.isArray(first) ? 'array' : typeof first;
+                    throw new Error(`生成结果不是“用例对象数组”（数组元素类型=${kind}），请让模型返回由对象组成的 JSON 数组`);
+                }
+                const validNew = validateStandardCases(normalizedNew);
+                if (!validNew.ok) throw new Error(`生成结果不符合标准JSON结构: ${validNew.error}`);
+                if (appendMode) {
+                    const normalizedExisting = normalizeStandardCases(existingCases);
+                    const merged = normalizeStandardCases([...normalizedExisting, ...normalizedNew]);
+                    const validMerged = validateStandardCases(merged);
+                    if (!validMerged.ok) throw new Error(`合并后结果不符合标准JSON结构: ${validMerged.error}`);
+                    setCurrentResult(merged);
+                    onGenerated(merged);
+                } else {
+                    setCurrentResult(normalizedNew);
+                    onGenerated(normalizedNew);
+                }
             }
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
@@ -568,7 +1051,6 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
     } finally {
         setLoading(false);
         setPollStatus('');
-        setAppendModeActive(false);
     }
   };
 
@@ -722,7 +1204,7 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
       </div>
 
       {/* Main Input Section */}
-      <div className="bento-card col-span-12 md:col-span-8 p-4 d-flex flex-column position-relative">
+      <div className="bento-card col-span-6 p-4 d-flex flex-column position-relative">
          {/* AI Hint Bubble */}
          {showHint && mode === 'file' && !file && (
              <AIHintBubble onClose={() => setShowHint(false)} />
@@ -795,7 +1277,7 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
       </div>
 
       {/* Config Panel */}
-      <div className="bento-card col-span-12 md:col-span-4 p-4 d-flex flex-column gap-3 bg-white">
+      <div className="bento-card col-span-6 p-4 d-flex flex-column gap-3 bg-white">
          <h6 className="fw-bold d-flex align-items-center gap-2 mb-3">
             <FaCog className="text-primary" /> 配置面板
          </h6>
@@ -838,13 +1320,50 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
             />
             
             <Form.Group className="mb-3">
-                <Form.Label className="small fw-bold text-secondary">预期用例数</Form.Label>
-                <Form.Control 
-                    type="number" 
-                    className="input-pro"
-                    value={expectedCount} 
-                    onChange={e => setExpectedCount(Number(e.target.value))} 
-                />
+                <div className="d-flex gap-2">
+                    <div className="flex-grow-1">
+                        <Form.Label className="small fw-bold text-secondary">推荐生成用例数</Form.Label>
+                        <InputGroup>
+                            <Form.Control 
+                                type="number" 
+                                className="input-pro"
+                                value={expectedCount} 
+                                min={1}
+                                step={1}
+                                onChange={e => {
+                                    setExpectedCount(Math.max(1, Math.floor(Number(e.target.value) || 1)));
+                                    setIsManualCount(true);
+                                }} 
+                                style={{ borderRight: isEstimating ? '0' : undefined }}
+                            />
+                            {isEstimating && (
+                                <InputGroup.Text className="bg-white border-start-0 ps-0">
+                                    <Spinner animation="border" size="sm" variant="primary" />
+                                </InputGroup.Text>
+                            )}
+                        </InputGroup>
+                    </div>
+                    <div className="flex-grow-1">
+                        <Form.Label className="small fw-bold text-secondary">追加用例数</Form.Label>
+                        <Form.Control 
+                            type="number" 
+                            className="input-pro"
+                            value={appendCount} 
+                            min={1}
+                            step={1}
+                            onChange={e => {
+                                const newAppend = Math.max(1, Math.floor(Number(e.target.value) || 1));
+                                setAppendCount(newAppend);
+                                
+                                // Auto-update expected count based on previous results if changing append count
+                                const currentTotal = hasJsonInResultBox ? (mode === 'text' ? (textResult?.length || 0) : (fileResult?.length || 0)) : 0;
+                                if (currentTotal > expectedCount) {
+                                    setExpectedCount(currentTotal);
+                                }
+                            }} 
+                        />
+                    </div>
+                </div>
             </Form.Group>
 
             {mode === 'file' && (
@@ -860,13 +1379,24 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
          </div>
 
          <div className="mt-auto d-flex flex-column gap-2">
-            <Button 
-                className="btn-pro-primary w-100 py-2 fw-bold shadow-sm d-flex align-items-center justify-content-center"
-                disabled={loading || !projectId}
-                onClick={() => mode === 'text' ? handleGenerateStream(true, undefined, hasJsonInResultBox) : handleGenerateStream(false, undefined, hasJsonInResultBox)}
-            >
-                {loading ? <><Spinner size="sm" animation="border" className="me-2" /> 生成中...</> : <><FaPlay className="me-2" /> {hasJsonInResultBox ? '继续生成' : '开始生成'}</>}
-            </Button>
+            {(() => {
+                const currentTotal = hasJsonInResultBox ? (mode === 'text' ? (textResult?.length || 0) : (fileResult?.length || 0)) : 0;
+                const targetTotal = expectedCount + appendCount;
+                const isLimitReached = hasJsonInResultBox && currentTotal >= targetTotal;
+                
+                return (
+                    <Button 
+                        className="btn-pro-primary w-100 py-2 fw-bold shadow-sm d-flex align-items-center justify-content-center"
+                        disabled={loading || !projectId || isLimitReached}
+                        onClick={() => mode === 'text' ? handleGenerateStream(true, undefined, hasJsonInResultBox) : handleGenerateStream(false, undefined, hasJsonInResultBox)}
+                    >
+                        {loading ? <><Spinner size="sm" animation="border" className="me-2" /> 生成中...</> : 
+                         (isLimitReached ? <><FaPlay className="me-2" /> 开始生成</> : 
+                          <><FaPlay className="me-2" /> {hasJsonInResultBox ? '继续生成' : '开始生成'}</>)
+                        }
+                    </Button>
+                );
+            })()}
 
             {(result || streamingContent) && (
                 <div className="d-flex gap-2">
@@ -888,7 +1418,13 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
       {/* Progress Bar (Col-Span-12) */}
       {loading && (
         <div className="col-span-12 animate-pulse">
-            <ProgressBar animated now={100} label={pollStatus} variant="info" style={{ height: '6px', borderRadius: '3px' }} />
+            <ProgressBar 
+                animated 
+                now={100} 
+                label={<div style={{ whiteSpace: 'normal', wordBreak: 'break-all', fontSize: '0.85rem', lineHeight: '1.2' }}>{pollStatus}</div>} 
+                variant="info" 
+                style={{ height: 'auto', minHeight: '30px', borderRadius: '3px' }} 
+            />
             <div className="text-center mt-2 text-muted small">AI 正在深度分析需求文档，请稍候...</div>
         </div>
       )}
@@ -927,10 +1463,17 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
                 "col-12": !streamingContent, 
                 "col-12 md:col-6 border-end": streamingContent 
             })}>
-                <div className="position-absolute top-0 start-0 w-100 px-4 py-2 bg-light border-bottom small fw-bold text-secondary z-10">
+                <div 
+                    className="position-absolute top-0 start-0 w-100 px-4 py-2 border-bottom small fw-bold text-secondary" 
+                    style={{ 
+                        zIndex: 10, 
+                        backgroundColor: '#f8f9fa',
+                        opacity: 1
+                    }}
+                >
                     {streamingContent ? '合并后结果 / 历史结果' : '生成结果'}
                 </div>
-                <div className="position-absolute top-0 start-0 w-100 h-100 overflow-auto p-4 pt-5 font-monospace">
+                <div className="position-absolute top-0 start-0 w-100 h-100 overflow-auto p-4 pt-5 font-monospace" style={{ whiteSpace: 'pre-wrap' }}>
                     {mode === 'text' ? (
                     textResult
                         ? JSON.stringify(textResult, null, 2)
@@ -948,9 +1491,23 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
                 <div className="col-12 md:col-6 h-100 position-relative bg-white">
                     <div className="position-absolute top-0 start-0 w-100 px-4 py-2 bg-primary-subtle border-bottom small fw-bold text-primary z-10 d-flex justify-content-between align-items-center">
                         <span><FaPlay size={10} className="me-1"/> 新增批次流式输出</span>
-                        {loading && <Spinner size="sm" animation="grow" variant="primary" />}
+                        <div className="d-flex align-items-center gap-2">
+                            <Button 
+                                variant="link" 
+                                size="sm" 
+                                className="p-0 text-decoration-none d-flex align-items-center gap-1"
+                                onClick={() => {
+                                    navigator.clipboard.writeText(cleanStreamingContent(streamingContent));
+                                    // Optional: Add toast notification here
+                                }}
+                                title="复制内容"
+                            >
+                                <FaCopy /> 复制
+                            </Button>
+                            {loading && <Spinner size="sm" animation="grow" variant="primary" />}
+                        </div>
                     </div>
-                    <div className="position-absolute top-0 start-0 w-100 h-100 overflow-auto p-4 pt-5 font-monospace bg-light bg-opacity-10">
+                    <div className="position-absolute top-0 start-0 w-100 h-100 overflow-auto p-4 pt-5 font-monospace bg-light bg-opacity-10" style={{ whiteSpace: 'pre-wrap', userSelect: 'text' }}>
                         {cleanStreamingContent(streamingContent)}
                     </div>
                 </div>

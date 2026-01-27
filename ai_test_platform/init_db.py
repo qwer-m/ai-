@@ -3,6 +3,18 @@ from sqlalchemy import create_engine, text
 from core.config import settings
 from core.models import *
 
+"""
+数据库初始化脚本 (Database Initialization Script)
+
+该脚本用于：
+1. 检查并创建 MySQL 数据库 (如果不存在)。
+2. 创建所有定义在 `core.models` 中的数据表。
+3. 执行轻量级的数据迁移 (检查并添加缺失的列)。
+
+用法:
+python init_db.py
+"""
+
 def init_db():
     # First, let's manually create database if not exists for MySQL
     if "mysql" in settings.DATABASE_URL:

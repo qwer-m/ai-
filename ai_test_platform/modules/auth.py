@@ -1,3 +1,17 @@
+"""
+认证模块 (Auth Module)
+
+该模块处理用户注册、登录和 Token 发放。
+主要功能：
+1. 用户注册 (register): 创建新用户并初始化默认系统配置。
+2. 用户登录 (login): 验证凭据并分发 JWT Token。
+3. 获取当前用户信息 (read_users_me)。
+
+调用关系：
+- 依赖 `core.auth` 提供的密码哈希和 Token 生成工具。
+- 调用 `core.config_manager` 在注册时初始化用户配置。
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -29,6 +43,13 @@ class Token(BaseModel):
 
 @router.post("/register", response_model=UserResponse)
 def register(user_in: UserCreate, db: Session = Depends(get_db)):
+    """
+    用户注册 (User Registration)
+    
+    1. 检查用户名是否已存在。
+    2. 创建新用户并哈希密码。
+    3. 为新用户初始化默认系统配置 (ConfigManager)。
+    """
     user = db.query(User).filter(User.username == user_in.username).first()
     if user:
         raise HTTPException(status_code=400, detail="Username already registered")
@@ -75,4 +96,9 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
 @router.get("/me", response_model=UserResponse)
 def read_users_me(current_user: User = Depends(get_current_user)):
+    """
+    获取当前用户信息 (Get Current User Info)
+    
+    返回当前登录用户的详细信息 (基于 Token 解析)。
+    """
     return current_user

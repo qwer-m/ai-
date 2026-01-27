@@ -49,13 +49,22 @@ class CacheService:
         }
 
     def _calculate_hash(self, key_content: str) -> str:
-        """Calculate SHA256 hash of the key content"""
+        """计算键内容的 SHA256 哈希值 (Calculate Hash)"""
         return hashlib.sha256(key_content.encode('utf-8')).hexdigest()
 
     def get(self, key_content: str, level: str, db: Session = None) -> Optional[Any]:
         """
-        Get value from cache.
-        Order: Redis (L1) -> DiskCache (L1 Backup) -> MySQL (L2-L4)
+        获取缓存值 (Get Value)
+        
+        查找顺序: Redis (L1) -> DiskCache (L1 备份) -> MySQL (L2-L4)
+        
+        Args:
+            key_content: 缓存键原始内容 (通常是 Prompt 或请求参数)。
+            level: 缓存层级 (L1/L2/L3/L4)。
+            db: 数据库会话 (用于查询 L2-L4)。
+            
+        Returns:
+            Any: 反序列化后的缓存值，如果未命中则返回 None。
         """
         key_hash = self._calculate_hash(key_content)
         cache_key = f"{level}:{key_hash}"
@@ -98,7 +107,11 @@ class CacheService:
         return None
 
     def set_l1(self, cache_key: str, value: Any, level: str = "L1"):
-        """Helper to set L1 cache (Redis + Disk)"""
+        """
+        设置 L1 缓存 (Set L1 Cache)
+        
+        同时写入 Redis 和本地 DiskCache。
+        """
         # Determine TTL
         ttl = self.ttl_config.get(level, self.default_ttl)
 
@@ -120,8 +133,16 @@ class CacheService:
 
     def set(self, key_content: str, value: Any, level: str, db: Session = None, metadata: Dict = None):
         """
-        Set value to cache.
-        Writes to L1 (Redis+Disk) and MySQL (if db provided).
+        设置缓存 (Set Cache)
+        
+        写入 L1 (Redis+Disk) 和 MySQL (如果提供了 db)。
+        
+        Args:
+            key_content: 缓存键原始内容。
+            value: 缓存值。
+            level: 缓存层级。
+            db: 数据库会话 (可选)。
+            metadata: 元数据 (可选)。
         """
         key_hash = self._calculate_hash(key_content)
         cache_key = f"{level}:{key_hash}"
@@ -164,6 +185,7 @@ class CacheService:
                 db.rollback()
 
     def clear_l1(self):
+        """清空 L1 缓存 (Clear L1)"""
         self.l1_cache.clear()
         if self.redis_client:
             try:

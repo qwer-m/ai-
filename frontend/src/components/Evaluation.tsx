@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Button, Form, OverlayTrigger, Popover } from 'react-bootstrap';
+import { Button, Form, OverlayTrigger, Popover, Toast, ToastContainer } from 'react-bootstrap';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement, PointElement, LineElement } from 'chart.js';
 import { Line } from 'react-chartjs-2';
-import { FaClipboardCheck, FaDownload, FaRobot, FaNetworkWired, FaCheckDouble, FaBug, FaSearch, FaPlus, FaTimes, FaCheck } from 'react-icons/fa';
+import { FaClipboardCheck, FaDownload, FaRobot, FaNetworkWired, FaCheckDouble, FaBug, FaPlus } from 'react-icons/fa';
 import { api } from '../utils/api';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement, PointElement, LineElement);
@@ -45,9 +45,6 @@ export function Evaluation({
   evalGenerated, setEvalGenerated,
   evalModified, setEvalModified,
   evalResult, setEvalResult,
-  recallRetrieved, setRecallRetrieved,
-  recallRelevant, setRecallRelevant,
-  recallResult, setRecallResult,
   uiEvalScript, setUiEvalScript,
   uiEvalExec, setUiEvalExec,
   uiEvalOutput, setUiEvalOutput,
@@ -66,6 +63,7 @@ export function Evaluation({
   const [history, setHistory] = useState<any[]>([]);
   const [savedDocId, setSavedDocId] = useState<number | null>(null);
   const [lastSavedContent, setLastSavedContent] = useState<string>('');
+  const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error', msg: string } | null>(null);
 
   // Initial load of latest supplement (only on mount or project change, NOT on new evalResult)
   useEffect(() => {
@@ -111,6 +109,7 @@ export function Evaluation({
               onLog('已将缺陷分析和用户补充录入知识库');
               setSavedDocId(res.result.id);
               setLastSavedContent(supplementText);
+              setToastMsg({ type: 'success', msg: '当前评估与描述已录入RAG知识库' });
               // Do NOT close window automatically
           }
       } catch (e) {
@@ -123,11 +122,25 @@ export function Evaluation({
   const showUi = view === 'ui';
   const showApi = view === 'api';
 
-  // Latest Diagnostics & QM
-  const latestDiag = logs.find(x => typeof x.message === 'string' && x.message.startsWith('GEN_DIAG:'));
+  const pickLatestByPrefix = (prefix: string) => {
+    const matches = (Array.isArray(logs) ? logs : []).filter((x: any) => typeof x?.message === 'string' && x.message.startsWith(prefix));
+    if (matches.length === 0) return null;
+    let best = matches[0];
+    let bestTime = new Date(best?.created_at || 0).getTime() || 0;
+    for (let i = 1; i < matches.length; i++) {
+      const t = new Date(matches[i]?.created_at || 0).getTime() || 0;
+      if (t >= bestTime) {
+        best = matches[i];
+        bestTime = t;
+      }
+    }
+    return best;
+  };
+
+  const latestDiag = pickLatestByPrefix('GEN_DIAG:');
   const diag = latestDiag ? JSON.parse(latestDiag.message.slice('GEN_DIAG:'.length)) : null;
 
-  const latestQm = logs.find(x => typeof x.message === 'string' && x.message.startsWith('GEN_QM:'));
+  const latestQm = pickLatestByPrefix('GEN_QM:');
   const qm = latestQm ? JSON.parse(latestQm.message.slice('GEN_QM:'.length)) : null;
 
   const compareTestCases = async () => {
@@ -154,23 +167,6 @@ export function Evaluation({
       setEvalResult(data.result || '');
     } catch (e) {
       setEvalResult(`Error: ${e}`);
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const calcRecall = async () => {
-    if (!projectId) return alert('请先选择项目');
-    setLoading('recall');
-    setRecallResult(null);
-    onLog('计算召回率...');
-    try {
-      const retrieved = recallRetrieved.split(',').map(s => s.trim()).filter(s => s);
-      const relevant = recallRelevant.split(',').map(s => s.trim()).filter(s => s);
-      const data = await api.post<any>('/api/calculate-recall', { retrieved, relevant, project_id: projectId });
-      setRecallResult(`Recall Rate: ${data.recall}`);
-    } catch (e) {
-      setRecallResult(`Error: ${e}`);
     } finally {
       setLoading(null);
     }
@@ -599,7 +595,7 @@ export function Evaluation({
         <div className="bento-card col-span-12 md:col-span-6 p-4 d-flex flex-column">
             <div className="d-flex align-items-center gap-2 mb-3 text-secondary">
               <FaNetworkWired />
-              <span className="fw-bold">接口自动化评估</span>
+              <span className="fw-bold">接口自动化评估 (AI Response Eval)</span>
             </div>
             <Form.Group className="mb-3">
                 <Form.Label className="small text-muted">API 测试脚本</Form.Label>
@@ -616,19 +612,84 @@ export function Evaluation({
                     placeholder={'OpenAPI/Swagger JSON or YAML content...'}
                  />
                  <Form.Text className="text-muted x-small">
-                   评估 AI 脚本的 API 端点覆盖率。
+                   用于评估 AI 脚本的 API 端点覆盖率及参数正确性。
                  </Form.Text>
             </Form.Group>
             <Form.Group className="mb-3">
                 <Form.Label className="small text-muted">执行结果</Form.Label>
                 <Form.Control as="textarea" rows={3} className="input-pro bg-light" value={apiEvalExec} onChange={e => setApiEvalExec(e.target.value)} placeholder="Execution logs..." />
             </Form.Group>
+            
+            <div className="d-flex gap-2 mb-3">
+                <div className="form-check form-switch">
+                    <input className="form-check-input" type="checkbox" id="checkSimilarity" defaultChecked />
+                    <label className="form-check-label small" htmlFor="checkSimilarity">语义相似度</label>
+                </div>
+                <div className="form-check form-switch">
+                    <input className="form-check-input" type="checkbox" id="checkLLMJudge" defaultChecked />
+                    <label className="form-check-label small" htmlFor="checkLLMJudge">LLM Judge 打分</label>
+                </div>
+                <div className="form-check form-switch">
+                    <input className="form-check-input" type="checkbox" id="checkCost" />
+                    <label className="form-check-label small" htmlFor="checkCost">成本/性能分析</label>
+                </div>
+            </div>
+
             <Button className="btn-pro-primary w-100 mt-auto" disabled={loading === 'api'} onClick={evaluateApi}>
-                {loading === 'api' ? '评估中...' : '开始评估'}
+                {loading === 'api' ? '多维评估中...' : '开始评估'}
             </Button>
-            {apiEvalOutput && <div className="mt-3 alert alert-light border small" style={{ whiteSpace: 'pre-wrap' }}>{apiEvalOutput}</div>}
+            {apiEvalOutput && (
+                <div className="mt-3 alert alert-light border small">
+                    {(() => {
+                        try {
+                             // Try to parse JSON result if available
+                             const jsonStr = apiEvalOutput.match(/\{[\s\S]*\}/)?.[0];
+                             if (jsonStr) {
+                                 const res = JSON.parse(jsonStr);
+                                 return (
+                                     <div>
+                                         <h6 className="border-bottom pb-2 mb-2">评估报告</h6>
+                                         <div className="row g-2 mb-3">
+                                             <div className="col-4">
+                                                 <div className="p-2 bg-white border rounded text-center">
+                                                     <div className="fw-bold text-primary">{res.similarity ?? '-'}</div>
+                                                     <div className="x-small text-muted">语义相似度</div>
+                                                 </div>
+                                             </div>
+                                             <div className="col-4">
+                                                 <div className="p-2 bg-white border rounded text-center">
+                                                     <div className="fw-bold text-success">{res.score ?? '-'}</div>
+                                                     <div className="x-small text-muted">LLM 评分</div>
+                                                 </div>
+                                             </div>
+                                             <div className="col-4">
+                                                 <div className="p-2 bg-white border rounded text-center">
+                                                     <div className="fw-bold text-info">{res.coverage ?? '-'}%</div>
+                                                     <div className="x-small text-muted">API 覆盖率</div>
+                                                 </div>
+                                             </div>
+                                         </div>
+                                         <div><strong>分析:</strong> {res.analysis}</div>
+                                     </div>
+                                 );
+                             }
+                        } catch (e) {}
+                        return <div style={{ whiteSpace: 'pre-wrap' }}>{apiEvalOutput}</div>;
+                    })()}
+                </div>
+            )}
         </div>
       )}
+      <ToastContainer position="top-end" className="p-3" style={{ zIndex: 1100 }}>
+        {toastMsg && (
+            <Toast onClose={() => setToastMsg(null)} show={!!toastMsg} delay={3000} autohide bg={toastMsg.type === 'success' ? 'success' : 'danger'}>
+                <Toast.Header>
+                    <strong className="me-auto">{toastMsg.type === 'success' ? '成功' : '错误'}</strong>
+                </Toast.Header>
+                <Toast.Body className="text-white">{toastMsg.msg}</Toast.Body>
+            </Toast>
+        )}
+      </ToastContainer>
     </div>
   );
 }

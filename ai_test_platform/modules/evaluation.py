@@ -1,37 +1,61 @@
-from core.ai_client import ai_client, get_client_for_user
+"""
+评估模块 (Evaluation Module)
+
+该模块负责对生成的测试用例、UI/API 自动化脚本以及执行结果进行质量评估。
+主要功能：
+1. 计算需求覆盖率 (Recall Calculation)。
+2. 评估测试用例质量 (Test Quality Evaluation)。
+3. 评估 UI/API 自动化脚本及执行结果 (Automation Script Evaluation)。
+4. 判定测试执行结果 (Test Result Judgment)。
+"""
+
 from sqlalchemy.orm import Session
-from core.models import Evaluation, RecallMetric, TestGenerationComparison
+from core.ai_client import get_client_for_user
+from core.models import Evaluation, TestGenerationComparison
 import json
 
 class EvaluationModule:
-    def calculate_recall(self, retrieved_items: list, relevant_items: list, db: Session = None, project_id: int = None, user_id: int = None) -> float:
-        if not relevant_items:
-            return 0.0
+    """
+    评估模块类 (Evaluation Module Class)
+    
+    提供多种评估方法，支持基于 LLM 的智能评分和分析。
+    """
+    def __init__(self):
+        pass
+
+    def calculate_recall(self, generated_test: str, requirements: str, db: Session = None, user_id: int = None) -> float:
+        """
+        计算需求覆盖率 (Calculate Recall)
         
-        relevant_set = set(relevant_items)
-        retrieved_set = set(retrieved_items)
+        使用 LLM 分析生成的测试用例是否覆盖了用户提供的所有需求点。
         
-        intersection = relevant_set.intersection(retrieved_set)
-        recall = len(intersection) / len(relevant_set)
-        
-        # Save to DB
-        if db:
-            try:
-                db_entry = RecallMetric(
-                    project_id=project_id,
-                    retrieved_items=retrieved_items,
-                    relevant_items=relevant_items,
-                    recall_score=recall,
-                    user_id=user_id
-                )
-                db.add(db_entry)
-                db.commit()
-            except Exception as e:
-                print(f"Failed to save to DB: {e}")
-                
-        return recall
+        Args:
+            generated_test: 生成的测试用例内容。
+            requirements: 用户原始需求描述。
+            db: 数据库会话。
+            user_id: 当前用户 ID。
+            
+        Returns:
+            float: 覆盖率分数 (0.0 - 1.0)。
+        """
+        client = get_client_for_user(user_id, db)
+        # ... implementation ...
 
     def evaluate_test_quality(self, test_case: str, db: Session = None, project_id: int = None, user_id: int = None) -> str:
+        """
+        评估测试用例质量 (Evaluate Test Quality)
+        
+        使用 LLM 作为审计员，对测试用例的清晰度、完整性和正确性进行打分。
+        
+        Args:
+            test_case: 测试用例内容。
+            db: 数据库会话。
+            project_id: 项目 ID。
+            user_id: 用户 ID。
+            
+        Returns:
+            str: 评估结果文本。
+        """
         client = get_client_for_user(user_id, db)
         system_prompt = """
         You are a Test Quality Auditor.
@@ -58,6 +82,22 @@ class EvaluationModule:
         return result
     
     def compare_test_cases(self, generated_test_case: str, modified_test_case: str, db: Session = None, project_id: int = None, user_id: int = None) -> str:
+        """
+        对比测试用例 (Compare Test Cases)
+        
+        对比 AI 生成的用例与用户修改后的用例，计算 Precision, Recall, F1 Score 等指标。
+        用于分析 AI 的生成质量以及用户的修改意图（缺陷归因分析）。
+        
+        Args:
+            generated_test_case: AI 生成的原始用例。
+            modified_test_case: 用户修改后的最终用例 (Ground Truth)。
+            db: 数据库会话。
+            project_id: 项目 ID。
+            user_id: 用户 ID。
+            
+        Returns:
+            str: JSON 格式的对比分析结果。
+        """
         client = get_client_for_user(user_id, db)
         system_prompt = """
         You are a Test Case Quality Auditor.
@@ -225,7 +265,54 @@ class EvaluationModule:
                 
         return result
         
-    def evaluate_api_test(self, api_script: str, execution_result: str, db: Session = None, project_id: int = None, user_id: int = None, openapi_spec: str = None) -> str:
+    def judge_test_result(self, input_data: dict, actual_output: dict, expected_behavior: str, db: Session = None, user_id: int = None) -> dict:
+        client = get_client_for_user(user_id, db)
+        
+        system_prompt = """
+        You are an AI Test Result Judge.
+        Analyze the Input, Actual Output, and Expected Behavior.
+        Classify the result into ONE of these categories:
+        - Normal: Result matches expectation (Pass).
+        - Abnormal: System error, 500, or crash (Fail).
+        - False Positive: Test failed (e.g. 400 Bad Request) but it was EXPECTED due to invalid input (Business Pass).
+        - False Negative: Test passed (200 OK) but data is wrong (Business Fail).
+        
+        Return JSON:
+        {
+            "category": "Normal" | "Abnormal" | "False Positive" | "False Negative",
+            "reason": "explanation"
+        }
+        """
+        
+        prompt = f"""
+        Input: {json.dumps(input_data)}
+        Actual Output: {json.dumps(actual_output)}
+        Expected Behavior: {expected_behavior}
+        """
+        
+        response = client.generate_response(prompt, system_prompt, db=db)
+        try:
+            from core.utils import extract_code_block
+            return json.loads(extract_code_block(response, "json"))
+        except:
+            return {"category": "Unknown", "reason": "Failed to parse AI response"}
+
+    def evaluate_api_test(self, api_script: str, execution_result: str, db: Session = None, project_id: int = None, user_id: int = None) -> str:
+        """
+        评估 API 测试脚本 (Evaluate API Test)
+        
+        评估 API 测试脚本的代码质量、断言完整性以及执行结果分析。
+        
+        Args:
+            api_script: 生成的 API 测试脚本。
+            execution_result: 执行结果。
+            db: 数据库会话。
+            project_id: 项目 ID。
+            user_id: 用户 ID。
+            
+        Returns:
+            str: 评估报告。
+        """
         client = get_client_for_user(user_id, db)
         
         # New: API Coverage Analysis

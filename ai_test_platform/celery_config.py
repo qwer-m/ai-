@@ -1,3 +1,19 @@
+"""
+Celery 配置模块 (Celery Config)
+
+该模块配置 Celery 异步任务队列，包括 Broker (Redis)、Result Backend (Redis) 以及定时任务 (Beat)。
+主要功能：
+1. 初始化 Celery 应用实例。
+2. 配置 Redis 连接池。
+3. 定义定时任务 (Beat Schedule)：
+   - 每周日凌晨 3 点归档旧数据。
+   - 每小时清理过期日志。
+   
+调用关系：
+- 依赖 `core.redis_pool` 复用 Redis 连接。
+- 自动发现 `modules.tasks` 中的任务。
+"""
+
 import os
 from celery import Celery
 from core.redis_pool import redis_pool

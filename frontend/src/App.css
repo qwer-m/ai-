@@ -98,3 +98,17 @@ html, body, #root {
     50% { opacity: 1; }
     100% { opacity: 0.6; }
 }
+
+/* Helper Classes */
+.w-fit {
+    width: fit-content;
+}
+
+.animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}

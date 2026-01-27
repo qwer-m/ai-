@@ -1,3 +1,19 @@
+"""
+后端应用入口 (Main Application Entry Point)
+
+此模块是整个后端服务的核心入口，负责：
+1. 初始化 FastAPI 应用实例。
+2. 配置和管理全局资源（数据库连接、Redis池、AI客户端配置）。
+3. 注册中间件（CORS, 限流, 静态文件服务）。
+4. 挂载各个业务模块的路由（认证、标准API测试）。
+5. 定义核心业务 API 接口（项目管理、测试生成、UI自动化、评估等）。
+
+模块调用关系：
+- 依赖 core/ 下的基础设施 (Database, Config, AI Client, Celery)。
+- 调用 modules/ 下的业务逻辑 (Test Generation, UI Automation, Evaluation)。
+- 作为前端 (Frontend) 的主要 API 提供者。
+"""
+
 import os
 import shutil
 import uuid
@@ -9,10 +25,13 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Any, Dict
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks, Request, Query
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, StreamingResponse, Response
+from starlette.concurrency import iterate_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text, desc
+
+# 核心基础设施 (Core Infrastructure)
 from core.database import get_db, SessionLocal
 from core.models import Project, TestGeneration, LogEntry, KnowledgeDocument, UIExecution, UIErrorOperation, APIExecution, Evaluation, TestGenerationComparison, RecallMetric, User
 from modules.knowledge_base import knowledge_base
@@ -23,7 +42,11 @@ from core.ai_client import ai_client, DashScopeProvider, OpenAICompatibleProvide
 from core.config_manager import config_manager
 from core.models import SystemConfig
 from core.auth import get_current_user
+
+# 业务模块路由 (Business Module Routers)
 from modules.auth import router as auth_router
+from modules.standard_api import router as standard_api_router
+
 import pypdf
 import pandas as pd
 from contextlib import asynccontextmanager
@@ -34,30 +57,45 @@ from slowapi.util import get_remote_address
 from slowapi.middleware import SlowAPIMiddleware
 from celery.result import AsyncResult
 from celery_config import celery_app
+
+# 业务逻辑处理模块 (Business Logic Handlers)
 from modules.tasks import generate_test_cases_task
 from modules.test_generation import test_generator, clean_and_parse_json
 from modules.evaluation import evaluator
 from core.redis_pool import redis_pool
 from core.browser_pool import browser_pool
 
-# Rate limiter setup
+# Rate limiter setup (限流器设置)
 limiter = Limiter(key_func=get_remote_address)
 
-# Global state for health monitoring
+# Global state for health monitoring (全局健康状态监控)
 last_redis_status = None
 last_mysql_status = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize resources
-    app.state.redis = redis_pool
-    print("Application startup: Redis pool initialized")
+    """
+    应用生命周期管理器 (Application Lifecycle Manager)
     
-    # Initialize AI Client from active config
+    处理应用启动和关闭时的逻辑：
+    - Startup:
+        1. 初始化 Redis 连接池。
+        2. 检查 MySQL 数据库连接健康状态。
+        3. 记录系统启动日志到数据库。
+        4. 从数据库加载并激活 AI 模型配置 (SystemConfig)。
+    - Shutdown:
+        1. 清理浏览器资源 (Browser Pool)。
+        2. 关闭 Redis 连接 (虽然 Redis Pool 通常自动管理，但也在此处做清理准备)。
+    """
+    # Startup: Initialize resources (启动: 初始化资源)
+    app.state.redis = redis_pool
+    print("Application startup: Redis pool initialized (应用启动: Redis连接池已初始化)")
+    
+    # Initialize AI Client from active config (从活跃配置初始化AI客户端)
     try:
         db = SessionLocal()
         
-        # System Health Check & Logging
+        # System Health Check & Logging (系统健康检查与日志)
         redis_status = "Connected"
         try:
             redis_pool.ping()
@@ -70,14 +108,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
              mysql_status = f"Failed: {str(e)}"
              
-        # Log system start
+        # Log system start (记录系统启动日志)
         try:
             # We need to manually insert because log_to_db helper might not be imported or available here easily 
-            # (it is available but let's be safe with direct DB op if needed, but wait, log_to_db is not imported? 
-            # I checked imports, I didn't see log_to_db. I saw LogEntry model.)
+            # (需要手动插入，因为 log_to_db 助手可能无法在此处轻松导入)
             # I will use LogEntry directly.
             system_log = LogEntry(
-                project_id=None, # System level
+                project_id=None, # System level (系统级)
                 log_type="system",
                 message=f"System started. Redis: {redis_status}, MySQL: {mysql_status}"
             )
@@ -99,8 +136,8 @@ async def lifespan(app: FastAPI):
 
     yield
     
-    # Shutdown: Clean up resources
-    # Close global browser pool
+    # Shutdown: Clean up resources (关闭: 清理资源)
+    # Close global browser pool (关闭全局浏览器池)
     if browser_pool:
         # We don't have a close method on browser_pool instance that closes all browsers?
         # browser_pool.py has release_browser but no close_all.
@@ -110,12 +147,13 @@ async def lifespan(app: FastAPI):
         if browser_pool.playwright:
              await browser_pool.playwright.stop()
     
-    print("Application shutdown: Cleaning up resources...")
+    print("Application shutdown: Cleaning up resources... (应用关闭: 正在清理资源...)")
 
 app = FastAPI(title="AI测试开发平台", lifespan=lifespan)
 app.include_router(auth_router, prefix="/api")
+app.include_router(standard_api_router, prefix="/api")
 
-# Middleware Stack
+# Middleware Stack (中间件堆栈)
 app.state.limiter = limiter
 app.add_exception_handler(429, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
@@ -127,7 +165,7 @@ app.add_middleware(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, replace with specific frontend domain
+    allow_origins=["*"], # In production, replace with specific frontend domain (生产环境中请替换为具体的前端域名)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -141,6 +179,9 @@ if os.path.isdir(STATIC_DIR):
 
 # Models
 # --- Project APIs ---
+# 项目管理模块 (Project Management Module)
+# 负责项目的创建、查询、更新和删除。支持多级项目结构（最多3级）。
+
 class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = None
@@ -153,6 +194,14 @@ class ProjectUpdate(BaseModel):
 
 @app.post("/api/projects")
 def create_project(project: ProjectCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    创建新项目 (Create Project)
+    
+    逻辑：
+    1. 计算层级 (Level)：如果是子项目，层级为父项目层级+1。最大支持3级。
+    2. 检查重名：同一父项目下不允许重名。
+    3. 创建项目记录。
+    """
     # Calculate level
     level = 1
     if project.parent_id:
@@ -303,6 +352,16 @@ class UIRequest(BaseModel):
     task: str
     project_id: int
     automation_type: str = "web"
+    image_model: Optional[str] = None
+    requirement_context: Optional[str] = None
+
+class ProxyRequest(BaseModel):
+    method: str
+    url: str
+    headers: Dict[str, str] = {}
+    params: Dict[str, str] = {}
+    body: Optional[str] = None
+    timeout: int = 30
 
 class APIRequest(BaseModel):
     requirement: str
@@ -413,6 +472,19 @@ def log_to_db(db: Session, project_id: int, log_type: str, message: str, user_id
 
 @app.post("/api/generate-tests")
 def generate_tests(request: TestGenRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    同步生成测试用例 (Synchronous Test Generation)
+    
+    功能：根据需求文本生成测试用例。
+    调用模块：modules.test_generation.test_generator
+    
+    流程：
+    1. 验证项目权限。
+    2. 记录开始日志。
+    3. 调用 test_generator.generate_test_cases_json 执行生成逻辑 (核心)。
+    4. 计算生成质量指标 (Positive/Negative/Edge cases) 并记录诊断日志。
+    5. 返回生成的 JSON 结果。
+    """
     # Verify project
     project = db.query(Project).filter(Project.id == request.project_id, Project.user_id == current_user.id).first()
     if not project:
@@ -423,7 +495,7 @@ def generate_tests(request: TestGenRequest, db: Session = Depends(get_db), curre
     try:
         count = len(result) if isinstance(result, list) else 0
         log_to_db(db, request.project_id, "system", f"测试用例生成完成(批次{request.batch_index}): 数量={count}", user_id=current_user.id)
-        kb_ctx = knowledge_base.get_all_context(db, request.project_id) if db else ""
+        kb_ctx = knowledge_base.get_all_context(db, request.project_id, user_id=current_user.id) if db else ""
         diag = {
             "kind": "gen_diag",
             "mode": "text",
@@ -539,6 +611,7 @@ async def generate_tests_from_file(
     compress: bool = Form(False),
     expected_count: int = Form(20),
     force: bool = Form(False),
+    append: bool = Form(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -568,7 +641,7 @@ async def generate_tests_from_file(
 
         # Try to store document into Knowledge Base; if duplicate and not forced, return promptly
         try:
-            kb_add = knowledge_base.add_document(file.filename, content, doc_type, project_id, db, force=force)
+            kb_add = knowledge_base.add_document(file.filename, content, doc_type, project_id, db, force=force, user_id=current_user.id)
             if isinstance(kb_add, dict) and kb_add.get("status") == "duplicate" and not force:
                 # Try exact match first
                 prev = db.query(TestGeneration).filter(
@@ -609,7 +682,7 @@ async def generate_tests_from_file(
         try:
             count = len(result) if isinstance(result, list) else 0
             log_to_db(db, project_id, "system", f"文件生成完成: 数量={count}", user_id=current_user.id)
-            kb_ctx = knowledge_base.get_all_context(db, project_id) if db else ""
+            kb_ctx = knowledge_base.get_all_context(db, project_id, user_id=current_user.id) if db else ""
             diag = {
                 "kind": "gen_diag",
                 "mode": "file",
@@ -682,6 +755,7 @@ async def generate_tests_from_file_async(
     compress: bool = Form(False),
     expected_count: int = Form(20),
     force: bool = Form(False),
+    append: bool = Form(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -710,7 +784,7 @@ async def generate_tests_from_file_async(
 
         # Try to store document into Knowledge Base; if duplicate and not forced, return promptly
         try:
-            kb_add = knowledge_base.add_document(file.filename, content, doc_type, project_id, db, force=force)
+            kb_add = knowledge_base.add_document(file.filename, content, doc_type, project_id, db, force=force, user_id=current_user.id)
             if isinstance(kb_add, dict) and kb_add.get("status") == "duplicate" and not force:
                 # Try exact match first
                 prev = db.query(TestGeneration).filter(
@@ -831,6 +905,16 @@ def export_tests_excel(
 from fastapi.security import OAuth2PasswordBearer
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
+@app.get("/api/get-current-app-info")
+def get_current_app_info(
+    device_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    result = ui_automator.get_current_app_info(device_id)
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
 @app.post("/api/ui-automation")
 def run_ui_automation(req: UIRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user), token: str = Depends(oauth2_scheme)):
     # Verify project access
@@ -840,16 +924,47 @@ def run_ui_automation(req: UIRequest, db: Session = Depends(get_db), current_use
 
     log_to_db(db, req.project_id, "system", f"开始执行UI自动化: {req.task}", user_id=current_user.id)
     # 1. Generate AI-driven image recognition script
-    script = ui_automator.generate_ai_image_recognition_script(req.task, req.url, req.automation_type, db=db, user_id=current_user.id, token=token)
+    script = ui_automator.generate_ai_image_recognition_script(
+        req.task, 
+        req.url, 
+        req.automation_type, 
+        db=db, 
+        user_id=current_user.id, 
+        token=token, 
+        image_model=req.image_model,
+        requirement_context=req.requirement_context
+    )
     # 2. Execute script
     result = ui_automator.execute_script(script, req.url, req.task, req.automation_type, db, req.project_id, user_id=current_user.id)
     log_to_db(db, req.project_id, "system", f"UI自动化执行完成，结果: {result.get('status', 'unknown')}", user_id=current_user.id)
     return {"script": script, "result": result}
 
+@app.post("/api/debug/request")
+async def debug_request(req: ProxyRequest, current_user: User = Depends(get_current_user)):
+    try:
+        async with httpx.AsyncClient(timeout=req.timeout, verify=False) as client:
+            response = await client.request(
+                method=req.method,
+                url=req.url,
+                headers=req.headers,
+                params=req.params,
+                content=req.body if req.body else None
+            )
+            
+            return {
+                "status": response.status_code,
+                "headers": dict(response.headers),
+                "body": response.text,
+                "time": response.elapsed.total_seconds()
+            }
+    except Exception as e:
+         return JSONResponse(status_code=400, content={"error": str(e)})
+
 @app.post("/api/ai-locate-element")
 async def ai_locate_element(
     image: UploadFile = File(...),
     element_description: str = Form(...),
+    image_model: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -859,6 +974,7 @@ async def ai_locate_element(
     Args:
         image: The screenshot image file
         element_description: Description of the element to locate
+        image_model: Optional model name to use for image analysis
         
     Returns:
         dict: Coordinates of the located element
@@ -870,7 +986,7 @@ async def ai_locate_element(
             temp_file_path = temp_file.name
         
         # Use AI to locate element
-        coords = ui_automator.ai_locate_element(temp_file_path, element_description, db=db, user_id=current_user.id)
+        coords = ui_automator.ai_locate_element(temp_file_path, element_description, db=db, user_id=current_user.id, image_model=image_model)
         
         # Clean up temp file
         os.unlink(temp_file_path)
@@ -955,6 +1071,63 @@ def evaluate_api_test(req: APITestEvalRequest, db: Session = Depends(get_db), cu
 
     result = evaluator.evaluate_api_test(req.script, req.execution_result, db, req.project_id, user_id=current_user.id, openapi_spec=req.openapi_spec)
     return {"result": result}
+
+@app.post("/api/estimate-test-count")
+async def estimate_test_count_endpoint(
+    project_id: int = Form(...),
+    requirement: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    doc_type: str = Form("requirement"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        # Debug logging
+        try:
+            log_msg = f"Estimate req: proj={project_id}, file={file.filename if file else 'None'}"
+            db.add(LogEntry(project_id=project_id if project_id > 0 else None, log_type="info", message=log_msg))
+            db.commit()
+        except Exception as log_e:
+            logger.error(f"Log failed: {log_e}")
+
+        content = ""
+        if file:
+            try:
+                content = await parse_file_content(file)
+            except Exception as e:
+                logger.error(f"File parse error in estimate: {e}")
+                pass
+        elif requirement:
+            content = requirement
+            
+        from fastapi.concurrency import run_in_threadpool
+        
+        count = await run_in_threadpool(
+            test_generator.estimate_test_count,
+            requirement=content,
+            project_id=project_id,
+            db=db,
+            user_id=current_user.id
+        )
+        return {"count": count}
+    except Exception as e:
+        logger.error(f"Estimation error: {e}")
+        try:
+             db.add(LogEntry(project_id=project_id if project_id > 0 else None, log_type="error", message=f"Estimate Error: {str(e)}"))
+             db.commit()
+        except: pass
+        
+        # Return a fallback
+        fallback = 20
+        if file:
+             # Rough fallback if everything fails
+             fallback = 40
+        elif requirement:
+             length = len(requirement)
+             if length < 200: fallback = 5
+             elif length < 1000: fallback = 20
+             else: fallback = 40
+        return {"count": fallback}
 
 @app.post("/api/compare-test-cases")
 async def compare_test_cases(
@@ -1195,42 +1368,54 @@ def get_knowledge_list(
 
     docs = knowledge_base.get_documents_list(db, project_id, search, start_date, end_date)
     
-    # Source documents used for pagination (requirements / 残缺类文档)
-    # 作为“可被关联”的父文档：包含需求文档、旧版残缺文档以及产品需求
-    source_docs = [d for d in docs if d.doc_type in ['requirement', 'incomplete', 'product_requirement']]
+    # Filter documents while preserving order from get_documents_list (display_order DESC)
+    display_docs = []
     
-    # Apply doc_type filter if provided
-    if doc_type:
-        # Frontend still使用 doc_type = 'incomplete' 表示“残缺文档”分类，
-        # 这里需要将其映射为多种实际子类型
-        if doc_type == "incomplete":
-            # “残缺文档”筛选包含旧的 incomplete 以及新的 product_requirement
-            source_docs = [d for d in source_docs if d.doc_type in ['incomplete', 'product_requirement']]
-        else:
-            source_docs = [d for d in source_docs if d.doc_type == doc_type]
+    for d in docs:
+        is_source = d.doc_type in ['requirement', 'incomplete', 'product_requirement']
+        is_child = d.doc_type in ['test_case', 'prototype']
+        
+        should_include = False
+        
+        if is_source:
+            if doc_type:
+                if doc_type == "incomplete":
+                    if d.doc_type in ['incomplete', 'product_requirement']:
+                        should_include = True
+                elif d.doc_type == doc_type:
+                    should_include = True
+            else:
+                should_include = True
+                
+        elif is_child:
+            if doc_type:
+                if d.doc_type == doc_type:
+                    should_include = True
+            else:
+                # Hide associated test cases in main list view
+                if not d.source_doc_id:
+                    should_include = True
+        
+        # Include evaluation_report if needed (though usually handled separately or not in main list?)
+        # Current logic in old code didn't seem to explicitly exclude others, 
+        # but old code defined source_docs and child_docs explicitly.
+        # If there are other types (e.g. evaluation_report), they were ignored in old code?
+        # Old code: display_docs = source_docs + child_docs. So yes, others were ignored.
+        
+        if should_include:
+            display_docs.append(d)
+            
+    # Do NOT re-sort. Respect display_order from get_documents_list.
     
-    # Child documents：测试用例和原型图
-    # Logic:
-    # 1. If doc_type is specified, only include matching types.
-    # 2. If doc_type is NOT specified (default view), only include ORPHANED child docs (hide associated ones to avoid duplication).
-    all_child_docs = [d for d in docs if d.doc_type in ['test_case', 'prototype']]
+    # Pagination logic for combined documents
+    total_docs = len(display_docs)
+    total_pages = (total_docs + page_size - 1) // page_size
+    if total_pages < 1:
+        total_pages = 1
     
-    if doc_type:
-        child_docs = [d for d in all_child_docs if d.doc_type == doc_type]
-    else:
-        # Hide associated test cases in main list view
-        child_docs = [d for d in all_child_docs if not d.source_doc_id]
-    
-    # Pagination logic for source documents
-    total_source_docs = len(source_docs)
-    total_pages = (total_source_docs + page_size - 1) // page_size
-    
-    # Calculate offset and limit for source documents
+    # Calculate offset and limit
     offset = (page - 1) * page_size
-    paginated_source_docs = source_docs[offset : offset + page_size]
-    
-    # Combine paginated source documents with all child documents
-    paginated_docs = paginated_source_docs + child_docs
+    paginated_docs = display_docs[offset : offset + page_size]
     
     # Pre-fetch source filenames to avoid N+1 issues or lazy load errors in dict comp
     # Or just construct the list manually
@@ -1279,7 +1464,7 @@ def get_knowledge_list(
     return {
         "documents": result,
         "pagination": {
-            "total": total_source_docs,
+            "total": total_docs,
             "page": page,
             "page_size": page_size,
             "total_pages": total_pages
@@ -1335,6 +1520,33 @@ def update_relation(req: RelationUpdate, db: Session = Depends(get_db), current_
     # For relation updates, we need to use global_id
     # Let's update the knowledge_base.update_relation method to handle this
     success = knowledge_base.update_relation(req.doc_id, req.source_doc_id, db)
+    return {"success": success}
+
+class MoveDocumentRequest(BaseModel):
+    project_id: int
+    doc_id: int
+    anchor_doc_id: int
+    position: str # 'before' or 'after'
+
+@app.post("/api/knowledge/move")
+def move_document(req: MoveDocumentRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    success = knowledge_base.move_document(req.project_id, req.doc_id, req.anchor_doc_id, req.position, db)
+    if not success:
+        return {"error": "Move failed"}
+    return {"success": True}
+
+class ReorderRequest(BaseModel):
+    project_id: int
+    ordered_ids: List[int]
+
+@app.post("/api/knowledge/reorder")
+def reorder_knowledge(req: ReorderRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    # Verify project ownership
+    project = db.query(Project).filter(Project.id == req.project_id, Project.user_id == current_user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    success = knowledge_base.reorder_documents(req.project_id, req.ordered_ids, db)
     return {"success": success}
 
 @app.put("/api/knowledge/{doc_id}")
@@ -1502,6 +1714,7 @@ async def generate_tests_stream(
     compress: bool = Form(False),
     expected_count: int = Form(20),
     force: bool = Form(False),
+    append: bool = Form(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -1510,87 +1723,109 @@ async def generate_tests_stream(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    content = ""
-    if file:
-        base_prompt = "OCR: Extract all text from this image."
+    async def stream_generator():
+        yield "@@STATUS@@:正在初始化任务...\n"
+        content = ""
+        
         try:
-            content = await parse_file_content(file, base_prompt)
-        except Exception as e:
-            logger.error(f"File parse error: {e}")
-            raise HTTPException(status_code=400, detail=f"文件解析失败: {e}")
+            if file:
+                yield f"@@STATUS@@:正在解析文件 {file.filename} (OCR)...\n"
+                base_prompt = "OCR: Extract all text from this image."
+                try:
+                    content = await parse_file_content(file, base_prompt)
+                except Exception as e:
+                    logger.error(f"File parse error: {e}")
+                    yield f"Error: 文件解析失败: {e}"
+                    return
 
-        try:
-            kb_add = knowledge_base.add_document(file.filename, content, doc_type, project_id, db, force=force)
-            if isinstance(kb_add, dict) and kb_add.get("status") == "duplicate":
-                existing_gen = db.query(TestGeneration).filter(
-                    TestGeneration.project_id == project_id,
-                    TestGeneration.requirement_text == content,
-                    TestGeneration.user_id == current_user.id
-                ).order_by(desc(TestGeneration.created_at)).first()
-
-                if not existing_gen and kb_add.get("existing_doc_id"):
-                    existing_doc = db.query(KnowledgeDocument).filter(
-                        KnowledgeDocument.id == kb_add.get("existing_doc_id")
-                    ).first()
-                    if existing_doc and existing_doc.content:
+                yield "@@STATUS@@:正在更新知识库...\n"
+                try:
+                    kb_add = knowledge_base.add_document(file.filename, content, doc_type, project_id, db, force=force, user_id=current_user.id)
+                    if isinstance(kb_add, dict) and kb_add.get("status") == "duplicate" and not append:
                         existing_gen = db.query(TestGeneration).filter(
                             TestGeneration.project_id == project_id,
-                            TestGeneration.requirement_text == existing_doc.content,
+                            TestGeneration.requirement_text == content,
                             TestGeneration.user_id == current_user.id
                         ).order_by(desc(TestGeneration.created_at)).first()
 
-                if existing_gen and existing_gen.generated_result:
-                    async def duplicate_stream():
+                        if not existing_gen and kb_add.get("existing_doc_id"):
+                            existing_doc = db.query(KnowledgeDocument).filter(
+                                KnowledgeDocument.id == kb_add.get("existing_doc_id")
+                            ).first()
+                            if existing_doc and existing_doc.content:
+                                existing_gen = db.query(TestGeneration).filter(
+                                    TestGeneration.project_id == project_id,
+                                    TestGeneration.requirement_text == existing_doc.content,
+                                    TestGeneration.user_id == current_user.id
+                                ).order_by(desc(TestGeneration.created_at)).first()
+
+                        if existing_gen and existing_gen.generated_result:
+                            yield f"@@DUPLICATE@@:{{\"id\": {existing_gen.id}}}"
+                            return
+                except Exception as e:
+                    logger.error(f"Failed to add to KB: {e}")
+
+            elif requirement_text:
+                content = requirement_text
+                if not force and not append:
+                    existing_gen = db.query(TestGeneration).filter(
+                        TestGeneration.project_id == project_id,
+                        TestGeneration.requirement_text == content,
+                        TestGeneration.user_id == current_user.id
+                    ).order_by(desc(TestGeneration.created_at)).first()
+
+                    if existing_gen and existing_gen.generated_result:
                         yield f"@@DUPLICATE@@:{{\"id\": {existing_gen.id}}}"
-                    return StreamingResponse(duplicate_stream(), media_type="text/event-stream")
+                        return
+            
+            if doc_type == "incomplete" and prototype_file:
+                yield "@@STATUS@@:正在解析原型图...\n"
+                proto_prompt = (
+                    "Analyze this UI prototype image. Describe every UI element, their layout, text content, and likely interactions. "
+                    "Identify input fields, buttons, navigation menus, and any visual indicators of state."
+                )
+                try:
+                    proto_text = await parse_file_content(prototype_file, proto_prompt)
+                    content = f"{content}\n\n[Prototype Analysis]\n{proto_text}"
+                except Exception as e:
+                    logger.error(f"Prototype parse error: {e}")
+                    yield f"Error: 原型图解析失败: {e}"
+                    return
+
+            if not content:
+                yield "Error: 未提供有效内容"
+                return
+
+            if expected_count is None or int(expected_count) < 1:
+                yield "Error: 预期用例数必须为大于等于 1 的整数\n"
+                return
+
+            yield "@@STATUS@@:正在生成测试用例...\n"
+            
+            try:
+                # Call generator function first to get the iterator
+                # iterate_in_threadpool expects an iterator, not a function + args
+                iterator = test_generator.generate_test_cases_stream(
+                    content,
+                    project_id,
+                    db,
+                    doc_type,
+                    compress,
+                    expected_count,
+                    overwrite=force,
+                    append=append,
+                    user_id=current_user.id
+                )
+                
+                async for chunk in iterate_in_threadpool(iterator):
+                    yield chunk
+            except Exception as e:
+                logger.error(f"Stream generation error: {e}")
+                yield f"Error: 生成过程出错: {e}"
+
         except Exception as e:
-            logger.error(f"Failed to add to KB: {e}")
-
-    elif requirement_text:
-        content = requirement_text
-        if not force:
-            existing_gen = db.query(TestGeneration).filter(
-                TestGeneration.project_id == project_id,
-                TestGeneration.requirement_text == content,
-                TestGeneration.user_id == current_user.id
-            ).order_by(desc(TestGeneration.created_at)).first()
-
-            if existing_gen and existing_gen.generated_result:
-                async def duplicate_stream():
-                    yield f"@@DUPLICATE@@:{{\"id\": {existing_gen.id}}}"
-                return StreamingResponse(duplicate_stream(), media_type="text/event-stream")
-
-    if doc_type == "incomplete" and prototype_file:
-        proto_prompt = (
-            "Analyze this UI prototype image. Describe every UI element, their layout, text content, and likely interactions. "
-            "Identify input fields, buttons, navigation menus, and any visual indicators of state."
-        )
-        try:
-            proto_text = await parse_file_content(prototype_file, proto_prompt)
-            content = f"{content}\n\n[Prototype Analysis]\n{proto_text}"
-        except Exception as e:
-            logger.error(f"Prototype parse error: {e}")
-            raise HTTPException(status_code=400, detail=f"原型图解析失败: {e}")
-
-    if not content:
-        raise HTTPException(status_code=400, detail="未提供有效内容")
-
-    async def stream_generator():
-        try:
-            async for chunk in test_generator.generate_test_cases_stream(
-                content,
-                project_id,
-                db,
-                doc_type,
-                compress,
-                expected_count,
-                overwrite=force,
-                user_id=current_user.id
-            ):
-                yield chunk
-        except Exception as e:
-            logger.error(f"Stream generation error: {e}")
-            yield "[]"
+            logger.error(f"Outer stream error: {e}")
+            yield f"Error: 系统错误: {e}"
 
     return StreamingResponse(
         stream_generator(),
@@ -1618,6 +1853,8 @@ class ConfigValidateRequest(BaseModel):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     model_name: str
+    vl_model_name: Optional[str] = None
+    turbo_model_name: Optional[str] = None
 
 class ConfigSaveRequest(BaseModel):
     provider: str
@@ -1655,9 +1892,39 @@ async def validate_config(req: ConfigValidateRequest):
             )
         
         if not provider:
-            return {"valid": False, "error": f"Unknown provider: {req.provider}"}
+            return {"valid": False, "error": f"未知的服务商: {req.provider}"}
             
         result = provider.test_connection()
+        
+        # Additional checks for VL and Turbo models if provided and connection is successful
+        if result["success"]:
+            # Check Vision Model (VL)
+            if req.vl_model_name:
+                try:
+                    # Use multimodal_generate for VL model check
+                    # Construct message compatible with both providers (List of dicts for content)
+                    test_msgs = [{"role": "user", "content": [{"text": "hi"}]}]
+                    res_vl = provider.multimodal_generate(test_msgs, model=req.vl_model_name)
+                    
+                    if res_vl.startswith("OCR Error") or res_vl.startswith("OCR Exception") or res_vl.startswith("Error"):
+                         result["success"] = False
+                         result["error"] = {"message": f"图像模型 ({req.vl_model_name}) 验证失败: {res_vl}"}
+                except Exception as e:
+                     result["success"] = False
+                     result["error"] = {"message": f"图像模型 ({req.vl_model_name}) 验证异常: {str(e)}"}
+
+            # Check Turbo Model (only if still successful)
+            if result["success"] and req.turbo_model_name:
+                try:
+                    test_msgs = [{"role": "user", "content": "hi"}]
+                    res_tb = provider.generate(test_msgs, model=req.turbo_model_name, max_tokens=5)
+                    
+                    if res_tb.startswith("Error") or res_tb.startswith("Exception"):
+                         result["success"] = False
+                         result["error"] = {"message": f"压缩模型 ({req.turbo_model_name}) 验证失败: {res_tb}"}
+                except Exception as e:
+                     result["success"] = False
+                     result["error"] = {"message": f"压缩模型 ({req.turbo_model_name}) 验证异常: {str(e)}"}
         
         response_data = {"valid": result["success"], "details": result}
         
@@ -1673,7 +1940,46 @@ async def validate_config(req: ConfigValidateRequest):
         
     except Exception as e:
         logger.error(f"Config validation error: {str(e)}")
-        return {"valid": False, "error": f"Validation exception: {str(e)}"}
+        return {"valid": False, "error": f"验证过程发生异常: {str(e)}"}
+
+@app.post("/api/config/quota")
+async def get_config_quota(req: ConfigValidateRequest, db: Session = Depends(get_db)):
+    """
+    Get quota/balance for the given configuration.
+    Uses the same ConfigValidateRequest to reconstruct provider.
+    If api_key is masked (******), attempts to use the active config from DB.
+    """
+    try:
+        real_api_key = req.api_key
+        
+        # Handle masked key by fetching active config
+        if req.api_key == "******":
+            from core.config_manager import config_manager
+            active_config = config_manager.get_active_config(db)
+            if active_config and active_config.provider == req.provider:
+                # Use the stored key
+                real_api_key = config_manager.get_decrypted_api_key(active_config)
+            else:
+                # If no active config or provider mismatch, we can't authenticate
+                return {"supported": False, "message": "API Key 已加密，但未找到匹配的活跃配置。"}
+
+        provider = None
+        if req.provider == "dashscope":
+            provider = DashScopeProvider(real_api_key or "")
+        elif req.provider in ["openai", "ollama", "local"]:
+            provider = OpenAICompatibleProvider(
+                base_url=req.base_url or "",
+                api_key=real_api_key or "",
+                model=req.model_name
+            )
+            
+        if not provider:
+            return {"supported": False, "message": f"未知的服务商: {req.provider}"}
+            
+        return provider.get_balance()
+    except Exception as e:
+        logger.error(f"Quota check error: {str(e)}")
+        return {"supported": False, "message": f"额度查询异常: {str(e)}"}
 
 @app.post("/api/config/save")
 async def save_config(req: ConfigSaveRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -1844,9 +2150,23 @@ async def spa_fallback(full_path: str):
     if full_path == "api" or full_path.startswith("api/") or full_path == "static" or full_path.startswith("static/"):
         raise HTTPException(status_code=404)
     
+    # Check if it's a code file early to handle errors correctly
+    lower_path = full_path.lower()
+    is_code_file = (
+        lower_path.endswith(".tsx") or 
+        lower_path.endswith(".ts") or 
+        lower_path.endswith(".jsx") or 
+        lower_path.endswith(".js") or 
+        lower_path.endswith(".mjs") or
+        "@vite/client" in full_path or
+        "@react-refresh" in full_path or
+        "node_modules" in full_path
+    )
+
     # DYNAMIC PROXY MODE (No 'dist' dependency)
-    # Always try to proxy to Vite dev server (localhost:5173)
-    dev_server_url = "http://localhost:5173"
+    # Always try to proxy to Vite dev server (127.0.0.1:5173)
+    # Use 127.0.0.1 to avoid localhost IPv6 resolution issues
+    dev_server_url = "http://127.0.0.1:5173"
     
     try:
         async with httpx.AsyncClient(trust_env=False) as client:
@@ -1855,14 +2175,34 @@ async def spa_fallback(full_path: str):
             if full_path == "":
                 target_url = f"{dev_server_url}/"
             
+            # logger.info(f"Proxying request: {full_path} -> {target_url}")
+            
             try:
                 resp = await client.get(target_url)
-            except httpx.ConnectError:
+                # logger.info(f"Proxy response: {resp.status_code} {resp.headers.get('content-type')}")
+            except (httpx.ConnectError, httpx.RequestError) as e:
+                logger.error(f"Frontend Proxy Connect/Request Error: {e}")
+                
+                if is_code_file:
+                    # Return valid JS that logs error, avoiding MIME type mismatch
+                    # Also mock @react-refresh exports to prevent SyntaxError in browser
+                    err_msg = json.dumps(f"Frontend Dev Server not running (port 5173). Failed to load {full_path}. Error: {str(e)}")
+                    js_content = f"console.error({err_msg});"
+                    
+                    if "@react-refresh" in full_path:
+                        js_content += "\nexport const injectIntoGlobalHook = () => {};"
+                        
+                    return Response(
+                        content=js_content, 
+                        media_type="text/javascript"
+                    )
+                
                 # If dev server not running, show friendly error
                 return HTMLResponse(
                     "<h1>Frontend Dev Server not running (port 5173).</h1>"
                     "<p>Please run <code>npm run dev</code> in frontend directory.</p>"
                     "<p>Since 'dist' dependency is removed, the dev server is required.</p>"
+                    f"<p>Error: {str(e)}</p>"
                 )
             
             # If 404 from dev server, and looks like SPA route (no dot), try index.html
@@ -1872,18 +2212,47 @@ async def spa_fallback(full_path: str):
             # Forward headers but exclude those that might conflict with the decompressed content
             # httpx automatically decodes gzip, so we MUST remove Content-Encoding
             excluded_headers = {"content-encoding", "content-length", "transfer-encoding", "connection"}
-            headers = {
-                k: v for k, v in resp.headers.items() 
-                if k.lower() not in excluded_headers
-            }
+            headers = {}
+            for k, v in resp.headers.items():
+                if k.lower() not in excluded_headers:
+                    headers[k] = v
+
+            media_type = resp.headers.get("content-type")
+            
+            # Fix MIME type for JS/TS files if incorrect (safety net for module loading)
+            # Vite often serves these with correct types, but if something goes wrong or fallback hits, we might see text/html
+            # Also handle @vite/client and @react-refresh which don't have extensions
+            
+            if is_code_file:
+                # If content-type is missing or looks like html, force javascript
+                # We apply this for 200, 304, and even 404/500 to prevent "MIME type" errors from masking the real content/error
+                # especially when Vite returns HTML for 404s or cached 304s with wrong types.
+                if not media_type or "text/html" in media_type:
+                    # logger.info(f"Fixing MIME type for {full_path}: {media_type} -> text/javascript")
+                    media_type = "text/javascript"
+                    # Remove existing Content-Type header (case-insensitive)
+                    keys_to_remove = [k for k in headers.keys() if k.lower() == "content-type"]
+                    for k in keys_to_remove:
+                        del headers[k]
+                    headers["content-type"] = "text/javascript"
 
             return Response(
                 content=resp.content, 
                 status_code=resp.status_code, 
-                media_type=resp.headers.get("content-type"),
+                media_type=media_type,
                 headers=headers
             )
     except Exception as e:
+        logger.error(f"Proxy Generic Error: {e}")
+        if is_code_file:
+            err_msg = json.dumps(f"Proxy Generic Error: {str(e)}")
+            js_content = f"console.error({err_msg});"
+            if "@react-refresh" in full_path:
+                 js_content += "\nexport const injectIntoGlobalHook = () => {};"
+            return Response(
+                content=js_content, 
+                media_type="text/javascript"
+            )
         return HTMLResponse(f"<h1>Proxy Error</h1><p>{str(e)}</p>")
 
 if __name__ == "__main__":

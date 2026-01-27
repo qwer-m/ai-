@@ -9,6 +9,8 @@ export default defineConfig({
     hmr: {
       clientPort: 5173,
     },
+    port: 5173, // Force port 5173
+    strictPort: true, // Fail if port is busy instead of auto-incrementing
     host: '127.0.0.1',
     proxy: {
       '/api': {

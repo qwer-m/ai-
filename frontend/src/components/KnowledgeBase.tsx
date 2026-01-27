@@ -45,15 +45,19 @@ export function KnowledgeBase({ projectId, onLog }: Props) {
   // List State
   const [docs, setDocs] = useState<Doc[]>([]);
   const [loading, setLoading] = useState(false);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(() => {
+      if (!projectId) return 1;
+      const saved = sessionStorage.getItem(`kb_page_${projectId}`);
+      return saved ? parseInt(saved) : 1;
+  });
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
   
   // Filters
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterDocType] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => sessionStorage.getItem(`kb_search_${projectId}`) || '');
+  const [filterDocType, setFilterDocType] = useState(() => sessionStorage.getItem(`kb_type_${projectId}`) || '');
+  const [startDate, setStartDate] = useState(() => sessionStorage.getItem(`kb_start_${projectId}`) || '');
+  const [endDate, setEndDate] = useState(() => sessionStorage.getItem(`kb_end_${projectId}`) || '');
 
   // Preview Modal State
   const [showPreview, setShowPreview] = useState(false);
@@ -74,6 +78,10 @@ export function KnowledgeBase({ projectId, onLog }: Props) {
 
   // --- Smart Prefetch Cache ---
   const prefetchCache = useRef<Map<number, any>>(new Map());
+  
+  // Refs for tracking changes
+  const prevProjectId = useRef(projectId);
+  const prevFilters = useRef({ searchTerm, filterDocType, startDate, endDate });
 
   // Offline Listener
   useEffect(() => {
@@ -87,38 +95,155 @@ export function KnowledgeBase({ projectId, onLog }: Props) {
       };
   }, []);
 
-  const fetchList = async (p = 1) => {
+  // Persist Filters & Page
+  useEffect(() => {
     if (!projectId) return;
-    setLoading(true);
-    try {
-      let url = `/api/knowledge-list?project_id=${projectId}&page=${p}&page_size=8`; // 8 per page as requested
-      if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
-      if (filterDocType) url += `&doc_type=${encodeURIComponent(filterDocType)}`;
-      if (startDate) url += `&start_date=${encodeURIComponent(startDate)}`;
-      if (endDate) url += `&end_date=${encodeURIComponent(endDate)}`;
+    sessionStorage.setItem(`kb_search_${projectId}`, searchTerm);
+    sessionStorage.setItem(`kb_type_${projectId}`, filterDocType);
+    sessionStorage.setItem(`kb_start_${projectId}`, startDate);
+    sessionStorage.setItem(`kb_end_${projectId}`, endDate);
+  }, [projectId, searchTerm, filterDocType, startDate, endDate]);
 
-      const data = await api.get<any>(url);
-      
-      if (data.documents) {
-        setDocs(data.documents);
-        setPage(data.pagination.page);
-        setTotalPages(data.pagination.total_pages);
-        setTotalItems(data.pagination.total || data.documents.length); // Assuming API might add total
-      } else {
-        setDocs([]);
-        setTotalItems(0);
+  // Restore Page on Mount/Project Change
+  useEffect(() => {
+      if (!projectId) return;
+      const savedPage = sessionStorage.getItem(`kb_page_${projectId}`);
+      if (savedPage) {
+          const p = parseInt(savedPage);
+          if (p !== page) setPage(p);
       }
-    } catch (e) {
-      onLog(`获取列表失败: ${e}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [projectId]);
+
+  // Old fetchList removed in favor of doFetchList and wrapper below
+
 
   useEffect(() => {
-    if (projectId) fetchList(1);
-    else setDocs([]);
+    if (!projectId) {
+        setDocs([]);
+        return;
+    }
+
+    const filtersChanged = 
+        searchTerm !== prevFilters.current.searchTerm ||
+        filterDocType !== prevFilters.current.filterDocType ||
+        startDate !== prevFilters.current.startDate ||
+        endDate !== prevFilters.current.endDate;
+    
+    // Check if project just changed (or first mount with project)
+    const projectChanged = projectId !== prevProjectId.current;
+
+    // If filters changed, reset to page 1
+    if (filtersChanged) {
+        fetchList(1);
+    } else if (projectChanged) {
+        // If project changed, we need to reload filters for the NEW project from session
+        // However, useState only runs once. We need to manually update state to match session.
+        const pId = projectId!; // Safe because we returned if !projectId
+        const savedSearch = sessionStorage.getItem(`kb_search_${pId}`) || '';
+        const savedType = sessionStorage.getItem(`kb_type_${pId}`) || '';
+        const savedStart = sessionStorage.getItem(`kb_start_${pId}`) || '';
+        const savedEnd = sessionStorage.getItem(`kb_end_${pId}`) || '';
+        const savedPage = sessionStorage.getItem(`kb_page_${pId}`);
+        
+        // Batch updates
+        setSearchTerm(savedSearch);
+        setFilterDocType(savedType);
+        setStartDate(savedStart);
+        setEndDate(savedEnd);
+        
+        // Use saved page or default to 1
+        const targetPage = savedPage ? parseInt(savedPage) : 1;
+        
+        // We need to fetch with the *new* values, not the current state (which is old)
+        // fetchList uses state, so we can't call it immediately if state update is async.
+        // But we can call the API directly or pass params to fetchList if we refactor it.
+        // Better: Refactor fetchList to accept overrides.
+        // For now, let's just update state. The next effect cycle might not catch it if we don't include them in deps?
+        // Actually, if we set state, it triggers re-render.
+        // We should *not* call fetchList here if we want the re-render to handle it.
+        // But the re-render will trigger this effect again.
+        // We need to avoid infinite loop.
+        
+        // Strategy: 
+        // 1. Update state.
+        // 2. The state change will trigger this effect again.
+        // 3. In the next run, `projectChanged` will be false (because we update prevProjectId now).
+        // 4. `filtersChanged` might be true if we updated them?
+        //    If we update `searchTerm`, `prevFilters` (ref) is still old.
+        //    So `filtersChanged` will be true.
+        //    Then it calls `fetchList(1)`.
+        //    Wait, if we load saved page, we don't want page 1.
+        
+        // Let's modify logic:
+        // If project changed:
+        //   Load saved filters & page.
+        //   Set states.
+        //   Set `prevProjectId` to new.
+        //   Set `prevFilters` to NEW values.
+        //   Call fetchList(savedPage) with NEW values.
+        
+        // But fetchList uses `searchTerm` state. We can't guarantee state is updated instantly.
+        // So we need to pass params to fetchList.
+        
+        // Let's change fetchList signature or usage.
+        doFetchList(pId, targetPage, savedSearch, savedType, savedStart, savedEnd);
+        
+        // Update refs manually to prevent double-fetch in next render
+        prevFilters.current = { 
+            searchTerm: savedSearch, 
+            filterDocType: savedType, 
+            startDate: savedStart, 
+            endDate: savedEnd 
+        };
+    } else {
+        // If only project changed (or mount), try to restore page
+        const savedPage = sessionStorage.getItem(`kb_page_${projectId}`);
+        const targetPage = savedPage ? parseInt(savedPage) : 1;
+        fetchList(targetPage);
+    }
+
+    // Update refs
+    prevProjectId.current = projectId;
+    if (!projectChanged) {
+       prevFilters.current = { searchTerm, filterDocType, startDate, endDate };
+    }
   }, [projectId, searchTerm, filterDocType, startDate, endDate]);
+
+  const doFetchList = async (pid: number, p: number, search: string, type: string, start: string, end: string) => {
+      setLoading(true);
+      try {
+        let url = `/api/knowledge-list?project_id=${pid}&page=${p}&page_size=8`;
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        if (type) url += `&doc_type=${encodeURIComponent(type)}`;
+        if (start) url += `&start_date=${encodeURIComponent(start)}`;
+        if (end) url += `&end_date=${encodeURIComponent(end)}`;
+
+        const data = await api.get<any>(url);
+        
+        if (data.documents) {
+          setDocs(data.documents);
+          setPage(data.pagination.page); // Should be p
+          setTotalPages(data.pagination.total_pages);
+          setTotalItems(data.pagination.total || data.documents.length);
+          sessionStorage.setItem(`kb_page_${pid}`, String(data.pagination.page));
+        } else {
+          setDocs([]);
+          setTotalItems(0);
+        }
+        return data;
+      } catch (e) {
+        onLog(`获取列表失败: ${e}`);
+        return null;
+      } finally {
+        setLoading(false);
+      }
+  };
+  
+  // Wrapper for existing calls that use state
+  const fetchList = (p = 1) => {
+      if (!projectId) return;
+      doFetchList(projectId, p, searchTerm, filterDocType, startDate, endDate);
+  };
 
   const handleUpload = async () => {
     if (!projectId) return alert('请先选择项目');
@@ -146,7 +271,7 @@ export function KnowledgeBase({ projectId, onLog }: Props) {
       } else {
         setToastMsg({ type: 'success', msg: `上传成功: ${data.filename}` });
         setFile(null); 
-        fetchList(1);
+        fetchList(page);
         trackOperation('upload_document', { filename: data.filename, project_id: projectId });
       }
     } catch (e) {
@@ -246,14 +371,184 @@ export function KnowledgeBase({ projectId, onLog }: Props) {
     }
   };
 
-  const handleClean = async () => {
-    if (!confirm('确定要清理跨项目关联数据吗？')) return;
-    try {
-      const data = await api.post<any>('/api/knowledge/clean-cross-project', {});
-      setToastMsg({ type: 'success', msg: data.message });
-    } catch (e) {
-      setToastMsg({ type: 'error', msg: `清理失败: ${e}` });
-    }
+  // DnD
+  const dragItem = useRef<number | null>(null);
+  const draggedDocRef = useRef<Doc | null>(null);
+  const pageSwitchTimer = useRef<any>(null);
+  const [dragTarget, setDragTarget] = useState<{index: number, position: 'before' | 'after'} | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, index: number, doc: Doc) => {
+      dragItem.current = index;
+      draggedDocRef.current = doc;
+      e.dataTransfer.effectAllowed = "move";
+      // 设置透明图像以避免默认的拖拽残影遮挡视线（可选）
+      // const img = new Image();
+      // img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+      // e.dataTransfer.setDragImage(img, 0, 0);
+  };
+
+  const handleItemDragOver = (e: React.DragEvent, index: number) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const rect = e.currentTarget.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      const position = e.clientY < midY ? 'before' : 'after';
+
+      if (!dragTarget || dragTarget.index !== index || dragTarget.position !== position) {
+          setDragTarget({ index, position });
+      }
+  };
+  
+  const handleDragLeave = () => {
+      // 可以在这里做一些清理，但由于 bubble 机制，可能需要谨慎
+  };
+
+  const handlePageDragEnter = (targetPage: number) => {
+      if (pageSwitchTimer.current) clearTimeout(pageSwitchTimer.current);
+      pageSwitchTimer.current = setTimeout(() => {
+          if (targetPage !== page) {
+              fetchList(targetPage);
+          }
+      }, 600);
+  };
+
+  const handlePageDragLeave = () => {
+       if (pageSwitchTimer.current) clearTimeout(pageSwitchTimer.current);
+  };
+
+  const handlePageDrop = async (e: React.DragEvent, targetPage: number) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (pageSwitchTimer.current) clearTimeout(pageSwitchTimer.current);
+
+      const draggedDoc = draggedDocRef.current;
+      if (!draggedDoc || !projectId) {
+          resetDrag();
+          return;
+      }
+
+      // If we are already on this page, and no specific item target, 
+      // maybe we just want to move to end?
+      // But if we are on same page, handleDrop usually handles sorting within list.
+      // If user drops on page number of CURRENT page, let's treat it as "Move to End of Page".
+      
+      setLoading(true);
+      try {
+          // Switch to target page and get its content
+          const data = await doFetchList(projectId, targetPage, searchTerm, filterDocType, startDate, endDate);
+          
+          if (data && data.documents && data.documents.length > 0) {
+             // To append to this page, we place it AFTER the last item
+             const anchor = data.documents[data.documents.length - 1];
+             
+             // Avoid self-referencing if somehow it's the same
+             if (anchor.global_id !== draggedDoc.global_id) {
+                 await api.post('/api/knowledge/move', {
+                    project_id: projectId,
+                    doc_id: draggedDoc.global_id,
+                    anchor_doc_id: anchor.global_id,
+                    position: 'after'
+                 });
+                 // Fetch again to show updated order
+                 fetchList(targetPage);
+                 setToastMsg({ type: 'success', msg: `已移动到第 ${targetPage} 页末尾` });
+             }
+          }
+      } catch (e) {
+          setToastMsg({ type: 'error', msg: `移动失败: ${e}` });
+      } finally {
+          resetDrag();
+          setLoading(false);
+      }
+  };
+
+  const resetDrag = () => {
+      dragItem.current = null;
+      draggedDocRef.current = null;
+      setDragTarget(null);
+      if (pageSwitchTimer.current) clearTimeout(pageSwitchTimer.current);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+      e.preventDefault();
+      
+      // Reset timer
+      if (pageSwitchTimer.current) clearTimeout(pageSwitchTimer.current);
+
+      const draggedDoc = draggedDocRef.current;
+      if (!draggedDoc) {
+          resetDrag();
+          return;
+      }
+
+      if (!dragTarget) {
+          resetDrag();
+          return;
+      }
+
+      const { index: dropIndex, position } = dragTarget;
+      const anchorDoc = docs[dropIndex];
+
+      if (!anchorDoc) {
+          resetDrag();
+          return;
+      }
+
+      // Check if same doc
+      if (anchorDoc.global_id === draggedDoc.global_id) {
+          resetDrag();
+          return;
+      }
+
+      // 检查是否是同页面的相邻位置移动（无效移动）
+      // 如果在同一页，且移动到自己前面或后面，或者移动到相邻元素导致顺序不变
+      // 这里的逻辑稍微复杂，简化处理：只要不是自己，就提交给后端，后端会判断顺序
+      // 但为了减少请求，可以做简单判断
+      // 比如：index 5, drop on 4 (after) -> index 5 (no change)
+      // index 5, drop on 6 (before) -> index 5 (no change)
+      
+      const isSamePage = docs.some(d => d.global_id === draggedDoc.global_id);
+      if (isSamePage) {
+           const dragIndex = dragItem.current; // 只有同页时 dragIndex 才可靠
+           if (dragIndex === dropIndex) {
+               // 自己拖到自己身上，但在不同半区？
+               // before: no change. after: no change.
+               resetDrag();
+               return;
+           }
+           if (dragIndex !== null) {
+               if (position === 'before' && dropIndex === dragIndex + 1) {
+                   // 拖到下一个元素的上半部分 -> 还是原来的位置
+                   resetDrag();
+                   return;
+               }
+               if (position === 'after' && dropIndex === dragIndex - 1) {
+                   // 拖到上一个元素的下半部分 -> 还是原来的位置
+                   resetDrag();
+                   return;
+               }
+           }
+      }
+
+      setLoading(true);
+      try {
+          await api.post('/api/knowledge/move', {
+              project_id: projectId,
+              doc_id: draggedDoc.global_id,
+              anchor_doc_id: anchorDoc.global_id,
+              position: position
+          });
+          // Refresh list to show new order
+          fetchList(page);
+      } catch (e) {
+          setToastMsg({ type: 'error', msg: `移动失败: ${e}` });
+          fetchList(page); // Revert
+      } finally {
+          resetDrag();
+          setLoading(false);
+      }
   };
 
   const toggleRelation = async (testCase: Doc, isLinked: boolean) => {
@@ -386,6 +681,16 @@ export function KnowledgeBase({ projectId, onLog }: Props) {
                                 <Form.Control placeholder="搜索文件名..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                             </InputGroup>
                         </Col>
+                        <Col md={2} className="d-flex align-items-end">
+                            <Form.Select size="sm" value={filterDocType} onChange={e => setFilterDocType(e.target.value)} aria-label="文档类型过滤">
+                                <option value="">所有类型</option>
+                                <option value="requirement">需求文档</option>
+                                <option value="test_case">测试用例</option>
+                                <option value="prototype">原型图</option>
+                                <option value="product_requirement">产品需求</option>
+                                <option value="incomplete">残缺文档</option>
+                            </Form.Select>
+                        </Col>
                         <Col md={4}>
                             <Form.Label className="small fw-bold text-secondary">日期范围</Form.Label>
                             <InputGroup size="sm">
@@ -396,9 +701,6 @@ export function KnowledgeBase({ projectId, onLog }: Props) {
                         </Col>
                         <Col md={2} className="d-flex align-items-end">
                             <Button variant="secondary" size="sm" className="w-100" onClick={() => fetchList(1)}>查询</Button>
-                        </Col>
-                        <Col md={2} className="d-flex align-items-end">
-                             <Button variant="outline-warning" size="sm" className="w-100" onClick={handleClean} title="清理无效关联">清理</Button>
                         </Col>
                     </Row>
                 </Col>
@@ -442,8 +744,25 @@ export function KnowledgeBase({ projectId, onLog }: Props) {
               </div>
           ) : (
               <Row className="g-3">
-                  {docs.map(doc => (
-                      <Col key={doc.global_id} md={6} lg={4} xl={3}>
+                  {docs.map((doc, index) => (
+                      <Col 
+                        key={doc.global_id} 
+                        md={6} lg={4} xl={3}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, index, doc)}
+                        onDragOver={(e) => handleItemDragOver(e, index)}
+                        onDrop={handleDrop}
+                        style={{ 
+                            cursor: 'move',
+                            transition: 'all 0.1s',
+                            transform: dragTarget?.index === index 
+                                ? (dragTarget.position === 'before' ? 'translateY(2px)' : 'translateY(-2px)') 
+                                : 'none',
+                            boxShadow: dragTarget?.index === index 
+                                ? (dragTarget.position === 'before' ? '0 -4px 0 0 #0d6efd' : '0 4px 0 0 #0d6efd') 
+                                : 'none'
+                        }}
+                      >
                           <Card 
                             className={`h-100 doc-card ${['incomplete', 'prototype'].includes(doc.doc_type) ? 'doc-card-texture-warning' : 'doc-card-texture-success'}`}
                             onMouseEnter={() => handleMouseEnter(doc)}
@@ -466,12 +785,12 @@ export function KnowledgeBase({ projectId, onLog }: Props) {
                                       </small>
                                   </div>
                                   
-                                  <Card.Title className="h6 text-break mb-3 flex-grow-1" style={{ lineHeight: '1.4' }}>
+                                  <Card.Title className="h6 mb-3 flex-grow-1" style={{ lineHeight: '1.4', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis', wordBreak: 'break-all' }} title={doc.filename}>
                                       {doc.filename}
                                   </Card.Title>
 
                                   {/* Associated Cases (Highlighted Area) */}
-                                  <div className="bg-white bg-opacity-50 rounded p-2 mb-3 border border-light">
+                                  <div className="bg-white bg-opacity-50 rounded p-2 mb-3 border border-light" style={{ maxHeight: '150px', overflowY: 'auto' }}>
                                       <div className="d-flex justify-content-between align-items-center mb-2">
                                           <small className="text-muted fw-bold" style={{ fontSize: '0.7rem' }}>关联用例</small>
                                           {doc.doc_type === 'requirement' && (
@@ -544,15 +863,37 @@ export function KnowledgeBase({ projectId, onLog }: Props) {
           </div>
           {totalPages > 1 && (
             <Pagination size="sm" className="m-0">
-                <Pagination.First onClick={() => fetchList(1)} disabled={page === 1} />
-                <Pagination.Prev onClick={() => fetchList(page - 1)} disabled={page === 1} />
+                <Pagination.First 
+                    onClick={() => fetchList(1)} 
+                    disabled={page === 1} 
+                    onDragEnter={() => !pageSwitchTimer.current && page > 1 && handlePageDragEnter(1)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDragLeave={handlePageDragLeave}
+                    onDrop={(e) => handlePageDrop(e, 1)}
+                />
+                <Pagination.Prev 
+                    onClick={() => fetchList(page - 1)} 
+                    disabled={page === 1} 
+                    onDragEnter={() => !pageSwitchTimer.current && page > 1 && handlePageDragEnter(page - 1)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDragLeave={handlePageDragLeave}
+                    onDrop={(e) => page > 1 && handlePageDrop(e, page - 1)}
+                />
                 
                 {[...Array(totalPages)].map((_, i) => {
                     const p = i + 1;
                     // Show first, last, and window around current
                     if (p === 1 || p === totalPages || Math.abs(page - p) <= 2) {
                         return (
-                             <Pagination.Item key={p} active={p === page} onClick={() => fetchList(p)}>
+                             <Pagination.Item 
+                                key={p} 
+                                active={p === page} 
+                                onClick={() => fetchList(p)}
+                                onDragEnter={() => handlePageDragEnter(p)}
+                                onDragOver={(e) => e.preventDefault()}
+                                onDragLeave={handlePageDragLeave}
+                                onDrop={(e) => handlePageDrop(e, p)}
+                             >
                                 {p}
                              </Pagination.Item>
                         );
@@ -564,8 +905,22 @@ export function KnowledgeBase({ projectId, onLog }: Props) {
                     return null;
                 })}
 
-                <Pagination.Next onClick={() => fetchList(page + 1)} disabled={page === totalPages} />
-                <Pagination.Last onClick={() => fetchList(totalPages)} disabled={page === totalPages} />
+                <Pagination.Next 
+                    onClick={() => fetchList(page + 1)} 
+                    disabled={page === totalPages}
+                    onDragEnter={() => !pageSwitchTimer.current && page < totalPages && handlePageDragEnter(page + 1)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDragLeave={handlePageDragLeave}
+                    onDrop={(e) => page < totalPages && handlePageDrop(e, page + 1)}
+                />
+                <Pagination.Last 
+                    onClick={() => fetchList(totalPages)} 
+                    disabled={page === totalPages}
+                    onDragEnter={() => !pageSwitchTimer.current && page < totalPages && handlePageDragEnter(totalPages)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDragLeave={handlePageDragLeave}
+                    onDrop={(e) => handlePageDrop(e, totalPages)}
+                />
             </Pagination>
           )}
       </div>

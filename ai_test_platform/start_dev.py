@@ -3,6 +3,18 @@ import subprocess
 import sys
 import time
 
+"""
+开发环境启动脚本 (Development Startup Script)
+
+一键启动整个开发环境，包括：
+1. Celery Worker (异步任务处理)
+2. Celery Beat (定时任务调度)
+3. FastAPI Backend (后端 API 服务)
+4. Frontend Dev Server (前端开发服务器，如果存在)
+
+具备进程监控和自动重启功能。
+"""
+
 def main():
     print("Starting AI Test Platform (Dev Mode)...")
     backend_port = int(os.environ.get("AI_TEST_PLATFORM_PORT", os.environ.get("PORT", "8000")))
@@ -27,6 +39,17 @@ def main():
     beat_cmd = [sys.executable, "-m", "celery", "-A", "celery_worker.celery_app", "beat", "--loglevel=info"]
     beat_process = subprocess.Popen(beat_cmd, cwd=app_dir, env=os.environ.copy())
     
+    # Start Frontend
+    frontend_dir = os.path.join(os.path.dirname(current_dir), 'frontend')
+    frontend_process = None
+    if os.path.exists(frontend_dir):
+        print(f"Starting Frontend in {frontend_dir}...")
+        npm_cmd = "npm.cmd" if os.name == 'nt' else "npm"
+        try:
+            frontend_process = subprocess.Popen([npm_cmd, "run", "dev"], cwd=frontend_dir, env=os.environ.copy())
+        except Exception as e:
+            print(f"Failed to start frontend: {e}")
+
     # Start FastAPI
     print(f"Starting FastAPI Server in {app_dir}...")
     uvicorn_cmd = [sys.executable, "-m", "uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", str(backend_port)]
@@ -36,8 +59,10 @@ def main():
         
         print("\n" + "="*50)
         print("Service started successfully!")
-        print(f"Access the API at: http://localhost:{backend_port}")
+        print(f"Backend API: http://localhost:{backend_port}")
         print(f"Swagger UI: http://localhost:{backend_port}/docs")
+        if frontend_process:
+            print(f"Frontend:    http://localhost:5173 (typical)")
         print("="*50 + "\n")
         
         # Keep alive loop to monitor processes
@@ -64,12 +89,19 @@ def main():
                 time.sleep(3)
                 uvicorn_process = subprocess.Popen(uvicorn_cmd, cwd=app_dir, env=os.environ.copy())
                 print("Uvicorn server restarted.")
+            
+            # Check Frontend
+            if frontend_process and frontend_process.poll() is not None:
+                print(f"Frontend stopped (code {frontend_process.returncode}).")
+                frontend_process = None
                 
     except KeyboardInterrupt:
         print("\nStopping services...")
         celery_process.terminate()
         beat_process.terminate()
         uvicorn_process.terminate()
+        if frontend_process:
+            frontend_process.terminate()
         print("Services stopped.")
     except Exception as e:
         print(f"Error: {e}")
@@ -82,6 +114,10 @@ def main():
         try:
             uvicorn_process.terminate()
         except: pass
+        if frontend_process:
+            try:
+                frontend_process.terminate()
+            except: pass
 
 if __name__ == "__main__":
     main()

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Nav, Button, Form, Container, Badge, Spinner, Collapse } from 'react-bootstrap';
-import { FaFileCode, FaMousePointer, FaNetworkWired, FaClipboardCheck, FaDatabase, FaFolder, FaCog, FaPlus, FaCheckCircle, FaExclamationTriangle, FaServer, FaSignOutAlt, FaChevronDown, FaRobot } from 'react-icons/fa';
+import { FaFileCode, FaMousePointer, FaNetworkWired, FaClipboardCheck, FaDatabase, FaFolder, FaCog, FaPlus, FaCheckCircle, FaExclamationTriangle, FaServer, FaSignOutAlt, FaChevronDown, FaRobot, FaCode, FaLayerGroup, FaPlay, FaGlobe, FaMobileAlt, FaRedo } from 'react-icons/fa';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import '../theme.css'; 
 import '../App.css';
@@ -10,6 +10,7 @@ import { KnowledgeBase } from './KnowledgeBase';
 import { APITesting } from './APITesting';
 import { TestGeneration } from './TestGeneration';
 import { UIAutomation } from './UIAutomation';
+import { APIAutomation } from './APIAutomation';
 import { Evaluation } from './Evaluation';
 import { LogPanel } from './LogPanel';
 import { api } from '../utils/api';
@@ -45,20 +46,31 @@ export const Dashboard = () => {
   const navItems = [
     { key: 'api-gen', label: '测试用例', icon: <FaFileCode /> },
     { 
+        key: 'ui-exec-ui', 
+        label: 'UI自动化', 
+        icon: <FaMousePointer />,
+        children: [
+            { key: 'ui-exec-ui-web', label: 'WEB自动化', icon: <FaGlobe /> },
+            { key: 'ui-exec-ui-app', label: 'APP自动化', icon: <FaMobileAlt /> },
+            { key: 'ui-exec-ui-regression', label: '回归测试', icon: <FaRedo /> }
+        ]
+    },
+    { 
         key: 'api', 
         label: '接口测试', 
         icon: <FaNetworkWired />,
         children: [
-            { key: 'api-exec', label: '用例执行', icon: <FaFileCode /> }
+            { key: 'api-standard', label: '标准接口测试', icon: <FaCode /> },
+            { key: 'api-ai', label: 'AI模型调试', icon: <FaRobot /> }
         ]
     },
     { 
-        key: 'ui-exec', 
-        label: '自动化', 
-        icon: <FaMousePointer />,
+        key: 'ui-exec-api', 
+        label: '接口自动化', 
+        icon: <FaNetworkWired />,
         children: [
-            { key: 'ui-exec-ui', label: 'UI自动化', icon: <FaMousePointer /> },
-            { key: 'ui-exec-api', label: '接口自动化', icon: <FaNetworkWired /> }
+            { key: 'ui-exec-api-orchestration', label: '自动化编排', icon: <FaLayerGroup /> },
+            { key: 'ui-exec-api-batch', label: '批量运行', icon: <FaPlay /> }
         ]
     },
     { 
@@ -78,6 +90,8 @@ export const Dashboard = () => {
   const [activeTab, setActiveTab] = useState(() => {
       const saved = safeGetItem('currentActiveTab');
       const validKeys = navItems.flatMap(i => [i.key, ...(i.children ? i.children.map(c => c.key) : [])]);
+      // If saved tab is parent 'ui-exec-ui', default to first child 'ui-exec-ui-web'
+      if (saved === 'ui-exec-ui') return 'ui-exec-ui-web';
       return (saved && validKeys.includes(saved)) ? saved : 'api-gen';
   });
   
@@ -88,6 +102,15 @@ export const Dashboard = () => {
           prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
       );
   };
+
+  useEffect(() => {
+    safeSetItem('currentActiveTab', activeTab);
+    // Auto expand parent if child is active
+    const parent = navItems.find(item => item.children?.some(child => child.key === activeTab));
+    if (parent && !expandedKeys.includes(parent.key)) {
+      setExpandedKeys(prev => [...prev, parent.key]);
+    }
+  }, [activeTab]);
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
@@ -303,6 +326,9 @@ export const Dashboard = () => {
                                     onClick={(e) => {
                                         e.preventDefault();
                                         if (item.children) {
+                                            // Toggle expand
+                                            toggleExpand(item.key);
+                                            // Allow selecting parent tab
                                             setActiveTab(item.key);
                                             return;
                                         }
@@ -434,29 +460,24 @@ export const Dashboard = () => {
                 </div>
 
                 {/* Scrollable Content */}
-                <div className={`flex-grow-1 p-4 pb-0 position-relative ${activeTab === 'kb' ? 'overflow-hidden' : 'overflow-auto custom-scrollbar'}`}>
-                    <Container fluid className={`p-0 d-flex flex-column ${activeTab === 'kb' ? 'h-100' : ''}`} style={{ minHeight: '100%' }}>
+                <div className={`flex-grow-1 ${activeTab.startsWith('ui-exec-ui') || activeTab === 'kb' ? 'p-0' : 'p-4'} pb-0 position-relative ${activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') ? 'overflow-hidden' : 'overflow-auto custom-scrollbar'}`}>
+                    <Container fluid className={`p-0 d-flex flex-column ${activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') ? 'h-100' : ''}`} style={{ minHeight: '100%' }}>
                         <div 
                             className={`d-flex flex-column ${
-                                activeTab === 'kb' ? 'flex-grow-1 overflow-hidden' : ''
+                                activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') || activeTab.startsWith('api') ? 'flex-grow-1 overflow-hidden' : ''
                             }`} 
-                            style={activeTab === 'kb' ? { minHeight: '0' } : {}}
+                            style={activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') || activeTab.startsWith('api') ? { minHeight: '0' } : {}}
                         >
-                            {activeTab === 'api' && (
+                            {(activeTab === 'api-standard' || activeTab === 'api-ai') && (
                                 <APITesting 
                                     key={projectId}
                                     projectId={projectId} 
                                     onLog={msg => handleLog(msg, 'user')} 
+                                    view={activeTab === 'api-standard' ? 'standard' : 'ai_debug'}
                                 />
                             )}
-                            {activeTab === 'api-exec' && (
-                                <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted">
-                                    <FaNetworkWired size={48} className="mb-3 opacity-50" />
-                                    <h5>用例执行</h5>
-                                    <p>功能已移动至“接口测试”</p>
-                                </div>
-                            )}
-                            {activeTab === 'api-gen' && (
+
+                            <div style={{ display: activeTab === 'api-gen' ? 'block' : 'none', height: '100%' }}>
                                 <TestGeneration 
                                     key={projectId}
                                     projectId={projectId} 
@@ -467,27 +488,27 @@ export const Dashboard = () => {
                                         setShowConfig(true);
                                     }}
                                 />
-                            )}
-                            {activeTab === 'ui-exec' && (
+                            </div>
+                            {(activeTab === 'ui-exec-ui' || activeTab === 'ui-exec-ui-web' || activeTab === 'ui-exec-ui-app' || activeTab === 'ui-exec-ui-regression') && (
                                 <UIAutomation 
                                     key={projectId}
                                     projectId={projectId} 
                                     onLog={msg => handleLog(msg, 'user')} 
+                                    view={
+                                        activeTab === 'ui-exec-ui' ? 'report' :
+                                        activeTab === 'ui-exec-ui-web' ? 'web' : 
+                                        activeTab === 'ui-exec-ui-app' ? 'app' : 
+                                        'regression'
+                                    }
                                 />
                             )}
-                            {activeTab === 'ui-exec-ui' && (
-                                <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted">
-                                    <FaMousePointer size={48} className="mb-3 opacity-50" />
-                                    <h5>UI自动化</h5>
-                                    <p>功能开发中...</p>
-                                </div>
-                            )}
-                            {activeTab === 'ui-exec-api' && (
-                                <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted">
-                                    <FaNetworkWired size={48} className="mb-3 opacity-50" />
-                                    <h5>接口自动化</h5>
-                                    <p>功能开发中...</p>
-                                </div>
+                            {(activeTab === 'ui-exec-api-orchestration' || activeTab === 'ui-exec-api-batch') && (
+                                <APIAutomation 
+                                    key={projectId}
+                                    projectId={projectId} 
+                                    onLog={msg => handleLog(msg, 'user')} 
+                                    view={activeTab === 'ui-exec-api-orchestration' ? 'orchestration' : 'runner'}
+                                />
                             )}
                             {activeTab === 'kb' && <KnowledgeBase projectId={projectId} onLog={msg => handleLog(msg, 'system')} />}
                             {activeTab === 'proj' && (

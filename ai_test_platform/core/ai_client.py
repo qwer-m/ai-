@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-AI Client Module
+AI Client Module (AI客户端模块)
 
 This module provides the core functionality for interacting with AI models, including:
-1. Text Generation (Multi-model support)
-2. Image Processing (OCR)
-3. Context Compression
-4. RAG
-5. Smart Caching (L4)
+(该模块提供了与AI模型交互的核心功能，包括：)
+1. Text Generation (Multi-model support) (文本生成 - 多模型支持)
+2. Image Processing (OCR) (图像处理 - OCR)
+3. Context Compression (上下文压缩)
+4. RAG (检索增强生成)
+5. Smart Caching (L4) (智能缓存)
 
 It supports both DashScope (Aliyun) and OpenAI-compatible providers (Ollama, vLLM, etc.).
+(支持 DashScope (阿里云) 和 OpenAI 兼容的提供商 (Ollama, vLLM 等)。)
 """
 
 from http import HTTPStatus
@@ -30,29 +32,64 @@ from core.utils import logger
 from core.security import config_encryption
 
 class BaseModelProvider(ABC):
+    """
+    大模型提供商抽象基类 (Base Model Provider)
+    定义了所有 AI 模型提供商必须实现的通用接口。
+    """
     @abstractmethod
     def generate(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None) -> str:
+        """Generate text response (non-streaming) (生成文本响应 - 非流式)"""
         pass
 
     @abstractmethod
     def generate_stream(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None) -> Generator[str, None, None]:
+        """Generate text response (streaming) (生成文本响应 - 流式)"""
         pass
 
     @abstractmethod
     def multimodal_generate(self, messages: List[Dict[str, Any]], model: str) -> str:
+        """Generate response with multimodal input (images) (多模态生成 - 包含图片)"""
         pass
     
     @abstractmethod
     def test_connection(self) -> Dict[str, Any]:
+        """Test connection to the provider (测试连接)"""
         pass
 
+    def get_balance(self) -> Dict[str, Any]:
+        """
+        Get account balance/quota information. (获取账户余额/额度信息)
+        Returns dict with: total, used, remaining, currency (optional)
+        Or error/unsupported message.
+        """
+        return {"supported": False, "message": "Not supported by this provider"}
+
 class DashScopeProvider(BaseModelProvider):
+    """
+    阿里云 DashScope (通义千问) 提供商
+    封装了阿里云 DashScope SDK 的调用逻辑。
+    支持 Qwen-Turbo, Qwen-Plus, Qwen-Max 以及 Qwen-VL 等模型。
+    """
     def __init__(self, api_key: str):
         self.api_key = api_key
         dashscope.api_key = api_key
+        self._max_output_tokens_default = 4096
+
+    def _clamp_max_tokens(self, model: str, max_tokens: Optional[int]) -> Optional[int]:
+        """Ensure max_tokens is within valid range (确保 max_tokens 在有效范围内)"""
+        if not max_tokens:
+            return None
+        try:
+            max_tokens_i = int(max_tokens)
+        except Exception:
+            return None
+        if max_tokens_i <= 0:
+            return None
+        return min(max_tokens_i, self._max_output_tokens_default)
 
     def generate(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None) -> str:
         try:
+            max_tokens = self._clamp_max_tokens(model, max_tokens)
             kwargs = {
                 'model': model,
                 'messages': messages,
@@ -66,16 +103,34 @@ class DashScopeProvider(BaseModelProvider):
             if response.status_code == HTTPStatus.OK:
                 return response.output.choices[0]['message']['content']
             else:
+                # Automatic fallback to stream mode if model requires it (e.g. glm-4.5)
+                # (如果模型强制要求流式模式（如 glm-4.5），自动回退到流式模式)
+                if response.code == 'InvalidParameter' and 'stream mode' in str(response.message):
+                    try:
+                        full_text = ""
+                        for chunk in self.generate_stream(messages, model, max_tokens):
+                            # Check if the chunk is actually an error message from generate_stream
+                            # (检查块是否实际上是来自 generate_stream 的错误消息)
+                            if chunk.startswith("Error:") or chunk.startswith("Exception") or chunk.startswith("[额度耗尽]"):
+                                return chunk
+                            full_text += chunk
+                        return full_text
+                    except Exception as e:
+                        return f"Exception during stream fallback: {str(e)}"
+
                 if response.code == 'DataInspectionFailed':
                     return f"Error: Content blocked by safety filter. {response.message}"
                 if response.code in ['Arrearage', 'QuotaExhausted', 'PaymentRequired', 'AllocationQuota.FreeTierOnly']:
                     return f"[额度耗尽] 模型 {model} 的免费额度已用完，请在控制台关闭'仅使用免费额度'模式或充值。"
+                if response.code == 'InvalidParameter':
+                    return f"Error: InvalidParameter - {response.message}（建议降低 MAX_TOKENS / 启用压缩 / 减少知识库上下文）"
                 return f"Error: {response.code} - {response.message}"
         except Exception as e:
             return f"Exception occurred: {str(e)}"
 
     def generate_stream(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None):
         try:
+            max_tokens = self._clamp_max_tokens(model, max_tokens)
             kwargs = {
                 'model': model,
                 'messages': messages,
@@ -90,12 +145,37 @@ class DashScopeProvider(BaseModelProvider):
             
             for response in responses:
                 if response.status_code == HTTPStatus.OK:
-                    yield response.output.choices[0]['message']['content']
+                    content = None
+                    try:
+                        choice0 = response.output.choices[0] if response.output and response.output.choices else None
+                        if choice0:
+                            try:
+                                delta = choice0['delta']
+                                content = delta.get('content') if isinstance(delta, dict) else None
+                            except Exception:
+                                content = None
+                            if not content:
+                                try:
+                                    content = choice0['message']['content']
+                                except Exception:
+                                    content = None
+                            if not content:
+                                try:
+                                    content = choice0.get('text')
+                                except Exception:
+                                    content = None
+                    except Exception:
+                        content = None
+                    if content:
+                        yield content
                 else:
                     if response.code in ['Arrearage', 'QuotaExhausted', 'PaymentRequired', 'AllocationQuota.FreeTierOnly']:
                         yield f"[额度耗尽] 模型 {model} 的免费额度已用完，请在控制台关闭'仅使用免费额度'模式或充值。"
                     else:
-                        yield f"Error: {response.code} - {response.message}"
+                        if response.code == 'InvalidParameter':
+                            yield f"Error: InvalidParameter - {response.message}（建议降低 MAX_TOKENS / 启用压缩 / 减少知识库上下文）"
+                        else:
+                            yield f"Error: {response.code} - {response.message}"
         except Exception as e:
             yield f"Exception occurred: {str(e)}"
 
@@ -150,6 +230,14 @@ class DashScopeProvider(BaseModelProvider):
             }
 
 class OpenAICompatibleProvider(BaseModelProvider):
+    """
+    OpenAI 兼容协议提供商 (OpenAI Compatible Provider)
+    
+    用于连接任何支持 OpenAI API 格式的后端，包括：
+    - 官方 OpenAI API
+    - 本地部署的 LLM (如通过 vLLM, Ollama, LM Studio 部署)
+    - 第三方聚合 API (如 DeepSeek, Moonshot 等)
+    """
     def __init__(self, base_url: str, api_key: str, model: str):
         self.base_url = base_url.rstrip('/')
         if not self.base_url.endswith('/v1'):
@@ -158,6 +246,17 @@ class OpenAICompatibleProvider(BaseModelProvider):
         self.model = model
 
     def generate(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None) -> str:
+        """
+        生成文本响应 (非流式)
+        
+        Args:
+            messages: 消息列表。
+            model: 模型名称。
+            max_tokens: 最大生成 Token 数。
+            
+        Returns:
+            str: 生成的文本内容。
+        """
         # Override model if specific one provided, else use configured
         target_model = model or self.model
         url = f"{self.base_url}/chat/completions"
@@ -185,6 +284,17 @@ class OpenAICompatibleProvider(BaseModelProvider):
             return f"Exception occurred: {str(e)}"
 
     def generate_stream(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None):
+        """
+        生成文本响应 (流式)
+        
+        Args:
+            messages: 消息列表。
+            model: 模型名称。
+            max_tokens: 最大生成 Token 数。
+            
+        Yields:
+            str: 生成的文本片段。
+        """
         target_model = model or self.model
         url = f"{self.base_url}/chat/completions"
         headers = {
@@ -217,21 +327,170 @@ class OpenAICompatibleProvider(BaseModelProvider):
                             try:
                                 data = json.loads(data_str)
                                 if "choices" in data and len(data["choices"]) > 0:
-                                    delta = data["choices"][0].get("delta", {})
-                                    content = delta.get("content", "")
+                                    choice0 = data["choices"][0] or {}
+                                    delta = choice0.get("delta", {}) or {}
+                                    content = delta.get("content") or ""
                                     if content:
                                         yield content
+                                        continue
+
+                                    msg = choice0.get("message", {}) or {}
+                                    msg_content = msg.get("content") or ""
+                                    if msg_content:
+                                        yield msg_content
+                                        continue
+
+                                    text = choice0.get("text") or ""
+                                    if text:
+                                        yield text
                             except json.JSONDecodeError:
                                 pass
         except Exception as e:
             yield f"Exception occurred: {str(e)}"
 
     def multimodal_generate(self, messages: List[Dict[str, Any]], model: str) -> str:
-        # Simplified implementation for OpenAI compatible vision
-        # Assuming messages are already formatted for vision if supported
-        return self.generate(messages, model or self.model)
+        """
+        多模态生成 (图片理解)
+        
+        Args:
+            messages: 包含图片和文本的消息列表。
+            model: 模型名称。
+            
+        Returns:
+            str: 模型对图片的描述或回答。
+        """
+        # Enhanced implementation for OpenAI compatible vision (e.g. GLM-4V, UITARS via vLLM)
+        # We need to ensure the image format in messages is compatible with OpenAI API
+        # messages usually come as:
+        # [
+        #   {
+        #     "role": "user",
+        #     "content": [
+        #       {"image": "path_or_url"},
+        #       {"text": "prompt"}
+        #     ]
+        #   }
+        # ]
+        
+        target_model = model or self.model
+        formatted_messages = []
+        
+        for msg in messages:
+            if isinstance(msg.get("content"), list):
+                new_content = []
+                for item in msg["content"]:
+                    if "image" in item:
+                        image_url = item["image"]
+                        if image_url.startswith("file://"):
+                            # Read local file and convert to base64
+                            local_path = image_url[7:]
+                            try:
+                                with open(local_path, "rb") as f:
+                                    base64_image = base64.b64encode(f.read()).decode('utf-8')
+                                image_url = f"data:image/png;base64,{base64_image}" # Assume PNG or detect type
+                            except Exception as e:
+                                return f"Error reading image: {str(e)}"
+                        
+                        new_content.append({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image_url
+                            }
+                        })
+                    elif "text" in item:
+                        new_content.append({
+                            "type": "text",
+                            "text": item["text"]
+                        })
+                
+                formatted_messages.append({
+                    "role": msg["role"],
+                    "content": new_content
+                })
+            else:
+                formatted_messages.append(msg)
+
+        return self.generate(formatted_messages, target_model)
+
+    def get_balance(self) -> Dict[str, Any]:
+        """
+        获取账户余额 (Get Balance)
+        
+        尝试从 OpenAI 兼容接口获取余额信息 (通常是 /dashboard/billing/subscription)。
+        """
+        # Common endpoints for OneAPI/NewAPI/GoAmz proxies
+        endpoints = [
+            "/dashboard/billing/subscription",
+            "/v1/dashboard/billing/subscription"
+        ]
+        
+        # Try to infer root url from base_url
+        # self.base_url usually is http://host:port/v1 or http://host:port
+        # We want http://host:port
+        
+        base = self.base_url.rstrip('/')
+        if base.endswith('/v1'):
+            root = base[:-3]
+        elif base.endswith('/chat/completions'):
+             # Very specific?
+             root = base.replace('/chat/completions', '')
+        else:
+            root = base
+
+        # Try endpoints
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+
+        try:
+            with httpx.Client(timeout=5.0) as client:
+                for ep in endpoints:
+                    target_url = f"{root}{ep}"
+                    # Try with base_url too if root inference failed or provider structure is weird
+                    # Actually some providers put it under /v1/dashboard... so using base_url directly if it has /v1 is good.
+                    
+                    try:
+                        resp = client.get(target_url, headers=headers)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            # Common format: { "hard_limit_usd": x, "has_payment_method": bool, "soft_limit_usd": x, "system_hard_limit_usd": x, "access_until": x }
+                            # OR { "object": "billing_subscription", "has_payment_method": false, "soft_limit_usd": 0, "hard_limit_usd": 0, "system_hard_limit_usd": 0, "access_until": 0 }
+                            
+                            # We also need usage? /dashboard/billing/usage is often separate.
+                            # But subscription usually gives total quota.
+                            # Some APIs return { "quota": x, "used": y, "balance": z } directly (non-standard)
+                            
+                            total = data.get("hard_limit_usd", 0) or data.get("total", 0)
+                            
+                            # Note: To get 'remaining', we often need usage. 
+                            # But some proxies return 'balance' directly.
+                            remaining = data.get("balance")
+                            
+                            if remaining is None:
+                                # Try to calculate or look for usage?
+                                # This is getting complicated. Let's return what we have.
+                                pass
+                            
+                            return {
+                                "supported": True,
+                                "total": total,
+                                "remaining": remaining, # Might be None
+                                "raw": data
+                            }
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+            
+        return {"supported": False, "message": "Balance check not supported or failed"}
 
     def test_connection(self) -> Dict[str, Any]:
+        """
+        测试连接 (Test Connection)
+        
+        发送一个简单的 hello 请求来验证 API Key 和 Base URL 是否正确。
+        """
         start_time = time.time()
         try:
             # Use max_tokens=1 for quick test
@@ -258,8 +517,36 @@ class OpenAICompatibleProvider(BaseModelProvider):
                 "latency": round((time.time() - start_time) * 1000, 2)
             }
 
+class GLMProvider(OpenAICompatibleProvider):
+    """
+    Provider for GLM open source models (e.g. GLM-4V).
+    Assumes deployment via OpenAI-compatible API (e.g. vLLM or ZhipuAI local/cloud).
+    """
+    def __init__(self, api_key: str, model: str = "glm-4v"):
+        # Default to ZhipuAI endpoint if not specified, but usually passed via config
+        base_url = "https://open.bigmodel.cn/api/paas/v4/" 
+        super().__init__(base_url, api_key, model)
+
+class UITARSProvider(OpenAICompatibleProvider):
+    """
+    Provider for ByteDance's UITARS (UI Transformer) models.
+    Assumes deployment via OpenAI-compatible API.
+    """
+    def __init__(self, base_url: str, api_key: str, model: str = "uitars-7b"):
+        super().__init__(base_url, api_key, model)
+
+
 class AIClient:
-    """AI Client with support for dynamic provider switching"""
+    """
+    AI 客户端门面类 (AI Client Facade)
+    
+    统一管理所有 AI 调用请求，功能包括：
+    1. 动态切换提供商 (Provider Switching)。
+    2. 智能模型选择 (Smart Model Selection)。
+    3. 响应缓存 (L4 Cache) - 节省 Token 和加速响应。
+    4. RAG 流程编排 (Retrieval-Augmented Generation)。
+    5. 图像分析与 OCR (Image Analysis)。
+    """
     
     def __init__(self, provider: BaseModelProvider = None):
         self._provider = provider
@@ -286,7 +573,11 @@ class AIClient:
     
     @classmethod
     def from_config(cls, config: SystemConfig):
-        """Factory method to create client from SystemConfig"""
+        """
+        从系统配置创建客户端 (Factory from Config)
+        根据用户在前端配置的 Provider 类型（DashScope / OpenAI / Ollama 等）
+        实例化对应的 Provider 并返回 Client。
+        """
         if not config:
             return cls()
             
@@ -304,7 +595,13 @@ class AIClient:
             
         client = cls(provider)
         client.model = config.model_name
-        # Update other models if needed, or keep defaults
+        
+        # Update other models from config if available
+        if config.turbo_model_name:
+            client.turbo_model = config.turbo_model_name
+        if config.vl_model_name:
+            client.vl_model = config.vl_model_name
+            
         return client
 
     def update_provider(self, provider: BaseModelProvider, model_name: str = None):
@@ -327,11 +624,23 @@ class AIClient:
             return self.turbo_model
         if task_type == "ocr":
             return self.vl_model
-        if len(input_text) < 1000 and task_type == "general":
-            return self.turbo_model
+        # Removed automatic downgrade to turbo for short text to respect user selection
+        # if len(input_text) < 1000 and task_type == "general":
+        #    return self.turbo_model
         return self.model
 
     def generate_response(self, user_input: str, system_prompt: str = None, db: Session = None, max_tokens: int = None, task_type: str = "general", model: str = None) -> str:
+        """
+        生成响应 (Generate Response)
+        
+        核心流程：
+        1. 检查 Provider 是否配置。
+        2. 构建 Prompt 消息。
+        3. 选择合适的模型 (select_model)。
+        4. 检查 L4 缓存 (Cache Hit?)。
+        5. 调用 Provider 生成响应。
+        6. 写入 L4 缓存。
+        """
         if not self.provider:
             return "Error: AI Provider not configured."
 
@@ -360,6 +669,10 @@ class AIClient:
         return result
 
     def generate_response_stream(self, user_input: str, system_prompt: str = None, max_tokens: int = None):
+        """
+        流式生成响应 (Stream Response)
+        用于前端实时显示打字机效果。
+        """
         if not self.provider:
             yield "Error: AI Provider not configured."
             return
@@ -373,11 +686,16 @@ class AIClient:
         
         yield from self.provider.generate_stream(messages, target_model, max_tokens or self.max_tokens)
 
-    def analyze_image(self, image_path_or_url: str, prompt: str = "OCR: Extract all text from this image.", db: Session = None) -> str:
+    def analyze_image(self, image_path_or_url: str, prompt: str = "OCR: Extract all text from this image.", db: Session = None, model: str = None) -> str:
+        """
+        图像分析 / OCR (Image Analysis)
+        支持本地路径 (file://) 和 URL。
+        优先检查 L2 缓存。
+        """
         if not self.provider:
             return "Error: AI Provider not configured."
 
-        cache_key = f"ocr:{prompt}:{image_path_or_url}"
+        cache_key = f"ocr:{prompt}:{image_path_or_url}:{model or 'default'}"
         if db:
             cached = cache_service.get(cache_key, "L2", db)
             if cached:
@@ -396,18 +714,25 @@ class AIClient:
         # Note: OpenAI compatible provider might handle vision differently, 
         # but for now we assume standardized message format if supported.
         # DashScope uses vl_model.
-        target_model = self.vl_model if isinstance(self.provider, DashScopeProvider) else self.model
+        if model:
+            target_model = model
+        else:
+            target_model = self.vl_model if isinstance(self.provider, DashScopeProvider) else self.model
         
         response = self.provider.multimodal_generate(messages, target_model)
         
         if db and not response.startswith("OCR Error") and not response.startswith("OCR Exception"):
-             cache_service.set(cache_key, response, "L2", db, metadata={"type": "ocr"})
+             cache_service.set(cache_key, response, "L2", db, metadata={"type": "ocr", "model": target_model})
              
         return response
 
     def compress_context(self, context: str, prompt: str = "Summary:", db: Session = None) -> str:
+        """
+        上下文压缩 (Context Compression)
+        使用轻量级模型 (Turbo) 对长文本进行摘要，减少 Token 消耗。
+        """
         # Use turbo model if available, else default
-        target_model = self.turbo_model if isinstance(self.provider, DashScopeProvider) else self.model
+        target_model = self.turbo_model if self.turbo_model else self.model
         return self.generate_response(
             f"{prompt}\n\n{context}", 
             "You are a summarization expert.", 
@@ -417,6 +742,10 @@ class AIClient:
         )
     
     def rag_generate_response(self, query: str, retrieved_docs: list[str], system_prompt: str = None, db: Session = None) -> str:
+        """
+        RAG 生成 (Retrieval-Augmented Generation)
+        将检索到的文档列表合并、压缩后，作为上下文输入给模型。
+        """
         combined_docs = "\n\n".join([f"Doc {i+1}: {doc}" for i, doc in enumerate(retrieved_docs)])
         compressed_context = self.compress_context(
             combined_docs,
@@ -446,8 +775,12 @@ ai_client = AIClient()
 
 def get_client_for_user(user_id: int, db: Session) -> AIClient:
     """
-    Get AIClient instance for a specific user based on their active configuration.
-    Falls back to global ai_client (System Default) if no user config found.
+    获取用户专属 AI 客户端 (Get User AI Client)
+    
+    根据用户的 ID 查询数据库中的个性化配置 (SystemConfig)，
+    如果存在，则返回配置了该用户 Key 的 AIClient 实例；
+    否则，返回系统默认的全局 ai_client。
+    这实现了多租户/多用户的模型配置隔离。
     """
     if not user_id or not db:
         return ai_client

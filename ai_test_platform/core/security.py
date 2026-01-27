@@ -1,3 +1,16 @@
+"""
+安全加密模块 (Security Module)
+
+该模块负责敏感数据的加密存储和内存保护。
+主要功能：
+1. 配置文件加密 (ConfigEncryption): 使用 Fernet (对称加密) 保护 API Key 等敏感配置。
+2. 密钥管理 (initialize_encryption_key): 自动生成或加载加密密钥，并保存到 .env 文件。
+3. 内存安全字符串 (SecureString): 封装敏感字符串，鼓励显式清理 (虽然 Python GC 机制限制了完全擦除)。
+
+调用关系：
+- 被 `core.config_manager` 调用以加密/解密 API Key。
+"""
+
 import os
 import gc
 from pathlib import Path
@@ -9,6 +22,10 @@ from core.utils import logger
 load_dotenv()
 
 class ConfigEncryption:
+    """
+    配置加密类
+    使用 Fernet 算法进行加解密。
+    """
     def __init__(self, key: str = None):
         if not key:
             key = os.getenv("CONFIG_ENCRYPTION_KEY")
