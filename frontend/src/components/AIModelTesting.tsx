@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { api } from '../utils/api';
 import { Button, Form, Card, Row, Col, Spinner, InputGroup } from 'react-bootstrap';
 import { FaRobot, FaPaperPlane, FaCog, FaEraser } from 'react-icons/fa';
 
@@ -10,24 +11,49 @@ type AIModelTestingProps = {
 export function AIModelTesting({ onLog }: AIModelTestingProps) {
     const [systemPrompt, setSystemPrompt] = useState('');
     const [userPrompt, setUserPrompt] = useState('');
-    const [model, setModel] = useState('qwen-plus');
+    const [model, setModel] = useState('');
     const [temperature, setTemperature] = useState(0.7);
     const [maxTokens, setMaxTokens] = useState(2000);
     const [loading, setLoading] = useState(false);
     const [response, setResponse] = useState('');
 
+    // 中文注释：错误管理前置处理与统一中文翻译
+    const getErrorText = (error: any) => {
+        if (!error) return '';
+        if (typeof error === 'string') return error;
+        if (error?.data?.error) return String(error.data.error);
+        if (error?.data?.detail) return String(error.data.detail);
+        if (error?.data?.message) return String(error.data.message);
+        if (error?.message) return String(error.message);
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    };
+
+    const translateError = async (error: any) => {
+        const raw = getErrorText(error);
+        try {
+            const res = await api.post<any>('/api/error/translate', { error: raw });
+            return res?.message ? String(res.message) : raw;
+        } catch {
+            return raw;
+        }
+    };
+
     const handleSend = async () => {
         if (!userPrompt.trim()) return;
         setLoading(true);
-        setResponse(''); // Clear previous response
+        setResponse(''); // 清空之前的响应
         
         try {
-            // Placeholder for actual AI model call
-            // In a real implementation, this would call a backend endpoint that streams the response
-            // For now, we'll simulate a request or call a generic chat endpoint if available
+            // 占位符：实际 AI 模型调用
+            // 在实际实现中，这里将调用后端端点并流式传输响应
+            // 目前，我们将模拟请求或调用通用的聊天端点（如果可用）
             onLog('发送 AI 模型调试请求...');
             
-            // Simulating stream for UI demonstration
+            // 模拟 UI 演示的流式传输
             const demoResponse = "This is a simulated response from the AI model.\nIn a real implementation, this would be streamed from the backend.";
             let currentText = '';
             for (const char of demoResponse) {
@@ -38,7 +64,10 @@ export function AIModelTesting({ onLog }: AIModelTestingProps) {
             
             onLog('AI 模型响应完成');
         } catch (e) {
-            onLog(`请求失败: ${e}`);
+            // 中文注释：AI模型调试失败统一中文错误提示
+            const msg = await translateError(e);
+            onLog(`请求失败: ${msg}`);
+            setResponse(msg);
         } finally {
             setLoading(false);
         }
@@ -46,7 +75,7 @@ export function AIModelTesting({ onLog }: AIModelTestingProps) {
 
     return (
         <div className="d-flex h-100 w-100 bg-white overflow-hidden">
-            {/* Left Column: Prompt Engineering */}
+            {/* 左栏：提示词工程 */}
             <div className="d-flex flex-column border-end" style={{ width: '50%', minWidth: '300px' }}>
                 <div className="p-3 border-bottom bg-light d-flex justify-content-between align-items-center">
                     <div className="fw-bold text-secondary"><FaRobot className="me-2"/>Prompt Engineering</div>
@@ -85,24 +114,27 @@ export function AIModelTesting({ onLog }: AIModelTestingProps) {
                 </div>
             </div>
 
-            {/* Right Column: Model Config & Response */}
+            {/* 右栏：模型配置与响应 */}
             <div className="d-flex flex-column flex-grow-1" style={{ minWidth: '300px' }}>
                 <div className="p-3 border-bottom bg-light d-flex justify-content-between align-items-center">
                     <div className="fw-bold text-secondary"><FaCog className="me-2"/>Model Configuration</div>
                 </div>
                 
-                {/* Configuration Panel */}
+                {/* 配置面板 */}
                 <div className="p-3 border-bottom bg-white">
                     <Row className="g-2">
                         <Col md={12}>
                             <InputGroup size="sm">
                                 <InputGroup.Text>Model</InputGroup.Text>
-                                <Form.Select value={model} onChange={e => setModel(e.target.value)}>
-                                    <option value="qwen-plus">Qwen Plus</option>
-                                    <option value="qwen-turbo">Qwen Turbo</option>
-                                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                                    <option value="gpt-4">GPT-4</option>
-                                </Form.Select>
+                                <Form.Control 
+                                    type="text"
+                                    value={model} 
+                                    onChange={e => setModel(e.target.value)}
+                                    list="testing-models"
+                                    placeholder="e.g. qwen-plus"
+                                />
+                                <datalist id="testing-models">
+                                </datalist>
                             </InputGroup>
                         </Col>
                         <Col md={6}>
@@ -134,7 +166,7 @@ export function AIModelTesting({ onLog }: AIModelTestingProps) {
                     </Row>
                 </div>
 
-                {/* Response Area */}
+                {/* 响应区域 */}
                 <div className="flex-grow-1 d-flex flex-column overflow-hidden bg-light p-3">
                     <div className="small fw-bold text-muted mb-2">Model Response</div>
                     <Card className="flex-grow-1 border-0 shadow-sm overflow-hidden">

@@ -1,105 +1,40 @@
-import { useState, useEffect, useRef, type MouseEvent, type ReactElement } from 'react';
-import { Button, Form, Spinner, Card, Row, Col, Badge, Accordion, Nav, ListGroup, Modal, Dropdown } from 'react-bootstrap';
-import { FaCheckCircle, FaBug, FaPlus, FaTrash, FaSave, FaLayerGroup, FaBars, FaChevronLeft, FaFolderPlus, FaRobot, FaEdit, FaGlobe, FaChevronDown, FaCog, FaTimes, FaEllipsisH, FaChevronRight } from 'react-icons/fa';
+import { useState, useEffect, useRef } from 'react';
+import { Button, Form, Spinner, Nav, ListGroup, Dropdown } from 'react-bootstrap';
+import { FaPlus, FaMinus, FaTrash, FaSave, FaBars, FaFolderPlus, FaRobot, FaChevronDown, FaCog, FaCookie, FaFile } from 'react-icons/fa';
 import { api } from '../utils/api';
-
-type StandardAPITestingProps = {
-  projectId: number | null;
-  onLog: (msg: string) => void;
-};
-
-type TestResult = {
-  script: string;
-  result: string; // Raw stdout/stderr
-  structured_report?: {
-    total: number;
-    passed: number;
-    failed: number;
-    skipped: number;
-    time: number;
-    failures: Array<{
-      name: string;
-      message: string;
-      details: string;
-      type?: string;
-    }>;
-  };
-};
-
-type SavedInterface = {
-    id: number;
-    type: 'request' | 'folder';
-    name: string;
-    description?: string;
-    parentId: number | null;
-    isOpen?: boolean; // Frontend only
-    
-    // Request specific fields
-    baseUrl?: string;
-    apiPath?: string;
-    method?: string;
-    requirement?: string;
-    mode?: 'natural' | 'structured';
-    
-    headers?: {key:string, value:string, desc:string}[];
-    params?: {key:string, value:string, desc:string}[];
-    bodyMode?: string;
-    rawType?: string;
-    bodyContent?: string;
-    
-    testTypes?: {
-        functional: boolean;
-        boundary: boolean;
-        security: boolean;
-    };
-    timestamp?: number;
-    testConfig?: any;
-};
-
-type EnvConfig = {
-    id: string;
-    name: string;
-    baseUrl: string;
-    variables?: Array<{
-        key: string;
-        value: string;
-        enabled: boolean;
-    }>;
-};
-
-const ErrorTrace = ({ details }: { details: string }) => {
-    const [expanded, setExpanded] = useState(false);
-    const lines = details ? details.split('\n') : [];
-    const preview = lines.slice(0, 3).join('\n');
-    const hasMore = lines.length > 3;
-
-    return (
-        <div className="d-flex flex-column gap-1">
-            <small className="text-muted">堆栈详情:</small>
-            <pre className="bg-white border p-2 rounded small text-secondary mb-1 font-monospace" style={{ whiteSpace: 'pre-wrap' }}>
-                {expanded ? details : preview}
-                {!expanded && hasMore && "..."}
-            </pre>
-            {hasMore && (
-                <div className="text-end">
-                    <Button 
-                        variant="link" 
-                        size="sm" 
-                        className="p-0 text-decoration-none" 
-                        onClick={() => setExpanded(!expanded)}
-                    >
-                        {expanded ? '收起详情' : '展开完整堆栈'}
-                    </Button>
-                </div>
-            )}
-        </div>
-    );
-};
+import { highlightJson } from './standard-api-testing/jsonHighlight';
+import { SaveRequestModal } from './standard-api-testing/SaveRequestModal';
+import { CookieManagerModal } from './standard-api-testing/CookieManagerModal';
+import { EnvManagerModal } from './standard-api-testing/EnvManagerModal';
+import { ResponsePanel } from './standard-api-testing/ResponsePanel';
+import { StructuredReportDashboard } from './standard-api-testing/StructuredReportDashboard';
+import { InterfaceTree } from './standard-api-testing/InterfaceTree';
+import { useInterfaceEditor } from './standard-api-testing/useInterfaceEditor';
+import { useInterfaceCrud } from './standard-api-testing/useInterfaceCrud';
+import {
+  buildPostmanFolderItems,
+  importFilesFromCollections,
+  importInterfaceItemsToBackend,
+} from './standard-api-testing/importExport';
+import {
+  computeDragOverPosition,
+  planInterfaceDrop,
+  type DragOverPosition,
+} from './standard-api-testing/dragTree';
+import {
+  buildDebugRequestPayload,
+  createRuntimeContext,
+  executePostResponseScript,
+  executePreRequestScript,
+  resolveActiveEnv,
+  type ScriptTest,
+} from './standard-api-testing/requestExecution';
+import type { EnvConfig, ResponseTab, SavedInterface, StandardAPITestingProps, TestResult } from './standard-api-testing/types';
 
 export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps) {
   const [mode, setMode] = useState<'natural' | 'structured'>('natural');
   const [requirement, setRequirement] = useState('');
-  // Merged URL state: apiPath now holds the full URL
+  // 合并后的 URL 状态：apiPath 现在保存完整 URL
   const [apiPath, setApiPath] = useState('');
   const [method, setMethod] = useState('POST');
   const [testTypes, setTestTypes] = useState({
@@ -111,112 +46,262 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
   const [loading, setLoading] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   
-  // Interactive Response State
+  // 交互式响应状态
   const [responseStatus, setResponseStatus] = useState<number | null>(null);
   const [responseTime, setResponseTime] = useState<number | null>(null);
   const [responseBody, setResponseBody] = useState<string | null>(null);
   const [responseHeaders, setResponseHeaders] = useState<any>({});
+  const [responseCookies, setResponseCookies] = useState<any>({});
+  const [responseDetailedCookies, setResponseDetailedCookies] = useState<any>({});
+  const [sentHeaders, setSentHeaders] = useState<any>({});
+  const [sentCookies, setSentCookies] = useState<any>({});
+  const [sentBody, setSentBody] = useState<string | null>(null);
+  const [scriptTests, setScriptTests] = useState<ScriptTest[]>([]); // Postman 风格测试
   const [responseViewMode, setResponseViewMode] = useState<'json' | 'html' | 'headers'>('json');
+  const [responseFormat, setResponseFormat] = useState<'JSON' | 'XML' | 'HTML' | 'JavaScript' | 'Raw' | 'Hex' | 'Base64'>('JSON');
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  // Env Manager State
+  // 环境管理状态
   const [showEnvModal, setShowEnvModal] = useState(false);
+    const [showCookieModal, setShowCookieModal] = useState(false);
+    const [cookieJar, setCookieJar] = useState<Record<string, string>>({}); // 自动管理的 Cookies
   const [editingEnv, setEditingEnv] = useState<EnvConfig | null>(null);
 
-  // Renaming State
+  // 重命名状态
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renamingName, setRenamingName] = useState('');
   
-  const processVariables = (text: string, env: EnvConfig | undefined) => {
-      if (!text || !env || !env.variables) return text;
-      let processed = text;
-      env.variables.forEach(v => {
-          if (v.enabled && v.key) {
-              processed = processed.replaceAll(`{{${v.key}}}`, v.value);
-          }
-      });
-      return processed;
+  // 拖拽状态
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  // 中文注释：错误管理前置处理与统一中文翻译
+  const getErrorText = (error: any) => {
+    if (!error) return '';
+    if (typeof error === 'string') return error;
+    if (error?.data?.error) return String(error.data.error);
+    if (error?.data?.detail) return String(error.data.detail);
+    if (error?.data?.message) return String(error.data.message);
+    if (error?.message) return String(error.message);
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
   };
 
+  const translateError = async (error: any) => {
+    const raw = getErrorText(error);
+    try {
+      const res = await api.post<any>('/api/error/translate', { error: raw });
+      return res?.message ? String(res.message) : raw;
+    } catch {
+      return raw;
+    }
+  };
+
+  // 核心请求执行器：
+  // 1) 解析环境变量与脚本
+  // 2) 组装请求（鉴权、参数、Body、Cookie、超时等）
+  // 3) 写入响应状态并执行后置脚本断言
   const handleSendRequest = async () => {
-      setLoading(true);
-      try {
-          // Get Active Env (Best effort match)
-          // Priority: 
-          // 1. Env with baseUrl matching start of apiPath (Longest match first if we wanted to be fancy, but first found is ok for now)
-          // 2. Env with baseUrl equal to {{var}} if apiPath starts with {{var}}
-          
-          let activeEnv = savedEnvs.find(e => e.baseUrl && apiPath.startsWith(e.baseUrl));
-          
-          // Special case for {{VAR}} style baseUrls
-          if (!activeEnv) {
-              const match = apiPath.match(/^(\{\{\s*.+?\s*\}\})/);
-              if (match) {
-                  const tag = match[1];
-                  activeEnv = savedEnvs.find(e => e.baseUrl === tag);
-              }
-          }
+    setLoading(true);
+    setScriptTests([]); // 清空上一次脚本断言结果
+    setAiAnalysis(null); // 清空上一次 AI 分析结果
+    try {
+      const activeEnv = resolveActiveEnv(savedEnvs, apiPath);
+      const runtimeContext = createRuntimeContext(activeEnv, getEnvBaseUrlValue);
+      const { envInterface, substitute, getRuntimeVariables } = runtimeContext;
 
-          // Variable Substitution
-          const substitute = (str: string) => processVariables(str, activeEnv);
-
-          // Construct URL (Handle absolute URL input vs Base+Path)
-          let fullUrl = substitute(apiPath);
-          if (!fullUrl.startsWith('http') && !fullUrl.startsWith('{{')) {
-              fullUrl = 'http://' + fullUrl;
-          }
-
-          const reqHeaders = headers.reduce((acc, curr) => {
-              if (curr.key) acc[substitute(curr.key)] = substitute(curr.value);
-              return acc;
-          }, {} as any);
-          const reqParams = queryParams.reduce((acc, curr) => {
-              if (curr.key) acc[substitute(curr.key)] = substitute(curr.value);
-              return acc;
-          }, {} as any);
-          
-          const finalBody = bodyMode === 'raw' ? substitute(bodyContent) : undefined;
-
-          const res = await api.post<any>('/api/debug/request', {
-              method,
-              url: fullUrl,
-              headers: reqHeaders,
-              params: reqParams,
-              body: finalBody
-          });
-
-          setResponseStatus(res.status);
-          setResponseTime(res.time);
-          setResponseBody(res.body);
-          setResponseHeaders(res.headers);
-          
-          // Auto-detect view mode
-          const contentType = (res.headers['content-type'] || '').toLowerCase();
-          if (contentType.includes('text/html')) {
-              setResponseViewMode('html');
-          } else {
-              setResponseViewMode('json');
-          }
-          onLog(`请求成功: ${res.status} (${res.time}s)`);
-      } catch (e) {
-          onLog(`请求失败: ${e}`);
-          setResponseStatus(0);
-          setResponseBody(e instanceof Error ? e.message : String(e));
-      } finally {
-          setLoading(false);
+      if (preRequestScript && preRequestScript.trim()) {
+        try {
+          executePreRequestScript(preRequestScript, envInterface);
+        } catch (error) {
+          const msg = await translateError(error);
+          onLog(`前置脚本错误: ${msg}`);
+        }
       }
+
+      const { fullUrl, reqHeaders, reqParams, finalBody, isBase64 } = buildDebugRequestPayload({
+        apiPath,
+        headers,
+        queryParams,
+        authType,
+        authToken,
+        authBasic,
+        authApiKey,
+        bodyMode,
+        bodyContent,
+        xWwwFormUrlencodedParams,
+        formDataParams,
+        binaryFile,
+        graphqlQuery,
+        graphqlVariables,
+        substitute,
+      });
+
+      const res = await api.post<any>('/api/debug/request', {
+        method,
+        url: fullUrl,
+        headers: reqHeaders,
+        params: reqParams,
+        cookies: cookieJar,
+        body: finalBody,
+        is_base64_body: isBase64,
+        timeout: requestSettings.timeout / 1000,
+        verify_ssl: requestSettings.verifySSL,
+        follow_redirects: requestSettings.followRedirects,
+        max_redirects: requestSettings.maxRedirects,
+        http_version: requestSettings.httpVersion,
+      });
+
+      setResponseStatus(res.status);
+      setResponseTime(res.time);
+      setResponseBody(res.body);
+      setResponseHeaders(res.headers);
+      setSentHeaders(reqHeaders);
+      setSentCookies(cookieJar);
+      setSentBody(finalBody || null);
+      setResponseCookies(res.cookies || {});
+      if (res.detailed_cookies) {
+        setResponseDetailedCookies(res.detailed_cookies);
+      } else {
+        setResponseDetailedCookies({});
+      }
+
+      if (res.cookies) {
+        setCookieJar((prev) => ({ ...prev, ...res.cookies }));
+      }
+
+      if (postResponseScript && postResponseScript.trim()) {
+        try {
+          const tests = executePostResponseScript({
+            script: postResponseScript,
+            envInterface,
+            response: {
+              body: res.body,
+              headers: res.headers || {},
+              status: res.status,
+              time: res.time,
+            },
+          });
+          setScriptTests(tests);
+          if (tests.length > 0) {
+            setResponseTab('test_results');
+          }
+        } catch (error) {
+          const msg = await translateError(error);
+          onLog(`后置脚本错误: ${msg}`);
+        }
+      }
+
+      if (activeEnv) {
+        setSavedEnvs((prev) =>
+          prev.map((item) =>
+            item.id === activeEnv.id ? { ...item, variables: getRuntimeVariables() } : item,
+          ),
+        );
+      }
+
+      onLog(`请求成功: ${res.status} (${res.time}s)`);
+    } catch (error) {
+      const msg = await translateError(error);
+      onLog(`请求失败: ${msg}`);
+      setResponseStatus(0);
+      setResponseBody(msg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const [runSubTab, setRunSubTab] = useState('params'); 
-  const [responseTab, setResponseTab] = useState('report'); 
+  const [responseTab, setResponseTab] = useState<ResponseTab>('report');
 
-  // Body State
+  // 请求体状态
   const [bodyMode, setBodyMode] = useState<'none' | 'form-data' | 'x-www-form-urlencoded' | 'raw' | 'binary' | 'graphql'>('raw');
   const [rawType, setRawType] = useState<'Text' | 'JavaScript' | 'JSON' | 'HTML' | 'XML'>('JSON');
+  const [formDataParams, setFormDataParams] = useState<{key:string, value:string, desc:string, type:'text'|'file', src?: string}[]>([{key:'', value:'', desc:'', type:'text'}]);
+  const [xWwwFormUrlencodedParams, setXWwwFormUrlencodedParams] = useState<{key:string, value:string, desc:string}[]>([{key:'', value:'', desc:''}]);
+  const [binaryFile, setBinaryFile] = useState<{name: string, data: string} | null>(null);
+  const [graphqlQuery, setGraphqlQuery] = useState('');
+  const [graphqlVariables, setGraphqlVariables] = useState('');
   
-  // Request Config State
-  const [queryParams, setQueryParams] = useState<{key:string, value:string, desc:string}[]>([{key:'', value:'', desc:''}]);
+  // 请求配置状态
+    const [queryParams, setQueryParams] = useState<{key:string, value:string, desc:string}[]>([{key:'', value:'', desc:''}]);
+    
+    // 认证状态
+    const [authType, setAuthType] = useState<'none' | 'bearer' | 'basic' | 'apikey'>('none');
+    const [authToken, setAuthToken] = useState('');
+    const [authBasic, setAuthBasic] = useState({username: '', password: ''});
+    const [authApiKey, setAuthApiKey] = useState({key: '', value: '', addTo: 'header' as 'header'|'query'});
+
+    // 脚本状态
+    const [activeScriptTab, setActiveScriptTab] = useState<'pre' | 'post'>('pre');
+    const [preRequestScript, setPreRequestScript] = useState('');
+    const [postResponseScript, setPostResponseScript] = useState('');
+
+    // 请求设置状态
+    const [requestSettings, setRequestSettings] = useState({
+        timeout: 0, // 毫秒，0 表示不限时
+        followRedirects: true,
+        verifySSL: false,
+        httpVersion: 'HTTP/1.x',
+        followOriginalHttpMethod: false,
+        followAuthorizationHeader: false,
+        removeRefererHeader: false,
+        strictHttpParser: false,
+        encodeUrl: true,
+        disableCookieJar: false,
+        useServerCipherSuite: false,
+        maxRedirects: 10,
+        disabledSSLProtocols: '',
+        cipherSuites: ''
+    });
   
-  // Resizer State
+  // 根据 Body 模式自动管理 Content-Type
+    useEffect(() => {
+        const updateHeaders = () => {
+            let targetType = '';
+            if (bodyMode === 'raw') {
+                if (rawType === 'JSON') targetType = 'application/json';
+                else if (rawType === 'HTML') targetType = 'text/html';
+                else if (rawType === 'XML') targetType = 'application/xml';
+                else if (rawType === 'JavaScript') targetType = 'application/javascript';
+                else if (rawType === 'Text') targetType = 'text/plain';
+            } else if (bodyMode === 'x-www-form-urlencoded') {
+                targetType = 'application/x-www-form-urlencoded';
+            }
+
+            if (!targetType) return;
+
+            setHeaders(prev => {
+                const newHeaders = [...prev];
+                const index = newHeaders.findIndex(h => h.key.toLowerCase() === 'content-type');
+                
+                if (index >= 0) {
+                    // 仅更新“自动生成”的 Content-Type，避免覆盖用户手工输入。
+                    if (newHeaders[index].value !== targetType && newHeaders[index].desc === 'Auto-generated') {
+                        newHeaders[index] = { ...newHeaders[index], value: targetType };
+                        return newHeaders;
+                    }
+                    // 用户手动设置时不覆盖，尊重用户配置。
+                    return prev;
+                } else {
+                    // 若不存在 Content-Type，则补充一条自动生成项
+                    const emptyIndex = newHeaders.findIndex(h => !h.key && !h.value);
+                    if (emptyIndex !== -1 && newHeaders.length === 1) {
+                        newHeaders[emptyIndex] = { key: 'Content-Type', value: targetType, desc: 'Auto-generated' };
+                    } else {
+                        newHeaders.push({ key: 'Content-Type', value: targetType, desc: 'Auto-generated' });
+                    }
+                    return newHeaders;
+                }
+            });
+        };
+        updateHeaders();
+    }, [bodyMode, rawType]);
+
+    // 请求区高度拖拽状态
   const [requestHeight, setRequestHeight] = useState(300);
   const [isDragging, setIsDragging] = useState(false);
   const mainContentRef = useRef<HTMLDivElement>(null);
@@ -226,37 +311,75 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
       e.preventDefault();
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-      if (!isDragging || !mainContentRef.current) return;
-      
-      // Calculate new height relative to the container top
-      // We need to subtract the top offset of the request content container
-      // But a simpler way is to use movementY if we tracked start position, 
-      // or just use clientY relative to the container.
-      
-      const containerRect = mainContentRef.current.getBoundingClientRect();
-      // The request content starts after Request Bar (approx 50px) and Tabs (approx 40px)
-      // Let's approximate offset as 90px, or better, calculate it.
-      // Actually, we can just set height based on mouse position relative to container top.
-      // But the container includes the top bars. 
-      // So height = e.clientY - containerRect.top - (Header Heights)
-      
-      const headerOffset = 95; // Approximate height of Request Bar + Tabs
-      const newHeight = e.clientY - containerRect.top - headerOffset;
-      
-      if (newHeight > 100 && newHeight < containerRect.height - 100) {
-          setRequestHeight(newHeight);
-      }
-  };
+  useEffect(() => {
+       // 修复：使用全局事件监听提升拖动条灵敏度，避免鼠标移出组件后拖动失效
+       const handleGlobalMouseMove = (e: globalThis.MouseEvent) => {
+          if (!isDragging || !mainContentRef.current) return;
+          
+          const containerRect = mainContentRef.current.getBoundingClientRect();
+          const headerOffset = 95; // 请求栏 + 标签栏的近似高度
+          const resizerHeight = 8;
+          const minResponseHeight = 200;
+          
+          const newHeight = e.clientY - containerRect.top - headerOffset;
+          const maxHeight = containerRect.height - headerOffset - resizerHeight - minResponseHeight;
+          
+          if (newHeight > 100 && newHeight < maxHeight) {
+              setRequestHeight(newHeight);
+          }
+      };
 
-  const handleMouseUp = () => {
-      setIsDragging(false);
-  };
+      const handleGlobalMouseUp = () => {
+          setIsDragging(false);
+      };
+
+      if (isDragging) {
+          document.addEventListener('mousemove', handleGlobalMouseMove);
+          document.addEventListener('mouseup', handleGlobalMouseUp);
+      }
+
+      return () => {
+          document.removeEventListener('mousemove', handleGlobalMouseMove);
+          document.removeEventListener('mouseup', handleGlobalMouseUp);
+      };
+  }, [isDragging]);
   const [headers, setHeaders] = useState<{key:string, value:string, desc:string}[]>([{key:'', value:'', desc:''}]);
   const [bodyContent, setBodyContent] = useState('');
   const [showSidebar, setShowSidebar] = useState(true);
+  // 侧边栏：支持拖拽调宽，避免内容溢出导致的横向滚动条
+  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const sidebarResizeStartRef = useRef<{ x: number; width: number } | null>(null);
+  // 文件夹导入：通过隐藏 input 触发选择文件，并将目标文件夹 id 暂存
+  const folderImportInputRef = useRef<HTMLInputElement>(null);
+  const [folderImportTargetId, setFolderImportTargetId] = useState<number | null>(null);
 
-    // Saved Envs State
+  useEffect(() => {
+      // 侧边栏拖拽调宽：使用全局事件，避免鼠标移出后拖动失效
+      const handleGlobalMouseMove = (e: globalThis.MouseEvent) => {
+          if (!isResizingSidebar || !sidebarResizeStartRef.current) return;
+          const dx = e.clientX - sidebarResizeStartRef.current.x;
+          const next = Math.max(220, Math.min(560, sidebarResizeStartRef.current.width + dx));
+          setSidebarWidth(next);
+      };
+
+      const handleGlobalMouseUp = () => {
+          setIsResizingSidebar(false);
+          sidebarResizeStartRef.current = null;
+      };
+
+      if (isResizingSidebar) {
+          document.addEventListener('mousemove', handleGlobalMouseMove);
+          document.addEventListener('mouseup', handleGlobalMouseUp);
+      }
+
+      return () => {
+          document.removeEventListener('mousemove', handleGlobalMouseMove);
+          document.removeEventListener('mouseup', handleGlobalMouseUp);
+      };
+  }, [isResizingSidebar]);
+
+    // 已保存环境状态
     const [savedEnvs, setSavedEnvs] = useState<EnvConfig[]>(() => {
         try {
             const saved = localStorage.getItem('api_testing_saved_envs_v1');
@@ -269,12 +392,20 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
         }
     });
 
-    // Env Var Detection State
+    // URL 中 {{变量}} 检测状态
     const [activeEnvTag, setActiveEnvTag] = useState<string | null>(null);
-    const [inputScrollLeft, setInputScrollLeft] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
     const highlighterRef = useRef<HTMLDivElement>(null);
-    const popupTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const bodyHighlighterRef = useRef<HTMLDivElement>(null);
+    
+    const handleBodyScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+        if (bodyHighlighterRef.current) {
+            bodyHighlighterRef.current.scrollTop = e.currentTarget.scrollTop;
+            bodyHighlighterRef.current.scrollLeft = e.currentTarget.scrollLeft;
+        }
+    };
+
+    const popupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [showPopup, setShowPopup] = useState(false);
     
     useEffect(() => {
@@ -305,7 +436,7 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
         if (!context) return;
         context.font = font;
         
-        // Calculate precise range handling any prefix (spaces or text)
+        // 计算 {{变量}} 在输入框中的精确高亮区间
         const match = apiPath.match(/^([\s\S]*?)(\{\{\s*(.*?)\s*\}\})/);
         let startX = borderLeft + paddingLeft - scrollLeft;
         let endX = startX;
@@ -316,12 +447,12 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
              startX += prefixWidth;
              endX = startX + tagWidth;
         } else {
-             // Fallback if regex fails but activeEnvTag is set (unlikely)
+             // 正则未命中时的兜底分支（理论上很少进入）
              const tagWidth = context.measureText(activeEnvTag).width;
              endX = startX + tagWidth;
         }
         
-        if (mouseX >= startX && mouseX <= endX) { // Exact match, removed buffer
+        if (mouseX >= startX && mouseX <= endX) { // 精确命中，不再额外扩展缓冲区
             if (popupTimerRef.current) {
                 clearTimeout(popupTimerRef.current);
                 popupTimerRef.current = null;
@@ -367,7 +498,7 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
       setSavedEnvs(prev => {
           const envIndex = prev.findIndex(e => e.baseUrl === tag);
           if (envIndex === -1) {
-              // Create new
+              // 创建新环境
               return [...prev, {
                   id: Date.now().toString(),
                   name: varName,
@@ -393,7 +524,7 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
       });
   };
 
-  // Persist Envs
+  // 持久化环境配置到 localStorage
     useEffect(() => {
         try {
             localStorage.setItem('api_testing_saved_envs_v1', JSON.stringify(savedEnvs));
@@ -404,7 +535,7 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
 
     const handleSaveEnv = () => {
         setShowEnvModal(true);
-        setEditingEnv(null); // Start with list view
+        setEditingEnv(null); // 默认回到环境列表页
     };
 
     const handleUpdateEnv = (env: EnvConfig) => {
@@ -424,7 +555,14 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
         if (editingEnv?.id === id) setEditingEnv(null);
     };
 
-    const renderKvEditor = (items: {key:string, value:string, desc:string}[], onChange: (items: any[]) => void) => {
+    const renderKvEditor = (
+        items: {key:string, value:string, desc:string}[], 
+        onChange: (items: any[]) => void,
+        isBulk: boolean,
+        onToggleBulk: () => void,
+        bulkText: string,
+        onBulkChange: (val: string) => void
+    ) => {
         const handleChange = (index: number, field: string, val: string) => {
             const newItems = [...items];
             newItems[index] = { ...newItems[index], [field]: val };
@@ -441,26 +579,55 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
             const newItems = items.filter((_, i) => i !== index);
             onChange(newItems);
         };
+
+        if (isBulk) {
+            return (
+                <div className="w-100 h-100 d-flex flex-column">
+                    <div className="d-flex justify-content-end bg-light border-bottom px-2 py-1">
+                        <Button variant="link" size="sm" className="text-decoration-none" onClick={onToggleBulk}>Key-Value Edit</Button>
+                    </div>
+                    <Form.Control 
+                        as="textarea" 
+                        className="flex-grow-1 border-0 p-3 font-monospace small bg-transparent"
+                        style={{resize: 'none', outline: 'none'}}
+                        value={bulkText}
+                        onChange={e => onBulkChange(e.target.value)}
+                        placeholder="key:value"
+                        spellCheck={false}
+                    />
+                </div>
+            );
+        }
+
         return (
-            <div className="table-responsive">
-                <table className="table table-sm table-borderless mb-0 align-middle small">
+            <div className="w-100 overflow-hidden d-flex flex-column">
+                <div className="d-flex justify-content-end bg-light border-bottom px-2 py-1">
+                    <Button variant="link" size="sm" className="text-decoration-none" onClick={onToggleBulk}>Bulk Edit</Button>
+                </div>
+                <table className="table table-sm table-bordered border-start-0 border-end-0 mb-0 align-middle small w-100" style={{tableLayout: 'fixed'}}>
                     <thead className="text-secondary bg-light">
                         <tr>
-                            <th style={{width: '30%', fontWeight: '500'}} className="ps-3">Key</th>
-                            <th style={{width: '30%', fontWeight: '500'}}>Value</th>
-                            <th style={{width: '30%', fontWeight: '500'}}>Description</th>
-                            <th style={{width: '10%'}}></th>
+                            <th style={{width: '30%', fontWeight: '500'}} className="ps-3 border-start-0">键 (Key)</th>
+                            <th style={{width: '30%', fontWeight: '500'}} className="ps-2">值 (Value)</th>
+                            <th style={{width: '40%', fontWeight: '500'}} className="ps-2 border-end-0">描述 (Description)</th>
                         </tr>
                     </thead>
                     <tbody>
                         {items.map((item, idx) => (
                             <tr key={idx} className="border-bottom">
-                                <td className="ps-2"><Form.Control size="sm" placeholder="Key" value={item.key} onChange={e => handleChange(idx, 'key', e.target.value)} className="border-0 shadow-none bg-transparent" /></td>
-                                <td><Form.Control size="sm" placeholder="Value" value={item.value} onChange={e => handleChange(idx, 'value', e.target.value)} className="border-0 shadow-none bg-transparent" /></td>
-                                <td><Form.Control size="sm" placeholder="Description" value={item.desc} onChange={e => handleChange(idx, 'desc', e.target.value)} className="border-0 shadow-none bg-transparent" /></td>
-                                <td className="text-center">
+                                <td className="ps-3 border-start-0"><Form.Control size="sm" placeholder="Key" value={item.key} onChange={e => handleChange(idx, 'key', e.target.value)} className="border-0 shadow-none bg-transparent px-0" /></td>
+                                <td className="ps-2"><Form.Control size="sm" placeholder="Value" value={item.value} onChange={e => handleChange(idx, 'value', e.target.value)} className="border-0 shadow-none bg-transparent px-0" /></td>
+                                <td className="ps-2 position-relative border-end-0">
+                                    <Form.Control size="sm" placeholder="Description" value={item.desc} onChange={e => handleChange(idx, 'desc', e.target.value)} className="border-0 shadow-none bg-transparent px-0" style={{paddingRight: '24px'}} />
                                     {items.length > 1 && (
-                                        <Button variant="link" className="text-muted p-0 opacity-50 hover-opacity-100" onClick={() => handleDelete(idx)}><FaTrash size={12}/></Button>
+                                        <Button 
+                                            variant="link" 
+                                            className="position-absolute top-50 end-0 translate-middle-y text-muted p-0 pe-2 opacity-50 hover-opacity-100" 
+                                            style={{zIndex: 5}}
+                                            onClick={() => handleDelete(idx)}
+                                        >
+                                            <FaTrash size={12}/>
+                                        </Button>
                                     )}
                                 </td>
                             </tr>
@@ -471,328 +638,344 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
         );
     };
 
-    // Saved Interfaces State
+    const renderFormDataEditor = (
+        items: {key:string, value:string, desc:string, type: 'text'|'file', src?: string}[], 
+        onChange: (items: any[]) => void,
+        isBulk: boolean,
+        onToggleBulk: () => void,
+        bulkText: string,
+        onBulkChange: (val: string) => void
+    ) => {
+        const handleChange = (index: number, field: string, val: string) => {
+            const newItems = [...items];
+            // @ts-ignore
+            newItems[index] = { ...newItems[index], [field]: val };
+            if (index === items.length - 1 && (newItems[index].key || newItems[index].value)) {
+                newItems.push({ key: '', value: '', desc: '', type: 'text' });
+            }
+            onChange(newItems);
+        };
+        
+        const handleFileChange = (index: number, file: File | null) => {
+            const newItems = [...items];
+            if (file) {
+                newItems[index] = { ...newItems[index], src: file.name };
+                // 以 Data URL（Base64）方式读取文件内容
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const res = e.target?.result as string;
+                    newItems[index].value = res;
+                    onChange(newItems);
+                };
+                reader.readAsDataURL(file);
+            } else {
+                newItems[index] = { ...newItems[index], src: '', value: '' };
+                onChange(newItems);
+            }
+        };
+
+        const handleDelete = (index: number) => {
+            if (items.length <= 1) {
+                onChange([{ key: '', value: '', desc: '', type: 'text' }]);
+                return;
+            }
+            const newItems = items.filter((_, i) => i !== index);
+            onChange(newItems);
+        };
+
+        if (isBulk) {
+            return (
+                <div className="w-100 h-100 d-flex flex-column">
+                    <div className="d-flex justify-content-end bg-light border-bottom px-2 py-1">
+                        <Button variant="link" size="sm" className="text-decoration-none" onClick={onToggleBulk}>Key-Value Edit</Button>
+                    </div>
+                    <Form.Control 
+                        as="textarea" 
+                        className="flex-grow-1 border-0 p-3 font-monospace small bg-transparent"
+                        style={{resize: 'none', outline: 'none'}}
+                        value={bulkText}
+                        onChange={e => onBulkChange(e.target.value)}
+                        placeholder="key:value"
+                        spellCheck={false}
+                    />
+                </div>
+            );
+        }
+
+        return (
+            <div className="w-100 overflow-hidden">
+                <div className="d-flex justify-content-end bg-light border-bottom px-2 py-1">
+                    <Button variant="link" size="sm" className="text-decoration-none" onClick={onToggleBulk}>Bulk Edit</Button>
+                </div>
+                <table className="table table-sm table-bordered border-start-0 border-end-0 mb-0 align-middle small w-100" style={{tableLayout: 'fixed'}}>
+                    <thead className="text-secondary bg-light">
+                        <tr>
+                            <th style={{width: '25%', fontWeight: '500'}} className="ps-3 border-start-0">键 (Key)</th>
+                            <th style={{width: '10%', fontWeight: '500'}} className="ps-2">类型</th>
+                            <th style={{width: '30%', fontWeight: '500'}} className="ps-2">值 (Value)</th>
+                            <th style={{width: '35%', fontWeight: '500'}} className="ps-2 border-end-0">描述 (Description)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {items.map((item, idx) => (
+                            <tr key={idx} className="border-bottom">
+                                <td className="ps-3 border-start-0">
+                                    <Form.Control size="sm" placeholder="Key" value={item.key} onChange={e => handleChange(idx, 'key', e.target.value)} className="border-0 shadow-none bg-transparent px-0" />
+                                </td>
+                                <td className="ps-2">
+                                    <Form.Select size="sm" value={item.type} onChange={e => handleChange(idx, 'type', e.target.value)} className="border-0 shadow-none bg-transparent px-0 text-secondary" style={{fontSize: '0.875rem'}}>
+                                        <option value="text">Text</option>
+                                        <option value="file">File</option>
+                                    </Form.Select>
+                                </td>
+                                <td className="ps-2">
+                                    {item.type === 'file' ? (
+                                        <div className="d-flex align-items-center">
+                                            <Form.Control 
+                                                type="file" 
+                                                size="sm" 
+                                                className="border-0 shadow-none bg-transparent px-0" 
+                                                onChange={(e) => {
+                                                    const target = e.target as HTMLInputElement;
+                                                    handleFileChange(idx, target.files?.[0] || null);
+                                                }}
+                                            />
+                                            {item.src && <span className="small text-muted ms-2 text-truncate" style={{maxWidth: '100px'}} title={item.src}>{item.src}</span>}
+                                        </div>
+                                    ) : (
+                                        <Form.Control size="sm" placeholder="Value" value={item.value} onChange={e => handleChange(idx, 'value', e.target.value)} className="border-0 shadow-none bg-transparent px-0" />
+                                    )}
+                                </td>
+                                <td className="ps-2 position-relative border-end-0">
+                                    <Form.Control size="sm" placeholder="Description" value={item.desc} onChange={e => handleChange(idx, 'desc', e.target.value)} className="border-0 shadow-none bg-transparent px-0" style={{paddingRight: '24px'}} />
+                                    {items.length > 1 && (
+                                        <Button 
+                                            variant="link" 
+                                            className="position-absolute top-50 end-0 translate-middle-y text-muted p-0 pe-2 opacity-50 hover-opacity-100" 
+                                            style={{zIndex: 5}}
+                                            onClick={() => handleDelete(idx)}
+                                        >
+                                            <FaTrash size={12}/>
+                                        </Button>
+                                    )}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        );
+    };
+
+    // 已保存接口树状态
   const [savedInterfaces, setSavedInterfaces] = useState<SavedInterface[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [draggedId, setDraggedId] = useState<number | null>(null);
-  const [dragOverId, setDragOverId] = useState<number | null>(null); // Folder ID being hovered
-
-  // Drafts State
-  const [drafts, setDrafts] = useState<Record<number, any>>({});
-  
-  // BaseURL Editing State
-
-  // Save Modal State
-  const [showSaveModal, setShowSaveModal] = useState(false);
-  const [saveForm, setSaveForm] = useState({ name: '', description: '', parentId: null as number | null });
-  const [editingTargetId, setEditingTargetId] = useState<number | null>(null);
+  const [dragOverId, setDragOverId] = useState<number | null>(null); // 当前悬停的文件夹 ID
+  const [dragOverPosition, setDragOverPosition] = useState<DragOverPosition | null>(null);
   const [hoverId, setHoverId] = useState<number | null>(null);
+  const [bulkDeleteMode, setBulkDeleteMode] = useState(false);
+  const [bulkSelected, setBulkSelected] = useState<Record<number, boolean>>({});
 
-  // Helper for folder options
-  const renderFolderOptions = (parentId: number | null = null, depth = 0): ReactElement[] => {
-      const items = savedInterfaces.filter(i => i.type === 'folder' && i.parentId === parentId);
-      let options: ReactElement[] = [];
-      
-      items.forEach(item => {
-          options.push(
-              <option key={item.id} value={item.id}>
-                  {'\u00A0'.repeat(depth * 4)}{item.name}
-              </option>
-          );
-          options = [...options, ...renderFolderOptions(item.id, depth + 1)];
-      });
-      
-      return options;
+  // 批量编辑状态
+  const [isBulkEditParams, setIsBulkEditParams] = useState(false);
+  const [paramsBulkText, setParamsBulkText] = useState('');
+  
+  const [isBulkEditHeaders, setIsBulkEditHeaders] = useState(false);
+  const [headersBulkText, setHeadersBulkText] = useState('');
+  
+  const [isBulkEditBody, setIsBulkEditBody] = useState(false);
+  const [bodyBulkText, setBodyBulkText] = useState('');
+
+  const [isBulkEditFormData, setIsBulkEditFormData] = useState(false);
+  const [formDataBulkText, setFormDataBulkText] = useState('');
+
+  const parseBulkText = (text: string) => {
+      return text.split('\n').map(line => {
+          const index = line.indexOf(':');
+          if (index === -1) return { key: line.trim(), value: '', desc: '' };
+          return { key: line.substring(0, index).trim(), value: line.substring(index + 1).trim(), desc: '' };
+      }).filter(i => i.key || i.value);
   };
 
-  // Fetch Interfaces
-  const fetchInterfaces = async () => {
-      // Always fetch user's interfaces, project_id is optional filter
-      try {
-          const url = projectId ? `/api/standard/interfaces?project_id=${projectId}` : '/api/standard/interfaces';
-          const res = await api.get<any[]>(url);
-          if (res) {
-              const mapped: SavedInterface[] = res.map(i => ({
-                  id: i.id,
-                  type: i.type,
-                  name: i.name,
-                  description: i.description,
-                  parentId: i.parent_id,
-                  isOpen: false,
-                  
-                  baseUrl: i.base_url,
-                  apiPath: i.api_path,
-                  method: i.method,
-                  
-                  headers: i.headers,
-                  params: i.params,
-                  bodyMode: i.body_mode,
-                  rawType: i.raw_type,
-                  bodyContent: i.body_content,
-                  
-                  testConfig: i.test_config,
-                  requirement: i.test_config?.requirement,
-                  mode: i.test_config?.mode,
-                  testTypes: i.test_config?.testTypes
-              }));
-              setSavedInterfaces(mapped);
-          }
-      } catch (e) {
-          console.error("Failed to fetch interfaces:", e);
-      }
+  const stringifyBulkItems = (items: any[]) => {
+      return items.filter(i => i.key || i.value).map(i => `${i.key}:${i.value}`).join('\n');
   };
+
+    const handleFormDataBulkChange = (val: string) => {
+        setFormDataBulkText(val);
+        const parsed = parseBulkText(val);
+        // 将批量文本映射为 form-data 结构，默认按文本字段处理
+        const newItems = parsed.map(p => ({
+            ...p,
+            type: 'text' as const,
+            src: ''
+        }));
+        if (newItems.length === 0) newItems.push({key:'', value:'', desc:'', type:'text', src:''});
+        setFormDataParams(newItems);
+    };
+
+    const toggleFormDataBulk = () => {
+        if (isBulkEditFormData) {
+            setIsBulkEditFormData(false);
+        } else {
+            setFormDataBulkText(stringifyBulkItems(formDataParams));
+            setIsBulkEditFormData(true);
+        }
+    };
+
+  // CRUD Hook：统一管理接口树的读取、创建和更新逻辑。
+  const {
+      fetchInterfaces,
+      createFolder,
+      createInterface,
+      updateInterface,
+  } = useInterfaceCrud({
+      projectId,
+      selectedId,
+      savedInterfaces,
+      setSavedInterfaces,
+      apiPath,
+      method,
+      queryParams,
+      headers,
+      bodyMode,
+      rawType,
+      bodyContent,
+      translateError,
+  });
+
+  const {
+      showSaveModal,
+      setShowSaveModal,
+      saveForm,
+      setSaveForm,
+      handleEditFolder,
+      handleSaveInterfaceClick,
+      handleConfirmSave,
+      handleLoadInterface,
+      renderFolderOptions,
+  } = useInterfaceEditor({
+      projectId,
+      savedInterfaces,
+      setSavedInterfaces,
+      selectedId,
+      setSelectedId,
+      apiPath,
+      setApiPath,
+      method,
+      setMethod,
+      requirement,
+      setRequirement,
+      mode,
+      setMode,
+      testTypes,
+      setTestTypes,
+      headers,
+      setHeaders,
+      queryParams,
+      setQueryParams,
+      bodyMode,
+      setBodyMode,
+      rawType,
+      setRawType,
+      bodyContent,
+      setBodyContent,
+      preRequestScript,
+      setPreRequestScript,
+      postResponseScript,
+      setPostResponseScript,
+      setResponseStatus,
+      setResponseTime,
+      setResponseBody,
+      setResponseHeaders,
+      setResponseCookies,
+      setTestResult,
+      updateInterface,
+      fetchInterfaces,
+      translateError,
+      onLog,
+  });
 
   useEffect(() => {
       fetchInterfaces();
-  }, [projectId]);
+  }, [fetchInterfaces]);
 
   const handleCreateFolder = async (parentId: number | null = null) => {
-      const name = prompt("请输入文件夹名称:", "新建文件夹");
-      if (!name) return;
-      
-      try {
-          await api.post('/api/standard/interfaces', {
-              name,
-              type: 'folder',
-              project_id: projectId,
-              parent_id: parentId
-          });
-          fetchInterfaces();
-      } catch (e: any) {
-          alert('创建文件夹失败: ' + (e.message || String(e)));
-      }
+      await createFolder(parentId);
   };
 
+  // 新建接口后，延续原行为：自动加载到编辑区。
   const handleCreateInterface = async (targetParentId?: number | null) => {
-      let parentId = targetParentId;
-      if (parentId === undefined) {
-          parentId = null;
-          if (selectedId) {
-              const existing = savedInterfaces.find(i => i.id === selectedId);
-              if (existing) {
-                   if (existing.type === 'folder') {
-                       parentId = existing.id;
-                   } else {
-                       parentId = existing.parentId;
-                   }
-              }
-          }
-      }
-
-      try {
-          const res = await api.post<any>('/api/standard/interfaces', {
-              name: 'New Request',
-              type: 'request',
-              project_id: projectId,
-              parent_id: parentId,
-              method: 'GET'
-          });
-          
-          if (res) {
-              const newItem: SavedInterface = {
-                  id: res.id,
-                  type: res.type,
-                  name: res.name,
-                  description: res.description,
-                  parentId: res.parent_id,
-                  isOpen: false,
-                  baseUrl: res.base_url,
-                  apiPath: res.api_path,
-                  method: res.method,
-                  headers: res.headers,
-                  params: res.params,
-                  bodyMode: res.body_mode,
-                  rawType: res.raw_type,
-                  bodyContent: res.body_content,
-                  testConfig: res.test_config,
-                  requirement: res.test_config?.requirement,
-                  mode: res.test_config?.mode,
-                  testTypes: res.test_config?.testTypes
-              };
-              
-              setSavedInterfaces(prev => [...prev, newItem]);
-              handleLoadInterface(newItem);
-              
-              // Ensure parent folder is open
-              if (parentId) {
-                  setSavedInterfaces(prev => prev.map(i => 
-                      i.id === parentId ? { ...i, isOpen: true } : i
-                  ));
-              }
-          }
-      } catch (e: any) {
-          alert('创建接口失败: ' + (e.message || String(e)));
-      }
+      const created = await createInterface(targetParentId);
+      if (created) handleLoadInterface(created);
   };
 
-  const handleSaveInterfaceClick = () => {
-      setEditingTargetId(null);
-      if (!apiPath) return alert('请至少填写接口路径');
-      
-      let defaultParentId = null;
-      if (selectedId) {
-          const existing = savedInterfaces.find(i => i.id === selectedId);
-          if (existing) {
-               if (existing.type === 'folder') {
-                   defaultParentId = existing.id;
-               } else {
-                   defaultParentId = existing.parentId;
-               }
-          }
-      }
+  // 自动管理 Content-Type（与 Postman 一致：仅在 Body 有内容时生成/更新）
+    useEffect(() => {
+        const updateHeaders = () => {
+            let hasBodyContent = false;
+            let targetType = '';
 
-      if (selectedId) {
-          const existing = savedInterfaces.find(i => i.id === selectedId);
-          if (existing && existing.type === 'request') {
-              // Pre-fill form
-              setSaveForm({ 
-                  name: existing.name, 
-                  description: existing.description || '',
-                  parentId: existing.parentId
-              });
-          } else {
-             setSaveForm({ name: apiPath, description: '', parentId: defaultParentId }); 
-          }
-      } else {
-          setSaveForm({ name: apiPath, description: '', parentId: defaultParentId });
-      }
-      setShowSaveModal(true);
-  };
+            if (bodyMode === 'raw') {
+                hasBodyContent = !!(bodyContent && bodyContent.trim());
+                if (rawType === 'JSON') targetType = 'application/json';
+                else if (rawType === 'HTML') targetType = 'text/html';
+                else if (rawType === 'XML') targetType = 'application/xml';
+                else if (rawType === 'JavaScript') targetType = 'application/javascript';
+                else if (rawType === 'Text') targetType = 'text/plain';
+            } else if (bodyMode === 'x-www-form-urlencoded') {
+                hasBodyContent = xWwwFormUrlencodedParams.some(p => p.key || p.value);
+                targetType = 'application/x-www-form-urlencoded';
+            } else if (bodyMode === 'form-data') {
+                hasBodyContent = formDataParams.some(p => p.key || p.value);
+                // form-data 的 boundary 由客户端自动生成。
+                // 手工写死 Content-Type 往往会导致 boundary 不匹配，所以这里不自动写入。
+                targetType = ''; 
+            }
 
-  const handleConfirmSave = async () => {
-      if (!saveForm.name) return alert('请输入名称');
+            // 与 Postman 对齐：Body 为空时不自动生成 Content-Type
+            if (!hasBodyContent) targetType = '';
 
-      if (editingTargetId) {
-          const target = savedInterfaces.find(i => i.id === editingTargetId);
-          if (target) {
-              const updates: any = {
-                  name: saveForm.name,
-                  description: saveForm.description,
-                  parent_id: saveForm.parentId,
-                  project_id: projectId
-              };
-              await updateInterface(editingTargetId, updates);
-              setShowSaveModal(false);
-              setEditingTargetId(null);
-              fetchInterfaces();
-              return;
-          }
-      }
-      
-      const payload = {
-          name: saveForm.name,
-          description: saveForm.description,
-          project_id: projectId,
-          type: 'request',
-          method,
-          base_url: '',
-          api_path: apiPath,
-          headers,
-          params: queryParams,
-          body_mode: bodyMode,
-          raw_type: rawType,
-          body_content: bodyContent,
-          test_config: { testTypes, mode, requirement },
-          parent_id: saveForm.parentId
-      };
-
-      try {
-          if (selectedId) {
-              // Update? Or Create New if user wants "Save As"?
-              // Ideally if selectedId exists and it's a request, update it.
-              // But maybe user wants to change name.
-              await api.put(`/api/standard/interfaces/${selectedId}`, payload);
-              onLog('接口已更新');
-          } else {
-              // Create
-              const res = await api.post<SavedInterface>('/api/standard/interfaces', payload);
-              if(res) setSelectedId(res.id);
-              onLog('接口已保存');
-          }
-          setShowSaveModal(false);
-          fetchInterfaces();
-      } catch (e) {
-          alert('保存失败: ' + e);
-      }
-  };
-
-  const handleLoadInterface = (item: SavedInterface) => {
-      if (item.type === 'folder') {
-          // Toggle folder
-          setSavedInterfaces(prev => prev.map(i => 
-              i.id === item.id ? { ...i, isOpen: !i.isOpen } : i
-          ));
-          return;
-      }
-
-      // Save current draft
-      if (selectedId) {
-          setDrafts(prev => ({
-              ...prev,
-              [selectedId]: {
-                  apiPath,
-                  method,
-                  requirement,
-                  mode,
-                  testTypes,
-                  headers,
-                  params: queryParams,
-                  bodyMode,
-                  rawType,
-                  bodyContent
-              }
-          }));
-      }
-
-      setSelectedId(item.id);
-      
-      // Load from draft if exists, else from item
-      const draft = drafts[item.id];
-      
-      if (draft) {
-          // Merge BaseURL and Path for single input
-          setApiPath((draft.baseUrl || '') + (draft.apiPath || ''));
-          setMethod(draft.method ?? item.method ?? 'POST');
-          setRequirement(draft.requirement ?? item.requirement ?? (item.testConfig?.requirement) ?? '');
-          setMode(draft.mode ?? item.mode ?? (item.testConfig?.mode) ?? 'natural');
-          setTestTypes(draft.testTypes ?? item.testConfig?.testTypes ?? { functional: true, boundary: false, security: false });
-          
-          setHeaders(draft.headers ?? item.headers ?? [{key:'', value:'', desc:''}]);
-          setQueryParams(draft.params ?? item.params ?? [{key:'', value:'', desc:''}]);
-          
-          setBodyMode(draft.bodyMode ?? item.bodyMode ?? 'raw');
-          setRawType(draft.rawType ?? item.rawType ?? 'JSON');
-          setBodyContent(draft.bodyContent ?? item.bodyContent ?? '');
-      } else {
-          // Merge BaseURL and Path for single input
-          setApiPath((item.baseUrl || '') + (item.apiPath || ''));
-          setMethod(item.method || 'POST');
-          setRequirement(item.requirement || (item.testConfig?.requirement) || '');
-          setMode(item.mode || (item.testConfig?.mode) || 'natural');
-          setTestTypes(item.testConfig?.testTypes || { functional: true, boundary: false, security: false });
-          
-          setHeaders(item.headers || [{key:'', value:'', desc:''}]);
-          setQueryParams(item.params || [{key:'', value:'', desc:''}]);
-          
-          setBodyMode((item.bodyMode as any) || 'raw');
-          setRawType((item.rawType as any) || 'JSON');
-          setBodyContent(item.bodyContent || '');
-      }
-  };
-
-  const handleEditFolder = (item: SavedInterface) => {
-      setEditingTargetId(item.id);
-      setSaveForm({
-          name: item.name,
-          description: item.description || '',
-          parentId: item.parentId
-      });
-      setShowSaveModal(true);
-  };
-
-
-
-  const handleDeleteInterface = async (id: number, e: MouseEvent) => {
+            setHeaders(prev => {
+                const newHeaders = [...prev];
+                const index = newHeaders.findIndex(h => h.key.toLowerCase() === 'content-type');
+                
+                if (targetType) {
+                    // 更新已有自动头，或补充新的自动头
+                    if (index >= 0) {
+                        if (newHeaders[index].value !== targetType && newHeaders[index].desc === 'Auto-generated') {
+                            newHeaders[index] = { ...newHeaders[index], value: targetType };
+                            return newHeaders;
+                        }
+                        return prev;
+                    } else {
+                        // 新增自动生成的 Content-Type
+                        const emptyIndex = newHeaders.findIndex(h => !h.key && !h.value);
+                        if (emptyIndex !== -1 && newHeaders.length === 1) {
+                            newHeaders[emptyIndex] = { key: 'Content-Type', value: targetType, desc: 'Auto-generated' };
+                        } else {
+                            newHeaders.push({ key: 'Content-Type', value: targetType, desc: 'Auto-generated' });
+                        }
+                        return newHeaders;
+                    }
+                } else {
+                    // 若请求体为空，移除自动生成的 Content-Type
+                    if (index >= 0 && newHeaders[index].desc === 'Auto-generated') {
+                        newHeaders.splice(index, 1);
+                        // 保证编辑器中至少保留一行空项
+                        if (newHeaders.length === 0) {
+                            newHeaders.push({ key: '', value: '', desc: '' });
+                        }
+                        return newHeaders;
+                    }
+                    return prev;
+                }
+            });
+        };
+        updateHeaders();
+    }, [bodyMode, rawType, bodyContent, formDataParams, xWwwFormUrlencodedParams]);
+  const handleDeleteInterface = async (id: number, e: React.MouseEvent) => {
       e.stopPropagation();
       if (!window.confirm('确定要删除吗？')) return;
       try {
@@ -800,11 +983,82 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
           if (selectedId === id) setSelectedId(null);
           fetchInterfaces();
       } catch (e) {
-          alert('删除失败');
+          // 中文注释：删除失败统一中文错误提示
+          const msg = await translateError(e);
+          alert('删除失败: ' + msg);
       }
   };
 
-  // Drag and Drop Handlers
+  const toggleBulkSelected = (id: number) => {
+      setBulkSelected(prev => {
+          const next = { ...prev };
+          if (next[id]) {
+              delete next[id];
+          } else {
+              next[id] = true;
+          }
+          return next;
+      });
+  };
+
+  const buildRemoveSet = (rootIds: number[]) => {
+      const childrenByParent = new Map<number | null, number[]>();
+      for (const item of savedInterfaces) {
+          const pid = item.parentId ?? null;
+          const arr = childrenByParent.get(pid);
+          if (arr) arr.push(item.id);
+          else childrenByParent.set(pid, [item.id]);
+      }
+
+      const remove = new Set<number>();
+      const stack = [...rootIds];
+      while (stack.length) {
+          const id = stack.pop() as number;
+          if (remove.has(id)) continue;
+          remove.add(id);
+          const children = childrenByParent.get(id);
+          if (children && children.length) {
+              for (const childId of children) stack.push(childId);
+          }
+      }
+      return remove;
+  };
+
+  const handleBulkDeleteToggleOrConfirm = async () => {
+      if (!bulkDeleteMode) {
+          setBulkDeleteMode(true);
+          setBulkSelected({});
+          return;
+      }
+
+      const selectedIds = Object.keys(bulkSelected).map(Number);
+      if (selectedIds.length === 0) {
+          setBulkDeleteMode(false);
+          return;
+      }
+
+      const removeSet = buildRemoveSet(selectedIds);
+      const hint = removeSet.size !== selectedIds.length ? `（包含子项，共 ${removeSet.size} 项）` : '';
+      if (!window.confirm(`确定要删除选中的 ${selectedIds.length} 项吗？${hint}`)) return;
+
+      try {
+          for (const id of selectedIds) {
+              await api.delete(`/api/standard/interfaces/${id}`);
+          }
+
+          if (selectedId !== null && removeSet.has(selectedId)) {
+              setSelectedId(null);
+          }
+
+          setBulkDeleteMode(false);
+          setBulkSelected({});
+          fetchInterfaces();
+      } catch (e) {
+          alert('批量删除失败');
+      }
+  };
+
+  // 拖拽排序与拖入目录处理
   const handleDragStart = (e: React.DragEvent, id: number) => {
       e.stopPropagation();
       e.dataTransfer.setData('text/plain', String(id));
@@ -815,90 +1069,52 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
       e.preventDefault();
       e.stopPropagation();
       if (draggedId === targetId) return;
-      if (isFolder) {
-          setDragOverId(targetId);
-      }
+      
+      const rect = e.currentTarget.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const height = rect.height;
+      const position = computeDragOverPosition(isFolder, y, height);
+
+      setDragOverId(targetId);
+      setDragOverPosition(position);
   };
 
   const handleDragLeave = () => {
       setDragOverId(null);
+      setDragOverPosition(null);
   };
 
   const handleDrop = async (e: React.DragEvent, targetId: number | null) => {
         e.preventDefault();
         e.stopPropagation();
         setDragOverId(null);
+        setDragOverPosition(null);
+        
         const idStr = e.dataTransfer.getData('text/plain');
         if (!idStr) return;
         const id = Number(idStr);
         if (id === targetId) return;
 
-        // Prevent dropping folder into its own child
-        // Check circular dependency
-        let current = targetId;
-        while (current) {
-            if (current === id) return; // Can't drop parent into child
-            const parent = savedInterfaces.find(i => i.id === current)?.parentId;
-            current = parent || null;
-        }
+        const position = dragOverPosition || 'middle';
+        const dropPlan = planInterfaceDrop(savedInterfaces, id, targetId, position);
+        if (!dropPlan) return;
+
+        setSavedInterfaces(dropPlan.nextItems);
         
-        const updates: any = { parent_id: targetId };
-        
-        // BaseURL Inheritance Logic
-        if (targetId) {
-             const targetFolder = savedInterfaces.find(i => i.id === targetId);
-             if (targetFolder && targetFolder.baseUrl) {
-                 updates.base_url = targetFolder.baseUrl;
+        const updates: any = { parent_id: dropPlan.newParentId };
+        if (dropPlan.newParentId) {
+             const parentFolder = savedInterfaces.find(i => i.id === dropPlan.newParentId);
+             if (parentFolder && parentFolder.baseUrl) {
+                 updates.base_url = parentFolder.baseUrl;
              }
         }
         
-        updateInterface(id, updates);
+        updateInterface(dropPlan.draggedId, updates);
         setDraggedId(null);
     };
 
-    // Check if unsaved changes exist
-  const isUnsaved = (item: SavedInterface) => {
-      if (item.id !== selectedId) return false;
-      if (item.type === 'folder') return false;
-      
-      const normalize = (val: any) => val === null || val === undefined ? '' : String(val);
-      
-      // Compare concatenated URL
-      const savedFullUrl = normalize(item.baseUrl) + normalize(item.apiPath);
-      
-      return (
-          savedFullUrl !== normalize(apiPath) ||
-          normalize(item.method) !== normalize(method) ||
-          normalize(item.requirement) !== normalize(requirement) ||
-          normalize(item.mode) !== normalize(mode) ||
-          JSON.stringify(item.testTypes) !== JSON.stringify(testTypes)
-      );
-  };
-
-  const updateInterface = async (id: number, updates: any) => {
-      // Optimistic update
-      setSavedInterfaces(prev => prev.map(item => {
-          if (item.id === id) {
-              const newItem = { ...item };
-              if (updates.parent_id !== undefined) newItem.parentId = updates.parent_id;
-              if (updates.name !== undefined) newItem.name = updates.name;
-              if (updates.base_url !== undefined) newItem.baseUrl = updates.base_url;
-              if (updates.method !== undefined) newItem.method = updates.method;
-              if (updates.api_path !== undefined) newItem.apiPath = updates.api_path;
-              if (updates.description !== undefined) newItem.description = updates.description;
-              return newItem;
-          }
-          return item;
-      }));
-
-      try {
-          await api.put(`/api/standard/interfaces/${id}`, updates);
-      } catch (e) {
-          console.error("Update failed", e);
-          fetchInterfaces(); // Revert
-      }
-  };
-
+    // 预留：未保存变更检测（当前状态灯已移除）
+  // const isUnsaved = ...
   const toggleFolder = (id: number) => {
       setSavedInterfaces(prev => prev.map(i => 
           i.id === id ? { ...i, isOpen: !i.isOpen } : i
@@ -908,11 +1124,11 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
   const handleApiPathBlur = () => {
       if (!apiPath || !apiPath.trim()) return;
       
-      // Check for {{VAR}} format at start of URL
+      // 检测 URL 开头是否为 {{变量}}
       const match = apiPath.match(/^(\{\{\s*(.+?)\s*\}\})/);
       if (match) {
           const tag = match[1]; // {{key}}
-          const envName = match[2]; // key
+          const envName = match[2]; // 变量名
           
           const exists = savedEnvs.some(e => e.baseUrl === tag);
           if (!exists) {
@@ -934,7 +1150,7 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
           return;
       }
 
-      // Update UI optimistically
+      // 先更新 UI，提升交互响应
       setSavedInterfaces(prev => prev.map(item => 
           item.id === renamingId ? { ...item, name: renamingName } : item
       ));
@@ -943,163 +1159,14 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
           await api.put(`/api/standard/interfaces/${renamingId}`, { name: renamingName });
       } catch (e) {
           console.error("Rename failed", e);
-          fetchInterfaces(); // Revert
+          fetchInterfaces(); // 失败时回滚
       } finally {
           setRenamingId(null);
       }
   };
 
-  const renderTree = (parentId: number | null, depth = 0) => {
-      const items = savedInterfaces.filter(i => i.parentId === parentId);
-      if (items.length === 0) return null;
-
-      return items.map(item => {
-          const isFolder = item.type === 'folder';
-          const unsaved = isUnsaved(item);
-          const isSelected = item.id === selectedId;
-          const isOver = dragOverId === item.id;
-          const isHovered = hoverId === item.id;
-
-          return (
-              <div key={item.id}>
-                  <div 
-                    draggable={renamingId !== item.id}
-                    onMouseEnter={() => setHoverId(item.id)}
-                      onMouseLeave={() => setHoverId(null)}
-                      onDragStart={(e) => handleDragStart(e, item.id)}
-                      onDragOver={(e) => handleDragOver(e, item.id, isFolder)}
-                      onDragLeave={handleDragLeave}
-                      onDrop={(e) => isFolder ? handleDrop(e, item.id) : undefined}
-                      className={`
-                          ${isOver ? 'bg-primary-subtle border border-primary' : 'border border-transparent'}
-                          ${isSelected ? 'bg-light' : ''}
-                          rounded
-                      `}
-                      style={{transition: 'all 0.2s'}}
-                  >
-                      <ListGroup.Item 
-                          action 
-                          active={isSelected}
-                          onClick={() => handleLoadInterface(item)}
-                          className={`border-0 py-1 px-2 d-flex align-items-center ${depth > 0 ? 'ms-3' : ''}`}
-                          style={{ 
-                              paddingLeft: `${depth * 12 + 4}px`,
-                              backgroundColor: isSelected ? '#e9ecef' : 'transparent',
-                              borderLeft: isSelected ? '3px solid #0d6efd' : '3px solid transparent'
-                          }}
-                      >
-                          <div 
-                              className="me-1 d-flex align-items-center justify-content-center text-secondary"
-                              style={{width: '20px', height: '20px', cursor: 'pointer', visibility: isFolder ? 'visible' : 'hidden'}}
-                              onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleFolder(item.id);
-                              }}
-                          >
-                              {item.isOpen ? <FaChevronDown size={10} /> : <FaChevronRight size={10} />}
-                          </div>
-
-                          <div className="d-flex align-items-center flex-grow-1 overflow-hidden">
-                                {isFolder && (
-                                  <span className="me-2 text-warning">
-                                      <FaLayerGroup size={14}/>
-                                  </span>
-                              )}
-                                {!isFolder && (
-                                    <span className={`fw-bold small me-2 ${getMethodColor(item.method || 'GET')}`} style={{fontSize: '0.7rem', width: '30px'}}>
-                                        {item.method}
-                                    </span>
-                                )}
-                                
-                                {renamingId === item.id ? (
-                                    <Form.Control 
-                                        size="sm"
-                                        value={renamingName}
-                                        onChange={e => setRenamingName(e.target.value)}
-                                        onBlur={handleRenameConfirm}
-                                        onKeyDown={e => e.key === 'Enter' && handleRenameConfirm()}
-                                        autoFocus
-                                        onClick={e => e.stopPropagation()}
-                                        onMouseDown={e => e.stopPropagation()}
-                                        onDragStart={e => { e.preventDefault(); e.stopPropagation(); }}
-                                        className="p-0 px-1 py-0 h-auto"
-                                    />
-                                ) : (
-                                    <span 
-                                        className="text-truncate small fw-medium flex-grow-1" 
-                                        title={item.name}
-                                        onDoubleClick={(e) => {
-                                            e.stopPropagation();
-                                            setRenamingId(item.id);
-                                            setRenamingName(item.name);
-                                        }}
-                                    >
-                                        {item.name}
-                                    </span>
-                                )}
-
-                                {/* Status Light */}
-                            {!isFolder && (
-                                <div 
-                                    className="rounded-circle me-2 flex-shrink-0" 
-                                    style={{
-                                        width: '8px', 
-                                        height: '8px', 
-                                        backgroundColor: unsaved ? '#ffc107' : '#198754',
-                                        cursor: unsaved ? 'pointer' : 'default'
-                                    }}
-                                    title={unsaved ? "未保存 (点击保存)" : "已保存"}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (unsaved) handleSaveInterfaceClick();
-                                    }}
-                                />
-                            )}
-                        </div>
-                        
-                        <div 
-                              className="ms-2 d-flex gap-2 align-items-center flex-shrink-0"
-                              style={{ opacity: (isHovered || isSelected) ? 1 : 0, transition: 'opacity 0.2s' }}
-                          >
-                              <Dropdown onClick={(e) => e.stopPropagation()}>
-                                  <Dropdown.Toggle as="div" className="cursor-pointer text-secondary px-1 no-caret">
-                                      <FaEllipsisH size={12} />
-                                  </Dropdown.Toggle>
-
-                                <Dropdown.Menu align="end" style={{ zIndex: 1050 }}>
-                                    <Dropdown.Item onClick={() => isFolder ? handleCreateInterface(item.id) : handleCreateInterface(item.parentId)}>
-                                        <FaPlus className="me-2" /> 新增接口
-                                    </Dropdown.Item>
-                                    {isFolder && (
-                                         <Dropdown.Item onClick={() => handleEditFolder(item)}>
-                                             <FaEdit className="me-2" /> 编辑详情
-                                         </Dropdown.Item>
-                                    )}
-                                    <Dropdown.Item onClick={() => {
-                                         setRenamingId(item.id);
-                                         setRenamingName(item.name);
-                                    }}>
-                                        <FaEdit className="me-2" /> 重命名
-                                    </Dropdown.Item>
-                                    <Dropdown.Item onClick={(e) => handleDeleteInterface(item.id, e as any)} className="text-danger">
-                                        <FaTrash className="me-2" /> 删除
-                                    </Dropdown.Item>
-                                </Dropdown.Menu>
-                            </Dropdown>
-                        </div>
-                      </ListGroup.Item>
-                  </div>
-                  
-                  {isFolder && item.isOpen && (
-                      <div className="border-start ms-2 ps-1">
-                          {renderTree(item.id, depth + 1)}
-                      </div>
-                  )}
-              </div>
-          );
-      });
-  };
-
+  // AI 生成并执行接口测试入口。
+  // 会结合当前 method/url/body/headers/params 组织 richer prompt。
   const handleRun = async () => {
     if (!projectId) return alert('请先选择项目');
     if (!apiPath) return alert('请输入请求 URL');
@@ -1107,7 +1174,7 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
     
     setLoading(true);
     setTestResult(null);
-    setResponseTab('report'); // Switch to report tab to show progress
+    setResponseTab('report'); // 切到报告页，展示生成进度
     onLog(`开始生成接口测试脚本 (${mode === 'natural' ? '自然语言' : '结构化'}模式)...`);
     
     try {
@@ -1115,26 +1182,26 @@ export function StandardAPITesting({ projectId, onLog }: StandardAPITestingProps
         .filter(k => testTypes[k])
         .map(k => k.charAt(0).toUpperCase() + k.slice(1));
 
-      // Construct a richer prompt by combining method/url/requirement and user config
+      // 组合 method/url/requirement 与用户配置，构建更完整的提示词
       let richRequirement = `
 Method: ${method}
 URL: ${apiPath}
 Context/Requirement: ${requirement}
       `.trim();
 
-      // Append Params
+      // 追加 Query 参数说明
       const validParams = queryParams.filter(p => p.key);
       if (validParams.length > 0) {
           richRequirement += `\n\nQuery Params:\n${validParams.map(p => `${p.key}: ${p.value} (${p.desc})`).join('\n')}`;
       }
 
-      // Append Headers
+      // 追加 Header 说明
       const validHeaders = headers.filter(h => h.key);
       if (validHeaders.length > 0) {
           richRequirement += `\n\nHeaders:\n${validHeaders.map(h => `${h.key}: ${h.value} (${h.desc})`).join('\n')}`;
       }
 
-      // Append Body
+      // 追加请求体说明
       if (bodyMode !== 'none' && bodyContent.trim()) {
           richRequirement += `\n\nRequest Body (${bodyMode}):\n${bodyContent}`;
       }
@@ -1142,7 +1209,7 @@ Context/Requirement: ${requirement}
       const data = await api.post<TestResult>('/api/api-testing', { 
         requirement: richRequirement, 
         project_id: projectId,
-        base_url: '', // Deprecated: Full URL is in richRequirement/prompt
+        base_url: '', // 兼容字段：完整 URL 已写入 richRequirement/prompt
         test_types: activeTypes,
         mode
       });
@@ -1154,7 +1221,8 @@ Context/Requirement: ${requirement}
           onLog(`测试发现 ${data.structured_report.failed} 个问题`);
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      // 中文注释：接口测试失败统一中文错误提示
+      const msg = await translateError(e);
       onLog(`接口测试失败: ${msg}`);
     } finally {
       setLoading(false);
@@ -1163,102 +1231,260 @@ Context/Requirement: ${requirement}
 
   const getMethodColor = (m: string) => {
       switch(m) {
-          case 'GET': return 'text-primary';
-          case 'POST': return 'text-warning';
-          case 'PUT': return 'text-info';
-          case 'DELETE': return 'text-danger';
-          default: return 'text-secondary';
+          case 'GET': return '#198754'; // 绿色
+          case 'POST': return '#8B4513'; // 棕色
+          case 'PUT': return '#6f42c1'; // 紫色
+          case 'DELETE': return '#b02a37'; // 深红
+          default: return '#6c757d'; // 灰色
       }
   };
 
-  const renderDashboard = (report: NonNullable<TestResult['structured_report']>) => {
-      const passRate = report.total > 0 ? (report.passed / report.total) * 100 : 0;
+  const importInterfaceItems = async (items: SavedInterface[], rootParentId: number | null) => {
+      // 修复导入丢失：导入内容必须写入后端数据库，避免后续 fetch 覆盖前端临时数据
+      return importInterfaceItemsToBackend({
+          items,
+          rootParentId,
+          projectId,
+          createInterface: (payload) => api.post<SavedInterface>('/api/standard/interfaces', payload)
+      });
+  };
+
+  const importFiles = async (files: File[], rootParentId: number | null) => {
+      return importFilesFromCollections({
+          files,
+          rootParentId,
+          importParsedItems: importInterfaceItems,
+          onUnsupportedFormat: (fileName) => {
+              onLog(`文件 ${fileName} 不符合导入格式（支持 Postman v2.1 / Apifox 导出）`);
+          },
+          onParseError: (fileName, message) => {
+              onLog(`文件 ${fileName} 解析失败: ${message}`);
+          }
+      });
+  };
+
+  // 点击目录“导入”入口：记录目标目录并触发隐藏文件选择器。
+  const handleFolderImport = (folderId: number) => {
+      setFolderImportTargetId(folderId);
+      folderImportInputRef.current?.click();
+  };
+
+  // 处理导入文件并写入数据库，避免刷新后前端临时态被覆盖。
+  const handleFolderImportFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      if (files.length === 0) return;
+
+      const count = await importFiles(files, folderImportTargetId);
+      if (count > 0) {
+          onLog(`成功导入 ${count} 个项目（已写入数据库）`);
+          fetchInterfaces();
+          if (folderImportTargetId) {
+              setSavedInterfaces(prev => prev.map(i => i.id === folderImportTargetId ? { ...i, isOpen: true } : i));
+          }
+      } else {
+          onLog('未找到可导入的接口数据 (支持 Postman v2.1 / Apifox 导出)');
+      }
+
+      setFolderImportTargetId(null);
+  };
+
+  // 以 Postman v2.1 结构导出单个目录，便于再次导入或共享。
+  const handleFolderExport = (folderId: number) => {
+      const folder = savedInterfaces.find(i => i.id === folderId && i.type === 'folder');
+      if (!folder) return;
+
+      // 导出默认 JSON：按 Postman Collection v2.1 结构生成，便于再次导入
+      const collection = {
+          info: {
+              name: folder.name,
+              schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json'
+          },
+          item: buildPostmanFolderItems(savedInterfaces, folderId)
+      };
+
+      const blob = new Blob([JSON.stringify(collection, null, 2)], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${folder.name || 'collection'}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+  };
+
+  const handleFileDrop = async (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragOver(false);
       
-      return (
-          <div className="d-flex flex-column gap-3 animate-fade-in p-3">
-              <Row className="g-3">
-                  <Col md={3} xs={6}>
-                      <Card className="text-center h-100 border-success shadow-sm">
-                          <Card.Body className="d-flex flex-column justify-content-center py-2">
-                              <h3 className="text-success mb-0 fw-bold">{Math.round(passRate)}%</h3>
-                              <div className="small text-muted">通过率</div>
-                          </Card.Body>
-                      </Card>
-                  </Col>
-                  <Col md={3} xs={6}>
-                      <Card className="text-center h-100 border-primary shadow-sm">
-                          <Card.Body className="d-flex flex-column justify-content-center py-2">
-                              <h3 className="text-primary mb-0 fw-bold">{report.total}</h3>
-                              <div className="small text-muted">总用例</div>
-                          </Card.Body>
-                      </Card>
-                  </Col>
-                  <Col md={3} xs={6}>
-                      <Card className={`text-center h-100 shadow-sm ${report.failed > 0 ? 'border-danger bg-danger bg-opacity-10' : 'border-light'}`}>
-                          <Card.Body className="d-flex flex-column justify-content-center py-2">
-                              <h3 className={`mb-0 fw-bold ${report.failed > 0 ? 'text-danger' : 'text-secondary'}`}>{report.failed}</h3>
-                              <div className="small text-muted">失败</div>
-                          </Card.Body>
-                      </Card>
-                  </Col>
-                  <Col md={3} xs={6}>
-                      <Card className="text-center h-100 border-light shadow-sm">
-                          <Card.Body className="d-flex flex-column justify-content-center py-2">
-                              <h5 className="text-secondary mb-0">{report.time.toFixed(2)}s</h5>
-                              <div className="small text-muted">耗时</div>
-                          </Card.Body>
-                      </Card>
-                  </Col>
-              </Row>
-              
-              {report.failures.length > 0 ? (
-                  <Card className="border-danger shadow-sm mt-2">
-                      <Card.Header className="bg-danger text-white d-flex align-items-center gap-2 py-2">
-                          <FaBug /> 失败用例透视
-                      </Card.Header>
-                      <Accordion flush alwaysOpen>
-                          {report.failures.map((fail, idx) => (
-                              <Accordion.Item eventKey={String(idx)} key={idx}>
-                                  <Accordion.Header>
-                                      <div className="d-flex align-items-center gap-2">
-                                          <Badge bg="danger">Failed</Badge>
-                                          <span className="font-monospace text-truncate" style={{maxWidth: '300px'}}>{fail.name}</span>
-                                      </div>
-                                  </Accordion.Header>
-                                  <Accordion.Body className="bg-light p-2">
-                                      <div className="mb-2 small">
-                                          <strong>错误归因:</strong> <span className="text-danger fw-bold ms-2">{fail.message}</span>
-                                      </div>
-                                      <ErrorTrace details={fail.details} />
-                                  </Accordion.Body>
-                              </Accordion.Item>
-                          ))}
-                      </Accordion>
-                  </Card>
-              ) : (
-                   <div className="alert alert-success d-flex align-items-center mt-2">
-                       <FaCheckCircle className="me-2" size={20} />
-                       <div>
-                           <strong>测试通过!</strong> 所有 {report.total} 个用例均执行成功。
-                       </div>
-                   </div>
-              )}
-          </div>
-      );
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length === 0) return;
+
+      const importCount = await importFiles(files, null);
+
+      if (importCount > 0) {
+          onLog(`成功导入 ${importCount} 个项目（已写入数据库）`);
+          fetchInterfaces();
+      } else {
+          onLog('未找到可导入的接口数据 (支持 Postman v2.1 / Apifox 导出)');
+      }
+  };
+
+  // AI 响应分析入口：把当前响应体发送到后端分析接口，结果展示在“报告”标签。
+  const handleAnalyzeResponse = async () => {
+      if (!responseBody) return;
+      
+      setIsAnalyzing(true);
+      try {
+          const res = await api.post<any>('/standard/analyze_response', {
+              method: method,
+              url: apiPath, // 当前 apiPath 已保存完整 URL
+              headers: sentHeaders,
+              body: sentBody,
+              response_status: responseStatus,
+              response_headers: responseHeaders,
+              response_body: typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody),
+              error: null
+          });
+          setAiAnalysis(res.analysis);
+      } catch (e) {
+      // 中文注释：AI分析失败统一中文错误提示
+      const msg = await translateError(e);
+      onLog(`AI分析失败: ${msg}`);
+      setAiAnalysis(`分析失败: ${msg}`);
+      } finally {
+          setIsAnalyzing(false);
+      }
   };
 
   return (
-    <div className="d-flex h-100 w-100 bg-white overflow-hidden">
+    <div className="d-flex h-100 w-100 bg-white overflow-hidden postman-theme">
+      <style>{`
+          .no-caret::after { display: none !important; }
+          /* 三点菜单：统一圆角（页面内全局应用） */
+          .dropdown-menu { border-radius: 10px !important; }
+          /* 接口列表：选中时使用淡灰覆盖层，不改变原文字/图标颜色 */
+          .api-tree-item { position: relative; }
+          /* 修复：flex 子项默认 min-width:auto 会导致横向滚动条，统一允许内容收缩并截断 */
+          .api-tree-item { min-width: 0; }
+          .api-tree-item .d-flex { min-width: 0; }
+          .api-tree-item .text-truncate { min-width: 0; }
+          .list-group { overflow-x: hidden; }
+          .list-group-item { overflow-x: hidden; }
+          .api-tree-item.api-tree-item-selected::after {
+              content: '';
+              position: absolute;
+              inset: 2px;
+              background: rgba(0, 0, 0, 0.06);
+              border: 1px solid rgba(0, 0, 0, 0.12);
+              border-radius: 8px;
+              pointer-events: none;
+          }
+          /* 优化：方法列固定宽度且强制居中，并增加列间距 */
+          .api-tree-method-col { width: 56px; flex: 0 0 56px; text-align: center; margin-right: 14px; }
+          /* 接口列表：预留图标槽位，保证“接口/文件夹”文本起始一致 */
+          .api-tree-icon-slot { width: 14px; flex: 0 0 14px; margin-right: 4px; display: inline-flex; align-items: center; justify-content: center; }
+          /* 请求方法颜色：按需求自定义配色 */
+          .api-method-get { color: #198754 !important; }
+          .api-method-post { color: #8b5a2b !important; }
+          .api-method-put { color: #6f42c1 !important; }
+          .api-method-delete { color: #a61e2b !important; }
+          .api-method-other { color: #6c757d !important; }
+          .api-sidebar-resizer {
+              /* 优化3：拖拽手柄加宽并可见，避免“看不到/拖不动” */
+              width: 10px;
+              cursor: col-resize;
+              background: rgba(0,0,0,0.02);
+              border-left: 1px solid #dee2e6;
+          }
+          .api-sidebar-resizer:hover {
+              background: rgba(13, 110, 253, 0.12);
+          }
+          /* 优化：输入框 Placeholder */
+          .custom-api-input::placeholder {
+              color: #dee2e6 !important;
+              font-size: 12px;
+          }
+          /* 优化：Tabs 样式自定义 (去除蓝色背景，改为下划线) */
+          .custom-nav-tabs .nav-link {
+              border: none;
+              color: #6c757d;
+              background: transparent !important;
+              display: inline-flex;
+              align-items: center;
+              padding-bottom: 8px;
+              border-bottom: 2px solid transparent;
+              border-radius: 0;
+              font-weight: 500; /* Always 500 to prevent jitter */
+          }
+          .custom-nav-tabs .nav-link:focus,
+          .custom-nav-tabs .nav-link:focus-visible {
+              outline: none;
+              box-shadow: none;
+          }
+          .custom-nav-tabs .nav-link:hover {
+              color: #495057;
+          }
+          .custom-nav-tabs .nav-link.active {
+              color: #0d6efd !important;
+              background: transparent !important;
+              border-bottom: 2px solid #0d6efd;
+              font-weight: 500 !important;
+          }
+          /* 修复：允许右侧主内容在 flex 布局下收缩，避免子元素过宽导致整体左右“扭动” */
+          .api-main-content { min-width: 0; }
+          /* 修复：请求配置内容禁止横向撑开，避免切换 Tab 时出现/消失横向溢出引发整体抖动 */
+          .api-request-config-content { overflow-x: hidden; }
+          /* 优化：美化滚动条 (瘦身、浅色) */
+          ::-webkit-scrollbar {
+              width: 8px;
+              height: 8px;
+          }
+          ::-webkit-scrollbar-track {
+              background: #f1f1f1;
+          }
+          ::-webkit-scrollbar-thumb {
+              background: #ccc;
+              border-radius: 4px;
+          }
+          ::-webkit-scrollbar-thumb:hover {
+              background: #b3b3b3;
+          }
+      `}</style>
       {/* Left Sidebar - Interface List */}
-      <div className="border-end bg-light d-flex flex-column" style={{ 
-          width: showSidebar ? '260px' : '0px', 
-          minWidth: showSidebar ? '260px' : '0px',
-          overflow: 'hidden',
-          transition: 'all 0.3s ease',
-          opacity: showSidebar ? 1 : 0
-      }}>
+      <div 
+          className="border-end bg-light d-flex flex-column position-relative"
+          style={{ 
+              width: showSidebar ? `${sidebarWidth}px` : '0px', 
+              minWidth: showSidebar ? `${sidebarWidth}px` : '0px',
+              overflow: 'hidden',
+              // 修复：拖拽调宽时禁用过渡，避免宽度变化被动画“吃掉”导致看似不生效
+              transition: isResizingSidebar ? 'none' : 'width 0.2s ease, min-width 0.2s ease, opacity 0.2s ease',
+              opacity: showSidebar ? 1 : 0
+          }}
+          onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+          onDragLeave={() => setIsDragOver(false)}
+          onDrop={handleFileDrop}
+      >
+        <input
+            ref={folderImportInputRef}
+            type="file"
+            accept=".json,application/json"
+            multiple
+            onChange={handleFolderImportFiles}
+            style={{ display: 'none' }}
+        />
+        {isDragOver && (
+            <div 
+                className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-primary bg-opacity-10"
+                style={{ zIndex: 100, pointerEvents: 'none', border: '2px dashed #0d6efd' }}
+            >
+                <div className="text-primary bg-white px-3 py-2 rounded shadow-sm" style={{fontWeight: 600}}>
+                    <FaFolderPlus className="me-2"/> 释放以导入
+                </div>
+            </div>
+        )}
         <div className="d-flex justify-content-between align-items-center mb-2 px-3 pt-3">
-            <h6 className="fw-bold mb-0 text-secondary">接口列表</h6>
+            <h6 className="mb-0 text-secondary" style={{ fontWeight: 600 }}>接口列表</h6>
             <div className="d-flex gap-2">
                  <Button variant="link" className="p-0 text-secondary" onClick={() => handleCreateFolder(null)} title="新建文件夹">
                      <FaFolderPlus size={16} />
@@ -1266,14 +1492,49 @@ Context/Requirement: ${requirement}
                  <Button variant="link" className="p-0 text-secondary" onClick={() => handleCreateInterface(null)} title="新建接口">
                      <FaPlus size={16} />
                  </Button>
+                 <Button
+                     variant="link"
+                     className={`p-0 ${bulkDeleteMode ? 'text-danger' : 'text-secondary'}`}
+                     onClick={handleBulkDeleteToggleOrConfirm}
+                     title={bulkDeleteMode ? '删除选中（再次点击执行；不选则退出）' : '批量删除'}
+                 >
+                     <FaMinus size={16} />
+                 </Button>
             </div>
         </div>
         <div 
             className="flex-grow-1 overflow-auto border-top bg-light position-relative"
-            style={{ minHeight: '100px' }}
+            style={{ minHeight: '100px', overflowY: 'auto', overflowX: 'hidden' }}
         >
             <ListGroup variant="flush">
-                {renderTree(null)}
+                <InterfaceTree
+                    savedInterfaces={savedInterfaces}
+                    selectedId={selectedId}
+                    dragOverId={dragOverId}
+                    dragOverPosition={dragOverPosition}
+                    hoverId={hoverId}
+                    bulkDeleteMode={bulkDeleteMode}
+                    bulkSelected={bulkSelected}
+                    renamingId={renamingId}
+                    renamingName={renamingName}
+                    setHoverId={setHoverId}
+                    onDragStart={handleDragStart}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onToggleBulkSelected={toggleBulkSelected}
+                    onLoadInterface={handleLoadInterface}
+                    getMethodColor={getMethodColor}
+                    onToggleFolder={toggleFolder}
+                    onSetRenamingId={setRenamingId}
+                    onSetRenamingName={setRenamingName}
+                    onRenameConfirm={handleRenameConfirm}
+                    onCreateInterface={handleCreateInterface}
+                    onEditFolder={handleEditFolder}
+                    onFolderImport={handleFolderImport}
+                    onFolderExport={handleFolderExport}
+                    onDeleteInterface={handleDeleteInterface}
+                />
             </ListGroup>
             
             {savedInterfaces.length === 0 && (
@@ -1283,54 +1544,42 @@ Context/Requirement: ${requirement}
             )}
         </div>
         
-        {/* Fixed Drop Zone for Moving to Root */}
-        <div 
-            className="border-top bg-light d-flex align-items-center justify-content-center text-muted small py-3" 
-            style={{
-                cursor: 'default',
-                transition: 'background-color 0.2s'
-            }}
-            onDragOver={(e) => { 
-                e.preventDefault(); 
-                e.currentTarget.style.backgroundColor = '#e9ecef';
-            }}
-            onDragLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '';
-            }}
-            onDrop={(e) => {
-                e.preventDefault();
-                e.currentTarget.style.backgroundColor = '';
-                const idStr = e.dataTransfer.getData('text/plain');
-                if (!idStr) return;
-                const id = parseInt(idStr);
-                // Move to root
-                updateInterface(id, { parent_id: null });
-                setDraggedId(null);
-            }}
-        >
-            <div style={{opacity: 0.7}}>拖拽至此移出文件夹</div>
-        </div>
+
       </div>
+      {showSidebar && (
+          <div
+              className="api-sidebar-resizer"
+              onMouseDown={(e) => {
+                  // 侧边栏拖拽调宽：记录起点，交给全局 mousemove 处理
+                  setIsResizingSidebar(true);
+                  sidebarResizeStartRef.current = { x: e.clientX, width: sidebarWidth };
+                  e.preventDefault();
+              }}
+          />
+      )}
 
       {/* Main Content */}
       <div 
-        className="flex-grow-1 d-flex flex-column h-100 overflow-hidden bg-white"
+        className="flex-grow-1 d-flex flex-column h-100 overflow-hidden bg-white api-main-content"
         ref={mainContentRef}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
       >
         
         {/* 1. Request Bar (Postman Style) */}
-        <div className="d-flex align-items-center p-2 border-bottom bg-light gap-2" style={{height: '50px'}}>
+        <div className="d-flex align-items-center p-2 border-bottom bg-light gap-2 flex-shrink-0" style={{height: '50px'}}>
             <Button variant="link" className="p-0 text-secondary me-2" onClick={() => setShowSidebar(!showSidebar)} title={showSidebar ? "收起列表" : "展开列表"}>
                 <FaBars size={16} />
             </Button>
             
             <div className="d-flex flex-grow-1 bg-white border rounded">
                  <Form.Select 
-                    className="border-0 fw-bold text-secondary" 
-                    style={{width: '110px', backgroundColor: '#f9f9f9', borderRight: '1px solid #dee2e6'}} 
+                    className="border-0 shadow-none"
+                    style={{
+                        width: '110px', 
+                        backgroundColor: '#f9f9f9', 
+                        borderRight: '1px solid #dee2e6',
+                        fontWeight: 600,
+                        color: getMethodColor(method)
+                    }} 
                     value={method} 
                     onChange={e => setMethod(e.target.value)}
                  >
@@ -1350,21 +1599,33 @@ Context/Requirement: ${requirement}
                                 overflow: 'hidden',
                                 pointerEvents: 'none',
                                 font: 'inherit',
-                                color: 'black', // Default text color
-                                paddingLeft: '0px', // Match input padding
+                                color: 'black', // 默认文本色
+                                paddingLeft: '0px', // 与输入框内边距对齐
                                 paddingRight: '0px'
                             }}
                         >
                             {apiPath.split(/(\{\{.*?\}\})/).map((part, index) => {
                                 if (part.startsWith('{{') && part.endsWith('}}')) {
                                     const isEmpty = part.replace(/[\{\}\s]/g, '').length === 0;
+                                    // 规则：{{}} 未配置对应 BaseURL 值时，仅边框标红提示；已配置则渲染为浅灰方块弱化拼接
+                                    const envValue = getEnvBaseUrlValue(part);
+                                    // 增强判断：排除 "null", "undefined" 字符串干扰
+                                    const isMissingBaseUrl = !isEmpty && (!envValue || !envValue.trim() || envValue === 'null' || envValue === 'undefined');
+                                    const chipStyle: React.CSSProperties = isEmpty
+                                        ? { background: 'transparent', border: '1px solid #ffecb5', borderRadius: '4px', color: '#856404', padding: '0 2px', margin: '0 1px', fontSize: '1em', lineHeight: 1.6 }
+                                        : isMissingBaseUrl
+                                            // 错误状态：淡红框 + 淡红填充 + 深红文字 + 加粗 (弱化边框视觉)
+                                            ? { background: 'rgba(220, 53, 69, 0.1)', border: '1px solid rgba(220, 53, 69, 0.3)', borderRadius: '4px', color: '#dc3545', fontWeight: 600, padding: '0 2px', margin: '0 1px', fontSize: '1em', lineHeight: 1.6 }
+                                            // 正常状态：透明底 + 浅灰框 + 蓝色文字 (表示已解析)
+                                            : { background: 'transparent', border: '1px solid #dee2e6', borderRadius: '4px', color: '#0d6efd', padding: '0 2px', margin: '0 1px', fontSize: '1em', lineHeight: 1.6 };
                                     return (
-                                        <span key={index} style={{ color: isEmpty ? '#ffc107' : '#0d6efd' }}>
+                                        <span key={index} style={chipStyle}>
                                             {part}
                                         </span>
                                     );
                                 }
-                                return <span key={index} style={{ color: 'black' }}>{part}</span>;
+                                // 非 {{}} 部分：正常显示
+                                return <span key={index} style={{ color: '#212529' }}>{part}</span>;
                             })}
                         </div>
 
@@ -1375,13 +1636,13 @@ Context/Requirement: ${requirement}
                             placeholder="Enter request URL" 
                             value={apiPath} 
                             onChange={e => setApiPath(e.target.value)} 
+                            onBlur={handleApiPathBlur}
                             onMouseMove={handleInputMouseMove}
                             onMouseLeave={handleInputMouseLeave}
                             onScroll={(e) => {
                                 if (highlighterRef.current) {
                                     highlighterRef.current.scrollLeft = e.currentTarget.scrollLeft;
                                 }
-                                setInputScrollLeft(e.currentTarget.scrollLeft);
                             }}
                             style={{
                                 color: apiPath ? 'transparent' : undefined, 
@@ -1401,7 +1662,15 @@ Context/Requirement: ${requirement}
                             onMouseLeave={handlePopupMouseLeave}
                         >
                             <div className="d-flex align-items-center bg-white rounded px-2 py-1 border">
-                                <span className={`fw-bold small me-2 font-monospace ${activeEnvTag.replace(/[\{\}\s]/g, '').length === 0 ? 'text-warning' : 'text-primary'}`} style={activeEnvTag.replace(/[\{\}\s]/g, '').length === 0 ? {color: '#ffc107'} : {}}>{activeEnvTag}:</span>
+                                {(() => {
+                                    const isEmpty = activeEnvTag.replace(/[\{\}\s]/g, '').length === 0;
+                                    const envValue = getEnvBaseUrlValue(activeEnvTag);
+                                    // 规则：{{}} 未配置对应 BaseURL 值时，标签整体标红提示
+                                    const isMissingBaseUrl = !isEmpty && (!envValue || !envValue.trim());
+                                    const cls = isEmpty ? 'text-warning' : (isMissingBaseUrl ? 'text-danger' : 'text-primary');
+                                    const style = isEmpty ? { color: '#ffc107', fontWeight: 500 } : (isMissingBaseUrl ? { color: '#dc3545', fontWeight: 500 } : { fontWeight: 500 });
+                                    return <span className={`small me-2 font-monospace ${cls}`} style={style}>{activeEnvTag}:</span>;
+                                })()}
                                 <Form.Control 
                                     size="sm"
                                     className="border-0 bg-transparent shadow-none p-0 text-muted"
@@ -1425,41 +1694,451 @@ Context/Requirement: ${requirement}
                 </div>
            </div>
            
-           <Button variant="primary" onClick={handleSendRequest} disabled={loading} className="px-4 fw-bold text-white">
-                {loading ? <Spinner size="sm" animation="border" /> : "Send"}
+           <Button variant="primary" onClick={handleSendRequest} disabled={loading} className="px-4 text-white rounded-0" style={{ fontWeight: 500, backgroundColor: '#0d6efd', borderColor: '#0d6efd' }}>
+                {loading ? <Spinner size="sm" animation="border" /> : "发送"}
             </Button>
-            <Button variant="outline-secondary" className="px-3 fw-bold" onClick={handleSaveInterfaceClick} title="保存接口">
-                <FaSave className="me-1"/> Save
+            <Button variant="outline-secondary" className="px-3" style={{ fontWeight: 500 }} onClick={handleSaveInterfaceClick} title="保存接口">
+                <FaSave className="me-2"/> 保存
             </Button>
             <Button variant="light" className="border text-secondary" onClick={handleSaveEnv} title="环境管理">
-                <FaCog className="me-1"/> 环境管理
+                <FaCog className="me-2"/> 环境管理
             </Button>
         </div>
 
         {/* 2. Request Config Tabs */}
-        <div className="border-bottom px-3 pt-2 bg-white" style={{height: '45px'}}>
-            <Nav variant="underline" activeKey={runSubTab} onSelect={k => setRunSubTab(k || 'params')} className="small">
-                <Nav.Item><Nav.Link eventKey="params" className="text-secondary">Params</Nav.Link></Nav.Item>
-                <Nav.Item><Nav.Link eventKey="authorization" className="text-secondary">Authorization</Nav.Link></Nav.Item>
-                <Nav.Item><Nav.Link eventKey="headers" className="text-secondary">Headers <span className="text-muted ms-1">({headers.filter(h=>h.key).length})</span></Nav.Link></Nav.Item>
-                <Nav.Item><Nav.Link eventKey="body" className="text-secondary">Body</Nav.Link></Nav.Item>
-                <Nav.Item><Nav.Link eventKey="scripts" className="text-secondary">Scripts</Nav.Link></Nav.Item>
-                <Nav.Item><Nav.Link eventKey="settings" className="text-secondary">Settings</Nav.Link></Nav.Item>
-                <Nav.Item><Nav.Link eventKey="ai_prompt" className="text-primary fw-bold"><FaRobot className="me-1"/>AI Gen</Nav.Link></Nav.Item>
+        <div className="border-bottom px-3 bg-white flex-shrink-0 d-flex justify-content-between align-items-end" style={{height: '45px'}}>
+            {/* 修复：Tab 使用 button 渲染，避免 a 标签默认行为引发页面滚动/抖动；禁用 Focus 防止浏览器自动滚动视图 */}
+            <Nav activeKey={runSubTab} onSelect={k => setRunSubTab(k || 'params')} className="small custom-nav-tabs">
+                <Nav.Item><Nav.Link as="button" type="button" eventKey="params" className="text-secondary" onMouseDown={e=>e.preventDefault()}>Params</Nav.Link></Nav.Item>
+                <Nav.Item><Nav.Link as="button" type="button" eventKey="authorization" className="text-secondary" onMouseDown={e=>e.preventDefault()}>Authorization</Nav.Link></Nav.Item>
+                <Nav.Item><Nav.Link as="button" type="button" eventKey="headers" className="text-secondary" onMouseDown={e=>e.preventDefault()}>Headers <span className="text-muted ms-1">({headers.filter(h=>h.key).length})</span></Nav.Link></Nav.Item>
+                <Nav.Item><Nav.Link as="button" type="button" eventKey="body" className="text-secondary" onMouseDown={e=>e.preventDefault()}>Body</Nav.Link></Nav.Item>
+                <Nav.Item><Nav.Link as="button" type="button" eventKey="scripts" className="text-secondary" onMouseDown={e=>e.preventDefault()}>Scripts</Nav.Link></Nav.Item>
+                <Nav.Item><Nav.Link as="button" type="button" eventKey="settings" className="text-secondary" onMouseDown={e=>e.preventDefault()}>Settings</Nav.Link></Nav.Item>
+                <Nav.Item><Nav.Link as="button" type="button" eventKey="ai_prompt" className="text-primary" style={{fontWeight: 500}} onMouseDown={e=>e.preventDefault()}><FaRobot className="me-1"/>AI Gen</Nav.Link></Nav.Item>
             </Nav>
+            <Button variant="link" className="text-secondary text-decoration-none pb-2 mb-1" onClick={() => setShowCookieModal(true)} size="sm" title="Cookies 管理">
+                <FaCookie className="me-1"/> Cookies
+            </Button>
         </div>
 
         {/* 3. Request Config Content */}
-        <div className="overflow-auto bg-white d-flex flex-column" style={{height: `${requestHeight}px`, minHeight: '100px'}}>
-             {runSubTab === 'params' && renderKvEditor(queryParams, setQueryParams)}
-             {runSubTab === 'headers' && renderKvEditor(headers, setHeaders)}
-             {runSubTab === 'authorization' && <div className="p-4 text-center text-muted">Authorization settings (Bearer Token, Basic Auth, etc.)</div>}
-             {runSubTab === 'scripts' && <div className="p-4 text-center text-muted">Pre-request and Post-response scripts</div>}
-             {runSubTab === 'settings' && <div className="p-4 text-center text-muted">Request settings (Timeout, Redirects, etc.)</div>}
+        {/* 修复：父容器溢出隐藏，将滚动条下放至各 Tab 内部，确保每个 Tab 独立拥有稳定的滚动条轨道，彻底消除切换时的布局抖动 */}
+        <div className="bg-white d-flex flex-column flex-shrink-0 api-request-config-content position-relative" style={{height: `${requestHeight}px`, minHeight: '100px', overflow: 'hidden'}}>
+             {/* Params Tab */}
+             <div className="custom-scrollbar position-absolute top-0 start-0 w-100 h-100 bg-white" 
+                  style={{
+                      visibility: runSubTab === 'params' ? 'visible' : 'hidden', 
+                      zIndex: runSubTab === 'params' ? 10 : 0,
+                      overflowX: 'hidden', 
+                      overflowY: 'scroll'
+                  }}>
+                 {renderKvEditor(
+                     queryParams, 
+                     setQueryParams,
+                     isBulkEditParams,
+                     () => {
+                         if (!isBulkEditParams) {
+                             setParamsBulkText(stringifyBulkItems(queryParams));
+                         } else {
+                             setQueryParams(parseBulkText(paramsBulkText));
+                         }
+                         setIsBulkEditParams(!isBulkEditParams);
+                     },
+                     paramsBulkText,
+                     setParamsBulkText
+                 )}
+             </div>
+             {/* Headers Tab */}
+             <div className="custom-scrollbar position-absolute top-0 start-0 w-100 h-100 bg-white" 
+                  style={{
+                      visibility: runSubTab === 'headers' ? 'visible' : 'hidden', 
+                      zIndex: runSubTab === 'headers' ? 10 : 0,
+                      overflowX: 'hidden', 
+                      overflowY: 'scroll'
+                  }}>
+                 {renderKvEditor(
+                     headers, 
+                     setHeaders,
+                     isBulkEditHeaders,
+                     () => {
+                         if (!isBulkEditHeaders) {
+                             setHeadersBulkText(stringifyBulkItems(headers));
+                         } else {
+                             setHeaders(parseBulkText(headersBulkText));
+                         }
+                         setIsBulkEditHeaders(!isBulkEditHeaders);
+                     },
+                     headersBulkText,
+                     setHeadersBulkText
+                 )}
+             </div>
+             {/* Authorization Tab */}
+             <div className="custom-scrollbar position-absolute top-0 start-0 w-100 h-100 bg-white" 
+                  style={{
+                      visibility: runSubTab === 'authorization' ? 'visible' : 'hidden', 
+                      zIndex: runSubTab === 'authorization' ? 10 : 0,
+                      overflowX: 'hidden', 
+                      overflowY: 'scroll'
+                  }}>
+                 <div className="d-flex h-100">
+                     <div className="border-end bg-light p-2" style={{width: '200px', minWidth: '200px'}}>
+                        <div className="small text-muted mb-2 ps-2">类型</div>
+                        <div className="d-flex flex-column gap-1">
+                             {['none', 'bearer', 'basic', 'apikey'].map(t => (
+                                <div 
+                                    key={t}
+                                    className={`px-3 py-2 small rounded cursor-pointer ${authType === t ? 'bg-primary text-white' : 'text-secondary hover-bg-gray'}`}
+                                    onClick={() => setAuthType(t as any)}
+                                    style={{cursor: 'pointer'}}
+                                >
+                                    {t === 'none' ? '无认证 (No Auth)' : t === 'bearer' ? 'Bearer 令牌' : t === 'basic' ? '基础认证 (Basic Auth)' : 'API 密钥 (API Key)'}
+                                </div>
+                            ))}
+                         </div>
+                     </div>
+                     <div className="flex-grow-1 p-3">
+                         {authType === 'none' && (
+                            <div className="text-muted small">此请求不使用任何认证。</div>
+                        )}
+                         {authType === 'bearer' && (
+                            <div className="d-flex flex-column gap-2" style={{maxWidth: '500px'}}>
+                                <Form.Label className="small mb-0">Token</Form.Label>
+                                <Form.Control 
+                                    size="sm" 
+                                    placeholder="输入 Token" 
+                                    value={authToken} 
+                                    onChange={e => setAuthToken(e.target.value)}
+                                />
+                            </div>
+                        )}
+                         {authType === 'basic' && (
+                            <div className="d-flex flex-column gap-2" style={{maxWidth: '500px'}}>
+                                <div className="d-flex gap-3">
+                                    <div className="flex-grow-1">
+                                        <Form.Label className="small mb-0">用户名</Form.Label>
+                                        <Form.Control 
+                                            size="sm" 
+                                            placeholder="用户名" 
+                                            value={authBasic.username} 
+                                            onChange={e => setAuthBasic({...authBasic, username: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="flex-grow-1">
+                                        <Form.Label className="small mb-0">密码</Form.Label>
+                                        <Form.Control 
+                                            size="sm" 
+                                            type="password"
+                                            placeholder="密码" 
+                                            value={authBasic.password} 
+                                            onChange={e => setAuthBasic({...authBasic, password: e.target.value})}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                         {authType === 'apikey' && (
+                            <div className="d-flex flex-column gap-3" style={{maxWidth: '500px'}}>
+                                <div className="d-flex gap-3">
+                                    <div className="flex-grow-1">
+                                        <Form.Label className="small mb-0">Key</Form.Label>
+                                        <Form.Control 
+                                            size="sm" 
+                                            placeholder="Key" 
+                                            value={authApiKey.key} 
+                                            onChange={e => setAuthApiKey({...authApiKey, key: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="flex-grow-1">
+                                        <Form.Label className="small mb-0">Value</Form.Label>
+                                        <Form.Control 
+                                            size="sm" 
+                                            placeholder="Value" 
+                                            value={authApiKey.value} 
+                                            onChange={e => setAuthApiKey({...authApiKey, value: e.target.value})}
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <Form.Label className="small mb-0">添加到</Form.Label>
+                                    <Form.Select 
+                                        size="sm" 
+                                        value={authApiKey.addTo} 
+                                        onChange={e => setAuthApiKey({...authApiKey, addTo: e.target.value as any})}
+                                    >
+                                        <option value="header">Header</option>
+                                        <option value="query">Query Params</option>
+                                    </Form.Select>
+                                </div>
+                            </div>
+                        )}
+                     </div>
+                 </div>
+             </div>
+
+             {/* Scripts Tab */}
+             <div className="custom-scrollbar position-absolute top-0 start-0 w-100 h-100 bg-white" 
+                  style={{
+                      visibility: runSubTab === 'scripts' ? 'visible' : 'hidden', 
+                      zIndex: runSubTab === 'scripts' ? 10 : 0,
+                      overflowX: 'hidden', 
+                      overflowY: 'scroll'
+                  }}>
+                 <div className="d-flex h-100">
+                     <div className="border-end bg-light p-2" style={{width: '200px', minWidth: '200px'}}>
+                         <div className="d-flex flex-column gap-1">
+                             <div 
+                                className={`px-3 py-2 small rounded cursor-pointer ${activeScriptTab === 'pre' ? 'bg-primary text-white' : 'text-secondary hover-bg-gray'}`}
+                                onClick={() => setActiveScriptTab('pre')}
+                                style={{cursor: 'pointer'}}
+                            >
+                                Pre-request (前置脚本)
+                            </div>
+                            <div 
+                                className={`px-3 py-2 small rounded cursor-pointer ${activeScriptTab === 'post' ? 'bg-primary text-white' : 'text-secondary hover-bg-gray'}`}
+                                onClick={() => setActiveScriptTab('post')}
+                                style={{cursor: 'pointer'}}
+                            >
+                                Post-response (后置脚本)
+                            </div>
+                         </div>
+                     </div>
+                     <div className="flex-grow-1 p-0 d-flex flex-column">
+                         {activeScriptTab === 'pre' ? (
+                           <Form.Control 
+                               as="textarea" 
+                               className="flex-grow-1 border-0 p-3 font-monospace small bg-transparent"
+                               style={{resize: 'none', outline: 'none'}}
+                               placeholder="// 在此编写前置脚本 (Pre-request scripts)..."
+                               value={preRequestScript}
+                               onChange={e => setPreRequestScript(e.target.value)}
+                               spellCheck={false}
+                           />
+                        ) : (
+                           <Form.Control 
+                               as="textarea" 
+                               className="flex-grow-1 border-0 p-3 font-monospace small bg-transparent"
+                               style={{resize: 'none', outline: 'none'}}
+                               placeholder="// 在此编写后置脚本 (Post-response scripts)..."
+                               value={postResponseScript}
+                               onChange={e => setPostResponseScript(e.target.value)}
+                               spellCheck={false}
+                           />
+                        )}
+                     </div>
+                 </div>
+             </div>
+
+             {/* Settings Tab */}
+             <div className="custom-scrollbar position-absolute top-0 start-0 w-100 h-100 bg-white" 
+                  style={{
+                      visibility: runSubTab === 'settings' ? 'visible' : 'hidden', 
+                      zIndex: runSubTab === 'settings' ? 10 : 0,
+                      overflowX: 'hidden', 
+                      overflowY: 'scroll'
+                  }}>
+                 <div className="p-4" style={{maxWidth: '800px'}}>
+                    <h6 className="mb-3 text-secondary">General (常规)</h6>
+                    
+                    <div className="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
+                        <div>
+                            <div className="small fw-bold">HTTP Version (HTTP 版本)</div>
+                            <div className="text-muted" style={{fontSize: '0.75rem'}}>选择发送请求时使用的 HTTP 版本。</div>
+                        </div>
+                         <div style={{width: '150px'}}>
+                             <Form.Select 
+                                 size="sm" 
+                                 value={requestSettings.httpVersion} 
+                                 onChange={e => setRequestSettings({...requestSettings, httpVersion: e.target.value})}
+                             >
+                                 <option value="HTTP/1.x">HTTP/1.x</option>
+                                 <option value="HTTP/2">HTTP/2</option>
+                             </Form.Select>
+                         </div>
+                     </div>
+
+                     <div className="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
+                        <div>
+                            <div className="small fw-bold">Enable SSL certificate verification (启用 SSL 证书验证)</div>
+                            <div className="text-muted" style={{fontSize: '0.75rem'}}>发送请求时验证 SSL 证书。验证失败将导致请求中止。</div>
+                        </div>
+                        <Form.Check 
+                            type="switch" 
+                            checked={requestSettings.verifySSL}
+                            onChange={e => setRequestSettings({...requestSettings, verifySSL: e.target.checked})}
+                        />
+                    </div>
+                     
+                     <div className="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
+                       <div>
+                           <div className="small fw-bold">Automatically follow redirects (自动跟随重定向)</div>
+                           <div className="text-muted" style={{fontSize: '0.75rem'}}>将 HTTP 3xx 响应作为重定向处理。</div>
+                       </div>
+                       <Form.Check 
+                           type="switch" 
+                           checked={requestSettings.followRedirects}
+                           onChange={e => setRequestSettings({...requestSettings, followRedirects: e.target.checked})}
+                       />
+                   </div>
+
+                   {requestSettings.followRedirects && (
+                       <div className="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom ps-4">
+                           <div>
+                               <div className="small fw-bold">Maximum number of redirects (最大重定向次数)</div>
+                               <div className="text-muted" style={{fontSize: '0.75rem'}}>设置跟随重定向的最大次数限制。</div>
+                           </div>
+                           <div style={{width: '100px'}}>
+                               <Form.Control 
+                                   size="sm" 
+                                   type="number" 
+                                   value={requestSettings.maxRedirects} 
+                                   onChange={e => setRequestSettings({...requestSettings, maxRedirects: parseInt(e.target.value)||0})} 
+                               />
+                           </div>
+                       </div>
+                   )}
+
+                     <div className="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
+                        <div>
+                            <div className="small fw-bold">Follow original HTTP Method (保持原 HTTP 方法)</div>
+                            <div className="text-muted" style={{fontSize: '0.75rem'}}>重定向时保持原 HTTP 方法，而不是默认的 GET 方法。</div>
+                        </div>
+                        <Form.Check 
+                            type="switch" 
+                            checked={requestSettings.followOriginalHttpMethod}
+                            onChange={e => setRequestSettings({...requestSettings, followOriginalHttpMethod: e.target.checked})}
+                        />
+                    </div>
+
+                     <div className="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
+                       <div>
+                           <div className="small fw-bold">Follow Authorization header (保持 Authorization 头)</div>
+                           <div className="text-muted" style={{fontSize: '0.75rem'}}>重定向时保留 Authorization 头。</div>
+                       </div>
+                       <Form.Check 
+                           type="switch" 
+                           checked={requestSettings.followAuthorizationHeader}
+                           onChange={e => setRequestSettings({...requestSettings, followAuthorizationHeader: e.target.checked})}
+                       />
+                   </div>
+
+                   <div className="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
+                       <div>
+                           <div className="small fw-bold">Remove referer header on redirect (重定向时移除 Referer 头)</div>
+                           <div className="text-muted" style={{fontSize: '0.75rem'}}>发生重定向时移除 Referer 头。</div>
+                       </div>
+                       <Form.Check 
+                           type="switch" 
+                           checked={requestSettings.removeRefererHeader}
+                           onChange={e => setRequestSettings({...requestSettings, removeRefererHeader: e.target.checked})}
+                       />
+                   </div>
+
+                   <div className="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
+                       <div>
+                           <div className="small fw-bold">Enable strict HTTP parser (启用严格 HTTP 解析)</div>
+                           <div className="text-muted" style={{fontSize: '0.75rem'}}>限制包含无效 HTTP 头的响应。</div>
+                       </div>
+                       <Form.Check 
+                           type="switch" 
+                           checked={requestSettings.strictHttpParser}
+                           onChange={e => setRequestSettings({...requestSettings, strictHttpParser: e.target.checked})}
+                       />
+                   </div>
+
+                   <div className="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
+                       <div>
+                           <div className="small fw-bold">Encode URL automatically (自动编码 URL)</div>
+                           <div className="text-muted" style={{fontSize: '0.75rem'}}>自动编码 URL 路径、查询参数和认证字段。</div>
+                       </div>
+                       <Form.Check 
+                           type="switch" 
+                           checked={requestSettings.encodeUrl}
+                           onChange={e => setRequestSettings({...requestSettings, encodeUrl: e.target.checked})}
+                       />
+                   </div>
+
+                   <div className="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
+                       <div>
+                           <div className="small fw-bold">Disable cookie jar (禁用 Cookie Jar)</div>
+                           <div className="text-muted" style={{fontSize: '0.75rem'}}>防止此请求使用的 Cookie 被存储到 Cookie Jar 中。</div>
+                       </div>
+                       <Form.Check 
+                           type="switch" 
+                           checked={requestSettings.disableCookieJar}
+                           onChange={e => setRequestSettings({...requestSettings, disableCookieJar: e.target.checked})}
+                       />
+                   </div>
+
+                     <div className="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
+                        <div>
+                            <div className="small fw-bold">Request Timeout (请求超时)</div>
+                            <div className="text-muted" style={{fontSize: '0.75rem'}}>设置请求超时时间（毫秒，0 表示无限）</div>
+                        </div>
+                        <div style={{width: '100px'}}>
+                            <Form.Control 
+                                size="sm" 
+                                type="number" 
+                                value={requestSettings.timeout} 
+                                onChange={e => setRequestSettings({...requestSettings, timeout: parseInt(e.target.value)||0})} 
+                            />
+                        </div>
+                    </div>
+
+                    <h6 className="mb-3 mt-4 text-secondary">Advanced (高级)</h6>
+
+                    <div className="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
+                        <div>
+                            <div className="small fw-bold">Use server cipher suite during handshake (握手时使用服务器加密套件)</div>
+                            <div className="text-muted" style={{fontSize: '0.75rem'}}>在握手过程中使用服务器的加密套件顺序，而不是客户端的。</div>
+                        </div>
+                        <Form.Check 
+                            type="switch" 
+                            checked={requestSettings.useServerCipherSuite}
+                            onChange={e => setRequestSettings({...requestSettings, useServerCipherSuite: e.target.checked})}
+                        />
+                    </div>
+
+                    <div className="mb-3 pb-3 border-bottom">
+                        <div className="mb-2">
+                            <div className="small fw-bold">TLS/SSL protocols disabled during handshake (握手期间禁用的 TLS/SSL 协议)</div>
+                            <div className="text-muted" style={{fontSize: '0.75rem'}}>指定在握手期间禁用的 SSL 和 TLS 协议版本。所有其他协议将被启用。</div>
+                        </div>
+                        <Form.Control 
+                            size="sm" 
+                            placeholder="" 
+                            value={requestSettings.disabledSSLProtocols} 
+                            onChange={e => setRequestSettings({...requestSettings, disabledSSLProtocols: e.target.value})} 
+                        />
+                    </div>
+
+                    <div className="mb-3 pb-3 border-bottom">
+                        <div className="mb-2">
+                            <div className="small fw-bold">Cipher suite selection (加密套件选择)</div>
+                            <div className="text-muted" style={{fontSize: '0.75rem'}}>SSL 服务器配置文件用于建立安全连接的加密套件顺序。</div>
+                        </div>
+                        <Form.Control 
+                            as="textarea"
+                            size="sm" 
+                            placeholder="Enter cipher suites" 
+                            value={requestSettings.cipherSuites} 
+                            onChange={e => setRequestSettings({...requestSettings, cipherSuites: e.target.value})} 
+                        />
+                    </div>
+                 </div>
+             </div>
              
-             {runSubTab === 'body' && (
-                <div className="h-100 d-flex flex-column">
-                    <div className="d-flex gap-3 px-3 py-2 small border-bottom bg-light">
+            {/* Body Tab */}
+            <div className="custom-scrollbar position-absolute top-0 start-0 w-100 h-100 bg-white" 
+                 style={{
+                     visibility: runSubTab === 'body' ? 'visible' : 'hidden', 
+                     zIndex: runSubTab === 'body' ? 10 : 0,
+                     overflowX: 'hidden', 
+                     overflowY: 'scroll'
+                 }}>
+                    <div className="w-100 d-flex flex-column" style={{minWidth: 0}}>
+                    {/* 修复：Body 顶部选项栏允许换行，避免内容过宽导致 flex 最小宽度撑开页面 */}
+                    <div className="d-flex flex-wrap gap-3 px-3 py-2 small border-bottom bg-light" style={{minWidth: 0}}>
                         <Form.Check type="radio" label="none" checked={bodyMode==='none'} onChange={()=>setBodyMode('none')} inline id="body-none" className="mb-0"/>
                         <Form.Check type="radio" label="form-data" checked={bodyMode==='form-data'} onChange={()=>setBodyMode('form-data')} inline id="body-form" className="mb-0"/>
                         <Form.Check type="radio" label="x-www-form-urlencoded" checked={bodyMode==='x-www-form-urlencoded'} onChange={()=>setBodyMode('x-www-form-urlencoded')} inline id="body-url" className="mb-0"/>
@@ -1484,29 +2163,162 @@ Context/Requirement: ${requirement}
                     </div>
                     
                     {bodyMode !== 'none' ? (
-                        <Form.Control 
-                            as="textarea" 
-                            className="flex-grow-1 font-monospace small border-0 p-3" 
-                            value={bodyContent} 
-                            onChange={e => setBodyContent(e.target.value)} 
-                            placeholder={bodyMode === 'raw' && rawType === 'JSON' ? '{\n  "key": "value"\n}' : 'Request body content...'}
-                            style={{resize: 'none', outline: 'none'}}
-                        />
+                        <div className="position-relative d-flex flex-column h-100">
+                             {/* Backdrop Highlighter */}
+                             {bodyMode === 'raw' && rawType === 'JSON' && (
+                                 <div
+                                     ref={bodyHighlighterRef}
+                                     className="position-absolute top-0 start-0 w-100 h-100 font-monospace small p-3"
+                                     style={{
+                                         whiteSpace: 'pre-wrap',
+                                         wordWrap: 'break-word',
+                                         overflow: 'hidden',
+                                         color: 'transparent',
+                                         pointerEvents: 'none',
+                                         backgroundColor: 'transparent',
+                                         zIndex: 0
+                                     }}
+                                     dangerouslySetInnerHTML={highlightJson(bodyContent)}
+                                 />
+                             )}
+                             
+                            {bodyMode === 'raw' ? (
+                                <Form.Control 
+                                    as="textarea" 
+                                    className="w-100 font-monospace small border-0 p-3 bg-transparent flex-grow-1" 
+                                    value={bodyContent} 
+                                    onChange={e => {
+                                        setBodyContent(e.target.value);
+                                        e.target.style.height = 'auto';
+                                        e.target.style.height = e.target.scrollHeight + 'px';
+                                    }}
+                                    onScroll={handleBodyScroll}
+                                    placeholder={bodyMode === 'raw' && rawType === 'JSON' ? '{\n  "key": "value"\n}' : '请求体内容...'}
+                                    style={{
+                                        resize: 'vertical', 
+                                        outline: 'none', 
+                                        color: (bodyMode === 'raw' && rawType === 'JSON') ? 'transparent' : 'inherit',
+                                        caretColor: 'black',
+                                        zIndex: 1,
+                                        position: 'relative',
+                                        minHeight: '300px',
+                                        overflow: 'hidden'
+                                    }}
+                                    spellCheck={false}
+                                />
+                            ) : bodyMode === 'form-data' ? (
+                                renderFormDataEditor(
+                                    formDataParams, 
+                                    setFormDataParams,
+                                    isBulkEditFormData,
+                                    toggleFormDataBulk,
+                                    formDataBulkText,
+                                    handleFormDataBulkChange
+                                )
+                            ) : bodyMode === 'x-www-form-urlencoded' ? (
+                                renderKvEditor(
+                                    xWwwFormUrlencodedParams, 
+                                    setXWwwFormUrlencodedParams,
+                                    isBulkEditBody,
+                                    () => {
+                                        if (!isBulkEditBody) {
+                                            setBodyBulkText(stringifyBulkItems(xWwwFormUrlencodedParams));
+                                        } else {
+                                            setXWwwFormUrlencodedParams(parseBulkText(bodyBulkText));
+                                        }
+                                        setIsBulkEditBody(!isBulkEditBody);
+                                    },
+                                    bodyBulkText,
+                                    setBodyBulkText
+                                )
+                            ) : bodyMode === 'binary' ? (
+                                <div className="p-4 d-flex flex-column align-items-center justify-content-center h-100 bg-light text-secondary">
+                                    <div className="mb-3">
+                                        <FaFile className="me-2" size={24}/>
+                                        <span>{binaryFile ? binaryFile.name : '选择要上传的文件'}</span>
+                                    </div>
+                                    <div className="position-relative">
+                                        <Button variant="outline-primary" size="sm" onClick={() => document.getElementById('binary-file-input')?.click()}>
+                                            {binaryFile ? '更换文件' : '选择文件'}
+                                        </Button>
+                                        <Form.Control 
+                                            id="binary-file-input"
+                                            type="file" 
+                                            className="d-none"
+                                            onChange={(e: any) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) {
+                                                    const reader = new FileReader();
+                                                    reader.onload = (ev) => {
+                                                        const res = ev.target?.result as string;
+                                                        setBinaryFile({ name: file.name, data: res });
+                                                    };
+                                                    reader.readAsDataURL(file);
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                    {binaryFile && (
+                                        <div className="small text-muted mt-2">
+                                            已选择: {binaryFile.name} 
+                                            <Button variant="link" className="text-danger p-0 ms-2 small text-decoration-none" onClick={()=>setBinaryFile(null)}>清除</Button>
+                                        </div>
+                                    )}
+                                    <div className="small text-muted mt-2">文件内容将作为请求体发送 (Base64)</div>
+                                </div>
+                            ) : bodyMode === 'graphql' ? (
+                                <div className="d-flex h-100 w-100">
+                                    <div className="w-50 h-100 d-flex flex-column border-end">
+                                        <div className="px-3 py-1 bg-light border-bottom small fw-bold text-secondary">查询 (QUERY)</div>
+                                        <Form.Control 
+                                            as="textarea" 
+                                            className="flex-grow-1 border-0 p-3 font-monospace small bg-transparent"
+                                            style={{resize: 'none', outline: 'none'}}
+                                            value={graphqlQuery}
+                                            onChange={e => setGraphqlQuery(e.target.value)}
+                                            placeholder="query { ... }"
+                                            spellCheck={false}
+                                        />
+                                    </div>
+                                    <div className="w-50 h-100 d-flex flex-column">
+                                        <div className="px-3 py-1 bg-light border-bottom small fw-bold text-secondary">变量 (GRAPHQL VARIABLES)</div>
+                                        <Form.Control 
+                                            as="textarea" 
+                                            className="flex-grow-1 border-0 p-3 font-monospace small bg-transparent"
+                                            style={{resize: 'none', outline: 'none'}}
+                                            value={graphqlVariables}
+                                            onChange={e => setGraphqlVariables(e.target.value)}
+                                            placeholder="{ ... }"
+                                            spellCheck={false}
+                                        />
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="p-3 text-muted small">不支持的 Body 类型: {bodyMode}</div>
+                            )}
+                        </div>
                     ) : (
                         <div className="d-flex align-items-center justify-content-center flex-grow-1 text-muted small bg-light">
                             This request has no body.
                         </div>
                     )}
                 </div>
-             )}
+             </div>
+             {/* End Body Tab */}
 
-             {runSubTab === 'ai_prompt' && (
-                 <div className="h-100 d-flex flex-column p-3">
+            {/* AI Prompt Tab */}
+            <div className="custom-scrollbar position-absolute top-0 start-0 w-100 h-100 bg-white d-flex flex-column p-3" 
+                 style={{
+                     visibility: runSubTab === 'ai_prompt' ? 'visible' : 'hidden', 
+                     zIndex: runSubTab === 'ai_prompt' ? 10 : 0,
+                     overflowX: 'hidden', 
+                     overflowY: 'scroll'
+                 }}>
                      <div className="d-flex justify-content-between mb-2">
-                         <Form.Label className="small text-muted mb-0">AI Test Generation (Natural Language or JSON Definition)</Form.Label>
+                         <Form.Label className="small text-muted mb-0">AI 测试生成 (自然语言或 JSON 定义)</Form.Label>
                          <div className="d-flex gap-2">
-                            <Form.Check type="radio" label="Natural" checked={mode==='natural'} onChange={()=>setMode('natural')} inline className="small"/>
-                            <Form.Check type="radio" label="JSON" checked={mode==='structured'} onChange={()=>setMode('structured')} inline className="small"/>
+                            <Form.Check type="radio" label="自然语言" checked={mode==='natural'} onChange={()=>setMode('natural')} inline className="small"/>
+                            <Form.Check type="radio" label="结构化" checked={mode==='structured'} onChange={()=>setMode('structured')} inline className="small"/>
                          </div>
                      </div>
                      <Form.Control 
@@ -1515,287 +2327,82 @@ Context/Requirement: ${requirement}
                         style={{border: '1px solid #dee2e6'}}
                         value={requirement}
                         onChange={e => setRequirement(e.target.value)}
-                        placeholder="Describe your test scenario..."
+                        placeholder="描述您的测试场景..."
                      />
                      <div className="mt-2 d-flex justify-content-end">
                         <Button variant="outline-primary" size="sm" onClick={handleRun} disabled={loading}>
-                             <FaRobot className="me-1"/> Generate & Run Tests
+                             <FaRobot className="me-1"/> 生成并运行测试
                         </Button>
                      </div>
                  </div>
-             )}
+             {/* End AI Prompt Tab */}
         </div>
 
         {/* 4. Resizer / Divider */}
         <div 
-            className="border-top border-bottom bg-light d-flex align-items-center justify-content-center text-muted" 
+            className="border-top bg-light d-flex align-items-center justify-content-center text-muted flex-shrink-0" 
             style={{ 
-                height: '8px', 
+                height: '6px', 
                 cursor: 'row-resize', 
-                backgroundColor: isDragging ? '#e9ecef' : '#f0f0f0',
+                backgroundColor: isDragging ? '#e9ecef' : '#f8f9fa',
                 userSelect: 'none' 
             }}
             onMouseDown={handleMouseDown}
         >
-             <div style={{ width: '30px', height: '3px', backgroundColor: isDragging ? '#0d6efd' : '#ccc', borderRadius: '2px' }}></div>
+             {/* Handle hidden for cleaner look */}
         </div>
 
         {/* 5. Response Section */}
-        <div className="d-flex flex-column bg-white flex-grow-1" style={{minHeight: '200px'}}>
-             <div className="px-3 py-1 border-bottom bg-white d-flex justify-content-between align-items-center">
-                <Nav variant="underline" activeKey={responseTab} onSelect={k => setResponseTab(k || 'body')} className="small">
-                     <Nav.Item><Nav.Link eventKey="body" className="text-secondary">Body</Nav.Link></Nav.Item>
-                     <Nav.Item><Nav.Link eventKey="cookies" className="text-secondary">Cookies</Nav.Link></Nav.Item>
-                     <Nav.Item><Nav.Link eventKey="headers" className="text-secondary">Headers <span className="text-muted">({Object.keys(responseHeaders).length})</span></Nav.Link></Nav.Item>
-                     <Nav.Item><Nav.Link eventKey="test_results" className="text-secondary">Test Results</Nav.Link></Nav.Item>
-                     <Nav.Item><Nav.Link eventKey="report" className="text-primary"><FaRobot className="me-1"/>AI Report</Nav.Link></Nav.Item>
-                </Nav>
-                <div className="d-flex gap-3 align-items-center small text-secondary">
-                    <span>Status: <span className={responseStatus === 200 ? "text-success fw-bold" : (responseStatus ? "text-danger fw-bold" : "")}>{responseStatus || '---'}</span></span>
-                    <span>Time: <span className="fw-bold text-dark">{responseTime ? responseTime + ' ms' : '---'}</span></span>
-                    <span>Size: <span className="fw-bold text-dark">{responseBody ? responseBody.length + ' B' : '---'}</span></span>
-                </div>
-             </div>
-             
-             <div className="flex-grow-1 overflow-auto p-0 position-relative">
-                 {loading && (
-                     <div className="position-absolute top-0 start-0 w-100 h-100 bg-white bg-opacity-75 d-flex align-items-center justify-content-center z-1">
-                         <Spinner animation="border" variant="primary" />
-                     </div>
-                 )}
-                 
-                 {responseTab === 'body' && (
-                    <div className="h-100 d-flex flex-column">
-                        {responseBody ? (
-                            <>
-                                <div className="bg-light border-bottom px-2 py-1 d-flex justify-content-between align-items-center">
-                                    <div className="small text-muted">
-                                        <Button variant="link" size="sm" className={`p-0 me-2 text-decoration-none ${responseViewMode==='json'?'fw-bold text-dark':'text-secondary'}`} onClick={()=>setResponseViewMode('json')}>Pretty</Button>
-                                        <Button variant="link" size="sm" className={`p-0 me-2 text-decoration-none ${responseViewMode==='html'?'fw-bold text-dark':'text-secondary'}`} onClick={()=>setResponseViewMode('html')}>Preview</Button>
-                                        {/* Add Raw view logic if needed */}
-                                    </div>
-                                    <div className="d-flex gap-2">
-                                         <Form.Select size="sm" style={{width: 'auto', fontSize: '0.75rem', padding: '0 0.5rem', height: '20px'}} value="JSON">
-                                             <option>JSON</option>
-                                             <option>XML</option>
-                                             <option>HTML</option>
-                                             <option>Text</option>
-                                         </Form.Select>
-                                    </div>
-                                </div>
-                                <div className="flex-grow-1 bg-white position-relative">
-                                    {responseViewMode === 'html' ? (
-                                        <iframe 
-                                           srcDoc={responseBody} 
-                                           style={{width: '100%', height: '100%', border: 'none'}} 
-                                           title="Response Preview"
-                                           sandbox="allow-same-origin"
-                                        />
-                                    ) : (
-                                        <textarea 
-                                           className="w-100 h-100 border-0 p-3 font-monospace small" 
-                                           style={{resize: 'none', outline: 'none', color: '#333'}}
-                                           value={typeof responseBody === 'object' ? JSON.stringify(responseBody, null, 2) : responseBody}
-                                           readOnly
-                                        />
-                                    )}
-                                </div>
-                            </>
-                        ) : (
-                             <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted opacity-50">
-                                 <FaGlobe size={48} className="mb-3"/>
-                                 <div>Enter the URL and click Send to get a response</div>
-                             </div>
-                        )}
-                    </div>
-                 )}
-                 
-                 {responseTab === 'headers' && (
-                   <div className="h-100 overflow-auto">
-                       {Object.keys(responseHeaders).length > 0 ? (
-                           <table className="table table-sm table-hover mb-0 small">
-                               <thead className="bg-light sticky-top"><tr><th className="ps-3 border-0">Key</th><th className="border-0">Value</th></tr></thead>
-                               <tbody>
-                                   {Object.entries(responseHeaders).map(([k, v]) => (
-                                       <tr key={k}>
-                                           <td className="ps-3 fw-bold text-secondary">{k}</td>
-                                           <td className="font-monospace text-break text-dark">{String(v)}</td>
-                                       </tr>
-                                   ))}
-                               </tbody>
-                           </table>
-                       ) : (
-                           <div className="d-flex align-items-center justify-content-center h-100 text-muted small">No headers</div>
-                       )}
-                   </div>
-                 )}
-
-                 {responseTab === 'report' && (
-                     testResult?.structured_report ? (
-                        renderDashboard(testResult.structured_report)
-                     ) : (
-                        <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted opacity-50">
-                            <FaRobot size={48} className="mb-3"/>
-                            <div>Run an AI test generation to see the report</div>
-                        </div>
-                     )
-                 )}
-                 
-                 {responseTab === 'test_results' && (
-                     <div className="d-flex align-items-center justify-content-center h-100 text-muted opacity-50">
-                         <div>No standard tests run yet</div>
-                     </div>
-                 )}
-                 
-                 {responseTab === 'cookies' && (
-                     <div className="d-flex align-items-center justify-content-center h-100 text-muted opacity-50">
-                         <div>No cookies</div>
-                     </div>
-                 )}
-             </div>
-        </div>
+        <ResponsePanel
+          loading={loading}
+          responseTab={responseTab}
+          setResponseTab={(tab) => setResponseTab(tab)}
+          responseDetailedCookies={responseDetailedCookies}
+          responseCookies={responseCookies}
+          responseHeaders={responseHeaders}
+          sentHeaders={sentHeaders}
+          sentCookies={sentCookies}
+          responseStatus={responseStatus}
+          responseTime={responseTime}
+          responseBody={responseBody}
+          responseFormat={responseFormat}
+          setResponseFormat={setResponseFormat}
+          responseViewMode={responseViewMode}
+          setResponseViewMode={setResponseViewMode}
+          aiAnalysis={aiAnalysis}
+          testResult={testResult}
+          renderDashboard={(report) => <StructuredReportDashboard report={report} />}
+          handleAnalyzeResponse={handleAnalyzeResponse}
+          isAnalyzing={isAnalyzing}
+          scriptTests={scriptTests}
+        />
       </div>
       
-      <Modal show={showSaveModal} onHide={() => setShowSaveModal(false)} centered>
-        <Modal.Header closeButton>
-            <Modal.Title>Save Request</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-            <Form>
-                <Form.Group className="mb-3">
-                    <Form.Label>Request Name</Form.Label>
-                    <Form.Control 
-                        type="text" 
-                        value={saveForm.name} 
-                        onChange={e => setSaveForm({...saveForm, name: e.target.value})}
-                        autoFocus
-                    />
-                </Form.Group>
-                <Form.Group className="mb-3">
-                    <Form.Label>Description</Form.Label>
-                    <Form.Control 
-                        as="textarea" 
-                        rows={3} 
-                        value={saveForm.description} 
-                        onChange={e => setSaveForm({...saveForm, description: e.target.value})}
-                    />
-                </Form.Group>
-                <Form.Group className="mb-3">
-                    <Form.Label>Save to Folder</Form.Label>
-                    <Form.Select 
-                        value={saveForm.parentId || ''} 
-                        onChange={e => setSaveForm({...saveForm, parentId: e.target.value ? Number(e.target.value) : null})}
-                    >
-                        <option value="">(Root)</option>
-                        {renderFolderOptions(null)}
-                    </Form.Select>
-                </Form.Group>
-            </Form>
-        </Modal.Body>
-        <Modal.Footer>
-            <Button variant="secondary" onClick={() => setShowSaveModal(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleConfirmSave}>Save</Button>
-         </Modal.Footer>
-       </Modal>
+      <SaveRequestModal
+        show={showSaveModal}
+        onHide={() => setShowSaveModal(false)}
+        saveForm={saveForm}
+        setSaveForm={setSaveForm}
+        renderFolderOptions={renderFolderOptions}
+        onConfirmSave={handleConfirmSave}
+      />
 
-       {/* Env Manager Modal */}
-       <Modal show={showEnvModal} onHide={() => setShowEnvModal(false)} size="lg" centered>
-         <Modal.Header closeButton>
-             <Modal.Title>环境管理</Modal.Title>
-         </Modal.Header>
-         <Modal.Body style={{minHeight: '400px'}}>
-             {editingEnv ? (
-                 <div className="d-flex flex-column h-100">
-                     <div className="d-flex justify-content-between align-items-center mb-3">
-                        <Button variant="link" className="p-0 text-decoration-none" onClick={() => setEditingEnv(null)}>
-                            <FaChevronLeft className="me-1"/> Back to List
-                        </Button>
-                        <h5 className="mb-0 text-primary">{editingEnv.id === 'new' ? 'New Environment' : 'Edit Environment'}</h5>
-                     </div>
-                     
-                     <Form.Group className="mb-3">
-                        <Form.Label>Environment Name</Form.Label>
-                        <Form.Control value={editingEnv.name} onChange={e => setEditingEnv({...editingEnv, name: e.target.value})} placeholder="e.g. Production"/>
-                     </Form.Group>
-                     <Form.Group className="mb-3">
-                        <Form.Label>Base URL</Form.Label>
-                        <Form.Control value={editingEnv.baseUrl} onChange={e => setEditingEnv({...editingEnv, baseUrl: e.target.value})} placeholder="https://api.example.com"/>
-                     </Form.Group>
-                     
-                     <div className="flex-grow-1 d-flex flex-column">
-                        <div className="d-flex justify-content-between align-items-center mb-2">
-                            <label className="form-label mb-0">Variables</label>
-                            <Button size="sm" variant="outline-secondary" onClick={() => {
-                                const newVars = [...(editingEnv.variables || []), {key: '', value: '', enabled: true}];
-                                setEditingEnv({...editingEnv, variables: newVars});
-                            }}>
-                                <FaPlus size={12}/> Add Var
-                            </Button>
-                        </div>
-                        <div className="border rounded flex-grow-1 overflow-auto bg-light p-2" style={{maxHeight: '300px'}}>
-                            {(!editingEnv.variables || editingEnv.variables.length === 0) && <div className="text-center text-muted small mt-4">No variables defined.</div>}
-                            {editingEnv.variables?.map((v, idx) => (
-                                <div key={idx} className="d-flex gap-2 mb-2 align-items-center">
-                                    <Form.Check 
-                                        checked={v.enabled} 
-                                        onChange={e => {
-                                            const newVars = [...editingEnv.variables!];
-                                            newVars[idx].enabled = e.target.checked;
-                                            setEditingEnv({...editingEnv, variables: newVars});
-                                        }}
-                                    />
-                                    <Form.Control size="sm" placeholder="Variable" value={v.key} onChange={e => {
-                                        const newVars = [...editingEnv.variables!];
-                                        newVars[idx].key = e.target.value;
-                                        setEditingEnv({...editingEnv, variables: newVars});
-                                    }}/>
-                                    <Form.Control size="sm" placeholder="Value" value={v.value} onChange={e => {
-                                        const newVars = [...editingEnv.variables!];
-                                        newVars[idx].value = e.target.value;
-                                        setEditingEnv({...editingEnv, variables: newVars});
-                                    }}/>
-                                    <Button variant="link" className="text-danger p-0" onClick={() => {
-                                        const newVars = editingEnv.variables!.filter((_, i) => i !== idx);
-                                        setEditingEnv({...editingEnv, variables: newVars});
-                                    }}><FaTimes/></Button>
-                                </div>
-                            ))}
-                        </div>
-                     </div>
-                 </div>
-             ) : (
-                 <div className="d-flex flex-column h-100">
-                     <div className="text-end mb-3">
-                         <Button variant="success" size="sm" onClick={() => setEditingEnv({id: Date.now().toString(), name: 'New Env', baseUrl: '', variables: []})}>
-                             <FaPlus className="me-1"/> Create New
-                         </Button>
-                     </div>
-                     <ListGroup variant="flush">
-                        {savedEnvs.length === 0 && <div className="text-center text-muted my-5">No environments found.</div>}
-                        {savedEnvs.map(env => (
-                            <ListGroup.Item key={env.id} className="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <div className="fw-bold">{env.name}</div>
-                                    <div className="small text-muted font-monospace">{env.baseUrl}</div>
-                                    <div className="small text-secondary">{env.variables?.length || 0} variables</div>
-                                </div>
-                                <div className="d-flex gap-2">
-                                    <Button variant="outline-primary" size="sm" onClick={() => setEditingEnv(env)}><FaEdit/></Button>
-                                    <Button variant="outline-danger" size="sm" onClick={() => handleDeleteEnv(env.id)}><FaTrash/></Button>
-                                </div>
-                            </ListGroup.Item>
-                        ))}
-                     </ListGroup>
-                 </div>
-             )}
-         </Modal.Body>
-         {editingEnv && (
-             <Modal.Footer>
-                 <Button variant="secondary" onClick={() => setEditingEnv(null)}>Cancel</Button>
-                 <Button variant="primary" onClick={() => handleUpdateEnv(editingEnv)}>Save Environment</Button>
-             </Modal.Footer>
-         )}
-       </Modal>
+      <CookieManagerModal
+        show={showCookieModal}
+        onHide={() => setShowCookieModal(false)}
+        cookieJar={cookieJar}
+        setCookieJar={setCookieJar}
+      />
+
+      <EnvManagerModal
+        show={showEnvModal}
+        onHide={() => setShowEnvModal(false)}
+        editingEnv={editingEnv}
+        setEditingEnv={setEditingEnv}
+        savedEnvs={savedEnvs}
+        onDeleteEnv={handleDeleteEnv}
+        onUpdateEnv={handleUpdateEnv}
+      />
     </div>
   );
 }

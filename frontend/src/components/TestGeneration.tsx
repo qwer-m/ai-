@@ -5,12 +5,19 @@ import { saveFileToDB, getFileFromDB } from '../utils/storage';
 import { api, getAuthHeaders } from '../utils/api';
 import classNames from 'classnames';
 
-// --- Helper Functions ---
+// --- 辅助函数 ---
 function cleanStreamingContent(content: string) {
     if (!content) return '';
-    // Strip markdown code blocks (```json ... ``` or just ``` ...)
+    // 去除 markdown 代码块标记 (```json ... ``` 或仅仅 ``` ...)
     let cleaned = content.replace(/```json\s*/g, '').replace(/```\s*/g, '');
     return cleaned;
+}
+
+function getCopyContent(result: any, streamingContent: string) {
+    if (result && typeof result === 'object') return JSON.stringify(result, null, 2);
+    if (typeof result === 'string' && result.trim()) return result;
+    if (streamingContent) return cleanStreamingContent(streamingContent);
+    return '';
 }
 
 function parseMultipleJsonArrays(text: string): any[] {
@@ -19,31 +26,31 @@ function parseMultipleJsonArrays(text: string): any[] {
 
     const foundItems: any[] = [];
     
-    // Robust streaming parser: extracts complete objects {...} from potential arrays [...]
+    // 健壮的流式解析器：从可能的数组 [...] 中提取完整的对象 {...}
     let cursor = 0;
     while (cursor < clean.length) {
-        // Find start of an array
+        // 查找数组开始
         const startArray = clean.indexOf('[', cursor);
-        if (startArray === -1) break; // No more arrays
+        if (startArray === -1) break; // 没有更多数组
         
         cursor = startArray + 1;
         
-        // Scan for objects inside this array
+        // 扫描该数组内的对象
         while (cursor < clean.length) {
-            // Skip whitespace and commas
+            // 跳过空白和逗号
             while (cursor < clean.length && /[\s,]/.test(clean[cursor])) {
                 cursor++;
             }
             
             if (cursor >= clean.length) break;
             
-            // If we hit closing array, we are done with this array
+            // 如果遇到数组结束符，结束当前数组解析
             if (clean[cursor] === ']') {
                 cursor++;
                 break;
             }
             
-            // We expect an object '{'
+            // 期望遇到对象开始符 '{'
             if (clean[cursor] === '{') {
                 const startObj = cursor;
                 let balance = 0;
@@ -70,7 +77,7 @@ function parseMultipleJsonArrays(text: string): any[] {
                 }
                 
                 if (endObj !== -1) {
-                    // Try parse this object
+                    // 尝试解析该对象
                     const jsonStr = clean.substring(startObj, endObj + 1);
                     try {
                         const obj = JSON.parse(jsonStr);
@@ -78,21 +85,21 @@ function parseMultipleJsonArrays(text: string): any[] {
                              foundItems.push(obj);
                         }
                     } catch (e) {
-                        // ignore malformed objects
+                        // 忽略格式错误的对象
                     }
                     cursor = endObj + 1;
                 } else {
-                    // Object not closed yet (streaming), stop parsing this array
-                    cursor = clean.length; // exit loop
+                    // 对象未闭合（流式传输中），停止解析该数组
+                    cursor = clean.length; // 退出循环
                 }
             } else {
-                // Unexpected char, skip
+                // 意外字符，跳过
                 cursor++;
             }
         }
     }
 
-    // Fallback: If standard parsing works (e.g. for simple arrays), use it if our custom parser failed or found nothing
+    // 兜底策略：如果标准解析可行（例如简单数组），且自定义解析失败或无结果，则使用标准解析
     if (foundItems.length === 0) {
         try {
             const parsed = JSON.parse(clean);
@@ -104,12 +111,12 @@ function parseMultipleJsonArrays(text: string): any[] {
 }
 
 
-// --- AIHintBubble Component (Inline) ---
+// --- AI 提示气泡组件 (内联) ---
 function AIHintBubble({ onClose }: { onClose: () => void }) {
     const [show, setShow] = useState(false);
 
     useEffect(() => {
-        // Smart Trigger: Check if new user
+        // 智能触发：检查是否为新用户
         const lastVisit = window.localStorage.getItem('tg_last_visit');
         const isNewUser = !lastVisit || (Date.now() - Number(lastVisit) > 3 * 24 * 60 * 60 * 1000);
         
@@ -118,7 +125,7 @@ function AIHintBubble({ onClose }: { onClose: () => void }) {
         }
         window.localStorage.setItem('tg_last_visit', String(Date.now()));
 
-        // Keyboard close
+        // 键盘关闭事件
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') onClose();
         };
@@ -152,7 +159,7 @@ function AIHintBubble({ onClose }: { onClose: () => void }) {
             <p className="small text-secondary mb-0" style={{ lineHeight: '1.5' }}>
                 上传详细的需求文档或原型图，并明确预期用例数量，可以获得更覆盖全面的测试用例。
             </p>
-            {/* CSS Triangle */}
+            {/* CSS 三角形 */}
             <div style={{
                 position: 'absolute',
                 bottom: '-8px',
@@ -170,8 +177,10 @@ function AIHintBubble({ onClose }: { onClose: () => void }) {
 
 type Props = {
   projectId: number | null;
+  isActive?: boolean;
   onLog: (msg: string) => void;
   onGenerated: (data: any) => void;
+  onGenerationComplete?: () => void;
   onError?: (msg: string) => void;
 };
 
@@ -187,24 +196,31 @@ const ALLOWED_TYPES = [
     'image/gif'
 ];
 
-export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props) {
-  // Refs for hidden file inputs
+export function TestGeneration({ projectId, isActive = true, onLog, onGenerated, onGenerationComplete, onError }: Props) {
+  // 隐藏文件输入的引用
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // 当 Tab 切换时清除 Toast
+  useEffect(() => {
+    if (!isActive) {
+        setToastMsg(null);
+    }
+  }, [isActive]);
   const protoInputRef = useRef<HTMLInputElement>(null);
   const uploadZoneRef = useRef<HTMLDivElement>(null);
 
-  // Load initial state from localStorage if available
+  // 如果可用，从 localStorage 加载初始状态
   const [mode, setMode] = useState<'text' | 'file'>(() => 
     (window.localStorage.getItem('tg_mode') as 'text' | 'file') || 'text'
   );
   
-  // Text Mode State
+  // 文本模式状态
   const [requirement, setRequirement] = useState(() => {
     const key = projectId ? `tg_requirement_${projectId}` : 'tg_requirement';
     return window.localStorage.getItem(key) || '';
   });
   
-  // File Mode State
+  // 文件模式状态
   const [file, setFile] = useState<File | null>(null);
   const [docType, setDocType] = useState(() => 
     window.localStorage.getItem('tg_docType') || 'requirement'
@@ -213,7 +229,7 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
   const [force, setForce] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
 
-  // Common State
+  // 通用状态
   const [compress, setCompress] = useState(() => 
     window.localStorage.getItem('tg_compress') === 'true'
   );
@@ -224,9 +240,34 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
     Number(window.localStorage.getItem('tg_appendCount')) || 10
   );
   
-  // Auto-calculate recommended count
+  // 自动计算推荐数量
   const [isManualCount, setIsManualCount] = useState(false);
   const [isEstimating, setIsEstimating] = useState(false);
+
+  // 中文注释：错误管理前置处理与统一中文翻译
+  const getErrorText = (error: any) => {
+    if (!error) return '';
+    if (typeof error === 'string') return error;
+    if (error?.data?.error) return String(error.data.error);
+    if (error?.data?.detail) return String(error.data.detail);
+    if (error?.data?.message) return String(error.data.message);
+    if (error?.message) return String(error.message);
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  };
+
+  const translateError = async (error: any) => {
+    const raw = getErrorText(error);
+    try {
+      const res = await api.post<any>('/api/error/translate', { error: raw });
+      return res?.message ? String(res.message) : raw;
+    } catch {
+      return raw;
+    }
+  };
 
   useEffect(() => {
       setIsManualCount(false);
@@ -264,9 +305,12 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
                 setExpectedCount(res.count);
             }
         } catch (e) {
+            // 中文注释：智能估算失败统一中文错误提示
+            const msg = await translateError(e);
             console.error("Estimation failed", e);
-            setToastMsg(`智能估算失败，已使用默认值。错误: ${e instanceof Error ? e.message : String(e)}`);
-            // Fallback logic removed as per user request - rely on default value (20) or user manual input
+            setToastType('error');
+            setToastMsg(`智能估算失败，已使用默认值。错误: ${msg}`);
+            // 根据用户请求移除回退逻辑 - 依赖默认值 (20) 或用户手动输入
         } finally {
             setIsEstimating(false);
         }
@@ -279,7 +323,7 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
   const [loading, setLoading] = useState(false);
   const [pollStatus, setPollStatus] = useState<string>('');
   
-  // Results State
+  // 结果状态
   const [textResult, setTextResult] = useState<any>(() => {
     try {
       const key = projectId ? `tg_text_result_${projectId}` : 'tg_text_result';
@@ -309,7 +353,7 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
     return window.localStorage.getItem(key) || '';
   });
 
-  // Derived state
+  // 派生状态
   const result = mode === 'text' ? textResult : fileResult;
   const streamingContent = mode === 'text' ? textStreamingContent : fileStreamingContent;
   
@@ -327,10 +371,11 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
   const [duplicateData, setDuplicateData] = useState<any>(null);
   const [showHint, setShowHint] = useState(true);
   
-  // New: Toast for file errors
+  // 新增: 文件错误提示
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [toastType, setToastType] = useState<'success' | 'error'>('error');
 
-  // Effects (Persistence & DB)
+  // 副作用 (持久化与数据库)
   useEffect(() => {
     window.localStorage.removeItem('tg_result');
     window.localStorage.removeItem('tg_streamingContent');
@@ -392,10 +437,10 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
     window.localStorage.setItem(key, fileStreamingContent); 
   }, [fileStreamingContent, projectId]);
 
-  // Network status listener
+  // 网络状态监听
   useEffect(() => {
-      const handleOnline = () => { /* maybe auto-retry or clear error */ };
-      const handleOffline = () => setToastMsg("网络连接已断开，请检查网络设置");
+      const handleOnline = () => { /* 可能需要自动重试或清除错误 */ };
+      const handleOffline = () => { setToastType('error'); setToastMsg("网络连接已断开，请检查网络设置"); };
       window.addEventListener('online', handleOnline);
       window.addEventListener('offline', handleOffline);
       return () => {
@@ -404,7 +449,7 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
       };
   }, []);
 
-  // Prevent accidental navigation/close during generation
+  // 防止生成过程中意外导航/关闭
   useEffect(() => {
       const handleBeforeUnload = (e: BeforeUnloadEvent) => {
           if (loading) {
@@ -417,15 +462,15 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
       return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [loading]);
 
-  // AI Hint Hover Trigger
+  // AI 提示悬停触发
   useEffect(() => {
       let timer: any;
       const zone = uploadZoneRef.current;
       if (!zone) return;
 
       const handleMouseEnter = () => {
-          if (!file && !showHint) { // Only if not already showing
-               // Wait 5s
+          if (!file && !showHint) { // 仅当未显示时
+               // 等待 5秒
                timer = setTimeout(() => {
                    if (!file) setShowHint(true);
                }, 5000);
@@ -445,7 +490,7 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
   }, [file, showHint]);
 
 
-  // File Handlers
+  // 文件处理函数
   const validateAndSetFile = (f: File | null) => {
       if (!f) {
           setFile(null);
@@ -454,15 +499,16 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
           return;
       }
       
-      // 1. Size Check
+      // 1. 大小检查
       if (f.size > MAX_FILE_SIZE) {
+          setToastType('error');
           setToastMsg(`文件大小超过限制 (Max 50MB)`);
           return;
       }
 
-      // 2. Type Check (Loose check based on extension/mime if possible, but mime can be empty)
-      // For now, rely on accept attribute in input, but manual check for drop
-      // Simplified: Just check if it looks like a document or image
+      // 2. 类型检查 (宽松检查，基于扩展名/mime)
+      // 目前依赖 input 的 accept 属性，但对拖放需手动检查
+      // 简化版：仅检查是否看起来像文档或图像
       
       setFile(f);
       setFileResult(null);
@@ -495,7 +541,7 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
     }
   };
 
-  // Generation Logic
+  // 生成逻辑
   const extractFirstJsonArray = (content: string): any[] | null => {
     if (!content) return null;
     const foundItems: any[] = [];
@@ -603,6 +649,11 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
   const validateStandardCases = (items: any[]) => {
     if (!Array.isArray(items)) return { ok: false as const, error: '结果不是 JSON 数组' };
     if (items.length === 0) return { ok: false as const, error: '结果为空数组，请重试生成' };
+    
+    const descSet = new Set<string>();
+    const overlapSet = new Set<string>();
+    const normalizeText = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+    
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       if (!it || typeof it !== 'object' || Array.isArray(it)) return { ok: false as const, error: `第 ${i + 1} 条不是对象` };
@@ -614,6 +665,38 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
       for (const k of keys) {
         if (!required.includes(k)) return { ok: false as const, error: `第 ${i + 1} 条包含多余字段: ${k}` };
       }
+      
+      const description = String(it.description ?? '').trim();
+      const testModule = String(it.test_module ?? '').trim();
+      const expectedResult = String(it.expected_result ?? '').trim();
+      const testInput = String(it.test_input ?? '').trim();
+      const steps = Array.isArray(it.steps) ? it.steps : [];
+      const preconditions = it.preconditions;
+      const priority = String(it.priority ?? '').trim().toUpperCase();
+      if (!description) return { ok: false as const, error: `第 ${i + 1} 条用例描述为空` };
+      if (!testModule) return { ok: false as const, error: `第 ${i + 1} 条测试模块为空` };
+      if (!expectedResult) return { ok: false as const, error: `第 ${i + 1} 条预期结果为空` };
+      if (!Array.isArray(steps) || steps.length === 0 || steps.some(s => !String(s).trim())) {
+        return { ok: false as const, error: `第 ${i + 1} 条步骤为空或包含空步骤` };
+      }
+      if (!Array.isArray(preconditions)) {
+        return { ok: false as const, error: `第 ${i + 1} 条前置条件不是数组` };
+      }
+      if (!['P0', 'P1', 'P2'].includes(priority)) {
+        return { ok: false as const, error: `第 ${i + 1} 条优先级不合法: ${it.priority}` };
+      }
+
+      const normalizedDesc = normalizeText(description);
+      if (descSet.has(normalizedDesc)) {
+          return { ok: false as const, error: `第 ${i + 1} 条用例描述重复 (违反 MECE 原则): "${description}"` };
+      }
+      descSet.add(normalizedDesc);
+
+      const overlapKey = `${normalizeText(testModule)}||${normalizeText(testInput)}||${normalizeText(expectedResult)}`;
+      if (overlapSet.has(overlapKey)) {
+          return { ok: false as const, error: `第 ${i + 1} 条用例与已有用例存在重复验证点 (模块+输入+预期重复)` };
+      }
+      overlapSet.add(overlapKey);
     }
     return { ok: true as const };
   };
@@ -634,6 +717,7 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
   }, [result, streamingContent]);
 
   const handleGenerateStream = async (isText: boolean, forceOverride?: boolean, appendMode?: boolean) => {
+    // 中文注释：前置条件检查采用中文提示
     if (!navigator.onLine) return alert('网络已断开，无法生成');
     if (!projectId) return alert('请先选择项目');
     if (isText && !requirement.trim()) return alert('请输入需求内容');
@@ -1034,18 +1118,22 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
                 }
             }
         } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
+            // 中文注释：生成结果解析失败统一中文错误提示
+            const msg = await translateError(e);
             setError(msg);
             onLog(`生成完成但结果不符合标准JSON结构: ${msg}`);
         }
         
         onLog("生成完成");
+        if (onGenerationComplete) onGenerationComplete();
         
     } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        // 中文注释：生成失败统一中文错误提示
+        const raw = getErrorText(e);
+        const msg = await translateError(e);
         setError(msg);
         onLog(`生成失败: ${msg}`);
-        if (onError && (msg.includes('401') || msg.includes('QUOTA') || msg.includes('API Key not set'))) {
+        if (onError && (raw.includes('401') || raw.includes('QUOTA') || raw.includes('API Key not set'))) {
             onError(msg);
         }
     } finally {
@@ -1070,7 +1158,9 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
             setStreamingContent(JSON.stringify(data, null, 2));
             onLog("已加载历史生成结果");
         } catch (e) {
-            onLog(`加载历史失败: ${e}`);
+            // 中文注释：加载历史失败统一中文错误提示
+            const msg = await translateError(e);
+            onLog(`加载历史失败: ${msg}`);
         } finally {
             setLoading(false);
         }
@@ -1165,7 +1255,9 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
       a.remove();
       onLog('导出 Excel 成功');
     } catch (e) {
-      onLog(`导出失败: ${e}`);
+      // 中文注释：导出失败统一中文错误提示
+      const msg = await translateError(e);
+      onLog(`导出失败: ${msg}`);
     }
   };
 
@@ -1176,13 +1268,14 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
   }, [result]);
 
   return (
-    <div className="bento-grid h-100 align-content-start position-relative">
+    <div className="bento-grid h-100 align-content-start position-relative postman-theme">
       
       {/* Toast */}
-      <div className="position-fixed top-0 end-0 p-3" style={{ zIndex: 1100 }}>
-          <Toast show={!!toastMsg} onClose={() => setToastMsg(null)} delay={3000} autohide bg="danger">
-              <Toast.Header><strong className="me-auto text-danger">错误</strong></Toast.Header>
-              <Toast.Body className="text-white">{toastMsg}</Toast.Body>
+      <div className="position-fixed top-50 start-50 translate-middle p-3" style={{ zIndex: 1100 }}>
+          <Toast show={!!toastMsg} onClose={() => setToastMsg(null)} delay={3000} autohide bg={toastType === 'success' ? 'success' : 'danger'}>
+              <Toast.Body className="text-white text-center fw-bold">
+                  {toastType === 'success' ? '复制成功' : (toastMsg?.includes('复制') ? '复制失败' : toastMsg)}
+              </Toast.Body>
           </Toast>
       </div>
 
@@ -1230,12 +1323,12 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
              )}
          </div>
 
-         <div className="flex-grow-1">
+         <div className="flex-grow-1" style={{ height: '350px' }}>
             {mode === 'text' ? (
                 <Form.Control 
                     as="textarea" 
                     className="input-pro h-100 border-0 bg-light"
-                    style={{ resize: 'none', minHeight: '300px' }}
+                    style={{ resize: 'none' }}
                     placeholder="请输入详细的需求描述，例如：登录功能，用户输入账号密码..." 
                     value={requirement}
                     onChange={e => setRequirement(e.target.value)}
@@ -1252,7 +1345,6 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
                         style={{ 
                             borderStyle: 'dashed', 
                             borderWidth: '2px',
-                            minHeight: '300px',
                             cursor: loading ? 'not-allowed' : 'pointer'
                         }}
                         onDragOver={handleDragOver}
@@ -1277,13 +1369,13 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
       </div>
 
       {/* Config Panel */}
-      <div className="bento-card col-span-6 p-4 d-flex flex-column gap-3 bg-white">
+      <div className="bento-card col-span-6 p-4 d-flex flex-column gap-3 bg-body">
          <h6 className="fw-bold d-flex align-items-center gap-2 mb-3">
             <FaCog className="text-primary" /> 配置面板
          </h6>
 
          {mode === 'file' && (
-             <div className="p-3 bg-light rounded-3 mb-2">
+             <div className="p-3 bg-body-tertiary rounded-3 mb-2">
                  <Form.Group className="mb-3">
                     <Form.Label className="small fw-bold text-secondary">文档类型</Form.Label>
                     <Form.Select className="input-pro form-select-sm" value={docType} onChange={e => setDocType(e.target.value)}>
@@ -1309,7 +1401,7 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
              </div>
          )}
 
-         <div className="p-3 bg-light rounded-3 flex-grow-1">
+         <div className="p-3 bg-body-tertiary rounded-3 flex-grow-1">
             <Form.Check 
                 type="switch"
                 id="compress-switch"
@@ -1386,7 +1478,9 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
                 
                 return (
                     <Button 
-                        className="btn-pro-primary w-100 py-2 fw-bold shadow-sm d-flex align-items-center justify-content-center"
+                        variant="primary"
+                        className="w-100 text-white d-flex align-items-center justify-content-center"
+                        style={{ fontWeight: 500, backgroundColor: '#0d6efd', borderColor: '#0d6efd', height: '38px' }}
                         disabled={loading || !projectId || isLimitReached}
                         onClick={() => mode === 'text' ? handleGenerateStream(true, undefined, hasJsonInResultBox) : handleGenerateStream(false, undefined, hasJsonInResultBox)}
                     >
@@ -1400,15 +1494,15 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
 
             {(result || streamingContent) && (
                 <div className="d-flex gap-2">
-                    <Button variant="outline-success" className="flex-grow-1 input-pro border-0" onClick={handleExportExcel}>
-                        <FaDownload className="me-1" /> 导出
+                    <Button variant="outline-secondary" className="flex-grow-1 border d-flex align-items-center justify-content-center" style={{ fontWeight: 500, height: '38px' }} onClick={handleExportExcel}>
+                        <FaDownload className="me-2" /> 导出
                     </Button>
-                    <Button variant="outline-danger" className="flex-grow-1 input-pro border-0" onClick={() => {
+                    <Button variant="outline-danger" className="flex-grow-1 border d-flex align-items-center justify-content-center" style={{ fontWeight: 500, height: '38px' }} onClick={() => {
                         if (mode === 'text') { setTextResult(null); setTextStreamingContent(''); }
                         else { setFileResult(null); setFileStreamingContent(''); }
                         onLog('已清除生成结果');
                     }}>
-                        <FaTrash className="me-1" /> 清除
+                        <FaTrash className="me-2" /> 清除
                     </Button>
                 </div>
             )}
@@ -1423,7 +1517,8 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
                 now={100} 
                 label={<div style={{ whiteSpace: 'normal', wordBreak: 'break-all', fontSize: '0.85rem', lineHeight: '1.2' }}>{pollStatus}</div>} 
                 variant="info" 
-                style={{ height: 'auto', minHeight: '30px', borderRadius: '3px' }} 
+                style={{ height: 'auto', minHeight: '30px' }}
+                className="rounded-1" 
             />
             <div className="text-center mt-2 text-muted small">AI 正在深度分析需求文档，请稍候...</div>
         </div>
@@ -1438,7 +1533,7 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
           </div>
       )}
 
-      <div className="bento-card col-span-12 p-0 overflow-hidden d-flex flex-column" style={{ minHeight: '600px' }}>
+      <div className="bento-card col-span-12 p-0 overflow-hidden d-flex flex-column" style={{ height: '600px', maxHeight: '600px' }}>
         <div className="bg-light border-bottom d-flex justify-content-between align-items-center px-4 py-3">
           <h6 className="mb-0 fw-bold d-flex align-items-center gap-2">
             <FaCheckCircle className={result ? "text-success" : "text-muted"} /> 生成结果
@@ -1454,64 +1549,56 @@ export function TestGeneration({ projectId, onLog, onGenerated, onError }: Props
                     {loading ? '生成中...' : '最新批次'}
                 </Badge>
             )}
+            {streamingContent && (
+              <Button
+                variant="link"
+                size="sm"
+                className="p-0 text-decoration-none d-flex align-items-center gap-1 text-primary"
+                onClick={() => {
+                  const content = getCopyContent(result, streamingContent);
+                  if (content) {
+                      navigator.clipboard.writeText(content)
+                          .then(() => {
+                              setToastType('success');
+                              setToastMsg('内容已复制到剪贴板');
+                          })
+                          .catch(() => {
+                              setToastType('error');
+                              setToastMsg('复制失败，请手动复制');
+                          });
+                  }
+                }}
+                title="复制内容"
+              >
+                <FaCopy /> 复制
+              </Button>
+            )}
           </div>
         </div>
         
-        <div className="flex-grow-1 d-flex flex-column md:flex-row h-100 position-relative">
-            {/* Left Panel: Main/Historical Result */}
-            <div className={classNames("h-100 position-relative transition-all", { 
-                "col-12": !streamingContent, 
-                "col-12 md:col-6 border-end": streamingContent 
-            })}>
-                <div 
-                    className="position-absolute top-0 start-0 w-100 px-4 py-2 border-bottom small fw-bold text-secondary" 
-                    style={{ 
-                        zIndex: 10, 
-                        backgroundColor: '#f8f9fa',
-                        opacity: 1
-                    }}
+        {/* 样式修复：结果区域改为标准 Flex 布局，避免高度塌陷导致仅显示两行内容 */}
+        <div className="flex-grow-1 d-flex flex-column" style={{ minHeight: 0 }}>
+            {/* 左侧：合并后结果 / 历史结果 */}
+            <div className={classNames("d-flex flex-column flex-grow-1 transition-all")} style={{ minWidth: 0, minHeight: 0 }}>
+                <div
+                    className="px-4 py-2 border-bottom small fw-bold text-secondary flex-shrink-0"
+                    style={{ backgroundColor: '#f8f9fa' }}
                 >
                     {streamingContent ? '合并后结果 / 历史结果' : '生成结果'}
                 </div>
-                <div className="position-absolute top-0 start-0 w-100 h-100 overflow-auto p-4 pt-5 font-monospace" style={{ whiteSpace: 'pre-wrap' }}>
+                <div className="flex-grow-1 overflow-auto p-4 font-monospace" style={{ whiteSpace: 'pre-wrap', overflowY: 'auto' }}>
                     {mode === 'text' ? (
-                    textResult
-                        ? JSON.stringify(textResult, null, 2)
-                        : <div className="text-center text-muted mt-5 py-5"><div className="mb-3 opacity-25"><FaFileCode size={48} /></div>暂无历史结果</div>
+                        textResult
+                            ? JSON.stringify(textResult, null, 2)
+                            : <div className="text-center text-muted mt-5 py-5"><div className="mb-3 opacity-25"><FaFileCode size={48} /></div>暂无历史结果</div>
                     ) : (
-                    fileResult
-                        ? JSON.stringify(fileResult, null, 2)
-                        : <div className="text-center text-muted mt-5 py-5"><div className="mb-3 opacity-25"><FaFileCode size={48} /></div>暂无历史结果</div>
+                        fileResult
+                            ? JSON.stringify(fileResult, null, 2)
+                            : <div className="text-center text-muted mt-5 py-5"><div className="mb-3 opacity-25"><FaFileCode size={48} /></div>暂无历史结果</div>
                     )}
                 </div>
             </div>
-
-            {/* Right Panel: Streaming Content */}
-            {streamingContent && (
-                <div className="col-12 md:col-6 h-100 position-relative bg-white">
-                    <div className="position-absolute top-0 start-0 w-100 px-4 py-2 bg-primary-subtle border-bottom small fw-bold text-primary z-10 d-flex justify-content-between align-items-center">
-                        <span><FaPlay size={10} className="me-1"/> 新增批次流式输出</span>
-                        <div className="d-flex align-items-center gap-2">
-                            <Button 
-                                variant="link" 
-                                size="sm" 
-                                className="p-0 text-decoration-none d-flex align-items-center gap-1"
-                                onClick={() => {
-                                    navigator.clipboard.writeText(cleanStreamingContent(streamingContent));
-                                    // Optional: Add toast notification here
-                                }}
-                                title="复制内容"
-                            >
-                                <FaCopy /> 复制
-                            </Button>
-                            {loading && <Spinner size="sm" animation="grow" variant="primary" />}
-                        </div>
-                    </div>
-                    <div className="position-absolute top-0 start-0 w-100 h-100 overflow-auto p-4 pt-5 font-monospace bg-light bg-opacity-10" style={{ whiteSpace: 'pre-wrap', userSelect: 'text' }}>
-                        {cleanStreamingContent(streamingContent)}
-                    </div>
-                </div>
-            )}
+            {/* 按需调整：移除右侧“新增批次流式输出”框，保留复制按钮与字体颜色 */}
         </div>
       </div>
 

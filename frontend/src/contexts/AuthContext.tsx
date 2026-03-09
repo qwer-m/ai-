@@ -37,8 +37,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setToken(storedToken);
         } catch (error) {
           console.error("Auth check failed", error);
+          // If check failed (e.g. 401), clear token
           logout();
         }
+      } else {
+          // No token, ensure user is null
+          setUser(null);
+          setToken(null);
       }
       setIsLoading(false);
     };

@@ -60,6 +60,64 @@ body {
   min-height: 100vh;
 }
 
+/* 中文注释：夜间模式变量覆盖与基础背景 */
+body.theme-dark {
+  --bg-app: #0b1220;
+  --bg-surface: #0f172a;
+  --bg-glass: rgba(15, 23, 42, 0.7);
+  --text-primary: #e5e7eb;
+  --text-secondary: #cbd5f5;
+  --text-tertiary: #94a3b8;
+  --border-subtle: #1f2937;
+  --border-medium: #334155;
+  background-image: radial-gradient(circle at 50% 0%, #0f172a 0%, transparent 70%);
+}
+
+/* 中文注释：夜间模式下的通用颜色修正 */
+body.theme-dark .bg-white {
+  background-color: #0f172a !important;
+}
+body.theme-dark .bg-light {
+  background-color: #111827 !important;
+}
+body.theme-dark .border-light {
+  border-color: #1f2937 !important;
+}
+body.theme-dark .text-secondary {
+  color: #cbd5f5 !important;
+}
+body.theme-dark .text-muted {
+  color: #94a3b8 !important;
+}
+body.theme-dark .form-control,
+body.theme-dark .form-select,
+body.theme-dark .input-group-text {
+  background-color: #0b1220 !important;
+  color: #e5e7eb !important;
+  border-color: #334155 !important;
+}
+body.theme-dark .glass-panel {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+body.theme-dark .bento-card {
+  border-color: var(--border-subtle);
+}
+
+/* 中文注释：日夜模式切换按钮样式 */
+.theme-toggle-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-xs);
+}
+.theme-toggle-btn:hover {
+  background: var(--bg-glass);
+  color: var(--text-primary);
+}
+
 /* --- UI UX Pro Max: Utility Classes --- */
 
 /* 1. Glassmorphism */
@@ -101,102 +159,96 @@ body {
   opacity: 1;
 }
 
-/* 3. Gradient Text */
+/* 3. Typography & Gradients */
 .text-gradient {
   background: linear-gradient(135deg, var(--primary-600), var(--accent-500));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  font-weight: 700;
 }
 
-/* 4. Modern Inputs */
-.input-pro {
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-md);
-  padding: 0.5rem 0.75rem;
-  transition: all 0.2s;
-  box-shadow: var(--shadow-xs);
-}
-.input-pro:focus {
-  border-color: var(--primary-500);
-  box-shadow: 0 0 0 3px var(--primary-100);
-  outline: none;
+.text-gradient-gold {
+    background: linear-gradient(135deg, #F59E0B, #D97706);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 
-/* 5. Modern Buttons */
-.btn-pro-primary {
-  background: linear-gradient(135deg, var(--primary-600), var(--primary-700));
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  padding: 0.5rem 1.25rem;
-  font-weight: 500;
-  box-shadow: var(--shadow-sm);
-  transition: all 0.2s;
-}
-.btn-pro-primary:hover {
-  background: linear-gradient(135deg, var(--primary-700), var(--primary-800));
-  box-shadow: var(--shadow-glow);
-  transform: translateY(-1px);
-}
-.btn-pro-primary:active {
-  transform: translateY(0);
+/* 4. Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-/* Override Bootstrap Defaults for seamless integration */
-.card {
-  border: none;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  background-color: var(--bg-surface);
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
 }
 
-.form-control:focus {
-  border-color: var(--primary-500);
-  box-shadow: 0 0 0 3px var(--primary-100);
+.hover-lift {
+  transition: transform 0.2s;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
 }
 
+/* 5. Custom Inputs (Pro Max Style) */
+.form-control:focus, .form-select:focus {
+    border-color: var(--primary-400);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
 
-/* 7. Dropdown no-caret */
+.btn-primary {
+    background: linear-gradient(135deg, var(--primary-600), var(--primary-700));
+    border: none;
+    box-shadow: 0 2px 4px rgba(79, 70, 229, 0.3);
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px rgba(79, 70, 229, 0.4);
+}
+
+/* JSON Syntax Highlighting */
+.json-key { color: #8B4513; font-weight: 500; } /* Brown */
+.json-string { color: #9370DB; } /* 淡紫色 */
+.json-number { color: #228B22; } /* Green */
+.json-boolean { color: #0000FF; }
+.json-null { color: #808080; }
+.json-error { 
+    text-decoration: underline wavy red;
+    text-decoration-thickness: 1px;
+}
+
+.json-punctuation { color: #333; font-weight: bold; }
+.json-text { color: #333; }
+
+/* Bootstrap Overrides */
 .no-caret::after {
-  display: none !important;
+    display: none !important;
 }
+
+/* 布局修复：为 bento-grid / col-span-* 提供基础栅格能力，避免页面布局塌陷 */
 .bento-grid {
   display: grid;
-  grid-template-columns: repeat(1, 1fr);
-  gap: 1.5rem;
-  padding: 0; /* Let parent container handle padding if needed, or set to 1.5rem */
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 16px;
 }
 
-@media (min-width: 768px) {
-  .bento-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
+.col-span-12 { grid-column: span 12 / span 12; }
+.col-span-6 { grid-column: span 6 / span 6; }
+
+@media (max-width: 992px) {
+  /* 响应式修复：小屏幕下默认改为单列，避免内容挤压 */
+  .col-span-6 { grid-column: span 12 / span 12; }
 }
 
-@media (min-width: 1200px) {
-  .bento-grid {
-    grid-template-columns: repeat(12, 1fr);
-  }
-}
-
-.col-span-12 { grid-column: span 12; }
-.col-span-8 { grid-column: span 8; }
-.col-span-4 { grid-column: span 4; }
-.col-span-6 { grid-column: span 6; }
-.row-span-2 { grid-row: span 2; }
-
-/* Mobile fallback */
-@media (max-width: 1199px) {
-  .col-span-8, .col-span-4, .col-span-6 {
-    grid-column: span 2; /* Full width on tablet */
-  }
-}
-@media (max-width: 767px) {
-  .col-span-8, .col-span-4, .col-span-6, .col-span-12 {
-    grid-column: span 1; /* Full width on mobile */
-  }
-}
-
+/* 样式修复：补齐代码中使用的基础工具类，避免样式缺失导致显示异常 */
+.bg-app { background-color: var(--bg-app); }
+.transition-all { transition: all 0.3s ease; }
+.grid { display: grid; }
+.grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.gap-2 { gap: 0.5rem; }
+.gap-3 { gap: 1rem; }
+.gap-4 { gap: 1.5rem; }
+.rounded-xl { border-radius: var(--radius-xl); }

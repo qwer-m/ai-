@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Nav, Button, Form, Container, Badge, Spinner, Collapse } from 'react-bootstrap';
-import { FaFileCode, FaMousePointer, FaNetworkWired, FaClipboardCheck, FaDatabase, FaFolder, FaCog, FaPlus, FaCheckCircle, FaExclamationTriangle, FaServer, FaSignOutAlt, FaChevronDown, FaRobot, FaCode, FaLayerGroup, FaPlay, FaGlobe, FaMobileAlt, FaRedo } from 'react-icons/fa';
+import { FaFileCode, FaMousePointer, FaNetworkWired, FaClipboardCheck, FaDatabase, FaFolder, FaCog, FaPlus, FaCheckCircle, FaExclamationTriangle, FaServer, FaSignOutAlt, FaChevronDown, FaRobot, FaCode, FaLayerGroup, FaPlay, FaGlobe, FaMobileAlt, FaRedo, FaSun, FaMoon } from 'react-icons/fa';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import '../theme.css'; 
 import '../App.css';
@@ -39,9 +39,11 @@ const safeSetItem = (key: string, value: string) => {
 };
 
 export const Dashboard = () => {
-  console.log("Dashboard component rendering...");
   const { logout, user } = useAuth();
   const navigate = useNavigate();
+  // 中文注释：日夜模式状态，默认从本地存储读取
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => (safeGetItem('themeMode') === 'dark' ? 'dark' : 'light'));
+  const [shouldAutoEval, setShouldAutoEval] = useState(false);
 
   const navItems = [
     { key: 'api-gen', label: '测试用例', icon: <FaFileCode /> },
@@ -90,7 +92,7 @@ export const Dashboard = () => {
   const [activeTab, setActiveTab] = useState(() => {
       const saved = safeGetItem('currentActiveTab');
       const validKeys = navItems.flatMap(i => [i.key, ...(i.children ? i.children.map(c => c.key) : [])]);
-      // If saved tab is parent 'ui-exec-ui', default to first child 'ui-exec-ui-web'
+      // 如果保存的标签是父级 'ui-exec-ui'，默认为第一个子级 'ui-exec-ui-web'
       if (saved === 'ui-exec-ui') return 'ui-exec-ui-web';
       return (saved && validKeys.includes(saved)) ? saved : 'api-gen';
   });
@@ -105,7 +107,7 @@ export const Dashboard = () => {
 
   useEffect(() => {
     safeSetItem('currentActiveTab', activeTab);
-    // Auto expand parent if child is active
+    // 如果子级处于活动状态，自动展开父级
     const parent = navItems.find(item => item.children?.some(child => child.key === activeTab));
     if (parent && !expandedKeys.includes(parent.key)) {
       setExpandedKeys(prev => [...prev, parent.key]);
@@ -142,6 +144,18 @@ export const Dashboard = () => {
   const [showConfig, setShowConfig] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
 
+  // 中文说明：手动打开配置中心时清理旧错误，避免残留提示与当前模型无关
+  const handleOpenConfig = () => {
+    setConfigError(null);
+    setShowConfig(true);
+  };
+
+  // 中文说明：关闭配置中心时同步清理错误提示，避免下次打开仍显示旧错误
+  const handleCloseConfig = () => {
+    setShowConfig(false);
+    setConfigError(null);
+  };
+
   const fetchProjects = async () => {
     setProjectsLoading(true);
     setProjectsError(null);
@@ -174,9 +188,17 @@ export const Dashboard = () => {
   }, []);
 
   useEffect(() => {
+    // 中文注释：切换主题时同步 body class 和本地存储
+    document.body.classList.toggle('theme-dark', themeMode === 'dark');
+    document.body.classList.toggle('theme-light', themeMode === 'light');
+    safeSetItem('themeMode', themeMode);
+  }, [themeMode]);
+
+  useEffect(() => {
     let cancelled = false;
     const fetchHealth = async () => {
-      setHealthLoading(true);
+      // Don't set loading state for background polling to avoid flicker
+      // setHealthLoading(true); 
       setHealthError(null);
       try {
         const data = await api.get<HealthResponse>('/api/health');
@@ -292,26 +314,48 @@ export const Dashboard = () => {
       } catch {}
   };
 
+  const handleGenerationComplete = () => {
+      setShouldAutoEval(true);
+      setActiveTab('eval-testcase');
+  };
+
   const handleLogout = () => {
       logout();
-      navigate('/login');
+      navigate('/login', { replace: true });
+  };
+
+  const handleToggleTheme = () => {
+      // 中文注释：日夜模式切换
+      setThemeMode(prev => (prev === 'dark' ? 'light' : 'dark'));
   };
 
   return (
     <div className="d-flex flex-column h-100 w-100 overflow-hidden bg-app">
-        {/* Middle Area: Sidebar + Main Content */}
+        {/* 中间区域：侧边栏 + 主内容 */}
         <div className="flex-grow-1 d-flex overflow-hidden p-3 pb-0" style={{ gap: '16px', marginBottom: '6px' }}>
-            {/* Left Sidebar Frame */}
-            <div className="d-flex flex-column glass-panel rounded-xl flex-shrink-0 overflow-hidden border-0" style={{ width: '260px', minWidth: '260px' }}>
-                <div className="p-4 border-bottom border-light bg-white bg-opacity-50">
-                    <h1 className="h5 mb-0 text-gradient fw-bold d-flex align-items-center gap-2">
-                        <FaServer className="text-primary-500" /> AI测试平台
-                        <Badge bg="light" text="secondary" className="ms-auto fw-normal opacity-75" style={{fontSize: '0.6em'}}>PRO</Badge>
-                    </h1>
+            {/* 左侧边栏框架 */}
+            <div className="d-flex flex-column glass-panel rounded-3 flex-shrink-0 overflow-hidden border-0" style={{ width: '260px', minWidth: '260px' }}>
+                <div className="p-4 border-bottom border-secondary-subtle bg-body bg-opacity-50">
+                    <div className="d-flex align-items-center justify-content-between">
+                        <h1 className="h5 mb-0 text-gradient fw-bold d-flex align-items-center gap-2 text-nowrap">
+                            <FaServer className="text-primary-500" /> AI测试平台
+                            <Badge bg="light" text="secondary" className="ms-1 fw-normal opacity-75" style={{fontSize: '0.6em'}}>PRO</Badge>
+                        </h1>
+                        {/* 中文注释：日夜模式切换按钮 */}
+                        <Button
+                            variant="light"
+                            size="sm"
+                            className="theme-toggle-btn d-flex align-items-center justify-content-center"
+                            onClick={handleToggleTheme}
+                            title={themeMode === 'dark' ? '切换到白天模式' : '切换到夜间模式'}
+                        >
+                            {themeMode === 'dark' ? <FaSun className="text-warning" /> : <FaMoon className="text-secondary" />}
+                        </Button>
+                    </div>
                     {user && <div className="small text-secondary mt-2">Welcome, {user.username}</div>}
                 </div>
 
-                <div className="flex-grow-1 p-3 overflow-auto">
+                <div className="flex-grow-1 p-3 overflow-auto custom-scrollbar" style={{ scrollbarGutter: 'stable' } as any}>
                     <Nav variant="pills" className="flex-column gap-2" activeKey={activeTab}>
                         {navItems.map(item => (
                             <div key={item.key} className="d-flex flex-column">
@@ -325,10 +369,8 @@ export const Dashboard = () => {
                                     }`}
                                     onClick={(e) => {
                                         e.preventDefault();
+                                        // 仅导航，不展开/收缩
                                         if (item.children) {
-                                            // Toggle expand
-                                            toggleExpand(item.key);
-                                            // Allow selecting parent tab
                                             setActiveTab(item.key);
                                             return;
                                         }
@@ -336,9 +378,9 @@ export const Dashboard = () => {
                                     }}
                                     onDoubleClick={(e) => {
                                         e.preventDefault();
-                                        if (item.children) toggleExpand(item.key);
+                                        // 双击也不展开，保持一致性
                                     }}
-                                    style={{ transition: 'all 0.2s ease', cursor: 'pointer', minHeight: '42px' }}
+                                    style={{ transition: 'all 0.2s ease', cursor: 'pointer', minHeight: '38px', marginBottom: '4px' }}
                                 >
                                     <span className={
                                         (activeTab === item.key)
@@ -350,8 +392,8 @@ export const Dashboard = () => {
                                     </span>
                                     {item.children && (
                                         <span
-                                            className="d-flex align-items-center justify-content-center"
-                                            style={{ minWidth: '40px' }}
+                                            className="d-flex align-items-center justify-content-center hover-bg-light rounded-circle"
+                                            style={{ minWidth: '24px', width: '24px', height: '24px', marginRight: '-8px' }}
                                             onClick={(e) => {
                                                 e.preventDefault();
                                                 e.stopPropagation();
@@ -390,23 +432,23 @@ export const Dashboard = () => {
                     </Nav>
                 </div>
 
-                <div className="p-3 border-top border-light bg-white bg-opacity-25">
+                <div className="p-2 bg-body bg-opacity-25 overflow-hidden">
                     {healthLoading ? (
-                        <div className="text-center text-muted small"><Spinner size="sm" animation="border" /> 检查服务状态...</div>
+                        <div className="text-center text-muted x-small"><Spinner size="sm" animation="border" style={{width: '0.8rem', height: '0.8rem'}} /> 检查状态...</div>
                     ) : (
-                    <div className="d-flex flex-column gap-2">
-                        <div className="d-flex justify-content-between align-items-center small p-2 rounded bg-white bg-opacity-50 border border-light">
-                            <span className="text-secondary fw-medium">MySQL</span>
-                            {healthError ? <Badge bg="danger">错误</Badge> : (health?.mysql?.ok ? 
-                                <span className="text-success d-flex align-items-center gap-1 fw-bold" style={{fontSize: '0.8em'}}><FaCheckCircle /> 正常</span> : 
-                                <span className="text-danger d-flex align-items-center gap-1 fw-bold" style={{fontSize: '0.8em'}}><FaExclamationTriangle /> 异常</span>
+                    <div className="d-flex flex-row gap-1">
+                        <div className="d-flex justify-content-center align-items-center x-small p-1 px-2 rounded bg-body bg-opacity-50 border flex-fill text-nowrap" style={{ minWidth: 0 }}>
+                            <span className="text-secondary fw-medium me-1">MySQL</span>
+                            {healthError ? <Badge bg="danger" className="p-1" style={{fontSize: '0.6em'}}>错误</Badge> : (health?.mysql?.ok ? 
+                                <span className="text-success d-flex align-items-center fw-bold" style={{fontSize: '0.75em'}}><FaCheckCircle className="me-1" />正常</span> : 
+                                <span className="text-danger d-flex align-items-center fw-bold" style={{fontSize: '0.75em'}}><FaExclamationTriangle className="me-1" />异常</span>
                             )}
                         </div>
-                        <div className="d-flex justify-content-between align-items-center small p-2 rounded bg-white bg-opacity-50 border border-light">
-                            <span className="text-secondary fw-medium">Redis</span>
-                            {healthError ? <Badge bg="danger">错误</Badge> : (health?.redis?.ok ? 
-                                <span className="text-success d-flex align-items-center gap-1 fw-bold" style={{fontSize: '0.8em'}}><FaCheckCircle /> 正常</span> : 
-                                <span className="text-warning d-flex align-items-center gap-1 fw-bold" style={{fontSize: '0.8em'}}><FaExclamationTriangle /> 未连接</span>
+                        <div className="d-flex justify-content-center align-items-center x-small p-1 px-2 rounded bg-body bg-opacity-50 border flex-fill text-nowrap" style={{ minWidth: 0 }}>
+                            <span className="text-secondary fw-medium me-1">Redis</span>
+                            {healthError ? <Badge bg="danger" className="p-1" style={{fontSize: '0.6em'}}>错误</Badge> : (health?.redis?.ok ? 
+                                <span className="text-success d-flex align-items-center fw-bold" style={{fontSize: '0.75em'}}><FaCheckCircle className="me-1" />正常</span> : 
+                                <span className="text-warning d-flex align-items-center fw-bold" style={{fontSize: '0.75em'}}><FaExclamationTriangle className="me-1" />未连接</span>
                             )}
                         </div>
                     </div>
@@ -415,11 +457,11 @@ export const Dashboard = () => {
             </div>
 
             {/* Main Content Frame */}
-            <div className="flex-grow-1 d-flex flex-column glass-panel rounded-xl overflow-hidden position-relative border-0">
+            <div className="flex-grow-1 d-flex flex-column glass-panel rounded-3 overflow-hidden position-relative border-0">
                 {/* Top Header */}
-                <div className="bg-white bg-opacity-50 border-bottom border-light px-4 py-3 d-flex justify-content-between align-items-center backdrop-blur" style={{ height: '64px' }}>
+                <div className="bg-body bg-opacity-50 border-bottom border-secondary-subtle px-4 py-3 d-flex justify-content-between align-items-center backdrop-blur" style={{ height: '64px' }}>
                     <div className="d-flex align-items-center gap-2">
-                        <div className="bg-white text-secondary px-3 py-1 rounded fw-bold shadow-sm d-flex align-items-center justify-content-center" style={{ height: '36px', fontSize: '0.875rem', whiteSpace: 'nowrap', minWidth: 'fit-content' }}>
+                        <div className="bg-body text-secondary px-3 py-1 rounded fw-bold shadow-sm d-flex align-items-center justify-content-center border" style={{ height: '36px', fontSize: '0.875rem', whiteSpace: 'nowrap', minWidth: 'fit-content' }}>
                             项目
                         </div>
                         <Form.Select 
@@ -428,7 +470,7 @@ export const Dashboard = () => {
                             disabled={projectsLoading || !projects.length}
                             style={{ minWidth: '120px', maxWidth: '200px', height: '36px' }}
                             size="sm"
-                            className="input-pro border-0 shadow-sm bg-light text-secondary position-relative"
+                            className="input-pro border-0 shadow-sm bg-body-tertiary text-secondary position-relative"
                         >
                             {projects.length > 0 ? (
                                 projects.map((p) => (
@@ -450,23 +492,25 @@ export const Dashboard = () => {
                         <Button variant="primary" size="sm" onClick={() => setActiveTab('proj')} className="btn-pro-primary d-flex align-items-center gap-2">
                             <FaPlus /> <span className="d-none d-md-inline">新建项目</span>
                         </Button>
-                        <Button variant="light" size="sm" onClick={() => setShowConfig(true)} className="btn-light-pro d-flex align-items-center gap-2 bg-white shadow-sm border-0 text-secondary">
+                        <Button variant="light" size="sm" onClick={handleOpenConfig} className="btn-light-pro d-flex align-items-center gap-2 bg-body shadow-sm border-0 text-secondary">
                             <FaCog />
                         </Button>
-                        <Button variant="light" size="sm" onClick={handleLogout} className="btn-light-pro d-flex align-items-center gap-2 bg-white shadow-sm border-0 text-secondary" title="Logout">
+                        <Button variant="light" size="sm" onClick={handleLogout} className="btn-light-pro d-flex align-items-center gap-2 bg-body shadow-sm border-0 text-secondary" title="Logout">
                             <FaSignOutAlt />
                         </Button>
                     </div>
                 </div>
 
                 {/* Scrollable Content */}
-                <div className={`flex-grow-1 ${activeTab.startsWith('ui-exec-ui') || activeTab === 'kb' ? 'p-0' : 'p-4'} pb-0 position-relative ${activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') ? 'overflow-hidden' : 'overflow-auto custom-scrollbar'}`}>
-                    <Container fluid className={`p-0 d-flex flex-column ${activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') ? 'h-100' : ''}`} style={{ minHeight: '100%' }}>
+                {/* 修复：API相关页面使用overflow-hidden，避免拖拽分隔条时外层容器被撑高；添加 minWidth: 0 防止 Flex 子元素撑宽父容器导致抖动 */}
+                <div className={`flex-grow-1 ${(activeTab.startsWith('ui-exec-ui') || activeTab === 'kb' || activeTab === 'api-standard' || activeTab === 'api-ai') ? 'p-0' : 'p-4'} pb-0 position-relative ${(activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') || activeTab === 'api-standard' || activeTab === 'api-ai') ? 'overflow-hidden' : 'overflow-auto custom-scrollbar'}`} style={{minWidth: 0}}>
+                    {/* 修复：使用 absolute 定位强制内容区脱离文档流，彻底防止内部布局变化（如滚动条显隐、Tab切换）反向撑开父容器导致页面抖动 */}
+                    <Container fluid className={`p-0 d-flex flex-column ${(activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') || activeTab === 'api-standard' || activeTab === 'api-ai') ? 'h-100 position-absolute top-0 start-0 w-100' : ''}`} style={(activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') || activeTab === 'api-standard' || activeTab === 'api-ai') ? { height: '100%', minHeight: 0 } : { minHeight: '100%' }}>
                         <div 
                             className={`d-flex flex-column ${
-                                activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') || activeTab.startsWith('api') ? 'flex-grow-1 overflow-hidden' : ''
+                                activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') || activeTab === 'api-standard' || activeTab === 'api-ai' ? 'flex-grow-1 overflow-hidden' : ''
                             }`} 
-                            style={activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') || activeTab.startsWith('api') ? { minHeight: '0' } : {}}
+                            style={activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') || activeTab === 'api-standard' || activeTab === 'api-ai' ? { minHeight: '0' } : {}}
                         >
                             {(activeTab === 'api-standard' || activeTab === 'api-ai') && (
                                 <APITesting 
@@ -481,8 +525,10 @@ export const Dashboard = () => {
                                 <TestGeneration 
                                     key={projectId}
                                     projectId={projectId} 
+                                    isActive={activeTab === 'api-gen'}
                                     onLog={msg => handleLog(msg, 'user')} 
                                     onGenerated={handleTestGenerated}
+                                    onGenerationComplete={handleGenerationComplete}
                                     onError={(msg) => {
                                         setConfigError(msg);
                                         setShowConfig(true);
@@ -539,6 +585,7 @@ export const Dashboard = () => {
                                     apiEvalScript={apiEvalScript} setApiEvalScript={setApiEvalScript}
                                     apiEvalExec={apiEvalExec} setApiEvalExec={setApiEvalExec}
                                     apiEvalOutput={apiEvalOutput} setApiEvalOutput={setApiEvalOutput}
+                                    shouldAutoEval={shouldAutoEval} setShouldAutoEval={setShouldAutoEval}
                                 />
                             )}
                             {activeTab === 'eval-testcase' && (
@@ -559,6 +606,7 @@ export const Dashboard = () => {
                                     apiEvalScript={apiEvalScript} setApiEvalScript={setApiEvalScript}
                                     apiEvalExec={apiEvalExec} setApiEvalExec={setApiEvalExec}
                                     apiEvalOutput={apiEvalOutput} setApiEvalOutput={setApiEvalOutput}
+                                    shouldAutoEval={shouldAutoEval} setShouldAutoEval={setShouldAutoEval}
                                 />
                             )}
                             {activeTab === 'eval-ui' && (
@@ -627,7 +675,7 @@ export const Dashboard = () => {
             />
         </div>
 
-        <ConfigModal show={showConfig} onHide={() => setShowConfig(false)} initialError={configError} />
+        <ConfigModal show={showConfig} onHide={handleCloseConfig} initialError={configError} />
     </div>
   );
 };

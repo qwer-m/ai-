@@ -26,9 +26,26 @@ export function PreviewModal({ show, onHide, title, content, linkedDocs, loading
         <div className="d-flex flex-column gap-3">
             <div>
                 <h6 className="mb-2">文档内容</h6>
-                <pre className="bg-light p-3 border rounded mb-0" style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', maxHeight: '50vh', overflowY: 'auto' }}>
-                {content}
-                </pre>
+                {content && (content.includes('<table') || content.includes('<h5')) ? (
+                    <div 
+                        className="bg-light p-3 border rounded mb-0 table-responsive" 
+                        style={{ maxHeight: '50vh', overflowY: 'auto' }}
+                        dangerouslySetInnerHTML={{ __html: content }}
+                    />
+                ) : (
+                    <pre className="bg-light p-3 border rounded mb-0" style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', maxHeight: '50vh', overflowY: 'auto' }}>
+                    {content}
+                    </pre>
+                )}
+                {content && content.includes('[Unsupported file type') && (content.includes('.xls') || content.includes('.xlsx')) && (
+                    <div className="alert alert-warning mt-2 small d-flex align-items-center">
+                        <i className="me-2">ℹ️</i>
+                        <div>
+                            <strong>需要重新上传</strong>
+                            <div>Excel 预览支持已启用。请删除当前文档并重新上传，即可查看表格预览。</div>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {linkedDocs && linkedDocs.length > 0 && (

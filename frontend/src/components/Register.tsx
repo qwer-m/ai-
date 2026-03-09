@@ -29,7 +29,7 @@ const Register: React.FC = () => {
         password
       });
       
-      navigate('/login');
+      navigate('/login', { replace: true });
     } catch (err: any) {
       setError(err.message || 'Failed to register');
     } finally {

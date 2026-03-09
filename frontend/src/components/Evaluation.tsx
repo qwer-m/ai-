@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Button, Form, OverlayTrigger, Popover, Toast, ToastContainer } from 'react-bootstrap';
+import type { ClipboardEvent, ChangeEvent } from 'react';
+import { Button, Form, OverlayTrigger, Popover, Toast, ToastContainer, Row, Col } from 'react-bootstrap';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement, PointElement, LineElement } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { FaClipboardCheck, FaDownload, FaRobot, FaNetworkWired, FaCheckDouble, FaBug, FaPlus } from 'react-icons/fa';
@@ -9,10 +10,10 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend,
 
 type Props = {
   projectId: number | null;
-  logs: any[]; // LogEntry[] but simplified for parsing here
+  logs: any[]; // LogEntry[] 但此处为了解析进行了简化
   onLog: (msg: string) => void;
   view?: 'root' | 'testcase' | 'ui' | 'api';
-  // Shared state props from parent
+  // 来自父组件的共享状态属性
   evalGenerated: string;
   setEvalGenerated: (v: string) => void;
   evalModified: string;
@@ -37,6 +38,8 @@ type Props = {
   setApiEvalExec: (v: string) => void;
   apiEvalOutput: string | null;
   setApiEvalOutput: (v: string | null) => void;
+  shouldAutoEval?: boolean;
+  setShouldAutoEval?: (v: boolean) => void;
 };
 
 export function Evaluation({ 
@@ -50,22 +53,24 @@ export function Evaluation({
   uiEvalOutput, setUiEvalOutput,
   apiEvalScript, setApiEvalScript,
   apiEvalExec, setApiEvalExec,
-  apiEvalOutput, setApiEvalOutput
+  apiEvalOutput, setApiEvalOutput,
+  shouldAutoEval, setShouldAutoEval
 }: Props) {
   
   const [loading, setLoading] = useState<string | null>(null); // 'eval', 'recall', 'ui', 'api'
   const [file, setFile] = useState<File | null>(null);
   const [showSupplement, setShowSupplement] = useState(false);
   const [supplementText, setSupplementText] = useState('');
-  const [supplementFile, setSupplementFile] = useState<File | null>(null);
+  const [supplementImages, setSupplementImages] = useState<File[]>([]);
   
-  // History State
+  // 历史记录状态
   const [history, setHistory] = useState<any[]>([]);
+  const [genHistory, setGenHistory] = useState<any[]>([]);
   const [savedDocId, setSavedDocId] = useState<number | null>(null);
   const [lastSavedContent, setLastSavedContent] = useState<string>('');
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error', msg: string } | null>(null);
 
-  // Initial load of latest supplement (only on mount or project change, NOT on new evalResult)
+  // 加载最新的补充说明（仅在挂载或项目变更时，而非新的评估结果时）
   useEffect(() => {
     if (projectId) {
         api.get(`/api/evaluation/latest-supplement/${projectId}`).then((res: any) => {
@@ -80,7 +85,7 @@ export function Evaluation({
              }
         });
     }
-  }, [projectId]); // Removed evalResult dependency
+  }, [projectId]); // 移除了 evalResult 依赖
 
   useEffect(() => {
     if (projectId) {
@@ -90,6 +95,86 @@ export function Evaluation({
     }
   }, [projectId, evalResult]);
 
+  useEffect(() => {
+    if (projectId && view === 'testcase') {
+        api.get(`/api/test-generations?project_id=${projectId}`).then((res: any) => {
+             if (Array.isArray(res)) setGenHistory(res);
+        });
+    }
+  }, [projectId, view]);
+
+  // 中文注释：用户补充描述最多允许上传或粘贴10张图片
+  const maxSupplementImages = 10;
+
+  // 中文注释：错误管理前置处理，统一抽取可读错误文本
+  const getErrorText = (error: any) => {
+    if (!error) return '';
+    if (typeof error === 'string') return error;
+    if (error?.data?.error) return String(error.data.error);
+    if (error?.data?.detail) return String(error.data.detail);
+    if (error?.data?.message) return String(error.data.message);
+    if (error?.message) return String(error.message);
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  };
+
+  // 中文注释：错误管理Agent调用，将错误统一转为中文提示
+  const translateError = async (error: any) => {
+    const raw = getErrorText(error);
+    try {
+      const res = await api.post<any>('/api/error/translate', { error: raw });
+      return res?.message ? String(res.message) : raw;
+    } catch {
+      return raw;
+    }
+  };
+
+  // 中文注释：补充描述图片入列与数量上限控制
+  const addSupplementImages = (files: File[]) => {
+    if (!files.length) return;
+    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+    const nonImages = files.filter(f => !f.type.startsWith('image/'));
+    if (nonImages.length > 0) {
+      setToastMsg({ type: 'error', msg: '仅支持图片文件' });
+    }
+    if (imageFiles.length === 0) return;
+    setSupplementImages(prev => {
+      const next = [...prev];
+      for (const img of imageFiles) {
+        if (next.length >= maxSupplementImages) break;
+        next.push(img);
+      }
+      if (prev.length + imageFiles.length > maxSupplementImages) {
+        setToastMsg({ type: 'error', msg: `最多只能上传${maxSupplementImages}张图片` });
+      }
+      return next;
+    });
+  };
+
+  // 中文注释：支持在补充描述文本框内粘贴图片
+  const handleSupplementPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(e.clipboardData?.items || []);
+    const imageFiles = items
+      .filter(item => item.type.startsWith('image/'))
+      .map(item => item.getAsFile())
+      .filter(Boolean) as File[];
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      addSupplementImages(imageFiles);
+    }
+  };
+
+  // 中文注释：支持多图上传并复用统一校验逻辑
+  const handleSupplementFilesChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) addSupplementImages(files);
+    e.target.value = '';
+  };
+
+  // 中文注释：保存补充描述时携带图片附件并展示中文错误
   const handleSaveKnowledge = async (defectAnalysis: any) => {
       if (!projectId) return alert('请先选择项目');
       try {
@@ -97,8 +182,8 @@ export function Evaluation({
           formData.append('project_id', String(projectId));
           formData.append('defect_analysis', JSON.stringify(defectAnalysis));
           formData.append('user_supplement', supplementText);
-          if (supplementFile) {
-              formData.append('file', supplementFile);
+          if (supplementImages.length > 0) {
+              supplementImages.forEach(f => formData.append('files', f));
           }
           if (savedDocId) {
              formData.append('doc_id', String(savedDocId));
@@ -109,11 +194,13 @@ export function Evaluation({
               onLog('已将缺陷分析和用户补充录入知识库');
               setSavedDocId(res.result.id);
               setLastSavedContent(supplementText);
+              setSupplementImages([]);
               setToastMsg({ type: 'success', msg: '当前评估与描述已录入RAG知识库' });
               // Do NOT close window automatically
           }
       } catch (e) {
-          alert(`保存失败: ${e}`);
+          const msg = await translateError(e);
+          setToastMsg({ type: 'error', msg });
       }
   };
 
@@ -147,11 +234,11 @@ export function Evaluation({
     if (!projectId) return alert('请先选择项目');
     if (!evalGenerated || (!evalModified && !file)) return alert('请填写测试用例内容或上传文件');
     
-    // Clear previous context for new evaluation
+    // 为新的评估清除先前的上下文
     setSavedDocId(null);
     setSupplementText('');
     setLastSavedContent('');
-    setSupplementFile(null);
+    setSupplementImages([]);
     
     setLoading('eval');
     setEvalResult(null);
@@ -166,11 +253,21 @@ export function Evaluation({
       const data = await api.upload<any>('/api/compare-test-cases', formData);
       setEvalResult(data.result || '');
     } catch (e) {
-      setEvalResult(`Error: ${e}`);
+      // 中文注释：评估失败时通过错误管理Agent输出中文错误
+      const msg = await translateError(e);
+      setEvalResult(msg);
     } finally {
       setLoading(null);
     }
   };
+
+  useEffect(() => {
+    if (shouldAutoEval && evalGenerated && !loading && setShouldAutoEval) {
+        onLog('测试用例生成完毕，自动触发质量评估...');
+        compareTestCases();
+        setShouldAutoEval(false);
+    }
+  }, [shouldAutoEval, evalGenerated, loading]);
 
   const [uiEvalJourney, setUiEvalJourney] = useState<string>('');
   const [apiEvalSpec, setApiEvalSpec] = useState<string>('');
@@ -189,7 +286,9 @@ export function Evaluation({
       });
       setUiEvalOutput(data.result || '');
     } catch (e) {
-      setUiEvalOutput(`Error: ${e}`);
+      // 中文注释：UI评估失败时通过错误管理Agent输出中文错误
+      const msg = await translateError(e);
+      setUiEvalOutput(msg);
     } finally {
       setLoading(null);
     }
@@ -209,7 +308,9 @@ export function Evaluation({
       });
       setApiEvalOutput(data.result || '');
     } catch (e) {
-      setApiEvalOutput(`Error: ${e}`);
+      // 中文注释：接口评估失败时通过错误管理Agent输出中文错误
+      const msg = await translateError(e);
+      setApiEvalOutput(msg);
     } finally {
       setLoading(null);
     }
@@ -320,30 +421,89 @@ export function Evaluation({
               <FaClipboardCheck />
               <span className="fw-bold">测试用例质量评估</span>
           </div>
-          <Form.Group className="mb-3">
-            <Form.Label className="small text-muted">生成的测试用例</Form.Label>
-            <Form.Control as="textarea" rows={4} className="input-pro bg-light" value={evalGenerated} onChange={e => setEvalGenerated(e.target.value)} />
-          </Form.Group>
-          <Form.Group className="mb-3">
-            <Form.Label className="small text-muted">用户修改后的测试用例</Form.Label>
-            <Form.Control as="textarea" rows={4} className="input-pro bg-light" value={evalModified} onChange={e => setEvalModified(e.target.value)} placeholder="可以直接输入文本..." />
-          </Form.Group>
-          <Form.Group className="mb-3">
-             <Form.Label className="small text-muted">或上传文件 (Excel, CSV, PNG)</Form.Label>
-             <Form.Control 
-                type="file" 
-                accept=".xlsx,.xls,.csv,.png"
-                className="input-pro"
-                onChange={(e) => {
-                    const target = e.target as HTMLInputElement;
-                    if (target.files && target.files.length > 0) {
-                        setFile(target.files[0]);
-                    } else {
-                        setFile(null);
-                    }
-                }}
-             />
-          </Form.Group>
+          <div className="mb-3">
+            <Row className="mb-3">
+                <Col md={6}>
+                    <Form.Group>
+                        <Form.Label className="small text-muted">生成的测试用例</Form.Label>
+                        <Form.Control as="textarea" rows={10} className="input-pro bg-light" value={evalGenerated} onChange={e => setEvalGenerated(e.target.value)} />
+                    </Form.Group>
+                </Col>
+                <Col md={6}>
+                    <Form.Group>
+                        <Form.Label className="small text-muted">用户修改后的测试用例</Form.Label>
+                        <Form.Control as="textarea" rows={10} className="input-pro bg-light" value={evalModified} onChange={e => setEvalModified(e.target.value)} placeholder="可以直接输入文本..." />
+                    </Form.Group>
+                </Col>
+            </Row>
+
+            <Row className="align-items-end">
+                <Col md={6}>
+                    <Form.Group>
+                        <Form.Label className="small text-muted">从历史加载</Form.Label>
+                        <Form.Select 
+                            size="sm" 
+                            className="input-pro bg-white"
+                            onChange={async (e) => {
+                                const id = Number(e.target.value);
+                                if (!id) return;
+                                try {
+                                    const res = await api.get<any>(`/api/test-generations/${id}`);
+                                    if (res) {
+                                        let content = res;
+                                        if (res.generated_result) content = res.generated_result;
+                                        else if (typeof res === 'string') content = res;
+                                        
+                                        if (typeof content === 'string') {
+                                            try {
+                                                const parsed = JSON.parse(content);
+                                                setEvalGenerated(JSON.stringify(parsed, null, 2));
+                                            } catch {
+                                                setEvalGenerated(content);
+                                            }
+                                        } else {
+                                             setEvalGenerated(JSON.stringify(content, null, 2));
+                                        }
+                                    }
+                                } catch (e) {
+                                    console.error(e);
+                                }
+                            }}
+                        >
+                            <option value="">-- 选择历史记录 --</option>
+                            {genHistory.map((h: any) => {
+                                const rawTitle = (h.requirement_text || '').split(/[\n|]/)[0].trim();
+                                const displayTitle = rawTitle.length > 20 ? rawTitle.substring(0, 20) + '...' : rawTitle;
+                                return (
+                                    <option key={h.id} value={h.id}>
+                                        {displayTitle} ({new Date(h.created_at).toLocaleString()})
+                                    </option>
+                                );
+                            })}
+                        </Form.Select>
+                    </Form.Group>
+                </Col>
+                <Col md={6}>
+                    <Form.Group>
+                        <Form.Label className="small text-muted">或上传文件 (Excel, CSV, PNG)</Form.Label>
+                        <Form.Control 
+                            type="file" 
+                            size="sm"
+                            accept=".xlsx,.xls,.csv,.png"
+                            className="input-pro"
+                            onChange={(e) => {
+                                const target = e.target as HTMLInputElement;
+                                if (target.files && target.files.length > 0) {
+                                    setFile(target.files[0]);
+                                } else {
+                                    setFile(null);
+                                }
+                            }}
+                        />
+                    </Form.Group>
+                </Col>
+            </Row>
+          </div>
           <Button className="btn-pro-primary w-100 mt-auto" disabled={loading === 'eval'} onClick={compareTestCases}>
             {loading === 'eval' ? '评估中...' : '开始评估质量 (含召回率/精确率/缺陷分析)'}
           </Button>
@@ -352,12 +512,12 @@ export function Evaluation({
                 {(() => {
                   try {
                     let jsonStr = evalResult.trim();
-                    // Try to extract JSON from markdown code blocks
+                    // 尝试从 markdown 代码块中提取 JSON
                     const match = jsonStr.match(/```json\s*([\s\S]*?)\s*```/) || jsonStr.match(/```\s*([\s\S]*?)\s*```/);
                     if (match) {
                         jsonStr = match[1];
                     }
-                    // Find first '{' and last '}'
+                    // 查找第一个 '{' 和最后一个 '}'
                     const firstOpen = jsonStr.indexOf('{');
                     const lastClose = jsonStr.lastIndexOf('}');
                     if (firstOpen !== -1 && lastClose !== -1) {
@@ -480,23 +640,35 @@ export function Evaluation({
                                                         placeholder="请输入补充描述..." 
                                                         value={supplementText}
                                                         onChange={e => setSupplementText(e.target.value)}
+                                                        onPaste={handleSupplementPaste}
                                                     />
                                                 </Form.Group>
                                                 <Form.Group className="mb-3">
-                                                    <Form.Label className="small text-muted">导入表格/图片</Form.Label>
+                                                    <Form.Label className="small text-muted">导入图片（最多10张）</Form.Label>
                                                     <Form.Control 
                                                         type="file" 
                                                         size="sm"
-                                                        onChange={(e: any) => setSupplementFile(e.target.files?.[0] || null)}
+                                                        accept="image/*"
+                                                        multiple
+                                                        onChange={handleSupplementFilesChange}
                                                     />
+                                                    {supplementImages.length > 0 && (
+                                                        <div className="mt-2 d-flex flex-wrap gap-2">
+                                                            {supplementImages.map((f, idx) => (
+                                                                <div key={idx} className="border rounded p-1 small bg-white">
+                                                                    <span className="text-muted">{f.name}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                 </Form.Group>
                                                 <div className="d-flex justify-content-end gap-2">
-                                                    <Button variant="secondary" size="sm" onClick={() => { setShowSupplement(false); setSupplementText(''); setSupplementFile(null); }}>取消</Button>
+                                                    <Button variant="secondary" size="sm" onClick={() => { setShowSupplement(false); setSupplementText(''); setSupplementImages([]); }}>取消</Button>
                                                     <Button 
                                                         variant="primary" 
                                                         size="sm" 
                                                         onClick={() => handleSaveKnowledge(d)}
-                                                        disabled={!supplementText || (savedDocId !== null && supplementText === lastSavedContent)}
+                                                        disabled={(!supplementText.trim() && supplementImages.length === 0) || (savedDocId !== null && supplementText === lastSavedContent && supplementImages.length === 0)}
                                                     >
                                                         确定
                                                     </Button>

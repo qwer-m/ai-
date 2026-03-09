@@ -75,27 +75,36 @@ type DetectedService = {
 export function ConfigModal({ show, onHide, initialError }: Props) {
   const [activeTab, setActiveTab] = useState<'cloud' | 'local'>('cloud');
   
-  // Cloud Config
+  // 云端配置
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('qwen-plus');
-  const [vlModel, setVlModel] = useState('qwen3-vl-plus-2025-12-19');
-  const [turboModel, setTurboModel] = useState('qwen-turbo');
+  const [model, setModel] = useState('');
+  const [vlModel, setVlModel] = useState('');
+  const [turboModel, setTurboModel] = useState('');
   const [provider, setProvider] = useState('dashscope');
   
-  // Local Config
+  // 本地配置
   const [localBaseUrl, setLocalBaseUrl] = useState('http://localhost:11434/v1');
-  const [localModel, setLocalModel] = useState('qwen:7b');
+  const [localModel, setLocalModel] = useState('');
   const [detectedServices, setDetectedServices] = useState<DetectedService[]>([]);
   const [detecting, setDetecting] = useState(false);
 
-  // Status
+  // 状态
   const [msg, setMsg] = useState<{ type: 'danger' | 'success'; text: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [streamOutput, setStreamOutput] = useState('');
   const [streamStatus, setStreamStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [isDirty, setIsDirty] = useState(false);
 
-  // Prevent accidental close
+  // 中文说明：当用户切换 Tab、服务商或模型时，清空之前的错误提示，避免“与当前选择无关的旧错误”残留造成困惑
+  useEffect(() => {
+    if (msg?.type === 'danger') {
+      setMsg(null);
+      setStreamOutput('');
+      setStreamStatus('idle');
+    }
+  }, [activeTab, provider, model, localBaseUrl, localModel]);
+
+  // 防止意外关闭
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (isDirty) {
@@ -109,7 +118,7 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
 
   useEffect(() => {
     if (show) {
-      // Load current config
+      // 加载当前配置
       api.get<any>('/api/config/current')
         .then(data => {
           if (data.active) {
@@ -117,8 +126,8 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
               setActiveTab('cloud');
               setProvider(data.provider);
               setModel(data.model_name);
-              setVlModel(data.vl_model_name || 'qwen3-vl-plus-2025-12-19');
-              setTurboModel(data.turbo_model_name || 'qwen-turbo');
+              setVlModel(data.vl_model_name || '');
+              setTurboModel(data.turbo_model_name || '');
               setApiKey(data.has_api_key ? '******' : '');
             } else {
               setActiveTab('local');
@@ -149,7 +158,7 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
       const data = await api.post<any>('/api/config/detect', { candidates });
       setDetectedServices(data.services || []);
       
-      // Auto-select first found
+      // 自动选择发现的第一个服务
       if (data.services && data.services.length > 0) {
         const s = data.services[0];
         setLocalBaseUrl(s.url);
@@ -183,14 +192,23 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
     try {
       const data = await api.post<any>('/api/config/validate', payload);
       if (data.valid) {
-        setMsg({ type: 'success', text: `验证通过! 延迟: ${data.details?.latency}ms` });
-        // Start streaming test
+        const label = activeTab === 'cloud' ? `${provider}/${model || '(未填写模型)'}` : `local/${localModel || '(未填写模型)'}`;
+        setMsg({ type: 'success', text: `验证通过 (${label})，延迟: ${data.details?.latency}ms` });
+        // 开始流式测试
         startStreamTest(payload);
       } else {
-        setMsg({ type: 'danger', text: `验证失败: ${data.error}` });
+        // 中文注释：错误提示直接使用服务端返回文案，避免前端硬编码导致模型不匹配
+        const errorText = data?.error ? String(data.error) : '验证失败';
+        setMsg({ type: 'danger', text: errorText });
       }
     } catch (e) {
-      setMsg({ type: 'danger', text: String(e) });
+      // 中文注释：优先展示服务端错误字段，兜底展示异常信息
+      const errorText =
+        (e as any)?.data?.error ||
+        (e as any)?.data?.detail ||
+        (e as any)?.message ||
+        String(e);
+      setMsg({ type: 'danger', text: String(errorText) });
     } finally {
       setLoading(false);
     }
@@ -217,7 +235,8 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
         }
         if (data.error) {
           setStreamStatus('error');
-          setStreamOutput(prev => prev + `\nError: ${data.error}`);
+          // 中文注释：流式校验错误直接拼接服务端返回内容
+          setStreamOutput(prev => prev + `\n${data.error}`);
           eventSource.close();
         }
         if (data.done) {
@@ -321,9 +340,6 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
                         <QuotaRing provider={provider} apiKey={apiKey} baseUrl="" model={model} />
                     </div>
                     <datalist id="cloud-models">
-                      <option value="qwen-plus" />
-                      <option value="qwen-max" />
-                      <option value="gpt-4o" />
                     </datalist>
                   </Form.Group>
                 </div>
@@ -335,7 +351,10 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
                       value={turboModel} 
                       onChange={(e) => setTurboModel(e.target.value)} 
                       placeholder="e.g. qwen-turbo"
+                      list="turbo-models"
                     />
+                    <datalist id="turbo-models">
+                    </datalist>
                   </Form.Group>
                 </div>
                 <div className="col-md-4">
@@ -346,7 +365,10 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
                       value={vlModel} 
                       onChange={(e) => setVlModel(e.target.value)} 
                       placeholder="e.g. qwen-vl-plus"
+                      list="vl-models"
                     />
+                    <datalist id="vl-models">
+                    </datalist>
                   </Form.Group>
                 </div>
               </div>
@@ -407,7 +429,7 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
           </Tab>
         </Tabs>
 
-        {/* Streaming Test Area */}
+        {/* 流式测试区域 */}
         <div className="mt-4 p-3 bg-light rounded border">
           <div className="d-flex justify-content-between align-items-center mb-2">
             <strong>连接测试预览</strong>

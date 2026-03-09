@@ -18,6 +18,8 @@ chroma_db/
 *.db
 *.db-shm
 *.db-wal
+.env
+.env.*
 
 # IDE
 .vscode/

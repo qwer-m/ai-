@@ -33,3 +33,299 @@ a:hover {
     color: #747bff;
   }
 }
+
+/* --- Postman Theme Override --- */
+.postman-theme {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+  font-size: 13px !important;
+  color: #333;
+}
+
+/* Typography & Base */
+.postman-theme .small {
+  font-size: 12px !important;
+}
+.postman-theme .text-muted {
+  color: #6b6b6b !important;
+}
+
+/* Buttons */
+.postman-theme .btn {
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 5px 12px;
+  box-shadow: none !important;
+  transition: all 0.2s ease;
+}
+
+.postman-theme .btn-light {
+  background-color: transparent;
+  border-color: transparent;
+  color: #6b6b6b;
+}
+.postman-theme .btn-light:hover {
+  background-color: #f2f2f2;
+  color: #333;
+}
+
+.postman-theme .btn-outline-secondary {
+  border-color: #dcdcdc;
+  color: #6b6b6b;
+  background: white;
+}
+.postman-theme .btn-outline-secondary:hover {
+  background-color: #f2f2f2;
+  border-color: #cfcfcf;
+  color: #333;
+}
+
+.postman-theme .btn-primary {
+  background-color: #0065D4; /* Postman Blue */
+  border-color: #0065D4;
+}
+.postman-theme .btn-primary:hover {
+  background-color: #0056b3;
+  border-color: #0056b3;
+}
+
+/* Inputs */
+.postman-theme .form-control, 
+.postman-theme .form-select {
+  font-size: 13px;
+  border-radius: 4px;
+  border: 1px solid #e6e6e6;
+  background-color: #fafafa;
+  box-shadow: none !important;
+  color: #333;
+}
+
+.postman-theme .form-control:focus, 
+.postman-theme .form-select:focus {
+  background-color: #fff;
+  border-color: #999;
+}
+
+/* Tabs */
+.postman-theme .nav-link {
+  color: #6b6b6b;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border: none !important;
+  border-bottom: 2px solid transparent !important;
+  background: transparent !important;
+}
+
+.postman-theme .nav-link.active {
+  color: #333 !important;
+  font-weight: 600 !important;
+  border-bottom: 2px solid #FF6C37 !important; /* Postman Orange Accent */
+}
+
+.postman-theme .nav-underline .nav-link:hover {
+  color: #333;
+  border-bottom-color: #e6e6e6 !important;
+}
+
+/* Table / Grid */
+.postman-theme .table {
+  font-size: 13px;
+}
+.postman-theme .table th {
+  background-color: #fafafa;
+  color: #6b6b6b;
+  font-weight: 600;
+  border-bottom: 1px solid #e6e6e6;
+  font-size: 12px;
+}
+.postman-theme .table td {
+  border-color: #f0f0f0;
+}
+.postman-theme .table input {
+  background: transparent;
+  border: none;
+}
+.postman-theme .table input:focus {
+  background: #fff;
+  box-shadow: 0 0 0 1px #e6e6e6 !important;
+}
+
+/* Utility */
+.postman-theme .border-bottom {
+  border-bottom: 1px solid #e6e6e6 !important;
+}
+.postman-theme .bg-light {
+  background-color: #fafafa !important;
+}
+.postman-theme .bg-white {
+  background-color: #ffffff !important;
+}
+
+/* Scrollbar */
+.postman-theme ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.postman-theme ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.postman-theme ::-webkit-scrollbar-thumb {
+  background: #dcdcdc;
+  border-radius: 4px;
+}
+.postman-theme ::-webkit-scrollbar-thumb:hover {
+  background: #c0c0c0;
+}
+
+/* --- Postman Theme Override for TestGeneration / Bento Grid --- */
+
+/* Reset Bento/Glass styles to flat Postman style */
+.postman-theme.bento-grid, 
+.postman-theme .bento-grid {
+    background-color: #F9F9F9 !important; /* Postman 整体背景灰 */
+    gap: 16px !important;
+    padding: 16px !important;
+}
+
+.postman-theme .glass-panel {
+    background: #FFFFFF !important;
+    backdrop-filter: none !important;
+    border: 1px solid #E6E6E6 !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
+    border-radius: 4px !important;
+}
+
+/* Header within panels */
+.postman-theme .glass-header {
+    background: #FAFAFA !important;
+    border-bottom: 1px solid #E6E6E6 !important;
+    padding: 10px 16px !important;
+}
+
+.postman-theme .glass-header h5, 
+.postman-theme .glass-header h6 {
+    color: #333 !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+    margin: 0 !important;
+}
+
+/* Nav Pills (Mode Switcher) - Make them look like Segmented Controls */
+.postman-theme .nav-pills {
+    background: #F2F2F2;
+    padding: 4px;
+    border-radius: 4px;
+    gap: 4px;
+    display: inline-flex;
+    border: 1px solid #E6E6E6;
+}
+
+.postman-theme .nav-pills .nav-item {
+    margin: 0;
+}
+
+.postman-theme .nav-pills .nav-link {
+    border-radius: 4px !important;
+    padding: 4px 12px !important;
+    color: #6B6B6B !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    border: none !important;
+    background: transparent !important;
+    transition: all 0.2s;
+}
+
+.postman-theme .nav-pills .nav-link.active {
+    background: #FFFFFF !important;
+    color: #333 !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1) !important;
+    font-weight: 600 !important;
+}
+
+/* Form inputs in panels */
+.postman-theme .input-group-text {
+    background-color: #FAFAFA !important;
+    border-color: #E6E6E6 !important;
+    color: #6B6B6B !important;
+}
+
+/* Progress bars */
+.postman-theme .progress {
+    background-color: #E6E6E6 !important;
+    height: 6px !important;
+    border-radius: 3px !important;
+}
+.postman-theme .progress-bar {
+    background-color: #0065D4 !important; /* Postman Blue */
+}
+
+/* Badges - Flat style */
+.postman-theme .badge {
+    font-weight: 500 !important;
+    padding: 4px 8px !important;
+    border-radius: 4px !important;
+}
+.postman-theme .badge.bg-primary {
+    background-color: #E1F0FF !important;
+    color: #0065D4 !important;
+    border: 1px solid #Cce4ff !important;
+}
+.postman-theme .badge.bg-success {
+    background-color: #E6F8EF !important;
+    color: #0C8545 !important;
+    border: 1px solid #c3e6cb !important;
+}
+.postman-theme .badge.bg-warning {
+    background-color: #FFF6E6 !important;
+    color: #B35900 !important;
+    border: 1px solid #ffeeba !important;
+}
+.postman-theme .badge.bg-info {
+    background-color: #E0F2F1 !important;
+    color: #00695C !important;
+    border: 1px solid #b2dfdb !important;
+}
+
+/* Code block / Pre */
+.postman-theme pre {
+    background-color: #FAFAFA !important;
+    border: 1px solid #E6E6E6 !important;
+    border-radius: 4px !important;
+    color: #333 !important;
+}
+
+/* Specific fix for file upload area */
+.postman-theme .upload-zone {
+    border: 2px dashed #E0E0E0 !important;
+    background-color: #FAFAFA !important;
+    border-radius: 4px !important;
+    transition: all 0.2s;
+}
+.postman-theme .upload-zone:hover,
+.postman-theme .upload-zone.active {
+    border-color: #0065D4 !important;
+    background-color: #F0F7FF !important;
+}
+
+/* Pro Custom Classes Override */
+.postman-theme .btn-pro-primary {
+  background-color: #0065D4 !important;
+  border-color: #0065D4 !important;
+  color: white !important;
+}
+.postman-theme .btn-pro-primary:hover {
+  background-color: #0056b3 !important;
+  border-color: #0056b3 !important;
+}
+
+.postman-theme .input-pro {
+  background-color: #FAFAFA !important;
+  border: 1px solid #E6E6E6 !important;
+  color: #333 !important;
+  box-shadow: none !important;
+}
+.postman-theme .input-pro:focus {
+  background-color: #FFFFFF !important;
+  border-color: #999 !important;
+}

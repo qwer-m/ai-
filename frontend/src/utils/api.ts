@@ -11,13 +11,20 @@ export class APIError extends Error {
 
 export function getAuthHeaders(): Record<string, string> {
   const token = localStorage.getItem('token');
-  return token ? { 'Authorization': `Bearer ${token}` } : {};
+  // Check if token is valid (simple check)
+  if (token && token.trim().length > 0) {
+      return { 'Authorization': `Bearer ${token}` };
+  }
+  return {};
 }
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
+  // Ensure headers is an object before spreading
+  const authHeaders = getAuthHeaders();
+  
   const defaultHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...getAuthHeaders(),
+    ...authHeaders,
   };
 
   const config = {
