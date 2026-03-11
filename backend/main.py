@@ -45,11 +45,14 @@ from routers.ui_test_cases import router as ui_test_cases_router
 from routers.projects import router as projects_router
 from routers.test_generation import router as test_gen_router
 from routers.ui_automation import router as ui_auto_router
+from routers.api_automation import router as api_auto_router
 from routers.common import router as common_router
 from routers.debug import router as debug_router
 from routers.tasks import router as tasks_router
 from routers.logs import router as logs_router
 from routers.config import router as config_router
+from routers.evaluation import router as evaluation_router
+from routers.pipeline import router as pipeline_router
 
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
@@ -111,7 +114,7 @@ async def lifespan(app: FastAPI):
             print("No active AI config found in DB, using settings.py defaults.")
         db.close()
     except Exception as e:
-        print(f"Failed to load AI config on startup: {e}")
+        print(f"Failed to load AI config on startup ({type(e).__name__}): {e}")
 
     yield
     
@@ -132,11 +135,14 @@ app.include_router(ui_test_cases_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
 app.include_router(test_gen_router, prefix="/api")
 app.include_router(ui_auto_router, prefix="/api")
+app.include_router(api_auto_router, prefix="/api")
 app.include_router(common_router, prefix="/api")
 app.include_router(debug_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
 app.include_router(logs_router, prefix="/api")
 app.include_router(config_router, prefix="/api")
+app.include_router(evaluation_router, prefix="/api")
+app.include_router(pipeline_router, prefix="/api")
 
 from redis import Redis
 

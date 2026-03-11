@@ -552,7 +552,7 @@ export function Evaluation({
                                              hoverBorderWidth: 4,
                                          },
                                          {
-                                             label: 'F1 Score',
+                                             label: 'F1 分数',
                                              data: history.length > 0 ? history.map(h => h.f1_score) : [m.f1_score],
                                              borderColor: '#6f42c1',
                                              tension: 0.1,
@@ -561,7 +561,7 @@ export function Evaluation({
                                              hoverBorderWidth: 4,
                                          },
                                          {
-                                             label: 'Similarity',
+                                             label: '相似度',
                                              data: history.length > 0 ? history.map(h => h.semantic_similarity) : [m.semantic_similarity],
                                              borderColor: '#fd7e14',
                                              tension: 0.1,
@@ -613,7 +613,7 @@ export function Evaluation({
                                 </div>
                                 <div className="p-2 bg-white border rounded flex-fill">
                                     <div className="fw-bold text-primary">{typeof m.f1_score === 'number' ? m.f1_score.toFixed(2) : '-'}</div>
-                                    <div className="x-small text-muted">F1 Score</div>
+                                    <div className="x-small text-muted">F1 分数</div>
                                 </div>
                                 <div className="p-2 bg-white border rounded flex-fill">
                                     <div className="fw-bold text-primary">{typeof m.semantic_similarity === 'number' ? m.semantic_similarity.toFixed(2) : '-'}</div>
@@ -685,7 +685,7 @@ export function Evaluation({
                             
                             {d.missing_points?.length > 0 && (
                               <div className="mb-2">
-                                  <span className="badge bg-warning text-dark me-2">遗漏点 (Recall Loss)</span>
+                                  <span className="badge bg-warning text-dark me-2">遗漏点（召回损失）</span>
                                   <ul className="mb-1 ps-3 mt-1 text-muted">
                                       {d.missing_points.map((x:any, i:number) => <li key={i}>{x}</li>)}
                                   </ul>
@@ -693,7 +693,7 @@ export function Evaluation({
                             )}
                              {d.hallucinations?.length > 0 && (
                               <div className="mb-2">
-                                  <span className="badge bg-danger text-white me-2">幻觉/多余 (Precision Loss)</span>
+                                  <span className="badge bg-danger text-white me-2">幻觉/多余（精度损失）</span>
                                   <ul className="mb-1 ps-3 mt-1 text-muted">
                                       {d.hallucinations.map((x:any, i:number) => <li key={i}>{x}</li>)}
                                   </ul>
@@ -736,7 +736,7 @@ export function Evaluation({
           </div>
           <Form.Group className="mb-3">
             <Form.Label className="small text-muted">UI 自动化脚本</Form.Label>
-            <Form.Control as="textarea" rows={3} className="input-pro bg-light" value={uiEvalScript} onChange={e => setUiEvalScript(e.target.value)} placeholder="Python Playwright/Selenium script..." />
+            <Form.Control as="textarea" rows={3} className="input-pro bg-light" value={uiEvalScript} onChange={e => setUiEvalScript(e.target.value)} placeholder="Python Playwright/Selenium 脚本..." />
           </Form.Group>
           <Form.Group className="mb-3">
              <Form.Label className="small text-muted">用户旅程图 (JSON) - 黄金标准</Form.Label>
@@ -754,7 +754,7 @@ export function Evaluation({
           </Form.Group>
           <Form.Group className="mb-3">
             <Form.Label className="small text-muted">执行结果</Form.Label>
-            <Form.Control as="textarea" rows={3} className="input-pro bg-light" value={uiEvalExec} onChange={e => setUiEvalExec(e.target.value)} placeholder="Execution logs or output..." />
+            <Form.Control as="textarea" rows={3} className="input-pro bg-light" value={uiEvalExec} onChange={e => setUiEvalExec(e.target.value)} placeholder="执行日志或输出..." />
           </Form.Group>
           <Button className="btn-pro-primary w-100 mt-auto" disabled={loading === 'ui'} onClick={evaluateUi}>
             {loading === 'ui' ? '评估中...' : '开始评估'}
@@ -767,21 +767,21 @@ export function Evaluation({
         <div className="bento-card col-span-12 md:col-span-6 p-4 d-flex flex-column">
             <div className="d-flex align-items-center gap-2 mb-3 text-secondary">
               <FaNetworkWired />
-              <span className="fw-bold">接口自动化评估 (AI Response Eval)</span>
+              <span className="fw-bold">接口自动化评估（AI 响应评估）</span>
             </div>
             <Form.Group className="mb-3">
                 <Form.Label className="small text-muted">API 测试脚本</Form.Label>
-                <Form.Control as="textarea" rows={3} className="input-pro bg-light" value={apiEvalScript} onChange={e => setApiEvalScript(e.target.value)} placeholder="Pytest script..." />
+                <Form.Control as="textarea" rows={3} className="input-pro bg-light" value={apiEvalScript} onChange={e => setApiEvalScript(e.target.value)} placeholder="Pytest 脚本..." />
             </Form.Group>
             <Form.Group className="mb-3">
-                 <Form.Label className="small text-muted">OpenAPI Spec (Swagger) - 黄金标准</Form.Label>
+                 <Form.Label className="small text-muted">OpenAPI 规范（Swagger）- 黄金标准</Form.Label>
                  <Form.Control 
                     as="textarea" 
                     rows={3} 
                     className="input-pro bg-light" 
                     value={apiEvalSpec} 
                     onChange={e => setApiEvalSpec(e.target.value)} 
-                    placeholder={'OpenAPI/Swagger JSON or YAML content...'}
+                    placeholder={'请输入 OpenAPI/Swagger JSON 或 YAML 内容...'}
                  />
                  <Form.Text className="text-muted x-small">
                    用于评估 AI 脚本的 API 端点覆盖率及参数正确性。
@@ -789,7 +789,7 @@ export function Evaluation({
             </Form.Group>
             <Form.Group className="mb-3">
                 <Form.Label className="small text-muted">执行结果</Form.Label>
-                <Form.Control as="textarea" rows={3} className="input-pro bg-light" value={apiEvalExec} onChange={e => setApiEvalExec(e.target.value)} placeholder="Execution logs..." />
+                <Form.Control as="textarea" rows={3} className="input-pro bg-light" value={apiEvalExec} onChange={e => setApiEvalExec(e.target.value)} placeholder="执行日志..." />
             </Form.Group>
             
             <div className="d-flex gap-2 mb-3">
@@ -799,7 +799,7 @@ export function Evaluation({
                 </div>
                 <div className="form-check form-switch">
                     <input className="form-check-input" type="checkbox" id="checkLLMJudge" defaultChecked />
-                    <label className="form-check-label small" htmlFor="checkLLMJudge">LLM Judge 打分</label>
+                    <label className="form-check-label small" htmlFor="checkLLMJudge">LLM 评审打分</label>
                 </div>
                 <div className="form-check form-switch">
                     <input className="form-check-input" type="checkbox" id="checkCost" />

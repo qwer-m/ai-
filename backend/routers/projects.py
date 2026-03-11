@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from typing import List
+from pydantic import BaseModel, Field
+from typing import Any, Literal, List
 
-from core.database import get_db
+from core.database import get_db, engine
 from core.models import (
-    Project, User, KnowledgeDocument, LogEntry, TestGeneration, 
-    UIExecution, UIErrorOperation, APIExecution, Evaluation, 
-    TestGenerationComparison, RecallMetric
+    Project, User, KnowledgeDocument, LogEntry, TestGeneration,
+    UIExecution, UIErrorOperation, APIExecution, Evaluation,
+    TestGenerationComparison, RecallMetric, ProjectPipelineConfig
 )
 from core.auth import get_current_user
 from core.utils import logger
@@ -17,6 +18,40 @@ router = APIRouter(
     prefix="/projects",
     tags=["Projects"]
 )
+
+
+class ProjectAgentDefaults(BaseModel):
+    enabled: bool = True
+    planner_llm: bool = True
+    reviewer_llm: bool = True
+    executor_parallel: bool = True
+    executor_workers: int = Field(default=3, ge=1, le=8)
+    auto_retry_enabled: bool = True
+    max_auto_retries: int = Field(default=1, ge=0, le=3)
+    retry_policy: Literal["conservative", "balanced", "aggressive"] = "balanced"
+    max_context_chars: int = Field(default=3500, ge=800, le=12000)
+
+
+class ProjectAgentDefaultsUpsertRequest(BaseModel):
+    agent: ProjectAgentDefaults
+
+
+def _ensure_project_pipeline_config_table() -> None:
+    try:
+        ProjectPipelineConfig.__table__.create(bind=engine, checkfirst=True)
+    except Exception:
+        # Non-blocking: endpoint will fail with explicit DB error if DDL is unavailable.
+        pass
+
+
+def _normalize_agent_defaults(raw: Any) -> dict[str, Any]:
+    try:
+        return ProjectAgentDefaults.model_validate(raw or {}).model_dump()
+    except Exception:
+        return ProjectAgentDefaults().model_dump()
+
+
+_ensure_project_pipeline_config_table()
 
 @router.post("/", status_code=201)
 def create_project(project: ProjectCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -71,6 +106,81 @@ def get_project(project_id: int, db: Session = Depends(get_db), current_user: Us
     if not project:
         return {"error": "Project not found"}
     return project
+
+
+@router.get("/{project_id}/pipeline-agent-defaults")
+def get_project_pipeline_agent_defaults(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = db.query(Project).filter(Project.id == project_id, Project.user_id == current_user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    row = (
+        db.query(ProjectPipelineConfig)
+        .filter(
+            ProjectPipelineConfig.project_id == project_id,
+            ProjectPipelineConfig.user_id == current_user.id,
+        )
+        .first()
+    )
+
+    if not row:
+        return {
+            "project_id": project_id,
+            "agent": ProjectAgentDefaults().model_dump(),
+            "source": "default",
+        }
+
+    return {
+        "project_id": project_id,
+        "agent": _normalize_agent_defaults(row.agent_defaults),
+        "source": "saved",
+        "updated_at": row.updated_at,
+    }
+
+
+@router.put("/{project_id}/pipeline-agent-defaults")
+def upsert_project_pipeline_agent_defaults(
+    project_id: int,
+    req: ProjectAgentDefaultsUpsertRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = db.query(Project).filter(Project.id == project_id, Project.user_id == current_user.id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    row = (
+        db.query(ProjectPipelineConfig)
+        .filter(
+            ProjectPipelineConfig.project_id == project_id,
+            ProjectPipelineConfig.user_id == current_user.id,
+        )
+        .first()
+    )
+
+    if not row:
+        row = ProjectPipelineConfig(
+            project_id=project_id,
+            user_id=current_user.id,
+            agent_defaults=req.agent.model_dump(),
+        )
+    else:
+        row.agent_defaults = req.agent.model_dump()
+
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    return {
+        "project_id": project_id,
+        "agent": _normalize_agent_defaults(row.agent_defaults),
+        "source": "saved",
+        "updated_at": row.updated_at,
+    }
 
 @router.put("/{project_id}")
 def update_project(project_id: int, project: ProjectUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):

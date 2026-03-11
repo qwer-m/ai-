@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
+import logging
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
@@ -11,13 +12,19 @@ from core.config import settings
 
 # Configuration
 ALGORITHM = "HS256"
+logger = logging.getLogger(__name__)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
 def verify_password(plain_password, hashed_password):
     """验证密码 (Verify Password)"""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        # Avoid exposing hash backend failures as HTTP 500 during login.
+        logger.exception("Password verification backend failure.")
+        return False
 
 def get_password_hash(password):
     """获取密码哈希 (Get Password Hash)"""

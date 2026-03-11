@@ -337,7 +337,7 @@ class TestGenerationModule:
                 return max(5, min(val, 100))
             return 20
         except Exception as e:
-            print(f"Estimation failed: {e}")
+            print(f"Estimation failed ({type(e).__name__}): {e}")
             raise e  # Propagate error to let frontend handle it, no fallback guessing
 
     def analyze_requirement_context(self, requirement: str, kb_context: str, client, db: Session) -> dict:

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Nav, Button, Form, Container, Badge, Spinner, Collapse } from 'react-bootstrap';
+import { Nav, Button, Form, Container, Badge, Spinner, Collapse, Modal } from 'react-bootstrap';
 import { FaFileCode, FaMousePointer, FaNetworkWired, FaClipboardCheck, FaDatabase, FaFolder, FaCog, FaPlus, FaCheckCircle, FaExclamationTriangle, FaServer, FaSignOutAlt, FaChevronDown, FaRobot, FaCode, FaLayerGroup, FaPlay, FaGlobe, FaMobileAlt, FaRedo, FaSun, FaMoon } from 'react-icons/fa';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import '../theme.css'; 
@@ -12,6 +12,7 @@ import { TestGeneration } from './TestGeneration';
 import { UIAutomation } from './UIAutomation';
 import { APIAutomation } from './APIAutomation';
 import { Evaluation } from './Evaluation';
+import { PipelineOrchestration } from './PipelineOrchestration';
 import { LogPanel } from './LogPanel';
 import { api } from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -63,7 +64,7 @@ export const Dashboard = () => {
         icon: <FaNetworkWired />,
         children: [
             { key: 'api-standard', label: '标准接口测试', icon: <FaCode /> },
-            { key: 'api-ai', label: 'AI模型调试', icon: <FaRobot /> }
+            { key: 'api-ai', label: '模型调试', icon: <FaRobot /> }
         ]
     },
     { 
@@ -75,13 +76,13 @@ export const Dashboard = () => {
             { key: 'ui-exec-api-batch', label: '批量运行', icon: <FaPlay /> }
         ]
     },
-    { 
+    {
         key: 'eval', 
         label: '质量评估与召回', 
         icon: <FaClipboardCheck />,
         children: [
             { key: 'eval-testcase', label: '测试用例质量评估', icon: <FaClipboardCheck /> },
-            { key: 'eval-ui', label: 'UI自动化评估', icon: <FaRobot /> },
+            { key: 'eval-ui', label: '界面自动化评估', icon: <FaRobot /> },
             { key: 'eval-api', label: '接口测试评估', icon: <FaNetworkWired /> },
         ]
     },
@@ -143,6 +144,7 @@ export const Dashboard = () => {
 
   const [showConfig, setShowConfig] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
+  const [showPipelineModal, setShowPipelineModal] = useState(false);
 
   // 中文说明：手动打开配置中心时清理旧错误，避免残留提示与当前模型无关
   const handleOpenConfig = () => {
@@ -482,11 +484,17 @@ export const Dashboard = () => {
                         </Form.Select>
                     </div>
                     <div className="d-flex gap-2">
-                        <Button variant="link" className="text-decoration-none text-secondary p-1" title="通知">
-                             <div className="position-relative">
+                        <Button
+                            variant="light"
+                            size="sm"
+                            onClick={() => setShowPipelineModal(true)}
+                            className="btn-light-pro d-flex align-items-center gap-2 bg-body shadow-sm border-0 text-secondary"
+                            title="全局编排"
+                        >
+                            <div className="position-relative">
                                 <FaServer />
                                 <span className="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle"></span>
-                             </div>
+                            </div>
                         </Button>
                         <div className="vr mx-2 opacity-25"></div>
                         <Button variant="primary" size="sm" onClick={() => setActiveTab('proj')} className="btn-pro-primary d-flex align-items-center gap-2">
@@ -675,7 +683,25 @@ export const Dashboard = () => {
             />
         </div>
 
+        <Modal
+            show={showPipelineModal}
+            onHide={() => setShowPipelineModal(false)}
+            size="xl"
+            centered
+        >
+            <Modal.Header closeButton>
+                <Modal.Title>全局编排</Modal.Title>
+            </Modal.Header>
+            <Modal.Body className="p-0" style={{ height: '80vh' }}>
+                <PipelineOrchestration
+                    key={`pipeline-modal-${projectId ?? 'none'}`}
+                    projectId={projectId}
+                    onLog={msg => handleLog(msg, 'user')}
+                />
+            </Modal.Body>
+        </Modal>
         <ConfigModal show={showConfig} onHide={handleCloseConfig} initialError={configError} />
     </div>
   );
 };
+

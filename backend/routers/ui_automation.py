@@ -12,8 +12,10 @@ import os
 from core.database import get_db
 from core.models import Project, User, UIExecution
 from core.auth import get_current_user
+from core.workflow import WorkflowKind, WorkflowStage, log_workflow_trace
 from core.utils import log_to_db, logger
 from schemas.ui_automation import UIRequest
+from modules.context_orchestrator import context_orchestrator
 from modules.ui_automation import ui_automator
 
 from fastapi.security import OAuth2PasswordBearer
@@ -23,6 +25,33 @@ router = APIRouter(
     prefix="/ui-automation",
     tags=["UI Automation"]
 )
+
+
+def _build_requirement_context(req: UIRequest, db: Session, user_id: int) -> str | None:
+    if req.requirement_context:
+        return req.requirement_context
+
+    context_bundle = context_orchestrator.assemble_context(
+        WorkflowKind.UI_AUTOMATION,
+        req.project_id,
+        db,
+        user_id=user_id,
+        query_text=req.task[:500],
+        requirement_text=req.task[:1000],
+        include_knowledge=True,
+        include_logs=True,
+        knowledge_limit=4,
+        log_limit=10,
+    )
+    log_workflow_trace(
+        db,
+        req.project_id,
+        user_id,
+        WorkflowKind.UI_AUTOMATION,
+        WorkflowStage.CONTEXT,
+        {"action": "assemble_ui_context", "auto_context": True, **context_bundle["diagnostics"]},
+    )
+    return context_bundle["combined_context"] or None
 
 class DetectRequest(BaseModel):
     type: str  # 'web' or 'app'
@@ -195,6 +224,7 @@ def generate_ui_script_only(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    requirement_context = _build_requirement_context(req, db, current_user.id)
     # Generate AI-driven image recognition script
     script = ui_automator.generate_ai_image_recognition_script(
         req.task, 
@@ -204,7 +234,7 @@ def generate_ui_script_only(
         user_id=current_user.id, 
         token=token, 
         image_model=req.image_model,
-        requirement_context=req.requirement_context
+        requirement_context=requirement_context
     )
     return {"script": script}
 
@@ -243,6 +273,7 @@ def run_ui_automation(req: UIRequest, db: Session = Depends(get_db), current_use
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    requirement_context = _build_requirement_context(req, db, current_user.id)
     log_to_db(db, req.project_id, "system", f"开始执行UI自动化: {req.task}", user_id=current_user.id)
     # 1. Generate AI-driven image recognition script
     script = ui_automator.generate_ai_image_recognition_script(
@@ -253,9 +284,10 @@ def run_ui_automation(req: UIRequest, db: Session = Depends(get_db), current_use
         user_id=current_user.id, 
         token=token, 
         image_model=req.image_model,
-        requirement_context=req.requirement_context
+        requirement_context=requirement_context
     )
     # 2. Execute script
     result = ui_automator.execute_script(script, req.url, req.task, req.automation_type, db, req.project_id, user_id=current_user.id)
     log_to_db(db, req.project_id, "system", f"UI自动化执行完成，结果: {result.get('status', 'unknown')}", user_id=current_user.id)
     return {"script": script, "result": result}
+

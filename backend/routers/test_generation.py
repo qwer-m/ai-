@@ -12,8 +12,10 @@ from core.auth import get_current_user
 from core.utils import log_to_db, logger
 from core.file_processing import parse_file_content
 from core.config import settings
+from core.workflow import WorkflowKind, WorkflowStage, log_workflow_trace
 from schemas.test_generation import TestGenRequest
 
+from modules.context_orchestrator import context_orchestrator
 from modules.test_generation import test_generator
 from modules.knowledge_base import knowledge_base
 from modules.tasks import generate_test_cases_task
@@ -30,6 +32,7 @@ def _get_owned_project(project_id: int, db: Session, user_id: int) -> Project:
     project = db.query(Project).filter(Project.id == project_id, Project.user_id == user_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
     return project
 
 
@@ -92,6 +95,26 @@ async def estimate_test_count(
             req_text = f"{req_text}\n\n[Prototype Analysis]\n{proto_text}"
 
     try:
+        context_bundle = context_orchestrator.assemble_context(
+            WorkflowKind.TEST_GENERATION,
+            project_id,
+            db,
+            user_id=current_user.id,
+            query_text=req_text[:500],
+            requirement_text=req_text[:2000],
+            include_knowledge=True,
+            include_logs=True,
+            knowledge_limit=2,
+            log_limit=6,
+        )
+        log_workflow_trace(
+            db,
+            project_id,
+            current_user.id,
+            WorkflowKind.TEST_GENERATION,
+            WorkflowStage.CONTEXT,
+            {"action": "estimate_test_count", **context_bundle["diagnostics"]},
+        )
         count = await run_in_threadpool(
             test_generator.estimate_test_count,
             req_text,
@@ -101,8 +124,11 @@ async def estimate_test_count(
         )
         return {"count": max(1, int(count))}
     except Exception as e:
-        logger.warning(f"Estimate test count failed: {e}")
-        return {"count": 20}
+        logger.warning(f"Estimate test count failed ({type(e).__name__}): {e}")
+        detail = str(e).strip() or f"{type(e).__name__}: estimate failed"
+        if "Saved AI API key cannot be decrypted" in detail:
+            raise HTTPException(status_code=400, detail=detail)
+        raise HTTPException(status_code=502, detail=f"Estimate test count failed: {detail}")
 
 
 @router.post("/generate-tests-stream")
@@ -181,16 +207,42 @@ async def generate_tests_stream(
     )
     return StreamingResponse(stream_iter, media_type="text/plain; charset=utf-8")
 
+
 @router.post("/generate-tests")
 def generate_tests(request: TestGenRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    同步生成测试用例 (Synchronous Test Generation)
+    鍚屾鐢熸垚娴嬭瘯鐢ㄤ緥 (Synchronous Test Generation)
     """
     # Verify project
     project = db.query(Project).filter(Project.id == request.project_id, Project.user_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    context_bundle = context_orchestrator.assemble_context(
+        WorkflowKind.TEST_GENERATION,
+        request.project_id,
+        db,
+        user_id=current_user.id,
+        query_text=request.requirement[:800],
+        requirement_text=request.requirement[:2000],
+        include_knowledge=True,
+        include_logs=True,
+        knowledge_limit=5,
+        log_limit=10,
+    )
+    log_workflow_trace(
+        db,
+        request.project_id,
+        current_user.id,
+        WorkflowKind.TEST_GENERATION,
+        WorkflowStage.CONTEXT,
+        {
+            "action": "generate_tests",
+            "compress": request.compress,
+            "expected_count": request.expected_count,
+            **context_bundle["diagnostics"],
+        },
+    )
     log_to_db(db, request.project_id, "system", f"开始生成测试用例(批次{request.batch_index}): 长度={len(request.requirement)}, 压缩={request.compress}, 预期数量={request.expected_count}, 批次大小={request.batch_size}, 模型={settings.MODEL_NAME}, max_tokens={settings.MAX_TOKENS}", user_id=current_user.id)
     result = test_generator.generate_test_cases_json(request.requirement, request.project_id, db, "requirement", request.compress, request.expected_count, request.batch_size, request.batch_index, user_id=current_user.id)
     try:
@@ -578,3 +630,4 @@ def export_tests_excel(
             return Response(content=data_bytes, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": "attachment; filename=test_cases.csv"})
     except Exception as e:
         return {"error": str(e)}
+

@@ -136,6 +136,15 @@ class ConfigManager:
         """Helper to decrypt API key"""
         if not config.api_key:
             return ""
-        return config_encryption.decrypt(config.api_key)
+        try:
+            return config_encryption.decrypt(config.api_key)
+        except Exception as e:
+            config_id = getattr(config, "id", "unknown")
+            user_id = getattr(config, "user_id", "unknown")
+            raise RuntimeError(
+                f"Saved AI API key cannot be decrypted for config {config_id} (user {user_id}). "
+                "This is an API key encryption-key mismatch (not a model problem). "
+                "Re-enter the API key in Config and save again."
+            ) from e
 
 config_manager = ConfigManager()

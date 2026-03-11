@@ -171,7 +171,7 @@ class KnowledgeBaseModule:
         # Add to ChromaDB for RAG
         # We only index 'requirement' and 'product_requirement' for now, or maybe all text docs?
         # Let's index everything that is text-heavy.
-        if doc_type in ['requirement', 'product_requirement', 'incomplete', 'evaluation_report']:
+        if doc_type in ['requirement', 'product_requirement', 'incomplete', 'evaluation_report', 'agent_learning']:
              # 1. Index Raw Content (Chunked)
              chroma_client.add_document(
                  doc_id=str(doc.id),
@@ -437,7 +437,7 @@ class KnowledgeBaseModule:
         # Update ChromaDB if content changed or doc_type changed to/from indexable types
         # For simplicity, if content changed and it's a requirement, re-index.
         # Ideally we should delete old vector and add new one.
-        if content_changed and doc.doc_type in ['requirement', 'product_requirement', 'incomplete']:
+        if content_changed and doc.doc_type in ['requirement', 'product_requirement', 'incomplete', 'evaluation_report', 'agent_learning']:
              # Delete old (by ID, assuming ID didn't change, but we used doc_id in metadata?)
              # Actually we used doc.id as ID in Chroma.
              chroma_client.delete_document(str(doc.id))
