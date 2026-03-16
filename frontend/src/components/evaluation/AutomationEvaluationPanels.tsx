@@ -73,7 +73,7 @@ export function AutomationEvaluationPanels({
               className="input-pro bg-light"
               value={uiEvalJourney}
               onChange={(e) => setUiEvalJourney(e.target.value)}
-              placeholder="{\"user_journey\": [{\"step\": \"Login\", \"action\": \"click('#login')\"}]}"
+              placeholder={`{"user_journey": [{"step": "Login", "action": "click('#login')"}]}`}
             />
             <Form.Text className="text-muted x-small">
               评估 AI 生成脚本是否覆盖关键用户旅程（如登录、支付）。

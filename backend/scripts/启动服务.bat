@@ -1,14 +1,23 @@
 @echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
 for %%I in ("%~dp0..\..") do set "ROOT_DIR=%%~fI"
 set "PYTHON_EXE=%ROOT_DIR%\.venv\Scripts\python.exe"
-if not exist "%PYTHON_EXE%" (
+if not exist "!PYTHON_EXE!" (
     set "PYTHON_EXE=python"
 )
 
-echo Using Python: %PYTHON_EXE%
+REM 兜底校验：虚拟环境 python.exe 可能存在但损坏，直接启动会报 9020。
+REM 先验证可执行性，失败时回退系统 python。
+"!PYTHON_EXE!" -V >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] Python executable check failed: !PYTHON_EXE!
+    echo [WARN] Fallback to system python from PATH.
+    set "PYTHON_EXE=python"
+)
+
+echo Using Python: !PYTHON_EXE!
 echo Starting dev services from: %ROOT_DIR%\backend
 
 if not exist "%ROOT_DIR%\backend\start_dev.py" (
@@ -18,7 +27,7 @@ if not exist "%ROOT_DIR%\backend\start_dev.py" (
 )
 
 pushd "%ROOT_DIR%\backend"
-"%PYTHON_EXE%" start_dev.py
+"!PYTHON_EXE!" start_dev.py
 set "EXIT_CODE=%ERRORLEVEL%"
 popd
 
