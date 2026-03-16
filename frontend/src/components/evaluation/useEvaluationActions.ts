@@ -53,22 +53,14 @@ export function useEvaluationActions({
   shouldAutoEval,
   setShouldAutoEval,
 }: UseEvaluationActionsParams) {
-  const resources = useEvaluationResources({
-    projectId,
-    logs,
-    view,
-    evalResult,
-  });
+  const resources = useEvaluationResources({ projectId, logs, view, evalResult });
 
   const addSupplementImages = (files: File[]) => {
     if (files.length === 0) return;
-
     const imageFiles = files.filter((f) => f.type.startsWith('image/'));
     const nonImages = files.filter((f) => !f.type.startsWith('image/'));
 
-    if (nonImages.length > 0) {
-      resources.setToastMsg({ type: 'error', msg: '仅支持图片文件' });
-    }
+    if (nonImages.length > 0) resources.setToastMsg({ type: 'error', msg: '仅支持图片文件' });
     if (imageFiles.length === 0) return;
 
     resources.setSupplementImages((prev) => {
@@ -77,21 +69,14 @@ export function useEvaluationActions({
         if (next.length >= maxSupplementImages) break;
         next.push(img);
       }
-
       if (prev.length + imageFiles.length > maxSupplementImages) {
-        resources.setToastMsg({
-          type: 'error',
-          msg: `最多只能上传 ${maxSupplementImages} 张图片`,
-        });
+        resources.setToastMsg({ type: 'error', msg: `最多只能上传 ${maxSupplementImages} 张图片` });
       }
-
       return next;
     });
   };
 
-  /**
-   * 支持在补充描述框直接粘贴截图，降低用户补录证据的操作成本。
-   */
+  /** 支持在补充描述框直接粘贴截图，降低用户补录证据的操作成本。 */
   const handleSupplementPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const items = Array.from(e.clipboardData?.items || []);
     const imageFiles = items
@@ -112,23 +97,17 @@ export function useEvaluationActions({
   };
 
   const handleSaveKnowledge = async (defectAnalysis: DefectAnalysis) => {
-    if (!projectId) {
-      alert('请先选择项目');
-      return;
-    }
+    if (!projectId) return alert('请先选择项目');
 
     try {
       const formData = new FormData();
       formData.append('project_id', String(projectId));
       formData.append('defect_analysis', JSON.stringify(defectAnalysis));
       formData.append('user_supplement', resources.supplementText);
-
       if (resources.supplementImages.length > 0) {
         resources.supplementImages.forEach((f) => formData.append('files', f));
       }
-      if (resources.savedDocId) {
-        formData.append('doc_id', String(resources.savedDocId));
-      }
+      if (resources.savedDocId) formData.append('doc_id', String(resources.savedDocId));
 
       const res = await saveKnowledgeRequest(formData);
       if (res?.success) {
@@ -136,10 +115,7 @@ export function useEvaluationActions({
         resources.setSavedDocId(res.result.id);
         resources.setLastSavedContent(resources.supplementText);
         resources.setSupplementImages([]);
-        resources.setToastMsg({
-          type: 'success',
-          msg: '当前评估与补充描述已录入 RAG 知识库',
-        });
+        resources.setToastMsg({ type: 'success', msg: '当前评估与补充描述已录入 RAG 知识库' });
       }
     } catch (e) {
       const msg = await translateError(e);
@@ -149,7 +125,6 @@ export function useEvaluationActions({
 
   const loadGenerationById = async (id: number) => {
     if (!id) return;
-
     try {
       const res = await fetchGenerationDetail(id);
       if (!res) return;
@@ -204,9 +179,7 @@ export function useEvaluationActions({
     }
   };
 
-  /**
-   * 自动评估只触发一次，避免和用户手动编辑互相覆盖。
-   */
+  /** 自动评估只触发一次，避免和用户手动编辑互相覆盖。 */
   useEffect(() => {
     if (shouldAutoEval && evalGenerated && !resources.loading && setShouldAutoEval) {
       onLog('测试用例生成完毕，自动触发质量评估...');
@@ -283,21 +256,12 @@ export function useEvaluationActions({
         }
 
         const ts = l.created_at || '';
-        return [
-          ts,
-          qm.positive || 0,
-          qm.negative || 0,
-          qm.edge || 0,
-          qm.avg_steps || 0,
-          qm.pending || 0,
-          qm.generated_count || 0,
-        ].join(',');
+        return [ts, qm.positive || 0, qm.negative || 0, qm.edge || 0, qm.avg_steps || 0, qm.pending || 0, qm.generated_count || 0].join(',');
       });
 
       const csv = `${header.join(',')}\n${rows.join('\n')}`;
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
       const url = URL.createObjectURL(blob);
-
       const a = document.createElement('a');
       a.href = url;
       a.download = 'quality_metrics_history.csv';

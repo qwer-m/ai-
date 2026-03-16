@@ -1,707 +1,134 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Nav, Button, Form, Container, Badge, Spinner, Collapse, Modal } from 'react-bootstrap';
-import { FaFileCode, FaMousePointer, FaNetworkWired, FaClipboardCheck, FaDatabase, FaFolder, FaCog, FaPlus, FaCheckCircle, FaExclamationTriangle, FaServer, FaSignOutAlt, FaChevronDown, FaRobot, FaCode, FaLayerGroup, FaPlay, FaGlobe, FaMobileAlt, FaRedo, FaSun, FaMoon } from 'react-icons/fa';
+﻿import { useState } from 'react';
+import { Modal } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
-import '../theme.css'; 
+import '../theme.css';
 import '../App.css';
 import { ConfigModal } from './ConfigModal';
-import { ProjectManagement, type Project } from './ProjectManagement';
-import { KnowledgeBase } from './KnowledgeBase';
-import { APITesting } from './APITesting';
-import { TestGeneration } from './TestGeneration';
-import { UIAutomation } from './UIAutomation';
-import { APIAutomation } from './APIAutomation';
-import { Evaluation } from './Evaluation';
-import { PipelineOrchestration } from './PipelineOrchestration';
 import { LogPanel } from './LogPanel';
-import { api } from '../utils/api';
+import { PipelineOrchestration } from './PipelineOrchestration';
+import { dashboardNavItems } from './dashboard/dashboardNavigation';
+import { DashboardContent } from './dashboard/DashboardContent';
+import { DashboardSidebar } from './dashboard/DashboardSidebar';
+import { DashboardTopBar } from './dashboard/DashboardTopBar';
+import { useDashboardController } from './dashboard/useDashboardController';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-
-type LogEntry = {
-  id: number;
-  project_id: number;
-  log_type: 'user' | 'system';
-  message: string;
-  created_at: string;
-};
-
-type HealthResponse = {
-  mysql?: { ok: boolean; details?: string };
-  redis?: { ok: boolean; details?: string; host?: string; port?: number };
-};
-
-const safeGetItem = (key: string) => {
-    try { return window.localStorage.getItem(key); } catch { return null; }
-};
-
-const safeSetItem = (key: string, value: string) => {
-    try { window.localStorage.setItem(key, value); } catch {}
-};
 
 export const Dashboard = () => {
   const { logout, user } = useAuth();
   const navigate = useNavigate();
-  // 中文注释：日夜模式状态，默认从本地存储读取
-  const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => (safeGetItem('themeMode') === 'dark' ? 'dark' : 'light'));
-  const [shouldAutoEval, setShouldAutoEval] = useState(false);
-
-  const navItems = [
-    { key: 'api-gen', label: '测试用例', icon: <FaFileCode /> },
-    { 
-        key: 'ui-exec-ui', 
-        label: 'UI自动化', 
-        icon: <FaMousePointer />,
-        children: [
-            { key: 'ui-exec-ui-web', label: 'WEB自动化', icon: <FaGlobe /> },
-            { key: 'ui-exec-ui-app', label: 'APP自动化', icon: <FaMobileAlt /> },
-            { key: 'ui-exec-ui-regression', label: '回归测试', icon: <FaRedo /> }
-        ]
-    },
-    { 
-        key: 'api', 
-        label: '接口测试', 
-        icon: <FaNetworkWired />,
-        children: [
-            { key: 'api-standard', label: '标准接口测试', icon: <FaCode /> },
-            { key: 'api-ai', label: '模型调试', icon: <FaRobot /> }
-        ]
-    },
-    { 
-        key: 'ui-exec-api', 
-        label: '接口自动化', 
-        icon: <FaNetworkWired />,
-        children: [
-            { key: 'ui-exec-api-orchestration', label: '自动化编排', icon: <FaLayerGroup /> },
-            { key: 'ui-exec-api-batch', label: '批量运行', icon: <FaPlay /> }
-        ]
-    },
-    {
-        key: 'eval', 
-        label: '质量评估与召回', 
-        icon: <FaClipboardCheck />,
-        children: [
-            { key: 'eval-testcase', label: '测试用例质量评估', icon: <FaClipboardCheck /> },
-            { key: 'eval-ui', label: '界面自动化评估', icon: <FaRobot /> },
-            { key: 'eval-api', label: '接口测试评估', icon: <FaNetworkWired /> },
-        ]
-    },
-    { key: 'kb', label: '知识库管理', icon: <FaDatabase /> },
-    { key: 'proj', label: '项目管理', icon: <FaFolder /> },
-  ];
-
-  const [activeTab, setActiveTab] = useState(() => {
-      const saved = safeGetItem('currentActiveTab');
-      const validKeys = navItems.flatMap(i => [i.key, ...(i.children ? i.children.map(c => c.key) : [])]);
-      // 如果保存的标签是父级 'ui-exec-ui'，默认为第一个子级 'ui-exec-ui-web'
-      if (saved === 'ui-exec-ui') return 'ui-exec-ui-web';
-      return (saved && validKeys.includes(saved)) ? saved : 'api-gen';
-  });
-  
-  const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
-
-  const toggleExpand = (key: string) => {
-      setExpandedKeys(prev => 
-          prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
-      );
-  };
-
-  useEffect(() => {
-    safeSetItem('currentActiveTab', activeTab);
-    // 如果子级处于活动状态，自动展开父级
-    const parent = navItems.find(item => item.children?.some(child => child.key === activeTab));
-    if (parent && !expandedKeys.includes(parent.key)) {
-      setExpandedKeys(prev => [...prev, parent.key]);
-    }
-  }, [activeTab]);
-
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [projectsLoading, setProjectsLoading] = useState(true);
-  const [projectsError, setProjectsError] = useState<string | null>(null);
-  const [projectId, setProjectId] = useState<number | null>(null);
-  
-  const [logsLoading, setLogsLoading] = useState(false);
-  const [logsError, setLogsError] = useState<string | null>(null);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [clearedAt] = useState<number>(0);
-  
-  const [healthLoading, setHealthLoading] = useState(false);
-  const [healthError, setHealthError] = useState<string | null>(null);
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  
-  const [evalGenerated, setEvalGenerated] = useState('');
-  const [evalModified, setEvalModified] = useState('');
-  const [evalResult, setEvalResult] = useState<string | null>(null);
-  const [recallRetrieved, setRecallRetrieved] = useState('');
-  const [recallRelevant, setRecallRelevant] = useState('');
-  const [recallResult, setRecallResult] = useState<string | null>(null);
-  const [uiEvalScript, setUiEvalScript] = useState('');
-  const [uiEvalExec, setUiEvalExec] = useState('');
-  const [uiEvalOutput, setUiEvalOutput] = useState<string | null>(null);
-  const [apiEvalScript, setApiEvalScript] = useState('');
-  const [apiEvalExec, setApiEvalExec] = useState('');
-  const [apiEvalOutput, setApiEvalOutput] = useState<string | null>(null);
-
-  const [showConfig, setShowConfig] = useState(false);
-  const [configError, setConfigError] = useState<string | null>(null);
   const [showPipelineModal, setShowPipelineModal] = useState(false);
 
-  // 中文说明：手动打开配置中心时清理旧错误，避免残留提示与当前模型无关
-  const handleOpenConfig = () => {
-    setConfigError(null);
-    setShowConfig(true);
-  };
-
-  // 中文说明：关闭配置中心时同步清理错误提示，避免下次打开仍显示旧错误
-  const handleCloseConfig = () => {
-    setShowConfig(false);
-    setConfigError(null);
-  };
-
-  const fetchProjects = async () => {
-    setProjectsLoading(true);
-    setProjectsError(null);
-    try {
-      const data = await api.get<Project[]>('/api/projects');
-      setProjects(Array.isArray(data) ? data : []);
-      if (!projectId) {
-          const saved = safeGetItem('currentProjectId');
-          const savedId = saved ? Number(saved) : NaN;
-          const projectExists = Array.isArray(data) && data.some(p => p.id === savedId);
-          const nextId = (projectExists && Number.isFinite(savedId))
-            ? savedId
-            : (Array.isArray(data) && data.length ? data[0].id : null);
-          setProjectId(nextId);
-      }
-    } catch (e) {
-      const errMsg = e instanceof Error ? e.message : String(e);
-      setProjectsError(errMsg);
-      if (errMsg.includes('401') || errMsg.includes('Invalid API-key') || errMsg.includes('QUOTA') || errMsg.includes('API Key not set')) {
-          setConfigError(errMsg);
-          setShowConfig(true);
-      }
-    } finally {
-      setProjectsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchProjects();
-  }, []);
-
-  useEffect(() => {
-    // 中文注释：切换主题时同步 body class 和本地存储
-    document.body.classList.toggle('theme-dark', themeMode === 'dark');
-    document.body.classList.toggle('theme-light', themeMode === 'light');
-    safeSetItem('themeMode', themeMode);
-  }, [themeMode]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const fetchHealth = async () => {
-      // Don't set loading state for background polling to avoid flicker
-      // setHealthLoading(true); 
-      setHealthError(null);
-      try {
-        const data = await api.get<HealthResponse>('/api/health');
-        if (cancelled) return;
-        setHealth(data && typeof data === 'object' ? data : null);
-      } catch (e) {
-        if (cancelled) return;
-        setHealthError(e instanceof Error ? e.message : String(e));
-        setHealth(null);
-      } finally {
-        if (!cancelled) setHealthLoading(false);
-      }
-    };
-    fetchHealth();
-    const timer = window.setInterval(fetchHealth, 15000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!projectId) return;
-    safeSetItem('currentProjectId', String(projectId));
-  }, [projectId]);
-
-  useEffect(() => {
-    if (!projectId) return;
-    let cancelled = false;
-    
-    const load = async (isPolling = false) => {
-      if (!isPolling) {
-          setLogsLoading(true);
-          setLogsError(null);
-      }
-      try {
-        const url = `/api/logs/${projectId}`;
-        const data = await api.get<LogEntry[]>(url);
-        if (cancelled) return;
-        
-        const validLogs = Array.isArray(data) ? data : [];
-            
-        setLogs(validLogs);
-      } catch (e) {
-        if (cancelled) return;
-        if (!isPolling) {
-            setLogsError(e instanceof Error ? e.message : String(e));
-            setLogs([]);
-        } else {
-            console.error("Polling logs failed", e);
-        }
-      } finally {
-        if (!cancelled && !isPolling) setLogsLoading(false);
-      }
-    };
-    
-    load(false);
-    const timer = window.setInterval(() => load(true), 3000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [projectId, clearedAt]);
-
-  const { userLogs, systemLogs } = useMemo(() => {
-    const u: LogEntry[] = [];
-    const s: LogEntry[] = [];
-    const allLogs = [...logs].sort((a, b) => {
-        const timeA = new Date(a.created_at).getTime() || 0;
-        const timeB = new Date(b.created_at).getTime() || 0;
-        return timeA - timeB; 
-    });
-
-    const seenIds = new Set<number>();
-    allLogs.forEach((l) => {
-      if (seenIds.has(l.id)) return;
-      seenIds.add(l.id);
-      if (l.log_type === 'user') u.push(l);
-      else s.push(l);
-    });
-    return { userLogs: u, systemLogs: s };
-  }, [logs]);
-
-  const handleLog = async (msg: string, type: 'user' | 'system' = 'user') => {
-      if (!projectId) return;
-      const tempLog: LogEntry = {
-          id: Date.now(),
-          project_id: projectId,
-          log_type: type,
-          message: msg,
-          created_at: new Date().toISOString()
-      };
-      setLogs(prev => [...prev, tempLog]); 
-
-      try {
-          const data = await api.post<any>('/api/logs', {
-              project_id: projectId,
-              log_type: type,
-              message: msg
-          });
-          if (data.status === 'success' && data.id) {
-             setLogs(prev => prev.map(l => l.id === tempLog.id ? { ...l, id: data.id } : l));
-          }
-      } catch (e) {
-          console.error(e);
-          setLogs(prev => prev.filter(l => l.id !== tempLog.id));
-      }
-  };
-
-  const handleTestGenerated = (data: any) => {
-      try {
-          setEvalGenerated(JSON.stringify(data, null, 2));
-      } catch {}
-  };
-
-  const handleGenerationComplete = () => {
-      setShouldAutoEval(true);
-      setActiveTab('eval-testcase');
-  };
+  const controller = useDashboardController();
 
   const handleLogout = () => {
-      logout();
-      navigate('/login', { replace: true });
-  };
-
-  const handleToggleTheme = () => {
-      // 中文注释：日夜模式切换
-      setThemeMode(prev => (prev === 'dark' ? 'light' : 'dark'));
+    logout();
+    navigate('/login', { replace: true });
   };
 
   return (
     <div className="d-flex flex-column h-100 w-100 overflow-hidden bg-app">
-        {/* 中间区域：侧边栏 + 主内容 */}
-        <div className="flex-grow-1 d-flex overflow-hidden p-3 pb-0" style={{ gap: '16px', marginBottom: '6px' }}>
-            {/* 左侧边栏框架 */}
-            <div className="d-flex flex-column glass-panel rounded-3 flex-shrink-0 overflow-hidden border-0" style={{ width: '260px', minWidth: '260px' }}>
-                <div className="p-4 border-bottom border-secondary-subtle bg-body bg-opacity-50">
-                    <div className="d-flex align-items-center justify-content-between">
-                        <h1 className="h5 mb-0 text-gradient fw-bold d-flex align-items-center gap-2 text-nowrap">
-                            <FaServer className="text-primary-500" /> AI测试平台
-                            <Badge bg="light" text="secondary" className="ms-1 fw-normal opacity-75" style={{fontSize: '0.6em'}}>PRO</Badge>
-                        </h1>
-                        {/* 中文注释：日夜模式切换按钮 */}
-                        <Button
-                            variant="light"
-                            size="sm"
-                            className="theme-toggle-btn d-flex align-items-center justify-content-center"
-                            onClick={handleToggleTheme}
-                            title={themeMode === 'dark' ? '切换到白天模式' : '切换到夜间模式'}
-                        >
-                            {themeMode === 'dark' ? <FaSun className="text-warning" /> : <FaMoon className="text-secondary" />}
-                        </Button>
-                    </div>
-                    {user && <div className="small text-secondary mt-2">Welcome, {user.username}</div>}
-                </div>
+      <div className="flex-grow-1 d-flex overflow-hidden p-3 pb-0" style={{ gap: '16px', marginBottom: '6px' }}>
+        <DashboardSidebar
+          userName={user?.username}
+          themeMode={controller.themeMode}
+          navItems={dashboardNavItems}
+          activeTab={controller.activeTab}
+          expandedKeys={controller.expandedKeys}
+          healthLoading={controller.healthLoading}
+          healthError={controller.healthError}
+          health={controller.health}
+          onSelectTab={controller.setActiveTab}
+          onToggleExpand={controller.toggleExpand}
+          onToggleTheme={controller.handleToggleTheme}
+        />
 
-                <div className="flex-grow-1 p-3 overflow-auto custom-scrollbar" style={{ scrollbarGutter: 'stable' } as any}>
-                    <Nav variant="pills" className="flex-column gap-2" activeKey={activeTab}>
-                        {navItems.map(item => (
-                            <div key={item.key} className="d-flex flex-column">
-                                <Nav.Link
-                                    as="button"
-                                    eventKey={item.key}
-                                    className={`sidebar-link d-flex align-items-center gap-3 px-3 py-2 rounded-lg transition-all ${
-                                        (activeTab === item.key)
-                                            ? 'active-pro shadow-sm bg-primary text-white fw-bold' 
-                                            : 'text-secondary hover-bg-light'
-                                    }`}
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        // 仅导航，不展开/收缩
-                                        if (item.children) {
-                                            setActiveTab(item.key);
-                                            return;
-                                        }
-                                        setActiveTab(item.key);
-                                    }}
-                                    onDoubleClick={(e) => {
-                                        e.preventDefault();
-                                        // 双击也不展开，保持一致性
-                                    }}
-                                    style={{ transition: 'all 0.2s ease', cursor: 'pointer', minHeight: '38px', marginBottom: '4px' }}
-                                >
-                                    <span className={
-                                        (activeTab === item.key)
-                                            ? 'text-white' 
-                                            : 'text-tertiary'
-                                    }>{item.icon}</span>
-                                    <span className={`flex-grow-1 text-start ${item.key === 'eval' ? 'text-nowrap text-truncate' : ''}`} style={item.key === 'eval' ? { overflow: 'hidden' } : undefined}>
-                                        {item.label}
-                                    </span>
-                                    {item.children && (
-                                        <span
-                                            className="d-flex align-items-center justify-content-center hover-bg-light rounded-circle"
-                                            style={{ minWidth: '24px', width: '24px', height: '24px', marginRight: '-8px' }}
-                                            onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                toggleExpand(item.key);
-                                            }}
-                                        >
-                                            <FaChevronDown className={`transition-transform ${expandedKeys.includes(item.key) ? 'rotate-180' : ''}`} size={10} />
-                                        </span>
-                                    )}
-                                </Nav.Link>
-                                <Collapse in={!!item.children && expandedKeys.includes(item.key)}>
-                                    <div className="mt-1 ms-4 ps-2 border-start border-light">
-                                        <div className="d-flex flex-column gap-1">
-                                            {item.children?.map(child => (
-                                                <Nav.Link
-                                                    key={child.key}
-                                                    as="button"
-                                                    eventKey={child.key}
-                                                    className={`sidebar-link d-flex align-items-center px-3 py-1 rounded transition-all small ${activeTab === child.key ? 'text-primary fw-bold bg-primary bg-opacity-10' : 'text-muted hover-text-primary'}`}
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        setActiveTab(child.key);
-                                                    }}
-                                                >
-                                                    <span className="me-2 d-flex align-items-center justify-content-center" style={{ width: '16px' }}>
-                                                        {child.icon}
-                                                    </span>
-                                                    <span className="text-nowrap text-truncate" style={{ overflow: 'hidden' }}>{child.label}</span>
-                                                </Nav.Link>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </Collapse>
-                            </div>
-                        ))}
-                    </Nav>
-                </div>
+        <div className="flex-grow-1 d-flex flex-column glass-panel rounded-3 overflow-hidden position-relative border-0">
+          <DashboardTopBar
+            projectId={controller.projectId}
+            projects={controller.projects}
+            projectsLoading={controller.projectsLoading}
+            onSelectProject={controller.setProjectId}
+            onOpenPipeline={() => setShowPipelineModal(true)}
+            onCreateProject={() => controller.setActiveTab('proj')}
+            onOpenConfig={controller.handleOpenConfig}
+            onLogout={handleLogout}
+          />
 
-                <div className="p-2 bg-body bg-opacity-25 overflow-hidden">
-                    {healthLoading ? (
-                        <div className="text-center text-muted x-small"><Spinner size="sm" animation="border" style={{width: '0.8rem', height: '0.8rem'}} /> 检查状态...</div>
-                    ) : (
-                    <div className="d-flex flex-row gap-1">
-                        <div className="d-flex justify-content-center align-items-center x-small p-1 px-2 rounded bg-body bg-opacity-50 border flex-fill text-nowrap" style={{ minWidth: 0 }}>
-                            <span className="text-secondary fw-medium me-1">MySQL</span>
-                            {healthError ? <Badge bg="danger" className="p-1" style={{fontSize: '0.6em'}}>错误</Badge> : (health?.mysql?.ok ? 
-                                <span className="text-success d-flex align-items-center fw-bold" style={{fontSize: '0.75em'}}><FaCheckCircle className="me-1" />正常</span> : 
-                                <span className="text-danger d-flex align-items-center fw-bold" style={{fontSize: '0.75em'}}><FaExclamationTriangle className="me-1" />异常</span>
-                            )}
-                        </div>
-                        <div className="d-flex justify-content-center align-items-center x-small p-1 px-2 rounded bg-body bg-opacity-50 border flex-fill text-nowrap" style={{ minWidth: 0 }}>
-                            <span className="text-secondary fw-medium me-1">Redis</span>
-                            {healthError ? <Badge bg="danger" className="p-1" style={{fontSize: '0.6em'}}>错误</Badge> : (health?.redis?.ok ? 
-                                <span className="text-success d-flex align-items-center fw-bold" style={{fontSize: '0.75em'}}><FaCheckCircle className="me-1" />正常</span> : 
-                                <span className="text-warning d-flex align-items-center fw-bold" style={{fontSize: '0.75em'}}><FaExclamationTriangle className="me-1" />未连接</span>
-                            )}
-                        </div>
-                    </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Main Content Frame */}
-            <div className="flex-grow-1 d-flex flex-column glass-panel rounded-3 overflow-hidden position-relative border-0">
-                {/* Top Header */}
-                <div className="bg-body bg-opacity-50 border-bottom border-secondary-subtle px-4 py-3 d-flex justify-content-between align-items-center backdrop-blur" style={{ height: '64px' }}>
-                    <div className="d-flex align-items-center gap-2">
-                        <div className="bg-body text-secondary px-3 py-1 rounded fw-bold shadow-sm d-flex align-items-center justify-content-center border" style={{ height: '36px', fontSize: '0.875rem', whiteSpace: 'nowrap', minWidth: 'fit-content' }}>
-                            项目
-                        </div>
-                        <Form.Select 
-                            value={projectId ?? ''} 
-                            onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
-                            disabled={projectsLoading || !projects.length}
-                            style={{ minWidth: '120px', maxWidth: '200px', height: '36px' }}
-                            size="sm"
-                            className="input-pro border-0 shadow-sm bg-body-tertiary text-secondary position-relative"
-                        >
-                            {projects.length > 0 ? (
-                                projects.map((p) => (
-                                    <option key={p.id} value={p.id}>{p.name}</option>
-                                ))
-                            ) : (
-                                <option value="">请创建项目</option>
-                            )}
-                        </Form.Select>
-                    </div>
-                    <div className="d-flex gap-2">
-                        <Button
-                            variant="light"
-                            size="sm"
-                            onClick={() => setShowPipelineModal(true)}
-                            className="btn-light-pro d-flex align-items-center gap-2 bg-body shadow-sm border-0 text-secondary"
-                            title="全局编排"
-                        >
-                            <div className="position-relative">
-                                <FaServer />
-                                <span className="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle"></span>
-                            </div>
-                        </Button>
-                        <div className="vr mx-2 opacity-25"></div>
-                        <Button variant="primary" size="sm" onClick={() => setActiveTab('proj')} className="btn-pro-primary d-flex align-items-center gap-2">
-                            <FaPlus /> <span className="d-none d-md-inline">新建项目</span>
-                        </Button>
-                        <Button variant="light" size="sm" onClick={handleOpenConfig} className="btn-light-pro d-flex align-items-center gap-2 bg-body shadow-sm border-0 text-secondary">
-                            <FaCog />
-                        </Button>
-                        <Button variant="light" size="sm" onClick={handleLogout} className="btn-light-pro d-flex align-items-center gap-2 bg-body shadow-sm border-0 text-secondary" title="Logout">
-                            <FaSignOutAlt />
-                        </Button>
-                    </div>
-                </div>
-
-                {/* Scrollable Content */}
-                {/* 修复：API相关页面使用overflow-hidden，避免拖拽分隔条时外层容器被撑高；添加 minWidth: 0 防止 Flex 子元素撑宽父容器导致抖动 */}
-                <div className={`flex-grow-1 ${(activeTab.startsWith('ui-exec-ui') || activeTab === 'kb' || activeTab === 'api-standard' || activeTab === 'api-ai') ? 'p-0' : 'p-4'} pb-0 position-relative ${(activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') || activeTab === 'api-standard' || activeTab === 'api-ai') ? 'overflow-hidden' : 'overflow-auto custom-scrollbar'}`} style={{minWidth: 0}}>
-                    {/* 修复：使用 absolute 定位强制内容区脱离文档流，彻底防止内部布局变化（如滚动条显隐、Tab切换）反向撑开父容器导致页面抖动 */}
-                    <Container fluid className={`p-0 d-flex flex-column ${(activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') || activeTab === 'api-standard' || activeTab === 'api-ai') ? 'h-100 position-absolute top-0 start-0 w-100' : ''}`} style={(activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') || activeTab === 'api-standard' || activeTab === 'api-ai') ? { height: '100%', minHeight: 0 } : { minHeight: '100%' }}>
-                        <div 
-                            className={`d-flex flex-column ${
-                                activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') || activeTab === 'api-standard' || activeTab === 'api-ai' ? 'flex-grow-1 overflow-hidden' : ''
-                            }`} 
-                            style={activeTab === 'kb' || activeTab.startsWith('ui-exec-ui') || activeTab === 'api-standard' || activeTab === 'api-ai' ? { minHeight: '0' } : {}}
-                        >
-                            {(activeTab === 'api-standard' || activeTab === 'api-ai') && (
-                                <APITesting 
-                                    key={projectId}
-                                    projectId={projectId} 
-                                    onLog={msg => handleLog(msg, 'user')} 
-                                    view={activeTab === 'api-standard' ? 'standard' : 'ai_debug'}
-                                />
-                            )}
-
-                            <div style={{ display: activeTab === 'api-gen' ? 'block' : 'none', height: '100%' }}>
-                                <TestGeneration 
-                                    key={projectId}
-                                    projectId={projectId} 
-                                    isActive={activeTab === 'api-gen'}
-                                    onLog={msg => handleLog(msg, 'user')} 
-                                    onGenerated={handleTestGenerated}
-                                    onGenerationComplete={handleGenerationComplete}
-                                    onError={(msg) => {
-                                        setConfigError(msg);
-                                        setShowConfig(true);
-                                    }}
-                                />
-                            </div>
-                            {(activeTab === 'ui-exec-ui' || activeTab === 'ui-exec-ui-web' || activeTab === 'ui-exec-ui-app' || activeTab === 'ui-exec-ui-regression') && (
-                                <UIAutomation 
-                                    key={projectId}
-                                    projectId={projectId} 
-                                    onLog={msg => handleLog(msg, 'user')} 
-                                    view={
-                                        activeTab === 'ui-exec-ui' ? 'report' :
-                                        activeTab === 'ui-exec-ui-web' ? 'web' : 
-                                        activeTab === 'ui-exec-ui-app' ? 'app' : 
-                                        'regression'
-                                    }
-                                />
-                            )}
-                            {(activeTab === 'ui-exec-api-orchestration' || activeTab === 'ui-exec-api-batch') && (
-                                <APIAutomation 
-                                    key={projectId}
-                                    projectId={projectId} 
-                                    onLog={msg => handleLog(msg, 'user')} 
-                                    view={activeTab === 'ui-exec-api-orchestration' ? 'orchestration' : 'runner'}
-                                />
-                            )}
-                            {activeTab === 'kb' && <KnowledgeBase projectId={projectId} onLog={msg => handleLog(msg, 'system')} />}
-                            {activeTab === 'proj' && (
-                                <ProjectManagement 
-                                    projects={projects} 
-                                    loading={projectsLoading} 
-                                    error={projectsError} 
-                                    onRefresh={fetchProjects} 
-                                    onSelectProject={setProjectId}
-                                    onLog={handleLog}
-                                />
-                            )}
-                            {activeTab === 'eval' && (
-                                <Evaluation 
-                                    projectId={projectId} 
-                                    logs={logs}
-                                    onLog={msg => handleLog(msg, 'user')}
-                                    view="root"
-                                    evalGenerated={evalGenerated} setEvalGenerated={setEvalGenerated}
-                                    evalModified={evalModified} setEvalModified={setEvalModified}
-                                    evalResult={evalResult} setEvalResult={setEvalResult}
-                                    recallRetrieved={recallRetrieved} setRecallRetrieved={setRecallRetrieved}
-                                    recallRelevant={recallRelevant} setRecallRelevant={setRecallRelevant}
-                                    recallResult={recallResult} setRecallResult={setRecallResult}
-                                    uiEvalScript={uiEvalScript} setUiEvalScript={setUiEvalScript}
-                                    uiEvalExec={uiEvalExec} setUiEvalExec={setUiEvalExec}
-                                    uiEvalOutput={uiEvalOutput} setUiEvalOutput={setUiEvalOutput}
-                                    apiEvalScript={apiEvalScript} setApiEvalScript={setApiEvalScript}
-                                    apiEvalExec={apiEvalExec} setApiEvalExec={setApiEvalExec}
-                                    apiEvalOutput={apiEvalOutput} setApiEvalOutput={setApiEvalOutput}
-                                    shouldAutoEval={shouldAutoEval} setShouldAutoEval={setShouldAutoEval}
-                                />
-                            )}
-                            {activeTab === 'eval-testcase' && (
-                                <Evaluation 
-                                    projectId={projectId} 
-                                    logs={logs}
-                                    onLog={msg => handleLog(msg, 'user')}
-                                    view="testcase"
-                                    evalGenerated={evalGenerated} setEvalGenerated={setEvalGenerated}
-                                    evalModified={evalModified} setEvalModified={setEvalModified}
-                                    evalResult={evalResult} setEvalResult={setEvalResult}
-                                    recallRetrieved={recallRetrieved} setRecallRetrieved={setRecallRetrieved}
-                                    recallRelevant={recallRelevant} setRecallRelevant={setRecallRelevant}
-                                    recallResult={recallResult} setRecallResult={setRecallResult}
-                                    uiEvalScript={uiEvalScript} setUiEvalScript={setUiEvalScript}
-                                    uiEvalExec={uiEvalExec} setUiEvalExec={setUiEvalExec}
-                                    uiEvalOutput={uiEvalOutput} setUiEvalOutput={setUiEvalOutput}
-                                    apiEvalScript={apiEvalScript} setApiEvalScript={setApiEvalScript}
-                                    apiEvalExec={apiEvalExec} setApiEvalExec={setApiEvalExec}
-                                    apiEvalOutput={apiEvalOutput} setApiEvalOutput={setApiEvalOutput}
-                                    shouldAutoEval={shouldAutoEval} setShouldAutoEval={setShouldAutoEval}
-                                />
-                            )}
-                            {activeTab === 'eval-ui' && (
-                                <Evaluation 
-                                    projectId={projectId} 
-                                    logs={logs}
-                                    onLog={msg => handleLog(msg, 'user')}
-                                    view="ui"
-                                    evalGenerated={evalGenerated} setEvalGenerated={setEvalGenerated}
-                                    evalModified={evalModified} setEvalModified={setEvalModified}
-                                    evalResult={evalResult} setEvalResult={setEvalResult}
-                                    recallRetrieved={recallRetrieved} setRecallRetrieved={setRecallRetrieved}
-                                    recallRelevant={recallRelevant} setRecallRelevant={setRecallRelevant}
-                                    recallResult={recallResult} setRecallResult={setRecallResult}
-                                    uiEvalScript={uiEvalScript} setUiEvalScript={setUiEvalScript}
-                                    uiEvalExec={uiEvalExec} setUiEvalExec={setUiEvalExec}
-                                    uiEvalOutput={uiEvalOutput} setUiEvalOutput={setUiEvalOutput}
-                                    apiEvalScript={apiEvalScript} setApiEvalScript={setApiEvalScript}
-                                    apiEvalExec={apiEvalExec} setApiEvalExec={setApiEvalExec}
-                                    apiEvalOutput={apiEvalOutput} setApiEvalOutput={setApiEvalOutput}
-                                />
-                            )}
-                            {activeTab === 'eval-api' && (
-                                <Evaluation 
-                                    projectId={projectId} 
-                                    logs={logs}
-                                    onLog={msg => handleLog(msg, 'user')}
-                                    view="api"
-                                    evalGenerated={evalGenerated} setEvalGenerated={setEvalGenerated}
-                                    evalModified={evalModified} setEvalModified={setEvalModified}
-                                    evalResult={evalResult} setEvalResult={setEvalResult}
-                                    recallRetrieved={recallRetrieved} setRecallRetrieved={setRecallRetrieved}
-                                    recallRelevant={recallRelevant} setRecallRelevant={setRecallRelevant}
-                                    recallResult={recallResult} setRecallResult={setRecallResult}
-                                    uiEvalScript={uiEvalScript} setUiEvalScript={setUiEvalScript}
-                                    uiEvalExec={uiEvalExec} setUiEvalExec={setUiEvalExec}
-                                    uiEvalOutput={uiEvalOutput} setUiEvalOutput={setUiEvalOutput}
-                                    apiEvalScript={apiEvalScript} setApiEvalScript={setApiEvalScript}
-                                    apiEvalExec={apiEvalExec} setApiEvalExec={setApiEvalExec}
-                                    apiEvalOutput={apiEvalOutput} setApiEvalOutput={setApiEvalOutput}
-                                />
-                            )}
-                        </div>
-                    </Container>
-                </div>
-            </div>
+          <DashboardContent
+            activeTab={controller.activeTab}
+            projectId={controller.projectId}
+            projects={controller.projects}
+            projectsLoading={controller.projectsLoading}
+            projectsError={controller.projectsError}
+            logs={controller.logs}
+            onUserLog={(msg) => controller.handleLog(msg, 'user')}
+            onSystemLog={(msg) => controller.handleLog(msg, 'system')}
+            onProjectRefresh={controller.fetchProjects}
+            onSelectProject={controller.setProjectId}
+            onConfigError={controller.openConfigWithError}
+            evalGenerated={controller.evalGenerated}
+            setEvalGenerated={controller.setEvalGenerated}
+            evalModified={controller.evalModified}
+            setEvalModified={controller.setEvalModified}
+            evalResult={controller.evalResult}
+            setEvalResult={controller.setEvalResult}
+            recallRetrieved={controller.recallRetrieved}
+            setRecallRetrieved={controller.setRecallRetrieved}
+            recallRelevant={controller.recallRelevant}
+            setRecallRelevant={controller.setRecallRelevant}
+            recallResult={controller.recallResult}
+            setRecallResult={controller.setRecallResult}
+            uiEvalScript={controller.uiEvalScript}
+            setUiEvalScript={controller.setUiEvalScript}
+            uiEvalExec={controller.uiEvalExec}
+            setUiEvalExec={controller.setUiEvalExec}
+            uiEvalOutput={controller.uiEvalOutput}
+            setUiEvalOutput={controller.setUiEvalOutput}
+            apiEvalScript={controller.apiEvalScript}
+            setApiEvalScript={controller.setApiEvalScript}
+            apiEvalExec={controller.apiEvalExec}
+            setApiEvalExec={controller.setApiEvalExec}
+            apiEvalOutput={controller.apiEvalOutput}
+            setApiEvalOutput={controller.setApiEvalOutput}
+            shouldAutoEval={controller.shouldAutoEval}
+            setShouldAutoEval={controller.setShouldAutoEval}
+            onTestGenerated={controller.handleTestGenerated}
+            onGenerationComplete={controller.handleGenerationComplete}
+          />
         </div>
+      </div>
 
-        {/* Log Panel Area */}
-        <div className="flex-shrink-0 w-100 position-relative">
-            <LogPanel 
-                userLogs={userLogs} 
-                systemLogs={systemLogs} 
-                loading={logsLoading} 
-                error={logsError} 
-                onClear={async () => {
-                    if (projectId) {
-                        try {
-                            await api.delete(`/api/logs/${projectId}`);
-                            setLogs([]);
-                        } catch (e) {
-                            console.error("Failed to clear logs", e);
-                        }
-                    }
-                }}
-            />
-        </div>
+      <div className="flex-shrink-0 w-100 position-relative">
+        <LogPanel
+          userLogs={controller.userLogs}
+          systemLogs={controller.systemLogs}
+          loading={controller.logsLoading}
+          error={controller.logsError}
+          onClear={controller.clearLogs}
+        />
+      </div>
 
-        <Modal
-            show={showPipelineModal}
-            onHide={() => setShowPipelineModal(false)}
-            size="xl"
-            centered
-        >
-            <Modal.Header closeButton>
-                <Modal.Title>全局编排</Modal.Title>
-            </Modal.Header>
-            <Modal.Body className="p-0" style={{ height: '80vh' }}>
-                <PipelineOrchestration
-                    key={`pipeline-modal-${projectId ?? 'none'}`}
-                    projectId={projectId}
-                    onLog={msg => handleLog(msg, 'user')}
-                />
-            </Modal.Body>
-        </Modal>
-        <ConfigModal show={showConfig} onHide={handleCloseConfig} initialError={configError} />
+      <Modal show={showPipelineModal} onHide={() => setShowPipelineModal(false)} size="xl" centered>
+        <Modal.Header closeButton>
+          <Modal.Title>全局编排</Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="p-0" style={{ height: '80vh' }}>
+          <PipelineOrchestration
+            key={`pipeline-modal-${controller.projectId ?? 'none'}`}
+            projectId={controller.projectId}
+            onLog={(msg) => {
+              void controller.handleLog(msg, 'user');
+            }}
+          />
+        </Modal.Body>
+      </Modal>
+
+      <ConfigModal
+        show={controller.showConfig}
+        onHide={controller.handleCloseConfig}
+        initialError={controller.configError}
+      />
     </div>
   );
 };
-

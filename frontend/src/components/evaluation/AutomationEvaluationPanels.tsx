@@ -1,4 +1,4 @@
-import { Button, Form } from 'react-bootstrap';
+﻿import { Button, Form } from 'react-bootstrap';
 import { FaNetworkWired, FaRobot } from 'react-icons/fa';
 import { parseApiReport } from './evaluationService';
 import type { LoadingType } from './types';
@@ -73,10 +73,10 @@ export function AutomationEvaluationPanels({
               className="input-pro bg-light"
               value={uiEvalJourney}
               onChange={(e) => setUiEvalJourney(e.target.value)}
-              placeholder={"{\"user_journey\": [{\"step\": \"Login\", \"action\": \"click('#login')\"}]}"}
+              placeholder="{\"user_journey\": [{\"step\": \"Login\", \"action\": \"click('#login')\"}]}"
             />
             <Form.Text className="text-muted x-small">
-              评估 AI 生成的脚本是否覆盖了您定义的关键用户旅程（如登录、支付）。
+              评估 AI 生成脚本是否覆盖关键用户旅程（如登录、支付）。
             </Form.Text>
           </Form.Group>
           <Form.Group className="mb-3">
@@ -129,7 +129,7 @@ export function AutomationEvaluationPanels({
               placeholder="请输入 OpenAPI/Swagger JSON 或 YAML 内容..."
             />
             <Form.Text className="text-muted x-small">
-              用于评估 AI 脚本的 API 端点覆盖率及参数正确性。
+              用于评估 AI 脚本的接口覆盖率与参数正确性。
             </Form.Text>
           </Form.Group>
           <Form.Group className="mb-3">

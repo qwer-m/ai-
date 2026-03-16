@@ -1,4 +1,4 @@
-import type { ChangeEvent, ClipboardEvent } from 'react';
+﻿import type { ChangeEvent, ClipboardEvent } from 'react';
 import { Button, Form, Popover } from 'react-bootstrap';
 
 type Props = {
@@ -37,7 +37,7 @@ export function SupplementKnowledgePopover({
           />
         </Form.Group>
         <Form.Group className="mb-3">
-          <Form.Label className="small text-muted">导入图片（最多10张）</Form.Label>
+          <Form.Label className="small text-muted">导入图片（最多 10 张）</Form.Label>
           <Form.Control
             type="file"
             size="sm"
