@@ -14,247 +14,39 @@
 - modules.knowledge_base: RAG 检索支持。
 """
 
-from core.ai_client import ai_client, get_client_for_user
+from typing import Any
+
+from core.ai_client import get_client_for_user
 from sqlalchemy.orm import Session
 from core.models import TestGeneration, LogEntry
 from modules.knowledge_base import knowledge_base
-from core.config import settings
 import json
-import pandas as pd
-import io
 import re
-from json import JSONDecoder
-import ast
+from modules.test_generation_components.excel_export import (
+    convert_json_to_excel as _convert_json_to_excel_impl,
+)
+from modules.test_generation_components.json_processing import (
+    clean_and_parse_json as _clean_and_parse_json_impl,
+)
+from modules.test_generation_components.json_processing import (
+    normalize_json_structure as _normalize_json_structure_impl,
+)
 
-def clean_and_parse_json(response_text: str) -> any:
+
+def clean_and_parse_json(response_text: str) -> Any:
     """
-    清洗并解析 LLM 返回的 JSON 文本 (Clean and Parse JSON Response)
-    
-    LLM 返回的 JSON 经常存在格式问题，此函数尝试多种策略进行修复：
-    1. 提取 Markdown 代码块 (```json ... ```)。
-    2. 去除无关的前后缀文本。
-    3. 处理拼接的 JSON 数组 (应对流式拼接场景)。
-    4. 修复未闭合的数组或对象 (应对截断场景)。
-    5. 兜底策略：使用 ast.literal_eval 尝试解析 Python 字面量格式。
+    兼容旧调用入口：对外函数名保持不变，内部转调组件实现。
+
+    这样做可以在不改变外部引用路径的前提下，将解析逻辑从主流程文件中解耦。
     """
-    cleaned_response = response_text
-    result = None
-    try:
-        # Improved Markdown extraction using regex - Find ALL blocks to support batches
-        # (改进的 Markdown 提取 - 查找所有代码块以支持批处理)
-        code_blocks = re.findall(r'```(?:json)?\s*([\s\S]*?)\s*```', cleaned_response)
-        if code_blocks:
-            cleaned_response = "\n".join(code_blocks)
-        else:
-            # If no blocks found, strip potential backticks from raw text
-            # (如果没有找到代码块，去除原始文本中可能存在的反引号)
-            cleaned_response = cleaned_response.replace("```json", "").replace("```", "")
-        
-        cleaned_response = cleaned_response.replace("\ufeff", "").strip()
+    return _clean_and_parse_json_impl(response_text)
 
-        first_array = cleaned_response.find("[")
-        first_obj = cleaned_response.find("{")
-        if first_array == -1 and first_obj == -1:
-            raise ValueError("no json start")
 
-        root_is_array = (first_array != -1 and (first_obj == -1 or first_array < first_obj))
-        start_idx = first_array if root_is_array else first_obj
-        cleaned_response = cleaned_response[start_idx:]
-
-        cleaned_response = re.sub(r",\s*([}\]])", r"\1", cleaned_response)
-
-        decoder = JSONDecoder()
-        try:
-            parsed, end_idx = decoder.raw_decode(cleaned_response)
-            result = parsed
-            
-            # Support multiple JSON arrays concatenated (e.g. from streaming chunks)
-            # (支持拼接的多个 JSON 数组，例如来自流式分块的数据)
-            if root_is_array and isinstance(result, list):
-                remaining = cleaned_response[end_idx:].strip()
-                while remaining:
-                    try:
-                        # Skip potential garbage/separators until next '['
-                        # (跳过可能的垃圾字符/分隔符，直到下一个 '[')
-                        if not remaining.startswith("["):
-                            next_bracket = remaining.find("[")
-                            if next_bracket != -1:
-                                remaining = remaining[next_bracket:]
-                            else:
-                                break
-                        
-                        next_parsed, next_end = decoder.raw_decode(remaining)
-                        if isinstance(next_parsed, list):
-                            result.extend(next_parsed)
-                        remaining = remaining[next_end:].strip()
-                    except Exception:
-                        break
-        except Exception:
-            if root_is_array:
-                # 尝试修复未闭合的数组：先找最后一个闭合的括号 ]
-                # (Try to fix unclosed array: find the last closing bracket ']')
-                last_bracket = cleaned_response.rfind("]")
-                if last_bracket != -1:
-                    candidate = cleaned_response[: last_bracket + 1]
-                    candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
-                    try:
-                        parsed, _ = decoder.raw_decode(candidate)
-                        result = parsed
-                    except Exception:
-                        # 如果还是失败，可能是中间有错，尝试逐个对象解析
-                        # (If still fails, try parsing objects one by one)
-                        items = []
-                        cursor = 0
-                        while True:
-                            next_obj = cleaned_response.find("{", cursor)
-                            if next_obj == -1:
-                                break
-                            try:
-                                obj, end_idx = decoder.raw_decode(cleaned_response[next_obj:])
-                                items.append(obj)
-                                cursor = next_obj + end_idx
-                            except Exception:
-                                break
-                        
-                        if items:
-                            result = items
-                        else:
-                            raise
-                else:
-                    # 根本没有 ]，说明完全截断，尝试逐个提取对象
-                    # (No ']' found, meaning complete truncation, try extracting objects one by one)
-                    items = []
-                    cursor = 0
-                    while True:
-                        next_obj = cleaned_response.find("{", cursor)
-                        if next_obj == -1:
-                            break
-                        try:
-                            obj, end_idx = decoder.raw_decode(cleaned_response[next_obj:])
-                            items.append(obj)
-                            cursor = next_obj + end_idx
-                        except Exception:
-                            break
-                    if items:
-                        result = items
-                    else:
-                        raise
-            else:
-                last_brace = cleaned_response.rfind("}")
-                if last_brace == -1:
-                    raise
-                candidate = cleaned_response[: last_brace + 1]
-                candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
-                parsed, _ = decoder.raw_decode(candidate)
-                result = parsed
-    except Exception:
-        # Fallback: try ast.literal_eval
-        try:
-            if cleaned_response.strip().startswith(('[', '{')):
-                eval_result = ast.literal_eval(cleaned_response)
-                if isinstance(eval_result, (list, dict)):
-                    result = eval_result
-                else:
-                    raise ValueError
-            else:
-                raise ValueError
-        except Exception:
-             result = {"error": "Failed to parse JSON", "raw_response": response_text}
-             
-    return result
-
-def normalize_json_structure(data: any) -> any:
+def normalize_json_structure(data: Any) -> Any:
     """
-    Enforce strict JSON structure for test cases.
-    Each item must be a dict with specific keys.
+    兼容旧调用入口：对外函数名保持不变，内部转调组件实现。
     """
-    if not isinstance(data, list):
-        return data
-        
-    normalized = []
-    for i, item in enumerate(data):
-        if not isinstance(item, dict):
-            continue
-
-        def pick(keys: list[str], default=None):
-            for k in keys:
-                if k in item and item.get(k) is not None:
-                    return item.get(k)
-            return default
-
-        def normalize_list(v: any) -> list[str]:
-            if v is None:
-                return []
-            if isinstance(v, list):
-                out: list[str] = []
-                for x in v:
-                    if isinstance(x, dict):
-                        val = x.get("text") or x.get("desc") or x.get("step") or x.get("name") or x.get("内容") or x.get("描述") or x.get("步骤")
-                        if val is not None:
-                            out.append(str(val).strip())
-                        else:
-                            out.append(str(x).strip())
-                    else:
-                        out.append(str(x).strip())
-                return [s for s in out if s]
-            if isinstance(v, str):
-                s = v.strip()
-                if not s:
-                    return []
-                if "\n" in s:
-                    return [line.strip() for line in s.splitlines() if line.strip()]
-                if "；" in s:
-                    return [seg.strip() for seg in s.split("；") if seg.strip()]
-                if ";" in s:
-                    return [seg.strip() for seg in s.split(";") if seg.strip()]
-                return [s]
-            return [str(v).strip()] if str(v).strip() else []
-
-        raw_id = pick(["id", "ID", "case_id", "caseId", "用例编号", "编号", "test_case_id", "testcase_id"], None)
-        raw_id_s = str(raw_id).strip() if raw_id is not None else ""
-        if re.fullmatch(r"TC-\d{3,}", raw_id_s):
-            final_id = raw_id_s
-        elif re.fullmatch(r"\d+", raw_id_s):
-            final_id = f"TC-{int(raw_id_s):03d}"
-        else:
-            final_id = f"TC-{i + 1:03d}"
-
-        description = str(pick(["description", "desc", "用例描述", "描述", "name", "title", "标题"], "") or "").strip()
-        test_module = str(pick(["test_module", "module", "testModule", "模块", "功能模块", "所属模块"], "") or "").strip()
-        preconditions = normalize_list(pick(["preconditions", "precondition", "前置条件", "前提条件", "conditions"], []))
-        steps = normalize_list(pick(["steps", "step", "操作步骤", "步骤", "test_steps", "testSteps"], []))
-        test_input = str(pick(["test_input", "input", "testInput", "输入", "测试输入", "入参"], "") or "").strip()
-        expected_result = str(pick(["expected_result", "expected", "expectedResult", "预期结果", "期望结果", "断言"], "") or "").strip()
-        priority = str(pick(["priority", "Priority", "prio", "优先级", "级别"], "P1") or "P1").strip()
-
-        p = priority.upper()
-        if p not in ["P0", "P1", "P2"]:
-            if p in ["高", "HIGH"]:
-                p = "P0"
-            elif p in ["中", "MEDIUM"]:
-                p = "P1"
-            elif p in ["低", "LOW"]:
-                p = "P2"
-            else:
-                p = "P1"
-
-        new_item = {
-            "id": final_id,
-            "description": description,
-            "test_module": test_module,
-            "preconditions": preconditions,
-            "steps": steps,
-            "test_input": test_input,
-            "expected_result": expected_result,
-            "priority": p
-        }
-
-        normalized.append(new_item)
-        
-    return normalized
-
-from starlette.concurrency import run_in_threadpool
-import asyncio
+    return _normalize_json_structure_impl(data)
 
 class TestGenerationModule:
     """
@@ -1466,86 +1258,11 @@ Types:
         return self.convert_json_to_excel(json_result)
 
     def convert_json_to_excel(self, json_data: list | dict) -> bytes:
-        # Handle dict response (e.g. error or wrapped)
-        data = json_data
-        if isinstance(json_data, dict):
-            if "error" in json_data:
-                # Create a single row with error
-                data = [{"error": json_data["error"]}]
-            # If it's a dict but not error, check if it wraps a list? 
-            # The prompt asks for list of objects.
-            # If AI returned a dict like {"test_cases": [...]}, we might need to extract.
-            # But generate_test_cases_json tries to return list or dict.
-            # Let's assume if it's a dict, we wrap it in list, unless it has a known key.
-            else:
-                 data = [json_data]
-                 
-        if not isinstance(data, list):
-            data = [data] # Fallback
+        """
+        导出入口保持原方法签名，内部委托给组件实现。
 
-        # Process data to format fields (preconditions, steps)
-        processed_data = []
-        for item in data:
-            if not isinstance(item, dict):
-                processed_data.append({"raw": str(item)})
-                continue
-            
-            new_item = item.copy()
-            
-            # 1. Format preconditions: remove empty strings, join with newlines
-            pre = new_item.get("preconditions")
-            if isinstance(pre, list):
-                pre = [str(p).strip() for p in pre if str(p).strip()]
-                new_item["preconditions"] = "\n".join(pre)
-            elif isinstance(pre, str):
-                 # Try to parse stringified list
-                 if pre.strip().startswith("[") and pre.strip().endswith("]"):
-                     try:
-                         import ast
-                         val = ast.literal_eval(pre)
-                         if isinstance(val, list):
-                             val = [str(p).strip() for p in val if str(p).strip()]
-                             new_item["preconditions"] = "\n".join(val)
-                     except:
-                         pass
-
-            # 2. Format steps: remove empty, add numbering 1. 2.
-            # User requirement: remove [''], number sequentially.
-            # If sub-content exists, use (1). (2). (Advanced logic omitted for now as AI usually outputs flat list)
-            steps = new_item.get("steps")
-            if isinstance(steps, list):
-                steps = [str(s).strip() for s in steps if str(s).strip()]
-                formatted_steps = []
-                for i, s in enumerate(steps, 1):
-                    formatted_steps.append(f"{i}. {s}")
-                new_item["steps"] = "\n".join(formatted_steps)
-            elif isinstance(steps, str):
-                 if steps.strip().startswith("[") and steps.strip().endswith("]"):
-                     try:
-                         import ast
-                         val = ast.literal_eval(steps)
-                         if isinstance(val, list):
-                             val = [str(s).strip() for s in val if str(s).strip()]
-                             formatted_steps = []
-                             for i, s in enumerate(val, 1):
-                                 formatted_steps.append(f"{i}. {s}")
-                             new_item["steps"] = "\n".join(formatted_steps)
-                     except:
-                         pass
-            
-            processed_data.append(new_item)
-
-        # Convert JSON to DataFrame
-        df = pd.DataFrame(processed_data)
-        
-        # Create Excel file in memory with fallback to CSV
-        try:
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='Test Cases')
-            output.seek(0)
-            return output.read()
-        except Exception:
-            return df.to_csv(index=False).encode('utf-8')
+        这样可避免路由层调用路径变化，同时让导出逻辑与生成编排逻辑解耦。
+        """
+        return _convert_json_to_excel_impl(json_data)
 
 test_generator = TestGenerationModule()
