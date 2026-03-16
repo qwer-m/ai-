@@ -1,16 +1,22 @@
+"""
+测试生成路由层。
+
+职责边界：
+1. 接收并校验 HTTP 参数、鉴权上下文。
+2. 调用测试生成与上下文编排模块完成业务。
+3. 维护接口协议（流式返回、重复文档提示、Excel 导出等）。
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
 import json
-import os
 
 from core.database import get_db
-from core.models import Project, User, TestGeneration
+from core.models import User
 from core.auth import get_current_user
 from core.utils import log_to_db, logger
-from core.file_processing import parse_file_content
 from core.config import settings
 from core.workflow import WorkflowKind, WorkflowStage, log_workflow_trace
 from schemas.test_generation import TestGenRequest
@@ -19,51 +25,19 @@ from modules.context_orchestrator import context_orchestrator
 from modules.test_generation import test_generator
 from modules.knowledge_base import knowledge_base
 from modules.tasks import generate_test_cases_task
+from .test_generation_routes.support import (
+    build_generation_qm,
+    detect_duplicate_document,
+    get_owned_project,
+    parse_requirement_content,
+)
 
 router = APIRouter(
     prefix="",  # Prefix will be handled by main app inclusion or we can put specific prefixes here
     tags=["Test Generation"]
 )
-# Note: In main.py, prefix was /api, and routes were /generate-tests. 
+# Note: In main.py, prefix was /api, and routes were /generate-tests.
 # So if we mount this router with prefix /api, then routes here should be /generate-tests
-
-
-def _get_owned_project(project_id: int, db: Session, user_id: int) -> Project:
-    project = db.query(Project).filter(Project.id == project_id, Project.user_id == user_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    return project
-
-
-def _get_previous_generation_json(
-    db: Session,
-    project_id: int,
-    user_id: int,
-    requirement_text: str,
-):
-    prev = db.query(TestGeneration).filter(
-        TestGeneration.project_id == project_id,
-        TestGeneration.requirement_text == requirement_text,
-        TestGeneration.user_id == user_id
-    ).order_by(TestGeneration.created_at.desc()).first()
-
-    if not prev and len(requirement_text) > 60000:
-        prefix = requirement_text[:60000]
-        prev = db.query(TestGeneration).filter(
-            TestGeneration.project_id == project_id,
-            TestGeneration.requirement_text.startswith(prefix),
-            TestGeneration.user_id == user_id
-        ).order_by(TestGeneration.created_at.desc()).first()
-
-    prev_json = None
-    if prev and prev.generated_result:
-        try:
-            prev_json = json.loads(prev.generated_result)
-        except Exception:
-            prev_json = {"raw": prev.generated_result}
-    return prev_json
-
 
 @router.post("/estimate-test-count")
 async def estimate_test_count(
@@ -78,21 +52,13 @@ async def estimate_test_count(
     """
     估算测试用例数量，兼容文本与文件两种输入模式。
     """
-    _get_owned_project(project_id, db, current_user.id)
+    get_owned_project(project_id, db, current_user.id)
 
     req_text = (requirement or "").strip()
     if not req_text:
         if not file:
             return {"count": 20}
-        base_prompt = "OCR: Extract all text from this image."
-        proto_prompt = (
-            "Analyze this UI prototype image. Describe every UI element, their layout, text content, and likely interactions. "
-            "Identify input fields, buttons, navigation menus, and any visual indicators of state."
-        )
-        req_text = await parse_file_content(file, base_prompt)
-        if doc_type == "incomplete" and prototype_file is not None:
-            proto_text = await parse_file_content(prototype_file, proto_prompt)
-            req_text = f"{req_text}\n\n[Prototype Analysis]\n{proto_text}"
+        req_text = await parse_requirement_content(file, doc_type, prototype_file)
 
     try:
         context_bundle = context_orchestrator.assemble_context(
@@ -148,7 +114,7 @@ async def generate_tests_stream(
     """
     流式生成测试用例，返回纯文本流（前端按 chunk 增量解析）。
     """
-    _get_owned_project(project_id, db, current_user.id)
+    get_owned_project(project_id, db, current_user.id)
 
     content = (requirement_text or "").strip()
     uploaded_filename: str | None = None
@@ -156,42 +122,23 @@ async def generate_tests_stream(
         if not file:
             return JSONResponse(status_code=400, content={"error": "Missing requirement_text or file"})
         uploaded_filename = file.filename
-        base_prompt = "OCR: Extract all text from this image."
-        proto_prompt = (
-            "Analyze this UI prototype image. Describe every UI element, their layout, text content, and likely interactions. "
-            "Identify input fields, buttons, navigation menus, and any visual indicators of state."
-        )
-        content = await parse_file_content(file, base_prompt)
-        if doc_type == "incomplete" and prototype_file is not None:
-            proto_text = await parse_file_content(prototype_file, proto_prompt)
-            content = f"{content}\n\n[Prototype Analysis]\n{proto_text}"
+        content = await parse_requirement_content(file, doc_type, prototype_file)
 
         # 文件模式下保留“重复文档提示”能力，和前端 @@DUPLICATE@@ 协议对齐
-        try:
-            kb_add = knowledge_base.add_document(
-                uploaded_filename or "uploaded_file",
-                content,
-                doc_type,
-                project_id,
-                db,
-                force=force,
-                user_id=current_user.id,
-            )
-            if isinstance(kb_add, dict) and kb_add.get("status") == "duplicate" and not force:
-                previous_json = _get_previous_generation_json(db, project_id, current_user.id, content)
-                payload = {
-                    "duplicate": True,
-                    "filename": kb_add.get("existing_filename"),
-                    "previous_json": previous_json,
-                }
+        payload = detect_duplicate_document(
+            db,
+            filename=uploaded_filename or "uploaded_file",
+            content=content,
+            doc_type=doc_type,
+            project_id=project_id,
+            force=force,
+            user_id=current_user.id,
+        )
+        if payload:
+            def duplicate_stream():
+                yield "@@DUPLICATE@@" + json.dumps(payload, ensure_ascii=False)
 
-                def duplicate_stream():
-                    yield "@@DUPLICATE@@" + json.dumps(payload, ensure_ascii=False)
-
-                return StreamingResponse(duplicate_stream(), media_type="text/plain; charset=utf-8")
-        except Exception:
-            # 重复检测失败不阻断生成流程
-            pass
+            return StreamingResponse(duplicate_stream(), media_type="text/plain; charset=utf-8")
 
     stream_iter = test_generator.generate_test_cases_stream(
         requirement=content,
@@ -214,9 +161,7 @@ def generate_tests(request: TestGenRequest, db: Session = Depends(get_db), curre
     鍚屾鐢熸垚娴嬭瘯鐢ㄤ緥 (Synchronous Test Generation)
     """
     # Verify project
-    project = db.query(Project).filter(Project.id == request.project_id, Project.user_id == current_user.id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    get_owned_project(request.project_id, db, current_user.id)
 
     context_bundle = context_orchestrator.assemble_context(
         WorkflowKind.TEST_GENERATION,
@@ -264,47 +209,8 @@ def generate_tests(request: TestGenRequest, db: Session = Depends(get_db), curre
         }
         log_to_db(db, request.project_id, "system", f"GEN_DIAG:{json.dumps(diag, ensure_ascii=False)}", user_id=current_user.id)
         try:
-            # Metrics calculation for this batch
-            positive = 0
-            negative = 0
-            edge = 0
-            avg_steps = 0.0
-            pending = 0
-            steps_count = 0
-            steps_items = 0
-            kw_neg = ["失败", "错误", "异常", "不可用", "拒绝", "超时"]
-            kw_edge = ["边界", "最大值", "最小值", "极限", "临界", "空值", "重复", "特殊字符"]
-            if isinstance(result, list):
-                for item in result:
-                    desc = (item.get("description") or "") + " " + (item.get("expected_result") or "")
-                    is_neg = any(k in desc for k in kw_neg)
-                    is_edge = any(k in desc for k in kw_edge)
-                    if is_neg:
-                        negative += 1
-                    elif is_edge:
-                        edge += 1
-                    else:
-                        positive += 1
-                    steps = item.get("steps")
-                    if isinstance(steps, list):
-                        steps_count += len(steps)
-                        steps_items += 1
-                    elif isinstance(steps, str):
-                        lines = [s for s in steps.splitlines() if s.strip()]
-                        steps_count += len(lines)
-                        steps_items += 1
-                    if isinstance(item.get("description"), str) and "[Pending Confirmation]" in item.get("description"):
-                        pending += 1
-            avg_steps = steps_count / steps_items if steps_items else 0.0
-            qm = {
-                "positive": positive,
-                "negative": negative,
-                "edge": edge,
-                "avg_steps": avg_steps,
-                "pending": pending,
-                "generated_count": count,
-                "batch_index": request.batch_index
-            }
+            qm = build_generation_qm(result)
+            qm["batch_index"] = request.batch_index
             log_to_db(db, request.project_id, "system", f"GEN_QM:{json.dumps(qm, ensure_ascii=False)}", user_id=current_user.id)
         except Exception:
             pass
@@ -319,9 +225,7 @@ async def generate_tests_async(request: TestGenRequest, db: Session = Depends(ge
     Returns task_id for status tracking.
     """
     # Verify project
-    project = db.query(Project).filter(Project.id == request.project_id, Project.user_id == current_user.id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    get_owned_project(request.project_id, db, current_user.id)
 
     task = generate_test_cases_task.delay(
         requirement=request.requirement,
@@ -349,57 +253,23 @@ async def generate_tests_from_file(
     current_user: User = Depends(get_current_user)
 ):
     # Verify project
-    project = db.query(Project).filter(Project.id == project_id, Project.user_id == current_user.id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    get_owned_project(project_id, db, current_user.id)
 
     try:
-        base_prompt = "OCR: Extract all text from this image."
-        proto_prompt = (
-            "Analyze this UI prototype image. Describe every UI element, their layout, text content, and likely interactions. "
-            "Identify input fields, buttons, navigation menus, and any visual indicators of state."
+        content = await parse_requirement_content(file, doc_type, prototype_file)
+
+        # 文件模式保留重复文档提示能力，返回结构与历史实现保持一致。
+        duplicate_payload = detect_duplicate_document(
+            db,
+            filename=file.filename,
+            content=content,
+            doc_type=doc_type,
+            project_id=project_id,
+            force=force,
+            user_id=current_user.id,
         )
-        # Parse main document (text or image)
-        content = await parse_file_content(file, base_prompt)
-
-        # If incomplete with prototype image, parse prototype and merge content
-        if doc_type == "incomplete" and prototype_file is not None:
-            proto_text = await parse_file_content(prototype_file, proto_prompt)
-            content = f"{content}\n\n[Prototype Analysis]\n{proto_text}"
-
-        # Try to store document into Knowledge Base; if duplicate and not forced, return promptly
-        try:
-            kb_add = knowledge_base.add_document(file.filename, content, doc_type, project_id, db, force=force, user_id=current_user.id)
-            if isinstance(kb_add, dict) and kb_add.get("status") == "duplicate" and not force:
-                # Try exact match first
-                prev = db.query(TestGeneration).filter(
-                    TestGeneration.project_id == project_id,
-                    TestGeneration.requirement_text == content,
-                    TestGeneration.user_id == current_user.id
-                ).order_by(TestGeneration.created_at.desc()).first()
-                
-                # If exact match fails (e.g. truncated history), try prefix match for long content
-                if not prev and len(content) > 60000:
-                    prefix = content[:60000]
-                    prev = db.query(TestGeneration).filter(
-                        TestGeneration.project_id == project_id,
-                        TestGeneration.requirement_text.startswith(prefix),
-                        TestGeneration.user_id == current_user.id
-                    ).order_by(TestGeneration.created_at.desc()).first()
-
-                prev_json = None
-                if prev and prev.generated_result:
-                    try:
-                        prev_json = json.loads(prev.generated_result)
-                    except Exception:
-                        prev_json = {"raw": prev.generated_result}
-                return {
-                    "duplicate": True,
-                    "filename": kb_add.get("existing_filename"),
-                    "previous_json": prev_json
-                }
-        except Exception:
-            pass
+        if duplicate_payload:
+            return duplicate_payload
 
         log_to_db(db, project_id, "system", f"文件生成测试用例: 主文档长度={len(content)}, 类型={doc_type}, 压缩={compress}, 预期数量={expected_count}, 模型={settings.MODEL_NAME}, max_tokens={settings.MAX_TOKENS}", user_id=current_user.id)
         # Run sync generation in threadpool to avoid blocking event loop
@@ -426,45 +296,7 @@ async def generate_tests_from_file(
             }
             log_to_db(db, project_id, "system", f"GEN_DIAG:{json.dumps(diag, ensure_ascii=False)}", user_id=current_user.id)
             try:
-                positive = 0
-                negative = 0
-                edge = 0
-                avg_steps = 0.0
-                pending = 0
-                steps_count = 0
-                steps_items = 0
-                kw_neg = ["失败", "错误", "异常", "不可用", "拒绝", "超时"]
-                kw_edge = ["边界", "最大值", "最小值", "极限", "临界", "空值", "重复", "特殊字符"]
-                if isinstance(result, list):
-                    for item in result:
-                        desc = (item.get("description") or "") + " " + (item.get("expected_result") or "")
-                        is_neg = any(k in desc for k in kw_neg)
-                        is_edge = any(k in desc for k in kw_edge)
-                        if is_neg:
-                            negative += 1
-                        elif is_edge:
-                            edge += 1
-                        else:
-                            positive += 1
-                        steps = item.get("steps")
-                        if isinstance(steps, list):
-                            steps_count += len(steps)
-                            steps_items += 1
-                        elif isinstance(steps, str):
-                            lines = [s for s in steps.splitlines() if s.strip()]
-                            steps_count += len(lines)
-                            steps_items += 1
-                        if isinstance(item.get("description"), str) and "[Pending Confirmation]" in item.get("description"):
-                            pending += 1
-                avg_steps = steps_count / steps_items if steps_items else 0.0
-                qm = {
-                    "positive": positive,
-                    "negative": negative,
-                    "edge": edge,
-                    "avg_steps": avg_steps,
-                    "pending": pending,
-                    "generated_count": count
-                }
+                qm = build_generation_qm(result)
                 log_to_db(db, project_id, "system", f"GEN_QM:{json.dumps(qm, ensure_ascii=False)}", user_id=current_user.id)
             except Exception:
                 pass
@@ -492,57 +324,22 @@ async def generate_tests_from_file_async(
     Uploads file, parses it (sync), then submits Celery task.
     """
     # Verify project
-    project = db.query(Project).filter(Project.id == project_id, Project.user_id == current_user.id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    get_owned_project(project_id, db, current_user.id)
 
     try:
-        base_prompt = "OCR: Extract all text from this image."
-        proto_prompt = (
-            "Analyze this UI prototype image. Describe every UI element, their layout, text content, and likely interactions. "
-            "Identify input fields, buttons, navigation menus, and any visual indicators of state."
+        content = await parse_requirement_content(file, doc_type, prototype_file)
+
+        duplicate_payload = detect_duplicate_document(
+            db,
+            filename=file.filename,
+            content=content,
+            doc_type=doc_type,
+            project_id=project_id,
+            force=force,
+            user_id=current_user.id,
         )
-        # Parse main document (text or image)
-        content = await parse_file_content(file, base_prompt)
-
-        # If incomplete with prototype image, parse prototype and merge content
-        if doc_type == "incomplete" and prototype_file is not None:
-            proto_text = await parse_file_content(prototype_file, proto_prompt)
-            content = f"{content}\n\n[Prototype Analysis]\n{proto_text}"
-
-        # Try to store document into Knowledge Base; if duplicate and not forced, return promptly
-        try:
-            kb_add = knowledge_base.add_document(file.filename, content, doc_type, project_id, db, force=force, user_id=current_user.id)
-            if isinstance(kb_add, dict) and kb_add.get("status") == "duplicate" and not force:
-                # Try exact match first
-                prev = db.query(TestGeneration).filter(
-                    TestGeneration.project_id == project_id,
-                    TestGeneration.requirement_text == content,
-                    TestGeneration.user_id == current_user.id
-                ).order_by(TestGeneration.created_at.desc()).first()
-                
-                # If exact match fails (e.g. truncated history), try prefix match for long content
-                if not prev and len(content) > 60000:
-                    prefix = content[:60000]
-                    prev = db.query(TestGeneration).filter(
-                        TestGeneration.project_id == project_id,
-                        TestGeneration.requirement_text.startswith(prefix),
-                        TestGeneration.user_id == current_user.id
-                    ).order_by(TestGeneration.created_at.desc()).first()
-
-                prev_json = None
-                if prev and prev.generated_result:
-                    try:
-                        prev_json = json.loads(prev.generated_result)
-                    except Exception:
-                        prev_json = {"raw": prev.generated_result}
-                return {
-                    "duplicate": True,
-                    "filename": kb_add.get("existing_filename"),
-                    "previous_json": prev_json
-                }
-        except Exception:
-            pass
+        if duplicate_payload:
+            return duplicate_payload
 
         # Submit task
         task = generate_test_cases_task.delay(
@@ -562,9 +359,7 @@ async def generate_tests_from_file_async(
 def generate_tests_excel(request: TestGenRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
         # Verify project
-        project = db.query(Project).filter(Project.id == request.project_id, Project.user_id == current_user.id).first()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
+        get_owned_project(request.project_id, db, current_user.id)
 
         # request doesn't have doc_type, assuming standard requirement
         excel_bytes = test_generator.generate_test_cases_excel(request.requirement, request.project_id, db, user_id=current_user.id)
@@ -584,21 +379,10 @@ async def generate_tests_from_file_excel(
     current_user: User = Depends(get_current_user)
 ):
     # Verify project
-    project = db.query(Project).filter(Project.id == project_id, Project.user_id == current_user.id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    get_owned_project(project_id, db, current_user.id)
 
-    from fastapi.concurrency import run_in_threadpool
     try:
-        base_prompt = "OCR: Extract all text from this image."
-        proto_prompt = (
-            "Analyze this UI prototype image. Describe every UI element, their layout, text content, and likely interactions. "
-            "Identify input fields, buttons, navigation menus, and any visual indicators of state."
-        )
-        content = await parse_file_content(file, base_prompt)
-        if doc_type == "incomplete" and prototype_file is not None:
-            proto_text = await parse_file_content(prototype_file, proto_prompt)
-            content = f"{content}\n\n[Prototype Analysis]\n{proto_text}"
+        content = await parse_requirement_content(file, doc_type, prototype_file)
         log_to_db(db, project_id, "system", f"文件生成Excel: 主文档长度={len(content)}, 类型={doc_type}, 压缩={compress}, 预期数量={expected_count}, 模型={settings.MODEL_NAME}, max_tokens={settings.MAX_TOKENS}", user_id=current_user.id)
         excel_bytes = test_generator.generate_test_cases_excel(content, project_id, db, doc_type, compress, user_id=current_user.id)
         is_excel = True
