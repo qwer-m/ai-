@@ -14,6 +14,7 @@ import dashscope
 import json
 import httpx
 import time
+import base64
 from typing import Optional, List, Dict, Any, Generator
 from abc import ABC, abstractmethod
 
@@ -472,4 +473,3 @@ class UITARSProvider(OpenAICompatibleProvider):
 
     def __init__(self, base_url: str, api_key: str, model: str = "uitars-7b"):
         super().__init__(base_url, api_key, model)
-
