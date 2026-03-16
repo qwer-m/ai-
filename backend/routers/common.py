@@ -1,13 +1,16 @@
-import json
+﻿import json
+import logging
 import re
 from datetime import datetime
 from typing import Any, Optional
 
+from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
+from celery_config import celery_app
 from core.auth import get_current_user
 from core.database import get_db
 from core.models import KnowledgeDocument, Project, User
@@ -15,8 +18,9 @@ from modules.knowledge_base import knowledge_base
 from schemas.common import ErrorTranslateRequest
 
 router = APIRouter(tags=["Common"])
+logger = logging.getLogger(__name__)
 
-# 需求类文档类型集合：这些文档可以作为测试用例的“来源文档”。
+# 需求类文档类型集合：这些文档可以作为测试用例的来源文档。
 REQUIREMENT_LIKE_TYPES = {"requirement", "product_requirement", "incomplete"}
 
 
@@ -56,7 +60,9 @@ def _serialize_linked_doc(doc: KnowledgeDocument) -> dict:
 
 
 def _serialize_doc(
-    doc: KnowledgeDocument, source_name_map: dict[int, str], linked_map: dict[int, list[dict]]
+    doc: KnowledgeDocument,
+    source_name_map: dict[int, str],
+    linked_map: dict[int, list[dict]],
 ) -> dict:
     """把知识库文档序列化为列表结构，同时补充离线解析状态字段。"""
     content = doc.content or ""
@@ -85,13 +91,11 @@ def _get_owned_project(project_id: int, user_id: int, db: Session) -> Optional[P
 
 
 def _get_owned_doc_by_id_or_project_specific_id(
-    doc_id: int, user_id: int, db: Session
+    doc_id: int,
+    user_id: int,
+    db: Session,
 ) -> Optional[KnowledgeDocument]:
-    """
-    先按全局ID查询，查不到再按 project_specific_id 兜底。
-
-    这样可以兼容历史前端在重构期间的不同入参格式。
-    """
+    """先按全局ID查询，查不到再按 project_specific_id 兜底。"""
     doc = (
         db.query(KnowledgeDocument)
         .join(Project, Project.id == KnowledgeDocument.project_id)
@@ -100,6 +104,7 @@ def _get_owned_doc_by_id_or_project_specific_id(
     )
     if doc:
         return doc
+
     return (
         db.query(KnowledgeDocument)
         .join(Project, Project.id == KnowledgeDocument.project_id)
@@ -126,7 +131,7 @@ def list_knowledge(
     """
     知识库列表接口。
 
-    默认会隐藏：
+    默认隐藏：
     1. 已关联测试用例（source_doc_id 非空）
     2. 评估报告（evaluation_report）
     """
@@ -149,6 +154,7 @@ def list_knowledge(
                 KnowledgeDocument.source_doc_id.isnot(None),
             )
         )
+
     if not include_evaluation_reports:
         query = query.filter(KnowledgeDocument.doc_type != "evaluation_report")
 
@@ -162,9 +168,7 @@ def list_knowledge(
 
     if end_date:
         try:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(
-                hour=23, minute=59, second=59
-            )
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
             query = query.filter(KnowledgeDocument.created_at <= end_dt)
         except ValueError:
             query = query.filter(KnowledgeDocument.created_at <= end_date)
@@ -227,11 +231,7 @@ async def upload_knowledge(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    上传知识库文档并入队离线解析。
-
-    这里不在请求线程做完整解析，接口会快速返回 pending 状态。
-    """
+    """上传知识库文件并入队离线解析。"""
     project = _get_owned_project(project_id, current_user.id, db)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -306,10 +306,50 @@ def get_knowledge_parse_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """按文档查询离线解析状态。"""
+    """
+    按文档查询离线解析状态。
+
+    额外做一次任务态对账：若任务已失败但文档还停留在 parsing，则自动回收为 failed。
+    """
     doc = _get_owned_doc_by_id_or_project_specific_id(doc_id, current_user.id, db)
     if not doc:
         raise HTTPException(status_code=404, detail="Knowledge document not found")
+
+    task_state: Optional[str] = None
+    if doc.task_id:
+        try:
+            task_state = AsyncResult(doc.task_id, app=celery_app).state
+        except Exception as e:
+            # Celery 结果后端偶发返回异常元数据时，状态接口应降级而非 500。
+            task_state = "UNKNOWN"
+            logger.warning("读取 Celery 任务状态失败 task_id=%s err=%s", doc.task_id, e)
+
+        if doc.parse_status == "parsing" and task_state in ("FAILURE", "REVOKED"):
+            knowledge_base.mark_document_parse_failed(
+                doc_id=doc.id,
+                error=f"解析任务异常终止（{task_state}），状态已自动回收。",
+                db=db,
+                task_id=doc.task_id,
+                retry_count=doc.retry_count,
+            )
+            db.refresh(doc)
+
+        # 当任务已到最大重试且状态异常（PENDING/UNKNOWN）时，避免长期卡在 parsing。
+        if (
+            doc.parse_status == "parsing"
+            and task_state in ("PENDING", "UNKNOWN")
+            and doc.retry_count >= 2
+        ):
+            knowledge_base.mark_document_parse_failed(
+                doc_id=doc.id,
+                error=f"解析任务状态异常（{task_state}），已按失败回收。",
+                db=db,
+                task_id=doc.task_id,
+                retry_count=doc.retry_count,
+            )
+            db.refresh(doc)
+
+
 
     return {
         "id": doc.project_specific_id or doc.id,
@@ -319,6 +359,7 @@ def get_knowledge_parse_status(
         "parsed_at": _to_iso(doc.parsed_at),
         "task_id": doc.task_id,
         "retry_count": doc.retry_count,
+        "task_state": task_state,
     }
 
 
@@ -346,7 +387,7 @@ def update_knowledge_relation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新测试用例与需求文档的关联关系。"""
+    """更新测试用例与需求文档关联关系。"""
     target_doc = _get_owned_doc_by_id_or_project_specific_id(req.doc_id, current_user.id, db)
     if not target_doc:
         raise HTTPException(status_code=404, detail="Target document not found")
@@ -447,4 +488,3 @@ def translate_error_text(text: str) -> str:
         if key in lower:
             return msg
     return "发生错误，请稍后重试"
-

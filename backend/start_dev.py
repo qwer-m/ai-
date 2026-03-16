@@ -227,6 +227,33 @@ def ensure_redis_ready() -> bool:
     return False
 
 
+def ensure_database_schema(current_dir: str) -> bool:
+    """
+    启动前执行数据库建表与迁移检查。
+
+    目的：避免离线解析新增字段未落库，导致上传接口直接 500。
+    """
+    try:
+        result = subprocess.run(
+            [sys.executable, "init_db.py"],
+            cwd=current_dir,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            print("[ERROR] Database schema check failed:")
+            print(result.stdout)
+            print(result.stderr)
+            return False
+
+        print("Database schema checked.")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Failed to run init_db.py: {e}")
+        return False
+
+
 def _sanitize_windows_home_path(candidate: str | None) -> str | None:
     if not candidate:
         return None
@@ -340,6 +367,10 @@ def main() -> None:
 
     if not ensure_redis_ready():
         print("[ERROR] Redis is required but unavailable. Please fix Redis and retry.")
+        return
+
+    if not ensure_database_schema(current_dir):
+        print("[ERROR] Database schema check failed. Please fix DB and retry.")
         return
 
     # 启动前清理端口占用

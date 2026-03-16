@@ -1,21 +1,26 @@
-"""
+﻿"""
 Celery 任务模块。
 
-当前包含三类任务：
+当前包含：
 1. 测试用例生成任务（原有能力）。
-2. 日志与历史数据维护任务（原有能力）。
-3. 知识库离线解析任务（阶段1新增能力）。
+2. 知识库离线解析任务（阶段1核心链路）。
+3. 日志与历史数据维护任务（原有能力）。
 """
 
 from __future__ import annotations
 
 import json
+import logging
+
+from celery.exceptions import SoftTimeLimitExceeded
 
 from celery_config import celery_app
 from core.database import SessionLocal
 from modules.knowledge_base import knowledge_base
 from modules.knowledge_base_components.offline_parse import cleanup_offline_file
 from modules.test_generation import test_generator
+
+logger = logging.getLogger(__name__)
 
 
 @celery_app.task(bind=True, name="modules.tasks.generate_test_cases_task")
@@ -58,6 +63,8 @@ def generate_test_cases_task(
     name="modules.tasks.parse_knowledge_document_task",
     max_retries=2,
     default_retry_delay=8,
+    soft_time_limit=300,
+    time_limit=360,
 )
 def parse_knowledge_document_task(
     self,
@@ -78,6 +85,14 @@ def parse_knowledge_document_task(
     retry_count = int(getattr(self.request, "retries", 0) or 0)
     task_id = getattr(self.request, "id", None)
 
+    logger.info(
+        "离线解析任务启动 doc_id=%s task_id=%s retry=%s file=%s",
+        document_id,
+        task_id,
+        retry_count,
+        file_path,
+    )
+
     try:
         self.update_state(
             state="STARTED",
@@ -92,33 +107,66 @@ def parse_knowledge_document_task(
             task_id=task_id,
             retry_count=retry_count,
         )
+        logger.info(
+            "离线解析任务完成 doc_id=%s task_id=%s result=%s",
+            document_id,
+            task_id,
+            result,
+        )
         return result
     except Exception as e:
+        # 超时异常归一化为可读错误，避免前端看到晦涩异常名称。
+        if isinstance(e, SoftTimeLimitExceeded):
+            e = TimeoutError("离线解析超时，任务已中断。")
+
         max_retries = int(getattr(self, "max_retries", 0) or 0)
-        # 进入重试前，先把文档状态回退为 pending，并记录失败原因。
+        logger.exception(
+            "离线解析任务异常 doc_id=%s task_id=%s retry=%s/%s err=%s",
+            document_id,
+            task_id,
+            retry_count,
+            max_retries,
+            e,
+        )
+
         if retry_count < max_retries:
-            knowledge_base.mark_document_parse_retry(
+            # 重试前把状态回退为 pending；若文档已被并发任务成功，内部会跳过覆盖。
+            try:
+                knowledge_base.mark_document_parse_retry(
+                    doc_id=document_id,
+                    retry_count=retry_count + 1,
+                    error=e,
+                    db=db,
+                    task_id=task_id,
+                )
+            except Exception as mark_error:
+                logger.exception(
+                    "离线解析任务回写重试状态失败 doc_id=%s task_id=%s err=%s",
+                    document_id,
+                    task_id,
+                    mark_error,
+                )
+            raise self.retry(exc=e)
+
+        # 达到最大重试次数后，标记最终失败。
+        try:
+            knowledge_base.mark_document_parse_failed(
                 doc_id=document_id,
-                retry_count=retry_count + 1,
                 error=e,
                 db=db,
                 task_id=task_id,
+                retry_count=retry_count,
             )
-            raise self.retry(exc=e)
+        except Exception as mark_error:
+            logger.exception(
+                "离线解析任务回写最终失败状态失败 doc_id=%s task_id=%s err=%s",
+                document_id,
+                task_id,
+                mark_error,
+            )
 
-        # 达到最大重试次数后，标记为 failed，保证失败可见。
-        knowledge_base.mark_document_parse_failed(
-            doc_id=document_id,
-            error=e,
-            db=db,
-            task_id=task_id,
-            retry_count=retry_count,
-        )
         cleanup_offline_file(file_path)
-        self.update_state(
-            state="FAILURE",
-            meta={"error": str(e), "document_id": document_id},
-        )
+        # 让 Celery 统一记录 FAILURE 元信息，避免手工 update_state 写入不完整异常结构。
         raise e
     finally:
         db.close()
@@ -178,11 +226,7 @@ def archive_old_data_task(self, retention_days: int = 30):
                 }
                 for l in logs
             ]
-            with open(
-                os.path.join(archive_dir, f"logs_{timestamp}.json"),
-                "w",
-                encoding="utf-8",
-            ) as f:
+            with open(os.path.join(archive_dir, f"logs_{timestamp}.json"), "w", encoding="utf-8") as f:
                 json.dump(log_data, f, ensure_ascii=False, indent=2)
 
             for l in logs:
@@ -201,11 +245,7 @@ def archive_old_data_task(self, retention_days: int = 30):
                 }
                 for t in tests
             ]
-            with open(
-                os.path.join(archive_dir, f"tests_{timestamp}.json"),
-                "w",
-                encoding="utf-8",
-            ) as f:
+            with open(os.path.join(archive_dir, f"tests_{timestamp}.json"), "w", encoding="utf-8") as f:
                 json.dump(test_data, f, ensure_ascii=False, indent=2)
 
             for t in tests:
@@ -219,4 +259,3 @@ def archive_old_data_task(self, retention_days: int = 30):
         raise e
     finally:
         db.close()
-

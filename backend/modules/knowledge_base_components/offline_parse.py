@@ -1,19 +1,13 @@
-"""
-知识库离线解析组件。
-
-职责边界：
-1. 接收上传文件并落盘，保证 Celery 任务可在请求线程外读取原始文件。
-2. 维护文档解析状态机（pending/parsing/success/failed）的字段更新。
-3. 复用现有摘要与向量索引逻辑，完成“原文+摘要”双索引写入。
-"""
+﻿"""知识库离线解析组件（阶段1）。"""
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 from typing import Any, Optional
+from uuid import uuid4
 
 from fastapi import UploadFile
 from sqlalchemy import func
@@ -23,67 +17,37 @@ from core.chroma_client import chroma_client
 from core.file_processing import parse_file_path
 from core.models import KnowledgeDocument
 from modules.knowledge_base_components.document_ops import INDEXABLE_DOC_TYPES
+from modules.knowledge_base_components.offline_parse_support import (
+    has_injection_flag,
+    safe_error_message,
+    validate_parsed_content,
+)
 
-# 上传原始文件统一落到 backend/runtime/knowledge_uploads，避免散落在临时目录。
+logger = logging.getLogger(__name__)
 OFFLINE_UPLOAD_DIR = Path(__file__).resolve().parents[2] / "runtime" / "knowledge_uploads"
-MAX_PARSE_ERROR_LENGTH = 2000
-
-
-def _safe_error_message(error: Any) -> str:
-    """把异常对象转换为前端可展示的中文消息，并限制长度避免污染页面。"""
-    text = str(error or "").strip()
-    if not text:
-        return "离线解析失败，请稍后重试。"
-
-    lower = text.lower()
-    mapping = [
-        ("timeout", "连接超时，请检查网络或稍后重试。"),
-        ("timed out", "连接超时，请检查网络或稍后重试。"),
-        ("ssl", "SSL 连接异常，请检查网络环境或证书配置。"),
-        ("unexpected_eof_while_reading", "网络连接被中断，请稍后重试。"),
-        ("connection refused", "目标服务拒绝连接，请检查服务是否可用。"),
-        ("econnrefused", "目标服务拒绝连接，请检查服务是否可用。"),
-        ("not found", "未找到对应资源，请检查配置。"),
-        ("permission", "权限不足，请检查当前账号配置。"),
-        ("unauthorized", "鉴权失败，请检查密钥或登录状态。"),
-    ]
-    for key, message in mapping:
-        if key in lower:
-            return message
-
-    if len(text) > MAX_PARSE_ERROR_LENGTH:
-        return text[:MAX_PARSE_ERROR_LENGTH] + "..."
-    return text
 
 
 def _build_storage_name(filename: str) -> str:
-    """生成可追踪且不会冲突的本地文件名。"""
     suffix = Path(filename or "").suffix or ".bin"
     return f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid4().hex}{suffix}"
 
 
 async def save_upload_file_for_offline_parse(file: UploadFile) -> str:
-    """
-    把上传文件保存到本地，供 Celery 任务离线解析。
-
-    设计原因：请求线程结束后 UploadFile 生命周期不再可靠，必须先落盘。
-    """
+    """先落盘再入队，避免 UploadFile 在请求结束后失效。"""
     OFFLINE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     stored_name = _build_storage_name(file.filename or "upload.bin")
     file_path = OFFLINE_UPLOAD_DIR / stored_name
-    content = await file.read()
-    file_path.write_bytes(content)
+    file_path.write_bytes(await file.read())
     return str(file_path)
 
 
 def cleanup_offline_file(file_path: str) -> None:
-    """解析完成后清理临时文件，避免磁盘空间持续增长。"""
+    """清理临时文件，失败仅记录日志。"""
     try:
         if file_path and os.path.exists(file_path):
             os.remove(file_path)
-    except Exception:
-        # 清理失败不影响主流程，避免因为临时文件问题阻断业务。
-        pass
+    except Exception as e:
+        logger.warning("离线解析临时文件清理失败 file=%s err=%s", file_path, e)
 
 
 def create_pending_document_impl(
@@ -94,11 +58,7 @@ def create_pending_document_impl(
     db: Session,
     user_id: Optional[int] = None,
 ) -> KnowledgeDocument:
-    """
-    创建“待解析”文档记录。
-
-    这里仅做最小入库，不做文本解析和向量入库，确保上传接口快速返回。
-    """
+    """创建 pending 文档记录（不在请求线程做解析）。"""
     min_order = (
         db.query(func.min(KnowledgeDocument.display_order))
         .filter(KnowledgeDocument.project_id == project_id)
@@ -131,35 +91,47 @@ def create_pending_document_impl(
 
 
 def bind_parse_task_impl(doc_id: int, task_id: str, db: Session) -> None:
-    """把 Celery 任务ID回写到文档，便于前端按文档查询任务状态。"""
+    """把任务ID回写到文档；已 success 不回退。"""
     doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
-    if not doc:
+    if not doc or doc.parse_status == "success":
         return
     doc.task_id = task_id
     doc.parse_status = "pending"
     db.commit()
 
 
-def mark_parse_retry_impl(doc_id: int, retry_count: int, error: Any, db: Session, task_id: Optional[str] = None) -> None:
-    """任务重试前把状态回退到 pending，并记录最近一次失败原因。"""
+def mark_parse_retry_impl(
+    doc_id: int,
+    retry_count: int,
+    error: Any,
+    db: Session,
+    task_id: Optional[str] = None,
+) -> None:
+    """重试前状态回退到 pending；已 success 不覆盖。"""
     doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
-    if not doc:
+    if not doc or doc.parse_status == "success":
         return
     doc.parse_status = "pending"
     doc.retry_count = retry_count
-    doc.parse_error = f"第 {retry_count} 次重试前失败：{_safe_error_message(error)}"
+    doc.parse_error = f"第 {retry_count} 次重试前失败：{safe_error_message(error)}"
     if task_id:
         doc.task_id = task_id
     db.commit()
 
 
-def mark_parse_failed_impl(doc_id: int, error: Any, db: Session, task_id: Optional[str] = None, retry_count: Optional[int] = None) -> None:
-    """任务最终失败时落库，保证前端能看到明确失败状态。"""
+def mark_parse_failed_impl(
+    doc_id: int,
+    error: Any,
+    db: Session,
+    task_id: Optional[str] = None,
+    retry_count: Optional[int] = None,
+) -> None:
+    """最终失败落库；已 success 不覆盖。"""
     doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
-    if not doc:
+    if not doc or doc.parse_status == "success":
         return
     doc.parse_status = "failed"
-    doc.parse_error = _safe_error_message(error)
+    doc.parse_error = safe_error_message(error)
     doc.parsed_at = datetime.utcnow()
     if task_id:
         doc.task_id = task_id
@@ -178,14 +150,27 @@ def parse_document_offline_impl(
     task_id: Optional[str] = None,
     retry_count: int = 0,
 ) -> dict:
-    """
-    执行离线解析主流程：读文件 -> 解析文本 -> 摘要 -> 向量索引 -> 状态落库。
-
-    注意：异常由 Celery 任务捕获并决定是否重试；这里不吞异常。
-    """
+    """离线解析主流程：解析、摘要、双索引、状态落库。"""
     doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
     if not doc:
         raise ValueError(f"知识库文档不存在: {doc_id}")
+
+    # 幂等保护：已成功文档重复消费直接跳过。
+    if doc.parse_status == "success" and not force:
+        cleanup_offline_file(file_path)
+        logger.info("离线解析跳过，文档已成功 doc_id=%s task_id=%s", doc_id, task_id)
+        return {"status": "already_success", "document_id": doc_id}
+
+    # 幂等保护：只处理当前绑定任务，旧任务直接忽略。
+    if task_id and doc.task_id and doc.task_id != task_id:
+        cleanup_offline_file(file_path)
+        logger.warning(
+            "离线解析忽略过期任务 doc_id=%s task_id=%s current_task_id=%s",
+            doc_id,
+            task_id,
+            doc.task_id,
+        )
+        return {"status": "stale_task_ignored", "document_id": doc_id}
 
     doc.parse_status = "parsing"
     doc.parse_error = None
@@ -193,9 +178,15 @@ def parse_document_offline_impl(
     doc.retry_count = retry_count
     db.commit()
 
+    logger.info("离线解析开始 doc_id=%s task_id=%s retry=%s", doc_id, task_id, retry_count)
+
+    if has_injection_flag(doc.filename, "runtime_fail", doc_id):
+        raise RuntimeError("离线解析注入失败：runtime_fail")
+    if has_injection_flag(doc.filename, "fail_once", doc_id) and retry_count == 0:
+        raise RuntimeError("离线解析注入失败：fail_once")
+
     content = parse_file_path(file_path)
-    if not str(content or "").strip():
-        raise ValueError("未解析到可用文本内容，请检查文件格式或文件内容。")
+    validate_parsed_content(content)
 
     content_hash = module.calculate_hash(content)
     existing = (
@@ -227,16 +218,22 @@ def parse_document_offline_impl(
     db.commit()
     db.refresh(doc)
 
+    if has_injection_flag(doc.filename, "summary_fail", doc_id):
+        raise RuntimeError("离线解析注入失败：summary_fail")
     summary = module._ensure_summary(doc, db, user_id or doc.user_id)
 
+    indexed_raw = False
+    indexed_summary = False
+
     if doc.doc_type in INDEXABLE_DOC_TYPES:
-        # 向量库不可用时直接失败，避免“状态成功但检索不可用”的假成功。
         if not getattr(chroma_client, "collection", None):
             raise RuntimeError("向量库不可用，无法完成知识库索引。")
+        if has_injection_flag(doc.filename, "chroma_fail", doc_id):
+            raise RuntimeError("离线解析注入失败：chroma_fail")
 
-        # 重试场景下先删旧索引，避免同文档多次入库造成向量重复。
-        chroma_client.delete_document(str(doc.id))
-        chroma_client.delete_document(f"{doc.id}_summary")
+        # 幂等策略：写入前先删除旧索引，避免重复分块积累。
+        chroma_client.delete_document(str(doc.id), raise_on_error=True)
+        chroma_client.delete_document(f"{doc.id}_summary", raise_on_error=True)
         chroma_client.add_document(
             doc_id=str(doc.id),
             content=content,
@@ -248,7 +245,9 @@ def parse_document_offline_impl(
                 "user_id": doc.user_id,
                 "is_summary": False,
             },
+            raise_on_error=True,
         )
+        indexed_raw = True
         if summary and summary != content:
             chroma_client.add_document(
                 doc_id=f"{doc.id}_summary",
@@ -261,19 +260,39 @@ def parse_document_offline_impl(
                     "user_id": doc.user_id,
                     "is_summary": True,
                 },
+                raise_on_error=True,
             )
+            indexed_summary = True
 
-    doc.parse_status = "success"
-    doc.parse_error = None
-    doc.parsed_at = datetime.utcnow()
-    doc.retry_count = retry_count
-    db.commit()
+    try:
+        doc.parse_status = "success"
+        doc.parse_error = None
+        doc.parsed_at = datetime.utcnow()
+        doc.retry_count = retry_count
+        db.commit()
+    except Exception:
+        # 防止“向量已写入但 DB 状态未成功”导致主状态与索引不一致。
+        db.rollback()
+        if doc.doc_type in INDEXABLE_DOC_TYPES and (indexed_raw or indexed_summary):
+            try:
+                chroma_client.delete_document(str(doc.id), raise_on_error=True)
+                chroma_client.delete_document(f"{doc.id}_summary", raise_on_error=True)
+            except Exception as rollback_error:
+                logger.error("离线解析索引回滚失败 doc_id=%s err=%s", doc_id, rollback_error)
+        raise
+
     cleanup_offline_file(file_path)
+    logger.info("离线解析成功 doc_id=%s task_id=%s", doc_id, task_id)
     return {"status": "success", "document_id": doc.id}
 
 
-def queue_document_parse_impl(doc_id: int, file_path: str, force: bool = False, user_id: Optional[int] = None):
-    """统一封装 Celery 入队，避免路由层直接依赖任务实现细节。"""
+def queue_document_parse_impl(
+    doc_id: int,
+    file_path: str,
+    force: bool = False,
+    user_id: Optional[int] = None,
+):
+    """统一封装 Celery 入队，避免路由层直接依赖任务细节。"""
     from modules.tasks import parse_knowledge_document_task
 
     return parse_knowledge_document_task.delay(

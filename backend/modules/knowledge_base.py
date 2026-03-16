@@ -1,4 +1,4 @@
-"""
+﻿"""
 知识库模块门面（Knowledge Base Facade）。
 
 职责：
@@ -30,6 +30,7 @@ from modules.knowledge_base_components.document_ops import (
 )
 from modules.knowledge_base_components.offline_parse import (
     bind_parse_task_impl,
+    cleanup_offline_file,
     create_pending_document_impl,
     mark_parse_failed_impl,
     mark_parse_retry_impl,
@@ -157,15 +158,26 @@ class KnowledgeBaseModule:
             db=db,
             user_id=user_id,
         )
-        task = queue_document_parse_impl(
-            doc_id=doc.id,
-            file_path=file_path,
-            force=force,
-            user_id=user_id,
-        )
-        bind_parse_task_impl(doc.id, task.id, db)
-        db.refresh(doc)
-        return {"document": doc, "task_id": task.id}
+        try:
+            task = queue_document_parse_impl(
+                doc_id=doc.id,
+                file_path=file_path,
+                force=force,
+                user_id=user_id,
+            )
+            bind_parse_task_impl(doc.id, task.id, db)
+            db.refresh(doc)
+            return {"document": doc, "task_id": task.id}
+        except Exception as e:
+            # 入队失败时显式落 failed，并清理临时文件，避免出现 pending 脏数据。
+            cleanup_offline_file(file_path)
+            self.mark_document_parse_failed(
+                doc_id=doc.id,
+                error=e,
+                db=db,
+                retry_count=doc.retry_count,
+            )
+            raise
 
     def parse_document_offline(
         self,
@@ -350,4 +362,5 @@ class KnowledgeBaseModule:
 
 
 knowledge_base = KnowledgeBaseModule()
+
 

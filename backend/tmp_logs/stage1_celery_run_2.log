@@ -1,0 +1,463 @@
+Successfully connected to MySQL database: ai_test_platform
+Redis connected: 127.0.0.1:6379
+ 
+ -------------- celery@DESKTOP-F86RMFU v5.6.2 (recovery)
+--- ***** ----- 
+-- ******* ---- Windows-10-10.0.26100-SP0 2026-03-16 15:08:06
+- *** --- * --- 
+- ** ---------- [config]
+- ** ---------- .> app:         ai_test_platform:0x1d8e09d1e90
+- ** ---------- .> transport:   redis://localhost:6379/0
+- ** ---------- .> results:     redis://localhost:6379/0
+- *** --- * --- .> concurrency: 16 (solo)
+-- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
+--- ***** ----- 
+ -------------- [queues]
+                .> celery           exchange=celery(direct) key=celery
+                
+
+[tasks]
+  . modules.tasks.archive_old_data_task
+  . modules.tasks.cleanup_logs_task
+  . modules.tasks.generate_test_cases_task
+  . modules.tasks.parse_knowledge_document_task
+
+[2026-03-16 15:08:06,181: INFO/MainProcess] Connected to redis://localhost:6379/0
+[2026-03-16 15:08:06,186: INFO/MainProcess] mingle: searching for neighbors
+[2026-03-16 15:08:07,212: INFO/MainProcess] mingle: all alone
+[2026-03-16 15:08:07,238: INFO/MainProcess] celery@DESKTOP-F86RMFU ready.
+[2026-03-16 15:08:08,526: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[72500966-160b-4a5f-a852-d1417f67038a] received
+[2026-03-16 15:08:08,526: INFO/MainProcess] 离线解析任务启动 doc_id=139 task_id=72500966-160b-4a5f-a852-d1417f67038a retry=0 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070808_2bffdcdb948344eeb842eb09e79dfd52.txt
+[2026-03-16 15:08:08,548: INFO/MainProcess] 离线解析开始 doc_id=139 task_id=72500966-160b-4a5f-a852-d1417f67038a retry=0
+[2026-03-16 15:08:08,918: INFO/MainProcess] 离线解析成功 doc_id=139 task_id=72500966-160b-4a5f-a852-d1417f67038a
+[2026-03-16 15:08:08,918: INFO/MainProcess] 离线解析任务完成 doc_id=139 task_id=72500966-160b-4a5f-a852-d1417f67038a result={'status': 'success', 'document_id': 139}
+[2026-03-16 15:08:08,919: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[72500966-160b-4a5f-a852-d1417f67038a] succeeded in 0.39000000001396984s: {'status': 'success', 'document_id': 139}
+[2026-03-16 15:08:11,102: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[46c75b62-51a4-4e43-a783-4fe41562f7ad] received
+[2026-03-16 15:08:11,102: INFO/MainProcess] 离线解析任务启动 doc_id=140 task_id=46c75b62-51a4-4e43-a783-4fe41562f7ad retry=0 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070811_a8cd7cc7382e4fcaba0fd765ece58357.md
+[2026-03-16 15:08:11,107: INFO/MainProcess] 离线解析开始 doc_id=140 task_id=46c75b62-51a4-4e43-a783-4fe41562f7ad retry=0
+[2026-03-16 15:08:11,469: INFO/MainProcess] 离线解析成功 doc_id=140 task_id=46c75b62-51a4-4e43-a783-4fe41562f7ad
+[2026-03-16 15:08:11,469: INFO/MainProcess] 离线解析任务完成 doc_id=140 task_id=46c75b62-51a4-4e43-a783-4fe41562f7ad result={'status': 'success', 'document_id': 140}
+[2026-03-16 15:08:11,470: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[46c75b62-51a4-4e43-a783-4fe41562f7ad] succeeded in 0.35899999999674037s: {'status': 'success', 'document_id': 140}
+[2026-03-16 15:08:12,903: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[51f80ff1-6705-43d4-97b1-3a9ee2bf7009] received
+[2026-03-16 15:08:12,903: INFO/MainProcess] 离线解析任务启动 doc_id=141 task_id=51f80ff1-6705-43d4-97b1-3a9ee2bf7009 retry=0 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070812_8a31fcc40e594cfc9924774db033e477.txt
+[2026-03-16 15:08:12,907: INFO/MainProcess] 离线解析开始 doc_id=141 task_id=51f80ff1-6705-43d4-97b1-3a9ee2bf7009 retry=0
+[2026-03-16 15:08:12,907: ERROR/MainProcess] 离线解析任务异常 doc_id=141 task_id=51f80ff1-6705-43d4-97b1-3a9ee2bf7009 retry=0/2 err=未解析到可用文本内容，请检查文件是否为空。
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 189, in parse_document_offline_impl
+    validate_parsed_content(content)
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse_support.py", line 70, in validate_parsed_content
+    raise ValueError("未解析到可用文本内容，请检查文件是否为空。")
+ValueError: 未解析到可用文本内容，请检查文件是否为空。
+[2026-03-16 15:08:12,919: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[51f80ff1-6705-43d4-97b1-3a9ee2bf7009] retry: Retry in 8s: ValueError('未解析到可用文本内容，请检查文件是否为空。')
+[2026-03-16 15:08:12,920: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[51f80ff1-6705-43d4-97b1-3a9ee2bf7009] received
+[2026-03-16 15:08:20,914: INFO/MainProcess] 离线解析任务启动 doc_id=141 task_id=51f80ff1-6705-43d4-97b1-3a9ee2bf7009 retry=1 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070812_8a31fcc40e594cfc9924774db033e477.txt
+[2026-03-16 15:08:20,969: INFO/MainProcess] 离线解析开始 doc_id=141 task_id=51f80ff1-6705-43d4-97b1-3a9ee2bf7009 retry=1
+[2026-03-16 15:08:20,969: ERROR/MainProcess] 离线解析任务异常 doc_id=141 task_id=51f80ff1-6705-43d4-97b1-3a9ee2bf7009 retry=1/2 err=未解析到可用文本内容，请检查文件是否为空。
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 189, in parse_document_offline_impl
+    validate_parsed_content(content)
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse_support.py", line 70, in validate_parsed_content
+    raise ValueError("未解析到可用文本内容，请检查文件是否为空。")
+ValueError: 未解析到可用文本内容，请检查文件是否为空。
+[2026-03-16 15:08:20,975: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[51f80ff1-6705-43d4-97b1-3a9ee2bf7009] received
+[2026-03-16 15:08:20,976: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[51f80ff1-6705-43d4-97b1-3a9ee2bf7009] retry: Retry in 8s: ValueError('未解析到可用文本内容，请检查文件是否为空。')
+[2026-03-16 15:08:28,983: INFO/MainProcess] 离线解析任务启动 doc_id=141 task_id=51f80ff1-6705-43d4-97b1-3a9ee2bf7009 retry=2 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070812_8a31fcc40e594cfc9924774db033e477.txt
+[2026-03-16 15:08:28,996: INFO/MainProcess] 离线解析开始 doc_id=141 task_id=51f80ff1-6705-43d4-97b1-3a9ee2bf7009 retry=2
+[2026-03-16 15:08:28,996: ERROR/MainProcess] 离线解析任务异常 doc_id=141 task_id=51f80ff1-6705-43d4-97b1-3a9ee2bf7009 retry=2/2 err=未解析到可用文本内容，请检查文件是否为空。
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 189, in parse_document_offline_impl
+    validate_parsed_content(content)
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse_support.py", line 70, in validate_parsed_content
+    raise ValueError("未解析到可用文本内容，请检查文件是否为空。")
+ValueError: 未解析到可用文本内容，请检查文件是否为空。
+[2026-03-16 15:08:29,003: ERROR/MainProcess] Task modules.tasks.parse_knowledge_document_task[51f80ff1-6705-43d4-97b1-3a9ee2bf7009] raised unexpected: ValueError('未解析到可用文本内容，请检查文件是否为空。')
+Traceback (most recent call last):
+  File "C:\Users\Administrator\AppData\Roaming\Python\Python311\site-packages\celery\app\trace.py", line 479, in trace_task
+    R = retval = fun(*args, **kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Roaming\Python\Python311\site-packages\celery\app\trace.py", line 779, in __protected_call__
+    return self.run(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 170, in parse_knowledge_document_task
+    raise e
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 189, in parse_document_offline_impl
+    validate_parsed_content(content)
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse_support.py", line 70, in validate_parsed_content
+    raise ValueError("未解析到可用文本内容，请检查文件是否为空。")
+ValueError: 未解析到可用文本内容，请检查文件是否为空。
+[2026-03-16 15:08:29,819: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[c641e4b9-8599-42f2-8ee1-ee54148ea4a4] received
+[2026-03-16 15:08:29,819: INFO/MainProcess] 离线解析任务启动 doc_id=142 task_id=c641e4b9-8599-42f2-8ee1-ee54148ea4a4 retry=0 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070829_e3e2ec5904184e7cb671a5db86f46bb6.xyz
+[2026-03-16 15:08:29,823: INFO/MainProcess] 离线解析开始 doc_id=142 task_id=c641e4b9-8599-42f2-8ee1-ee54148ea4a4 retry=0
+[2026-03-16 15:08:29,823: ERROR/MainProcess] 离线解析任务异常 doc_id=142 task_id=c641e4b9-8599-42f2-8ee1-ee54148ea4a4 retry=0/2 err=文件解析失败：[Unsupported file type: 20260316070829_e3e2ec5904184e7cb671a5db86f46bb6.xyz]
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 189, in parse_document_offline_impl
+    validate_parsed_content(content)
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse_support.py", line 74, in validate_parsed_content
+    raise ValueError(f"文件解析失败：{normalized[:180]}")
+ValueError: 文件解析失败：[Unsupported file type: 20260316070829_e3e2ec5904184e7cb671a5db86f46bb6.xyz]
+[2026-03-16 15:08:29,830: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[c641e4b9-8599-42f2-8ee1-ee54148ea4a4] retry: Retry in 8s: ValueError('文件解析失败：[Unsupported file type: 20260316070829_e3e2ec5904184e7cb671a5db86f46bb6.xyz]')
+[2026-03-16 15:08:29,833: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[c641e4b9-8599-42f2-8ee1-ee54148ea4a4] received
+[2026-03-16 15:08:37,836: INFO/MainProcess] 离线解析任务启动 doc_id=142 task_id=c641e4b9-8599-42f2-8ee1-ee54148ea4a4 retry=1 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070829_e3e2ec5904184e7cb671a5db86f46bb6.xyz
+[2026-03-16 15:08:37,843: INFO/MainProcess] 离线解析开始 doc_id=142 task_id=c641e4b9-8599-42f2-8ee1-ee54148ea4a4 retry=1
+[2026-03-16 15:08:37,843: ERROR/MainProcess] 离线解析任务异常 doc_id=142 task_id=c641e4b9-8599-42f2-8ee1-ee54148ea4a4 retry=1/2 err=文件解析失败：[Unsupported file type: 20260316070829_e3e2ec5904184e7cb671a5db86f46bb6.xyz]
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 189, in parse_document_offline_impl
+    validate_parsed_content(content)
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse_support.py", line 74, in validate_parsed_content
+    raise ValueError(f"文件解析失败：{normalized[:180]}")
+ValueError: 文件解析失败：[Unsupported file type: 20260316070829_e3e2ec5904184e7cb671a5db86f46bb6.xyz]
+[2026-03-16 15:08:37,849: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[c641e4b9-8599-42f2-8ee1-ee54148ea4a4] received
+[2026-03-16 15:08:37,850: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[c641e4b9-8599-42f2-8ee1-ee54148ea4a4] retry: Retry in 8s: ValueError('文件解析失败：[Unsupported file type: 20260316070829_e3e2ec5904184e7cb671a5db86f46bb6.xyz]')
+[2026-03-16 15:08:45,856: INFO/MainProcess] 离线解析任务启动 doc_id=142 task_id=c641e4b9-8599-42f2-8ee1-ee54148ea4a4 retry=2 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070829_e3e2ec5904184e7cb671a5db86f46bb6.xyz
+[2026-03-16 15:08:45,869: INFO/MainProcess] 离线解析开始 doc_id=142 task_id=c641e4b9-8599-42f2-8ee1-ee54148ea4a4 retry=2
+[2026-03-16 15:08:45,870: ERROR/MainProcess] 离线解析任务异常 doc_id=142 task_id=c641e4b9-8599-42f2-8ee1-ee54148ea4a4 retry=2/2 err=文件解析失败：[Unsupported file type: 20260316070829_e3e2ec5904184e7cb671a5db86f46bb6.xyz]
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 189, in parse_document_offline_impl
+    validate_parsed_content(content)
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse_support.py", line 74, in validate_parsed_content
+    raise ValueError(f"文件解析失败：{normalized[:180]}")
+ValueError: 文件解析失败：[Unsupported file type: 20260316070829_e3e2ec5904184e7cb671a5db86f46bb6.xyz]
+[2026-03-16 15:08:45,878: ERROR/MainProcess] Task modules.tasks.parse_knowledge_document_task[c641e4b9-8599-42f2-8ee1-ee54148ea4a4] raised unexpected: ValueError('文件解析失败：[Unsupported file type: 20260316070829_e3e2ec5904184e7cb671a5db86f46bb6.xyz]')
+Traceback (most recent call last):
+  File "C:\Users\Administrator\AppData\Roaming\Python\Python311\site-packages\celery\app\trace.py", line 479, in trace_task
+    R = retval = fun(*args, **kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Roaming\Python\Python311\site-packages\celery\app\trace.py", line 779, in __protected_call__
+    return self.run(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 170, in parse_knowledge_document_task
+    raise e
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 189, in parse_document_offline_impl
+    validate_parsed_content(content)
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse_support.py", line 74, in validate_parsed_content
+    raise ValueError(f"文件解析失败：{normalized[:180]}")
+ValueError: 文件解析失败：[Unsupported file type: 20260316070829_e3e2ec5904184e7cb671a5db86f46bb6.xyz]
+[2026-03-16 15:08:46,731: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[aade8e7f-c6e9-4f71-88cf-ea01f085ff96] received
+[2026-03-16 15:08:46,731: INFO/MainProcess] 离线解析任务启动 doc_id=143 task_id=aade8e7f-c6e9-4f71-88cf-ea01f085ff96 retry=0 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070846_1759b0003e7241f68379937744dadb3c.pdf
+[2026-03-16 15:08:46,737: INFO/MainProcess] 离线解析开始 doc_id=143 task_id=aade8e7f-c6e9-4f71-88cf-ea01f085ff96 retry=0
+[2026-03-16 15:08:46,737: ERROR/MainProcess] 离线解析任务异常 doc_id=143 task_id=aade8e7f-c6e9-4f71-88cf-ea01f085ff96 retry=0/2 err=文件解析失败：[Error parsing file: startxref not found]
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 189, in parse_document_offline_impl
+    validate_parsed_content(content)
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse_support.py", line 74, in validate_parsed_content
+    raise ValueError(f"文件解析失败：{normalized[:180]}")
+ValueError: 文件解析失败：[Error parsing file: startxref not found]
+[2026-03-16 15:08:46,744: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[aade8e7f-c6e9-4f71-88cf-ea01f085ff96] retry: Retry in 8s: ValueError('文件解析失败：[Error parsing file: startxref not found]')
+[2026-03-16 15:08:46,747: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[aade8e7f-c6e9-4f71-88cf-ea01f085ff96] received
+[2026-03-16 15:08:54,741: INFO/MainProcess] 离线解析任务启动 doc_id=143 task_id=aade8e7f-c6e9-4f71-88cf-ea01f085ff96 retry=1 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070846_1759b0003e7241f68379937744dadb3c.pdf
+[2026-03-16 15:08:54,755: INFO/MainProcess] 离线解析开始 doc_id=143 task_id=aade8e7f-c6e9-4f71-88cf-ea01f085ff96 retry=1
+[2026-03-16 15:08:54,756: ERROR/MainProcess] 离线解析任务异常 doc_id=143 task_id=aade8e7f-c6e9-4f71-88cf-ea01f085ff96 retry=1/2 err=文件解析失败：[Error parsing file: startxref not found]
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 189, in parse_document_offline_impl
+    validate_parsed_content(content)
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse_support.py", line 74, in validate_parsed_content
+    raise ValueError(f"文件解析失败：{normalized[:180]}")
+ValueError: 文件解析失败：[Error parsing file: startxref not found]
+[2026-03-16 15:08:54,763: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[aade8e7f-c6e9-4f71-88cf-ea01f085ff96] received
+[2026-03-16 15:08:54,764: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[aade8e7f-c6e9-4f71-88cf-ea01f085ff96] retry: Retry in 8s: ValueError('文件解析失败：[Error parsing file: startxref not found]')
+[2026-03-16 15:09:02,756: INFO/MainProcess] 离线解析任务启动 doc_id=143 task_id=aade8e7f-c6e9-4f71-88cf-ea01f085ff96 retry=2 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070846_1759b0003e7241f68379937744dadb3c.pdf
+[2026-03-16 15:09:02,768: INFO/MainProcess] 离线解析开始 doc_id=143 task_id=aade8e7f-c6e9-4f71-88cf-ea01f085ff96 retry=2
+[2026-03-16 15:09:02,768: ERROR/MainProcess] 离线解析任务异常 doc_id=143 task_id=aade8e7f-c6e9-4f71-88cf-ea01f085ff96 retry=2/2 err=文件解析失败：[Error parsing file: startxref not found]
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 189, in parse_document_offline_impl
+    validate_parsed_content(content)
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse_support.py", line 74, in validate_parsed_content
+    raise ValueError(f"文件解析失败：{normalized[:180]}")
+ValueError: 文件解析失败：[Error parsing file: startxref not found]
+[2026-03-16 15:09:02,776: ERROR/MainProcess] Task modules.tasks.parse_knowledge_document_task[aade8e7f-c6e9-4f71-88cf-ea01f085ff96] raised unexpected: ValueError('文件解析失败：[Error parsing file: startxref not found]')
+Traceback (most recent call last):
+  File "C:\Users\Administrator\AppData\Roaming\Python\Python311\site-packages\celery\app\trace.py", line 479, in trace_task
+    R = retval = fun(*args, **kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Roaming\Python\Python311\site-packages\celery\app\trace.py", line 779, in __protected_call__
+    return self.run(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 170, in parse_knowledge_document_task
+    raise e
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 189, in parse_document_offline_impl
+    validate_parsed_content(content)
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse_support.py", line 74, in validate_parsed_content
+    raise ValueError(f"文件解析失败：{normalized[:180]}")
+ValueError: 文件解析失败：[Error parsing file: startxref not found]
+[2026-03-16 15:09:03,651: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[1d5f9347-6e56-40e5-b82e-a5863ad9c7da] received
+[2026-03-16 15:09:03,651: INFO/MainProcess] 离线解析任务启动 doc_id=144 task_id=1d5f9347-6e56-40e5-b82e-a5863ad9c7da retry=0 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070903_35227939180f433ba5e5424fee4f0bb0.txt
+[2026-03-16 15:09:03,657: INFO/MainProcess] 离线解析开始 doc_id=144 task_id=1d5f9347-6e56-40e5-b82e-a5863ad9c7da retry=0
+[2026-03-16 15:09:03,657: ERROR/MainProcess] 离线解析任务异常 doc_id=144 task_id=1d5f9347-6e56-40e5-b82e-a5863ad9c7da retry=0/2 err=离线解析注入失败：fail_once
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 186, in parse_document_offline_impl
+    raise RuntimeError("离线解析注入失败：fail_once")
+RuntimeError: 离线解析注入失败：fail_once
+[2026-03-16 15:09:03,664: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[1d5f9347-6e56-40e5-b82e-a5863ad9c7da] retry: Retry in 8s: RuntimeError('离线解析注入失败：fail_once')
+[2026-03-16 15:09:03,666: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[1d5f9347-6e56-40e5-b82e-a5863ad9c7da] received
+[2026-03-16 15:09:11,665: INFO/MainProcess] 离线解析任务启动 doc_id=144 task_id=1d5f9347-6e56-40e5-b82e-a5863ad9c7da retry=1 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070903_35227939180f433ba5e5424fee4f0bb0.txt
+[2026-03-16 15:09:11,679: INFO/MainProcess] 离线解析开始 doc_id=144 task_id=1d5f9347-6e56-40e5-b82e-a5863ad9c7da retry=1
+[2026-03-16 15:09:12,053: INFO/MainProcess] 离线解析成功 doc_id=144 task_id=1d5f9347-6e56-40e5-b82e-a5863ad9c7da
+[2026-03-16 15:09:12,053: INFO/MainProcess] 离线解析任务完成 doc_id=144 task_id=1d5f9347-6e56-40e5-b82e-a5863ad9c7da result={'status': 'success', 'document_id': 144}
+[2026-03-16 15:09:12,054: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[1d5f9347-6e56-40e5-b82e-a5863ad9c7da] succeeded in 0.39100000000325963s: {'status': 'success', 'document_id': 144}
+[2026-03-16 15:09:12,459: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[25e92271-f652-4152-92d4-e18c2bec9528] received
+[2026-03-16 15:09:12,459: INFO/MainProcess] 离线解析任务启动 doc_id=145 task_id=25e92271-f652-4152-92d4-e18c2bec9528 retry=0 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070912_acf224cf3f844551a399bbe59ed7dff5.txt
+[2026-03-16 15:09:12,463: INFO/MainProcess] 离线解析开始 doc_id=145 task_id=25e92271-f652-4152-92d4-e18c2bec9528 retry=0
+[2026-03-16 15:09:12,468: ERROR/MainProcess] 离线解析任务异常 doc_id=145 task_id=25e92271-f652-4152-92d4-e18c2bec9528 retry=0/2 err=离线解析注入失败：summary_fail
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 222, in parse_document_offline_impl
+    raise RuntimeError("离线解析注入失败：summary_fail")
+RuntimeError: 离线解析注入失败：summary_fail
+[2026-03-16 15:09:12,473: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[25e92271-f652-4152-92d4-e18c2bec9528] retry: Retry in 8s: RuntimeError('离线解析注入失败：summary_fail')
+[2026-03-16 15:09:12,473: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[25e92271-f652-4152-92d4-e18c2bec9528] received
+[2026-03-16 15:09:20,482: INFO/MainProcess] 离线解析任务启动 doc_id=145 task_id=25e92271-f652-4152-92d4-e18c2bec9528 retry=1 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070912_acf224cf3f844551a399bbe59ed7dff5.txt
+[2026-03-16 15:09:20,496: INFO/MainProcess] 离线解析开始 doc_id=145 task_id=25e92271-f652-4152-92d4-e18c2bec9528 retry=1
+[2026-03-16 15:09:20,498: ERROR/MainProcess] 离线解析任务异常 doc_id=145 task_id=25e92271-f652-4152-92d4-e18c2bec9528 retry=1/2 err=离线解析注入失败：summary_fail
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 222, in parse_document_offline_impl
+    raise RuntimeError("离线解析注入失败：summary_fail")
+RuntimeError: 离线解析注入失败：summary_fail
+[2026-03-16 15:09:20,503: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[25e92271-f652-4152-92d4-e18c2bec9528] received
+[2026-03-16 15:09:20,504: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[25e92271-f652-4152-92d4-e18c2bec9528] retry: Retry in 8s: RuntimeError('离线解析注入失败：summary_fail')
+[2026-03-16 15:09:28,513: INFO/MainProcess] 离线解析任务启动 doc_id=145 task_id=25e92271-f652-4152-92d4-e18c2bec9528 retry=2 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070912_acf224cf3f844551a399bbe59ed7dff5.txt
+[2026-03-16 15:09:28,527: INFO/MainProcess] 离线解析开始 doc_id=145 task_id=25e92271-f652-4152-92d4-e18c2bec9528 retry=2
+[2026-03-16 15:09:28,531: ERROR/MainProcess] 离线解析任务异常 doc_id=145 task_id=25e92271-f652-4152-92d4-e18c2bec9528 retry=2/2 err=离线解析注入失败：summary_fail
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 222, in parse_document_offline_impl
+    raise RuntimeError("离线解析注入失败：summary_fail")
+RuntimeError: 离线解析注入失败：summary_fail
+[2026-03-16 15:09:28,537: ERROR/MainProcess] Task modules.tasks.parse_knowledge_document_task[25e92271-f652-4152-92d4-e18c2bec9528] raised unexpected: RuntimeError('离线解析注入失败：summary_fail')
+Traceback (most recent call last):
+  File "C:\Users\Administrator\AppData\Roaming\Python\Python311\site-packages\celery\app\trace.py", line 479, in trace_task
+    R = retval = fun(*args, **kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Roaming\Python\Python311\site-packages\celery\app\trace.py", line 779, in __protected_call__
+    return self.run(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 170, in parse_knowledge_document_task
+    raise e
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 222, in parse_document_offline_impl
+    raise RuntimeError("离线解析注入失败：summary_fail")
+RuntimeError: 离线解析注入失败：summary_fail
+[2026-03-16 15:09:29,381: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[8638ec52-9a08-47d1-868e-b7e76d4973c3] received
+[2026-03-16 15:09:29,382: INFO/MainProcess] 离线解析任务启动 doc_id=146 task_id=8638ec52-9a08-47d1-868e-b7e76d4973c3 retry=0 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070929_4808832f18bc4d14b728833318fefa81.txt
+[2026-03-16 15:09:29,387: INFO/MainProcess] 离线解析开始 doc_id=146 task_id=8638ec52-9a08-47d1-868e-b7e76d4973c3 retry=0
+[2026-03-16 15:09:29,391: ERROR/MainProcess] 离线解析任务异常 doc_id=146 task_id=8638ec52-9a08-47d1-868e-b7e76d4973c3 retry=0/2 err=离线解析注入失败：chroma_fail
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 232, in parse_document_offline_impl
+    raise RuntimeError("离线解析注入失败：chroma_fail")
+RuntimeError: 离线解析注入失败：chroma_fail
+[2026-03-16 15:09:29,398: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[8638ec52-9a08-47d1-868e-b7e76d4973c3] retry: Retry in 8s: RuntimeError('离线解析注入失败：chroma_fail')
+[2026-03-16 15:09:29,400: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[8638ec52-9a08-47d1-868e-b7e76d4973c3] received
+[2026-03-16 15:09:37,402: INFO/MainProcess] 离线解析任务启动 doc_id=146 task_id=8638ec52-9a08-47d1-868e-b7e76d4973c3 retry=1 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070929_4808832f18bc4d14b728833318fefa81.txt
+[2026-03-16 15:09:37,414: INFO/MainProcess] 离线解析开始 doc_id=146 task_id=8638ec52-9a08-47d1-868e-b7e76d4973c3 retry=1
+[2026-03-16 15:09:37,414: ERROR/MainProcess] 离线解析任务异常 doc_id=146 task_id=8638ec52-9a08-47d1-868e-b7e76d4973c3 retry=1/2 err=离线解析注入失败：chroma_fail
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 232, in parse_document_offline_impl
+    raise RuntimeError("离线解析注入失败：chroma_fail")
+RuntimeError: 离线解析注入失败：chroma_fail
+[2026-03-16 15:09:37,426: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[8638ec52-9a08-47d1-868e-b7e76d4973c3] received
+[2026-03-16 15:09:37,428: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[8638ec52-9a08-47d1-868e-b7e76d4973c3] retry: Retry in 8s: RuntimeError('离线解析注入失败：chroma_fail')
+[2026-03-16 15:09:45,434: INFO/MainProcess] 离线解析任务启动 doc_id=146 task_id=8638ec52-9a08-47d1-868e-b7e76d4973c3 retry=2 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070929_4808832f18bc4d14b728833318fefa81.txt
+[2026-03-16 15:09:45,448: INFO/MainProcess] 离线解析开始 doc_id=146 task_id=8638ec52-9a08-47d1-868e-b7e76d4973c3 retry=2
+[2026-03-16 15:09:45,451: ERROR/MainProcess] 离线解析任务异常 doc_id=146 task_id=8638ec52-9a08-47d1-868e-b7e76d4973c3 retry=2/2 err=离线解析注入失败：chroma_fail
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 232, in parse_document_offline_impl
+    raise RuntimeError("离线解析注入失败：chroma_fail")
+RuntimeError: 离线解析注入失败：chroma_fail
+[2026-03-16 15:09:45,456: ERROR/MainProcess] Task modules.tasks.parse_knowledge_document_task[8638ec52-9a08-47d1-868e-b7e76d4973c3] raised unexpected: RuntimeError('离线解析注入失败：chroma_fail')
+Traceback (most recent call last):
+  File "C:\Users\Administrator\AppData\Roaming\Python\Python311\site-packages\celery\app\trace.py", line 479, in trace_task
+    R = retval = fun(*args, **kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Roaming\Python\Python311\site-packages\celery\app\trace.py", line 779, in __protected_call__
+    return self.run(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 170, in parse_knowledge_document_task
+    raise e
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 232, in parse_document_offline_impl
+    raise RuntimeError("离线解析注入失败：chroma_fail")
+RuntimeError: 离线解析注入失败：chroma_fail
+[2026-03-16 15:09:46,299: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[8259ec9f-e928-4900-b267-d93b859e97f6] received
+[2026-03-16 15:09:46,299: INFO/MainProcess] 离线解析任务启动 doc_id=147 task_id=8259ec9f-e928-4900-b267-d93b859e97f6 retry=0 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070946_735479d15526408ab4fff3bf601d1bb1.txt
+[2026-03-16 15:09:46,306: INFO/MainProcess] 离线解析开始 doc_id=147 task_id=8259ec9f-e928-4900-b267-d93b859e97f6 retry=0
+[2026-03-16 15:09:46,306: ERROR/MainProcess] 离线解析任务异常 doc_id=147 task_id=8259ec9f-e928-4900-b267-d93b859e97f6 retry=0/2 err=离线解析注入失败：runtime_fail
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 184, in parse_document_offline_impl
+    raise RuntimeError("离线解析注入失败：runtime_fail")
+RuntimeError: 离线解析注入失败：runtime_fail
+[2026-03-16 15:09:46,315: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[8259ec9f-e928-4900-b267-d93b859e97f6] retry: Retry in 8s: RuntimeError('离线解析注入失败：runtime_fail')
+[2026-03-16 15:09:46,317: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[8259ec9f-e928-4900-b267-d93b859e97f6] received
+[2026-03-16 15:09:54,320: INFO/MainProcess] 离线解析任务启动 doc_id=147 task_id=8259ec9f-e928-4900-b267-d93b859e97f6 retry=1 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070946_735479d15526408ab4fff3bf601d1bb1.txt
+[2026-03-16 15:09:54,334: INFO/MainProcess] 离线解析开始 doc_id=147 task_id=8259ec9f-e928-4900-b267-d93b859e97f6 retry=1
+[2026-03-16 15:09:54,334: ERROR/MainProcess] 离线解析任务异常 doc_id=147 task_id=8259ec9f-e928-4900-b267-d93b859e97f6 retry=1/2 err=离线解析注入失败：runtime_fail
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 184, in parse_document_offline_impl
+    raise RuntimeError("离线解析注入失败：runtime_fail")
+RuntimeError: 离线解析注入失败：runtime_fail
+[2026-03-16 15:09:54,341: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[8259ec9f-e928-4900-b267-d93b859e97f6] received
+[2026-03-16 15:09:54,342: INFO/MainProcess] Task modules.tasks.parse_knowledge_document_task[8259ec9f-e928-4900-b267-d93b859e97f6] retry: Retry in 8s: RuntimeError('离线解析注入失败：runtime_fail')
+[2026-03-16 15:10:02,333: INFO/MainProcess] 离线解析任务启动 doc_id=147 task_id=8259ec9f-e928-4900-b267-d93b859e97f6 retry=2 file=D:\Qoder\测试开发平台\backend\runtime\knowledge_uploads\20260316070946_735479d15526408ab4fff3bf601d1bb1.txt
+[2026-03-16 15:10:02,346: INFO/MainProcess] 离线解析开始 doc_id=147 task_id=8259ec9f-e928-4900-b267-d93b859e97f6 retry=2
+[2026-03-16 15:10:02,346: ERROR/MainProcess] 离线解析任务异常 doc_id=147 task_id=8259ec9f-e928-4900-b267-d93b859e97f6 retry=2/2 err=离线解析注入失败：runtime_fail
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 184, in parse_document_offline_impl
+    raise RuntimeError("离线解析注入失败：runtime_fail")
+RuntimeError: 离线解析注入失败：runtime_fail
+[2026-03-16 15:10:02,353: ERROR/MainProcess] Task modules.tasks.parse_knowledge_document_task[8259ec9f-e928-4900-b267-d93b859e97f6] raised unexpected: RuntimeError('离线解析注入失败：runtime_fail')
+Traceback (most recent call last):
+  File "C:\Users\Administrator\AppData\Roaming\Python\Python311\site-packages\celery\app\trace.py", line 479, in trace_task
+    R = retval = fun(*args, **kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Roaming\Python\Python311\site-packages\celery\app\trace.py", line 779, in __protected_call__
+    return self.run(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 170, in parse_knowledge_document_task
+    raise e
+  File "D:\Qoder\测试开发平台\backend\modules\tasks.py", line 101, in parse_knowledge_document_task
+    result = knowledge_base.parse_document_offline(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base.py", line 193, in parse_document_offline
+    return parse_document_offline_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\knowledge_base_components\offline_parse.py", line 184, in parse_document_offline_impl
+    raise RuntimeError("离线解析注入失败：runtime_fail")
+RuntimeError: 离线解析注入失败：runtime_fail
