@@ -36,6 +36,24 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 
+def _normalize_console_output() -> None:
+    """
+    统一控制台编码与换行符，避免 Windows 下出现 \r 可见噪音。
+
+    说明：
+    - 编码固定为 UTF-8，确保中文日志稳定输出。
+    - newline 固定为 \\n，减少跨平台采集时的 CRLF 视觉污染。
+    """
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace", newline="\n")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace", newline="\n")
+    except Exception:
+        # 终端不支持 reconfigure 时不阻断验收主流程。
+        pass
+
+
 @dataclass
 class Scenario:
     """单条联调场景定义。"""
@@ -293,4 +311,5 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    _normalize_console_output()
     raise SystemExit(run_acceptance(parse_args()))
