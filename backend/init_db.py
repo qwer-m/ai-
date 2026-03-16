@@ -107,6 +107,47 @@ def init_db():
                             print(f"Column added to {table}.")
                     except Exception as e:
                         print(f"Failed to migrate {table}: {e}")
+
+                # 阶段1：知识库离线解析状态字段增量迁移（兼容旧库，不影响已有读写）。
+                kb_columns = [
+                    ("parse_status", "VARCHAR(20) NOT NULL DEFAULT 'success'"),
+                    ("parse_error", "TEXT NULL"),
+                    ("parsed_at", "DATETIME NULL"),
+                    ("task_id", "VARCHAR(64) NULL"),
+                    ("retry_count", "INT NOT NULL DEFAULT 0"),
+                ]
+                for col_name, col_type in kb_columns:
+                    check_col_kb = text(
+                        f"SELECT COUNT(*) FROM information_schema.COLUMNS "
+                        f"WHERE TABLE_SCHEMA = '{settings.DB_NAME}' "
+                        f"AND TABLE_NAME = 'knowledge_documents' "
+                        f"AND COLUMN_NAME = '{col_name}'"
+                    )
+                    result_kb = conn.execute(check_col_kb).scalar()
+                    if result_kb == 0:
+                        print(f"Adding '{col_name}' column to knowledge_documents...")
+                        conn.execute(text(f"ALTER TABLE knowledge_documents ADD COLUMN {col_name} {col_type}"))
+                        conn.commit()
+                        print(f"Column '{col_name}' added.")
+
+                # 为状态轮询接口补充索引，避免 parse_status/task_id 查询退化为全表扫描。
+                kb_indexes = [
+                    ("idx_knowledge_documents_parse_status", "parse_status"),
+                    ("idx_knowledge_documents_task_id", "task_id"),
+                ]
+                for idx_name, idx_col in kb_indexes:
+                    check_idx = text(
+                        f"SELECT COUNT(*) FROM information_schema.STATISTICS "
+                        f"WHERE TABLE_SCHEMA = '{settings.DB_NAME}' "
+                        f"AND TABLE_NAME = 'knowledge_documents' "
+                        f"AND INDEX_NAME = '{idx_name}'"
+                    )
+                    idx_exists = conn.execute(check_idx).scalar()
+                    if idx_exists == 0:
+                        print(f"Creating index '{idx_name}' on knowledge_documents({idx_col})...")
+                        conn.execute(text(f"CREATE INDEX {idx_name} ON knowledge_documents({idx_col})"))
+                        conn.commit()
+                        print(f"Index '{idx_name}' created.")
             except Exception as e:
                 print(f"Migration check failed (might be non-MySQL or other error): {e}")
 

@@ -405,6 +405,20 @@ class KnowledgeDocument(Base):
     
     # 压缩摘要 (Context Compression)
     summary = Column(Text, nullable=True, comment="文档摘要 (用于快速检索)")
+
+    # 解析状态机：用于“上传入队 -> 异步解析 -> 状态查询”的最小闭环。
+    # 取值约定：pending / parsing / success / failed
+    parse_status = Column(
+        String(20),
+        nullable=False,
+        default="success",
+        index=True,
+        comment="离线解析状态 (pending/parsing/success/failed)",
+    )
+    parse_error = Column(Text, nullable=True, comment="离线解析错误信息")
+    parsed_at = Column(DateTime, nullable=True, comment="最近一次解析完成时间")
+    task_id = Column(String(64), nullable=True, index=True, comment="Celery 任务ID")
+    retry_count = Column(Integer, nullable=False, default=0, comment="解析任务重试次数")
     
     # 显示顺序 (用于自定义排序)
     display_order = Column(Float, default=0.0, comment="前端显示排序权重")

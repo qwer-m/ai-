@@ -10,25 +10,26 @@ from sqlalchemy.orm import Session
 
 from core.auth import get_current_user
 from core.database import get_db
-from core.file_processing import parse_file_content
 from core.models import KnowledgeDocument, Project, User
 from modules.knowledge_base import knowledge_base
 from schemas.common import ErrorTranslateRequest
 
 router = APIRouter(tags=["Common"])
 
-# 需求类文档类型集合：这些文档可以作为测试用例的“来源文档”
+# 需求类文档类型集合：这些文档可以作为测试用例的“来源文档”。
 REQUIREMENT_LIKE_TYPES = {"requirement", "product_requirement", "incomplete"}
 
 
 class RelationUpdateRequest(BaseModel):
     """更新测试用例与需求文档关联关系的请求体。"""
+
     doc_id: int
     source_doc_id: Optional[int] = None
 
 
 class MoveDocumentRequest(BaseModel):
     """知识库拖拽排序请求体。"""
+
     project_id: int
     doc_id: int
     anchor_doc_id: int
@@ -36,7 +37,7 @@ class MoveDocumentRequest(BaseModel):
 
 
 def _to_iso(dt: Any) -> Optional[str]:
-    """统一把时间字段转成可序列化的 ISO 字符串。"""
+    """统一把时间字段转为可序列化的 ISO 字符串。"""
     if dt is None:
         return None
     if hasattr(dt, "isoformat"):
@@ -45,7 +46,7 @@ def _to_iso(dt: Any) -> Optional[str]:
 
 
 def _serialize_linked_doc(doc: KnowledgeDocument) -> dict:
-    """把关联测试用例序列化为前端可直接渲染的结构。"""
+    """把关联测试用例序列化为前端可直接消费的数据结构。"""
     return {
         "id": doc.project_specific_id or doc.id,
         "global_id": doc.id,
@@ -57,7 +58,7 @@ def _serialize_linked_doc(doc: KnowledgeDocument) -> dict:
 def _serialize_doc(
     doc: KnowledgeDocument, source_name_map: dict[int, str], linked_map: dict[int, list[dict]]
 ) -> dict:
-    """把知识库文档序列化为前端列表结构。"""
+    """把知识库文档序列化为列表结构，同时补充离线解析状态字段。"""
     content = doc.content or ""
     return {
         "id": doc.project_specific_id or doc.id,
@@ -70,6 +71,11 @@ def _serialize_doc(
         "source_doc_name": source_name_map.get(doc.source_doc_id),
         "linked_test_cases": linked_map.get(doc.id, []),
         "content_preview": content[:180],
+        "parse_status": doc.parse_status,
+        "parse_error": doc.parse_error,
+        "parsed_at": _to_iso(doc.parsed_at),
+        "task_id": doc.task_id,
+        "retry_count": doc.retry_count,
     }
 
 
@@ -78,10 +84,13 @@ def _get_owned_project(project_id: int, user_id: int, db: Session) -> Optional[P
     return db.query(Project).filter(Project.id == project_id, Project.user_id == user_id).first()
 
 
-def _get_owned_doc_by_id_or_project_specific_id(doc_id: int, user_id: int, db: Session) -> Optional[KnowledgeDocument]:
+def _get_owned_doc_by_id_or_project_specific_id(
+    doc_id: int, user_id: int, db: Session
+) -> Optional[KnowledgeDocument]:
     """
-    按全局ID优先、项目内ID兜底查询文档，并校验归属当前用户。
-    这样可以兼容旧前端或重构过程中的不同入参格式。
+    先按全局ID查询，查不到再按 project_specific_id 兜底。
+
+    这样可以兼容历史前端在重构期间的不同入参格式。
     """
     doc = (
         db.query(KnowledgeDocument)
@@ -116,6 +125,7 @@ def list_knowledge(
 ):
     """
     知识库列表接口。
+
     默认会隐藏：
     1. 已关联测试用例（source_doc_id 非空）
     2. 评估报告（evaluation_report）
@@ -132,9 +142,6 @@ def list_knowledge(
     if doc_type:
         query = query.filter(KnowledgeDocument.doc_type == doc_type)
 
-    # 知识库 Tab 默认行为：
-    # 1）隐藏“已关联测试用例”
-    # 2）隐藏“评估报告”
     if not include_linked_test_cases:
         query = query.filter(
             ~and_(
@@ -147,13 +154,17 @@ def list_knowledge(
 
     if start_date:
         try:
-            query = query.filter(KnowledgeDocument.created_at >= datetime.strptime(start_date, "%Y-%m-%d"))
+            query = query.filter(
+                KnowledgeDocument.created_at >= datetime.strptime(start_date, "%Y-%m-%d")
+            )
         except ValueError:
             query = query.filter(KnowledgeDocument.created_at >= start_date)
 
     if end_date:
         try:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59
+            )
             query = query.filter(KnowledgeDocument.created_at <= end_dt)
         except ValueError:
             query = query.filter(KnowledgeDocument.created_at <= end_date)
@@ -216,26 +227,25 @@ async def upload_knowledge(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """上传文档到知识库（支持去重与强制导入）。"""
+    """
+    上传知识库文档并入队离线解析。
+
+    这里不在请求线程做完整解析，接口会快速返回 pending 状态。
+    """
     project = _get_owned_project(project_id, current_user.id, db)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    content = await parse_file_content(file)
-    kb_add = knowledge_base.add_document(
-        filename=file.filename or "untitled",
-        content=content,
-        doc_type=doc_type,
+    enqueue_result = await knowledge_base.enqueue_document_for_offline_parse(
+        file=file,
         project_id=project_id,
+        doc_type=doc_type,
         db=db,
         force=force,
         user_id=current_user.id,
     )
+    doc = enqueue_result["document"]
 
-    if isinstance(kb_add, dict):
-        return kb_add
-
-    doc = kb_add
     return {
         "success": True,
         "id": doc.project_specific_id or doc.id,
@@ -243,6 +253,11 @@ async def upload_knowledge(
         "filename": doc.filename,
         "doc_type": doc.doc_type,
         "created_at": _to_iso(doc.created_at),
+        "parse_status": doc.parse_status,
+        "parse_error": doc.parse_error,
+        "parsed_at": _to_iso(doc.parsed_at),
+        "task_id": enqueue_result.get("task_id"),
+        "retry_count": doc.retry_count,
     }
 
 
@@ -277,6 +292,33 @@ def get_knowledge(
         "content": doc.content,
         "source_doc_id": doc.source_doc_id,
         "linked_docs": [_serialize_linked_doc(linked) for linked in linked_docs],
+        "parse_status": doc.parse_status,
+        "parse_error": doc.parse_error,
+        "parsed_at": _to_iso(doc.parsed_at),
+        "task_id": doc.task_id,
+        "retry_count": doc.retry_count,
+    }
+
+
+@router.get("/knowledge/{doc_id}/parse-status")
+def get_knowledge_parse_status(
+    doc_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """按文档查询离线解析状态。"""
+    doc = _get_owned_doc_by_id_or_project_specific_id(doc_id, current_user.id, db)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Knowledge document not found")
+
+    return {
+        "id": doc.project_specific_id or doc.id,
+        "global_id": doc.id,
+        "parse_status": doc.parse_status,
+        "parse_error": doc.parse_error,
+        "parsed_at": _to_iso(doc.parsed_at),
+        "task_id": doc.task_id,
+        "retry_count": doc.retry_count,
     }
 
 
@@ -286,7 +328,7 @@ def delete_knowledge(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """删除知识库文档并自动清理关联关系。"""
+    """删除知识库文档并清理关联关系。"""
     doc = _get_owned_doc_by_id_or_project_specific_id(doc_id, current_user.id, db)
     if not doc:
         raise HTTPException(status_code=404, detail="Knowledge document not found")
@@ -344,7 +386,7 @@ def move_knowledge(
 
 @router.post("/error/translate")
 def translate_error(req: ErrorTranslateRequest, current_user: User = Depends(get_current_user)):
-    """把接口/网络错误翻译为更友好的中文提示。"""
+    """把接口/网络错误翻译成更友好的中文提示。"""
     raw = extract_error_text(req.error)
     message = translate_error_text(raw)
     return {"message": message, "raw": raw}
@@ -369,17 +411,20 @@ def extract_error_text(err: Any) -> str:
 
 
 def translate_error_text(text: str) -> str:
-    """将常见英文错误关键字映射成中文。"""
+    """将常见英文错误关键词映射成中文。"""
     if not text:
         return "发生未知错误"
     if re.search(r"[\u4e00-\u9fff]", text):
         return text
+
     lower = text.lower()
     mapping = [
         ("timeout", "请求超时"),
         ("timed out", "请求超时"),
         ("failed to fetch", "网络请求失败"),
         ("networkerror", "网络请求失败"),
+        ("ssl", "网络连接异常，请检查网络环境后重试"),
+        ("unexpected_eof_while_reading", "网络连接被中断，请稍后重试"),
         ("econnrefused", "连接被拒绝"),
         ("connection refused", "连接被拒绝"),
         ("unauthorized", "未授权或登录已过期"),
@@ -402,3 +447,4 @@ def translate_error_text(text: str) -> str:
         if key in lower:
             return msg
     return "发生错误，请稍后重试"
+

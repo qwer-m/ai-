@@ -1,15 +1,18 @@
 """
-知识库模块（Knowledge Base Management）。
+知识库模块门面（Knowledge Base Facade）。
 
-层级定位：
-1. 位于 modules 层，负责知识文档管理与 RAG 上下文供给。
-2. 对外保持统一门面，复杂实现拆分到 `knowledge_base_components`。
-3. 不改变既有数据语义：MySQL 主数据、ChromaDB 检索、project_specific_id 连续性规则。
+职责：
+1. 对外暴露知识库相关能力，保持路由层调用方式稳定。
+2. 把具体实现拆分到 knowledge_base_components，降低单文件复杂度。
+3. 兼容历史同步流程，同时支持新增的离线解析入队流程。
 """
+
+from __future__ import annotations
 
 import hashlib
 from typing import Optional
 
+from fastapi import UploadFile
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, aliased
 
@@ -25,26 +28,27 @@ from modules.knowledge_base_components.document_ops import (
     reorder_documents_impl,
     update_document_impl,
 )
+from modules.knowledge_base_components.offline_parse import (
+    bind_parse_task_impl,
+    create_pending_document_impl,
+    mark_parse_failed_impl,
+    mark_parse_retry_impl,
+    parse_document_offline_impl,
+    queue_document_parse_impl,
+    save_upload_file_for_offline_parse,
+)
 
 
 class KnowledgeBaseModule:
-    """
-    知识库核心门面。
-
-    对外职责：
-    1. 暴露文档管理、关系维护、上下文检索接口。
-    2. 保持历史调用契约不变，便于 router/service 无感升级。
-    """
+    """知识库统一门面。"""
 
     def _ensure_summary(
         self, doc: KnowledgeDocument, db: Session, user_id: Optional[int] = None
     ) -> str:
         """
-        确保文档可用于低成本上下文拼接。
+        为长文档生成可复用摘要。
 
-        设计原因：
-        1. 长文直接注入上下文会显著抬高 token 成本。
-        2. 仅在长文且摘要缺失时触发 AI 压缩，避免不必要的模型调用。
+        业务目的：在不损失关键信息的前提下，降低后续检索和上下文拼接成本。
         """
         if not doc:
             return ""
@@ -75,19 +79,20 @@ class KnowledgeBaseModule:
                 db.refresh(doc)
                 return summary
         except Exception:
+            # 摘要失败时回退到原文，不阻断主流程。
             pass
 
         return content
 
     def calculate_hash(self, content: str) -> str:
-        """计算内容哈希，用于重复文档判定。"""
+        """计算内容哈希，用于去重判定。"""
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     def reindex_project_specific_ids(self, doc_type: str, project_id: int, db: Session):
         """
-        维护项目内类型级连续编号。
+        维护项目内同类型文档的连续编号。
 
-        该编号用于前端展示和业务可读性，不替代全局主键。
+        该编号用于业务展示，不替代全局主键。
         """
         remaining_docs = (
             db.query(KnowledgeDocument)
@@ -106,7 +111,7 @@ class KnowledgeBaseModule:
         return len(remaining_docs)
 
     def check_duplicate(self, content: str, db: Session) -> bool:
-        """按内容哈希检查是否已存在同内容文档。"""
+        """按内容哈希检查是否存在重复文档。"""
         content_hash = self.calculate_hash(content)
         exists = (
             db.query(KnowledgeDocument)
@@ -125,11 +130,98 @@ class KnowledgeBaseModule:
         force: bool = False,
         user_id: int = None,
     ):
-        """
-        新增文档门面。
-        具体数据库/向量库协作在 `document_ops` 中实现，避免当前文件继续膨胀。
-        """
+        """同步新增文档门面（保留历史能力）。"""
         return add_document_impl(self, filename, content, doc_type, project_id, db, force, user_id)
+
+    async def enqueue_document_for_offline_parse(
+        self,
+        file: UploadFile,
+        project_id: int,
+        doc_type: str,
+        db: Session,
+        force: bool = False,
+        user_id: Optional[int] = None,
+    ) -> dict:
+        """
+        上传入队门面。
+
+        这里收敛“文件落盘 + 建 pending 记录 + Celery 入队”三步编排，
+        让路由层只负责参数和权限校验。
+        """
+        file_path = await save_upload_file_for_offline_parse(file)
+        doc = create_pending_document_impl(
+            self,
+            filename=file.filename or "untitled",
+            doc_type=doc_type,
+            project_id=project_id,
+            db=db,
+            user_id=user_id,
+        )
+        task = queue_document_parse_impl(
+            doc_id=doc.id,
+            file_path=file_path,
+            force=force,
+            user_id=user_id,
+        )
+        bind_parse_task_impl(doc.id, task.id, db)
+        db.refresh(doc)
+        return {"document": doc, "task_id": task.id}
+
+    def parse_document_offline(
+        self,
+        doc_id: int,
+        file_path: str,
+        db: Session,
+        force: bool = False,
+        user_id: Optional[int] = None,
+        task_id: Optional[str] = None,
+        retry_count: int = 0,
+    ) -> dict:
+        """离线解析门面，供 Celery 任务执行实际解析与索引。"""
+        return parse_document_offline_impl(
+            self,
+            doc_id=doc_id,
+            file_path=file_path,
+            db=db,
+            force=force,
+            user_id=user_id,
+            task_id=task_id,
+            retry_count=retry_count,
+        )
+
+    def mark_document_parse_retry(
+        self,
+        doc_id: int,
+        retry_count: int,
+        error: Exception,
+        db: Session,
+        task_id: Optional[str] = None,
+    ) -> None:
+        """记录重试中的失败信息，便于前端状态轮询。"""
+        mark_parse_retry_impl(
+            doc_id=doc_id,
+            retry_count=retry_count,
+            error=error,
+            db=db,
+            task_id=task_id,
+        )
+
+    def mark_document_parse_failed(
+        self,
+        doc_id: int,
+        error: Exception,
+        db: Session,
+        task_id: Optional[str] = None,
+        retry_count: Optional[int] = None,
+    ) -> None:
+        """记录最终失败状态，确保失败可见且可追踪。"""
+        mark_parse_failed_impl(
+            doc_id=doc_id,
+            error=error,
+            db=db,
+            task_id=task_id,
+            retry_count=retry_count,
+        )
 
     def get_documents_list(
         self,
@@ -142,9 +234,7 @@ class KnowledgeBaseModule:
         """
         获取文档列表并支持联动搜索。
 
-        关键点：
-        1. 搜索会命中当前文档名、关联子文档名、关联父文档名。
-        2. 排序优先 `display_order DESC`，其次 `created_at DESC`。
+        搜索会覆盖：当前文档名、关联子文档名、关联父文档名。
         """
         query = db.query(KnowledgeDocument).filter(KnowledgeDocument.project_id == project_id)
 
@@ -176,9 +266,7 @@ class KnowledgeBaseModule:
         ).all()
 
     def update_relation(self, doc_id: int, source_doc_id: Optional[int], db: Session):
-        """
-        更新文档关联关系（test_case -> requirement-like）。
-        """
+        """更新 test_case -> requirement-like 的关联关系。"""
         doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
         if not doc:
             return False, "Document not found"
@@ -206,9 +294,7 @@ class KnowledgeBaseModule:
         return True, None
 
     def clean_cross_project_associations(self, db: Session):
-        """
-        清理历史脏数据：跨项目 source_doc_id 关联。
-        """
+        """清理历史跨项目 source_doc_id 脏数据。"""
         dirty_docs = db.query(KnowledgeDocument).filter(KnowledgeDocument.source_doc_id != None).all()
 
         cleaned_count = 0
