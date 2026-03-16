@@ -52,8 +52,9 @@ def generate_test_cases_task(
         )
         return result
     except Exception as e:
-        self.update_state(state="FAILURE", meta={"error": str(e)})
-        raise e
+        # 不手工写入 FAILURE 元数据，避免写入非 Celery 异常结构导致结果后端解码失败。
+        logger.exception("测试用例生成任务异常 task_id=%s err=%s", getattr(self.request, "id", None), e)
+        raise
     finally:
         db.close()
 

@@ -326,9 +326,25 @@ class KnowledgeBaseModule:
         limit: int = 5,
         db: Optional[Session] = None,
         user_id: Optional[int] = None,
-    ) -> str:
-        """语义召回门面。"""
-        return get_relevant_context_impl(self, query, project_id, limit, db, user_id)
+        debug: bool = False,
+        max_tokens: int = 1800,
+    ) -> str | dict:
+        """
+        语义召回门面（兼容旧接口）。
+
+        - debug=False：返回字符串上下文（历史行为）。
+        - debug=True：返回包含检索治理调试信息的结构化结果。
+        """
+        return get_relevant_context_impl(
+            self,
+            query,
+            project_id,
+            limit,
+            db,
+            user_id,
+            debug=debug,
+            max_tokens=max_tokens,
+        )
 
     def get_all_context(
         self,

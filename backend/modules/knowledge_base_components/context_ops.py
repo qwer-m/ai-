@@ -1,15 +1,41 @@
-"""
+﻿"""
 知识库上下文检索实现。
 
-聚焦 RAG 上下文拼装逻辑，避免与文档增删改逻辑耦合在同一文件。
+该文件作为“检索治理层”编排入口，负责：
+1. 查询改写（query_rewriter）
+2. 多路召回（recall_pipeline）
+3. 轻量重排（reranker）
+4. 上下文压缩（context_compressor）
 """
+
+from __future__ import annotations
 
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from core.chroma_client import chroma_client
 from core.models import KnowledgeDocument
+from modules.knowledge_base_components.context_compressor import compress_context
+from modules.knowledge_base_components.recall_pipeline import recall_chunks
+from modules.knowledge_base_components.reranker import rerank_chunks
+
+
+def _format_context_chunks(chunks: list[dict]) -> str:
+    """
+    将最终片段格式化为历史上下文文本格式。
+
+    为兼容旧 prompt 逻辑，保持头部形态不变：
+    --- Relevant Knowledge: 文件名 (类型) ---
+    """
+    blocks: list[str] = []
+    for chunk in chunks:
+        text = str(chunk.get("chunk_text") or "").strip()
+        if not text:
+            continue
+        filename = chunk.get("filename") or "Unknown"
+        doc_type = chunk.get("doc_type") or "Unknown"
+        blocks.append(f"--- Relevant Knowledge: {filename} ({doc_type}) ---\n{text}")
+    return "\n\n".join(blocks).strip() + ("\n\n" if blocks else "")
 
 
 def get_relevant_context_impl(
@@ -19,47 +45,115 @@ def get_relevant_context_impl(
     limit: int = 5,
     db: Optional[Session] = None,
     user_id: Optional[int] = None,
-) -> str:
+    debug: bool = False,
+    max_tokens: int = 1800,
+) -> str | dict:
     """
-    语义检索上下文。
-    保持历史输出格式：`--- Relevant Knowledge: 文件名 (类型) ---`。
+    语义检索上下文（治理版）。
+
+    兼容约定：
+    - debug=False：返回字符串（保持历史行为）
+    - debug=True：返回 {"context": "...", "debug": {...}}
     """
-    if not query:
-        return ""
+    question = (query or "").strip()
+    if not question:
+        empty = {"context": "", "debug": {"original_query": "", "rewrite_queries": []}}
+        return empty if debug else ""
 
     try:
-        results = chroma_client.search(
-            query=query,
-            n_results=limit,
-            where={"project_id": project_id},
+        # 1) 多路召回：原始 query + 改写 query，覆盖 raw/summary 两路。
+        recall_result = recall_chunks(
+            question=question,
+            project_id=project_id,
+            top_k=max(limit * 3, 6),
+            rewrite_count=1,
+        )
+        recalled_chunks = recall_result.get("chunks") or []
+
+        # 2) 轻量重排：向量分数主导，规则分作为微调。
+        reranked_chunks = rerank_chunks(
+            chunks=recalled_chunks,
+            question=question,
+            top_k=max(limit * 4, 8),
         )
 
-        context = ""
-        if results and results.get("documents") and len(results["documents"]) > 0:
-            for i, doc_text in enumerate(results["documents"][0]):
-                meta = results["metadatas"][0][i] if results.get("metadatas") else {}
-                filename = meta.get("filename", "Unknown")
-                doc_type = meta.get("doc_type", "Unknown")
-                doc_id = meta.get("doc_id") if isinstance(meta, dict) else None
-                if db and doc_id:
-                    try:
-                        kb_doc = db.query(KnowledgeDocument).filter(
-                            KnowledgeDocument.id == int(doc_id),
-                            KnowledgeDocument.project_id == project_id,
-                        ).first()
-                        if kb_doc:
-                            # 优先摘要可显著降低 token 消耗，且与原行为一致。
-                            doc_text = module._ensure_summary(kb_doc, db, user_id)
-                    except Exception:
-                        pass
-                context += f"""--- Relevant Knowledge: {filename} ({doc_type}) ---
-{doc_text}
+        # 3) 上下文压缩：优先保留 original-query 命中，再按预算填充。
+        compressed = compress_context(
+            chunks=reranked_chunks,
+            max_tokens=max_tokens,
+            keep_original_top_n=2,
+        )
+        selected_chunks = (compressed.get("selected_chunks") or [])[: max(1, int(limit))]
+        context_text = _format_context_chunks(selected_chunks)
 
-"""
-        return context
+        if not debug:
+            return context_text
+
+        # 4) 构造可观测信息，供 API debug=true 返回。
+        final_chunk_debug = []
+        for chunk in selected_chunks:
+            final_chunk_debug.append(
+                {
+                    "chunk_source": chunk.get("chunk_source"),
+                    "query_source": chunk.get("query_source"),
+                    "score": float(chunk.get("score") or 0.0),
+                    "base_score": float(chunk.get("base_score") or chunk.get("score") or 0.0),
+                    "bonus_score": float(chunk.get("bonus_score") or 0.0),
+                    "final_score": float(
+                        chunk.get("final_score")
+                        or chunk.get("rerank_score")
+                        or chunk.get("score")
+                        or 0.0
+                    ),
+                    "doc_id": chunk.get("doc_id"),
+                    "filename": chunk.get("filename"),
+                    "doc_type": chunk.get("doc_type"),
+                    "kept_reason": chunk.get("kept_reason"),
+                    "recall_routes": chunk.get("recall_routes") or [],
+                }
+            )
+
+        rerank_top = []
+        for chunk in reranked_chunks[: max(1, int(limit))]:
+            rerank_top.append(
+                {
+                    "doc_id": chunk.get("doc_id"),
+                    "filename": chunk.get("filename"),
+                    "query_source": chunk.get("query_source"),
+                    "chunk_source": chunk.get("chunk_source"),
+                    "score": float(chunk.get("score") or 0.0),
+                    "base_score": float(chunk.get("base_score") or chunk.get("score") or 0.0),
+                    "bonus_score": float(chunk.get("bonus_score") or 0.0),
+                    "final_score": float(
+                        chunk.get("final_score")
+                        or chunk.get("rerank_score")
+                        or chunk.get("score")
+                        or 0.0
+                    ),
+                }
+            )
+
+        return {
+            "context": context_text,
+            "debug": {
+                "original_query": recall_result.get("debug", {}).get("original_query"),
+                "rewrite_queries": recall_result.get("debug", {}).get("rewrite_queries") or [],
+                "lane_counts": recall_result.get("debug", {}).get("lane_counts") or {},
+                "lane_reasons": recall_result.get("debug", {}).get("lane_reasons") or {},
+                "lane_topk": recall_result.get("debug", {}).get("lane_topk") or {},
+                "merged_count": int(recall_result.get("debug", {}).get("merged_count") or 0),
+                "deduped_count": int(recall_result.get("debug", {}).get("deduped_count") or 0),
+                "reranked_count": len(reranked_chunks),
+                "compressed_count": len(selected_chunks),
+                "max_tokens": int(max_tokens),
+                "compressor_stats": compressed.get("stats") or {},
+                "rerank_top": rerank_top,
+                "final_chunks": final_chunk_debug,
+            },
+        }
     except Exception as e:
-        print(f"RAG retrieval failed: {e}")
-        return ""
+        error_payload = {"context": "", "debug": {"error": f"RAG retrieval failed: {e}"}}
+        return error_payload if debug else ""
 
 
 def get_all_context_impl(
@@ -82,4 +176,3 @@ def get_all_context_impl(
 
 """
     return context
-

@@ -40,6 +40,16 @@ class MoveDocumentRequest(BaseModel):
     position: str
 
 
+class RetrieveContextRequest(BaseModel):
+    """检索治理调试请求体。"""
+
+    project_id: int
+    query: str
+    limit: int = 5
+    max_tokens: int = 1800
+    debug: bool = False
+
+
 def _to_iso(dt: Any) -> Optional[str]:
     """统一把时间字段转为可序列化的 ISO 字符串。"""
     if dt is None:
@@ -361,6 +371,39 @@ def get_knowledge_parse_status(
         "retry_count": doc.retry_count,
         "task_state": task_state,
     }
+
+
+@router.post("/knowledge/retrieve-context")
+def retrieve_knowledge_context(
+    req: RetrieveContextRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    检索治理层调试接口。
+
+    说明：
+    1. 默认 debug=false，仅返回压缩后的上下文文本，不影响生产链路。
+    2. debug=true 时附带查询改写、多路召回、去重与压缩统计信息。
+    """
+    project = _get_owned_project(req.project_id, current_user.id, db)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    result = knowledge_base.get_relevant_context(
+        query=req.query,
+        project_id=req.project_id,
+        limit=max(1, int(req.limit)),
+        db=db,
+        user_id=current_user.id,
+        debug=bool(req.debug),
+        max_tokens=max(128, int(req.max_tokens)),
+    )
+
+    # 兼容旧门面：若返回字符串则包装为标准响应。
+    if isinstance(result, str):
+        return {"context": result}
+    return result
 
 
 @router.delete("/knowledge/{doc_id}")
