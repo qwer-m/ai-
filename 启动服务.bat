@@ -12,8 +12,8 @@ if not exist "!PYTHON_EXE!" (
     set "PYTHON_EXE=python"
 )
 
-REM 兜底校验：虚拟环境 python.exe 存在但损坏时，会触发“系统无法执行指定的程序(9020)”
-REM 先做可执行探测，失败则回退到系统 python，避免报错信息不明确。
+REM Fallback check: virtualenv python may exist but be corrupted (Windows error 9020).
+REM Probe executable first; if it fails, fallback to system python in PATH.
 "!PYTHON_EXE!" -V >nul 2>&1
 if errorlevel 1 (
     echo [WARN] Python executable check failed: !PYTHON_EXE!
