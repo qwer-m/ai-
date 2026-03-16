@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
 from sqlalchemy import desc, or_
 from sqlalchemy.orm import Session
 
@@ -22,18 +21,27 @@ from modules.evaluation import evaluator
 from modules.knowledge_base import knowledge_base
 from modules.test_generation import test_generator
 from modules.ui_automation import ui_automator
+from .pipeline_routes.schemas import (
+    PipelineRetryRequest,
+    PipelineRunRequest,
+    RunStatus,
+    STAGE_ORDER,
+    StageKey,
+    WorkflowTraceItem,
+)
+from .pipeline_routes.support import (
+    _default_stage_states,
+    _find_resume_stage,
+    _mark_stage,
+    _now_iso,
+    _parse_workflow_trace,
+    _persist_run,
+    _serialize_run,
+    _to_text,
+    _truncate_text,
+)
 
 router = APIRouter(prefix="/pipeline", tags=["Pipeline"])
-
-StageKey = Literal["test_generation", "ui_automation", "api_automation", "evaluation"]
-RunStatus = Literal["pending", "running", "success", "failed"]
-
-STAGE_ORDER: list[StageKey] = [
-    "test_generation",
-    "ui_automation",
-    "api_automation",
-    "evaluation",
-]
 
 STAGE_WORKFLOW_KIND: dict[StageKey, WorkflowKind] = {
     "test_generation": WorkflowKind.TEST_GENERATION,
@@ -64,178 +72,11 @@ def _ensure_pipeline_table() -> None:
 _ensure_pipeline_table()
 
 
-class PipelineUIConfig(BaseModel):
-    task: str = ""
-    target: str = "http://localhost:5173"
-    automation_type: Literal["web", "app"] = "web"
-
-
-class PipelineAPIConfig(BaseModel):
-    requirement: str = ""
-    base_url: str = "http://127.0.0.1:8000"
-    api_path: str = "/api/health"
-    mode: Literal["structured", "natural"] = "structured"
-    test_types: list[str] = Field(default_factory=lambda: ["Functional"])
-
-
-class PipelineEvalConfig(BaseModel):
-    run_testcase_eval: bool = False
-    run_ui_eval: bool = True
-    run_api_eval: bool = True
-    baseline_test_cases: str = ""
-
-
-class PipelineAgentConfig(BaseModel):
-    enabled: bool = True
-    planner_llm: bool = True
-    reviewer_llm: bool = True
-    executor_parallel: bool = True
-    executor_workers: int = Field(default=3, ge=1, le=8)
-    auto_retry_enabled: bool = True
-    max_auto_retries: int = Field(default=1, ge=0, le=3)
-    retry_policy: Literal["conservative", "balanced", "aggressive"] = "balanced"
-    max_context_chars: int = Field(default=3500, ge=800, le=12000)
-
-
-class PipelineRunRequest(BaseModel):
-    project_id: int
-    requirement: str
-    expected_count: int = Field(default=20, ge=1, le=200)
-    compress: bool = False
-    ui: PipelineUIConfig = Field(default_factory=PipelineUIConfig)
-    api: PipelineAPIConfig = Field(default_factory=PipelineAPIConfig)
-    evaluation: PipelineEvalConfig = Field(default_factory=PipelineEvalConfig)
-    agent: PipelineAgentConfig = Field(default_factory=PipelineAgentConfig)
-
-
-class PipelineRetryRequest(BaseModel):
-    from_stage: Optional[StageKey] = None
-
-
-class WorkflowTraceItem(BaseModel):
-    id: int
-    created_at: Any
-    kind: str
-    stage: str
-    action: str
-    details: dict[str, Any]
-
-
 def _get_owned_project(project_id: int, db: Session, user_id: int) -> Project:
     project = db.query(Project).filter(Project.id == project_id, Project.user_id == user_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
-
-
-def _now_iso() -> str:
-    return datetime.utcnow().isoformat()
-
-
-def _default_stage_states() -> dict[str, dict[str, Any]]:
-    return {stage: {"status": "idle", "message": "", "started_at": None, "ended_at": None} for stage in STAGE_ORDER}
-
-
-def _serialize_run(run: PipelineRun) -> dict[str, Any]:
-    return {
-        "id": run.id,
-        "project_id": run.project_id,
-        "user_id": run.user_id,
-        "status": run.status,
-        "current_stage": run.current_stage,
-        "request_payload": run.request_payload or {},
-        "stage_states": run.stage_states or _default_stage_states(),
-        "artifacts": run.artifacts or {},
-        "error_message": run.error_message or "",
-        "retry_of_run_id": run.retry_of_run_id,
-        "created_at": run.created_at,
-        "started_at": run.started_at,
-        "finished_at": run.finished_at,
-        "updated_at": run.updated_at,
-    }
-
-
-def _persist_run(
-    db: Session,
-    run: PipelineRun,
-    *,
-    status: Optional[RunStatus] = None,
-    current_stage: Optional[str] = None,
-    stage_states: Optional[dict[str, Any]] = None,
-    artifacts: Optional[dict[str, Any]] = None,
-    error_message: Optional[str] = None,
-    started_at: Optional[datetime] = None,
-    finished_at: Optional[datetime] = None,
-) -> None:
-    if status is not None:
-        run.status = status
-    if current_stage is not None:
-        run.current_stage = current_stage
-    if stage_states is not None:
-        run.stage_states = stage_states
-    if artifacts is not None:
-        run.artifacts = artifacts
-    if error_message is not None:
-        run.error_message = error_message
-    if started_at is not None:
-        run.started_at = started_at
-    if finished_at is not None:
-        run.finished_at = finished_at
-    db.add(run)
-    db.commit()
-    db.refresh(run)
-
-
-def _mark_stage(
-    stage_states: dict[str, Any],
-    stage: StageKey,
-    status: Literal["idle", "running", "success", "failed", "skipped"],
-    message: str,
-) -> None:
-    row = dict(stage_states.get(stage) or {})
-    row["status"] = status
-    row["message"] = message
-    if status == "running":
-        row["started_at"] = row.get("started_at") or _now_iso()
-        row["ended_at"] = None
-    elif status in {"success", "failed", "skipped"}:
-        row["ended_at"] = _now_iso()
-        row["started_at"] = row.get("started_at") or row["ended_at"]
-    stage_states[stage] = row
-
-
-def _parse_workflow_trace(message: str) -> Optional[dict[str, Any]]:
-    prefix = "WORKFLOW_TRACE:"
-    if not message or not message.startswith(prefix):
-        return None
-    payload = message[len(prefix) :].strip()
-    if not payload:
-        return None
-    try:
-        data = json.loads(payload)
-    except Exception:
-        return None
-    if not isinstance(data, dict):
-        return None
-    details = data.get("details")
-    data["details"] = details if isinstance(details, dict) else {}
-    return data
-
-
-def _to_text(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-    try:
-        return json.dumps(value, ensure_ascii=False)
-    except Exception:
-        return str(value)
-
-
-def _truncate_text(value: Any, limit: int) -> str:
-    text = _to_text(value)
-    if len(text) <= limit:
-        return text
-    return f"{text[:limit]}...(truncated)"
 
 
 def _build_stage_agent_context(
@@ -1022,14 +863,6 @@ def _log_stage_trace(
         STAGE_WORKFLOW_STAGE[stage],
         details,
     )
-
-
-def _find_resume_stage(stage_states: dict[str, Any]) -> Optional[StageKey]:
-    for stage in STAGE_ORDER:
-        status = str((stage_states.get(stage) or {}).get("status") or "idle")
-        if status in {"idle", "failed", "pending"}:
-            return stage
-    return None
 
 
 def _start_worker(run_id: int, start_stage: StageKey) -> None:
