@@ -31,6 +31,11 @@ from modules.test_generation_components.json_processing import (
 from modules.test_generation_components.json_processing import (
     normalize_json_structure as _normalize_json_structure_impl,
 )
+from modules.test_generation_components.hybrid_context_builder import (
+    HYBRID_CONFIG,
+    build_hybrid_context,
+    should_use_rag,
+)
 
 
 def clean_and_parse_json(response_text: str) -> Any:
@@ -183,7 +188,7 @@ class TestGenerationModule:
             # instead of silently downgrading to a default plan.
             raise e
 
-    def _resolve_kb_context_with_snapshot(
+    def _resolve_kb_context_with_hybrid(
         self,
         requirement: str,
         project_id: int,
@@ -191,37 +196,36 @@ class TestGenerationModule:
         user_id: int = None,
         compress: bool = False,
         status_messages: list[str] | None = None,
+        precision_mode: bool = False,
     ) -> dict:
         """
-        统一编排生成链路中的知识上下文来源。
+        统一编排生成链路中的融合知识上下文来源。
 
         优先级：
-        1. 复用项目级 context snapshot；
-        2. snapshot 不可用时 fallback 到 RAG 检索；
+        1. snapshot 提供全局背景；
+        2. 轻量 RAG 提供当前问题精确证据；
         3. 任一环节失败都不阻断主生成链路。
         """
         query_text = requirement[:1000] if requirement else ""
-
         if not db:
-            return {"kb_context": "", "context_source": "none", "fallback_reason": "db_unavailable"}
-
-        if not compress:
-            kb_context = knowledge_base.get_relevant_context(
-                query=query_text,
-                project_id=project_id,
-                limit=5,
-                db=db,
-                user_id=user_id,
-            )
             return {
-                "kb_context": kb_context or "",
-                "context_source": "rag",
-                "fallback_reason": "compress_disabled",
+                "kb_context": "",
+                "context_source": "none",
+                "fallback_reason": "db_unavailable",
+                "fusion_debug": {
+                    "snapshot_used": False,
+                    "rag_used": False,
+                    "rag_chunk_count": 0,
+                    "rag_top_scores": [],
+                    "fusion_mode": "empty",
+                    "final_context_tokens": 0,
+                },
             }
 
         if status_messages is not None:
             status_messages.append("正在准备项目级上下文快照，这可能需要几秒钟...")
 
+        snapshot_text = ""
         try:
             snapshot_result = knowledge_base.get_or_build_context_snapshot(
                 project_id=project_id,
@@ -237,6 +241,7 @@ class TestGenerationModule:
             }
 
         if snapshot_result.get("success") and (snapshot_result.get("snapshot_text") or "").strip():
+            snapshot_text = snapshot_result.get("snapshot_text") or ""
             if status_messages is not None:
                 if snapshot_result.get("cache_hit"):
                     status_messages.append("命中项目级上下文快照缓存，直接复用。")
@@ -244,44 +249,105 @@ class TestGenerationModule:
                     status_messages.append(
                         f"项目级上下文快照已更新（{snapshot_result.get('rebuild_reason', 'unknown')}），本次复用新快照。"
                     )
-            return {
-                "kb_context": snapshot_result.get("snapshot_text") or "",
-                "context_source": "snapshot",
-                "snapshot_result": snapshot_result,
-                "fallback_reason": "",
-            }
 
-        fallback_reason = snapshot_result.get("fallback_reason") or "snapshot_unavailable"
-        queue_result = snapshot_result.get("queue_result") or {}
+        fallback_reason = ""
+        if not snapshot_text:
+            fallback_reason = snapshot_result.get("fallback_reason") or "snapshot_unavailable"
+            queue_result = snapshot_result.get("queue_result") or {}
+            if status_messages is not None:
+                if queue_result.get("queued"):
+                    status_messages.append(
+                        f"项目级上下文快照不可用（{fallback_reason}），已触发后台预热任务 {queue_result.get('task_id')}。"
+                    )
+                else:
+                    status_messages.append(f"项目级上下文快照不可用（{fallback_reason}），继续尝试 RAG。")
+
+        snapshot_tokens = max(0, len(snapshot_text) // 4)
+        use_rag, precision_reasons = should_use_rag(
+            question=query_text,
+            mode="test_case_generation",
+            snapshot_length=snapshot_tokens,
+            precision_mode=bool(precision_mode),
+        )
         if status_messages is not None:
-            if queue_result.get("queued"):
-                status_messages.append(
-                    f"项目级上下文快照不可用（{fallback_reason}），已触发后台预热任务 {queue_result.get('task_id')}。"
-                )
+            if use_rag:
+                status_messages.append(f"已启用精度增强检索（原因：{','.join(precision_reasons)}）。")
             else:
-                status_messages.append(f"项目级上下文快照不可用（{fallback_reason}），转为 RAG 检索。")
+                status_messages.append("当前问题未触发精度增强检索，仅使用 snapshot 背景。")
 
-        try:
-            kb_context = knowledge_base.get_relevant_context(
-                query=query_text,
-                project_id=project_id,
-                limit=10,
-                db=db,
-                user_id=user_id,
+        rag_result = None
+        rag_error = ""
+        if use_rag:
+            try:
+                rag_result = knowledge_base.get_relevant_context(
+                    query=query_text,
+                    project_id=project_id,
+                    limit=HYBRID_CONFIG.rag_top_k,
+                    db=db,
+                    user_id=user_id,
+                    debug=True,
+                    max_tokens=HYBRID_CONFIG.rag_max_tokens,
+                )
+            except Exception as e:
+                rag_error = f"rag_exception:{e}"
+                if status_messages is not None:
+                    status_messages.append(f"RAG 精度检索失败（{e}），将仅使用 snapshot。")
+
+        fusion_result = build_hybrid_context(
+            question=query_text,
+            snapshot_text=snapshot_text,
+            rag_payload=rag_result if isinstance(rag_result, dict) else None,
+            mode="test_case_generation",
+            precision_mode=bool(precision_mode),
+        )
+        fusion_debug = fusion_result.get("debug") or {}
+        kb_context = fusion_result.get("context") or ""
+
+        if status_messages is not None:
+            status_messages.append(
+                "融合完成：mode="
+                f"{fusion_debug.get('fusion_mode')}，rag_chunks={fusion_debug.get('rag_chunk_count', 0)}，"
+                f"tokens≈{fusion_debug.get('final_context_tokens', 0)}"
             )
-        except Exception as e:
-            kb_context = ""
-            fallback_reason = f"rag_exception:{e}"
 
-        if status_messages is not None and kb_context:
-            status_messages.append(f"已通过 RAG 检索相关知识（{len(kb_context)} 字符）。")
+        if not kb_context:
+            if rag_error:
+                fallback_reason = rag_error
+            elif fallback_reason:
+                pass
+            elif use_rag and (fusion_debug.get("rag_error") or ""):
+                fallback_reason = str(fusion_debug.get("rag_error"))
+            else:
+                fallback_reason = "hybrid_empty_context"
 
         return {
-            "kb_context": kb_context or "",
-            "context_source": "rag",
+            "kb_context": kb_context,
+            "context_source": fusion_debug.get("fusion_mode") or "empty",
             "snapshot_result": snapshot_result,
+            "rag_result": rag_result if isinstance(rag_result, dict) else None,
+            "fusion_debug": fusion_debug,
             "fallback_reason": fallback_reason,
         }
+
+    def _resolve_kb_context_with_snapshot(
+        self,
+        requirement: str,
+        project_id: int,
+        db: Session,
+        user_id: int = None,
+        compress: bool = False,
+        status_messages: list[str] | None = None,
+    ) -> dict:
+        """兼容旧调用名，内部转调到融合实现。"""
+        return self._resolve_kb_context_with_hybrid(
+            requirement=requirement,
+            project_id=project_id,
+            db=db,
+            user_id=user_id,
+            compress=compress,
+            status_messages=status_messages,
+            precision_mode=False,
+        )
 
     def generate_test_cases_json(self, requirement: str, project_id: int, db: Session = None, doc_type: str = "requirement", compress: bool = False, expected_count: int = 20, batch_size: int = 20, batch_index: int = 0, user_id: int = None) -> dict:
         """
@@ -308,12 +374,13 @@ class TestGenerationModule:
         original_requirement = requirement
         kb_context = ""
         if db:
-            context_result = self._resolve_kb_context_with_snapshot(
+            context_result = self._resolve_kb_context_with_hybrid(
                 requirement=requirement,
                 project_id=project_id,
                 db=db,
                 user_id=user_id,
                 compress=compress,
+                precision_mode=True,
             )
             kb_context = context_result.get("kb_context") or ""
 
@@ -537,13 +604,14 @@ class TestGenerationModule:
 
         if db:
             status_messages: list[str] = []
-            context_result = self._resolve_kb_context_with_snapshot(
+            context_result = self._resolve_kb_context_with_hybrid(
                 requirement=requirement,
                 project_id=project_id,
                 db=db,
                 user_id=user_id,
                 compress=compress,
                 status_messages=status_messages,
+                precision_mode=True,
             )
             kb_context = context_result.get("kb_context") or ""
 

@@ -171,6 +171,8 @@ def build_final_chunk_debug(chunks: list[dict]) -> list[dict]:
     """构造最终返回片段调试结构。"""
     result: list[dict] = []
     for chunk in chunks:
+        # 融合检索需要片段正文，调试里带上裁剪后的 chunk_text。
+        chunk_text = str(chunk.get("chunk_text") or "").strip()
         result.append(
             {
                 "chunk_source": chunk.get("chunk_source"),
@@ -189,6 +191,7 @@ def build_final_chunk_debug(chunks: list[dict]) -> list[dict]:
                 "doc_type": chunk.get("doc_type"),
                 "kept_reason": chunk.get("kept_reason"),
                 "recall_routes": chunk.get("recall_routes") or [],
+                "chunk_text": chunk_text[:1200],
             }
         )
     return result
