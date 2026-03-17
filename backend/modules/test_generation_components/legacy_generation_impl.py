@@ -15,8 +15,10 @@
 """
 
 from typing import Any
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 from core.ai_client import get_client_for_user
+from core.database import SessionLocal
 from sqlalchemy.orm import Session
 from core.models import TestGeneration, LogEntry
 from modules.knowledge_base import knowledge_base
@@ -35,6 +37,11 @@ from modules.test_generation_components.hybrid_context_builder import (
     HYBRID_CONFIG,
     build_hybrid_context,
     should_use_rag,
+)
+from modules.test_generation_components.hybrid_guard import (
+    HYBRID_EMPTY_GUARD_CONFIG,
+    detect_hybrid_empty_context,
+    parse_snapshot_queue_info,
 )
 
 
@@ -188,6 +195,57 @@ class TestGenerationModule:
             # instead of silently downgrading to a default plan.
             raise e
 
+    def _try_sync_snapshot_retry_once(
+        self,
+        project_id: int,
+        user_id: int | None,
+        timeout_sec: int,
+    ) -> dict:
+        """
+        触发一次“限时同步 snapshot 重建”。
+
+        说明：
+        1. 只尝试一次，避免无限重试。
+        2. 使用独立数据库会话，避免跨线程复用 Session。
+        3. 用 timeout 控制等待时长，超时后立即返回失败。
+        """
+
+        def _worker() -> dict:
+            retry_db = SessionLocal()
+            try:
+                return knowledge_base.get_or_build_context_snapshot(
+                    project_id=project_id,
+                    db=retry_db,
+                    user_id=user_id,
+                    force_rebuild=True,
+                    prefer_async_rebuild=False,
+                )
+            finally:
+                retry_db.close()
+
+        safe_timeout = max(2, int(timeout_sec or 0))
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="snapshot-sync-retry")
+        future = executor.submit(_worker)
+        try:
+            result = future.result(timeout=safe_timeout)
+            ok = bool(result.get("success") and (result.get("snapshot_text") or "").strip())
+            return {
+                "success": ok,
+                "result": result,
+                "error": "" if ok else str(result.get("fallback_reason") or "sync_retry_empty_snapshot"),
+            }
+        except FutureTimeoutError:
+            future.cancel()
+            return {
+                "success": False,
+                "result": None,
+                "error": f"sync_snapshot_retry_timeout:{safe_timeout}s",
+            }
+        except Exception as e:
+            return {"success": False, "result": None, "error": f"sync_snapshot_retry_exception:{e}"}
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
     def _resolve_kb_context_with_hybrid(
         self,
         requirement: str,
@@ -198,20 +256,15 @@ class TestGenerationModule:
         status_messages: list[str] | None = None,
         precision_mode: bool = False,
     ) -> dict:
-        """
-        统一编排生成链路中的融合知识上下文来源。
-
-        优先级：
-        1. snapshot 提供全局背景；
-        2. 轻量 RAG 提供当前问题精确证据；
-        3. 任一环节失败都不阻断主生成链路。
-        """
+        """统一编排 snapshot + RAG 融合上下文，并处理空上下文兜底。"""
         query_text = requirement[:1000] if requirement else ""
         if not db:
             return {
                 "kb_context": "",
                 "context_source": "none",
                 "fallback_reason": "db_unavailable",
+                "abort_generation": False,
+                "abort_error": "",
                 "fusion_debug": {
                     "snapshot_used": False,
                     "rag_used": False,
@@ -219,6 +272,15 @@ class TestGenerationModule:
                     "rag_top_scores": [],
                     "fusion_mode": "empty",
                     "final_context_tokens": 0,
+                    "hybrid_empty_context": True,
+                    "hybrid_empty_reason": "db_unavailable",
+                    "snapshot_queue_status": "none",
+                    "snapshot_queue_reason": "none",
+                    "snapshot_queue_error": "",
+                    "sync_snapshot_retry_attempted": False,
+                    "sync_snapshot_retry_success": False,
+                    "sync_snapshot_retry_error": "",
+                    "final_decision": "proceed_with_generation",
                 },
             }
 
@@ -235,10 +297,10 @@ class TestGenerationModule:
                 prefer_async_rebuild=True,
             )
         except Exception as e:
-            snapshot_result = {
-                "success": False,
-                "fallback_reason": f"snapshot_exception:{e}",
-            }
+            snapshot_result = {"success": False, "fallback_reason": f"snapshot_exception:{e}"}
+
+        queue_status, queue_reason, queue_error = parse_snapshot_queue_info(snapshot_result)
+        snapshot_status = str(snapshot_result.get("snapshot_status") or "unknown")
 
         if snapshot_result.get("success") and (snapshot_result.get("snapshot_text") or "").strip():
             snapshot_text = snapshot_result.get("snapshot_text") or ""
@@ -259,8 +321,18 @@ class TestGenerationModule:
                     status_messages.append(
                         f"项目级上下文快照不可用（{fallback_reason}），已触发后台预热任务 {queue_result.get('task_id')}。"
                     )
+                elif queue_reason == "already_pending":
+                    status_messages.append(
+                        "项目级上下文快照不可用，当前存在 pending 任务，防抖跳过重复入队（reason=already_pending），继续尝试 RAG。"
+                    )
+                elif queue_reason == "enqueue_failed":
+                    status_messages.append(
+                        f"项目级上下文快照不可用，异步入队失败（reason=enqueue_failed, err={queue_error or 'unknown'}），继续尝试 RAG。"
+                    )
                 else:
-                    status_messages.append(f"项目级上下文快照不可用（{fallback_reason}），继续尝试 RAG。")
+                    status_messages.append(
+                        f"项目级上下文快照不可用（{fallback_reason}，queue_reason={queue_reason}），继续尝试 RAG。"
+                    )
 
         snapshot_tokens = max(0, len(snapshot_text) // 4)
         use_rag, precision_reasons = should_use_rag(
@@ -303,12 +375,103 @@ class TestGenerationModule:
         fusion_debug = fusion_result.get("debug") or {}
         kb_context = fusion_result.get("context") or ""
 
+        empty_info = detect_hybrid_empty_context(
+            snapshot_text=snapshot_text,
+            kb_context=kb_context,
+            fusion_debug=fusion_debug,
+            rag_payload=rag_result if isinstance(rag_result, dict) else None,
+        )
+        fusion_debug.update(
+            {
+                "snapshot_used": bool(fusion_debug.get("snapshot_used")),
+                "rag_used": bool(fusion_debug.get("rag_used")),
+                "hybrid_empty_context": bool(empty_info.get("hybrid_empty_context")),
+                "hybrid_empty_reason": str(empty_info.get("final_empty_reason") or ""),
+                "lane_counts": empty_info.get("lane_counts") or {},
+                "lane_reasons": empty_info.get("lane_reasons") or {},
+                "snapshot_status": snapshot_status,
+                "snapshot_queue_status": queue_status,
+                "snapshot_queue_reason": queue_reason,
+                "snapshot_queue_error": queue_error,
+                "sync_snapshot_retry_attempted": False,
+                "sync_snapshot_retry_success": False,
+                "sync_snapshot_retry_error": "",
+                "final_decision": "proceed_with_generation",
+            }
+        )
+
+        abort_generation = False
+        abort_error = ""
+        strategy = HYBRID_EMPTY_GUARD_CONFIG.normalized_strategy()
+        if bool(empty_info.get("hybrid_empty_context")):
+            if strategy == "sync_snapshot_retry_then_fail" and HYBRID_EMPTY_GUARD_CONFIG.sync_snapshot_retry_enabled:
+                fusion_debug["sync_snapshot_retry_attempted"] = True
+                retry_result = self._try_sync_snapshot_retry_once(
+                    project_id=project_id,
+                    user_id=user_id,
+                    timeout_sec=HYBRID_EMPTY_GUARD_CONFIG.sync_snapshot_retry_timeout_sec,
+                )
+                if retry_result.get("success"):
+                    fusion_debug["sync_snapshot_retry_success"] = True
+                    retry_payload = retry_result.get("result") or {}
+                    retry_snapshot_text = str(retry_payload.get("snapshot_text") or "").strip()
+                    retry_fusion = build_hybrid_context(
+                        question=query_text,
+                        snapshot_text=retry_snapshot_text,
+                        rag_payload=rag_result if isinstance(rag_result, dict) else None,
+                        mode="test_case_generation",
+                        precision_mode=bool(precision_mode),
+                    )
+                    retry_debug = retry_fusion.get("debug") or {}
+                    retry_context = retry_fusion.get("context") or ""
+                    retry_empty = detect_hybrid_empty_context(
+                        snapshot_text=retry_snapshot_text,
+                        kb_context=retry_context,
+                        fusion_debug=retry_debug,
+                        rag_payload=rag_result if isinstance(rag_result, dict) else None,
+                    )
+                    if not retry_empty.get("hybrid_empty_context"):
+                        kb_context = retry_context
+                        fusion_debug.update(retry_debug)
+                        fusion_debug["hybrid_empty_context"] = False
+                        fusion_debug["hybrid_empty_reason"] = ""
+                        fusion_debug["final_decision"] = "retry_snapshot_then_proceed"
+                        fallback_reason = ""
+                    else:
+                        abort_generation = True
+                        abort_error = "上下文为空：同步补救后仍未获取到可用 snapshot/RAG 结果。"
+                        fallback_reason = "hybrid_empty_context_after_sync_retry"
+                        fusion_debug["hybrid_empty_context"] = True
+                        fusion_debug["hybrid_empty_reason"] = str(
+                            retry_empty.get("final_empty_reason") or "hybrid_empty_context_after_sync_retry"
+                        )
+                        fusion_debug["final_decision"] = "retry_snapshot_then_fail"
+                else:
+                    abort_generation = True
+                    sync_err = str(retry_result.get("error") or "sync_snapshot_retry_failed")
+                    abort_error = f"上下文为空：同步 snapshot 补救失败（{sync_err}）。"
+                    fallback_reason = sync_err
+                    fusion_debug["sync_snapshot_retry_error"] = sync_err
+                    fusion_debug["final_decision"] = "retry_snapshot_then_fail"
+            else:
+                abort_generation = True
+                abort_error = "上下文为空：snapshot 与 RAG 均不可用，已按 fail-fast 策略终止本次生成。"
+                fallback_reason = str(empty_info.get("final_empty_reason") or "hybrid_empty_context")
+                fusion_debug["final_decision"] = "fail_fast"
+        else:
+            fusion_debug["final_decision"] = "proceed_with_generation"
+
         if status_messages is not None:
             status_messages.append(
                 "融合完成：mode="
                 f"{fusion_debug.get('fusion_mode')}，rag_chunks={fusion_debug.get('rag_chunk_count', 0)}，"
                 f"tokens≈{fusion_debug.get('final_context_tokens', 0)}"
             )
+            if abort_generation:
+                status_messages.append(
+                    "上下文兜底触发："
+                    f"final_decision={fusion_debug.get('final_decision')}，reason={fusion_debug.get('hybrid_empty_reason') or fallback_reason}"
+                )
 
         if not kb_context:
             if rag_error:
@@ -327,8 +490,9 @@ class TestGenerationModule:
             "rag_result": rag_result if isinstance(rag_result, dict) else None,
             "fusion_debug": fusion_debug,
             "fallback_reason": fallback_reason,
+            "abort_generation": abort_generation,
+            "abort_error": abort_error,
         }
-
     def _resolve_kb_context_with_snapshot(
         self,
         requirement: str,
@@ -383,6 +547,26 @@ class TestGenerationModule:
                 precision_mode=True,
             )
             kb_context = context_result.get("kb_context") or ""
+            # 中文注释：命中“上下文全空兜底”时，直接终止，避免模型在无知识上下文下裸跑。
+            if context_result.get("abort_generation"):
+                fusion_debug = context_result.get("fusion_debug") or {}
+                abort_error = context_result.get("abort_error") or "上下文为空，已按兜底策略终止生成。"
+                print(
+                    "Hybrid guard abort(json): "
+                    f"snapshot_status={fusion_debug.get('snapshot_status')}, "
+                    f"snapshot_queue_status={fusion_debug.get('snapshot_queue_status')}, "
+                    f"snapshot_queue_reason={fusion_debug.get('snapshot_queue_reason')}, "
+                    f"lane_counts={fusion_debug.get('lane_counts')}, "
+                    f"lane_reasons={fusion_debug.get('lane_reasons')}, "
+                    f"final_empty_reason={fusion_debug.get('hybrid_empty_reason')}"
+                )
+                return {
+                    "error": "HYBRID_EMPTY_CONTEXT_ABORT",
+                    "message": abort_error,
+                    "fallback_reason": context_result.get("fallback_reason") or "",
+                    "context_source": context_result.get("context_source") or "empty",
+                    "fusion_debug": fusion_debug,
+                }
 
             if compress:
                 # 需求文本压缩与知识快照是两条并行优化链路，任何一条失败都不阻断生成。
@@ -617,6 +801,27 @@ class TestGenerationModule:
 
             for status_message in status_messages:
                 yield f"@@STATUS@@:{status_message}\n"
+
+            # 中文注释：流式链路同样在“上下文全空”时快速失败，避免继续裸跑生成。
+            if context_result.get("abort_generation"):
+                fusion_debug = context_result.get("fusion_debug") or {}
+                abort_error = context_result.get("abort_error") or "上下文为空，已按兜底策略终止生成。"
+                final_decision = fusion_debug.get("final_decision") or "fail_fast"
+                print(
+                    "Hybrid guard abort(stream): "
+                    f"snapshot_status={fusion_debug.get('snapshot_status')}, "
+                    f"snapshot_queue_status={fusion_debug.get('snapshot_queue_status')}, "
+                    f"snapshot_queue_reason={fusion_debug.get('snapshot_queue_reason')}, "
+                    f"lane_counts={fusion_debug.get('lane_counts')}, "
+                    f"lane_reasons={fusion_debug.get('lane_reasons')}, "
+                    f"final_empty_reason={fusion_debug.get('hybrid_empty_reason')}"
+                )
+                yield (
+                    "@@STATUS@@:上下文兜底触发，终止本次生成。"
+                    f"(decision={final_decision},queue={fusion_debug.get('snapshot_queue_status')}/{fusion_debug.get('snapshot_queue_reason')})\n"
+                )
+                yield f"Error: {abort_error}\n"
+                return
 
             if compress:
                 try:
@@ -1416,3 +1621,4 @@ Types:
         return _convert_json_to_excel_impl(json_data)
 
 test_generator = TestGenerationModule()
+
