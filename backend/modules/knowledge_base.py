@@ -1,4 +1,4 @@
-﻿"""
+"""
 知识库模块门面（Knowledge Base Facade）。
 
 职责：
@@ -20,6 +20,11 @@ from core.models import KnowledgeDocument
 from modules.knowledge_base_components.context_ops import (
     get_all_context_impl,
     get_relevant_context_impl,
+)
+from modules.knowledge_base_components.context_snapshot import (
+    enqueue_context_snapshot_rebuild_impl,
+    get_context_snapshot_status_impl,
+    get_or_build_context_snapshot_impl,
 )
 from modules.knowledge_base_components.document_ops import (
     add_document_impl,
@@ -356,6 +361,49 @@ class KnowledgeBaseModule:
         """全量上下文门面。"""
         return get_all_context_impl(self, db, project_id, user_id, max_docs)
 
+    def get_or_build_context_snapshot(
+        self,
+        project_id: int,
+        db: Session,
+        user_id: Optional[int] = None,
+        force_rebuild: bool = False,
+        prefer_async_rebuild: bool = False,
+    ) -> dict:
+        """
+        获取或构建项目级上下文快照。
+
+        设计目标：
+        1. 优先复用快照，减少在线全量压缩。
+        2. 构建失败时不抛出致命异常，由上层继续 fallback 到 RAG。
+        """
+        return get_or_build_context_snapshot_impl(
+            self,
+            project_id=project_id,
+            db=db,
+            user_id=user_id,
+            force_rebuild=force_rebuild,
+            prefer_async_rebuild=prefer_async_rebuild,
+        )
+
+    def get_context_snapshot_status(self, project_id: int, db: Session) -> dict:
+        """查询项目级上下文快照状态。"""
+        return get_context_snapshot_status_impl(project_id=project_id, db=db)
+
+    def enqueue_context_snapshot_rebuild(
+        self,
+        project_id: int,
+        db: Session,
+        user_id: Optional[int] = None,
+        force_rebuild: bool = False,
+    ) -> dict:
+        """手动触发项目级快照异步重建。"""
+        return enqueue_context_snapshot_rebuild_impl(
+            project_id=project_id,
+            db=db,
+            user_id=user_id,
+            force_rebuild=force_rebuild,
+        )
+
     def update_document(
         self, doc_id: int, filename: str, content: str, doc_type: str, db: Session
     ):
@@ -378,5 +426,3 @@ class KnowledgeBaseModule:
 
 
 knowledge_base = KnowledgeBaseModule()
-
-

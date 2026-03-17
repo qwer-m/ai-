@@ -148,6 +148,53 @@ def init_db():
                         conn.execute(text(f"CREATE INDEX {idx_name} ON knowledge_documents({idx_col})"))
                         conn.commit()
                         print(f"Index '{idx_name}' created.")
+
+                # 阶段2：项目级上下文快照表补列（兼容旧库手工建表场景）。
+                snapshot_columns = [
+                    ("user_id", "INT NULL"),
+                    ("snapshot_text", "LONGTEXT NULL"),
+                    ("corpus_hash", "VARCHAR(64) NULL"),
+                    ("source_doc_count", "INT NOT NULL DEFAULT 0"),
+                    ("source_fingerprints", "LONGTEXT NULL"),
+                    ("build_status", "VARCHAR(20) NOT NULL DEFAULT 'pending'"),
+                    ("build_error", "TEXT NULL"),
+                    ("rebuild_reason", "VARCHAR(30) NULL"),
+                    ("incremental_merge_count", "INT NOT NULL DEFAULT 0"),
+                    ("last_built_at", "DATETIME NULL"),
+                    ("last_used_at", "DATETIME NULL"),
+                    ("last_full_built_at", "DATETIME NULL"),
+                ]
+                for col_name, col_type in snapshot_columns:
+                    check_col_snapshot = text(
+                        f"SELECT COUNT(*) FROM information_schema.COLUMNS "
+                        f"WHERE TABLE_SCHEMA = '{settings.DB_NAME}' "
+                        f"AND TABLE_NAME = 'project_context_snapshots' "
+                        f"AND COLUMN_NAME = '{col_name}'"
+                    )
+                    snapshot_col_exists = conn.execute(check_col_snapshot).scalar()
+                    if snapshot_col_exists == 0:
+                        print(f"Adding '{col_name}' column to project_context_snapshots...")
+                        conn.execute(text(f"ALTER TABLE project_context_snapshots ADD COLUMN {col_name} {col_type}"))
+                        conn.commit()
+                        print(f"Column '{col_name}' added to project_context_snapshots.")
+
+                snapshot_indexes = [
+                    ("idx_project_context_snapshots_corpus_hash", "corpus_hash"),
+                    ("idx_project_context_snapshots_build_status", "build_status"),
+                ]
+                for idx_name, idx_col in snapshot_indexes:
+                    check_snapshot_idx = text(
+                        f"SELECT COUNT(*) FROM information_schema.STATISTICS "
+                        f"WHERE TABLE_SCHEMA = '{settings.DB_NAME}' "
+                        f"AND TABLE_NAME = 'project_context_snapshots' "
+                        f"AND INDEX_NAME = '{idx_name}'"
+                    )
+                    idx_exists = conn.execute(check_snapshot_idx).scalar()
+                    if idx_exists == 0:
+                        print(f"Creating index '{idx_name}' on project_context_snapshots({idx_col})...")
+                        conn.execute(text(f"CREATE INDEX {idx_name} ON project_context_snapshots({idx_col})"))
+                        conn.commit()
+                        print(f"Index '{idx_name}' created.")
             except Exception as e:
                 print(f"Migration check failed (might be non-MySQL or other error): {e}")
 
@@ -207,3 +254,4 @@ def init_db():
 
 if __name__ == "__main__":
     init_db()
+

@@ -1,4 +1,4 @@
-﻿import json
+import json
 import logging
 import re
 from datetime import datetime
@@ -373,6 +373,52 @@ def get_knowledge_parse_status(
     }
 
 
+@router.get("/knowledge/projects/{project_id}/context-snapshot-status")
+def get_context_snapshot_status(
+    project_id: int,
+    force_rebuild: bool = False,
+    async_rebuild: bool = True,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    查询项目级上下文快照状态。
+
+    可选参数：
+    - force_rebuild=true：先触发一次手动重建，再返回最新状态。
+    - async_rebuild=true：手动重建走后台异步预热（默认）。
+    """
+    project = _get_owned_project(project_id, current_user.id, db)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if force_rebuild:
+        if async_rebuild:
+            enqueue_result = knowledge_base.enqueue_context_snapshot_rebuild(
+                project_id=project_id,
+                db=db,
+                user_id=current_user.id,
+                force_rebuild=True,
+            )
+        else:
+            enqueue_result = knowledge_base.get_or_build_context_snapshot(
+                project_id=project_id,
+                db=db,
+                user_id=current_user.id,
+                force_rebuild=True,
+                prefer_async_rebuild=False,
+            )
+    else:
+        enqueue_result = None
+
+    status = knowledge_base.get_context_snapshot_status(project_id=project_id, db=db)
+    status["last_generation_used_snapshot"] = bool(
+        status.get("snapshot_status") == "success" and not status.get("is_stale", True)
+    )
+    if enqueue_result is not None:
+        status["rebuild_trigger"] = enqueue_result
+    return status
+
 @router.post("/knowledge/retrieve-context")
 def retrieve_knowledge_context(
     req: RetrieveContextRequest,
@@ -385,6 +431,8 @@ def retrieve_knowledge_context(
     说明：
     1. 默认 debug=false，仅返回压缩后的上下文文本，不影响生产链路。
     2. debug=true 时附带查询改写、多路召回、去重与压缩统计信息。
+    3. 稳定性收口后，debug 还会返回 attempt_count/attempts/final_status，
+       用于定位“首次失败、重试恢复”与“重试后降级为空上下文”的场景。
     """
     project = _get_owned_project(req.project_id, current_user.id, db)
     if not project:
@@ -531,3 +579,4 @@ def translate_error_text(text: str) -> str:
         if key in lower:
             return msg
     return "发生错误，请稍后重试"
+
