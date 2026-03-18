@@ -781,6 +781,8 @@ export function TestGeneration({ projectId, isActive = true, onLog, onGenerated,
         }
     }
 
+    // 中文注释：仅当最终结果解析并落地成功后，才允许触发自动跳转到质量评估页。
+    let generationSucceeded = false;
     try {
         const resp = await fetch('/api/generate-tests-stream', {
             method: 'POST',
@@ -1085,10 +1087,10 @@ export function TestGeneration({ projectId, isActive = true, onLog, onGenerated,
                 if (!recovered) throw e;
             }
 
+            let finalGeneratedData: any[] = [];
             if (skipNormalize) {
                 const merged = appendMode ? [...(Array.isArray(existingCases) ? existingCases : []), ...json] : json;
-                setCurrentResult(merged);
-                onGenerated(merged);
+                finalGeneratedData = merged;
             } else {
                 const normalizedNew = normalizeStandardCases(json);
                 if (normalizedNew.length === 0) {
@@ -1110,13 +1112,18 @@ export function TestGeneration({ projectId, isActive = true, onLog, onGenerated,
                     const merged = normalizeStandardCases([...normalizedExisting, ...normalizedNew]);
                     const validMerged = validateStandardCases(merged);
                     if (!validMerged.ok) throw new Error(`合并后结果不符合标准JSON结构: ${validMerged.error}`);
-                    setCurrentResult(merged);
-                    onGenerated(merged);
+                    finalGeneratedData = merged;
                 } else {
-                    setCurrentResult(normalizedNew);
-                    onGenerated(normalizedNew);
+                    finalGeneratedData = normalizedNew;
                 }
             }
+            // 中文注释：仅在拿到最终非空用例时同步到评估页，避免中间态或失败态触发跳转。
+            if (!Array.isArray(finalGeneratedData) || finalGeneratedData.length === 0) {
+                throw new Error('生成完成但未得到有效测试用例，已阻断自动跳转到质量评估。');
+            }
+            setCurrentResult(finalGeneratedData);
+            onGenerated(finalGeneratedData);
+            generationSucceeded = true;
         } catch (e) {
             // 中文注释：生成结果解析失败统一中文错误提示
             const msg = await translateError(e);
@@ -1125,7 +1132,8 @@ export function TestGeneration({ projectId, isActive = true, onLog, onGenerated,
         }
         
         onLog("生成完成");
-        if (onGenerationComplete) onGenerationComplete();
+        // ?????????????????????????????????
+        if (generationSucceeded && onGenerationComplete) onGenerationComplete();
         
     } catch (e) {
         // 中文注释：生成失败统一中文错误提示

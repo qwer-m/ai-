@@ -290,8 +290,8 @@ export function useDashboardController() {
   };
 
   const handleGenerationComplete = () => {
-    setShouldAutoEval(true);
-    setActiveTab('eval-testcase');
+    // ????????????????????????????? Tab?
+    setShouldAutoEval(false);
   };
 
   const handleToggleTheme = () => {

@@ -33,6 +33,12 @@ from modules.test_generation_components.json_processing import (
 from modules.test_generation_components.json_processing import (
     normalize_json_structure as _normalize_json_structure_impl,
 )
+from modules.test_generation_components.json_processing import (
+    deduplicate_test_cases as _deduplicate_test_cases_impl,
+)
+from modules.test_generation_components.json_processing import (
+    count_unique_test_cases as _count_unique_test_cases_impl,
+)
 from modules.test_generation_components.hybrid_context_builder import (
     HYBRID_CONFIG,
     build_hybrid_context,
@@ -60,6 +66,20 @@ def normalize_json_structure(data: Any) -> Any:
     兼容旧调用入口：对外函数名保持不变，内部转调组件实现。
     """
     return _normalize_json_structure_impl(data)
+
+
+def deduplicate_test_cases(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    兼容旧调用入口：统一复用组件层的去重实现。
+    """
+    return _deduplicate_test_cases_impl(cases)
+
+
+def count_unique_test_cases(cases: list[dict[str, Any]]) -> int:
+    """
+    兼容旧调用入口：统一复用组件层的唯一计数实现。
+    """
+    return _count_unique_test_cases_impl(cases)
 
 class TestGenerationModule:
     """
@@ -911,7 +931,12 @@ class TestGenerationModule:
                  try:
                      existing_cases = json.loads(existing_entry.generated_result)
                      if isinstance(existing_cases, list):
-                         start_id = len(existing_cases) + 1
+                         # 中文注释：历史结果先标准化+去重，再计算起始 ID，避免历史重复放大计数。
+                         existing_cases = normalize_json_structure(existing_cases)
+                         if not isinstance(existing_cases, list):
+                             existing_cases = []
+                         existing_cases = deduplicate_test_cases(existing_cases)
+                         start_id = count_unique_test_cases(existing_cases) + 1
                  except Exception:
                      pass
 
@@ -1184,7 +1209,12 @@ Types:
         import math
 
         # Dynamic Batch Size Adjustment based on User Request
-        current_existing_count = len(existing_cases) if isinstance(existing_cases, list) else 0
+        existing_unique_count = (
+            count_unique_test_cases(existing_cases)
+            if isinstance(existing_cases, list)
+            else 0
+        )
+        current_existing_count = existing_unique_count
         
         if append:
             needed_to_append = expected_count - current_existing_count
@@ -1201,7 +1231,7 @@ Types:
         batch_size = max(1, batch_size)
         
         # Handle Append Mode: If expected_count is met, auto-increment
-        current_count = len(existing_cases)
+        current_count = existing_unique_count
         if append and expected_count <= current_count:
             yield f"@@STATUS@@:当前用例数({current_count})已达预期({expected_count})，自动增加 {batch_size} 条用例...\n"
             expected_count = current_count + batch_size
@@ -1219,6 +1249,15 @@ Types:
             for c in existing_cases:
                 if isinstance(c, dict):
                     history_summaries.append(f"{c.get('id', '')}: {c.get('description', '')}")
+
+        def _merged_unique_total(new_cases: Any) -> int:
+            """中文注释：统一计算“历史+新增”的唯一总数，避免补齐逻辑口径不一致。"""
+            merged: list[dict[str, Any]] = []
+            if append and isinstance(existing_cases, list):
+                merged.extend(existing_cases)
+            if isinstance(new_cases, list):
+                merged.extend(new_cases)
+            return count_unique_test_cases(merged)
 
         for i in range(total_batches):
             remaining = expected_count - (current_id - start_id)
@@ -1393,11 +1432,12 @@ Types:
             parsed_result = clean_and_parse_json(full_content)
             # Enforce standard structure
             parsed_result = normalize_json_structure(parsed_result)
+            if isinstance(parsed_result, list):
+                # 中文注释：最终结果先去重，再进行补齐和计数，避免“显示数量 > 实际唯一数量”。
+                parsed_result = deduplicate_test_cases(parsed_result)
 
             # Calculate total count including existing cases if in append mode
-            current_total = len(parsed_result) if isinstance(parsed_result, list) else 0
-            if append and isinstance(existing_cases, list):
-                current_total += len(existing_cases)
+            current_total = _merged_unique_total(parsed_result)
 
             if isinstance(parsed_result, list) and expected_count:
                 # Truncate if we have too many (to respect "exact" count and avoid confusion)
@@ -1406,9 +1446,7 @@ Types:
                 # But wait, expected_count is the target.
                 
                 # Logic to supplement
-                current_total = len(parsed_result)
-                if append and isinstance(existing_cases, list):
-                    current_total += len(existing_cases)
+                current_total = _merged_unique_total(parsed_result)
 
                 if current_total < expected_count:
                     supplement_history = []
@@ -1468,10 +1506,10 @@ Types:
                             if isinstance(extra_parsed, list) and extra_parsed:
                                 parsed_result.extend(extra_parsed)
                                 parsed_result = normalize_json_structure(parsed_result)
+                                if isinstance(parsed_result, list):
+                                    parsed_result = deduplicate_test_cases(parsed_result)
                                 # Update current total
-                                current_total = len(parsed_result)
-                                if append and isinstance(existing_cases, list):
-                                    current_total += len(existing_cases)
+                                current_total = _merged_unique_total(parsed_result)
                         except Exception:
                             pass
                         missing = expected_count - current_total
@@ -1480,7 +1518,7 @@ Types:
                 if current_total > expected_count:
                     target_new_count = expected_count
                     if append and isinstance(existing_cases, list):
-                        target_new_count = expected_count - len(existing_cases)
+                        target_new_count = expected_count - existing_unique_count
                     
                     if target_new_count < 0: target_new_count = 0
                     
@@ -1551,7 +1589,7 @@ Types:
                                 # Ensure we don't exceed target even if LLM ignores instruction
                                 if len(reviewed_cases) > target_new_count:
                                     reviewed_cases = reviewed_cases[:target_new_count]
-                                parsed_result = reviewed_cases
+                                parsed_result = deduplicate_test_cases(reviewed_cases)
                                 yield f"@@STATUS@@:QA Agent 审查完成，已剔除 {excess} 条冗余/低价值用例。\n"
                             else:
                                 raise ValueError("QA Agent returned invalid result")
@@ -1596,7 +1634,7 @@ Types:
                                 if idx not in indices_to_remove:
                                     final_result.append(case)
                             
-                            parsed_result = final_result
+                            parsed_result = deduplicate_test_cases(final_result)
                             yield f"@@STATUS@@:规则筛选完成，保留了高优先级及关键用例。\n"
 
 
@@ -1636,7 +1674,7 @@ Types:
                 elif append and existing_entry:
                     # Merge with existing cases
                     if isinstance(parsed_result, list):
-                        merged_result = existing_cases + parsed_result
+                        merged_result = deduplicate_test_cases(existing_cases + parsed_result)
                         existing_entry.generated_result = json.dumps(merged_result, ensure_ascii=False)
                         db.commit()
                         db.refresh(existing_entry)
@@ -1652,7 +1690,8 @@ Types:
 
                 # --- Log GEN_DIAG and GEN_QM ---
                 try:
-                    count = len(parsed_result) if isinstance(parsed_result, list) else 0
+                    # 中文注释：诊断日志也采用唯一用例计数，避免与界面显示口径不一致。
+                    count = count_unique_test_cases(parsed_result) if isinstance(parsed_result, list) else 0
                     
                     # Calculate actual model for accurate logging
                     # system_prompt is defined above in this function
@@ -1745,7 +1784,8 @@ Types:
                         "edge": edge,
                         "avg_steps": avg_steps,
                         "pending": pending,
-                        "generated_count": len(parsed_result) if isinstance(parsed_result, list) else 0
+                        # 中文注释：generated_count 改为唯一计数，和补齐/前端显示保持一致口径。
+                        "generated_count": count_unique_test_cases(parsed_result) if isinstance(parsed_result, list) else 0
                     }
                     
                     db.add(LogEntry(

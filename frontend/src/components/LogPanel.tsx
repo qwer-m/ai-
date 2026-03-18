@@ -26,15 +26,39 @@ export function LogPanel({ userLogs, systemLogs, loading, error, onClear }: Prop
   
   const userLogRef = useRef<HTMLDivElement>(null);
   const systemLogRef = useRef<HTMLDivElement>(null);
+  // 中文注释：记录每个 tab 是否“跟随到底部”，避免用户上滑查看历史时被强制拉回底部。
+  const followBottomRef = useRef<{ user: boolean; system: boolean }>({ user: true, system: true });
+  const SCROLL_BOTTOM_THRESHOLD = 24;
+
+  const isNearBottom = (el: HTMLDivElement) => {
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_BOTTOM_THRESHOLD;
+  };
 
   // Auto-scroll logic for expanded view
   useEffect(() => {
-    if (activeTab === 'user' && userLogRef.current) {
+    if (!expanded) return;
+    if (activeTab === 'user' && userLogRef.current && followBottomRef.current.user) {
       userLogRef.current.scrollTop = userLogRef.current.scrollHeight;
-    } else if (activeTab === 'system' && systemLogRef.current) {
+    } else if (activeTab === 'system' && systemLogRef.current && followBottomRef.current.system) {
       systemLogRef.current.scrollTop = systemLogRef.current.scrollHeight;
     }
   }, [userLogs, systemLogs, activeTab, expanded]);
+
+  // 中文注释：切换 tab/展开时同步一次当前位置，确保跟随标志准确。
+  useEffect(() => {
+    if (!expanded) return;
+    if (activeTab === 'user' && userLogRef.current) {
+      followBottomRef.current.user = isNearBottom(userLogRef.current);
+    } else if (activeTab === 'system' && systemLogRef.current) {
+      followBottomRef.current.system = isNearBottom(systemLogRef.current);
+    }
+  }, [activeTab, expanded]);
+
+  const handleLogScroll = () => {
+    const target = activeTab === 'user' ? userLogRef.current : systemLogRef.current;
+    if (!target) return;
+    followBottomRef.current[activeTab] = isNearBottom(target);
+  };
 
   // Smart Collapse Logic: Auto-expand on new error (only if not already expanded)
   useEffect(() => {
@@ -188,7 +212,12 @@ export function LogPanel({ userLogs, systemLogs, loading, error, onClear }: Prop
                 </div>
             </div>
 
-            <div className="flex-grow-1 overflow-auto bg-dark text-light p-3 font-monospace" style={{ fontSize: '13px' }} ref={activeTab === 'user' ? userLogRef : systemLogRef}>
+            <div
+                className="flex-grow-1 overflow-auto bg-dark text-light p-3 font-monospace"
+                style={{ fontSize: '13px' }}
+                ref={activeTab === 'user' ? userLogRef : systemLogRef}
+                onScroll={handleLogScroll}
+            >
                 {loading && <div className="text-muted">正在连接日志服务...</div>}
                 {error && <div className="text-danger">日志服务异常: {error}</div>}
                 {filteredLogs.length === 0 && <div className="text-muted opacity-50">暂无日志</div>}

@@ -49,22 +49,22 @@ def clean_and_parse_json(response_text: str) -> Any:
             result = parsed
 
             if root_is_array and isinstance(result, list):
-                remaining = cleaned_response[end_idx:].strip()
-                while remaining:
+                # 中文注释：这里需要容忍“数组之间夹杂日志噪声”的场景。
+                # 旧逻辑遇到第一个无法解析的 '[' 会直接 break，导致后续有效数组丢失。
+                # 新逻辑改为“滑动扫描”，遇到坏片段就前进 1 位继续找下一个 '['。
+                remaining = cleaned_response[end_idx:]
+                cursor = 0
+                while cursor < len(remaining):
                     try:
-                        if not remaining.startswith("["):
-                            next_bracket = remaining.find("[")
-                            if next_bracket != -1:
-                                remaining = remaining[next_bracket:]
-                            else:
-                                break
-
-                        next_parsed, next_end = decoder.raw_decode(remaining)
+                        next_bracket = remaining.find("[", cursor)
+                        if next_bracket == -1:
+                            break
+                        next_parsed, next_end = decoder.raw_decode(remaining[next_bracket:])
                         if isinstance(next_parsed, list):
                             result.extend(next_parsed)
-                        remaining = remaining[next_end:].strip()
+                        cursor = next_bracket + next_end
                     except Exception:
-                        break
+                        cursor = next_bracket + 1
         except Exception:
             if root_is_array:
                 last_bracket = cleaned_response.rfind("]")
@@ -86,7 +86,8 @@ def clean_and_parse_json(response_text: str) -> Any:
                                 items.append(obj)
                                 cursor = next_obj + end_idx
                             except Exception:
-                                break
+                                # 中文注释：对象恢复时不要因为单个脏片段直接停止，继续向后扫描。
+                                cursor = next_obj + 1
 
                         if items:
                             result = items
@@ -104,7 +105,8 @@ def clean_and_parse_json(response_text: str) -> Any:
                             items.append(obj)
                             cursor = next_obj + end_idx
                         except Exception:
-                            break
+                            # 中文注释：对象恢复时不要因为单个脏片段直接停止，继续向后扫描。
+                            cursor = next_obj + 1
                     if items:
                         result = items
                     else:
@@ -131,6 +133,50 @@ def clean_and_parse_json(response_text: str) -> Any:
             result = {"error": "Failed to parse JSON", "raw_response": response_text}
 
     return result
+
+
+def _normalize_for_dedup(text: Any) -> str:
+    """中文注释：统一文本归一化，减少空白/大小写差异导致的重复误判。"""
+    return str(text or "").strip().lower().replace("\r", "").replace("\n", " ")
+
+
+def _case_dedup_key(case: dict[str, Any]) -> str:
+    """
+    中文注释：
+    用“语义指纹”做去重，不依赖 id（id 可能因补齐重试出现重复或错位）。
+    """
+    module = _normalize_for_dedup(case.get("test_module"))
+    desc = _normalize_for_dedup(case.get("description"))
+    test_input = _normalize_for_dedup(case.get("test_input"))
+    expected = _normalize_for_dedup(case.get("expected_result"))
+    steps = case.get("steps") or []
+    if isinstance(steps, list):
+        steps_text = " | ".join(_normalize_for_dedup(s) for s in steps)
+    else:
+        steps_text = _normalize_for_dedup(steps)
+    return f"{module}||{desc}||{test_input}||{expected}||{steps_text}"
+
+
+def deduplicate_test_cases(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """中文注释：保持原顺序去重，优先保留先出现的用例。"""
+    if not isinstance(cases, list):
+        return []
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        key = _case_dedup_key(case)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(case)
+    return deduped
+
+
+def count_unique_test_cases(cases: list[dict[str, Any]]) -> int:
+    """中文注释：统一唯一用例计数口径，供补齐计算与日志展示复用。"""
+    return len(deduplicate_test_cases(cases))
 
 
 def normalize_json_structure(data: Any) -> Any:
@@ -245,4 +291,3 @@ def normalize_json_structure(data: Any) -> Any:
         )
 
     return normalized
-
