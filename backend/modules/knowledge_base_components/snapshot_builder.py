@@ -95,6 +95,9 @@ def collect_project_docs(module, db: Session, project_id: int, user_id: Optional
                 "filename": doc.filename or f"doc_{doc.id}",
                 "text": text,
                 "fingerprint": doc_content_hash(doc),
+                # 中文注释：补充来源元信息，便于构建日志解释“有效文档数”由哪些类型构成。
+                "doc_type": str(doc.doc_type or "unknown"),
+                "owner_user_id": doc.user_id,
             }
         )
     return corpus
@@ -234,4 +237,3 @@ def estimate_source_stats(docs: list[KnowledgeDocument]) -> dict:
         "estimated_source_effective_doc_count": estimated_effective_docs,
         "estimated_truncated_doc_count": estimated_truncated_docs,
     }
-

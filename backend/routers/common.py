@@ -412,9 +412,8 @@ def get_context_snapshot_status(
         enqueue_result = None
 
     status = knowledge_base.get_context_snapshot_status(project_id=project_id, db=db)
-    status["last_generation_used_snapshot"] = bool(
-        status.get("snapshot_status") == "success" and not status.get("is_stale", True)
-    )
+    # 中文注释：兼容字段语义升级为“是否可直接用于生成”，避免仅凭 success 误判 ready。
+    status["last_generation_used_snapshot"] = bool(status.get("usable_for_generation", False))
     if enqueue_result is not None:
         status["rebuild_trigger"] = enqueue_result
     return status

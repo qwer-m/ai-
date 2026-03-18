@@ -22,8 +22,50 @@ from modules.knowledge_base_components.snapshot_builder import (
     merge_incremental_snapshot,
     safe_json_loads,
 )
+from modules.knowledge_base_components.snapshot_readiness import evaluate_snapshot_readiness
 
 logger = logging.getLogger(__name__)
+
+
+def _build_source_breakdown(corpus: list[dict], request_user_id: Optional[int]) -> dict:
+    """中文注释：构建语料组成明细，解释 source_effective_doc_count 的来源。"""
+    doc_type_counts: dict[str, int] = {}
+    owner_user_counts: dict[str, int] = {}
+    non_requirement_examples: list[str] = []
+    requirement_like_types = {"requirement", "product_requirement", "incomplete"}
+    requirement_like_count = 0
+    owned_by_request_user_count = 0
+
+    for item in corpus:
+        doc_type = str(item.get("doc_type") or "unknown")
+        owner_user_id = item.get("owner_user_id")
+        owner_key = "none" if owner_user_id is None else str(owner_user_id)
+
+        doc_type_counts[doc_type] = int(doc_type_counts.get(doc_type, 0)) + 1
+        owner_user_counts[owner_key] = int(owner_user_counts.get(owner_key, 0)) + 1
+
+        if doc_type in requirement_like_types:
+            requirement_like_count += 1
+        else:
+            # 中文注释：只取少量样本，避免日志过大。
+            if len(non_requirement_examples) < 8:
+                non_requirement_examples.append(
+                    f"{item.get('doc_id')}:{item.get('filename')}:{doc_type}"
+                )
+
+        if request_user_id is not None and owner_user_id == request_user_id:
+            owned_by_request_user_count += 1
+
+    return {
+        "source_doc_type_counts": doc_type_counts,
+        "source_owner_user_counts": owner_user_counts,
+        "source_requirement_like_doc_count": requirement_like_count,
+        "source_non_requirement_doc_count": max(0, len(corpus) - requirement_like_count),
+        "source_non_requirement_examples": non_requirement_examples,
+        "source_request_user_id": request_user_id,
+        "source_request_user_owned_doc_count": owned_by_request_user_count,
+        "source_request_user_non_owned_doc_count": max(0, len(corpus) - owned_by_request_user_count),
+    }
 
 
 def enqueue_context_snapshot_rebuild_impl(
@@ -115,8 +157,22 @@ def get_or_build_context_snapshot_impl(
     """获取或构建快照；失败由调用方 fallback 到 RAG。"""
     corpus = collect_project_docs(module, db, project_id, user_id)
     if not corpus:
-        return {"success": False, "fallback_reason": "no_docs", "rebuild_reason": "no_docs", "snapshot_text": ""}
+        readiness = evaluate_snapshot_readiness(
+            snapshot=db.query(ProjectContextSnapshot).filter(ProjectContextSnapshot.project_id == project_id).first(),
+            current_corpus_hash="",
+            current_doc_count=0,
+            changed_doc_ids=[],
+        )
+        return {
+            "success": False,
+            "fallback_reason": "no_docs",
+            "rebuild_reason": "no_docs",
+            "snapshot_text": "",
+            **readiness,
+            "prewarm_task_id": None,
+        }
 
+    source_breakdown = _build_source_breakdown(corpus, request_user_id=user_id)
     corpus_hash, current_fingerprints = build_corpus_hash(corpus)
     snapshot = db.query(ProjectContextSnapshot).filter(ProjectContextSnapshot.project_id == project_id).first()
     if not snapshot:
@@ -130,6 +186,12 @@ def get_or_build_context_snapshot_impl(
         doc_id for doc_id, fp in current_fingerprints.items() if previous_fingerprints.get(doc_id) != fp
     ]
     mode = decide_rebuild_mode(snapshot, changed_doc_ids, len(corpus), force_rebuild)
+    readiness = evaluate_snapshot_readiness(
+        snapshot=snapshot,
+        current_corpus_hash=corpus_hash,
+        current_doc_count=len(corpus),
+        changed_doc_ids=changed_doc_ids,
+    )
 
     if mode == "reuse" and snapshot.corpus_hash == corpus_hash:
         snapshot.last_used_at = datetime.utcnow()
@@ -142,7 +204,8 @@ def get_or_build_context_snapshot_impl(
             "snapshot_text": snapshot.snapshot_text or "",
             "corpus_hash": corpus_hash,
             "source_doc_count": len(corpus),
-            "snapshot_status": snapshot.build_status,
+            **readiness,
+            "prewarm_task_id": None,
         }
 
     # 在线链路优先异步预热，当前请求继续走 RAG fallback。
@@ -160,7 +223,8 @@ def get_or_build_context_snapshot_impl(
             else "snapshot_async_rebuild_skip",
             "rebuild_reason": mode,
             "queue_result": queue_result,
-            "snapshot_status": snapshot.build_status,
+            **readiness,
+            "prewarm_task_id": queue_result.get("task_id"),
         }
 
     from core.ai_client import get_client_for_user
@@ -201,11 +265,15 @@ def get_or_build_context_snapshot_impl(
             full_rebuild=True,
             db=db,
         )
+        build_observability = {
+            **(build_result.get("build_observability") or {}),
+            **source_breakdown,
+        }
         logger.info(
             "snapshot build success project_id=%s mode=%s stats=%s",
             project_id,
             mode,
-            json.dumps(build_result.get("build_observability") or {}, ensure_ascii=False),
+            json.dumps(build_observability, ensure_ascii=False),
         )
         return {
             "success": True,
@@ -214,8 +282,14 @@ def get_or_build_context_snapshot_impl(
             "snapshot_text": snapshot.snapshot_text or "",
             "corpus_hash": corpus_hash,
             "source_doc_count": len(corpus),
-            "snapshot_status": snapshot.build_status,
-            "build_observability": build_result.get("build_observability") or {},
+            **evaluate_snapshot_readiness(
+                snapshot=snapshot,
+                current_corpus_hash=corpus_hash,
+                current_doc_count=len(corpus),
+                changed_doc_ids=[],
+            ),
+            "build_observability": build_observability,
+            "prewarm_task_id": None,
         }
 
     changed_set = set(changed_doc_ids)
@@ -256,10 +330,15 @@ def get_or_build_context_snapshot_impl(
         full_rebuild=False,
         db=db,
     )
+    delta_source_breakdown = _build_source_breakdown(changed_items, request_user_id=user_id)
+    delta_observability = {
+        **(delta_result.get("build_observability") or {}),
+        **delta_source_breakdown,
+    }
     logger.info(
         "snapshot incremental success project_id=%s stats=%s merge=%s",
         project_id,
-        json.dumps(delta_result.get("build_observability") or {}, ensure_ascii=False),
+        json.dumps(delta_observability, ensure_ascii=False),
         json.dumps(merge_info, ensure_ascii=False),
     )
     return {
@@ -269,21 +348,24 @@ def get_or_build_context_snapshot_impl(
         "snapshot_text": snapshot.snapshot_text or "",
         "corpus_hash": corpus_hash,
         "source_doc_count": len(corpus),
-        "snapshot_status": snapshot.build_status,
+        **evaluate_snapshot_readiness(
+            snapshot=snapshot,
+            current_corpus_hash=corpus_hash,
+            current_doc_count=len(corpus),
+            changed_doc_ids=[],
+        ),
         "build_observability": {
-            **(delta_result.get("build_observability") or {}),
+            **delta_observability,
             "final_merge_mode": merge_info.get("merge_mode"),
             "merge_trimmed": bool(merge_info.get("merge_trimmed")),
         },
+        "prewarm_task_id": None,
     }
 
 
 def get_context_snapshot_status_impl(project_id: int, db: Session) -> dict:
     """查询快照状态，并补充输入预算相关观测字段。"""
     snapshot = db.query(ProjectContextSnapshot).filter(ProjectContextSnapshot.project_id == project_id).first()
-    if not snapshot:
-        return {"exists": False, "snapshot_status": "missing"}
-
     docs = (
         db.query(KnowledgeDocument)
         .filter(KnowledgeDocument.project_id == project_id)
@@ -292,11 +374,70 @@ def get_context_snapshot_status_impl(project_id: int, db: Session) -> dict:
     )
     parts = [f"{doc.id}:{doc_content_hash(doc)}" for doc in docs]
     current_hash = hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest() if parts else ""
+    if snapshot:
+        previous_fingerprints = safe_json_loads(snapshot.source_fingerprints)
+        changed_doc_ids = [f"{doc.id}" for doc in docs if previous_fingerprints.get(f"{doc.id}") != doc_content_hash(doc)]
+    else:
+        changed_doc_ids = [f"{doc.id}" for doc in docs]
+    readiness = evaluate_snapshot_readiness(
+        snapshot=snapshot,
+        current_corpus_hash=current_hash,
+        current_doc_count=len(docs),
+        changed_doc_ids=changed_doc_ids,
+    )
     estimated_stats = estimate_source_stats(docs)
+    source_type_counts: dict[str, int] = {}
+    source_owner_counts: dict[str, int] = {}
+    requirement_like_types = {"requirement", "product_requirement", "incomplete"}
+    requirement_like_count = 0
+    non_requirement_examples: list[str] = []
+    for doc in docs:
+        doc_type = str(doc.doc_type or "unknown")
+        source_type_counts[doc_type] = int(source_type_counts.get(doc_type, 0)) + 1
+        owner_key = "none" if doc.user_id is None else str(doc.user_id)
+        source_owner_counts[owner_key] = int(source_owner_counts.get(owner_key, 0)) + 1
+        if doc_type in requirement_like_types:
+            requirement_like_count += 1
+        elif len(non_requirement_examples) < 8:
+            non_requirement_examples.append(f"{doc.id}:{doc.filename}:{doc_type}")
+
+    if not snapshot:
+        return {
+            "exists": False,
+            **readiness,
+            "project_id": project_id,
+            "current_corpus_hash": current_hash,
+            "snapshot_corpus_hash": "",
+            "corpus_hash": current_hash,
+            "snapshot_hash": "",
+            "source_doc_count": 0,
+            "last_built_at": None,
+            "last_used_at": None,
+            "build_error": None,
+            "rebuild_reason": None,
+            "incremental_merge_count": 0,
+            "is_stale": True,
+            "prewarm_task_id": None,
+            "build_status": "not_exists",
+            "input_soft_limit": SNAPSHOT_CONFIG.input_soft_limit,
+            "single_doc_limit": SNAPSHOT_CONFIG.single_doc_max_chars,
+            "batch_max_docs": SNAPSHOT_CONFIG.batch_max_docs,
+            "final_merge_limit": SNAPSHOT_CONFIG.final_merge_limit,
+            "source_doc_type_counts": source_type_counts,
+            "source_owner_user_counts": source_owner_counts,
+            "source_requirement_like_doc_count": requirement_like_count,
+            "source_non_requirement_doc_count": max(0, len(docs) - requirement_like_count),
+            "source_non_requirement_examples": non_requirement_examples,
+            **estimated_stats,
+        }
+
     return {
         "exists": True,
-        "snapshot_status": snapshot.build_status,
+        **readiness,
         "project_id": project_id,
+        "current_corpus_hash": current_hash,
+        "snapshot_corpus_hash": snapshot.corpus_hash,
+        # 中文注释：保留旧字段，兼容老调用方。
         "corpus_hash": current_hash,
         "snapshot_hash": snapshot.corpus_hash,
         "source_doc_count": int(snapshot.source_doc_count or 0),
@@ -305,10 +446,17 @@ def get_context_snapshot_status_impl(project_id: int, db: Session) -> dict:
         "build_error": snapshot.build_error,
         "rebuild_reason": snapshot.rebuild_reason,
         "incremental_merge_count": int(snapshot.incremental_merge_count or 0),
-        "is_stale": bool(snapshot.corpus_hash != current_hash),
+        "is_stale": bool(readiness.get("snapshot_status") == "stale"),
+        "prewarm_task_id": None,
+        "build_status": snapshot.build_status,
         "input_soft_limit": SNAPSHOT_CONFIG.input_soft_limit,
         "single_doc_limit": SNAPSHOT_CONFIG.single_doc_max_chars,
         "batch_max_docs": SNAPSHOT_CONFIG.batch_max_docs,
         "final_merge_limit": SNAPSHOT_CONFIG.final_merge_limit,
+        "source_doc_type_counts": source_type_counts,
+        "source_owner_user_counts": source_owner_counts,
+        "source_requirement_like_doc_count": requirement_like_count,
+        "source_non_requirement_doc_count": max(0, len(docs) - requirement_like_count),
+        "source_non_requirement_examples": non_requirement_examples,
         **estimated_stats,
     }

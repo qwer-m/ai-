@@ -43,6 +43,7 @@ from modules.test_generation_components.hybrid_guard import (
     detect_hybrid_empty_context,
     parse_snapshot_queue_info,
 )
+from modules.test_generation_components.snapshot_wait_gate import wait_snapshot_ready_gate
 
 
 def clean_and_parse_json(response_text: str) -> Any:
@@ -246,6 +247,63 @@ class TestGenerationModule:
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
 
+    def _run_snapshot_readiness_gate(
+        self,
+        project_id: int,
+        user_id: int | None,
+        status_messages: list[str] | None = None,
+    ) -> dict:
+        """
+        生成前 snapshot 门禁：
+        - 仅做“是否可开始生成”的判定与等待，不改动现有 snapshot 构建主逻辑；
+        - 通过短轮询等待 snapshot ready，避免“本次请求吃不到刚入队快照”。
+        """
+
+        def _get_status() -> dict:
+            # 中文注释：每次轮询使用新会话，避免长事务下读取不到最新状态。
+            gate_db = SessionLocal()
+            try:
+                return knowledge_base.get_context_snapshot_status(project_id=project_id, db=gate_db) or {}
+            finally:
+                gate_db.close()
+
+        def _enqueue() -> dict:
+            gate_db = SessionLocal()
+            try:
+                return knowledge_base.enqueue_context_snapshot_rebuild(
+                    project_id=project_id,
+                    db=gate_db,
+                    user_id=user_id,
+                    force_rebuild=False,
+                ) or {}
+            finally:
+                gate_db.close()
+
+        gate_result = wait_snapshot_ready_gate(
+            get_status_fn=_get_status,
+            enqueue_rebuild_fn=_enqueue,
+            status_messages=status_messages,
+        )
+        gate_debug = gate_result.get("gate_debug") or {}
+        print(
+            "snapshot readiness gate: "
+            f"enabled={gate_debug.get('snapshot_gate_enabled')} "
+            f"before={gate_debug.get('snapshot_status_before_generation')} "
+            f"after={gate_debug.get('snapshot_status_after_wait')} "
+            f"poll={gate_debug.get('snapshot_wait_poll_count')} "
+            f"elapsed_ms={gate_debug.get('snapshot_wait_elapsed_ms')} "
+            f"result={gate_debug.get('snapshot_wait_result')} "
+            f"queue={gate_debug.get('snapshot_wait_queue_status')}/{gate_debug.get('snapshot_wait_queue_reason')}"
+        )
+        if status_messages is not None:
+            status_messages.append(
+                "snapshot gate result: "
+                f"{gate_debug.get('snapshot_wait_result')} "
+                f"(poll={gate_debug.get('snapshot_wait_poll_count')}, "
+                f"elapsed_ms={gate_debug.get('snapshot_wait_elapsed_ms')})"
+            )
+        return gate_result
+
     def _resolve_kb_context_with_hybrid(
         self,
         requirement: str,
@@ -274,6 +332,10 @@ class TestGenerationModule:
                     "final_context_tokens": 0,
                     "hybrid_empty_context": True,
                     "hybrid_empty_reason": "db_unavailable",
+                    "snapshot_ready": False,
+                    "snapshot_usable_for_generation": False,
+                    "snapshot_readiness_reason": "db_unavailable",
+                    "needs_rebuild": True,
                     "snapshot_queue_status": "none",
                     "snapshot_queue_reason": "none",
                     "snapshot_queue_error": "",
@@ -301,12 +363,18 @@ class TestGenerationModule:
 
         queue_status, queue_reason, queue_error = parse_snapshot_queue_info(snapshot_result)
         snapshot_status = str(snapshot_result.get("snapshot_status") or "unknown")
+        snapshot_ready = bool(snapshot_result.get("is_ready", False))
+        snapshot_usable = bool(snapshot_result.get("usable_for_generation", False))
+        snapshot_needs_rebuild = bool(snapshot_result.get("needs_rebuild", False))
+        snapshot_readiness_reason = str(snapshot_result.get("readiness_reason") or "")
 
         if snapshot_result.get("success") and (snapshot_result.get("snapshot_text") or "").strip():
             snapshot_text = snapshot_result.get("snapshot_text") or ""
             if status_messages is not None:
-                if snapshot_result.get("cache_hit"):
-                    status_messages.append("命中项目级上下文快照缓存，直接复用。")
+                if snapshot_result.get("cache_hit") and snapshot_usable:
+                    status_messages.append(
+                        f"snapshot ready and reusable -> using snapshot（reason={snapshot_readiness_reason or 'snapshot_success_and_hash_matched'}）。"
+                    )
                 else:
                     status_messages.append(
                         f"项目级上下文快照已更新（{snapshot_result.get('rebuild_reason', 'unknown')}），本次复用新快照。"
@@ -319,21 +387,36 @@ class TestGenerationModule:
             if status_messages is not None:
                 if queue_result.get("queued"):
                     status_messages.append(
-                        f"项目级上下文快照不可用（{fallback_reason}），已触发后台预热任务 {queue_result.get('task_id')}。"
+                        f"snapshot stale -> queued rebuild and using rag_only（task_id={queue_result.get('task_id')}，reason={snapshot_readiness_reason or fallback_reason}）。"
                     )
                 elif queue_reason == "already_pending":
                     status_messages.append(
-                        "项目级上下文快照不可用，当前存在 pending 任务，防抖跳过重复入队（reason=already_pending），继续尝试 RAG。"
+                        "snapshot pending -> waiting skipped, using rag_only（reason=already_pending）。"
                     )
                 elif queue_reason == "enqueue_failed":
                     status_messages.append(
-                        f"项目级上下文快照不可用，异步入队失败（reason=enqueue_failed, err={queue_error or 'unknown'}），继续尝试 RAG。"
+                        f"snapshot not ready -> using rag_only（enqueue_failed, err={queue_error or 'unknown'}）。"
                     )
                 else:
+                    if snapshot_status == "failed":
+                        status_messages.append(
+                            f"snapshot failed -> fallback to rag（reason={snapshot_readiness_reason or fallback_reason}）。"
+                        )
+                    elif snapshot_status in {"pending", "building"}:
+                        status_messages.append(
+                            f"snapshot not ready -> using rag_only（status={snapshot_status}, reason={snapshot_readiness_reason or fallback_reason}）。"
+                        )
+                    elif snapshot_status == "stale":
+                        status_messages.append(
+                            f"snapshot stale -> queued rebuild and using rag_only（reason={snapshot_readiness_reason or fallback_reason}）。"
+                        )
+                    else:
+                        status_messages.append(
+                            f"snapshot not ready -> using rag_only（reason={snapshot_readiness_reason or fallback_reason}）。"
+                        )
                     status_messages.append(
-                        f"项目级上下文快照不可用（{fallback_reason}，queue_reason={queue_reason}），继续尝试 RAG。"
+                        f"snapshot_queue_status={queue_status}, snapshot_queue_reason={queue_reason}"
                     )
-
         snapshot_tokens = max(0, len(snapshot_text) // 4)
         use_rag, precision_reasons = should_use_rag(
             question=query_text,
@@ -390,6 +473,10 @@ class TestGenerationModule:
                 "lane_counts": empty_info.get("lane_counts") or {},
                 "lane_reasons": empty_info.get("lane_reasons") or {},
                 "snapshot_status": snapshot_status,
+                "snapshot_ready": snapshot_ready,
+                "snapshot_usable_for_generation": snapshot_usable,
+                "snapshot_readiness_reason": snapshot_readiness_reason,
+                "needs_rebuild": snapshot_needs_rebuild,
                 "snapshot_queue_status": queue_status,
                 "snapshot_queue_reason": queue_reason,
                 "snapshot_queue_error": queue_error,
@@ -445,14 +532,16 @@ class TestGenerationModule:
                         fusion_debug["hybrid_empty_reason"] = str(
                             retry_empty.get("final_empty_reason") or "hybrid_empty_context_after_sync_retry"
                         )
-                        fusion_debug["final_decision"] = "retry_snapshot_then_fail"
+                        # 中文注释：补救已尝试但仍失败，最终降级为可解释错误返回。
+                        fusion_debug["final_decision"] = "degraded_to_error"
                 else:
                     abort_generation = True
                     sync_err = str(retry_result.get("error") or "sync_snapshot_retry_failed")
                     abort_error = f"上下文为空：同步 snapshot 补救失败（{sync_err}）。"
                     fallback_reason = sync_err
                     fusion_debug["sync_snapshot_retry_error"] = sync_err
-                    fusion_debug["final_decision"] = "retry_snapshot_then_fail"
+                    # 中文注释：补救过程失败，最终降级为可解释错误返回。
+                    fusion_debug["final_decision"] = "degraded_to_error"
             else:
                 abort_generation = True
                 abort_error = "上下文为空：snapshot 与 RAG 均不可用，已按 fail-fast 策略终止本次生成。"
@@ -537,7 +626,36 @@ class TestGenerationModule:
         # Retrieve context from Knowledge Base if DB is available
         original_requirement = requirement
         kb_context = ""
+        gate_result: dict[str, Any] | None = None
+        gate_debug: dict[str, Any] = {}
         if db:
+            # 中文注释：生成前先执行 snapshot readiness gate，避免 stale 场景直接 rag_only。
+            gate_result = self._run_snapshot_readiness_gate(
+                project_id=project_id,
+                user_id=user_id,
+                status_messages=None,
+            )
+            gate_debug = gate_result.get("gate_debug") or {}
+            if not gate_result.get("proceed"):
+                print(
+                    "snapshot gate abort(json): "
+                    f"status_before={gate_debug.get('snapshot_status_before_generation')}, "
+                    f"status_after={gate_debug.get('snapshot_status_after_wait')}, "
+                    f"result={gate_debug.get('snapshot_wait_result')}"
+                )
+                return {
+                    "error": gate_result.get("error_code") or "SNAPSHOT_NOT_READY_TIMEOUT",
+                    "message": gate_result.get("error_message")
+                    or "snapshot 未就绪，已按 fail-fast 终止本次生成。",
+                    "fallback_reason": "snapshot_wait_gate_abort",
+                    "context_source": "none",
+                    "fusion_debug": {
+                        **gate_debug,
+                        "final_decision": "timeout_fail_fast",
+                        "final_generation_context_mode": "none",
+                    },
+                }
+
             context_result = self._resolve_kb_context_with_hybrid(
                 requirement=requirement,
                 project_id=project_id,
@@ -546,6 +664,17 @@ class TestGenerationModule:
                 compress=compress,
                 precision_mode=True,
             )
+            fusion_debug = context_result.get("fusion_debug") or {}
+            if gate_debug:
+                # 中文注释：把 gate 调试字段合并进融合调试，方便统一观察。
+                fusion_debug.update(gate_debug)
+                if (
+                    gate_debug.get("snapshot_wait_result") == "timeout_fallback_rag"
+                    and fusion_debug.get("final_decision") == "proceed_with_generation"
+                ):
+                    fusion_debug["final_decision"] = "timeout_fallback_rag_then_proceed"
+            fusion_debug["final_generation_context_mode"] = context_result.get("context_source") or "empty"
+            context_result["fusion_debug"] = fusion_debug
             kb_context = context_result.get("kb_context") or ""
             # 中文注释：命中“上下文全空兜底”时，直接终止，避免模型在无知识上下文下裸跑。
             if context_result.get("abort_generation"):
@@ -788,6 +917,25 @@ class TestGenerationModule:
 
         if db:
             status_messages: list[str] = []
+            # 中文注释：流式链路同样走 snapshot readiness gate，保证两条入口行为一致。
+            gate_result = self._run_snapshot_readiness_gate(
+                project_id=project_id,
+                user_id=user_id,
+                status_messages=status_messages,
+            )
+            gate_debug = gate_result.get("gate_debug") or {}
+            if not gate_result.get("proceed"):
+                for status_message in status_messages:
+                    yield f"@@STATUS@@:{status_message}\n"
+                yield (
+                    "@@STATUS@@:snapshot readiness gate 未通过，终止本次生成。"
+                    f"(result={gate_debug.get('snapshot_wait_result')})\n"
+                )
+                gate_error_code = gate_result.get("error_code") or "SNAPSHOT_NOT_READY_TIMEOUT"
+                gate_error_message = gate_result.get("error_message") or "snapshot 未就绪，终止生成。"
+                yield f"Error: {gate_error_code}: {gate_error_message}\n"
+                return
+
             context_result = self._resolve_kb_context_with_hybrid(
                 requirement=requirement,
                 project_id=project_id,
@@ -797,6 +945,16 @@ class TestGenerationModule:
                 status_messages=status_messages,
                 precision_mode=True,
             )
+            fusion_debug = context_result.get("fusion_debug") or {}
+            if gate_debug:
+                fusion_debug.update(gate_debug)
+                if (
+                    gate_debug.get("snapshot_wait_result") == "timeout_fallback_rag"
+                    and fusion_debug.get("final_decision") == "proceed_with_generation"
+                ):
+                    fusion_debug["final_decision"] = "timeout_fallback_rag_then_proceed"
+            fusion_debug["final_generation_context_mode"] = context_result.get("context_source") or "empty"
+            context_result["fusion_debug"] = fusion_debug
             kb_context = context_result.get("kb_context") or ""
 
             for status_message in status_messages:

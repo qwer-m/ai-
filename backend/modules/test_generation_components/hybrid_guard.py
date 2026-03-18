@@ -26,7 +26,7 @@ class HybridEmptyGuardConfig:
 
     empty_context_strategy: str = os.getenv(
         "RAG_HYBRID_EMPTY_CONTEXT_STRATEGY",
-        "fail_fast",
+        "sync_snapshot_retry_then_fail",
     ).strip().lower()
     sync_snapshot_retry_enabled: bool = _env_bool("RAG_SYNC_SNAPSHOT_RETRY_ENABLED", True)
     sync_snapshot_retry_timeout_sec: int = max(
