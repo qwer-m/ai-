@@ -49,7 +49,7 @@ export function EvaluationOverviewPanel({ diag, qm, onExportHistory }: Props) {
                 <FaDownload size={12} /> 导出
               </Button>
             </div>
-            <div className="grid grid-cols-3 gap-3 small">
+            <div className="grid grid-cols-4 gap-3 small">
               <div className="p-2 bg-success bg-opacity-10 text-success rounded text-center">
                 <div className="fw-bold fs-5">{String(qm?.positive ?? '-')}</div>
                 <div className="small opacity-75">正向</div>
@@ -61,6 +61,14 @@ export function EvaluationOverviewPanel({ diag, qm, onExportHistory }: Props) {
               <div className="p-2 bg-warning bg-opacity-10 text-warning rounded text-center">
                 <div className="fw-bold fs-5">{String(qm?.edge ?? '-')}</div>
                 <div className="small opacity-75">边界</div>
+              </div>
+              <div className="p-2 bg-primary bg-opacity-10 text-primary rounded text-center">
+                <div className="fw-bold fs-5">{String(qm?.functional_count ?? '-')}</div>
+                <div className="small opacity-75">功能</div>
+              </div>
+              <div className="p-2 bg-info bg-opacity-10 text-info rounded text-center">
+                <div className="fw-bold fs-5">{String(qm?.non_functional_count ?? '-')}</div>
+                <div className="small opacity-75">非功能</div>
               </div>
               <div className="p-2 bg-info bg-opacity-10 text-info rounded text-center">
                 <div className="fw-bold fs-5">{String(qm?.avg_steps ?? '-')}</div>

@@ -646,6 +646,28 @@ export function TestGeneration({ projectId, isActive = true, onLog, onGenerated,
     return out;
   };
 
+  // 中文注释：前端与后端统一“唯一用例”口径，避免展示数量与后端补齐计数不一致。
+  const deduplicateStandardCases = (items: any[]) => {
+    if (!Array.isArray(items)) return [];
+    const seen = new Set<string>();
+    const deduped: any[] = [];
+    const norm = (v: unknown) => String(v ?? '').trim().toLowerCase().replace(/\r/g, '').replace(/\n/g, ' ');
+    for (const item of items) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const steps = Array.isArray(item.steps) ? item.steps.map((s: unknown) => norm(s)).join(' | ') : norm(item.steps);
+      const key = `${norm(item.test_module)}||${norm(item.description)}||${norm(item.test_input)}||${norm(item.expected_result)}||${steps}`;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(item);
+    }
+    return deduped;
+  };
+
+  const getUniqueCaseCount = (items: any) => {
+    if (!Array.isArray(items)) return 0;
+    return deduplicateStandardCases(normalizeStandardCases(items)).length;
+  };
+
   const validateStandardCases = (items: any[]) => {
     if (!Array.isArray(items)) return { ok: false as const, error: '结果不是 JSON 数组' };
     if (items.length === 0) return { ok: false as const, error: '结果为空数组，请重试生成' };
@@ -703,10 +725,10 @@ export function TestGeneration({ projectId, isActive = true, onLog, onGenerated,
 
   const getExistingCases = (isText: boolean) => {
     const existing = isText ? textResult : fileResult;
-    if (Array.isArray(existing)) return existing;
+    if (Array.isArray(existing)) return deduplicateStandardCases(normalizeStandardCases(existing));
     const stream = isText ? textStreamingContent : fileStreamingContent;
     const parsed = extractFirstJsonArray(cleanStreamingContent(stream));
-    return parsed ?? [];
+    return deduplicateStandardCases(normalizeStandardCases(parsed ?? []));
   };
 
   const hasJsonInResultBox = useMemo(() => {
@@ -731,7 +753,7 @@ export function TestGeneration({ projectId, isActive = true, onLog, onGenerated,
     if (appendMode) {
          // Logic: If existing < expected, try to bridge the gap in batches of 25.
          // If existing >= expected, use appendCount.
-         const currentCount = existingCases.length || 0;
+         const currentCount = getUniqueCaseCount(existingCases);
          if (currentCount < expectedCount) {
              const remaining = expectedCount - currentCount;
              if (remaining > 25) {
@@ -932,11 +954,12 @@ export function TestGeneration({ projectId, isActive = true, onLog, onGenerated,
                     if (parsed.length > 0) {
                         const normalizedNew = normalizeStandardCases(parsed);
                         if (normalizedNew.length > 0) {
+                            const dedupedNew = deduplicateStandardCases(normalizedNew);
                             if (appendMode) {
                                 const normalizedExisting = normalizeStandardCases(existingCases);
-                                setCurrentResult([...normalizedExisting, ...normalizedNew]);
+                                setCurrentResult(deduplicateStandardCases([...normalizedExisting, ...dedupedNew]));
                             } else {
-                                setCurrentResult(normalizedNew);
+                                setCurrentResult(dedupedNew);
                             }
                         }
                     }
@@ -1090,7 +1113,7 @@ export function TestGeneration({ projectId, isActive = true, onLog, onGenerated,
             let finalGeneratedData: any[] = [];
             if (skipNormalize) {
                 const merged = appendMode ? [...(Array.isArray(existingCases) ? existingCases : []), ...json] : json;
-                finalGeneratedData = merged;
+                finalGeneratedData = deduplicateStandardCases(normalizeStandardCases(merged));
             } else {
                 const normalizedNew = normalizeStandardCases(json);
                 if (normalizedNew.length === 0) {
@@ -1109,15 +1132,19 @@ export function TestGeneration({ projectId, isActive = true, onLog, onGenerated,
                 if (!validNew.ok) throw new Error(`生成结果不符合标准JSON结构: ${validNew.error}`);
                 if (appendMode) {
                     const normalizedExisting = normalizeStandardCases(existingCases);
-                    const merged = normalizeStandardCases([...normalizedExisting, ...normalizedNew]);
+                    const merged = deduplicateStandardCases(normalizeStandardCases([...normalizedExisting, ...normalizedNew]));
                     const validMerged = validateStandardCases(merged);
                     if (!validMerged.ok) throw new Error(`合并后结果不符合标准JSON结构: ${validMerged.error}`);
                     finalGeneratedData = merged;
                 } else {
-                    finalGeneratedData = normalizedNew;
+                    finalGeneratedData = deduplicateStandardCases(normalizedNew);
                 }
             }
             // 中文注释：仅在拿到最终非空用例时同步到评估页，避免中间态或失败态触发跳转。
+            // 中文注释：非追加生成时按目标数量截断，避免流式拼接导致前端显示超发。
+            if (!appendMode && finalGeneratedData.length > safeExpectedCount) {
+                finalGeneratedData = finalGeneratedData.slice(0, safeExpectedCount);
+            }
             if (!Array.isArray(finalGeneratedData) || finalGeneratedData.length === 0) {
                 throw new Error('生成完成但未得到有效测试用例，已阻断自动跳转到质量评估。');
             }
@@ -1270,8 +1297,8 @@ export function TestGeneration({ projectId, isActive = true, onLog, onGenerated,
   };
 
   const stats = useMemo(() => {
-    let count = 0;
-    if (Array.isArray(result)) count = result.length;
+    // 中文注释：前端展示按“唯一用例”计数，和后端 GEN_QM.generated_count 保持一致口径。
+    const count = getUniqueCaseCount(result);
     return { count };
   }, [result]);
 
@@ -1456,7 +1483,9 @@ export function TestGeneration({ projectId, isActive = true, onLog, onGenerated,
                                 setAppendCount(newAppend);
                                 
                                 // Auto-update expected count based on previous results if changing append count
-                                const currentTotal = hasJsonInResultBox ? (mode === 'text' ? (textResult?.length || 0) : (fileResult?.length || 0)) : 0;
+                                const currentTotal = hasJsonInResultBox
+                                  ? (mode === 'text' ? getUniqueCaseCount(textResult) : getUniqueCaseCount(fileResult))
+                                  : 0;
                                 if (currentTotal > expectedCount) {
                                     setExpectedCount(currentTotal);
                                 }
@@ -1480,7 +1509,9 @@ export function TestGeneration({ projectId, isActive = true, onLog, onGenerated,
 
          <div className="mt-auto d-flex flex-column gap-2">
             {(() => {
-                const currentTotal = hasJsonInResultBox ? (mode === 'text' ? (textResult?.length || 0) : (fileResult?.length || 0)) : 0;
+                const currentTotal = hasJsonInResultBox
+                  ? (mode === 'text' ? getUniqueCaseCount(textResult) : getUniqueCaseCount(fileResult))
+                  : 0;
                 const targetTotal = expectedCount + appendCount;
                 const isLimitReached = hasJsonInResultBox && currentTotal >= targetTotal;
                 

@@ -246,7 +246,17 @@ export function useEvaluationActions({
 
       if (qmLogs.length === 0) return alert('暂无历史质量指标');
 
-      const header = ['created_at', 'positive', 'negative', 'edge', 'avg_steps', 'pending', 'generated_count'];
+      const header = [
+        'created_at',
+        'positive',
+        'negative',
+        'edge',
+        'functional_count',
+        'non_functional_count',
+        'avg_steps',
+        'pending',
+        'generated_count',
+      ];
       const rows = qmLogs.map((l: any) => {
         let qm: any = {};
         try {
@@ -256,7 +266,17 @@ export function useEvaluationActions({
         }
 
         const ts = l.created_at || '';
-        return [ts, qm.positive || 0, qm.negative || 0, qm.edge || 0, qm.avg_steps || 0, qm.pending || 0, qm.generated_count || 0].join(',');
+        return [
+          ts,
+          qm.positive || 0,
+          qm.negative || 0,
+          qm.edge || 0,
+          qm.functional_count || 0,
+          qm.non_functional_count || 0,
+          qm.avg_steps || 0,
+          qm.pending || 0,
+          qm.generated_count || 0,
+        ].join(',');
       });
 
       const csv = `${header.join(',')}\n${rows.join('\n')}`;

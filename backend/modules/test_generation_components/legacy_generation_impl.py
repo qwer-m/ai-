@@ -1724,12 +1724,24 @@ Types:
                     positive = 0
                     negative = 0
                     edge = 0
+                    functional_count = 0
+                    non_functional_count = 0
                     avg_steps = 0.0
                     pending = 0
                     steps_count = 0
                     steps_items = 0
                     kw_neg = ["失败", "错误", "异常", "不可用", "拒绝", "超时", "Invalid", "Fail", "Error", "Exception", "Timeout", "Deny"]
                     kw_edge = ["边界", "最大值", "最小值", "极限", "临界", "空值", "重复", "特殊字符", "溢出", "Boundary", "Edge", "Max", "Min", "Limit", "Critical", "Null", "Empty", "Overflow"]
+                    # 中文注释：非功能关键词用于补充统计“非功能测试用例条数”。
+                    kw_non_functional = [
+                        "性能", "perf", "performance", "并发", "concurrent", "throughput",
+                        "延迟", "latency", "响应时间", "timeout", "压测", "stress", "load",
+                        "安全", "security", "鉴权", "auth", "权限", "permission",
+                        "xss", "sql注入", "sql injection", "csrf",
+                        "可用性", "usability", "易用性", "可访问性", "accessibility",
+                        "稳定性", "reliability", "容错", "fault tolerance",
+                        "兼容", "compatibility", "browser", "跨端", "资源占用", "memory", "cpu"
+                    ]
                     
                     if isinstance(parsed_result, list):
                         for item in parsed_result:
@@ -1765,6 +1777,13 @@ Types:
                                 negative += 1
                             else:
                                 positive += 1
+
+                            # 中文注释：功能/非功能统计与正负边界分类解耦，仅用于质量看板展示。
+                            is_non_functional = any(k.lower() in search_text for k in kw_non_functional)
+                            if is_non_functional:
+                                non_functional_count += 1
+                            else:
+                                functional_count += 1
                                 
                             if isinstance(steps, list):
                                 steps_count += len(steps)
@@ -1782,6 +1801,8 @@ Types:
                         "positive": positive,
                         "negative": negative,
                         "edge": edge,
+                        "functional_count": functional_count,
+                        "non_functional_count": non_functional_count,
                         "avg_steps": avg_steps,
                         "pending": pending,
                         # 中文注释：generated_count 改为唯一计数，和补齐/前端显示保持一致口径。
