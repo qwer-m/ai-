@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from core.auth import get_current_user
 from core.database import get_db
 from core.models import Project, RagDatasetSample, RagEvalRun, RagEvalSampleResult, User
+from modules.rag_eval.rag_eval_compare_service import compare_runs
 from modules.rag_eval.rag_eval_service import resume_eval_run, start_eval_run, stop_eval_run
 from modules.rag_eval.repositories.rag_eval_repo import get_run, list_run_sample_results
 from schemas.rag_eval import (
@@ -70,6 +71,22 @@ def resume_rag_eval_run(run_id: int, db: Session = Depends(get_db), current_user
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@router.get("/rag/eval/run/compare")
+def compare_rag_eval_runs(
+    run_a: int = Query(..., ge=1),
+    run_b: int = Query(..., ge=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """运行对比：run_b - run_a。"""
+    if run_a == run_b:
+        raise HTTPException(status_code=400, detail="run_a and run_b must be different")
+    try:
+        return compare_runs(db=db, run_a_id=run_a, run_b_id=run_b, user_id=current_user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
 @router.get("/rag/eval/run/{run_id}", response_model=RagEvalRunStatusResponse)
 def get_rag_eval_run_status(run_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     run = get_run(db, run_id, current_user.id)
@@ -110,6 +127,7 @@ def get_rag_eval_run_samples(
     failure_reason: str | None = Query(default=None),
     answer_correct: bool | None = Query(default=None),
     correctness: str | None = Query(default=None, description="correct/incorrect"),
+    sample_ids: str | None = Query(default=None, description="逗号分隔 sample_id"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -124,6 +142,10 @@ def get_rag_eval_run_samples(
         elif correctness_norm in {"incorrect", "false", "0", "no"}:
             answer_correct = False
 
+    selected_sample_ids: list[int] = []
+    if sample_ids:
+        selected_sample_ids = [int(x.strip()) for x in sample_ids.split(",") if x.strip().isdigit()]
+
     rows, total = list_run_sample_results(
         db,
         run_id,
@@ -132,6 +154,7 @@ def get_rag_eval_run_samples(
         tag=tag,
         failure_reason=failure_reason,
         answer_correct=answer_correct,
+        sample_ids=selected_sample_ids or None,
     )
     # 中文注释：补齐样本业务字段，避免前端只能看到 ID 无法定位问题。
     sample_ids = [int(x.sample_id) for x in rows]

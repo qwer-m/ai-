@@ -209,9 +209,13 @@ export async function getRagEvalRun(runId: number) {
   return api.get<any>(`/api/rag/eval/run/${runId}`);
 }
 
+export async function getRagEvalRunCompare(runA: number, runB: number) {
+  return api.get<any>(`/api/rag/eval/run/compare?run_a=${runA}&run_b=${runB}`);
+}
+
 export async function getRagEvalRunSamples(
   runId: number,
-  params?: { page?: number; page_size?: number; tag?: string; failure_reason?: string; answer_correct?: boolean },
+  params?: { page?: number; page_size?: number; tag?: string; failure_reason?: string; answer_correct?: boolean; sample_ids?: number[] },
 ) {
   const q = new URLSearchParams();
   if (params?.page) q.set('page', String(params.page));
@@ -219,6 +223,7 @@ export async function getRagEvalRunSamples(
   if (params?.tag) q.set('tag', params.tag);
   if (params?.failure_reason) q.set('failure_reason', params.failure_reason);
   if (typeof params?.answer_correct === 'boolean') q.set('answer_correct', String(params.answer_correct));
+  if (params?.sample_ids?.length) q.set('sample_ids', params.sample_ids.join(','));
   const suffix = q.toString() ? `?${q.toString()}` : '';
   return api.get<any>(`/api/rag/eval/run/${runId}/samples${suffix}`);
 }
@@ -227,6 +232,56 @@ export async function promoteRagSample(sampleId: number, targetDatasetType: 'cha
   return api.post<any>(`/api/rag/eval/sample/${sampleId}/promote`, {
     target_dataset_type: targetDatasetType,
   });
+}
+
+export async function generateRagEvalCandidates(payload: {
+  run_id: number;
+  filters?: {
+    failure_reasons?: string[];
+    answer_correct_false?: boolean;
+    faithfulness_lt?: number | null;
+    answer_correctness_lt?: number | null;
+  };
+  target_dataset_type?: 'challenge' | 'regression' | null;
+}) {
+  return api.post<any>('/api/rag/eval/candidates/generate', payload);
+}
+
+export async function listRagEvalCandidates(params?: {
+  status?: string;
+  source_type?: string;
+  failure_reason?: string;
+  suggested_dataset_type?: string;
+  page?: number;
+  page_size?: number;
+}) {
+  const q = new URLSearchParams();
+  if (params?.status) q.set('status', params.status);
+  if (params?.source_type) q.set('source_type', params.source_type);
+  if (params?.failure_reason) q.set('failure_reason', params.failure_reason);
+  if (params?.suggested_dataset_type) q.set('suggested_dataset_type', params.suggested_dataset_type);
+  if (params?.page) q.set('page', String(params.page));
+  if (params?.page_size) q.set('page_size', String(params.page_size));
+  const suffix = q.toString() ? `?${q.toString()}` : '';
+  return api.get<any>(`/api/rag/eval/candidates${suffix}`);
+}
+
+export async function draftRagEvalCandidate(candidateId: number, payload?: Record<string, unknown>) {
+  return api.post<any>(`/api/rag/eval/candidates/${candidateId}/draft`, payload || {});
+}
+
+export async function approveRagEvalCandidate(
+  candidateId: number,
+  payload?: {
+    target_dataset_type?: 'challenge' | 'regression';
+    draft?: Record<string, unknown>;
+  },
+) {
+  return api.post<any>(`/api/rag/eval/candidates/${candidateId}/approve`, payload || {});
+}
+
+export async function rejectRagEvalCandidate(candidateId: number, notes?: string) {
+  return api.post<any>(`/api/rag/eval/candidates/${candidateId}/reject`, { notes: notes || '' });
 }
 
 export async function importRagDataset(formData: FormData) {

@@ -56,6 +56,7 @@ from routers.pipeline import router as pipeline_router
 from routers.rag_datasets import router as rag_datasets_router
 from routers.rag_runs import router as rag_runs_router
 from routers.rag_eval import router as rag_eval_router
+from routers.rag_candidates import router as rag_candidates_router
 
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
@@ -149,6 +150,7 @@ app.include_router(pipeline_router, prefix="/api")
 app.include_router(rag_datasets_router, prefix="/api")
 app.include_router(rag_runs_router, prefix="/api")
 app.include_router(rag_eval_router, prefix="/api")
+app.include_router(rag_candidates_router, prefix="/api")
 
 from redis import Redis
 

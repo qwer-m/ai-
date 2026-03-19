@@ -754,3 +754,31 @@ class RagEvalSampleResult(Base):
     detail_json = Column(JSON, nullable=True, comment="完整细节")
     created_at = Column(DateTime, server_default=func.now(), index=True)
 
+
+class RagEvalCandidate(Base):
+    """
+    RAG 评测候选回流记录。
+    用于沉淀真实 bad case，支持审核后加入 challenge / regression 数据集。
+    """
+    __tablename__ = "rag_eval_candidates"
+    __table_args__ = (
+        UniqueConstraint("source_type", "source_id", name="uq_rag_eval_candidates_source"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True, comment="候选归属用户ID")
+    source_type = Column(String(30), nullable=False, index=True, comment="debug_log/eval_result/online_query")
+    source_id = Column(Integer, nullable=False, index=True, comment="来源记录ID")
+    query = Column(Text, nullable=False, comment="原始query")
+    retrieved_chunks = Column(JSON, nullable=True, comment="召回/重排片段")
+    answer_text = Column(LONGTEXT, nullable=True, comment="模型回答")
+    failure_reason = Column(String(50), nullable=True, index=True, comment="失败归因")
+    judge_score_json = Column(JSON, nullable=True, comment="评分信息")
+    suggested_dataset_type = Column(String(20), nullable=False, default="challenge", index=True, comment="challenge/regression")
+    status = Column(String(20), nullable=False, default="pending", index=True, comment="pending/approved/rejected")
+    suggested_gold_docs = Column(JSON, nullable=True, comment="建议 gold_docs")
+    suggested_gold_chunks = Column(JSON, nullable=True, comment="建议 gold_chunks")
+    suggested_answer_points = Column(JSON, nullable=True, comment="建议 answer_points")
+    notes = Column(Text, nullable=True, comment="候选备注")
+    created_at = Column(DateTime, server_default=func.now(), index=True)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

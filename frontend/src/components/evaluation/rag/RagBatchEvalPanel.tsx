@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { Alert, Badge, Button, Form, Modal, ProgressBar, Spinner, Table } from 'react-bootstrap';
 import {
   getRagEvalRun,
@@ -9,13 +9,11 @@ import {
   stopRagEvalRun,
   translateError,
 } from '../evaluationService';
+import { RagRunComparePanel } from './RagRunComparePanel';
+import { RagCandidatePanel } from './RagCandidatePanel';
 import type { RagDatasetRow, RagEvalConfig } from './types';
 
-type Props = {
-  projectId: number | null;
-  onLog: (msg: string) => void;
-  datasets: RagDatasetRow[];
-};
+type Props = { projectId: number | null; onLog: (msg: string) => void; datasets: RagDatasetRow[] };
 
 const DEFAULT_CONFIG: RagEvalConfig = {
   dataset_selector: { dataset_type: 'all', tags: [], difficulty: 'all', sample_range: 'all', sample_ids: [], enabled_only: true },
@@ -44,12 +42,12 @@ export function RagBatchEvalPanel({ projectId, onLog, datasets }: Props) {
 
   const activeRunStatus = String(runStatus?.run?.status || '');
   const runActive = ['pending', 'running', 'stopping'].includes(activeRunStatus);
+  const overview = useMemo(() => runStatus?.metrics?.overview || {}, [runStatus]);
+  const progressPct = Number(runStatus?.progress?.progress_pct || 0);
 
   useEffect(() => {
     if (!runId) return;
-    const timer = window.setInterval(() => {
-      void refreshRun(runId, false);
-    }, 1500);
+    const timer = window.setInterval(() => void refreshRun(runId, false), 1500);
     return () => window.clearInterval(timer);
   }, [runId]);
 
@@ -58,48 +56,32 @@ export function RagBatchEvalPanel({ projectId, onLog, datasets }: Props) {
     void refreshRun(runId, true);
   }, [samplePage, runId]);
 
-  const overview = useMemo(() => runStatus?.metrics?.overview || {}, [runStatus]);
-  const progressPct = Number(runStatus?.progress?.progress_pct || 0);
-
   const parseConfig = (): RagEvalConfig => {
     const tags = tagsInput.split(',').map((x) => x.trim()).filter(Boolean);
-    const sample_ids = sampleIdsInput
-      .split(',')
-      .map((x) => Number(x.trim()))
-      .filter((x) => Number.isFinite(x) && x > 0);
+    const sampleIds = sampleIdsInput.split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x) && x > 0);
     const selectedDataset = datasets.find((d) => d.id === datasetId);
-    return {
-      ...config,
-      dataset_selector: {
-        ...config.dataset_selector,
-        dataset_type: selectedDataset?.type || 'all',
-        tags,
-        sample_ids,
-      },
-    };
+    return { ...config, dataset_selector: { ...config.dataset_selector, dataset_type: selectedDataset?.type || 'all', tags, sample_ids: sampleIds } };
   };
 
   const refreshRun = async (id: number, withSamples = true) => {
     const status = await getRagEvalRun(id);
     setRunStatus(status);
-    if (withSamples) {
-      const samplePageResp = await getRagEvalRunSamples(id, { page: samplePage, page_size: 20 });
-      setSampleRows(samplePageResp?.items || []);
-      setSampleTotal(Number(samplePageResp?.total || 0));
-    }
+    if (!withSamples) return;
+    const pageResp = await getRagEvalRunSamples(id, { page: samplePage, page_size: 20 });
+    setSampleRows(pageResp?.items || []);
+    setSampleTotal(Number(pageResp?.total || 0));
   };
 
   const startRun = async () => {
     if (!projectId) return setError('请先选择项目');
     if (!datasetId) return setError('请选择数据集');
-    setBusy(true);
-    setError(null);
+    setBusy(true); setError(null);
     try {
-      const payloadConfig = parseConfig();
-      const resp = await startRagEvalRun(projectId, { dataset_id: datasetId, run_name: runName.trim() || undefined, config: payloadConfig });
-      setRunId(Number(resp?.run_id));
-      onLog(`RAG 批量评测已启动: run_id=${resp?.run_id}`);
-      await refreshRun(Number(resp?.run_id));
+      const resp = await startRagEvalRun(projectId, { dataset_id: datasetId, run_name: runName.trim() || undefined, config: parseConfig() });
+      const nextRunId = Number(resp?.run_id);
+      setRunId(nextRunId);
+      onLog(`RAG 批量评测已启动: run_id=${nextRunId}`);
+      await refreshRun(nextRunId);
     } catch (e) {
       setError(await translateError(e));
     } finally {
@@ -109,8 +91,7 @@ export function RagBatchEvalPanel({ projectId, onLog, datasets }: Props) {
 
   const stopRun = async () => {
     if (!runId) return;
-    setBusy(true);
-    setError(null);
+    setBusy(true); setError(null);
     try {
       await stopRagEvalRun(runId);
       onLog(`RAG 批量评测停止请求已发送: run_id=${runId}`);
@@ -124,11 +105,10 @@ export function RagBatchEvalPanel({ projectId, onLog, datasets }: Props) {
 
   const resumeRun = async () => {
     if (!runId) return;
-    setBusy(true);
-    setError(null);
+    setBusy(true); setError(null);
     try {
       await resumeRagEvalRun(runId);
-      onLog(`RAG 批量评测已续跑: run_id=${runId}`);
+      onLog(`RAG 批量评测继续执行: run_id=${runId}`);
       await refreshRun(runId);
     } catch (e) {
       setError(await translateError(e));
@@ -147,21 +127,11 @@ export function RagBatchEvalPanel({ projectId, onLog, datasets }: Props) {
   };
 
   const openDetail = (row: any, kind: 'retrieved' | 'reranked' | 'context' | 'prompt' | 'full') => {
-    const detail = row?.detail_json || {};
-    const debug = detail?.debug || {};
-    if (kind === 'retrieved') {
-      return setDetailModal({ title: `样本 ${row.sample_id} - 召回 chunks`, content: JSON.stringify(row?.retrieved_chunks || [], null, 2) });
-    }
-    if (kind === 'reranked') {
-      return setDetailModal({ title: `样本 ${row.sample_id} - rerank 结果`, content: JSON.stringify(row?.reranked_chunks || [], null, 2) });
-    }
-    if (kind === 'context') {
-      return setDetailModal({ title: `样本 ${row.sample_id} - 最终上下文`, content: String(debug?.context || row?.answer_text || '') });
-    }
-    if (kind === 'prompt') {
-      const payload = { query: row?.sample_query, context: debug?.context || '', expected: row?.expected_answer || '' };
-      return setDetailModal({ title: `样本 ${row.sample_id} - prompt 信息`, content: JSON.stringify(payload, null, 2) });
-    }
+    const debug = row?.detail_json?.debug || {};
+    if (kind === 'retrieved') return setDetailModal({ title: `样本 ${row.sample_id} - 召回 chunks`, content: JSON.stringify(row?.retrieved_chunks || [], null, 2) });
+    if (kind === 'reranked') return setDetailModal({ title: `样本 ${row.sample_id} - rerank 结果`, content: JSON.stringify(row?.reranked_chunks || [], null, 2) });
+    if (kind === 'context') return setDetailModal({ title: `样本 ${row.sample_id} - 最终上下文`, content: String(debug?.context || row?.answer_text || '') });
+    if (kind === 'prompt') return setDetailModal({ title: `样本 ${row.sample_id} - prompt 信息`, content: JSON.stringify({ query: row?.sample_query, context: debug?.context || '', expected: row?.expected_answer || '' }, null, 2) });
     return setDetailModal({ title: `样本 ${row.sample_id} - 评测详情`, content: JSON.stringify(row, null, 2) });
   };
 
@@ -188,30 +158,17 @@ export function RagBatchEvalPanel({ projectId, onLog, datasets }: Props) {
           </Form.Select>
         </Form.Group>
         <Form.Group>
-          <Form.Label className="small text-muted">tags（逗号分隔）</Form.Label>
+          <Form.Label className="small text-muted">tags (逗号分隔)</Form.Label>
           <Form.Control value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} placeholder="billing,permission" />
         </Form.Group>
       </div>
 
       <div className="grid grid-cols-4 gap-3">
-        <Form.Group>
-          <Form.Label className="small text-muted">top_k</Form.Label>
-          <Form.Control type="number" value={config.retrieval.top_k} min={1} max={20} onChange={(e) => setConfig((v) => ({ ...v, retrieval: { ...v.retrieval, top_k: Number(e.target.value) || 5 } }))} />
-        </Form.Group>
-        <Form.Group>
-          <Form.Label className="small text-muted">rerank_top_n</Form.Label>
-          <Form.Control type="number" value={config.retrieval.rerank_top_n} min={1} max={20} onChange={(e) => setConfig((v) => ({ ...v, retrieval: { ...v.retrieval, rerank_top_n: Number(e.target.value) || 5 } }))} />
-        </Form.Group>
-        <Form.Group>
-          <Form.Label className="small text-muted">retrieval_mode</Form.Label>
-          <Form.Select value={config.retrieval.retrieval_mode} onChange={(e) => setConfig((v) => ({ ...v, retrieval: { ...v.retrieval, retrieval_mode: e.target.value as any } }))}>
-            <option value="vector">vector</option><option value="hybrid">hybrid</option><option value="bm25">bm25</option>
-          </Form.Select>
-        </Form.Group>
-        <Form.Group>
-          <Form.Label className="small text-muted">max_tokens</Form.Label>
-          <Form.Control type="number" min={128} max={8000} value={config.context.max_tokens} onChange={(e) => setConfig((v) => ({ ...v, context: { ...v.context, max_tokens: Number(e.target.value) || 1800 } }))} />
-        </Form.Group>
+        <Form.Group><Form.Label className="small text-muted">top_k</Form.Label><Form.Control type="number" min={1} max={20} value={config.retrieval.top_k} onChange={(e) => setConfig((v) => ({ ...v, retrieval: { ...v.retrieval, top_k: Number(e.target.value) || 5 } }))} /></Form.Group>
+        <Form.Group><Form.Label className="small text-muted">rerank_top_n</Form.Label><Form.Control type="number" min={1} max={20} value={config.retrieval.rerank_top_n} onChange={(e) => setConfig((v) => ({ ...v, retrieval: { ...v.retrieval, rerank_top_n: Number(e.target.value) || 5 } }))} /></Form.Group>
+        <Form.Group><Form.Label className="small text-muted">retrieval_mode</Form.Label><Form.Select value={config.retrieval.retrieval_mode} onChange={(e) => setConfig((v) => ({ ...v, retrieval: { ...v.retrieval, retrieval_mode: e.target.value as any } }))}><option value="vector">vector</option><option value="hybrid">hybrid</option><option value="bm25">bm25</option></Form.Select></Form.Group>
+        <Form.Group><Form.Label className="small text-muted">max_tokens</Form.Label><Form.Control type="number" min={128} max={8000} value={config.context.max_tokens} onChange={(e) => setConfig((v) => ({ ...v, context: { ...v.context, max_tokens: Number(e.target.value) || 1800 } }))} /></Form.Group>
+        <Form.Group><Form.Label className="small text-muted">sample_ids (逗号分隔)</Form.Label><Form.Control value={sampleIdsInput} onChange={(e) => setSampleIdsInput(e.target.value)} placeholder="12,13,14" /></Form.Group>
       </div>
 
       <div className="grid grid-cols-4 gap-3">
@@ -227,52 +184,28 @@ export function RagBatchEvalPanel({ projectId, onLog, datasets }: Props) {
 
       <div className="grid grid-cols-3 gap-3">
         <Form.Group><Form.Label className="small text-muted">sample_range</Form.Label><Form.Control value={config.run_control.sample_range} onChange={(e) => setConfig((v) => ({ ...v, run_control: { ...v.run_control, sample_range: e.target.value || 'all' } }))} placeholder="all 或 1-100" /></Form.Group>
-        <Form.Group><Form.Label className="small text-muted">sample_ids（逗号分隔）</Form.Label><Form.Control value={sampleIdsInput} onChange={(e) => setSampleIdsInput(e.target.value)} placeholder="12,13,14" /></Form.Group>
         <Form.Group><Form.Label className="small text-muted">judge_mode</Form.Label><Form.Select value={config.judge.answer_eval_mode} onChange={(e) => setConfig((v) => ({ ...v, judge: { ...v.judge, answer_eval_mode: e.target.value as any, faithfulness_eval_mode: e.target.value as any } }))}><option value="rule">rule</option><option value="llm">llm</option><option value="hybrid">hybrid</option></Form.Select></Form.Group>
       </div>
 
       <div className="d-flex gap-2 align-items-center">
-        <Button variant="primary" disabled={busy || runActive} onClick={() => void startRun()}>
-          {busy ? <><Spinner animation="border" size="sm" className="me-2" />处理中...</> : '开始批量评测'}
-        </Button>
+        <Button variant="primary" disabled={busy || runActive} onClick={() => void startRun()}>{busy ? <><Spinner animation="border" size="sm" className="me-2" />处理中...</> : '开始批量评测'}</Button>
         <Button variant="outline-danger" disabled={busy || !runId || !runActive} onClick={() => void stopRun()}>停止评测</Button>
         <Button variant="outline-secondary" disabled={busy || !runId || runActive} onClick={() => void resumeRun()}>断点续跑</Button>
         {runId ? <Badge bg="secondary">run_id={runId}</Badge> : null}
       </div>
 
-      {runStatus ? (
-        <>
-          <ProgressBar now={progressPct} label={`${progressPct.toFixed(1)}%`} />
-          <div className="grid grid-cols-5 gap-3 small">
-            <div className="p-2 bg-light rounded"><span className="text-muted d-block">状态</span>{activeRunStatus || '-'}</div>
-            <div className="p-2 bg-light rounded"><span className="text-muted d-block">样本进度</span>{runStatus?.progress?.finished_samples || 0}/{runStatus?.progress?.total_samples || 0}</div>
-            <div className="p-2 bg-light rounded"><span className="text-muted d-block">Recall@5</span>{Number(overview['recall@5'] || 0).toFixed(4)}</div>
-            <div className="p-2 bg-light rounded"><span className="text-muted d-block">MRR</span>{Number(overview?.mrr || 0).toFixed(4)}</div>
-            <div className="p-2 bg-light rounded"><span className="text-muted d-block">Pass Rate</span>{Number(overview?.pass_rate || 0).toFixed(4)}</div>
-          </div>
-        </>
-      ) : null}
+      {runStatus ? (<><ProgressBar now={progressPct} label={`${progressPct.toFixed(1)}%`} /><div className="grid grid-cols-5 gap-3 small"><div className="p-2 bg-light rounded"><span className="text-muted d-block">状态</span>{activeRunStatus || '-'}</div><div className="p-2 bg-light rounded"><span className="text-muted d-block">样本进度</span>{runStatus?.progress?.finished_samples || 0}/{runStatus?.progress?.total_samples || 0}</div><div className="p-2 bg-light rounded"><span className="text-muted d-block">Recall@5</span>{Number(overview['recall@5'] || 0).toFixed(4)}</div><div className="p-2 bg-light rounded"><span className="text-muted d-block">MRR</span>{Number(overview?.mrr || 0).toFixed(4)}</div><div className="p-2 bg-light rounded"><span className="text-muted d-block">Pass Rate</span>{Number(overview?.pass_rate || 0).toFixed(4)}</div></div></>) : null}
 
       <div className="table-responsive">
         <Table striped bordered hover size="sm" className="mb-0">
-          <thead>
-            <tr>
-              <th>sample_id</th><th>query</th><th>first_hit_rank</th><th>RecallHit</th><th>Correct</th><th>Faithful</th><th>failure_reason</th><th>latency_ms</th><th>操作</th>
-            </tr>
-          </thead>
+          <thead><tr><th>sample_id</th><th>query</th><th>first_hit_rank</th><th>RecallHit</th><th>Correct</th><th>Faithful</th><th>failure_reason</th><th>latency_ms</th><th>操作</th></tr></thead>
           <tbody>
-            {sampleRows.length === 0 ? (
-              <tr><td colSpan={9} className="text-center text-muted">暂无样本结果</td></tr>
-            ) : sampleRows.map((row) => (
+            {sampleRows.length === 0 ? (<tr><td colSpan={9} className="text-center text-muted">暂无样本结果</td></tr>) : sampleRows.map((row) => (
               <tr key={row.id}>
                 <td>{row.sample_id}</td>
                 <td style={{ maxWidth: 280 }}>{String(row.sample_query || '').slice(0, 100)}</td>
-                <td>{row.first_hit_rank ?? '-'}</td>
-                <td>{row.recall_hit ? 'Y' : 'N'}</td>
-                <td>{row.answer_correct ? 'Y' : 'N'}</td>
-                <td>{Number(row.faithfulness_score ?? 0).toFixed(3)}</td>
-                <td>{row.failure_reason || 'pass'}</td>
-                <td>{Number(row.latency_ms || 0).toFixed(1)}</td>
+                <td>{row.first_hit_rank ?? '-'}</td><td>{row.recall_hit ? 'Y' : 'N'}</td><td>{row.answer_correct ? 'Y' : 'N'}</td>
+                <td>{Number(row.faithfulness_score ?? 0).toFixed(3)}</td><td>{row.failure_reason || 'pass'}</td><td>{Number(row.latency_ms || 0).toFixed(1)}</td>
                 <td className="d-flex gap-2">
                   <Button size="sm" variant="outline-secondary" onClick={() => openDetail(row, 'retrieved')}>召回</Button>
                   <Button size="sm" variant="outline-secondary" onClick={() => openDetail(row, 'reranked')}>重排</Button>
@@ -289,12 +222,24 @@ export function RagBatchEvalPanel({ projectId, onLog, datasets }: Props) {
       </div>
 
       <div className="d-flex gap-2">
-        <Button size="sm" variant="outline-secondary" disabled={!runId || samplePage <= 1} onClick={() => { setSamplePage((p) => p - 1); }}>上一页</Button>
-        <Button size="sm" variant="outline-secondary" disabled={!runId || samplePage * 20 >= sampleTotal} onClick={() => { setSamplePage((p) => p + 1); }}>下一页</Button>
+        <Button size="sm" variant="outline-secondary" disabled={!runId || samplePage <= 1} onClick={() => setSamplePage((p) => p - 1)}>上一页</Button>
+        <Button size="sm" variant="outline-secondary" disabled={!runId || samplePage * 20 >= sampleTotal} onClick={() => setSamplePage((p) => p + 1)}>下一页</Button>
         <span className="small text-muted align-self-center">共 {sampleTotal} 条</span>
       </div>
 
-      <Modal show={Boolean(detailModal)} onHide={() => setDetailModal(null)} size="lg"><Modal.Header closeButton><Modal.Title>{detailModal?.title}</Modal.Title></Modal.Header><Modal.Body><Form.Control as="textarea" rows={18} readOnly value={detailModal?.content || ''} /></Modal.Body></Modal>
+      <div className="d-flex flex-column gap-2">
+        <div className="fw-bold">评测运行对比</div>
+        <RagRunComparePanel onLog={onLog} currentRunId={runId} />
+      </div>
+
+      <div className="d-flex flex-column gap-2">
+        <RagCandidatePanel onLog={onLog} currentRunId={runId} />
+      </div>
+
+      <Modal show={Boolean(detailModal)} onHide={() => setDetailModal(null)} size="lg">
+        <Modal.Header closeButton><Modal.Title>{detailModal?.title}</Modal.Title></Modal.Header>
+        <Modal.Body><Form.Control as="textarea" rows={18} readOnly value={detailModal?.content || ''} /></Modal.Body>
+      </Modal>
     </div>
   );
 }

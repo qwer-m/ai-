@@ -19,6 +19,7 @@ def list_run_sample_results(
     tag: str | None = None,
     failure_reason: str | None = None,
     answer_correct: bool | None = None,
+    sample_ids: list[int] | None = None,
 ) -> tuple[list[RagEvalSampleResult], int]:
     """分页查询样本结果。"""
     q = db.query(RagEvalSampleResult).filter(RagEvalSampleResult.run_id == run_id)
@@ -29,6 +30,8 @@ def list_run_sample_results(
         q = q.filter(RagEvalSampleResult.failure_reason == failure_reason)
     if answer_correct is not None:
         q = q.filter(RagEvalSampleResult.answer_correct.is_(bool(answer_correct)))
+    if sample_ids:
+        q = q.filter(RagEvalSampleResult.sample_id.in_(sample_ids))
     total = q.count()
     items = (
         q.order_by(RagEvalSampleResult.id.asc())
