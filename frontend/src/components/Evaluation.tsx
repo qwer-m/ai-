@@ -1,6 +1,7 @@
 ﻿import { Toast, ToastContainer } from 'react-bootstrap';
 import { AutomationEvaluationPanels } from './evaluation/AutomationEvaluationPanels';
 import { EvaluationOverviewPanel } from './evaluation/EvaluationOverviewPanel';
+import { RagValidationPanel } from './evaluation/RagValidationPanel';
 import { TestCaseCoveragePanel } from './evaluation/TestCaseCoveragePanel';
 import type { EvaluationProps } from './evaluation/types';
 import { useEvaluationActions } from './evaluation/useEvaluationActions';
@@ -55,6 +56,7 @@ export function Evaluation({
   const showTestcase = view === 'testcase';
   const showUi = view === 'ui';
   const showApi = view === 'api';
+  const showRag = view === 'rag';
 
   return (
     <div className="bento-grid h-100 align-content-start">
@@ -90,6 +92,13 @@ export function Evaluation({
           handleSupplementPaste={actions.handleSupplementPaste}
           handleSupplementFilesChange={actions.handleSupplementFilesChange}
           onSaveKnowledge={actions.handleSaveKnowledge}
+        />
+      ) : null}
+
+      {showRag ? (
+        <RagValidationPanel
+          projectId={projectId}
+          onLog={onLog}
         />
       ) : null}
 

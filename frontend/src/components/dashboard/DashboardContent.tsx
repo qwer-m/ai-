@@ -258,6 +258,16 @@ export function DashboardContent({
               view="api"
             />
           ) : null}
+
+          {activeTab === 'eval-rag' ? (
+            <Evaluation
+              {...commonEvaluationProps}
+              onLog={(msg) => {
+                void onUserLog(msg);
+              }}
+              view="rag"
+            />
+          ) : null}
         </div>
       </Container>
     </div>

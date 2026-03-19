@@ -139,3 +139,105 @@ export async function fetchProjectLogs(projectId: number) {
 export async function saveKnowledgeRequest(formData: FormData) {
   return api.upload<any>('/api/evaluation/save-knowledge', formData);
 }
+
+export async function retrieveRagContextDebugRequest(payload: {
+  project_id: number;
+  query: string;
+  limit?: number;
+  max_tokens?: number;
+}) {
+  return api.post<any>('/api/knowledge/retrieve-context', {
+    ...payload,
+    // 中文注释：RAG 校验页固定开启 debug，便于观察召回/重排/压缩链路细节。
+    debug: true,
+  });
+}
+
+export async function ragSingleDebugRequest(payload: {
+  project_id: number;
+  query: string;
+  limit?: number;
+  max_tokens?: number;
+  llm_model?: string;
+}) {
+  return api.post<any>('/api/rag/eval/debug/single', payload);
+}
+
+export async function listRagDatasets() {
+  return api.get<any[]>('/api/rag/datasets');
+}
+
+export async function createRagDataset(payload: { name: string; type: string; description?: string }) {
+  return api.post<any>('/api/rag/datasets', payload);
+}
+
+export async function updateRagDataset(datasetId: number, payload: { name?: string; type?: string; description?: string }) {
+  return api.put<any>(`/api/rag/datasets/${datasetId}`, payload);
+}
+
+export async function deleteRagDataset(datasetId: number) {
+  return api.delete<any>(`/api/rag/datasets/${datasetId}`);
+}
+
+export async function listRagDatasetSamples(
+  datasetId: number,
+  params?: { tags?: string[]; difficulty?: string; enabled_only?: boolean; page?: number; page_size?: number },
+) {
+  const q = new URLSearchParams();
+  if (params?.tags?.length) q.set('tags', params.tags.join(','));
+  if (params?.difficulty) q.set('difficulty', params.difficulty);
+  if (typeof params?.enabled_only === 'boolean') q.set('enabled_only', String(params.enabled_only));
+  if (params?.page) q.set('page', String(params.page));
+  if (params?.page_size) q.set('page_size', String(params.page_size));
+  const suffix = q.toString() ? `?${q.toString()}` : '';
+  return api.get<any[]>(`/api/rag/datasets/${datasetId}/samples${suffix}`);
+}
+
+export async function startRagEvalRun(projectId: number, payload: { dataset_id: number; config: any; run_name?: string }) {
+  return api.post<any>(`/api/rag/eval/run?project_id=${projectId}`, payload);
+}
+
+export async function stopRagEvalRun(runId: number) {
+  return api.post<any>(`/api/rag/eval/run/${runId}/stop`, {});
+}
+
+export async function resumeRagEvalRun(runId: number) {
+  return api.post<any>(`/api/rag/eval/run/${runId}/resume`, {});
+}
+
+export async function getRagEvalRun(runId: number) {
+  return api.get<any>(`/api/rag/eval/run/${runId}`);
+}
+
+export async function getRagEvalRunSamples(
+  runId: number,
+  params?: { page?: number; page_size?: number; tag?: string; failure_reason?: string; answer_correct?: boolean },
+) {
+  const q = new URLSearchParams();
+  if (params?.page) q.set('page', String(params.page));
+  if (params?.page_size) q.set('page_size', String(params.page_size));
+  if (params?.tag) q.set('tag', params.tag);
+  if (params?.failure_reason) q.set('failure_reason', params.failure_reason);
+  if (typeof params?.answer_correct === 'boolean') q.set('answer_correct', String(params.answer_correct));
+  const suffix = q.toString() ? `?${q.toString()}` : '';
+  return api.get<any>(`/api/rag/eval/run/${runId}/samples${suffix}`);
+}
+
+export async function promoteRagSample(sampleId: number, targetDatasetType: 'challenge' | 'regression') {
+  return api.post<any>(`/api/rag/eval/sample/${sampleId}/promote`, {
+    target_dataset_type: targetDatasetType,
+  });
+}
+
+export async function importRagDataset(formData: FormData) {
+  return api.upload<any>('/api/rag/datasets/import', formData);
+}
+
+export async function exportRagDataset(datasetId: number) {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`/api/rag/datasets/export/${datasetId}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`导出失败: ${res.status}`);
+  return res.blob();
+}

@@ -1,6 +1,6 @@
 ﻿import type { ChangeEvent, ClipboardEvent } from 'react';
 
-export type EvaluationView = 'root' | 'testcase' | 'ui' | 'api';
+export type EvaluationView = 'root' | 'testcase' | 'ui' | 'api' | 'rag';
 
 export type EvaluationProps = {
   projectId: number | null;

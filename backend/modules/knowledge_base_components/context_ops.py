@@ -231,6 +231,7 @@ def get_relevant_context_impl(
                 "lane_topk": recall_result.get("debug", {}).get("lane_topk") or {},
                 "merged_count": int(recall_result.get("debug", {}).get("merged_count") or 0),
                 "deduped_count": int(recall_result.get("debug", {}).get("deduped_count") or 0),
+                "dedup_chunks": build_final_chunk_debug(recall_result.get("chunks") or []),
                 "reranked_count": len(reranked_chunks),
                 "compressed_count": len(selected_chunks),
                 "max_tokens": int(max_tokens),

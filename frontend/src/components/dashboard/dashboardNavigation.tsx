@@ -12,6 +12,7 @@
   FaPlay,
   FaRedo,
   FaRobot,
+  FaSearch,
 } from 'react-icons/fa';
 import type { DashboardNavItem } from './types';
 
@@ -53,6 +54,7 @@ export const dashboardNavItems: DashboardNavItem[] = [
       { key: 'eval-testcase', label: '测试用例质量评估', icon: <FaClipboardCheck /> },
       { key: 'eval-ui', label: '界面自动化评估', icon: <FaRobot /> },
       { key: 'eval-api', label: '接口测试评估', icon: <FaNetworkWired /> },
+      { key: 'eval-rag', label: 'RAG校验', icon: <FaSearch /> },
     ],
   },
   { key: 'kb', label: '知识库管理', icon: <FaDatabase /> },
