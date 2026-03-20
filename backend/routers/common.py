@@ -15,6 +15,7 @@ from core.auth import get_current_user
 from core.database import get_db
 from core.models import KnowledgeDocument, Project, User
 from modules.knowledge_base import knowledge_base
+from modules.knowledge_base_components.index_audit import run_index_consistency_audit
 from schemas.common import ErrorTranslateRequest
 
 router = APIRouter(tags=["Common"])
@@ -371,6 +372,61 @@ def get_knowledge_parse_status(
         "retry_count": doc.retry_count,
         "task_state": task_state,
     }
+
+
+@router.post("/knowledge/index-consistency/audit")
+def trigger_index_consistency_audit(
+    project_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    手动触发知识库索引一致性巡检任务。
+
+    说明：
+    - 传 project_id：仅巡检当前项目；
+    - 不传：巡检当前用户可见范围（异步任务由 user_id 过滤）。
+    """
+    if project_id is not None:
+        project = _get_owned_project(project_id, current_user.id, db)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+    from modules.tasks import audit_knowledge_index_consistency_task
+
+    task = audit_knowledge_index_consistency_task.delay(
+        project_id=project_id,
+        user_id=current_user.id,
+        limit=5000,
+    )
+    return {
+        "success": True,
+        "task_id": task.id,
+        "project_id": project_id,
+        "message": "Index consistency audit task queued",
+    }
+
+
+@router.get("/knowledge/index-consistency/report")
+def get_index_consistency_report(
+    project_id: Optional[int] = None,
+    limit: int = 5000,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    同步获取索引一致性巡检报告（轻量排障入口）。
+    """
+    if project_id is not None:
+        project = _get_owned_project(project_id, current_user.id, db)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+    return run_index_consistency_audit(
+        db=db,
+        project_id=project_id,
+        user_id=current_user.id,
+        limit=max(100, int(limit)),
+    )
 
 
 @router.get("/knowledge/projects/{project_id}/context-snapshot-status")

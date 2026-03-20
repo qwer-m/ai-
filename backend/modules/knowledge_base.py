@@ -333,6 +333,7 @@ class KnowledgeBaseModule:
         user_id: Optional[int] = None,
         debug: bool = False,
         max_tokens: int = 1800,
+        retrieval_options: Optional[dict] = None,
     ) -> str | dict:
         """
         语义召回门面（兼容旧接口）。
@@ -349,6 +350,7 @@ class KnowledgeBaseModule:
             user_id,
             debug=debug,
             max_tokens=max_tokens,
+            retrieval_options=retrieval_options,
         )
 
     def get_all_context(

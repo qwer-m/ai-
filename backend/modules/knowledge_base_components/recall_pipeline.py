@@ -10,9 +10,16 @@
 from __future__ import annotations
 
 from typing import Any
+from typing import Optional
+
+from sqlalchemy.orm import Session
 
 from core.chroma_client import chroma_client
 from modules.knowledge_base_components.query_rewriter import rewrite_query
+from modules.knowledge_base_components.retrieval_hybrid import (
+    apply_hybrid_scores,
+    build_keyword_candidates,
+)
 
 
 def _normalize_chunk_key(text: str) -> str:
@@ -59,15 +66,24 @@ def _extract_chunks_from_result(
     documents = (result or {}).get("documents") or []
     metadatas = (result or {}).get("metadatas") or []
     distances = (result or {}).get("distances") or []
+    ids = (result or {}).get("ids") or []
 
     docs = documents[0] if documents else []
     metas = metadatas[0] if metadatas else []
     dists = distances[0] if distances else []
+    chunk_ids = ids[0] if ids else []
 
     chunks: list[dict] = []
     for idx, text in enumerate(docs):
         metadata = metas[idx] if idx < len(metas) and isinstance(metas[idx], dict) else {}
         distance = dists[idx] if idx < len(dists) else None
+        # 中文注释：优先使用 Chroma 返回的原始向量主键，便于前端 Gold 命中比对。
+        chunk_id = str(chunk_ids[idx] or "").strip() if idx < len(chunk_ids) else ""
+        # 中文注释：历史数据可能缺 ids，这里做兜底，确保字段始终可用。
+        if not chunk_id:
+            chunk_id = str(metadata.get("chunk_id") or "").strip()
+        if not chunk_id:
+            chunk_id = f"{metadata.get('doc_id') or 'unknown'}::{idx}"
         detected_source = "summary" if bool(metadata.get("is_summary")) else "raw"
 
         # raw/summary 分路召回后，再次兜底过滤，避免 lane 串线。
@@ -79,6 +95,7 @@ def _extract_chunks_from_result(
         chunks.append(
             {
                 "chunk_text": str(text or "").strip(),
+                "chunk_id": chunk_id,
                 "chunk_source": detected_source,
                 "query_source": query_source,
                 "query": query,
@@ -281,6 +298,12 @@ def recall_chunks(
     project_id: int,
     top_k: int = 6,
     rewrite_count: int = 1,
+    db: Optional[Session] = None,
+    retrieval_mode: str = "hybrid",
+    enable_query_rewrite: bool = True,
+    vector_weight: float = 0.6,
+    keyword_weight: float = 0.25,
+    title_weight: float = 0.15,
 ) -> dict:
     """
     执行检索治理层的多路召回。
@@ -289,7 +312,15 @@ def recall_chunks(
     - chunks: 合并去重后的 chunk 列表
     - debug: 召回侧可观测信息
     """
-    all_queries = rewrite_query(question, max_queries=max(1, int(rewrite_count) + 1))
+    mode = str(retrieval_mode or "hybrid").strip().lower()
+    if mode not in {"vector", "keyword", "hybrid", "bm25"}:
+        mode = "hybrid"
+
+    # 中文注释：支持关闭 query rewrite，用于单条调优时观察“原始问法”检索质量。
+    if enable_query_rewrite:
+        all_queries = rewrite_query(question, max_queries=max(1, int(rewrite_count) + 1))
+    else:
+        all_queries = [str(question or "").strip()]
     if not all_queries:
         return {
             "chunks": [],
@@ -336,18 +367,21 @@ def recall_chunks(
         "original_summary": 0,
         "rewrite_raw": 0,
         "rewrite_summary": 0,
+        "keyword_docs": 0,
     }
     lane_topk: dict[str, int] = {
         "original_raw": base_top_k * 2,
         "original_summary": base_top_k,
         "rewrite_raw": base_top_k,
         "rewrite_summary": max(1, base_top_k // 2),
+        "keyword_docs": max(4, base_top_k * 2),
     }
     lane_reason_sets: dict[str, set[str]] = {
         "original_raw": set(),
         "original_summary": set(),
         "rewrite_raw": set(),
         "rewrite_summary": set(),
+        "keyword_docs": set(),
     }
 
     # 没有 rewrite 查询时，显式标记为 disabled，便于调试区分“未执行”和“执行无结果”。
@@ -372,8 +406,32 @@ def recall_chunks(
         lane_reason_sets[lane_key].add(lane_reason)
         merged_chunks.extend(lane_chunks)
 
+    # 中文注释：keyword/bm25/hybrid 模式下补充关键词候选，降低“单篇泛化文档霸榜”。
+    if mode in {"keyword", "hybrid", "bm25"}:
+        keyword_candidates = build_keyword_candidates(
+            query=original_query,
+            project_id=project_id,
+            db=db,
+            query_source="original",
+            top_docs=max(4, base_top_k * 2),
+            per_doc_chunks=2,
+        )
+        lane_counts["keyword_docs"] = len(keyword_candidates)
+        lane_reason_sets["keyword_docs"].add("ok" if keyword_candidates else "no_hit")
+        merged_chunks.extend(keyword_candidates)
+    else:
+        lane_reason_sets["keyword_docs"].add("disabled")
+
     # 在全量 merged 结果上做一次统一归一化，避免不同 lane 的 score 不可比。
     _apply_min_max_scores(merged_chunks)
+    apply_hybrid_scores(
+        chunks=merged_chunks,
+        query=original_query,
+        retrieval_mode=mode,
+        vector_weight=vector_weight,
+        keyword_weight=keyword_weight,
+        title_weight=title_weight,
+    )
 
     deduped_chunks = _dedupe_chunks_exact(merged_chunks)
     deduped_chunks = _dedupe_chunks_by_containment(deduped_chunks)
@@ -397,5 +455,11 @@ def recall_chunks(
             "lane_topk": lane_topk,
             "merged_count": len(merged_chunks),
             "deduped_count": len(deduped_chunks),
+            "retrieval_mode": mode,
+            "fusion_weights": {
+                "vector_weight": float(vector_weight),
+                "keyword_weight": float(keyword_weight),
+                "title_weight": float(title_weight),
+            },
         },
     }

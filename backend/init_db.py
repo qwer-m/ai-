@@ -153,11 +153,14 @@ def init_db():
                 snapshot_columns = [
                     ("user_id", "INT NULL"),
                     ("snapshot_text", "LONGTEXT NULL"),
+                    ("snapshot_version", "INT NOT NULL DEFAULT 0"),
+                    ("snapshot_fingerprint", "VARCHAR(64) NULL"),
                     ("corpus_hash", "VARCHAR(64) NULL"),
                     ("source_doc_count", "INT NOT NULL DEFAULT 0"),
                     ("source_fingerprints", "LONGTEXT NULL"),
                     ("build_status", "VARCHAR(20) NOT NULL DEFAULT 'pending'"),
                     ("build_error", "TEXT NULL"),
+                    ("last_build_latency_ms", "FLOAT NULL"),
                     ("rebuild_reason", "VARCHAR(30) NULL"),
                     ("incremental_merge_count", "INT NOT NULL DEFAULT 0"),
                     ("last_built_at", "DATETIME NULL"),
@@ -181,6 +184,7 @@ def init_db():
                 snapshot_indexes = [
                     ("idx_project_context_snapshots_corpus_hash", "corpus_hash"),
                     ("idx_project_context_snapshots_build_status", "build_status"),
+                    ("idx_project_context_snapshots_fingerprint", "snapshot_fingerprint"),
                 ]
                 for idx_name, idx_col in snapshot_indexes:
                     check_snapshot_idx = text(

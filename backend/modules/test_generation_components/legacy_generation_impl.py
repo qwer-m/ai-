@@ -16,6 +16,7 @@
 
 from typing import Any
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+import uuid
 
 from core.ai_client import get_client_for_user
 from core.database import SessionLocal
@@ -50,6 +51,13 @@ from modules.test_generation_components.hybrid_guard import (
     parse_snapshot_queue_info,
 )
 from modules.test_generation_components.snapshot_wait_gate import wait_snapshot_ready_gate
+from modules.stage25_switches import STAGE25_SWITCHES
+from modules.test_generation_components.generation_diagnostics import (
+    build_context_source_log,
+    build_coverage_diagnostics,
+    build_final_context_trace,
+    build_gate_reason_chain,
+)
 
 
 def clean_and_parse_json(response_text: str) -> Any:
@@ -98,6 +106,10 @@ class TestGenerationModule:
     """
     def __init__(self):
         pass
+
+    def _is_active_db_session(self, db: Session | None) -> bool:
+        """仅对真实 SQLAlchemy Session 执行 DB 读写或门禁逻辑。"""
+        return isinstance(db, Session)
 
     def estimate_test_count(self, requirement: str, project_id: int, db: Session, user_id: int = None) -> int:
         """
@@ -324,6 +336,100 @@ class TestGenerationModule:
             )
         return gate_result
 
+    def _append_reason_chain(self, reason_chain: list[str], reason: str) -> None:
+        """统一维护 reason_chain（去空、去重、保持顺序）。"""
+        if not STAGE25_SWITCHES.guard_reason_chain_enabled:
+            return
+        item = str(reason or "").strip()
+        if not item:
+            return
+        if reason_chain and reason_chain[-1] == item:
+            return
+        reason_chain.append(item)
+
+    def _emit_context_source_log(
+        self,
+        *,
+        db: Session | None,
+        project_id: int,
+        user_id: int | None,
+        context_result: dict[str, Any] | None,
+        gate_debug: dict[str, Any] | None,
+        doc_type: str,
+        compress: bool,
+        requirement_length: int,
+    ) -> None:
+        """输出最终生成上下文来源日志（阶段2.5证据化）。"""
+        if (not self._is_active_db_session(db)) or (not STAGE25_SWITCHES.final_context_source_log_enabled):
+            return
+        try:
+            payload = build_context_source_log(
+                context_result=context_result,
+                gate_debug=gate_debug,
+                doc_type=doc_type,
+                compress=compress,
+                requirement_length=requirement_length,
+            )
+            db.add(
+                LogEntry(
+                    project_id=project_id,
+                    user_id=user_id,
+                    log_type="system",
+                    message=f"GEN_CONTEXT_SOURCE:{json.dumps(payload, ensure_ascii=False)}",
+                )
+            )
+            db.commit()
+        except Exception as e:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            print(f"Failed to emit context source log: {e}")
+
+    def _emit_final_context_trace(
+        self,
+        *,
+        db: Session | None,
+        project_id: int,
+        user_id: int | None,
+        request_id: str,
+        context_result: dict[str, Any] | None,
+        gate_debug: dict[str, Any] | None,
+        fallback_reason: str = "",
+        abort_code: str = "",
+        compressed_chars: int = 0,
+    ) -> None:
+        """
+        正式模型调用前输出最终上下文来源证据链。
+        """
+        if not self._is_active_db_session(db):
+            return
+        try:
+            payload = build_final_context_trace(
+                project_id=project_id,
+                request_id=request_id,
+                context_result=context_result,
+                gate_debug=gate_debug,
+                fallback_reason=fallback_reason,
+                abort_code=abort_code,
+                compressed_chars=compressed_chars,
+            )
+            db.add(
+                LogEntry(
+                    project_id=project_id,
+                    user_id=user_id,
+                    log_type="system",
+                    message=f"GEN_DIAG:{json.dumps(payload, ensure_ascii=False)}",
+                )
+            )
+            db.commit()
+        except Exception as e:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            print(f"Failed to emit final context trace: {e}")
+
     def _resolve_kb_context_with_hybrid(
         self,
         requirement: str,
@@ -336,7 +442,10 @@ class TestGenerationModule:
     ) -> dict:
         """统一编排 snapshot + RAG 融合上下文，并处理空上下文兜底。"""
         query_text = requirement[:1000] if requirement else ""
+        reason_chain: list[str] = []
+        self._append_reason_chain(reason_chain, "entry:resolve_hybrid_context")
         if not db:
+            self._append_reason_chain(reason_chain, "guard:db_unavailable")
             return {
                 "kb_context": "",
                 "context_source": "none",
@@ -363,6 +472,7 @@ class TestGenerationModule:
                     "sync_snapshot_retry_success": False,
                     "sync_snapshot_retry_error": "",
                     "final_decision": "proceed_with_generation",
+                    "reason_chain": reason_chain,
                 },
             }
 
@@ -387,9 +497,15 @@ class TestGenerationModule:
         snapshot_usable = bool(snapshot_result.get("usable_for_generation", False))
         snapshot_needs_rebuild = bool(snapshot_result.get("needs_rebuild", False))
         snapshot_readiness_reason = str(snapshot_result.get("readiness_reason") or "")
+        self._append_reason_chain(reason_chain, f"snapshot_status:{snapshot_status}")
+        if snapshot_readiness_reason:
+            self._append_reason_chain(reason_chain, f"snapshot_readiness_reason:{snapshot_readiness_reason}")
+        if queue_reason:
+            self._append_reason_chain(reason_chain, f"snapshot_queue_reason:{queue_reason}")
 
         if snapshot_result.get("success") and (snapshot_result.get("snapshot_text") or "").strip():
             snapshot_text = snapshot_result.get("snapshot_text") or ""
+            self._append_reason_chain(reason_chain, "snapshot:reuse_or_rebuild_success")
             if status_messages is not None:
                 if snapshot_result.get("cache_hit") and snapshot_usable:
                     status_messages.append(
@@ -403,6 +519,7 @@ class TestGenerationModule:
         fallback_reason = ""
         if not snapshot_text:
             fallback_reason = snapshot_result.get("fallback_reason") or "snapshot_unavailable"
+            self._append_reason_chain(reason_chain, f"snapshot_fallback:{fallback_reason}")
             queue_result = snapshot_result.get("queue_result") or {}
             if status_messages is not None:
                 if queue_result.get("queued"):
@@ -444,6 +561,10 @@ class TestGenerationModule:
             snapshot_length=snapshot_tokens,
             precision_mode=bool(precision_mode),
         )
+        if use_rag:
+            self._append_reason_chain(reason_chain, f"rag_enabled:{','.join(precision_reasons)}")
+        else:
+            self._append_reason_chain(reason_chain, "rag_disabled:no_precision_trigger")
         if status_messages is not None:
             if use_rag:
                 status_messages.append(f"已启用精度增强检索（原因：{','.join(precision_reasons)}）。")
@@ -463,8 +584,10 @@ class TestGenerationModule:
                     debug=True,
                     max_tokens=HYBRID_CONFIG.rag_max_tokens,
                 )
+                self._append_reason_chain(reason_chain, "rag_retrieval:completed")
             except Exception as e:
                 rag_error = f"rag_exception:{e}"
+                self._append_reason_chain(reason_chain, rag_error)
                 if status_messages is not None:
                     status_messages.append(f"RAG 精度检索失败（{e}），将仅使用 snapshot。")
 
@@ -496,6 +619,10 @@ class TestGenerationModule:
                 "snapshot_ready": snapshot_ready,
                 "snapshot_usable_for_generation": snapshot_usable,
                 "snapshot_readiness_reason": snapshot_readiness_reason,
+                "snapshot_version": int(snapshot_result.get("snapshot_version") or 0),
+                "snapshot_fingerprint": str(snapshot_result.get("snapshot_fingerprint") or ""),
+                "snapshot_build_reason": snapshot_result.get("rebuild_reason"),
+                "snapshot_build_latency_ms": float(snapshot_result.get("build_latency_ms") or 0.0),
                 "needs_rebuild": snapshot_needs_rebuild,
                 "snapshot_queue_status": queue_status,
                 "snapshot_queue_reason": queue_reason,
@@ -504,6 +631,13 @@ class TestGenerationModule:
                 "sync_snapshot_retry_success": False,
                 "sync_snapshot_retry_error": "",
                 "final_decision": "proceed_with_generation",
+                "retrieval_profile": ((rag_result or {}).get("debug", {}) or {}).get("retrieval_profile", {})
+                if isinstance(rag_result, dict)
+                else {},
+                "reason_chain": reason_chain,
+                "stage25_switches": STAGE25_SWITCHES.to_dict()
+                if STAGE25_SWITCHES.include_switches_in_debug
+                else {},
             }
         )
 
@@ -543,6 +677,7 @@ class TestGenerationModule:
                         fusion_debug["hybrid_empty_context"] = False
                         fusion_debug["hybrid_empty_reason"] = ""
                         fusion_debug["final_decision"] = "retry_snapshot_then_proceed"
+                        self._append_reason_chain(reason_chain, "guard_sync_retry:success")
                         fallback_reason = ""
                     else:
                         abort_generation = True
@@ -552,6 +687,10 @@ class TestGenerationModule:
                         fusion_debug["hybrid_empty_reason"] = str(
                             retry_empty.get("final_empty_reason") or "hybrid_empty_context_after_sync_retry"
                         )
+                        self._append_reason_chain(
+                            reason_chain,
+                            f"guard_sync_retry:failed_after_retry:{fusion_debug.get('hybrid_empty_reason')}",
+                        )
                         # 中文注释：补救已尝试但仍失败，最终降级为可解释错误返回。
                         fusion_debug["final_decision"] = "degraded_to_error"
                 else:
@@ -560,12 +699,14 @@ class TestGenerationModule:
                     abort_error = f"上下文为空：同步 snapshot 补救失败（{sync_err}）。"
                     fallback_reason = sync_err
                     fusion_debug["sync_snapshot_retry_error"] = sync_err
+                    self._append_reason_chain(reason_chain, f"guard_sync_retry:exception:{sync_err}")
                     # 中文注释：补救过程失败，最终降级为可解释错误返回。
                     fusion_debug["final_decision"] = "degraded_to_error"
             else:
                 abort_generation = True
                 abort_error = "上下文为空：snapshot 与 RAG 均不可用，已按 fail-fast 策略终止本次生成。"
                 fallback_reason = str(empty_info.get("final_empty_reason") or "hybrid_empty_context")
+                self._append_reason_chain(reason_chain, f"guard_fail_fast:{fallback_reason}")
                 fusion_debug["final_decision"] = "fail_fast"
         else:
             fusion_debug["final_decision"] = "proceed_with_generation"
@@ -591,6 +732,9 @@ class TestGenerationModule:
                 fallback_reason = str(fusion_debug.get("rag_error"))
             else:
                 fallback_reason = "hybrid_empty_context"
+        if fallback_reason:
+            self._append_reason_chain(reason_chain, f"fallback:{fallback_reason}")
+        self._append_reason_chain(reason_chain, f"final_decision:{fusion_debug.get('final_decision')}")
 
         return {
             "kb_context": kb_context,
@@ -601,6 +745,7 @@ class TestGenerationModule:
             "fallback_reason": fallback_reason,
             "abort_generation": abort_generation,
             "abort_error": abort_error,
+            "reason_chain": reason_chain,
         }
     def _resolve_kb_context_with_snapshot(
         self,
@@ -642,39 +787,95 @@ class TestGenerationModule:
         """
         # Get client for user
         client = get_client_for_user(user_id, db)
+        request_id = uuid.uuid4().hex
 
         # Retrieve context from Knowledge Base if DB is available
         original_requirement = requirement
         kb_context = ""
+        final_trace_emitted = False
+        gate_debug: dict[str, Any] = {}
+        context_result: dict[str, Any] | None = None
+        gate_debug: dict[str, Any] = {}
+        context_result: dict[str, Any] | None = None
         gate_result: dict[str, Any] | None = None
         gate_debug: dict[str, Any] = {}
+        context_result: dict[str, Any] | None = None
         if db:
             # 中文注释：生成前先执行 snapshot readiness gate，避免 stale 场景直接 rag_only。
-            gate_result = self._run_snapshot_readiness_gate(
+            gate_result = {
+                "proceed": True,
+                "gate_debug": {
+                    "snapshot_gate_enabled": False,
+                    "snapshot_wait_result": "skipped_non_session_db",
+                },
+            }
+            if self._is_active_db_session(db):
+                gate_result = self._run_snapshot_readiness_gate(
                 project_id=project_id,
                 user_id=user_id,
                 status_messages=None,
             )
             gate_debug = gate_result.get("gate_debug") or {}
             if not gate_result.get("proceed"):
+                gate_reason_chain = build_gate_reason_chain(gate_debug)
+                wait_result = str(gate_debug.get("snapshot_wait_result") or "").strip().lower()
+                if "timeout" in wait_result:
+                    gate_reason_chain.append("snapshot_gate_timeout")
+                gate_reason_chain.append("hybrid_context_not_built")
+                gate_reason_chain.append("generation_aborted_before_model_call")
                 print(
                     "snapshot gate abort(json): "
                     f"status_before={gate_debug.get('snapshot_status_before_generation')}, "
                     f"status_after={gate_debug.get('snapshot_status_after_wait')}, "
                     f"result={gate_debug.get('snapshot_wait_result')}"
                 )
-                return {
+                error_payload = {
                     "error": gate_result.get("error_code") or "SNAPSHOT_NOT_READY_TIMEOUT",
+                    "abort_code": gate_result.get("error_code") or "SNAPSHOT_NOT_READY_TIMEOUT",
                     "message": gate_result.get("error_message")
                     or "snapshot 未就绪，已按 fail-fast 终止本次生成。",
                     "fallback_reason": "snapshot_wait_gate_abort",
                     "context_source": "none",
+                    "reason_chain": gate_reason_chain,
                     "fusion_debug": {
                         **gate_debug,
                         "final_decision": "timeout_fail_fast",
                         "final_generation_context_mode": "none",
+                        "reason_chain": gate_reason_chain,
                     },
                 }
+                self._emit_context_source_log(
+                    db=db,
+                    project_id=project_id,
+                    user_id=user_id,
+                    context_result={
+                        "context_source": "none",
+                        "fusion_debug": error_payload.get("fusion_debug") or {},
+                        "snapshot_result": {},
+                        "rag_result": {},
+                    },
+                    gate_debug=gate_debug,
+                    doc_type=doc_type,
+                    compress=compress,
+                    requirement_length=len(requirement or ""),
+                )
+                self._emit_final_context_trace(
+                    db=db,
+                    project_id=project_id,
+                    user_id=user_id,
+                    request_id=request_id,
+                    context_result={
+                        "context_source": "none",
+                        "fusion_debug": error_payload.get("fusion_debug") or {},
+                        "snapshot_result": {},
+                        "rag_result": {},
+                    },
+                    gate_debug=gate_debug,
+                    fallback_reason="snapshot_wait_gate_abort",
+                    abort_code=error_payload.get("abort_code") or "",
+                    compressed_chars=0,
+                )
+                return error_payload
 
             context_result = self._resolve_kb_context_with_hybrid(
                 requirement=requirement,
@@ -688,6 +889,11 @@ class TestGenerationModule:
             if gate_debug:
                 # 中文注释：把 gate 调试字段合并进融合调试，方便统一观察。
                 fusion_debug.update(gate_debug)
+                reason_chain = list(fusion_debug.get("reason_chain") or [])
+                for reason in build_gate_reason_chain(gate_debug):
+                    if reason and (not reason_chain or reason_chain[-1] != reason):
+                        reason_chain.append(reason)
+                fusion_debug["reason_chain"] = reason_chain
                 if (
                     gate_debug.get("snapshot_wait_result") == "timeout_fallback_rag"
                     and fusion_debug.get("final_decision") == "proceed_with_generation"
@@ -700,6 +906,12 @@ class TestGenerationModule:
             if context_result.get("abort_generation"):
                 fusion_debug = context_result.get("fusion_debug") or {}
                 abort_error = context_result.get("abort_error") or "上下文为空，已按兜底策略终止生成。"
+                reason_chain = list(fusion_debug.get("reason_chain") or [])
+                if not reason_chain or reason_chain[-1] != "hybrid_context_not_built":
+                    reason_chain.append("hybrid_context_not_built")
+                if reason_chain[-1] != "generation_aborted_before_model_call":
+                    reason_chain.append("generation_aborted_before_model_call")
+                fusion_debug["reason_chain"] = reason_chain
                 print(
                     "Hybrid guard abort(json): "
                     f"snapshot_status={fusion_debug.get('snapshot_status')}, "
@@ -709,13 +921,37 @@ class TestGenerationModule:
                     f"lane_reasons={fusion_debug.get('lane_reasons')}, "
                     f"final_empty_reason={fusion_debug.get('hybrid_empty_reason')}"
                 )
-                return {
+                error_payload = {
                     "error": "HYBRID_EMPTY_CONTEXT_ABORT",
+                    "abort_code": "HYBRID_EMPTY_CONTEXT_ABORT",
                     "message": abort_error,
                     "fallback_reason": context_result.get("fallback_reason") or "",
                     "context_source": context_result.get("context_source") or "empty",
+                    "reason_chain": reason_chain,
                     "fusion_debug": fusion_debug,
                 }
+                self._emit_context_source_log(
+                    db=db,
+                    project_id=project_id,
+                    user_id=user_id,
+                    context_result=context_result,
+                    gate_debug=gate_debug,
+                    doc_type=doc_type,
+                    compress=compress,
+                    requirement_length=len(requirement or ""),
+                )
+                self._emit_final_context_trace(
+                    db=db,
+                    project_id=project_id,
+                    user_id=user_id,
+                    request_id=request_id,
+                    context_result=context_result,
+                    gate_debug=gate_debug,
+                    fallback_reason=context_result.get("fallback_reason") or "",
+                    abort_code="HYBRID_EMPTY_CONTEXT_ABORT",
+                    compressed_chars=len(kb_context or ""),
+                )
+                return error_payload
 
             if compress:
                 # 需求文本压缩与知识快照是两条并行优化链路，任何一条失败都不阻断生成。
@@ -874,6 +1110,17 @@ class TestGenerationModule:
         
         Return ONLY the JSON list.
         """
+        self._emit_final_context_trace(
+            db=db,
+            project_id=project_id,
+            user_id=user_id,
+            request_id=request_id,
+            context_result=context_result,
+            gate_debug=gate_debug,
+            fallback_reason=(context_result or {}).get("fallback_reason") if isinstance(context_result, dict) else "",
+            abort_code="",
+            compressed_chars=len(kb_context or ""),
+        )
         response = client.generate_response(requirement, system_prompt, db=db)
         
         # ... rest of function using response ...
@@ -899,14 +1146,44 @@ class TestGenerationModule:
                      pass # Can't add to list easily, maybe wrap? keeping as is.
                 elif isinstance(result, dict):
                     result['db_id'] = db_entry.id
+
+                if isinstance(result, list) and STAGE25_SWITCHES.coverage_diagnostics_enabled:
+                    coverage_diag = build_coverage_diagnostics(
+                        requirement=requirement,
+                        generated_cases=[x for x in result if isinstance(x, dict)],
+                        kb_context=kb_context,
+                        fusion_debug=(context_result or {}).get("fusion_debug") or {},
+                        expected_count=int(expected_count or 0),
+                    )
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            user_id=user_id,
+                            log_type="system",
+                            message=f"GEN_COVERAGE_DIAG:{json.dumps(coverage_diag, ensure_ascii=False)}",
+                        )
+                    )
+                    db.commit()
             except Exception as e:
                 print(f"Failed to save to DB: {e}")
-                
+
+        self._emit_context_source_log(
+            db=db,
+            project_id=project_id,
+            user_id=user_id,
+            context_result=context_result,
+            gate_debug=gate_debug,
+            doc_type=doc_type,
+            compress=compress,
+            requirement_length=len(requirement or ""),
+        )
+                 
         return result
     
     def generate_test_cases_stream(self, requirement: str, project_id: int, db: Session = None, doc_type: str = "requirement", compress: bool = False, expected_count: int = 20, batch_size: int = 10, overwrite: bool = False, append: bool = False, user_id: int = None):
         # Get client for user
         client = get_client_for_user(user_id, db)
+        request_id = uuid.uuid4().hex
 
         # Retrieve context from Knowledge Base if DB is available
         original_requirement = requirement
@@ -943,13 +1220,27 @@ class TestGenerationModule:
         if db:
             status_messages: list[str] = []
             # 中文注释：流式链路同样走 snapshot readiness gate，保证两条入口行为一致。
-            gate_result = self._run_snapshot_readiness_gate(
+            gate_result = {
+                "proceed": True,
+                "gate_debug": {
+                    "snapshot_gate_enabled": False,
+                    "snapshot_wait_result": "skipped_non_session_db",
+                },
+            }
+            if self._is_active_db_session(db):
+                gate_result = self._run_snapshot_readiness_gate(
                 project_id=project_id,
                 user_id=user_id,
                 status_messages=status_messages,
             )
             gate_debug = gate_result.get("gate_debug") or {}
             if not gate_result.get("proceed"):
+                gate_reason_chain = build_gate_reason_chain(gate_debug)
+                wait_result = str(gate_debug.get("snapshot_wait_result") or "").strip().lower()
+                if "timeout" in wait_result:
+                    gate_reason_chain.append("snapshot_gate_timeout")
+                gate_reason_chain.append("hybrid_context_not_built")
+                gate_reason_chain.append("generation_aborted_before_model_call")
                 for status_message in status_messages:
                     yield f"@@STATUS@@:{status_message}\n"
                 yield (
@@ -959,6 +1250,45 @@ class TestGenerationModule:
                 gate_error_code = gate_result.get("error_code") or "SNAPSHOT_NOT_READY_TIMEOUT"
                 gate_error_message = gate_result.get("error_message") or "snapshot 未就绪，终止生成。"
                 yield f"Error: {gate_error_code}: {gate_error_message}\n"
+                self._emit_context_source_log(
+                    db=db,
+                    project_id=project_id,
+                    user_id=user_id,
+                    context_result={
+                        "context_source": "none",
+                        "fusion_debug": {
+                            **gate_debug,
+                            "final_decision": "timeout_fail_fast",
+                            "reason_chain": gate_reason_chain,
+                        },
+                        "snapshot_result": {},
+                        "rag_result": {},
+                    },
+                    gate_debug=gate_debug,
+                    doc_type=doc_type,
+                    compress=compress,
+                    requirement_length=len(requirement or ""),
+                )
+                self._emit_final_context_trace(
+                    db=db,
+                    project_id=project_id,
+                    user_id=user_id,
+                    request_id=request_id,
+                    context_result={
+                        "context_source": "none",
+                        "fusion_debug": {
+                            **gate_debug,
+                            "reason_chain": gate_reason_chain,
+                            "final_decision": "timeout_fail_fast",
+                        },
+                        "snapshot_result": {},
+                        "rag_result": {},
+                    },
+                    gate_debug=gate_debug,
+                    fallback_reason="snapshot_wait_gate_abort",
+                    abort_code=gate_error_code,
+                    compressed_chars=0,
+                )
                 return
 
             context_result = self._resolve_kb_context_with_hybrid(
@@ -973,6 +1303,11 @@ class TestGenerationModule:
             fusion_debug = context_result.get("fusion_debug") or {}
             if gate_debug:
                 fusion_debug.update(gate_debug)
+                reason_chain = list(fusion_debug.get("reason_chain") or [])
+                for reason in build_gate_reason_chain(gate_debug):
+                    if reason and (not reason_chain or reason_chain[-1] != reason):
+                        reason_chain.append(reason)
+                fusion_debug["reason_chain"] = reason_chain
                 if (
                     gate_debug.get("snapshot_wait_result") == "timeout_fallback_rag"
                     and fusion_debug.get("final_decision") == "proceed_with_generation"
@@ -989,6 +1324,12 @@ class TestGenerationModule:
             if context_result.get("abort_generation"):
                 fusion_debug = context_result.get("fusion_debug") or {}
                 abort_error = context_result.get("abort_error") or "上下文为空，已按兜底策略终止生成。"
+                reason_chain = list(fusion_debug.get("reason_chain") or [])
+                if not reason_chain or reason_chain[-1] != "hybrid_context_not_built":
+                    reason_chain.append("hybrid_context_not_built")
+                if reason_chain[-1] != "generation_aborted_before_model_call":
+                    reason_chain.append("generation_aborted_before_model_call")
+                fusion_debug["reason_chain"] = reason_chain
                 final_decision = fusion_debug.get("final_decision") or "fail_fast"
                 print(
                     "Hybrid guard abort(stream): "
@@ -1004,6 +1345,27 @@ class TestGenerationModule:
                     f"(decision={final_decision},queue={fusion_debug.get('snapshot_queue_status')}/{fusion_debug.get('snapshot_queue_reason')})\n"
                 )
                 yield f"Error: {abort_error}\n"
+                self._emit_context_source_log(
+                    db=db,
+                    project_id=project_id,
+                    user_id=user_id,
+                    context_result=context_result,
+                    gate_debug=gate_debug,
+                    doc_type=doc_type,
+                    compress=compress,
+                    requirement_length=len(requirement or ""),
+                )
+                self._emit_final_context_trace(
+                    db=db,
+                    project_id=project_id,
+                    user_id=user_id,
+                    request_id=request_id,
+                    context_result=context_result,
+                    gate_debug=gate_debug,
+                    fallback_reason=context_result.get("fallback_reason") or "",
+                    abort_code="HYBRID_EMPTY_CONTEXT_ABORT",
+                    compressed_chars=len(kb_context or ""),
+                )
                 return
 
             if compress:
@@ -1381,6 +1743,19 @@ Types:
                 Return ONLY the JSON array.
                 """
 
+                if not final_trace_emitted:
+                    self._emit_final_context_trace(
+                        db=db,
+                        project_id=project_id,
+                        user_id=user_id,
+                        request_id=request_id,
+                        context_result=context_result,
+                        gate_debug=gate_debug,
+                        fallback_reason=(context_result or {}).get("fallback_reason") if isinstance(context_result, dict) else "",
+                        abort_code="",
+                        compressed_chars=len(kb_context or ""),
+                    )
+                    final_trace_emitted = True
                 stream = client.generate_response_stream(requirement, system_prompt)
                 chunk_acc = ""
                 provider_error = None
@@ -1817,10 +2192,42 @@ Types:
                     ))
                     # Also yield to stream for real-time frontend update
                     yield f"GEN_QM:{json.dumps(qm, ensure_ascii=False)}\n"
+
+                    if (
+                        STAGE25_SWITCHES.coverage_diagnostics_enabled
+                        and isinstance(parsed_result, list)
+                    ):
+                        coverage_diag = build_coverage_diagnostics(
+                            requirement=requirement,
+                            generated_cases=[x for x in parsed_result if isinstance(x, dict)],
+                            kb_context=kb_context,
+                            fusion_debug=(context_result or {}).get("fusion_debug") or {},
+                            expected_count=int(expected_count or 0),
+                        )
+                        db.add(
+                            LogEntry(
+                                project_id=project_id,
+                                log_type="system",
+                                message=f"GEN_COVERAGE_DIAG:{json.dumps(coverage_diag, ensure_ascii=False)}",
+                                user_id=user_id,
+                            )
+                        )
+                        yield f"GEN_COVERAGE_DIAG:{json.dumps(coverage_diag, ensure_ascii=False)}\n"
                     
                     db.commit()
                 except Exception as log_e:
                     print(f"Failed to log metrics: {log_e}")
+
+                self._emit_context_source_log(
+                    db=db,
+                    project_id=project_id,
+                    user_id=user_id,
+                    context_result=context_result,
+                    gate_debug=gate_debug,
+                    doc_type=doc_type,
+                    compress=compress,
+                    requirement_length=len(requirement or ""),
+                )
 
         except Exception as e:
             print(f"Failed to save streamed result to DB: {e}")

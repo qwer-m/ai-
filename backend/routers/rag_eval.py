@@ -23,6 +23,17 @@ class RagSingleDebugRequest(BaseModel):
     limit: int = 5
     max_tokens: int = 1800
     llm_model: str | None = None
+    retrieval_mode: str = "hybrid"
+    recall_top_k: int | None = None
+    rerank_top_n: int | None = None
+    max_chunks_per_doc: int = 2
+    min_docs: int = 2
+    enable_query_rewrite: bool = True
+    enable_rerank: bool = True
+    title_weight: float = 0.15
+    keyword_weight: float = 0.25
+    vector_weight: float = 0.6
+    redundancy_threshold: float = 0.88
 
 
 @router.post("/rag/eval/sample/{sample_id}/promote", response_model=RagSamplePromoteResponse)
@@ -95,7 +106,25 @@ def rag_single_debug(
         project_id=req.project_id,
         db=db,
         user_id=current_user.id,
-        config={"retrieval": {"top_k": req.limit}, "context": {"max_tokens": req.max_tokens}},
+        config={
+            "retrieval": {
+                "top_k": req.limit,
+                "retrieval_mode": req.retrieval_mode,
+                "recall_top_k": req.recall_top_k,
+                "rerank_top_n": req.rerank_top_n,
+                "max_chunks_per_doc": req.max_chunks_per_doc,
+                "min_docs": req.min_docs,
+                "title_weight": req.title_weight,
+                "keyword_weight": req.keyword_weight,
+                "vector_weight": req.vector_weight,
+                "redundancy_threshold": req.redundancy_threshold,
+            },
+            "context": {"max_tokens": req.max_tokens},
+            "advanced": {
+                "enable_query_rewrite": req.enable_query_rewrite,
+                "enable_rerank": req.enable_rerank,
+            },
+        },
     )
     retrieval_ms = (time.perf_counter() - retrieval_started) * 1000
 
@@ -133,5 +162,9 @@ def rag_single_debug(
             "generation": generation_ms,
             "total": retrieval_ms + generation_ms,
         },
+        "doc_hit_stats": retrieval_result.get("doc_hit_stats") or [],
+        "dominance_warning": retrieval_result.get("dominance_warning"),
+        "multi_doc_hint": retrieval_result.get("multi_doc_hint"),
+        "retrieval_options": retrieval_result.get("retrieval_options") or {},
         "debug": debug,
     }

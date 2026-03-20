@@ -4,12 +4,16 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 from datetime import datetime
 from typing import Optional
 
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from core.models import KnowledgeDocument, ProjectContextSnapshot
+from modules.stage25_switches import STAGE25_SWITCHES
 from modules.knowledge_base_components.snapshot_builder import (
     SNAPSHOT_CONFIG,
     build_corpus_hash,
@@ -25,6 +29,119 @@ from modules.knowledge_base_components.snapshot_builder import (
 from modules.knowledge_base_components.snapshot_readiness import evaluate_snapshot_readiness
 
 logger = logging.getLogger(__name__)
+
+_SNAPSHOT_STAGE25_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("snapshot_version", "INT NOT NULL DEFAULT 0"),
+    ("snapshot_fingerprint", "VARCHAR(64) NULL"),
+    ("last_build_latency_ms", "FLOAT NULL"),
+)
+
+
+def _is_unknown_snapshot_column_error(err: Exception) -> bool:
+    err_text = str(err or "").lower()
+    return "unknown column" in err_text and "project_context_snapshots" in err_text
+
+
+def _try_repair_snapshot_stage25_schema(db: Session) -> bool:
+    """
+    运行时补齐 stage2.5 新列，避免旧库表在发布窗口期直接打挂。
+    """
+    bind = getattr(db, "bind", None)
+    if not bind or getattr(bind.dialect, "name", "") != "mysql":
+        return False
+
+    changed = False
+    try:
+        for col_name, col_ddl in _SNAPSHOT_STAGE25_COLUMNS:
+            exists = db.execute(
+                text(
+                    "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() "
+                    "AND TABLE_NAME = 'project_context_snapshots' "
+                    "AND COLUMN_NAME = :column_name"
+                ),
+                {"column_name": col_name},
+            ).scalar()
+            if int(exists or 0) == 0:
+                db.execute(
+                    text(
+                        f"ALTER TABLE project_context_snapshots "
+                        f"ADD COLUMN {col_name} {col_ddl}"
+                    )
+                )
+                changed = True
+
+        idx_exists = db.execute(
+            text(
+                "SELECT COUNT(*) FROM information_schema.STATISTICS "
+                "WHERE TABLE_SCHEMA = DATABASE() "
+                "AND TABLE_NAME = 'project_context_snapshots' "
+                "AND INDEX_NAME = 'idx_project_context_snapshots_fingerprint'"
+            )
+        ).scalar()
+        if int(idx_exists or 0) == 0:
+            db.execute(
+                text(
+                    "CREATE INDEX idx_project_context_snapshots_fingerprint "
+                    "ON project_context_snapshots (snapshot_fingerprint)"
+                )
+            )
+            changed = True
+
+        if changed:
+            db.commit()
+            logger.warning("project_context_snapshots schema auto-repaired for stage2.5")
+        return True
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        logger.warning("snapshot schema auto-repair failed: %s", e)
+        return False
+
+
+def _query_snapshot_row(db: Session, project_id: int) -> tuple[Optional[ProjectContextSnapshot], bool]:
+    """
+    查询快照记录，兼容旧库缺字段场景。
+    返回: (snapshot, schema_compatible)
+    """
+    try:
+        snapshot = (
+            db.query(ProjectContextSnapshot)
+            .filter(ProjectContextSnapshot.project_id == project_id)
+            .first()
+        )
+        return snapshot, True
+    except Exception as e:
+        if not _is_unknown_snapshot_column_error(e):
+            raise
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        if _try_repair_snapshot_stage25_schema(db):
+            try:
+                snapshot = (
+                    db.query(ProjectContextSnapshot)
+                    .filter(ProjectContextSnapshot.project_id == project_id)
+                    .first()
+                )
+                return snapshot, True
+            except Exception as retry_err:
+                if not _is_unknown_snapshot_column_error(retry_err):
+                    raise
+                logger.warning(
+                    "snapshot query still incompatible after repair: %s",
+                    retry_err,
+                )
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                return None, False
+        logger.warning("snapshot schema incompatible and auto-repair unavailable")
+        return None, False
 
 
 def _build_source_breakdown(corpus: list[dict], request_user_id: Optional[int]) -> dict:
@@ -75,7 +192,9 @@ def enqueue_context_snapshot_rebuild_impl(
     force_rebuild: bool = False,
 ) -> dict:
     """触发快照异步重建，带 pending 防抖。"""
-    snapshot = db.query(ProjectContextSnapshot).filter(ProjectContextSnapshot.project_id == project_id).first()
+    snapshot, schema_compatible = _query_snapshot_row(db, project_id)
+    if not schema_compatible:
+        return {"queued": False, "reason": "snapshot_schema_incompatible"}
     now = datetime.utcnow()
     if snapshot and snapshot.build_status == "pending" and snapshot.updated_at:
         # 仅当 pending 已有真实构建痕迹时才防抖，避免首次入队被误判跳过。
@@ -127,15 +246,29 @@ def _save_snapshot_success(
     source_doc_count: int,
     rebuild_reason: str,
     full_rebuild: bool,
+    build_latency_ms: Optional[float],
     db: Session,
 ) -> None:
     """统一落库 success 状态。"""
+    old_text = str(snapshot.snapshot_text or "")
+    new_text = str(snapshot_text or "")
+    content_changed = old_text != new_text
+
     snapshot.snapshot_text = snapshot_text
     snapshot.corpus_hash = corpus_hash
     snapshot.source_doc_count = source_doc_count
     snapshot.source_fingerprints = json.dumps(current_fingerprints, ensure_ascii=False)
     snapshot.build_status = "success"
     snapshot.rebuild_reason = rebuild_reason
+    if STAGE25_SWITCHES.snapshot_versioning_enabled:
+        current_version = int(snapshot.snapshot_version or 0)
+        if content_changed or current_version <= 0:
+            snapshot.snapshot_version = current_version + 1
+        else:
+            snapshot.snapshot_version = current_version
+        snapshot.snapshot_fingerprint = hashlib.sha256(new_text.encode("utf-8")).hexdigest() if new_text else ""
+        if build_latency_ms is not None:
+            snapshot.last_build_latency_ms = float(build_latency_ms)
     snapshot.last_built_at = datetime.utcnow()
     snapshot.last_used_at = datetime.utcnow()
     if full_rebuild:
@@ -155,10 +288,14 @@ def get_or_build_context_snapshot_impl(
     prefer_async_rebuild: bool = False,
 ) -> dict:
     """获取或构建快照；失败由调用方 fallback 到 RAG。"""
+    build_started_ts = time.perf_counter()
     corpus = collect_project_docs(module, db, project_id, user_id)
     if not corpus:
+        snapshot, schema_compatible = _query_snapshot_row(db, project_id)
+        if not schema_compatible:
+            snapshot = None
         readiness = evaluate_snapshot_readiness(
-            snapshot=db.query(ProjectContextSnapshot).filter(ProjectContextSnapshot.project_id == project_id).first(),
+            snapshot=snapshot,
             current_corpus_hash="",
             current_doc_count=0,
             changed_doc_ids=[],
@@ -169,12 +306,32 @@ def get_or_build_context_snapshot_impl(
             "rebuild_reason": "no_docs",
             "snapshot_text": "",
             **readiness,
+            "snapshot_version": 0,
+            "snapshot_fingerprint": "",
+            "build_latency_ms": 0.0,
             "prewarm_task_id": None,
         }
 
     source_breakdown = _build_source_breakdown(corpus, request_user_id=user_id)
     corpus_hash, current_fingerprints = build_corpus_hash(corpus)
-    snapshot = db.query(ProjectContextSnapshot).filter(ProjectContextSnapshot.project_id == project_id).first()
+    snapshot, schema_compatible = _query_snapshot_row(db, project_id)
+    if not schema_compatible:
+        return {
+            "success": False,
+            "fallback_reason": "snapshot_schema_incompatible",
+            "rebuild_reason": "schema_incompatible",
+            "snapshot_text": "",
+            "snapshot_version": 0,
+            "snapshot_fingerprint": "",
+            "build_latency_ms": 0.0,
+            "prewarm_task_id": None,
+            **evaluate_snapshot_readiness(
+                snapshot=None,
+                current_corpus_hash=corpus_hash,
+                current_doc_count=len(corpus),
+                changed_doc_ids=[str(item.get("doc_id")) for item in corpus if item.get("doc_id") is not None],
+            ),
+        }
     if not snapshot:
         snapshot = ProjectContextSnapshot(project_id=project_id, user_id=user_id, build_status="pending")
         db.add(snapshot)
@@ -204,6 +361,9 @@ def get_or_build_context_snapshot_impl(
             "snapshot_text": snapshot.snapshot_text or "",
             "corpus_hash": corpus_hash,
             "source_doc_count": len(corpus),
+            "snapshot_version": int(snapshot.snapshot_version or 0),
+            "snapshot_fingerprint": str(snapshot.snapshot_fingerprint or ""),
+            "build_latency_ms": float(snapshot.last_build_latency_ms or 0.0),
             **readiness,
             "prewarm_task_id": None,
         }
@@ -223,6 +383,9 @@ def get_or_build_context_snapshot_impl(
             else "snapshot_async_rebuild_skip",
             "rebuild_reason": mode,
             "queue_result": queue_result,
+            "snapshot_version": int(snapshot.snapshot_version or 0),
+            "snapshot_fingerprint": str(snapshot.snapshot_fingerprint or ""),
+            "build_latency_ms": float(snapshot.last_build_latency_ms or 0.0),
             **readiness,
             "prewarm_task_id": queue_result.get("task_id"),
         }
@@ -252,9 +415,17 @@ def get_or_build_context_snapshot_impl(
                 db,
                 observability=build_result.get("build_observability"),
             )
-            return {"success": False, "fallback_reason": "snapshot_full_rebuild_failed", "rebuild_reason": mode}
+            return {
+                "success": False,
+                "fallback_reason": "snapshot_full_rebuild_failed",
+                "rebuild_reason": mode,
+                "snapshot_version": int(snapshot.snapshot_version or 0),
+                "snapshot_fingerprint": str(snapshot.snapshot_fingerprint or ""),
+                "build_latency_ms": float(snapshot.last_build_latency_ms or 0.0),
+            }
 
         snapshot_text = (build_result.get("text") or "")[: SNAPSHOT_CONFIG.max_snapshot_chars]
+        build_latency_ms = max(0.0, (time.perf_counter() - build_started_ts) * 1000.0)
         _save_snapshot_success(
             snapshot=snapshot,
             snapshot_text=snapshot_text,
@@ -263,6 +434,7 @@ def get_or_build_context_snapshot_impl(
             source_doc_count=len(corpus),
             rebuild_reason=mode,
             full_rebuild=True,
+            build_latency_ms=build_latency_ms,
             db=db,
         )
         build_observability = {
@@ -282,6 +454,9 @@ def get_or_build_context_snapshot_impl(
             "snapshot_text": snapshot.snapshot_text or "",
             "corpus_hash": corpus_hash,
             "source_doc_count": len(corpus),
+            "snapshot_version": int(snapshot.snapshot_version or 0),
+            "snapshot_fingerprint": str(snapshot.snapshot_fingerprint or ""),
+            "build_latency_ms": float(snapshot.last_build_latency_ms or build_latency_ms),
             **evaluate_snapshot_readiness(
                 snapshot=snapshot,
                 current_corpus_hash=corpus_hash,
@@ -313,6 +488,9 @@ def get_or_build_context_snapshot_impl(
             "success": False,
             "fallback_reason": "snapshot_incremental_merge_failed",
             "rebuild_reason": "incremental_merge",
+            "snapshot_version": int(snapshot.snapshot_version or 0),
+            "snapshot_fingerprint": str(snapshot.snapshot_fingerprint or ""),
+            "build_latency_ms": float(snapshot.last_build_latency_ms or 0.0),
         }
 
     merged_text, merge_info = merge_incremental_snapshot(
@@ -320,6 +498,7 @@ def get_or_build_context_snapshot_impl(
         delta_result.get("text") or "",
         SNAPSHOT_CONFIG.max_snapshot_chars,
     )
+    build_latency_ms = max(0.0, (time.perf_counter() - build_started_ts) * 1000.0)
     _save_snapshot_success(
         snapshot=snapshot,
         snapshot_text=merged_text,
@@ -328,6 +507,7 @@ def get_or_build_context_snapshot_impl(
         source_doc_count=len(corpus),
         rebuild_reason="incremental_merge",
         full_rebuild=False,
+        build_latency_ms=build_latency_ms,
         db=db,
     )
     delta_source_breakdown = _build_source_breakdown(changed_items, request_user_id=user_id)
@@ -348,6 +528,9 @@ def get_or_build_context_snapshot_impl(
         "snapshot_text": snapshot.snapshot_text or "",
         "corpus_hash": corpus_hash,
         "source_doc_count": len(corpus),
+        "snapshot_version": int(snapshot.snapshot_version or 0),
+        "snapshot_fingerprint": str(snapshot.snapshot_fingerprint or ""),
+        "build_latency_ms": float(snapshot.last_build_latency_ms or build_latency_ms),
         **evaluate_snapshot_readiness(
             snapshot=snapshot,
             current_corpus_hash=corpus_hash,
@@ -365,7 +548,11 @@ def get_or_build_context_snapshot_impl(
 
 def get_context_snapshot_status_impl(project_id: int, db: Session) -> dict:
     """查询快照状态，并补充输入预算相关观测字段。"""
-    snapshot = db.query(ProjectContextSnapshot).filter(ProjectContextSnapshot.project_id == project_id).first()
+    try:
+        snapshot, schema_compatible = _query_snapshot_row(db, project_id)
+    except SQLAlchemyError:
+        snapshot = None
+        schema_compatible = False
     docs = (
         db.query(KnowledgeDocument)
         .filter(KnowledgeDocument.project_id == project_id)
@@ -410,6 +597,9 @@ def get_context_snapshot_status_impl(project_id: int, db: Session) -> dict:
             "snapshot_corpus_hash": "",
             "corpus_hash": current_hash,
             "snapshot_hash": "",
+            "snapshot_version": 0,
+            "snapshot_fingerprint": "",
+            "build_latency_ms": 0.0,
             "source_doc_count": 0,
             "last_built_at": None,
             "last_used_at": None,
@@ -428,6 +618,7 @@ def get_context_snapshot_status_impl(project_id: int, db: Session) -> dict:
             "source_requirement_like_doc_count": requirement_like_count,
             "source_non_requirement_doc_count": max(0, len(docs) - requirement_like_count),
             "source_non_requirement_examples": non_requirement_examples,
+            "schema_compatible": bool(schema_compatible),
             **estimated_stats,
         }
 
@@ -440,6 +631,9 @@ def get_context_snapshot_status_impl(project_id: int, db: Session) -> dict:
         # 中文注释：保留旧字段，兼容老调用方。
         "corpus_hash": current_hash,
         "snapshot_hash": snapshot.corpus_hash,
+        "snapshot_version": int(snapshot.snapshot_version or 0),
+        "snapshot_fingerprint": str(snapshot.snapshot_fingerprint or ""),
+        "build_latency_ms": float(snapshot.last_build_latency_ms or 0.0),
         "source_doc_count": int(snapshot.source_doc_count or 0),
         "last_built_at": snapshot.last_built_at.isoformat() if snapshot.last_built_at else None,
         "last_used_at": snapshot.last_used_at.isoformat() if snapshot.last_used_at else None,
@@ -458,5 +652,6 @@ def get_context_snapshot_status_impl(project_id: int, db: Session) -> dict:
         "source_requirement_like_doc_count": requirement_like_count,
         "source_non_requirement_doc_count": max(0, len(docs) - requirement_like_count),
         "source_non_requirement_examples": non_requirement_examples,
+        "schema_compatible": bool(schema_compatible),
         **estimated_stats,
     }

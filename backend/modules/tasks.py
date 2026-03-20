@@ -16,8 +16,11 @@ from celery.exceptions import SoftTimeLimitExceeded
 
 from celery_config import celery_app
 from core.database import SessionLocal
+from core.models import LogEntry
 from modules.knowledge_base import knowledge_base
+from modules.knowledge_base_components.index_audit import run_index_consistency_audit
 from modules.knowledge_base_components.offline_parse import cleanup_offline_file
+from modules.stage25_switches import STAGE25_SWITCHES
 from modules.test_generation import test_generator
 
 logger = logging.getLogger(__name__)
@@ -257,6 +260,50 @@ def parse_knowledge_document_task(
         cleanup_offline_file(file_path)
         # 让 Celery 统一记录 FAILURE 元信息，避免手工 update_state 写入不完整异常结构。
         raise e
+    finally:
+        db.close()
+
+
+@celery_app.task(bind=True, name="modules.tasks.audit_knowledge_index_consistency_task")
+def audit_knowledge_index_consistency_task(
+    self,
+    project_id: int | None = None,
+    user_id: int | None = None,
+    limit: int = 5000,
+):
+    """
+    关系库/向量库一致性巡检任务。
+
+    默认作为定时任务运行，也支持手动触发（可限定 project_id）。
+    """
+    db = SessionLocal()
+    try:
+        if not STAGE25_SWITCHES.index_audit_enabled:
+            return {"enabled": False, "message": "index_audit_disabled"}
+
+        self.update_state(
+            state="STARTED",
+            meta={"status": "知识库索引一致性巡检中", "project_id": project_id},
+        )
+        report = run_index_consistency_audit(
+            db=db,
+            project_id=project_id,
+            user_id=user_id,
+            limit=limit,
+        )
+        try:
+            db.add(
+                LogEntry(
+                    project_id=project_id,
+                    user_id=user_id,
+                    log_type="system",
+                    message=f"RAG_INDEX_AUDIT:{json.dumps(report, ensure_ascii=False)}",
+                )
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+        return report
     finally:
         db.close()
 

@@ -58,6 +58,11 @@ celery_app.conf.update(
             'schedule': crontab(minute=0), # Run every hour
             'kwargs': {'retention_hours': 72},
         },
+        'audit-knowledge-index-daily': {
+            'task': 'modules.tasks.audit_knowledge_index_consistency_task',
+            'schedule': crontab(hour=3, minute=30), # Run daily at 03:30
+            'kwargs': {'project_id': None, 'user_id': None, 'limit': 5000},
+        },
     },
     timezone='Asia/Shanghai'
 )

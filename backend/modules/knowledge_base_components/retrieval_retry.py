@@ -1,6 +1,5 @@
-"""
+﻿"""
 检索稳定性辅助工具。
-
 该模块聚焦两类能力：
 1. 轻量重试判定（仅针对可恢复外部错误）；
 2. 低相关拦截判定（最小阈值版本）。
@@ -38,7 +37,7 @@ def now_iso() -> str:
 
 
 def flatten_lane_reasons(lane_reasons: dict) -> set[str]:
-    """把 lane_reasons（字符串或数组）打平成 token 集合。"""
+    """把 lane_reasons（字符串或数组）打平为 token 集合。"""
     tokens: set[str] = set()
     for value in (lane_reasons or {}).values():
         if isinstance(value, list):
@@ -53,7 +52,6 @@ def flatten_lane_reasons(lane_reasons: dict) -> set[str]:
 def is_retryable_exception(error: Exception) -> tuple[bool, str]:
     """
     判断异常是否可重试。
-
     仅网络/SSL/超时/embedding 类错误允许重试，业务错误不重试。
     """
     msg = str(error or "").lower()
@@ -75,7 +73,6 @@ def should_retry(
 ) -> tuple[bool, Optional[str]]:
     """
     依据当前 attempt 的召回结果判断是否继续重试。
-
     规则：
     - 已命中上下文：不重试；
     - 低相关拦截：不重试；
@@ -102,7 +99,6 @@ def calc_low_relevance(
 ) -> tuple[bool, str, dict]:
     """
     低相关拦截判定。
-
     使用 top1 与 topK 平均 final_score 作为最小阈值规则。
     """
     threshold_info = {
@@ -147,8 +143,10 @@ def build_rerank_top(chunks: list[dict], limit: int) -> list[dict]:
     """构造 rerank TopN 调试结构。"""
     result: list[dict] = []
     for chunk in chunks[: max(1, int(limit))]:
+        chunk_text = str(chunk.get("chunk_text") or "").strip()
         result.append(
             {
+                "chunk_id": chunk.get("chunk_id"),
                 "doc_id": chunk.get("doc_id"),
                 "filename": chunk.get("filename"),
                 "query_source": chunk.get("query_source"),
@@ -162,6 +160,14 @@ def build_rerank_top(chunks: list[dict], limit: int) -> list[dict]:
                     or chunk.get("score")
                     or 0.0
                 ),
+                "vector_score": float(chunk.get("vector_score") or chunk.get("score") or 0.0),
+                "keyword_score": float(chunk.get("keyword_score") or 0.0),
+                "title_score": float(chunk.get("title_score") or 0.0),
+                "fusion_score": float(chunk.get("fusion_score") or chunk.get("final_score") or chunk.get("score") or 0.0),
+                "title_hit_terms": chunk.get("title_hit_terms") or [],
+                "content_hit_terms": chunk.get("content_hit_terms") or [],
+                "selection_reason": chunk.get("selection_reason"),
+                "chunk_text": chunk_text[:1200],
             }
         )
     return result
@@ -171,10 +177,11 @@ def build_final_chunk_debug(chunks: list[dict]) -> list[dict]:
     """构造最终返回片段调试结构。"""
     result: list[dict] = []
     for chunk in chunks:
-        # 融合检索需要片段正文，调试里带上裁剪后的 chunk_text。
+        # 中文注释：融合检索调试里保留片段正文，便于前端直接预览。
         chunk_text = str(chunk.get("chunk_text") or "").strip()
         result.append(
             {
+                "chunk_id": chunk.get("chunk_id"),
                 "chunk_source": chunk.get("chunk_source"),
                 "query_source": chunk.get("query_source"),
                 "score": float(chunk.get("score") or 0.0),
@@ -190,7 +197,14 @@ def build_final_chunk_debug(chunks: list[dict]) -> list[dict]:
                 "filename": chunk.get("filename"),
                 "doc_type": chunk.get("doc_type"),
                 "kept_reason": chunk.get("kept_reason"),
+                "selection_reason": chunk.get("selection_reason"),
                 "recall_routes": chunk.get("recall_routes") or [],
+                "vector_score": float(chunk.get("vector_score") or chunk.get("score") or 0.0),
+                "keyword_score": float(chunk.get("keyword_score") or 0.0),
+                "title_score": float(chunk.get("title_score") or 0.0),
+                "fusion_score": float(chunk.get("fusion_score") or chunk.get("final_score") or chunk.get("score") or 0.0),
+                "title_hit_terms": chunk.get("title_hit_terms") or [],
+                "content_hit_terms": chunk.get("content_hit_terms") or [],
                 "chunk_text": chunk_text[:1200],
             }
         )

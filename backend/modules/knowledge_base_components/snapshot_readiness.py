@@ -45,6 +45,8 @@ def evaluate_snapshot_readiness(
             "build_status": "not_exists",
             "current_corpus_hash": current_corpus_hash or "",
             "snapshot_corpus_hash": "",
+            "snapshot_version": 0,
+            "snapshot_fingerprint": "",
         }
 
     build_status = (snapshot.build_status or "pending").strip().lower()
@@ -117,5 +119,7 @@ def evaluate_snapshot_readiness(
         "build_status": build_status,
         "current_corpus_hash": current_corpus_hash or "",
         "snapshot_corpus_hash": snapshot_hash,
+        "snapshot_version": int(snapshot.snapshot_version or 0),
+        "snapshot_fingerprint": str(snapshot.snapshot_fingerprint or ""),
         "rebuild_mode_recommendation": recommended_mode,
     }

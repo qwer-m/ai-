@@ -159,6 +159,17 @@ export async function ragSingleDebugRequest(payload: {
   limit?: number;
   max_tokens?: number;
   llm_model?: string;
+  retrieval_mode?: 'vector' | 'keyword' | 'hybrid' | 'bm25';
+  recall_top_k?: number;
+  rerank_top_n?: number;
+  max_chunks_per_doc?: number;
+  min_docs?: number;
+  enable_query_rewrite?: boolean;
+  enable_rerank?: boolean;
+  title_weight?: number;
+  keyword_weight?: number;
+  vector_weight?: number;
+  redundancy_threshold?: number;
 }) {
   return api.post<any>('/api/rag/eval/debug/single', payload);
 }

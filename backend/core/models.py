@@ -450,6 +450,13 @@ class ProjectContextSnapshot(Base):
     project_id = Column(Integer, ForeignKey('projects.id'), nullable=False, index=True, comment="项目ID")
 
     snapshot_text = Column(LONGTEXT, nullable=True, comment="项目级上下文压缩快照文本")
+    snapshot_version = Column(Integer, nullable=False, default=0, comment="快照版本号（每次成功构建递增）")
+    snapshot_fingerprint = Column(
+        String(64),
+        nullable=True,
+        index=True,
+        comment="快照文本指纹（用于版本治理与排障）",
+    )
     corpus_hash = Column(String(64), nullable=True, index=True, comment="项目知识语料哈希")
     source_doc_count = Column(Integer, nullable=False, default=0, comment="参与构建的文档数量")
     source_fingerprints = Column(LONGTEXT, nullable=True, comment="文档指纹映射(JSON)")
@@ -462,6 +469,7 @@ class ProjectContextSnapshot(Base):
         comment="构建状态 (pending/success/failed)",
     )
     build_error = Column(Text, nullable=True, comment="最近一次构建失败原因")
+    last_build_latency_ms = Column(Float, nullable=True, comment="最近一次成功构建耗时（毫秒）")
     rebuild_reason = Column(
         String(30),
         nullable=True,
