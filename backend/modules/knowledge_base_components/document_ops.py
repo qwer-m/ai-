@@ -1,9 +1,7 @@
-"""
-知识库文档操作实现。
+"""Knowledge base document operations."""
 
-该文件集中承载增删改与排序相关逻辑，避免 `knowledge_base.py` 同时承担
-上下文检索、关联校验、排序和向量同步，降低单文件复杂度。
-"""
+# Keep facade logic split out of knowledge_base.py.
+
 
 from typing import Optional
 
@@ -13,7 +11,7 @@ from sqlalchemy.orm import Session
 from core.chroma_client import chroma_client
 from core.models import KnowledgeDocument
 
-# 仅这些类型会写入向量库，保持与历史行为一致。
+# Only these doc types are written to vector index.
 INDEXABLE_DOC_TYPES = (
     "requirement",
     "product_requirement",
@@ -33,7 +31,7 @@ def add_document_impl(
     force: bool = False,
     user_id: Optional[int] = None,
 ):
-    """新增文档并按原语义同步关系库与向量库。"""
+    """Add a document and sync DB + vector indexes."""
     content_hash = module.calculate_hash(content)
 
     existing = db.query(KnowledgeDocument).filter(
@@ -48,10 +46,8 @@ def add_document_impl(
                 "existing_filename": existing.filename,
                 "existing_doc_id": existing.id,
             }
-        # force=True 时沿用原有记录，保持接口幂等语义。
         return existing
 
-    # 列表按 display_order 倒序显示，因此新文档追加到底部需要更小的序值。
     min_order = db.query(func.min(KnowledgeDocument.display_order)).filter(
         KnowledgeDocument.project_id == project_id
     ).scalar()
@@ -94,7 +90,6 @@ def add_document_impl(
             },
         )
 
-        # 双索引：原文 + 摘要，兼顾召回精度与长文可控性。
         if summary and summary != content:
             chroma_client.add_document(
                 doc_id=f"{doc.id}_summary",
@@ -120,7 +115,7 @@ def update_document_impl(
     doc_type: str,
     db: Session,
 ):
-    """更新文档并在必要时同步 reindex 与向量索引。"""
+    """Update a document and rebuild affected indexes."""
     doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
     if not doc:
         doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.project_specific_id == doc_id).first()
@@ -159,7 +154,11 @@ def update_document_impl(
         pass
 
     if content_changed and doc.doc_type in INDEXABLE_DOC_TYPES:
+        # Compatibility cleanup: legacy summary index might use doc_id={id}_summary.
         chroma_client.delete_document(str(doc.id))
+        chroma_client.delete_document(f"{doc.id}_summary")
+
+        summary_text = str(doc.summary or "").strip()
         chroma_client.add_document(
             doc_id=str(doc.id),
             content=content,
@@ -168,14 +167,29 @@ def update_document_impl(
                 "doc_type": doc.doc_type,
                 "filename": filename or doc.filename,
                 "doc_id": doc.id,
+                "user_id": getattr(doc, "user_id", None),
+                "is_summary": False,
             },
         )
+        if summary_text and summary_text != content:
+            chroma_client.add_document(
+                doc_id=f"{doc.id}_summary",
+                content=summary_text,
+                metadata={
+                    "project_id": project_id,
+                    "doc_type": doc.doc_type,
+                    "filename": f"{(filename or doc.filename)} (Summary)",
+                    "doc_id": doc.id,
+                    "user_id": getattr(doc, "user_id", None),
+                    "is_summary": True,
+                },
+            )
 
     return doc
 
 
 def delete_document_impl(module, doc_id: int, db: Session):
-    """删除文档并清理引用与向量索引。"""
+    """Delete a document and clean linked indexes."""
     doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.project_specific_id == doc_id).first()
     if not doc:
         doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
@@ -205,7 +219,7 @@ def move_document_impl(
     position: str,
     db: Session,
 ):
-    """拖拽排序：通过 display_order 中间值插入，避免全量重排。"""
+    """Move a document around an anchor by display order."""
     target_doc = db.query(KnowledgeDocument).filter(
         KnowledgeDocument.id == doc_id,
         KnowledgeDocument.project_id == project_id,
@@ -251,7 +265,7 @@ def move_document_impl(
 
 
 def reorder_documents_impl(project_id: int, ordered_ids: list[int], db: Session):
-    """批量重排：重用现有排序槽位，保持顺序稳定且改动最小。"""
+    """Reorder documents in batch using existing order slots."""
     if not ordered_ids:
         return True
 
@@ -276,4 +290,3 @@ def reorder_documents_impl(project_id: int, ordered_ids: list[int], db: Session)
 
     db.commit()
     return True
-

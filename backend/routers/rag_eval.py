@@ -11,6 +11,7 @@ from core.ai_client import get_client_for_user
 from core.auth import get_current_user
 from core.database import get_db
 from core.models import Project, RagDataset, RagDatasetSample, User
+from modules.rag_eval.debug_display import resolve_debug_display_fields
 from modules.rag_eval.rag_retrieval_service import run_retrieval_debug
 from schemas.rag_eval import RagSamplePromoteRequest, RagSamplePromoteResponse
 
@@ -149,13 +150,20 @@ def rag_single_debug(
     token_usage["total_tokens"] = token_usage["input_tokens"] + token_usage["output_tokens"]
 
     debug = retrieval_result.get("debug") or {}
+    display_context, display_answer, blocked_reason = resolve_debug_display_fields(
+        context_text=context_text,
+        answer=answer,
+        debug=debug,
+    )
     return {
         "query": req.query,
         "rewritten_queries": debug.get("rewrite_queries") or [],
         "raw_retrieved_chunks": debug.get("dedup_chunks") or [],
         "reranked_chunks": debug.get("rerank_top") or [],
-        "final_context": context_text,
-        "llm_output": answer,
+        "final_context": display_context,
+        "llm_output": display_answer,
+        "generation_skipped": bool(not answer and not context_text),
+        "context_blocked_reason": blocked_reason,
         "token_usage": token_usage,
         "timing_ms": {
             "retrieval": retrieval_ms,

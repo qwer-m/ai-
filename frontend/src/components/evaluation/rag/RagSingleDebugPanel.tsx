@@ -109,6 +109,46 @@ export function RagSingleDebugPanel({ projectId, onLog, datasets }: Props) {
   const docStats: RagDocHitRow[] = (result?.doc_hit_stats || result?.debug?.doc_hit_stats || []) as RagDocHitRow[];
   const dominance = result?.dominance_warning || result?.debug?.dominance_warning;
   const multiDocHint = result?.multi_doc_hint || result?.debug?.multi_doc_hint;
+  const displayFinalContext = useMemo(() => {
+    const direct = String(result?.final_context || '').trim();
+    if (direct) return direct;
+
+    const debug = result?.debug || {};
+    const debugContext = String(debug?.context || '').trim();
+    if (debugContext) return debugContext;
+
+    const fallbackChunks = (Array.isArray(debug?.final_chunks) && debug.final_chunks.length > 0)
+      ? debug.final_chunks
+      : (Array.isArray(debug?.diverse_chunks) && debug.diverse_chunks.length > 0)
+        ? debug.diverse_chunks
+        : Array.isArray(result?.reranked_chunks)
+          ? result.reranked_chunks
+          : [];
+
+    if (fallbackChunks.length > 0) {
+      return fallbackChunks
+        .map((chunk: any) => {
+          const text = String(chunk?.chunk_text || '').trim();
+          if (!text) return '';
+          const filename = String(chunk?.filename || 'Unknown');
+          const docType = String(chunk?.doc_type || 'Unknown');
+          return `--- Relevant Knowledge: ${filename} (${docType}) ---\n${text}`;
+        })
+        .filter(Boolean)
+        .join('\n\n');
+    }
+
+    const reason = String(result?.context_blocked_reason || debug?.final_failure_reason || '').trim();
+    return reason ? `[上下文为空] ${reason}` : '';
+  }, [result]);
+
+  const displayLlmOutput = useMemo(() => {
+    const direct = String(result?.llm_output || '').trim();
+    if (direct) return direct;
+
+    const reason = String(result?.context_blocked_reason || result?.debug?.final_failure_reason || '').trim();
+    return reason ? `[未调用 LLM] ${reason}` : '';
+  }, [result]);
 
   return (
     <div className="d-flex flex-column gap-3">
@@ -193,12 +233,12 @@ export function RagSingleDebugPanel({ projectId, onLog, datasets }: Props) {
 
           <Form.Group>
             <Form.Label className="small text-muted">最终送入 LLM 的上下文</Form.Label>
-            <Form.Control as="textarea" rows={10} readOnly value={String(result?.final_context || '')} />
+            <Form.Control as="textarea" rows={10} readOnly value={displayFinalContext} />
           </Form.Group>
 
           <Form.Group>
             <Form.Label className="small text-muted">LLM 最终输出</Form.Label>
-            <Form.Control as="textarea" rows={8} readOnly value={String(result?.llm_output || '')} />
+            <Form.Control as="textarea" rows={8} readOnly value={displayLlmOutput} />
           </Form.Group>
         </div>
       ) : null}

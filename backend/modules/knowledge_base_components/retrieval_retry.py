@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -112,28 +113,73 @@ def calc_low_relevance(
 
     top_chunks = reranked_chunks[: config.low_rel_topk]
     scores: list[float] = []
+
+    def _effective_score(chunk: dict) -> float:
+        # 中文注释：低相关判定优先看融合/重排后的综合分，避免语义分块后仅看向量分导致误杀。
+        for key in ("final_score", "fusion_score", "rerank_score", "score", "vector_score"):
+            value = chunk.get(key)
+            if value is None:
+                continue
+            try:
+                return float(value)
+            except Exception:
+                continue
+        return 0.0
+
+    def _has_strong_lexical_hit(chunk: dict) -> bool:
+        try:
+            title_score = float(chunk.get("title_score") or 0.0)
+        except Exception:
+            title_score = 0.0
+        try:
+            keyword_score = float(chunk.get("keyword_score") or 0.0)
+        except Exception:
+            keyword_score = 0.0
+
+        title_terms = list(chunk.get("title_hit_terms") or [])
+        content_terms = list(chunk.get("content_hit_terms") or [])
+        lexical_strength = (keyword_score * 0.65) + (title_score * 0.35)
+        term_hit_count = len({str(x).strip().lower() for x in (title_terms + content_terms) if str(x).strip()})
+
+        # 中文注释：命中词强时放宽阈值，避免“分块后分数偏移”把有效候选直接打掉。
+        if lexical_strength >= 0.55:
+            return True
+        if lexical_strength >= 0.35 and term_hit_count >= 2:
+            return True
+
+        text = str(chunk.get("chunk_text") or "")
+        if text:
+            token_hits = re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z][A-Za-z0-9_]{1,}", text)
+            if term_hit_count >= 1 and len(token_hits) >= 6:
+                return True
+        return False
+
     for chunk in top_chunks:
-        scores.append(
-            float(
-                chunk.get("final_score")
-                or chunk.get("rerank_score")
-                or chunk.get("score")
-                or 0.0
-            )
-        )
+        scores.append(_effective_score(chunk))
     if not scores:
         return False, "", threshold_info
+
+    lexical_relaxed = any(_has_strong_lexical_hit(chunk) for chunk in top_chunks)
+    relaxed_top1 = float(config.low_rel_top1_threshold)
+    relaxed_avg = float(config.low_rel_topk_avg_threshold)
+    if lexical_relaxed:
+        relaxed_top1 = max(0.0, relaxed_top1 - 0.20)
+        relaxed_avg = max(0.0, relaxed_avg - 0.16)
 
     top1 = scores[0]
     avg_topk = sum(scores) / len(scores)
     threshold_info["top1_score"] = float(top1)
     threshold_info["avg_topk_score"] = float(avg_topk)
+    threshold_info["effective_top1_threshold"] = float(relaxed_top1)
+    threshold_info["effective_topk_avg_threshold"] = float(relaxed_avg)
+    threshold_info["title_keyword_relaxed"] = bool(lexical_relaxed)
 
-    if top1 < config.low_rel_top1_threshold or avg_topk < config.low_rel_topk_avg_threshold:
+    if top1 < relaxed_top1 or avg_topk < relaxed_avg:
         reason = (
             f"low_relevance_score(top1={top1:.4f},avg_top{len(scores)}={avg_topk:.4f},"
-            f"threshold_top1={config.low_rel_top1_threshold:.4f},"
-            f"threshold_avg={config.low_rel_topk_avg_threshold:.4f})"
+            f"threshold_top1={relaxed_top1:.4f},"
+            f"threshold_avg={relaxed_avg:.4f},"
+            f"lexical_relaxed={int(lexical_relaxed)})"
         )
         return True, reason, threshold_info
     return False, "", threshold_info

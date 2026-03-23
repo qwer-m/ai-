@@ -1,4 +1,4 @@
-"""知识库关系库/向量库索引一致性巡检（阶段2.5）。"""
+"""Knowledge index consistency audit helpers."""
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -20,19 +20,23 @@ def _has_summary_index(doc: KnowledgeDocument) -> bool:
 def _fetch_chroma_metas(doc_id: int) -> list[dict[str, Any]]:
     if not getattr(chroma_client, "collection", None):
         return []
-    try:
-        result = chroma_client.collection.get(
-            where={"doc_id": str(doc_id)},
-            include=["metadatas"],
-        )
-    except Exception:
-        return []
 
-    metas = result.get("metadatas") or []
     normalized: list[dict[str, Any]] = []
-    for item in metas:
-        if isinstance(item, dict):
-            normalized.append(item)
+    # Compatibility: legacy summary index may use doc_id={id}_summary.
+    legacy_keys = [str(doc_id), f"{doc_id}_summary"]
+    for key in legacy_keys:
+        try:
+            result = chroma_client.collection.get(
+                where={"doc_id": key},
+                include=["metadatas"],
+            )
+        except Exception:
+            continue
+        metas = result.get("metadatas") or []
+        for item in metas:
+            if isinstance(item, dict):
+                normalized.append(item)
+
     return normalized
 
 
@@ -43,14 +47,7 @@ def run_index_consistency_audit(
     user_id: Optional[int] = None,
     limit: int = 5000,
 ) -> dict[str, Any]:
-    """
-    执行索引一致性巡检。
-
-    巡检口径：
-    1. parse_status=success 且可索引文档必须存在 raw index；
-    2. 当 summary 预期存在时，必须存在 summary index；
-    3. parse_status 非 success 文档若仍有索引，标记为 stale index。
-    """
+    """Audit DB/chroma consistency for raw/summary indexes."""
     if not STAGE25_SWITCHES.index_audit_enabled:
         return {"enabled": False, "message": "index_audit_disabled"}
 
@@ -110,4 +107,3 @@ def run_index_consistency_audit(
         },
         "healthy": len(missing_raw) == 0 and len(missing_summary) == 0 and len(stale_index_docs) == 0,
     }
-

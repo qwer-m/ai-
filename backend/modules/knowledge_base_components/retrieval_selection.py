@@ -146,10 +146,42 @@ def select_diverse_chunks(
         }
 
     target_n = max(1, int(final_top_n))
-    per_doc_cap = max(1, int(max_chunks_per_doc))
+    # 中文注释：阶段2.5加固要求单文档最多 2~3 个片段，后端统一做上限约束。
+    per_doc_cap = max(1, min(3, int(max_chunks_per_doc)))
     min_doc_need = max(1, int(min_docs))
 
-    sorted_rows = sorted(chunks, key=lambda x: float(x.get("final_score") or x.get("score") or 0.0), reverse=True)
+    def _row_score(row: dict[str, Any]) -> float:
+        for key in ("final_score", "fusion_score", "rerank_score", "score"):
+            value = row.get(key)
+            if value is None:
+                continue
+            try:
+                return float(value)
+            except Exception:
+                continue
+        return 0.0
+
+    def _extract_info_terms(row: dict[str, Any]) -> set[str]:
+        terms: set[str] = set()
+        for key in ("title_hit_terms", "content_hit_terms", "query_terms"):
+            for item in (row.get(key) or []):
+                token = str(item).strip().lower()
+                if token and len(token) <= 48:
+                    terms.add(token)
+        if terms:
+            return terms
+
+        # 中文注释：缺命中词时回退到轻量 token 提取，用于信息增益评估。
+        text = f"{row.get('filename') or ''} {row.get('chunk_text') or ''}"
+        for token in re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z][A-Za-z0-9_]{1,}|\d{2,}", text):
+            normalized = token.strip().lower()
+            if normalized and len(normalized) <= 48:
+                terms.add(normalized)
+            if len(terms) >= 20:
+                break
+        return terms
+
+    sorted_rows = sorted(chunks, key=_row_score, reverse=True)
 
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in sorted_rows:
@@ -163,8 +195,11 @@ def select_diverse_chunks(
     )
 
     selected: list[dict[str, Any]] = []
+    selected_doc_round1: set[str] = set()
     selected_texts: list[str] = []
     per_doc_counts: dict[str, int] = defaultdict(int)
+    selected_ids: set[str] = set()
+    covered_terms: set[str] = set()
     dropped_doc_cap = 0
     dropped_redundant = 0
 
@@ -184,34 +219,58 @@ def select_diverse_chunks(
         item = dict(first)
         item["selection_reason"] = "doc_coverage_round"
         selected.append(item)
+        selected_doc_round1.add(doc_key)
         selected_texts.append(text)
+        selected_ids.add(str(item.get("chunk_id") or ""))
+        covered_terms.update(_extract_info_terms(item))
         per_doc_counts[doc_key] += 1
 
-    # 第二轮：按排序补齐，受每文档上限与冗余阈值约束。
-    for row in sorted_rows:
-        if len(selected) >= target_n:
+    # 第二轮：按“score 增益 + 信息增益”补齐，受每文档上限与冗余阈值约束。
+    while len(selected) < target_n:
+        best_row: dict[str, Any] | None = None
+        best_gain = float("-inf")
+        best_doc_key = ""
+        best_text = ""
+        best_new_terms: set[str] = set()
+
+        for row in sorted_rows:
+            doc_key = str(row.get("doc_id") or row.get("filename") or "unknown")
+            if per_doc_counts[doc_key] >= per_doc_cap:
+                dropped_doc_cap += 1
+                continue
+
+            row_id = str(row.get("chunk_id") or "")
+            if row_id and row_id in selected_ids:
+                continue
+
+            text = str(row.get("chunk_text") or "")
+            if any(_is_redundant(text, old, redundancy_threshold) for old in selected_texts):
+                dropped_redundant += 1
+                continue
+
+            row_terms = _extract_info_terms(row)
+            new_terms = row_terms - covered_terms
+            info_gain = len(new_terms) / max(1, len(row_terms) or 1)
+            score_gain = _row_score(row)
+            total_gain = score_gain + (0.18 * info_gain)
+
+            if total_gain > best_gain:
+                best_gain = total_gain
+                best_row = row
+                best_doc_key = doc_key
+                best_text = text
+                best_new_terms = new_terms
+
+        if not best_row:
             break
 
-        doc_key = str(row.get("doc_id") or row.get("filename") or "unknown")
-        if per_doc_counts[doc_key] >= per_doc_cap:
-            dropped_doc_cap += 1
-            continue
-
-        # 第一轮已选中的行跳过。
-        row_id = str(row.get("chunk_id") or "")
-        if row_id and any(str(s.get("chunk_id") or "") == row_id for s in selected):
-            continue
-
-        text = str(row.get("chunk_text") or "")
-        if any(_is_redundant(text, old, redundancy_threshold) for old in selected_texts):
-            dropped_redundant += 1
-            continue
-
-        item = dict(row)
-        item["selection_reason"] = "score_gain_round"
+        item = dict(best_row)
+        item["selection_reason"] = "score_info_gain_round"
         selected.append(item)
-        selected_texts.append(text)
-        per_doc_counts[doc_key] += 1
+        selected_texts.append(best_text)
+        selected_ids.add(str(item.get("chunk_id") or ""))
+        covered_terms.update(best_new_terms)
+        per_doc_counts[best_doc_key] += 1
 
     stats = {
         "selected_count": len(selected),
@@ -219,5 +278,10 @@ def select_diverse_chunks(
         "dropped_doc_cap": dropped_doc_cap,
         "dropped_redundant": dropped_redundant,
         "per_doc_counts": dict(per_doc_counts),
+        "doc_coverage_selected_docs": len(selected_doc_round1),
+        "doc_coverage_target_docs": min(min_doc_need, len(doc_order)),
+        "doc_coverage_triggered": bool(len(selected_doc_round1) >= min(min_doc_need, len(doc_order))),
+        "second_round_mode": "score_plus_information_gain",
+        "max_chunks_per_doc_applied": per_doc_cap,
     }
     return selected, stats

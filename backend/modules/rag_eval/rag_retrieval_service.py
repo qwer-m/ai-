@@ -35,7 +35,7 @@ def _build_retrieval_options(config: dict[str, Any]) -> tuple[int, int, dict[str
         "retrieval_mode": str(_pick({**retrieval_cfg, **config}, ["retrieval_mode"], "hybrid")).lower(),
         "recall_top_k": int(_pick({**retrieval_cfg, **config}, ["recall_top_k"], max(top_k * 5, 20))),
         "rerank_top_n": int(_pick({**retrieval_cfg, **config}, ["rerank_top_n"], max(top_k * 4, 8))),
-        "max_chunks_per_doc": int(_pick({**retrieval_cfg, **config}, ["max_chunks_per_doc"], 2)),
+        "max_chunks_per_doc": max(1, min(3, int(_pick({**retrieval_cfg, **config}, ["max_chunks_per_doc"], 2)))),
         "min_docs": int(_pick({**retrieval_cfg, **config}, ["min_docs"], 2)),
         "vector_weight": float(_pick({**retrieval_cfg, **config}, ["vector_weight"], 0.6)),
         "keyword_weight": float(_pick({**retrieval_cfg, **config}, ["keyword_weight"], 0.25)),

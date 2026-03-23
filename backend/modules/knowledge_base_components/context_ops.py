@@ -69,7 +69,7 @@ def _normalize_retrieval_options(limit: int, retrieval_options: Optional[dict]) 
         "retrieval_mode": str(opts.get("retrieval_mode") or "hybrid").lower(),
         "recall_top_k": _safe_int(opts.get("recall_top_k"), max(limit * 5, 20), 6, 80),
         "rerank_top_n": _safe_int(opts.get("rerank_top_n"), max(limit * 4, 8), 4, 80),
-        "max_chunks_per_doc": _safe_int(opts.get("max_chunks_per_doc"), 2, 1, 6),
+        "max_chunks_per_doc": _safe_int(opts.get("max_chunks_per_doc"), 2, 1, 3),
         "min_docs": _safe_int(opts.get("min_docs"), 2, 1, 12),
         "enable_query_rewrite": bool(opts.get("enable_query_rewrite", True)),
         "enable_rerank": bool(opts.get("enable_rerank", True)),
@@ -132,48 +132,67 @@ def _run_retrieval_once(
             reverse=True,
         )[: tuning["rerank_top_n"]]
 
-    low_filtered, low_reason, low_threshold = calc_low_relevance(reranked_chunks)
+    # 中文注释：低相关从硬拦截改为软拦截，只做告警，不直接清空上下文。
+    low_warning, low_reason, low_threshold = calc_low_relevance(reranked_chunks)
+    low_gate_pre_candidate_count = len(reranked_chunks)
+    low_gate_post_candidate_count = len(reranked_chunks)
+
+    multi_doc_query = infer_multi_doc_query(question)
+    effective_min_docs = int(tuning["min_docs"])
+    # 中文注释：功能/流程类 query 默认至少覆盖 2 篇文档。
+    if multi_doc_query:
+        effective_min_docs = max(2, effective_min_docs)
+
     # 中文注释：先做文档覆盖与冗余控制，再进入上下文压缩，避免同文档霸榜。
     diverse_candidates, diversity_stats = select_diverse_chunks(
         reranked_chunks,
-        final_top_n=max(limit * 3, tuning["min_docs"] * 2),
+        final_top_n=max(limit * 3, effective_min_docs * 2),
         max_chunks_per_doc=tuning["max_chunks_per_doc"],
-        min_docs=tuning["min_docs"],
+        min_docs=effective_min_docs,
         redundancy_threshold=tuning["redundancy_threshold"],
     )
     doc_hit_stats = build_doc_hit_stats(reranked_chunks)
     dominance_warning = build_dominance_warning(reranked_chunks, top_n=min(10, tuning["rerank_top_n"]))
-    multi_doc_query = infer_multi_doc_query(question)
     multi_doc_hint = None
-    if multi_doc_query and int(diversity_stats.get("doc_count") or 0) < tuning["min_docs"]:
+    if multi_doc_query and int(diversity_stats.get("doc_count") or 0) < effective_min_docs:
         multi_doc_hint = {
-            "message": f"该问题更像流程/规则类，建议至少覆盖 {tuning['min_docs']} 篇文档，当前仅覆盖 {diversity_stats.get('doc_count') or 0} 篇。",
-            "expected_min_docs": tuning["min_docs"],
+            "message": f"该问题更像流程/规则类，建议至少覆盖 {effective_min_docs} 篇文档，当前仅覆盖 {diversity_stats.get('doc_count') or 0} 篇。",
+            "expected_min_docs": effective_min_docs,
             "current_docs": int(diversity_stats.get("doc_count") or 0),
         }
 
-    if low_filtered:
-        selected_chunks: list[dict] = []
-        compressed = {
-            "selected_chunks": [],
-            "stats": {
-                "input_count": len(diverse_candidates),
-                "deduped_count": len(diverse_candidates),
-                "dropped_noisy": 0,
-                "dropped_over_budget": 0,
-                "dropped_over_budget_chunks": [],
-                "kept_by_original_priority": 0,
-            },
-        }
-        context_text = ""
-    else:
-        compressed = compress_context(
-            chunks=diverse_candidates,
-            max_tokens=max_tokens,
-            keep_original_top_n=2,
-        )
-        selected_chunks = (compressed.get("selected_chunks") or [])[: max(1, int(limit))]
+    compressed = compress_context(
+        chunks=diverse_candidates,
+        max_tokens=max_tokens,
+        keep_original_top_n=2,
+    )
+    selected_chunks = (compressed.get("selected_chunks") or [])[: max(1, int(limit))]
+    context_text = _format_context_chunks(selected_chunks)
+
+    if not selected_chunks and reranked_chunks:
+        fallback_count = max(1, min(int(limit), 2))
+        fallback_chunks = [dict(x) for x in reranked_chunks[:fallback_count]]
+        for chunk in fallback_chunks:
+            chunk["selection_reason"] = "soft_gate_fallback_round"
+        selected_chunks = fallback_chunks
         context_text = _format_context_chunks(selected_chunks)
+        compressed_stats = dict(compressed.get("stats") or {})
+        compressed_stats["soft_gate_fallback_applied"] = True
+        compressed_stats["soft_gate_fallback_count"] = len(fallback_chunks)
+        compressed = {
+            **compressed,
+            "selected_chunks": selected_chunks,
+            "stats": compressed_stats,
+        }
+
+    low_gate_stats = {
+        "mode": "soft",
+        "pre_candidate_count": int(low_gate_pre_candidate_count),
+        "post_candidate_count": int(low_gate_post_candidate_count),
+        "warning": bool(low_warning),
+        "reason": str(low_reason or ""),
+        "title_keyword_relaxed": bool((low_threshold or {}).get("title_keyword_relaxed")),
+    }
 
     return {
         "recall_result": recall_result,
@@ -181,14 +200,15 @@ def _run_retrieval_once(
         "compressed": compressed,
         "selected_chunks": selected_chunks,
         "context_text": context_text,
-        "low_relevance_filtered": low_filtered,
+        "low_relevance_filtered": low_warning,
         "low_relevance_reason": low_reason,
         "low_relevance_threshold": low_threshold,
+        "low_relevance_gate_stats": low_gate_stats,
         "doc_hit_stats": doc_hit_stats,
         "dominance_warning": dominance_warning,
         "multi_doc_hint": multi_doc_hint,
         "diversity_stats": diversity_stats,
-        "retrieval_tuning": tuning,
+        "retrieval_tuning": {**tuning, "min_docs_effective": effective_min_docs},
         "diverse_candidates": diverse_candidates,
     }
 
@@ -291,6 +311,7 @@ def get_relevant_context_impl(
             low_relevance_filtered = bool(last_outcome.get("low_relevance_filtered"))
             low_relevance_reason = str(last_outcome.get("low_relevance_reason") or "")
             low_relevance_threshold = last_outcome.get("low_relevance_threshold") or {}
+            low_relevance_gate_stats = last_outcome.get("low_relevance_gate_stats") or {}
             doc_hit_stats = last_outcome.get("doc_hit_stats") or []
             dominance_warning = last_outcome.get("dominance_warning")
             multi_doc_hint = last_outcome.get("multi_doc_hint")
@@ -311,6 +332,14 @@ def get_relevant_context_impl(
                 "topk_avg_threshold": float(STABILITY_CONFIG.low_rel_topk_avg_threshold),
                 "topk": int(STABILITY_CONFIG.low_rel_topk),
             }
+            low_relevance_gate_stats = {
+                "mode": "soft",
+                "pre_candidate_count": 0,
+                "post_candidate_count": 0,
+                "warning": False,
+                "reason": "",
+                "title_keyword_relaxed": False,
+            }
             doc_hit_stats = []
             dominance_warning = None
             multi_doc_hint = None
@@ -323,6 +352,8 @@ def get_relevant_context_impl(
 
         final_status = "success"
         final_failure_reason = ""
+        if selected_chunks and low_relevance_filtered:
+            final_status = "success_with_low_relevance_warning"
         if not selected_chunks:
             reason_tokens = flatten_lane_reasons(recall_result.get("debug", {}).get("lane_reasons") or {})
             if low_relevance_filtered:
@@ -372,8 +403,14 @@ def get_relevant_context_impl(
                 "final_status": final_status,
                 "final_failure_reason": final_failure_reason,
                 "low_relevance_filtered": low_relevance_filtered,
+                "low_relevance_warning": low_relevance_filtered,
                 "low_relevance_reason": low_relevance_reason,
                 "low_relevance_threshold": low_relevance_threshold,
+                "low_relevance_gate": low_relevance_gate_stats,
+                "gate_before_candidate_count": int(low_relevance_gate_stats.get("pre_candidate_count") or 0),
+                "gate_after_candidate_count": int(low_relevance_gate_stats.get("post_candidate_count") or 0),
+                "per_doc_selected_chunk_counts": diversity_stats.get("per_doc_counts") or {},
+                "doc_coverage_triggered": bool(diversity_stats.get("doc_coverage_triggered")),
                 "retrieval_profile": (
                     build_retrieval_profile(
                         question=question,
@@ -404,6 +441,7 @@ def get_relevant_context_impl(
                 "final_status": "failed_after_retry",
                 "final_failure_reason": str(e),
                 "low_relevance_filtered": False,
+                "low_relevance_warning": False,
                 "low_relevance_reason": "",
                 "low_relevance_threshold": {
                     "enabled": bool(STABILITY_CONFIG.low_rel_filter_enabled),
@@ -411,6 +449,18 @@ def get_relevant_context_impl(
                     "topk_avg_threshold": float(STABILITY_CONFIG.low_rel_topk_avg_threshold),
                     "topk": int(STABILITY_CONFIG.low_rel_topk),
                 },
+                "low_relevance_gate": {
+                    "mode": "soft",
+                    "pre_candidate_count": 0,
+                    "post_candidate_count": 0,
+                    "warning": False,
+                    "reason": "",
+                    "title_keyword_relaxed": False,
+                },
+                "gate_before_candidate_count": 0,
+                "gate_after_candidate_count": 0,
+                "per_doc_selected_chunk_counts": {},
+                "doc_coverage_triggered": False,
                 "retrieval_tuning": _normalize_retrieval_options(limit, retrieval_options),
                 "retrieval_profile": (
                     build_retrieval_profile(

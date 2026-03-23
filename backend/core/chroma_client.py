@@ -12,6 +12,7 @@ from chromadb.config import Settings
 from chromadb.utils import embedding_functions
 
 from core.config import settings
+from core.semantic_chunking import split_semantic_text
 
 # 关闭 Chroma 遥测，避免本地开发环境出现无关 telemetry 报错
 os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
@@ -166,8 +167,9 @@ class ChromaClient:
         """
         将文档写入向量库。
 
-        当前采用“按字符长度分块”的轻量策略：
-        - 每块 2000 字符
+        当前采用“语义优先 + 长度兜底”的分块策略：
+        - 优先按段落/句子边界聚合
+        - 每块不超过 2000 字符
         - 每块一个向量ID（doc_id_序号）
         - metadata 内强制写入 doc_id，便于后续按文档删除
         """
@@ -175,14 +177,20 @@ class ChromaClient:
             return
 
         try:
-            # 这里按字符分块是实用方案：实现简单、稳定性高
             max_chars = 2000
-            chunks = [content[i : i + max_chars] for i in range(0, len(content), max_chars)]
+            chunks = split_semantic_text(
+                text=content or "",
+                max_chars=max_chars,
+                min_chars=max(120, int(max_chars * 0.2)),
+            )
+            if not chunks and content:
+                chunks = [str(content)[:max_chars]]
             ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
 
             base_metadata = metadata.copy() if metadata else {}
-            base_metadata["doc_id"] = str(doc_id)
-            metadatas = [base_metadata for _ in range(len(chunks))]
+            # 兼容双索引：优先保留显式传入的“原文 doc_id”，避免被 summary 索引前缀覆盖。
+            base_metadata["doc_id"] = str(base_metadata.get("doc_id") or doc_id)
+            metadatas = [dict(base_metadata) for _ in range(len(chunks))]
 
             self.collection.add(documents=chunks, metadatas=metadatas, ids=ids)
         except Exception as e:
