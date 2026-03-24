@@ -1,6 +1,8 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from types import SimpleNamespace
+
+from sqlalchemy.exc import ProgrammingError
 
 from core.models import RagDatasetSample, RagEvalCandidate, RagEvalRun, RagEvalSampleResult
 from modules.rag_eval import rag_eval_candidate_service as svc
@@ -60,6 +62,22 @@ class _FakeDB:
     def refresh(self, obj):
         if getattr(obj, 'id', None) is None:
             obj.id = 999 + len(self.added)
+
+
+class _FlakyMissingTableQuery(_FakeQuery):
+    def __init__(self):
+        super().__init__(all_result=[])
+        self.count_calls = 0
+
+    def count(self):
+        self.count_calls += 1
+        if self.count_calls == 1:
+            raise ProgrammingError(
+                "SELECT count(*) FROM rag_eval_candidates",
+                {},
+                Exception("(1146, \"Table 'ai_test_platform.rag_eval_candidates' doesn't exist\")"),
+            )
+        return 0
 
 
 def test_suggested_dataset_type_rule():
@@ -169,3 +187,19 @@ def test_approve_and_reject_flow():
         svc._get_owned_candidate = origin_get
         svc._ensure_target_dataset = origin_ensure
         svc.build_candidate_draft = origin_build
+
+
+def test_list_candidates_missing_table_will_retry_after_auto_create():
+    query = _FlakyMissingTableQuery()
+    db = _FakeDB({RagEvalCandidate.__name__: query})
+
+    origin_ensure = svc._ensure_candidate_table
+    try:
+        svc._ensure_candidate_table = lambda _db: True
+        items, total = svc.list_candidates(db=db, user_id=1, page=1, page_size=20)
+    finally:
+        svc._ensure_candidate_table = origin_ensure
+
+    assert items == []
+    assert total == 0
+    assert query.count_calls >= 2

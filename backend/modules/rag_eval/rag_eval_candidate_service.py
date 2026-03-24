@@ -1,7 +1,9 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import inspect
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from core.models import RagDataset, RagDatasetSample, RagEvalCandidate, RagEvalRun, RagEvalSampleResult
@@ -9,6 +11,33 @@ from core.models import RagDataset, RagDatasetSample, RagEvalCandidate, RagEvalR
 # 中文注释：失败类型到目标数据集的推荐映射。
 _CHALLENGE_FAILURE_REASONS = {"hallucination", "wrong_version", "no_recall", "context_noise"}
 _REGRESSION_FAILURE_REASONS = {"incomplete_answer", "low_rank", "incorrect_answer"}
+
+
+def _is_missing_candidates_table_error(error: Exception) -> bool:
+    message = str(error or "").lower()
+    return "rag_eval_candidates" in message and ("doesn't exist" in message or "no such table" in message)
+
+
+def _ensure_candidate_table(db: Session) -> bool:
+    """
+    Lazily create rag_eval_candidates table for environments that skipped migration/init.
+    Returns True only when the table creation action is attempted successfully.
+    """
+    try:
+        bind = db.get_bind()
+    except Exception:
+        return False
+    if bind is None:
+        return False
+
+    try:
+        table_name = str(RagEvalCandidate.__tablename__)
+        if inspect(bind).has_table(table_name):
+            return False
+        RagEvalCandidate.__table__.create(bind=bind, checkfirst=True)
+        return True
+    except Exception:
+        return False
 
 
 def infer_suggested_dataset_type(failure_reason: str | None) -> str:
@@ -87,6 +116,7 @@ def _get_owned_run(db: Session, user_id: int, run_id: int) -> RagEvalRun:
 
 
 def _get_owned_candidate(db: Session, user_id: int, candidate_id: int) -> RagEvalCandidate:
+    _ensure_candidate_table(db)
     row = db.query(RagEvalCandidate).filter(RagEvalCandidate.id == candidate_id, RagEvalCandidate.user_id == user_id).first()
     if not row:
         raise ValueError("Candidate not found")
@@ -106,6 +136,7 @@ def generate_candidates_from_run(
     target_dataset_type: str | None = None,
 ) -> dict[str, Any]:
     """从指定评测运行中批量生成候选。"""
+    _ensure_candidate_table(db)
     _get_owned_run(db, user_id, run_id)
     rules = dict(filters or {})
 
@@ -188,24 +219,46 @@ def list_candidates(
     suggested_dataset_type: str | None = None,
 ) -> tuple[list[RagEvalCandidate], int]:
     """分页查询候选列表。"""
-    q = db.query(RagEvalCandidate).filter(RagEvalCandidate.user_id == user_id)
-    if status:
-        q = q.filter(RagEvalCandidate.status == status.strip().lower())
-    if source_type:
-        q = q.filter(RagEvalCandidate.source_type == source_type.strip().lower())
-    if failure_reason:
-        q = q.filter(RagEvalCandidate.failure_reason == failure_reason.strip().lower())
-    if suggested_dataset_type:
-        q = q.filter(RagEvalCandidate.suggested_dataset_type == suggested_dataset_type.strip().lower())
+    _ensure_candidate_table(db)
 
-    total = q.count()
-    items = (
-        q.order_by(RagEvalCandidate.id.desc())
-        .offset(max(0, page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
-    return items, total
+    def _build_query():
+        q = db.query(RagEvalCandidate).filter(RagEvalCandidate.user_id == user_id)
+        if status:
+            q = q.filter(RagEvalCandidate.status == status.strip().lower())
+        if source_type:
+            q = q.filter(RagEvalCandidate.source_type == source_type.strip().lower())
+        if failure_reason:
+            q = q.filter(RagEvalCandidate.failure_reason == failure_reason.strip().lower())
+        if suggested_dataset_type:
+            q = q.filter(RagEvalCandidate.suggested_dataset_type == suggested_dataset_type.strip().lower())
+        return q
+
+    q = _build_query()
+    try:
+        total = q.count()
+        items = (
+            q.order_by(RagEvalCandidate.id.desc())
+            .offset(max(0, page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        return items, total
+    except (ProgrammingError, OperationalError) as e:
+        if not _is_missing_candidates_table_error(e):
+            raise
+        created = _ensure_candidate_table(db)
+        if not created:
+            return [], 0
+
+        q = _build_query()
+        total = q.count()
+        items = (
+            q.order_by(RagEvalCandidate.id.desc())
+            .offset(max(0, page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        return items, total
 
 
 def build_candidate_draft(
@@ -321,3 +374,4 @@ def reject_candidate(*, db: Session, user_id: int, candidate_id: int, notes: str
     db.commit()
     db.refresh(candidate)
     return candidate
+
