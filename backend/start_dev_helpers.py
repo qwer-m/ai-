@@ -213,9 +213,31 @@ def ensure_redis_ready() -> bool:
 
 def ensure_database_schema(current_dir: str) -> bool:
     """Run the local database schema check before starting services."""
+    module_script = os.path.join(
+        current_dir,
+        "scripts",
+        "dev_tools",
+        "root_tools",
+        "migrations",
+        "init_db.py",
+    )
+    legacy_script = os.path.join(current_dir, "init_db.py")
+
+    if os.path.exists(module_script):
+        db_check_cmd = [sys.executable, "-m", "scripts.dev_tools.root_tools.migrations.init_db"]
+        db_check_target = "scripts.dev_tools.root_tools.migrations.init_db"
+    elif os.path.exists(legacy_script):
+        db_check_cmd = [sys.executable, legacy_script]
+        db_check_target = legacy_script
+    else:
+        print("[ERROR] Database schema script not found. Checked:")
+        print(f"  - {module_script}")
+        print(f"  - {legacy_script}")
+        return False
+
     try:
         result = subprocess.run(
-            [sys.executable, "init_db.py"],
+            db_check_cmd,
             cwd=current_dir,
             capture_output=True,
             text=True,
@@ -223,14 +245,15 @@ def ensure_database_schema(current_dir: str) -> bool:
         )
         if result.returncode != 0:
             print("[ERROR] Database schema check failed:")
+            print(f"Command: {' '.join(db_check_cmd)}")
             print(result.stdout)
             print(result.stderr)
             return False
 
-        print("Database schema checked.")
+        print(f"Database schema checked via {db_check_target}.")
         return True
     except Exception as e:
-        print(f"[ERROR] Failed to run init_db.py: {e}")
+        print(f"[ERROR] Failed to run database schema check ({db_check_target}): {e}")
         return False
 
 

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from core.db.database import SessionLocal, engine
 from core.db.models import PipelineRun, Project
 from core.processing.workflow import WorkflowKind, WorkflowStage, log_workflow_trace
-from .pipeline_routes.agent_ops import (
+from routers.pipeline_routes.agent_ops import (
     _aggregate_reviewer_decision,
     _run_stage_executor_agent,
     _run_stage_planner_agent,
@@ -18,9 +18,9 @@ from .pipeline_routes.agent_ops import (
     _save_agent_learning_snapshot,
     _upsert_agent_artifact,
 )
-from .pipeline_routes.schemas import RunStatus, STAGE_ORDER, StageKey
-from .pipeline_routes.stage_ops import _execute_stage_once
-from .pipeline_routes.support import _default_stage_states, _mark_stage, _persist_run
+from routers.pipeline_routes.schemas import RunStatus, STAGE_ORDER, StageKey
+from routers.pipeline_routes.stage_ops import _execute_stage_once
+from routers.pipeline_routes.support import _default_stage_states, _mark_stage, _persist_run
 
 STAGE_WORKFLOW_KIND: dict[StageKey, WorkflowKind] = {
     "test_generation": WorkflowKind.TEST_GENERATION,

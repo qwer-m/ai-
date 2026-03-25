@@ -25,7 +25,7 @@ from modules.orchestration.context_orchestrator import context_orchestrator
 from modules.testing.test_generation import test_generator
 from modules.domain.knowledge_base import knowledge_base
 from modules.orchestration.tasks import generate_test_cases_task
-from .test_generation_routes.support import (
+from routers.test_generation_routes.support import (
     build_generation_qm,
     detect_duplicate_document,
     get_owned_project,
