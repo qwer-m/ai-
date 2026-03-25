@@ -11,7 +11,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from core.db.models import KnowledgeDocument, ProjectContextSnapshot
-from modules.domain.knowledge_base_components.snapshot.snapshot_chunking import (
+from modules.knowledge_base_components.snapshot.snapshot_chunking import (
     build_snapshot_text_with_budget,
     trim_text_head,
 )

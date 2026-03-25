@@ -3,6 +3,51 @@ export type StandardAPITestingProps = {
   onLog: (msg: string) => void;
 };
 
+export type KeyValueItem = {
+  key: string;
+  value: string;
+  desc: string;
+};
+
+export type FormDataItem = KeyValueItem & {
+  type: "text" | "file";
+  src?: string;
+};
+
+export type BodyMode = "none" | "form-data" | "x-www-form-urlencoded" | "raw" | "binary" | "graphql";
+
+export type RawType = "Text" | "JavaScript" | "JSON" | "HTML" | "XML";
+
+export type AuthType = "none" | "bearer" | "basic" | "apikey";
+
+export type RequestSettings = {
+  timeout: number;
+  followRedirects: boolean;
+  verifySSL: boolean;
+  httpVersion: string;
+  followOriginalHttpMethod: boolean;
+  followAuthorizationHeader: boolean;
+  removeRefererHeader: boolean;
+  strictHttpParser: boolean;
+  encodeUrl: boolean;
+  disableCookieJar: boolean;
+  useServerCipherSuite: boolean;
+  maxRedirects: number;
+  disabledSSLProtocols: string;
+  cipherSuites: string;
+};
+
+export type AuthBasicCredentials = {
+  username: string;
+  password: string;
+};
+
+export type AuthApiKey = {
+  key: string;
+  value: string;
+  addTo: "header" | "query";
+};
+
 export type ResponseTab = "body" | "cookies" | "headers" | "test_results" | "report";
 
 export type TestResult = {

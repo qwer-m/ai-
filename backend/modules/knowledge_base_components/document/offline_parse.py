@@ -1,4 +1,4 @@
-﻿"""知识库离线解析组件（阶段1）。"""
+"""知识库离线解析组件（阶段1）。"""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from sqlalchemy.orm import Session
 from core.cache_layer.chroma_client import chroma_client
 from core.processing.file_processing import parse_file_path
 from core.db.models import KnowledgeDocument
-from modules.domain.knowledge_base_components.document.document_ops import INDEXABLE_DOC_TYPES
-from modules.domain.knowledge_base_components.document.offline_parse_support import (
+from modules.knowledge_base_components.document.document_ops import INDEXABLE_DOC_TYPES
+from modules.knowledge_base_components.document.offline_parse_support import (
     has_injection_flag,
     safe_error_message,
     validate_parsed_content,

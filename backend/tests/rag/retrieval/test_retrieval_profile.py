@@ -1,4 +1,4 @@
-from modules.domain.knowledge_base_components.retrieval.retrieval_profile import build_retrieval_profile
+from modules.knowledge_base_components.retrieval.retrieval_profile import build_retrieval_profile
 
 
 def test_build_retrieval_profile_contains_required_fields():

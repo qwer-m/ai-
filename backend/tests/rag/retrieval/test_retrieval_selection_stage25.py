@@ -1,4 +1,4 @@
-from modules.domain.knowledge_base_components.retrieval.retrieval_selection import select_diverse_chunks
+from modules.knowledge_base_components.retrieval.retrieval_selection import select_diverse_chunks
 
 
 def _chunk(

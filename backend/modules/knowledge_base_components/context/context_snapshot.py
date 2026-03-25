@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from core.db.models import KnowledgeDocument, ProjectContextSnapshot
 from modules.domain.stage25_switches import STAGE25_SWITCHES
-from modules.domain.knowledge_base_components.snapshot.snapshot_builder import (
+from modules.knowledge_base_components.snapshot.snapshot_builder import (
     SNAPSHOT_CONFIG,
     build_corpus_hash,
     build_snapshot_text,
@@ -26,7 +26,7 @@ from modules.domain.knowledge_base_components.snapshot.snapshot_builder import (
     merge_incremental_snapshot,
     safe_json_loads,
 )
-from modules.domain.knowledge_base_components.snapshot.snapshot_readiness import evaluate_snapshot_readiness
+from modules.knowledge_base_components.snapshot.snapshot_readiness import evaluate_snapshot_readiness
 
 logger = logging.getLogger(__name__)
 

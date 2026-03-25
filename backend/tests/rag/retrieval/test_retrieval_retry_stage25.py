@@ -1,4 +1,4 @@
-from modules.domain.knowledge_base_components.retrieval.retrieval_retry import calc_low_relevance
+from modules.knowledge_base_components.retrieval.retrieval_retry import calc_low_relevance
 
 
 def test_calc_low_relevance_prefers_fusion_final_and_relaxes_on_strong_hits():

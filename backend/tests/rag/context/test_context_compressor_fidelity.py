@@ -1,4 +1,4 @@
-from modules.domain.knowledge_base_components.context.context_compressor import compress_context
+from modules.knowledge_base_components.context.context_compressor import compress_context
 
 
 def test_compress_context_emits_enhanced_fidelity_report():

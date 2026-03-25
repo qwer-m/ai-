@@ -18,8 +18,8 @@ from celery_config import celery_app
 from core.db.database import SessionLocal
 from core.db.models import LogEntry
 from modules.domain.knowledge_base import knowledge_base
-from modules.domain.knowledge_base_components.document.index_audit import run_index_consistency_audit
-from modules.domain.knowledge_base_components.document.offline_parse import cleanup_offline_file
+from modules.knowledge_base_components.document.index_audit import run_index_consistency_audit
+from modules.knowledge_base_components.document.offline_parse import cleanup_offline_file
 from modules.domain.stage25_switches import STAGE25_SWITCHES
 from modules.testing.test_generation import test_generator
 

@@ -1,4 +1,4 @@
-import modules.domain.knowledge_base_components.context.context_ops as context_ops
+import modules.knowledge_base_components.context.context_ops as context_ops
 
 
 def test_context_ops_low_relevance_soft_gate_keeps_context(monkeypatch):

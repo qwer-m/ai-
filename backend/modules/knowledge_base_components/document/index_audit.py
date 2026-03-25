@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from core.cache_layer.chroma_client import chroma_client
 from core.db.models import KnowledgeDocument
-from modules.domain.knowledge_base_components.document.document_ops import INDEXABLE_DOC_TYPES
+from modules.knowledge_base_components.document.document_ops import INDEXABLE_DOC_TYPES
 from modules.domain.stage25_switches import STAGE25_SWITCHES
 
 

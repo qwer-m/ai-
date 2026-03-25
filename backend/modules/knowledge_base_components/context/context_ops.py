@@ -15,11 +15,11 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from core.db.models import KnowledgeDocument
-from modules.domain.knowledge_base_components.context.context_compressor import compress_context
-from modules.domain.knowledge_base_components.retrieval.retrieval_profile import build_retrieval_profile
-from modules.domain.knowledge_base_components.retrieval.pipeline.recall_pipeline import recall_chunks
-from modules.domain.knowledge_base_components.retrieval.reranker import rerank_chunks
-from modules.domain.knowledge_base_components.retrieval.retrieval_retry import (
+from modules.knowledge_base_components.context.context_compressor import compress_context
+from modules.knowledge_base_components.retrieval.retrieval_profile import build_retrieval_profile
+from modules.knowledge_base_components.retrieval.pipeline.recall_pipeline import recall_chunks
+from modules.knowledge_base_components.retrieval.reranker import rerank_chunks
+from modules.knowledge_base_components.retrieval.retrieval_retry import (
     STABILITY_CONFIG,
     build_final_chunk_debug,
     build_rerank_top,
@@ -29,7 +29,7 @@ from modules.domain.knowledge_base_components.retrieval.retrieval_retry import (
     now_iso,
     should_retry,
 )
-from modules.domain.knowledge_base_components.retrieval.retrieval_selection import (
+from modules.knowledge_base_components.retrieval.retrieval_selection import (
     build_doc_hit_stats,
     build_dominance_warning,
     infer_multi_doc_query,

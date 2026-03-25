@@ -7,6 +7,8 @@ export type TestGenerationProps = {
   onError?: (msg: string) => void;
 };
 
+export type TestGenerationMode = 'text' | 'file';
+
 export type CoveragePlan = {
   recommended_total: number;
   coverage_dimensions?: string[];

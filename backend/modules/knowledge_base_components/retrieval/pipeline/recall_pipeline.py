@@ -1,4 +1,4 @@
-﻿"""
+"""
 多路召回管道（RAG 第二阶段检索治理）。
 
 目标：
@@ -15,8 +15,8 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from core.cache_layer.chroma_client import chroma_client
-from modules.domain.knowledge_base_components.query.query_rewriter import rewrite_query
-from modules.domain.knowledge_base_components.retrieval.retrieval_hybrid import (
+from modules.knowledge_base_components.query.query_rewriter import rewrite_query
+from modules.knowledge_base_components.retrieval.retrieval_hybrid import (
     apply_hybrid_scores,
     build_keyword_candidates,
 )

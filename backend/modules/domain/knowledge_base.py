@@ -17,23 +17,23 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, aliased
 
 from core.db.models import KnowledgeDocument
-from modules.domain.knowledge_base_components.context.context_ops import (
+from modules.knowledge_base_components.context.context_ops import (
     get_all_context_impl,
     get_relevant_context_impl,
 )
-from modules.domain.knowledge_base_components.context.context_snapshot import (
+from modules.knowledge_base_components.context.context_snapshot import (
     enqueue_context_snapshot_rebuild_impl,
     get_context_snapshot_status_impl,
     get_or_build_context_snapshot_impl,
 )
-from modules.domain.knowledge_base_components.document.document_ops import (
+from modules.knowledge_base_components.document.document_ops import (
     add_document_impl,
     delete_document_impl,
     move_document_impl,
     reorder_documents_impl,
     update_document_impl,
 )
-from modules.domain.knowledge_base_components.document.offline_parse import (
+from modules.knowledge_base_components.document.offline_parse import (
     bind_parse_task_impl,
     cleanup_offline_file,
     create_pending_document_impl,

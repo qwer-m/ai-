@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from modules.domain.knowledge_base_components import document_ops
+from modules.knowledge_base_components import document_ops
 
 
 class _FakeQuery:

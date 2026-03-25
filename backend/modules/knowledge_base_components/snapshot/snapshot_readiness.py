@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from core.db.models import ProjectContextSnapshot
-from modules.domain.knowledge_base_components.snapshot.snapshot_builder import SNAPSHOT_CONFIG, decide_rebuild_mode
+from modules.knowledge_base_components.snapshot.snapshot_builder import SNAPSHOT_CONFIG, decide_rebuild_mode
 
 
 def _is_success_snapshot(snapshot: Optional[ProjectContextSnapshot]) -> bool:

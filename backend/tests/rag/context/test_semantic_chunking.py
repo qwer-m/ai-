@@ -1,6 +1,6 @@
 from core.processing.semantic_chunking import semantic_head, split_semantic_text
 from core.cache_layer.chroma_client import ChromaClient
-from modules.domain.knowledge_base_components.snapshot.snapshot_chunking import split_snapshot_sources_by_limit
+from modules.knowledge_base_components.snapshot.snapshot_chunking import split_snapshot_sources_by_limit
 
 
 class _FakeCollection:

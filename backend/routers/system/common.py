@@ -6,7 +6,6 @@ from typing import Any, Optional
 
 from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
@@ -15,115 +14,28 @@ from core.authn.auth import get_current_user
 from core.db.database import get_db
 from core.db.models import KnowledgeDocument, Project, User
 from modules.domain.knowledge_base import knowledge_base
-from modules.domain.knowledge_base_components.document.index_audit import run_index_consistency_audit
+from modules.knowledge_base_components.document.index_audit import run_index_consistency_audit
 from schemas.base.common import ErrorTranslateRequest
+from routers.system.common_responses import (
+    build_knowledge_detail_response,
+    build_knowledge_list_related_maps,
+    build_knowledge_list_response,
+    build_parse_status_response,
+    build_upload_knowledge_response,
+)
+from routers.system.common_support import (
+    MoveDocumentRequest,
+    RelationUpdateRequest,
+    RetrieveContextRequest,
+    _get_owned_doc_by_id_or_project_specific_id,
+    _get_owned_project,
+    _serialize_doc,
+    extract_error_text,
+    translate_error_text,
+)
 
 router = APIRouter(tags=["Common"])
 logger = logging.getLogger(__name__)
-
-# 需求类文档类型集合：这些文档可以作为测试用例的来源文档。
-REQUIREMENT_LIKE_TYPES = {"requirement", "product_requirement", "incomplete"}
-
-
-class RelationUpdateRequest(BaseModel):
-    """更新测试用例与需求文档关联关系的请求体。"""
-
-    doc_id: int
-    source_doc_id: Optional[int] = None
-
-
-class MoveDocumentRequest(BaseModel):
-    """知识库拖拽排序请求体。"""
-
-    project_id: int
-    doc_id: int
-    anchor_doc_id: int
-    position: str
-
-
-class RetrieveContextRequest(BaseModel):
-    """检索治理调试请求体。"""
-
-    project_id: int
-    query: str
-    limit: int = 5
-    max_tokens: int = 1800
-    debug: bool = False
-
-
-def _to_iso(dt: Any) -> Optional[str]:
-    """统一把时间字段转为可序列化的 ISO 字符串。"""
-    if dt is None:
-        return None
-    if hasattr(dt, "isoformat"):
-        return dt.isoformat()
-    return str(dt)
-
-
-def _serialize_linked_doc(doc: KnowledgeDocument) -> dict:
-    """把关联测试用例序列化为前端可直接消费的数据结构。"""
-    return {
-        "id": doc.project_specific_id or doc.id,
-        "global_id": doc.id,
-        "filename": doc.filename,
-        "content_preview": (doc.content or "")[:180],
-    }
-
-
-def _serialize_doc(
-    doc: KnowledgeDocument,
-    source_name_map: dict[int, str],
-    linked_map: dict[int, list[dict]],
-) -> dict:
-    """把知识库文档序列化为列表结构，同时补充离线解析状态字段。"""
-    content = doc.content or ""
-    return {
-        "id": doc.project_specific_id or doc.id,
-        "global_id": doc.id,
-        "filename": doc.filename,
-        "doc_type": doc.doc_type,
-        "created_at": _to_iso(doc.created_at),
-        "file_size": len(content.encode("utf-8")),
-        "source_doc_id": doc.source_doc_id,
-        "source_doc_name": source_name_map.get(doc.source_doc_id),
-        "linked_test_cases": linked_map.get(doc.id, []),
-        "content_preview": content[:180],
-        "parse_status": doc.parse_status,
-        "parse_error": doc.parse_error,
-        "parsed_at": _to_iso(doc.parsed_at),
-        "task_id": doc.task_id,
-        "retry_count": doc.retry_count,
-    }
-
-
-def _get_owned_project(project_id: int, user_id: int, db: Session) -> Optional[Project]:
-    """校验项目归属，避免跨用户访问。"""
-    return db.query(Project).filter(Project.id == project_id, Project.user_id == user_id).first()
-
-
-def _get_owned_doc_by_id_or_project_specific_id(
-    doc_id: int,
-    user_id: int,
-    db: Session,
-) -> Optional[KnowledgeDocument]:
-    """先按全局ID查询，查不到再按 project_specific_id 兜底。"""
-    doc = (
-        db.query(KnowledgeDocument)
-        .join(Project, Project.id == KnowledgeDocument.project_id)
-        .filter(KnowledgeDocument.id == doc_id, Project.user_id == user_id)
-        .first()
-    )
-    if doc:
-        return doc
-
-    return (
-        db.query(KnowledgeDocument)
-        .join(Project, Project.id == KnowledgeDocument.project_id)
-        .filter(KnowledgeDocument.project_specific_id == doc_id, Project.user_id == user_id)
-        .order_by(KnowledgeDocument.created_at.desc(), KnowledgeDocument.id.desc())
-        .first()
-    )
-
 
 @router.get("/knowledge-list")
 def list_knowledge(
@@ -194,43 +106,10 @@ def list_knowledge(
         .all()
     )
 
-    requirement_ids = [d.id for d in documents if d.doc_type in REQUIREMENT_LIKE_TYPES]
-    linked_map: dict[int, list[dict]] = {}
-    if requirement_ids:
-        linked_docs = (
-            db.query(KnowledgeDocument)
-            .filter(
-                KnowledgeDocument.project_id == project_id,
-                KnowledgeDocument.doc_type == "test_case",
-                KnowledgeDocument.source_doc_id.in_(requirement_ids),
-            )
-            .order_by(KnowledgeDocument.created_at.desc(), KnowledgeDocument.id.desc())
-            .all()
-        )
-        for linked in linked_docs:
-            linked_map.setdefault(linked.source_doc_id, []).append(_serialize_linked_doc(linked))
-
-    source_ids = {d.source_doc_id for d in documents if d.source_doc_id}
-    source_name_map: dict[int, str] = {}
-    if source_ids:
-        source_docs = (
-            db.query(KnowledgeDocument.id, KnowledgeDocument.filename)
-            .filter(KnowledgeDocument.project_id == project_id, KnowledgeDocument.id.in_(source_ids))
-            .all()
-        )
-        source_name_map = {doc.id: doc.filename for doc in source_docs}
+    linked_map, source_name_map = build_knowledge_list_related_maps(db, project_id, documents)
 
     serialized_docs = [_serialize_doc(doc, source_name_map, linked_map) for doc in documents]
-
-    return {
-        "documents": serialized_docs,
-        "pagination": {
-            "page": page,
-            "page_size": page_size,
-            "total": total,
-            "total_pages": total_pages,
-        },
-    }
+    return build_knowledge_list_response(serialized_docs, page, page_size, total, total_pages)
 
 
 @router.post("/upload-knowledge")
@@ -257,19 +136,7 @@ async def upload_knowledge(
     )
     doc = enqueue_result["document"]
 
-    return {
-        "success": True,
-        "id": doc.project_specific_id or doc.id,
-        "global_id": doc.id,
-        "filename": doc.filename,
-        "doc_type": doc.doc_type,
-        "created_at": _to_iso(doc.created_at),
-        "parse_status": doc.parse_status,
-        "parse_error": doc.parse_error,
-        "parsed_at": _to_iso(doc.parsed_at),
-        "task_id": enqueue_result.get("task_id"),
-        "retry_count": doc.retry_count,
-    }
+    return build_upload_knowledge_response(doc, enqueue_result)
 
 
 @router.get("/knowledge/{doc_id}")
@@ -294,21 +161,7 @@ def get_knowledge(
         .all()
     )
 
-    return {
-        "id": doc.project_specific_id or doc.id,
-        "global_id": doc.id,
-        "filename": doc.filename,
-        "doc_type": doc.doc_type,
-        "created_at": _to_iso(doc.created_at),
-        "content": doc.content,
-        "source_doc_id": doc.source_doc_id,
-        "linked_docs": [_serialize_linked_doc(linked) for linked in linked_docs],
-        "parse_status": doc.parse_status,
-        "parse_error": doc.parse_error,
-        "parsed_at": _to_iso(doc.parsed_at),
-        "task_id": doc.task_id,
-        "retry_count": doc.retry_count,
-    }
+    return build_knowledge_detail_response(doc, linked_docs)
 
 
 @router.get("/knowledge/{doc_id}/parse-status")
@@ -362,16 +215,7 @@ def get_knowledge_parse_status(
 
 
 
-    return {
-        "id": doc.project_specific_id or doc.id,
-        "global_id": doc.id,
-        "parse_status": doc.parse_status,
-        "parse_error": doc.parse_error,
-        "parsed_at": _to_iso(doc.parsed_at),
-        "task_id": doc.task_id,
-        "retry_count": doc.retry_count,
-        "task_state": task_state,
-    }
+    return build_parse_status_response(doc, task_state)
 
 
 @router.post("/knowledge/index-consistency/audit")
@@ -577,61 +421,4 @@ def translate_error(req: ErrorTranslateRequest, current_user: User = Depends(get
     raw = extract_error_text(req.error)
     message = translate_error_text(raw)
     return {"message": message, "raw": raw}
-
-
-def extract_error_text(err: Any) -> str:
-    """从不同错误结构中提取可读文本。"""
-    if err is None:
-        return ""
-    if isinstance(err, str):
-        return err
-    if isinstance(err, dict):
-        for key in ["message", "detail", "error", "msg", "code"]:
-            val = err.get(key)
-            if val:
-                return str(val)
-        try:
-            return json.dumps(err, ensure_ascii=False)
-        except Exception:
-            return str(err)
-    return str(err)
-
-
-def translate_error_text(text: str) -> str:
-    """将常见英文错误关键词映射成中文。"""
-    if not text:
-        return "发生未知错误"
-    if re.search(r"[\u4e00-\u9fff]", text):
-        return text
-
-    lower = text.lower()
-    mapping = [
-        ("timeout", "请求超时"),
-        ("timed out", "请求超时"),
-        ("failed to fetch", "网络请求失败"),
-        ("networkerror", "网络请求失败"),
-        ("ssl", "网络连接异常，请检查网络环境后重试"),
-        ("unexpected_eof_while_reading", "网络连接被中断，请稍后重试"),
-        ("econnrefused", "连接被拒绝"),
-        ("connection refused", "连接被拒绝"),
-        ("unauthorized", "未授权或登录已过期"),
-        ("forbidden", "权限不足"),
-        ("not found", "资源不存在"),
-        ("bad request", "请求参数错误"),
-        ("invalidparameter", "参数错误"),
-        ("quotaexhausted", "额度已耗尽"),
-        ("arrearage", "余额不足"),
-        ("paymentrequired", "需要付费或余额不足"),
-        ("rate limit", "请求过于频繁"),
-        ("json", "响应解析失败"),
-        ("parse", "响应解析失败"),
-        ("500", "服务端异常"),
-        ("502", "网关错误"),
-        ("503", "服务暂不可用"),
-        ("504", "网关超时"),
-    ]
-    for key, msg in mapping:
-        if key in lower:
-            return msg
-    return "发生错误，请稍后重试"
 
