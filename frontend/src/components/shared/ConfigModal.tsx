@@ -1,63 +1,10 @@
-import { Modal, Button, Form, Alert, Tabs, Tab, Spinner, Badge, InputGroup, OverlayTrigger, Tooltip } from 'react-bootstrap';
-import { useState, useEffect } from 'react';
+﻿import { useEffect, useState } from 'react';
+import { Alert, Badge, Button, Modal, Spinner, Tab, Tabs } from 'react-bootstrap';
 import { api } from '../../utils/api';
-
-const QuotaRing = ({ provider, apiKey, baseUrl, model }: { provider: string, apiKey: string, baseUrl: string, model: string }) => {
-  const [quota, setQuota] = useState<{ total: number; remaining: number; supported: boolean; loading: boolean }>({
-    total: 0, remaining: 0, supported: false, loading: true
-  });
-  
-  const fetchData = async () => {
-      if (!apiKey && provider !== 'local') return;
-      
-      try {
-          const res = await api.post<any>('/api/config/quota', {
-              provider, 
-              api_key: apiKey,
-              base_url: baseUrl,
-              model_name: model
-          });
-          
-          if (res.supported) {
-              setQuota({
-                  total: parseFloat(res.total),
-                  remaining: parseFloat(res.remaining),
-                  supported: true,
-                  loading: false
-              });
-          } else {
-              setQuota(prev => ({ ...prev, supported: false, loading: false }));
-          }
-      } catch (e) {
-          setQuota(prev => ({ ...prev, loading: false }));
-      }
-  };
-
-  useEffect(() => {
-      fetchData();
-      const interval = setInterval(fetchData, 10000);
-      return () => clearInterval(interval);
-  }, [provider, apiKey, baseUrl]);
-
-  if (!quota.supported) return null;
-
-  const percent = quota.total > 0 ? (quota.remaining / quota.total) * 100 : 0;
-  const color = percent < 20 ? '#dc3545' : percent < 50 ? '#ffc107' : '#28a745'; 
-
-  return (
-    <OverlayTrigger
-      placement="top"
-      overlay={<Tooltip>余额: ${quota.remaining.toFixed(2)} / ${quota.total.toFixed(2)}</Tooltip>}
-    >
-        <div style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', width: '20px', height: '20px', cursor: 'help', zIndex: 5 }}>
-            <svg viewBox="0 0 36 36">
-                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#eee" strokeWidth="4" />
-                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke={color} strokeWidth="4" strokeDasharray={`${percent}, 100`} />
-            </svg>
-        </div>
-    </OverlayTrigger>
-  );
-};
+import { CloudTab } from './ConfigModalCloudTab';
+import type { DetectedService } from './ConfigModal.types';
+import { LocalTab } from './ConfigModalLocalTab';
+import { translateConfigError } from './ConfigModal.utils';
 
 type Props = {
   show: boolean;
@@ -65,107 +12,23 @@ type Props = {
   initialError?: string | null;
 };
 
-type DetectedService = {
-  url: string;
-  success: boolean;
-  latency?: number;
-  models?: Array<{ id: string; object: string }>;
-};
-
-const containsChinese = (text: string) => /[\u4e00-\u9fff]/.test(text);
-
-/**
- * 配置中心错误中文化兜底：
- * 1. 优先命中后端翻译接口；
- * 2. 接口不可用时，用本地规则把常见网络/鉴权错误转为中文；
- * 3. 最终保证 UI 不直接暴露英文技术栈报错。
- */
-const localizeConfigError = (raw: string): string => {
-  if (!raw) return '发生未知错误，请稍后重试。';
-  if (containsChinese(raw)) return raw;
-
-  const lower = raw.toLowerCase();
-  const mapping: Array<[string, string]> = [
-    ['ssl: unexpected_eof_while_reading', '与云端服务的 SSL 握手异常，请检查网络、代理或系统时间。'],
-    ['certificate verify failed', 'SSL 证书校验失败，请检查系统时间、证书链或代理设置。'],
-    ['httpsconnectionpool', '连接云端服务失败，请检查网络或代理配置。'],
-    ['max retries exceeded', '连接云端服务失败（多次重试未成功），请检查网络后重试。'],
-    ['failed to establish a new connection', '无法建立网络连接，请检查网络或防火墙设置。'],
-    ['name or service not known', '域名解析失败，请检查 DNS 或网络配置。'],
-    ['temporary failure in name resolution', '域名解析失败，请稍后重试。'],
-    ['connection refused', '连接被拒绝，请确认服务地址和端口是否可用。'],
-    ['econnrefused', '连接被拒绝，请确认服务地址和端口是否可用。'],
-    ['timed out', '请求超时，请检查网络后重试。'],
-    ['timeout', '请求超时，请检查网络后重试。'],
-    ['unauthorized', '鉴权失败，请检查 API Key 是否正确。'],
-    ['invalid api key', 'API Key 无效，请重新填写。'],
-    ['insufficient_quota', '账户配额不足，请检查余额或配额限制。'],
-    ['quota', '账户配额不足或已达到上限，请检查配置。'],
-    ['429', '请求过于频繁，请稍后重试。'],
-    ['500', '服务端异常，请稍后重试。'],
-    ['502', '网关异常，请稍后重试。'],
-    ['503', '服务暂不可用，请稍后重试。'],
-    ['504', '网关超时，请稍后重试。'],
-  ];
-
-  for (const [key, value] of mapping) {
-    if (lower.includes(key)) return value;
-  }
-  return '连接校验失败，请稍后重试。';
-};
-
-const extractErrorText = (error: unknown): string => {
-  const err = error as any;
-  if (!err) return '';
-  if (typeof err === 'string') return err;
-  if (err?.data?.error) return String(err.data.error);
-  if (err?.data?.detail) return String(err.data.detail);
-  if (err?.data?.message) return String(err.data.message);
-  if (err?.message) return String(err.message);
-  return String(err);
-};
-
 export function ConfigModal({ show, onHide, initialError }: Props) {
   const [activeTab, setActiveTab] = useState<'cloud' | 'local'>('cloud');
-  
-  // 云端配置
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
   const [vlModel, setVlModel] = useState('');
   const [turboModel, setTurboModel] = useState('');
   const [provider, setProvider] = useState('dashscope');
-  
-  // 本地配置
   const [localBaseUrl, setLocalBaseUrl] = useState('http://localhost:11434/v1');
   const [localModel, setLocalModel] = useState('');
   const [detectedServices, setDetectedServices] = useState<DetectedService[]>([]);
   const [detecting, setDetecting] = useState(false);
-
-  // 状态
   const [msg, setMsg] = useState<{ type: 'danger' | 'success'; text: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [streamOutput, setStreamOutput] = useState('');
   const [streamStatus, setStreamStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [isDirty, setIsDirty] = useState(false);
 
-  const translateConfigError = async (error: unknown): Promise<string> => {
-    const raw = extractErrorText(error).trim();
-    if (!raw) return '发生未知错误，请稍后重试。';
-    if (containsChinese(raw)) return raw;
-
-    try {
-      const translated = await api.post<{ message?: string }>('/api/error/translate', { error: raw });
-      const msg = String(translated?.message || '').trim();
-      if (msg && containsChinese(msg)) {
-        return msg;
-      }
-    } catch {
-      // 翻译接口失败时走本地兜底，保证前端提示仍为中文。
-    }
-    return localizeConfigError(raw);
-  };
-
-  // 中文说明：当用户切换 Tab、服务商或模型时，清空之前的错误提示，避免“与当前选择无关的旧错误”残留造成困惑
   useEffect(() => {
     if (msg?.type === 'danger') {
       setMsg(null);
@@ -174,7 +37,6 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
     }
   }, [activeTab, provider, model, localBaseUrl, localModel]);
 
-  // 防止意外关闭
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (isDirty) {
@@ -188,9 +50,9 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
 
   useEffect(() => {
     if (show) {
-      // 加载当前配置
-      api.get<any>('/api/config/current')
-        .then(data => {
+      api
+        .get<any>('/api/config/current')
+        .then((data) => {
           if (data.active) {
             if (['dashscope', 'openai'].includes(data.provider)) {
               setActiveTab('cloud');
@@ -230,12 +92,11 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
         'http://localhost:11434/v1',
         'http://127.0.0.1:11434/v1',
         'http://localhost:8000/v1',
-        'http://localhost:1234/v1'
+        'http://localhost:1234/v1',
       ];
       const data = await api.post<any>('/api/config/detect', { candidates });
       setDetectedServices(data.services || []);
-      
-      // 自动选择发现的第一个服务
+
       if (data.services && data.services.length > 0) {
         const s = data.services[0];
         setLocalBaseUrl(s.url);
@@ -251,28 +112,80 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
     }
   };
 
+  const markDirty = () => setIsDirty(true);
+
+  const startStreamTest = async (payload: any) => {
+    setStreamStatus('running');
+    setStreamOutput('');
+    try {
+      const query = new URLSearchParams({
+        provider: payload.provider,
+        model: payload.model_name,
+        prompt: 'Hello!',
+      });
+      if (payload.api_key) query.append('api_key', payload.api_key);
+      if (payload.base_url) query.append('base_url', payload.base_url);
+
+      const eventSource = new EventSource(`/api/config/test-stream?${query.toString()}`);
+
+      const appendTranslatedStreamError = async (rawError: unknown) => {
+        const translated = await translateConfigError(rawError);
+        setStreamOutput((prev) => prev + `\n${translated}`);
+      };
+
+      eventSource.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        if (data.token) {
+          setStreamOutput((prev) => prev + data.token);
+        }
+        if (data.error) {
+          setStreamStatus('error');
+          void appendTranslatedStreamError(data.error);
+          eventSource.close();
+        }
+        if (data.done) {
+          setStreamStatus('done');
+          eventSource.close();
+        }
+      };
+
+      eventSource.onerror = () => {
+        setStreamStatus('error');
+        setStreamOutput((prev) => prev + '\n连接测试通道异常，请稍后重试。');
+        eventSource.close();
+      };
+    } catch (e) {
+      setStreamStatus('error');
+      const translated = await translateConfigError(e);
+      setStreamOutput((prev) => prev + `\n${translated}`);
+    }
+  };
+
   const handleValidate = async () => {
     setLoading(true);
     setMsg(null);
     setStreamOutput('');
     setStreamStatus('idle');
-    
-    const payload = activeTab === 'cloud' 
-      ? { 
-          provider, 
-          api_key: apiKey === '******' ? '' : apiKey, 
-          model_name: model,
-          vl_model_name: vlModel,
-          turbo_model_name: turboModel
-        }
-      : { provider: 'local', base_url: localBaseUrl, model_name: localModel };
+
+    const payload =
+      activeTab === 'cloud'
+        ? {
+            provider,
+            api_key: apiKey === '******' ? '' : apiKey,
+            model_name: model,
+            vl_model_name: vlModel,
+            turbo_model_name: turboModel,
+          }
+        : { provider: 'local', base_url: localBaseUrl, model_name: localModel };
 
     try {
       const data = await api.post<any>('/api/config/validate', payload);
       if (data.valid) {
-        const label = activeTab === 'cloud' ? `${provider}/${model || '(未填写模型)'}` : `local/${localModel || '(未填写模型)'}`;
-        setMsg({ type: 'success', text: `验证通过 (${label})，延迟: ${data.details?.latency}ms` });
-        // 开始流式测试
+        const label =
+          activeTab === 'cloud'
+            ? `${provider}/${model || '(未填写模型)'}`
+            : `local/${localModel || '(未填写模型)'}`;
+        setMsg({ type: 'success', text: `验证通过 (${label})，延迟 ${data.details?.latency}ms` });
         startStreamTest(payload);
       } else {
         const errorText = await translateConfigError(data?.error || '验证失败');
@@ -286,68 +199,22 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
     }
   };
 
-  const startStreamTest = async (payload: any) => {
-    setStreamStatus('running');
-    setStreamOutput('');
-    try {
-      const query = new URLSearchParams({
-        provider: payload.provider,
-        model: payload.model_name,
-        prompt: "Hello!"
-      });
-      if (payload.api_key) query.append('api_key', payload.api_key);
-      if (payload.base_url) query.append('base_url', payload.base_url);
-
-      const eventSource = new EventSource(`/api/config/test-stream?${query.toString()}`);
-      
-      const appendTranslatedStreamError = async (rawError: unknown) => {
-        const translated = await translateConfigError(rawError);
-        setStreamOutput(prev => prev + `\n${translated}`);
-      };
-
-      eventSource.onmessage = (e) => {
-        const data = JSON.parse(e.data);
-        if (data.token) {
-          setStreamOutput(prev => prev + data.token);
-        }
-        if (data.error) {
-          setStreamStatus('error');
-          void appendTranslatedStreamError(data.error);
-          eventSource.close();
-        }
-        if (data.done) {
-          setStreamStatus('done');
-          eventSource.close();
-        }
-      };
-      
-      eventSource.onerror = () => {
-        setStreamStatus('error');
-        setStreamOutput(prev => prev + '\n连接测试通道异常，请稍后重试。');
-        eventSource.close();
-      };
-    } catch (e) {
-      setStreamStatus('error');
-      const translated = await translateConfigError(e);
-      setStreamOutput(prev => prev + `\n${translated}`);
-    }
-  };
-
   const handleSave = async () => {
     setLoading(true);
     try {
-      const payload = activeTab === 'cloud' 
-        ? { 
-            provider, 
-            api_key: apiKey === '******' ? undefined : apiKey, 
-            model_name: model,
-            vl_model_name: vlModel,
-            turbo_model_name: turboModel
-          }
-        : { provider: 'local', base_url: localBaseUrl, model_name: localModel };
+      const payload =
+        activeTab === 'cloud'
+          ? {
+              provider,
+              api_key: apiKey === '******' ? undefined : apiKey,
+              model_name: model,
+              vl_model_name: vlModel,
+              turbo_model_name: turboModel,
+            }
+          : { provider: 'local', base_url: localBaseUrl, model_name: localModel };
 
       const data = await api.post<any>('/api/config/save', payload);
-      
+
       if (data.status === 'success') {
         setMsg({ type: 'success', text: '配置已激活' });
         setIsDirty(false);
@@ -381,136 +248,43 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
       </Modal.Header>
       <Modal.Body>
         {msg && <Alert variant={msg.type}>{msg.text}</Alert>}
-        
-        <Tabs activeKey={activeTab} onSelect={(k) => setActiveTab(k as any)} className="mb-3">
-          <Tab eventKey="cloud" title="云端模型 (Cloud)">
-            <Form onChange={() => setIsDirty(true)}>
-              <Form.Group className="mb-3">
-                <Form.Label>服务商</Form.Label>
-                <Form.Select value={provider} onChange={(e) => setProvider(e.target.value)}>
-                  <option value="dashscope">DashScope (阿里云灵积)</option>
-                  <option value="openai">OpenAI (及兼容服务)</option>
-                </Form.Select>
-              </Form.Group>
-              <Form.Group className="mb-3">
-                <Form.Label>API Key</Form.Label>
-                <InputGroup>
-                  <Form.Control
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={apiKey === '******' ? '已加密存储' : 'sk-...'}
-                  />
-                </InputGroup>
-                <Form.Text className="text-muted">
-                  密钥将通过强加密存储在数据库中，绝不明文传输。
-                </Form.Text>
-              </Form.Group>
-              <div className="row">
-                <div className="col-md-4">
-                  <Form.Group className="mb-3">
-                    <Form.Label>文本模型</Form.Label>
-                    <div style={{ position: 'relative' }}>
-                        <Form.Control 
-                          type="text" 
-                          value={model} 
-                          onChange={(e) => setModel(e.target.value)} 
-                          list="cloud-models"
-                          style={{ paddingRight: '35px' }}
-                        />
-                        <QuotaRing provider={provider} apiKey={apiKey} baseUrl="" model={model} />
-                    </div>
-                    <datalist id="cloud-models">
-                    </datalist>
-                  </Form.Group>
-                </div>
-                <div className="col-md-4">
-                  <Form.Group className="mb-3">
-                    <Form.Label>上下文压缩模型</Form.Label>
-                    <Form.Control 
-                      type="text" 
-                      value={turboModel} 
-                      onChange={(e) => setTurboModel(e.target.value)} 
-                      placeholder="e.g. qwen-turbo"
-                      list="turbo-models"
-                    />
-                    <datalist id="turbo-models">
-                    </datalist>
-                  </Form.Group>
-                </div>
-                <div className="col-md-4">
-                  <Form.Group className="mb-3">
-                    <Form.Label>图像模型</Form.Label>
-                    <Form.Control 
-                      type="text" 
-                      value={vlModel} 
-                      onChange={(e) => setVlModel(e.target.value)} 
-                      placeholder="e.g. qwen-vl-plus"
-                      list="vl-models"
-                    />
-                    <datalist id="vl-models">
-                    </datalist>
-                  </Form.Group>
-                </div>
-              </div>
-            </Form>
-          </Tab>
-          
-          <Tab eventKey="local" title="本地模型 (Local)">
-            <div className="mb-3 d-flex justify-content-end">
-              <Button variant="outline-primary" size="sm" onClick={handleDetect} disabled={detecting}>
-                {detecting ? <Spinner size="sm" animation="border" /> : '🔍 自动探测本地服务'}
-              </Button>
-            </div>
-            
-            {detectedServices.length > 0 && (
-              <Alert variant="success" className="py-2">
-                发现 {detectedServices.length} 个本地服务：
-                <div className="d-flex gap-2 flex-wrap mt-1">
-                  {detectedServices.map((s, i) => (
-                    <Badge 
-                      key={i} 
-                      bg="light" 
-                      text="dark" 
-                      className="border cursor-pointer"
-                      onClick={() => {
-                        setLocalBaseUrl(s.url);
-                        if(s.models && s.models.length) setLocalModel(s.models[0].id);
-                        setIsDirty(true);
-                      }}
-                      style={{cursor: 'pointer'}}
-                    >
-                      {s.url} {s.models ? `(${s.models.length} models)` : ''}
-                    </Badge>
-                  ))}
-                </div>
-              </Alert>
-            )}
 
-            <Form onChange={() => setIsDirty(true)}>
-              <Form.Group className="mb-3">
-                <Form.Label>API Base URL</Form.Label>
-                <Form.Control
-                  type="text"
-                  value={localBaseUrl}
-                  onChange={(e) => setLocalBaseUrl(e.target.value)}
-                  placeholder="http://localhost:11434/v1"
-                />
-              </Form.Group>
-              <Form.Group className="mb-3">
-                <Form.Label>模型名称</Form.Label>
-                <Form.Control 
-                  type="text" 
-                  value={localModel} 
-                  onChange={(e) => setLocalModel(e.target.value)}
-                  placeholder="qwen:7b"
-                />
-              </Form.Group>
-            </Form>
+        <Tabs activeKey={activeTab} onSelect={(k) => setActiveTab((k as 'cloud' | 'local') || 'cloud')} className="mb-3">
+          <Tab eventKey="cloud" title="云端模型 (Cloud)">
+            <CloudTab
+              provider={provider}
+              apiKey={apiKey}
+              model={model}
+              vlModel={vlModel}
+              turboModel={turboModel}
+              onProviderChange={setProvider}
+              onApiKeyChange={setApiKey}
+              onModelChange={setModel}
+              onVlModelChange={setVlModel}
+              onTurboModelChange={setTurboModel}
+              onDirty={markDirty}
+            />
+          </Tab>
+
+          <Tab eventKey="local" title="本地模型 (Local)">
+            <LocalTab
+              localBaseUrl={localBaseUrl}
+              localModel={localModel}
+              detectedServices={detectedServices}
+              detecting={detecting}
+              onDetect={handleDetect}
+              onBaseUrlChange={setLocalBaseUrl}
+              onModelChange={setLocalModel}
+              onDirty={markDirty}
+              onSelectDetectedService={(service) => {
+                setLocalBaseUrl(service.url);
+                if (service.models && service.models.length) setLocalModel(service.models[0].id);
+                setIsDirty(true);
+              }}
+            />
           </Tab>
         </Tabs>
 
-        {/* 流式测试区域 */}
         <div className="mt-4 p-3 bg-light rounded border">
           <div className="d-flex justify-content-between align-items-center mb-2">
             <strong>连接测试预览</strong>
@@ -518,14 +292,13 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
             {streamStatus === 'done' && <Badge bg="success">完成</Badge>}
             {streamStatus === 'error' && <Badge bg="danger">错误</Badge>}
           </div>
-          <div 
-            className="font-monospace bg-white p-2 border rounded" 
+          <div
+            className="font-monospace bg-white p-2 border rounded"
             style={{ minHeight: '60px', maxHeight: '150px', overflowY: 'auto', whiteSpace: 'pre-wrap', fontSize: '0.9em' }}
           >
-            {streamOutput || <span className="text-muted fst-italic">点击"验证连接"开始测试...</span>}
+            {streamOutput || <span className="text-muted fst-italic">点击“验证连接”开始测试...</span>}
           </div>
         </div>
-
       </Modal.Body>
       <Modal.Footer>
         <Button variant="secondary" onClick={handleClose}>

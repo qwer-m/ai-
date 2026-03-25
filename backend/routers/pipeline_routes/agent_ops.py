@@ -1,6 +1,5 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
-import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Literal
 
@@ -9,6 +8,7 @@ from sqlalchemy.orm import Session
 from core.ai.ai_client import get_client_for_user
 from core.db.models import PipelineRun
 from modules.domain.knowledge_base import knowledge_base
+from .agent_decision import _aggregate_reviewer_decision
 from .schemas import STAGE_ORDER, StageKey
 from .support import _now_iso, _truncate_text
 
@@ -19,7 +19,7 @@ def _build_stage_agent_context(
     artifacts: dict[str, Any],
     max_context_chars: int,
 ) -> str:
-    """构建 Agent 可消费的阶段上下文，避免把完整产物直接喂给模型。"""
+
     stage_cfg: dict[str, Any] = {}
     if stage == "test_generation":
         stage_cfg = {
@@ -55,7 +55,7 @@ def _run_agent_llm(
     system_prompt: str,
     user_prompt: str,
 ) -> str:
-    """统一 Agent LLM 调用参数，保证 planner/reviewer 行为一致。"""
+
     client = get_client_for_user(user_id, db)
     model_name = client.turbo_model or client.model
     text = client.generate_response(
@@ -72,7 +72,7 @@ def _run_agent_llm(
 
 
 def _build_rule_planner(stage: StageKey, payload: dict[str, Any], artifacts: dict[str, Any]) -> dict[str, Any]:
-    """规则型 planner：在 LLM 不可用时仍可给出稳定计划骨架。"""
+
     stage_goal_map: dict[StageKey, str] = {
         "test_generation": "Generate complete and non-duplicate test cases from requirement.",
         "ui_automation": "Create and run robust UI automation against target environment.",
@@ -119,7 +119,7 @@ def _build_rule_reviewer(
     stage_message: str,
     artifacts: dict[str, Any],
 ) -> dict[str, Any]:
-    """规则型 reviewer：给自动重试决策提供基础 verdict。"""
+
     verdict = "pass" if stage_status in {"success", "skipped"} else "needs_attention"
     return {
         "status": "ok",
@@ -221,7 +221,7 @@ def _run_stage_executor_agent(
     artifacts: dict[str, Any],
     agent_cfg: dict[str, Any],
 ) -> dict[str, Any]:
-    """执行前检查可并行运行，以缩短多规则校验耗时。"""
+
     tasks = _build_executor_tasks(stage)
     task_results: list[dict[str, Any]] = []
     parallel = bool(agent_cfg.get("executor_parallel", True))
@@ -262,125 +262,6 @@ def _run_stage_executor_agent(
     }
 
 
-def _classify_failure_retryability(
-    stage: StageKey,
-    stage_message: str,
-    stage_meta: dict[str, Any],
-) -> dict[str, str]:
-    message = (stage_message or "").lower()
-    exception_type = str(stage_meta.get("exception_type") or "").lower()
-    failed_count = int(stage_meta.get("failed") or 0)
-
-    non_retryable_patterns = [
-        r"missing pipeline requirement",
-        r"missing .*baseline",
-        r"saved ai api key cannot be decrypted",
-        r"invalid token",
-        r"api key",
-        r"permission denied",
-        r"not found",
-        r"invalid parameter",
-        r"validation",
-        r"syntax",
-    ]
-    retryable_patterns = [
-        r"timeout",
-        r"timed out",
-        r"temporarily unavailable",
-        r"connection reset",
-        r"connection aborted",
-        r"connection refused",
-        r"network",
-        r"429",
-        r"rate limit",
-        r"too many requests",
-        r"service unavailable",
-        r"\b5\d\d\b",
-        r"redis",
-    ]
-
-    if exception_type in {"valueerror", "keyerror", "permissionerror"}:
-        return {"retryability": "non_retryable", "reason": f"exception_type:{exception_type}"}
-    if stage == "api_automation" and failed_count > 0:
-        return {"retryability": "non_retryable", "reason": "api_assertion_failures"}
-
-    for pattern in non_retryable_patterns:
-        if re.search(pattern, message):
-            return {"retryability": "non_retryable", "reason": f"pattern:{pattern}"}
-    for pattern in retryable_patterns:
-        if re.search(pattern, message):
-            return {"retryability": "retryable", "reason": f"pattern:{pattern}"}
-
-    if exception_type in {"timeouterror", "connectionerror"}:
-        return {"retryability": "retryable", "reason": f"exception_type:{exception_type}"}
-
-    return {"retryability": "unknown", "reason": "no_match"}
-
-
-def _aggregate_reviewer_decision(
-    stage: StageKey,
-    stage_status: str,
-    stage_message: str,
-    stage_meta: dict[str, Any],
-    reviewer_result: dict[str, Any],
-    *,
-    attempt_index: int,
-    max_auto_retries: int,
-    auto_retry_enabled: bool,
-    retry_policy: Literal["conservative", "balanced", "aggressive"] = "balanced",
-) -> dict[str, Any]:
-    """汇总阶段状态与 reviewer 结论，产出是否自动重试的最终决策。"""
-    verdict = str(reviewer_result.get("verdict") or "")
-    llm_review = str(reviewer_result.get("llm_review") or "").lower()
-    llm_force_retry = "force retry" in llm_review
-    llm_no_retry = "do not retry" in llm_review or "no retry" in llm_review
-    llm_retry_hint = "retry" in llm_review
-    can_retry = auto_retry_enabled and attempt_index <= max_auto_retries
-    should_retry = False
-    reason = "no_retry"
-    classification = _classify_failure_retryability(stage, stage_message, stage_meta)
-
-    if stage_status != "failed":
-        should_retry = False
-        reason = "stage_not_failed"
-    elif not can_retry:
-        should_retry = False
-        reason = "retry_budget_exhausted_or_disabled"
-    elif classification["retryability"] == "non_retryable":
-        should_retry = False
-        reason = "non_retryable_failure"
-    else:
-        if retry_policy == "conservative":
-            should_retry = classification["retryability"] == "retryable" and (
-                verdict == "needs_attention" or llm_retry_hint
-            )
-            reason = "conservative_retryable_only" if should_retry else "conservative_blocked"
-        elif retry_policy == "aggressive":
-            should_retry = verdict == "needs_attention" or llm_retry_hint or llm_force_retry
-            reason = "aggressive_policy_retry" if should_retry else "aggressive_blocked"
-        else:
-            if classification["retryability"] == "retryable":
-                should_retry = verdict == "needs_attention" or llm_retry_hint
-                reason = "balanced_retryable" if should_retry else "balanced_retryable_but_blocked"
-            else:
-                should_retry = llm_force_retry or (verdict == "needs_attention" and llm_retry_hint)
-                reason = "balanced_unknown_with_signal" if should_retry else "balanced_unknown_blocked"
-
-        if llm_no_retry:
-            should_retry = False
-            reason = "llm_forbid_retry"
-
-    return {
-        "should_retry": should_retry,
-        "reason": reason,
-        "retryability": classification["retryability"],
-        "retryability_reason": classification["reason"],
-        "retry_policy": retry_policy,
-        "attempt_index": attempt_index,
-        "max_auto_retries": max_auto_retries,
-    }
-
-
 def _upsert_agent_artifact(
     artifacts: dict[str, Any],
     stage: StageKey,
@@ -397,7 +278,7 @@ def _upsert_agent_artifact(
 
 
 def _build_agent_learning_content(run: PipelineRun, artifacts: dict[str, Any]) -> str:
-    """将各阶段 agent 产物压缩成可沉淀的学习快照文档。"""
+
     agent_root = dict((artifacts or {}).get("agents") or {})
     lines: list[str] = [
         "# Agent Learning Snapshot",
@@ -439,7 +320,7 @@ def _save_agent_learning_snapshot(
     run: PipelineRun,
     artifacts: dict[str, Any],
 ) -> tuple[bool, str]:
-    """把学习快照写入知识库，失败不影响主流程。"""
+
     try:
         content = _build_agent_learning_content(run, artifacts)
         filename = f"agent_learning_run_{run.id}.md"
@@ -535,4 +416,6 @@ def _run_stage_reviewer_agent(
         reviewer["llm_status"] = "error"
         reviewer["llm_error"] = f"{type(e).__name__}: {e}"
     return reviewer
+
+
 

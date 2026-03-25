@@ -1,509 +1,61 @@
-"""
-测试用例 JSON 清洗与结构归一化组件。
+"""Compatibility re-exports for JSON postprocessing helpers."""
 
-该文件只负责处理模型输出的数据形态，不参与数据库、缓存或任务编排逻辑。
-将其从主流程中拆出，是为了降低核心生成模块的复杂度并保持解析行为可复用。
-"""
+from __future__ import annotations
 
-import ast
-import re
-from json import JSONDecoder
 from typing import Any
+
+from .json_normalizer import normalize_json_structure as _normalize_json_structure
+from .json_parser import clean_and_parse_json as _clean_and_parse_json
+from .json_repair import (
+    _case_dedup_key,
+    _normalize_for_dedup,
+    count_unique_test_cases as _count_unique_test_cases,
+    deduplicate_test_cases as _deduplicate_test_cases,
+)
+from .json_validator import (
+    _CASE_KIND_ORDER,
+    _safe_text_join,
+    extract_module_order_from_cases as _extract_module_order_from_cases,
+    infer_case_kind as _infer_case_kind,
+    reorder_cases_by_closed_loop as _reorder_cases_by_closed_loop,
+)
+
+__all__ = [
+    "clean_and_parse_json",
+    "count_unique_test_cases",
+    "deduplicate_test_cases",
+    "extract_module_order_from_cases",
+    "infer_case_kind",
+    "normalize_json_structure",
+    "reorder_cases_by_closed_loop",
+]
 
 
 def clean_and_parse_json(response_text: str) -> Any:
-    """
-    清洗并解析模型返回文本，尽量恢复成可用 JSON。
-
-    设计目标是“尽量恢复，不轻易失败”：
-    1. 兼容 markdown 代码块。
-    2. 兼容多段 JSON 数组拼接。
-    3. 兼容尾部截断、末尾逗号等常见脏数据。
-    4. 最后兜底到 `ast.literal_eval`，保持历史容错语义。
-    """
-    cleaned_response = response_text
-    result: Any = None
-    try:
-        code_blocks = re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned_response)
-        if code_blocks:
-            cleaned_response = "\n".join(code_blocks)
-        else:
-            cleaned_response = cleaned_response.replace("```json", "").replace("```", "")
-
-        cleaned_response = cleaned_response.replace("\ufeff", "").strip()
-
-        first_array = cleaned_response.find("[")
-        first_obj = cleaned_response.find("{")
-        if first_array == -1 and first_obj == -1:
-            raise ValueError("no json start")
-
-        root_is_array = first_array != -1 and (first_obj == -1 or first_array < first_obj)
-        start_idx = first_array if root_is_array else first_obj
-        cleaned_response = cleaned_response[start_idx:]
-
-        cleaned_response = re.sub(r",\s*([}\]])", r"\1", cleaned_response)
-
-        decoder = JSONDecoder()
-        try:
-            parsed, end_idx = decoder.raw_decode(cleaned_response)
-            result = parsed
-
-            if root_is_array and isinstance(result, list):
-                # 中文注释：这里需要容忍“数组之间夹杂日志噪声”的场景。
-                # 旧逻辑遇到第一个无法解析的 '[' 会直接 break，导致后续有效数组丢失。
-                # 新逻辑改为“滑动扫描”，遇到坏片段就前进 1 位继续找下一个 '['。
-                remaining = cleaned_response[end_idx:]
-                cursor = 0
-                while cursor < len(remaining):
-                    try:
-                        next_bracket = remaining.find("[", cursor)
-                        if next_bracket == -1:
-                            break
-                        next_parsed, next_end = decoder.raw_decode(remaining[next_bracket:])
-                        if isinstance(next_parsed, list):
-                            result.extend(next_parsed)
-                        cursor = next_bracket + next_end
-                    except Exception:
-                        cursor = next_bracket + 1
-        except Exception:
-            if root_is_array:
-                last_bracket = cleaned_response.rfind("]")
-                if last_bracket != -1:
-                    candidate = cleaned_response[: last_bracket + 1]
-                    candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
-                    try:
-                        parsed, _ = decoder.raw_decode(candidate)
-                        result = parsed
-                    except Exception:
-                        items = []
-                        cursor = 0
-                        while True:
-                            next_obj = cleaned_response.find("{", cursor)
-                            if next_obj == -1:
-                                break
-                            try:
-                                obj, end_idx = decoder.raw_decode(cleaned_response[next_obj:])
-                                items.append(obj)
-                                cursor = next_obj + end_idx
-                            except Exception:
-                                # 中文注释：对象恢复时不要因为单个脏片段直接停止，继续向后扫描。
-                                cursor = next_obj + 1
-
-                        if items:
-                            result = items
-                        else:
-                            raise
-                else:
-                    items = []
-                    cursor = 0
-                    while True:
-                        next_obj = cleaned_response.find("{", cursor)
-                        if next_obj == -1:
-                            break
-                        try:
-                            obj, end_idx = decoder.raw_decode(cleaned_response[next_obj:])
-                            items.append(obj)
-                            cursor = next_obj + end_idx
-                        except Exception:
-                            # 中文注释：对象恢复时不要因为单个脏片段直接停止，继续向后扫描。
-                            cursor = next_obj + 1
-                    if items:
-                        result = items
-                    else:
-                        raise
-            else:
-                last_brace = cleaned_response.rfind("}")
-                if last_brace == -1:
-                    raise
-                candidate = cleaned_response[: last_brace + 1]
-                candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
-                parsed, _ = decoder.raw_decode(candidate)
-                result = parsed
-    except Exception:
-        try:
-            if cleaned_response.strip().startswith(("[", "{")):
-                eval_result = ast.literal_eval(cleaned_response)
-                if isinstance(eval_result, (list, dict)):
-                    result = eval_result
-                else:
-                    raise ValueError
-            else:
-                raise ValueError
-        except Exception:
-            result = {"error": "Failed to parse JSON", "raw_response": response_text}
-
-    return result
-
-
-def _normalize_for_dedup(text: Any) -> str:
-    """中文注释：统一文本归一化，减少空白/大小写差异导致的重复误判。"""
-    return str(text or "").strip().lower().replace("\r", "").replace("\n", " ")
-
-
-def _case_dedup_key(case: dict[str, Any]) -> str:
-    """
-    中文注释：
-    用“语义指纹”做去重，不依赖 id（id 可能因补齐重试出现重复或错位）。
-    """
-    module = _normalize_for_dedup(case.get("test_module"))
-    desc = _normalize_for_dedup(case.get("description"))
-    test_input = _normalize_for_dedup(case.get("test_input"))
-    expected = _normalize_for_dedup(case.get("expected_result"))
-    steps = case.get("steps") or []
-    if isinstance(steps, list):
-        steps_text = " | ".join(_normalize_for_dedup(s) for s in steps)
-    else:
-        steps_text = _normalize_for_dedup(steps)
-    return f"{module}||{desc}||{test_input}||{expected}||{steps_text}"
+    return _clean_and_parse_json(response_text)
 
 
 def deduplicate_test_cases(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """中文注释：保持原顺序去重，优先保留先出现的用例。"""
-    if not isinstance(cases, list):
-        return []
-    seen: set[str] = set()
-    deduped: list[dict[str, Any]] = []
-    for case in cases:
-        if not isinstance(case, dict):
-            continue
-        key = _case_dedup_key(case)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        deduped.append(case)
-    return deduped
+    return _deduplicate_test_cases(cases)
 
 
 def count_unique_test_cases(cases: list[dict[str, Any]]) -> int:
-    """中文注释：统一唯一用例计数口径，供补齐计算与日志展示复用。"""
-    return len(deduplicate_test_cases(cases))
+    return _count_unique_test_cases(cases)
 
 
 def normalize_json_structure(data: Any) -> Any:
-    """
-    将模型返回用例归一化为稳定字段结构，避免前端/导出链路处理不一致。
-
-    注意：
-    - 这里只做字段映射和格式标准化，不新增业务判定。
-    - 当输入不是列表时保持原值返回，以维持历史错误透传行为。
-    """
-    if not isinstance(data, list):
-        return data
-
-    normalized = []
-    for i, item in enumerate(data):
-        if not isinstance(item, dict):
-            continue
-
-        def pick(keys: list[str], default=None):
-            for k in keys:
-                if k in item and item.get(k) is not None:
-                    return item.get(k)
-            return default
-
-        def normalize_list(v: Any) -> list[str]:
-            if v is None:
-                return []
-            if isinstance(v, list):
-                out: list[str] = []
-                for x in v:
-                    if isinstance(x, dict):
-                        val = (
-                            x.get("text")
-                            or x.get("desc")
-                            or x.get("step")
-                            or x.get("name")
-                            or x.get("内容")
-                            or x.get("描述")
-                            or x.get("步骤")
-                        )
-                        if val is not None:
-                            out.append(str(val).strip())
-                        else:
-                            out.append(str(x).strip())
-                    else:
-                        out.append(str(x).strip())
-                return [s for s in out if s]
-            if isinstance(v, str):
-                s = v.strip()
-                if not s:
-                    return []
-                if "\n" in s:
-                    return [line.strip() for line in s.splitlines() if line.strip()]
-                if "；" in s:
-                    return [seg.strip() for seg in s.split("；") if seg.strip()]
-                if ";" in s:
-                    return [seg.strip() for seg in s.split(";") if seg.strip()]
-                return [s]
-            return [str(v).strip()] if str(v).strip() else []
-
-        raw_id = pick(
-            ["id", "ID", "case_id", "caseId", "用例编号", "编号", "test_case_id", "testcase_id"],
-            None,
-        )
-        raw_id_s = str(raw_id).strip() if raw_id is not None else ""
-        if re.fullmatch(r"TC-\d{3,}", raw_id_s):
-            final_id = raw_id_s
-        elif re.fullmatch(r"\d+", raw_id_s):
-            final_id = f"TC-{int(raw_id_s):03d}"
-        else:
-            final_id = f"TC-{i + 1:03d}"
-
-        description = str(
-            pick(["description", "desc", "用例描述", "描述", "name", "title", "标题"], "") or ""
-        ).strip()
-        test_module = str(
-            pick(["test_module", "module", "testModule", "模块", "功能模块", "所属模块"], "") or ""
-        ).strip()
-        preconditions = normalize_list(
-            pick(["preconditions", "precondition", "前置条件", "前提条件", "conditions"], [])
-        )
-        steps = normalize_list(pick(["steps", "step", "操作步骤", "步骤", "test_steps", "testSteps"], []))
-        test_input = str(pick(["test_input", "input", "testInput", "输入", "测试输入", "入参"], "") or "").strip()
-        expected_result = str(
-            pick(["expected_result", "expected", "expectedResult", "预期结果", "期望结果", "断言"], "")
-            or ""
-        ).strip()
-        priority = str(pick(["priority", "Priority", "prio", "优先级", "级别"], "P1") or "P1").strip()
-
-        p = priority.upper()
-        if p not in ["P0", "P1", "P2"]:
-            if p in ["高", "HIGH"]:
-                p = "P0"
-            elif p in ["中", "MEDIUM"]:
-                p = "P1"
-            elif p in ["低", "LOW"]:
-                p = "P2"
-            else:
-                p = "P1"
-
-        normalized.append(
-            {
-                "id": final_id,
-                "description": description,
-                "test_module": test_module,
-                "preconditions": preconditions,
-                "steps": steps,
-                "test_input": test_input,
-                "expected_result": expected_result,
-                "priority": p,
-            }
-        )
-
-    return normalized
-
-
-_CASE_KIND_ORDER = {
-    "ui_verification": 0,
-    "happy_path": 1,
-    "validation_boundary": 2,
-    "exception_error": 3,
-    "permission_security": 4,
-    "performance_stability_compat": 5,
-    "integration_cross_module": 6,
-    "other": 7,
-}
-
-
-def _safe_text_join(value: Any) -> str:
-    """Convert nested field values to a plain string for keyword heuristics."""
-    if value is None:
-        return ""
-    if isinstance(value, list):
-        return " ".join(_safe_text_join(x) for x in value)
-    if isinstance(value, dict):
-        return " ".join(_safe_text_join(v) for v in value.values())
-    return str(value)
+    return _normalize_json_structure(data)
 
 
 def infer_case_kind(case: dict[str, Any]) -> str:
-    """
-    Heuristic case type inference for closed-loop ordering.
-
-    Priority of classification:
-    UI -> Integration -> Security/Permission -> Performance/Stability -> Exception ->
-    Validation/Boundary -> Happy -> Other
-    """
-    text = " ".join(
-        [
-            _safe_text_join(case.get("description")),
-            _safe_text_join(case.get("test_module")),
-            _safe_text_join(case.get("preconditions")),
-            _safe_text_join(case.get("steps")),
-            _safe_text_join(case.get("test_input")),
-            _safe_text_join(case.get("expected_result")),
-        ]
-    ).lower()
-
-    def has_any(keywords: list[str]) -> bool:
-        return any(k in text for k in keywords)
-
-    if has_any(
-        [
-            "ui verification",
-            "visual",
-            "layout",
-            "样式",
-            "界面",
-            "页面展示",
-            "视觉",
-            "交互样式",
-        ]
-    ):
-        return "ui_verification"
-
-    if has_any(
-        [
-            "integration",
-            "cross-module",
-            "跨模块",
-            "端到端",
-            "end-to-end",
-            "联调",
-            "跨系统",
-            "全链路",
-        ]
-    ):
-        return "integration_cross_module"
-
-    if has_any(
-        [
-            "permission",
-            "auth",
-            "authorize",
-            "unauthorized",
-            "forbidden",
-            "security",
-            "xss",
-            "csrf",
-            "sql injection",
-            "鉴权",
-            "权限",
-            "越权",
-            "未授权",
-            "安全",
-            "风控",
-            "脱敏",
-        ]
-    ):
-        return "permission_security"
-
-    if has_any(
-        [
-            "performance",
-            "perf",
-            "latency",
-            "throughput",
-            "stability",
-            "compatibility",
-            "concurrent",
-            "load",
-            "stress",
-            "timeout",
-            "memory",
-            "cpu",
-            "性能",
-            "并发",
-            "稳定性",
-            "兼容",
-            "压测",
-            "响应时间",
-        ]
-    ):
-        return "performance_stability_compat"
-
-    if has_any(
-        [
-            "error",
-            "exception",
-            "failed",
-            "fail",
-            "invalid",
-            "denied",
-            "拒绝",
-            "失败",
-            "异常",
-            "报错",
-            "错误",
-            "不可用",
-            "超时",
-        ]
-    ):
-        return "exception_error"
-
-    if has_any(
-        [
-            "boundary",
-            "equivalence",
-            "validation",
-            "required",
-            "max",
-            "min",
-            "range",
-            "limit",
-            "null",
-            "empty",
-            "格式",
-            "必填",
-            "边界",
-            "校验",
-            "最小",
-            "最大",
-            "长度",
-            "取值",
-        ]
-    ):
-        return "validation_boundary"
-
-    if has_any(
-        [
-            "happy path",
-            "success",
-            "正常",
-            "主流程",
-            "成功",
-            "可提交",
-            "可保存",
-        ]
-    ):
-        return "happy_path"
-
-    # Fallback: treat high-priority unlabeled cases as happy-path first.
-    if str(case.get("priority") or "").upper() == "P0":
-        return "happy_path"
-    return "other"
+    return _infer_case_kind(case)
 
 
 def extract_module_order_from_cases(
     cases: list[dict[str, Any]],
     module_order_hint: list[str] | None = None,
 ) -> list[str]:
-    """
-    Build module order for final display.
-
-    Rule:
-    1) keep optional hint order first
-    2) fill remaining modules by first appearance in the generated list
-    """
-    ordered: list[str] = []
-    seen: set[str] = set()
-
-    for module in (module_order_hint or []):
-        name = str(module or "").strip()
-        if not name or name in seen:
-            continue
-        ordered.append(name)
-        seen.add(name)
-
-    for case in cases:
-        if not isinstance(case, dict):
-            continue
-        module = str(case.get("test_module") or "").strip() or "General"
-        if module in seen:
-            continue
-        ordered.append(module)
-        seen.add(module)
-    return ordered
+    return _extract_module_order_from_cases(cases, module_order_hint=module_order_hint)
 
 
 def reorder_cases_by_closed_loop(
@@ -513,44 +65,9 @@ def reorder_cases_by_closed_loop(
     renumber_ids: bool = True,
     module_order_hint: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """
-    Reorder cases into workflow-first closed-loop structure.
-
-    Sort order:
-    - Module order (hint first, then first appearance)
-    - Case kind in module:
-      UI -> Happy -> Validation -> Exception -> Security -> Performance -> Integration -> Other
-    - Priority: P0 > P1 > P2
-    - Original index for stable ordering
-    """
-    if not isinstance(cases, list):
-        return []
-
-    normalized_cases = [x for x in cases if isinstance(x, dict)]
-    if not normalized_cases:
-        return []
-
-    module_order = extract_module_order_from_cases(normalized_cases, module_order_hint)
-    module_rank = {name: idx for idx, name in enumerate(module_order)}
-    priority_rank = {"P0": 0, "P1": 1, "P2": 2}
-
-    annotated: list[tuple[tuple[int, int, int, int], dict[str, Any]]] = []
-    for idx, case in enumerate(normalized_cases):
-        module = str(case.get("test_module") or "").strip() or "General"
-        kind = infer_case_kind(case)
-        kind_rank = _CASE_KIND_ORDER.get(kind, _CASE_KIND_ORDER["other"])
-        pri = str(case.get("priority") or "P1").upper()
-        pri_rank = priority_rank.get(pri, 1)
-        key = (module_rank.get(module, len(module_rank)), kind_rank, pri_rank, idx)
-        annotated.append((key, dict(case)))
-
-    annotated.sort(key=lambda x: x[0])
-    reordered = [row for _, row in annotated]
-
-    if not renumber_ids:
-        return reordered
-
-    safe_start = max(1, int(start_id or 1))
-    for i, case in enumerate(reordered):
-        case["id"] = f"TC-{safe_start + i:03d}"
-    return reordered
+    return _reorder_cases_by_closed_loop(
+        cases,
+        start_id=start_id,
+        renumber_ids=renumber_ids,
+        module_order_hint=module_order_hint,
+    )
