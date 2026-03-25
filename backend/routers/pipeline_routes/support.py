@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from core.models import PipelineRun
+from core.db.models import PipelineRun
 from .schemas import RunStatus, STAGE_ORDER, StageKey
 
 

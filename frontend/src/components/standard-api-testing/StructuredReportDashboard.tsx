@@ -1,7 +1,7 @@
 import { Accordion, Badge, Card, Col, Row } from "react-bootstrap";
 import { FaBug, FaCheckCircle } from "react-icons/fa";
 import { ErrorTrace } from "./ErrorTrace";
-import type { TestResult } from "./types";
+import type { TestResult } from "./utils/types";
 
 type StructuredReportDashboardProps = {
   report: NonNullable<TestResult["structured_report"]>;

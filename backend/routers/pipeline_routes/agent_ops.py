@@ -6,9 +6,9 @@ from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
-from core.ai_client import get_client_for_user
-from core.models import PipelineRun
-from modules.knowledge_base import knowledge_base
+from core.ai.ai_client import get_client_for_user
+from core.db.models import PipelineRun
+from modules.domain.knowledge_base import knowledge_base
 from .schemas import STAGE_ORDER, StageKey
 from .support import _now_iso, _truncate_text
 

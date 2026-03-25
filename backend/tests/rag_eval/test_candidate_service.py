@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from sqlalchemy.exc import ProgrammingError
 
-from core.models import RagDatasetSample, RagEvalCandidate, RagEvalRun, RagEvalSampleResult
+from core.db.models import RagDatasetSample, RagEvalCandidate, RagEvalRun, RagEvalSampleResult
 from modules.rag_eval import rag_eval_candidate_service as svc
 
 

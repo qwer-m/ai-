@@ -2,14 +2,14 @@ from typing import Any, Iterator
 
 from sqlalchemy.orm import Session
 
-from core.models import TestGeneration
-from modules.test_generation_components.generation_diagnostics import build_gate_reason_chain
-from modules.test_generation_components.legacy.adapters import (
+from core.db.models import TestGeneration
+from modules.testing.test_generation_components.prompting.generation_diagnostics import build_gate_reason_chain
+from modules.testing.test_generation_components.legacy.adapters import (
     count_unique_test_cases,
     deduplicate_test_cases,
     normalize_json_structure,
 )
-from modules.test_generation_components.result_postprocess import prepare_append_existing_cases
+from modules.testing.test_generation_components.postprocess.result_postprocess import prepare_append_existing_cases
 
 
 class LegacyGenerationStreamPrepareMixin:

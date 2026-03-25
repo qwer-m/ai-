@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from core.models import RagEvalRun, RagEvalSampleResult
+from core.db.models import RagEvalRun, RagEvalSampleResult
 
 
 def get_run(db: Session, run_id: int, user_id: int) -> RagEvalRun | None:

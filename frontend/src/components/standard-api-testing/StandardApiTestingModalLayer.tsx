@@ -1,8 +1,8 @@
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
-import { CookieManagerModal } from './CookieManagerModal';
-import { EnvManagerModal } from './EnvManagerModal';
-import { SaveRequestModal } from './SaveRequestModal';
-import type { EnvConfig } from './types';
+import { CookieManagerModal } from './modals/CookieManagerModal';
+import { EnvManagerModal } from './modals/EnvManagerModal';
+import { SaveRequestModal } from './modals/SaveRequestModal';
+import type { EnvConfig } from './utils/types';
 
 type SaveForm = {
   name: string;

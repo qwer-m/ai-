@@ -1,7 +1,7 @@
 ﻿import type { CSSProperties } from 'react';
 import { Badge, Button, Collapse, Nav, Spinner } from 'react-bootstrap';
 import { FaCheckCircle, FaChevronDown, FaExclamationTriangle, FaMoon, FaServer, FaSun } from 'react-icons/fa';
-import type { DashboardNavItem, HealthResponse } from './types';
+import type { DashboardNavItem, HealthResponse } from './model/types';
 
 type Props = {
   userName?: string;

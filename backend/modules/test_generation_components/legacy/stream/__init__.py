@@ -1,4 +1,4 @@
-from modules.test_generation_components.legacy.stream.generation import (
+from modules.testing.test_generation_components.legacy.stream.generation import (
     LegacyGenerationStreamGenerationMixin,
 )
 

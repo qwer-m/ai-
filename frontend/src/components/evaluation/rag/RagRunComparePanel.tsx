@@ -1,6 +1,6 @@
 ﻿import { useMemo, useState } from 'react';
 import { Alert, Badge, Button, Form, Modal, Table } from 'react-bootstrap';
-import { getRagEvalRunCompare, translateError } from '../evaluationService';
+import { getRagEvalRunCompare, translateError } from '../state/evaluationService';
 
 type Props = {
   onLog: (msg: string) => void;

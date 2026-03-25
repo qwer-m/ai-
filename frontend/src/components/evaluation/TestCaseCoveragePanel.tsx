@@ -1,7 +1,7 @@
 ﻿import type { ChangeEvent, ClipboardEvent } from 'react';
 import { Button, Col, Form, Row } from 'react-bootstrap';
 import { FaClipboardCheck } from 'react-icons/fa';
-import type { DefectAnalysis, LoadingType } from './types';
+import type { DefectAnalysis, LoadingType } from './state/types';
 import { TestCaseEvaluationReport } from './TestCaseEvaluationReport';
 
 type Props = {

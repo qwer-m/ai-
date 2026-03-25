@@ -2,41 +2,41 @@
 智能测试生成引擎（拆分后兼容门面）
 
 说明：
-1. 保留历史导入路径：`modules.test_generation_components.legacy_generation_impl`
+1. 保留历史导入路径：`modules.testing.test_generation_components.legacy_generation_impl`
 2. 对外符号不变：`TestGenerationModule`、`clean_and_parse_json`、`normalize_json_structure` 等
 3. 具体实现按职责拆分到多个小文件（mixins + adapters）
 """
 
 from typing import Any
 
-from modules.test_generation_components.legacy.adapters import (
+from modules.testing.test_generation_components.legacy.adapters import (
     clean_and_parse_json as _clean_and_parse_json,
 )
-from modules.test_generation_components.legacy.adapters import (
+from modules.testing.test_generation_components.legacy.adapters import (
     count_unique_test_cases as _count_unique_test_cases,
 )
-from modules.test_generation_components.legacy.adapters import (
+from modules.testing.test_generation_components.legacy.adapters import (
     deduplicate_test_cases as _deduplicate_test_cases,
 )
-from modules.test_generation_components.legacy.adapters import (
+from modules.testing.test_generation_components.legacy.adapters import (
     infer_case_kind as _infer_case_kind,
 )
-from modules.test_generation_components.legacy.adapters import (
+from modules.testing.test_generation_components.legacy.adapters import (
     normalize_json_structure as _normalize_json_structure,
 )
-from modules.test_generation_components.legacy.adapters import (
+from modules.testing.test_generation_components.legacy.adapters import (
     reorder_cases_by_closed_loop as _reorder_cases_by_closed_loop,
 )
-from modules.test_generation_components.legacy.context import (
+from modules.testing.test_generation_components.legacy.context import (
     LegacyGenerationContextMixin,
 )
-from modules.test_generation_components.legacy.estimation import (
+from modules.testing.test_generation_components.legacy.estimation import (
     LegacyGenerationEstimationMixin,
 )
-from modules.test_generation_components.legacy.json_generation import (
+from modules.testing.test_generation_components.legacy.json_generation import (
     LegacyGenerationJsonMixin,
 )
-from modules.test_generation_components.legacy.stream import (
+from modules.testing.test_generation_components.legacy.stream import (
     LegacyGenerationStreamMixin,
 )
 

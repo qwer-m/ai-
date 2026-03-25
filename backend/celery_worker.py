@@ -12,7 +12,7 @@ from celery_config import celery_app
 
 # Import modules containing tasks to ensure they are registered
 # 导入任务模块以确保任务被注册
-import modules.tasks
+import modules.orchestration.tasks
 
 if __name__ == "__main__":
     celery_app.start()

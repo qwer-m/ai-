@@ -3,9 +3,9 @@ import json
 
 from sqlalchemy.orm import Session
 
-from core.models import LogEntry
-from modules.stage25_switches import STAGE25_SWITCHES
-from modules.test_generation_components.generation_diagnostics import (
+from core.db.models import LogEntry
+from modules.domain.stage25_switches import STAGE25_SWITCHES
+from modules.testing.test_generation_components.prompting.generation_diagnostics import (
     build_context_source_log,
     build_final_context_trace,
 )

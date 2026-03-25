@@ -4,25 +4,25 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from core.ai_client import get_client_for_user
-from core.models import TestGeneration, LogEntry
-from modules.stage25_switches import STAGE25_SWITCHES
-from modules.test_generation_components.generation_diagnostics import (
+from core.ai.ai_client import get_client_for_user
+from core.db.models import TestGeneration, LogEntry
+from modules.domain.stage25_switches import STAGE25_SWITCHES
+from modules.testing.test_generation_components.prompting.generation_diagnostics import (
     build_coverage_diagnostics,
     build_gate_reason_chain,
 )
-from modules.test_generation_components.prompt_orchestration import (
+from modules.testing.test_generation_components.prompting.prompt_orchestration import (
     build_append_closed_loop_coverage_instruction,
     build_closed_loop_base_prompt,
     build_supplement_closed_loop_instruction,
 )
-from modules.test_generation_components.result_postprocess import (
+from modules.testing.test_generation_components.postprocess.result_postprocess import (
     finalize_generated_cases,
     merge_cases_for_append,
     prepare_append_existing_cases,
     stream_postprocess_cases,
 )
-from modules.test_generation_components.legacy.adapters import (
+from modules.testing.test_generation_components.legacy.adapters import (
     clean_and_parse_json,
     normalize_json_structure,
     deduplicate_test_cases,

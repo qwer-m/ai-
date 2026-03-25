@@ -1,9 +1,9 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import Login from './components/Login';
-import Register from './components/Register';
-import { Dashboard } from './components/Dashboard';
+import Login from './components/auth-pages/Login';
+import Register from './components/auth-pages/Register';
+import { Dashboard } from './components/pages/Dashboard';
 import { Spinner } from 'react-bootstrap';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {

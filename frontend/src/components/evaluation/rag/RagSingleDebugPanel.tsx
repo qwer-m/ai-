@@ -1,8 +1,8 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Form, Spinner } from 'react-bootstrap';
-import { listRagDatasetSamples, ragSingleDebugRequest, translateError } from '../evaluationService';
-import { ChunkTable, DocHitStatsTable, type RagChunkRow, type RagDocHitRow } from './RagSingleDebugTables';
-import type { RagDatasetRow } from './types';
+import { listRagDatasetSamples, ragSingleDebugRequest, translateError } from '../state/evaluationService';
+import { ChunkTable, DocHitStatsTable, type RagChunkRow, type RagDocHitRow } from './shared/RagSingleDebugTables';
+import type { RagDatasetRow } from './shared/types';
 
 type Props = {
   projectId: number | null;

@@ -1,4 +1,4 @@
-from modules.rag_eval.metrics_retrieval import (
+from modules.rag_eval.metrics.metrics_retrieval import (
     context_precision,
     context_recall,
     first_hit_rank,

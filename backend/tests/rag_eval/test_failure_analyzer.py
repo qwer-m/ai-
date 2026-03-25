@@ -1,4 +1,4 @@
-from modules.rag_eval.rag_failure_analyzer import analyze_failure_reason
+from modules.rag_eval.analysis.rag_failure_analyzer import analyze_failure_reason
 
 
 def test_failure_no_recall():

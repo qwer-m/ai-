@@ -1,11 +1,11 @@
 from typing import Any, Iterator
 import json
 
-from modules.test_generation_components.prompt_orchestration import (
+from modules.testing.test_generation_components.prompting.prompt_orchestration import (
     build_append_closed_loop_coverage_instruction,
     build_closed_loop_base_prompt,
 )
-from modules.test_generation_components.legacy.adapters import (
+from modules.testing.test_generation_components.legacy.adapters import (
     clean_and_parse_json,
     count_unique_test_cases,
     infer_case_kind,

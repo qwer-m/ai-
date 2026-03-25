@@ -7,8 +7,8 @@ import {
   FaGlobe,
   FaRobot,
 } from "react-icons/fa";
-import { highlightJson } from "./jsonHighlight";
-import type { ResponseTab, TestResult } from "./types";
+import { highlightJson } from "./utils/jsonHighlight";
+import type { ResponseTab, TestResult } from "./utils/types";
 
 type ResponseViewMode = "json" | "html" | "headers";
 type ResponseFormat =

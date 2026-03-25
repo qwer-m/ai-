@@ -1,8 +1,8 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import type { Project } from '../ProjectManagement';
+import type { Project } from '../pages/ProjectManagement';
 import { api } from '../../utils/api';
-import { dashboardNavItems, findParentKeyByChild, normalizeDashboardActiveTab } from './dashboardNavigation';
-import type { HealthResponse, LogEntry } from './types';
+import { dashboardNavItems, findParentKeyByChild, normalizeDashboardActiveTab } from './model/dashboardNavigation';
+import type { HealthResponse, LogEntry } from './model/types';
 
 const safeGetItem = (key: string) => {
   try {

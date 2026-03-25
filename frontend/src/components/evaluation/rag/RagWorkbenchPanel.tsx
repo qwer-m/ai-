@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Alert, Card, Form, Tab, Tabs } from 'react-bootstrap';
-import { listRagDatasets, translateError } from '../evaluationService';
+import { listRagDatasets, translateError } from '../state/evaluationService';
 import { RagBatchEvalPanel } from './RagBatchEvalPanel';
 import { RagDatasetManagerPanel } from './RagDatasetManagerPanel';
 import { RagSingleDebugPanel } from './RagSingleDebugPanel';
-import type { RagDatasetRow } from './types';
+import type { RagDatasetRow } from './shared/types';
 
 type Props = {
   projectId: number | null;

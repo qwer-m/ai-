@@ -22,19 +22,21 @@ from dotenv import load_dotenv
 # 关闭 Chroma 遥测，避免本地启动时出现无关 telemetry 报错
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
 os.environ["CHROMA_SERVER_NO_ANALYTICS"] = "True"
-os.environ["CHROMA_PRODUCT_TELEMETRY_IMPL"] = "core.chroma_telemetry.NoOpProductTelemetryClient"
-os.environ["CHROMA_TELEMETRY_IMPL"] = "core.chroma_telemetry.NoOpProductTelemetryClient"
+os.environ["CHROMA_PRODUCT_TELEMETRY_IMPL"] = "core.cache_layer.chroma_telemetry.NoOpProductTelemetryClient"
+os.environ["CHROMA_TELEMETRY_IMPL"] = "core.cache_layer.chroma_telemetry.NoOpProductTelemetryClient"
 
 
-def cleanup_celery_beat_schedule(app_dir: str) -> None:
+def cleanup_celery_beat_schedule(schedule_dir: str) -> None:
     """
     清理损坏的 Celery Beat 本地调度文件，避免 pickle 反序列化异常。
     """
     removed = []
     try:
-        for name in os.listdir(app_dir):
+        if not os.path.isdir(schedule_dir):
+            return
+        for name in os.listdir(schedule_dir):
             if name.startswith("celerybeat-schedule"):
-                target = os.path.join(app_dir, name)
+                target = os.path.join(schedule_dir, name)
                 if os.path.isfile(target):
                     try:
                         os.remove(target)
@@ -379,7 +381,9 @@ def main() -> None:
 
     backend_port = int(os.environ.get("AI_TEST_PLATFORM_PORT", os.environ.get("PORT", "8000")))
     app_dir = current_dir
-    cleanup_celery_beat_schedule(app_dir)
+    beat_runtime_dir = os.path.join(app_dir, "runtime", "system")
+    os.makedirs(beat_runtime_dir, exist_ok=True)
+    cleanup_celery_beat_schedule(beat_runtime_dir)
 
     print(f"Starting Celery Worker in {app_dir}...")
     celery_cmd = [
@@ -395,7 +399,7 @@ def main() -> None:
     celery_process = subprocess.Popen(celery_cmd, cwd=app_dir, env=runtime_env.copy())
 
     print(f"Starting Celery Beat in {app_dir}...")
-    beat_schedule_file = os.path.join(app_dir, "celerybeat-schedule")
+    beat_schedule_file = os.path.join(beat_runtime_dir, "celerybeat-schedule")
     beat_cmd = [
         sys.executable,
         "-m",

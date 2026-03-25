@@ -2,9 +2,9 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 from sqlalchemy.orm import Session
 
-from core.database import SessionLocal
-from modules.knowledge_base import knowledge_base
-from modules.test_generation_components.snapshot_wait_gate import wait_snapshot_ready_gate
+from core.db.database import SessionLocal
+from modules.domain.knowledge_base import knowledge_base
+from modules.testing.test_generation_components.context.snapshot_wait_gate import wait_snapshot_ready_gate
 
 
 class LegacyGenerationContextGateMixin:

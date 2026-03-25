@@ -8,10 +8,10 @@ import {
   startRagEvalRun,
   stopRagEvalRun,
   translateError,
-} from '../evaluationService';
+} from '../state/evaluationService';
 import { RagRunComparePanel } from './RagRunComparePanel';
 import { RagCandidatePanel } from './RagCandidatePanel';
-import type { RagDatasetRow, RagEvalConfig } from './types';
+import type { RagDatasetRow, RagEvalConfig } from './shared/types';
 
 type Props = { projectId: number | null; onLog: (msg: string) => void; datasets: RagDatasetRow[] };
 

@@ -7,8 +7,8 @@ import {
   importRagDataset,
   listRagDatasets,
   translateError,
-} from '../evaluationService';
-import type { RagDatasetRow, RagDatasetType } from './types';
+} from '../state/evaluationService';
+import type { RagDatasetRow, RagDatasetType } from './shared/types';
 
 type Props = {
   datasets: RagDatasetRow[];

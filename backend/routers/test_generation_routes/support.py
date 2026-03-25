@@ -6,9 +6,9 @@ from typing import Any
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from core.file_processing import parse_file_content
-from core.models import Project, TestGeneration
-from modules.knowledge_base import knowledge_base
+from core.processing.file_processing import parse_file_content
+from core.db.models import Project, TestGeneration
+from modules.domain.knowledge_base import knowledge_base
 
 
 def get_owned_project(project_id: int, db: Session, user_id: int) -> Project:

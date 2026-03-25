@@ -1,17 +1,17 @@
 from typing import Any, Iterator
 import json
 
-from core.models import LogEntry, TestGeneration
-from modules.stage25_switches import STAGE25_SWITCHES
-from modules.test_generation_components.generation_diagnostics import build_coverage_diagnostics
-from modules.test_generation_components.prompt_orchestration import (
+from core.db.models import LogEntry, TestGeneration
+from modules.domain.stage25_switches import STAGE25_SWITCHES
+from modules.testing.test_generation_components.prompting.generation_diagnostics import build_coverage_diagnostics
+from modules.testing.test_generation_components.prompting.prompt_orchestration import (
     build_supplement_closed_loop_instruction,
 )
-from modules.test_generation_components.result_postprocess import (
+from modules.testing.test_generation_components.postprocess.result_postprocess import (
     merge_cases_for_append,
     stream_postprocess_cases,
 )
-from modules.test_generation_components.legacy.adapters import (
+from modules.testing.test_generation_components.legacy.adapters import (
     count_unique_test_cases,
     deduplicate_test_cases,
     infer_case_kind,

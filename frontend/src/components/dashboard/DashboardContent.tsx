@@ -1,12 +1,12 @@
 ﻿import { Container } from 'react-bootstrap';
-import { APIAutomation } from '../APIAutomation';
-import { APITesting } from '../APITesting';
-import { Evaluation } from '../Evaluation';
-import { KnowledgeBase } from '../KnowledgeBase';
-import { ProjectManagement, type Project } from '../ProjectManagement';
-import { TestGeneration } from '../TestGeneration';
-import { UIAutomation } from '../UIAutomation';
-import type { LogEntry } from './types';
+import { APIAutomation } from '../testing/api/APIAutomation';
+import { APITesting } from '../testing/api/APITesting';
+import { Evaluation } from '../pages/Evaluation';
+import { KnowledgeBase } from '../pages/KnowledgeBase';
+import { ProjectManagement, type Project } from '../pages/ProjectManagement';
+import { TestGeneration } from '../testing/casegen/TestGeneration';
+import { UIAutomation } from '../testing/ui/UIAutomation';
+import type { LogEntry } from './model/types';
 
 type Props = {
   activeTab: string;

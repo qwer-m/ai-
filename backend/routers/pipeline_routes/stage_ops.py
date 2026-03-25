@@ -5,10 +5,10 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from modules.api_testing import api_tester
-from modules.evaluation import evaluator
-from modules.test_generation import test_generator
-from modules.ui_automation import ui_automator
+from modules.testing.api_testing import api_tester
+from modules.testing.evaluation import evaluator
+from modules.testing.test_generation import test_generator
+from modules.testing.ui_automation import ui_automator
 from .schemas import StageKey
 
 

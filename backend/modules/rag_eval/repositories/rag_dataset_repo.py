@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from core.models import RagDataset, RagDatasetSample
+from core.db.models import RagDataset, RagDatasetSample
 
 
 def list_datasets(db: Session, user_id: int) -> list[RagDataset]:

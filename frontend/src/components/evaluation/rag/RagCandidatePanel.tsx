@@ -7,7 +7,7 @@ import {
   listRagEvalCandidates,
   rejectRagEvalCandidate,
   translateError,
-} from '../evaluationService';
+} from '../state/evaluationService';
 
 type Props = {
   onLog: (msg: string) => void;

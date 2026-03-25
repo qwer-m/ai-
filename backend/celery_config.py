@@ -10,13 +10,13 @@ Celery 配置模块 (Celery Config)
    - 每小时清理过期日志。
    
 调用关系：
-- 依赖 `core.redis_pool` 复用 Redis 连接。
-- 自动发现 `modules.tasks` 中的任务。
+- 依赖 `core.cache_layer.redis_pool` 复用 Redis 连接。
+- 自动发现 `modules.orchestration.tasks` 中的任务。
 """
 
 import os
 from celery import Celery
-from core.redis_pool import redis_pool
+from core.cache_layer.redis_pool import redis_pool
 
 # Initialize Celery app
 celery_app = Celery("ai_test_platform")
@@ -49,17 +49,17 @@ celery_app.conf.update(
     # Periodic Tasks (Beat)
     beat_schedule={
         'archive-old-data-every-week': {
-            'task': 'modules.tasks.archive_old_data_task',
+            'task': 'modules.orchestration.tasks.archive_old_data_task',
             'schedule': crontab(hour=3, minute=0, day_of_week=0), # Run every Sunday at 3 AM
             'kwargs': {'retention_days': 30},
         },
         'cleanup-logs-every-hour': {
-            'task': 'modules.tasks.cleanup_logs_task',
+            'task': 'modules.orchestration.tasks.cleanup_logs_task',
             'schedule': crontab(minute=0), # Run every hour
             'kwargs': {'retention_hours': 72},
         },
         'audit-knowledge-index-daily': {
-            'task': 'modules.tasks.audit_knowledge_index_consistency_task',
+            'task': 'modules.orchestration.tasks.audit_knowledge_index_consistency_task',
             'schedule': crontab(hour=3, minute=30), # Run daily at 03:30
             'kwargs': {'project_id': None, 'user_id': None, 'limit': 5000},
         },

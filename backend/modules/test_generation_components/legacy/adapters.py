@@ -1,24 +1,24 @@
 from typing import Any
 
-from modules.test_generation_components.excel_export import (
+from modules.testing.test_generation_components.export.excel_export import (
     convert_json_to_excel as _convert_json_to_excel_impl,
 )
-from modules.test_generation_components.json_processing import (
+from modules.testing.test_generation_components.postprocess.json_processing import (
     clean_and_parse_json as _clean_and_parse_json_impl,
 )
-from modules.test_generation_components.json_processing import (
+from modules.testing.test_generation_components.postprocess.json_processing import (
     normalize_json_structure as _normalize_json_structure_impl,
 )
-from modules.test_generation_components.json_processing import (
+from modules.testing.test_generation_components.postprocess.json_processing import (
     deduplicate_test_cases as _deduplicate_test_cases_impl,
 )
-from modules.test_generation_components.json_processing import (
+from modules.testing.test_generation_components.postprocess.json_processing import (
     count_unique_test_cases as _count_unique_test_cases_impl,
 )
-from modules.test_generation_components.json_processing import (
+from modules.testing.test_generation_components.postprocess.json_processing import (
     infer_case_kind as _infer_case_kind_impl,
 )
-from modules.test_generation_components.json_processing import (
+from modules.testing.test_generation_components.postprocess.json_processing import (
     reorder_cases_by_closed_loop as _reorder_cases_by_closed_loop_impl,
 )
 

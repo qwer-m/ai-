@@ -1,4 +1,4 @@
-from modules.rag_eval.metrics_generation import evaluate_answer_by_points_rule
+from modules.rag_eval.metrics.metrics_generation import evaluate_answer_by_points_rule
 
 
 def test_rule_points_text_number_enum():

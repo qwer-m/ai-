@@ -10,8 +10,8 @@ import {
   FaTrash,
   FaUpload,
 } from 'react-icons/fa';
-import type { DragOverPosition } from './dragTree';
-import type { SavedInterface } from './types';
+import type { DragOverPosition } from './utils/dragTree';
+import type { SavedInterface } from './utils/types';
 
 type InterfaceTreeProps = {
   savedInterfaces: SavedInterface[];

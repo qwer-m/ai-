@@ -12,9 +12,9 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { FaPlus, FaRobot } from 'react-icons/fa';
-import { parseQualityReport } from './evaluationService';
+import { parseQualityReport } from './state/evaluationService';
 import { SupplementKnowledgePopover } from './SupplementKnowledgePopover';
-import type { DefectAnalysis } from './types';
+import type { DefectAnalysis } from './state/types';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 

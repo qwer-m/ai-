@@ -1,6 +1,6 @@
 ﻿import { Button, Form } from 'react-bootstrap';
 import { FaCog, FaPlus, FaServer, FaSignOutAlt } from 'react-icons/fa';
-import type { Project } from '../ProjectManagement';
+import type { Project } from '../pages/ProjectManagement';
 
 type Props = {
   projectId: number | null;

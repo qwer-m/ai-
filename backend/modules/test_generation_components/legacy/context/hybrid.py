@@ -2,14 +2,14 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from modules.knowledge_base import knowledge_base
-from modules.stage25_switches import STAGE25_SWITCHES
-from modules.test_generation_components.hybrid_context_builder import (
+from modules.domain.knowledge_base import knowledge_base
+from modules.domain.stage25_switches import STAGE25_SWITCHES
+from modules.testing.test_generation_components.context.hybrid_context_builder import (
     HYBRID_CONFIG,
     build_hybrid_context,
     should_use_rag,
 )
-from modules.test_generation_components.hybrid_guard import (
+from modules.testing.test_generation_components.context.hybrid_guard import (
     HYBRID_EMPTY_GUARD_CONFIG,
     detect_hybrid_empty_context,
     parse_snapshot_queue_info,

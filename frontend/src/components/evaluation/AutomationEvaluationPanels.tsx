@@ -1,7 +1,7 @@
 ﻿import { Button, Form } from 'react-bootstrap';
 import { FaNetworkWired, FaRobot } from 'react-icons/fa';
-import { parseApiReport } from './evaluationService';
-import type { LoadingType } from './types';
+import { parseApiReport } from './state/evaluationService';
+import type { LoadingType } from './state/types';
 
 type Props = {
   showUi: boolean;

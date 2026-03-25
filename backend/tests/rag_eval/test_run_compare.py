@@ -4,7 +4,7 @@ from datetime import datetime
 from math import isclose
 from types import SimpleNamespace
 
-from modules.rag_eval.rag_eval_compare_service import _calc_metric_diff, compare_runs
+from modules.rag_eval.services.rag_eval_compare_service import _calc_metric_diff, compare_runs
 
 
 class FakeQuery:
