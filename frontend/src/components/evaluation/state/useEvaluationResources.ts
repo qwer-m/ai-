@@ -2,7 +2,6 @@
 import {
   fetchEvaluationHistory,
   fetchGenerationHistory,
-  fetchLatestSupplement,
   parseLatestPrefixedJson,
 } from './evaluationService';
 import type { EvaluationView, LoadingType, ToastMessage } from './types';
@@ -26,12 +25,16 @@ export function useEvaluationResources({
 }: UseEvaluationResourcesParams) {
   const [loading, setLoading] = useState<LoadingType>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [loadedCompareFilename, setLoadedCompareFilename] = useState('');
   const [showSupplement, setShowSupplement] = useState(false);
   const [supplementText, setSupplementText] = useState('');
   const [supplementImages, setSupplementImages] = useState<File[]>([]);
 
   const [history, setHistory] = useState<any[]>([]);
   const [genHistory, setGenHistory] = useState<any[]>([]);
+  const [selectedGenerationId, setSelectedGenerationId] = useState<number | null>(null);
+  const [historySourceKey, setHistorySourceKey] = useState('');
+  const [historySourceTitle, setHistorySourceTitle] = useState('');
   const [savedDocId, setSavedDocId] = useState<number | null>(null);
   const [lastSavedContent, setLastSavedContent] = useState('');
   const [toastMsg, setToastMsg] = useState<ToastMessage | null>(null);
@@ -43,26 +46,12 @@ export function useEvaluationResources({
   const latestQm = useMemo(() => parseLatestPrefixedJson<any>(logs, 'GEN_QM:'), [logs]);
 
   useEffect(() => {
-    if (!projectId) return;
-
-    void fetchLatestSupplement(projectId)
-      .then((res: any) => {
-        if (res?.found) {
-          setSavedDocId(res.doc_id);
-          setSupplementText(res.supplement || '');
-          setLastSavedContent(res.supplement || '');
-          return;
-        }
-
-        setSavedDocId(null);
-        setSupplementText('');
-        setLastSavedContent('');
-      })
-      .catch(() => {
-        setSavedDocId(null);
-        setSupplementText('');
-        setLastSavedContent('');
-      });
+    setSavedDocId(null);
+    setSupplementText('');
+    setLastSavedContent('');
+    setSelectedGenerationId(null);
+    setHistorySourceKey('');
+    setHistorySourceTitle('');
   }, [projectId]);
 
   /**
@@ -105,6 +94,8 @@ export function useEvaluationResources({
     setLoading,
     file,
     setFile,
+    loadedCompareFilename,
+    setLoadedCompareFilename,
     showSupplement,
     setShowSupplement,
     supplementText,
@@ -114,6 +105,13 @@ export function useEvaluationResources({
     history,
     setHistory,
     genHistory,
+    setGenHistory,
+    selectedGenerationId,
+    setSelectedGenerationId,
+    historySourceKey,
+    setHistorySourceKey,
+    historySourceTitle,
+    setHistorySourceTitle,
     savedDocId,
     setSavedDocId,
     lastSavedContent,

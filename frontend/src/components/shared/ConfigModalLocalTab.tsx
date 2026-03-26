@@ -25,15 +25,15 @@ export function LocalTab({
   onSelectDetectedService,
 }: Props) {
   return (
-    <>
+    <div className="config-local-form">
       <div className="mb-3 d-flex justify-content-end">
-        <Button variant="outline-primary" size="sm" onClick={onDetect} disabled={detecting}>
-          {detecting ? <Spinner size="sm" animation="border" /> : '🔍 自动探测本地服务'}
+        <Button variant="outline-primary" size="sm" onClick={onDetect} disabled={detecting} className="config-detect-btn">
+          {detecting ? <Spinner size="sm" animation="border" /> : '自动探测本地服务'}
         </Button>
       </div>
 
       {detectedServices.length > 0 && (
-        <Alert variant="success" className="py-2">
+        <Alert variant="success" className="py-2 config-local-alert">
           发现 {detectedServices.length} 个本地服务：
           <div className="d-flex gap-2 flex-wrap mt-1">
             {detectedServices.map((service, index) => (
@@ -52,8 +52,8 @@ export function LocalTab({
         </Alert>
       )}
 
-      <Form onChange={onDirty}>
-        <Form.Group className="mb-3">
+      <Form onChange={onDirty} className="config-local-card">
+        <Form.Group className="config-field">
           <Form.Label>API Base URL</Form.Label>
           <Form.Control
             type="text"
@@ -63,7 +63,7 @@ export function LocalTab({
           />
         </Form.Group>
 
-        <Form.Group className="mb-3">
+        <Form.Group className="config-field">
           <Form.Label>模型名称</Form.Label>
           <Form.Control
             type="text"
@@ -73,6 +73,6 @@ export function LocalTab({
           />
         </Form.Group>
       </Form>
-    </>
+    </div>
   );
 }

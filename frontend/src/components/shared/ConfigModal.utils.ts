@@ -1,6 +1,7 @@
 ﻿import { api } from '../../utils/api';
 
 const containsChinese = (text: string) => /[\u4e00-\u9fff]/.test(text);
+const containsEnglish = (text: string) => /[A-Za-z]/.test(text);
 
 export const extractErrorText = (error: unknown): string => {
   const err = error as any;
@@ -15,9 +16,31 @@ export const extractErrorText = (error: unknown): string => {
 
 export const localizeConfigError = (raw: string): string => {
   if (!raw) return '发生未知错误，请稍后重试。';
-  if (containsChinese(raw)) return raw;
+  if (containsChinese(raw) && !containsEnglish(raw)) return raw;
 
-  const lower = raw.toLowerCase();
+  const directReplacements: Array<[RegExp, string]> = [
+    [/OCR Error:/gi, 'OCR错误：'],
+    [/OCR Exception:/gi, 'OCR异常：'],
+    [/InvalidParameter/gi, '参数错误'],
+    [/InternalError\.Algo\.InvalidParameter/gi, '内部算法参数错误'],
+    [/The provided URL does not appear to be valid\./gi, '提供的URL看起来无效。'],
+    [/Ensure it is correctly formatted\./gi, '请确认URL格式正确。'],
+    [/url error,\s*please check url!?/gi, 'URL地址错误，请检查链接是否可访问。'],
+    [/For details,\s*see:\s*https?:\/\/\S+/gi, '详情请参考阿里云错误码文档。'],
+    [/content parameter's length invalid, please check the request parameters\./gi, 'content参数长度不合法，请检查请求参数。'],
+    [/Requests rate limit exceeded, please try again later\./gi, '请求频率超限，请稍后重试。'],
+    [/\<\s*400\s*\>/gi, '(HTTP 400)'],
+  ];
+  let normalized = raw;
+  for (const [pattern, value] of directReplacements) {
+    normalized = normalized.replace(pattern, value);
+  }
+
+  if (containsChinese(normalized) && !containsEnglish(normalized)) {
+    return normalized;
+  }
+
+  const lower = normalized.toLowerCase();
   const mapping: Array<[string, string]> = [
     ['ssl: unexpected_eof_while_reading', '与云端服务的 SSL 握手异常，请检查网络、代理或系统时间。'],
     ['certificate verify failed', 'SSL 证书校验失败，请检查系统时间、证书链或代理设置。'],
@@ -44,13 +67,13 @@ export const localizeConfigError = (raw: string): string => {
   for (const [key, value] of mapping) {
     if (lower.includes(key)) return value;
   }
-  return '连接校验失败，请稍后重试。';
+  return normalized !== raw ? normalized : '连接校验失败，请稍后重试。';
 };
 
 export const translateConfigError = async (error: unknown): Promise<string> => {
   const raw = extractErrorText(error).trim();
   if (!raw) return '发生未知错误，请稍后重试。';
-  if (containsChinese(raw)) return raw;
+  if (containsChinese(raw) && !containsEnglish(raw)) return raw;
 
   try {
     const translated = await api.post<{ message?: string }>('/api/error/translate', { error: raw });
@@ -64,3 +87,4 @@ export const translateConfigError = async (error: unknown): Promise<string> => {
 
   return localizeConfigError(raw);
 };
+

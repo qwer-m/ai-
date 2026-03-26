@@ -1,32 +1,194 @@
 """
-文件解析模块。
+鏂囦欢瑙ｆ瀽妯″潡銆?
 
-提供三种入口：
-1. parse_file_content: 处理 FastAPI UploadFile（在线请求场景）。
-2. parse_file_bytes: 处理字节流（复用核心解析逻辑）。
-3. parse_file_path: 处理本地文件路径（离线 Celery 场景）。
+鎻愪緵涓夌鍏ュ彛锛?
+1. parse_file_content: 澶勭悊 FastAPI UploadFile锛堝湪绾胯姹傚満鏅級銆?
+2. parse_file_bytes: 澶勭悊瀛楄妭娴侊紙澶嶇敤鏍稿績瑙ｆ瀽閫昏緫锛夈€?
+3. parse_file_path: 澶勭悊鏈湴鏂囦欢璺緞锛堢绾?Celery 鍦烘櫙锛夈€?
 """
 
 from __future__ import annotations
 
-import base64
 import io
+import os
+import tempfile
 from pathlib import Path
+from typing import Any, Optional
 
 import pandas as pd
 import pypdf
 from fastapi import UploadFile
+from sqlalchemy.orm import Session
+
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")
+
+
+def is_image_filename(filename: str) -> bool:
+    return (filename or "").lower().endswith(IMAGE_EXTENSIONS)
+
+
+def _is_ocr_failure_text(text: str) -> bool:
+    value = (text or "").strip()
+    if not value:
+        return True
+
+    lowered = value.lower()
+    if lowered.startswith(("ocr error", "ocr exception", "error:", "exception", "[image ocr failed:", "[error processing image:")):
+        return True
+
+    failure_markers = (
+        "\u989d\u5ea6\u8017\u5c3d",
+        "\u514d\u8d39\u989d\u5ea6\u5df2\u7528\u5b8c",
+        "\u4f59\u989d\u4e0d\u8db3",
+        "insufficient_quota",
+        "quota exceeded",
+        "rate limit",
+        "authentication failed",
+        "invalid api key",
+        "model not found",
+    )
+    value_lower = value.lower()
+    return any(marker in value or marker in value_lower for marker in failure_markers)
+
+
+def _is_meaningful_ocr_text(text: str) -> bool:
+    value = (text or "").strip()
+    if not value:
+        return False
+    if _is_ocr_failure_text(value):
+        return False
+    non_space = "".join(ch for ch in value if not ch.isspace())
+    return len(non_space) >= 6
+
+
+def _normalize_tesseract_cmd(raw_cmd: Optional[str]) -> str:
+    if not raw_cmd:
+        return ""
+    value = str(raw_cmd).strip().strip('"').strip("'")
+    if not value:
+        return ""
+    return os.path.expandvars(os.path.expanduser(value))
+
+
+def _resolve_tesseract_cmd(db: Optional[Session], user_id: Optional[int]) -> str:
+    if db is None or not user_id:
+        return ""
+    try:
+        from core.settings.config_manager import config_manager
+
+        active_config = config_manager.get_active_config(db, user_id)
+        if not active_config:
+            return ""
+        metadata = active_config.metadata_info if isinstance(active_config.metadata_info, dict) else {}
+        return _normalize_tesseract_cmd(metadata.get("tesseract_path"))
+    except Exception:
+        return ""
+
+
+def _run_local_ocr(content_bytes: bytes, tesseract_cmd: Optional[str] = None) -> tuple[str, str]:
+    try:
+        from PIL import Image, ImageOps
+        import pytesseract
+    except Exception as e:
+        return "", f"local_ocr_dependency_missing: {e}"
+
+    try:
+        configured_cmd = _normalize_tesseract_cmd(tesseract_cmd)
+        if configured_cmd:
+            pytesseract.pytesseract.tesseract_cmd = configured_cmd
+
+        image = Image.open(io.BytesIO(content_bytes))
+        image = ImageOps.grayscale(image)
+        text = pytesseract.image_to_string(image, lang="chi_sim+eng")
+        if _is_meaningful_ocr_text(text):
+            return text.strip(), ""
+        text_eng = pytesseract.image_to_string(image, lang="eng")
+        if _is_meaningful_ocr_text(text_eng):
+            return text_eng.strip(), ""
+        return "", "local_ocr_empty"
+    except Exception as e:
+        return "", f"local_ocr_error: {e}"
+
+
+def parse_image_bytes_with_fallback(
+    filename: str,
+    content_bytes: bytes,
+    image_prompt: str = "OCR: Extract all text from this image.",
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
+) -> tuple[str, dict[str, Any]]:
+    meta: dict[str, Any] = {
+        "ocr_source": "none",
+        "local_ocr_used": False,
+        "local_ocr_error": "",
+        "cloud_ocr_used": False,
+        "cloud_fallback": False,
+        "error": "",
+    }
+
+    tesseract_cmd = _resolve_tesseract_cmd(db, user_id)
+    local_text, local_error = _run_local_ocr(content_bytes, tesseract_cmd=tesseract_cmd)
+    meta["local_ocr_error"] = local_error
+    if _is_meaningful_ocr_text(local_text):
+        meta["ocr_source"] = "local"
+        meta["local_ocr_used"] = True
+        return local_text.strip(), meta
+
+    if db is None or not user_id:
+        meta["ocr_source"] = "offline_fallback"
+        meta["error"] = local_error or "local_ocr_unavailable_or_empty"
+        return f"[Image Content: {(filename or '').lower()}]", meta
+
+    from core.ai.ai_client import get_client_for_user
+
+    suffix = Path((filename or "").lower()).suffix or ".png"
+    temp_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            temp_file.write(content_bytes)
+            temp_path = temp_file.name
+
+        client = get_client_for_user(user_id, db)
+        ocr_result = client.analyze_image(
+            f"file://{temp_path}",
+            prompt=image_prompt,
+            db=db,
+        )
+        meta["cloud_ocr_used"] = True
+        meta["cloud_fallback"] = True
+
+        if isinstance(ocr_result, str):
+            ocr_text = ocr_result.strip()
+            if _is_meaningful_ocr_text(ocr_text):
+                meta["ocr_source"] = "cloud"
+                return ocr_text, meta
+            meta["ocr_source"] = "failed"
+            meta["error"] = ocr_text or "empty response"
+            return f"[Image OCR Failed: {ocr_text or 'empty response'}]", meta
+
+        meta["ocr_source"] = "failed"
+        meta["error"] = "invalid response"
+        return "[Image OCR Failed: invalid response]", meta
+    except Exception as e:
+        meta["ocr_source"] = "failed"
+        meta["error"] = str(e)
+        return f"[Error processing image: {str(e)}]", meta
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 def parse_file_bytes(
     filename: str,
     content_bytes: bytes,
     image_prompt: str = "OCR: Extract all text from this image.",
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
 ) -> str:
     """
-    按扩展名解析文件内容。
+    鎸夋墿灞曞悕瑙ｆ瀽鏂囦欢鍐呭銆?
 
-    设计目标：同一份解析逻辑可同时服务同步上传和离线任务，避免两套实现漂移。
+    璁捐鐩爣锛氬悓涓€浠借В鏋愰€昏緫鍙悓鏃舵湇鍔″悓姝ヤ笂浼犲拰绂荤嚎浠诲姟锛岄伩鍏嶄袱濂楀疄鐜版紓绉汇€?
     """
     lowered_name = (filename or "").lower()
     text_content = ""
@@ -102,13 +264,14 @@ def parse_file_bytes(
                 except Exception:
                     text_content = f"[Error reading CSV: {str(e)}]"
 
-        elif lowered_name.endswith((".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")):
-            try:
-                # 当前 OCR 仍是占位实现，先保留行为兼容。
-                base64.b64encode(content_bytes).decode("utf-8")
-                text_content = f"[Image Content: {lowered_name}]"
-            except Exception as e:
-                text_content = f"[Error processing image: {str(e)}]"
+        elif is_image_filename(lowered_name):
+            text_content, _meta = parse_image_bytes_with_fallback(
+                filename=lowered_name,
+                content_bytes=content_bytes,
+                image_prompt=image_prompt,
+                db=db,
+                user_id=user_id,
+            )
 
         else:
             try:
@@ -124,15 +287,33 @@ def parse_file_bytes(
 async def parse_file_content(
     file: UploadFile,
     image_prompt: str = "OCR: Extract all text from this image.",
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
 ) -> str:
-    """在线请求入口：解析 UploadFile。"""
+    """Parse FastAPI UploadFile content."""
     content_bytes = await file.read()
-    return parse_file_bytes(file.filename or "", content_bytes, image_prompt=image_prompt)
+    return parse_file_bytes(
+        file.filename or "",
+        content_bytes,
+        image_prompt=image_prompt,
+        db=db,
+        user_id=user_id,
+    )
 
 
-def parse_file_path(file_path: str, image_prompt: str = "OCR: Extract all text from this image.") -> str:
-    """离线任务入口：解析本地路径文件。"""
+def parse_file_path(
+    file_path: str,
+    image_prompt: str = "OCR: Extract all text from this image.",
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
+) -> str:
+    """Parse a local file path for offline tasks."""
     path = Path(file_path)
     content_bytes = path.read_bytes()
-    return parse_file_bytes(path.name, content_bytes, image_prompt=image_prompt)
-
+    return parse_file_bytes(
+        path.name,
+        content_bytes,
+        image_prompt=image_prompt,
+        db=db,
+        user_id=user_id,
+    )

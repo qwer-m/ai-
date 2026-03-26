@@ -23,7 +23,19 @@ class ConfigManager:
     def __init__(self):
         self._lock = threading.RLock()
 
-    def create_config(self, db: Session, provider: str, model_name: str, api_key: str, base_url: str = None, activate: bool = True, vl_model_name: str = None, turbo_model_name: str = None, user_id: int = None) -> SystemConfig:
+    def create_config(
+        self,
+        db: Session,
+        provider: str,
+        model_name: str,
+        api_key: str,
+        base_url: str = None,
+        activate: bool = True,
+        vl_model_name: str = None,
+        turbo_model_name: str = None,
+        user_id: int = None,
+        metadata_info: dict | None = None,
+    ) -> SystemConfig:
         """
         创建新的系统配置 (Create Config)
         
@@ -51,6 +63,7 @@ class ConfigManager:
             turbo_model_name=turbo_model_name,
             api_key=encrypted_key,
             base_url=base_url,
+            metadata_info=metadata_info,
             is_active=0, # Will be set by activate_config if needed
             version=1, # Initial version
             user_id=user_id

@@ -104,8 +104,9 @@ export function parseApiReport(rawText: string): ParsedApiReport {
   };
 }
 
-export async function fetchLatestSupplement(projectId: number) {
-  return api.get<any>(`/api/evaluation/latest-supplement/${projectId}`);
+export async function fetchLatestSupplement(projectId: number, sourceKey?: string) {
+  const query = sourceKey ? `?source_key=${encodeURIComponent(sourceKey)}` : '';
+  return api.get<any>(`/api/evaluation/latest-supplement/${projectId}${query}`);
 }
 
 export async function fetchEvaluationHistory(projectId: number) {
@@ -118,6 +119,10 @@ export async function fetchGenerationHistory(projectId: number) {
 
 export async function fetchGenerationDetail(id: number) {
   return api.get<any>(`/api/test-generations/${id}`);
+}
+
+export async function fetchGenerationBundle(id: number) {
+  return api.get<any>(`/api/test-generations/${id}/bundle`);
 }
 
 export async function compareTestCasesRequest(formData: FormData) {

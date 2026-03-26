@@ -40,6 +40,7 @@ export function Evaluation({
     evalGenerated,
     setEvalGenerated,
     evalModified,
+    setEvalModified,
     evalResult,
     setEvalResult,
     uiEvalScript,
@@ -77,8 +78,12 @@ export function Evaluation({
           evalResult={evalResult}
           loading={actions.loading}
           genHistory={actions.genHistory}
+          selectedGenerationId={actions.selectedGenerationId}
+          onSelectGenerationId={actions.setSelectedGenerationId}
           onLoadGenerationById={actions.loadGenerationById}
           onFileChange={actions.setFile}
+          loadedCompareFilename={actions.loadedCompareFilename}
+          onClearLoadedCompareFilename={() => actions.setLoadedCompareFilename('')}
           onCompare={actions.compareTestCases}
           history={actions.history}
           showSupplement={actions.showSupplement}
@@ -92,6 +97,7 @@ export function Evaluation({
           handleSupplementPaste={actions.handleSupplementPaste}
           handleSupplementFilesChange={actions.handleSupplementFilesChange}
           onSaveKnowledge={actions.handleSaveKnowledge}
+          savingKnowledge={actions.loading === 'save_knowledge'}
         />
       ) : null}
 
@@ -128,7 +134,11 @@ export function Evaluation({
         全局 Toast 统一挂载在页面根部，确保各子面板触发的提示都在同一视觉层级，
         避免拆分后出现提示位置漂移或重复容器。
       */}
-      <ToastContainer position="top-end" className="p-3" style={{ zIndex: 1100 }}>
+      <ToastContainer
+        containerPosition="fixed"
+        className="p-3 top-50 start-50 translate-middle"
+        style={{ zIndex: 1100 }}
+      >
         {actions.toastMsg ? (
           <Toast
             onClose={() => actions.setToastMsg(null)}
@@ -136,6 +146,7 @@ export function Evaluation({
             delay={3000}
             autohide
             bg={actions.toastMsg.type === 'success' ? 'success' : 'danger'}
+            style={{ minWidth: 420 }}
           >
             <Toast.Header>
               <strong className="me-auto">{actions.toastMsg.type === 'success' ? '成功' : '错误'}</strong>

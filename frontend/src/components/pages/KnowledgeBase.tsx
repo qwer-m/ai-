@@ -16,7 +16,7 @@ export function KnowledgeBase({ projectId, onLog }: Props) {
 
   return (
     <div className="h-100 d-flex flex-column gap-3 position-relative">
-      <ToastContainer position="top-end" className="p-3" style={{ zIndex: 1100 }}>
+      <ToastContainer containerPosition="fixed" position="top-end" className="p-3" style={{ zIndex: 1100 }}>
         {kb.toastMsg && (
           <Toast
             onClose={() => kb.setToastMsg(null)}

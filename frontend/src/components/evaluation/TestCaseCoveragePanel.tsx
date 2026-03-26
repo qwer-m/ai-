@@ -12,8 +12,12 @@ type Props = {
   evalResult: string | null;
   loading: LoadingType;
   genHistory: any[];
+  selectedGenerationId: number | null;
+  onSelectGenerationId: (id: number | null) => void;
   onLoadGenerationById: (id: number) => void;
   onFileChange: (file: File | null) => void;
+  loadedCompareFilename: string;
+  onClearLoadedCompareFilename: () => void;
   onCompare: () => void;
   history: any[];
   showSupplement: boolean;
@@ -27,6 +31,7 @@ type Props = {
   handleSupplementPaste: (e: ClipboardEvent<HTMLTextAreaElement>) => void;
   handleSupplementFilesChange: (e: ChangeEvent<HTMLInputElement>) => void;
   onSaveKnowledge: (defectAnalysis: DefectAnalysis) => Promise<void>;
+  savingKnowledge: boolean;
 };
 
 export function TestCaseCoveragePanel({
@@ -37,8 +42,12 @@ export function TestCaseCoveragePanel({
   evalResult,
   loading,
   genHistory,
+  selectedGenerationId,
+  onSelectGenerationId,
   onLoadGenerationById,
   onFileChange,
+  loadedCompareFilename,
+  onClearLoadedCompareFilename,
   onCompare,
   history,
   showSupplement,
@@ -52,6 +61,7 @@ export function TestCaseCoveragePanel({
   handleSupplementPaste,
   handleSupplementFilesChange,
   onSaveKnowledge,
+  savingKnowledge,
 }: Props) {
   return (
     <div className="bento-card col-span-12 p-4 d-flex flex-column">
@@ -96,18 +106,21 @@ export function TestCaseCoveragePanel({
               <Form.Select
                 size="sm"
                 className="input-pro bg-white"
+                value={selectedGenerationId ? String(selectedGenerationId) : ''}
                 onChange={(e) => {
                   const id = Number(e.target.value);
+                  onSelectGenerationId(id || null);
                   if (id) onLoadGenerationById(id);
                 }}
               >
                 <option value="">-- 选择历史记录 --</option>
                 {genHistory.map((h: any) => {
-                  const rawTitle = (h.requirement_text || '').split(/[\n|]/)[0].trim();
+                  const rawTitle = (h.history_title || (h.requirement_text || '').split(/[\n|]/)[0]).trim();
                   const displayTitle = rawTitle.length > 20 ? `${rawTitle.substring(0, 20)}...` : rawTitle;
+                  const hasComparison = h?.has_comparison !== false;
                   return (
                     <option key={h.id} value={h.id}>
-                      {displayTitle} ({new Date(h.created_at).toLocaleString()})
+                      {displayTitle} ({new Date(h.created_at).toLocaleString()}){hasComparison ? '' : ' - 暂无质量评估'}
                     </option>
                   );
                 })}
@@ -125,8 +138,14 @@ export function TestCaseCoveragePanel({
                 onChange={(e) => {
                   const target = e.target as HTMLInputElement;
                   onFileChange(target.files && target.files.length > 0 ? target.files[0] : null);
+                  onClearLoadedCompareFilename();
                 }}
               />
+              {loadedCompareFilename ? (
+                <div className="small text-muted mt-1">
+                  已从历史加载对比文件内容：{loadedCompareFilename}
+                </div>
+              ) : null}
             </Form.Group>
           </Col>
         </Row>
@@ -152,6 +171,7 @@ export function TestCaseCoveragePanel({
             handleSupplementPaste={handleSupplementPaste}
             handleSupplementFilesChange={handleSupplementFilesChange}
             handleSaveKnowledge={onSaveKnowledge}
+            savingKnowledge={savingKnowledge}
           />
         </div>
       ) : null}

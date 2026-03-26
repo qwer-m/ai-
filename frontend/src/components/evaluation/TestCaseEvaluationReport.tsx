@@ -1,5 +1,5 @@
 ﻿import type { ChangeEvent, ClipboardEvent } from 'react';
-import { Button, OverlayTrigger } from 'react-bootstrap';
+import { Button, Form, Modal, Spinner } from 'react-bootstrap';
 import {
   CategoryScale,
   Chart as ChartJS,
@@ -13,7 +13,6 @@ import {
 import { Line } from 'react-chartjs-2';
 import { FaPlus, FaRobot } from 'react-icons/fa';
 import { parseQualityReport } from './state/evaluationService';
-import { SupplementKnowledgePopover } from './SupplementKnowledgePopover';
 import type { DefectAnalysis } from './state/types';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
@@ -32,6 +31,7 @@ type Props = {
   handleSupplementPaste: (e: ClipboardEvent<HTMLTextAreaElement>) => void;
   handleSupplementFilesChange: (e: ChangeEvent<HTMLInputElement>) => void;
   handleSaveKnowledge: (defectAnalysis: DefectAnalysis) => Promise<void>;
+  savingKnowledge: boolean;
 };
 
 export function TestCaseEvaluationReport({
@@ -48,6 +48,7 @@ export function TestCaseEvaluationReport({
   handleSupplementPaste,
   handleSupplementFilesChange,
   handleSaveKnowledge,
+  savingKnowledge,
 }: Props) {
   const report = parseQualityReport(evalResult);
   if (!report) {
@@ -55,6 +56,9 @@ export function TestCaseEvaluationReport({
   }
 
   const { metrics, defectAnalysis, summary } = report;
+  const disableConfirm =
+    (!supplementText.trim() && supplementImages.length === 0)
+    || (savedDocId !== null && supplementText === lastSavedContent && supplementImages.length === 0);
 
   return (
     <div>
@@ -162,39 +166,83 @@ export function TestCaseEvaluationReport({
 
       <div className="d-flex align-items-center justify-content-between mb-2">
         <strong>缺陷归因分析:</strong>
-        <OverlayTrigger
-          trigger="click"
-          placement="left"
-          show={showSupplement}
-          onToggle={(next) => setShowSupplement(Boolean(next))}
-          rootClose
-          overlay={
-            <SupplementKnowledgePopover
-              supplementText={supplementText}
-              setSupplementText={setSupplementText}
-              supplementImages={supplementImages}
-              onPaste={handleSupplementPaste}
-              onFilesChange={handleSupplementFilesChange}
-              onCancel={() => {
-                setShowSupplement(false);
-                setSupplementText('');
-                setSupplementImages([]);
-              }}
-              onConfirm={() => {
-                void handleSaveKnowledge(defectAnalysis);
-              }}
-              disableConfirm={
-                (!supplementText.trim() && supplementImages.length === 0)
-                || (savedDocId !== null && supplementText === lastSavedContent && supplementImages.length === 0)
-              }
-            />
-          }
-        >
-          <Button variant="outline-secondary" size="sm" className="py-0 px-2" onClick={() => setShowSupplement(!showSupplement)}>
-            <FaPlus className="me-1" /> 用户补充描述
-          </Button>
-        </OverlayTrigger>
+        <Button variant="outline-secondary" size="sm" className="py-0 px-2" onClick={() => setShowSupplement(true)}>
+          <FaPlus className="me-1" /> 用户补充描述
+        </Button>
       </div>
+
+      <Modal
+        show={showSupplement}
+        onHide={() => {
+          if (!savingKnowledge) setShowSupplement(false);
+        }}
+        centered
+        size="lg"
+      >
+        <Modal.Header closeButton={!savingKnowledge}>
+          <Modal.Title>用户补充描述</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <Form.Group className="mb-2">
+            <Form.Control
+              as="textarea"
+              rows={4}
+              placeholder="请输入补充描述..."
+              value={supplementText}
+              onChange={(e) => setSupplementText(e.target.value)}
+              onPaste={handleSupplementPaste}
+            />
+          </Form.Group>
+          <Form.Group className="mb-2">
+            <Form.Label className="small text-muted">导入图片（最多 10 张）</Form.Label>
+            <Form.Control
+              type="file"
+              size="sm"
+              accept="image/*"
+              multiple
+              onChange={handleSupplementFilesChange}
+            />
+          </Form.Group>
+          {supplementImages.length > 0 ? (
+            <div className="mt-2 d-flex flex-wrap gap-2">
+              {supplementImages.map((f, idx) => (
+                <div key={idx} className="border rounded p-1 small bg-white">
+                  <span className="text-muted">{f.name}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={savingKnowledge}
+            onClick={() => {
+              setShowSupplement(false);
+              setSupplementText('');
+              setSupplementImages([]);
+            }}
+          >
+            取消
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={disableConfirm || savingKnowledge}
+            onClick={() => {
+              void handleSaveKnowledge(defectAnalysis);
+            }}
+          >
+            {savingKnowledge ? (
+              <>
+                <Spinner animation="border" size="sm" className="me-2" />
+                录入中...
+              </>
+            ) : '确定'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
 
       {defectAnalysis.missing_points?.length ? (
         <div className="mb-2">

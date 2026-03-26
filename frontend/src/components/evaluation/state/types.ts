@@ -35,7 +35,7 @@ export type EvaluationProps = {
   setShouldAutoEval?: (v: boolean) => void;
 };
 
-export type LoadingType = 'eval' | 'recall' | 'ui' | 'api' | null;
+export type LoadingType = 'eval' | 'recall' | 'ui' | 'api' | 'save_knowledge' | null;
 
 export type ToastMessage = {
   type: 'success' | 'error';

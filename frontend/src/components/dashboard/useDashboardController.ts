@@ -29,6 +29,17 @@ const shouldOpenConfigByError = (message: string) => {
   ].some((flag) => message.includes(flag));
 };
 
+const isTransientFetchError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  return [
+    'Failed to fetch',
+    'NetworkError',
+    'Load failed',
+    'ERR_NETWORK_CHANGED',
+    'ERR_INTERNET_DISCONNECTED',
+  ].some((flag) => message.includes(flag));
+};
+
 export function useDashboardController() {
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>(
     () => (safeGetItem('themeMode') === 'dark' ? 'dark' : 'light'),
@@ -178,7 +189,8 @@ export function useDashboardController() {
   }, [projectId]);
 
   useEffect(() => {
-    if (!projectId) return;
+    // 健康检查异常时暂停高频日志轮询，避免网络抖动期间控制台被重复报错刷屏。
+    if (!projectId || healthError) return;
     let cancelled = false;
 
     const loadLogs = async (isPolling = false) => {
@@ -197,7 +209,9 @@ export function useDashboardController() {
           setLogsError(error instanceof Error ? error.message : String(error));
           setLogs([]);
         } else {
-          console.error('Polling logs failed', error);
+          if (!isTransientFetchError(error)) {
+            console.error('Polling logs failed', error);
+          }
         }
       } finally {
         if (!cancelled && !isPolling) setLogsLoading(false);
@@ -213,7 +227,7 @@ export function useDashboardController() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [projectId]);
+  }, [projectId, healthError]);
 
   const { userLogs, systemLogs } = useMemo(() => {
     const userLogList: LogEntry[] = [];

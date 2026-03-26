@@ -4,7 +4,10 @@ import {
   compareTestCasesRequest,
   evaluateApiRequest,
   evaluateUiRequest,
+  fetchGenerationBundle,
   fetchGenerationDetail,
+  fetchGenerationHistory,
+  fetchLatestSupplement,
   fetchProjectLogs,
   maxSupplementImages,
   saveKnowledgeRequest,
@@ -22,6 +25,7 @@ type UseEvaluationActionsParams = Pick<
   | 'evalGenerated'
   | 'setEvalGenerated'
   | 'evalModified'
+  | 'setEvalModified'
   | 'evalResult'
   | 'setEvalResult'
   | 'uiEvalScript'
@@ -42,6 +46,7 @@ export function useEvaluationActions({
   evalGenerated,
   setEvalGenerated,
   evalModified,
+  setEvalModified,
   evalResult,
   setEvalResult,
   uiEvalScript,
@@ -54,6 +59,11 @@ export function useEvaluationActions({
   setShouldAutoEval,
 }: UseEvaluationActionsParams) {
   const resources = useEvaluationResources({ projectId, logs, view, evalResult });
+  const normalizeHistoryTitle = (text: string) => {
+    const raw = (text || '').split(/[\n|]/)[0]?.trim();
+    return raw || '未命名需求';
+  };
+  const buildSourceKey = (text: string) => normalizeHistoryTitle(text).replace(/\s+/g, ' ').trim().toLowerCase();
 
   const addSupplementImages = (files: File[]) => {
     if (files.length === 0) return;
@@ -100,10 +110,14 @@ export function useEvaluationActions({
     if (!projectId) return alert('请先选择项目');
 
     try {
+      resources.setLoading('save_knowledge');
       const formData = new FormData();
       formData.append('project_id', String(projectId));
       formData.append('defect_analysis', JSON.stringify(defectAnalysis));
       formData.append('user_supplement', resources.supplementText);
+      if (resources.historySourceKey) formData.append('source_key', resources.historySourceKey);
+      if (resources.historySourceTitle) formData.append('source_title', resources.historySourceTitle);
+      if (resources.selectedGenerationId) formData.append('generation_id', String(resources.selectedGenerationId));
       if (resources.supplementImages.length > 0) {
         resources.supplementImages.forEach((f) => formData.append('files', f));
       }
@@ -111,26 +125,75 @@ export function useEvaluationActions({
 
       const res = await saveKnowledgeRequest(formData);
       if (res?.success) {
-        onLog('已将缺陷分析和用户补充录入知识库');
+        const replaced = Boolean(res?.result?.replaced_previous);
+        const persist = res?.result?.persist_summary || {};
+        const ocrSummary = res?.result?.ocr_summary || {};
+        const ocrTotal = Number(ocrSummary.total || 0);
+        const ocrOk = Number(ocrSummary.ok || 0);
+        const persisted = Number(persist.attachments_embedded || 0);
+        const expected = Number(persist.attachments_expected || 0);
+
+        const logMsg = replaced
+          ? `同文档知识已覆盖更新（doc_id=${res.result.id}）`
+          : `新文档知识已入库（doc_id=${res.result.id}）`;
+        onLog(logMsg);
+        onLog(`OCR校验：${ocrOk}/${ocrTotal}，附件持久化校验：${persisted}/${expected}`);
         resources.setSavedDocId(res.result.id);
         resources.setLastSavedContent(resources.supplementText);
+
+        const ocrModel = typeof res?.result?.ocr_model === 'string' ? res.result.ocr_model : '';
+        const actionLabel = replaced ? '覆盖更新成功' : '录入成功';
+        const ocrMsg = ocrTotal > 0 ? `OCR ${ocrOk}/${ocrTotal}` : '无OCR附件';
+        const persistMsg = expected > 0 ? `持久化 ${persisted}/${expected}` : '文本已持久化';
+        const msg = `知识库${actionLabel}（${ocrModel || '默认模型'}，${ocrMsg}，${persistMsg}）`;
+        resources.setToastMsg({ type: 'success', msg });
         resources.setSupplementImages([]);
-        resources.setToastMsg({ type: 'success', msg: '当前评估与补充描述已录入 RAG 知识库' });
+        resources.setShowSupplement(false);
+      } else {
+        resources.setToastMsg({ type: 'error', msg: '知识库录入失败：接口未返回成功状态' });
       }
     } catch (e) {
       const msg = await translateError(e);
       resources.setToastMsg({ type: 'error', msg });
+    } finally {
+      resources.setLoading(null);
     }
   };
 
   const loadGenerationById = async (id: number) => {
     if (!id) return;
     try {
-      const res = await fetchGenerationDetail(id);
-      if (!res) return;
+      resources.setSelectedGenerationId(id);
+      const bundle = await fetchGenerationBundle(id);
+      const fallback = await fetchGenerationDetail(id);
+      const source = bundle?.generation || fallback;
+      if (!source) return;
+      const sourceTitle = bundle?.generation?.history_title || normalizeHistoryTitle(source.requirement_text || '');
+      const sourceKey = bundle?.generation?.history_key || buildSourceKey(source.requirement_text || sourceTitle);
+      resources.setHistorySourceTitle(sourceTitle);
+      resources.setHistorySourceKey(sourceKey);
 
-      let content = res;
-      if (res.generated_result) content = res.generated_result;
+      if (projectId) {
+        try {
+          const supplement = await fetchLatestSupplement(projectId, sourceKey);
+          if (supplement?.found) {
+            resources.setSavedDocId(supplement.doc_id);
+            resources.setSupplementText(supplement.supplement || '');
+            resources.setLastSavedContent(supplement.supplement || '');
+          } else {
+            resources.setSavedDocId(null);
+            resources.setSupplementText('');
+            resources.setLastSavedContent('');
+          }
+        } catch {
+          resources.setSavedDocId(null);
+          resources.setSupplementText('');
+          resources.setLastSavedContent('');
+        }
+      }
+
+      let content = source;
+      if (source.generated_result) content = source.generated_result;
 
       if (typeof content === 'string') {
         try {
@@ -141,6 +204,25 @@ export function useEvaluationActions({
         }
       } else {
         setEvalGenerated(JSON.stringify(content, null, 2));
+      }
+
+      const comparison = bundle?.comparison;
+      if (comparison) {
+        setEvalModified(comparison.modified_test_case || '');
+        setEvalResult(comparison.comparison_result || null);
+        resources.setFile(null);
+        resources.setLoadedCompareFilename(comparison.source_filename || 'history_compare.txt');
+        onLog('已从历史加载测试用例、对比内容与质量评估结果');
+      } else {
+        setEvalModified('');
+        setEvalResult(null);
+        resources.setFile(null);
+        resources.setLoadedCompareFilename('');
+        const hint = bundle?.comparison_status === 'missing'
+          ? '该历史记录暂无已保存的对比文件与质量评估结果，请先点击“开始评估质量”生成一次。'
+          : '未找到对应历史评估记录。';
+        resources.setToastMsg({ type: 'error', msg: hint });
+        onLog(hint);
       }
     } catch {
       // 保持原有行为：历史加载失败时不打断页面编辑流程。
@@ -167,10 +249,19 @@ export function useEvaluationActions({
       formData.append('generated_test_case', evalGenerated);
       if (evalModified) formData.append('modified_test_case', evalModified);
       formData.append('project_id', String(projectId));
+      if (resources.selectedGenerationId) formData.append('generation_id', String(resources.selectedGenerationId));
       if (resources.file) formData.append('file', resources.file);
 
       const data = await compareTestCasesRequest(formData);
       setEvalResult(data.result || '');
+      if (projectId) {
+        try {
+          const refreshed = await fetchGenerationHistory(projectId);
+          if (Array.isArray(refreshed)) resources.setGenHistory(refreshed);
+        } catch {
+          // 忽略刷新失败，不影响本次评估结果展示
+        }
+      }
     } catch (e) {
       const msg = await translateError(e);
       setEvalResult(msg);

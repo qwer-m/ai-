@@ -15,6 +15,21 @@ from core.db.models import Evaluation, TestGenerationComparison
 import json
 import re
 
+
+def _truncate_utf8_for_mysql_text(value: str, max_bytes: int = 65000) -> str:
+    text = value or ""
+    raw = text.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return text
+    clipped = raw[:max_bytes]
+    while clipped:
+        try:
+            return clipped.decode("utf-8")
+        except UnicodeDecodeError:
+            clipped = clipped[:-1]
+    return ""
+
+
 class EvaluationModule:
     """
     评估模块类 (Evaluation Module Class)
@@ -186,7 +201,24 @@ class EvaluationModule:
                 db.add(db_entry)
                 db.commit()
             except Exception as e:
-                print(f"Failed to save to DB: {e}")
+                db.rollback()
+                err = str(e)
+                if "Data too long" in err:
+                    try:
+                        db_entry = TestGenerationComparison(
+                            project_id=project_id,
+                            generated_test_case=_truncate_utf8_for_mysql_text(generated_test_case),
+                            modified_test_case=_truncate_utf8_for_mysql_text(modified_test_case),
+                            comparison_result=_truncate_utf8_for_mysql_text(result),
+                            user_id=user_id,
+                        )
+                        db.add(db_entry)
+                        db.commit()
+                    except Exception as e2:
+                        db.rollback()
+                        print(f"Failed to save comparison to DB after truncate: {e2}")
+                else:
+                    print(f"Failed to save comparison to DB: {e}")
                 
         return result
 

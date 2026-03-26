@@ -1,0 +1,323 @@
+.config-modal-dialog {
+  max-width: 1260px;
+}
+
+.config-modal-dialog .modal-content {
+  border: 1px solid #d9e2ef;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.config-modal-header {
+  background: linear-gradient(180deg, #f8fbff 0%, #f4f7fb 100%);
+  border-bottom: 1px solid #e4ebf5;
+}
+
+.config-modal-body {
+  background: #f8fbff;
+  padding: 1rem 1.25rem;
+}
+
+.config-modal-tabs {
+  border: 0;
+}
+
+.config-modal-tabs .nav-link {
+  border: 1px solid #d9e2ef;
+  background: #f3f6fb;
+  color: #475569;
+  border-radius: 10px;
+  margin-right: 0.5rem;
+  padding: 0.55rem 1.05rem;
+}
+
+.config-modal-tabs .nav-link.active {
+  background: linear-gradient(180deg, #4f46e5 0%, #4338ca 100%);
+  border-color: #4f46e5;
+  color: #fff;
+}
+
+.config-model-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.config-model-card {
+  background: #fff;
+  border: 1px solid #d9e2ef;
+  border-radius: 12px;
+  padding: 0.9rem;
+}
+
+.config-model-card__header {
+  margin-bottom: 0.65rem;
+}
+
+.config-model-card__header h6 {
+  margin: 0;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.config-model-card__header span {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.config-field {
+  margin-bottom: 0.65rem;
+}
+
+.config-field label.form-label {
+  margin-bottom: 0.3rem;
+  color: #334155;
+  font-weight: 600;
+}
+
+.config-field .form-control,
+.config-field .form-select {
+  border-radius: 10px;
+  border-color: #ced8e6;
+}
+
+.config-field--model {
+  margin-bottom: 0;
+}
+
+.config-secret-tip {
+  display: block;
+  margin-top: 0.6rem;
+  margin-bottom: 0.75rem;
+  color: #64748b;
+}
+
+.config-ocr-card {
+  background: #f2f8ff;
+  border: 1px solid #d3e3f8;
+  border-radius: 12px;
+  padding: 0.9rem;
+}
+
+.config-ocr-card__title {
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 0.45rem;
+}
+
+.config-ocr-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.config-local-form .config-local-card {
+  background: #fff;
+  border: 1px solid #d9e2ef;
+  border-radius: 12px;
+  padding: 0.95rem;
+}
+
+.config-detect-btn {
+  border-radius: 10px;
+}
+
+.config-local-alert {
+  border-radius: 10px;
+}
+
+.config-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.config-status-card {
+  background: #fff;
+  border: 1px solid #d9e2ef;
+  border-radius: 12px;
+  padding: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+.config-status-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+
+.config-status-card__title {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.config-auto-ocr-btn {
+  white-space: nowrap;
+  border-radius: 8px;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+}
+
+.config-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  padding: 0.36rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.82rem;
+  line-height: 1;
+  background: #fff;
+}
+
+.config-status-chip__label {
+  color: #475569;
+}
+
+.config-status-chip__value {
+  font-weight: 700;
+}
+
+.config-status-chip--ok {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.config-status-chip--warn {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.config-status-chip--danger {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.config-status-chip--info {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.config-status-chip--muted {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.config-preview-card {
+  background: #fff;
+  border: 1px solid #d9e2ef;
+  border-radius: 12px;
+  padding: 0.9rem;
+}
+
+.config-preview-card__header strong {
+  color: #0f172a;
+}
+
+.config-preview-card__content {
+  background: #f8fbff;
+  border: 1px solid #d9e2ef;
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+}
+
+.config-modal-footer {
+  border-top: 1px solid #e4ebf5;
+  background: #fff;
+  gap: 0.5rem;
+}
+
+.config-modal-btn {
+  min-width: 118px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.config-bottom-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 0.85rem;
+  margin-top: 0.2rem;
+  align-items: stretch;
+}
+
+.config-bottom-split__left,
+.config-bottom-split__right {
+  min-width: 0;
+}
+
+.config-bottom-split__left {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.config-bottom-split__right {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: 100%;
+}
+
+.config-bottom-split__right .config-status-card {
+  margin-bottom: 0;
+}
+
+.config-bottom-split__right .config-ocr-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.config-ocr-card--pane {
+  height: 100%;
+}
+
+.config-bottom-split__right .config-ocr-card .form-control {
+  border-radius: 10px;
+  border-color: #ced8e6;
+}
+
+.config-preview-card__content {
+  flex: 1;
+}
+
+.config-ocr-hint {
+  margin-top: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  font-size: 0.86rem;
+}
+
+.config-ocr-hint--success {
+  color: #166534;
+  background: #ecfdf3;
+  border: 1px solid #bbf7d0;
+}
+
+.config-ocr-hint--warning {
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+}
+
+@media (max-width: 1100px) {
+  .config-model-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .config-bottom-split {
+    grid-template-columns: 1fr;
+  }
+}
