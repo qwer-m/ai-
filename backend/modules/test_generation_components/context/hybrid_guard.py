@@ -26,7 +26,7 @@ class HybridEmptyGuardConfig:
 
     empty_context_strategy: str = os.getenv(
         "RAG_HYBRID_EMPTY_CONTEXT_STRATEGY",
-        "sync_snapshot_retry_then_fail",
+        "requirement_only_fallback",
     ).strip().lower()
     sync_snapshot_retry_enabled: bool = _env_bool("RAG_SYNC_SNAPSHOT_RETRY_ENABLED", True)
     sync_snapshot_retry_timeout_sec: int = max(
@@ -35,10 +35,14 @@ class HybridEmptyGuardConfig:
     )
 
     def normalized_strategy(self) -> str:
-        """标准化策略值，仅允许两个受控分支。"""
-        if self.empty_context_strategy in {"fail_fast", "sync_snapshot_retry_then_fail"}:
+        """标准化策略值，默认采用“仅用当前文档继续生成”的非阻塞分支。"""
+        if self.empty_context_strategy in {
+            "fail_fast",
+            "sync_snapshot_retry_then_fail",
+            "requirement_only_fallback",
+        }:
             return self.empty_context_strategy
-        return "fail_fast"
+        return "requirement_only_fallback"
 
 
 HYBRID_EMPTY_GUARD_CONFIG = HybridEmptyGuardConfig()

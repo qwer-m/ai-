@@ -25,16 +25,16 @@ def _env_int(key: str, default: int, minimum: int) -> int:
 class SnapshotWaitGateConfig:
     """生成前 snapshot readiness gate 配置。"""
 
-    # 中文注释：默认要求生成前必须拿到 ready 的 snapshot。
-    require_snapshot_ready: bool = _env_bool("RAG_GENERATION_REQUIRE_SNAPSHOT_READY", True)
+    # 中文注释：阶段二改造后，默认不再把 snapshot 当成硬前置。
+    require_snapshot_ready: bool = _env_bool("RAG_GENERATION_REQUIRE_SNAPSHOT_READY", False)
     # 中文注释：最大等待时间（秒）。
     wait_timeout_sec: int = _env_int("RAG_GENERATION_SNAPSHOT_WAIT_TIMEOUT_SEC", 30, 1)
     # 中文注释：轮询间隔（毫秒）。
     poll_interval_ms: int = _env_int("RAG_GENERATION_SNAPSHOT_POLL_INTERVAL_MS", 500, 100)
-    # 中文注释：超时策略，仅允许 fail_fast / fallback_rag。
+    # 中文注释：保留历史环境变量，但主链路已统一非阻塞（仅用于调试标记）。
     timeout_strategy: str = os.getenv(
         "RAG_GENERATION_SNAPSHOT_TIMEOUT_STRATEGY",
-        "fail_fast",
+        "fallback_rag",
     ).strip().lower()
 
     def normalized_timeout_strategy(self) -> str:
@@ -63,11 +63,11 @@ def wait_snapshot_ready_gate(
     status_messages: list[str] | None = None,
 ) -> dict:
     """
-    生成前 gate：
-    1. 检查 ready；
-    2. 必要时触发重建；
-    3. 轮询等待；
-    4. 超时后按策略 fail_fast 或 fallback_rag。
+    生成前 gate（非阻塞）：
+    1. 仅做 snapshot 状态检查；
+    2. 必要时触发异步重建；
+    3. 不做轮询等待，不阻塞当前生成请求；
+    4. 未就绪时直接返回“fallback_rag”路径继续生成。
     """
     cfg = SNAPSHOT_WAIT_GATE_CONFIG
     strategy = cfg.normalized_timeout_strategy()
@@ -127,34 +127,17 @@ def wait_snapshot_ready_gate(
                 f"snapshot gate: status={first_snapshot_status}，不重复入队，直接等待 ready"
             )
 
-    timeout_sec = cfg.wait_timeout_sec
-    poll_sec = cfg.poll_interval_ms / 1000.0
-    last_status = first_status
-    while True:
-        elapsed = time.monotonic() - started
-        gate_debug["snapshot_wait_elapsed_ms"] = int(elapsed * 1000)
-        if elapsed >= timeout_sec:
-            break
-
-        gate_debug["snapshot_wait_poll_count"] = int(gate_debug["snapshot_wait_poll_count"]) + 1
-        last_status = get_status_fn() or {}
-        gate_debug["snapshot_status_after_wait"] = str(last_status.get("snapshot_status") or "unknown")
-        if is_snapshot_ready_for_generation(last_status):
-            gate_debug["snapshot_wait_result"] = "ready_then_proceed"
-            return {"proceed": True, "error_code": "", "error_message": "", "gate_debug": gate_debug}
-        time.sleep(poll_sec)
-
-    gate_debug["snapshot_wait_timeout"] = True
-    gate_debug["snapshot_status_after_wait"] = str(last_status.get("snapshot_status") or "unknown")
-    if strategy == "fallback_rag":
-        gate_debug["snapshot_wait_result"] = "timeout_fallback_rag"
-        return {"proceed": True, "error_code": "", "error_message": "", "gate_debug": gate_debug}
-
-    gate_debug["snapshot_wait_result"] = "timeout_fail_fast"
+    # 中文注释：改造后不再轮询等待，直接按实时 RAG 回退继续执行。
+    elapsed = time.monotonic() - started
+    gate_debug["snapshot_wait_elapsed_ms"] = int(max(0.0, elapsed) * 1000)
+    gate_debug["snapshot_wait_timeout"] = False
+    gate_debug["snapshot_wait_poll_count"] = 0
+    gate_debug["snapshot_wait_result"] = "no_wait_fallback_rag"
+    gate_debug["snapshot_status_after_wait"] = first_snapshot_status
     return {
-        "proceed": False,
-        "error_code": "SNAPSHOT_NOT_READY_TIMEOUT",
-        "error_message": "snapshot 等待超时，未达到可用于生成的 ready 状态。",
+        "proceed": True,
+        "error_code": "",
+        "error_message": "",
         "gate_debug": gate_debug,
     }
 

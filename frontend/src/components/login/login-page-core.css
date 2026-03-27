@@ -703,3 +703,54 @@
   color: #6f3cff;
 }
 
+body.theme-dark .login-page {
+  --login-bg-a: #0b1220;
+  --login-bg-b: #111827;
+  --login-brand-purple: #818cf8;
+  --login-brand-purple-deep: #6366f1;
+  --login-brand-dark: #e2e8f0;
+  --login-card-bg: #111827;
+  --login-shadow: 0 24px 70px rgba(2, 6, 23, 0.5);
+}
+
+body.theme-dark .login-card__scene-pane {
+  background: #0f172a;
+}
+
+body.theme-dark .login-card__form-pane {
+  background: #111827;
+}
+
+body.theme-dark .login-form-panel__header h1,
+body.theme-dark .login-form .form-control,
+body.theme-dark .login-form-panel__footnote a {
+  color: #e2e8f0;
+}
+
+body.theme-dark .login-form-panel__header p,
+body.theme-dark .login-form .form-label,
+body.theme-dark .login-form-panel__footnote,
+body.theme-dark .login-form__meta .form-check-label,
+body.theme-dark .login-link-button {
+  color: #94a3b8;
+}
+
+body.theme-dark .login-form .form-control {
+  border-bottom-color: #334155;
+}
+
+body.theme-dark .login-form .form-control:focus {
+  border-bottom-color: #818cf8;
+}
+
+body.theme-dark .login-primary-btn {
+  background: #6366f1;
+  box-shadow: none;
+}
+
+body.theme-dark .login-google-btn {
+  background: #0f172a;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+

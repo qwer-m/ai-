@@ -1,13 +1,24 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { Button, Form, InputGroup, Modal, Spinner } from 'react-bootstrap';
-import { FaPlay, FaHistory, FaGlobe, FaMobileAlt, FaBug, FaMagic, FaBars, FaChevronLeft, FaFolderPlus, FaFile } from 'react-icons/fa';
+import {
+    FaPlay,
+    FaHistory,
+    FaGlobe,
+    FaMobileAlt,
+    FaBug,
+    FaMagic,
+    FaBars,
+    FaChevronLeft,
+    FaFolderPlus,
+    FaFile,
+} from 'react-icons/fa';
 import { api } from '../../../utils/api';
 import { ScriptEditor } from '../../UIAutomation/ScriptEditor';
 import { LivePreview } from '../../UIAutomation/LivePreview';
 import { ReportDetail } from '../../UIAutomation/ReportDetail';
 import { HistoryList, type HistoryListHandle } from '../../UIAutomation/HistoryList';
+import './ui-automation.css';
 
-// Types
 interface UIExecution {
     id: number;
     automation_type: string;
@@ -16,7 +27,7 @@ interface UIExecution {
     execution_result?: string;
     screenshot_paths: string[];
     quality_score?: number;
-    evaluation_result?: any;
+    evaluation_result?: unknown;
     created_at: string;
     task_description?: string;
 }
@@ -31,14 +42,12 @@ interface UITestCase {
 interface UIAutomationProps {
     projectId: number | null;
     onLog: (msg: string) => void;
-    view?: string; // 'web' | 'app' | 'report'
+    view?: string;
 }
 
 export const UIAutomation: React.FC<UIAutomationProps> = ({ projectId, onLog, view = 'web' }) => {
-    // -- State --
-    // Map 'regression' to 'report' view logic internally
     const effectiveView = view === 'regression' ? 'report' : view;
-    
+
     const [currentScript, setCurrentScript] = useState('');
     const [targetUrl, setTargetUrl] = useState('');
     const [appConfig, setAppConfig] = useState('');
@@ -51,15 +60,14 @@ export const UIAutomation: React.FC<UIAutomationProps> = ({ projectId, onLog, vi
     const [importText, setImportText] = useState('');
     const [selectedReport, setSelectedReport] = useState<UIExecution | null>(null);
     const [selectedCaseId, setSelectedCaseId] = useState<number | null>(null);
+    const [requirements, setRequirements] = useState('');
 
-    // -- Layout State --
     const [showSidebar, setShowSidebar] = useState(true);
-    const [sidebarWidth, setSidebarWidth] = useState(250);
+    const [sidebarWidth, setSidebarWidth] = useState(260);
     const [isResizingSidebar, setIsResizingSidebar] = useState(false);
     const sidebarResizeStartRef = useRef<{ x: number; width: number } | null>(null);
     const historyListRef = useRef<HistoryListHandle>(null);
 
-    // -- Polling for Execution Status --
     useEffect(() => {
         let interval: ReturnType<typeof setInterval> | undefined;
         if (executionId && (executionStatus === 'running' || executionStatus === 'pending')) {
@@ -69,26 +77,24 @@ export const UIAutomation: React.FC<UIAutomationProps> = ({ projectId, onLog, vi
                     setExecutionStatus(data.status);
                     setLogs(data.execution_result || '');
                     setScreenshots(data.screenshot_paths || []);
-                    
-                    if (data.status === 'success' || data.status === 'failed') {
-                        if (effectiveView === 'report' && selectedReport?.id === executionId) {
-                            setSelectedReport(data);
-                        }
+                    if ((data.status === 'success' || data.status === 'failed') && effectiveView === 'report' && selectedReport?.id === executionId) {
+                        setSelectedReport(data);
                     }
                 } catch (e) {
-                    console.error("Poll failed", e);
+                    console.error('Poll failed', e);
                 }
             }, 2000);
         }
         return () => clearInterval(interval);
     }, [executionId, executionStatus, effectiveView, selectedReport]);
 
-    // -- Sidebar Resize Logic --
     useEffect(() => {
         const handleGlobalMouseMove = (e: globalThis.MouseEvent) => {
-            if (!isResizingSidebar || !sidebarResizeStartRef.current) return;
+            if (!isResizingSidebar || !sidebarResizeStartRef.current) {
+                return;
+            }
             const dx = e.clientX - sidebarResizeStartRef.current.x;
-            const next = Math.max(150, Math.min(500, sidebarResizeStartRef.current.width + dx));
+            const next = Math.max(180, Math.min(420, sidebarResizeStartRef.current.width + dx));
             setSidebarWidth(next);
         };
 
@@ -108,66 +114,60 @@ export const UIAutomation: React.FC<UIAutomationProps> = ({ projectId, onLog, vi
         };
     }, [isResizingSidebar]);
 
-    // -- Handlers --
-
-    const [requirements, setRequirements] = useState('');
-
     const handleGenerate = async () => {
-        if (!projectId) return;
+        if (!projectId) {
+            return;
+        }
         setIsGenerating(true);
         try {
-            // Try to get test cases from localStorage if empty
             let cases = importText;
             if (!cases) {
-                // ... (auto fetch logic)
-                 try {
-                     // Try to fetch latest test generation from backend
-                     const gens = await api.get<any[]>(`/api/test-generations?project_id=${projectId}`);
-                     if (gens && gens.length > 0) {
-                         const latest = gens[0];
-                         const detail = await api.get<any>(`/api/test-generations/${latest.id}`);
-                         // Prefer generated result (JSON/Text), fallback to requirement
-                         if (typeof detail === 'string') {
-                             cases = detail;
-                         } else if (Array.isArray(detail)) {
-                             cases = JSON.stringify(detail, null, 2);
-                         } else if (detail && typeof detail === 'object') {
-                             if (typeof detail.generated_result === 'string') {
-                                 cases = detail.generated_result;
-                             } else if (Array.isArray(detail.generated_result) || typeof detail.generated_result === 'object') {
-                                 cases = JSON.stringify(detail.generated_result, null, 2);
-                             } else if (typeof detail.raw === 'string') {
-                                 cases = detail.raw;
-                             } else if (typeof detail.requirement_text === 'string') {
-                                 cases = detail.requirement_text;
-                             }
-                         }
-                         onLog(`Auto-imported test cases from generation #${latest.id}`);
-                     }
-                 } catch (e) {
-                     console.warn("Failed to fetch latest test generation, falling back to empty", e);
-                 }
+                try {
+                    const gens = await api.get<any[]>(`/api/test-generations?project_id=${projectId}`);
+                    if (gens && gens.length > 0) {
+                        const latest = gens[0];
+                        const detail = await api.get<any>(`/api/test-generations/${latest.id}`);
+                        if (typeof detail === 'string') {
+                            cases = detail;
+                        } else if (Array.isArray(detail)) {
+                            cases = JSON.stringify(detail, null, 2);
+                        } else if (detail && typeof detail === 'object') {
+                            if (typeof detail.generated_result === 'string') {
+                                cases = detail.generated_result;
+                            } else if (Array.isArray(detail.generated_result) || typeof detail.generated_result === 'object') {
+                                cases = JSON.stringify(detail.generated_result, null, 2);
+                            } else if (typeof detail.raw === 'string') {
+                                cases = detail.raw;
+                            } else if (typeof detail.requirement_text === 'string') {
+                                cases = detail.requirement_text;
+                            }
+                        }
+                        onLog(`已自动导入最近一次用例生成结果 #${latest.id}`);
+                    }
+                } catch (e) {
+                    console.warn('Failed to fetch latest test generation, falling back to empty', e);
+                }
             }
-            
-            setRequirements(cases); // Update requirements view
+
+            setRequirements(cases);
 
             const payload = {
                 project_id: projectId,
-                task: cases || "Perform a general smoke test",
+                task: cases || 'Perform a general smoke test',
                 url: effectiveView === 'web' ? targetUrl : appConfig,
-                automation_type: effectiveView === 'app' ? 'app' : 'web'
+                automation_type: effectiveView === 'app' ? 'app' : 'web',
             };
-            
+
             const res = await api.post<{ script: string }>('/api/ui-automation/generate', payload);
             setCurrentScript(res.script || '');
             setExecutionId(null);
             setExecutionStatus('created');
             setLogs('');
             setScreenshots([]);
-            onLog('Script generated.');
+            onLog('脚本生成成功');
         } catch (e) {
-            onLog(`Generation failed: ${e instanceof Error ? e.message : String(e)}`);
-            alert('Failed to generate script. Please check backend logs.');
+            onLog(`脚本生成失败: ${e instanceof Error ? e.message : String(e)}`);
+            alert('脚本生成失败，请检查后端日志。');
         } finally {
             setIsGenerating(false);
             setShowImportModal(false);
@@ -176,9 +176,10 @@ export const UIAutomation: React.FC<UIAutomationProps> = ({ projectId, onLog, vi
 
     const handleRun = async () => {
         if (!projectId || !currentScript.trim()) {
-            alert('No script loaded. Please generate or select a script first.');
+            alert('脚本为空，请先生成或选择脚本。');
             return;
         }
+
         setExecutionStatus('running');
         try {
             const form = new FormData();
@@ -206,9 +207,9 @@ export const UIAutomation: React.FC<UIAutomationProps> = ({ projectId, onLog, vi
                 }
             }
 
-            onLog(`Execution finished: ${res.status || 'unknown'}`);
+            onLog(`执行完成: ${res.status || 'unknown'}`);
         } catch (e) {
-            onLog(`Execution failed to start: ${e instanceof Error ? e.message : String(e)}`);
+            onLog(`执行启动失败: ${e instanceof Error ? e.message : String(e)}`);
             setExecutionStatus('failed');
         }
     };
@@ -229,103 +230,103 @@ export const UIAutomation: React.FC<UIAutomationProps> = ({ projectId, onLog, vi
         }
     };
 
-    // -- Render Helpers --
+    const handleDetect = async (type: 'web' | 'app') => {
+        try {
+            onLog('开始检测目标环境...');
+            const res = await api.post<{ success: boolean; message: string; data?: any }>('/api/ui-automation/detect', {
+                type,
+                target: type === 'web' ? targetUrl : undefined,
+            });
+
+            if (!res.success) {
+                onLog(`检测失败: ${res.message}`);
+                alert(res.message);
+                return;
+            }
+
+            onLog(`检测成功: ${res.message}`);
+            if (type === 'app' && res.data?.app_id) {
+                setAppConfig(`${res.data.app_id}${res.data.activity ? `/${res.data.activity.split('/').pop()}` : ''}`);
+            } else if (type === 'web' && res.data?.validated_url) {
+                setTargetUrl(res.data.validated_url);
+            }
+        } catch (e) {
+            console.error(e);
+            onLog('检测请求失败');
+        }
+    };
 
     const renderAutomationView = (type: 'web' | 'app') => (
-        <div className="h-100 d-flex overflow-hidden">
-            {/* Left: History Sidebar (Resizable) */}
-            <div 
-                className="border-end bg-light d-flex flex-column position-relative flex-shrink-0"
-                style={{ 
-                    width: showSidebar ? `${sidebarWidth}px` : '0px', 
-                    transition: isResizingSidebar ? 'none' : 'width 0.2s ease',
-                    overflow: 'hidden'
-                }}
+        <div className="ui-automation-body h-100 d-flex overflow-hidden">
+            <div
+                className={`ui-automation-sidebar border-end d-flex flex-column position-relative flex-shrink-0 ${showSidebar ? 'is-open' : 'is-closed'} ${isResizingSidebar ? 'is-resizing' : ''}`}
+                style={{ '--ui-sidebar-width': `${sidebarWidth}px` } as React.CSSProperties}
             >
-                <div className="d-flex justify-content-between align-items-center p-2 border-bottom">
-                    <div className="d-flex align-items-center gap-2">
-                        <span className="fw-bold small text-secondary"><FaHistory className="me-1"/>历史记录</span>
-                        <FaFolderPlus className="text-secondary cursor-pointer" title="新建根文件夹" onClick={() => historyListRef.current?.openCreateModal('folder')} size={14} />
-                        <FaFile className="text-secondary cursor-pointer" title="新建根脚本" onClick={() => historyListRef.current?.openCreateModal('file')} size={12} />
+                <div className="ui-automation-sidebar-head d-flex justify-content-between align-items-center px-3 py-2 border-bottom">
+                    <div className="d-flex align-items-center gap-2 text-secondary small fw-bold">
+                        <FaHistory className="me-1" />
+                        <span>测试脚本历史</span>
+                        <FaFolderPlus className="cursor-pointer" title="新建根目录" onClick={() => historyListRef.current?.openCreateModal('folder')} size={14} />
+                        <FaFile className="cursor-pointer" title="新建根脚本" onClick={() => historyListRef.current?.openCreateModal('file')} size={12} />
                     </div>
                     <Button variant="link" size="sm" className="p-0 text-secondary" onClick={() => setShowSidebar(false)}>
-                        <FaChevronLeft size={12}/>
+                        <FaChevronLeft size={12} />
                     </Button>
                 </div>
                 <div className="flex-grow-1 overflow-hidden">
-                    <HistoryList 
+                    <HistoryList
                         ref={historyListRef}
-                        projectId={projectId} 
-                        onSelect={handleHistorySelect} 
+                        projectId={projectId}
+                        onSelect={handleHistorySelect}
                         filterType={type}
+                        selectedId={selectedCaseId}
                     />
                 </div>
-                {/* Resize Handle */}
-                {showSidebar && (
+                {showSidebar ? (
                     <div
-                        className="position-absolute top-0 end-0 h-100"
-                        style={{ width: '5px', cursor: 'col-resize', zIndex: 10 }}
+                        className="ui-automation-resizer position-absolute top-0 end-0 h-100"
                         onMouseDown={(e) => {
                             setIsResizingSidebar(true);
                             sidebarResizeStartRef.current = { x: e.clientX, width: sidebarWidth };
                             e.preventDefault();
                         }}
                     />
-                )}
+                ) : null}
             </div>
 
-            {/* Main Content */}
-            <div className="flex-grow-1 d-flex flex-column" style={{ minWidth: 0 }}>
-                {/* Split Pane: Live Preview (Left) + Requirements & Script (Right) */}
-                <div className="flex-grow-1 d-flex overflow-hidden bg-light p-2 gap-2">
-                    {/* Panel 1: Live Preview (2/3 width) */}
-                    <div className="h-100 bg-white border rounded overflow-hidden d-flex flex-column shadow-sm" style={{flex: 2}}>
-                        <div className="p-2 border-bottom bg-light d-flex align-items-center gap-2">
-                            {!showSidebar && (
-                                <Button variant="light" size="sm" onClick={() => setShowSidebar(true)} className="p-0 border-0 bg-transparent me-1" title="展开侧边栏">
-                                    <FaBars className="text-secondary"/>
+            <div className="ui-automation-main ui-automation-main-min flex-grow-1 d-flex flex-column">
+                <div className="ui-automation-workspace flex-grow-1 d-flex overflow-hidden p-3 gap-3">
+                    <div className="ui-automation-preview-card ui-automation-preview-main h-100 overflow-hidden d-flex flex-column">
+                        <div className="ui-automation-toolbar p-2 border-bottom d-flex align-items-center gap-2">
+                            {!showSidebar ? (
+                                <Button
+                                    variant="light"
+                                    size="sm"
+                                    onClick={() => setShowSidebar(true)}
+                                    className="p-0 border-0 bg-transparent me-1"
+                                    title="展开侧栏"
+                                >
+                                    <FaBars className="text-secondary" />
                                 </Button>
-                            )}
-                            <InputGroup size="sm" style={{maxWidth: '500px'}}>
-                                <InputGroup.Text className="bg-white border-end-0">
-                                    {type === 'web' ? <FaGlobe className="text-primary"/> : <FaMobileAlt className="text-primary"/>}
+                            ) : null}
+
+                            <InputGroup size="sm" className="ui-automation-target-input">
+                                <InputGroup.Text className="border-end-0">
+                                    {type === 'web' ? <FaGlobe className="text-primary" /> : <FaMobileAlt className="text-primary" />}
                                 </InputGroup.Text>
-                                <Form.Control 
+                                <Form.Control
                                     className="border-start-0 ps-1"
-                                    placeholder={type === 'web' ? "目标 URL (如 https://google.com)" : "App 包名 / ID"}
+                                    placeholder={type === 'web' ? '目标 URL（例如 https://google.com）' : 'App 包名 / Activity'}
                                     value={type === 'web' ? targetUrl : appConfig}
-                                    onChange={e => type === 'web' ? setTargetUrl(e.target.value) : setAppConfig(e.target.value)}
+                                    onChange={(e) => (type === 'web' ? setTargetUrl(e.target.value) : setAppConfig(e.target.value))}
                                 />
-                                <Button variant="outline-secondary" onClick={async () => {
-                                    try {
-                                        onLog('开始检索环境...');
-                                        const res = await api.post<{success: boolean, message: string, data?: any}>('/api/ui-automation/detect', {
-                                            type,
-                                            target: type === 'web' ? targetUrl : undefined
-                                        });
-                                        
-                                        if (res.success) {
-                                            onLog(`检索成功: ${res.message}`);
-                                            if (type === 'app' && res.data?.app_id) {
-                                                setAppConfig(`${res.data.app_id}${res.data.activity ? '/' + res.data.activity.split('/').pop() : ''}`);
-                                            } else if (type === 'web' && res.data?.validated_url) {
-                                                setTargetUrl(res.data.validated_url);
-                                            }
-                                        } else {
-                                            onLog(`检索失败: ${res.message}`);
-                                            alert(res.message);
-                                        }
-                                    } catch (e) {
-                                        console.error(e);
-                                        onLog('检索请求出错');
-                                    }
-                                }}>
-                                    开始检索
+                                <Button variant="outline-secondary" onClick={() => void handleDetect(type)}>
+                                    检测
                                 </Button>
                             </InputGroup>
                         </div>
-                        <div className="flex-grow-1">
-                            <LivePreview 
+                        <div className="flex-grow-1 ui-automation-min-h-0">
+                            <LivePreview
                                 executionId={executionId}
                                 status={executionStatus}
                                 logs={logs}
@@ -335,60 +336,52 @@ export const UIAutomation: React.FC<UIAutomationProps> = ({ projectId, onLog, vi
                         </div>
                     </div>
 
-                    {/* Panel 2: Requirements & Script (Merged, 1/3 width) */}
-                    <div className="h-100 d-flex flex-column gap-2" style={{flex: 1}}>
-                        {/* Sub-panel 1: Requirements */}
-                        <div className="bg-white border rounded overflow-hidden d-flex flex-column shadow-sm" style={{flex: 1}}>
-                            <div className="p-2 border-bottom bg-light d-flex align-items-center justify-content-between">
+                    <div className="ui-automation-right-column ui-automation-right-main h-100 d-flex flex-column gap-3">
+                        <div className="ui-automation-side-card ui-automation-side-fill overflow-hidden d-flex flex-column">
+                            <div className="ui-automation-side-head p-2 border-bottom d-flex align-items-center justify-content-between">
                                 <div className="fw-bold small text-secondary d-flex align-items-center">
-                                    <FaMagic className="me-2 text-primary"/>
+                                    <FaMagic className="me-2 text-primary" />
                                     <span>测试用例</span>
                                 </div>
-                                <Button 
-                                    size="sm" 
-                                    variant="outline-primary" 
+                                <Button
+                                    size="sm"
+                                    variant="outline-primary"
                                     onClick={() => setShowImportModal(true)}
                                     disabled={isGenerating}
-                                    style={{fontSize: '0.8em', padding: '2px 8px'}}
+                                    className="ui-automation-small-btn"
                                 >
-                                    {isGenerating ? <Spinner size="sm" animation="border"/> : "自动导入 & 生成脚本"}
+                                    {isGenerating ? <Spinner size="sm" animation="border" /> : '自动导入并生成脚本'}
                                 </Button>
                             </div>
                             <div className="flex-grow-1 p-0 h-100">
                                 <Form.Control
                                     as="textarea"
-                                    className="h-100 w-100 border-0 p-3"
-                                    style={{resize: 'none', fontSize: '0.9em', fontFamily: 'monospace', backgroundColor: '#fdfdfd'}}
+                                    className="h-100 w-100 border-0 p-3 ui-automation-readonly-area"
                                     value={requirements}
                                     readOnly
-                                    placeholder="点击上方“自动导入 & 生成脚本”后，AI生成的测试用例将显示在这里..."
+                                    placeholder="点击上方按钮后，AI 生成的测试用例将展示在这里。"
                                 />
                             </div>
                         </div>
 
-                        {/* Sub-panel 2: Script */}
-                        <div className="bg-white border rounded overflow-hidden d-flex flex-column shadow-sm" style={{flex: 1}}>
-                            <div className="p-2 border-bottom bg-light d-flex align-items-center justify-content-between">
+                        <div className="ui-automation-side-card ui-automation-side-fill overflow-hidden d-flex flex-column">
+                            <div className="ui-automation-side-head p-2 border-bottom d-flex align-items-center justify-content-between">
                                 <div className="fw-bold small text-secondary d-flex align-items-center">
-                                    <FaBug className="me-2 text-success"/>
+                                    <FaBug className="me-2 text-success" />
                                     <span>测试脚本</span>
                                 </div>
-                                <Button 
-                                    size="sm" 
-                                    variant="primary" 
+                                <Button
+                                    size="sm"
+                                    variant="primary"
                                     onClick={handleRun}
                                     disabled={!currentScript || executionStatus === 'running'}
-                                    style={{fontSize: '0.8em', padding: '2px 12px'}}
+                                    className="ui-automation-small-btn"
                                 >
-                                    {executionStatus === 'running' ? <Spinner size="sm" animation="border"/> : <><FaPlay className="me-1"/> 运行脚本</>}
+                                    {executionStatus === 'running' ? <Spinner size="sm" animation="border" /> : <><FaPlay className="me-1" />运行脚本</>}
                                 </Button>
                             </div>
                             <div className="flex-grow-1 overflow-hidden h-100">
-                                <ScriptEditor 
-                                    script={currentScript} 
-                                    onChange={setCurrentScript} 
-                                    readOnly={executionStatus === 'running'}
-                                />
+                                <ScriptEditor script={currentScript} onChange={setCurrentScript} readOnly={executionStatus === 'running'} />
                             </div>
                         </div>
                     </div>
@@ -398,28 +391,23 @@ export const UIAutomation: React.FC<UIAutomationProps> = ({ projectId, onLog, vi
     );
 
     const renderReportView = () => (
-        <div style={{height: '100%'}} className="d-flex">
-            <div className="w-25 border-end h-100">
-                 <HistoryList 
-                    projectId={projectId} 
-                    onSelect={handleHistorySelect}
-                />
+        <div className="ui-automation-report h-100 d-flex">
+            <div className="ui-automation-report-sidebar border-end h-100">
+                <HistoryList projectId={projectId} onSelect={handleHistorySelect} selectedId={selectedCaseId} />
             </div>
-            <div className="w-75 h-100">
+            <div className="ui-automation-report-content h-100">
                 {selectedReport ? (
-                    <ReportDetail 
-                        execution={selectedReport} 
+                    <ReportDetail
+                        execution={selectedReport}
                         onReRun={() => {
-                            // Temporary fallback: alert user to switch view
-                            // Ideally, we should lift state up to Dashboard to switch tabs
-                            alert(`请切换到 ${selectedReport.automation_type.includes('app') ? 'App' : 'Web'} 自动化界面以重新运行此脚本`);
-                        }} 
+                            alert(`请切换到 ${selectedReport.automation_type.includes('app') ? 'App' : 'Web'} 自动化页签后重新运行该脚本。`);
+                        }}
                     />
                 ) : (
                     <div className="h-100 d-flex align-items-center justify-content-center text-muted">
                         <div className="text-center">
-                            <FaHistory size={48} className="mb-3 opacity-25"/>
-                            <p>请从左侧列表选择一个报告查看详情</p>
+                            <FaHistory size={48} className="mb-3 opacity-25" />
+                            <p className="mb-0">请先从左侧选择一个脚本或报告。</p>
                         </div>
                     </div>
                 )}
@@ -428,14 +416,13 @@ export const UIAutomation: React.FC<UIAutomationProps> = ({ projectId, onLog, vi
     );
 
     return (
-        <div className="h-100 d-flex flex-column bg-white">
-            <div className="flex-grow-1" style={{height: '100%'}}>
-                {effectiveView === 'web' && renderAutomationView('web')}
-                {effectiveView === 'app' && renderAutomationView('app')}
-                {effectiveView === 'report' && renderReportView()}
+        <div className="ui-automation-shell h-100 d-flex flex-column">
+            <div className="flex-grow-1 ui-automation-fill-height">
+                {effectiveView === 'web' ? renderAutomationView('web') : null}
+                {effectiveView === 'app' ? renderAutomationView('app') : null}
+                {effectiveView === 'report' ? renderReportView() : null}
             </div>
 
-            {/* Import Modal */}
             <Modal show={showImportModal} onHide={() => setShowImportModal(false)}>
                 <Modal.Header closeButton>
                     <Modal.Title>导入测试用例</Modal.Title>
@@ -443,20 +430,20 @@ export const UIAutomation: React.FC<UIAutomationProps> = ({ projectId, onLog, vi
                 <Modal.Body>
                     <Form.Group>
                         <Form.Label>粘贴测试用例或需求描述</Form.Label>
-                        <Form.Control 
-                            as="textarea" 
-                            rows={6} 
+                        <Form.Control
+                            as="textarea"
+                            rows={6}
                             value={importText}
-                            onChange={e => setImportText(e.target.value)}
-                            placeholder="1. 打开 Google&#10;2. 搜索 'Trae'&#10;3. 验证结果..."
+                            onChange={(e) => setImportText(e.target.value)}
+                            placeholder={'1. 打开 Google\n2. 搜索 "Trae"\n3. 校验搜索结果'}
                         />
-                        <Form.Text className="text-muted">
-                            留空将尝试自动加载最新的测试生成结果。
-                        </Form.Text>
+                        <Form.Text className="text-muted">留空时会尝试自动导入最近一次测试生成结果。</Form.Text>
                     </Form.Group>
                 </Modal.Body>
                 <Modal.Footer>
-                    <Button variant="secondary" onClick={() => setShowImportModal(false)}>取消</Button>
+                    <Button variant="secondary" onClick={() => setShowImportModal(false)}>
+                        取消
+                    </Button>
                     <Button variant="primary" onClick={handleGenerate} disabled={isGenerating}>
                         {isGenerating ? '生成中...' : '生成脚本'}
                     </Button>

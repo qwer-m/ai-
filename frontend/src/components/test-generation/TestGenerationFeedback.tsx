@@ -1,4 +1,4 @@
-import { Alert, Button, Modal, ProgressBar, Toast } from 'react-bootstrap';
+﻿import { Alert, Button, Modal, ProgressBar, Toast } from 'react-bootstrap';
 import { FaExclamationCircle, FaExclamationTriangle } from 'react-icons/fa';
 
 type TestGenerationFeedbackProps = {
@@ -12,6 +12,8 @@ type TestGenerationFeedbackProps = {
   showDuplicateModal: boolean;
   onDuplicateCancel: () => void | Promise<void>;
   onDuplicateConfirm: () => void;
+  hideErrorAlert?: boolean;
+  hideLoadingProgress?: boolean;
 };
 
 export function TestGenerationFeedback({
@@ -25,46 +27,37 @@ export function TestGenerationFeedback({
   showDuplicateModal,
   onDuplicateCancel,
   onDuplicateConfirm,
+  hideErrorAlert = false,
+  hideLoadingProgress = false,
 }: TestGenerationFeedbackProps) {
   return (
     <>
-      <div className="position-fixed top-50 start-50 translate-middle p-3" style={{ zIndex: 1100 }}>
-        <Toast
-          show={!!toastMsg}
-          onClose={onToastClose}
-          delay={3000}
-          autohide
-          bg={toastType === 'success' ? 'success' : 'danger'}
-        >
-          <Toast.Body className="text-white text-center fw-bold">
-            {toastType === 'success'
-              ? '复制成功'
-              : (toastMsg?.includes('复制') ? '复制失败' : toastMsg)}
-          </Toast.Body>
+      <div className="position-fixed top-50 start-50 translate-middle p-3 test-generation-toast-wrap">
+        <Toast show={!!toastMsg} onClose={onToastClose} delay={3000} autohide bg={toastType === 'success' ? 'success' : 'danger'}>
+          <Toast.Body className="text-white text-center fw-bold">{toastType === 'success' ? '复制成功' : toastMsg?.includes('复制') ? '复制失败' : toastMsg}</Toast.Body>
         </Toast>
       </div>
 
-      {loading && (
+      {loading && !hideLoadingProgress ? (
         <div className="col-span-12 animate-pulse">
           <ProgressBar
             animated
             now={100}
-            label={<div style={{ whiteSpace: 'normal', wordBreak: 'break-all', fontSize: '0.85rem', lineHeight: '1.2' }}>{pollStatus}</div>}
+            label={<div className="test-generation-progress-label">{pollStatus}</div>}
             variant="info"
-            style={{ height: 'auto', minHeight: '30px' }}
-            className="rounded-1"
+            className="rounded-1 test-generation-progress"
           />
-          <div className="text-center mt-2 text-muted small">AI 正在深度分析需求文档，请稍候...</div>
+          <div className="text-center mt-2 text-muted small">AI 正在分析需求文档，请稍候...</div>
         </div>
-      )}
+      ) : null}
 
-      {error && (
+      {error && !hideErrorAlert ? (
         <div className="col-span-12">
           <Alert variant="danger" dismissible onClose={onErrorClose} className="shadow-sm border-0 mb-0">
             <FaExclamationCircle className="me-2" /> {error}
           </Alert>
         </div>
-      )}
+      ) : null}
 
       <Modal show={showDuplicateModal} onHide={onDuplicateCancel} centered backdrop="static">
         <Modal.Header closeButton className="border-0 pb-0">
@@ -74,21 +67,25 @@ export function TestGenerationFeedback({
           </Modal.Title>
         </Modal.Header>
         <Modal.Body className="pt-2">
-          <p className="mb-3">检测到该文档内容未发生变化。系统已为您找到历史生成结果。</p>
+          <p className="mb-3">检测到文档内容未变化，系统已找到历史生成结果。</p>
           <div className="bg-light p-3 rounded small text-secondary">
             <ul className="mb-0 ps-3">
               <li className="mb-1">
-                <strong>加载历史：</strong> 直接使用上次生成的结果（推荐，无需等待）。
+                <strong>加载历史：</strong>直接使用上次生成结果（推荐）。
               </li>
               <li>
-                <strong>强制生成：</strong> 忽略重复，强制 AI 重新分析并生成（耗时且消耗 Token）。
+                <strong>强制生成：</strong>忽略重复，重新请求 AI 生成（会增加耗时和 Token 消耗）。
               </li>
             </ul>
           </div>
         </Modal.Body>
         <Modal.Footer className="border-0 pt-0">
-          <Button variant="secondary" onClick={onDuplicateCancel}>加载历史结果</Button>
-          <Button variant="primary" onClick={onDuplicateConfirm}>强制重新生成</Button>
+          <Button variant="secondary" onClick={onDuplicateCancel}>
+            加载历史结果
+          </Button>
+          <Button variant="primary" onClick={onDuplicateConfirm}>
+            强制重新生成
+          </Button>
         </Modal.Footer>
       </Modal>
     </>

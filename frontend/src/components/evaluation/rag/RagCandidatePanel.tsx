@@ -153,84 +153,91 @@ export function RagCandidatePanel({ onLog, currentRunId }: Props) {
   };
 
   return (
-    <div className="d-flex flex-column gap-3">
+    <div className="d-flex flex-column gap-3 rag-report-subpanel">
       {error ? <Alert variant="danger" className="mb-0">{error}</Alert> : null}
 
-      <div className="fw-bold">候选回流</div>
+      <div className="ui-section-card">
+        <div className="ui-section-title">候选生成</div>
+        <div className="grid grid-cols-5 gap-3 rag-report-grid rag-report-grid-tight">
+          <Form.Group><Form.Label className="small text-muted">运行 ID</Form.Label><Form.Control type="number" min={1} value={runId} onChange={(e) => setRunId(e.target.value ? Number(e.target.value) : '')} /></Form.Group>
+          <Form.Group className="rag-col-span-2"><Form.Label className="small text-muted">失败原因过滤</Form.Label><Form.Control value={failureReasons} onChange={(e) => setFailureReasons(e.target.value)} /></Form.Group>
+          <Form.Group><Form.Label className="small text-muted">Faithfulness 阈值（小于）</Form.Label><Form.Control type="number" step="0.01" value={faithfulnessLt} onChange={(e) => setFaithfulnessLt(e.target.value === '' ? '' : Number(e.target.value))} /></Form.Group>
+          <Form.Group><Form.Label className="small text-muted">Correctness 阈值（小于）</Form.Label><Form.Control type="number" step="0.01" value={correctnessLt} onChange={(e) => setCorrectnessLt(e.target.value === '' ? '' : Number(e.target.value))} /></Form.Group>
+          <Form.Group>
+            <Form.Label className="small text-muted">目标数据集</Form.Label>
+            <Form.Select value={targetType} onChange={(e) => setTargetType(e.target.value as any)}>
+              <option value="auto">auto</option>
+              <option value="challenge">challenge</option>
+              <option value="regression">regression</option>
+            </Form.Select>
+          </Form.Group>
+        </div>
 
-      <div className="grid grid-cols-5 gap-3">
-        <Form.Group><Form.Label className="small text-muted">run_id</Form.Label><Form.Control type="number" min={1} value={runId} onChange={(e) => setRunId(e.target.value ? Number(e.target.value) : '')} /></Form.Group>
-        <Form.Group><Form.Label className="small text-muted">failure_reasons</Form.Label><Form.Control value={failureReasons} onChange={(e) => setFailureReasons(e.target.value)} /></Form.Group>
-        <Form.Group><Form.Label className="small text-muted">faithfulness_lt</Form.Label><Form.Control type="number" step="0.01" value={faithfulnessLt} onChange={(e) => setFaithfulnessLt(e.target.value === '' ? '' : Number(e.target.value))} /></Form.Group>
-        <Form.Group><Form.Label className="small text-muted">answer_correctness_lt</Form.Label><Form.Control type="number" step="0.01" value={correctnessLt} onChange={(e) => setCorrectnessLt(e.target.value === '' ? '' : Number(e.target.value))} /></Form.Group>
-        <Form.Group>
-          <Form.Label className="small text-muted">target_dataset</Form.Label>
-          <Form.Select value={targetType} onChange={(e) => setTargetType(e.target.value as any)}>
-            <option value="auto">auto</option>
-            <option value="challenge">challenge</option>
-            <option value="regression">regression</option>
-          </Form.Select>
-        </Form.Group>
+        <div className="ui-actions-row mt-3 rag-report-actions">
+          <Button variant="outline-primary" disabled={busy} onClick={() => void handleGenerate()}>{busy ? '生成中...' : '从运行生成候选'}</Button>
+        </div>
       </div>
 
-      <div className="d-flex gap-2 align-items-center">
-        <Button variant="outline-primary" disabled={busy} onClick={() => void handleGenerate()}>{busy ? '生成中...' : '从运行生成候选'}</Button>
+      <div className="ui-section-card">
+        <div className="ui-section-title">候选筛选</div>
+        <div className="grid grid-cols-4 gap-3 rag-report-grid rag-report-grid-wide">
+          <Form.Group>
+            <Form.Label className="small text-muted">候选状态</Form.Label>
+            <Form.Select value={status} onChange={(e) => { setPage(1); setStatus(e.target.value); }}>
+              <option value="">all</option>
+              <option value="pending">pending</option>
+              <option value="approved">approved</option>
+              <option value="rejected">rejected</option>
+            </Form.Select>
+          </Form.Group>
+          <Form.Group><Form.Label className="small text-muted">失败原因</Form.Label><Form.Control value={filterFailureReason} onChange={(e) => { setPage(1); setFilterFailureReason(e.target.value); }} /></Form.Group>
+          <Form.Group>
+            <Form.Label className="small text-muted">建议数据集类型</Form.Label>
+            <Form.Select value={suggestedDatasetType} onChange={(e) => { setPage(1); setSuggestedDatasetType(e.target.value); }}>
+              <option value="">all</option>
+              <option value="challenge">challenge</option>
+              <option value="regression">regression</option>
+            </Form.Select>
+          </Form.Group>
+        </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-3">
-        <Form.Group>
-          <Form.Label className="small text-muted">status</Form.Label>
-          <Form.Select value={status} onChange={(e) => { setPage(1); setStatus(e.target.value); }}>
-            <option value="">all</option>
-            <option value="pending">pending</option>
-            <option value="approved">approved</option>
-            <option value="rejected">rejected</option>
-          </Form.Select>
-        </Form.Group>
-        <Form.Group><Form.Label className="small text-muted">failure_reason</Form.Label><Form.Control value={filterFailureReason} onChange={(e) => { setPage(1); setFilterFailureReason(e.target.value); }} /></Form.Group>
-        <Form.Group>
-          <Form.Label className="small text-muted">suggested_dataset_type</Form.Label>
-          <Form.Select value={suggestedDatasetType} onChange={(e) => { setPage(1); setSuggestedDatasetType(e.target.value); }}>
-            <option value="">all</option>
-            <option value="challenge">challenge</option>
-            <option value="regression">regression</option>
-          </Form.Select>
-        </Form.Group>
-      </div>
-
-      <div className="table-responsive">
-        <Table striped bordered hover size="sm" className="mb-0">
-          <thead>
-            <tr>
-              <th>id</th><th>status</th><th>query</th><th>failure_reason</th><th>suggested_dataset</th><th>source</th><th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr><td colSpan={7} className="text-center text-muted">暂无候选</td></tr>
-            ) : rows.map((r) => (
-              <tr key={r.id}>
-                <td>{r.id}</td>
-                <td>{r.status}</td>
-                <td style={{ maxWidth: 360 }}>{String(r.query || '').slice(0, 120)}</td>
-                <td>{r.failure_reason || '-'}</td>
-                <td><Badge bg={r.suggested_dataset_type === 'regression' ? 'info' : 'warning'}>{r.suggested_dataset_type}</Badge></td>
-                <td>{r.source_type}#{r.source_id}</td>
-                <td className="d-flex gap-2">
-                  <Button size="sm" variant="outline-secondary" onClick={() => void openDraftModal(r)}>草稿</Button>
-                  <Button size="sm" variant="outline-success" onClick={() => void approve(r)}>批准</Button>
-                  <Button size="sm" variant="outline-danger" onClick={() => void reject(r)}>拒绝</Button>
-                </td>
+      <div className="ui-section-card">
+        <div className="ui-section-title">候选列表</div>
+        <div className="table-responsive rag-report-table">
+          <Table striped bordered hover size="sm" className="mb-0">
+            <thead>
+              <tr>
+                <th>id</th><th>status</th><th>query</th><th>failure_reason</th><th>suggested_dataset</th><th>source</th><th>操作</th>
               </tr>
-            ))}
-          </tbody>
-        </Table>
-      </div>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr><td colSpan={7} className="text-center text-muted">暂无候选</td></tr>
+              ) : rows.map((r) => (
+                <tr key={r.id}>
+                  <td>{r.id}</td>
+                  <td><span className="ui-badge-soft">{r.status}</span></td>
+                  <td className="rag-report-query-cell rag-report-query-cell--wide">{String(r.query || '').slice(0, 120)}</td>
+                  <td>{r.failure_reason || '-'}</td>
+                  <td><Badge bg={r.suggested_dataset_type === 'regression' ? 'info' : 'warning'}>{r.suggested_dataset_type}</Badge></td>
+                  <td>{r.source_type}#{r.source_id}</td>
+                  <td className="d-flex gap-2 flex-wrap rag-report-action-cell">
+                    <Button size="sm" variant="outline-secondary" onClick={() => void openDraftModal(r)}>草稿</Button>
+                    <Button size="sm" variant="outline-success" onClick={() => void approve(r)}>批准</Button>
+                    <Button size="sm" variant="outline-danger" onClick={() => void reject(r)}>拒绝</Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </div>
 
-      <div className="d-flex gap-2">
-        <Button size="sm" variant="outline-secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>上一页</Button>
-        <Button size="sm" variant="outline-secondary" disabled={page * pageSize >= total} onClick={() => setPage((p) => p + 1)}>下一页</Button>
-        <span className="small text-muted align-self-center">共 {total} 条</span>
+        <div className="d-flex gap-2 rag-report-pagination mt-2">
+          <Button size="sm" variant="outline-secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>上一页</Button>
+          <Button size="sm" variant="outline-secondary" disabled={page * pageSize >= total} onClick={() => setPage((p) => p + 1)}>下一页</Button>
+          <span className="small text-muted align-self-center">共 {total} 条</span>
+        </div>
       </div>
 
       <Modal show={detailOpen} onHide={() => setDetailOpen(false)} size="lg">

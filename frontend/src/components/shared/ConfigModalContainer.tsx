@@ -432,8 +432,7 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
               {streamStatus === 'error' && <Badge bg="danger">错误</Badge>}
             </div>
             <div
-              className="config-preview-card__content font-monospace"
-              style={{ minHeight: '140px', maxHeight: '220px', overflowY: 'auto', whiteSpace: 'pre-wrap', fontSize: '0.9em' }}
+              className="config-preview-card__content config-stream-output font-monospace"
             >
               {streamOutput || <span className="text-muted fst-italic">点击“验证连接”开始测试...</span>}
             </div>

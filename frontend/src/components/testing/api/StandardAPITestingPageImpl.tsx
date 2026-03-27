@@ -11,7 +11,7 @@ export function StandardAPITesting(props: StandardAPITestingProps) {
   const controller = useStandardApiTestingController(props);
 
   return (
-    <div className="d-flex h-100 w-100 bg-white overflow-hidden postman-theme">
+    <div className="d-flex h-100 w-100 overflow-hidden postman-theme standard-api-shell standard-api-layout">
       <StandardApiTestingPageStyles />
 
       <StandardApiTestingSidebar

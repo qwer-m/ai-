@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { Alert, Badge, Button, Card, Form, Nav, Spinner, Table } from 'react-bootstrap';
 import { FaLayerGroup, FaPlay, FaRedo } from 'react-icons/fa';
 import { api } from '../../../utils/api';
@@ -97,7 +97,9 @@ export function APIAutomation({ projectId, onLog, view }: APIAutomationProps) {
 
   const toggleType = (t: string) => {
     setTestTypes((prev) => {
-      if (prev.includes(t)) return prev.filter((x) => x !== t);
+      if (prev.includes(t)) {
+        return prev.filter((x) => x !== t);
+      }
       return [...prev, t];
     });
   };
@@ -119,11 +121,13 @@ export function APIAutomation({ projectId, onLog, view }: APIAutomationProps) {
   };
 
   useEffect(() => {
-    refreshHistory();
+    void refreshHistory();
   }, [projectId]);
 
   const handleGenerate = async () => {
-    if (!projectId) return;
+    if (!projectId) {
+      return;
+    }
     if (!requirement.trim()) {
       setErrorMsg('请输入需求说明。');
       return;
@@ -131,7 +135,7 @@ export function APIAutomation({ projectId, onLog, view }: APIAutomationProps) {
     setLoadingGenerate(true);
     setErrorMsg(null);
     try {
-      onLog('正在生成接口自动化脚本...');
+      onLog('正在生成 API 自动化脚本...');
       const data = await api.post<GenerateScriptResp>('/api/api-automation/generate-script', {
         project_id: projectId,
         requirement,
@@ -141,7 +145,7 @@ export function APIAutomation({ projectId, onLog, view }: APIAutomationProps) {
         mode,
       });
       setScript(data.script || '');
-      onLog('接口自动化脚本已生成。');
+      onLog('API 自动化脚本已生成。');
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMsg(msg);
@@ -152,7 +156,9 @@ export function APIAutomation({ projectId, onLog, view }: APIAutomationProps) {
   };
 
   const handleGenerateChain = async () => {
-    if (!projectId) return;
+    if (!projectId) {
+      return;
+    }
     if (!scenarioDesc.trim()) {
       setErrorMsg('请输入链路场景说明。');
       return;
@@ -177,7 +183,9 @@ export function APIAutomation({ projectId, onLog, view }: APIAutomationProps) {
   };
 
   const handleGenerateMock = async () => {
-    if (!projectId) return;
+    if (!projectId) {
+      return;
+    }
     setLoadingMock(true);
     setErrorMsg(null);
     try {
@@ -201,11 +209,13 @@ export function APIAutomation({ projectId, onLog, view }: APIAutomationProps) {
   };
 
   const handleExecute = async () => {
-    if (!projectId || !script.trim()) return;
+    if (!projectId || !script.trim()) {
+      return;
+    }
     setLoadingExecute(true);
     setErrorMsg(null);
     try {
-      onLog('正在执行接口自动化脚本...');
+      onLog('正在执行 API 自动化脚本...');
       const data = await api.post<ExecuteScriptResp>('/api/api-automation/execute-script', {
         project_id: projectId,
         script_content: script,
@@ -213,13 +223,9 @@ export function APIAutomation({ projectId, onLog, view }: APIAutomationProps) {
         base_url: baseUrl || '',
       });
       setExecutionOutput(data.result || '');
-      setStructuredReport(
-        data.structured_report && typeof data.structured_report === 'object'
-          ? data.structured_report
-          : null,
-      );
-      onLog('接口自动化执行完成。');
-      refreshHistory();
+      setStructuredReport(data.structured_report && typeof data.structured_report === 'object' ? data.structured_report : null);
+      onLog('API 自动化执行完成。');
+      void refreshHistory();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMsg(msg);
@@ -234,9 +240,9 @@ export function APIAutomation({ projectId, onLog, view }: APIAutomationProps) {
   };
 
   return (
-    <div className="d-flex flex-column h-100 w-100 bg-white">
-      {!view && (
-        <div className="border-bottom bg-light px-3 pt-2">
+    <div className="api-automation-shell d-flex flex-column h-100 w-100 postman-theme">
+      {!view ? (
+        <div className="border-bottom bg-light px-3 pt-2 api-automation-tabs-head">
           <Nav variant="tabs" activeKey={activeTab} onSelect={(k) => setInternalTab(k as 'orchestration' | 'runner')}>
             <Nav.Item>
               <Nav.Link eventKey="orchestration" className="d-flex align-items-center gap-2">
@@ -250,19 +256,19 @@ export function APIAutomation({ projectId, onLog, view }: APIAutomationProps) {
             </Nav.Item>
           </Nav>
         </div>
-      )}
+      ) : null}
 
       <div className="flex-grow-1 overflow-auto p-3 d-flex flex-column gap-3">
-        {errorMsg && <Alert variant="danger" className="mb-0">{errorMsg}</Alert>}
-        {!projectId && <Alert variant="warning" className="mb-0">请先选择项目。</Alert>}
+        {errorMsg ? <Alert variant="danger" className="mb-0">{errorMsg}</Alert> : null}
+        {!projectId ? <Alert variant="warning" className="mb-0">请先选择项目。</Alert> : null}
 
-        {activeTab === 'orchestration' && (
+        {activeTab === 'orchestration' ? (
           <>
-            <Card className="border-0 shadow-sm">
+            <Card className="api-automation-card border-0 shadow-sm">
               <Card.Body className="d-flex flex-column gap-3">
                 <div className="d-flex align-items-center justify-content-between">
                   <h5 className="mb-0 text-secondary">脚本生成</h5>
-                  <Button variant="outline-secondary" size="sm" onClick={refreshHistory} disabled={loadingHistory}>
+                  <Button variant="outline-secondary" size="sm" onClick={() => void refreshHistory()} disabled={loadingHistory}>
                     <FaRedo className="me-1" />
                     刷新历史
                   </Button>
@@ -288,152 +294,99 @@ export function APIAutomation({ projectId, onLog, view }: APIAutomationProps) {
 
                 <div>
                   <Form.Label>需求描述</Form.Label>
-                  <Form.Control
-                    as="textarea"
-                    rows={4}
-                    value={requirement}
-                    onChange={(e) => setRequirement(e.target.value)}
-                    placeholder="请描述你希望覆盖的接口测试范围。"
-                  />
+                  <Form.Control as="textarea" rows={4} value={requirement} onChange={(e) => setRequirement(e.target.value)} placeholder="请描述希望覆盖的接口测试范围。" />
                 </div>
 
                 <div className="d-flex gap-3 flex-wrap">
                   {testTypeOptions.map((t) => (
-                    <Form.Check
-                      key={t}
-                      inline
-                      type="checkbox"
-                      id={`api-type-${t}`}
-                      label={testTypeLabel[t] || t}
-                      checked={testTypes.includes(t)}
-                      onChange={() => toggleType(t)}
-                    />
+                    <Form.Check key={t} inline type="checkbox" id={`api-type-${t}`} label={testTypeLabel[t] || t} checked={testTypes.includes(t)} onChange={() => toggleType(t)} />
                   ))}
                 </div>
 
                 <div>
                   <Form.Label>链路场景描述</Form.Label>
-                  <Form.Control
-                    as="textarea"
-                    rows={2}
-                    value={scenarioDesc}
-                    onChange={(e) => setScenarioDesc(e.target.value)}
-                    placeholder="请描述用于生成链路脚本的多步骤接口场景。"
-                  />
+                  <Form.Control as="textarea" rows={2} value={scenarioDesc} onChange={(e) => setScenarioDesc(e.target.value)} placeholder="请描述多步骤接口调用场景。" />
                 </div>
 
                 <div className="d-flex gap-2 flex-wrap">
-                    <Button variant="primary" onClick={handleGenerate} disabled={!projectId || loadingGenerate}>
-                      {loadingGenerate ? <Spinner size="sm" /> : null}
-                      <span className={loadingGenerate ? 'ms-2' : ''}>生成脚本</span>
-                    </Button>
-                    <Button variant="outline-primary" onClick={handleGenerateChain} disabled={!projectId || loadingChain}>
-                      {loadingChain ? <Spinner size="sm" /> : null}
-                      <span className={loadingChain ? 'ms-2' : ''}>生成链路脚本</span>
-                    </Button>
-                    <Button variant="success" onClick={handleExecute} disabled={!canRun || loadingExecute}>
-                      {loadingExecute ? <Spinner size="sm" /> : null}
-                      <span className={loadingExecute ? 'ms-2' : ''}>执行脚本</span>
-                    </Button>
-                  </div>
+                  <Button variant="primary" onClick={() => void handleGenerate()} disabled={!projectId || loadingGenerate}>
+                    {loadingGenerate ? <Spinner size="sm" /> : null}
+                    <span className={loadingGenerate ? 'ms-2' : ''}>生成脚本</span>
+                  </Button>
+                  <Button variant="outline-primary" onClick={() => void handleGenerateChain()} disabled={!projectId || loadingChain}>
+                    {loadingChain ? <Spinner size="sm" /> : null}
+                    <span className={loadingChain ? 'ms-2' : ''}>生成链路脚本</span>
+                  </Button>
+                  <Button variant="success" onClick={() => void handleExecute()} disabled={!canRun || loadingExecute}>
+                    {loadingExecute ? <Spinner size="sm" /> : null}
+                    <span className={loadingExecute ? 'ms-2' : ''}>执行脚本</span>
+                  </Button>
+                </div>
               </Card.Body>
             </Card>
 
-            <Card className="border-0 shadow-sm">
+            <Card className="api-automation-card border-0 shadow-sm">
               <Card.Body className="d-flex flex-column gap-3">
                 <h6 className="mb-0">脚本编辑器</h6>
-                <Form.Control
-                  as="textarea"
-                  rows={12}
-                  value={script}
-                  onChange={(e) => setScript(e.target.value)}
-                  placeholder="生成后的脚本会显示在这里。"
-                />
+                <Form.Control as="textarea" rows={12} value={script} onChange={(e) => setScript(e.target.value)} placeholder="生成后的脚本会显示在这里。" />
               </Card.Body>
             </Card>
 
-            <Card className="border-0 shadow-sm">
+            <Card className="api-automation-card border-0 shadow-sm">
               <Card.Body className="d-flex flex-column gap-3">
                 <h6 className="mb-0">模拟数据助手</h6>
                 <div className="row g-3">
                   <div className="col-md-8">
                     <Form.Label>接口信息 JSON</Form.Label>
-                    <Form.Control
-                      as="textarea"
-                      rows={6}
-                      value={mockInterfaceJson}
-                      onChange={(e) => setMockInterfaceJson(e.target.value)}
-                    />
+                    <Form.Control as="textarea" rows={6} value={mockInterfaceJson} onChange={(e) => setMockInterfaceJson(e.target.value)} />
                   </div>
                   <div className="col-md-4">
                     <Form.Label>数量</Form.Label>
-                    <Form.Control
-                      type="number"
-                      min={1}
-                      max={50}
-                      value={mockCount}
-                      onChange={(e) => setMockCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
-                    />
+                    <Form.Control type="number" min={1} max={50} value={mockCount} onChange={(e) => setMockCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))} />
                     <div className="mt-3">
-                      <Button variant="outline-success" onClick={handleGenerateMock} disabled={!projectId || loadingMock}>
+                      <Button variant="outline-success" onClick={() => void handleGenerateMock()} disabled={!projectId || loadingMock}>
                         {loadingMock ? <Spinner size="sm" /> : null}
                         <span className={loadingMock ? 'ms-2' : ''}>生成模拟数据</span>
                       </Button>
                     </div>
                   </div>
                 </div>
-                {mockPreview && (
-                  <Form.Control
-                    as="textarea"
-                    rows={6}
-                    readOnly
-                    value={JSON.stringify(mockPreview, null, 2)}
-                  />
-                )}
+                {mockPreview ? <Form.Control as="textarea" rows={6} readOnly value={JSON.stringify(mockPreview, null, 2)} /> : null}
               </Card.Body>
             </Card>
 
-            <Card className="border-0 shadow-sm">
+            <Card className="api-automation-card border-0 shadow-sm">
               <Card.Body className="d-flex flex-column gap-3">
                 <h6 className="mb-0">执行结果</h6>
                 <Form.Control as="textarea" rows={8} value={executionOutput} readOnly />
-                {structuredReport && (
-                  <Form.Control as="textarea" rows={8} value={JSON.stringify(structuredReport, null, 2)} readOnly />
-                )}
+                {structuredReport ? <Form.Control as="textarea" rows={8} value={JSON.stringify(structuredReport, null, 2)} readOnly /> : null}
               </Card.Body>
             </Card>
           </>
-        )}
+        ) : null}
 
-        {activeTab === 'runner' && (
+        {activeTab === 'runner' ? (
           <>
-            <Card className="border-0 shadow-sm">
+            <Card className="api-automation-card border-0 shadow-sm">
               <Card.Body className="d-flex justify-content-between align-items-center">
                 <h5 className="mb-0 text-secondary">批量运行</h5>
                 <div className="d-flex gap-2">
-                  <Button variant="outline-secondary" size="sm" onClick={refreshHistory} disabled={loadingHistory}>
-                    <FaRedo className="me-1" />
-                    刷新
+                  <Button variant="outline-secondary" size="sm" onClick={() => void refreshHistory()} disabled={loadingHistory}>
+                    <FaRedo className="me-1" /> 刷新
                   </Button>
-                  <Button variant="success" size="sm" onClick={handleExecute} disabled={!canRun || loadingExecute}>
-                    <FaPlay className="me-1" />
-                    运行当前脚本
+                  <Button variant="success" size="sm" onClick={() => void handleExecute()} disabled={!canRun || loadingExecute}>
+                    <FaPlay className="me-1" /> 运行当前脚本
                   </Button>
                 </div>
               </Card.Body>
             </Card>
 
-            <Card className="border-0 shadow-sm">
+            <Card className="api-automation-card border-0 shadow-sm">
               <Table hover responsive className="mb-0 align-middle">
                 <thead className="bg-light">
                   <tr>
-                    <th style={{ width: 36 }}>
-                      <Form.Check
-                        checked={history.length > 0 && selectedHistory.length === history.length}
-                        onChange={(e) =>
-                          setSelectedHistory(e.target.checked ? history.map((x) => x.id) : [])
-                        }
-                      />
+                    <th className="api-automation-check-col">
+                      <Form.Check checked={history.length > 0 && selectedHistory.length === history.length} onChange={(e) => setSelectedHistory(e.target.checked ? history.map((x) => x.id) : [])} />
                     </th>
                     <th>ID</th>
                     <th>需求</th>
@@ -444,47 +397,42 @@ export function APIAutomation({ projectId, onLog, view }: APIAutomationProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {loadingHistory && (
+                  {loadingHistory ? (
                     <tr>
                       <td colSpan={7} className="text-center py-4">
-                        <Spinner animation="border" size="sm" className="me-2" />
-                        正在加载历史记录...
+                        <Spinner animation="border" size="sm" className="me-2" /> 正在加载历史记录...
                       </td>
                     </tr>
-                  )}
-                  {!loadingHistory && history.length === 0 && (
+                  ) : null}
+                  {!loadingHistory && history.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="text-center py-4 text-muted">
                         暂无接口执行历史。
                       </td>
                     </tr>
-                  )}
-                  {!loadingHistory &&
-                    history.map((item) => (
-                      <tr key={item.id}>
-                        <td>
-                          <Form.Check
-                            checked={selectedHistory.includes(item.id)}
-                            onChange={() => toggleHistorySelect(item.id)}
-                          />
-                        </td>
-                        <td>#{item.id}</td>
-                        <td className="small">{item.requirement || '-'}</td>
-                        <td>{item.total}</td>
-                        <td>{item.failed}</td>
-                        <td>
-                          <Badge bg={item.status === 'success' ? 'success' : item.status === 'failed' ? 'danger' : 'secondary'}>
-                            {statusLabel[item.status]}
-                          </Badge>
-                        </td>
-                        <td className="small text-muted">{item.created_at ? new Date(item.created_at).toLocaleString() : '-'}</td>
-                      </tr>
-                    ))}
+                  ) : null}
+                  {!loadingHistory
+                    ? history.map((item) => (
+                        <tr key={item.id}>
+                          <td>
+                            <Form.Check checked={selectedHistory.includes(item.id)} onChange={() => toggleHistorySelect(item.id)} />
+                          </td>
+                          <td>#{item.id}</td>
+                          <td className="small">{item.requirement || '-'}</td>
+                          <td>{item.total}</td>
+                          <td>{item.failed}</td>
+                          <td>
+                            <Badge bg={item.status === 'success' ? 'success' : item.status === 'failed' ? 'danger' : 'secondary'}>{statusLabel[item.status]}</Badge>
+                          </td>
+                          <td className="small text-muted">{item.created_at ? new Date(item.created_at).toLocaleString() : '-'}</td>
+                        </tr>
+                      ))
+                    : null}
                 </tbody>
               </Table>
             </Card>
           </>
-        )}
+        ) : null}
       </div>
     </div>
   );

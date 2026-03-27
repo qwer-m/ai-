@@ -1,6 +1,6 @@
-import { Button, Modal } from "react-bootstrap";
-import { FaCookie, FaPlus, FaTrash } from "react-icons/fa";
-import type { Dispatch, SetStateAction } from "react";
+import { Button, Modal } from 'react-bootstrap';
+import { FaCookie, FaPlus, FaTrash } from 'react-icons/fa';
+import type { Dispatch, SetStateAction } from 'react';
 
 type CookieManagerModalProps = {
   show: boolean;
@@ -15,13 +15,12 @@ export function CookieManagerModal({
   cookieJar,
   setCookieJar,
 }: CookieManagerModalProps) {
-  // CookieJar 作为请求上下文的一部分，支持手动补录、逐条删除和一键清空。
   return (
     <Modal show={show} onHide={onHide} size="lg" centered>
       <Modal.Header closeButton>
         <Modal.Title>Cookies 管理</Modal.Title>
       </Modal.Header>
-      <Modal.Body style={{ minHeight: "300px", maxHeight: "600px", overflowY: "auto" }}>
+      <Modal.Body className="standard-api-cookie-modal-body">
         <div className="alert alert-info small mb-3">
           <FaCookie className="me-2" />
           Cookies 由系统自动管理，会从响应中自动捕获，并在后续请求中自动发送。
@@ -37,10 +36,10 @@ export function CookieManagerModal({
               size="sm"
               variant="primary"
               onClick={() => {
-                const key = prompt("Cookie 名称：");
+                const key = prompt('Cookie 名称：');
                 if (!key) return;
-                const value = prompt("Cookie 值：");
-                if (value !== null && value !== "") {
+                const value = prompt('Cookie 值：');
+                if (value !== null && value !== '') {
                   setCookieJar((prev) => ({ ...prev, [key]: value }));
                 }
               }}
@@ -56,15 +55,13 @@ export function CookieManagerModal({
               <tr>
                 <th>名称</th>
                 <th>值</th>
-                <th style={{ width: "60px" }}></th>
+                <th className="standard-api-cookie-op-col"></th>
               </tr>
             </thead>
             <tbody>
               {Object.entries(cookieJar).map(([k, v]) => (
                 <tr key={k}>
-                  <td className="text-secondary" style={{ fontWeight: 600 }}>
-                    {k}
-                  </td>
+                  <td className="text-secondary standard-api-table-key">{k}</td>
                   <td className="font-monospace text-break small">{v}</td>
                   <td>
                     <Button

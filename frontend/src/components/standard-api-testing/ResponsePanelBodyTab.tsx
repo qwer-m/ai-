@@ -1,23 +1,23 @@
-import { Button, Dropdown } from "react-bootstrap";
-import { FaGlobe } from "react-icons/fa";
-import { highlightJson } from "./utils/jsonHighlight";
-import type { ResponsePanelProps } from "./ResponsePanel.types";
+import { Button, Dropdown } from 'react-bootstrap';
+import { FaGlobe } from 'react-icons/fa';
+import { highlightJson } from './utils/jsonHighlight';
+import type { ResponsePanelProps } from './ResponsePanel.types';
 import {
   getDisplayBodyText,
   getPrettyJsonText,
   responseFormatOptions,
-} from "./ResponsePanel.utils";
+} from './ResponsePanel.utils';
 
 type Props = Pick<
   ResponsePanelProps,
-  "responseBody" | "responseFormat" | "setResponseFormat" | "responseViewMode" | "setResponseViewMode"
+  'responseBody' | 'responseFormat' | 'setResponseFormat' | 'responseViewMode' | 'setResponseViewMode'
 >;
 
 function ResponseFormatDropdown({
   responseFormat,
   setResponseFormat,
   setResponseViewMode,
-}: Pick<Props, "responseFormat" | "setResponseFormat" | "setResponseViewMode">) {
+}: Pick<Props, 'responseFormat' | 'setResponseFormat' | 'setResponseViewMode'>) {
   const currentOption = responseFormatOptions.find((option) => option.value === responseFormat);
 
   return (
@@ -25,35 +25,28 @@ function ResponseFormatDropdown({
       <Dropdown.Toggle
         variant="light"
         size="sm"
-        className="border-0 bg-transparent text-dark d-flex align-items-center gap-3 p-0 px-2"
-        style={{ fontWeight: 600 }}
+        className="border-0 bg-transparent text-dark d-flex align-items-center gap-3 p-0 px-2 standard-api-format-toggle"
         id="response-format-dropdown"
       >
-        <span
-          className="text-secondary small d-inline-flex align-items-center justify-content-center"
-          style={{ width: "34px" }}
-        >
-          {currentOption?.glyph || ""}
+        <span className="text-secondary small d-inline-flex align-items-center justify-content-center standard-api-format-glyph">
+          {currentOption?.glyph || ''}
         </span>
         {responseFormat}
       </Dropdown.Toggle>
-      <Dropdown.Menu style={{ minWidth: "200px" }}>
+      <Dropdown.Menu className="standard-api-format-menu">
         {responseFormatOptions.map((option) => (
           <div key={option.value}>
             {option.dividerBefore && <Dropdown.Divider />}
             <Dropdown.Item
               onClick={() => {
                 setResponseFormat(option.value);
-                setResponseViewMode("json");
+                setResponseViewMode('json');
               }}
               active={responseFormat === option.value}
             >
               <div className="d-flex align-items-center justify-content-between w-100">
                 <span className="d-flex align-items-center">
-                  <span
-                    className="me-4 text-muted fw-normal d-inline-flex align-items-center justify-content-center"
-                    style={{ width: "34px" }}
-                  >
+                  <span className="me-4 text-muted fw-normal d-inline-flex align-items-center justify-content-center standard-api-format-glyph">
                     {option.glyph}
                   </span>
                   <span>{option.label}</span>
@@ -76,25 +69,24 @@ export function ResponsePanelBodyTab({
   setResponseViewMode,
 }: Props) {
   return (
-    <div className="flex-grow-1 d-flex flex-column" style={{ minHeight: 0 }}>
+    <div className="flex-grow-1 d-flex flex-column standard-api-body-tab-wrap">
       {responseBody ? (
         <>
-          <div className="bg-light border-bottom px-2 py-1 d-flex justify-content-between align-items-center">
+          <div className="bg-light border-bottom px-2 py-1 d-flex justify-content-between align-items-center standard-api-body-toolbar">
             <div className="d-flex align-items-center gap-2">
               <ResponseFormatDropdown
                 responseFormat={responseFormat}
                 setResponseFormat={setResponseFormat}
                 setResponseViewMode={setResponseViewMode}
               />
-              <div className="vr h-50 my-auto text-secondary opacity-25" style={{ height: "16px" }} />
+              <div className="vr h-50 my-auto text-secondary opacity-25 standard-api-body-toolbar-divider" />
               <Button
                 variant="link"
                 size="sm"
-                className={`p-0 text-decoration-none d-flex align-items-center gap-1 ${
-                  responseViewMode === "html" ? "text-primary" : "text-secondary"
+                className={`p-0 text-decoration-none d-flex align-items-center gap-1 standard-api-preview-btn ${
+                  responseViewMode === 'html' ? 'text-primary' : 'text-secondary'
                 }`}
-                style={{ fontWeight: 600 }}
-                onClick={() => setResponseViewMode("html")}
+                onClick={() => setResponseViewMode('html')}
               >
                 <FaGlobe size={12} />
                 预览
@@ -102,35 +94,22 @@ export function ResponsePanelBodyTab({
             </div>
           </div>
 
-          <div className="flex-grow-1 bg-white position-relative" style={{ minHeight: 0 }}>
-            {responseViewMode === "html" ? (
+          <div className="flex-grow-1 position-relative standard-api-body-content">
+            {responseViewMode === 'html' ? (
               <iframe
-                srcDoc={typeof responseBody === "string" ? responseBody : JSON.stringify(responseBody)}
-                style={{ width: "100%", height: "100%", border: "none" }}
+                srcDoc={typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody)}
+                className="standard-api-response-iframe"
                 title="Response Preview"
                 sandbox="allow-same-origin"
               />
-            ) : responseFormat === "JSON" ? (
+            ) : responseFormat === 'JSON' ? (
               <div
-                className="w-100 h-100 border-0 p-3 font-monospace small custom-scrollbar bg-white"
-                style={{
-                  whiteSpace: "pre-wrap",
-                  wordWrap: "break-word",
-                  overflow: "auto",
-                  userSelect: "text",
-                }}
+                className="w-100 h-100 border-0 p-3 font-monospace small custom-scrollbar standard-api-json-view"
                 dangerouslySetInnerHTML={highlightJson(getPrettyJsonText(responseBody))}
               />
             ) : (
               <textarea
-                className="w-100 h-100 border-0 p-3 font-monospace small custom-scrollbar"
-                style={{
-                  resize: "none",
-                  outline: "none",
-                  color: "black",
-                  opacity: 1,
-                  backgroundColor: "white",
-                }}
+                className="w-100 h-100 border-0 p-3 font-monospace small custom-scrollbar standard-api-response-textarea"
                 value={getDisplayBodyText(responseBody, responseFormat)}
                 readOnly
               />

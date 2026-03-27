@@ -64,7 +64,7 @@ export function TestCaseCoveragePanel({
   savingKnowledge,
 }: Props) {
   return (
-    <div className="bento-card col-span-12 p-4 d-flex flex-column">
+    <div className="bento-card col-span-12 p-4 d-flex flex-column ui-section-card evaluation-testcase-card">
       <div className="d-flex align-items-center gap-2 mb-3 text-secondary">
         <FaClipboardCheck />
         <span className="fw-bold">测试用例质量评估</span>
@@ -73,7 +73,7 @@ export function TestCaseCoveragePanel({
       <div className="mb-3">
         <Row className="mb-3">
           <Col md={6}>
-            <Form.Group>
+            <Form.Group className="ui-section-card p-3 h-100">
               <Form.Label className="small text-muted">生成的测试用例</Form.Label>
               <Form.Control
                 as="textarea"
@@ -85,7 +85,7 @@ export function TestCaseCoveragePanel({
             </Form.Group>
           </Col>
           <Col md={6}>
-            <Form.Group>
+            <Form.Group className="ui-section-card p-3 h-100">
               <Form.Label className="small text-muted">用户修改后的测试用例</Form.Label>
               <Form.Control
                 as="textarea"
@@ -101,7 +101,7 @@ export function TestCaseCoveragePanel({
 
         <Row className="align-items-end">
           <Col md={6}>
-            <Form.Group>
+            <Form.Group className="ui-section-card p-3 h-100">
               <Form.Label className="small text-muted">从历史加载</Form.Label>
               <Form.Select
                 size="sm"
@@ -128,7 +128,7 @@ export function TestCaseCoveragePanel({
             </Form.Group>
           </Col>
           <Col md={6}>
-            <Form.Group>
+            <Form.Group className="ui-section-card p-3 h-100">
               <Form.Label className="small text-muted">或上传文件 (Excel, CSV, PNG)</Form.Label>
               <Form.Control
                 type="file"
@@ -156,7 +156,7 @@ export function TestCaseCoveragePanel({
       </Button>
 
       {evalResult ? (
-        <div className="mt-3 alert alert-light border small">
+        <div className="mt-3 alert alert-light border small automation-eval-output">
           <TestCaseEvaluationReport
             evalResult={evalResult}
             history={history}

@@ -9,6 +9,7 @@
 
 from typing import Any
 
+from core.ai.ai_client import get_client_for_user  # 中文注释：兼容历史 monkeypatch 入口。
 from modules.testing.test_generation_components.legacy.adapters import (
     clean_and_parse_json as _clean_and_parse_json,
 )

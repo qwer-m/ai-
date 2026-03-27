@@ -76,13 +76,13 @@ export function CloudTab({
           </Form.Group>
           <Form.Group className="config-field config-field--model">
             <Form.Label>模型名称</Form.Label>
-            <div style={{ position: 'relative' }}>
+            <div className="config-model-input-wrap">
               <Form.Control
                 type="text"
                 value={model}
                 onChange={(e) => onModelChange(e.target.value)}
                 list="cloud-models"
-                style={{ paddingRight: '35px' }}
+                className="config-model-input"
               />
               <QuotaRing provider={provider} apiKey={apiKey} baseUrl="" model={model} />
             </div>

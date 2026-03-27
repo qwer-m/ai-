@@ -52,7 +52,7 @@ export function TestCaseEvaluationReport({
 }: Props) {
   const report = parseQualityReport(evalResult);
   if (!report) {
-    return <div style={{ whiteSpace: 'pre-wrap' }}>{evalResult}</div>;
+    return <div className="evaluation-prewrap">{evalResult}</div>;
   }
 
   const { metrics, defectAnalysis, summary } = report;
@@ -64,7 +64,7 @@ export function TestCaseEvaluationReport({
     <div>
       <h6 className="border-bottom pb-2 mb-3">质量评估报告</h6>
 
-      <div className="mb-4" style={{ height: '300px' }}>
+      <div className="mb-4 evaluation-chart-wrap">
         <Line
           data={{
             labels: history.length > 0 ? history.map((h) => h.created_at) : ['Current'],

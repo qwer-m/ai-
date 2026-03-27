@@ -120,7 +120,7 @@ async def generate_tests_stream(
             force=force,
             user_id=current_user.id,
         )
-        if payload:
+        if payload and not append:
 
             def duplicate_stream():
                 yield "@@DUPLICATE@@" + json.dumps(payload, ensure_ascii=False)
@@ -139,7 +139,16 @@ async def generate_tests_stream(
         append=append,
         user_id=current_user.id,
     )
-    return StreamingResponse(stream_iter, media_type="text/plain; charset=utf-8")
+
+    def guarded_stream():
+        try:
+            yield from stream_iter
+        except Exception as e:
+            logger.exception("generate-tests-stream failed: %s", e)
+            yield "\n@@STATUS@@:生成失败\n"
+            yield f"Error: {type(e).__name__}: {str(e) or 'unknown error'}\n"
+
+    return StreamingResponse(guarded_stream(), media_type="text/plain; charset=utf-8")
 
 
 @router.post("/generate-tests")
@@ -270,7 +279,7 @@ async def generate_tests_from_file(
             force=force,
             user_id=current_user.id,
         )
-        if duplicate_payload:
+        if duplicate_payload and not append:
             return duplicate_payload
 
         log_to_db(
@@ -335,7 +344,6 @@ async def generate_tests_from_file_async(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _ = append
     get_owned_project(project_id, db, current_user.id)
 
     try:
@@ -350,7 +358,7 @@ async def generate_tests_from_file_async(
             force=force,
             user_id=current_user.id,
         )
-        if duplicate_payload:
+        if duplicate_payload and not append:
             return duplicate_payload
 
         task = generate_test_cases_task.delay(

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { OverlayTrigger, Tooltip } from 'react-bootstrap';
 import { api } from '../../utils/api';
 
@@ -61,36 +61,29 @@ export function QuotaRing({ provider, apiKey, baseUrl, model }: Props) {
   if (!quota.supported) return null;
 
   const percent = quota.total > 0 ? (quota.remaining / quota.total) * 100 : 0;
-  const color = percent < 20 ? '#dc3545' : percent < 50 ? '#ffc107' : '#28a745';
+  const stateClass = useMemo(() => {
+    if (percent < 20) return 'config-quota-indicator--danger';
+    if (percent < 50) return 'config-quota-indicator--warn';
+    return 'config-quota-indicator--ok';
+  }, [percent]);
 
   return (
     <OverlayTrigger
       placement="top"
-      overlay={<Tooltip>浣欓: ${quota.remaining.toFixed(2)} / ${quota.total.toFixed(2)}</Tooltip>}
+      overlay={<Tooltip>余额: {quota.remaining.toFixed(2)} / {quota.total.toFixed(2)}</Tooltip>}
     >
-      <div
-        style={{
-          position: 'absolute',
-          right: '10px',
-          top: '50%',
-          transform: 'translateY(-50%)',
-          width: '20px',
-          height: '20px',
-          cursor: 'help',
-          zIndex: 5,
-        }}
-      >
+      <div className={`config-quota-indicator ${stateClass}`}>
         <svg viewBox="0 0 36 36">
           <path
+            className="config-quota-indicator__track"
             d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
             fill="none"
-            stroke="#eee"
             strokeWidth="4"
           />
           <path
+            className="config-quota-indicator__meter"
             d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
             fill="none"
-            stroke={color}
             strokeWidth="4"
             strokeDasharray={`${percent}, 100`}
           />

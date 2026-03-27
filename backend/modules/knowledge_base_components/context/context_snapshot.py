@@ -38,6 +38,7 @@ def enqueue_context_snapshot_rebuild_impl(
     db: Session,
     user_id: Optional[int] = None,
     force_rebuild: bool = False,
+    rebuild_reason_hint: Optional[str] = None,
 ) -> dict:
     """触发快照异步重建，带 pending 防抖。"""
     snapshot, schema_compatible = _query_snapshot_row(db, project_id)
@@ -68,7 +69,12 @@ def enqueue_context_snapshot_rebuild_impl(
         snapshot.build_status = "pending"
         snapshot.build_error = None
         snapshot.user_id = user_id
-    snapshot.rebuild_reason = "manual" if force_rebuild else "incremental_merge"
+    # 中文注释：优先记录业务触发原因（文档上传/删除/更新），便于链路排障。
+    snapshot.rebuild_reason = (
+        str(rebuild_reason_hint).strip()
+        if rebuild_reason_hint
+        else ("manual" if force_rebuild else "incremental_merge")
+    )
     db.commit()
 
     try:
@@ -80,9 +86,23 @@ def enqueue_context_snapshot_rebuild_impl(
             force_rebuild=force_rebuild,
         )
         # 中文注释：统一 reason 枚举，便于上层日志直接区分 queued/already_pending/enqueue_failed。
+        logger.info(
+            "snapshot_rebuild_enqueued project_id=%s user_id=%s reason=%s task_id=%s",
+            project_id,
+            user_id,
+            snapshot.rebuild_reason,
+            task_result.id,
+        )
         return {"queued": True, "task_id": task_result.id, "reason": "queued"}
     except Exception as e:
         mark_snapshot_failed(snapshot, f"enqueue_failed:{e}", snapshot.rebuild_reason or "manual", db)
+        logger.warning(
+            "snapshot_rebuild_enqueue_failed project_id=%s user_id=%s reason=%s error=%s",
+            project_id,
+            user_id,
+            snapshot.rebuild_reason,
+            e,
+        )
         return {"queued": False, "reason": "enqueue_failed", "error": str(e)}
 
 

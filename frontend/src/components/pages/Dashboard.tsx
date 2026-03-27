@@ -27,8 +27,8 @@ export const Dashboard = () => {
   };
 
   return (
-    <div className="d-flex flex-column h-100 w-100 overflow-hidden bg-app">
-      <div className="flex-grow-1 d-flex overflow-hidden p-3 pb-0" style={{ gap: '16px', marginBottom: '6px' }}>
+    <div className="dashboard-shell dashboard-workspace d-flex flex-column h-100 w-100 overflow-hidden bg-app">
+      <div className="flex-grow-1 d-flex overflow-hidden p-3 pb-0 dashboard-body-layout">
         <DashboardSidebar
           userName={user?.username}
           themeMode={controller.themeMode}
@@ -43,7 +43,7 @@ export const Dashboard = () => {
           onToggleTheme={controller.handleToggleTheme}
         />
 
-        <div className="flex-grow-1 d-flex flex-column glass-panel rounded-3 overflow-hidden position-relative border-0">
+        <div className="dashboard-main dashboard-main-surface flex-grow-1 d-flex flex-column glass-panel rounded-3 overflow-hidden position-relative border-0">
           <DashboardTopBar
             projectId={controller.projectId}
             projects={controller.projects}
@@ -113,7 +113,7 @@ export const Dashboard = () => {
         <Modal.Header closeButton>
           <Modal.Title>全局编排</Modal.Title>
         </Modal.Header>
-        <Modal.Body className="p-0" style={{ height: '80vh' }}>
+        <Modal.Body className="p-0 dashboard-pipeline-modal-body">
           <PipelineOrchestration
             key={`pipeline-modal-${controller.projectId ?? 'none'}`}
             projectId={controller.projectId}

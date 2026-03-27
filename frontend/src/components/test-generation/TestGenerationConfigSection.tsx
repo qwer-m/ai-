@@ -1,4 +1,4 @@
-import { Button, Form, InputGroup, Spinner } from 'react-bootstrap';
+﻿import { Button, Form, InputGroup, Spinner } from 'react-bootstrap';
 import { FaCog, FaDownload, FaFileImage, FaPlay, FaTrash } from 'react-icons/fa';
 import type { RefObject } from 'react';
 import type { TestGenerationMode } from './types';
@@ -55,27 +55,23 @@ export function TestGenerationConfigSection({
   hasOutput,
 }: TestGenerationConfigSectionProps) {
   return (
-    <div className="bento-card col-span-6 p-4 d-flex flex-column gap-3 bg-body">
+    <div className="test-generation-config bento-card col-span-6 p-4 d-flex flex-column gap-3 bg-body">
       <h6 className="fw-bold d-flex align-items-center gap-2 mb-3">
         <FaCog className="text-primary" /> 配置面板
       </h6>
 
-      {mode === 'file' && (
+      {mode === 'file' ? (
         <div className="p-3 bg-body-tertiary rounded-3 mb-2">
           <Form.Group className="mb-3">
             <Form.Label className="small fw-bold text-secondary">文档类型</Form.Label>
-            <Form.Select
-              className="input-pro form-select-sm"
-              value={docType}
-              onChange={(e) => onDocTypeChange(e.target.value)}
-            >
+            <Form.Select className="input-pro form-select-sm" value={docType} onChange={(e) => onDocTypeChange(e.target.value)}>
               <option value="requirement">需求文档</option>
-              <option value="incomplete">残缺文档 (需补充原型图)</option>
+              <option value="incomplete">残缺文档（需补充原型图）</option>
               <option value="product_requirement">产品需求</option>
             </Form.Select>
           </Form.Group>
 
-          {docType === 'incomplete' && (
+          {docType === 'incomplete' ? (
             <Form.Group>
               <Form.Label className="small fw-bold text-secondary">补充原型图</Form.Label>
               <div className="d-flex gap-2">
@@ -88,16 +84,16 @@ export function TestGenerationConfigSection({
                   <span className="text-truncate">{protoFile ? protoFile.name : '选择图片...'}</span>
                   <FaFileImage />
                 </Button>
-                {protoFile && (
+                {protoFile ? (
                   <Button variant="outline-danger" size="sm" onClick={() => onProtoFileChange(null)}>
                     <FaTrash />
                   </Button>
-                )}
+                ) : null}
               </div>
             </Form.Group>
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
 
       <div className="p-3 bg-body-tertiary rounded-3 flex-grow-1">
         <Form.Check
@@ -116,18 +112,17 @@ export function TestGenerationConfigSection({
               <InputGroup>
                 <Form.Control
                   type="number"
-                  className="input-pro"
+                  className={`input-pro ${isEstimating ? 'test-generation-estimating-input' : ''}`}
                   value={expectedCount}
                   min={1}
                   step={1}
                   onChange={(e) => onExpectedCountChange(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
-                  style={{ borderRight: isEstimating ? '0' : undefined }}
                 />
-                {isEstimating && (
+                {isEstimating ? (
                   <InputGroup.Text className="bg-white border-start-0 ps-0">
                     <Spinner animation="border" size="sm" variant="primary" />
                   </InputGroup.Text>
-                )}
+                ) : null}
               </InputGroup>
             </div>
             <div className="flex-grow-1">
@@ -144,7 +139,7 @@ export function TestGenerationConfigSection({
           </div>
         </Form.Group>
 
-        {mode === 'file' && (
+        {mode === 'file' ? (
           <Form.Check
             type="checkbox"
             id="force-gen"
@@ -153,14 +148,13 @@ export function TestGenerationConfigSection({
             onChange={(e) => onForceChange(e.target.checked)}
             className="text-secondary small mt-3"
           />
-        )}
+        ) : null}
       </div>
 
       <div className="mt-auto d-flex flex-column gap-2">
         <Button
           variant="primary"
-          className="w-100 text-white d-flex align-items-center justify-content-center"
-          style={{ fontWeight: 500, backgroundColor: '#0d6efd', borderColor: '#0d6efd', height: '38px' }}
+          className="w-100 text-white d-flex align-items-center justify-content-center test-generation-action-btn"
           disabled={loading || !projectId || isLimitReached}
           onClick={onGenerate}
         >
@@ -179,27 +173,16 @@ export function TestGenerationConfigSection({
           )}
         </Button>
 
-        {hasOutput && (
+        {hasOutput ? (
           <div className="d-flex gap-2">
-            <Button
-              variant="outline-secondary"
-              className="flex-grow-1 border d-flex align-items-center justify-content-center"
-              style={{ fontWeight: 500, height: '38px' }}
-              onClick={onExport}
-            >
+            <Button variant="outline-secondary" className="flex-grow-1 border d-flex align-items-center justify-content-center test-generation-action-btn" onClick={onExport}>
               <FaDownload className="me-2" /> 导出
             </Button>
-            <Button
-              variant="outline-danger"
-              className="flex-grow-1 border d-flex align-items-center justify-content-center"
-              style={{ fontWeight: 500, height: '38px' }}
-              onClick={onClear}
-            >
+            <Button variant="outline-danger" className="flex-grow-1 border d-flex align-items-center justify-content-center test-generation-action-btn" onClick={onClear}>
               <FaTrash className="me-2" /> 清除
             </Button>
           </div>
-        )}
-
+        ) : null}
       </div>
     </div>
   );

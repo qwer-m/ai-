@@ -39,8 +39,8 @@ function Chip({ items }: { items?: string[] }) {
 
 export function DocHitStatsTable({ rows }: { rows: RagDocHitRow[] }) {
   return (
-    <div className="table-responsive">
-      <Table striped bordered hover size="sm" className="mb-0">
+    <div className="table-responsive rag-console-table-wrap">
+      <Table striped bordered hover size="sm" className="mb-0 rag-console-table">
         <thead>
           <tr>
             <th>doc_id/文档名</th>
@@ -94,10 +94,10 @@ export function ChunkTable({
   hasGoldReference: boolean;
 }) {
   return (
-    <div className="mt-3">
-      <div className="fw-bold mb-2">{title}</div>
-      <div className="table-responsive">
-        <Table striped bordered hover size="sm" className="mb-0">
+    <div className="mt-3 rag-console-chunk-block">
+      <div className="fw-bold mb-2 rag-console-block-title">{title}</div>
+      <div className="table-responsive rag-console-table-wrap">
+        <Table striped bordered hover size="sm" className="mb-0 rag-console-table">
           <thead>
             <tr>
               <th>chunk_id</th>
@@ -125,7 +125,7 @@ export function ChunkTable({
                 const final = Number(row.final_score ?? row.fusion_score ?? row.score ?? 0);
                 return (
                   <tr key={`${cid || 'none'}-${idx}`}>
-                    <td style={{ minWidth: 140 }}>{cid || '-'}</td>
+                    <td className="rag-console-chunk-id-cell">{cid || '-'}</td>
                     <td>
                       {String(row.doc_id || '-')}/{String(row.filename || '-')}
                     </td>
@@ -143,7 +143,7 @@ export function ChunkTable({
                       )}
                     </td>
                     <td>{String(row.selection_reason || row.kept_reason || '-')}</td>
-                    <td style={{ maxWidth: 460 }}>{String(row.chunk_text || '').slice(0, 220)}</td>
+                    <td className="rag-console-chunk-text-cell">{String(row.chunk_text || '').slice(0, 220)}</td>
                   </tr>
                 );
               })

@@ -26,7 +26,7 @@ export function ResponsePanelShell({
   scriptTests,
 }: ResponsePanelProps) {
   return (
-    <div className="d-flex flex-column bg-white overflow-hidden" style={{ flex: 1, minHeight: 0 }}>
+    <div className="d-flex flex-column overflow-hidden standard-api-response-panel standard-api-response-shell">
       <ResponsePanelHeader
         responseTab={responseTab}
         setResponseTab={setResponseTab}
@@ -37,9 +37,9 @@ export function ResponsePanelShell({
         responseTime={responseTime}
         responseBody={responseBody}
       />
-      <div className="flex-grow-1 overflow-hidden p-0 position-relative d-flex flex-column">
+      <div className="flex-grow-1 overflow-hidden p-0 position-relative d-flex flex-column standard-api-response-content">
         {loading && (
-          <div className="position-absolute top-0 start-0 w-100 h-100 bg-white bg-opacity-75 d-flex align-items-center justify-content-center z-1">
+          <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center z-1 standard-api-response-loading">
             <span className="spinner-border text-primary" role="status" aria-hidden="true" />
           </div>
         )}

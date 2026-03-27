@@ -198,12 +198,30 @@ export function useTestGenerationGeneration({
           }
         }
 
-        const statusMatch = buffer.match(/@@STATUS@@:(.*?)(?:\r?\n)/);
-        if (statusMatch) {
-          const statusMsg = statusMatch[1].trim();
-          setPollStatus(statusMsg);
-          onLog(statusMsg);
-          buffer = buffer.replace(statusMatch[0], '');
+        // 中文注释：同一分片可能带多条状态行，循环剥离，避免控制标签混入 JSON 正文。
+        while (true) {
+          const statusMatch = buffer.match(/@@STATUS@@:(.*?)(?:\r?\n)/);
+          if (statusMatch) {
+            const statusMsg = statusMatch[1].trim();
+            setPollStatus(statusMsg);
+            onLog(statusMsg);
+            buffer = buffer.replace(statusMatch[0], '');
+            continue;
+          }
+
+          const contextDebugMatch = buffer.match(/@@CONTEXT_DEBUG@@:(.*?)(?:\r?\n)/);
+          if (contextDebugMatch) {
+            const rawMeta = contextDebugMatch[1].trim();
+            buffer = buffer.replace(contextDebugMatch[0], '');
+            try {
+              JSON.parse(rawMeta);
+              onLog(`context_debug: ${rawMeta}`);
+            } catch {
+              onLog(`context_debug_parse_failed: ${rawMeta}`);
+            }
+            continue;
+          }
+          break;
         }
 
         if (!duplicateDetected && buffer.includes('@@DUPLICATE@@')) {
@@ -225,7 +243,7 @@ export function useTestGenerationGeneration({
           }
         }
 
-        const potentialTags = ['@@STATUS@@:', '@@DUPLICATE@@'];
+        const potentialTags = ['@@STATUS@@:', '@@DUPLICATE@@', '@@CONTEXT_DEBUG@@:'];
         let safeEndIndex = buffer.length;
         const searchLimit = Math.max(0, buffer.length - 20);
         for (let i = buffer.length - 1; i >= searchLimit; i--) {
@@ -266,7 +284,9 @@ export function useTestGenerationGeneration({
       }
 
       if (buffer) {
-        rawText += buffer.replace(/@@STATUS@@:.*$/g, '');
+        rawText += buffer
+          .replace(/@@STATUS@@:.*$/gm, '')
+          .replace(/@@CONTEXT_DEBUG@@:.*$/gm, '');
         setCurrentStreamingContent(rawText);
       }
 
@@ -307,16 +327,23 @@ export function useTestGenerationGeneration({
       setCurrentResult(finalGeneratedData);
       onGenerated(finalGeneratedData);
       onLog('Generation completed');
+      setPollStatus('生成完成');
       if (onGenerationComplete) onGenerationComplete();
     } catch (e) {
       const raw = getErrorText(e);
       const msg = await translateError(e);
-      setError(msg);
-      onLog(`Generation failed: ${msg}`);
+      const shouldUseRaw =
+        raw.includes('Generation failed:') ||
+        raw.includes('Error:') ||
+        raw.includes('HTTP ');
+      const displayMsg = shouldUseRaw ? raw : msg;
+      setError(displayMsg);
+      setPollStatus('生成失败');
+      onLog(`Generation failed: ${displayMsg}`);
+      if (raw && raw !== msg) onLog(`Generation failed(raw): ${raw}`);
       if (onError && (raw.includes('401') || raw.includes('QUOTA') || raw.includes('API Key not set'))) onError(msg);
     } finally {
       setLoading(false);
-      setPollStatus('');
     }
   };
 

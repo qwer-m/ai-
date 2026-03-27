@@ -76,8 +76,53 @@ class LegacyGenerationStreamPersistMixin:
                 yield "\n@@STATUS@@:生成失败\n"
                 yield f"Error: {parsed_result.get('error')}\n"
             elif isinstance(parsed_result, list) and len(parsed_result) == 0:
+                # 中文注释：空数组失败时补充可诊断信息，便于快速区分“模型空响应”和“解析失败”。
+                raw_preview = str(full_content or "").strip().replace("\n", " ")
+                if len(raw_preview) > 240:
+                    raw_preview = f"{raw_preview[:240]}..."
+                model_name = ""
+                try:
+                    model_name = str(
+                        client.select_model(
+                            (system_prompt or "") + requirement,
+                            task_type="generation",
+                        )
+                        or ""
+                    )
+                except Exception:
+                    model_name = ""
+                if not raw_preview:
+                    empty_reason = "model_stream_empty"
+                    empty_reason_zh = "模型流式返回为空"
+                elif "error:" in raw_preview.lower() or "exception" in raw_preview.lower():
+                    empty_reason = "model_stream_error_chunk"
+                    empty_reason_zh = "模型返回了错误片段"
+                else:
+                    empty_reason = "json_parse_no_valid_cases"
+                    empty_reason_zh = "响应存在但未解析出有效用例"
                 yield "\n@@STATUS@@:生成失败\n"
-                yield "Error: 模型返回空数组或解析不到有效用例，请检查模型配置/提示词/网络后重试\n"
+                yield (
+                    "Error: 模型返回空数组或解析不到有效用例。"
+                    f"诊断={empty_reason_zh}({empty_reason})，"
+                    f"model={model_name or 'unknown'}，"
+                    "请检查模型配置/提示词/网络后重试\n"
+                )
+                if db:
+                    try:
+                        db.add(
+                            LogEntry(
+                                project_id=project_id,
+                                log_type="system",
+                                message=(
+                                    "GEN_EMPTY_DIAG:"
+                                    f"{json.dumps({'reason': empty_reason, 'model': model_name, 'preview': raw_preview}, ensure_ascii=False)}"
+                                ),
+                                user_id=user_id,
+                            )
+                        )
+                        db.commit()
+                    except Exception:
+                        pass
 
             cleaned_response = json.dumps(parsed_result, ensure_ascii=False)
             
@@ -135,7 +180,7 @@ class LegacyGenerationStreamPersistMixin:
                     # Calculate actual model for accurate logging
                     # system_prompt is defined above in this function
                     full_input = (system_prompt or "") + requirement
-                    actual_model = client.select_model(full_input)
+                    actual_model = client.select_model(full_input, task_type="generation")
                     
                     # GEN_DIAG
                     diag = {

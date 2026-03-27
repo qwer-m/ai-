@@ -40,6 +40,9 @@ class LegacyGenerationStreamBatchesMixin:
         # --- STEP 1: META-ANALYSIS (Dynamic Strategy Planning) ---
         yield "@@STATUS@@:正在进行需求元分析 (Meta-Analysis)，识别系统类型与测试策略...\n"
         strategy_plan = self.analyze_requirement_context(requirement, kb_context, client, db)
+        if not isinstance(strategy_plan, dict):
+            # 中文注释：二次保护，防止外部 monkeypatch/异常返回导致主链路崩溃。
+            strategy_plan = self._default_strategy_plan()
         yield f"@@STATUS@@:分析完成 - 系统类型: {strategy_plan.get('system_type')}, 复杂度: {strategy_plan.get('complexity')}, 策略: {json.dumps(strategy_plan.get('suggested_ratios'))}...\n"
         base_prompt = build_closed_loop_base_prompt(
             strategy_plan,
@@ -201,7 +204,11 @@ class LegacyGenerationStreamBatchesMixin:
                         compressed_chars=len(kb_context or ""),
                     )
                     final_trace_emitted = True
-                stream = client.generate_response_stream(requirement, system_prompt)
+                stream = client.generate_response_stream(
+                    requirement,
+                    system_prompt,
+                    task_type="generation",
+                )
                 chunk_acc = ""
                 provider_error = None
                 for chunk in stream:

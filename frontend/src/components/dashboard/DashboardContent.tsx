@@ -1,12 +1,15 @@
-﻿import { Container } from 'react-bootstrap';
-import { APIAutomation } from '../testing/api/APIAutomation';
-import { APITesting } from '../testing/api/APITesting';
-import { Evaluation } from '../pages/Evaluation';
-import { KnowledgeBase } from '../pages/KnowledgeBase';
-import { ProjectManagement, type Project } from '../pages/ProjectManagement';
-import { TestGeneration } from '../testing/casegen/TestGeneration';
-import { UIAutomation } from '../testing/ui/UIAutomation';
+﻿import { Suspense, lazy } from 'react';
+import { Container, Spinner } from 'react-bootstrap';
+import type { Project } from '../pages/ProjectManagement';
 import type { LogEntry } from './model/types';
+
+const APITesting = lazy(() => import('../testing/api/APITesting').then((m) => ({ default: m.APITesting })));
+const TestGeneration = lazy(() => import('../testing/casegen/TestGeneration').then((m) => ({ default: m.TestGeneration })));
+const UIAutomation = lazy(() => import('../testing/ui/UIAutomation').then((m) => ({ default: m.UIAutomation })));
+const APIAutomation = lazy(() => import('../testing/api/APIAutomation').then((m) => ({ default: m.APIAutomation })));
+const KnowledgeBase = lazy(() => import('../pages/KnowledgeBase').then((m) => ({ default: m.KnowledgeBase })));
+const ProjectManagement = lazy(() => import('../pages/ProjectManagement').then((m) => ({ default: m.ProjectManagement })));
+const Evaluation = lazy(() => import('../pages/Evaluation').then((m) => ({ default: m.Evaluation })));
 
 type Props = {
   activeTab: string;
@@ -127,150 +130,178 @@ export function DashboardContent({
     setApiEvalOutput,
   };
 
+  const renderLazyFallback = (message: string) => (
+    <div className="d-flex flex-column align-items-center justify-content-center py-5 text-muted small">
+      <Spinner animation="border" size="sm" className="mb-2" />
+      <span>{message}</span>
+    </div>
+  );
+
   return (
     <div
-      className={`flex-grow-1 ${immersive ? 'p-0' : 'p-4'} pb-0 position-relative ${immersive ? 'overflow-hidden' : 'overflow-auto custom-scrollbar'}`}
-      style={{ minWidth: 0 }}
+      className={`dashboard-content-host dashboard-content-host-min flex-grow-1 ${immersive ? 'p-0' : 'p-4'} pb-0 position-relative ${immersive ? 'overflow-hidden' : 'overflow-auto custom-scrollbar'}`}
     >
       <Container
         fluid
-        className={`p-0 d-flex flex-column ${immersive ? 'h-100 position-absolute top-0 start-0 w-100' : ''}`}
-        style={immersive ? { height: '100%', minHeight: 0 } : { minHeight: '100%' }}
+        className={`p-0 d-flex flex-column ${immersive ? 'h-100 position-absolute top-0 start-0 w-100 dashboard-content-container-immersive' : 'dashboard-content-container-normal'}`}
       >
-        <div className={`d-flex flex-column ${immersive ? 'flex-grow-1 overflow-hidden' : ''}`} style={immersive ? { minHeight: 0 } : {}}>
-          {(activeTab === 'api-standard' || activeTab === 'api-ai') && (
-            <APITesting
-              key={projectId ?? 'api-testing-none'}
-              projectId={projectId}
-              onLog={(msg) => {
-                void onUserLog(msg);
-              }}
-              view={activeTab === 'api-standard' ? 'standard' : 'ai_debug'}
-            />
-          )}
+        <div className={`d-flex flex-column ${immersive ? 'flex-grow-1 overflow-hidden dashboard-content-min-h-0' : ''}`}>
+          {(activeTab === 'api-standard' || activeTab === 'api-ai') ? (
+            <Suspense fallback={renderLazyFallback('加载接口测试模块...')}>
+              <APITesting
+                key={projectId ?? 'api-testing-none'}
+                projectId={projectId}
+                onLog={(msg) => {
+                  void onUserLog(msg);
+                }}
+                view={activeTab === 'api-standard' ? 'standard' : 'ai_debug'}
+              />
+            </Suspense>
+          ) : null}
 
-          <div style={{ display: activeTab === 'api-gen' ? 'block' : 'none', height: '100%' }}>
-            <TestGeneration
-              key={projectId ?? 'test-generation-none'}
-              projectId={projectId}
-              isActive={activeTab === 'api-gen'}
-              onLog={(msg) => {
-                void onUserLog(msg);
-              }}
-              onGenerated={onTestGenerated}
-              onGenerationComplete={onGenerationComplete}
-              onError={onConfigError}
-            />
+          <div className={`dashboard-tab-panel ${activeTab === 'api-gen' ? 'is-active' : ''}`}>
+            {activeTab === 'api-gen' ? (
+              <Suspense fallback={renderLazyFallback('加载用例生成模块...')}>
+                <TestGeneration
+                  key={projectId ?? 'test-generation-none'}
+                  projectId={projectId}
+                  isActive={activeTab === 'api-gen'}
+                  onLog={(msg) => {
+                    void onUserLog(msg);
+                  }}
+                  onGenerated={onTestGenerated}
+                  onGenerationComplete={onGenerationComplete}
+                  onError={onConfigError}
+                />
+              </Suspense>
+            ) : null}
           </div>
 
-          {(activeTab === 'ui-exec-ui' || activeTab === 'ui-exec-ui-web' || activeTab === 'ui-exec-ui-app' || activeTab === 'ui-exec-ui-regression') && (
-            <UIAutomation
-              key={projectId ?? 'ui-automation-none'}
-              projectId={projectId}
-              onLog={(msg) => {
-                void onUserLog(msg);
-              }}
-              view={
-                activeTab === 'ui-exec-ui'
-                  ? 'report'
-                  : activeTab === 'ui-exec-ui-web'
-                    ? 'web'
-                    : activeTab === 'ui-exec-ui-app'
-                      ? 'app'
-                      : 'regression'
-              }
-            />
-          )}
+          {(activeTab === 'ui-exec-ui' || activeTab === 'ui-exec-ui-web' || activeTab === 'ui-exec-ui-app' || activeTab === 'ui-exec-ui-regression') ? (
+            <Suspense fallback={renderLazyFallback('加载 UI 自动化模块...')}>
+              <UIAutomation
+                key={projectId ?? 'ui-automation-none'}
+                projectId={projectId}
+                onLog={(msg) => {
+                  void onUserLog(msg);
+                }}
+                view={
+                  activeTab === 'ui-exec-ui'
+                    ? 'report'
+                    : activeTab === 'ui-exec-ui-web'
+                      ? 'web'
+                      : activeTab === 'ui-exec-ui-app'
+                        ? 'app'
+                        : 'regression'
+                }
+              />
+            </Suspense>
+          ) : null}
 
-          {(activeTab === 'ui-exec-api-orchestration' || activeTab === 'ui-exec-api-batch') && (
-            <APIAutomation
-              key={projectId ?? 'api-automation-none'}
-              projectId={projectId}
-              onLog={(msg) => {
-                void onUserLog(msg);
-              }}
-              view={activeTab === 'ui-exec-api-orchestration' ? 'orchestration' : 'runner'}
-            />
-          )}
+          {(activeTab === 'ui-exec-api-orchestration' || activeTab === 'ui-exec-api-batch') ? (
+            <Suspense fallback={renderLazyFallback('加载 API 自动化模块...')}>
+              <APIAutomation
+                key={projectId ?? 'api-automation-none'}
+                projectId={projectId}
+                onLog={(msg) => {
+                  void onUserLog(msg);
+                }}
+                view={activeTab === 'ui-exec-api-orchestration' ? 'orchestration' : 'runner'}
+              />
+            </Suspense>
+          ) : null}
 
           {activeTab === 'kb' ? (
-            <KnowledgeBase
-              projectId={projectId}
-              onLog={(msg) => {
-                void onSystemLog(msg);
-              }}
-            />
+            <Suspense fallback={renderLazyFallback('加载知识库模块...')}>
+              <KnowledgeBase
+                projectId={projectId}
+                onLog={(msg) => {
+                  void onSystemLog(msg);
+                }}
+              />
+            </Suspense>
           ) : null}
 
           {activeTab === 'proj' ? (
-            <ProjectManagement
-              projects={projects}
-              loading={projectsLoading}
-              error={projectsError}
-              onRefresh={onProjectRefresh}
-              onSelectProject={onSelectProject}
-              onLog={(msg) => {
-                void onUserLog(msg);
-              }}
-            />
+            <Suspense fallback={renderLazyFallback('加载项目管理模块...')}>
+              <ProjectManagement
+                projects={projects}
+                loading={projectsLoading}
+                error={projectsError}
+                onRefresh={onProjectRefresh}
+                onSelectProject={onSelectProject}
+                onLog={(msg) => {
+                  void onUserLog(msg);
+                }}
+              />
+            </Suspense>
           ) : null}
 
           {activeTab === 'eval' ? (
-            <Evaluation
-              {...commonEvaluationProps}
-              onLog={(msg) => {
-                void onUserLog(msg);
-              }}
-              view="root"
-              shouldAutoEval={shouldAutoEval}
-              setShouldAutoEval={setShouldAutoEval}
-            />
+            <Suspense fallback={renderLazyFallback('加载评测模块...')}>
+              <Evaluation
+                {...commonEvaluationProps}
+                onLog={(msg) => {
+                  void onUserLog(msg);
+                }}
+                view="root"
+                shouldAutoEval={shouldAutoEval}
+                setShouldAutoEval={setShouldAutoEval}
+              />
+            </Suspense>
           ) : null}
 
           {activeTab === 'eval-testcase' ? (
-            <Evaluation
-              {...commonEvaluationProps}
-              onLog={(msg) => {
-                void onUserLog(msg);
-              }}
-              view="testcase"
-              shouldAutoEval={shouldAutoEval}
-              setShouldAutoEval={setShouldAutoEval}
-            />
+            <Suspense fallback={renderLazyFallback('加载测试用例评测模块...')}>
+              <Evaluation
+                {...commonEvaluationProps}
+                onLog={(msg) => {
+                  void onUserLog(msg);
+                }}
+                view="testcase"
+                shouldAutoEval={shouldAutoEval}
+                setShouldAutoEval={setShouldAutoEval}
+              />
+            </Suspense>
           ) : null}
 
           {activeTab === 'eval-ui' ? (
-            <Evaluation
-              {...commonEvaluationProps}
-              onLog={(msg) => {
-                void onUserLog(msg);
-              }}
-              view="ui"
-            />
+            <Suspense fallback={renderLazyFallback('加载 UI 评测模块...')}>
+              <Evaluation
+                {...commonEvaluationProps}
+                onLog={(msg) => {
+                  void onUserLog(msg);
+                }}
+                view="ui"
+              />
+            </Suspense>
           ) : null}
 
           {activeTab === 'eval-api' ? (
-            <Evaluation
-              {...commonEvaluationProps}
-              onLog={(msg) => {
-                void onUserLog(msg);
-              }}
-              view="api"
-            />
+            <Suspense fallback={renderLazyFallback('加载 API 评测模块...')}>
+              <Evaluation
+                {...commonEvaluationProps}
+                onLog={(msg) => {
+                  void onUserLog(msg);
+                }}
+                view="api"
+              />
+            </Suspense>
           ) : null}
 
           {activeTab === 'eval-rag' ? (
-            <Evaluation
-              {...commonEvaluationProps}
-              onLog={(msg) => {
-                void onUserLog(msg);
-              }}
-              view="rag"
-            />
+            <Suspense fallback={renderLazyFallback('加载 RAG 评测模块...')}>
+              <Evaluation
+                {...commonEvaluationProps}
+                onLog={(msg) => {
+                  void onUserLog(msg);
+                }}
+                view="rag"
+              />
+            </Suspense>
           ) : null}
         </div>
       </Container>
     </div>
   );
 }
-

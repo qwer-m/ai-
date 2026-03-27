@@ -1,4 +1,6 @@
 from typing import Any
+import json
+import logging
 
 from sqlalchemy.orm import Session
 
@@ -14,6 +16,8 @@ from modules.testing.test_generation_components.context.hybrid_guard import (
     detect_hybrid_empty_context,
     parse_snapshot_queue_info,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class LegacyGenerationContextHybridMixin:
@@ -215,6 +219,12 @@ class LegacyGenerationContextHybridMixin:
                 "snapshot_queue_status": queue_status,
                 "snapshot_queue_reason": queue_reason,
                 "snapshot_queue_error": queue_error,
+                "snapshot_rebuild_triggered": queue_status == "queued",
+                "snapshot_rebuild_reason": queue_reason,
+                "snapshot_fallback_reason": str(fallback_reason or ""),
+                "realtime_rag_used": bool(fusion_debug.get("rag_used")),
+                "fallback_to_realtime_rag": bool(not snapshot_text and bool(fusion_debug.get("rag_used"))),
+                "current_document_used": True,
                 "sync_snapshot_retry_attempted": False,
                 "sync_snapshot_retry_success": False,
                 "sync_snapshot_retry_error": "",
@@ -290,12 +300,19 @@ class LegacyGenerationContextHybridMixin:
                     self._append_reason_chain(reason_chain, f"guard_sync_retry:exception:{sync_err}")
                     # 中文注释：补救过程失败，最终降级为可解释错误返回。
                     fusion_debug["final_decision"] = "degraded_to_error"
-            else:
+            elif strategy == "fail_fast":
                 abort_generation = True
                 abort_error = "上下文为空：snapshot 与 RAG 均不可用，已按 fail-fast 策略终止本次生成。"
                 fallback_reason = str(empty_info.get("final_empty_reason") or "hybrid_empty_context")
                 self._append_reason_chain(reason_chain, f"guard_fail_fast:{fallback_reason}")
                 fusion_debug["final_decision"] = "fail_fast"
+            else:
+                # 中文注释：默认策略改为 requirement_only_fallback，允许继续生成（仅依赖当前文档）。
+                abort_generation = False
+                abort_error = ""
+                fallback_reason = str(empty_info.get("final_empty_reason") or "hybrid_empty_context")
+                self._append_reason_chain(reason_chain, f"guard_requirement_only_fallback:{fallback_reason}")
+                fusion_debug["final_decision"] = "requirement_only_fallback"
         else:
             fusion_debug["final_decision"] = "proceed_with_generation"
 
@@ -320,9 +337,35 @@ class LegacyGenerationContextHybridMixin:
                 fallback_reason = str(fusion_debug.get("rag_error"))
             else:
                 fallback_reason = "hybrid_empty_context"
+        # 中文注释：统一补全主链路可观测字段，供前端提示与后端日志复用。
+        fusion_debug["snapshot_fallback_reason"] = str(fallback_reason or "")
+        fusion_debug["realtime_rag_used"] = bool(fusion_debug.get("rag_used"))
+        fusion_debug["fallback_to_realtime_rag"] = bool(
+            (not fusion_debug.get("snapshot_used")) and bool(fusion_debug.get("rag_used"))
+        )
+        fusion_debug["current_document_used"] = True
+        fusion_debug["snapshot_rebuild_triggered"] = bool(queue_status == "queued")
+        fusion_debug["snapshot_rebuild_reason"] = str(queue_reason or "")
         if fallback_reason:
             self._append_reason_chain(reason_chain, f"fallback:{fallback_reason}")
         self._append_reason_chain(reason_chain, f"final_decision:{fusion_debug.get('final_decision')}")
+
+        logger.info(
+            "gen_context_snapshot_policy project_id=%s payload=%s",
+            project_id,
+            json.dumps(
+                {
+                    "project_id": project_id,
+                    "snapshot_status": fusion_debug.get("snapshot_status"),
+                    "snapshot_used": bool(fusion_debug.get("snapshot_used")),
+                    "snapshot_rebuild_triggered": bool(fusion_debug.get("snapshot_rebuild_triggered")),
+                    "snapshot_rebuild_reason": fusion_debug.get("snapshot_rebuild_reason"),
+                    "fallback_to_realtime_rag": bool(fusion_debug.get("fallback_to_realtime_rag")),
+                    "current_document_used": True,
+                },
+                ensure_ascii=False,
+            ),
+        )
 
         return {
             "kb_context": kb_context,

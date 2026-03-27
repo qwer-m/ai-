@@ -1,3 +1,4 @@
+﻿import type { CSSProperties } from 'react';
 import { Dropdown, Form, ListGroup } from 'react-bootstrap';
 import {
   FaChevronDown,
@@ -70,7 +71,6 @@ export function InterfaceTree({
   onFolderExport,
   onDeleteInterface,
 }: InterfaceTreeProps) {
-  // 递归渲染接口树：folder 节点继续向下展开，request 节点作为叶子节点展示。
   const renderTree = (parentId: number | null, depth = 0): React.ReactNode => {
     const items = savedInterfaces.filter((item) => item.parentId === parentId);
     if (items.length === 0) return null;
@@ -82,6 +82,15 @@ export function InterfaceTree({
       const isHovered = hoverId === item.id;
       const isBulkSelected = !!bulkSelected[item.id];
 
+      const dropClass =
+        isOver && dragOverPosition === 'middle'
+          ? 'api-tree-drop-middle'
+          : isOver && dragOverPosition === 'top'
+            ? 'api-tree-drop-top'
+            : isOver && dragOverPosition === 'bottom'
+              ? 'api-tree-drop-bottom'
+              : '';
+
       return (
         <div key={item.id}>
           <div
@@ -92,33 +101,11 @@ export function InterfaceTree({
             onDragOver={(e) => onDragOver(e, item.id, isFolder)}
             onDragLeave={onDragLeave}
             onDrop={(e) => onDrop(e, item.id)}
-            className={`
-              rounded
-              ${isOver && dragOverPosition === 'middle' ? 'bg-primary-subtle border border-primary' : ''}
-            `}
-            style={{
-              // 拖拽反馈：上/中/下三种投放位置用不同边框提示。
-              transition: 'all 0.2s',
-              borderTop:
-                isOver && dragOverPosition === 'top'
-                  ? '2px solid #dc3545'
-                  : isOver && dragOverPosition === 'middle'
-                    ? undefined
-                    : '1px solid transparent',
-              borderBottom:
-                isOver && dragOverPosition === 'bottom'
-                  ? '2px solid #dc3545'
-                  : isOver && dragOverPosition === 'middle'
-                    ? undefined
-                    : '1px solid transparent',
-              borderLeft: isOver && dragOverPosition === 'middle' ? undefined : '1px solid transparent',
-              borderRight: isOver && dragOverPosition === 'middle' ? undefined : '1px solid transparent',
-            }}
+            className={`api-tree-drop-wrap rounded ${dropClass}`}
           >
             <ListGroup.Item
               action
               onClick={() => {
-                // 批量删除模式下点击用于勾选；普通模式下点击加载接口详情。
                 if (bulkDeleteMode) {
                   onToggleBulkSelected(item.id);
                 } else {
@@ -126,18 +113,9 @@ export function InterfaceTree({
                 }
               }}
               className={`api-tree-item ${isSelected ? 'api-tree-item-selected' : ''} border-0 py-1 px-2 d-flex align-items-center`}
-              style={{
-                paddingLeft: '0px',
-                backgroundColor: 'transparent',
-                borderLeft: isSelected ? '3px solid #0d6efd' : '3px solid transparent',
-              }}
             >
               {bulkDeleteMode && (
-                <div
-                  className="me-1 d-flex align-items-center justify-content-center"
-                  style={{ width: '18px', height: '18px' }}
-                  onClick={(e) => e.stopPropagation()}
-                >
+                <div className="me-1 d-flex align-items-center justify-content-center api-tree-bulk-check" onClick={(e) => e.stopPropagation()}>
                   <Form.Check
                     type="checkbox"
                     className="mb-0"
@@ -147,23 +125,13 @@ export function InterfaceTree({
                 </div>
               )}
 
-              <div style={{ width: `${depth * 6}px`, flexShrink: 0 }} />
+              <div className="api-tree-indent" style={{ '--api-tree-depth': depth } as CSSProperties} />
 
               {!isFolder && (
-                <div
-                  className="api-tree-method-col d-flex align-items-center justify-content-start flex-shrink-0"
-                  style={{ width: 'auto', marginRight: '0px' }}
-                >
+                <div className="api-tree-method-col d-flex align-items-center justify-content-start flex-shrink-0">
                   <span
-                    className="small"
-                    style={{
-                      fontSize: '0.75rem',
-                      fontWeight: 700,
-                      color: getMethodColor(item.method || 'GET'),
-                      display: 'block',
-                      textAlign: 'left',
-                      whiteSpace: 'nowrap',
-                    }}
+                    className="small api-tree-method-text"
+                    style={{ '--api-method-color': getMethodColor(item.method || 'GET') } as CSSProperties}
                   >
                     {item.method}
                   </span>
@@ -172,8 +140,7 @@ export function InterfaceTree({
 
               {isFolder && (
                 <div
-                  className="me-1 d-flex align-items-center justify-content-center text-secondary flex-shrink-0"
-                  style={{ width: '19px', height: '18px', cursor: 'pointer', marginLeft: '-7px' }}
+                  className="me-1 d-flex align-items-center justify-content-center text-secondary flex-shrink-0 api-tree-folder-toggle"
                   onClick={(e) => {
                     e.stopPropagation();
                     onToggleFolder(item.id);
@@ -204,7 +171,7 @@ export function InterfaceTree({
                       e.preventDefault();
                       e.stopPropagation();
                     }}
-                    className="p-0 px-1 py-0 h-auto"
+                    className="api-tree-rename-input"
                   />
                 ) : (
                   <span
@@ -222,17 +189,13 @@ export function InterfaceTree({
               </div>
 
               {!bulkDeleteMode && (
-                <div
-                  className="ms-2 d-flex gap-2 align-items-center flex-shrink-0"
-                  style={{ opacity: isHovered || isSelected ? 1 : 0, transition: 'opacity 0.2s' }}
-                >
+                <div className={`ms-2 d-flex gap-2 align-items-center flex-shrink-0 api-tree-actions ${isHovered || isSelected ? 'is-visible' : ''}`}>
                   <Dropdown onClick={(e) => e.stopPropagation()}>
-                    {/* 右侧三点菜单承载节点级操作，避免挤占主信息区 */}
                     <Dropdown.Toggle as="div" className="cursor-pointer text-secondary px-1 no-caret">
                       <FaEllipsisH size={12} />
                     </Dropdown.Toggle>
 
-                    <Dropdown.Menu align="end" style={{ zIndex: 1050 }} popperConfig={{ strategy: 'fixed' }}>
+                    <Dropdown.Menu align="end" className="api-tree-menu" popperConfig={{ strategy: 'fixed' }}>
                       <Dropdown.Item onClick={() => (isFolder ? onCreateInterface(item.id) : onCreateInterface(item.parentId))}>
                         <FaPlus className="me-2" /> 新增接口
                       </Dropdown.Item>
@@ -268,7 +231,7 @@ export function InterfaceTree({
           </div>
 
           {isFolder && item.isOpen && (
-            <div className="border-start" style={{ marginLeft: `${depth * 6 + 12}px`, paddingLeft: '0px' }}>
+            <div className="border-start api-tree-children" style={{ '--api-tree-depth': depth } as CSSProperties}>
               {renderTree(item.id, depth + 1)}
             </div>
           )}

@@ -194,7 +194,7 @@ class AIClient:
         if not self._provider:
             return self.model
 
-        # OpenAI 鍏煎鍦烘櫙閫氬父鐢卞崟妯″瀷鎵胯浇锛屼紭鍏堜娇鐢?provider 鍐呴厤缃€?
+        # OpenAI 兼容场景通常由单模型承载，优先使用 provider 内配置。
         if isinstance(self._provider, OpenAICompatibleProvider):
             return self._provider.model
 
@@ -251,7 +251,12 @@ class AIClient:
         return result
 
     def generate_response_stream(
-        self, user_input: str, system_prompt: str = None, max_tokens: int = None
+        self,
+        user_input: str,
+        system_prompt: str = None,
+        max_tokens: int = None,
+        task_type: str = "general",
+        model: str = None,
     ):
         """娴佸紡鏂囨湰鐢熸垚鍏ュ彛锛屼緵鍓嶇瀹炴椂杈撳嚭娑堣垂銆?"""
         if not self.provider:
@@ -263,7 +268,7 @@ class AIClient:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": user_input})
 
-        target_model = self.select_model((system_prompt or "") + user_input)
+        target_model = model or self.select_model((system_prompt or "") + user_input, task_type)
         yield from self.provider.generate_stream(messages, target_model, max_tokens or self.max_tokens)
 
     def analyze_image(

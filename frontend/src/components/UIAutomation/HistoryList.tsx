@@ -1,9 +1,8 @@
-import React, { useEffect, useState, useImperativeHandle, forwardRef } from 'react';
+﻿import React, { useEffect, useImperativeHandle, useState, forwardRef } from 'react';
 import { Spinner, Button, Modal, Form } from 'react-bootstrap';
 import { FaFolder, FaFileAlt, FaFolderPlus, FaFile, FaChevronRight, FaChevronDown, FaTrash } from 'react-icons/fa';
 import { api } from '../../utils/api';
 
-// 树形结构节点类型
 interface UITestCase {
     id: number;
     name: string;
@@ -31,8 +30,7 @@ export const HistoryList = forwardRef<HistoryListHandle, HistoryListProps>(({ pr
     const [treeData, setTreeData] = useState<UITestCase[]>([]);
     const [loading, setLoading] = useState(false);
     const [expandedFolders, setExpandedFolders] = useState<Record<number, boolean>>({});
-    
-    // 新建弹窗状态
+
     const [showModal, setShowModal] = useState(false);
     const [modalType, setModalType] = useState<'folder' | 'file'>('folder');
     const [newItemName, setNewItemName] = useState('');
@@ -46,25 +44,25 @@ export const HistoryList = forwardRef<HistoryListHandle, HistoryListProps>(({ pr
     };
 
     useImperativeHandle(ref, () => ({
-        openCreateModal
+        openCreateModal,
     }));
 
     const fetchTree = async () => {
-        if (!projectId) return;
+        if (!projectId) {
+            return;
+        }
         setLoading(true);
         try {
             const data = await api.get<UITestCase[]>(`/api/ui-test-cases/?project_id=${projectId}`);
-            // 把后端返回的扁平列表转成树（parent_id -> children）
             const buildTree = (items: UITestCase[], parentId: number | null = null): UITestCase[] => {
                 return items
-                    .filter(item => item.parent_id === parentId)
-                    .map(item => ({
+                    .filter((item) => item.parent_id === parentId)
+                    .map((item) => ({
                         ...item,
-                        children: buildTree(items, item.id)
+                        children: buildTree(items, item.id),
                     }));
             };
-            const tree = buildTree(data);
-            setTreeData(tree);
+            setTreeData(buildTree(data));
         } catch (error) {
             console.error('Failed to fetch test cases:', error);
         } finally {
@@ -73,29 +71,30 @@ export const HistoryList = forwardRef<HistoryListHandle, HistoryListProps>(({ pr
     };
 
     useEffect(() => {
-        fetchTree();
+        void fetchTree();
     }, [projectId]);
 
     const toggleFolder = (id: number) => {
-        setExpandedFolders(prev => ({ ...prev, [id]: !prev[id] }));
+        setExpandedFolders((prev) => ({ ...prev, [id]: !prev[id] }));
     };
 
     const handleCreate = async () => {
-        if (!newItemName) return;
+        if (!newItemName) {
+            return;
+        }
         try {
             await api.post('/api/ui-test-cases/', {
                 project_id: projectId,
                 name: newItemName,
                 type: modalType,
                 parent_id: targetParentId,
-                automation_type: filterType || 'web'
+                automation_type: filterType || 'web',
             });
             setShowModal(false);
             setNewItemName('');
-            fetchTree();
-            // 新建子节点后自动展开父目录，提升可见性
+            await fetchTree();
             if (targetParentId) {
-                setExpandedFolders(prev => ({ ...prev, [targetParentId]: true }));
+                setExpandedFolders((prev) => ({ ...prev, [targetParentId]: true }));
             }
         } catch (e) {
             alert('创建失败');
@@ -104,79 +103,88 @@ export const HistoryList = forwardRef<HistoryListHandle, HistoryListProps>(({ pr
 
     const handleDelete = async (e: React.MouseEvent, id: number) => {
         e.stopPropagation();
-        if (!window.confirm('确定要删除吗？')) return;
+        if (!window.confirm('确定要删除吗？')) {
+            return;
+        }
         try {
             await api.delete(`/api/ui-test-cases/${id}`);
-            fetchTree();
+            await fetchTree();
         } catch (error) {
             console.error(error);
         }
     };
 
     const renderTree = (nodes: UITestCase[], depth = 0) => {
-        return nodes.map(node => {
-            // 如果指定了过滤类型，只过滤文件节点；目录节点始终保留
-            if (node.type === 'file' && filterType && node.automation_type !== filterType) return null;
+        return nodes.map((node) => {
+            if (node.type === 'file' && filterType && node.automation_type !== filterType) {
+                return null;
+            }
 
             const isExpanded = expandedFolders[node.id];
             const isSelected = selectedId === node.id;
-            
+
             return (
                 <div key={node.id}>
-                    <div 
-                        className={`d-flex align-items-center py-1 px-2 border-bottom ${isSelected ? 'bg-primary text-white' : 'hover-bg-light'}`}
-                        style={{ paddingLeft: `${depth * 16 + 8}px`, cursor: 'pointer', fontSize: '0.9em' }}
+                    <div
+                        className={`ui-automation-history-item ui-automation-history-row d-flex align-items-center py-1 px-2 border-bottom ${isSelected ? 'is-selected' : ''}`}
+                        style={{ '--ui-depth': depth } as React.CSSProperties}
                         onClick={() => {
-                            if (node.type === 'folder') toggleFolder(node.id);
-                            else onSelect(node);
+                            if (node.type === 'folder') {
+                                toggleFolder(node.id);
+                            } else {
+                                onSelect(node);
+                            }
                         }}
                     >
-                        <div className="me-2" style={{width: '16px'}}>
-                            {node.type === 'folder' && (
-                                isExpanded ? <FaChevronDown size={10} /> : <FaChevronRight size={10} />
-                            )}
+                        <div className="me-2 ui-automation-history-fold-toggle">
+                            {node.type === 'folder' ? (isExpanded ? <FaChevronDown size={10} /> : <FaChevronRight size={10} />) : null}
                         </div>
-                        <div className="me-2 text-warning">
-                            {node.type === 'folder' ? <FaFolder /> : <FaFileAlt className="text-info" />}
-                        </div>
-                        <div className="flex-grow-1 text-truncate">
-                            {node.name}
-                        </div>
-                        <div className="actions opacity-0 hover-opacity-100">
-                            {node.type === 'folder' && (
+                        <div className="me-2 text-warning">{node.type === 'folder' ? <FaFolder /> : <FaFileAlt className="text-info" />}</div>
+                        <div className="flex-grow-1 text-truncate">{node.name}</div>
+                        <div className="ui-automation-history-actions">
+                            {node.type === 'folder' ? (
                                 <>
-                                    <FaFolderPlus className="me-2 text-muted" size={12} onClick={(e) => { e.stopPropagation(); openCreateModal('folder', node.id); }} title="新建子文件夹"/>
-                                    <FaFile className="me-2 text-muted" size={12} onClick={(e) => { e.stopPropagation(); openCreateModal('file', node.id); }} title="新建脚本"/>
+                                    <FaFolderPlus
+                                        className="me-2 text-muted"
+                                        size={12}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            openCreateModal('folder', node.id);
+                                        }}
+                                        title="新建子目录"
+                                    />
+                                    <FaFile
+                                        className="me-2 text-muted"
+                                        size={12}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            openCreateModal('file', node.id);
+                                        }}
+                                        title="新建脚本"
+                                    />
                                 </>
-                            )}
-                            <FaTrash className="text-danger" size={12} onClick={(e) => handleDelete(e, node.id)} title="删除"/>
+                            ) : null}
+                            <FaTrash className="text-danger" size={12} onClick={(e) => void handleDelete(e, node.id)} title="删除" />
                         </div>
                     </div>
-                    {node.type === 'folder' && isExpanded && node.children && (
-                        <div>{renderTree(node.children, depth + 1)}</div>
-                    )}
+                    {node.type === 'folder' && isExpanded && node.children ? <div>{renderTree(node.children, depth + 1)}</div> : null}
                 </div>
             );
         });
     };
 
     return (
-        <div className="h-100 d-flex flex-column">
-            {/* 按需求移除顶部标题区域 */}
-            <div className="flex-grow-1 overflow-auto custom-scrollbar bg-white">
+        <div className="ui-automation-history h-100 d-flex flex-column">
+            <div className="flex-grow-1 overflow-auto custom-scrollbar ui-automation-history-scroll">
                 {loading ? (
                     <div className="text-center p-3 text-muted">
                         <Spinner animation="border" size="sm" /> 加载中...
                     </div>
                 ) : (
-                    <div>
+                    <>
                         {renderTree(treeData)}
-                        {treeData.length === 0 && (
-                            <div className="text-center p-4 text-muted small">
-                                暂无脚本，请点击上方按钮创建。
-                            </div>
-                        )}
-                    </div>
+                        {treeData.length === 0 ? <div className="text-center p-4 text-muted small">暂无脚本，请点击上方按钮创建。</div> : null}
+                    </>
                 )}
             </div>
 
@@ -185,25 +193,27 @@ export const HistoryList = forwardRef<HistoryListHandle, HistoryListProps>(({ pr
                     <Modal.Title className="h6">{modalType === 'folder' ? '新建文件夹' : '新建脚本'}</Modal.Title>
                 </Modal.Header>
                 <Modal.Body>
-                    <Form.Control 
+                    <Form.Control
                         autoFocus
                         placeholder="请输入名称"
                         value={newItemName}
-                        onChange={e => setNewItemName(e.target.value)}
-                        onKeyPress={e => e.key === 'Enter' && handleCreate()}
+                        onChange={(e) => setNewItemName(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                void handleCreate();
+                            }
+                        }}
                     />
                 </Modal.Body>
-                <Modal.Footer className="p-1">
-                    <Button size="sm" variant="secondary" onClick={() => setShowModal(false)}>取消</Button>
-                    <Button size="sm" variant="primary" onClick={handleCreate}>确定</Button>
+                <Modal.Footer className="p-2">
+                    <Button size="sm" variant="secondary" onClick={() => setShowModal(false)}>
+                        取消
+                    </Button>
+                    <Button size="sm" variant="primary" onClick={() => void handleCreate()}>
+                        确定
+                    </Button>
                 </Modal.Footer>
             </Modal>
-
-            <style>{`
-                .hover-bg-light:hover { background-color: #f8f9fa; }
-                .hover-opacity-100:hover { opacity: 1 !important; }
-                .hover-bg-light:hover .actions { opacity: 1 !important; }
-            `}</style>
         </div>
     );
 });

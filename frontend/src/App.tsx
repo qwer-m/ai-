@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './components/auth-pages/Login';
@@ -11,7 +11,7 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
   if (isLoading) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: "100vh" }}>
+      <div className="d-flex justify-content-center align-items-center app-loading-screen">
         <Spinner animation="border" variant="primary" />
       </div>
     );
@@ -21,6 +21,13 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 };
 
 function App() {
+  useEffect(() => {
+    const mode = window.localStorage.getItem('themeMode') === 'dark' ? 'dark' : 'light';
+    document.body.classList.add('ui-overhaul-v4');
+    document.body.classList.toggle('theme-dark', mode === 'dark');
+    document.body.classList.toggle('theme-light', mode === 'light');
+  }, []);
+
   return (
     <AuthProvider>
       <Router>

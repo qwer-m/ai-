@@ -1,7 +1,10 @@
 from typing import Any, Iterator
+import json
+import uuid
 
 from sqlalchemy.orm import Session
 
+from core.ai.ai_client import get_client_for_user
 from core.db.models import TestGeneration
 from modules.testing.test_generation_components.prompting.generation_diagnostics import build_gate_reason_chain
 from modules.testing.test_generation_components.legacy.adapters import (
@@ -37,6 +40,8 @@ class LegacyGenerationStreamPrepareMixin:
         # Retrieve context from Knowledge Base if DB is available
         original_requirement = requirement
         kb_context = ""
+        context_result: dict[str, Any] = {}
+        gate_debug: dict[str, Any] = {}
         
         # Determine start_id if appending
         start_id = 1
@@ -160,6 +165,29 @@ class LegacyGenerationStreamPrepareMixin:
             fusion_debug["final_generation_context_mode"] = context_result.get("context_source") or "empty"
             context_result["fusion_debug"] = fusion_debug
             kb_context = context_result.get("kb_context") or ""
+
+            # 中文注释：向前端显式透出 snapshot 回退策略状态，避免将 not ready 误判为失败。
+            context_debug_payload = {
+                "snapshot_status": str(fusion_debug.get("snapshot_status") or ""),
+                "snapshot_ready": bool(fusion_debug.get("snapshot_ready")),
+                "snapshot_used": bool(fusion_debug.get("snapshot_used")),
+                "snapshot_fallback_reason": str(
+                    fusion_debug.get("snapshot_fallback_reason")
+                    or context_result.get("fallback_reason")
+                    or ""
+                ),
+                "realtime_rag_used": bool(
+                    fusion_debug.get("realtime_rag_used", fusion_debug.get("rag_used"))
+                ),
+                "current_document_used": bool(fusion_debug.get("current_document_used", True)),
+                "snapshot_rebuild_triggered": bool(fusion_debug.get("snapshot_rebuild_triggered")),
+                "snapshot_rebuild_reason": str(
+                    fusion_debug.get("snapshot_rebuild_reason")
+                    or fusion_debug.get("snapshot_queue_reason")
+                    or ""
+                ),
+            }
+            yield f"@@CONTEXT_DEBUG@@:{json.dumps(context_debug_payload, ensure_ascii=False)}\n"
 
             for status_message in status_messages:
                 yield f"@@STATUS@@:{status_message}\n"
@@ -286,7 +314,7 @@ class LegacyGenerationStreamPrepareMixin:
             "start_id": start_id,
             "existing_cases": existing_cases,
             "existing_entry": existing_entry,
-            "context_result": context_result if isinstance(context_result, dict) else {},
-            "gate_debug": gate_debug if isinstance(gate_debug, dict) else {},
+            "context_result": context_result,
+            "gate_debug": gate_debug,
         }
 

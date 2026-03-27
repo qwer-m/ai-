@@ -1,4 +1,4 @@
-import { Pagination } from "react-bootstrap";
+﻿import { Pagination } from 'react-bootstrap';
 
 type KnowledgeBasePaginationBarProps = {
   totalItems: number;
@@ -24,12 +24,12 @@ export function KnowledgeBasePaginationBar({
   pageSwitchTimerActive,
 }: KnowledgeBasePaginationBarProps) {
   return (
-    <div className="bg-light border-top px-3 py-2 d-flex justify-content-between align-items-center small text-secondary">
+    <div className="bg-light border-top px-3 py-2 d-flex justify-content-between align-items-center small text-secondary knowledge-pagination-bar">
       <div>
-        共找到 <strong>{totalItems || docsLength}</strong> 个项目
-        {page > 1 && ` (第 ${page}/${totalPages} 页)`}
+        共找到 <strong>{totalItems || docsLength}</strong> 条记录
+        {page > 1 ? ` (第 ${page}/${totalPages} 页)` : ''}
       </div>
-      {totalPages > 1 && (
+      {totalPages > 1 ? (
         <Pagination size="sm" className="m-0">
           <Pagination.First
             onClick={() => onFetchPage(1)}
@@ -42,9 +42,7 @@ export function KnowledgeBasePaginationBar({
           <Pagination.Prev
             onClick={() => onFetchPage(page - 1)}
             disabled={page === 1}
-            onDragEnter={() =>
-              !pageSwitchTimerActive && page > 1 && onPageDragEnter(page - 1)
-            }
+            onDragEnter={() => !pageSwitchTimerActive && page > 1 && onPageDragEnter(page - 1)}
             onDragOver={(e) => e.preventDefault()}
             onDragLeave={onPageDragLeave}
             onDrop={(e) => page > 1 && onPageDrop(e, page - 1)}
@@ -76,9 +74,7 @@ export function KnowledgeBasePaginationBar({
           <Pagination.Next
             onClick={() => onFetchPage(page + 1)}
             disabled={page === totalPages}
-            onDragEnter={() =>
-              !pageSwitchTimerActive && page < totalPages && onPageDragEnter(page + 1)
-            }
+            onDragEnter={() => !pageSwitchTimerActive && page < totalPages && onPageDragEnter(page + 1)}
             onDragOver={(e) => e.preventDefault()}
             onDragLeave={onPageDragLeave}
             onDrop={(e) => page < totalPages && onPageDrop(e, page + 1)}
@@ -86,15 +82,13 @@ export function KnowledgeBasePaginationBar({
           <Pagination.Last
             onClick={() => onFetchPage(totalPages)}
             disabled={page === totalPages}
-            onDragEnter={() =>
-              !pageSwitchTimerActive && page < totalPages && onPageDragEnter(totalPages)
-            }
+            onDragEnter={() => !pageSwitchTimerActive && page < totalPages && onPageDragEnter(totalPages)}
             onDragOver={(e) => e.preventDefault()}
             onDragLeave={onPageDragLeave}
             onDrop={(e) => onPageDrop(e, totalPages)}
           />
         </Pagination>
-      )}
+      ) : null}
     </div>
   );
 }

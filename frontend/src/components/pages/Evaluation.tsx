@@ -60,7 +60,7 @@ export function Evaluation({
   const showRag = view === 'rag';
 
   return (
-    <div className="bento-grid h-100 align-content-start">
+    <div className="bento-grid h-100 align-content-start evaluation-shell">
       {showRoot ? (
         <EvaluationOverviewPanel
           diag={actions.latestDiag}
@@ -136,8 +136,7 @@ export function Evaluation({
       */}
       <ToastContainer
         containerPosition="fixed"
-        className="p-3 top-50 start-50 translate-middle"
-        style={{ zIndex: 1100 }}
+        className="p-3 top-50 start-50 translate-middle evaluation-toast-container"
       >
         {actions.toastMsg ? (
           <Toast
@@ -146,7 +145,7 @@ export function Evaluation({
             delay={3000}
             autohide
             bg={actions.toastMsg.type === 'success' ? 'success' : 'danger'}
-            style={{ minWidth: 420 }}
+            className="evaluation-toast-card"
           >
             <Toast.Header>
               <strong className="me-auto">{actions.toastMsg.type === 'success' ? '成功' : '错误'}</strong>

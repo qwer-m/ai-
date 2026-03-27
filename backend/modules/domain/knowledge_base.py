@@ -397,6 +397,7 @@ class KnowledgeBaseModule:
         db: Session,
         user_id: Optional[int] = None,
         force_rebuild: bool = False,
+        rebuild_reason_hint: Optional[str] = None,
     ) -> dict:
         """手动触发项目级快照异步重建。"""
         return enqueue_context_snapshot_rebuild_impl(
@@ -404,6 +405,7 @@ class KnowledgeBaseModule:
             db=db,
             user_id=user_id,
             force_rebuild=force_rebuild,
+            rebuild_reason_hint=rebuild_reason_hint,
         )
 
     def update_document(

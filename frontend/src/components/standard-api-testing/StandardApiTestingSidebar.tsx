@@ -1,4 +1,5 @@
-﻿import { useRef, useState } from 'react';
+﻿import type { CSSProperties } from 'react';
+import { useRef, useState } from 'react';
 import { Button, ListGroup } from 'react-bootstrap';
 import { FaFolderPlus, FaMinus, FaPlus } from 'react-icons/fa';
 import { InterfaceTree } from './InterfaceTree';
@@ -144,14 +145,8 @@ export function StandardApiTestingSidebar({
 
   return (
     <div
-      className="border-end bg-light d-flex flex-column position-relative"
-      style={{
-        width: showSidebar ? `${sidebarWidth}px` : '0px',
-        minWidth: showSidebar ? `${sidebarWidth}px` : '0px',
-        overflow: 'hidden',
-        transition: isResizingSidebar ? 'none' : 'width 0.2s ease, min-width 0.2s ease, opacity 0.2s ease',
-        opacity: showSidebar ? 1 : 0,
-      }}
+      className={`border-end bg-light d-flex flex-column position-relative standard-api-sidebar standard-api-sidebar-resizable ${showSidebar ? 'is-open' : 'is-closed'} ${isResizingSidebar ? 'is-resizing' : ''}`}
+      style={{ '--sat-sidebar-width': `${sidebarWidth}px` } as CSSProperties}
       onDragOver={(e) => {
         e.preventDefault();
         setIsDragOver(true);
@@ -165,22 +160,17 @@ export function StandardApiTestingSidebar({
         accept=".json,application/json"
         multiple
         onChange={handleFolderImportFiles}
-        style={{ display: 'none' }}
+        className="standard-api-hidden-input"
       />
       {isDragOver && (
-        <div
-          className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-primary bg-opacity-10"
-          style={{ zIndex: 100, pointerEvents: 'none', border: '2px dashed #0d6efd' }}
-        >
-          <div className="text-primary bg-white px-3 py-2 rounded shadow-sm" style={{ fontWeight: 600 }}>
+        <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-primary bg-opacity-10 standard-api-import-overlay">
+          <div className="text-primary px-3 py-2 rounded shadow-sm standard-api-import-overlay-card">
             <FaFolderPlus className="me-2" /> 拖拽以导入
           </div>
         </div>
       )}
-      <div className="d-flex justify-content-between align-items-center mb-2 px-3 pt-3">
-        <h6 className="mb-0 text-secondary" style={{ fontWeight: 600 }}>
-          接口列表
-        </h6>
+      <div className="d-flex justify-content-between align-items-center mb-2 px-3 pt-3 standard-api-sidebar-head">
+        <h6 className="mb-0 text-secondary standard-api-sidebar-title">接口列表</h6>
         <div className="d-flex gap-2">
           <Button variant="link" className="p-0 text-secondary" onClick={() => onCreateFolder(null)} title="新建文件夹">
             <FaFolderPlus size={16} />
@@ -198,10 +188,7 @@ export function StandardApiTestingSidebar({
           </Button>
         </div>
       </div>
-      <div
-        className="flex-grow-1 overflow-auto border-top bg-light position-relative"
-        style={{ minHeight: '100px', overflowY: 'auto', overflowX: 'hidden' }}
-      >
+      <div className="flex-grow-1 overflow-auto border-top position-relative standard-api-sidebar-body standard-api-sidebar-scroll">
         <ListGroup variant="flush">
           <InterfaceTree
             savedInterfaces={savedInterfaces}
@@ -234,7 +221,7 @@ export function StandardApiTestingSidebar({
         </ListGroup>
 
         {savedInterfaces.length === 0 && (
-          <div className="text-center text-muted mt-5 small position-absolute w-100" style={{ top: '100px', left: 0, pointerEvents: 'none' }}>
+          <div className="text-center text-muted mt-5 small position-absolute w-100 standard-api-sidebar-empty">
             暂无接口，点击右上角 + 新建
           </div>
         )}

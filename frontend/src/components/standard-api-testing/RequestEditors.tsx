@@ -65,13 +65,12 @@ export function KvEditor({
       <div className="w-100 h-100 d-flex flex-column">
         <div className="d-flex justify-content-end bg-light border-bottom px-2 py-1">
           <Button variant="link" size="sm" className="text-decoration-none" onClick={onToggleBulk}>
-            Key-Value Edit
+            Key-Value 编辑
           </Button>
         </div>
         <Form.Control
           as="textarea"
-          className="flex-grow-1 border-0 p-3 font-monospace small bg-transparent"
-          style={{ resize: 'none', outline: 'none' }}
+          className="flex-grow-1 border-0 p-3 font-monospace small bg-transparent standard-api-raw-textarea"
           value={bulkText}
           onChange={(e) => onBulkChange(e.target.value)}
           placeholder="key:value"
@@ -85,33 +84,50 @@ export function KvEditor({
     <div className="w-100 overflow-hidden d-flex flex-column">
       <div className="d-flex justify-content-end bg-light border-bottom px-2 py-1">
         <Button variant="link" size="sm" className="text-decoration-none" onClick={onToggleBulk}>
-          Bulk Edit
+          批量编辑
         </Button>
       </div>
-      <table className="table table-sm table-bordered border-start-0 border-end-0 mb-0 align-middle small w-100" style={{ tableLayout: 'fixed' }}>
+      <table className="table table-sm table-bordered border-start-0 border-end-0 mb-0 align-middle small w-100 standard-api-kv-table">
         <thead className="text-secondary bg-light">
           <tr>
-            <th style={{ width: '30%', fontWeight: '500' }} className="ps-3 border-start-0">键 (Key)</th>
-            <th style={{ width: '30%', fontWeight: '500' }} className="ps-2">值 (Value)</th>
-            <th style={{ width: '40%', fontWeight: '500' }} className="ps-2 border-end-0">描述 (Description)</th>
+            <th className="ps-3 border-start-0 standard-api-kv-col-key">键 (Key)</th>
+            <th className="ps-2 standard-api-kv-col-value">值 (Value)</th>
+            <th className="ps-2 border-end-0 standard-api-kv-col-desc">描述 (Description)</th>
           </tr>
         </thead>
         <tbody>
           {items.map((item, idx) => (
             <tr key={idx} className="border-bottom">
               <td className="ps-3 border-start-0">
-                <Form.Control size="sm" placeholder="Key" value={item.key} onChange={(e) => handleChange(idx, 'key', e.target.value)} className="border-0 shadow-none bg-transparent px-0" />
+                <Form.Control
+                  size="sm"
+                  placeholder="Key"
+                  value={item.key}
+                  onChange={(e) => handleChange(idx, 'key', e.target.value)}
+                  className="border-0 shadow-none bg-transparent px-0"
+                />
               </td>
               <td className="ps-2">
-                <Form.Control size="sm" placeholder="Value" value={item.value} onChange={(e) => handleChange(idx, 'value', e.target.value)} className="border-0 shadow-none bg-transparent px-0" />
+                <Form.Control
+                  size="sm"
+                  placeholder="Value"
+                  value={item.value}
+                  onChange={(e) => handleChange(idx, 'value', e.target.value)}
+                  className="border-0 shadow-none bg-transparent px-0"
+                />
               </td>
               <td className="ps-2 position-relative border-end-0">
-                <Form.Control size="sm" placeholder="Description" value={item.desc} onChange={(e) => handleChange(idx, 'desc', e.target.value)} className="border-0 shadow-none bg-transparent px-0" style={{ paddingRight: '24px' }} />
+                <Form.Control
+                  size="sm"
+                  placeholder="Description"
+                  value={item.desc}
+                  onChange={(e) => handleChange(idx, 'desc', e.target.value)}
+                  className="border-0 shadow-none bg-transparent px-0 standard-api-kv-desc-input"
+                />
                 {items.length > 1 && (
                   <Button
                     variant="link"
-                    className="position-absolute top-50 end-0 translate-middle-y text-muted p-0 pe-2 opacity-50 hover-opacity-100"
-                    style={{ zIndex: 5 }}
+                    className="position-absolute top-50 end-0 translate-middle-y text-muted p-0 pe-2 opacity-50 hover-opacity-100 standard-api-kv-remove-btn"
                     onClick={() => handleDelete(idx)}
                   >
                     <FaTrash size={12} />
@@ -186,13 +202,12 @@ export function FormDataEditor({
       <div className="w-100 h-100 d-flex flex-column">
         <div className="d-flex justify-content-end bg-light border-bottom px-2 py-1">
           <Button variant="link" size="sm" className="text-decoration-none" onClick={onToggleBulk}>
-            Key-Value Edit
+            Key-Value 编辑
           </Button>
         </div>
         <Form.Control
           as="textarea"
-          className="flex-grow-1 border-0 p-3 font-monospace small bg-transparent"
-          style={{ resize: 'none', outline: 'none' }}
+          className="flex-grow-1 border-0 p-3 font-monospace small bg-transparent standard-api-raw-textarea"
           value={bulkText}
           onChange={(e) => onBulkChange(e.target.value)}
           placeholder="key:value"
@@ -206,26 +221,37 @@ export function FormDataEditor({
     <div className="w-100 overflow-hidden">
       <div className="d-flex justify-content-end bg-light border-bottom px-2 py-1">
         <Button variant="link" size="sm" className="text-decoration-none" onClick={onToggleBulk}>
-          Bulk Edit
+          批量编辑
         </Button>
       </div>
-      <table className="table table-sm table-bordered border-start-0 border-end-0 mb-0 align-middle small w-100" style={{ tableLayout: 'fixed' }}>
+      <table className="table table-sm table-bordered border-start-0 border-end-0 mb-0 align-middle small w-100 standard-api-kv-table">
         <thead className="text-secondary bg-light">
           <tr>
-            <th style={{ width: '25%', fontWeight: '500' }} className="ps-3 border-start-0">键 (Key)</th>
-            <th style={{ width: '10%', fontWeight: '500' }} className="ps-2">类型</th>
-            <th style={{ width: '30%', fontWeight: '500' }} className="ps-2">值 (Value)</th>
-            <th style={{ width: '35%', fontWeight: '500' }} className="ps-2 border-end-0">描述 (Description)</th>
+            <th className="ps-3 border-start-0 standard-api-fd-col-key">键 (Key)</th>
+            <th className="ps-2 standard-api-fd-col-type">类型</th>
+            <th className="ps-2 standard-api-fd-col-value">值 (Value)</th>
+            <th className="ps-2 border-end-0 standard-api-fd-col-desc">描述 (Description)</th>
           </tr>
         </thead>
         <tbody>
           {items.map((item, idx) => (
             <tr key={idx} className="border-bottom">
               <td className="ps-3 border-start-0">
-                <Form.Control size="sm" placeholder="Key" value={item.key} onChange={(e) => handleChange(idx, 'key', e.target.value)} className="border-0 shadow-none bg-transparent px-0" />
+                <Form.Control
+                  size="sm"
+                  placeholder="Key"
+                  value={item.key}
+                  onChange={(e) => handleChange(idx, 'key', e.target.value)}
+                  className="border-0 shadow-none bg-transparent px-0"
+                />
               </td>
               <td className="ps-2">
-                <Form.Select size="sm" value={item.type} onChange={(e) => handleChange(idx, 'type', e.target.value as FormDataItem['type'])} className="border-0 shadow-none bg-transparent px-0 text-secondary" style={{ fontSize: '0.875rem' }}>
+                <Form.Select
+                  size="sm"
+                  value={item.type}
+                  onChange={(e) => handleChange(idx, 'type', e.target.value as FormDataItem['type'])}
+                  className="border-0 shadow-none bg-transparent px-0 text-secondary standard-api-fd-type-select"
+                >
                   <option value="text">Text</option>
                   <option value="file">File</option>
                 </Form.Select>
@@ -242,19 +268,34 @@ export function FormDataEditor({
                         handleFileChange(idx, target.files?.[0] || null);
                       }}
                     />
-                    {item.src && <span className="small text-muted ms-2 text-truncate" style={{ maxWidth: '100px' }} title={item.src}>{item.src}</span>}
+                    {item.src && (
+                      <span className="small text-muted ms-2 text-truncate standard-api-file-name" title={item.src}>
+                        {item.src}
+                      </span>
+                    )}
                   </div>
                 ) : (
-                  <Form.Control size="sm" placeholder="Value" value={item.value} onChange={(e) => handleChange(idx, 'value', e.target.value)} className="border-0 shadow-none bg-transparent px-0" />
+                  <Form.Control
+                    size="sm"
+                    placeholder="Value"
+                    value={item.value}
+                    onChange={(e) => handleChange(idx, 'value', e.target.value)}
+                    className="border-0 shadow-none bg-transparent px-0"
+                  />
                 )}
               </td>
               <td className="ps-2 position-relative border-end-0">
-                <Form.Control size="sm" placeholder="Description" value={item.desc} onChange={(e) => handleChange(idx, 'desc', e.target.value)} className="border-0 shadow-none bg-transparent px-0" style={{ paddingRight: '24px' }} />
+                <Form.Control
+                  size="sm"
+                  placeholder="Description"
+                  value={item.desc}
+                  onChange={(e) => handleChange(idx, 'desc', e.target.value)}
+                  className="border-0 shadow-none bg-transparent px-0 standard-api-kv-desc-input"
+                />
                 {items.length > 1 && (
                   <Button
                     variant="link"
-                    className="position-absolute top-50 end-0 translate-middle-y text-muted p-0 pe-2 opacity-50 hover-opacity-100"
-                    style={{ zIndex: 5 }}
+                    className="position-absolute top-50 end-0 translate-middle-y text-muted p-0 pe-2 opacity-50 hover-opacity-100 standard-api-kv-remove-btn"
                     onClick={() => handleDelete(idx)}
                   >
                     <FaTrash size={12} />

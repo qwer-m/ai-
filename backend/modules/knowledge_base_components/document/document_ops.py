@@ -4,6 +4,7 @@
 
 
 from typing import Optional
+import logging
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -19,6 +20,46 @@ INDEXABLE_DOC_TYPES = (
     "evaluation_report",
     "agent_learning",
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _trigger_snapshot_rebuild_async(
+    module,
+    *,
+    project_id: int,
+    user_id: Optional[int],
+    reason: str,
+    db: Session,
+) -> None:
+    """
+    中文注释：文档变更后触发 snapshot 后台重建。
+    该动作为“尽力触发”，不得影响当前主流程。
+    """
+    try:
+        result = module.enqueue_context_snapshot_rebuild(
+            project_id=project_id,
+            db=db,
+            user_id=user_id,
+            force_rebuild=False,
+            rebuild_reason_hint=reason,
+        )
+        logger.info(
+            "snapshot_rebuild_triggered project_id=%s user_id=%s reason=%s queued=%s queue_reason=%s",
+            project_id,
+            user_id,
+            reason,
+            bool((result or {}).get("queued")),
+            (result or {}).get("reason"),
+        )
+    except Exception as e:
+        logger.warning(
+            "snapshot_rebuild_trigger_failed project_id=%s user_id=%s reason=%s error=%s",
+            project_id,
+            user_id,
+            reason,
+            e,
+        )
 
 
 def add_document_impl(
@@ -104,6 +145,13 @@ def add_document_impl(
                 },
             )
 
+    _trigger_snapshot_rebuild_async(
+        module,
+        project_id=project_id,
+        user_id=user_id,
+        reason="document_added",
+        db=db,
+    )
     return doc
 
 
@@ -185,6 +233,13 @@ def update_document_impl(
                 },
             )
 
+    _trigger_snapshot_rebuild_async(
+        module,
+        project_id=project_id,
+        user_id=getattr(doc, "user_id", None),
+        reason="document_updated",
+        db=db,
+    )
     return doc
 
 
@@ -209,6 +264,13 @@ def delete_document_impl(module, doc_id: int, db: Session):
 
     module.reindex_project_specific_ids(doc_type, project_id, db)
     chroma_client.delete_document(str(doc_global_id))
+    _trigger_snapshot_rebuild_async(
+        module,
+        project_id=project_id,
+        user_id=getattr(doc, "user_id", None),
+        reason="document_deleted",
+        db=db,
+    )
     return True
 
 

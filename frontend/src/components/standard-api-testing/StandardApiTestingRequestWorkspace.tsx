@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { ResponsePanel } from "./ResponsePanel";
 import { StandardApiTestingRequestTabBar } from "./StandardApiTestingRequestTabBar";
 import { StandardApiTestingRequestWorkspaceContent } from "./StandardApiTestingRequestWorkspaceContent";
@@ -120,7 +121,7 @@ export function StandardApiTestingRequestWorkspace(props: StandardApiTestingRequ
 
   return (
     <>
-      <div className="flex-grow-1 d-flex flex-column h-100 overflow-hidden bg-white api-main-content" ref={mainContentRef}>
+      <div className="flex-grow-1 d-flex flex-column h-100 overflow-hidden api-main-content standard-api-workspace" ref={mainContentRef}>
         <StandardApiTestingRequestWorkspaceToolbar
           showSidebar={showSidebar}
           setShowSidebar={setShowSidebar}
@@ -156,8 +157,8 @@ export function StandardApiTestingRequestWorkspace(props: StandardApiTestingRequ
         />
 
         <div
-          className="bg-white d-flex flex-column flex-shrink-0 api-request-config-content position-relative"
-          style={{ height: `${requestHeight}px`, minHeight: "100px", overflow: "hidden" }}
+          className="d-flex flex-column flex-shrink-0 api-request-config-content position-relative standard-api-request-config standard-api-request-config-resizable"
+          style={{ "--sat-request-height": `${requestHeight}px` } as CSSProperties}
         >
           <StandardApiTestingRequestWorkspaceContent
             runSubTab={runSubTab}
@@ -225,13 +226,7 @@ export function StandardApiTestingRequestWorkspace(props: StandardApiTestingRequ
         </div>
 
         <div
-          className="border-top bg-light d-flex align-items-center justify-content-center text-muted flex-shrink-0"
-          style={{
-            height: "6px",
-            cursor: "row-resize",
-            backgroundColor: isDragging ? "#e9ecef" : "#f8f9fa",
-            userSelect: "none",
-          }}
+          className={`border-top d-flex align-items-center justify-content-center text-muted flex-shrink-0 standard-api-splitter standard-api-splitter-handle ${isDragging ? 'is-dragging' : ''}`}
           onMouseDown={handleRequestBarMouseDown}
         />
 

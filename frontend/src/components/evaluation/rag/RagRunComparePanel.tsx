@@ -58,9 +58,9 @@ export function RagRunComparePanel({ onLog, currentRunId }: Props) {
 
   const renderSampleTable = (rows: any[], title: string) => {
     return (
-      <div className="mt-3">
-        <div className="fw-bold mb-2">{title}</div>
-        <div className="table-responsive">
+      <div className="ui-section-card mt-3">
+        <div className="ui-section-title">{title}</div>
+        <div className="table-responsive rag-report-table">
           <Table striped bordered hover size="sm" className="mb-0">
             <thead>
               <tr>
@@ -82,7 +82,7 @@ export function RagRunComparePanel({ onLog, currentRunId }: Props) {
               ) : rows.map((row) => (
                 <tr key={row.sample_id}>
                   <td>{row.sample_id}</td>
-                  <td style={{ maxWidth: 260 }}>{String(row.query || '').slice(0, 100)}</td>
+                  <td className="rag-report-query-cell">{String(row.query || '').slice(0, 100)}</td>
                   <td>{String(row.from_correct)} {'→'} {String(row.to_correct)}</td>
                   <td>{String(row.from_failure_reason || 'pass')} {'→'} {String(row.to_failure_reason || 'pass')}</td>
                   <td>{row.first_hit_rank_a ?? '-'} {'→'} {row.first_hit_rank_b ?? '-'}</td>
@@ -110,96 +110,105 @@ export function RagRunComparePanel({ onLog, currentRunId }: Props) {
   };
 
   return (
-    <div className="d-flex flex-column gap-3">
+    <div className="d-flex flex-column gap-3 rag-report-subpanel">
       {error ? <Alert variant="danger" className="mb-0">{error}</Alert> : null}
 
-      <div className="grid grid-cols-4 gap-3">
-        <Form.Group>
-          <Form.Label className="small text-muted">run_a</Form.Label>
-          <Form.Control
-            type="number"
-            min={1}
-            value={runA}
-            onChange={(e) => setRunA(e.target.value ? Number(e.target.value) : '')}
-          />
-        </Form.Group>
-        <Form.Group>
-          <Form.Label className="small text-muted">run_b</Form.Label>
-          <Form.Control
-            type="number"
-            min={1}
-            value={runB}
-            onChange={(e) => setRunB(e.target.value ? Number(e.target.value) : '')}
-          />
-        </Form.Group>
-        <div className="d-flex align-items-end">
-          <Button variant="outline-primary" disabled={loading} onClick={() => void runCompare()}>
-            {loading ? '对比中...' : '开始对比'}
-          </Button>
+      <div className="ui-section-card">
+        <div className="ui-section-title">评测运行对比</div>
+        <div className="grid grid-cols-4 gap-3 rag-report-grid rag-report-grid-wide">
+          <Form.Group>
+            <Form.Label className="small text-muted">对比基线（run_a）</Form.Label>
+            <Form.Control
+              type="number"
+              min={1}
+              value={runA}
+              onChange={(e) => setRunA(e.target.value ? Number(e.target.value) : '')}
+            />
+          </Form.Group>
+          <Form.Group>
+            <Form.Label className="small text-muted">目标运行（run_b）</Form.Label>
+            <Form.Control
+              type="number"
+              min={1}
+              value={runB}
+              onChange={(e) => setRunB(e.target.value ? Number(e.target.value) : '')}
+            />
+          </Form.Group>
+          <div className="d-flex align-items-end rag-report-actions rag-col-span-2">
+            <Button variant="outline-primary" disabled={loading} onClick={() => void runCompare()}>
+              {loading ? '对比中...' : '开始对比'}
+            </Button>
+          </div>
         </div>
       </div>
 
       {compareData ? (
         <>
-          <div className="grid grid-cols-5 gap-3 small">
-            {metricRows.map((m) => (
-              <div key={m.key} className="p-2 bg-light rounded">
-                <span className="text-muted d-block">{m.key}</span>
-                <DiffBadge value={m.value} />
-              </div>
-            ))}
-          </div>
+          <div className="ui-section-card">
+            <div className="ui-section-title">指标变化</div>
+            <div className="grid grid-cols-5 gap-3 small rag-report-kpi-grid">
+              {metricRows.map((m) => (
+                <div key={m.key} className="ui-kpi-card">
+                  <div className="ui-kpi-title">{m.key}</div>
+                  <DiffBadge value={m.value} />
+                </div>
+              ))}
+            </div>
 
-          <div className="grid grid-cols-4 gap-3 small">
-            <div className="p-2 bg-light rounded">
-              <span className="text-muted d-block">improved</span>
-              {compareData?.summary?.improved_samples ?? 0}
-            </div>
-            <div className="p-2 bg-light rounded">
-              <span className="text-muted d-block">regressed</span>
-              {compareData?.summary?.regressed_samples ?? 0}
-            </div>
-            <div className="p-2 bg-light rounded">
-              <span className="text-muted d-block">unchanged_correct</span>
-              {compareData?.summary?.unchanged_correct ?? 0}
-            </div>
-            <div className="p-2 bg-light rounded">
-              <span className="text-muted d-block">unchanged_incorrect</span>
-              {compareData?.summary?.unchanged_incorrect ?? 0}
+            <div className="grid grid-cols-4 gap-3 small rag-report-kpi-grid mt-3">
+              <div className="ui-kpi-card">
+                <div className="ui-kpi-title">improved</div>
+                {compareData?.summary?.improved_samples ?? 0}
+              </div>
+              <div className="ui-kpi-card">
+                <div className="ui-kpi-title">regressed</div>
+                {compareData?.summary?.regressed_samples ?? 0}
+              </div>
+              <div className="ui-kpi-card">
+                <div className="ui-kpi-title">unchanged_correct</div>
+                {compareData?.summary?.unchanged_correct ?? 0}
+              </div>
+              <div className="ui-kpi-card">
+                <div className="ui-kpi-title">unchanged_incorrect</div>
+                {compareData?.summary?.unchanged_incorrect ?? 0}
+              </div>
             </div>
           </div>
 
           {renderSampleTable(compareData?.improved_samples || [], '错误 -> 正确 (improved)')}
           {renderSampleTable(compareData?.regressed_samples || [], '正确 -> 错误 (regressed)')}
 
-          <div className="grid grid-cols-3 gap-3">
-            <Form.Group>
-              <Form.Label className="small text-muted">by_tag_diff</Form.Label>
-              <Form.Control
-                as="textarea"
-                rows={8}
-                readOnly
-                value={JSON.stringify(compareData?.by_tag_diff || {}, null, 2)}
-              />
-            </Form.Group>
-            <Form.Group>
-              <Form.Label className="small text-muted">by_difficulty_diff</Form.Label>
-              <Form.Control
-                as="textarea"
-                rows={8}
-                readOnly
-                value={JSON.stringify(compareData?.by_difficulty_diff || {}, null, 2)}
-              />
-            </Form.Group>
-            <Form.Group>
-              <Form.Label className="small text-muted">by_failure_reason_diff</Form.Label>
-              <Form.Control
-                as="textarea"
-                rows={8}
-                readOnly
-                value={JSON.stringify(compareData?.by_failure_reason_diff || {}, null, 2)}
-              />
-            </Form.Group>
+          <div className="ui-section-card">
+            <div className="ui-section-title">分维度差异</div>
+            <div className="grid grid-cols-3 gap-3 rag-report-grid rag-report-grid-wide">
+              <Form.Group>
+                <Form.Label className="small text-muted">标签维度差异</Form.Label>
+                <Form.Control
+                  as="textarea"
+                  rows={8}
+                  readOnly
+                  value={JSON.stringify(compareData?.by_tag_diff || {}, null, 2)}
+                />
+              </Form.Group>
+              <Form.Group>
+                <Form.Label className="small text-muted">难度维度差异</Form.Label>
+                <Form.Control
+                  as="textarea"
+                  rows={8}
+                  readOnly
+                  value={JSON.stringify(compareData?.by_difficulty_diff || {}, null, 2)}
+                />
+              </Form.Group>
+              <Form.Group>
+                <Form.Label className="small text-muted">失败原因维度差异</Form.Label>
+                <Form.Control
+                  as="textarea"
+                  rows={8}
+                  readOnly
+                  value={JSON.stringify(compareData?.by_failure_reason_diff || {}, null, 2)}
+                />
+              </Form.Group>
+            </div>
           </div>
         </>
       ) : null}

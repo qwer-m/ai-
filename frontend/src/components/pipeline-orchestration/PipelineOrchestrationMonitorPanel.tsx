@@ -1,4 +1,4 @@
-import { Badge, Button, Card, Form, Spinner, Table } from 'react-bootstrap';
+﻿import { Badge, Button, Card, Form, Spinner, Table } from 'react-bootstrap';
 import {
   runStatusLabel,
   stageLabel,
@@ -30,10 +30,10 @@ export function PipelineOrchestrationMonitorPanel({ controller, projectId }: Pro
                   controller.runStatus === 'idle'
                     ? 'secondary'
                     : controller.runStatus === 'success'
-                    ? 'success'
-                    : controller.runStatus === 'failed'
-                    ? 'danger'
-                    : 'primary'
+                      ? 'success'
+                      : controller.runStatus === 'failed'
+                        ? 'danger'
+                        : 'primary'
                 }
               >
                 {runStatusLabel[controller.runStatus]}
@@ -71,7 +71,7 @@ export function PipelineOrchestrationMonitorPanel({ controller, projectId }: Pro
                 size="sm"
                 value={controller.retryFromStage}
                 onChange={(e) => controller.setRetryFromStage(e.target.value as StageKey)}
-                style={{ maxWidth: 170 }}
+                className="pipeline-stage-select"
               >
                 {stageOrder.map((stage) => (
                   <option key={stage} value={stage}>
@@ -100,7 +100,7 @@ export function PipelineOrchestrationMonitorPanel({ controller, projectId }: Pro
               {controller.historyLoading ? <Spinner size="sm" /> : '刷新'}
             </Button>
           </div>
-          <div style={{ maxHeight: 220, overflow: 'auto' }}>
+          <div className="pipeline-history-scroll">
             <Table size="sm" hover className="mb-0">
               <thead>
                 <tr>
@@ -111,20 +111,14 @@ export function PipelineOrchestrationMonitorPanel({ controller, projectId }: Pro
               </thead>
               <tbody>
                 {controller.history.map((item) => (
-                  <tr
-                    key={item.id}
-                    onClick={() => controller.openHistoryRun(item.id)}
-                    style={{ cursor: 'pointer' }}
-                  >
+                  <tr key={item.id} onClick={() => controller.openHistoryRun(item.id)} className="pipeline-row-action">
                     <td>#{item.id}</td>
                     <td>
                       <Badge bg={item.status === 'success' ? 'success' : item.status === 'failed' ? 'danger' : 'primary'}>
                         {runStatusLabel[item.status]}
                       </Badge>
                     </td>
-                    <td className="small text-muted">
-                      {item.created_at ? new Date(item.created_at).toLocaleString() : '-'}
-                    </td>
+                    <td className="small text-muted">{item.created_at ? new Date(item.created_at).toLocaleString() : '-'}</td>
                   </tr>
                 ))}
                 {controller.history.length === 0 && (
@@ -154,7 +148,7 @@ export function PipelineOrchestrationMonitorPanel({ controller, projectId }: Pro
             </Button>
           </div>
 
-          <div style={{ maxHeight: 240, overflow: 'auto' }}>
+          <div className="pipeline-trace-scroll">
             <Table size="sm" className="mb-0 align-middle">
               <thead>
                 <tr>
@@ -167,13 +161,10 @@ export function PipelineOrchestrationMonitorPanel({ controller, projectId }: Pro
                 {controller.traces.map((item) => (
                   <tr
                     key={item.id}
-                    style={{ cursor: 'pointer' }}
+                    className={`pipeline-row-action ${item.id === controller.selectedTraceId ? 'table-active' : ''}`}
                     onClick={() => controller.setSelectedTraceId(item.id)}
-                    className={item.id === controller.selectedTraceId ? 'table-active' : ''}
                   >
-                    <td className="small text-muted">
-                      {item.created_at ? new Date(item.created_at).toLocaleTimeString() : '-'}
-                    </td>
+                    <td className="small text-muted">{item.created_at ? new Date(item.created_at).toLocaleTimeString() : '-'}</td>
                     <td className="small">
                       {(traceKindLabel[item.kind] || item.kind)}/
                       {(stageLabel[item.stage as StageKey] || item.stage)}
@@ -192,9 +183,6 @@ export function PipelineOrchestrationMonitorPanel({ controller, projectId }: Pro
             </Table>
           </div>
 
-          {/*
-            追踪详情保留原始 JSON 文本，便于排查多智能体协作中某个动作的上下文输入输出。
-          */}
           <Form.Group className="mt-2">
             <Form.Label className="small">追踪详情</Form.Label>
             <Form.Control

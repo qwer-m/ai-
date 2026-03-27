@@ -1,10 +1,10 @@
-import { Button, Spinner } from "react-bootstrap";
-import { FaRobot } from "react-icons/fa";
-import type { ResponsePanelProps } from "./ResponsePanel.types";
+import { Button, Spinner } from 'react-bootstrap';
+import { FaRobot } from 'react-icons/fa';
+import type { ResponsePanelProps } from './ResponsePanel.types';
 
 type Props = Pick<
   ResponsePanelProps,
-  "aiAnalysis" | "testResult" | "renderDashboard" | "handleAnalyzeResponse" | "isAnalyzing"
+  'aiAnalysis' | 'testResult' | 'renderDashboard' | 'handleAnalyzeResponse' | 'isAnalyzing'
 >;
 
 export function ResponsePanelReportTab({
@@ -15,14 +15,11 @@ export function ResponsePanelReportTab({
   isAnalyzing,
 }: Props) {
   return (
-    <div className="flex-grow-1 overflow-auto bg-light p-3" style={{ minHeight: 0 }}>
+    <div className="flex-grow-1 overflow-auto bg-light p-3 standard-api-report-tab-wrap">
       {aiAnalysis ? (
-        <div className="bg-white p-3 border rounded">
+        <div className="p-3 border rounded standard-api-report-card">
           <h6 className="border-bottom pb-2 mb-3">AI 分析报告</h6>
-          <pre
-            className="mb-0 font-monospace small text-dark"
-            style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "inherit" }}
-          >
+          <pre className="mb-0 font-monospace small text-dark standard-api-report-pre">
             {aiAnalysis}
           </pre>
         </div>
@@ -32,11 +29,8 @@ export function ResponsePanelReportTab({
         ) : (
           <div>
             <h6 className="text-secondary border-bottom pb-2 mb-3">执行结果 (Raw)</h6>
-            <pre
-              className="mb-0 font-monospace small text-dark"
-              style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}
-            >
-              {testResult.result || testResult.script || "未生成输出。"}
+            <pre className="mb-0 font-monospace small text-dark standard-api-report-pre standard-api-report-pre--raw">
+              {testResult.result || testResult.script || '未生成输出。'}
             </pre>
           </div>
         )
@@ -44,8 +38,8 @@ export function ResponsePanelReportTab({
         <div className="d-flex flex-column align-items-center justify-content-center h-100">
           <FaRobot size={48} className="mb-3 text-primary opacity-50" />
           <h5 className="mb-3">AI 智能分析</h5>
-          <p className="text-muted mb-4 text-center" style={{ maxWidth: "400px" }}>
-            使用 AI 分析当前响应数据，识别潜在问题与安全风险，并给出优化建议。
+          <p className="text-muted mb-4 text-center standard-api-report-tip">
+            使用 AI 分析当前响应数据，识别潜在问题与风险，并给出优化建议。
           </p>
           <Button variant="primary" onClick={handleAnalyzeResponse} disabled={isAnalyzing}>
             {isAnalyzing ? (
@@ -54,7 +48,7 @@ export function ResponsePanelReportTab({
                 分析中...
               </>
             ) : (
-              "开始智能分析"
+              '开始智能分析'
             )}
           </Button>
         </div>

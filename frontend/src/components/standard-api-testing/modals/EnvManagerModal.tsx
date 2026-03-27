@@ -1,7 +1,7 @@
-import { Button, Form, ListGroup, Modal } from "react-bootstrap";
-import { FaChevronLeft, FaEdit, FaPlus, FaTimes, FaTrash } from "react-icons/fa";
-import type { Dispatch, SetStateAction } from "react";
-import type { EnvConfig } from "../utils/types";
+import { Button, Form, ListGroup, Modal } from 'react-bootstrap';
+import { FaChevronLeft, FaEdit, FaPlus, FaTimes, FaTrash } from 'react-icons/fa';
+import type { Dispatch, SetStateAction } from 'react';
+import type { EnvConfig } from '../utils/types';
 
 type EnvManagerModalProps = {
   show: boolean;
@@ -22,28 +22,21 @@ export function EnvManagerModal({
   onDeleteEnv,
   onUpdateEnv,
 }: EnvManagerModalProps) {
-  // 环境管理弹窗有两种视图：
-  // 1) 列表视图：管理已有环境
-  // 2) 编辑视图：维护 baseUrl 和变量
   return (
     <Modal show={show} onHide={onHide} size="lg" centered>
       <Modal.Header closeButton>
         <Modal.Title>环境管理</Modal.Title>
       </Modal.Header>
-      <Modal.Body style={{ minHeight: "400px" }}>
+      <Modal.Body className="standard-api-env-modal-body">
         {editingEnv ? (
           <div className="d-flex flex-column h-100">
             <div className="d-flex justify-content-between align-items-center mb-3">
-              <Button
-                variant="link"
-                className="p-0 text-decoration-none"
-                onClick={() => setEditingEnv(null)}
-              >
+              <Button variant="link" className="p-0 text-decoration-none" onClick={() => setEditingEnv(null)}>
                 <FaChevronLeft className="me-1" />
                 返回列表
               </Button>
               <h5 className="mb-0 text-primary">
-                {editingEnv.id === "new" ? "新建环境" : "编辑环境"}
+                {editingEnv.id === 'new' ? '新建环境' : '编辑环境'}
               </h5>
             </div>
 
@@ -72,10 +65,7 @@ export function EnvManagerModal({
                   size="sm"
                   variant="outline-secondary"
                   onClick={() => {
-                    const nextVars = [
-                      ...(editingEnv.variables || []),
-                      { key: "", value: "", enabled: true },
-                    ];
+                    const nextVars = [...(editingEnv.variables || []), { key: '', value: '', enabled: true }];
                     setEditingEnv({ ...editingEnv, variables: nextVars });
                   }}
                 >
@@ -84,10 +74,7 @@ export function EnvManagerModal({
                 </Button>
               </div>
 
-              <div
-                className="border rounded flex-grow-1 overflow-auto bg-light p-2"
-                style={{ maxHeight: "300px" }}
-              >
+              <div className="border rounded flex-grow-1 overflow-auto p-2 standard-api-env-var-list">
                 {(!editingEnv.variables || editingEnv.variables.length === 0) && (
                   <div className="text-center text-muted small mt-4">暂无变量定义</div>
                 )}
@@ -144,9 +131,9 @@ export function EnvManagerModal({
                 size="sm"
                 onClick={() =>
                   setEditingEnv({
-                    id: "new",
-                    name: "新环境",
-                    baseUrl: "",
+                    id: 'new',
+                    name: '新环境',
+                    baseUrl: '',
                     variables: [],
                   })
                 }
@@ -161,16 +148,11 @@ export function EnvManagerModal({
                 <div className="text-center text-muted my-5">暂无环境配置</div>
               )}
               {savedEnvs.map((env) => (
-                <ListGroup.Item
-                  key={env.id}
-                  className="d-flex justify-content-between align-items-center"
-                >
+                <ListGroup.Item key={env.id} className="d-flex justify-content-between align-items-center">
                   <div>
-                    <div style={{ fontWeight: 600 }}>{env.name}</div>
+                    <div className="standard-api-fw-600">{env.name}</div>
                     <div className="small text-muted font-monospace">{env.baseUrl}</div>
-                    <div className="small text-secondary">
-                      {(env.variables || []).length} 个变量
-                    </div>
+                    <div className="small text-secondary">{(env.variables || []).length} 个变量</div>
                   </div>
                   <div className="d-flex gap-2">
                     <Button variant="outline-primary" size="sm" onClick={() => setEditingEnv(env)}>

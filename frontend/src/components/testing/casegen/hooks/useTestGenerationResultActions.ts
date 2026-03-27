@@ -51,17 +51,17 @@ export function useTestGenerationResultActions({
         const nameToUse = file ? file.name : savedFileName;
         if (nameToUse) {
           const name = nameToUse.substring(0, nameToUse.lastIndexOf('.')) || nameToUse;
-          filename = `${name}_娴嬭瘯鐢ㄤ緥.xlsx`;
+          filename = `${name}_测试用例.xlsx`;
         }
       }
       a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      onLog('瀵煎嚭 Excel 鎴愬姛');
+      onLog('导出 Excel 成功');
     } catch (e) {
       const msg = await translateError(e);
-      onLog(`瀵煎嚭澶辫触: ${msg}`);
+      onLog(`导出失败: ${msg}`);
     }
   };
 
@@ -81,7 +81,7 @@ export function useTestGenerationResultActions({
     if (!content) return;
     navigator.clipboard.writeText(content)
       .then(() => { setToastType('success'); setToastMsg('Copied to clipboard'); })
-      .catch(() => { setToastType('error'); setToastMsg('澶嶅埗澶辫触锛岃鎵嬪姩澶嶅埗'); });
+      .catch(() => { setToastType('error'); setToastMsg('复制失败，请手动复制'); });
   };
 
   return {

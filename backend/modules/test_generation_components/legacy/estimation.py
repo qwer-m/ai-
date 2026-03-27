@@ -8,6 +8,23 @@ from modules.testing.test_generation_components.legacy.adapters import clean_and
 
 class LegacyGenerationEstimationMixin:
 
+    def _default_strategy_plan(self) -> dict:
+        """
+        中文注释：元分析失败时的兜底策略，保证后续链路始终可继续。
+        """
+        return {
+            "system_type": "Unknown",
+            "impact_scope": "Regression",
+            "complexity": "Medium",
+            "suggested_ratios": {
+                "functional": 0.6,
+                "regression": 0.2,
+                "non_functional": 0.2,
+            },
+            "focus_areas": ["核心流程"],
+            "device_scenarios": [],
+        }
+
     def estimate_test_count(self, requirement: str, project_id: int, db: Session, user_id: int = None) -> int:
         """
         估算测试用例数量 (Estimate Test Case Count)
@@ -79,6 +96,7 @@ class LegacyGenerationEstimationMixin:
         Meta-Analysis Agent: Analyzes the requirement and knowledge base to determine test strategy.
         Returns a dictionary with system_type, impact_scope, test_ratios, and focus_areas.
         """
+        default_plan = self._default_strategy_plan()
         try:
             analysis_prompt = f"""
             You are a QA Architect. Analyze the following Requirement and Reference Context.
@@ -118,9 +136,18 @@ class LegacyGenerationEstimationMixin:
             response = client.generate_response(requirement[:2000], analysis_prompt, db=db) # Use limited req for speed
             plan = clean_and_parse_json(response)
             if isinstance(plan, dict):
-                return plan
+                # 中文注释：用默认模板补齐关键字段，避免后续 .get/.join 触发空值错误。
+                normalized = {**default_plan, **plan}
+                if not isinstance(normalized.get("suggested_ratios"), dict):
+                    normalized["suggested_ratios"] = dict(default_plan["suggested_ratios"])
+                if not isinstance(normalized.get("focus_areas"), list):
+                    normalized["focus_areas"] = list(default_plan["focus_areas"])
+                if not isinstance(normalized.get("device_scenarios"), list):
+                    normalized["device_scenarios"] = list(default_plan["device_scenarios"])
+                return normalized
+            print("Meta-analysis fallback: parsed result is not a dict, using default strategy plan")
+            return default_plan
         except Exception as e:
             print(f"Meta-analysis failed: {e}")
-            # Re-raise the exception to let the user know something went wrong
-            # instead of silently downgrading to a default plan.
-            raise e
+            # 中文注释：元分析非主链路，不应阻断测试用例生成。
+            return default_plan

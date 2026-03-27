@@ -1,4 +1,4 @@
-﻿import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
+import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { Button, Dropdown, Form, Nav } from 'react-bootstrap';
 import { FaChevronDown, FaFile } from 'react-icons/fa';
 import { highlightJson } from './utils/jsonHighlight';
@@ -97,10 +97,12 @@ export function StandardApiTestingRequestBodyTab({
     setFormDataParams(parsed.length > 0 ? parsed : [{ key: '', value: '', desc: '', type: 'text', src: '' }]);
   };
 
+  const hiddenBody = bodyMode === 'none';
+
   return (
-    <div className="custom-scrollbar position-absolute top-0 start-0 w-100 h-100 bg-white" style={{ visibility: bodyMode === 'none' ? 'hidden' : 'visible', zIndex: bodyMode === 'none' ? 0 : 10, overflowX: 'hidden', overflowY: 'scroll' }}>
-      <div className="w-100 d-flex flex-column" style={{ minWidth: 0 }}>
-        <div className="d-flex flex-wrap gap-3 px-3 py-2 small border-bottom bg-light" style={{ minWidth: 0 }}>
+    <div className={`custom-scrollbar position-absolute top-0 start-0 w-100 h-100 standard-api-scroll-pane standard-api-body-pane ${hiddenBody ? 'is-hidden' : ''}`}>
+      <div className="w-100 d-flex flex-column standard-api-body-root">
+        <div className="d-flex flex-wrap gap-3 px-3 py-2 small border-bottom bg-light standard-api-body-modebar">
           <Form.Check type="radio" label="none" checked={bodyMode === 'none'} onChange={() => setBodyMode('none')} inline id="body-none" className="mb-0" />
           <Form.Check type="radio" label="form-data" checked={bodyMode === 'form-data'} onChange={() => setBodyMode('form-data')} inline id="body-form" className="mb-0" />
           <Form.Check type="radio" label="x-www-form-urlencoded" checked={bodyMode === 'x-www-form-urlencoded'} onChange={() => setBodyMode('x-www-form-urlencoded')} inline id="body-url" className="mb-0" />
@@ -131,16 +133,7 @@ export function StandardApiTestingRequestBodyTab({
             {bodyMode === 'raw' && rawType === 'JSON' && (
               <div
                 ref={bodyHighlighterRef}
-                className="position-absolute top-0 start-0 w-100 h-100 font-monospace small p-3"
-                style={{
-                  whiteSpace: 'pre-wrap',
-                  wordWrap: 'break-word',
-                  overflow: 'hidden',
-                  color: 'transparent',
-                  pointerEvents: 'none',
-                  backgroundColor: 'transparent',
-                  zIndex: 0,
-                }}
+                className="position-absolute top-0 start-0 w-100 h-100 font-monospace small p-3 standard-api-body-highlighter"
                 dangerouslySetInnerHTML={highlightJson(bodyContent)}
               />
             )}
@@ -148,7 +141,7 @@ export function StandardApiTestingRequestBodyTab({
             {bodyMode === 'raw' ? (
               <Form.Control
                 as="textarea"
-                className="w-100 font-monospace small border-0 p-3 bg-transparent flex-grow-1"
+                className={`w-100 font-monospace small border-0 p-3 bg-transparent flex-grow-1 standard-api-body-raw-input ${bodyMode === 'raw' && rawType === 'JSON' ? 'is-json' : ''}`}
                 value={bodyContent}
                 onChange={(e) => {
                   setBodyContent(e.target.value);
@@ -157,16 +150,6 @@ export function StandardApiTestingRequestBodyTab({
                 }}
                 onScroll={handleBodyScroll}
                 placeholder={bodyMode === 'raw' && rawType === 'JSON' ? '{\n  "key": "value"\n}' : '请求体内容...'}
-                style={{
-                  resize: 'vertical',
-                  outline: 'none',
-                  color: bodyMode === 'raw' && rawType === 'JSON' ? 'transparent' : 'inherit',
-                  caretColor: 'black',
-                  zIndex: 1,
-                  position: 'relative',
-                  minHeight: '300px',
-                  overflow: 'hidden',
-                }}
                 spellCheck={false}
               />
             ) : bodyMode === 'form-data' ? (
@@ -188,7 +171,7 @@ export function StandardApiTestingRequestBodyTab({
                 onBulkChange={setBodyBulkText}
               />
             ) : bodyMode === 'binary' ? (
-              <div className="p-4 d-flex flex-column align-items-center justify-content-center h-100 bg-light text-secondary">
+              <div className="p-4 d-flex flex-column align-items-center justify-content-center h-100 text-secondary standard-api-binary-pane">
                 <div className="mb-3">
                   <FaFile className="me-2" size={24} />
                   <span>{binaryFile ? binaryFile.name : '选择要上传的文件'}</span>
@@ -229,8 +212,7 @@ export function StandardApiTestingRequestBodyTab({
                   <div className="px-3 py-1 bg-light border-bottom small fw-bold text-secondary">查询 (QUERY)</div>
                   <Form.Control
                     as="textarea"
-                    className="flex-grow-1 border-0 p-3 font-monospace small bg-transparent"
-                    style={{ resize: 'none', outline: 'none' }}
+                    className="flex-grow-1 border-0 p-3 font-monospace small bg-transparent standard-api-raw-textarea"
                     value={graphqlQuery}
                     onChange={(e) => setGraphqlQuery(e.target.value)}
                     placeholder="query { ... }"
@@ -241,8 +223,7 @@ export function StandardApiTestingRequestBodyTab({
                   <div className="px-3 py-1 bg-light border-bottom small fw-bold text-secondary">变量 (GRAPHQL VARIABLES)</div>
                   <Form.Control
                     as="textarea"
-                    className="flex-grow-1 border-0 p-3 font-monospace small bg-transparent"
-                    style={{ resize: 'none', outline: 'none' }}
+                    className="flex-grow-1 border-0 p-3 font-monospace small bg-transparent standard-api-raw-textarea"
                     value={graphqlVariables}
                     onChange={(e) => setGraphqlVariables(e.target.value)}
                     placeholder="{ ... }"
@@ -255,7 +236,7 @@ export function StandardApiTestingRequestBodyTab({
             )}
           </div>
         ) : (
-          <div className="d-flex align-items-center justify-content-center flex-grow-1 text-muted small bg-light">
+          <div className="d-flex align-items-center justify-content-center flex-grow-1 text-muted small standard-api-body-empty">
             This request has no body.
           </div>
         )}

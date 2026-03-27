@@ -138,7 +138,7 @@ export function StandardApiTestingRequestWorkspaceContent(props: Props) {
 
   if (runSubTab === "params") {
     return (
-      <div className="custom-scrollbar position-absolute top-0 start-0 w-100 h-100 bg-white" style={{ visibility: "visible", zIndex: 10, overflowX: "hidden", overflowY: "scroll" }}>
+      <div className="custom-scrollbar position-absolute top-0 start-0 w-100 h-100 standard-api-scroll-pane">
         <KvEditor
           items={queryParams}
           onChange={setQueryParams}
@@ -160,7 +160,7 @@ export function StandardApiTestingRequestWorkspaceContent(props: Props) {
 
   if (runSubTab === "headers") {
     return (
-      <div className="custom-scrollbar position-absolute top-0 start-0 w-100 h-100 bg-white" style={{ visibility: "visible", zIndex: 10, overflowX: "hidden", overflowY: "scroll" }}>
+      <div className="custom-scrollbar position-absolute top-0 start-0 w-100 h-100 standard-api-scroll-pane">
         <KvEditor
           items={headers}
           onChange={setHeaders}

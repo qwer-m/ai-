@@ -1,11 +1,11 @@
-import type { ResponsePanelProps } from "./ResponsePanel.types";
-import { CookieTable } from "./ResponsePanel.utils";
+import type { ResponsePanelProps } from './ResponsePanel.types';
+import { CookieTable } from './ResponsePanel.utils';
 
-type Props = Pick<ResponsePanelProps, "responseDetailedCookies" | "responseCookies" | "sentCookies">;
+type Props = Pick<ResponsePanelProps, 'responseDetailedCookies' | 'responseCookies' | 'sentCookies'>;
 
 export function ResponsePanelCookiesTab({ responseDetailedCookies, responseCookies, sentCookies }: Props) {
   return (
-    <div className="flex-grow-1 overflow-auto custom-scrollbar p-3" style={{ minHeight: 0 }}>
+    <div className="flex-grow-1 overflow-auto custom-scrollbar p-3 standard-api-panel-scroll">
       <h6 className="text-secondary border-bottom pb-2 mb-3">响应 Cookies</h6>
       {Object.keys(responseDetailedCookies).length > 0 ? (
         <CookieTable rows={Object.entries(responseDetailedCookies)} detailed />

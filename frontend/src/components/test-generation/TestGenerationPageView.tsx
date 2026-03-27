@@ -1,11 +1,12 @@
-import { Badge } from 'react-bootstrap';
+﻿import { Alert, Badge, ProgressBar } from 'react-bootstrap';
 import type { DragEvent, RefObject } from 'react';
-import { FaChartBar, FaPlay } from 'react-icons/fa';
+import { FaChartBar, FaExclamationCircle, FaPlay } from 'react-icons/fa';
 import { TestGenerationConfigSection } from './TestGenerationConfigSection';
 import { TestGenerationFeedback } from './TestGenerationFeedback';
 import { TestGenerationInputSection } from './TestGenerationInputSection';
 import { TestGenerationResultSection } from './TestGenerationResultSection';
 import type { TestGenerationMode } from './types';
+import './test-generation-refresh.css';
 
 type TestGenerationPageViewProps = {
   mode: TestGenerationMode;
@@ -109,7 +110,7 @@ export function TestGenerationPageView({
   handleDuplicateConfirm,
 }: TestGenerationPageViewProps) {
   return (
-    <div className="bento-grid h-100 align-content-start position-relative postman-theme">
+    <div className="test-generation-shell bento-grid h-100 align-content-start position-relative postman-theme">
       <TestGenerationFeedback
         toastMsg={toastMsg}
         toastType={toastType}
@@ -121,15 +122,17 @@ export function TestGenerationPageView({
         showDuplicateModal={showDuplicateModal}
         onDuplicateCancel={handleDuplicateCancel}
         onDuplicateConfirm={handleDuplicateConfirm}
+        hideErrorAlert
+        hideLoadingProgress
       />
 
-      <div className="bento-card col-span-12 p-4 d-flex align-items-center justify-content-between glass-panel">
+      <div className="test-generation-header bento-card col-span-12 p-4 d-flex align-items-center justify-content-between glass-panel">
         <div>
           <h4 className="text-gradient mb-1 d-flex align-items-center gap-2">
             <FaPlay className="text-primary" size={20} />
             测试用例生成中心
           </h4>
-          <p className="text-secondary small mb-0">AI 驱动的智能测试设计引擎，支持文本描述与文件分析</p>
+          <p className="text-secondary small mb-0">AI 驱动的测试设计引擎，支持文本需求和文件解析两种模式。</p>
         </div>
         <div className="d-flex gap-3">
           <Badge bg="white" text="primary" className="border shadow-sm p-2 px-3 d-flex align-items-center gap-2">
@@ -182,6 +185,32 @@ export function TestGenerationPageView({
         onClear={handleClearCurrent}
         hasOutput={Boolean(result || streamingContent)}
       />
+      {loading ? (
+        <div className="col-span-12 animate-pulse">
+          <ProgressBar
+            animated
+            now={100}
+            label={<div className="test-generation-progress-label">{loadingStatus}</div>}
+            variant="info"
+            className="rounded-1 test-generation-progress"
+          />
+          <div className="text-center mt-2 text-muted small">AI 正在分析需求文档，请稍候...</div>
+        </div>
+      ) : null}
+      {!loading && !error && loadingStatus ? (
+        <div className="col-span-12">
+          <Alert variant="light" className="shadow-sm border mb-0">
+            {loadingStatus}
+          </Alert>
+        </div>
+      ) : null}
+      {error ? (
+        <div className="col-span-12">
+          <Alert variant="danger" dismissible onClose={() => setError(null)} className="shadow-sm border-0 mb-0">
+            <FaExclamationCircle className="me-2" /> {error}
+          </Alert>
+        </div>
+      ) : null}
 
       <TestGenerationResultSection
         mode={mode}
@@ -194,3 +223,5 @@ export function TestGenerationPageView({
     </div>
   );
 }
+
+

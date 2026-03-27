@@ -4,6 +4,9 @@ from dataclasses import dataclass
 import pytest
 
 import modules.testing.test_generation_components.legacy_generation_impl as legacy_mod
+import modules.testing.test_generation_components.legacy.json_generation as json_generation_mod
+import modules.testing.test_generation_components.legacy.stream.prepare as stream_prepare_mod
+import modules.testing.test_generation_components.legacy.context.hybrid as hybrid_mod
 from modules.testing.test_generation_components.legacy_generation_impl import TestGenerationModule
 
 
@@ -58,8 +61,11 @@ def tg_env(monkeypatch):
     """统一测试夹具：注入 fake client 和轻量 meta 分析。"""
     fake_client = _FakeClient()
 
-    # 中文注释：拦截 get_client_for_user，确保任何场景都不会打到真实模型。
-    monkeypatch.setattr(legacy_mod, "get_client_for_user", lambda user_id, db: fake_client)
+    # 中文注释：拦截 JSON/流式两条链路的 client 获取，确保任何场景都不会打到真实模型。
+    monkeypatch.setattr(json_generation_mod, "get_client_for_user", lambda user_id, db: fake_client)
+    monkeypatch.setattr(stream_prepare_mod, "get_client_for_user", lambda user_id, db: fake_client)
+    # 中文注释：兼容旧测试桩写法，保留门面模块同名符号。
+    monkeypatch.setattr(legacy_mod, "get_client_for_user", lambda user_id, db: fake_client, raising=False)
 
     # 中文注释：避免分析阶段引入额外模型调用，聚焦验证“双空保护”。
     monkeypatch.setattr(
@@ -82,12 +88,12 @@ def tg_env(monkeypatch):
 def _patch_kb(monkeypatch, snapshot_result, rag_result):
     """注入 snapshot 与 RAG 结果桩。"""
     monkeypatch.setattr(
-        legacy_mod.knowledge_base,
+        hybrid_mod.knowledge_base,
         "get_or_build_context_snapshot",
         lambda **kwargs: snapshot_result,
     )
     monkeypatch.setattr(
-        legacy_mod.knowledge_base,
+        hybrid_mod.knowledge_base,
         "get_relevant_context",
         lambda **kwargs: rag_result,
     )
@@ -99,7 +105,7 @@ def test_scene1_force_double_empty_abort(monkeypatch, tg_env, capsys, decision):
     module, fake_client = tg_env
 
     monkeypatch.setattr(
-        legacy_mod,
+        hybrid_mod,
         "HYBRID_EMPTY_GUARD_CONFIG",
         _DummyGuardConfig(strategy=decision, sync_snapshot_retry_enabled=False),
     )
@@ -121,7 +127,7 @@ def test_scene1_force_double_empty_abort(monkeypatch, tg_env, capsys, decision):
     )
 
     monkeypatch.setattr(
-        legacy_mod,
+        hybrid_mod,
         "build_hybrid_context",
         lambda **kwargs: {
             "context": "",
@@ -161,7 +167,7 @@ def test_scene2_double_empty_then_sync_retry_success(monkeypatch, tg_env):
     module, fake_client = tg_env
 
     monkeypatch.setattr(
-        legacy_mod,
+        hybrid_mod,
         "HYBRID_EMPTY_GUARD_CONFIG",
         _DummyGuardConfig(strategy="sync_snapshot_retry_then_fail", sync_snapshot_retry_enabled=True),
     )
@@ -206,7 +212,7 @@ def test_scene2_double_empty_then_sync_retry_success(monkeypatch, tg_env):
             },
         }
 
-    monkeypatch.setattr(legacy_mod, "build_hybrid_context", _hybrid_build)
+    monkeypatch.setattr(hybrid_mod, "build_hybrid_context", _hybrid_build)
     monkeypatch.setattr(
         TestGenerationModule,
         "_try_sync_snapshot_retry_once",
@@ -249,7 +255,7 @@ def test_scene3_double_empty_and_retry_failed(monkeypatch, tg_env):
     module, fake_client = tg_env
 
     monkeypatch.setattr(
-        legacy_mod,
+        hybrid_mod,
         "HYBRID_EMPTY_GUARD_CONFIG",
         _DummyGuardConfig(strategy="sync_snapshot_retry_then_fail", sync_snapshot_retry_enabled=True, sync_snapshot_retry_timeout_sec=3),
     )
@@ -272,7 +278,7 @@ def test_scene3_double_empty_and_retry_failed(monkeypatch, tg_env):
     )
 
     monkeypatch.setattr(
-        legacy_mod,
+        hybrid_mod,
         "build_hybrid_context",
         lambda **kwargs: {
             "context": "",
@@ -317,7 +323,7 @@ def test_scene4_out_of_kb_question_fail_fast(monkeypatch, tg_env):
     module, fake_client = tg_env
 
     monkeypatch.setattr(
-        legacy_mod,
+        hybrid_mod,
         "HYBRID_EMPTY_GUARD_CONFIG",
         _DummyGuardConfig(strategy="fail_fast", sync_snapshot_retry_enabled=False),
     )
@@ -339,7 +345,7 @@ def test_scene4_out_of_kb_question_fail_fast(monkeypatch, tg_env):
         },
     )
     monkeypatch.setattr(
-        legacy_mod,
+        hybrid_mod,
         "build_hybrid_context",
         lambda **kwargs: {
             "context": "",
@@ -368,3 +374,68 @@ def test_scene4_out_of_kb_question_fail_fast(monkeypatch, tg_env):
     assert debug["lane_reasons"]["original_raw"] == "no_hit"
     assert debug["hybrid_empty_reason"] in {"low_relevance_filtered", "snapshot_and_rag_both_empty", "no_hit"}
     assert fake_client.generate_calls == 0
+
+
+def test_scene5_snapshot_failed_requirement_only_fallback(monkeypatch, tg_env):
+    """场景5：snapshot failed + RAG 空时，不中断，降级为仅用当前文档继续生成。"""
+    module, fake_client = tg_env
+
+    monkeypatch.setattr(
+        hybrid_mod,
+        "HYBRID_EMPTY_GUARD_CONFIG",
+        _DummyGuardConfig(strategy="requirement_only_fallback", sync_snapshot_retry_enabled=False),
+    )
+    _patch_kb(
+        monkeypatch,
+        snapshot_result={
+            "success": False,
+            "fallback_reason": "snapshot_async_rebuild_skip",
+            "queue_result": {"queued": True, "reason": "queued", "task_id": "task-2"},
+            "snapshot_status": "failed",
+        },
+        rag_result={
+            "debug": {
+                "lane_counts": {"original_raw": 0},
+                "lane_reasons": {"original_raw": "no_hit"},
+                "final_chunks": [],
+                "final_failure_reason": "no_hit",
+            }
+        },
+    )
+    monkeypatch.setattr(
+        hybrid_mod,
+        "build_hybrid_context",
+        lambda **kwargs: {
+            "context": "",
+            "debug": {
+                "snapshot_used": False,
+                "rag_used": False,
+                "fusion_mode": "empty",
+                "rag_chunk_count": 0,
+                "final_context_tokens": 0,
+            },
+        },
+    )
+
+    ctx = module._resolve_kb_context_with_hybrid(
+        requirement="上传文档后立即生成测试用例",
+        project_id=61,
+        db=object(),
+        user_id=29,
+        precision_mode=True,
+    )
+    debug = ctx["fusion_debug"]
+    assert ctx["abort_generation"] is False
+    assert debug["final_decision"] == "requirement_only_fallback"
+    assert debug["current_document_used"] is True
+    assert debug["snapshot_rebuild_triggered"] is True
+
+    result = module.generate_test_cases_json(
+        requirement="上传文档后立即生成测试用例",
+        project_id=61,
+        db=object(),
+        user_id=29,
+        compress=False,
+    )
+    assert isinstance(result, list)
+    assert fake_client.generate_calls > 0

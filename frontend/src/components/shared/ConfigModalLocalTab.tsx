@@ -41,9 +41,8 @@ export function LocalTab({
                 key={index}
                 bg="light"
                 text="dark"
-                className="border cursor-pointer"
+                className="border config-detected-chip"
                 onClick={() => onSelectDetectedService(service)}
-                style={{ cursor: 'pointer' }}
               >
                 {service.url} {service.models ? `(${service.models.length} models)` : ''}
               </Badge>

@@ -1,4 +1,4 @@
-import { Button, Nav } from 'react-bootstrap';
+﻿import { Button, Nav } from 'react-bootstrap';
 import { FaCookie, FaRobot } from 'react-icons/fa';
 
 type StandardApiTestingRequestTabBarProps = {
@@ -8,10 +8,6 @@ type StandardApiTestingRequestTabBarProps = {
   onOpenCookieManager: () => void;
 };
 
-/**
- * 组件职责：
- * 管理请求配置区的一级 Tab 切换入口，保持“导航条”与“具体内容区”解耦。
- */
 export function StandardApiTestingRequestTabBar({
   runSubTab,
   setRunSubTab,
@@ -19,7 +15,7 @@ export function StandardApiTestingRequestTabBar({
   onOpenCookieManager,
 }: StandardApiTestingRequestTabBarProps) {
   return (
-    <div className="border-bottom px-3 bg-white flex-shrink-0 d-flex justify-content-between align-items-end" style={{ height: '45px' }}>
+    <div className="border-bottom px-3 flex-shrink-0 d-flex justify-content-between align-items-end standard-api-tabbar standard-api-tabbar-row">
       <Nav activeKey={runSubTab} onSelect={(k) => setRunSubTab(k || 'params')} className="small custom-nav-tabs">
         <Nav.Item><Nav.Link as="button" type="button" eventKey="params" className="text-secondary" onMouseDown={(e) => e.preventDefault()}>Params</Nav.Link></Nav.Item>
         <Nav.Item><Nav.Link as="button" type="button" eventKey="authorization" className="text-secondary" onMouseDown={(e) => e.preventDefault()}>Authorization</Nav.Link></Nav.Item>
@@ -27,9 +23,9 @@ export function StandardApiTestingRequestTabBar({
         <Nav.Item><Nav.Link as="button" type="button" eventKey="body" className="text-secondary" onMouseDown={(e) => e.preventDefault()}>Body</Nav.Link></Nav.Item>
         <Nav.Item><Nav.Link as="button" type="button" eventKey="scripts" className="text-secondary" onMouseDown={(e) => e.preventDefault()}>Scripts</Nav.Link></Nav.Item>
         <Nav.Item><Nav.Link as="button" type="button" eventKey="settings" className="text-secondary" onMouseDown={(e) => e.preventDefault()}>Settings</Nav.Link></Nav.Item>
-        <Nav.Item><Nav.Link as="button" type="button" eventKey="ai_prompt" className="text-primary" style={{ fontWeight: 500 }} onMouseDown={(e) => e.preventDefault()}><FaRobot className="me-1" />AI Gen</Nav.Link></Nav.Item>
+        <Nav.Item><Nav.Link as="button" type="button" eventKey="ai_prompt" className="text-primary standard-api-tab-ai" onMouseDown={(e) => e.preventDefault()}><FaRobot className="me-1" />AI Gen</Nav.Link></Nav.Item>
       </Nav>
-      <Button variant="link" className="text-secondary text-decoration-none pb-2 mb-1" onClick={onOpenCookieManager} size="sm" title="Cookies 绠＄悊">
+      <Button variant="link" className="text-secondary text-decoration-none pb-2 mb-1 standard-api-cookie-btn" onClick={onOpenCookieManager} size="sm" title="Cookies 管理">
         <FaCookie className="me-1" /> Cookies
       </Button>
     </div>

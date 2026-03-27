@@ -49,7 +49,7 @@ export function AutomationEvaluationPanels({
   return (
     <>
       {showUi ? (
-        <div className="bento-card col-span-12 md:col-span-6 p-4 d-flex flex-column">
+        <div className="bento-card col-span-12 md:col-span-6 p-4 d-flex flex-column ui-section-card automation-eval-card">
           <div className="d-flex align-items-center gap-2 mb-3 text-secondary">
             <FaRobot />
             <span className="fw-bold">UI 自动化评估</span>
@@ -94,7 +94,7 @@ export function AutomationEvaluationPanels({
             {loading === 'ui' ? '评估中...' : '开始评估'}
           </Button>
           {uiEvalOutput ? (
-            <div className="mt-3 alert alert-light border small" style={{ whiteSpace: 'pre-wrap' }}>
+            <div className="mt-3 alert alert-light border small automation-eval-output automation-eval-prewrap">
               {uiEvalOutput}
             </div>
           ) : null}
@@ -102,7 +102,7 @@ export function AutomationEvaluationPanels({
       ) : null}
 
       {showApi ? (
-        <div className="bento-card col-span-12 md:col-span-6 p-4 d-flex flex-column">
+        <div className="bento-card col-span-12 md:col-span-6 p-4 d-flex flex-column ui-section-card automation-eval-card">
           <div className="d-flex align-items-center gap-2 mb-3 text-secondary">
             <FaNetworkWired />
             <span className="fw-bold">接口自动化评估（AI 响应评估）</span>
@@ -163,10 +163,10 @@ export function AutomationEvaluationPanels({
             {loading === 'api' ? '多维评估中...' : '开始评估'}
           </Button>
           {apiEvalOutput ? (
-            <div className="mt-3 alert alert-light border small">
+            <div className="mt-3 alert alert-light border small automation-eval-output">
               {(() => {
                 const report = parseApiReport(apiEvalOutput);
-                if (!report) return <div style={{ whiteSpace: 'pre-wrap' }}>{apiEvalOutput}</div>;
+                if (!report) return <div className="automation-eval-prewrap">{apiEvalOutput}</div>;
                 return (
                   <div>
                     <h6 className="border-bottom pb-2 mb-2">评估报告</h6>

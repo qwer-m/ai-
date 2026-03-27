@@ -15,8 +15,8 @@ export function KnowledgeBase({ projectId, onLog }: Props) {
   const kb = useKnowledgeBase({ projectId, onLog });
 
   return (
-    <div className="h-100 d-flex flex-column gap-3 position-relative">
-      <ToastContainer containerPosition="fixed" position="top-end" className="p-3" style={{ zIndex: 1100 }}>
+    <div className="h-100 d-flex flex-column gap-3 position-relative knowledge-base-shell">
+      <ToastContainer containerPosition="fixed" position="top-end" className="p-3 knowledge-toast-container">
         {kb.toastMsg && (
           <Toast
             onClose={() => kb.setToastMsg(null)}

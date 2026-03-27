@@ -123,6 +123,38 @@ def stream_postprocess_cases(
 
     current_total = _merged_unique_total(parsed_result)
 
+    # 中文注释：流式返回空数组时，先尝试一次非流式补救，降低“空结果”失败率。
+    if isinstance(parsed_result, list) and current_total == 0 and int(expected_count or 0) > 0:
+        yield "@@STATUS@@:初次流式结果为空，尝试非流式补救...\n"
+        rescue_prompt = f"""
+                {base_prompt}
+
+                Reference Knowledge (Use this style/info if relevant):
+                {kb_context}
+
+                RESCUE INSTRUCTION:
+                - Return at least {max(1, int(expected_count))} test cases.
+                - Return ONLY a strict JSON array of objects.
+                - Do not include markdown/code fences/explanations.
+                """
+        try:
+            rescue_raw = client.generate_response(
+                requirement,
+                rescue_prompt,
+                db=db,
+                task_type="generation",
+            )
+            rescue_parsed = clean_and_parse_json_fn(str(rescue_raw or ""))
+            rescue_parsed = normalize_json_structure_fn(rescue_parsed)
+            if isinstance(rescue_parsed, list) and rescue_parsed:
+                parsed_result = deduplicate_test_cases_fn(rescue_parsed)
+                current_total = _merged_unique_total(parsed_result)
+                yield f"@@STATUS@@:非流式补救成功，恢复 {len(parsed_result)} 条用例。\n"
+            else:
+                yield "@@STATUS@@:非流式补救未得到有效用例，继续补齐策略...\n"
+        except Exception as rescue_err:
+            yield f"@@STATUS@@:非流式补救异常({str(rescue_err)})，继续补齐策略...\n"
+
     if isinstance(parsed_result, list) and expected_count:
         if current_total < expected_count:
             supplement_history: list[str] = []
@@ -175,7 +207,11 @@ def stream_postprocess_cases(
                         """
 
                 extra_content = ""
-                extra_stream = client.generate_response_stream(requirement, system_prompt)
+                extra_stream = client.generate_response_stream(
+                    requirement,
+                    system_prompt,
+                    task_type="generation",
+                )
                 provider_error = None
                 for chunk in extra_stream:
                     extra_content += chunk
@@ -269,7 +305,12 @@ def stream_postprocess_cases(
                             Do not modify the content of the test cases, just select them.
                             """
 
-                    review_response = client.generate_response(review_prompt, "You are a QA Auditor.", db=db)
+                    review_response = client.generate_response(
+                        review_prompt,
+                        "You are a QA Auditor.",
+                        db=db,
+                        task_type="generation",
+                    )
                     reviewed_cases = clean_and_parse_json_fn(review_response)
                     reviewed_cases = normalize_json_structure_fn(reviewed_cases)
                     if isinstance(reviewed_cases, list) and reviewed_cases:

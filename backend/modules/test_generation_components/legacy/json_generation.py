@@ -236,10 +236,14 @@ class LegacyGenerationJsonMixin:
 
         # Meta-Analysis Step (Dynamic Strategy Planning)
         analysis_result = self.analyze_requirement_context(requirement, kb_context, client, db)
-        strategy_plan = analysis_result or {}
-        system_type = analysis_result.get("system_type", "Unknown")
-        ratios = analysis_result.get("suggested_ratios", {})
-        focus_areas = analysis_result.get("focus_areas", [])
+        if isinstance(analysis_result, dict):
+            strategy_plan = analysis_result
+        else:
+            # 中文注释：防御式兜底，元分析异常时仍继续主生成链路。
+            strategy_plan = self._default_strategy_plan()
+        system_type = strategy_plan.get("system_type", "Unknown")
+        ratios = strategy_plan.get("suggested_ratios", {})
+        focus_areas = strategy_plan.get("focus_areas", [])
         
         # Helper to safely format percentage
         def safe_pct(val):
@@ -295,7 +299,12 @@ class LegacyGenerationJsonMixin:
             abort_code="",
             compressed_chars=len(kb_context or ""),
         )
-        response = client.generate_response(requirement, system_prompt, db=db)
+        response = client.generate_response(
+            requirement,
+            system_prompt,
+            db=db,
+            task_type="generation",
+        )
         
         # ... rest of function using response ...
         result = finalize_generated_cases(

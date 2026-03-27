@@ -23,7 +23,7 @@ export function SupplementKnowledgePopover({
   disableConfirm,
 }: Props) {
   return (
-    <Popover id="popover-supplement" style={{ maxWidth: '400px', width: '350px' }}>
+    <Popover id="popover-supplement" className="supplement-popover">
       <Popover.Header as="h3">用户补充描述</Popover.Header>
       <Popover.Body>
         <Form.Group className="mb-2">
