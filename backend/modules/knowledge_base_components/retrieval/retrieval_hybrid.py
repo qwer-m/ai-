@@ -101,6 +101,7 @@ def build_keyword_candidates(
     query_source: str,
     top_docs: int = 8,
     per_doc_chunks: int = 2,
+    doc_types: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """
     从项目文档中构造关键词候选（补足纯向量召回盲区）。
@@ -116,12 +117,12 @@ def build_keyword_candidates(
     if not terms:
         return []
 
-    docs = (
-        db.query(KnowledgeDocument)
-        .filter(KnowledgeDocument.project_id == project_id)
-        .order_by(KnowledgeDocument.created_at.desc())
-        .all()
-    )
+    query_builder = db.query(KnowledgeDocument).filter(KnowledgeDocument.project_id == project_id)
+    sanitized_types = [str(item or "").strip().lower() for item in (doc_types or []) if str(item or "").strip()]
+    if sanitized_types:
+        query_builder = query_builder.filter(KnowledgeDocument.doc_type.in_(sanitized_types))
+
+    docs = query_builder.order_by(KnowledgeDocument.created_at.desc()).all()
 
     scored_docs: list[tuple[float, KnowledgeDocument, list[str], list[str]]] = []
     for doc in docs:

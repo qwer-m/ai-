@@ -8,6 +8,10 @@ class TestGenRequest(BaseModel):
     expected_count: int = 20
     batch_index: int = 0
     batch_size: int = 20
+    current_biz_key: str = ""
+    only_current_biz: bool = False
+    multi_pass: bool = True
+    generation_mode: str = ""
 
 class TestComparisonRequest(BaseModel):
     generated_test_case: str

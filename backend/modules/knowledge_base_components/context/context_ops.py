@@ -129,6 +129,11 @@ def get_relevant_context_impl(
             diversity_stats = last_outcome.get("diversity_stats") or {}
             retrieval_tuning = last_outcome.get("retrieval_tuning") or {}
             diverse_candidates = last_outcome.get("diverse_candidates") or []
+            rerank_stage = last_outcome.get("rerank_stage") or {
+                "input_candidate_count": 0,
+                "filtered_out_count": 0,
+                "filtered_out_reasons": {},
+            }
         else:
             recall_result = {"debug": {}}
             reranked_chunks = []
@@ -157,6 +162,17 @@ def get_relevant_context_impl(
             diversity_stats = {}
             retrieval_tuning = _normalize_retrieval_options(limit, retrieval_options)
             diverse_candidates = []
+            rerank_stage = {
+                "input_candidate_count": 0,
+                "filtered_out_count": 0,
+                "filtered_out_reasons": {
+                    "missing_text": 0,
+                    "missing_score": 0,
+                    "invalid_metadata": 0,
+                    "empty_content": 0,
+                    "schema_incompatible": 0,
+                },
+            }
 
         if not debug:
             return context_text
@@ -190,10 +206,15 @@ def get_relevant_context_impl(
                 "lane_counts": recall_result.get("debug", {}).get("lane_counts") or {},
                 "lane_reasons": recall_result.get("debug", {}).get("lane_reasons") or {},
                 "lane_topk": recall_result.get("debug", {}).get("lane_topk") or {},
+                "query_embedding_status": recall_result.get("debug", {}).get("query_embedding_status") or "failed",
+                "query_embedding_error": recall_result.get("debug", {}).get("query_embedding_error") or "",
+                "recall_lanes": recall_result.get("debug", {}).get("recall_lanes") or {},
+                "merge_stage": recall_result.get("debug", {}).get("merge_stage") or {},
                 "merged_count": int(recall_result.get("debug", {}).get("merged_count") or 0),
                 "deduped_count": int(recall_result.get("debug", {}).get("deduped_count") or 0),
                 "dedup_chunks": build_final_chunk_debug(recall_result.get("chunks") or []),
                 "reranked_count": len(reranked_chunks),
+                "rerank_stage": rerank_stage,
                 "diverse_count": len(diverse_candidates),
                 "compressed_count": len(selected_chunks),
                 "max_tokens": int(max_tokens),
@@ -247,6 +268,14 @@ def get_relevant_context_impl(
             "context": "",
             "debug": {
                 "error": f"RAG retrieval failed: {e}",
+                "query_embedding_status": "failed",
+                "query_embedding_error": str(e),
+                "recall_lanes": {},
+                "merge_stage": {
+                    "before_merge_count": 0,
+                    "after_merge_count": 0,
+                    "after_dedup_count": 0,
+                },
                 "attempt_count": len(attempt_records),
                 "attempts": attempt_records,
                 "final_status": "failed_after_retry",
@@ -272,6 +301,17 @@ def get_relevant_context_impl(
                 "gate_after_candidate_count": 0,
                 "per_doc_selected_chunk_counts": {},
                 "doc_coverage_triggered": False,
+                "rerank_stage": {
+                    "input_candidate_count": 0,
+                    "filtered_out_count": 0,
+                    "filtered_out_reasons": {
+                        "missing_text": 0,
+                        "missing_score": 0,
+                        "invalid_metadata": 0,
+                        "empty_content": 0,
+                        "schema_incompatible": 0,
+                    },
+                },
                 "retrieval_tuning": _normalize_retrieval_options(limit, retrieval_options),
                 "retrieval_profile": (
                     build_retrieval_profile(

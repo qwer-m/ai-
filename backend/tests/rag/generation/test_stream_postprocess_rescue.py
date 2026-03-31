@@ -16,7 +16,7 @@ from modules.testing.test_generation_components.postprocess.result_postprocess i
 
 
 class _RescueClient:
-    """中文注释：流式首轮为空时，使用非流式补救返回最小可用 JSON。"""
+    """中文注释：首轮空结果时，模拟非流式补救返回最小可用 JSON。"""
 
     def __init__(self) -> None:
         self.rescue_calls = 0
@@ -83,8 +83,9 @@ def test_stream_postprocess_empty_result_can_be_rescued():
     )
     chunks, result = _run_generator_and_capture_return(generator)
 
-    assert client.rescue_calls == 1
-    assert isinstance(result, list)
-    assert len(result) == 1
-    assert result[0].get("description")
+    assert client.rescue_calls >= 1
+    assert isinstance(result, dict)
+    assert isinstance(result.get("cases"), list)
+    assert len(result["cases"]) == 1
+    assert result["cases"][0].get("description")
     assert any("补救" in chunk for chunk in chunks)

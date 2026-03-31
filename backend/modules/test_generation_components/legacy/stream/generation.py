@@ -33,6 +33,10 @@ class LegacyGenerationStreamGenerationMixin(
         overwrite: bool = False,
         append: bool = False,
         user_id: int = None,
+        current_biz_key: str = "",
+        only_current_biz: bool = False,
+        multi_pass: bool = True,
+        generation_mode: str = "",
     ) -> Iterator[str]:
         client = get_client_for_user(user_id, db)
         request_id = uuid.uuid4().hex
@@ -50,6 +54,10 @@ class LegacyGenerationStreamGenerationMixin(
             overwrite=overwrite,
             append=append,
             user_id=user_id,
+            current_biz_key=current_biz_key,
+            only_current_biz=only_current_biz,
+            multi_pass=multi_pass,
+            generation_mode=generation_mode,
         )
         if not isinstance(state, dict) or state.get("abort"):
             return

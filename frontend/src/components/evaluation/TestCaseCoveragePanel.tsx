@@ -16,8 +16,8 @@ type Props = {
   onSelectGenerationId: (id: number | null) => void;
   onLoadGenerationById: (id: number) => void;
   onFileChange: (file: File | null) => void;
+  uploadedCompareFilename: string;
   loadedCompareFilename: string;
-  onClearLoadedCompareFilename: () => void;
   onCompare: () => void;
   history: any[];
   showSupplement: boolean;
@@ -46,8 +46,8 @@ export function TestCaseCoveragePanel({
   onSelectGenerationId,
   onLoadGenerationById,
   onFileChange,
+  uploadedCompareFilename,
   loadedCompareFilename,
-  onClearLoadedCompareFilename,
   onCompare,
   history,
   showSupplement,
@@ -138,9 +138,13 @@ export function TestCaseCoveragePanel({
                 onChange={(e) => {
                   const target = e.target as HTMLInputElement;
                   onFileChange(target.files && target.files.length > 0 ? target.files[0] : null);
-                  onClearLoadedCompareFilename();
                 }}
               />
+              {uploadedCompareFilename ? (
+                <div className="small text-muted mt-1">
+                  当前上传文件：{uploadedCompareFilename}
+                </div>
+              ) : null}
               {loadedCompareFilename ? (
                 <div className="small text-muted mt-1">
                   已从历史加载对比文件内容：{loadedCompareFilename}

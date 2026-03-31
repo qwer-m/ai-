@@ -1,9 +1,13 @@
 from typing import Any, Iterator
 import json
 
+from core.db.models import LogEntry
 from modules.testing.test_generation_components.prompting.prompt_orchestration import (
     build_append_closed_loop_coverage_instruction,
     build_closed_loop_base_prompt,
+)
+from modules.testing.test_generation_components.prompting.structured_context import (
+    build_structured_prompt_context,
 )
 from modules.testing.test_generation_components.legacy.adapters import (
     clean_and_parse_json,
@@ -35,81 +39,124 @@ class LegacyGenerationStreamBatchesMixin:
         existing_cases = state.get("existing_cases") or []
         context_result = state.get("context_result") or {}
         gate_debug = state.get("gate_debug") or {}
+        only_current_biz = bool(state.get("only_current_biz") or False)
+        current_biz_key = str(state.get("current_biz_key") or "").strip()
+        multi_pass = bool(state.get("multi_pass", True))
+        generation_mode = str(state.get("generation_mode") or "").strip().lower()
         final_trace_emitted = False
+        biz_diag_emitted = False
         system_prompt = ""
-        # --- STEP 1: META-ANALYSIS (Dynamic Strategy Planning) ---
+
+        def _emit_biz_key_diag(prompt_context: dict[str, Any]) -> None:
+            """中文注释：把 biz_key 隔离检查写入 GEN_DIAG，便于前端日志区观察。"""
+            nonlocal biz_diag_emitted
+            if biz_diag_emitted or (not self._is_active_db_session(db)):
+                return
+            try:
+                payload = dict(prompt_context.get("biz_key_isolation_log") or {})
+                if not payload:
+                    return
+                payload.update(
+                    {
+                        "project_id": int(project_id),
+                        "request_id": request_id,
+                        "source": "generate_test_cases_stream",
+                    }
+                )
+                db.add(
+                    LogEntry(
+                        project_id=project_id,
+                        user_id=user_id,
+                        log_type="system",
+                        message=f"GEN_DIAG:{json.dumps(payload, ensure_ascii=False)}",
+                    )
+                )
+                db.commit()
+                biz_diag_emitted = True
+            except Exception as e:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                print(f"Failed to emit biz key isolation log(stream): {e}")
+
+        # --- STEP 1: META-ANALYSIS ---
+        if multi_pass:
+            yield "@@STATUS@@:[multi-pass] 阶段1/3 主生成开始...\n"
         yield "@@STATUS@@:正在进行需求元分析 (Meta-Analysis)，识别系统类型与测试策略...\n"
         strategy_plan = self.analyze_requirement_context(requirement, kb_context, client, db)
         if not isinstance(strategy_plan, dict):
-            # 中文注释：二次保护，防止外部 monkeypatch/异常返回导致主链路崩溃。
+            # 中文注释：元分析异常时使用默认策略，避免主链路中断。
             strategy_plan = self._default_strategy_plan()
-        yield f"@@STATUS@@:分析完成 - 系统类型: {strategy_plan.get('system_type')}, 复杂度: {strategy_plan.get('complexity')}, 策略: {json.dumps(strategy_plan.get('suggested_ratios'))}...\n"
+        yield (
+            "@@STATUS@@:分析完成 - 系统类型: "
+            f"{strategy_plan.get('system_type')}, 复杂度: {strategy_plan.get('complexity')}, "
+            f"策略: {json.dumps(strategy_plan.get('suggested_ratios'))}...\n"
+        )
+
+        prompt_context = build_structured_prompt_context(
+            requirement=requirement or "",
+            kb_context=kb_context or "",
+            rag_result=(context_result or {}).get("rag_result") if isinstance(context_result, dict) else None,
+            existing_cases=[c for c in existing_cases if isinstance(c, dict)] if isinstance(existing_cases, list) else [],
+            current_biz_key=current_biz_key,
+            only_current_biz=only_current_biz,
+        )
+        current_biz_key = str(prompt_context.get("current_biz_key") or current_biz_key or "unknown")
+        _emit_biz_key_diag(prompt_context)
+
         base_prompt = build_closed_loop_base_prompt(
             strategy_plan,
+            requirement_context=prompt_context.get("requirement_context") or "",
+            testcase_context=prompt_context.get("testcase_context") or "(empty)",
+            supplement_context=prompt_context.get("supplement_context") or "(empty)",
+            current_biz_key=current_biz_key,
             doc_type=doc_type,
             pretty_json=True,
         )
 
         full_content = ""
-        
-        # Calculate batches
+
+        # 计算批次参数
         import math
 
-        # Dynamic Batch Size Adjustment based on User Request
-        existing_unique_count = (
-            count_unique_test_cases(existing_cases)
-            if isinstance(existing_cases, list)
-            else 0
-        )
+        existing_unique_count = count_unique_test_cases(existing_cases) if isinstance(existing_cases, list) else 0
         current_existing_count = existing_unique_count
-        
+
         if append:
             needed_to_append = expected_count - current_existing_count
             if needed_to_append > 25:
                 batch_size = 25
             else:
-                # If needed is small (e.g. 5), we generate all in one batch
                 batch_size = max(1, needed_to_append)
         else:
-            # For fresh generation, user requested 25 per batch
             batch_size = 25
 
-        # Ensure batch_size is at least 1 to avoid infinite loop
         batch_size = max(1, batch_size)
-        
-        # Handle Append Mode: If expected_count is met, auto-increment
-        current_count = existing_unique_count
-        if append and expected_count <= current_count:
-            yield f"@@STATUS@@:当前用例数({current_count})已达预期({expected_count})，自动增加 {batch_size} 条用例...\n"
-            expected_count = current_count + batch_size
+
+        if append and expected_count <= existing_unique_count:
+            yield (
+                f"@@STATUS@@:当前用例数({existing_unique_count})已达预期({expected_count})，"
+                f"自动增加 {batch_size} 条用例...\n"
+            )
+            expected_count = existing_unique_count + batch_size
 
         total_batches = math.ceil((expected_count - (start_id - 1)) / batch_size)
-        # Ensure at least 1 batch if needed
         if total_batches < 1 and expected_count > (start_id - 1):
             total_batches = 1
-        
+
         current_id = start_id
-        
-        # History tracking for de-duplication
-        history_summaries = []
+
+        # 中文注释：追踪历史摘要用于去重提示。
+        history_summaries: list[str] = []
         if append and isinstance(existing_cases, list):
-            for c in existing_cases:
-                if isinstance(c, dict):
-                    history_summaries.append(f"{c.get('id', '')}: {c.get('description', '')}")
+            for case in existing_cases:
+                if isinstance(case, dict):
+                    history_summaries.append(f"{case.get('id', '')}: {case.get('description', '')}")
 
-        def _merged_unique_total(new_cases: Any) -> int:
-            """中文注释：统一计算“历史+新增”的唯一总数，避免补齐逻辑口径不一致。"""
-            merged: list[dict[str, Any]] = []
-            if append and isinstance(existing_cases, list):
-                merged.extend(existing_cases)
-            if isinstance(new_cases, list):
-                merged.extend(new_cases)
-            return count_unique_test_cases(merged)
-
-        for i in range(total_batches):
+        for batch_index in range(total_batches):
             remaining = expected_count - (current_id - start_id)
             current_batch_count = min(batch_size, remaining)
-            
             if current_batch_count <= 0:
                 break
 
@@ -120,22 +167,50 @@ class LegacyGenerationStreamBatchesMixin:
             while generated_in_batch < current_batch_count and attempt < 3:
                 need = current_batch_count - generated_in_batch
                 attempt += 1
-                yield f"@@STATUS@@:正在生成第 {i+1}/{total_batches} 批次 ({current_batch_count} 条) - 第 {attempt} 次尝试...\n"
+                yield (
+                    f"@@STATUS@@:正在生成第 {batch_index + 1}/{total_batches} 批次"
+                    f" ({current_batch_count} 条) - 第 {attempt} 次尝试...\n"
+                )
 
-                # Build history context (last 50 items to save tokens)
                 history_context_str = ""
                 if history_summaries:
                     recent_history = history_summaries[-50:]
-                    history_list_str = "\n".join([f"- {h}" for h in recent_history])
+                    history_list_str = "\n".join([f"- {item}" for item in recent_history])
                     history_context_str = f"""
                     IMPORTANT - DE-DUPLICATION INSTRUCTION:
-                    The following test scenarios have ALREADY been generated. 
+                    The following test scenarios have ALREADY been generated.
                     DO NOT generate duplicates or very similar cases to these:
                     {history_list_str}
-                    
+
                     Focus on NEW scenarios in the current module closed loop first.
                     """
-                # --- COVERAGE & GAP ANALYSIS (CRITICAL) ---
+
+                prompt_context = build_structured_prompt_context(
+                    requirement=requirement or "",
+                    kb_context=kb_context or "",
+                    rag_result=(context_result or {}).get("rag_result") if isinstance(context_result, dict) else None,
+                    existing_cases=[c for c in existing_cases if isinstance(c, dict)] if isinstance(existing_cases, list) else [],
+                    current_biz_key=current_biz_key,
+                    only_current_biz=only_current_biz,
+                )
+                current_biz_key = str(prompt_context.get("current_biz_key") or current_biz_key or "unknown")
+                _emit_biz_key_diag(prompt_context)
+
+                testcase_context = prompt_context.get("testcase_context") or "(empty)"
+                if history_summaries:
+                    recent_history_style = "\n".join(history_summaries[-50:])
+                    testcase_context = f"{testcase_context}\n\n[本轮已生成摘要]\n{recent_history_style}"
+
+                base_prompt = build_closed_loop_base_prompt(
+                    strategy_plan,
+                    requirement_context=prompt_context.get("requirement_context") or "",
+                    testcase_context=testcase_context,
+                    supplement_context=prompt_context.get("supplement_context") or "(empty)",
+                    current_biz_key=current_biz_key,
+                    doc_type=doc_type,
+                    pretty_json=True,
+                )
+
                 coverage_instruction = ""
                 if append and existing_cases:
                     coverage_instruction = build_append_closed_loop_coverage_instruction(
@@ -147,23 +222,11 @@ class LegacyGenerationStreamBatchesMixin:
 
                 system_prompt = f"""
                 {base_prompt}
-                
+
                 {coverage_instruction}
-                
-                # --- REFERENCE KNOWLEDGE (RAG) ---
-                The following content is retrieved from the knowledge base (Historical Test Cases / Docs).
-                USAGE RULES:
-                1. Use this ONLY for understanding the project's terminology, style, and format.
-                2. DO NOT copy these test cases unless they are strictly relevant to the current requirement.
-                3. If the Reference Knowledge conflicts with the current Requirement, FOLLOW THE CURRENT REQUIREMENT.
-                4. IGNORE the order of test cases in the Reference Knowledge. You MUST follow the order of the *Current Requirement*.
-                
-                [START REFERENCE]
-                {kb_context}
-                [END REFERENCE]
-                
+
                 {history_context_str}
-                
+
                 # --- GENERATION STRATEGY ---
                 1. ANALYZE the User's Requirement (provided in the next message) step-by-step.
                 2. IDENTIFY the specific functionality, logic, and constraints in the User's Requirement.
@@ -171,23 +234,23 @@ class LegacyGenerationStreamBatchesMixin:
                    - Equivalence Partitioning: Identify valid/invalid inputs.
                    - Boundary Value Analysis: Test edges (min, max, null, overflow).
                    - Scenario Testing: Cover happy paths and error paths.
-                4. GENERATE new test cases that target the User's Requirement. 
+                4. GENERATE new test cases that target the User's Requirement.
                    - Do NOT generate generic cases unrelated to the specific logic.
                    - Do NOT repeat test cases found in Reference Knowledge unless necessary.
                 5. FINAL CHECK: Ensure the first test case corresponds to the *first step* of the User's Requirement (e.g., Entry Point).
-                
+
                 # --- VISUAL/LAYOUT TESTING RULE ---
-                If the Requirement mentions UI layout, styles, or specific visual elements (e.g., "入口是什么样式", "图2"):
+                If the Requirement mentions UI layout, styles, or specific visual elements:
                 - You MUST generate a "UI Verification" test case as the VERY FIRST case for that module.
                 - Verify the visual appearance matches the description/image.
                 - Do NOT skip visual details just because they are not "functional actions".
-                
+
                 BATCH GENERATION INSTRUCTION (workflow-first):
-                This is batch {i+1} of {total_batches}.
+                This is batch {batch_index + 1} of {total_batches}.
                 Start the Test Case IDs from {int(current_id) + int(generated_in_batch)} (e.g., TC-{(int(current_id) + int(generated_in_batch)):03d}).
                 Target this batch size: about {need} cases.
                 Keep closed-loop continuity in current module first; do not jump modules just to match count.
-                
+
                 Return ONLY the JSON array.
                 """
 
@@ -204,6 +267,7 @@ class LegacyGenerationStreamBatchesMixin:
                         compressed_chars=len(kb_context or ""),
                     )
                     final_trace_emitted = True
+
                 stream = client.generate_response_stream(
                     requirement,
                     system_prompt,
@@ -215,7 +279,7 @@ class LegacyGenerationStreamBatchesMixin:
                     chunk_acc += chunk
                     full_content += chunk
                     batch_content += chunk
-                    yield chunk # Stream chunk directly for better performance
+                    yield chunk
                     if chunk.startswith("Error:") or chunk.startswith("[额度耗尽]") or chunk.startswith("Exception occurred:"):
                         provider_error = chunk
                         break
@@ -244,7 +308,6 @@ class LegacyGenerationStreamBatchesMixin:
                     parsed_batch = normalize_json_structure(parsed_batch)
                     if isinstance(parsed_batch, list):
                         generated_in_batch = len(parsed_batch)
-                        # Update history for next batch/retry
                         for case in parsed_batch:
                             if isinstance(case, dict):
                                 history_summaries.append(f"{case.get('id', '')}: {case.get('description', '')}")
@@ -252,7 +315,6 @@ class LegacyGenerationStreamBatchesMixin:
                     pass
 
             current_id += current_batch_count
-
 
         state.update(
             {
@@ -268,7 +330,10 @@ class LegacyGenerationStreamBatchesMixin:
                 "context_result": context_result if isinstance(context_result, dict) else {},
                 "gate_debug": gate_debug if isinstance(gate_debug, dict) else {},
                 "system_prompt": system_prompt if isinstance(system_prompt, str) else "",
+                "current_biz_key": current_biz_key,
+                "only_current_biz": only_current_biz,
+                "multi_pass": multi_pass,
+                "generation_mode": generation_mode,
             }
         )
         return state
-

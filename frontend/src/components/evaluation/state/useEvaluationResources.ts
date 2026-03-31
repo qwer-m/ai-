@@ -23,8 +23,45 @@ export function useEvaluationResources({
   view,
   evalResult,
 }: UseEvaluationResourcesParams) {
+  const toNumberOrNull = (value: unknown): number | null => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return null;
+  };
+
+  /**
+   * 历史趋势图只保留可绘制的点，避免后端某些历史项没有指标时把整张图“拉空”。
+   */
+  const normalizeHistory = (list: any[]): any[] => {
+    if (!Array.isArray(list)) return [];
+    return list
+      .map((item) => {
+        const precision = toNumberOrNull(item?.precision);
+        const recall = toNumberOrNull(item?.recall);
+        const f1Score = toNumberOrNull(item?.f1_score);
+        const semanticSimilarity = toNumberOrNull(item?.semantic_similarity);
+        return {
+          ...item,
+          precision,
+          recall,
+          f1_score: f1Score,
+          semantic_similarity: semanticSimilarity,
+        };
+      })
+      .filter((item) =>
+        item.precision !== null
+        || item.recall !== null
+        || item.f1_score !== null
+        || item.semantic_similarity !== null,
+      );
+  };
+
   const [loading, setLoading] = useState<LoadingType>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [uploadedCompareFilename, setUploadedCompareFilename] = useState('');
   const [loadedCompareFilename, setLoadedCompareFilename] = useState('');
   const [showSupplement, setShowSupplement] = useState(false);
   const [supplementText, setSupplementText] = useState('');
@@ -52,6 +89,9 @@ export function useEvaluationResources({
     setSelectedGenerationId(null);
     setHistorySourceKey('');
     setHistorySourceTitle('');
+    setFile(null);
+    setUploadedCompareFilename('');
+    setLoadedCompareFilename('');
   }, [projectId]);
 
   /**
@@ -63,7 +103,7 @@ export function useEvaluationResources({
     void fetchEvaluationHistory(projectId)
       .then((res: any) => {
         if (Array.isArray(res?.history)) {
-          setHistory(res.history);
+          setHistory(normalizeHistory(res.history));
           return;
         }
         setHistory([]);
@@ -94,6 +134,8 @@ export function useEvaluationResources({
     setLoading,
     file,
     setFile,
+    uploadedCompareFilename,
+    setUploadedCompareFilename,
     loadedCompareFilename,
     setLoadedCompareFilename,
     showSupplement,

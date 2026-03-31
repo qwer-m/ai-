@@ -24,8 +24,8 @@ export function DashboardTopBar({
   onLogout,
 }: Props) {
   return (
-    <div className="dashboard-topbar dashboard-topbar-surface dashboard-topbar-shell bg-body bg-opacity-50 border-bottom border-secondary-subtle px-4 py-3 d-flex justify-content-between align-items-center">
-      <div className="d-flex align-items-center gap-2 dashboard-project-switcher">
+    <div className="dashboard-topbar dashboard-topbar-surface dashboard-topbar-shell bg-body bg-opacity-50 border-bottom border-secondary-subtle px-4 py-3 d-flex justify-content-between align-items-end">
+      <div className="d-flex align-items-end gap-2 dashboard-project-switcher">
         <div className="dashboard-project-chip dashboard-project-label bg-body text-secondary px-3 py-1 rounded fw-bold shadow-sm d-flex align-items-center justify-content-center border">
           当前项目
         </div>

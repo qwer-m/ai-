@@ -43,15 +43,26 @@ export function KnowledgeBaseToolbar({
       <Card.Body className="p-3">
         <Row className="g-3 align-items-end">
           <Col md={3}>
-            <Form.Label className="small fw-bold text-secondary">上传文档 {isOnline ? '' : '(离线)'}</Form.Label>
+            <Form.Label className="small fw-bold text-secondary text-center w-100">上传文档 {isOnline ? '' : '(离线)'}</Form.Label>
             <InputGroup size="sm">
-              <Form.Control type="file" onChange={(e: React.ChangeEvent<HTMLInputElement>) => onFileChange(e.target.files?.[0] ?? null)} disabled={!isOnline} />
+              <Form.Control
+                type="file"
+                className="text-center"
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => onFileChange(e.target.files?.[0] ?? null)}
+                disabled={!isOnline}
+              />
             </InputGroup>
           </Col>
 
           <Col md={2}>
-            <Form.Label className="small fw-bold text-secondary">类型</Form.Label>
-            <Form.Select size="sm" value={docType} onChange={(e) => setDocType(e.target.value)} disabled={!isOnline}>
+            <Form.Label className="small fw-bold text-secondary text-center w-100">类型</Form.Label>
+            <Form.Select
+              size="sm"
+              className="text-center"
+              value={docType}
+              onChange={(e) => setDocType(e.target.value)}
+              disabled={!isOnline}
+            >
               <option value="requirement">需求文档</option>
               <option value="test_case">测试用例</option>
               <option value="prototype">原型图</option>
@@ -60,8 +71,14 @@ export function KnowledgeBaseToolbar({
             </Form.Select>
           </Col>
 
-          <Col md={1}>
-            <Button variant="primary" size="sm" className="w-100" onClick={onUpload} disabled={uploading || !projectId || !isOnline}>
+          <Col md={1} className="d-flex align-items-end justify-content-center">
+            <Button
+              variant="primary"
+              size="sm"
+              className="px-4 d-flex align-items-center justify-content-center"
+              onClick={onUpload}
+              disabled={uploading || !projectId || !isOnline}
+            >
               {uploading ? <Spinner size="sm" animation="border" /> : '上传'}
             </Button>
           </Col>
@@ -69,18 +86,30 @@ export function KnowledgeBaseToolbar({
           <Col className="border-start ps-4">
             <Row className="g-2">
               <Col md={4}>
-                <Form.Label className="small fw-bold text-secondary">关键词</Form.Label>
+                <Form.Label className="small fw-bold text-secondary text-center w-100">关键词</Form.Label>
                 <InputGroup size="sm">
-                  <InputGroup.Text>
+                  <InputGroup.Text className="bg-transparent border-0 ps-2 pe-1 shadow-none">
                     <FaSearch />
                   </InputGroup.Text>
-                  <Form.Control placeholder="搜索文件名..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                  <Form.Control
+                    className="text-center"
+                    placeholder="搜索文件名..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
                 </InputGroup>
               </Col>
 
-              <Col md={2} className="d-flex align-items-end">
-                <Form.Select size="sm" value={filterDocType} onChange={(e) => setFilterDocType(e.target.value)} aria-label="文档类型过滤">
-                  <option value="">全部类型</option>
+              <Col md={3} className="d-flex align-items-end">
+                <Form.Select
+                  size="sm"
+                  className={`text-center ${filterDocType ? '' : 'text-muted'}`}
+                  value={filterDocType}
+                  onChange={(e) => setFilterDocType(e.target.value)}
+                  aria-label="文档类型过滤"
+                  style={{ minWidth: '130px' }}
+                >
+                  <option value="">全部类别</option>
                   <option value="requirement">需求文档</option>
                   <option value="test_case">测试用例</option>
                   <option value="prototype">原型图</option>
@@ -89,17 +118,29 @@ export function KnowledgeBaseToolbar({
                 </Form.Select>
               </Col>
 
-              <Col md={4}>
-                <Form.Label className="small fw-bold text-secondary">日期范围</Form.Label>
+              <Col md={3}>
+                <Form.Label className="small fw-bold text-secondary text-center w-100">日期范围</Form.Label>
                 <InputGroup size="sm">
-                  <Form.Control type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} aria-label="开始日期" />
-                  <InputGroup.Text className="px-1">-</InputGroup.Text>
-                  <Form.Control type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} aria-label="结束日期" />
+                  <Form.Control
+                    className="text-center"
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    aria-label="开始日期"
+                  />
+                  <InputGroup.Text className="px-1 border-0 bg-transparent rounded-0">-</InputGroup.Text>
+                  <Form.Control
+                    className="text-center"
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    aria-label="结束日期"
+                  />
                 </InputGroup>
               </Col>
 
-              <Col md={2} className="d-flex align-items-end">
-                <Button variant="secondary" size="sm" className="w-100" onClick={onSearch}>
+              <Col md={2} className="d-flex align-items-end justify-content-center">
+                <Button variant="secondary" size="sm" className="px-4 d-flex align-items-center justify-content-center" onClick={onSearch}>
                   查询
                 </Button>
               </Col>

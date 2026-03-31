@@ -1,4 +1,4 @@
-from typing import Any
+﻿from typing import Any
 import json
 import uuid
 
@@ -11,16 +11,25 @@ from modules.testing.test_generation_components.prompting.generation_diagnostics
     build_coverage_diagnostics,
     build_gate_reason_chain,
 )
+from modules.testing.test_generation_components.coverage.coverage_analyzer import (
+    analyze_coverage,
+)
 from modules.testing.test_generation_components.prompting.prompt_orchestration import (
     build_append_closed_loop_coverage_instruction,
     build_closed_loop_base_prompt,
     build_supplement_closed_loop_instruction,
+)
+from modules.testing.test_generation_components.prompting.structured_context import (
+    build_structured_prompt_context,
 )
 from modules.testing.test_generation_components.postprocess.result_postprocess import (
     finalize_generated_cases,
     merge_cases_for_append,
     prepare_append_existing_cases,
     stream_postprocess_cases,
+)
+from modules.testing.test_generation_components.legacy.multi_pass_pipeline import (
+    run_multi_pass_generation,
 )
 from modules.testing.test_generation_components.legacy.adapters import (
     clean_and_parse_json,
@@ -35,23 +44,38 @@ from modules.testing.test_generation_components.legacy.adapters import (
 
 class LegacyGenerationJsonMixin:
 
-    def generate_test_cases_json(self, requirement: str, project_id: int, db: Session = None, doc_type: str = "requirement", compress: bool = False, expected_count: int = 20, batch_size: int = 20, batch_index: int = 0, user_id: int = None) -> dict:
+    def generate_test_cases_json(
+        self,
+        requirement: str,
+        project_id: int,
+        db: Session = None,
+        doc_type: str = "requirement",
+        compress: bool = False,
+        expected_count: int = 20,
+        batch_size: int = 20,
+        batch_index: int = 0,
+        user_id: int = None,
+        current_biz_key: str = "",
+        only_current_biz: bool = False,
+        multi_pass: bool = True,
+        generation_mode: str = "",
+    ) -> dict:
         """
-        生成测试用例 - JSON 格式 (Generate Test Cases JSON)
+        鐢熸垚娴嬭瘯鐢ㄤ緥 - JSON 鏍煎紡 (Generate Test Cases JSON)
         
         Args:
-            requirement: 需求文本。
-            project_id: 项目ID，用于 RAG 检索上下文。
-            db: 数据库会话。
-            doc_type: 文档类型 (requirement, prototype, incomplete)。不同的类型会触发不同的 Prompt 策略。
-            compress: 是否启用上下文压缩（针对超长文本）。
-            expected_count: 预期总数量。
-            batch_size: 当前批次大小。
-            batch_index: 当前批次索引 (用于计算 ID 起始值)。
-            user_id: 用户ID，用于获取特定的 AI 模型配置。
+            requirement: 闇€姹傛枃鏈€?
+            project_id: 椤圭洰ID锛岀敤浜?RAG 妫€绱笂涓嬫枃銆?
+            db: 鏁版嵁搴撲細璇濄€?
+            doc_type: 鏂囨。绫诲瀷 (requirement, prototype, incomplete)銆備笉鍚岀殑绫诲瀷浼氳Е鍙戜笉鍚岀殑 Prompt 绛栫暐銆?
+            compress: 鏄惁鍚敤涓婁笅鏂囧帇缂╋紙閽堝瓒呴暱鏂囨湰锛夈€?
+            expected_count: 棰勬湡鎬绘暟閲忋€?
+            batch_size: 褰撳墠鎵规澶у皬銆?
+            batch_index: 褰撳墠鎵规绱㈠紩 (鐢ㄤ簬璁＄畻 ID 璧峰鍊?銆?
+            user_id: 鐢ㄦ埛ID锛岀敤浜庤幏鍙栫壒瀹氱殑 AI 妯″瀷閰嶇疆銆?
             
         Returns:
-            dict: 包含生成的用例列表，或者错误信息。
+            dict: 鍖呭惈鐢熸垚鐨勭敤渚嬪垪琛紝鎴栬€呴敊璇俊鎭€?
         """
         # Get client for user
         client = get_client_for_user(user_id, db)
@@ -69,7 +93,7 @@ class LegacyGenerationJsonMixin:
         gate_debug: dict[str, Any] = {}
         context_result: dict[str, Any] | None = None
         if db:
-            # 中文注释：生成前先执行 snapshot readiness gate，避免 stale 场景直接 rag_only。
+            # 涓枃娉ㄩ噴锛氱敓鎴愬墠鍏堟墽琛?snapshot readiness gate锛岄伩鍏?stale 鍦烘櫙鐩存帴 rag_only銆?
             gate_result = {
                 "proceed": True,
                 "gate_debug": {
@@ -155,7 +179,7 @@ class LegacyGenerationJsonMixin:
             )
             fusion_debug = context_result.get("fusion_debug") or {}
             if gate_debug:
-                # 中文注释：把 gate 调试字段合并进融合调试，方便统一观察。
+                # 涓枃娉ㄩ噴锛氭妸 gate 璋冭瘯瀛楁鍚堝苟杩涜瀺鍚堣皟璇曪紝鏂逛究缁熶竴瑙傚療銆?
                 fusion_debug.update(gate_debug)
                 reason_chain = list(fusion_debug.get("reason_chain") or [])
                 for reason in build_gate_reason_chain(gate_debug):
@@ -170,7 +194,7 @@ class LegacyGenerationJsonMixin:
             fusion_debug["final_generation_context_mode"] = context_result.get("context_source") or "empty"
             context_result["fusion_debug"] = fusion_debug
             kb_context = context_result.get("kb_context") or ""
-            # 中文注释：命中“上下文全空兜底”时，直接终止，避免模型在无知识上下文下裸跑。
+            # 涓枃娉ㄩ噴锛氬懡涓€滀笂涓嬫枃鍏ㄧ┖鍏滃簳鈥濇椂锛岀洿鎺ョ粓姝紝閬垮厤妯″瀷鍦ㄦ棤鐭ヨ瘑涓婁笅鏂囦笅瑁歌窇銆?
             if context_result.get("abort_generation"):
                 fusion_debug = context_result.get("fusion_debug") or {}
                 abort_error = context_result.get("abort_error") or "上下文为空，已按兜底策略终止生成。"
@@ -222,7 +246,7 @@ class LegacyGenerationJsonMixin:
                 return error_payload
 
             if compress:
-                # 需求文本压缩与知识快照是两条并行优化链路，任何一条失败都不阻断生成。
+                # 闇€姹傛枃鏈帇缂╀笌鐭ヨ瘑蹇収鏄袱鏉″苟琛屼紭鍖栭摼璺紝浠讳綍涓€鏉″け璐ラ兘涓嶉樆鏂敓鎴愩€?
                 try:
                     compressed_req = client.compress_context(
                         requirement,
@@ -239,55 +263,70 @@ class LegacyGenerationJsonMixin:
         if isinstance(analysis_result, dict):
             strategy_plan = analysis_result
         else:
-            # 中文注释：防御式兜底，元分析异常时仍继续主生成链路。
+            # 中文注释：元分析异常时使用默认策略，避免中断主链路。
             strategy_plan = self._default_strategy_plan()
-        system_type = strategy_plan.get("system_type", "Unknown")
-        ratios = strategy_plan.get("suggested_ratios", {})
-        focus_areas = strategy_plan.get("focus_areas", [])
-        
-        # Helper to safely format percentage
-        def safe_pct(val):
-            try:
-                return f"{float(val):.0%}"
-            except:
-                return "0%"
-
-        strategy_instruction = f"""
-        STRATEGIC PLANNING (Meta-Analysis Result):
-        - Detected System Type: {system_type}
-        - Focus Areas: {', '.join(focus_areas)}
-        - Target Ratios: Functional {safe_pct(ratios.get('functional', 0.6))}, Regression {safe_pct(ratios.get('regression', 0.2))}, Non-Functional {safe_pct(ratios.get('non_functional', 0.2))}.
-        
-        INSTRUCTION:
-        Adjust your test case generation to align with these ratios and focus areas.
-        """
+        prompt_context = build_structured_prompt_context(
+            requirement=requirement or "",
+            kb_context=kb_context or "",
+            rag_result=(context_result or {}).get("rag_result") if isinstance(context_result, dict) else None,
+            existing_cases=[],
+            current_biz_key=current_biz_key,
+            only_current_biz=bool(only_current_biz),
+        )
+        resolved_current_biz = str(prompt_context.get("current_biz_key") or "unknown")
         base_prompt = build_closed_loop_base_prompt(
             strategy_plan,
+            requirement_context=prompt_context.get("requirement_context") or "",
+            testcase_context=prompt_context.get("testcase_context") or "(empty)",
+            supplement_context=prompt_context.get("supplement_context") or "(empty)",
+            current_biz_key=resolved_current_biz,
             doc_type=doc_type,
             pretty_json=False,
         )
+        # 中文注释：在模型调用前输出 biz_key 隔离诊断，便于日志面板观察。
+        if self._is_active_db_session(db):
+            try:
+                isolation_payload = dict(prompt_context.get("biz_key_isolation_log") or {})
+                if isolation_payload:
+                    isolation_payload.update(
+                        {
+                            "project_id": int(project_id),
+                            "request_id": request_id,
+                            "source": "generate_test_cases_json",
+                        }
+                    )
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            user_id=user_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(isolation_payload, ensure_ascii=False)}",
+                        )
+                    )
+                    db.commit()
+            except Exception as e:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                print(f"Failed to emit biz key isolation log(json): {e}")
 
         # Calculate start number for IDs based on batch index
         start_id = batch_index * batch_size + 1
-        
+        stage_logs: list[dict[str, Any]] = []
+        coverage_check_payload: dict[str, Any] | None = None
+        raw_response_payload: Any = ""
+
         system_prompt = f"""
-        {base_prompt}
-        
-        Reference Knowledge (Use this style/info if relevant):
-        {kb_context}
-        
-        The JSON should be a list of objects with keys: id, description, test_module, preconditions, steps, test_input, expected_result, priority.
-        - test_module: Explain which area/module this test case belongs to (e.g., Login, User Management, Payment).
-        - test_input: Describe the input actions or data changes in the steps. Explicitly mention if a value is a Boundary Value or Invalid Equivalence Class.
-        - description: Include the specific scenario being tested (e.g., "Verify login with empty password" or "Verify age input at boundary 18").
-        
-        BATCH GENERATION INSTRUCTION (workflow-first):
-        This is batch #{batch_index + 1}.
-        Start the Test Case IDs from {start_id} (e.g., TC-{start_id:03d}).
-        Target this batch size: about {batch_size} cases.
-        Prioritize completing the current module closed-loop first; do not cross-module jump for count balancing.
-        Return ONLY the JSON array.
-        """
+{base_prompt}
+
+BATCH GENERATION INSTRUCTION (workflow-first):
+This is batch #{batch_index + 1}.
+Start the Test Case IDs from {start_id} (e.g., TC-{start_id:03d}).
+Target this batch size: about {batch_size} cases.
+Prioritize completing the current module closed-loop first; do not cross-module jump for count balancing.
+Return ONLY the JSON array.
+"""
         self._emit_final_context_trace(
             db=db,
             project_id=project_id,
@@ -299,29 +338,117 @@ class LegacyGenerationJsonMixin:
             abort_code="",
             compressed_chars=len(kb_context or ""),
         )
-        response = client.generate_response(
-            requirement,
-            system_prompt,
-            db=db,
-            task_type="generation",
-        )
-        
-        # ... rest of function using response ...
-        result = finalize_generated_cases(
-            response,
-            start_id=start_id,
-            clean_and_parse_json_fn=clean_and_parse_json,
-            normalize_json_structure_fn=normalize_json_structure,
-            deduplicate_test_cases_fn=deduplicate_test_cases,
-            reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
-        )
+        normalized_generation_mode = str(generation_mode or "").strip().lower()
+        use_pipeline = bool(multi_pass) or normalized_generation_mode in {
+            "single_pass",
+            "multi_pass",
+            "biz_key_multi_pass",
+        }
+        if use_pipeline:
+            # 中文注释：统一由 pipeline 根据 generation_mode 决定生成策略。
+            multi_pass_result = run_multi_pass_generation(
+                client=client,
+                requirement=requirement,
+                db=db,
+                base_prompt=system_prompt,
+                requirement_context=prompt_context.get("requirement_context") or requirement,
+                current_biz_key=resolved_current_biz,
+                expected_count=int(expected_count or batch_size or 1),
+                start_id=start_id,
+                clean_and_parse_json_fn=clean_and_parse_json,
+                normalize_json_structure_fn=normalize_json_structure,
+                deduplicate_test_cases_fn=deduplicate_test_cases,
+                reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+                multi_pass=bool(multi_pass),
+                generation_mode=generation_mode,
+                prompt_context=prompt_context,
+                build_base_prompt_fn=lambda req_ctx, tc_ctx, sup_ctx, biz_key: build_closed_loop_base_prompt(
+                    strategy_plan,
+                    requirement_context=req_ctx,
+                    testcase_context=tc_ctx,
+                    supplement_context=sup_ctx,
+                    current_biz_key=biz_key,
+                    doc_type=doc_type,
+                    pretty_json=False,
+                ),
+            )
+            result = multi_pass_result.get("final_cases") or []
+            stage_logs = list(multi_pass_result.get("stage_logs") or [])
+            coverage_check_payload = dict(multi_pass_result.get("coverage") or {})
+            raw_response_payload = multi_pass_result.get("raw") or {}
+        else:
+            response = client.generate_response(
+                requirement,
+                system_prompt,
+                db=db,
+                task_type="generation",
+            )
+            raw_response_payload = response
+            result = finalize_generated_cases(
+                response,
+                start_id=start_id,
+                clean_and_parse_json_fn=clean_and_parse_json,
+                normalize_json_structure_fn=normalize_json_structure,
+                deduplicate_test_cases_fn=deduplicate_test_cases,
+                reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+            )
+            stage_logs = [
+                {"kind": "generation_mode", "mode": "single_pass", "biz_keys": [resolved_current_biz], "current_biz_key": resolved_current_biz},
+                {"kind": "generation_stage", "stage": "primary", "case_count": len(result) if isinstance(result, list) else 0},
+                {"kind": "generation_stage", "stage": "gap", "case_count": 0},
+                {"kind": "generation_stage", "stage": "review", "case_count": len(result) if isinstance(result, list) else 0},
+            ]
+            if isinstance(result, list):
+                coverage_check_payload = {
+                    "kind": "coverage_check",
+                    **analyze_coverage(prompt_context.get("requirement_context") or requirement, result),
+                }
             
         # Save to DB if session provided
         if db:
             try:
+                if self._is_active_db_session(db):
+                    for stage_log in stage_logs:
+                        payload = dict(stage_log)
+                        payload.update(
+                            {
+                                "request_id": request_id,
+                                "multi_pass": bool(multi_pass),
+                                "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                            }
+                        )
+                        db.add(
+                            LogEntry(
+                                project_id=project_id,
+                                user_id=user_id,
+                                log_type="system",
+                                message=f"GEN_DIAG:{json.dumps(payload, ensure_ascii=False)}",
+                            )
+                        )
+                    if coverage_check_payload:
+                        coverage_payload = dict(coverage_check_payload)
+                        coverage_payload.update(
+                            {
+                                "request_id": request_id,
+                                "multi_pass": bool(multi_pass),
+                                "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                            }
+                        )
+                        db.add(
+                            LogEntry(
+                                project_id=project_id,
+                                user_id=user_id,
+                                log_type="system",
+                                message=f"GEN_DIAG:{json.dumps(coverage_payload, ensure_ascii=False)}",
+                            )
+                        )
+                    db.commit()
+
                 db_entry = TestGeneration(
                     requirement_text=original_requirement,
-                    generated_result=json.dumps(result, ensure_ascii=False) if not "error" in result else json.dumps({"error": result, "raw": response}, ensure_ascii=False),
+                    generated_result=json.dumps(result, ensure_ascii=False)
+                    if not (isinstance(result, dict) and ("error" in result))
+                    else json.dumps({"error": result, "raw": raw_response_payload}, ensure_ascii=False),
                     project_id=project_id,
                     user_id=user_id
                 )
@@ -367,16 +494,39 @@ class LegacyGenerationJsonMixin:
                  
         return result
 
-    def generate_test_cases_excel(self, requirement: str, project_id: int, db: Session = None, doc_type: str = "requirement", compress: bool = False, user_id: int = None) -> bytes:
+    def generate_test_cases_excel(
+        self,
+        requirement: str,
+        project_id: int,
+        db: Session = None,
+        doc_type: str = "requirement",
+        compress: bool = False,
+        user_id: int = None,
+        current_biz_key: str = "",
+        only_current_biz: bool = False,
+        multi_pass: bool = True,
+        generation_mode: str = "",
+    ) -> bytes:
         # Generate test cases in JSON format
-        json_result = self.generate_test_cases_json(requirement, project_id, db, doc_type, compress, user_id=user_id)
+        json_result = self.generate_test_cases_json(
+            requirement,
+            project_id,
+            db,
+            doc_type,
+            compress,
+            user_id=user_id,
+            current_biz_key=current_biz_key,
+            only_current_biz=only_current_biz,
+            multi_pass=multi_pass,
+            generation_mode=generation_mode,
+        )
         
         return self.convert_json_to_excel(json_result)
 
     def convert_json_to_excel(self, json_data: list | dict) -> bytes:
         """
-        导出入口保持原方法签名，内部委托给组件实现。
+        瀵煎嚭鍏ュ彛淇濇寔鍘熸柟娉曠鍚嶏紝鍐呴儴濮旀墭缁欑粍浠跺疄鐜般€?
 
-        这样可避免路由层调用路径变化，同时让导出逻辑与生成编排逻辑解耦。
+        杩欐牱鍙伩鍏嶈矾鐢卞眰璋冪敤璺緞鍙樺寲锛屽悓鏃惰瀵煎嚭閫昏緫涓庣敓鎴愮紪鎺掗€昏緫瑙ｈ€︺€?
         """
         return _convert_json_to_excel_adapter(json_data)

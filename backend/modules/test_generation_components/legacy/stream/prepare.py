@@ -32,6 +32,10 @@ class LegacyGenerationStreamPrepareMixin:
         overwrite: bool = False,
         append: bool = False,
         user_id: int | None = None,
+        current_biz_key: str = "",
+        only_current_biz: bool = False,
+        multi_pass: bool = True,
+        generation_mode: str = "",
     ) -> Iterator[dict[str, Any]]:
         # Get client for user
         client = get_client_for_user(user_id, db)
@@ -316,5 +320,9 @@ class LegacyGenerationStreamPrepareMixin:
             "existing_entry": existing_entry,
             "context_result": context_result,
             "gate_debug": gate_debug,
+            "current_biz_key": str(current_biz_key or ""),
+            "only_current_biz": bool(only_current_biz),
+            "multi_pass": bool(multi_pass),
+            "generation_mode": str(generation_mode or "").strip().lower(),
         }
 

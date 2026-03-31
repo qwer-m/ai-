@@ -95,6 +95,10 @@ async def generate_tests_stream(
     expected_count: int = Form(20),
     force: bool = Form(False),
     append: bool = Form(False),
+    current_biz_key: str = Form(""),
+    only_current_biz: bool = Form(False),
+    multi_pass: bool = Form(True),
+    generation_mode: str = Form(""),
     requirement_text: str = Form(""),
     file: UploadFile | None = File(None),
     prototype_file: UploadFile | None = File(None),
@@ -138,6 +142,10 @@ async def generate_tests_stream(
         overwrite=force,
         append=append,
         user_id=current_user.id,
+        current_biz_key=current_biz_key,
+        only_current_biz=only_current_biz,
+        multi_pass=multi_pass,
+        generation_mode=generation_mode,
     )
 
     def guarded_stream():
@@ -201,6 +209,10 @@ def generate_tests(
         request.batch_size,
         request.batch_index,
         user_id=current_user.id,
+        current_biz_key=request.current_biz_key,
+        only_current_biz=request.only_current_biz,
+        multi_pass=request.multi_pass,
+        generation_mode=request.generation_mode,
     )
     try:
         count = len(result) if isinstance(result, list) else 0
@@ -218,6 +230,7 @@ def generate_tests(
             "model": settings.MODEL_NAME,
             "max_tokens": settings.MAX_TOKENS,
             "batch_index": request.batch_index,
+            "generation_mode": request.generation_mode or ("multi_pass" if request.multi_pass else "single_pass"),
         }
         log_to_db(db, request.project_id, "system", f"GEN_DIAG:{json.dumps(diag, ensure_ascii=False)}", user_id=current_user.id)
         try:
@@ -248,6 +261,10 @@ async def generate_tests_async(
         batch_index=request.batch_index,
         batch_size=request.batch_size,
         user_id=current_user.id,
+        current_biz_key=request.current_biz_key,
+        only_current_biz=request.only_current_biz,
+        multi_pass=request.multi_pass,
+        generation_mode=request.generation_mode,
     )
     return {"task_id": task.id, "status": "PENDING", "message": "Task submitted successfully"}
 
@@ -262,6 +279,10 @@ async def generate_tests_from_file(
     expected_count: int = Form(20),
     force: bool = Form(False),
     append: bool = Form(False),
+    current_biz_key: str = Form(""),
+    only_current_biz: bool = Form(False),
+    multi_pass: bool = Form(True),
+    generation_mode: str = Form(""),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -300,6 +321,10 @@ async def generate_tests_from_file(
             20,
             0,
             current_user.id,
+            current_biz_key,
+            only_current_biz,
+            multi_pass,
+            generation_mode,
         )
         try:
             count = len(result) if isinstance(result, list) else 0
@@ -317,6 +342,7 @@ async def generate_tests_from_file(
                 "prototype_included": bool(prototype_file),
                 "model": settings.MODEL_NAME,
                 "max_tokens": settings.MAX_TOKENS,
+                "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
             }
             log_to_db(db, project_id, "system", f"GEN_DIAG:{json.dumps(diag, ensure_ascii=False)}", user_id=current_user.id)
             try:
@@ -341,6 +367,10 @@ async def generate_tests_from_file_async(
     expected_count: int = Form(20),
     force: bool = Form(False),
     append: bool = Form(False),
+    current_biz_key: str = Form(""),
+    only_current_biz: bool = Form(False),
+    multi_pass: bool = Form(True),
+    generation_mode: str = Form(""),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -368,6 +398,10 @@ async def generate_tests_from_file_async(
             compress=compress,
             expected_count=expected_count,
             user_id=current_user.id,
+            current_biz_key=current_biz_key,
+            only_current_biz=only_current_biz,
+            multi_pass=multi_pass,
+            generation_mode=generation_mode,
         )
         return {
             "task_id": task.id,

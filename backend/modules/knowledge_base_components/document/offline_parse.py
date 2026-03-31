@@ -14,6 +14,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from core.cache_layer.chroma_client import chroma_client
+from core.processing.biz_key_extractor import extract_biz_key
+from core.processing.business_chunking import BusinessChunkerDispatcher, Chunk
 from core.processing.file_processing import parse_file_path
 from core.db.models import KnowledgeDocument
 from modules.knowledge_base_components.document.document_ops import INDEXABLE_DOC_TYPES
@@ -25,6 +27,44 @@ from modules.knowledge_base_components.document.offline_parse_support import (
 
 logger = logging.getLogger(__name__)
 OFFLINE_UPLOAD_DIR = Path(__file__).resolve().parents[2] / "runtime" / "knowledge_uploads"
+
+
+def _to_chroma_chunk_payloads(
+    chunks: list[Chunk],
+    *,
+    default_module: str | None,
+    default_biz_key: str,
+) -> list[dict]:
+    """将业务分块结果转换为 Chroma add_document 可消费的结构。"""
+    payloads: list[dict] = []
+    for item in chunks:
+        chunk_text = str(getattr(item, "text", "") or "").strip()
+        if not chunk_text:
+            continue
+        module_value = str(getattr(item, "module", "") or "").strip() or default_module
+        biz_key_value = str(getattr(item, "biz_key", "") or "").strip() or default_biz_key
+        requirement_id = str(getattr(item, "requirement_id", "") or "").strip() or None
+        test_case_id = str(getattr(item, "test_case_id", "") or "").strip() or None
+
+        related_ids: list[str] = []
+        if requirement_id:
+            related_ids.append(requirement_id)
+        if test_case_id:
+            related_ids.append(test_case_id)
+
+        payloads.append(
+            {
+                "chunk_text": chunk_text,
+                "metadata": {
+                    "module": module_value,
+                    "biz_key": biz_key_value,
+                    "requirement_id": requirement_id,
+                    "test_case_id": test_case_id,
+                    "related_ids": related_ids,
+                },
+            }
+        )
+    return payloads
 
 
 def _build_storage_name(filename: str) -> str:
@@ -234,6 +274,27 @@ def parse_document_offline_impl(
         # 幂等策略：写入前先删除旧索引，避免重复分块积累。
         chroma_client.delete_document(str(doc.id), raise_on_error=True)
         chroma_client.delete_document(f"{doc.id}_summary", raise_on_error=True)
+        dispatcher = BusinessChunkerDispatcher()
+        raw_chunk_objects = dispatcher.chunk(str(doc.doc_type or ""), content)
+        if not raw_chunk_objects:
+            raw_chunk_objects = [Chunk(text=content)]
+
+        module_hint = next((str(c.module).strip() for c in raw_chunk_objects if getattr(c, "module", None)), None)
+        module_hint = module_hint or None
+        doc_biz_key = extract_biz_key(content, module_hint or "")
+        raw_chunks = _to_chroma_chunk_payloads(
+            raw_chunk_objects,
+            default_module=module_hint,
+            default_biz_key=doc_biz_key,
+        )
+        logger.debug(
+            "offline_parse_chunking doc_id=%s doc_type=%s raw_chunks=%s module=%s biz_key=%s",
+            doc.id,
+            doc.doc_type,
+            len(raw_chunks),
+            module_hint,
+            doc_biz_key,
+        )
         chroma_client.add_document(
             doc_id=str(doc.id),
             content=content,
@@ -243,12 +304,26 @@ def parse_document_offline_impl(
                 "filename": doc.filename,
                 "doc_id": doc.id,
                 "user_id": doc.user_id,
+                "module": module_hint,
+                "biz_key": doc_biz_key,
+                "requirement_id": None,
+                "test_case_id": None,
+                "source_doc_name": doc.filename,
                 "is_summary": False,
             },
+            chunks=raw_chunks,
             raise_on_error=True,
         )
         indexed_raw = True
         if summary and summary != content:
+            summary_chunk_objects = dispatcher.chunk(str(doc.doc_type or ""), summary)
+            if not summary_chunk_objects:
+                summary_chunk_objects = [Chunk(text=summary, module=module_hint, biz_key=doc_biz_key)]
+            summary_chunks = _to_chroma_chunk_payloads(
+                summary_chunk_objects,
+                default_module=module_hint,
+                default_biz_key=doc_biz_key,
+            )
             chroma_client.add_document(
                 doc_id=f"{doc.id}_summary",
                 content=summary,
@@ -258,8 +333,14 @@ def parse_document_offline_impl(
                     "filename": f"{doc.filename} (Summary)",
                     "doc_id": doc.id,
                     "user_id": doc.user_id,
+                    "module": module_hint,
+                    "biz_key": doc_biz_key,
+                    "requirement_id": None,
+                    "test_case_id": None,
+                    "source_doc_name": doc.filename,
                     "is_summary": True,
                 },
+                chunks=summary_chunks,
                 raise_on_error=True,
             )
             indexed_summary = True

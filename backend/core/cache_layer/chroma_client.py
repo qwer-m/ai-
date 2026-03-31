@@ -1,6 +1,7 @@
 ﻿import logging
 import os
 import shutil
+import json
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
@@ -26,6 +27,77 @@ os.environ.setdefault("CHROMA_TELEMETRY_IMPL", "core.cache_layer.chroma_telemetr
 logger = logging.getLogger(__name__)
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CHROMA_PATH = BACKEND_ROOT / "chroma_db"
+DEFAULT_EMBED_BATCH_SIZE = max(1, int(os.getenv("DASHSCOPE_EMBED_BATCH_SIZE", "25")))
+DEFAULT_EMBED_MAX_CHARS = max(128, min(2048, int(os.getenv("DASHSCOPE_EMBED_MAX_CHARS", "2000"))))
+
+
+def _normalize_metadata_value(value):
+    """把 metadata 值归一化为 Chroma 支持的标量类型。"""
+    if value is None:
+        return None
+    if isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (list, tuple, set, dict)):
+        try:
+            return json.dumps(value, ensure_ascii=False)
+        except Exception:
+            return str(value)
+    return str(value)
+
+
+def _sanitize_metadata(metadata: dict) -> dict:
+    """过滤/归一化 metadata，避免 None 或复杂类型导致入库失败。"""
+    clean: dict = {}
+    for key, value in (metadata or {}).items():
+        normalized = _normalize_metadata_value(value)
+        if normalized is None:
+            continue
+        clean[key] = normalized
+    return clean
+
+
+def _iter_batches(items: list, batch_size: int):
+    """按固定大小分批迭代。"""
+    size = max(1, int(batch_size))
+    for i in range(0, len(items), size):
+        yield items[i : i + size]
+
+
+def _split_text_for_embedding_limit(text: str, max_chars: int = DEFAULT_EMBED_MAX_CHARS) -> list[str]:
+    """
+    保障单条 embedding 输入不超过长度上限。
+
+    先尝试语义切分；若仍超长则按字符硬切，避免 DashScope 报参数长度错误。
+    """
+    normalized = str(text or "").strip()
+    if not normalized:
+        return []
+    if len(normalized) <= max_chars:
+        return [normalized]
+
+    semantic_parts = split_semantic_text(
+        text=normalized,
+        max_chars=max_chars,
+        min_chars=max(80, int(max_chars * 0.2)),
+    )
+    result: list[str] = []
+    for part in semantic_parts:
+        chunk = str(part or "").strip()
+        if not chunk:
+            continue
+        if len(chunk) <= max_chars:
+            result.append(chunk)
+            continue
+        # 中文注释：兜底硬切，确保每一段都满足 API 最大长度限制。
+        for i in range(0, len(chunk), max_chars):
+            piece = chunk[i : i + max_chars].strip()
+            if piece:
+                result.append(piece)
+
+    if result:
+        return result
+
+    return [normalized[i : i + max_chars] for i in range(0, len(normalized), max_chars) if normalized[i : i + max_chars].strip()]
 
 
 def _resolve_persist_path(persist_path: str | None) -> Path:
@@ -79,18 +151,34 @@ class DashScopeEmbeddingFunction(EmbeddingFunction):
             return []
 
         try:
-            # 调用 DashScope 文本向量接口
-            resp = dashscope.TextEmbedding.call(
-                model=dashscope.TextEmbedding.Models.text_embedding_v1,
-                input=input,
-                api_key=self.api_key,
-            )
-            if resp.status_code == HTTPStatus.OK:
-                return [item["embedding"] for item in resp.output["embeddings"]]
+            texts = [str(item or "") for item in input]
+            embeddings: list[list[float]] = []
+            total = len(texts)
 
-            logger.error("DashScope Embedding Error: %s", resp)
-            # 这里直接抛错，交给上层重试或降级处理
-            raise Exception(f"DashScope Embedding Error: {resp.message}")
+            for batch_index, batch in enumerate(_iter_batches(texts, DEFAULT_EMBED_BATCH_SIZE), start=1):
+                resp = dashscope.TextEmbedding.call(
+                    model=dashscope.TextEmbedding.Models.text_embedding_v1,
+                    input=batch,
+                    api_key=self.api_key,
+                )
+                if resp.status_code != HTTPStatus.OK:
+                    logger.error(
+                        "DashScope Embedding Error on batch=%s size=%s/%s: %s",
+                        batch_index,
+                        len(batch),
+                        total,
+                        resp,
+                    )
+                    raise Exception(f"DashScope Embedding Error: {resp.message}")
+
+                batch_embeddings = [item["embedding"] for item in resp.output["embeddings"]]
+                if len(batch_embeddings) != len(batch):
+                    raise Exception(
+                        f"DashScope Embedding Error: batch size mismatch, expected={len(batch)} actual={len(batch_embeddings)}"
+                    )
+                embeddings.extend(batch_embeddings)
+
+            return embeddings
         except Exception as e:
             logger.error("Embedding failed: %s", e)
             raise e
@@ -162,41 +250,119 @@ class ChromaClient:
         doc_id: str,
         content: str,
         metadata: dict | None = None,
+        chunks: list[dict] | None = None,
         raise_on_error: bool = False,
     ):
         """
         将文档写入向量库。
 
-        当前采用“语义优先 + 长度兜底”的分块策略：
-        - 优先按段落/句子边界聚合
-        - 每块不超过 2000 字符
-        - 每块一个向量ID（doc_id_序号）
-        - metadata 内强制写入 doc_id，便于后续按文档删除
+        分块写入策略：
+        - 若传入 chunks：直接使用业务分块结果（每项可携带 chunk 级 metadata）；
+        - 若未传入 chunks：退回语义分块兜底（向后兼容旧调用）；
+        - metadata 内强制写入 doc_id，便于后续按文档删除。
         """
         if not self.collection:
             return
 
         try:
-            max_chars = 2000
-            chunks = split_semantic_text(
-                text=content or "",
-                max_chars=max_chars,
-                min_chars=max(120, int(max_chars * 0.2)),
-            )
-            if not chunks and content:
-                chunks = [str(content)[:max_chars]]
-            ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
+            chunk_payloads: list[tuple[str, dict]] = []
+            if chunks:
+                for item in chunks:
+                    if isinstance(item, dict):
+                        text = str(item.get("chunk_text") or item.get("text") or "").strip()
+                        chunk_meta = item.get("metadata") or {}
+                        if not isinstance(chunk_meta, dict):
+                            chunk_meta = {}
+                    else:
+                        text = str(item or "").strip()
+                        chunk_meta = {}
+                    if not text:
+                        continue
+                    chunk_payloads.append((text, dict(chunk_meta)))
+            else:
+                max_chars = 2000
+                semantic_chunks = split_semantic_text(
+                    text=content or "",
+                    max_chars=max_chars,
+                    min_chars=max(120, int(max_chars * 0.2)),
+                )
+                if not semantic_chunks and content:
+                    semantic_chunks = [str(content)[:max_chars]]
+                chunk_payloads = [(chunk_text, {}) for chunk_text in semantic_chunks if str(chunk_text or "").strip()]
+
+            if not chunk_payloads:
+                return
+
+            normalized_payloads: list[tuple[str, dict]] = []
+            for chunk_text, chunk_meta in chunk_payloads:
+                # 中文注释：保证每个 chunk 都满足 embedding 最大长度限制。
+                parts = _split_text_for_embedding_limit(chunk_text, max_chars=DEFAULT_EMBED_MAX_CHARS)
+                if len(parts) <= 1:
+                    if parts:
+                        normalized_payloads.append((parts[0], dict(chunk_meta or {})))
+                    continue
+
+                for part_index, part_text in enumerate(parts):
+                    extended_meta = dict(chunk_meta or {})
+                    extended_meta.setdefault("chunk_part_index", part_index)
+                    extended_meta.setdefault("chunk_part_total", len(parts))
+                    normalized_payloads.append((part_text, extended_meta))
+
+            chunk_payloads = normalized_payloads
+            if not chunk_payloads:
+                return
+
+            ids = [f"{doc_id}_{i}" for i in range(len(chunk_payloads))]
 
             base_metadata = metadata.copy() if metadata else {}
             # 兼容双索引：优先保留显式传入的“原文 doc_id”，避免被 summary 索引前缀覆盖。
             base_metadata["doc_id"] = str(base_metadata.get("doc_id") or doc_id)
-            metadatas = [dict(base_metadata) for _ in range(len(chunks))]
+            base_metadata = _sanitize_metadata(base_metadata)
+            chunk_total = len(chunk_payloads)
 
-            self.collection.add(documents=chunks, metadatas=metadatas, ids=ids)
+            documents: list[str] = []
+            metadatas: list[dict] = []
+            for idx, (chunk_text, chunk_meta) in enumerate(chunk_payloads):
+                merged = dict(base_metadata)
+                merged.update(chunk_meta or {})
+                merged["doc_id"] = str(merged.get("doc_id") or base_metadata["doc_id"])
+                merged.setdefault("chunk_index", idx)
+                merged.setdefault("chunk_total", chunk_total)
+                merged.setdefault("source_doc_name", merged.get("filename"))
+                # 中文注释：新元数据字段默认允许为空，保证历史调用不报错。
+                merged.setdefault("module", None)
+                merged.setdefault("biz_key", None)
+                merged.setdefault("requirement_id", None)
+                merged.setdefault("test_case_id", None)
+                merged = _sanitize_metadata(merged)
+                documents.append(chunk_text)
+                metadatas.append(merged)
+
+            self.collection.add(documents=documents, metadatas=metadatas, ids=ids)
+            logger.debug("chroma_add_document doc_id=%s chunk_total=%s", doc_id, chunk_total)
         except Exception as e:
             logger.error("Failed to add document to ChromaDB: %s", e)
             if raise_on_error:
                 raise
+
+    def search_by_metadata(
+        self,
+        where: dict,
+        n_results: int = 5,
+        raise_on_error: bool = False,
+    ):
+        """按 metadata 条件检索（用于关系扩召等场景）。"""
+        if not self.collection:
+            return {}
+
+        try:
+            # 中文注释：关系扩召需要“纯 metadata 匹配”，这里使用 get 避免 query 语义噪音。
+            return self.collection.get(where=where, include=["documents", "metadatas"], limit=max(1, int(n_results)))
+        except Exception as e:
+            logger.error("ChromaDB metadata search failed: %s", e)
+            if raise_on_error:
+                raise
+            return {}
 
     def search(
         self,

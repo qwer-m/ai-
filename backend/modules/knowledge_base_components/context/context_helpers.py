@@ -34,6 +34,25 @@ def _safe_float(value: object, default: float, min_value: float, max_value: floa
     return max(min_value, min(max_value, parsed))
 
 
+def _normalize_doc_types(value: object) -> list[str]:
+    """把 doc_type 过滤参数统一为字符串列表。"""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item.strip().lower() for item in value.split(",") if item.strip()]
+    if isinstance(value, (list, tuple, set)):
+        result: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            key = str(item or "").strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            result.append(key)
+        return result
+    return []
+
+
 def _normalize_retrieval_options(limit: int, retrieval_options: Optional[dict]) -> dict:
     """Normalize retrieval tuning options into a single dict."""
     opts = dict(retrieval_options or {})
@@ -49,6 +68,9 @@ def _normalize_retrieval_options(limit: int, retrieval_options: Optional[dict]) 
         "keyword_weight": _safe_float(opts.get("keyword_weight"), 0.25, 0.0, 3.0),
         "title_weight": _safe_float(opts.get("title_weight"), 0.15, 0.0, 3.0),
         "redundancy_threshold": _safe_float(opts.get("redundancy_threshold"), 0.88, 0.5, 0.99),
+        "doc_types": _normalize_doc_types(opts.get("doc_types")),
+        "enable_biz_key_expansion": bool(opts.get("enable_biz_key_expansion", True)),
+        "related_top_k": _safe_int(opts.get("related_top_k"), 5, 1, 20),
     }
 
 
@@ -63,6 +85,70 @@ def _format_context_chunks(chunks: list[dict]) -> str:
         doc_type = chunk.get("doc_type") or "Unknown"
         blocks.append(f"--- Relevant Knowledge: {filename} ({doc_type}) ---\n{text}")
     return "\n\n".join(blocks).strip() + ("\n\n" if blocks else "")
+
+
+def _prepare_rerank_candidates(chunks: list[dict]) -> tuple[list[dict], dict]:
+    """
+    在 rerank 前做最小结构体检，输出过滤统计。
+
+    设计说明：
+    - 仅过滤“结构不可用”候选（非 dict、缺失文本、空文本）；
+    - 缺分数与 metadata 异常仅记录，不阻断主流程，避免过度改变现有行为。
+    """
+    reasons = {
+        "missing_text": 0,
+        "missing_score": 0,
+        "invalid_metadata": 0,
+        "empty_content": 0,
+        "schema_incompatible": 0,
+    }
+    valid_chunks: list[dict] = []
+    total = len(chunks or [])
+
+    for raw in (chunks or []):
+        if not isinstance(raw, dict):
+            reasons["schema_incompatible"] += 1
+            continue
+
+        if "chunk_text" not in raw:
+            reasons["missing_text"] += 1
+            reasons["schema_incompatible"] += 1
+            continue
+
+        chunk_text = str(raw.get("chunk_text") or "")
+        if not chunk_text.strip():
+            reasons["empty_content"] += 1
+            continue
+
+        metadata = raw.get("metadata")
+        item = dict(raw)
+        if metadata is not None and not isinstance(metadata, dict):
+            reasons["invalid_metadata"] += 1
+            # 中文注释：metadata 非 dict 时归一化，避免下游访问异常。
+            item["metadata"] = {}
+
+        has_score = False
+        for key in ("final_score", "fusion_score", "rerank_score", "score", "vector_score"):
+            value = item.get(key)
+            if value is None:
+                continue
+            try:
+                float(value)
+                has_score = True
+                break
+            except Exception:
+                continue
+        if not has_score:
+            reasons["missing_score"] += 1
+
+        valid_chunks.append(item)
+
+    filtered_out = max(0, total - len(valid_chunks))
+    return valid_chunks, {
+        "input_candidate_count": int(total),
+        "filtered_out_count": int(filtered_out),
+        "filtered_out_reasons": reasons,
+    }
 
 
 def _run_retrieval_once(
@@ -87,19 +173,23 @@ def _run_retrieval_once(
         vector_weight=tuning["vector_weight"],
         keyword_weight=tuning["keyword_weight"],
         title_weight=tuning["title_weight"],
+        doc_types=tuning["doc_types"],
+        enable_biz_key_expansion=tuning["enable_biz_key_expansion"],
+        related_top_k=tuning["related_top_k"],
     )
     recalled_chunks = recall_result.get("chunks") or []
+    rerank_candidates, rerank_stage = _prepare_rerank_candidates(recalled_chunks)
 
     if tuning["enable_rerank"]:
         reranked_chunks = rerank_chunks(
-            chunks=recalled_chunks,
+            chunks=rerank_candidates,
             question=question,
             top_k=tuning["rerank_top_n"],
         )
     else:
         # Keep a score-based fallback when rerank is disabled.
         reranked_chunks = sorted(
-            recalled_chunks,
+            rerank_candidates,
             key=lambda x: float(x.get("fusion_score") or x.get("score") or 0.0),
             reverse=True,
         )[: tuning["rerank_top_n"]]
@@ -179,5 +269,6 @@ def _run_retrieval_once(
         "diversity_stats": diversity_stats,
         "retrieval_tuning": {**tuning, "min_docs_effective": effective_min_docs},
         "diverse_candidates": diverse_candidates,
+        "rerank_stage": rerank_stage,
     }
 

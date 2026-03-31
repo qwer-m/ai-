@@ -106,6 +106,12 @@ export function useEvaluationActions({
     e.target.value = '';
   };
 
+  const setCompareFile = (file: File | null) => {
+    resources.setFile(file);
+    resources.setLoadedCompareFilename('');
+    resources.setUploadedCompareFilename(file?.name || '');
+  };
+
   const handleSaveKnowledge = async (defectAnalysis: DefectAnalysis) => {
     if (!projectId) return alert('请先选择项目');
 
@@ -211,12 +217,14 @@ export function useEvaluationActions({
         setEvalModified(comparison.modified_test_case || '');
         setEvalResult(comparison.comparison_result || null);
         resources.setFile(null);
+        resources.setUploadedCompareFilename('');
         resources.setLoadedCompareFilename(comparison.source_filename || 'history_compare.txt');
         onLog('已从历史加载测试用例、对比内容与质量评估结果');
       } else {
         setEvalModified('');
         setEvalResult(null);
         resources.setFile(null);
+        resources.setUploadedCompareFilename('');
         resources.setLoadedCompareFilename('');
         const hint = bundle?.comparison_status === 'missing'
           ? '该历史记录暂无已保存的对比文件与质量评估结果，请先点击“开始评估质量”生成一次。'
@@ -251,6 +259,7 @@ export function useEvaluationActions({
       formData.append('project_id', String(projectId));
       if (resources.selectedGenerationId) formData.append('generation_id', String(resources.selectedGenerationId));
       if (resources.file) formData.append('file', resources.file);
+      if (resources.file?.name) resources.setUploadedCompareFilename(resources.file.name);
 
       const data = await compareTestCasesRequest(formData);
       setEvalResult(data.result || '');
@@ -396,6 +405,7 @@ export function useEvaluationActions({
     handleSaveKnowledge,
     handleSupplementPaste,
     handleSupplementFilesChange,
+    setCompareFile,
   };
 }
 

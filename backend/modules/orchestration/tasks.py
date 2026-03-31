@@ -52,6 +52,10 @@ def generate_test_cases_task(
     batch_index: int = 0,
     batch_size: int = 20,
     user_id: int = None,
+    current_biz_key: str = "",
+    only_current_biz: bool = False,
+    multi_pass: bool = True,
+    generation_mode: str = "",
 ):
     """异步生成测试用例。"""
     db = SessionLocal()
@@ -67,6 +71,10 @@ def generate_test_cases_task(
             batch_index=batch_index,
             batch_size=batch_size,
             user_id=user_id,
+            current_biz_key=current_biz_key,
+            only_current_biz=only_current_biz,
+            multi_pass=multi_pass,
+            generation_mode=generation_mode,
         )
         return result
     except Exception as e:

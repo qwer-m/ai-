@@ -81,9 +81,9 @@ export function Evaluation({
           selectedGenerationId={actions.selectedGenerationId}
           onSelectGenerationId={actions.setSelectedGenerationId}
           onLoadGenerationById={actions.loadGenerationById}
-          onFileChange={actions.setFile}
+          onFileChange={actions.setCompareFile}
+          uploadedCompareFilename={actions.uploadedCompareFilename}
           loadedCompareFilename={actions.loadedCompareFilename}
-          onClearLoadedCompareFilename={() => actions.setLoadedCompareFilename('')}
           onCompare={actions.compareTestCases}
           history={actions.history}
           showSupplement={actions.showSupplement}

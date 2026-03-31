@@ -225,6 +225,7 @@ def build_final_chunk_debug(chunks: list[dict]) -> list[dict]:
     for chunk in chunks:
         # 中文注释：融合检索调试里保留片段正文，便于前端直接预览。
         chunk_text = str(chunk.get("chunk_text") or "").strip()
+        metadata = chunk.get("metadata") if isinstance(chunk.get("metadata"), dict) else {}
         result.append(
             {
                 "chunk_id": chunk.get("chunk_id"),
@@ -242,6 +243,9 @@ def build_final_chunk_debug(chunks: list[dict]) -> list[dict]:
                 "doc_id": chunk.get("doc_id"),
                 "filename": chunk.get("filename"),
                 "doc_type": chunk.get("doc_type"),
+                # 中文注释：透传业务域元数据，供上层提示词做 biz_key/module 约束。
+                "biz_key": chunk.get("biz_key"),
+                "module": chunk.get("module") or metadata.get("module"),
                 "kept_reason": chunk.get("kept_reason"),
                 "selection_reason": chunk.get("selection_reason"),
                 "recall_routes": chunk.get("recall_routes") or [],

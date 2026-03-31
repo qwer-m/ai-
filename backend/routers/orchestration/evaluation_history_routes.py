@@ -1,5 +1,7 @@
 ﻿from __future__ import annotations
 
+import json
+import re
 from datetime import datetime
 from typing import Any, Optional
 
@@ -22,6 +24,119 @@ from routers.orchestration.evaluation_shared import (
 )
 
 router = APIRouter()
+
+
+def _normalize_metric_value(value: Any) -> Optional[float]:
+    """将指标值标准化到 0~1 区间，无法解析时返回 None。"""
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.endswith("%"):
+            try:
+                return max(0.0, min(1.0, float(text[:-1]) / 100.0))
+            except ValueError:
+                return None
+        try:
+            value = float(text)
+        except ValueError:
+            return None
+
+    if not isinstance(value, (int, float)):
+        return None
+
+    number = float(value)
+    if number > 1.0 and number <= 100.0:
+        number = number / 100.0
+    if number < 0:
+        return 0.0
+    if number > 1:
+        return 1.0
+    return round(number, 6)
+
+
+def _extract_first_json_object(raw_text: str) -> Optional[dict[str, Any]]:
+    """从文本中提取首个 JSON 对象，兼容 ```json 代码块。"""
+    if not raw_text:
+        return None
+
+    text = raw_text.strip()
+    block = re.search(r"```json\s*([\s\S]*?)\s*```", text, flags=re.IGNORECASE)
+    if not block:
+        block = re.search(r"```\s*([\s\S]*?)\s*```", text)
+    if block and block.group(1):
+        text = block.group(1).strip()
+
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch != "{":
+            continue
+        try:
+            payload, _ = decoder.raw_decode(text[i:])
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _pick_metric_value(candidates: dict[str, Any], keys: list[str]) -> Optional[float]:
+    for key in keys:
+        if key in candidates:
+            value = _normalize_metric_value(candidates.get(key))
+            if value is not None:
+                return value
+    return None
+
+
+def _extract_metrics_from_plain_text(raw_text: str) -> dict[str, Optional[float]]:
+    """JSON 不可用时，尝试从纯文本中兜底提取关键指标。"""
+    text = raw_text or ""
+    patterns = {
+        "precision": r"(?:precision|精准率|精确率)\s*[:：=]\s*([0-9]+(?:\.[0-9]+)?%?)",
+        "recall": r"(?:recall|召回率)\s*[:：=]\s*([0-9]+(?:\.[0-9]+)?%?)",
+        "f1_score": r"(?:f1(?:[_\s-]*score)?|f1分数|f1 分数)\s*[:：=]\s*([0-9]+(?:\.[0-9]+)?%?)",
+        "semantic_similarity": r"(?:semantic[_\s-]*similarity|相似度|语义相似度)\s*[:：=]\s*([0-9]+(?:\.[0-9]+)?%?)",
+    }
+    result: dict[str, Optional[float]] = {}
+    for key, pattern in patterns.items():
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        result[key] = _normalize_metric_value(match.group(1)) if match else None
+    return result
+
+
+def _extract_quality_metrics(raw_text: str) -> dict[str, Optional[float]]:
+    """
+    兼容历史数据格式，尽可能抽取评估趋势图需要的四个指标。
+    返回值统一包含四个 key，缺失时为 None。
+    """
+    fallback = _extract_metrics_from_plain_text(raw_text)
+    payload = _extract_first_json_object(raw_text)
+    if not payload:
+        return fallback
+
+    metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else payload
+    if not isinstance(metrics, dict):
+        return fallback
+
+    parsed = {
+        "precision": _pick_metric_value(metrics, ["precision", "Precision"]),
+        "recall": _pick_metric_value(metrics, ["recall", "Recall"]),
+        "f1_score": _pick_metric_value(metrics, ["f1_score", "f1", "F1", "f1Score"]),
+        "semantic_similarity": _pick_metric_value(
+            metrics,
+            ["semantic_similarity", "similarity", "semanticSimilarity", "语义相似度"],
+        ),
+    }
+
+    # 单个字段未取到时，回退到文本正则兜底，避免旧数据图表断裂。
+    for key, value in fallback.items():
+        if parsed.get(key) is None and value is not None:
+            parsed[key] = value
+    return parsed
 
 
 @router.get("/evaluation/history/{project_id}")
@@ -50,23 +165,39 @@ def get_evaluation_history(
         .all()
     )
 
-    history = [
-        {
-            "id": f"eval-{item.id}",
-            "type": "evaluation",
-            "created_at": item.created_at,
-            "preview": (item.evaluation_result or "")[:200],
-        }
-        for item in eval_items
-    ] + [
-        {
-            "id": f"compare-{item.id}",
-            "type": "comparison",
-            "created_at": item.created_at,
-            "preview": (item.comparison_result or "")[:200],
-        }
-        for item in compare_items
-    ]
+    history: list[dict[str, Any]] = []
+
+    for item in eval_items:
+        raw_result = item.evaluation_result or ""
+        metrics = _extract_quality_metrics(raw_result)
+        history.append(
+            {
+                "id": f"eval-{item.id}",
+                "type": "evaluation",
+                "created_at": item.created_at,
+                "preview": raw_result[:200],
+                "precision": metrics.get("precision"),
+                "recall": metrics.get("recall"),
+                "f1_score": metrics.get("f1_score"),
+                "semantic_similarity": metrics.get("semantic_similarity"),
+            }
+        )
+
+    for item in compare_items:
+        raw_result = item.comparison_result or ""
+        metrics = _extract_quality_metrics(raw_result)
+        history.append(
+            {
+                "id": f"compare-{item.id}",
+                "type": "comparison",
+                "created_at": item.created_at,
+                "preview": raw_result[:200],
+                "precision": metrics.get("precision"),
+                "recall": metrics.get("recall"),
+                "f1_score": metrics.get("f1_score"),
+                "semantic_similarity": metrics.get("semantic_similarity"),
+            }
+        )
     history.sort(key=lambda x: x["created_at"] or datetime.min, reverse=True)
     return {"history": history[:50]}
 
