@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { cleanStreamingContent } from '../../../test-generation/streamContent';
+import { useRagDebugStore } from '../../../test-generation/debug/debugStore';
 import { extractFirstJsonArray, getUniqueCaseCount } from './testGenerationCaseUtils';
 import { useTestGenerationFileHandlers } from './useTestGenerationFileHandlers';
 import { useTestGenerationGeneration } from './useTestGenerationGeneration';
@@ -32,6 +33,8 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   const fileInputRef = useRef<HTMLInputElement>(null);
   const protoInputRef = useRef<HTMLInputElement>(null);
   const uploadZoneRef = useRef<HTMLDivElement>(null);
+  const ingestDebugEvent = useRagDebugStore((s) => s.ingestDiag);
+  const resetDebugState = useRagDebugStore((s) => s.reset);
 
   const [mode, setMode] = useState<TestGenerationMode>(() => (readStoredString('tg_mode') as TestGenerationMode) || 'text');
   const [requirement, setRequirement] = useState(() => readStoredString(getProjectKey(projectId, 'tg_requirement')) || '');
@@ -74,6 +77,11 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   useEffect(() => {
     if (!isActive) setToastMsg(null);
   }, [isActive]);
+
+  useEffect(() => {
+    // 中文注释：项目切换或标签切换后，重置调试面板以避免串项目数据。
+    resetDebugState();
+  }, [projectId, isActive, resetDebugState]);
 
   useTestGenerationPersistence({
     projectId,
@@ -144,6 +152,8 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     onGenerated,
     onGenerationComplete,
     onError,
+    onDebugEvent: ingestDebugEvent,
+    onDebugReset: resetDebugState,
   });
 
   const resultActions = useTestGenerationResultActions({

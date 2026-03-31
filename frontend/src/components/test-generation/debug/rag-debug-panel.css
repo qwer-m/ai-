@@ -1,0 +1,38 @@
+.rag-debug-panel-root .rag-debug-card {
+  border-radius: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  background: #ffffff;
+}
+
+.rag-debug-panel-root .rag-debug-card .table > :not(caption) > * > * {
+  vertical-align: middle;
+}
+
+body.theme-dark .rag-debug-panel-root .rag-debug-card,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .rag-debug-card {
+  background: #111827;
+  border-color: rgba(71, 85, 105, 0.55);
+  color: #e5e7eb;
+}
+
+body.theme-dark .rag-debug-panel-root .rag-debug-muted,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .rag-debug-muted {
+  color: #94a3b8 !important;
+}
+
+body.theme-dark .rag-debug-panel-root .table,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .table {
+  color: #e5e7eb;
+}
+
+body.theme-dark .rag-debug-panel-root .table thead th,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .table thead th {
+  color: #cbd5e1;
+}
+
+body.theme-dark .rag-debug-panel-root .border,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .border {
+  border-color: rgba(71, 85, 105, 0.55) !important;
+}
+

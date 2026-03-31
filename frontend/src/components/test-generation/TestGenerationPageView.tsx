@@ -1,7 +1,9 @@
 ﻿import { Alert, Badge, ProgressBar } from 'react-bootstrap';
 import type { DragEvent, RefObject } from 'react';
+import { useState } from 'react';
 import { FaChartBar, FaExclamationCircle, FaPlay } from 'react-icons/fa';
 import { TestGenerationConfigSection } from './TestGenerationConfigSection';
+import { RagDebugPanel } from './debug/RagDebugPanel';
 import { TestGenerationFeedback } from './TestGenerationFeedback';
 import { TestGenerationInputSection } from './TestGenerationInputSection';
 import { TestGenerationResultSection } from './TestGenerationResultSection';
@@ -109,6 +111,8 @@ export function TestGenerationPageView({
   handleDuplicateCancel,
   handleDuplicateConfirm,
 }: TestGenerationPageViewProps) {
+  const [activeRuleId, setActiveRuleId] = useState<string | null>(null);
+
   return (
     <div className="test-generation-shell bento-grid h-100 align-content-start position-relative postman-theme">
       <TestGenerationFeedback
@@ -219,7 +223,11 @@ export function TestGenerationPageView({
         loading={loading}
         statsCount={statsCount}
         onCopy={handleCopyCurrent}
+        highlightRuleId={activeRuleId}
+        onClearHighlight={() => setActiveRuleId(null)}
       />
+
+      <RagDebugPanel className="col-span-12" activeRuleId={activeRuleId} onRuleClick={setActiveRuleId} />
     </div>
   );
 }

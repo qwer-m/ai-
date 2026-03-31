@@ -1,6 +1,7 @@
 ﻿import { useEffect } from 'react';
 import { api, getAuthHeaders } from '../../../../utils/api';
 import { cleanStreamingContent, parseMultipleJsonArrays } from '../../../test-generation/streamContent';
+import { parseGenDiagEvent } from '../../../test-generation/debug/diagParser';
 import type { TestGenerationMode } from '../../../test-generation/types';
 import {
   deduplicateStandardCases,
@@ -45,6 +46,8 @@ type Args = {
   onGenerated: (data: any) => void;
   onGenerationComplete?: () => void;
   onError?: (msg: string) => void;
+  onDebugEvent?: (event: unknown) => void;
+  onDebugReset?: () => void;
 };
 
 export function useTestGenerationGeneration({
@@ -80,6 +83,8 @@ export function useTestGenerationGeneration({
   onGenerated,
   onGenerationComplete,
   onError,
+  onDebugEvent,
+  onDebugReset,
 }: Args) {
   useEffect(() => {
     const estimate = async () => {
@@ -141,6 +146,9 @@ export function useTestGenerationGeneration({
     }
     const safeExpectedCount = Math.max(1, Math.floor(Number(targetVal) || 1));
     if (!appendMode && safeExpectedCount !== expectedCount) setExpectedCount(safeExpectedCount);
+
+    // 中文注释：每次新生成前重置调试面板状态，避免跨次污染。
+    onDebugReset?.();
 
     setLoading(true);
     setError(null);
@@ -205,6 +213,8 @@ export function useTestGenerationGeneration({
             const statusMsg = statusMatch[1].trim();
             setPollStatus(statusMsg);
             onLog(statusMsg);
+            const diagFromStatus = parseGenDiagEvent(statusMsg);
+            if (diagFromStatus) onDebugEvent?.(diagFromStatus);
             buffer = buffer.replace(statusMatch[0], '');
             continue;
           }
@@ -214,8 +224,10 @@ export function useTestGenerationGeneration({
             const rawMeta = contextDebugMatch[1].trim();
             buffer = buffer.replace(contextDebugMatch[0], '');
             try {
-              JSON.parse(rawMeta);
+              const parsedMeta = JSON.parse(rawMeta);
               onLog(`context_debug: ${rawMeta}`);
+              const diagFromContext = parseGenDiagEvent(parsedMeta) || parseGenDiagEvent(rawMeta);
+              if (diagFromContext) onDebugEvent?.(diagFromContext);
             } catch {
               onLog(`context_debug_parse_failed: ${rawMeta}`);
             }
@@ -255,6 +267,11 @@ export function useTestGenerationGeneration({
         if (flushText) {
           rawText += flushText;
           setCurrentStreamingContent(rawText);
+          // 中文注释：兼容 GEN_DIAG 被直接输出到流正文里的场景。
+          for (const line of flushText.split(/\r?\n/)) {
+            const diag = parseGenDiagEvent(line);
+            if (diag) onDebugEvent?.(diag);
+          }
         }
 
         if (Date.now() - lastParseTime > 500) {

@@ -130,10 +130,26 @@
   height: 38px;
 }
 
+.test-generation-highlight-mark {
+  background: #fde68a;
+  color: #92400e;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.test-generation-related-cases {
+  background: color-mix(in srgb, var(--ui-surface-muted) 70%, transparent);
+}
+
 body.theme-dark .test-generation-upload-zone,
 body.theme-dark .test-generation-requirement,
 body.theme-dark .test-generation-result-content {
   background: color-mix(in srgb, #0f172a 82%, transparent) !important;
+}
+
+body.theme-dark .test-generation-highlight-mark {
+  background: #854d0e;
+  color: #fef3c7;
 }
 
 body.theme-dark .test-generation-hint {
