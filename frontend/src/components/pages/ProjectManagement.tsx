@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useMemo } from 'react';
 import { Alert, Badge, Button, Form, InputGroup, Modal, Pagination, Table } from 'react-bootstrap';
-import { FaEdit, FaFolderOpen, FaPlus, FaSearch, FaTrash } from 'react-icons/fa';
+import { FaEdit, FaSearch, FaTrash } from 'react-icons/fa';
 import { api } from '../../utils/api';
 
 export type Project = {
@@ -19,9 +19,10 @@ type Props = {
   onRefresh: () => void;
   onSelectProject: (id: number) => void;
   onLog: (msg: string) => void;
+  openCreateSignal: number;
 };
 
-export function ProjectManagement({ projects, loading, error, onRefresh, onSelectProject, onLog }: Props) {
+export function ProjectManagement({ projects, loading, error, onRefresh, onSelectProject, onLog, openCreateSignal }: Props) {
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
@@ -127,6 +128,12 @@ export function ProjectManagement({ projects, loading, error, onRefresh, onSelec
     setCurrentPage(1);
   }, [searchTerm]);
 
+  useEffect(() => {
+    if (openCreateSignal > 0) {
+      openCreate();
+    }
+  }, [openCreateSignal]);
+
   const totalPages = Math.max(1, Math.ceil(filteredProjects.length / itemsPerPage));
   const currentProjects = filteredProjects.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
@@ -167,28 +174,11 @@ export function ProjectManagement({ projects, loading, error, onRefresh, onSelec
 
   return (
     <div className="bento-grid h-100 align-content-start project-page-shell">
-      <div className="bento-card col-span-12 p-4 d-flex flex-wrap align-items-center justify-content-between gap-3 project-page-header">
-        <div className="d-flex align-items-center gap-3">
-          <div className="project-page-icon">
-            <FaFolderOpen size={18} />
-          </div>
-          <div>
-            <h4 className="mb-1 fw-bold">项目管理</h4>
-            <div className="small text-muted">
-              {loading ? '项目数据加载中...' : `共 ${projects.length} 个项目`}
-            </div>
-          </div>
-        </div>
-
-        <div className="d-flex flex-wrap align-items-center gap-2 project-page-actions">
-          <InputGroup className="project-search-box">
-            <InputGroup.Text><FaSearch /></InputGroup.Text>
-            <Form.Control value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="搜索项目名称或描述" />
-          </InputGroup>
-          <Button className="btn-pro-primary d-flex align-items-center gap-2" onClick={openCreate}>
-            <FaPlus /> 新建项目
-          </Button>
-        </div>
+      <div className="bento-card col-span-12 d-flex align-items-center justify-content-end gap-3 project-page-header">
+        <InputGroup className="project-search-box">
+          <InputGroup.Text><FaSearch /></InputGroup.Text>
+          <Form.Control value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="搜索项目名称或描述" />
+        </InputGroup>
       </div>
 
       {error ? (

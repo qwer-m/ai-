@@ -190,21 +190,21 @@ export function RagBatchEvalPanel({ projectId, onLog, datasets }: Props) {
         <span className="small text-muted ms-1">参数按层分组展示，先配基础项，再按需展开高级项</span>
       </div>
 
-      <div className="rag-report-block ui-section-card">
+      <div className="rag-report-block rag-report-block-base ui-section-card">
         <div className="ui-section-title">基础参数</div>
-        <div className="grid grid-cols-4 gap-3 rag-report-grid rag-report-grid-wide">
-          <Form.Group>
+        <div className="grid grid-cols-4 gap-3 rag-report-grid rag-report-grid-wide control-grid-lr">
+          <Form.Group className="control-field">
             <Form.Label className="small text-muted">数据集</Form.Label>
             <Form.Select value={datasetId ?? ''} onChange={(e) => setDatasetId(e.target.value ? Number(e.target.value) : null)}>
               <option value="">请选择</option>
               {datasets.map((d) => <option key={d.id} value={d.id}>#{d.id} {d.name} ({d.type})</option>)}
             </Form.Select>
           </Form.Group>
-          <Form.Group>
+          <Form.Group className="control-field">
             <Form.Label className="small text-muted">运行名称</Form.Label>
             <Form.Control value={runName} onChange={(e) => setRunName(e.target.value)} placeholder="可选，便于后续对比检索" />
           </Form.Group>
-          <Form.Group>
+          <Form.Group className="control-field">
             <Form.Label className="small text-muted">样本难度</Form.Label>
             <Form.Select value={config.dataset_selector.difficulty} onChange={(e) => setConfig((v) => ({ ...v, dataset_selector: { ...v.dataset_selector, difficulty: e.target.value as any } }))}>
               <option value="all">all</option>
@@ -213,22 +213,22 @@ export function RagBatchEvalPanel({ projectId, onLog, datasets }: Props) {
               <option value="hard">hard</option>
             </Form.Select>
           </Form.Group>
-          <Form.Group className="rag-col-span-2">
+          <Form.Group className="rag-col-span-2 control-field">
             <Form.Label className="small text-muted">标签过滤（逗号分隔）</Form.Label>
             <Form.Control value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} placeholder="billing,permission" />
           </Form.Group>
         </div>
 
-        <div className="grid grid-cols-4 gap-3 rag-report-grid rag-report-grid-wide mt-1">
-          <Form.Group>
+        <div className="grid grid-cols-4 gap-3 rag-report-grid rag-report-grid-wide mt-1 control-grid-lr">
+          <Form.Group className="control-field">
             <Form.Label className="small text-muted">原始召回 TopK</Form.Label>
             <Form.Control type="number" min={1} max={20} value={config.retrieval.top_k} onChange={(e) => setConfig((v) => ({ ...v, retrieval: { ...v.retrieval, top_k: Number(e.target.value) || 5 } }))} />
           </Form.Group>
-          <Form.Group>
+          <Form.Group className="control-field">
             <Form.Label className="small text-muted">重排保留 N</Form.Label>
             <Form.Control type="number" min={1} max={20} value={config.retrieval.rerank_top_n} onChange={(e) => setConfig((v) => ({ ...v, retrieval: { ...v.retrieval, rerank_top_n: Number(e.target.value) || 5 } }))} />
           </Form.Group>
-          <Form.Group>
+          <Form.Group className="control-field">
             <Form.Label className="small text-muted">检索模式</Form.Label>
             <Form.Select value={config.retrieval.retrieval_mode} onChange={(e) => setConfig((v) => ({ ...v, retrieval: { ...v.retrieval, retrieval_mode: e.target.value as any } }))}>
               <option value="vector">vector</option>
@@ -236,18 +236,18 @@ export function RagBatchEvalPanel({ projectId, onLog, datasets }: Props) {
               <option value="bm25">bm25</option>
             </Form.Select>
           </Form.Group>
-          <Form.Group>
+          <Form.Group className="control-field">
             <Form.Label className="small text-muted">上下文 Token 上限</Form.Label>
             <Form.Control type="number" min={128} max={8000} value={config.context.max_tokens} onChange={(e) => setConfig((v) => ({ ...v, context: { ...v.context, max_tokens: Number(e.target.value) || 1800 } }))} />
           </Form.Group>
-          <Form.Group className="rag-col-span-2">
+          <Form.Group className="rag-col-span-2 control-field">
             <Form.Label className="small text-muted">指定样本 ID（逗号分隔）</Form.Label>
             <Form.Control value={sampleIdsInput} onChange={(e) => setSampleIdsInput(e.target.value)} placeholder="12,13,14" />
           </Form.Group>
         </div>
       </div>
 
-      <div className="rag-report-block ui-section-card">
+      <div className="rag-report-block rag-report-block-advanced ui-section-card">
         <div className="ui-section-title-row">
           <div className="ui-section-title">高级参数</div>
           <Button size="sm" variant="outline-primary" onClick={() => setShowAdvanced((v) => !v)}>
@@ -268,12 +268,12 @@ export function RagBatchEvalPanel({ projectId, onLog, datasets }: Props) {
               <Form.Group><Form.Check label="仅评测未完成样本" checked={config.run_control.only_unfinished} onChange={(e) => setConfig((v) => ({ ...v, run_control: { ...v.run_control, only_unfinished: e.target.checked } }))} /></Form.Group>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 rag-report-grid rag-report-grid-wide">
-              <Form.Group>
+            <div className="grid grid-cols-3 gap-3 rag-report-grid rag-report-grid-wide control-grid-lr">
+              <Form.Group className="control-field">
                 <Form.Label className="small text-muted">样本范围</Form.Label>
                 <Form.Control value={config.run_control.sample_range} onChange={(e) => setConfig((v) => ({ ...v, run_control: { ...v.run_control, sample_range: e.target.value || 'all' } }))} placeholder="all 或 1-100" />
               </Form.Group>
-              <Form.Group>
+              <Form.Group className="control-field">
                 <Form.Label className="small text-muted">判定模式</Form.Label>
                 <Form.Select value={config.judge.answer_eval_mode} onChange={(e) => setConfig((v) => ({ ...v, judge: { ...v.judge, answer_eval_mode: e.target.value as any, faithfulness_eval_mode: e.target.value as any } }))}>
                   <option value="rule">rule</option>
@@ -286,7 +286,7 @@ export function RagBatchEvalPanel({ projectId, onLog, datasets }: Props) {
         </Collapse>
       </div>
 
-      <div className="rag-report-block ui-section-card">
+      <div className="rag-report-block rag-report-block-run ui-section-card">
         <div className="ui-section-title">评测执行</div>
         <div className="ui-actions-row rag-report-actions">
           <Button variant="primary" disabled={busy || runActive} onClick={() => void startRun()}>
@@ -311,9 +311,9 @@ export function RagBatchEvalPanel({ projectId, onLog, datasets }: Props) {
         ) : null}
       </div>
 
-      <div className="rag-report-block ui-section-card">
+      <div className="rag-report-block rag-report-block-samples ui-section-card">
         <div className="ui-section-title">样本结果</div>
-        <div className="table-responsive rag-report-table">
+        <div className="table-responsive rag-report-table scroll-table-lg">
           <Table striped bordered hover size="sm" className="mb-0">
             <thead>
               <tr>
@@ -387,7 +387,7 @@ export function RagBatchEvalPanel({ projectId, onLog, datasets }: Props) {
         </Collapse>
       </div>
 
-      <Modal show={Boolean(detailModal)} onHide={() => setDetailModal(null)} size="lg">
+      <Modal show={Boolean(detailModal)} onHide={() => setDetailModal(null)} size="lg" className="rag-detail-modal">
         <Modal.Header closeButton><Modal.Title>{detailModal?.title}</Modal.Title></Modal.Header>
         <Modal.Body><Form.Control as="textarea" rows={18} readOnly value={detailModal?.content || ''} /></Modal.Body>
       </Modal>

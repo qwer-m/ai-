@@ -1,7 +1,8 @@
-﻿import { Alert, Badge, ProgressBar } from 'react-bootstrap';
+﻿import { Alert } from 'react-bootstrap';
 import type { DragEvent, RefObject } from 'react';
 import { useState } from 'react';
-import { FaChartBar, FaExclamationCircle, FaPlay } from 'react-icons/fa';
+import { FaExclamationCircle } from 'react-icons/fa';
+import { InlineStatusBanner } from '../shared/InlineStatusBanner';
 import { TestGenerationConfigSection } from './TestGenerationConfigSection';
 import { RagDebugPanel } from './debug/RagDebugPanel';
 import { TestGenerationFeedback } from './TestGenerationFeedback';
@@ -114,7 +115,7 @@ export function TestGenerationPageView({
   const [activeRuleId, setActiveRuleId] = useState<string | null>(null);
 
   return (
-    <div className="test-generation-shell bento-grid h-100 align-content-start position-relative postman-theme">
+    <div className="test-generation-shell workbench-shell bento-grid h-100 align-content-start position-relative postman-theme">
       <TestGenerationFeedback
         toastMsg={toastMsg}
         toastType={toastType}
@@ -129,22 +130,6 @@ export function TestGenerationPageView({
         hideErrorAlert
         hideLoadingProgress
       />
-
-      <div className="test-generation-header bento-card col-span-12 p-4 d-flex align-items-center justify-content-between glass-panel">
-        <div>
-          <h4 className="text-gradient mb-1 d-flex align-items-center gap-2">
-            <FaPlay className="text-primary" size={20} />
-            测试用例生成中心
-          </h4>
-          <p className="text-secondary small mb-0">AI 驱动的测试设计引擎，支持文本需求和文件解析两种模式。</p>
-        </div>
-        <div className="d-flex gap-3">
-          <Badge bg="white" text="primary" className="border shadow-sm p-2 px-3 d-flex align-items-center gap-2">
-            <FaChartBar />
-            已生成 <span className="fw-bold">{statsCount}</span>
-          </Badge>
-        </div>
-      </div>
 
       <TestGenerationInputSection
         mode={mode}
@@ -190,29 +175,20 @@ export function TestGenerationPageView({
         hasOutput={Boolean(result || streamingContent)}
       />
       {loading ? (
-        <div className="col-span-12 animate-pulse">
-          <ProgressBar
-            animated
-            now={100}
-            label={<div className="test-generation-progress-label">{loadingStatus}</div>}
-            variant="info"
-            className="rounded-1 test-generation-progress"
-          />
-          <div className="text-center mt-2 text-muted small">AI 正在分析需求文档，请稍候...</div>
-        </div>
+        <InlineStatusBanner
+          className="col-span-12"
+          type="loading"
+          text={loadingStatus || 'AI 姝ｅ湪鍒嗘瀽闇€姹傛枃妗ｏ紝璇风◢鍊?..'}
+        />
       ) : null}
       {!loading && !error && loadingStatus ? (
-        <div className="col-span-12">
-          <Alert variant="light" className="shadow-sm border mb-0">
-            {loadingStatus}
-          </Alert>
-        </div>
+        <InlineStatusBanner className="col-span-12" type="info" text={loadingStatus} />
       ) : null}
       {error ? (
-        <div className="col-span-12">
-          <Alert variant="danger" dismissible onClose={() => setError(null)} className="shadow-sm border-0 mb-0">
-            <FaExclamationCircle className="me-2" /> {error}
-          </Alert>
+        <div className="col-span-12 d-flex flex-column gap-2">
+          <InlineStatusBanner type="error" text={error} />
+          <Alert variant="danger" dismissible onClose={() => setError(null)} className="shadow-sm border-0 mb-0 py-2">
+            <FaExclamationCircle className="me-2" /> 浣犲彲浠ユ鏌ユā鍨嬮厤缃€佺綉缁滀笌鏃ュ織鍚庨噸璇曘€?          </Alert>
         </div>
       ) : null}
 
@@ -231,5 +207,7 @@ export function TestGenerationPageView({
     </div>
   );
 }
+
+
 
 

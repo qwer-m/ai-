@@ -39,11 +39,10 @@ export function KnowledgeBaseToolbar({
   onSearch,
 }: KnowledgeBaseToolbarProps) {
   return (
-    <Card className="border-0 shadow-sm search-card knowledge-toolbar-card">
+    <Card className="border-0 shadow-sm search-card knowledge-toolbar-card panel-card">
       <Card.Body className="p-3">
-        <Row className="g-3 align-items-end">
+        <Row className="g-3 align-items-center">
           <Col md={3}>
-            <Form.Label className="small fw-bold text-secondary text-center w-100">上传文档 {isOnline ? '' : '(离线)'}</Form.Label>
             <InputGroup size="sm">
               <Form.Control
                 type="file"
@@ -55,7 +54,6 @@ export function KnowledgeBaseToolbar({
           </Col>
 
           <Col md={2}>
-            <Form.Label className="small fw-bold text-secondary text-center w-100">类型</Form.Label>
             <Form.Select
               size="sm"
               className="text-center"
@@ -75,7 +73,7 @@ export function KnowledgeBaseToolbar({
             <Button
               variant="primary"
               size="sm"
-              className="px-4 d-flex align-items-center justify-content-center"
+              className="px-4 d-flex align-items-center justify-content-center knowledge-upload-btn"
               onClick={onUpload}
               disabled={uploading || !projectId || !isOnline}
             >
@@ -86,7 +84,6 @@ export function KnowledgeBaseToolbar({
           <Col className="border-start ps-4">
             <Row className="g-2">
               <Col md={4}>
-                <Form.Label className="small fw-bold text-secondary text-center w-100">关键词</Form.Label>
                 <InputGroup size="sm">
                   <InputGroup.Text className="bg-transparent border-0 ps-2 pe-1 shadow-none">
                     <FaSearch />
@@ -103,11 +100,10 @@ export function KnowledgeBaseToolbar({
               <Col md={3} className="d-flex align-items-end">
                 <Form.Select
                   size="sm"
-                  className={`text-center ${filterDocType ? '' : 'text-muted'}`}
                   value={filterDocType}
                   onChange={(e) => setFilterDocType(e.target.value)}
                   aria-label="文档类型过滤"
-                  style={{ minWidth: '130px' }}
+                  className={`text-center knowledge-filter-select ${filterDocType ? '' : 'text-muted'}`}
                 >
                   <option value="">全部类别</option>
                   <option value="requirement">需求文档</option>
@@ -119,7 +115,6 @@ export function KnowledgeBaseToolbar({
               </Col>
 
               <Col md={3}>
-                <Form.Label className="small fw-bold text-secondary text-center w-100">日期范围</Form.Label>
                 <InputGroup size="sm">
                   <Form.Control
                     className="text-center"

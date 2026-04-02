@@ -77,3 +77,12 @@ export function findParentKeyByChild(items: DashboardNavItem[], childKey: string
   const parent = items.find((item) => item.children?.some((child) => child.key === childKey));
   return parent?.key ?? null;
 }
+
+export function getDashboardLabelByKey(items: DashboardNavItem[], key: string) {
+  for (const item of items) {
+    if (item.key === key) return item.label;
+    const child = item.children?.find((c) => c.key === key);
+    if (child) return child.label;
+  }
+  return key;
+}

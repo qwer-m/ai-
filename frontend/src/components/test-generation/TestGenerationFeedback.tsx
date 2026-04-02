@@ -1,5 +1,7 @@
-﻿import { Alert, Button, Modal, ProgressBar, Toast } from 'react-bootstrap';
+import { useEffect } from 'react';
+import { Alert, Button, Modal, ProgressBar } from 'react-bootstrap';
 import { FaExclamationCircle, FaExclamationTriangle } from 'react-icons/fa';
+import { emitFeedback } from '../../utils/feedback';
 
 type TestGenerationFeedbackProps = {
   toastMsg: string | null;
@@ -30,14 +32,18 @@ export function TestGenerationFeedback({
   hideErrorAlert = false,
   hideLoadingProgress = false,
 }: TestGenerationFeedbackProps) {
+  useEffect(() => {
+    if (!toastMsg) return;
+    emitFeedback({
+      level: toastType === 'success' ? 'success' : 'error',
+      title: toastType === 'success' ? '操作成功' : '操作失败',
+      message: toastMsg,
+    });
+    onToastClose();
+  }, [toastMsg, toastType, onToastClose]);
+
   return (
     <>
-      <div className="position-fixed top-50 start-50 translate-middle p-3 test-generation-toast-wrap">
-        <Toast show={!!toastMsg} onClose={onToastClose} delay={3000} autohide bg={toastType === 'success' ? 'success' : 'danger'}>
-          <Toast.Body className="text-white text-center fw-bold">{toastType === 'success' ? '复制成功' : toastMsg?.includes('复制') ? '复制失败' : toastMsg}</Toast.Body>
-        </Toast>
-      </div>
-
       {loading && !hideLoadingProgress ? (
         <div className="col-span-12 animate-pulse">
           <ProgressBar

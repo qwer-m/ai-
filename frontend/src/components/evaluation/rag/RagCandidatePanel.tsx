@@ -156,14 +156,14 @@ export function RagCandidatePanel({ onLog, currentRunId }: Props) {
     <div className="d-flex flex-column gap-3 rag-report-subpanel">
       {error ? <Alert variant="danger" className="mb-0">{error}</Alert> : null}
 
-      <div className="ui-section-card">
+      <div className="ui-section-card rag-candidate-block rag-candidate-generate">
         <div className="ui-section-title">候选生成</div>
-        <div className="grid grid-cols-5 gap-3 rag-report-grid rag-report-grid-tight">
-          <Form.Group><Form.Label className="small text-muted">运行 ID</Form.Label><Form.Control type="number" min={1} value={runId} onChange={(e) => setRunId(e.target.value ? Number(e.target.value) : '')} /></Form.Group>
-          <Form.Group className="rag-col-span-2"><Form.Label className="small text-muted">失败原因过滤</Form.Label><Form.Control value={failureReasons} onChange={(e) => setFailureReasons(e.target.value)} /></Form.Group>
-          <Form.Group><Form.Label className="small text-muted">Faithfulness 阈值（小于）</Form.Label><Form.Control type="number" step="0.01" value={faithfulnessLt} onChange={(e) => setFaithfulnessLt(e.target.value === '' ? '' : Number(e.target.value))} /></Form.Group>
-          <Form.Group><Form.Label className="small text-muted">Correctness 阈值（小于）</Form.Label><Form.Control type="number" step="0.01" value={correctnessLt} onChange={(e) => setCorrectnessLt(e.target.value === '' ? '' : Number(e.target.value))} /></Form.Group>
-          <Form.Group>
+        <div className="grid grid-cols-5 gap-3 rag-report-grid rag-report-grid-tight control-grid-lr">
+          <Form.Group className="control-field"><Form.Label className="small text-muted">运行 ID</Form.Label><Form.Control type="number" min={1} value={runId} onChange={(e) => setRunId(e.target.value ? Number(e.target.value) : '')} /></Form.Group>
+          <Form.Group className="rag-col-span-2 control-field"><Form.Label className="small text-muted">失败原因过滤</Form.Label><Form.Control value={failureReasons} onChange={(e) => setFailureReasons(e.target.value)} /></Form.Group>
+          <Form.Group className="control-field"><Form.Label className="small text-muted">Faithfulness 阈值（小于）</Form.Label><Form.Control type="number" step="0.01" value={faithfulnessLt} onChange={(e) => setFaithfulnessLt(e.target.value === '' ? '' : Number(e.target.value))} /></Form.Group>
+          <Form.Group className="control-field"><Form.Label className="small text-muted">Correctness 阈值（小于）</Form.Label><Form.Control type="number" step="0.01" value={correctnessLt} onChange={(e) => setCorrectnessLt(e.target.value === '' ? '' : Number(e.target.value))} /></Form.Group>
+          <Form.Group className="control-field">
             <Form.Label className="small text-muted">目标数据集</Form.Label>
             <Form.Select value={targetType} onChange={(e) => setTargetType(e.target.value as any)}>
               <option value="auto">auto</option>
@@ -178,10 +178,10 @@ export function RagCandidatePanel({ onLog, currentRunId }: Props) {
         </div>
       </div>
 
-      <div className="ui-section-card">
+      <div className="ui-section-card rag-candidate-block rag-candidate-filter">
         <div className="ui-section-title">候选筛选</div>
-        <div className="grid grid-cols-4 gap-3 rag-report-grid rag-report-grid-wide">
-          <Form.Group>
+        <div className="grid grid-cols-4 gap-3 rag-report-grid rag-report-grid-wide control-grid-lr">
+          <Form.Group className="control-field">
             <Form.Label className="small text-muted">候选状态</Form.Label>
             <Form.Select value={status} onChange={(e) => { setPage(1); setStatus(e.target.value); }}>
               <option value="">all</option>
@@ -190,8 +190,8 @@ export function RagCandidatePanel({ onLog, currentRunId }: Props) {
               <option value="rejected">rejected</option>
             </Form.Select>
           </Form.Group>
-          <Form.Group><Form.Label className="small text-muted">失败原因</Form.Label><Form.Control value={filterFailureReason} onChange={(e) => { setPage(1); setFilterFailureReason(e.target.value); }} /></Form.Group>
-          <Form.Group>
+          <Form.Group className="control-field"><Form.Label className="small text-muted">失败原因</Form.Label><Form.Control value={filterFailureReason} onChange={(e) => { setPage(1); setFilterFailureReason(e.target.value); }} /></Form.Group>
+          <Form.Group className="control-field">
             <Form.Label className="small text-muted">建议数据集类型</Form.Label>
             <Form.Select value={suggestedDatasetType} onChange={(e) => { setPage(1); setSuggestedDatasetType(e.target.value); }}>
               <option value="">all</option>
@@ -202,9 +202,9 @@ export function RagCandidatePanel({ onLog, currentRunId }: Props) {
         </div>
       </div>
 
-      <div className="ui-section-card">
+      <div className="ui-section-card rag-candidate-block rag-candidate-list">
         <div className="ui-section-title">候选列表</div>
-        <div className="table-responsive rag-report-table">
+        <div className="table-responsive rag-report-table scroll-table-md">
           <Table striped bordered hover size="sm" className="mb-0">
             <thead>
               <tr>
@@ -240,7 +240,7 @@ export function RagCandidatePanel({ onLog, currentRunId }: Props) {
         </div>
       </div>
 
-      <Modal show={detailOpen} onHide={() => setDetailOpen(false)} size="lg">
+      <Modal show={detailOpen} onHide={() => setDetailOpen(false)} size="lg" className="rag-candidate-modal">
         <Modal.Header closeButton>
           <Modal.Title>候选草稿编辑 #{active?.id || '-'}</Modal.Title>
         </Modal.Header>

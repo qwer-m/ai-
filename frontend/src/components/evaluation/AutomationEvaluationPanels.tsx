@@ -1,5 +1,4 @@
 ﻿import { Button, Form } from 'react-bootstrap';
-import { FaNetworkWired, FaRobot } from 'react-icons/fa';
 import { parseApiReport } from './state/evaluationService';
 import type { LoadingType } from './state/types';
 
@@ -49,12 +48,8 @@ export function AutomationEvaluationPanels({
   return (
     <>
       {showUi ? (
-        <div className="bento-card col-span-12 md:col-span-6 p-4 d-flex flex-column ui-section-card automation-eval-card">
-          <div className="d-flex align-items-center gap-2 mb-3 text-secondary">
-            <FaRobot />
-            <span className="fw-bold">UI 自动化评估</span>
-          </div>
-          <Form.Group className="mb-3">
+        <div className="bento-card col-span-12 md:col-span-6 p-4 d-flex flex-column ui-section-card automation-eval-card panel-card control-grid-lr">
+          <Form.Group className="mb-3 control-field">
             <Form.Label className="small text-muted">UI 自动化脚本</Form.Label>
             <Form.Control
               as="textarea"
@@ -65,7 +60,7 @@ export function AutomationEvaluationPanels({
               placeholder="Python Playwright/Selenium 脚本..."
             />
           </Form.Group>
-          <Form.Group className="mb-3">
+          <Form.Group className="mb-3 control-field">
             <Form.Label className="small text-muted">用户旅程图 (JSON) - 黄金标准</Form.Label>
             <Form.Control
               as="textarea"
@@ -79,7 +74,7 @@ export function AutomationEvaluationPanels({
               评估 AI 生成脚本是否覆盖关键用户旅程（如登录、支付）。
             </Form.Text>
           </Form.Group>
-          <Form.Group className="mb-3">
+          <Form.Group className="mb-3 control-field">
             <Form.Label className="small text-muted">执行结果</Form.Label>
             <Form.Control
               as="textarea"
@@ -90,7 +85,7 @@ export function AutomationEvaluationPanels({
               placeholder="执行日志或输出..."
             />
           </Form.Group>
-          <Button className="btn-pro-primary w-100 mt-auto" disabled={loading === 'ui'} onClick={onEvaluateUi}>
+          <Button className="btn-pro-primary w-100 mt-auto panel-card-primary-action" disabled={loading === 'ui'} onClick={onEvaluateUi}>
             {loading === 'ui' ? '评估中...' : '开始评估'}
           </Button>
           {uiEvalOutput ? (
@@ -102,12 +97,8 @@ export function AutomationEvaluationPanels({
       ) : null}
 
       {showApi ? (
-        <div className="bento-card col-span-12 md:col-span-6 p-4 d-flex flex-column ui-section-card automation-eval-card">
-          <div className="d-flex align-items-center gap-2 mb-3 text-secondary">
-            <FaNetworkWired />
-            <span className="fw-bold">接口自动化评估（AI 响应评估）</span>
-          </div>
-          <Form.Group className="mb-3">
+        <div className="bento-card col-span-12 md:col-span-6 p-4 d-flex flex-column ui-section-card automation-eval-card panel-card control-grid-lr">
+          <Form.Group className="mb-3 control-field">
             <Form.Label className="small text-muted">API 测试脚本</Form.Label>
             <Form.Control
               as="textarea"
@@ -118,7 +109,7 @@ export function AutomationEvaluationPanels({
               placeholder="Pytest 脚本..."
             />
           </Form.Group>
-          <Form.Group className="mb-3">
+          <Form.Group className="mb-3 control-field">
             <Form.Label className="small text-muted">OpenAPI 规范（Swagger）- 黄金标准</Form.Label>
             <Form.Control
               as="textarea"
@@ -132,7 +123,7 @@ export function AutomationEvaluationPanels({
               用于评估 AI 脚本的接口覆盖率与参数正确性。
             </Form.Text>
           </Form.Group>
-          <Form.Group className="mb-3">
+          <Form.Group className="mb-3 control-field">
             <Form.Label className="small text-muted">执行结果</Form.Label>
             <Form.Control
               as="textarea"
@@ -159,7 +150,7 @@ export function AutomationEvaluationPanels({
             </div>
           </div>
 
-          <Button className="btn-pro-primary w-100 mt-auto" disabled={loading === 'api'} onClick={onEvaluateApi}>
+          <Button className="btn-pro-primary w-100 mt-auto panel-card-primary-action" disabled={loading === 'api'} onClick={onEvaluateApi}>
             {loading === 'api' ? '多维评估中...' : '开始评估'}
           </Button>
           {apiEvalOutput ? (

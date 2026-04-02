@@ -1,10 +1,11 @@
-﻿import { Toast, ToastContainer } from 'react-bootstrap';
+import { useEffect } from 'react';
 import { AutomationEvaluationPanels } from '../evaluation/AutomationEvaluationPanels';
 import { EvaluationOverviewPanel } from '../evaluation/EvaluationOverviewPanel';
 import { RagValidationPanel } from '../evaluation/RagValidationPanel';
 import { TestCaseCoveragePanel } from '../evaluation/TestCaseCoveragePanel';
 import type { EvaluationProps } from '../evaluation/state/types';
 import { useEvaluationActions } from '../evaluation/state/useEvaluationActions';
+import { emitFeedback } from '../../utils/feedback';
 
 export function Evaluation({
   projectId,
@@ -59,8 +60,18 @@ export function Evaluation({
   const showApi = view === 'api';
   const showRag = view === 'rag';
 
+  useEffect(() => {
+    if (!actions.toastMsg) return;
+    emitFeedback({
+      level: actions.toastMsg.type === 'success' ? 'success' : 'error',
+      title: actions.toastMsg.type === 'success' ? '操作成功' : '操作失败',
+      message: actions.toastMsg.msg,
+    });
+    actions.setToastMsg(null);
+  }, [actions.toastMsg, actions.setToastMsg]);
+
   return (
-    <div className="bento-grid h-100 align-content-start evaluation-shell">
+    <div className="bento-grid h-100 align-content-start evaluation-shell workbench-shell">
       {showRoot ? (
         <EvaluationOverviewPanel
           diag={actions.latestDiag}
@@ -129,31 +140,6 @@ export function Evaluation({
         apiEvalOutput={apiEvalOutput}
         onEvaluateApi={actions.evaluateApi}
       />
-
-      {/*
-        全局 Toast 统一挂载在页面根部，确保各子面板触发的提示都在同一视觉层级，
-        避免拆分后出现提示位置漂移或重复容器。
-      */}
-      <ToastContainer
-        containerPosition="fixed"
-        className="p-3 top-50 start-50 translate-middle evaluation-toast-container"
-      >
-        {actions.toastMsg ? (
-          <Toast
-            onClose={() => actions.setToastMsg(null)}
-            show={Boolean(actions.toastMsg)}
-            delay={3000}
-            autohide
-            bg={actions.toastMsg.type === 'success' ? 'success' : 'danger'}
-            className="evaluation-toast-card"
-          >
-            <Toast.Header>
-              <strong className="me-auto">{actions.toastMsg.type === 'success' ? '成功' : '错误'}</strong>
-            </Toast.Header>
-            <Toast.Body className="text-white">{actions.toastMsg.msg}</Toast.Body>
-          </Toast>
-        ) : null}
-      </ToastContainer>
     </div>
   );
 }

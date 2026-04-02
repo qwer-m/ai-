@@ -5,6 +5,8 @@ import Login from './components/auth-pages/Login';
 import Register from './components/auth-pages/Register';
 import { Dashboard } from './components/pages/Dashboard';
 import { Spinner } from 'react-bootstrap';
+import { GlobalFeedbackCenter } from './components/shared/GlobalFeedbackCenter';
+import { installAlertBridge } from './utils/feedback';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -26,11 +28,16 @@ function App() {
     document.body.classList.add('ui-overhaul-v4');
     document.body.classList.toggle('theme-dark', mode === 'dark');
     document.body.classList.toggle('theme-light', mode === 'light');
+    const uninstall = installAlertBridge();
+    return () => {
+      uninstall();
+    };
   }, []);
 
   return (
     <AuthProvider>
       <Router>
+        <GlobalFeedbackCenter />
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />

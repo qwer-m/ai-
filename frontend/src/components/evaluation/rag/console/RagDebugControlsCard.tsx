@@ -101,25 +101,16 @@ export function RagDebugControlsCard({
   onResetPreset,
 }: Props) {
   const selectedDataset = datasets.find((d) => d.id === datasetId) || null;
+  void projectId;
+  void selectedDataset;
+  void onSavePreset;
+  void onResetPreset;
 
   return (
     <div className="d-flex flex-column gap-3 rag-console-controls">
-      <div className="rag-console-topbar rag-console-topbar-sticky d-flex flex-wrap align-items-center justify-content-between gap-2 p-3 rounded border bg-white">
-        <div className="d-flex align-items-center gap-2 rag-console-topbar-title">
-          <span className="fw-bold fs-5">RAG 校验测试</span>
-          <Badge bg="primary" className="rag-console-pill">单条调试</Badge>
-        </div>
-        <div className="d-flex align-items-center gap-2">
-          <Button variant="outline-primary" size="sm" className="rag-console-btn-outline" onClick={onSavePreset}>保存配置</Button>
-          <Button variant="outline-secondary" size="sm" className="rag-console-btn-outline" onClick={onResetPreset}>重置</Button>
-        </div>
-        <div className="w-100 mt-1 d-flex flex-wrap gap-3 small rag-console-context">
-          <span className="rag-console-kv">知识库：<b>项目 #{projectId ?? '-'}</b></span>
-          <span className="rag-console-kv">数据集：<b>{selectedDataset ? `${selectedDataset.name}` : '未选择'}</b></span>
-          <span className="rag-console-kv">模式：<b>单条调试</b></span>
-        </div>
+      <div className="d-none">
+        <Badge bg="primary">单条调试</Badge>
       </div>
-
       <div className="p-3 border rounded bg-white rag-console-surface">
         <div className="row g-3">
           <div className="col-lg-8 d-flex flex-column gap-3">

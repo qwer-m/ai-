@@ -1,0 +1,200 @@
+﻿/* 工作台重构 v12：编排中心 + 质量评估报告 */
+
+body.ui-overhaul-v4 .pipeline-workbench {
+  padding-bottom: 2px;
+}
+
+body.ui-overhaul-v4 .pipeline-workbench .panel-card {
+  border: 1px solid color-mix(in srgb, var(--fd-border) 84%, transparent) !important;
+  border-radius: 14px !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 96%, #f8fbff), var(--fd-surface));
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--fd-shadow) 8%, transparent);
+}
+
+body.ui-overhaul-v4 .pipeline-hero-card .pipeline-hero-body {
+  min-height: 82px;
+}
+
+body.ui-overhaul-v4 .pipeline-input-body h6 {
+  font-size: 0.97rem;
+  font-weight: 700;
+  color: var(--fd-text-strong);
+  margin-top: 4px;
+}
+
+body.ui-overhaul-v4 .pipeline-input-body hr {
+  border-color: color-mix(in srgb, var(--fd-border) 72%, transparent);
+  margin: 10px 0 4px;
+}
+
+body.ui-overhaul-v4 .pipeline-input-body .pipeline-row .form-label,
+body.ui-overhaul-v4 .pipeline-input-body .pipeline-field .form-label {
+  font-size: 12px;
+  color: var(--fd-text-muted);
+  margin-bottom: 6px;
+}
+
+body.ui-overhaul-v4 .pipeline-check-group {
+  border: 1px dashed color-mix(in srgb, var(--fd-border) 70%, transparent);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--fd-surface-soft) 86%, transparent);
+}
+
+body.ui-overhaul-v4 .pipeline-check-group .form-check {
+  margin-right: 6px;
+}
+
+body.ui-overhaul-v4 .pipeline-monitor-body .pipeline-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: color-mix(in srgb, var(--fd-surface-soft) 90%, #f4f8ff);
+  color: var(--fd-text-strong);
+  font-weight: 700;
+  border-bottom-color: color-mix(in srgb, var(--fd-border) 84%, transparent);
+}
+
+body.ui-overhaul-v4 .pipeline-monitor-body .pipeline-table td {
+  border-color: color-mix(in srgb, var(--fd-border) 72%, transparent);
+}
+
+body.ui-overhaul-v4 .pipeline-monitor-card .pipeline-history-scroll,
+body.ui-overhaul-v4 .pipeline-monitor-card .pipeline-trace-scroll {
+  border: 1px solid color-mix(in srgb, var(--fd-border) 70%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--fd-surface) 96%, transparent);
+  padding: 2px;
+}
+
+body.ui-overhaul-v4 .pipeline-monitor-card .form-control[readonly] {
+  background: color-mix(in srgb, var(--fd-surface-soft) 86%, transparent);
+}
+
+body.ui-overhaul-v4 .evaluation-report-panel {
+  border: 1px solid color-mix(in srgb, var(--fd-border) 78%, transparent);
+  border-radius: 14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 97%, #f9fcff), var(--fd-surface));
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--fd-shadow) 9%, transparent);
+  padding: 14px 14px 10px;
+}
+
+body.ui-overhaul-v4 .evaluation-report-title {
+  color: var(--fd-text-strong);
+  font-size: 1.02rem;
+  margin-bottom: 12px !important;
+}
+
+body.ui-overhaul-v4 .evaluation-report-chart-wrap {
+  border: 1px solid color-mix(in srgb, var(--fd-border) 76%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--fd-surface-soft) 84%, transparent);
+  padding: 10px;
+}
+
+body.ui-overhaul-v4 .evaluation-report-kpi-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+body.ui-overhaul-v4 .evaluation-report-kpi {
+  border: 1px solid color-mix(in srgb, var(--fd-border) 74%, transparent) !important;
+  border-radius: 12px !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 96%, transparent), color-mix(in srgb, var(--fd-surface-soft) 88%, transparent)) !important;
+}
+
+body.ui-overhaul-v4 .evaluation-report-defect-head {
+  border-top: 1px solid color-mix(in srgb, var(--fd-border) 70%, transparent);
+  padding-top: 10px;
+}
+
+body.ui-overhaul-v4 .evaluation-report-supplement-btn {
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+body.ui-overhaul-v4 .evaluation-report-defect-group {
+  border: 1px solid color-mix(in srgb, var(--fd-border) 70%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--fd-surface-soft) 86%, transparent);
+  padding: 8px 10px;
+}
+
+body.ui-overhaul-v4 .evaluation-report-summary {
+  background: color-mix(in srgb, var(--fd-surface-soft) 88%, transparent);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+body.ui-overhaul-v4 .evaluation-report-modal .modal-content {
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--fd-border) 82%, transparent);
+}
+
+body.ui-overhaul-v4 .automation-eval-card.control-grid-lr .control-field {
+  margin-bottom: 10px !important;
+}
+
+body.ui-overhaul-v4 .automation-eval-card.control-grid-lr .control-field .form-label {
+  font-size: 12px;
+  margin-bottom: 0;
+}
+
+@media (max-width: 1200px) {
+  body.ui-overhaul-v4 .evaluation-report-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 991px) {
+  body.ui-overhaul-v4 .pipeline-hero-card .pipeline-hero-body {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 10px;
+  }
+
+  body.ui-overhaul-v4 .evaluation-report-panel {
+    padding: 12px 10px 8px;
+  }
+}
+
+@media (max-width: 768px) {
+  body.ui-overhaul-v4 .evaluation-report-kpi-grid {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+}
+
+body.theme-dark.ui-overhaul-v4 .pipeline-workbench .panel-card,
+body.theme-dark.ui-overhaul-v4 .evaluation-report-panel {
+  border-color: color-mix(in srgb, var(--fd-border) 94%, transparent) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 95%, #0f172a), var(--fd-surface)) !important;
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.38);
+}
+
+body.theme-dark.ui-overhaul-v4 .pipeline-input-body h6,
+body.theme-dark.ui-overhaul-v4 .evaluation-report-title {
+  color: color-mix(in srgb, var(--fd-text-strong) 96%, #ffffff);
+}
+
+body.theme-dark.ui-overhaul-v4 .pipeline-check-group,
+body.theme-dark.ui-overhaul-v4 .evaluation-report-chart-wrap,
+body.theme-dark.ui-overhaul-v4 .evaluation-report-defect-group,
+body.theme-dark.ui-overhaul-v4 .evaluation-report-summary,
+body.theme-dark.ui-overhaul-v4 .pipeline-monitor-card .pipeline-history-scroll,
+body.theme-dark.ui-overhaul-v4 .pipeline-monitor-card .pipeline-trace-scroll,
+body.theme-dark.ui-overhaul-v4 .pipeline-monitor-card .form-control[readonly],
+body.theme-dark.ui-overhaul-v4 .evaluation-report-kpi {
+  border-color: color-mix(in srgb, var(--fd-border) 95%, transparent) !important;
+  background: color-mix(in srgb, var(--fd-surface-soft) 86%, #0b1220) !important;
+}
+
+body.theme-dark.ui-overhaul-v4 .pipeline-monitor-body .pipeline-table th {
+  background: color-mix(in srgb, var(--fd-surface-soft) 90%, #121b2d);
+  color: color-mix(in srgb, var(--fd-text-strong) 98%, #ffffff);
+}
+
+body.theme-dark.ui-overhaul-v4 .evaluation-report-modal .modal-content {
+  background: color-mix(in srgb, var(--fd-surface) 96%, #0f172a);
+  border-color: color-mix(in srgb, var(--fd-border) 95%, transparent);
+}

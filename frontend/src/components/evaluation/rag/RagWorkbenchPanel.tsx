@@ -32,11 +32,6 @@ export function RagWorkbenchPanel({ projectId, onLog }: Props) {
 
   return (
     <div className="rag-console bento-card col-span-12 p-4 d-flex flex-column gap-3 hover-lift">
-      <div className="d-flex align-items-center justify-content-between rag-console-title-row">
-        <h5 className="mb-0">RAG Debug Console</h5>
-        <span className="small rag-console-subtitle">调试工作台 / 数据集管理 / 评测报告</span>
-      </div>
-
       {error ? <Alert variant="danger" className="mb-0">{error}</Alert> : null}
 
       <Tabs className="rag-console-tabs" activeKey={mode} onSelect={(k) => setMode((k as 'debug' | 'datasets' | 'report') || 'debug')}>

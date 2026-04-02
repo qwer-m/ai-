@@ -60,7 +60,7 @@ export function RagRunComparePanel({ onLog, currentRunId }: Props) {
     return (
       <div className="ui-section-card mt-3">
         <div className="ui-section-title">{title}</div>
-        <div className="table-responsive rag-report-table">
+        <div className="table-responsive rag-report-table scroll-table-md">
           <Table striped bordered hover size="sm" className="mb-0">
             <thead>
               <tr>
@@ -115,8 +115,8 @@ export function RagRunComparePanel({ onLog, currentRunId }: Props) {
 
       <div className="ui-section-card">
         <div className="ui-section-title">评测运行对比</div>
-        <div className="grid grid-cols-4 gap-3 rag-report-grid rag-report-grid-wide">
-          <Form.Group>
+        <div className="grid grid-cols-4 gap-3 rag-report-grid rag-report-grid-wide control-grid-lr">
+          <Form.Group className="control-field">
             <Form.Label className="small text-muted">对比基线（run_a）</Form.Label>
             <Form.Control
               type="number"
@@ -125,7 +125,7 @@ export function RagRunComparePanel({ onLog, currentRunId }: Props) {
               onChange={(e) => setRunA(e.target.value ? Number(e.target.value) : '')}
             />
           </Form.Group>
-          <Form.Group>
+          <Form.Group className="control-field">
             <Form.Label className="small text-muted">目标运行（run_b）</Form.Label>
             <Form.Control
               type="number"
@@ -180,8 +180,8 @@ export function RagRunComparePanel({ onLog, currentRunId }: Props) {
 
           <div className="ui-section-card">
             <div className="ui-section-title">分维度差异</div>
-            <div className="grid grid-cols-3 gap-3 rag-report-grid rag-report-grid-wide">
-              <Form.Group>
+            <div className="grid grid-cols-3 gap-3 rag-report-grid rag-report-grid-wide control-grid-lr">
+              <Form.Group className="control-field">
                 <Form.Label className="small text-muted">标签维度差异</Form.Label>
                 <Form.Control
                   as="textarea"
@@ -190,7 +190,7 @@ export function RagRunComparePanel({ onLog, currentRunId }: Props) {
                   value={JSON.stringify(compareData?.by_tag_diff || {}, null, 2)}
                 />
               </Form.Group>
-              <Form.Group>
+              <Form.Group className="control-field">
                 <Form.Label className="small text-muted">难度维度差异</Form.Label>
                 <Form.Control
                   as="textarea"
@@ -199,7 +199,7 @@ export function RagRunComparePanel({ onLog, currentRunId }: Props) {
                   value={JSON.stringify(compareData?.by_difficulty_diff || {}, null, 2)}
                 />
               </Form.Group>
-              <Form.Group>
+              <Form.Group className="control-field">
                 <Form.Label className="small text-muted">失败原因维度差异</Form.Label>
                 <Form.Control
                   as="textarea"

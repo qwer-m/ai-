@@ -6,7 +6,7 @@ import '../../App.css';
 import { ConfigModal } from '../shared/ConfigModal';
 import { LogPanel } from '../shared/LogPanel';
 import { PipelineOrchestration } from './PipelineOrchestration';
-import { dashboardNavItems } from '../dashboard/model/dashboardNavigation';
+import { dashboardNavItems, getDashboardLabelByKey } from '../dashboard/model/dashboardNavigation';
 import { DashboardContent } from '../dashboard/DashboardContent';
 import { DashboardSidebar } from '../dashboard/DashboardSidebar';
 import { DashboardTopBar } from '../dashboard/DashboardTopBar';
@@ -18,12 +18,18 @@ export const Dashboard = () => {
   const { logout, user } = useAuth();
   const navigate = useNavigate();
   const [showPipelineModal, setShowPipelineModal] = useState(false);
+  const [openProjectCreateSignal, setOpenProjectCreateSignal] = useState(0);
 
   const controller = useDashboardController();
 
   const handleLogout = () => {
     logout();
     navigate('/login', { replace: true });
+  };
+
+  const handleOpenCreateProject = () => {
+    controller.setActiveTab('proj');
+    setOpenProjectCreateSignal((prev) => prev + 1);
   };
 
   return (
@@ -48,9 +54,13 @@ export const Dashboard = () => {
             projectId={controller.projectId}
             projects={controller.projects}
             projectsLoading={controller.projectsLoading}
+            activeTabLabel={getDashboardLabelByKey(dashboardNavItems, controller.activeTab)}
+            healthLoading={controller.healthLoading}
+            healthError={controller.healthError}
+            health={controller.health}
             onSelectProject={controller.setProjectId}
             onOpenPipeline={() => setShowPipelineModal(true)}
-            onCreateProject={() => controller.setActiveTab('proj')}
+            onCreateProject={handleOpenCreateProject}
             onOpenConfig={controller.handleOpenConfig}
             onLogout={handleLogout}
           />
@@ -95,6 +105,7 @@ export const Dashboard = () => {
             setShouldAutoEval={controller.setShouldAutoEval}
             onTestGenerated={controller.handleTestGenerated}
             onGenerationComplete={controller.handleGenerationComplete}
+            openProjectCreateSignal={openProjectCreateSignal}
           />
         </div>
       </div>

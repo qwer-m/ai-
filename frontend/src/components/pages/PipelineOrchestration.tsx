@@ -18,12 +18,12 @@ export function PipelineOrchestration({ projectId, onLog }: Props) {
   const controller = usePipelineOrchestrationController({ projectId, onLog });
 
   return (
-    <div className="d-flex flex-column gap-3 p-3 h-100 overflow-auto">
+    <div className="d-flex flex-column gap-3 p-3 h-100 overflow-auto pipeline-workbench">
       {controller.errorMsg && <Alert variant="danger" className="mb-0">{controller.errorMsg}</Alert>}
       {!projectId && <Alert variant="warning" className="mb-0">请先选择项目。</Alert>}
 
-      <Card className="border-0 shadow-sm">
-        <Card.Body className="d-flex justify-content-between align-items-center">
+      <Card className="border-0 shadow-sm panel-card pipeline-hero-card">
+        <Card.Body className="d-flex justify-content-between align-items-center pipeline-hero-body">
           <div>
             <h5 className="mb-1">全局编排</h5>
             <div className="text-muted small">支持运行持久化、历史记录、恢复执行和分阶段重试。</div>

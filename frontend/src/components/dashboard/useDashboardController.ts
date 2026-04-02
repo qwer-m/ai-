@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Project } from '../pages/ProjectManagement';
 import { api } from '../../utils/api';
 import { dashboardNavItems, findParentKeyByChild, normalizeDashboardActiveTab } from './model/dashboardNavigation';
@@ -40,7 +40,13 @@ const isTransientFetchError = (error: unknown) => {
   ].some((flag) => message.includes(flag));
 };
 
+const LOG_POLL_VISIBLE_MS = 5000;
+const LOG_POLL_HIDDEN_MS = 15000;
+const LOG_POLL_BACKOFF_STEP_MS = 4000;
+const LOG_POLL_BACKOFF_MAX_MS = 30000;
+
 export function useDashboardController() {
+  const logPollBackoffRef = useRef(0);
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>(
     () => (safeGetItem('themeMode') === 'dark' ? 'dark' : 'light'),
   );
@@ -140,10 +146,12 @@ export function useDashboardController() {
     safeSetItem('currentActiveTab', activeTab);
 
     const parentKey = findParentKeyByChild(dashboardNavItems, activeTab);
-    if (parentKey && !expandedKeys.includes(parentKey)) {
-      setExpandedKeys((prev) => [...prev, parentKey]);
-    }
-  }, [activeTab, expandedKeys]);
+    if (!parentKey) return;
+
+    // Only auto-expand when the active tab changes into a child route.
+    // Do not depend on expandedKeys here, otherwise manual collapse is immediately reverted.
+    setExpandedKeys((prev) => (prev.includes(parentKey) ? prev : [...prev, parentKey]));
+  }, [activeTab]);
 
   /**
    * 主题切换同步 body class 与本地缓存，确保页面刷新后仍保留用户偏好。
@@ -192,8 +200,23 @@ export function useDashboardController() {
     // 健康检查异常时暂停高频日志轮询，避免网络抖动期间控制台被重复报错刷屏。
     if (!projectId || healthError) return;
     let cancelled = false;
+    let timer: number | null = null;
+
+    const pollDelay = () => {
+      const base = document.hidden ? LOG_POLL_HIDDEN_MS : LOG_POLL_VISIBLE_MS;
+      return base + logPollBackoffRef.current;
+    };
+
+    const scheduleNext = () => {
+      if (cancelled) return;
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        void loadLogs(true);
+      }, pollDelay());
+    };
 
     const loadLogs = async (isPolling = false) => {
+      let pollSuccess = false;
       if (!isPolling) {
         setLogsLoading(true);
         setLogsError(null);
@@ -203,6 +226,7 @@ export function useDashboardController() {
         const data = await api.get<LogEntry[]>(`/api/logs/${projectId}`);
         if (cancelled) return;
         setLogs(Array.isArray(data) ? data : []);
+        pollSuccess = true;
       } catch (error) {
         if (cancelled) return;
         if (!isPolling) {
@@ -212,20 +236,34 @@ export function useDashboardController() {
           if (!isTransientFetchError(error)) {
             console.error('Polling logs failed', error);
           }
+          logPollBackoffRef.current = Math.min(
+            logPollBackoffRef.current + LOG_POLL_BACKOFF_STEP_MS,
+            LOG_POLL_BACKOFF_MAX_MS,
+          );
         }
       } finally {
+        if (isPolling && !cancelled) {
+          if (pollSuccess) {
+            logPollBackoffRef.current = 0;
+          }
+          scheduleNext();
+        }
         if (!cancelled && !isPolling) setLogsLoading(false);
       }
     };
 
     void loadLogs(false);
-    const timer = window.setInterval(() => {
-      void loadLogs(true);
-    }, 3000);
+    scheduleNext();
+
+    const handleVisibilityChange = () => {
+      scheduleNext();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timer) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [projectId, healthError]);
 
@@ -378,3 +416,5 @@ export function useDashboardController() {
 }
 
 export type DashboardController = ReturnType<typeof useDashboardController>;
+
+

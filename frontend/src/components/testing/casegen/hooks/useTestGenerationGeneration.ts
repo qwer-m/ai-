@@ -1,4 +1,4 @@
-﻿import { useEffect } from 'react';
+import { useEffect } from 'react';
 import { api, getAuthHeaders } from '../../../../utils/api';
 import { cleanStreamingContent, parseMultipleJsonArrays } from '../../../test-generation/streamContent';
 import { parseGenDiagEvent } from '../../../test-generation/debug/diagParser';
@@ -111,7 +111,7 @@ export function useTestGenerationGeneration({
       } catch (e) {
         const msg = await translateError(e);
         setToastType('error');
-        setToastMsg(`Smart estimation failed, default value applied. Error: ${msg}`);
+        setToastMsg(`智能估算失败，已回退默认值。错误：${msg}`);
       } finally {
         setIsEstimating(false);
       }

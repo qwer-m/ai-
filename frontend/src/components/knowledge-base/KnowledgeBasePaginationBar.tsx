@@ -24,13 +24,13 @@ export function KnowledgeBasePaginationBar({
   pageSwitchTimerActive,
 }: KnowledgeBasePaginationBarProps) {
   return (
-    <div className="bg-light border-top px-3 py-2 d-flex justify-content-between align-items-center small text-secondary knowledge-pagination-bar">
+    <div className="px-3 py-2 d-flex justify-content-between align-items-center small text-secondary knowledge-pagination-bar">
       <div>
         共找到 <strong>{totalItems || docsLength}</strong> 条记录
         {page > 1 ? ` (第 ${page}/${totalPages} 页)` : ''}
       </div>
       {totalPages > 1 ? (
-        <Pagination size="sm" className="m-0">
+        <Pagination size="sm" className="m-0 knowledge-pagination-control">
           <Pagination.First
             onClick={() => onFetchPage(1)}
             disabled={page === 1}

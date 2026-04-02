@@ -1,0 +1,85 @@
+/* Dashboard 模块样式 v6 */
+
+body.ui-overhaul-v4 .dashboard-shell {
+  --db-nav-active: linear-gradient(135deg, var(--fd-primary) 0%, var(--fd-primary-2) 72%);
+  --db-nav-hover: color-mix(in srgb, var(--fd-primary) 12%, var(--fd-surface-soft));
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-head h1 {
+  font-size: 1.22rem;
+  letter-spacing: 0.01em;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-head .small {
+  font-size: 0.9rem;
+  color: var(--fd-text-soft) !important;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-link-row {
+  padding-top: 9px !important;
+  padding-bottom: 9px !important;
+  border: 1px solid transparent;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-link-row.active-pro {
+  background: color-mix(in srgb, var(--fd-primary) 10%, var(--fd-surface-soft)) !important;
+  border-color: color-mix(in srgb, var(--fd-primary) 24%, var(--fd-border)) !important;
+  color: var(--fd-primary) !important;
+  box-shadow: none !important;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-link-row:hover {
+  background: var(--db-nav-hover) !important;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-link-row.active-pro > * {
+  color: var(--fd-primary) !important;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-nav-wrap .sidebar-link.small {
+  min-height: 34px;
+  border-radius: 10px;
+}
+
+body.ui-overhaul-v4 .dashboard-topbar {
+  padding-inline: 18px !important;
+}
+
+body.ui-overhaul-v4 .dashboard-action-cluster .btn {
+  border-radius: 11px !important;
+}
+
+body.ui-overhaul-v4 .dashboard-main .dashboard-content-host {
+  scrollbar-gutter: stable both-edges;
+}
+
+body.ui-overhaul-v4 .dashboard-log-shell {
+  background: color-mix(in srgb, var(--fd-surface) 92%, var(--fd-surface-soft));
+}
+
+body.ui-overhaul-v4 .dashboard-log-header {
+  background: color-mix(in srgb, var(--fd-surface-soft) 84%, transparent);
+}
+
+body.ui-overhaul-v4 .dashboard-log-header .text-success,
+body.ui-overhaul-v4 .dashboard-log-header .text-danger {
+  font-weight: 700;
+}
+
+body.ui-overhaul-v4 .dashboard-log-stream-body {
+  line-height: 1.52;
+}
+
+body.ui-overhaul-v4.theme-dark .dashboard-sidebar-link-row:hover {
+  background: color-mix(in srgb, var(--fd-primary) 26%, var(--fd-surface-soft)) !important;
+}
+
+@media (max-width: 992px) {
+  body.ui-overhaul-v4 .dashboard-sidebar-head {
+    padding: 16px !important;
+  }
+
+  body.ui-overhaul-v4 .dashboard-topbar {
+    padding-inline: 12px !important;
+  }
+}

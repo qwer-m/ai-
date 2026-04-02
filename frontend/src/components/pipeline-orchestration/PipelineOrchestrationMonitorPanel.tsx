@@ -19,8 +19,8 @@ type Props = {
 export function PipelineOrchestrationMonitorPanel({ controller, projectId }: Props) {
   return (
     <>
-      <Card className="border-0 shadow-sm mb-3">
-        <Card.Body>
+      <Card className="border-0 shadow-sm mb-3 panel-card pipeline-monitor-card">
+        <Card.Body className="pipeline-monitor-body">
           <div className="d-flex justify-content-between align-items-center mb-3">
             <h6 className="mb-0">阶段状态</h6>
             <div className="d-flex gap-2 align-items-center">
@@ -41,7 +41,7 @@ export function PipelineOrchestrationMonitorPanel({ controller, projectId }: Pro
             </div>
           </div>
 
-          <Table size="sm" className="mb-2 align-middle">
+          <Table size="sm" className="mb-2 align-middle pipeline-table">
             <thead>
               <tr>
                 <th>阶段</th>
@@ -87,8 +87,8 @@ export function PipelineOrchestrationMonitorPanel({ controller, projectId }: Pro
         </Card.Body>
       </Card>
 
-      <Card className="border-0 shadow-sm mb-3">
-        <Card.Body>
+      <Card className="border-0 shadow-sm mb-3 panel-card pipeline-monitor-card">
+        <Card.Body className="pipeline-monitor-body">
           <div className="d-flex justify-content-between align-items-center mb-2">
             <h6 className="mb-0">运行历史</h6>
             <Button
@@ -101,7 +101,7 @@ export function PipelineOrchestrationMonitorPanel({ controller, projectId }: Pro
             </Button>
           </div>
           <div className="pipeline-history-scroll">
-            <Table size="sm" hover className="mb-0">
+            <Table size="sm" hover className="mb-0 pipeline-table">
               <thead>
                 <tr>
                   <th>ID</th>
@@ -134,8 +134,8 @@ export function PipelineOrchestrationMonitorPanel({ controller, projectId }: Pro
         </Card.Body>
       </Card>
 
-      <Card className="border-0 shadow-sm mb-3">
-        <Card.Body>
+      <Card className="border-0 shadow-sm mb-3 panel-card pipeline-monitor-card">
+        <Card.Body className="pipeline-monitor-body">
           <div className="d-flex justify-content-between align-items-center mb-2">
             <h6 className="mb-0">工作流追踪</h6>
             <Button
@@ -149,7 +149,7 @@ export function PipelineOrchestrationMonitorPanel({ controller, projectId }: Pro
           </div>
 
           <div className="pipeline-trace-scroll">
-            <Table size="sm" className="mb-0 align-middle">
+            <Table size="sm" className="mb-0 align-middle pipeline-table">
               <thead>
                 <tr>
                   <th>时间</th>
@@ -196,8 +196,8 @@ export function PipelineOrchestrationMonitorPanel({ controller, projectId }: Pro
         </Card.Body>
       </Card>
 
-      <Card className="border-0 shadow-sm">
-        <Card.Body className="d-flex flex-column gap-2">
+      <Card className="border-0 shadow-sm panel-card pipeline-monitor-card">
+        <Card.Body className="d-flex flex-column gap-2 pipeline-monitor-body">
           <h6 className="mb-0">流水线输出</h6>
           <Form.Group>
             <Form.Label className="small">生成的测试用例</Form.Label>

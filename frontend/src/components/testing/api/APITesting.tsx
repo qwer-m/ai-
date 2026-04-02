@@ -15,17 +15,17 @@ export function APITesting({ projectId, onLog, view }: APITestingProps) {
   const activeTab = view || internalTab;
 
   return (
-    <div className="d-flex flex-column h-100 w-100 bg-white api-testing-shell">
+    <div className="d-flex flex-column h-100 w-100 bg-white api-testing-shell api-testing-shell-v6 panel-card api-testing-workbench">
       {!view ? (
-        <div className="border-bottom bg-light px-3 pt-2 api-testing-tabs-head">
+        <div className="border-bottom bg-light px-3 pt-2 api-testing-tabs-head panel-card-head">
           <Nav variant="tabs" activeKey={activeTab} onSelect={(k) => setInternalTab(k as 'standard' | 'ai_debug')}>
             <Nav.Item>
-              <Nav.Link eventKey="standard" className="d-flex align-items-center gap-2">
+              <Nav.Link eventKey="standard" className="d-flex align-items-center gap-2 api-testing-tab-link">
                 <FaCode /> 标准接口测试
               </Nav.Link>
             </Nav.Item>
             <Nav.Item>
-              <Nav.Link eventKey="ai_debug" className="d-flex align-items-center gap-2">
+              <Nav.Link eventKey="ai_debug" className="d-flex align-items-center gap-2 api-testing-tab-link">
                 <FaRobot /> AI 模型调试
               </Nav.Link>
             </Nav.Item>

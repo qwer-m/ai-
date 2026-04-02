@@ -102,12 +102,12 @@ export function TestGenerationResultSection({
   }, [normalizedRuleId, renderedText]);
 
   return (
-    <div className="test-generation-result test-generation-result-panel bento-card col-span-12 p-0 overflow-hidden d-flex flex-column">
-      <div className="test-generation-result-head bg-light border-bottom d-flex justify-content-between align-items-center px-4 py-3">
-        <h6 className="mb-0 fw-bold d-flex align-items-center gap-2">
+    <div className="test-generation-result test-generation-result-panel bento-card col-span-12 p-0 overflow-hidden d-flex flex-column panel-card panel-card-result">
+      <div className="test-generation-result-head bg-light border-bottom d-flex justify-content-between align-items-center px-4 py-3 panel-card-head">
+        <h6 className="mb-0 fw-bold d-flex align-items-center gap-2 panel-card-title">
           <FaCheckCircle className={result ? 'text-success' : 'text-muted'} /> 生成结果
         </h6>
-        <div className="d-flex align-items-center gap-2">
+        <div className="d-flex align-items-center gap-2 panel-card-actions-inline">
           {result ? (
             <Badge bg="success" className="d-flex align-items-center gap-1">
               总计 {statsCount} 条

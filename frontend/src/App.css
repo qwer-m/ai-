@@ -1,7 +1,7 @@
 /* Mobile Responsive Sidebar */
 @media (max-width: 768px) {
-    /* Hide sidebar by default on mobile */
-    .d-flex.flex-column.bg-white.border-end.shadow-sm {
+    /* 仅在 dashboard 工作区收起侧栏，避免误伤其他页面容器 */
+    .dashboard-shell .dashboard-sidebar-surface {
         display: none !important;
         position: absolute;
         height: 100%;

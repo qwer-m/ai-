@@ -1,6 +1,5 @@
 ﻿import type { ChangeEvent, ClipboardEvent } from 'react';
 import { Button, Col, Form, Row } from 'react-bootstrap';
-import { FaClipboardCheck } from 'react-icons/fa';
 import type { DefectAnalysis, LoadingType } from './state/types';
 import { TestCaseEvaluationReport } from './TestCaseEvaluationReport';
 
@@ -64,12 +63,7 @@ export function TestCaseCoveragePanel({
   savingKnowledge,
 }: Props) {
   return (
-    <div className="bento-card col-span-12 p-4 d-flex flex-column ui-section-card evaluation-testcase-card">
-      <div className="d-flex align-items-center gap-2 mb-3 text-secondary">
-        <FaClipboardCheck />
-        <span className="fw-bold">测试用例质量评估</span>
-      </div>
-
+    <div className="bento-card col-span-12 p-4 d-flex flex-column ui-section-card evaluation-testcase-card panel-card">
       <div className="mb-3">
         <Row className="mb-3">
           <Col md={6}>
@@ -155,7 +149,7 @@ export function TestCaseCoveragePanel({
         </Row>
       </div>
 
-      <Button className="btn-pro-primary w-100 mt-auto" disabled={loading === 'eval'} onClick={onCompare}>
+      <Button className="btn-pro-primary w-100 mt-auto panel-card-primary-action" disabled={loading === 'eval'} onClick={onCompare}>
         {loading === 'eval' ? '评估中...' : '开始评估质量（含召回率/精准率/缺陷分析）'}
       </Button>
 

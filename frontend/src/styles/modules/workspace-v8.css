@@ -1,0 +1,134 @@
+/* 工作台壳层 v8：统一页面头部信息架构与内容层次 */
+
+body.ui-overhaul-v4 .workbench-shell {
+  position: relative;
+}
+
+body.ui-overhaul-v4 .dashboard-content-container-normal {
+  max-width: 1680px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+body.ui-overhaul-v4 .workbench-header-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--fd-primary) 20%, var(--fd-border));
+  border-radius: 16px;
+  background:
+    radial-gradient(760px 220px at 2% -20%, color-mix(in srgb, var(--fd-primary) 12%, transparent), transparent 66%),
+    linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 98%, transparent), color-mix(in srgb, var(--fd-surface-soft) 90%, transparent));
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+}
+
+body.theme-dark.ui-overhaul-v4 .workbench-header-card {
+  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.4);
+}
+
+body.ui-overhaul-v4 .workbench-title {
+  font-family: var(--fd-font-heading);
+  font-size: 1.24rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--fd-text);
+}
+
+body.ui-overhaul-v4 .workbench-subtitle {
+  color: var(--fd-text-soft);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+body.ui-overhaul-v4 .workbench-meta-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+body.ui-overhaul-v4 .workbench-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--fd-border) 90%, transparent);
+  background: color-mix(in srgb, var(--fd-surface) 92%, transparent);
+  color: var(--fd-text-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+body.ui-overhaul-v4 .workbench-meta-pill.is-ok {
+  border-color: color-mix(in srgb, var(--fd-success) 40%, var(--fd-border));
+  background: color-mix(in srgb, var(--fd-success) 12%, var(--fd-surface-soft));
+  color: color-mix(in srgb, var(--fd-success) 78%, #14532d);
+}
+
+body.ui-overhaul-v4 .workbench-meta-pill.is-offline {
+  border-color: color-mix(in srgb, var(--fd-warning) 40%, var(--fd-border));
+  background: color-mix(in srgb, var(--fd-warning) 12%, var(--fd-surface-soft));
+  color: color-mix(in srgb, var(--fd-warning) 70%, #7c2d12);
+}
+
+body.ui-overhaul-v4 .workbench-meta-pill.is-info {
+  border-color: color-mix(in srgb, var(--fd-primary) 34%, var(--fd-border));
+  background: color-mix(in srgb, var(--fd-primary) 10%, var(--fd-surface-soft));
+  color: color-mix(in srgb, var(--fd-primary) 75%, #1e3a8a);
+}
+
+body.ui-overhaul-v4 .workbench-shell .knowledge-toolbar-card,
+body.ui-overhaul-v4 .workbench-shell .rag-console,
+body.ui-overhaul-v4 .workbench-shell .test-generation-header,
+body.ui-overhaul-v4 .workbench-shell .test-generation-input,
+body.ui-overhaul-v4 .workbench-shell .test-generation-config,
+body.ui-overhaul-v4 .workbench-shell .test-generation-result,
+body.ui-overhaul-v4 .workbench-shell .evaluation-testcase-card,
+body.ui-overhaul-v4 .workbench-shell .evaluation-overview-card,
+body.ui-overhaul-v4 .workbench-shell .knowledge-content-area {
+  border-color: color-mix(in srgb, var(--fd-border) 95%, transparent);
+}
+
+body.ui-overhaul-v4 .workbench-shell .knowledge-content-area,
+body.ui-overhaul-v4 .workbench-shell .rag-console,
+body.ui-overhaul-v4 .workbench-shell .test-generation-result {
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+}
+
+body.ui-overhaul-v4 .evaluation-overview-grid .ui-section-card {
+  border: 1px solid color-mix(in srgb, var(--fd-border) 95%, transparent);
+}
+
+body.ui-overhaul-v4 .evaluation-overview-grid .ui-kpi-card {
+  border: 1px solid color-mix(in srgb, var(--fd-border) 88%, transparent);
+}
+
+body.theme-dark.ui-overhaul-v4 .workbench-shell .knowledge-content-area,
+body.theme-dark.ui-overhaul-v4 .workbench-shell .rag-console,
+body.theme-dark.ui-overhaul-v4 .workbench-shell .test-generation-result {
+  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.44);
+}
+
+body.ui-overhaul-v4 .workbench-shell .table-responsive {
+  background: color-mix(in srgb, var(--fd-surface) 96%, transparent);
+}
+
+@media (max-width: 991px) {
+  body.ui-overhaul-v4 .workbench-header-card {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 14px;
+  }
+
+  body.ui-overhaul-v4 .workbench-title {
+    font-size: 1.08rem;
+  }
+
+  body.ui-overhaul-v4 .workbench-subtitle {
+    font-size: 0.86rem;
+  }
+}

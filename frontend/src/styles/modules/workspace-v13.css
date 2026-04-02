@@ -1,0 +1,152 @@
+﻿/* 工作台重构 v13：API 测试 + 实时日志体验统一 */
+
+body.ui-overhaul-v4 .api-testing-workbench {
+  border: 1px solid color-mix(in srgb, var(--fd-border) 86%, transparent) !important;
+  border-radius: 16px !important;
+  background:
+    radial-gradient(780px 280px at 100% -20%, color-mix(in srgb, var(--fd-primary) 10%, transparent), transparent 64%),
+    linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 98%, #f7fbff), color-mix(in srgb, var(--fd-surface-soft) 86%, transparent)) !important;
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--fd-shadow) 10%, transparent);
+}
+
+body.ui-overhaul-v4 .api-testing-workbench .api-testing-tabs-head {
+  border-bottom-color: color-mix(in srgb, var(--fd-border) 84%, transparent) !important;
+  background: color-mix(in srgb, var(--fd-surface-soft) 88%, transparent) !important;
+  padding-top: 10px !important;
+}
+
+body.ui-overhaul-v4 .api-testing-workbench .api-testing-tab-link {
+  border-radius: 11px 11px 0 0 !important;
+  border: 1px solid transparent !important;
+  color: var(--fd-text-soft) !important;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+body.ui-overhaul-v4 .api-testing-workbench .api-testing-tab-link.active,
+body.ui-overhaul-v4 .api-testing-workbench .show > .api-testing-tab-link {
+  color: var(--fd-text) !important;
+  background: color-mix(in srgb, var(--fd-surface) 95%, transparent) !important;
+  border-color: color-mix(in srgb, var(--fd-border) 88%, transparent) color-mix(in srgb, var(--fd-border) 88%, transparent) color-mix(in srgb, var(--fd-surface) 95%, transparent) !important;
+  box-shadow: 0 8px 14px color-mix(in srgb, var(--fd-shadow) 8%, transparent);
+}
+
+body.ui-overhaul-v4 .dashboard-log-shell {
+  border-top: 1px solid color-mix(in srgb, var(--fd-border) 90%, transparent) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 96%, transparent), color-mix(in srgb, var(--fd-surface-soft) 88%, transparent));
+}
+
+body.ui-overhaul-v4 .dashboard-log-shell.is-expanded {
+  box-shadow: 0 -12px 24px color-mix(in srgb, var(--fd-shadow) 12%, transparent);
+}
+
+body.ui-overhaul-v4 .dashboard-log-header {
+  min-height: 46px;
+  border-bottom: 1px solid color-mix(in srgb, var(--fd-border) 72%, transparent);
+  background: color-mix(in srgb, var(--fd-surface-soft) 84%, transparent);
+}
+
+body.ui-overhaul-v4 .dashboard-log-toolbar {
+  border-bottom-color: color-mix(in srgb, var(--fd-border) 72%, transparent) !important;
+  background: color-mix(in srgb, var(--fd-surface) 92%, transparent) !important;
+}
+
+body.ui-overhaul-v4 .dashboard-log-tabs .dashboard-log-tab-link {
+  border-radius: 10px 10px 0 0;
+  border: 1px solid transparent;
+  color: var(--fd-text-soft);
+  font-weight: 700;
+}
+
+body.ui-overhaul-v4 .dashboard-log-tabs .dashboard-log-tab-link.active,
+body.ui-overhaul-v4 .dashboard-log-tabs .show > .dashboard-log-tab-link {
+  color: var(--fd-text) !important;
+  background: color-mix(in srgb, var(--fd-surface-soft) 84%, transparent) !important;
+  border-color: color-mix(in srgb, var(--fd-border) 80%, transparent) color-mix(in srgb, var(--fd-border) 80%, transparent) color-mix(in srgb, var(--fd-surface-soft) 84%, transparent) !important;
+}
+
+body.ui-overhaul-v4 .dashboard-log-filter-group .btn {
+  min-width: 48px;
+  border-radius: 999px !important;
+  font-size: 0.75rem;
+}
+
+body.ui-overhaul-v4 .dashboard-log-stream-body {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--fd-surface-soft) 78%, transparent), color-mix(in srgb, var(--fd-surface) 96%, transparent)),
+    repeating-linear-gradient(180deg, transparent 0, transparent 28px, color-mix(in srgb, var(--fd-border) 12%, transparent) 28px, color-mix(in srgb, var(--fd-border) 12%, transparent) 29px);
+  border-top: 1px solid color-mix(in srgb, var(--fd-border) 56%, transparent);
+  line-height: 1.56;
+}
+
+body.ui-overhaul-v4 .dashboard-log-stream-body .text-break {
+  white-space: pre-wrap;
+}
+
+@media (max-width: 991px) {
+  body.ui-overhaul-v4 .dashboard-log-toolbar {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 8px;
+  }
+
+  body.ui-overhaul-v4 .dashboard-log-filter-group {
+    width: 100%;
+  }
+
+  body.ui-overhaul-v4 .dashboard-log-filter-group .btn {
+    flex: 1;
+  }
+}
+
+body.theme-dark.ui-overhaul-v4 .api-testing-workbench {
+  border-color: color-mix(in srgb, var(--fd-border) 95%, transparent) !important;
+  background:
+    radial-gradient(780px 280px at 100% -20%, color-mix(in srgb, var(--fd-primary) 24%, transparent), transparent 66%),
+    linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 95%, #101827), color-mix(in srgb, var(--fd-surface-soft) 90%, #0d1627)) !important;
+  box-shadow: 0 16px 30px rgba(2, 6, 23, 0.48);
+}
+
+body.theme-dark.ui-overhaul-v4 .api-testing-workbench .api-testing-tabs-head {
+  border-bottom-color: color-mix(in srgb, var(--fd-border) 94%, transparent) !important;
+  background: color-mix(in srgb, var(--fd-surface-soft) 92%, #0d1627) !important;
+}
+
+body.theme-dark.ui-overhaul-v4 .api-testing-workbench .api-testing-tab-link {
+  color: color-mix(in srgb, var(--fd-text-soft) 90%, #c5d2e4) !important;
+}
+
+body.theme-dark.ui-overhaul-v4 .api-testing-workbench .api-testing-tab-link.active,
+body.theme-dark.ui-overhaul-v4 .api-testing-workbench .show > .api-testing-tab-link {
+  color: color-mix(in srgb, var(--fd-text) 96%, #ffffff) !important;
+  background: color-mix(in srgb, var(--fd-surface) 92%, #111827) !important;
+}
+
+body.theme-dark.ui-overhaul-v4 .dashboard-log-shell {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 94%, #0f172a), color-mix(in srgb, var(--fd-surface-soft) 92%, #0b1220));
+  box-shadow: 0 -14px 26px rgba(2, 6, 23, 0.42);
+}
+
+body.theme-dark.ui-overhaul-v4 .dashboard-log-header,
+body.theme-dark.ui-overhaul-v4 .dashboard-log-toolbar {
+  border-bottom-color: color-mix(in srgb, var(--fd-border) 95%, transparent) !important;
+  background: color-mix(in srgb, var(--fd-surface-soft) 92%, #0f172a) !important;
+}
+
+body.theme-dark.ui-overhaul-v4 .dashboard-log-tabs .dashboard-log-tab-link {
+  color: color-mix(in srgb, var(--fd-text-soft) 94%, #c5d2e4);
+}
+
+body.theme-dark.ui-overhaul-v4 .dashboard-log-tabs .dashboard-log-tab-link.active,
+body.theme-dark.ui-overhaul-v4 .dashboard-log-tabs .show > .dashboard-log-tab-link {
+  color: color-mix(in srgb, var(--fd-text) 96%, #ffffff) !important;
+  background: color-mix(in srgb, var(--fd-surface) 90%, #101827) !important;
+  border-color: color-mix(in srgb, var(--fd-border) 95%, transparent) color-mix(in srgb, var(--fd-border) 95%, transparent) color-mix(in srgb, var(--fd-surface) 90%, #101827) !important;
+}
+
+body.theme-dark.ui-overhaul-v4 .dashboard-log-stream-body {
+  border-top-color: color-mix(in srgb, var(--fd-border) 95%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--fd-surface-soft) 88%, #0b1220), color-mix(in srgb, var(--fd-surface) 92%, #101827)),
+    repeating-linear-gradient(180deg, transparent 0, transparent 28px, rgba(148, 163, 184, 0.05) 28px, rgba(148, 163, 184, 0.05) 29px);
+}

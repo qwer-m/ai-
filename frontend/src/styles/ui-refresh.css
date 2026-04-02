@@ -133,7 +133,7 @@ body.theme-dark {
 }
 
 .dashboard-sidebar-link-row {
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
   cursor: pointer;
   min-height: 38px;
   margin-bottom: 4px;
@@ -410,9 +410,12 @@ body.theme-dark {
 }
 
 .knowledge-pagination-bar {
-  border-top-color: var(--ui-border) !important;
-  border-radius: 0 0 12px 12px;
-  background: var(--ui-surface-muted) !important;
+  border-color: color-mix(in srgb, var(--ui-border) 72%, transparent) !important;
+  border-radius: 14px !important;
+  background: color-mix(in srgb, var(--ui-surface) 38%, transparent) !important;
+  backdrop-filter: blur(16px) saturate(165%);
+  -webkit-backdrop-filter: blur(16px) saturate(165%);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.52);
 }
 
 .knowledge-pagination-bar .pagination .page-link {
@@ -568,8 +571,24 @@ body.theme-dark .error-boundary-stack {
 }
 
 .project-page-shell .project-page-header {
+  padding: 20px 28px !important;
   border-color: var(--ui-border);
   box-shadow: var(--ui-shadow-sm);
+}
+
+.project-page-shell .project-page-title-row {
+  min-width: 0;
+  gap: 18px !important;
+}
+
+.project-page-shell .project-page-count {
+  white-space: nowrap;
+  margin-bottom: 2px;
+}
+
+.project-page-shell .project-page-title-row h4 {
+  font-size: 2rem;
+  line-height: 1;
 }
 
 .project-page-shell .project-page-icon {
@@ -585,7 +604,8 @@ body.theme-dark .error-boundary-stack {
 }
 
 .project-page-shell .project-search-box {
-  width: min(320px, 68vw);
+  width: min(420px, 42vw);
+  margin-bottom: 0;
 }
 
 .project-page-shell .project-search-box .input-group-text {
@@ -597,7 +617,37 @@ body.theme-dark .error-boundary-stack {
 }
 
 .project-page-shell .project-page-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
   justify-content: flex-end;
+  gap: 12px !important;
+  min-width: 0;
+}
+
+.project-page-shell .project-page-actions .btn {
+  flex-shrink: 0;
+}
+
+.project-page-shell .project-page-create-btn {
+  min-height: 40px;
+  padding-inline: 18px !important;
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px !important;
+  white-space: nowrap;
+  line-height: 1;
+  font-size: 1rem;
+}
+
+.project-page-shell .project-page-create-btn svg {
+  flex-shrink: 0;
+}
+
+.project-page-shell .project-page-header > .d-flex:first-child {
+  min-width: 0;
 }
 
 .project-page-shell .project-page-table-wrap {
@@ -877,6 +927,11 @@ body.theme-dark .knowledge-pagination-bar {
   border-color: var(--ui-border) !important;
 }
 
+body.theme-dark .knowledge-pagination-bar {
+  background: color-mix(in srgb, #0f172a 42%, transparent) !important;
+  box-shadow: 0 10px 22px rgba(2, 6, 23, 0.42), inset 0 1px 0 rgba(148, 163, 184, 0.12);
+}
+
 body.theme-dark .knowledge-content-area .doc-card {
   background: #0f172a;
 }
@@ -967,7 +1022,14 @@ body.theme-dark .supplement-popover .popover-header {
 
   .project-page-shell .project-page-actions {
     width: 100%;
+    flex-wrap: wrap;
     justify-content: stretch;
+  }
+
+  .project-page-shell .project-page-title-row {
+    flex-wrap: wrap;
+    align-items: flex-start !important;
+    gap: 6px 12px !important;
   }
 
   .project-page-shell .project-search-box {
@@ -1034,19 +1096,27 @@ body.theme-dark .supplement-popover .popover-header {
   background: color-mix(in srgb, var(--ui-primary-soft) 65%, var(--ui-surface)) !important;
 }
 
+.dashboard-shell .dashboard-sidebar-nav-wrap .dashboard-sidebar-link-row:hover {
+  transform: none;
+}
+
+.dashboard-shell .dashboard-sidebar-nav-wrap .sidebar-link.small:hover {
+  transform: translateX(2px);
+}
+
 .dashboard-shell .dashboard-sidebar-nav-wrap .sidebar-link.active-pro {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--ui-primary) 93%, #1d4ed8), color-mix(in srgb, var(--ui-primary) 78%, #7c3aed)) !important;
-  border-color: color-mix(in srgb, var(--ui-primary) 58%, transparent) !important;
-  color: #ffffff !important;
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--ui-primary) 38%, transparent);
+  background: color-mix(in srgb, var(--ui-primary) 10%, var(--ui-surface)) !important;
+  border-color: color-mix(in srgb, var(--ui-primary) 26%, transparent) !important;
+  color: var(--ui-primary) !important;
+  box-shadow: none !important;
 }
 
 .dashboard-shell .dashboard-sidebar-nav-wrap .sidebar-link.active-pro > * {
-  color: #ffffff !important;
+  color: var(--ui-primary) !important;
 }
 
 .dashboard-shell .dashboard-sidebar-nav-wrap .sidebar-link.active-pro .dashboard-sidebar-toggle-icon {
-  background: color-mix(in srgb, #ffffff 18%, transparent);
+  background: color-mix(in srgb, var(--ui-primary) 10%, transparent);
 }
 
 .dashboard-action-cluster .btn {
@@ -1072,8 +1142,8 @@ body.theme-dark .supplement-popover .popover-header {
 
 .dashboard-shell .bento-card:hover,
 .dashboard-shell .ui-section-card:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.55) !important;
+  transform: none;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.55) !important;
 }
 
 .dashboard-shell .btn-pro-primary,
@@ -1163,6 +1233,45 @@ body.theme-dark .dashboard-shell .knowledge-toolbar-card,
 body.theme-dark .dashboard-shell .knowledge-content-area {
   border-color: color-mix(in srgb, var(--ui-border) 78%, transparent) !important;
   box-shadow: 0 10px 22px rgba(2, 6, 23, 0.38) !important;
+}
+
+/* Remove hover lift from middle workbench blocks to avoid jitter and exposed accent edges */
+.dashboard-shell .hover-lift,
+.dashboard-shell .bento-card,
+.dashboard-shell .ui-section-card,
+.dashboard-shell .panel-card,
+.dashboard-shell .knowledge-content-area .doc-card,
+.dashboard-shell .rag-console .rag-console-surface,
+.dashboard-shell .rag-console .rag-console-panel,
+.dashboard-shell .rag-console .rag-report-block,
+.dashboard-shell .rag-console .rag-report-card,
+.dashboard-shell .rag-console .rag-report-subpanel {
+  transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease !important;
+}
+
+.dashboard-shell .hover-lift:hover,
+.dashboard-shell .bento-card:hover,
+.dashboard-shell .ui-section-card:hover,
+.dashboard-shell .panel-card:hover,
+.dashboard-shell .knowledge-content-area .doc-card:hover,
+.dashboard-shell .rag-console .rag-console-surface:hover,
+.dashboard-shell .rag-console .rag-console-panel:hover,
+.dashboard-shell .rag-console .rag-report-block:hover,
+.dashboard-shell .rag-console .rag-report-card:hover,
+.dashboard-shell .rag-console .rag-report-subpanel:hover {
+  transform: none !important;
+}
+
+.dashboard-shell .bento-card::before,
+.dashboard-shell .ui-section-card::before,
+.dashboard-shell .panel-card::before,
+.dashboard-shell .knowledge-content-area .doc-card::before,
+.dashboard-shell .rag-console .rag-console-surface::before,
+.dashboard-shell .rag-console .rag-console-panel::before,
+.dashboard-shell .rag-console .rag-report-block::before,
+.dashboard-shell .rag-console .rag-report-card::before,
+.dashboard-shell .rag-console .rag-report-subpanel::before {
+  display: none !important;
 }
 
 body.theme-dark .dashboard-shell .dashboard-sidebar-nav-wrap .sidebar-link:hover {

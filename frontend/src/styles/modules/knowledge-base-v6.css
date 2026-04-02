@@ -1,0 +1,241 @@
+/* Knowledge Base styles v6 */
+
+body.ui-overhaul-v4 .knowledge-base-shell > .workbench-header-card,
+body.ui-overhaul-v4 .knowledge-base-shell > .knowledge-toolbar-card,
+body.ui-overhaul-v4 .knowledge-base-shell > .alert,
+body.ui-overhaul-v4 .knowledge-base-shell > .knowledge-pagination-bar {
+  flex-shrink: 0;
+}
+
+body.ui-overhaul-v4 .knowledge-base-shell {
+  gap: 0 !important;
+}
+
+body.ui-overhaul-v4 .knowledge-base-shell > .knowledge-toolbar-card,
+body.ui-overhaul-v4 .knowledge-base-shell > .alert {
+  margin-bottom: 12px;
+}
+
+body.ui-overhaul-v4 .knowledge-base-shell > .knowledge-content-area {
+  min-height: 0;
+  padding-bottom: 96px !important;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card {
+  flex-shrink: 0;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card .card-body {
+  padding: 10px 18px !important;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card .panel-card-head {
+  margin-bottom: 6px !important;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card .form-label {
+  font-weight: 700 !important;
+  margin-bottom: 4px;
+  line-height: 1.2;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card .input-group-text {
+  border-color: var(--fd-border) !important;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card .form-control,
+body.ui-overhaul-v4 .knowledge-toolbar-card .form-select,
+body.ui-overhaul-v4 .knowledge-toolbar-card .btn,
+body.ui-overhaul-v4 .knowledge-toolbar-card .input-group-text {
+  min-height: 40px;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card .form-control,
+body.ui-overhaul-v4 .knowledge-toolbar-card .form-select {
+  height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 38px;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card .btn {
+  height: 40px;
+  line-height: 1;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card .input-group-text {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card .form-control::placeholder {
+  line-height: 38px;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card .form-control[type='file'] {
+  display: flex;
+  align-items: center;
+  padding-inline: 12px;
+  line-height: normal;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card .form-control[type='file']::file-selector-button {
+  height: 100%;
+  margin: 0 14px 0 -12px;
+  padding: 0 16px;
+  border: 0;
+  border-right: 1px solid color-mix(in srgb, var(--fd-border) 90%, transparent);
+  background: color-mix(in srgb, var(--fd-surface-soft) 74%, transparent);
+  color: var(--fd-text);
+  cursor: pointer;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card .border-start {
+  border-left-color: color-mix(in srgb, var(--fd-border) 90%, transparent) !important;
+}
+
+body.ui-overhaul-v4 .knowledge-filter-select {
+  min-width: 130px;
+}
+
+body.ui-overhaul-v4 .knowledge-upload-btn {
+  white-space: nowrap;
+  flex-direction: row !important;
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed;
+  line-height: 1;
+}
+
+body.ui-overhaul-v4 .knowledge-content-area {
+  border-radius: 14px !important;
+  padding: 14px !important;
+  display: flex;
+  flex-direction: column;
+}
+
+body.ui-overhaul-v4 .knowledge-content-area .knowledge-doc-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+  align-content: start;
+}
+
+body.ui-overhaul-v4 .knowledge-content-area .knowledge-doc-col {
+  min-width: 0;
+}
+
+body.ui-overhaul-v4 .knowledge-content-area .knowledge-doc-col .card,
+body.ui-overhaul-v4 .knowledge-content-area .knowledge-doc-col .doc-card {
+  height: auto;
+  min-height: clamp(250px, 28vh, 360px);
+}
+
+body.ui-overhaul-v4 .knowledge-content-area .doc-card {
+  border: 1px solid var(--fd-border) !important;
+  box-shadow: var(--fd-shadow-sm);
+}
+
+body.ui-overhaul-v4 .knowledge-content-area .doc-card .card-title {
+  line-height: 1.36;
+}
+
+body.ui-overhaul-v4 .knowledge-link-block {
+  border-radius: 10px !important;
+}
+
+body.ui-overhaul-v4 .knowledge-linked-badge,
+body.ui-overhaul-v4 .knowledge-source-badge {
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--fd-border) 92%, transparent);
+}
+
+body.ui-overhaul-v4 .knowledge-content-area .knowledge-linked-badge {
+  max-width: 100%;
+}
+
+body.ui-overhaul-v4 .knowledge-pagination-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 7;
+  margin-top: -52px;
+  margin-left: auto;
+  width: fit-content;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--fd-border) 78%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--fd-surface) 36%, transparent) !important;
+  backdrop-filter: blur(16px) saturate(165%);
+  -webkit-backdrop-filter: blur(16px) saturate(165%);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+body.ui-overhaul-v4 .knowledge-pagination-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.36) 0%, rgba(255, 255, 255, 0.1) 42%, rgba(255, 255, 255, 0.04) 100%);
+}
+
+body.ui-overhaul-v4 .knowledge-pagination-bar .btn {
+  min-height: 34px;
+}
+
+body.ui-overhaul-v4 .knowledge-pagination-bar > div:first-child {
+  white-space: nowrap;
+}
+
+body.ui-overhaul-v4 .knowledge-pagination-bar .pagination .page-link:hover,
+body.ui-overhaul-v4 .knowledge-pagination-bar .pagination .page-link:focus {
+  background: color-mix(in srgb, var(--fd-primary) 14%, transparent) !important;
+  border-color: color-mix(in srgb, var(--fd-primary) 55%, var(--fd-border)) !important;
+  color: var(--fd-text) !important;
+  box-shadow: none !important;
+}
+
+body.ui-overhaul-v4 .knowledge-pagination-bar .pagination .page-item.active .page-link:hover,
+body.ui-overhaul-v4 .knowledge-pagination-bar .pagination .page-item.active .page-link:focus {
+  background: var(--fd-primary) !important;
+  border-color: var(--fd-primary) !important;
+  color: #fff !important;
+}
+
+body.ui-overhaul-v4 .knowledge-content-area .btn-outline-primary:hover,
+body.ui-overhaul-v4 .knowledge-content-area .btn-outline-primary:focus {
+  background: color-mix(in srgb, var(--fd-primary) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--fd-primary) 58%, var(--fd-border)) !important;
+  color: var(--fd-primary) !important;
+}
+
+body.ui-overhaul-v4 .knowledge-content-area .btn-outline-danger:hover,
+body.ui-overhaul-v4 .knowledge-content-area .btn-outline-danger:focus {
+  background: color-mix(in srgb, #ef4444 12%, transparent) !important;
+  border-color: color-mix(in srgb, #ef4444 58%, var(--fd-border)) !important;
+  color: #ef4444 !important;
+}
+
+@media (max-width: 960px) {
+  body.ui-overhaul-v4 .knowledge-toolbar-card .border-start {
+    border-left: 0 !important;
+    border-top: 1px solid color-mix(in srgb, var(--fd-border) 90%, transparent) !important;
+    margin-top: 2px;
+    padding-top: 14px;
+    padding-left: calc(var(--bs-gutter-x) * 0.5) !important;
+  }
+
+  body.ui-overhaul-v4 .knowledge-content-area .knowledge-doc-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    height: auto;
+    grid-template-rows: none;
+  }
+}
+
+@media (max-width: 720px) {
+  body.ui-overhaul-v4 .knowledge-content-area .knowledge-doc-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

@@ -8,8 +8,8 @@ type Props = {
 
 export function PipelineOrchestrationInputPanel({ controller }: Props) {
   return (
-    <Card className="border-0 shadow-sm h-100">
-      <Card.Body className="d-flex flex-column gap-3">
+    <Card className="border-0 shadow-sm h-100 panel-card pipeline-input-card">
+      <Card.Body className="d-flex flex-column gap-3 pipeline-input-body">
         <h6 className="mb-0">流水线输入</h6>
 
         <div>

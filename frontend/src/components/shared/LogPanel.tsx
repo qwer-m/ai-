@@ -175,21 +175,21 @@ export function LogPanel({ userLogs, systemLogs, loading, error, onClear }: Prop
 
       {expanded ? (
         <div className="d-flex flex-column flex-grow-1 overflow-hidden dashboard-log-content">
-          <div className="d-flex align-items-center justify-content-between px-3 py-1 border-bottom bg-light">
-            <Nav variant="tabs" className="border-bottom-0" activeKey={activeTab} onSelect={(k) => setActiveTab(k as 'user' | 'system')}>
+          <div className="d-flex align-items-center justify-content-between px-3 py-1 border-bottom bg-light dashboard-log-toolbar">
+            <Nav variant="tabs" className="border-bottom-0 dashboard-log-tabs" activeKey={activeTab} onSelect={(k) => setActiveTab(k as 'user' | 'system')}>
               <Nav.Item>
-                <Nav.Link eventKey="user" className="py-1 px-3 small">
+                <Nav.Link eventKey="user" className="py-1 px-3 small dashboard-log-tab-link">
                   用户操作 ({userLogs.length})
                 </Nav.Link>
               </Nav.Item>
               <Nav.Item>
-                <Nav.Link eventKey="system" className="py-1 px-3 small">
+                <Nav.Link eventKey="system" className="py-1 px-3 small dashboard-log-tab-link">
                   系统日志 ({systemLogs.length})
                 </Nav.Link>
               </Nav.Item>
             </Nav>
 
-            <div className="d-flex gap-1">
+            <div className="d-flex gap-1 dashboard-log-filter-group">
               <Button size="sm" variant={filter === 'all' ? 'primary' : 'outline-secondary'} className="py-0 px-2 dashboard-log-mini-btn" onClick={() => setFilter('all')}>
                 全部
               </Button>

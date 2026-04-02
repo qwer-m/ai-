@@ -55,10 +55,14 @@ export function TestGenerationConfigSection({
   hasOutput,
 }: TestGenerationConfigSectionProps) {
   return (
-    <div className="test-generation-config bento-card col-span-6 p-4 d-flex flex-column gap-3 bg-body">
-      <h6 className="fw-bold d-flex align-items-center gap-2 mb-3">
-        <FaCog className="text-primary" /> 配置面板
-      </h6>
+    <div className="test-generation-config bento-card col-span-6 p-4 d-flex flex-column gap-3 bg-body panel-card panel-card-config">
+      <div className="panel-card-head">
+        <div className="panel-card-title-row">
+          <h6 className="fw-bold d-flex align-items-center gap-2 mb-0 panel-card-title">
+            <FaCog className="text-primary" /> 配置面板
+          </h6>
+        </div>
+      </div>
 
       {mode === 'file' ? (
         <div className="p-3 bg-body-tertiary rounded-3 mb-2">
@@ -151,7 +155,7 @@ export function TestGenerationConfigSection({
         ) : null}
       </div>
 
-      <div className="mt-auto d-flex flex-column gap-2">
+      <div className="mt-auto d-flex flex-column gap-2 panel-card-actions">
         <Button
           variant="primary"
           className="w-100 text-white d-flex align-items-center justify-content-center test-generation-action-btn"

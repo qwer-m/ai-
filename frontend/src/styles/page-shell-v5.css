@@ -1,0 +1,73 @@
+/* 页面壳层统一：标题层级、区块内边距、表格与空态风格 */
+
+body.ui-overhaul-v4 .project-page-shell,
+body.ui-overhaul-v4 .evaluation-shell,
+body.ui-overhaul-v4 .knowledge-base-shell,
+body.ui-overhaul-v4 .test-generation-shell,
+body.ui-overhaul-v4 .api-testing-shell,
+body.ui-overhaul-v4 .api-automation-shell {
+  color: var(--fd-text);
+}
+
+body.ui-overhaul-v4 .ui-section-card,
+body.ui-overhaul-v4 .project-page-shell .card,
+body.ui-overhaul-v4 .evaluation-shell .card,
+body.ui-overhaul-v4 .knowledge-base-shell .card {
+  border: 1px solid var(--fd-border) !important;
+  border-radius: 14px !important;
+  background: linear-gradient(180deg, var(--fd-surface) 0%, var(--fd-surface-soft) 100%) !important;
+  box-shadow: var(--fd-shadow-sm);
+}
+
+body.ui-overhaul-v4 .ui-section-card .card-header,
+body.ui-overhaul-v4 .project-page-shell .card-header,
+body.ui-overhaul-v4 .evaluation-shell .card-header,
+body.ui-overhaul-v4 .knowledge-base-shell .card-header {
+  border-bottom: 1px solid var(--fd-border) !important;
+  background: color-mix(in srgb, var(--fd-surface-soft) 84%, transparent) !important;
+}
+
+body.ui-overhaul-v4 h4,
+body.ui-overhaul-v4 h5,
+body.ui-overhaul-v4 h6 {
+  line-height: 1.25;
+}
+
+body.ui-overhaul-v4 .table-responsive {
+  border: 1px solid var(--fd-border) !important;
+  border-radius: 12px !important;
+}
+
+body.ui-overhaul-v4 .table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+body.ui-overhaul-v4 .empty-state,
+body.ui-overhaul-v4 .knowledge-content-area .text-center.py-5 {
+  border: 1px dashed color-mix(in srgb, var(--fd-border) 90%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--fd-surface-soft) 72%, transparent);
+}
+
+body.ui-overhaul-v4 .badge {
+  border-radius: 999px;
+}
+
+body.ui-overhaul-v4 .popover {
+  border: 1px solid var(--fd-border) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--fd-shadow-md);
+}
+
+body.ui-overhaul-v4 .popover-header {
+  border-bottom: 1px solid var(--fd-border);
+  background: color-mix(in srgb, var(--fd-surface-soft) 86%, transparent);
+  color: var(--fd-text);
+}
+
+body.ui-overhaul-v4 .popover-body {
+  color: var(--fd-text-soft);
+}
+

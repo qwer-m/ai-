@@ -61,10 +61,10 @@ export function TestCaseEvaluationReport({
     || (savedDocId !== null && supplementText === lastSavedContent && supplementImages.length === 0);
 
   return (
-    <div>
-      <h6 className="border-bottom pb-2 mb-3">质量评估报告</h6>
+    <div className="evaluation-report-panel panel-card">
+      <h6 className="border-bottom pb-2 mb-3 evaluation-report-title">质量评估报告</h6>
 
-      <div className="mb-4 evaluation-chart-wrap">
+      <div className="mb-4 evaluation-chart-wrap evaluation-report-chart-wrap">
         <Line
           data={{
             labels: history.length > 0 ? history.map((h) => h.created_at) : ['Current'],
@@ -143,20 +143,20 @@ export function TestCaseEvaluationReport({
         />
       </div>
 
-      <div className="d-flex gap-2 mb-3 text-center">
-        <div className="p-2 bg-white border rounded flex-fill">
+      <div className="d-flex gap-2 mb-3 text-center evaluation-report-kpi-grid">
+        <div className="p-2 bg-white border rounded flex-fill evaluation-report-kpi">
           <div className="fw-bold text-primary">{typeof metrics.precision === 'number' ? metrics.precision.toFixed(2) : '-'}</div>
           <div className="x-small text-muted">精准率</div>
         </div>
-        <div className="p-2 bg-white border rounded flex-fill">
+        <div className="p-2 bg-white border rounded flex-fill evaluation-report-kpi">
           <div className="fw-bold text-primary">{typeof metrics.recall === 'number' ? metrics.recall.toFixed(2) : '-'}</div>
           <div className="x-small text-muted">召回率</div>
         </div>
-        <div className="p-2 bg-white border rounded flex-fill">
+        <div className="p-2 bg-white border rounded flex-fill evaluation-report-kpi">
           <div className="fw-bold text-primary">{typeof metrics.f1_score === 'number' ? metrics.f1_score.toFixed(2) : '-'}</div>
           <div className="x-small text-muted">F1 分数</div>
         </div>
-        <div className="p-2 bg-white border rounded flex-fill">
+        <div className="p-2 bg-white border rounded flex-fill evaluation-report-kpi">
           <div className="fw-bold text-primary">
             {typeof metrics.semantic_similarity === 'number' ? metrics.semantic_similarity.toFixed(2) : '-'}
           </div>
@@ -164,9 +164,9 @@ export function TestCaseEvaluationReport({
         </div>
       </div>
 
-      <div className="d-flex align-items-center justify-content-between mb-2">
+      <div className="d-flex align-items-center justify-content-between mb-2 evaluation-report-defect-head">
         <strong>缺陷归因分析:</strong>
-        <Button variant="outline-secondary" size="sm" className="py-0 px-2" onClick={() => setShowSupplement(true)}>
+        <Button variant="outline-secondary" size="sm" className="py-0 px-2 evaluation-report-supplement-btn" onClick={() => setShowSupplement(true)}>
           <FaPlus className="me-1" /> 用户补充描述
         </Button>
       </div>
@@ -178,6 +178,7 @@ export function TestCaseEvaluationReport({
         }}
         centered
         size="lg"
+        dialogClassName="evaluation-report-modal"
       >
         <Modal.Header closeButton={!savingKnowledge}>
           <Modal.Title>用户补充描述</Modal.Title>
@@ -245,7 +246,7 @@ export function TestCaseEvaluationReport({
       </Modal>
 
       {defectAnalysis.missing_points?.length ? (
-        <div className="mb-2">
+        <div className="mb-2 evaluation-report-defect-group">
           <span className="badge bg-warning text-dark me-2">遗漏点（召回损失）</span>
           <ul className="mb-1 ps-3 mt-1 text-muted">
             {defectAnalysis.missing_points.map((item, index) => <li key={index}>{item}</li>)}
@@ -254,7 +255,7 @@ export function TestCaseEvaluationReport({
       ) : null}
 
       {defectAnalysis.hallucinations?.length ? (
-        <div className="mb-2">
+        <div className="mb-2 evaluation-report-defect-group">
           <span className="badge bg-danger text-white me-2">幻觉/多余（精度损失）</span>
           <ul className="mb-1 ps-3 mt-1 text-muted">
             {defectAnalysis.hallucinations.map((item, index) => <li key={index}>{item}</li>)}
@@ -263,7 +264,7 @@ export function TestCaseEvaluationReport({
       ) : null}
 
       {defectAnalysis.modifications?.length ? (
-        <div className="mb-2">
+        <div className="mb-2 evaluation-report-defect-group">
           <span className="badge bg-info text-white me-2">逻辑修正</span>
           <ul className="mb-1 ps-3 mt-1 text-muted">
             {defectAnalysis.modifications.map((item, index) => <li key={index}>{item}</li>)}
@@ -271,7 +272,7 @@ export function TestCaseEvaluationReport({
         </div>
       ) : null}
 
-      <div className="mt-3 pt-2 border-top text-secondary">
+      <div className="mt-3 pt-2 border-top text-secondary evaluation-report-summary">
         <strong>总结:</strong> {summary}
       </div>
       <div className="mt-2 text-end text-muted x-small">

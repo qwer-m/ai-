@@ -134,8 +134,14 @@ export function useKnowledgeBaseActions({
   };
 
   const handleUpload = async () => {
-    if (!projectId) return alert("Select a project first");
-    if (!file) return alert("Select a file first");
+    if (!projectId) {
+      setToastMsg({ type: "error", msg: "请先选择项目后再上传文档。" });
+      return;
+    }
+    if (!file) {
+      setToastMsg({ type: "error", msg: "请先选择要上传的文件。" });
+      return;
+    }
 
     setUploading(true);
     const uploadData = new FormData();
@@ -150,13 +156,13 @@ export function useKnowledgeBaseActions({
       if (data.status === "duplicate") {
         setToastMsg({
           type: "error",
-          msg: `File "${data.existing_filename || file.name}" already exists in the knowledge base.`,
+          msg: `文件“${data.existing_filename || file.name}”已存在于知识库中。`,
         });
         setFile(null);
       } else if (data.error) {
         throw new Error(data.error);
       } else {
-        setToastMsg({ type: "success", msg: `Upload succeeded: ${data.filename}` });
+        setToastMsg({ type: "success", msg: `上传成功：${data.filename}` });
         setFile(null);
         fetchList(page);
         trackOperation("upload_document", {
@@ -165,7 +171,7 @@ export function useKnowledgeBaseActions({
         });
       }
     } catch (e) {
-      setToastMsg({ type: "error", msg: `Upload failed: ${e}` });
+      setToastMsg({ type: "error", msg: `上传失败：${e}` });
     } finally {
       setUploading(false);
       setForce(false);
@@ -183,14 +189,14 @@ export function useKnowledgeBaseActions({
       const data = await deleteKnowledgeDocument(deleteTarget.global_id);
       if (data.error) throw new Error(data.error);
 
-      setToastMsg({ type: "success", msg: `Deleted: ${deleteTarget.filename}` });
+      setToastMsg({ type: "success", msg: `已删除：${deleteTarget.filename}` });
       trackOperation("delete_document", {
         document_id: deleteTarget.global_id,
         file_name: deleteTarget.filename,
       });
       fetchList(page);
     } catch (e) {
-      setToastMsg({ type: "error", msg: `Delete failed: ${e}` });
+      setToastMsg({ type: "error", msg: `删除失败：${e}` });
     } finally {
       setShowDeleteModal(false);
       setDeleteTarget(null);
@@ -246,13 +252,13 @@ export function useKnowledgeBaseActions({
         source_doc_id: -1,
       });
       if (data.success) {
-        setToastMsg({ type: "success", msg: "Relation removed." });
+        setToastMsg({ type: "success", msg: "关联已移除。" });
         fetchList(page);
       } else {
         throw new Error("Update failed");
       }
     } catch (e) {
-      setToastMsg({ type: "error", msg: `Unlink failed: ${e}` });
+      setToastMsg({ type: "error", msg: `移除关联失败：${e}` });
     }
   };
 
@@ -322,11 +328,11 @@ export function useKnowledgeBaseActions({
             position: "after",
           });
           fetchList(targetPage);
-          setToastMsg({ type: "success", msg: `Moved to the end of page ${targetPage}.` });
+          setToastMsg({ type: "success", msg: `已移动到第 ${targetPage} 页末尾。` });
         }
       }
     } catch (e) {
-      setToastMsg({ type: "error", msg: `Move failed: ${e}` });
+      setToastMsg({ type: "error", msg: `移动失败：${e}` });
     } finally {
       resetDrag();
       setLoading(false);

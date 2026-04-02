@@ -10,14 +10,14 @@ type Props = {
 export function EvaluationOverviewPanel({ diag, qm, onExportHistory }: Props) {
   return (
     <>
-      <div className="bento-card col-span-12 p-4 d-flex align-items-center justify-content-between glass-panel">
+      <div className="bento-card col-span-12 p-4 d-flex align-items-center justify-content-between glass-panel evaluation-overview-card">
         <h4 className="text-gradient mb-0 d-flex align-items-center gap-2">
           <FaClipboardCheck className="text-primary" />
           质量评估与召回
         </h4>
       </div>
 
-      <div className="bento-card col-span-12 p-0 border-0 bg-transparent">
+      <div className="bento-card col-span-12 p-0 border-0 bg-transparent evaluation-overview-grid">
         <div className="d-flex flex-column flex-md-row gap-3">
           <div className="bento-card p-4 d-flex flex-column hover-lift flex-fill ui-section-card">
             <div className="d-flex align-items-center gap-2 mb-4 text-secondary">

@@ -1,4 +1,4 @@
-﻿import { getAuthHeaders } from '../../../../utils/api';
+import { getAuthHeaders } from '../../../../utils/api';
 import type { TestGenerationMode } from '../../../test-generation/types';
 import { getCopyPayload, parseStreamingArrayContent, translateError } from './testGenerationCaseUtils';
 
@@ -80,7 +80,7 @@ export function useTestGenerationResultActions({
     const content = getCopyPayload(result, streamingContent);
     if (!content) return;
     navigator.clipboard.writeText(content)
-      .then(() => { setToastType('success'); setToastMsg('Copied to clipboard'); })
+      .then(() => { setToastType('success'); setToastMsg('已复制到剪贴板'); })
       .catch(() => { setToastType('error'); setToastMsg('复制失败，请手动复制'); });
   };
 

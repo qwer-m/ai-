@@ -1,10 +1,11 @@
-﻿import { Toast, ToastContainer } from 'react-bootstrap';
+import { useEffect } from 'react';
 import { PreviewModal } from '../shared/PreviewModal';
 import { KnowledgeBaseToolbar, OfflineBanner } from '../knowledge-base/KnowledgeBaseToolbar';
 import { KnowledgeBaseContent } from '../knowledge-base/KnowledgeBaseContent';
 import { KnowledgeBasePaginationBar } from '../knowledge-base/KnowledgeBasePaginationBar';
 import { DeleteConfirmModal, ManageRelationModal } from '../knowledge-base/KnowledgeBaseModals';
 import { useKnowledgeBase } from '../knowledge-base/useKnowledgeBase';
+import { emitFeedback } from '../../utils/feedback';
 
 type Props = {
   projectId: number | null;
@@ -14,25 +15,20 @@ type Props = {
 export function KnowledgeBase({ projectId, onLog }: Props) {
   const kb = useKnowledgeBase({ projectId, onLog });
 
-  return (
-    <div className="h-100 d-flex flex-column gap-3 position-relative knowledge-base-shell">
-      <ToastContainer containerPosition="fixed" position="top-end" className="p-3 knowledge-toast-container">
-        {kb.toastMsg && (
-          <Toast
-            onClose={() => kb.setToastMsg(null)}
-            show={!!kb.toastMsg}
-            delay={3000}
-            autohide
-            bg={kb.toastMsg.type === 'success' ? 'success' : 'danger'}
-          >
-            <Toast.Header>
-              <strong className="me-auto">{kb.toastMsg.type === 'success' ? '成功' : '错误'}</strong>
-            </Toast.Header>
-            <Toast.Body className="text-white">{kb.toastMsg.msg}</Toast.Body>
-          </Toast>
-        )}
-      </ToastContainer>
+  useEffect(() => {
+    if (!kb.toastMsg) return;
 
+    emitFeedback({
+      title: kb.toastMsg.type === 'success' ? '知识库操作成功' : '知识库操作失败',
+      level: kb.toastMsg.type === 'success' ? 'success' : 'error',
+      message: kb.toastMsg.msg,
+    });
+
+    kb.setToastMsg(null);
+  }, [kb.toastMsg, kb.setToastMsg]);
+
+  return (
+    <div className="h-100 d-flex flex-column gap-3 position-relative knowledge-base-shell workbench-shell">
       <KnowledgeBaseToolbar
         isOnline={kb.isOnline}
         docType={kb.docType}
@@ -51,6 +47,7 @@ export function KnowledgeBase({ projectId, onLog }: Props) {
         setEndDate={kb.setEndDate}
         onSearch={() => kb.fetchList(1)}
       />
+
       <OfflineBanner isOnline={kb.isOnline} />
 
       <KnowledgeBaseContent

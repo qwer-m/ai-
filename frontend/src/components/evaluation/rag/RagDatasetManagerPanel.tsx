@@ -118,20 +118,20 @@ export function RagDatasetManagerPanel({ datasets, setDatasets, onLog }: Props) 
     <div className="d-flex flex-column gap-3 rag-report-subpanel rag-dataset-manager">
       {error ? <Alert variant="danger" className="mb-0">{error}</Alert> : null}
 
-      <div className="ui-section-card">
+      <div className="ui-section-card rag-dataset-block rag-dataset-block-create">
         <div className="ui-section-title">创建数据集</div>
-        <div className="row g-3 align-items-end">
-          <Form.Group className="col-12 col-lg-6">
+        <div className="row g-3 align-items-end rag-dataset-row rag-dataset-row-create control-grid-lr">
+          <Form.Group className="col-12 col-lg-6 control-field">
             <Form.Label className="small text-muted">数据集名称</Form.Label>
             <Form.Control value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：验证集-基础" />
           </Form.Group>
-          <Form.Group className="col-12 col-lg-6">
+          <Form.Group className="col-12 col-lg-6 control-field">
             <Form.Label className="small text-muted">类型</Form.Label>
             <Form.Select value={type} onChange={(e) => setType(e.target.value as RagDatasetType)}>
               {DATASET_TYPES.map((item) => <option key={item} value={item}>{item}</option>)}
             </Form.Select>
           </Form.Group>
-          <Form.Group className="col-12 col-lg-8">
+          <Form.Group className="col-12 col-lg-8 control-field">
             <Form.Label className="small text-muted">描述</Form.Label>
             <Form.Control value={description} onChange={(e) => setDescription(e.target.value)} placeholder="可选" />
           </Form.Group>
@@ -141,29 +141,29 @@ export function RagDatasetManagerPanel({ datasets, setDatasets, onLog }: Props) 
         </div>
       </div>
 
-      <div className="ui-section-card">
+      <div className="ui-section-card rag-dataset-block rag-dataset-block-import">
         <div className="ui-section-title">导入数据集</div>
-        <div className="row g-3 align-items-end">
-          <Form.Group className="col-12 col-lg-6">
+        <div className="row g-3 align-items-end rag-dataset-row rag-dataset-row-import control-grid-lr">
+          <Form.Group className="col-12 col-lg-6 control-field">
             <Form.Label className="small text-muted">导入目标数据集（可选）</Form.Label>
             <Form.Select value={importDatasetId} onChange={(e) => setImportDatasetId(e.target.value ? Number(e.target.value) : '')}>
               <option value="">新建并导入</option>
               {datasets.map((d) => <option key={d.id} value={d.id}>#{d.id} {d.name}</option>)}
             </Form.Select>
           </Form.Group>
-          <Form.Group className="col-12 col-lg-6">
+          <Form.Group className="col-12 col-lg-6 control-field">
             <Form.Label className="small text-muted">JSONL 文件</Form.Label>
             <Form.Control type="file" ref={importRef} accept=".jsonl,.json" />
           </Form.Group>
-          <div className="col-12 d-flex align-items-end">
+          <div className="col-12 d-flex align-items-end rag-dataset-actions">
             <Button variant="outline-primary" disabled={busy} onClick={doImport}>导入数据集</Button>
           </div>
         </div>
       </div>
 
-      <div className="ui-section-card">
+      <div className="ui-section-card rag-dataset-block rag-dataset-block-table">
         <div className="ui-section-title">数据集列表</div>
-        <div className="table-responsive rag-report-table">
+        <div className="table-responsive rag-report-table scroll-table-md">
           <Table striped bordered hover size="sm" className="mb-0">
             <thead>
               <tr>

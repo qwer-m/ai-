@@ -52,6 +52,7 @@ type Props = {
   setShouldAutoEval: (value: boolean) => void;
   onTestGenerated: (data: unknown) => void;
   onGenerationComplete: () => void;
+  openProjectCreateSignal: number;
 };
 
 const isImmersiveTab = (tab: string) => {
@@ -98,6 +99,7 @@ export function DashboardContent({
   setShouldAutoEval,
   onTestGenerated,
   onGenerationComplete,
+  openProjectCreateSignal,
 }: Props) {
   const immersive = isImmersiveTab(activeTab);
 
@@ -139,13 +141,14 @@ export function DashboardContent({
 
   return (
     <div
-      className={`dashboard-content-host dashboard-content-host-min flex-grow-1 ${immersive ? 'p-0' : 'p-4'} pb-0 position-relative ${immersive ? 'overflow-hidden' : 'overflow-auto custom-scrollbar'}`}
+      className={`dashboard-content-host dashboard-content-host-min flex-grow-1 dashboard-tab-${activeTab} position-relative ${immersive ? 'overflow-hidden' : 'overflow-auto custom-scrollbar'}`}
+      data-active-tab={activeTab}
     >
       <Container
         fluid
-        className={`p-0 d-flex flex-column ${immersive ? 'h-100 position-absolute top-0 start-0 w-100 dashboard-content-container-immersive' : 'dashboard-content-container-normal'}`}
+        className={`p-0 d-flex flex-column h-100 ${immersive ? 'dashboard-content-container-immersive' : 'dashboard-content-container-normal'}`}
       >
-        <div className={`d-flex flex-column ${immersive ? 'flex-grow-1 overflow-hidden dashboard-content-min-h-0' : ''}`}>
+        <div className={`d-flex flex-column flex-grow-1 ${immersive ? 'overflow-hidden dashboard-content-min-h-0' : ''}`}>
           {(activeTab === 'api-standard' || activeTab === 'api-ai') ? (
             <Suspense fallback={renderLazyFallback('加载接口测试模块...')}>
               <APITesting
@@ -233,6 +236,7 @@ export function DashboardContent({
                 onLog={(msg) => {
                   void onUserLog(msg);
                 }}
+                openCreateSignal={openProjectCreateSignal}
               />
             </Suspense>
           ) : null}

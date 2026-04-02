@@ -41,27 +41,38 @@ export function TestGenerationInputSection({
   onModeChange,
 }: TestGenerationInputSectionProps) {
   return (
-    <div className="test-generation-input bento-card col-span-6 p-4 d-flex flex-column position-relative">
+    <div className="test-generation-input bento-card col-span-6 p-4 d-flex flex-column position-relative panel-card panel-card-input">
       {showHint && mode === 'file' && !file ? <AIHintBubble onClose={onCloseHint} /> : null}
 
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <Nav variant="pills" className="bg-light p-1 rounded-pill" activeKey={mode} onSelect={(key) => onModeChange(key as TestGenerationMode)}>
+      <div className="d-flex justify-content-between align-items-center mb-3 panel-card-head">
+        <div className="panel-card-title-row">
+          <span className="panel-card-title">输入源</span>
+        </div>
+        {mode === 'file' && file ? (
+          <Button variant="link" className="text-danger p-0 text-decoration-none small panel-card-action-link" onClick={() => onFileChange(null)}>
+            <FaTrash className="me-1" /> 移除文件
+          </Button>
+        ) : null}
+      </div>
+
+      <div className="d-flex justify-content-between align-items-center mb-4 panel-card-toolbar">
+        <Nav
+          variant="pills"
+          className="bg-light p-1 rounded-pill test-generation-mode-switch"
+          activeKey={mode}
+          onSelect={(key) => onModeChange(key as TestGenerationMode)}
+        >
           <Nav.Item>
-            <Nav.Link eventKey="text" className="rounded-pill px-3 py-1 small fw-bold">
+            <Nav.Link eventKey="text" className="rounded-pill px-3 py-1 small fw-bold test-generation-mode-link">
               <FaFileAlt className="me-2" /> 文本
             </Nav.Link>
           </Nav.Item>
           <Nav.Item>
-            <Nav.Link eventKey="file" className="rounded-pill px-3 py-1 small fw-bold">
+            <Nav.Link eventKey="file" className="rounded-pill px-3 py-1 small fw-bold test-generation-mode-link">
               <FaFileUpload className="me-2" /> 文件
             </Nav.Link>
           </Nav.Item>
         </Nav>
-        {mode === 'file' && file ? (
-          <Button variant="link" className="text-danger p-0 text-decoration-none small" onClick={() => onFileChange(null)}>
-            <FaTrash className="me-1" /> 移除文件
-          </Button>
-        ) : null}
       </div>
 
       <div className="flex-grow-1 test-generation-input-body">

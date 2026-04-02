@@ -1,0 +1,247 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+:root {
+  /* 全局语义 token：后续页面样式只引用语义变量，不直接写死色值。 */
+  --fd-font-body: 'DM Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --fd-font-heading: 'Space Grotesk', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+
+  --fd-bg: #eef3fb;
+  --fd-surface: #ffffff;
+  --fd-surface-soft: #f7faff;
+  --fd-text: #0f172a;
+  --fd-text-soft: #5b6475;
+  --fd-border: #d7e0ef;
+
+  --fd-primary: #4f46e5;
+  --fd-primary-2: #2563eb;
+  --fd-success: #16a34a;
+  --fd-warning: #d97706;
+  --fd-danger: #dc2626;
+
+  --fd-radius-sm: 10px;
+  --fd-radius-md: 14px;
+  --fd-radius-lg: 18px;
+  --fd-shadow-sm: 0 6px 14px rgba(15, 23, 42, 0.07);
+  --fd-shadow-md: 0 14px 30px rgba(15, 23, 42, 0.1);
+}
+
+body.theme-dark {
+  --fd-bg: #0a1221;
+  --fd-surface: #101a2d;
+  --fd-surface-soft: #0d1627;
+  --fd-text: #e2e8f0;
+  --fd-text-soft: #9cb0c7;
+  --fd-border: #2d3b52;
+  --fd-primary: #818cf8;
+  --fd-primary-2: #60a5fa;
+  --fd-shadow-sm: 0 8px 20px rgba(2, 6, 23, 0.45);
+  --fd-shadow-md: 0 16px 36px rgba(2, 6, 23, 0.58);
+}
+
+body.ui-overhaul-v4 {
+  font-family: var(--fd-font-body);
+  color: var(--fd-text);
+  background: var(--fd-bg);
+}
+
+body.ui-overhaul-v4 h1,
+body.ui-overhaul-v4 h2,
+body.ui-overhaul-v4 h3,
+body.ui-overhaul-v4 h4,
+body.ui-overhaul-v4 h5,
+body.ui-overhaul-v4 h6 {
+  font-family: var(--fd-font-heading);
+  letter-spacing: 0.01em;
+}
+
+body.ui-overhaul-v4 .dashboard-main-surface,
+body.ui-overhaul-v4 .dashboard-sidebar-surface,
+body.ui-overhaul-v4 .glass-panel,
+body.ui-overhaul-v4 .bento-card,
+body.ui-overhaul-v4 .card {
+  border-color: var(--fd-border);
+  box-shadow: var(--fd-shadow-sm);
+}
+
+body.ui-overhaul-v4 .dashboard-body-layout {
+  gap: 16px;
+  padding: 12px 14px 0 !important;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-surface {
+  width: 272px;
+  min-width: 272px;
+  border-radius: var(--fd-radius-lg);
+}
+
+body.ui-overhaul-v4 .dashboard-topbar-shell {
+  min-height: 72px;
+  height: 72px;
+  padding-top: 14px !important;
+  padding-bottom: 14px !important;
+}
+
+body.ui-overhaul-v4 .dashboard-content-host {
+  padding: 22px !important;
+}
+
+body.ui-overhaul-v4 .dashboard-content-host.dashboard-content-container-immersive,
+body.ui-overhaul-v4 .dashboard-content-host.p-0 {
+  padding: 0 !important;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-link-row {
+  min-height: 42px;
+  border-radius: 12px;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-link-row .flex-grow-1 {
+  font-weight: 600;
+}
+
+body.ui-overhaul-v4 .dashboard-log-shell {
+  border-top: 1px solid var(--fd-border) !important;
+  box-shadow: 0 -4px 12px rgba(15, 23, 42, 0.06);
+}
+
+body.ui-overhaul-v4 .dashboard-log-header {
+  min-height: 44px;
+}
+
+body.ui-overhaul-v4 .form-control,
+body.ui-overhaul-v4 .form-select {
+  border-color: var(--fd-border);
+  background: var(--fd-surface);
+  color: var(--fd-text);
+}
+
+body.ui-overhaul-v4 .form-control:focus,
+body.ui-overhaul-v4 .form-select:focus {
+  border-color: var(--fd-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fd-primary) 20%, transparent);
+}
+
+body.ui-overhaul-v4 .btn-primary,
+body.ui-overhaul-v4 .btn-pro-primary {
+  background: linear-gradient(135deg, var(--fd-primary) 0%, var(--fd-primary-2) 70%);
+  border: none;
+}
+
+body.ui-overhaul-v4 .btn-primary:hover,
+body.ui-overhaul-v4 .btn-pro-primary:hover {
+  transform: translateY(-1px);
+}
+
+body.ui-overhaul-v4 .table thead th {
+  background: var(--fd-surface-soft);
+  color: var(--fd-text-soft);
+}
+
+body.ui-overhaul-v4 .dashboard-shell .text-muted,
+body.ui-overhaul-v4 .dashboard-shell .text-secondary {
+  color: var(--fd-text-soft) !important;
+}
+
+.global-feedback-center {
+  z-index: 1200;
+}
+
+.global-feedback-center .toast {
+  border: 1px solid color-mix(in srgb, #ffffff 30%, transparent);
+  border-radius: var(--fd-radius-md);
+  box-shadow: var(--fd-shadow-md);
+  min-width: 280px;
+}
+
+.global-feedback-center .toast-header {
+  border-bottom: 1px solid color-mix(in srgb, #ffffff 26%, transparent);
+}
+
+.inline-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--fd-radius-md);
+  border: 1px solid transparent;
+  background: var(--fd-surface-soft);
+  color: var(--fd-text);
+  box-shadow: var(--fd-shadow-sm);
+}
+
+.inline-status-compact {
+  padding: 8px 12px;
+}
+
+.inline-status-icon {
+  width: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.inline-status-spin {
+  animation: inline-spin 1s linear infinite;
+}
+
+.inline-status-loading {
+  border-color: color-mix(in srgb, var(--fd-primary) 30%, var(--fd-border));
+  background: color-mix(in srgb, var(--fd-primary) 12%, var(--fd-surface-soft));
+}
+
+.inline-status-info {
+  border-color: color-mix(in srgb, #0ea5e9 28%, var(--fd-border));
+  background: color-mix(in srgb, #0ea5e9 10%, var(--fd-surface-soft));
+}
+
+.inline-status-success {
+  border-color: color-mix(in srgb, var(--fd-success) 30%, var(--fd-border));
+  background: color-mix(in srgb, var(--fd-success) 12%, var(--fd-surface-soft));
+}
+
+.inline-status-warning,
+.inline-status-error {
+  border-color: color-mix(in srgb, var(--fd-danger) 28%, var(--fd-border));
+  background: color-mix(in srgb, var(--fd-danger) 12%, var(--fd-surface-soft));
+}
+
+@keyframes inline-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 1200px) {
+  body.ui-overhaul-v4 .dashboard-sidebar-surface {
+    width: 244px;
+    min-width: 244px;
+  }
+  body.ui-overhaul-v4 .dashboard-content-host {
+    padding: 16px !important;
+  }
+}
+
+@media (max-width: 992px) {
+  body.ui-overhaul-v4 .dashboard-body-layout {
+    padding: 10px 10px 0 !important;
+  }
+  body.ui-overhaul-v4 .dashboard-topbar-shell {
+    min-height: 64px;
+    height: auto;
+  }
+}

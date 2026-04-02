@@ -1,4 +1,4 @@
-﻿import { Badge, Button, Card, Col, OverlayTrigger, Placeholder, Popover, Row } from 'react-bootstrap';
+﻿import { Badge, Button, Card, OverlayTrigger, Placeholder, Popover } from 'react-bootstrap';
 import { FaCalendarAlt, FaEye, FaFileAlt, FaLink, FaTimes, FaTrash } from 'react-icons/fa';
 import { docTypeColor, docTypeMap } from './types';
 import type { Doc, DragTarget, LinkedDoc } from './types';
@@ -35,9 +35,9 @@ export function KnowledgeBaseContent({
   return (
     <div className="flex-grow-1 overflow-auto p-3 knowledge-content-area">
       {loading ? (
-        <Row className="g-3">
+        <div className="knowledge-doc-grid">
           {[...Array(8)].map((_, i) => (
-            <Col key={i} md={6} lg={4} xl={3}>
+            <div key={i} className="knowledge-doc-col">
               <Card className="h-100 border-0 shadow-sm">
                 <Card.Body>
                   <Placeholder as={Card.Title} animation="glow">
@@ -49,9 +49,9 @@ export function KnowledgeBaseContent({
                   </Placeholder>
                 </Card.Body>
               </Card>
-            </Col>
+            </div>
           ))}
-        </Row>
+        </div>
       ) : docs.length === 0 ? (
         <div className="text-center py-5 text-muted bg-light rounded border border-dashed">
           <FaFileAlt size={48} className="mb-3 opacity-50" />
@@ -59,7 +59,7 @@ export function KnowledgeBaseContent({
           <p className="mb-0">上传你的第一个测试文档，开始构建知识库。</p>
         </div>
       ) : (
-        <Row className="g-3">
+        <div className="knowledge-doc-grid">
           {docs.map((doc, index) => {
             const isDragTarget = dragTarget?.index === index;
             const dragClass = isDragTarget
@@ -69,11 +69,8 @@ export function KnowledgeBaseContent({
               : '';
 
             return (
-              <Col
+              <div
                 key={doc.global_id}
-                md={6}
-                lg={4}
-                xl={3}
                 draggable
                 onDragStart={(e) => onDragStart(e, index, doc)}
                 onDragOver={(e) => onItemDragOver(e, index)}
@@ -178,11 +175,12 @@ export function KnowledgeBaseContent({
                     </div>
                   </Card.Body>
                 </Card>
-              </Col>
+              </div>
             );
           })}
-        </Row>
+        </div>
       )}
     </div>
   );
 }
+
