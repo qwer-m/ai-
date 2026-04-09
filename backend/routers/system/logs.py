@@ -1,37 +1,31 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
-from typing import List, Optional
-from datetime import datetime
 
-from core.db.database import get_db
-from core.db.models import LogEntry, Project, User
 from core.authn.auth import get_current_user
+from core.db.database import get_db
+from core.db.models import User
 from schemas.base.logs import LogCreate, LogRead
+from modules.system_components.services.log_service import LogService
 
-router = APIRouter(
-    prefix="/logs",
-    tags=["Logs"]
-)
+router = APIRouter(prefix="/logs", tags=["Logs"])
+
 
 @router.get("/{project_id}", response_model=List[LogRead])
 def get_project_logs(
-    project_id: int, 
+    project_id: int,
     limit: int = 50,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-    """
-    获取项目日志 (Get Project Logs)
-    """
-    project = db.query(Project).filter(Project.id == project_id, Project.user_id == current_user.id).first()
-    if not project:
+    logs = LogService(db).get_project_logs(
+        project_id=project_id,
+        user_id=current_user.id,
+        limit=limit,
+    )
+    if logs is None:
         raise HTTPException(status_code=404, detail="Project not found")
-
-    logs = db.query(LogEntry).filter(
-        LogEntry.project_id == project_id,
-        LogEntry.user_id == current_user.id
-    ).order_by(LogEntry.created_at.desc()).limit(limit).all()
     return logs
 
 
@@ -41,20 +35,15 @@ def create_log(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    project = db.query(Project).filter(Project.id == payload.project_id, Project.user_id == current_user.id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    log_entry = LogEntry(
+    row = LogService(db).create_log(
         project_id=payload.project_id,
+        user_id=current_user.id,
         log_type=payload.log_type,
         message=payload.message,
-        user_id=current_user.id,
     )
-    db.add(log_entry)
-    db.commit()
-    db.refresh(log_entry)
-    return {"status": "success", "id": log_entry.id}
+    if row is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"status": "success", "id": row.id}
 
 
 @router.delete("/{project_id}")
@@ -63,13 +52,7 @@ def delete_project_logs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    project = db.query(Project).filter(Project.id == project_id, Project.user_id == current_user.id).first()
-    if not project:
+    result = LogService(db).delete_project_logs(project_id=project_id, user_id=current_user.id)
+    if result is None:
         raise HTTPException(status_code=404, detail="Project not found")
-
-    deleted = db.query(LogEntry).filter(
-        LogEntry.project_id == project_id,
-        LogEntry.user_id == current_user.id
-    ).delete(synchronize_session=False)
-    db.commit()
-    return {"status": "success", "deleted_logs": int(deleted)}
+    return result

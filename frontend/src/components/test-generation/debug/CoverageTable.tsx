@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import { Badge, Button, Form } from 'react-bootstrap';
 import { useRagDebugStore } from './debugStore';
 
@@ -18,7 +18,7 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
   const [bizFilter, setBizFilter] = useState('all');
 
   const diagnostics = useMemo(() => {
-    const list = Array.isArray(coverage?.rule_diagnostics) ? coverage!.rule_diagnostics! : [];
+    const list = Array.isArray(coverage?.rule_diagnostics) ? coverage.rule_diagnostics : [];
     return list.filter((item) => {
       const covered = Boolean(item?.covered);
       const itemBiz = String((item as any)?.biz_key || 'global');
@@ -52,8 +52,7 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
       </div>
 
       <div className="small text-muted rag-debug-muted mb-2">
-        total_rules: {coverage?.total_rules ?? 0} / covered_rules: {coverage?.covered_rules ?? 0} / missing_rules:{' '}
-        {coverage?.missing_rules ?? 0}
+        total_rules: {coverage?.total_rules ?? 0} / covered_rules: {coverage?.covered_rules ?? 0} / missing_rules: {coverage?.missing_rules ?? 0}
       </div>
 
       <div className="table-responsive">
@@ -81,10 +80,7 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
               const coverageTypes = toArray((item as any)?.coverage_types);
               const missingTypes = toArray((item as any)?.missing_types);
               return (
-                <tr
-                  key={`${ruleId}-${idx}`}
-                  className={activeRuleId && activeRuleId === ruleId ? 'table-warning' : undefined}
-                >
+                <tr key={`${ruleId}-${idx}`} className={activeRuleId && activeRuleId === ruleId ? 'table-warning' : undefined}>
                   <td className="fw-semibold">{ruleId}</td>
                   <td>
                     <Badge bg={covered ? 'success' : 'danger'}>{covered ? '已覆盖' : '未覆盖'}</Badge>
@@ -110,12 +106,7 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
                     </div>
                   </td>
                   <td>
-                    <Button
-                      variant="outline-secondary"
-                      size="sm"
-                      onClick={() => onRuleClick?.(ruleId)}
-                      disabled={!onRuleClick}
-                    >
+                    <Button variant="outline-secondary" size="sm" onClick={() => onRuleClick?.(ruleId)} disabled={!onRuleClick}>
                       查看关联
                     </Button>
                   </td>

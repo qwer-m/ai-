@@ -16,7 +16,7 @@ from modules.testing.test_generation_components.postprocess.result_postprocess i
 
 
 class _RescueClient:
-    """中文注释：首轮空结果时，模拟非流式补救返回最小可用 JSON。"""
+    """Simulate rescue fallback when the first streaming output is empty."""
 
     def __init__(self) -> None:
         self.rescue_calls = 0
@@ -34,12 +34,12 @@ class _RescueClient:
         [
           {
             "id": "TC-001",
-            "description": "补救用例",
-            "test_module": "账户模块",
+            "description": "rescue-case",
+            "test_module": "account-module",
             "preconditions": [],
-            "steps": ["输入账号并提交"],
-            "test_input": "有效账号",
-            "expected_result": "返回成功",
+            "steps": ["submit account id"],
+            "test_input": "valid-account",
+            "expected_result": "success",
             "priority": "P1"
           }
         ]
@@ -63,9 +63,9 @@ def test_stream_postprocess_empty_result_can_be_rescued():
     client = _RescueClient()
     generator = stream_postprocess_cases(
         client=client,
-        requirement="登录功能",
-        base_prompt="请生成测试用例",
-        kb_context="项目背景",
+        requirement="login feature",
+        base_prompt="generate test cases",
+        kb_context="project context",
         full_content="[]",
         expected_count=1,
         append=False,
@@ -88,4 +88,4 @@ def test_stream_postprocess_empty_result_can_be_rescued():
     assert isinstance(result.get("cases"), list)
     assert len(result["cases"]) == 1
     assert result["cases"][0].get("description")
-    assert any("补救" in chunk for chunk in chunks)
+    assert any("@@STATUS@@" in chunk for chunk in chunks)

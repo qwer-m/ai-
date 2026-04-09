@@ -1,11 +1,11 @@
-import { useMemo } from 'react';
+﻿import { useMemo } from 'react';
 import { Badge } from 'react-bootstrap';
 import { useRagDebugStore } from './debugStore';
 
 const STAGE_META: Record<string, { label: string; className: string }> = {
-  primary: { label: 'primary', className: 'bg-primary-subtle text-primary' },
-  gap: { label: 'gap', className: 'bg-warning-subtle text-warning' },
-  review: { label: 'review', className: 'bg-success-subtle text-success' },
+  primary: { label: '主生成', className: 'bg-primary-subtle text-primary' },
+  gap: { label: '差距分析', className: 'bg-warning-subtle text-warning' },
+  review: { label: '复核回填', className: 'bg-success-subtle text-success' },
 };
 
 export function BizKeyTimeline() {
@@ -56,4 +56,3 @@ export function BizKeyTimeline() {
     </div>
   );
 }
-

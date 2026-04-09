@@ -1,0 +1,90 @@
+/* Deep mode strict overrides: keep scope in theme-dark only */
+body.theme-dark .bento-card::after {
+  display: none;
+}
+body.theme-dark .bento-card:hover {
+  transform: none;
+  border-color: #334155 !important;
+  box-shadow: 0 4px 12px rgba(2, 6, 23, 0.42) !important;
+}
+body.theme-dark .text-gradient,
+body.theme-dark .text-gradient-gold {
+  background: none !important;
+  -webkit-text-fill-color: #e5e7eb !important;
+  color: #e5e7eb !important;
+}
+body.theme-dark .btn-primary,
+body.theme-dark .btn-pro-primary {
+  background: #6366f1 !important;
+  border: 1px solid #6366f1 !important;
+  box-shadow: none !important;
+}
+body.theme-dark .btn-primary:hover,
+body.theme-dark .btn-pro-primary:hover {
+  background: #818cf8 !important;
+  border-color: #818cf8 !important;
+  transform: none !important;
+}
+body.theme-dark .btn-light,
+body.theme-dark .btn-light-pro,
+body.theme-dark .btn-outline-secondary {
+  background: #0f172a !important;
+  color: #e5e7eb !important;
+  border: 1px solid #2a3441 !important;
+}
+body.theme-dark .btn-light:hover,
+body.theme-dark .btn-light-pro:hover,
+body.theme-dark .btn-outline-secondary:hover {
+  background: #1f2937 !important;
+}
+body.theme-dark .badge.bg-light {
+  background: #1f2937 !important;
+  color: #9ca3af !important;
+  border: 1px solid #2a3441 !important;
+}
+body.theme-dark .sidebar-link.active,
+body.theme-dark .active-pro {
+  background: rgba(99, 102, 241, 0.14) !important;
+  color: #e5e7eb !important;
+}
+body.theme-dark .sidebar-link.active::before,
+body.theme-dark .active-pro::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: #6366f1;
+  border-radius: 999px;
+}
+body.theme-dark pre,
+body.theme-dark code,
+body.theme-dark .json-view,
+body.theme-dark .json-preview {
+  background: #020617 !important;
+  color: #e5e7eb !important;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace !important;
+  line-height: 1.6;
+}
+body.theme-dark .json-key { color: #93c5fd; }
+body.theme-dark .json-string { color: #86efac; }
+body.theme-dark .json-number { color: #fca5a5; }
+body.theme-dark .json-boolean { color: #c4b5fd; }
+body.theme-dark .json-null { color: #94a3b8; }
+body.theme-dark .json-punctuation,
+body.theme-dark .json-text { color: #9ca3af; }
+body.theme-dark .table,
+body.theme-dark .table th,
+body.theme-dark .table td,
+body.theme-dark .dropdown-menu,
+body.theme-dark .modal-content,
+body.theme-dark .modal-header,
+body.theme-dark .modal-body,
+body.theme-dark .modal-footer {
+  background-color: #111827 !important;
+  color: #e5e7eb !important;
+  border-color: #2a3441 !important;
+}
+
+/* Dashboard 全局视觉统一已迁移到 styles/modules/global-polish-v7.css */

@@ -21,6 +21,26 @@ from modules.testing.test_generation_components.legacy.adapters import (
 )
 
 
+_STOP_REASON_LABELS = {
+    "coverage_satisfied": "coverage_satisfied（核心规则覆盖已满足）",
+    "stopped_due_to_diminishing_returns": "stopped_due_to_diminishing_returns（继续生成收益递减）",
+    "optimal_case_set_reached": "optimal_case_set_reached（当前为最优测试用例集合）",
+}
+
+
+def _render_stop_reason_text(stop_reasons: list[Any]) -> str:
+    labels: list[str] = []
+    for reason in stop_reasons:
+        key = str(reason or "").strip()
+        if not key:
+            continue
+        label = _STOP_REASON_LABELS.get(key, key)
+        if label in labels:
+            continue
+        labels.append(label)
+    return "；".join(labels)
+
+
 class LegacyGenerationStreamPersistMixin:
 
     def _stream_persist_phase(
@@ -52,6 +72,7 @@ class LegacyGenerationStreamPersistMixin:
         current_biz_key = str(state.get("current_biz_key") or "")
         multi_pass = bool(state.get("multi_pass", True))
         generation_mode = str(state.get("generation_mode") or "").strip().lower()
+        request_id = str(state.get("request_id") or "").strip()
 
         try:
             postprocess_result = yield from stream_postprocess_cases(
@@ -80,12 +101,24 @@ class LegacyGenerationStreamPersistMixin:
 
             stage_counts: dict[str, Any] = {}
             coverage_payload: dict[str, Any] = {}
+            convergence_payload: dict[str, Any] = {}
+            generation_summary_payload: dict[str, Any] = {}
+            review_decision_summary_payload: dict[str, Any] = {}
+            review_decision_table_payload: list[dict[str, Any]] = []
             if isinstance(postprocess_result, dict):
                 parsed_result = postprocess_result.get("cases")
                 if not isinstance(parsed_result, list):
                     parsed_result = []
                 stage_counts = dict(postprocess_result.get("stage_counts") or {})
                 coverage_payload = dict(postprocess_result.get("coverage") or {})
+                convergence_payload = dict(postprocess_result.get("convergence_debug") or {})
+                generation_summary_payload = dict(postprocess_result.get("generation_summary") or {})
+                review_decision_summary_payload = dict(postprocess_result.get("review_decision_summary") or {})
+                review_decision_table_payload = [
+                    item
+                    for item in (postprocess_result.get("review_decision_table") or [])
+                    if isinstance(item, dict)
+                ]
             else:
                 parsed_result = postprocess_result if isinstance(postprocess_result, list) else []
 
@@ -94,6 +127,7 @@ class LegacyGenerationStreamPersistMixin:
                 yield "Error: 妯″瀷杩斿洖绌虹粨鏋滄垨瑙ｆ瀽涓嶅埌鏈夋晥鐢ㄤ緥锛岃妫€鏌ユā鍨嬮厤缃?鎻愮ず璇?缃戠粶鍚庨噸璇昞n"
 
             cleaned_response = json.dumps(parsed_result, ensure_ascii=False)
+            persisted_generation_id: int | None = None
 
             if db:
                 if overwrite:
@@ -109,16 +143,19 @@ class LegacyGenerationStreamPersistMixin:
                     if existing_entry_overwrite:
                         existing_entry_overwrite.generated_result = cleaned_response
                         db.commit()
+                        persisted_generation_id = int(existing_entry_overwrite.id or 0) or None
                     else:
+                        new_entry = TestGeneration(
+                            requirement_text=original_requirement,
+                            generated_result=cleaned_response,
+                            project_id=project_id,
+                            user_id=user_id,
+                        )
                         db.add(
-                            TestGeneration(
-                                requirement_text=original_requirement,
-                                generated_result=cleaned_response,
-                                project_id=project_id,
-                                user_id=user_id,
-                            )
+                            new_entry
                         )
                         db.commit()
+                        persisted_generation_id = int(new_entry.id or 0) or None
                 elif append and existing_entry:
                     merged_result = merge_cases_for_append(
                         existing_cases,
@@ -128,16 +165,38 @@ class LegacyGenerationStreamPersistMixin:
                     )
                     existing_entry.generated_result = json.dumps(merged_result, ensure_ascii=False)
                     db.commit()
+                    persisted_generation_id = int(existing_entry.id or 0) or None
                 else:
+                    new_entry = TestGeneration(
+                        requirement_text=original_requirement,
+                        generated_result=cleaned_response,
+                        project_id=project_id,
+                        user_id=user_id,
+                    )
                     db.add(
-                        TestGeneration(
-                            requirement_text=original_requirement,
-                            generated_result=cleaned_response,
+                        new_entry
+                    )
+                    db.commit()
+                    persisted_generation_id = int(new_entry.id or 0) or None
+
+                # 中文注释：把本次最终落库 generation_id 回传给前端，便于流式完成后回拉最终结果。
+                if persisted_generation_id:
+                    persisted_payload = {
+                        "kind": "generation_persisted",
+                        "generation_id": int(persisted_generation_id),
+                        "project_id": int(project_id),
+                    }
+                    if request_id:
+                        persisted_payload["request_id"] = request_id
+                    db.add(
+                        LogEntry(
                             project_id=project_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(persisted_payload, ensure_ascii=False)}",
                             user_id=user_id,
                         )
                     )
-                    db.commit()
+                    yield f"GEN_DIAG:{json.dumps(persisted_payload, ensure_ascii=False)}\n"
 
                 mode_payload = {
                     "kind": "generation_mode",
@@ -200,6 +259,94 @@ class LegacyGenerationStreamPersistMixin:
                         user_id=user_id,
                     )
                 )
+                yield f"GEN_DIAG:{json.dumps(diag, ensure_ascii=False)}\n"
+
+                # 中文注释：记录“质量/覆盖收敛”诊断，数量仅作为参考差异，不再判定为失败。
+                if convergence_payload:
+                    convergence_diag = {
+                        "kind": "generation_convergence",
+                        **convergence_payload,
+                        "expected_count": int(expected_count or 0),
+                        "multi_pass": bool(multi_pass),
+                        "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    }
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(convergence_diag, ensure_ascii=False)}",
+                            user_id=user_id,
+                        )
+                    )
+                    yield f"GEN_DIAG:{json.dumps(convergence_diag, ensure_ascii=False)}\n"
+
+                if review_decision_summary_payload:
+                    review_summary_diag = {
+                        "kind": "review_decision_summary",
+                        **review_decision_summary_payload,
+                        "multi_pass": bool(multi_pass),
+                        "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    }
+                    if request_id:
+                        review_summary_diag["request_id"] = request_id
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(review_summary_diag, ensure_ascii=False)}",
+                            user_id=user_id,
+                        )
+                    )
+                    yield f"GEN_DIAG:{json.dumps(review_summary_diag, ensure_ascii=False)}\n"
+
+                if review_decision_table_payload:
+                    review_table_diag = {
+                        "kind": "review_decision_table",
+                        "rows": review_decision_table_payload,
+                        "row_count": int(len(review_decision_table_payload)),
+                        "multi_pass": bool(multi_pass),
+                        "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    }
+                    if request_id:
+                        review_table_diag["request_id"] = request_id
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(review_table_diag, ensure_ascii=False)}",
+                            user_id=user_id,
+                        )
+                    )
+                    yield f"GEN_DIAG:{json.dumps(review_table_diag, ensure_ascii=False)}\n"
+
+                if generation_summary_payload:
+                    generation_summary_diag = {
+                        "kind": "generation_summary",
+                        **generation_summary_payload,
+                        "multi_pass": bool(multi_pass),
+                        "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    }
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(generation_summary_diag, ensure_ascii=False)}",
+                            user_id=user_id,
+                        )
+                    )
+                    yield f"GEN_DIAG:{json.dumps(generation_summary_diag, ensure_ascii=False)}\n"
+                    status = str(generation_summary_payload.get("status") or "")
+                    stop_reason_text = _render_stop_reason_text(
+                        list(generation_summary_payload.get("stop_reason") or [])
+                    )
+                    if status in {"completed_with_optimal_set", "completed_with_quality_stop"}:
+                        yield "@@STATUS@@:正常完成\n"
+                        if stop_reason_text:
+                            yield f"@@STATUS@@:停止原因：{stop_reason_text}\n"
+                    if status == "completed_with_optimal_set":
+                        yield "@@STATUS@@:已达到质量停止条件\n"
+                        yield "@@STATUS@@:当前为最优测试用例集合\n"
+                        yield "@@STATUS@@:继续生成将降低质量或增加冗余\n"
 
                 # 中文注释：记录覆盖检查日志。
                 if coverage_payload:

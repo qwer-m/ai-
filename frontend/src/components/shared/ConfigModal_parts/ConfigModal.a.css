@@ -1,0 +1,175 @@
+.config-modal-dialog {
+  max-width: min(1260px, 96vw);
+}
+
+.config-modal-dialog .modal-content {
+  border: 1px solid var(--ui-border);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  box-shadow: var(--ui-shadow-md);
+}
+
+.config-modal-header {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--ui-surface-muted) 88%, transparent) 0%,
+    color-mix(in srgb, var(--ui-primary-soft) 22%, var(--ui-surface-muted)) 100%
+  );
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.config-modal-header .btn-close {
+  filter: none;
+}
+
+.config-modal-body {
+  background: linear-gradient(180deg, var(--ui-surface-muted) 0%, var(--ui-surface) 100%);
+  padding: 1rem 1.25rem;
+}
+
+.config-modal-body .alert {
+  border-radius: 10px;
+  border-color: var(--ui-border);
+}
+
+.config-modal-tabs {
+  border: 0;
+  gap: 0.2rem;
+}
+
+.config-modal-tabs .nav-link {
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface-muted);
+  color: var(--ui-text-soft);
+  border-radius: 10px;
+  margin-right: 0.4rem;
+  padding: 0.55rem 1.05rem;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.config-modal-tabs .nav-link:hover {
+  color: var(--ui-text);
+  border-color: var(--ui-border-strong);
+}
+
+.config-modal-tabs .nav-link.active {
+  background: linear-gradient(180deg, var(--ui-primary) 0%, color-mix(in srgb, var(--ui-primary) 78%, #0f172a) 100%);
+  border-color: var(--ui-primary);
+  color: #fff;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--ui-primary-soft) 88%, transparent);
+}
+
+.config-model-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.config-model-card {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  padding: 0.92rem;
+  min-width: 0;
+  box-shadow: var(--ui-shadow-sm);
+}
+
+.config-model-card__header {
+  margin-bottom: 0.66rem;
+}
+
+.config-model-card__header h6 {
+  margin: 0;
+  font-weight: 700;
+  color: var(--ui-text);
+}
+
+.config-model-card__header span {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.8rem;
+  color: var(--ui-text-soft);
+}
+
+.config-model-input-wrap {
+  position: relative;
+}
+
+.config-model-input {
+  padding-right: 34px;
+}
+
+.config-field {
+  margin-bottom: 0.66rem;
+}
+
+.config-field label.form-label {
+  margin-bottom: 0.3rem;
+  color: var(--ui-text-soft);
+  font-weight: 600;
+  font-size: 0.84rem;
+}
+
+.config-field .form-control,
+.config-field .form-select {
+  border-radius: 10px;
+  border-color: var(--ui-border);
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  min-height: 40px;
+}
+
+.config-field .form-control:focus,
+.config-field .form-select:focus {
+  border-color: var(--ui-primary);
+  box-shadow: 0 0 0 3px var(--ui-primary-soft);
+}
+
+.config-field--model {
+  margin-bottom: 0;
+}
+
+.config-secret-tip {
+  display: block;
+  margin-top: 0.62rem;
+  margin-bottom: 0.76rem;
+  color: var(--ui-text-soft);
+  background: color-mix(in srgb, var(--ui-surface-muted) 78%, transparent);
+  border: 1px dashed var(--ui-border);
+  border-radius: 10px;
+  padding: 0.46rem 0.62rem;
+}
+
+.config-detect-btn {
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.config-local-alert {
+  border-radius: 10px;
+  border-color: color-mix(in srgb, #22c55e 32%, var(--ui-border));
+}
+
+.config-detected-chip {
+  cursor: pointer;
+  border-color: var(--ui-border) !important;
+  background: var(--ui-surface) !important;
+  color: var(--ui-text) !important;
+  transition: all 0.15s ease;
+}
+
+.config-detected-chip:hover {
+  border-color: var(--ui-primary) !important;
+  background: color-mix(in srgb, var(--ui-primary-soft) 58%, transparent) !important;
+}
+
+.config-local-form .config-local-card {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  padding: 0.95rem;
+  box-shadow: var(--ui-shadow-sm);
+}

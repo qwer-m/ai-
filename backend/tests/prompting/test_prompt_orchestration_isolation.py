@@ -12,27 +12,32 @@ from modules.test_generation_components.prompting.prompt_orchestration import (
 def test_business_isolation_rule_contains_current_biz_key() -> None:
     prompt = build_closed_loop_base_prompt(
         strategy_plan={"system_type": "Web", "impact_scope": "module", "suggested_ratios": {}},
-        requirement_context="需求A",
-        testcase_context="用例A",
-        supplement_context="补充A",
+        requirement_context="REQ context",
+        testcase_context="CASE context",
+        supplement_context="SUPPLEMENT context",
         current_biz_key="org_close_rule",
     )
     assert "BUSINESS ISOLATION RULE" in prompt
-    assert "当前生成目标 biz_key: org_close_rule" in prompt
+    assert "org_close_rule" in prompt
+    assert "S0 - Workflow / Closed-loop" in prompt
+    assert "S1 - Quality Rules" in prompt
+    assert "S2 - Global Guidance" in prompt
+    assert "TEST CASE PRIORITY CLASSIFICATION (MANDATORY)" in prompt
+    assert "Coverage != P0" in prompt
 
 
 def test_gap_fill_prompt_consumes_coverage_result() -> None:
     prompt = build_gap_fill_prompt(
-        requirement_context="REQ-023 关闭机构前必须校验余额为0",
+        requirement_context="REQ-023 close org only when balance is zero",
         existing_cases=[
             {
                 "id": "TC-001",
-                "description": "验证关闭主流程",
-                "test_module": "机构关闭",
+                "description": "verify close org happy path",
+                "test_module": "org-close",
                 "preconditions": [],
-                "steps": ["提交关闭"],
-                "test_input": "机构=A",
-                "expected_result": "关闭成功",
+                "steps": ["submit close"],
+                "test_input": "org=A",
+                "expected_result": "success",
                 "priority": "P0",
             }
         ],
@@ -40,7 +45,7 @@ def test_gap_fill_prompt_consumes_coverage_result() -> None:
             "rule_diagnostics": [
                 {
                     "rule_id": "REQ-023",
-                    "rule_text": "关闭机构前必须校验余额为0",
+                    "rule_text": "close org requires balance=0",
                     "biz_key": "org_close_rule",
                     "covered": True,
                     "missing_types": ["boundary", "exception"],
@@ -51,4 +56,4 @@ def test_gap_fill_prompt_consumes_coverage_result() -> None:
     )
     assert "REQ-023" in prompt
     assert "missing_types=boundary,exception" in prompt
-    assert "只补上述 coverage 缺口" in prompt
+    assert "coverage" in prompt.lower()

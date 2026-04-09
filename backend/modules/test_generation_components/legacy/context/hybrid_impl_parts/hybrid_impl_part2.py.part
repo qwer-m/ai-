@@ -1,0 +1,200 @@
+        )
+        fusion_debug.update(
+            {
+                "snapshot_used": bool(fusion_debug.get("snapshot_used")),
+                "rag_used": bool(fusion_debug.get("rag_used")),
+                "hybrid_empty_context": bool(empty_info.get("hybrid_empty_context")),
+                "hybrid_empty_reason": str(empty_info.get("final_empty_reason") or ""),
+                "lane_counts": empty_info.get("lane_counts") or {},
+                "lane_reasons": empty_info.get("lane_reasons") or {},
+                "snapshot_status": snapshot_status,
+                "snapshot_ready": snapshot_ready,
+                "snapshot_usable_for_generation": snapshot_usable,
+                "snapshot_readiness_reason": snapshot_readiness_reason,
+                "snapshot_version": int(snapshot_result.get("snapshot_version") or 0),
+                "snapshot_fingerprint": str(snapshot_result.get("snapshot_fingerprint") or ""),
+                "snapshot_build_reason": snapshot_result.get("rebuild_reason"),
+                "snapshot_build_latency_ms": float(snapshot_result.get("build_latency_ms") or 0.0),
+                "needs_rebuild": snapshot_needs_rebuild,
+                "snapshot_queue_status": queue_status,
+                "snapshot_queue_reason": queue_reason,
+                "snapshot_queue_error": queue_error,
+                "snapshot_rebuild_triggered": queue_status == "queued",
+                "snapshot_rebuild_reason": queue_reason,
+                "snapshot_fallback_reason": str(fallback_reason or ""),
+                "realtime_rag_used": bool(fusion_debug.get("rag_used")),
+                "fallback_to_realtime_rag": bool(not snapshot_text and bool(fusion_debug.get("rag_used"))),
+                "current_document_used": True,
+                "sync_snapshot_retry_attempted": False,
+                "sync_snapshot_retry_success": False,
+                "sync_snapshot_retry_error": "",
+                "final_decision": "proceed_with_generation",
+                "retrieval_profile": ((rag_result or {}).get("debug", {}) or {}).get("retrieval_profile", {})
+                if isinstance(rag_result, dict)
+                else {},
+                "reason_chain": reason_chain,
+                "stage25_switches": STAGE25_SWITCHES.to_dict()
+                if STAGE25_SWITCHES.include_switches_in_debug
+                else {},
+            }
+        )
+
+        abort_generation = False
+        abort_error = ""
+        strategy = HYBRID_EMPTY_GUARD_CONFIG.normalized_strategy()
+        if bool(empty_info.get("hybrid_empty_context")):
+            if strategy == "sync_snapshot_retry_then_fail" and HYBRID_EMPTY_GUARD_CONFIG.sync_snapshot_retry_enabled:
+                fusion_debug["sync_snapshot_retry_attempted"] = True
+                retry_result = self._try_sync_snapshot_retry_once(
+                    project_id=project_id,
+                    user_id=user_id,
+                    timeout_sec=HYBRID_EMPTY_GUARD_CONFIG.sync_snapshot_retry_timeout_sec,
+                )
+                if retry_result.get("success"):
+                    fusion_debug["sync_snapshot_retry_success"] = True
+                    retry_payload = retry_result.get("result") or {}
+                    retry_snapshot_text = str(retry_payload.get("snapshot_text") or "").strip()
+                    retry_fusion = build_hybrid_context(
+                        question=query_text,
+                        snapshot_text=retry_snapshot_text,
+                        rag_payload=rag_result if isinstance(rag_result, dict) else None,
+                        mode="test_case_generation",
+                        precision_mode=bool(precision_mode),
+                    )
+                    retry_debug = retry_fusion.get("debug") or {}
+                    retry_context = retry_fusion.get("context") or ""
+                    retry_empty = detect_hybrid_empty_context(
+                        snapshot_text=retry_snapshot_text,
+                        kb_context=retry_context,
+                        fusion_debug=retry_debug,
+                        rag_payload=rag_result if isinstance(rag_result, dict) else None,
+                    )
+                    if not retry_empty.get("hybrid_empty_context"):
+                        kb_context = retry_context
+                        fusion_debug.update(retry_debug)
+                        fusion_debug["hybrid_empty_context"] = False
+                        fusion_debug["hybrid_empty_reason"] = ""
+                        fusion_debug["final_decision"] = "retry_snapshot_then_proceed"
+                        self._append_reason_chain(reason_chain, "guard_sync_retry:success")
+                        fallback_reason = ""
+                    else:
+                        abort_generation = True
+                        abort_error = "上下文为空：同步补救后仍未获取到可用 snapshot/RAG 结果。"
+                        fallback_reason = "hybrid_empty_context_after_sync_retry"
+                        fusion_debug["hybrid_empty_context"] = True
+                        fusion_debug["hybrid_empty_reason"] = str(
+                            retry_empty.get("final_empty_reason") or "hybrid_empty_context_after_sync_retry"
+                        )
+                        self._append_reason_chain(
+                            reason_chain,
+                            f"guard_sync_retry:failed_after_retry:{fusion_debug.get('hybrid_empty_reason')}",
+                        )
+                        # 中文注释：补救已尝试但仍失败，最终降级为可解释错误返回。
+                        fusion_debug["final_decision"] = "degraded_to_error"
+                else:
+                    abort_generation = True
+                    sync_err = str(retry_result.get("error") or "sync_snapshot_retry_failed")
+                    abort_error = f"上下文为空：同步 snapshot 补救失败（{sync_err}）。"
+                    fallback_reason = sync_err
+                    fusion_debug["sync_snapshot_retry_error"] = sync_err
+                    self._append_reason_chain(reason_chain, f"guard_sync_retry:exception:{sync_err}")
+                    # 中文注释：补救过程失败，最终降级为可解释错误返回。
+                    fusion_debug["final_decision"] = "degraded_to_error"
+            elif strategy == "fail_fast":
+                abort_generation = True
+                abort_error = "上下文为空：snapshot 与 RAG 均不可用，已按 fail-fast 策略终止本次生成。"
+                fallback_reason = str(empty_info.get("final_empty_reason") or "hybrid_empty_context")
+                self._append_reason_chain(reason_chain, f"guard_fail_fast:{fallback_reason}")
+                fusion_debug["final_decision"] = "fail_fast"
+            else:
+                # 中文注释：默认策略改为 requirement_only_fallback，允许继续生成（仅依赖当前文档）。
+                abort_generation = False
+                abort_error = ""
+                fallback_reason = str(empty_info.get("final_empty_reason") or "hybrid_empty_context")
+                self._append_reason_chain(reason_chain, f"guard_requirement_only_fallback:{fallback_reason}")
+                fusion_debug["final_decision"] = "requirement_only_fallback"
+        else:
+            fusion_debug["final_decision"] = "proceed_with_generation"
+
+        if status_messages is not None:
+            status_messages.append(
+                "融合完成：mode="
+                f"{fusion_debug.get('fusion_mode')}，rag_chunks={fusion_debug.get('rag_chunk_count', 0)}，"
+                f"tokens≈{fusion_debug.get('final_context_tokens', 0)}"
+            )
+            if abort_generation:
+                status_messages.append(
+                    "上下文兜底触发："
+                    f"final_decision={fusion_debug.get('final_decision')}，reason={fusion_debug.get('hybrid_empty_reason') or fallback_reason}"
+                )
+
+        if not kb_context:
+            if rag_error:
+                fallback_reason = rag_error
+            elif fallback_reason:
+                pass
+            elif use_rag and (fusion_debug.get("rag_error") or ""):
+                fallback_reason = str(fusion_debug.get("rag_error"))
+            else:
+                fallback_reason = "hybrid_empty_context"
+        # 中文注释：统一补全主链路可观测字段，供前端提示与后端日志复用。
+        fusion_debug["snapshot_fallback_reason"] = str(fallback_reason or "")
+        fusion_debug["realtime_rag_used"] = bool(fusion_debug.get("rag_used"))
+        fusion_debug["fallback_to_realtime_rag"] = bool(
+            (not fusion_debug.get("snapshot_used")) and bool(fusion_debug.get("rag_used"))
+        )
+        fusion_debug["current_document_used"] = True
+        fusion_debug["snapshot_rebuild_triggered"] = bool(queue_status == "queued")
+        fusion_debug["snapshot_rebuild_reason"] = str(queue_reason or "")
+        if fallback_reason:
+            self._append_reason_chain(reason_chain, f"fallback:{fallback_reason}")
+        self._append_reason_chain(reason_chain, f"final_decision:{fusion_debug.get('final_decision')}")
+
+        logger.info(
+            "gen_context_snapshot_policy project_id=%s payload=%s",
+            project_id,
+            json.dumps(
+                {
+                    "project_id": project_id,
+                    "snapshot_status": fusion_debug.get("snapshot_status"),
+                    "snapshot_used": bool(fusion_debug.get("snapshot_used")),
+                    "snapshot_rebuild_triggered": bool(fusion_debug.get("snapshot_rebuild_triggered")),
+                    "snapshot_rebuild_reason": fusion_debug.get("snapshot_rebuild_reason"),
+                    "fallback_to_realtime_rag": bool(fusion_debug.get("fallback_to_realtime_rag")),
+                    "current_document_used": True,
+                },
+                ensure_ascii=False,
+            ),
+        )
+
+        return {
+            "kb_context": kb_context,
+            "context_source": fusion_debug.get("fusion_mode") or "empty",
+            "snapshot_result": snapshot_result,
+            "rag_result": rag_result if isinstance(rag_result, dict) else None,
+            "fusion_debug": fusion_debug,
+            "fallback_reason": fallback_reason,
+            "abort_generation": abort_generation,
+            "abort_error": abort_error,
+            "reason_chain": reason_chain,
+        }
+
+    def _resolve_kb_context_with_snapshot(
+        self,
+        requirement: str,
+        project_id: int,
+        db: Session,
+        user_id: int = None,
+        compress: bool = False,
+        status_messages: list[str] | None = None,
+    ) -> dict:
+        """兼容旧调用名，内部转调到融合实现。"""
+        return self._resolve_kb_context_with_hybrid(
+            requirement=requirement,
+            project_id=project_id,
+            db=db,
+            user_id=user_id,
+            compress=compress,
+            status_messages=status_messages,
+            precision_mode=False,
+        )

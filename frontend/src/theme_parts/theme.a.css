@@ -1,0 +1,218 @@
+:root {
+  /* --- UI UX Pro Max: Modern SaaS Palette (Interstellar Blue) --- */
+  --primary-50:  #f0f5ff;
+  --primary-100: #e5edff;
+  --primary-200: #cddbfe;
+  --primary-300: #b4c6fc;
+  --primary-400: #8da2fb;
+  --primary-500: #6366f1; /* Indigo-500: Modern Primary */
+  --primary-600: #4f46e5;
+  --primary-700: #4338ca;
+  --primary-800: #3730a3;
+  --primary-900: #312e81;
+
+  --accent-500:  #8b5cf6; /* Violet Accent */
+  --success-500: #10b981; /* Emerald */
+  --warning-500: #f59e0b; /* Amber */
+  --danger-500:  #ef4444; /* Rose */
+  --info-500:    #06b6d4; /* Cyan */
+
+  /* --- Backgrounds & Surfaces --- */
+  --bg-app:      #f3f4f6; /* Cool Gray 100 */
+  --bg-surface:  #ffffff;
+  --bg-glass:    rgba(255, 255, 255, 0.7);
+  --bg-glass-dark: rgba(17, 24, 39, 0.7);
+  
+  /* --- Text --- */
+  --text-primary:   #111827; /* Gray 900 */
+  --text-secondary: #4b5563; /* Gray 600 */
+  --text-tertiary:  #9ca3af; /* Gray 400 */
+  --text-on-primary: #ffffff;
+
+  /* --- Borders & Effects --- */
+  --border-subtle:  #e5e7eb;
+  --border-medium:  #d1d5db;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+
+  /* --- Pro Max Shadows (Soft & Deep) --- */
+  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --shadow-glow: 0 0 15px rgba(99, 102, 241, 0.3);
+
+  /* --- Fonts --- */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  background-color: var(--bg-app);
+  -webkit-font-smoothing: antialiased;
+  background-image: radial-gradient(circle at 50% 0%, #eef2ff 0%, transparent 70%); /* Subtle top glow */
+  min-height: 100vh;
+}
+
+/* 中文注释：夜间模式变量覆盖与基础背景 */
+body.theme-dark {
+  --bg-app: #0b1220;
+  --bg-surface: #111827;
+  --bg-glass: rgba(17, 24, 39, 0.94);
+  --text-primary: #e5e7eb;
+  --text-secondary: #9ca3af;
+  --text-tertiary: #6b7280;
+  --text-on-primary: #e5e7eb;
+  --border-subtle: #2a3441;
+  --border-medium: #2a3441;
+  background-image: none;
+}
+
+/* 中文注释：夜间模式下的通用颜色修正 */
+body.theme-dark .dashboard-shell .bg-white,
+body.theme-dark .postman-theme .bg-white,
+body.theme-dark .rag-console .bg-white,
+body.theme-dark .test-generation-shell .bg-white,
+body.theme-dark .evaluation-shell .bg-white,
+body.theme-dark .knowledge-base-shell .bg-white {
+  background-color: #111827 !important;
+}
+body.theme-dark .dashboard-shell .bg-light,
+body.theme-dark .postman-theme .bg-light,
+body.theme-dark .rag-console .bg-light,
+body.theme-dark .test-generation-shell .bg-light,
+body.theme-dark .evaluation-shell .bg-light,
+body.theme-dark .knowledge-base-shell .bg-light {
+  background-color: #111827 !important;
+}
+body.theme-dark .dashboard-shell .bg-body,
+body.theme-dark .dashboard-shell .bg-body-tertiary,
+body.theme-dark .postman-theme .bg-body,
+body.theme-dark .postman-theme .bg-body-tertiary {
+  background-color: #0f172a !important;
+}
+body.theme-dark .dashboard-shell .border-light,
+body.theme-dark .postman-theme .border-light,
+body.theme-dark .rag-console .border-light,
+body.theme-dark .test-generation-shell .border-light,
+body.theme-dark .evaluation-shell .border-light,
+body.theme-dark .knowledge-base-shell .border-light {
+  border-color: #2a3441 !important;
+}
+body.theme-dark .dashboard-shell .text-secondary,
+body.theme-dark .postman-theme .text-secondary,
+body.theme-dark .rag-console .text-secondary,
+body.theme-dark .test-generation-shell .text-secondary,
+body.theme-dark .evaluation-shell .text-secondary,
+body.theme-dark .knowledge-base-shell .text-secondary {
+  color: #9ca3af !important;
+}
+body.theme-dark .dashboard-shell .text-muted,
+body.theme-dark .postman-theme .text-muted,
+body.theme-dark .rag-console .text-muted,
+body.theme-dark .test-generation-shell .text-muted,
+body.theme-dark .evaluation-shell .text-muted,
+body.theme-dark .knowledge-base-shell .text-muted {
+  color: #6b7280 !important;
+}
+body.theme-dark .dashboard-shell .text-white,
+body.theme-dark .postman-theme .text-white,
+body.theme-dark .rag-console .text-white,
+body.theme-dark .test-generation-shell .text-white,
+body.theme-dark .evaluation-shell .text-white,
+body.theme-dark .knowledge-base-shell .text-white {
+  color: #e5e7eb !important;
+}
+body.theme-dark .dashboard-shell .form-control,
+body.theme-dark .dashboard-shell .form-select,
+body.theme-dark .dashboard-shell .input-group-text,
+body.theme-dark .postman-theme .form-control,
+body.theme-dark .postman-theme .form-select,
+body.theme-dark .postman-theme .input-group-text,
+body.theme-dark .rag-console .form-control,
+body.theme-dark .rag-console .form-select,
+body.theme-dark .rag-console .input-group-text,
+body.theme-dark .test-generation-shell .form-control,
+body.theme-dark .test-generation-shell .form-select,
+body.theme-dark .test-generation-shell .input-group-text,
+body.theme-dark .evaluation-shell .form-control,
+body.theme-dark .evaluation-shell .form-select,
+body.theme-dark .evaluation-shell .input-group-text,
+body.theme-dark .knowledge-base-shell .form-control,
+body.theme-dark .knowledge-base-shell .form-select,
+body.theme-dark .knowledge-base-shell .input-group-text {
+  background-color: #0f172a !important;
+  color: #e5e7eb !important;
+  border-color: #2a3441 !important;
+}
+body.theme-dark .dashboard-shell .form-control::placeholder,
+body.theme-dark .dashboard-shell .form-select::placeholder,
+body.theme-dark .dashboard-shell input::placeholder,
+body.theme-dark .dashboard-shell textarea::placeholder,
+body.theme-dark .postman-theme .form-control::placeholder,
+body.theme-dark .postman-theme .form-select::placeholder,
+body.theme-dark .postman-theme input::placeholder,
+body.theme-dark .postman-theme textarea::placeholder,
+body.theme-dark .rag-console .form-control::placeholder,
+body.theme-dark .rag-console .form-select::placeholder,
+body.theme-dark .rag-console input::placeholder,
+body.theme-dark .rag-console textarea::placeholder,
+body.theme-dark .test-generation-shell .form-control::placeholder,
+body.theme-dark .test-generation-shell .form-select::placeholder,
+body.theme-dark .test-generation-shell input::placeholder,
+body.theme-dark .test-generation-shell textarea::placeholder,
+body.theme-dark .evaluation-shell .form-control::placeholder,
+body.theme-dark .evaluation-shell .form-select::placeholder,
+body.theme-dark .evaluation-shell input::placeholder,
+body.theme-dark .evaluation-shell textarea::placeholder,
+body.theme-dark .knowledge-base-shell .form-control::placeholder,
+body.theme-dark .knowledge-base-shell .form-select::placeholder,
+body.theme-dark .knowledge-base-shell input::placeholder,
+body.theme-dark .knowledge-base-shell textarea::placeholder {
+  color: #6b7280 !important;
+}
+body.theme-dark .dashboard-shell .form-control:focus,
+body.theme-dark .dashboard-shell .form-select:focus,
+body.theme-dark .dashboard-shell input:focus,
+body.theme-dark .dashboard-shell textarea:focus,
+body.theme-dark .postman-theme .form-control:focus,
+body.theme-dark .postman-theme .form-select:focus,
+body.theme-dark .postman-theme input:focus,
+body.theme-dark .postman-theme textarea:focus,
+body.theme-dark .rag-console .form-control:focus,
+body.theme-dark .rag-console .form-select:focus,
+body.theme-dark .rag-console input:focus,
+body.theme-dark .rag-console textarea:focus,
+body.theme-dark .test-generation-shell .form-control:focus,
+body.theme-dark .test-generation-shell .form-select:focus,
+body.theme-dark .test-generation-shell input:focus,
+body.theme-dark .test-generation-shell textarea:focus,
+body.theme-dark .evaluation-shell .form-control:focus,
+body.theme-dark .evaluation-shell .form-select:focus,
+body.theme-dark .evaluation-shell input:focus,
+body.theme-dark .evaluation-shell textarea:focus,
+body.theme-dark .knowledge-base-shell .form-control:focus,
+body.theme-dark .knowledge-base-shell .form-select:focus,
+body.theme-dark .knowledge-base-shell input:focus,
+body.theme-dark .knowledge-base-shell textarea:focus {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2) !important;
+}
+body.theme-dark .glass-panel {
+  background: #111827 !important;
+  border: 1px solid #2a3441 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+body.theme-dark .bento-card {
+  background: #111827 !important;
+  border-color: #2a3441 !important;
+  box-shadow: 0 1px 3px rgba(2, 6, 23, 0.35) !important;
+}

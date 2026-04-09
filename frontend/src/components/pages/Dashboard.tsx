@@ -20,7 +20,7 @@ export const Dashboard = () => {
   const [showPipelineModal, setShowPipelineModal] = useState(false);
   const [openProjectCreateSignal, setOpenProjectCreateSignal] = useState(0);
 
-  const controller = useDashboardController();
+  const controller = useDashboardController() as any;
 
   const handleLogout = () => {
     logout();

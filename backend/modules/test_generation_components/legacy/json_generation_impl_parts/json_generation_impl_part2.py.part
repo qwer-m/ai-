@@ -1,0 +1,200 @@
+                    "reason_chain": reason_chain,
+                    "fusion_debug": fusion_debug,
+                }
+                self._emit_context_source_log(
+                    db=db,
+                    project_id=project_id,
+                    user_id=user_id,
+                    context_result=context_result,
+                    gate_debug=gate_debug,
+                    doc_type=doc_type,
+                    compress=compress,
+                    requirement_length=len(requirement or ""),
+                )
+                self._emit_final_context_trace(
+                    db=db,
+                    project_id=project_id,
+                    user_id=user_id,
+                    request_id=request_id,
+                    context_result=context_result,
+                    gate_debug=gate_debug,
+                    fallback_reason=context_result.get("fallback_reason") or "",
+                    abort_code="HYBRID_EMPTY_CONTEXT_ABORT",
+                    compressed_chars=len(kb_context or ""),
+                )
+                return error_payload
+
+            if compress:
+                # 闇€姹傛枃鏈帇缂╀笌鐭ヨ瘑蹇収鏄袱鏉″苟琛屼紭鍖栭摼璺紝浠讳綍涓€鏉″け璐ラ兘涓嶉樆鏂敓鎴愩€?
+                try:
+                    compressed_req = client.compress_context(
+                        requirement,
+                        prompt="请将以下需求压缩为适合测试用例生成的精炼版本，保留技术细节、字段/ID、约束、边界与异常规则，去除冗余。输出纯文本。",
+                        db=db,
+                    )
+                    if compressed_req and not compressed_req.startswith("Error") and not compressed_req.startswith("Exception"):
+                        requirement = compressed_req
+                except Exception:
+                    pass
+
+        # Meta-Analysis Step (Dynamic Strategy Planning)
+        analysis_result = self.analyze_requirement_context(requirement, kb_context, client, db)
+        if isinstance(analysis_result, dict):
+            strategy_plan = analysis_result
+        else:
+            # 中文注释：元分析异常时使用默认策略，避免中断主链路。
+            strategy_plan = self._default_strategy_plan()
+        prompt_context = build_structured_prompt_context(
+            requirement=requirement or "",
+            kb_context=kb_context or "",
+            rag_result=(context_result or {}).get("rag_result") if isinstance(context_result, dict) else None,
+            existing_cases=[],
+            current_biz_key=current_biz_key,
+            only_current_biz=bool(only_current_biz),
+        )
+        resolved_current_biz = str(prompt_context.get("current_biz_key") or "unknown")
+        base_prompt = build_closed_loop_base_prompt(
+            strategy_plan,
+            requirement_context=prompt_context.get("requirement_context") or "",
+            testcase_context=prompt_context.get("testcase_context") or "(empty)",
+            supplement_context=prompt_context.get("supplement_context") or "(empty)",
+            current_biz_key=resolved_current_biz,
+            doc_type=doc_type,
+            pretty_json=False,
+        )
+        # 中文注释：在模型调用前输出 biz_key 隔离诊断，便于日志面板观察。
+        if self._is_active_db_session(db):
+            try:
+                isolation_payload = dict(prompt_context.get("biz_key_isolation_log") or {})
+                if isolation_payload:
+                    isolation_payload.update(
+                        {
+                            "project_id": int(project_id),
+                            "request_id": request_id,
+                            "source": "generate_test_cases_json",
+                        }
+                    )
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            user_id=user_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(isolation_payload, ensure_ascii=False)}",
+                        )
+                    )
+                    db.commit()
+            except Exception as e:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                print(f"Failed to emit biz key isolation log(json): {e}")
+
+        # Calculate start number for IDs based on batch index
+        start_id = batch_index * batch_size + 1
+        stage_logs: list[dict[str, Any]] = []
+        coverage_check_payload: dict[str, Any] | None = None
+        raw_response_payload: Any = ""
+
+        system_prompt = f"""
+{base_prompt}
+
+BATCH GENERATION INSTRUCTION (workflow-first):
+This is batch #{batch_index + 1}.
+Start the Test Case IDs from {start_id} (e.g., TC-{start_id:03d}).
+Suggested batch size reference: about {batch_size} cases (not a hard target).
+If additional cases add no coverage gain, stop instead of padding.
+Prioritize completing the current module closed-loop first; do not cross-module jump for count balancing.
+Return ONLY the JSON array.
+"""
+        self._emit_final_context_trace(
+            db=db,
+            project_id=project_id,
+            user_id=user_id,
+            request_id=request_id,
+            context_result=context_result,
+            gate_debug=gate_debug,
+            fallback_reason=(context_result or {}).get("fallback_reason") if isinstance(context_result, dict) else "",
+            abort_code="",
+            compressed_chars=len(kb_context or ""),
+        )
+        normalized_generation_mode = str(generation_mode or "").strip().lower()
+        use_pipeline = bool(multi_pass) or normalized_generation_mode in {
+            "single_pass",
+            "multi_pass",
+            "biz_key_multi_pass",
+        }
+        if use_pipeline:
+            # 中文注释：统一由 pipeline 根据 generation_mode 决定生成策略。
+            multi_pass_result = run_multi_pass_generation(
+                client=client,
+                requirement=requirement,
+                db=db,
+                base_prompt=system_prompt,
+                requirement_context=prompt_context.get("requirement_context") or requirement,
+                current_biz_key=resolved_current_biz,
+                expected_count=int(expected_count or batch_size or 1),
+                start_id=start_id,
+                clean_and_parse_json_fn=clean_and_parse_json,
+                normalize_json_structure_fn=normalize_json_structure,
+                deduplicate_test_cases_fn=deduplicate_test_cases,
+                reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+                multi_pass=bool(multi_pass),
+                generation_mode=generation_mode,
+                prompt_context=prompt_context,
+                build_base_prompt_fn=lambda req_ctx, tc_ctx, sup_ctx, biz_key: build_closed_loop_base_prompt(
+                    strategy_plan,
+                    requirement_context=req_ctx,
+                    testcase_context=tc_ctx,
+                    supplement_context=sup_ctx,
+                    current_biz_key=biz_key,
+                    doc_type=doc_type,
+                    pretty_json=False,
+                ),
+            )
+            result = multi_pass_result.get("final_cases") or []
+            stage_logs = list(multi_pass_result.get("stage_logs") or [])
+            coverage_check_payload = dict(multi_pass_result.get("coverage") or {})
+            raw_response_payload = multi_pass_result.get("raw") or {}
+        else:
+            response = client.generate_response(
+                requirement,
+                system_prompt,
+                db=db,
+                task_type="generation",
+            )
+            raw_response_payload = response
+            result = finalize_generated_cases(
+                response,
+                start_id=start_id,
+                clean_and_parse_json_fn=clean_and_parse_json,
+                normalize_json_structure_fn=normalize_json_structure,
+                deduplicate_test_cases_fn=deduplicate_test_cases,
+                reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+            )
+            stage_logs = [
+                {"kind": "generation_mode", "mode": "single_pass", "biz_keys": [resolved_current_biz], "current_biz_key": resolved_current_biz},
+                {"kind": "generation_stage", "stage": "primary", "case_count": len(result) if isinstance(result, list) else 0},
+                {"kind": "generation_stage", "stage": "gap", "case_count": 0},
+                {"kind": "generation_stage", "stage": "review", "case_count": len(result) if isinstance(result, list) else 0},
+            ]
+            if isinstance(result, list):
+                coverage_check_payload = {
+                    "kind": "coverage_check",
+                    **analyze_coverage(prompt_context.get("requirement_context") or requirement, result),
+                }
+            
+        # Save to DB if session provided
+        if db:
+            try:
+                if self._is_active_db_session(db):
+                    for stage_log in stage_logs:
+                        payload = dict(stage_log)
+                        payload.update(
+                            {
+                                "request_id": request_id,
+                                "multi_pass": bool(multi_pass),
+                                "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                            }
+                        )
+                        db.add(

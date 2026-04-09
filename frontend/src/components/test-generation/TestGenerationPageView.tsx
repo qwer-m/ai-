@@ -48,6 +48,9 @@ type TestGenerationPageViewProps = {
   handleExportExcel: () => Promise<void>;
   handleClearCurrent: () => void;
   result: any;
+  resultSource: 'none' | 'streaming_preview' | 'final_persisted';
+  generationId: number | null;
+  isFinalResultLoaded: boolean;
   streamingContent: string;
   statsCount: number;
   handleCopyCurrent: () => void;
@@ -99,6 +102,9 @@ export function TestGenerationPageView({
   handleExportExcel,
   handleClearCurrent,
   result,
+  resultSource,
+  generationId,
+  isFinalResultLoaded,
   streamingContent,
   statsCount,
   handleCopyCurrent,
@@ -178,7 +184,7 @@ export function TestGenerationPageView({
         <InlineStatusBanner
           className="col-span-12"
           type="loading"
-          text={loadingStatus || 'AI 姝ｅ湪鍒嗘瀽闇€姹傛枃妗ｏ紝璇风◢鍊?..'}
+          text={loadingStatus || 'AI 正在分析需求文档，请稍候...'}
         />
       ) : null}
       {!loading && !error && loadingStatus ? (
@@ -188,13 +194,17 @@ export function TestGenerationPageView({
         <div className="col-span-12 d-flex flex-column gap-2">
           <InlineStatusBanner type="error" text={error} />
           <Alert variant="danger" dismissible onClose={() => setError(null)} className="shadow-sm border-0 mb-0 py-2">
-            <FaExclamationCircle className="me-2" /> 浣犲彲浠ユ鏌ユā鍨嬮厤缃€佺綉缁滀笌鏃ュ織鍚庨噸璇曘€?          </Alert>
+            <FaExclamationCircle className="me-2" /> 你可以检查模型配置、网络与日志后重试。
+          </Alert>
         </div>
       ) : null}
 
       <TestGenerationResultSection
         mode={mode}
         result={result}
+        resultSource={resultSource}
+        generationId={generationId}
+        isFinalResultLoaded={isFinalResultLoaded}
         streamingContent={streamingContent}
         loading={loading}
         statsCount={statsCount}
@@ -203,7 +213,13 @@ export function TestGenerationPageView({
         onClearHighlight={() => setActiveRuleId(null)}
       />
 
-      <RagDebugPanel className="col-span-12" activeRuleId={activeRuleId} onRuleClick={setActiveRuleId} />
+      <RagDebugPanel
+        className="col-span-12"
+        activeRuleId={activeRuleId}
+        onRuleClick={setActiveRuleId}
+        result={result}
+        resultSource={resultSource}
+      />
     </div>
   );
 }

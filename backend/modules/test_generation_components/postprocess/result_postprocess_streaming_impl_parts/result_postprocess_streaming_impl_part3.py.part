@@ -1,0 +1,95 @@
+        bool(item.get("missing_types"))
+        for item in (coverage.get("rule_diagnostics") or [])
+        if isinstance(item, dict)
+    )
+    reference_gap = max(0, int(reference_count_effective or 0) - int(final_count or 0))
+    converged = not bool(missing_rules_final) and not bool(missing_types_final)
+
+    reasons: list[str] = []
+    if not converged:
+        if int(gap_remaining_after_attempts or 0) > 0:
+            reasons.append("coverage_gap_still_exists")
+        if int(gap_attempts or 0) >= 3 and int(gap_remaining_after_attempts or 0) > 0:
+            reasons.append("gap_attempt_limit_reached")
+        if gap_stopped_by_provider_error:
+            reasons.append("gap_stopped_by_provider_error")
+        if missing_rules_final:
+            reasons.append("coverage_missing_rules")
+        if missing_types_final:
+            reasons.append("coverage_missing_types")
+        if not reasons:
+            reasons.append("coverage_not_converged")
+    elif reference_gap > 0:
+        reasons.append("quality_converged_before_reference_count")
+
+    if post_review_dedup_drop > 0:
+        reasons.append("dedup_reduced_count_stop")
+        reasons.append("no_backfill_after_dedup")
+
+    if low_quality_dropped_total > 0:
+        reasons.append("low_quality_filtered")
+
+    duplication_rate_estimate = 0.0
+    if int(review_selected_count or 0) > 0:
+        duplication_rate_estimate = float(post_review_dedup_drop or 0) / float(review_selected_count or 1)
+
+    summary_stop_reason: list[str] = []
+    if converged:
+        summary_stop_reason.append("coverage_satisfied")
+
+    diminishing_returns = bool(
+        reference_gap > 0
+        or post_review_dedup_drop > 0
+        or duplication_rate_estimate > 0.5
+        or "quality_converged_before_reference_count" in reasons
+    )
+    if diminishing_returns or (not converged and reasons):
+        summary_stop_reason.append("stopped_due_to_diminishing_returns")
+
+    if converged:
+        summary_stop_reason.append("optimal_case_set_reached")
+
+    if converged and low_quality_dropped_total <= 0 and duplication_rate_estimate <= 0.5:
+        quality_assessment = "high"
+    elif low_quality_dropped_total <= 2 and duplication_rate_estimate <= 0.6:
+        quality_assessment = "medium"
+    else:
+        quality_assessment = "low"
+
+    generation_summary = {
+        "recommended_range": "30-50",
+        "final_count": int(final_count or 0),
+        "status": "completed_with_optimal_set" if converged else "completed_with_quality_stop",
+        "stop_reason": summary_stop_reason,
+        "quality_assessment": quality_assessment,
+    }
+
+    convergence_debug = {
+        "suggested_count": int(reference_count_effective or 0),
+        "final_count": int(final_count or 0),
+        "reference_gap": int(reference_gap or 0),
+        "converged": bool(converged),
+        "duplication_rate_estimate": float(duplication_rate_estimate),
+        "primary_count": int(stage_counts.get("primary") or 0),
+        "gap_count": int(stage_counts.get("gap") or 0),
+        "review_count": int(stage_counts.get("review") or 0),
+        "candidate_count_before_review": int(candidate_count_before_review or 0),
+        "review_selected_count": int(review_selected_count or 0),
+        "post_review_dedup_drop": int(post_review_dedup_drop or 0),
+        "gap_attempts": int(gap_attempts or 0),
+        "gap_remaining_after_attempts": int(gap_remaining_after_attempts or 0),
+        "missing_rules_count": int(len(missing_rules_final)),
+        "missing_types_exists": bool(missing_types_final),
+        "low_quality_dropped_count": int(low_quality_dropped_total or 0),
+        "reasons": reasons,
+    }
+    return {
+        "cases": parsed_result,
+        "stage_counts": stage_counts,
+        "coverage": coverage,
+        "convergence_debug": convergence_debug,
+        "generation_summary": generation_summary,
+        "review_decision_summary": review_decision_summary,
+        "review_decision_table": review_decision_table,
+    }
+

@@ -6,6 +6,9 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from core.db.models import KnowledgeDocument
+from modules.knowledge_base_components.repositories.knowledge_document_repository import (
+    KnowledgeDocumentRepository,
+)
 
 
 def _clamp01(value: float) -> float:
@@ -98,6 +101,7 @@ def build_keyword_candidates(
     query: str,
     project_id: int,
     db: Session | None,
+    doc_repository: KnowledgeDocumentRepository | None = None,
     query_source: str,
     top_docs: int = 8,
     per_doc_chunks: int = 2,
@@ -110,19 +114,16 @@ def build_keyword_candidates(
     - 当 query 包含“销售/考勤/打卡”等业务词时，文件名命中可直接拉起候选；
     - 避免向量空间里“泛化文档”长期霸榜。
     """
-    if db is None:
+    active_repo = doc_repository or (KnowledgeDocumentRepository(db) if db is not None else None)
+    if active_repo is None:
         return []
 
     terms = extract_query_terms(query, limit=12)
     if not terms:
         return []
 
-    query_builder = db.query(KnowledgeDocument).filter(KnowledgeDocument.project_id == project_id)
     sanitized_types = [str(item or "").strip().lower() for item in (doc_types or []) if str(item or "").strip()]
-    if sanitized_types:
-        query_builder = query_builder.filter(KnowledgeDocument.doc_type.in_(sanitized_types))
-
-    docs = query_builder.order_by(KnowledgeDocument.created_at.desc()).all()
+    docs = active_repo.list_for_keyword_recall(project_id=project_id, doc_types=sanitized_types)
 
     scored_docs: list[tuple[float, KnowledgeDocument, list[str], list[str]]] = []
     for doc in docs:

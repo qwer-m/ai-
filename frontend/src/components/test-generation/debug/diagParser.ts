@@ -39,13 +39,21 @@ export type CoverageCheckEvent = {
   data?: CoverageResult;
 };
 
+export type GenerationPersistedEvent = {
+  kind: 'generation_persisted';
+  generation_id?: number;
+  project_id?: number;
+  request_id?: string;
+};
+
 export type GenDiagEvent =
   | GenerationModeEvent
   | GenerationStageEvent
   | BizKeyPassStageEvent
-  | CoverageCheckEvent;
+  | CoverageCheckEvent
+  | GenerationPersistedEvent;
 
-const VALID_KINDS = new Set(['generation_mode', 'generation_stage', 'biz_key_pass_stage', 'coverage_check']);
+const VALID_KINDS = new Set(['generation_mode', 'generation_stage', 'biz_key_pass_stage', 'coverage_check', 'generation_persisted']);
 
 // 中文注释：统一解析 GEN_DIAG 输入，兼容对象、日志行字符串、纯 JSON 字符串。
 export function parseGenDiagEvent(input: unknown): GenDiagEvent | null {
@@ -84,4 +92,3 @@ function safeParseJson(text: string): unknown {
     return null;
   }
 }
-

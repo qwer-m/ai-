@@ -29,12 +29,18 @@ const readStoredJSON = <T,>(key: string, fallback: T) => {
 
 const getProjectKey = (projectId: number | null, base: string) => (projectId ? `${base}_${projectId}` : base);
 
+type ResultSource = 'none' | 'streaming_preview' | 'final_persisted';
+
 export function useTestGenerationController({ projectId, isActive = true, onLog, onGenerated, onGenerationComplete, onError }: TestGenerationProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const protoInputRef = useRef<HTMLInputElement>(null);
   const uploadZoneRef = useRef<HTMLDivElement>(null);
   const ingestDebugEvent = useRagDebugStore((s) => s.ingestDiag);
   const resetDebugState = useRagDebugStore((s) => s.reset);
+  const setResultDebugState = useRagDebugStore((s) => s.setResultState);
+
+  const initialTextResult = readStoredJSON(getProjectKey(projectId, 'tg_text_result'), null);
+  const initialFileResult = readStoredJSON(getProjectKey(projectId, 'tg_file_result'), null);
 
   const [mode, setMode] = useState<TestGenerationMode>(() => (readStoredString('tg_mode') as TestGenerationMode) || 'text');
   const [requirement, setRequirement] = useState(() => readStoredString(getProjectKey(projectId, 'tg_requirement')) || '');
@@ -49,9 +55,19 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   const [isEstimating, setIsEstimating] = useState(false);
   const [loading, setLoading] = useState(false);
   const [pollStatus, setPollStatus] = useState('');
-  const [textResult, setTextResult] = useState<any>(() => readStoredJSON(getProjectKey(projectId, 'tg_text_result'), null));
+  const [textResult, setTextResult] = useState<any>(() => initialTextResult);
+  const [textStreamingParsedResult, setTextStreamingParsedResult] = useState<any>(null);
+  const [textFinalResult, setTextFinalResult] = useState<any>(() => initialTextResult);
+  const [textResultSource, setTextResultSource] = useState<ResultSource>(() => (initialTextResult ? 'final_persisted' : 'none'));
+  const [textGenerationId, setTextGenerationId] = useState<number | null>(null);
+  const [textIsFinalResultLoaded, setTextIsFinalResultLoaded] = useState<boolean>(() => Boolean(initialTextResult));
   const [textStreamingContent, setTextStreamingContent] = useState(() => readStoredString(getProjectKey(projectId, 'tg_text_streaming_content')));
-  const [fileResult, setFileResult] = useState<any>(() => readStoredJSON(getProjectKey(projectId, 'tg_file_result'), null));
+  const [fileResult, setFileResult] = useState<any>(() => initialFileResult);
+  const [fileStreamingParsedResult, setFileStreamingParsedResult] = useState<any>(null);
+  const [fileFinalResult, setFileFinalResult] = useState<any>(() => initialFileResult);
+  const [fileResultSource, setFileResultSource] = useState<ResultSource>(() => (initialFileResult ? 'final_persisted' : 'none'));
+  const [fileGenerationId, setFileGenerationId] = useState<number | null>(null);
+  const [fileIsFinalResultLoaded, setFileIsFinalResultLoaded] = useState<boolean>(() => Boolean(initialFileResult));
   const [fileStreamingContent, setFileStreamingContent] = useState(() => readStoredString(getProjectKey(projectId, 'tg_file_streaming_content')));
   const [savedFileName, setSavedFileName] = useState(() => readStoredString(getProjectKey(projectId, 'tg_savedFileName')));
   const [error, setError] = useState<string | null>(null);
@@ -61,8 +77,13 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [toastType, setToastType] = useState<'success' | 'error'>('error');
 
-  const result = mode === 'text' ? textResult : fileResult;
+  const result = mode === 'text'
+    ? (textFinalResult ?? textStreamingParsedResult ?? textResult)
+    : (fileFinalResult ?? fileStreamingParsedResult ?? fileResult);
   const streamingContent = mode === 'text' ? textStreamingContent : fileStreamingContent;
+  const resultSource = mode === 'text' ? textResultSource : fileResultSource;
+  const generationId = mode === 'text' ? textGenerationId : fileGenerationId;
+  const isFinalResultLoaded = mode === 'text' ? textIsFinalResultLoaded : fileIsFinalResultLoaded;
   const parsedStream = useMemo(() => extractFirstJsonArray(cleanStreamingContent(streamingContent)), [streamingContent]);
   const hasJsonInResultBox = useMemo(() => Boolean(
     (Array.isArray(result) && result.length > 0) ||
@@ -82,6 +103,19 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     // 中文注释：项目切换或标签切换后，重置调试面板以避免串项目数据。
     resetDebugState();
   }, [projectId, isActive, resetDebugState]);
+
+  useEffect(() => {
+    setResultDebugState({
+      mode,
+      resultSource,
+      generationId,
+      isFinalResultLoaded,
+    });
+    // 中文注释：把结果来源诊断明确打到控制台，便于排查“预览态/最终态”切换问题。
+    console.info(`[TG_RESULT_DIAG] resultSource=${resultSource}`);
+    console.info(`[TG_RESULT_DIAG] generationId=${generationId ?? 'null'}`);
+    console.info(`[TG_RESULT_DIAG] isFinalResultLoaded=${isFinalResultLoaded ? 'true' : 'false'}`);
+  }, [mode, resultSource, generationId, isFinalResultLoaded, setResultDebugState]);
 
   useTestGenerationPersistence({
     projectId,
@@ -138,6 +172,16 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     setFileResult,
     setTextStreamingContent,
     setFileStreamingContent,
+    setTextStreamingParsedResult,
+    setFileStreamingParsedResult,
+    setTextFinalResult,
+    setFileFinalResult,
+    setTextResultSource,
+    setFileResultSource,
+    setTextIsFinalResultLoaded,
+    setFileIsFinalResultLoaded,
+    setTextGenerationId,
+    setFileGenerationId,
     setExpectedCount,
     setLoading,
     setError,
@@ -171,6 +215,23 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     setToastMsg,
   });
 
+  const handleClearCurrent = () => {
+    resultActions.handleClearCurrent();
+    if (mode === 'text') {
+      setTextStreamingParsedResult(null);
+      setTextFinalResult(null);
+      setTextResultSource('none');
+      setTextIsFinalResultLoaded(false);
+      setTextGenerationId(null);
+    } else {
+      setFileStreamingParsedResult(null);
+      setFileFinalResult(null);
+      setFileResultSource('none');
+      setFileIsFinalResultLoaded(false);
+      setFileGenerationId(null);
+    }
+  };
+
   return {
     fileInputRef,
     protoInputRef,
@@ -203,6 +264,9 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     isLimitReached,
     stats,
     result,
+    resultSource,
+    generationId,
+    isFinalResultLoaded,
     streamingContent,
     error,
     setError,
@@ -216,6 +280,7 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     statsCount: stats.count,
     ...generation,
     ...resultActions,
+    handleClearCurrent,
     currentTotal,
     targetTotal,
   };

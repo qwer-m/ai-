@@ -6,11 +6,20 @@
 from typing import Optional
 import logging
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from core.cache_layer.chroma_client import chroma_client
+from core.cache_layer.chroma_client import chroma_client as _default_chroma_client
 from core.db.models import KnowledgeDocument
+from modules.knowledge_base_components.document.document_index_service import (
+    delete_document_indexes,
+    upsert_document_indexes,
+)
+from modules.knowledge_base_components.document.document_summary_service import (
+    ensure_document_summary,
+)
+from modules.knowledge_base_components.repositories.knowledge_document_repository import (
+    KnowledgeDocumentRepository,
+)
 
 # Only these doc types are written to vector index.
 INDEXABLE_DOC_TYPES = (
@@ -22,6 +31,8 @@ INDEXABLE_DOC_TYPES = (
 )
 
 logger = logging.getLogger(__name__)
+# Compatibility seam for tests and legacy monkeypatching.
+chroma_client = _default_chroma_client
 
 
 def _trigger_snapshot_rebuild_async(
@@ -73,12 +84,10 @@ def add_document_impl(
     user_id: Optional[int] = None,
 ):
     """Add a document and sync DB + vector indexes."""
+    repo = KnowledgeDocumentRepository(db)
     content_hash = module.calculate_hash(content)
 
-    existing = db.query(KnowledgeDocument).filter(
-        KnowledgeDocument.content_hash == content_hash,
-        KnowledgeDocument.project_id == project_id,
-    ).first()
+    existing = repo.find_duplicate_by_hash(project_id=project_id, content_hash=content_hash)
 
     if existing:
         if not force:
@@ -89,9 +98,7 @@ def add_document_impl(
             }
         return existing
 
-    min_order = db.query(func.min(KnowledgeDocument.display_order)).filter(
-        KnowledgeDocument.project_id == project_id
-    ).scalar()
+    min_order = repo.get_min_display_order(project_id=project_id)
     new_order = (min_order if min_order is not None else 0.0) - 1.0
 
     doc = KnowledgeDocument(
@@ -104,22 +111,22 @@ def add_document_impl(
         user_id=user_id,
         display_order=new_order,
     )
-    db.add(doc)
-    db.commit()
-    db.refresh(doc)
+    repo.add(doc)
+    repo.commit()
+    repo.refresh(doc)
 
     module.reindex_project_specific_ids(doc_type, project_id, db)
-    db.refresh(doc)
+    repo.refresh(doc)
 
     summary = ""
     try:
-        summary = module._ensure_summary(doc, db, user_id)
+        summary = ensure_document_summary(module, doc=doc, db=db, user_id=user_id)
     except Exception:
         pass
 
     if doc_type in INDEXABLE_DOC_TYPES:
-        chroma_client.add_document(
-            doc_id=str(doc.id),
+        upsert_document_indexes(
+            doc_id=doc.id,
             content=content,
             metadata={
                 "project_id": project_id,
@@ -129,21 +136,17 @@ def add_document_impl(
                 "user_id": user_id,
                 "is_summary": False,
             },
+            summary_text=summary,
+            summary_metadata={
+                "project_id": project_id,
+                "doc_type": doc_type,
+                "filename": f"{filename} (Summary)",
+                "doc_id": doc.id,
+                "user_id": user_id,
+                "is_summary": True,
+            },
+            client=chroma_client,
         )
-
-        if summary and summary != content:
-            chroma_client.add_document(
-                doc_id=f"{doc.id}_summary",
-                content=summary,
-                metadata={
-                    "project_id": project_id,
-                    "doc_type": doc_type,
-                    "filename": f"{filename} (Summary)",
-                    "doc_id": doc.id,
-                    "user_id": user_id,
-                    "is_summary": True,
-                },
-            )
 
     _trigger_snapshot_rebuild_async(
         module,
@@ -164,9 +167,8 @@ def update_document_impl(
     db: Session,
 ):
     """Update a document and rebuild affected indexes."""
-    doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
-    if not doc:
-        doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.project_specific_id == doc_id).first()
+    repo = KnowledgeDocumentRepository(db)
+    doc = repo.get_by_id_or_project_specific_id(doc_id)
     if not doc:
         return None
 
@@ -186,7 +188,7 @@ def update_document_impl(
     if doc_type:
         doc.doc_type = doc_type
 
-    db.commit()
+    repo.commit()
 
     if original_doc_type != doc_type:
         module.reindex_project_specific_ids(original_doc_type, project_id, db)
@@ -194,21 +196,17 @@ def update_document_impl(
     else:
         module.reindex_project_specific_ids(doc_type, project_id, db)
 
-    db.refresh(doc)
+    repo.refresh(doc)
 
     try:
-        module._ensure_summary(doc, db, getattr(doc, "user_id", None))
+        ensure_document_summary(module, doc=doc, db=db, user_id=getattr(doc, "user_id", None))
     except Exception:
         pass
 
     if content_changed and doc.doc_type in INDEXABLE_DOC_TYPES:
-        # Compatibility cleanup: legacy summary index might use doc_id={id}_summary.
-        chroma_client.delete_document(str(doc.id))
-        chroma_client.delete_document(f"{doc.id}_summary")
-
         summary_text = str(doc.summary or "").strip()
-        chroma_client.add_document(
-            doc_id=str(doc.id),
+        upsert_document_indexes(
+            doc_id=doc.id,
             content=content,
             metadata={
                 "project_id": project_id,
@@ -218,20 +216,17 @@ def update_document_impl(
                 "user_id": getattr(doc, "user_id", None),
                 "is_summary": False,
             },
+            summary_text=summary_text,
+            summary_metadata={
+                "project_id": project_id,
+                "doc_type": doc.doc_type,
+                "filename": f"{(filename or doc.filename)} (Summary)",
+                "doc_id": doc.id,
+                "user_id": getattr(doc, "user_id", None),
+                "is_summary": True,
+            },
+            client=chroma_client,
         )
-        if summary_text and summary_text != content:
-            chroma_client.add_document(
-                doc_id=f"{doc.id}_summary",
-                content=summary_text,
-                metadata={
-                    "project_id": project_id,
-                    "doc_type": doc.doc_type,
-                    "filename": f"{(filename or doc.filename)} (Summary)",
-                    "doc_id": doc.id,
-                    "user_id": getattr(doc, "user_id", None),
-                    "is_summary": True,
-                },
-            )
 
     _trigger_snapshot_rebuild_async(
         module,
@@ -245,9 +240,10 @@ def update_document_impl(
 
 def delete_document_impl(module, doc_id: int, db: Session):
     """Delete a document and clean linked indexes."""
-    doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.project_specific_id == doc_id).first()
+    repo = KnowledgeDocumentRepository(db)
+    doc = repo.get_by_project_specific_id(doc_id)
     if not doc:
-        doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
+        doc = repo.get_by_id(doc_id)
     if not doc:
         return False
 
@@ -255,15 +251,15 @@ def delete_document_impl(module, doc_id: int, db: Session):
     project_id = doc.project_id
     doc_global_id = doc.id
 
-    linked_docs = db.query(KnowledgeDocument).filter(KnowledgeDocument.source_doc_id == doc.id).all()
+    linked_docs = repo.list_linked_by_source(doc.id)
     for linked_doc in linked_docs:
         linked_doc.source_doc_id = None
 
-    db.delete(doc)
-    db.commit()
+    repo.delete(doc)
+    repo.commit()
 
     module.reindex_project_specific_ids(doc_type, project_id, db)
-    chroma_client.delete_document(str(doc_global_id))
+    delete_document_indexes(doc_global_id, client=chroma_client)
     _trigger_snapshot_rebuild_async(
         module,
         project_id=project_id,
@@ -282,15 +278,9 @@ def move_document_impl(
     db: Session,
 ):
     """Move a document around an anchor by display order."""
-    target_doc = db.query(KnowledgeDocument).filter(
-        KnowledgeDocument.id == doc_id,
-        KnowledgeDocument.project_id == project_id,
-    ).first()
-
-    anchor_doc = db.query(KnowledgeDocument).filter(
-        KnowledgeDocument.id == anchor_doc_id,
-        KnowledgeDocument.project_id == project_id,
-    ).first()
+    repo = KnowledgeDocumentRepository(db)
+    target_doc = repo.get_project_doc(project_id=project_id, doc_id=doc_id)
+    anchor_doc = repo.get_project_doc(project_id=project_id, doc_id=anchor_doc_id)
 
     if not target_doc or not anchor_doc:
         return False
@@ -301,20 +291,20 @@ def move_document_impl(
     new_order = 0.0
 
     if position == "before":
-        upper_neighbor = db.query(KnowledgeDocument).filter(
-            KnowledgeDocument.project_id == project_id,
-            KnowledgeDocument.display_order > anchor_doc.display_order,
-        ).order_by(KnowledgeDocument.display_order.asc()).first()
+        upper_neighbor = repo.get_upper_neighbor(
+            project_id=project_id,
+            anchor_display_order=float(anchor_doc.display_order),
+        )
 
         if upper_neighbor:
             new_order = (anchor_doc.display_order + upper_neighbor.display_order) / 2.0
         else:
             new_order = anchor_doc.display_order + 10.0
     else:
-        lower_neighbor = db.query(KnowledgeDocument).filter(
-            KnowledgeDocument.project_id == project_id,
-            KnowledgeDocument.display_order < anchor_doc.display_order,
-        ).order_by(KnowledgeDocument.display_order.desc()).first()
+        lower_neighbor = repo.get_lower_neighbor(
+            project_id=project_id,
+            anchor_display_order=float(anchor_doc.display_order),
+        )
 
         if lower_neighbor:
             new_order = (anchor_doc.display_order + lower_neighbor.display_order) / 2.0
@@ -322,7 +312,7 @@ def move_document_impl(
             new_order = anchor_doc.display_order - 10.0
 
     target_doc.display_order = new_order
-    db.commit()
+    repo.commit()
     return True
 
 
@@ -331,10 +321,8 @@ def reorder_documents_impl(project_id: int, ordered_ids: list[int], db: Session)
     if not ordered_ids:
         return True
 
-    docs = db.query(KnowledgeDocument).filter(
-        KnowledgeDocument.id.in_(ordered_ids),
-        KnowledgeDocument.project_id == project_id,
-    ).all()
+    repo = KnowledgeDocumentRepository(db)
+    docs = repo.list_project_docs_by_ids(project_id=project_id, doc_ids=ordered_ids)
 
     if not docs:
         return True
@@ -350,5 +338,5 @@ def reorder_documents_impl(project_id: int, ordered_ids: list[int], db: Session)
         if doc_id in doc_map:
             doc_map[doc_id].display_order = current_orders[i]
 
-    db.commit()
+    repo.commit()
     return True

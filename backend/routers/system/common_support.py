@@ -1,4 +1,4 @@
-import json
+﻿import json
 import re
 from datetime import datetime
 from typing import Any, Optional
@@ -7,17 +7,23 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.db.models import KnowledgeDocument, Project
+from modules.knowledge_base_components.repositories.knowledge_document_repository import (
+    KnowledgeDocumentRepository,
+)
+from modules.knowledge_base_components.repositories.project_repository import (
+    ProjectRepository,
+)
 
 
 class RelationUpdateRequest(BaseModel):
-    """更新测试用例与需求文档关联关系的请求体。"""
+    """Update relation between test_case and requirement-like source document."""
 
     doc_id: int
     source_doc_id: Optional[int] = None
 
 
 class MoveDocumentRequest(BaseModel):
-    """知识库拖拽排序请求体。"""
+    """Drag-sort request for one knowledge document."""
 
     project_id: int
     doc_id: int
@@ -26,17 +32,53 @@ class MoveDocumentRequest(BaseModel):
 
 
 class RetrieveContextRequest(BaseModel):
-    """检索治理调试请求体。"""
+    """Retrieval debug request payload."""
 
     project_id: int
     query: str
     limit: int = 5
     max_tokens: int = 1800
     debug: bool = False
+    retrieval_mode: Optional[str] = None
+    recall_top_k: Optional[int] = None
+    rerank_top_n: Optional[int] = None
+    max_chunks_per_doc: Optional[int] = None
+    min_docs: Optional[int] = None
+    enable_query_rewrite: Optional[bool] = None
+    enable_rerank: Optional[bool] = None
+    title_weight: Optional[float] = None
+    keyword_weight: Optional[float] = None
+    vector_weight: Optional[float] = None
+    redundancy_threshold: Optional[float] = None
+    doc_types: Optional[list[str] | str] = None
+    enable_biz_key_expansion: Optional[bool] = None
+    related_top_k: Optional[int] = None
+
+    def to_retrieval_options(self) -> dict[str, Any]:
+        options: dict[str, Any] = {}
+        for key in (
+            "retrieval_mode",
+            "recall_top_k",
+            "rerank_top_n",
+            "max_chunks_per_doc",
+            "min_docs",
+            "enable_query_rewrite",
+            "enable_rerank",
+            "title_weight",
+            "keyword_weight",
+            "vector_weight",
+            "redundancy_threshold",
+            "doc_types",
+            "enable_biz_key_expansion",
+            "related_top_k",
+        ):
+            value = getattr(self, key, None)
+            if value is not None:
+                options[key] = value
+        return options
 
 
 def _to_iso(dt: Any) -> Optional[str]:
-    """统一把时间字段转为可序列化的 ISO 字符串。"""
     if dt is None:
         return None
     if hasattr(dt, "isoformat"):
@@ -45,7 +87,6 @@ def _to_iso(dt: Any) -> Optional[str]:
 
 
 def _serialize_linked_doc(doc: KnowledgeDocument) -> dict:
-    """序列化关联测试用例。"""
     return {
         "id": doc.project_specific_id or doc.id,
         "global_id": doc.id,
@@ -59,7 +100,6 @@ def _serialize_doc(
     source_name_map: dict[int, str],
     linked_map: dict[int, list[dict]],
 ) -> dict:
-    """序列化知识库文档。"""
     content = doc.content or ""
     return {
         "id": doc.project_specific_id or doc.id,
@@ -81,8 +121,7 @@ def _serialize_doc(
 
 
 def _get_owned_project(project_id: int, user_id: int, db: Session) -> Optional[Project]:
-    """校验项目归属。"""
-    return db.query(Project).filter(Project.id == project_id, Project.user_id == user_id).first()
+    return ProjectRepository(db).get_owned_project(project_id=project_id, user_id=user_id)
 
 
 def _get_owned_doc_by_id_or_project_specific_id(
@@ -90,27 +129,11 @@ def _get_owned_doc_by_id_or_project_specific_id(
     user_id: int,
     db: Session,
 ) -> Optional[KnowledgeDocument]:
-    """先按全局ID查询，查不到再按 project_specific_id 兜底。"""
-    doc = (
-        db.query(KnowledgeDocument)
-        .join(Project, Project.id == KnowledgeDocument.project_id)
-        .filter(KnowledgeDocument.id == doc_id, Project.user_id == user_id)
-        .first()
-    )
-    if doc:
-        return doc
-
-    return (
-        db.query(KnowledgeDocument)
-        .join(Project, Project.id == KnowledgeDocument.project_id)
-        .filter(KnowledgeDocument.project_specific_id == doc_id, Project.user_id == user_id)
-        .order_by(KnowledgeDocument.created_at.desc(), KnowledgeDocument.id.desc())
-        .first()
-    )
+    repo = KnowledgeDocumentRepository(db)
+    return repo.get_owned_by_id_or_project_specific_id(doc_id=doc_id, user_id=user_id)
 
 
 def extract_error_text(err: Any) -> str:
-    """从不同错误结构中提取可读文本。"""
     if err is None:
         return ""
     if isinstance(err, str):
@@ -128,7 +151,6 @@ def extract_error_text(err: Any) -> str:
 
 
 def translate_error_text(text: str) -> str:
-    """将常见英文错误关键词映射成中文。"""
     if not text:
         return "发生未知错误"
     if re.search(r"[\u4e00-\u9fff]", text):
@@ -140,7 +162,7 @@ def translate_error_text(text: str) -> str:
         ("timed out", "请求超时"),
         ("failed to fetch", "网络请求失败"),
         ("networkerror", "网络请求失败"),
-        ("ssl", "网络连接异常，请检查网络环境后重试"),
+        ("ssl", "网络连接异常，请检查网络后重试"),
         ("unexpected_eof_while_reading", "网络连接被中断，请稍后重试"),
         ("econnrefused", "连接被拒绝"),
         ("connection refused", "连接被拒绝"),

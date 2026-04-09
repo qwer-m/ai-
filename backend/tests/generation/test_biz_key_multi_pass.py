@@ -73,8 +73,10 @@ def test_biz_key_multi_pass_runs_per_biz_stage() -> None:
     assert logs[0]["kind"] == "generation_mode"
     assert logs[0]["mode"] == "biz_key_multi_pass"
     biz_stage_logs = [x for x in logs if x.get("kind") == "biz_key_pass_stage"]
-    assert any(x.get("biz_key") == "org_close_rule" and x.get("stage") == "primary" for x in biz_stage_logs)
-    assert any(x.get("biz_key") == "org_open_rule" and x.get("stage") == "primary" for x in biz_stage_logs)
+    assert any(x.get("biz_key") == "org_close_rule" and x.get("stage") == "primary_generation" for x in biz_stage_logs)
+    assert any(x.get("biz_key") == "org_open_rule" and x.get("stage") == "primary_generation" for x in biz_stage_logs)
+    assert any(x.get("biz_key") == "org_close_rule" and x.get("stage") == "decide_continue_or_stop" for x in biz_stage_logs)
+    assert any(x.get("biz_key") == "org_open_rule" and x.get("stage") == "decide_continue_or_stop" for x in biz_stage_logs)
 
 
 def test_biz_key_multi_pass_degrades_to_multi_pass_when_single_biz() -> None:

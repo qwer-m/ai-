@@ -5,9 +5,12 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from core.cache_layer.chroma_client import chroma_client
 from core.db.models import KnowledgeDocument
+from modules.knowledge_base_components.adapters.chroma_vector_store import get_vector_store
 from modules.knowledge_base_components.document.document_ops import INDEXABLE_DOC_TYPES
+from modules.knowledge_base_components.repositories.knowledge_document_repository import (
+    KnowledgeDocumentRepository,
+)
 from modules.domain.stage25_switches import STAGE25_SWITCHES
 
 
@@ -17,8 +20,8 @@ def _has_summary_index(doc: KnowledgeDocument) -> bool:
     return bool(summary and summary != content)
 
 
-def _fetch_chroma_metas(doc_id: int) -> list[dict[str, Any]]:
-    if not getattr(chroma_client, "collection", None):
+def _fetch_chroma_metas(doc_id: int, *, vector_store) -> list[dict[str, Any]]:
+    if not vector_store.is_ready():
         return []
 
     normalized: list[dict[str, Any]] = []
@@ -26,13 +29,16 @@ def _fetch_chroma_metas(doc_id: int) -> list[dict[str, Any]]:
     legacy_keys = [str(doc_id), f"{doc_id}_summary"]
     for key in legacy_keys:
         try:
-            result = chroma_client.collection.get(
+            result = vector_store.search_by_metadata(
                 where={"doc_id": key},
-                include=["metadatas"],
+                n_results=100,
+                raise_on_error=False,
             )
         except Exception:
             continue
         metas = result.get("metadatas") or []
+        if metas and isinstance(metas[0], list):
+            metas = metas[0]
         for item in metas:
             if isinstance(item, dict):
                 normalized.append(item)
@@ -51,16 +57,9 @@ def run_index_consistency_audit(
     if not STAGE25_SWITCHES.index_audit_enabled:
         return {"enabled": False, "message": "index_audit_disabled"}
 
-    query = db.query(KnowledgeDocument)
-    if project_id is not None:
-        query = query.filter(KnowledgeDocument.project_id == project_id)
-    if user_id is not None:
-        query = query.filter(KnowledgeDocument.user_id == user_id)
-    docs = (
-        query.order_by(KnowledgeDocument.id.asc())
-        .limit(max(100, int(limit)))
-        .all()
-    )
+    repo = KnowledgeDocumentRepository(db)
+    vector_store = get_vector_store()
+    docs = repo.list_for_index_audit(project_id=project_id, user_id=user_id, limit=limit)
 
     missing_raw: list[int] = []
     missing_summary: list[int] = []
@@ -74,7 +73,7 @@ def run_index_consistency_audit(
             continue
         checked_indexable_docs += 1
 
-        metas = _fetch_chroma_metas(int(doc.id))
+        metas = _fetch_chroma_metas(int(doc.id), vector_store=vector_store)
         has_any_index = bool(metas)
         has_raw = any(not bool(m.get("is_summary")) for m in metas)
         has_summary = any(bool(m.get("is_summary")) for m in metas)

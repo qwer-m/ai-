@@ -3,6 +3,9 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from core.db.models import KnowledgeDocument
+from modules.knowledge_base_components.repositories.knowledge_document_repository import (
+    KnowledgeDocumentRepository,
+)
 from routers.system.common_support import _serialize_linked_doc, _to_iso
 
 
@@ -14,31 +17,19 @@ def build_knowledge_list_related_maps(
     project_id: int,
     documents: list[KnowledgeDocument],
 ) -> tuple[dict[int, list[dict]], dict[int, str]]:
+    repo = KnowledgeDocumentRepository(db)
     requirement_ids = [doc.id for doc in documents if doc.doc_type in REQUIREMENT_LIKE_TYPES]
     linked_map: dict[int, list[dict]] = {}
     if requirement_ids:
-        linked_docs = (
-            db.query(KnowledgeDocument)
-            .filter(
-                KnowledgeDocument.project_id == project_id,
-                KnowledgeDocument.doc_type == "test_case",
-                KnowledgeDocument.source_doc_id.in_(requirement_ids),
-            )
-            .order_by(KnowledgeDocument.created_at.desc(), KnowledgeDocument.id.desc())
-            .all()
+        linked_docs = repo.list_linked_test_cases_for_sources(
+            project_id=project_id,
+            source_doc_ids=requirement_ids,
         )
         for linked in linked_docs:
             linked_map.setdefault(linked.source_doc_id, []).append(_serialize_linked_doc(linked))
 
     source_ids = {doc.source_doc_id for doc in documents if doc.source_doc_id}
-    source_name_map: dict[int, str] = {}
-    if source_ids:
-        source_docs = (
-            db.query(KnowledgeDocument.id, KnowledgeDocument.filename)
-            .filter(KnowledgeDocument.project_id == project_id, KnowledgeDocument.id.in_(source_ids))
-            .all()
-        )
-        source_name_map = {doc.id: doc.filename for doc in source_docs}
+    source_name_map = repo.map_source_names(project_id=project_id, source_ids=source_ids)
 
     return linked_map, source_name_map
 

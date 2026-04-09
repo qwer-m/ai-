@@ -1,5 +1,28 @@
 export type RagDatasetType = 'validation' | 'test' | 'challenge' | 'regression';
 
+export type RagRetrievalMode = 'vector' | 'keyword' | 'hybrid' | 'bm25';
+
+export type RagRetrieveContextDebugRequest = {
+  project_id: number;
+  query: string;
+  limit?: number;
+  max_tokens?: number;
+  retrieval_mode?: RagRetrievalMode;
+  recall_top_k?: number;
+  rerank_top_n?: number;
+  max_chunks_per_doc?: number;
+  min_docs?: number;
+  enable_query_rewrite?: boolean;
+  enable_rerank?: boolean;
+  title_weight?: number;
+  keyword_weight?: number;
+  vector_weight?: number;
+  redundancy_threshold?: number;
+  doc_types?: string[] | string;
+  enable_biz_key_expansion?: boolean;
+  related_top_k?: number;
+};
+
 export type RagEvalConfig = {
   dataset_selector: {
     dataset_type: RagDatasetType | 'all';
@@ -12,7 +35,7 @@ export type RagEvalConfig = {
   retrieval: {
     top_k: number;
     rerank_top_n: number;
-    retrieval_mode: 'vector' | 'hybrid' | 'bm25';
+    retrieval_mode: 'vector' | 'keyword' | 'hybrid' | 'bm25';
     score_threshold: number | null;
   };
   context: {

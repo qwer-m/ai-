@@ -1,0 +1,200 @@
+from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Literal
+
+from sqlalchemy.orm import Session
+
+from core.ai.ai_client import get_client_for_user
+from core.db.models import PipelineRun
+from modules.domain.knowledge_base import knowledge_base
+from .agent_decision import _aggregate_reviewer_decision
+from .schemas import STAGE_ORDER, StageKey
+from .support import _now_iso, _truncate_text
+
+def _build_rule_reviewer(
+    stage: StageKey,
+    stage_status: str,
+    stage_message: str,
+    artifacts: dict[str, Any],
+) -> dict[str, Any]:
+
+    verdict = "pass" if stage_status in {"success", "skipped"} else "needs_attention"
+    return {
+        "status": "ok",
+        "mode": "rule",
+        "verdict": verdict,
+        "stage_status": stage_status,
+        "stage_message": stage_message,
+        "artifact_present": stage in artifacts,
+        "timestamp": _now_iso(),
+    }
+
+def _build_executor_tasks(stage: StageKey) -> list[dict[str, str]]:
+    if stage == "test_generation":
+        return [
+            {"id": "tg_requirement", "title": "Validate requirement input"},
+            {"id": "tg_params", "title": "Check generation parameters"},
+            {"id": "tg_json", "title": "Prepare JSON parse guard"},
+        ]
+    if stage == "ui_automation":
+        return [
+            {"id": "ui_target", "title": "Validate UI target"},
+            {"id": "ui_task", "title": "Resolve UI task description"},
+            {"id": "ui_exec", "title": "Prepare execution fallback"},
+        ]
+    if stage == "api_automation":
+        return [
+            {"id": "api_base", "title": "Validate API base URL"},
+            {"id": "api_types", "title": "Validate API test types"},
+            {"id": "api_report", "title": "Prepare report parsing"},
+        ]
+    return [
+        {"id": "eval_switch", "title": "Validate evaluation switches"},
+        {"id": "eval_inputs", "title": "Check required evaluation artifacts"},
+        {"id": "eval_output", "title": "Prepare output merge"},
+    ]
+
+def _evaluate_executor_task(
+    stage: StageKey,
+    task: dict[str, str],
+    payload: dict[str, Any],
+    artifacts: dict[str, Any],
+) -> dict[str, Any]:
+    requirement = str(payload.get("requirement") or "").strip()
+    ui_cfg = dict(payload.get("ui") or {})
+    api_cfg = dict(payload.get("api") or {})
+    eval_cfg = dict(payload.get("evaluation") or {})
+
+    status = "ready"
+    note = "ok"
+    if task["id"] == "tg_requirement" and not requirement:
+        status = "warning"
+        note = "Global requirement is empty."
+    elif task["id"] == "tg_params" and int(payload.get("expected_count") or 0) <= 0:
+        status = "warning"
+        note = "expected_count must be > 0."
+    elif task["id"] == "ui_target" and not str(ui_cfg.get("target") or "").strip():
+        status = "warning"
+        note = "UI target is empty."
+    elif task["id"] == "ui_task" and not (str(ui_cfg.get("task") or "").strip() or requirement):
+        status = "warning"
+        note = "No UI task and no global requirement fallback."
+    elif task["id"] == "api_base" and not str(api_cfg.get("base_url") or "").strip():
+        status = "warning"
+        note = "API base_url is empty."
+    elif task["id"] == "api_types" and not list(api_cfg.get("test_types") or []):
+        status = "warning"
+        note = "API test_types is empty."
+    elif task["id"] == "eval_inputs":
+        wants_tc = bool(eval_cfg.get("run_testcase_eval"))
+        baseline = str(eval_cfg.get("baseline_test_cases") or "").strip()
+        if wants_tc and not baseline:
+            status = "warning"
+            note = "Testcase eval enabled but baseline_test_cases missing."
+    elif task["id"] == "eval_switch":
+        if not (
+            bool(eval_cfg.get("run_testcase_eval"))
+            or bool(eval_cfg.get("run_ui_eval", True))
+            or bool(eval_cfg.get("run_api_eval", True))
+        ):
+            status = "warning"
+            note = "No evaluation switch is enabled."
+    elif task["id"] == "eval_output" and not artifacts:
+        status = "warning"
+        note = "No prior artifacts found."
+
+    return {
+        "id": task["id"],
+        "title": task["title"],
+        "status": status,
+        "note": note,
+    }
+
+def _run_stage_executor_agent(
+    stage: StageKey,
+    payload: dict[str, Any],
+    artifacts: dict[str, Any],
+    agent_cfg: dict[str, Any],
+) -> dict[str, Any]:
+
+    tasks = _build_executor_tasks(stage)
+    task_results: list[dict[str, Any]] = []
+    parallel = bool(agent_cfg.get("executor_parallel", True))
+    workers = int(agent_cfg.get("executor_workers") or 3)
+
+    if parallel and len(tasks) > 1:
+        indexed: dict[str, int] = {task["id"]: idx for idx, task in enumerate(tasks)}
+        futures = {}
+        with ThreadPoolExecutor(max_workers=max(1, workers), thread_name_prefix=f"executor-{stage}") as pool:
+            for task in tasks:
+                future = pool.submit(_evaluate_executor_task, stage, task, payload, artifacts)
+                futures[future] = task["id"]
+            for future in as_completed(futures):
+                task_id = futures[future]
+                try:
+                    result = future.result()
+                except Exception as e:
+                    result = {
+                        "id": task_id,
+                        "title": next((t["title"] for t in tasks if t["id"] == task_id), task_id),
+                        "status": "warning",
+                        "note": f"executor task failed: {type(e).__name__}: {e}",
+                    }
+                task_results.append(result)
+        task_results.sort(key=lambda item: indexed.get(str(item.get("id") or ""), 999))
+    else:
+        for task in tasks:
+            task_results.append(_evaluate_executor_task(stage, task, payload, artifacts))
+
+    warnings = sum(1 for item in task_results if item.get("status") != "ready")
+    return {
+        "status": "ok",
+        "mode": "rule_parallel" if parallel else "rule",
+        "tasks": task_results,
+        "warnings": warnings,
+        "workers": max(1, workers) if parallel else 1,
+        "timestamp": _now_iso(),
+    }
+
+def _upsert_agent_artifact(
+    artifacts: dict[str, Any],
+    stage: StageKey,
+    role: Literal["planner", "executor", "reviewer"],
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    next_artifacts = dict(artifacts or {})
+    agent_root = dict(next_artifacts.get("agents") or {})
+    stage_agents = dict(agent_root.get(stage) or {})
+    stage_agents[role] = data
+    agent_root[stage] = stage_agents
+    next_artifacts["agents"] = agent_root
+    return next_artifacts
+
+def _build_agent_learning_content(run: PipelineRun, artifacts: dict[str, Any]) -> str:
+
+    agent_root = dict((artifacts or {}).get("agents") or {})
+    lines: list[str] = [
+        "# Agent Learning Snapshot",
+        f"- run_id: {run.id}",
+        f"- project_id: {run.project_id}",
+        f"- status: {run.status}",
+        f"- created_at: {run.created_at}",
+        f"- finished_at: {run.finished_at}",
+    ]
+
+    for stage in STAGE_ORDER:
+        stage_agents = dict(agent_root.get(stage) or {})
+        planner = dict(stage_agents.get("planner") or {})
+        executor = dict(stage_agents.get("executor") or {})
+        reviewer = dict(stage_agents.get("reviewer") or {})
+        decision = dict(reviewer.get("decision") or {})
+        lines.extend(
+            [
+                "",
+                f"## {stage}",
+                f"- planner_llm_status: {planner.get('llm_status', 'n/a')}",
+                f"- executor_warnings: {executor.get('warnings', 'n/a')}",
+                f"- executor_workers: {executor.get('workers', 'n/a')}",
+                f"- reviewer_verdict: {reviewer.get('verdict', 'n/a')}",
+                f"- reviewer_llm_status: {reviewer.get('llm_status', 'n/a')}",

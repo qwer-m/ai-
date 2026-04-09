@@ -1,5 +1,6 @@
 ﻿import { api } from '../../../utils/api';
 import type { ParsedApiReport, ParsedQualityReport } from './types';
+import type { RagRetrieveContextDebugRequest } from '../rag/shared/types';
 
 export const maxSupplementImages = 10;
 
@@ -145,12 +146,7 @@ export async function saveKnowledgeRequest(formData: FormData) {
   return api.upload<any>('/api/evaluation/save-knowledge', formData);
 }
 
-export async function retrieveRagContextDebugRequest(payload: {
-  project_id: number;
-  query: string;
-  limit?: number;
-  max_tokens?: number;
-}) {
+export async function retrieveRagContextDebugRequest(payload: RagRetrieveContextDebugRequest) {
   return api.post<any>('/api/knowledge/retrieve-context', {
     ...payload,
     // 中文注释：RAG 校验页固定开启 debug，便于观察召回/重排/压缩链路细节。
@@ -312,3 +308,5 @@ export async function exportRagDataset(datasetId: number) {
   if (!res.ok) throw new Error(`导出失败: ${res.status}`);
   return res.blob();
 }
+
+

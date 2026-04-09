@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useMemo } from 'react';
+﻿import { useState, useEffect, useRef, useMemo, useCallback, type MouseEvent as ReactMouseEvent } from 'react';
 import { Button, Nav } from 'react-bootstrap';
 import { FaChevronUp, FaChevronDown, FaDownload, FaTrash, FaExclamationCircle, FaCheckCircle } from 'react-icons/fa';
 import classNames from 'classnames';
@@ -23,13 +23,29 @@ export function LogPanel({ userLogs, systemLogs, loading, error, onClear }: Prop
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<'user' | 'system'>('user');
   const [filter, setFilter] = useState<'all' | 'error' | 'success'>('all');
+  const [panelHeight, setPanelHeight] = useState<number>(() => {
+    if (typeof window === 'undefined') return 420;
+    return Math.round(window.innerHeight * 0.5);
+  });
 
   const userLogRef = useRef<HTMLDivElement>(null);
   const systemLogRef = useRef<HTMLDivElement>(null);
   const followBottomRef = useRef<{ user: boolean; system: boolean }>({ user: true, system: true });
+  const resizeStateRef = useRef<{ active: boolean; startY: number; startHeight: number }>({
+    active: false,
+    startY: 0,
+    startHeight: 0,
+  });
   const SCROLL_BOTTOM_THRESHOLD = 24;
+  const MIN_PANEL_HEIGHT = 220;
+  const MAX_PANEL_HEIGHT_RATIO = 0.85;
 
   const isNearBottom = (el: HTMLDivElement) => el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_BOTTOM_THRESHOLD;
+  const clampPanelHeight = useCallback((height: number) => {
+    const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 900;
+    const maxHeight = Math.max(MIN_PANEL_HEIGHT, Math.round(viewportHeight * MAX_PANEL_HEIGHT_RATIO));
+    return Math.max(MIN_PANEL_HEIGHT, Math.min(maxHeight, Math.round(height)));
+  }, []);
 
   const isErrorMessage = (msg: string) => /error|失败|异常/i.test(msg);
   const isSuccessMessage = (msg: string) => /成功|完成|success/i.test(msg);
@@ -52,6 +68,44 @@ export function LogPanel({ userLogs, systemLogs, loading, error, onClear }: Prop
       followBottomRef.current.system = isNearBottom(systemLogRef.current);
     }
   }, [activeTab, expanded]);
+
+  useEffect(() => {
+    const onMouseMove = (event: MouseEvent) => {
+      const state = resizeStateRef.current;
+      if (!state.active) return;
+      const nextHeight = clampPanelHeight(state.startHeight + (state.startY - event.clientY));
+      setPanelHeight(nextHeight);
+    };
+
+    const onMouseUp = () => {
+      if (!resizeStateRef.current.active) return;
+      resizeStateRef.current.active = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [clampPanelHeight]);
+
+  const handleResizeMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!expanded) return;
+    event.preventDefault();
+    event.stopPropagation();
+    resizeStateRef.current = {
+      active: true,
+      startY: event.clientY,
+      startHeight: panelHeight,
+    };
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+  };
 
   const handleLogScroll = () => {
     const target = activeTab === 'user' ? userLogRef.current : systemLogRef.current;
@@ -113,7 +167,18 @@ export function LogPanel({ userLogs, systemLogs, loading, error, onClear }: Prop
         'is-expanded': expanded,
         'is-collapsed': !expanded,
       })}
+      style={expanded ? { height: `${panelHeight}px` } : undefined}
     >
+      {expanded ? (
+        <div
+          className="dashboard-log-resizer"
+          onMouseDown={handleResizeMouseDown}
+          onClick={(e) => e.stopPropagation()}
+          role="separator"
+          aria-label="调整日志面板高度"
+        />
+      ) : null}
+
       <div
         className={classNames('dashboard-log-header d-flex align-items-center justify-content-between px-3 py-1', {
           'is-expanded': expanded,

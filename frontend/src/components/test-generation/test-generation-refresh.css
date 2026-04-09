@@ -130,6 +130,14 @@
   height: 38px;
 }
 
+.test-generation-shell .test-generation-action-btn.btn-outline-secondary:hover {
+  color: var(--ui-text) !important;
+}
+
+.test-generation-shell .test-generation-action-btn.btn-outline-danger:hover {
+  color: var(--ui-danger, #dc2626) !important;
+}
+
 .test-generation-highlight-mark {
   background: #fde68a;
   color: #92400e;

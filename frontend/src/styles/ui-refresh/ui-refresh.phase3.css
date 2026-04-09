@@ -1,0 +1,259 @@
+﻿/* ===== Phase 3: Global Visual Overhaul ===== */
+.dashboard-shell {
+  background:
+    radial-gradient(1200px 500px at 12% -8%, color-mix(in srgb, var(--ui-primary) 10%, transparent), transparent 62%),
+    radial-gradient(900px 380px at 95% 0%, color-mix(in srgb, #06b6d4 12%, transparent), transparent 66%),
+    var(--ui-bg);
+}
+
+.dashboard-workspace .dashboard-body-layout {
+  gap: 18px !important;
+  margin-bottom: 10px;
+}
+
+.dashboard-sidebar-surface {
+  width: 272px;
+  min-width: 272px;
+  border-radius: 20px !important;
+  border: 1px solid color-mix(in srgb, var(--ui-border) 88%, transparent) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ui-surface) 96%, transparent) 0%, color-mix(in srgb, var(--ui-surface-muted) 90%, transparent) 100%) !important;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.6) !important;
+}
+
+.dashboard-main-surface {
+  border-radius: 20px !important;
+  border: 1px solid color-mix(in srgb, var(--ui-border) 90%, transparent) !important;
+  background: linear-gradient(180deg, var(--ui-surface) 0%, color-mix(in srgb, var(--ui-surface) 92%, var(--ui-surface-muted)) 100%) !important;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+}
+
+.dashboard-topbar-surface {
+  border-radius: 0 0 18px 18px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ui-surface-muted) 96%, transparent) 0%, color-mix(in srgb, var(--ui-surface) 94%, transparent) 100%) !important;
+}
+
+.dashboard-topbar-shell {
+  height: 70px;
+  padding-top: 0.85rem !important;
+  padding-bottom: 0.85rem !important;
+}
+
+.dashboard-project-switcher .dashboard-project-chip {
+  border-radius: 12px;
+  font-weight: 700;
+}
+
+.dashboard-project-switcher .dashboard-project-select {
+  border-radius: 12px !important;
+}
+
+.dashboard-shell .dashboard-sidebar-nav-wrap .sidebar-link {
+  border-radius: 12px !important;
+  min-height: 40px;
+}
+
+.dashboard-shell .dashboard-sidebar-nav-wrap .sidebar-link:hover {
+  transform: translateX(2px);
+  background: color-mix(in srgb, var(--ui-primary-soft) 65%, var(--ui-surface)) !important;
+}
+
+.dashboard-shell .dashboard-sidebar-nav-wrap .dashboard-sidebar-link-row:hover {
+  transform: none;
+}
+
+.dashboard-shell .dashboard-sidebar-nav-wrap .sidebar-link.small:hover {
+  transform: translateX(2px);
+}
+
+.dashboard-shell .dashboard-sidebar-nav-wrap .sidebar-link.active-pro {
+  background: color-mix(in srgb, var(--ui-primary) 10%, var(--ui-surface)) !important;
+  border-color: color-mix(in srgb, var(--ui-primary) 26%, transparent) !important;
+  color: var(--ui-primary) !important;
+  box-shadow: none !important;
+}
+
+.dashboard-shell .dashboard-sidebar-nav-wrap .sidebar-link.active-pro > * {
+  color: var(--ui-primary) !important;
+}
+
+.dashboard-shell .dashboard-sidebar-nav-wrap .sidebar-link.active-pro .dashboard-sidebar-toggle-icon {
+  background: color-mix(in srgb, var(--ui-primary) 10%, transparent);
+}
+
+.dashboard-action-cluster .btn {
+  border-radius: 12px !important;
+}
+
+.dashboard-action-cluster .dashboard-icon-btn {
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+}
+
+.dashboard-shell .bento-card,
+.dashboard-shell .ui-section-card,
+.dashboard-shell .api-automation-card,
+.dashboard-shell .knowledge-toolbar-card,
+.dashboard-shell .knowledge-content-area,
+.dashboard-shell .project-page-shell .project-page-header {
+  border-radius: 16px !important;
+  border-color: color-mix(in srgb, var(--ui-border) 85%, transparent) !important;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.55) !important;
+}
+
+.dashboard-shell .bento-card:hover,
+.dashboard-shell .ui-section-card:hover {
+  transform: none;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.55) !important;
+}
+
+.dashboard-shell .btn-pro-primary,
+.dashboard-shell .btn-primary {
+  border-radius: 12px !important;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--ui-primary) 96%, #1d4ed8), color-mix(in srgb, var(--ui-primary) 78%, #7c3aed)) !important;
+  border: none !important;
+  box-shadow: 0 8px 16px color-mix(in srgb, var(--ui-primary) 36%, transparent);
+}
+
+.dashboard-shell .btn-pro-primary:hover,
+.dashboard-shell .btn-primary:hover {
+  filter: brightness(1.04);
+  transform: translateY(-1px);
+}
+
+.dashboard-shell .btn-outline-secondary,
+.dashboard-shell .btn-outline-primary,
+.dashboard-shell .btn-outline-danger,
+.dashboard-shell .btn-outline-info {
+  border-radius: 11px !important;
+  background: color-mix(in srgb, var(--ui-surface) 88%, transparent) !important;
+}
+
+.dashboard-shell .table-responsive {
+  border-radius: 14px;
+}
+
+.dashboard-shell .table thead th {
+  padding-top: 0.7rem;
+  padding-bottom: 0.7rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+}
+
+.dashboard-shell .table td {
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
+}
+
+.dashboard-shell .form-control,
+.dashboard-shell .form-select,
+.dashboard-shell .input-group-text {
+  border-radius: 12px;
+}
+
+.dashboard-shell .nav-tabs .nav-link {
+  border-radius: 10px 10px 0 0;
+  padding: 0.55rem 0.95rem;
+}
+
+.dashboard-shell .nav-tabs .nav-link.active {
+  background: var(--ui-surface);
+}
+
+.dashboard-shell .api-testing-shell,
+.dashboard-shell .api-automation-shell,
+.dashboard-shell .ai-model-shell,
+.dashboard-shell .rag-console .rag-console-surface,
+.dashboard-shell .rag-console .rag-console-panel {
+  border-radius: 16px !important;
+}
+
+body.theme-dark .dashboard-shell {
+  background:
+    radial-gradient(1200px 500px at 12% -8%, rgba(79, 70, 229, 0.16), transparent 62%),
+    radial-gradient(900px 380px at 95% 0%, rgba(14, 165, 233, 0.12), transparent 66%),
+    var(--ui-bg);
+}
+
+body.theme-dark .dashboard-sidebar-surface {
+  border-color: color-mix(in srgb, var(--ui-border) 78%, transparent) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, #111827 92%, transparent) 0%, color-mix(in srgb, #0f172a 96%, transparent) 100%) !important;
+  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.5), inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+body.theme-dark .dashboard-main-surface {
+  border-color: color-mix(in srgb, var(--ui-border) 76%, transparent) !important;
+  background: linear-gradient(180deg, #111827 0%, #0f172a 100%) !important;
+  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.52), inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+body.theme-dark .dashboard-shell .bento-card,
+body.theme-dark .dashboard-shell .ui-section-card,
+body.theme-dark .dashboard-shell .api-automation-card,
+body.theme-dark .dashboard-shell .knowledge-toolbar-card,
+body.theme-dark .dashboard-shell .knowledge-content-area {
+  border-color: color-mix(in srgb, var(--ui-border) 78%, transparent) !important;
+  box-shadow: 0 10px 22px rgba(2, 6, 23, 0.38) !important;
+}
+
+/* Remove hover lift from middle workbench blocks to avoid jitter and exposed accent edges */
+.dashboard-shell .hover-lift,
+.dashboard-shell .bento-card,
+.dashboard-shell .ui-section-card,
+.dashboard-shell .panel-card,
+.dashboard-shell .knowledge-content-area .doc-card,
+.dashboard-shell .rag-console .rag-console-surface,
+.dashboard-shell .rag-console .rag-console-panel,
+.dashboard-shell .rag-console .rag-report-block,
+.dashboard-shell .rag-console .rag-report-card,
+.dashboard-shell .rag-console .rag-report-subpanel {
+  transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease !important;
+}
+
+.dashboard-shell .hover-lift:hover,
+.dashboard-shell .bento-card:hover,
+.dashboard-shell .ui-section-card:hover,
+.dashboard-shell .panel-card:hover,
+.dashboard-shell .knowledge-content-area .doc-card:hover,
+.dashboard-shell .rag-console .rag-console-surface:hover,
+.dashboard-shell .rag-console .rag-console-panel:hover,
+.dashboard-shell .rag-console .rag-report-block:hover,
+.dashboard-shell .rag-console .rag-report-card:hover,
+.dashboard-shell .rag-console .rag-report-subpanel:hover {
+  transform: none !important;
+}
+
+.dashboard-shell .bento-card::before,
+.dashboard-shell .ui-section-card::before,
+.dashboard-shell .panel-card::before,
+.dashboard-shell .knowledge-content-area .doc-card::before,
+.dashboard-shell .rag-console .rag-console-surface::before,
+.dashboard-shell .rag-console .rag-console-panel::before,
+.dashboard-shell .rag-console .rag-report-block::before,
+.dashboard-shell .rag-console .rag-report-card::before,
+.dashboard-shell .rag-console .rag-report-subpanel::before {
+  display: none !important;
+}
+
+body.theme-dark .dashboard-shell .dashboard-sidebar-nav-wrap .sidebar-link:hover {
+  background: color-mix(in srgb, rgba(129, 140, 248, 0.24) 72%, #0f172a) !important;
+}
+
+.app-loading-screen {
+  height: 100vh;
+  background:
+    radial-gradient(560px 240px at 50% 5%, color-mix(in srgb, var(--ui-primary) 16%, transparent), transparent 68%),
+    var(--ui-bg);
+}
+
+.postman-theme .card,
+.postman-theme .api-automation-card,
+.postman-theme .ui-automation-side-card,
+.postman-theme .ui-automation-preview-card {
+  border-radius: 14px !important;
+}
+
+.postman-theme .nav-link.active {
+  border-bottom-color: var(--ui-primary) !important;
+}
+

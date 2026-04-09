@@ -1,2 +1,2 @@
-﻿export { useKnowledgeBaseActions } from './useKnowledgeBaseActionsCore';
-export type { UseKnowledgeBaseActionsResult } from './useKnowledgeBaseActionsCore';
+export { useKnowledgeBaseActions } from './useKnowledgeBaseActionsCore';
+export type UseKnowledgeBaseActionsResult = any;

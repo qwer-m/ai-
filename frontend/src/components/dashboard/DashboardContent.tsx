@@ -154,7 +154,7 @@ export function DashboardContent({
               <APITesting
                 key={projectId ?? 'api-testing-none'}
                 projectId={projectId}
-                onLog={(msg) => {
+                onLog={(msg: string) => {
                   void onUserLog(msg);
                 }}
                 view={activeTab === 'api-standard' ? 'standard' : 'ai_debug'}
@@ -169,7 +169,7 @@ export function DashboardContent({
                   key={projectId ?? 'test-generation-none'}
                   projectId={projectId}
                   isActive={activeTab === 'api-gen'}
-                  onLog={(msg) => {
+                  onLog={(msg: string) => {
                     void onUserLog(msg);
                   }}
                   onGenerated={onTestGenerated}
@@ -185,7 +185,7 @@ export function DashboardContent({
               <UIAutomation
                 key={projectId ?? 'ui-automation-none'}
                 projectId={projectId}
-                onLog={(msg) => {
+                onLog={(msg: string) => {
                   void onUserLog(msg);
                 }}
                 view={
@@ -206,7 +206,7 @@ export function DashboardContent({
               <APIAutomation
                 key={projectId ?? 'api-automation-none'}
                 projectId={projectId}
-                onLog={(msg) => {
+                onLog={(msg: string) => {
                   void onUserLog(msg);
                 }}
                 view={activeTab === 'ui-exec-api-orchestration' ? 'orchestration' : 'runner'}
@@ -218,7 +218,7 @@ export function DashboardContent({
             <Suspense fallback={renderLazyFallback('加载知识库模块...')}>
               <KnowledgeBase
                 projectId={projectId}
-                onLog={(msg) => {
+                onLog={(msg: string) => {
                   void onSystemLog(msg);
                 }}
               />
@@ -233,7 +233,7 @@ export function DashboardContent({
                 error={projectsError}
                 onRefresh={onProjectRefresh}
                 onSelectProject={onSelectProject}
-                onLog={(msg) => {
+                onLog={(msg: string) => {
                   void onUserLog(msg);
                 }}
                 openCreateSignal={openProjectCreateSignal}
@@ -245,7 +245,7 @@ export function DashboardContent({
             <Suspense fallback={renderLazyFallback('加载评测模块...')}>
               <Evaluation
                 {...commonEvaluationProps}
-                onLog={(msg) => {
+                onLog={(msg: string) => {
                   void onUserLog(msg);
                 }}
                 view="root"
@@ -259,7 +259,7 @@ export function DashboardContent({
             <Suspense fallback={renderLazyFallback('加载测试用例评测模块...')}>
               <Evaluation
                 {...commonEvaluationProps}
-                onLog={(msg) => {
+                onLog={(msg: string) => {
                   void onUserLog(msg);
                 }}
                 view="testcase"
@@ -273,7 +273,7 @@ export function DashboardContent({
             <Suspense fallback={renderLazyFallback('加载 UI 评测模块...')}>
               <Evaluation
                 {...commonEvaluationProps}
-                onLog={(msg) => {
+                onLog={(msg: string) => {
                   void onUserLog(msg);
                 }}
                 view="ui"
@@ -285,7 +285,7 @@ export function DashboardContent({
             <Suspense fallback={renderLazyFallback('加载 API 评测模块...')}>
               <Evaluation
                 {...commonEvaluationProps}
-                onLog={(msg) => {
+                onLog={(msg: string) => {
                   void onUserLog(msg);
                 }}
                 view="api"
@@ -297,7 +297,7 @@ export function DashboardContent({
             <Suspense fallback={renderLazyFallback('加载 RAG 评测模块...')}>
               <Evaluation
                 {...commonEvaluationProps}
-                onLog={(msg) => {
+                onLog={(msg: string) => {
                   void onUserLog(msg);
                 }}
                 view="rag"
@@ -309,3 +309,4 @@ export function DashboardContent({
     </div>
   );
 }
+

@@ -1,0 +1,192 @@
+"""
+知识库模块门面（Knowledge Base Facade）。
+
+职责：
+1. 对外暴露知识库相关能力，保持路由层调用方式稳定。
+2. 把具体实现拆分到 knowledge_base_components，降低单文件复杂度。
+3. 兼容历史同步流程，同时支持新增的离线解析入队流程。
+"""
+
+from __future__ import annotations
+
+import hashlib
+from typing import Optional
+
+from fastapi import UploadFile
+from sqlalchemy.orm import Session
+
+from core.db.models import KnowledgeDocument
+from modules.knowledge_base_components.context.context_ops import (
+    get_all_context_impl,
+    get_relevant_context_impl,
+)
+from modules.knowledge_base_components.context.context_snapshot import (
+    enqueue_context_snapshot_rebuild_impl,
+    get_context_snapshot_status_impl,
+    get_or_build_context_snapshot_impl,
+)
+from modules.knowledge_base_components.document.document_ops import (
+    add_document_impl,
+    delete_document_impl,
+    move_document_impl,
+    reorder_documents_impl,
+    update_document_impl,
+)
+from modules.knowledge_base_components.document.offline_parse import (
+    bind_parse_task_impl,
+    cleanup_offline_file,
+    create_pending_document_impl,
+    mark_parse_failed_impl,
+    mark_parse_retry_impl,
+    parse_document_offline_impl,
+    queue_document_parse_impl,
+    save_upload_file_for_offline_parse,
+)
+from modules.knowledge_base_components.repositories.knowledge_document_repository import (
+    KnowledgeDocumentRepository,
+)
+
+class KnowledgeBaseModule:
+    """知识库统一门面。"""
+
+    def _ensure_summary(
+        self, doc: KnowledgeDocument, db: Session, user_id: Optional[int] = None
+    ) -> str:
+        """
+        为长文档生成可复用摘要。
+
+        业务目的：在不损失关键信息的前提下，降低后续检索和上下文拼接成本。
+        """
+        if not doc:
+            return ""
+        if doc.summary and str(doc.summary).strip():
+            return doc.summary
+
+        content = doc.content or ""
+        if len(content) < 12000:
+            return content
+
+        try:
+            from core.ai.ai_client import get_client_for_user
+
+            client = get_client_for_user(user_id, db)
+            summary = client.compress_context(
+                content,
+                prompt="请将以下文档压缩为适合测试用例生成的精炼摘要，保留关键实体、流程、约束、字段、边界与异常规则。输出纯文本。",
+                db=db,
+            )
+            if (
+                summary
+                and isinstance(summary, str)
+                and not summary.startswith("Error")
+                and not summary.startswith("Exception")
+            ):
+                doc.summary = summary
+                db.commit()
+                db.refresh(doc)
+                return summary
+        except Exception:
+            pass
+
+        return content
+
+    def calculate_hash(self, content: str) -> str:
+        """计算内容哈希，用于去重判定。"""
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    def reindex_project_specific_ids(self, doc_type: str, project_id: int, db: Session):
+        """
+        维护项目内同类型文档的连续编号。
+
+        该编号用于业务展示，不替代全局主键。
+        """
+        repo = KnowledgeDocumentRepository(db)
+        remaining_docs = repo.list_for_reindex(project_id=project_id, doc_type=doc_type)
+
+        for idx, remaining_doc in enumerate(remaining_docs, 1):
+            remaining_doc.project_specific_id = idx
+
+        repo.commit()
+        return len(remaining_docs)
+
+    def check_duplicate(self, content: str, db: Session) -> bool:
+        """按内容哈希检查是否存在重复文档。"""
+        content_hash = self.calculate_hash(content)
+        repo = KnowledgeDocumentRepository(db)
+        exists = repo.find_by_hash(content_hash=content_hash)
+        return exists is not None
+
+    def add_document(
+        self,
+        filename: str,
+        content: str,
+        doc_type: str,
+        project_id: int,
+        db: Session,
+        force: bool = False,
+        user_id: int = None,
+    ):
+        """同步新增文档门面（保留历史能力）。"""
+        return add_document_impl(self, filename, content, doc_type, project_id, db, force, user_id)
+
+    async def enqueue_document_for_offline_parse(
+        self,
+        file: UploadFile,
+        project_id: int,
+        doc_type: str,
+        db: Session,
+        force: bool = False,
+        user_id: Optional[int] = None,
+    ) -> dict:
+        """
+        上传入队门面。
+
+        这里收敛“文件落盘 + 建 pending 记录 + Celery 入队”三步编排，
+        让路由层只负责参数和权限校验。
+        """
+        file_path = await save_upload_file_for_offline_parse(file)
+        doc = create_pending_document_impl(
+            self,
+            filename=file.filename or "untitled",
+            doc_type=doc_type,
+            project_id=project_id,
+            db=db,
+            user_id=user_id,
+        )
+        try:
+            task = queue_document_parse_impl(
+                doc_id=doc.id,
+                file_path=file_path,
+                force=force,
+                user_id=user_id,
+            )
+            bind_parse_task_impl(doc.id, task.id, db)
+            db.refresh(doc)
+            return {"document": doc, "task_id": task.id}
+        except Exception as e:
+            cleanup_offline_file(file_path)
+            self.mark_document_parse_failed(
+                doc_id=doc.id,
+                error=e,
+                db=db,
+                retry_count=doc.retry_count,
+            )
+            raise
+
+    def parse_document_offline(
+        self,
+        doc_id: int,
+        file_path: str,
+        db: Session,
+        force: bool = False,
+        user_id: Optional[int] = None,
+        task_id: Optional[str] = None,
+        retry_count: int = 0,
+    ) -> dict:
+        """离线解析门面，供 Celery 任务执行实际解析与索引。"""
+        return parse_document_offline_impl(
+            self,
+            doc_id=doc_id,
+            file_path=file_path,
+            db=db,
+            force=force,

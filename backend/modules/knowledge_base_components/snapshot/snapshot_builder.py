@@ -11,6 +11,9 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from core.db.models import KnowledgeDocument, ProjectContextSnapshot
+from modules.knowledge_base_components.repositories.knowledge_document_repository import (
+    KnowledgeDocumentRepository,
+)
 from modules.knowledge_base_components.snapshot.snapshot_chunking import (
     build_snapshot_text_with_budget,
     trim_text_head,
@@ -77,12 +80,9 @@ def doc_content_hash(doc: KnowledgeDocument) -> str:
 
 def collect_project_docs(module, db: Session, project_id: int, user_id: Optional[int]) -> list[dict]:
     """收集语料，优先 summary。"""
-    docs = (
-        db.query(KnowledgeDocument)
-        .filter(KnowledgeDocument.project_id == project_id)
-        .order_by(KnowledgeDocument.created_at.asc(), KnowledgeDocument.id.asc())
-        .limit(SNAPSHOT_CONFIG.max_docs)
-        .all()
+    docs = KnowledgeDocumentRepository(db).list_project_docs_for_snapshot(
+        project_id=project_id,
+        max_docs=SNAPSHOT_CONFIG.max_docs,
     )
     corpus: list[dict] = []
     for doc in docs:

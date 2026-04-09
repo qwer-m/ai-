@@ -1,0 +1,202 @@
+            db.refresh(doc)
+
+        if (
+            doc.parse_status == "parsing"
+            and task_state in ("PENDING", "UNKNOWN")
+            and doc.retry_count >= 2
+        ):
+            knowledge_base.mark_document_parse_failed(
+                doc_id=doc.id,
+                error=f"解析任务状态异常（{task_state}），已按失败回收。",
+                db=db,
+                task_id=doc.task_id,
+                retry_count=doc.retry_count,
+            )
+            db.refresh(doc)
+
+    return build_parse_status_response(doc, task_state)
+
+@router.post("/knowledge/index-consistency/audit")
+def trigger_index_consistency_audit(
+    project_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    手动触发知识库索引一致性巡检任务。
+
+    说明：
+    - 传 project_id：仅巡检当前项目；
+    - 不传：巡检当前用户可见范围（异步任务由 user_id 过滤）。
+    """
+    if project_id is not None:
+        project = _get_owned_project(project_id, current_user.id, db)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+    task_id = get_task_runtime().dispatch(
+        task_name="modules.orchestration.tasks.audit_knowledge_index_consistency_task",
+        kwargs={
+            "project_id": project_id,
+            "user_id": current_user.id,
+            "limit": 5000,
+        },
+    )
+    return {
+        "success": True,
+        "task_id": task_id,
+        "project_id": project_id,
+        "message": "Index consistency audit task queued",
+    }
+
+@router.get("/knowledge/index-consistency/report")
+def get_index_consistency_report(
+    project_id: Optional[int] = None,
+    limit: int = 5000,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    同步获取索引一致性巡检报告（轻量排障入口）。
+    """
+    if project_id is not None:
+        project = _get_owned_project(project_id, current_user.id, db)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+    return run_index_consistency_audit(
+        db=db,
+        project_id=project_id,
+        user_id=current_user.id,
+        limit=max(100, int(limit)),
+    )
+
+@router.get("/knowledge/projects/{project_id}/context-snapshot-status")
+def get_context_snapshot_status(
+    project_id: int,
+    force_rebuild: bool = False,
+    async_rebuild: bool = True,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    查询项目级上下文快照状态。
+
+    可选参数：
+    - force_rebuild=true：先触发一次手动重建，再返回最新状态。
+    - async_rebuild=true：手动重建走后台异步预热（默认）。
+    """
+    project = _get_owned_project(project_id, current_user.id, db)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if force_rebuild:
+        if async_rebuild:
+            enqueue_result = knowledge_base.enqueue_context_snapshot_rebuild(
+                project_id=project_id,
+                db=db,
+                user_id=current_user.id,
+                force_rebuild=True,
+            )
+        else:
+            enqueue_result = knowledge_base.get_or_build_context_snapshot(
+                project_id=project_id,
+                db=db,
+                user_id=current_user.id,
+                force_rebuild=True,
+                prefer_async_rebuild=False,
+            )
+    else:
+        enqueue_result = None
+
+    status = knowledge_base.get_context_snapshot_status(project_id=project_id, db=db)
+    status["last_generation_used_snapshot"] = bool(status.get("usable_for_generation", False))
+    if enqueue_result is not None:
+        status["rebuild_trigger"] = enqueue_result
+    return status
+
+@router.post("/knowledge/retrieve-context")
+def retrieve_knowledge_context(
+    req: RetrieveContextRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    检索治理层调试接口。
+
+    说明：
+    1. 默认 debug=false，仅返回压缩后的上下文文本，不影响生产链路。
+    2. debug=true 时附带查询改写、多路召回、去重与压缩统计信息。
+    3. 稳定性收口后，debug 还会返回 attempt_count/attempts/final_status，
+       用于定位“首次失败、重试恢复”与“重试后降级为空上下文”的场景。
+    """
+    project = _get_owned_project(req.project_id, current_user.id, db)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    result = knowledge_base.get_relevant_context(
+        query=req.query,
+        project_id=req.project_id,
+        limit=max(1, int(req.limit)),
+        db=db,
+        user_id=current_user.id,
+        debug=bool(req.debug),
+        max_tokens=max(128, int(req.max_tokens)),
+        retrieval_options=(req.to_retrieval_options() or None),
+    )
+
+    if isinstance(result, str):
+        return {"context": result}
+    return result
+
+@router.delete("/knowledge/{doc_id}")
+def delete_knowledge(
+    doc_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除知识库文档并清理关联关系。"""
+    doc = _get_owned_doc_by_id_or_project_specific_id(doc_id, current_user.id, db)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Knowledge document not found")
+
+    success = knowledge_base.delete_document(doc.id, db)
+    if not success:
+        raise HTTPException(status_code=404, detail="Knowledge document not found")
+
+    return {"success": True}
+
+@router.post("/knowledge/update-relation")
+def update_knowledge_relation(
+    req: RelationUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """更新测试用例与需求文档关联关系。"""
+    target_doc = _get_owned_doc_by_id_or_project_specific_id(req.doc_id, current_user.id, db)
+    if not target_doc:
+        raise HTTPException(status_code=404, detail="Target document not found")
+
+    if req.source_doc_id not in (None, -1):
+        source_doc = _get_owned_doc_by_id_or_project_specific_id(req.source_doc_id, current_user.id, db)
+        if not source_doc:
+            return {"success": False, "error": "Source document not found"}
+        if source_doc.project_id != target_doc.project_id:
+            return {"success": False, "error": "Source document must be in the same project"}
+
+    ok, err = knowledge_base.update_relation(target_doc.id, req.source_doc_id, db)
+    if not ok:
+        return {"success": False, "error": err}
+    return {"success": True}
+
+@router.post("/knowledge/move")
+def move_knowledge(
+    req: MoveDocumentRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """拖拽调整知识库文档顺序。"""
+    project = _get_owned_project(req.project_id, current_user.id, db)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if req.position not in ("before", "after"):

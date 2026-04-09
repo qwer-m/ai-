@@ -1,0 +1,603 @@
+from __future__ import annotations
+
+import json
+import re
+from typing import Any, Callable, Iterator
+
+from .result_postprocess_priority_semantics import apply_priority_semantics_to_cases, score_case_priority
+
+def stream_postprocess_cases(
+    *,
+    client: Any,
+    requirement: str,
+    base_prompt: str,
+    kb_context: str,
+    full_content: str,
+    expected_count: int,
+    append: bool,
+    existing_cases: list[dict[str, Any]],
+    existing_unique_count: int,
+    start_id: int,
+    db: Any,
+    clean_and_parse_json_fn: Callable[[str], Any],
+    normalize_json_structure_fn: Callable[[Any], Any],
+    deduplicate_test_cases_fn: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+    reorder_cases_by_closed_loop_fn: Callable[..., list[dict[str, Any]]],
+    count_unique_test_cases_fn: Callable[[list[dict[str, Any]]], int],
+    infer_case_kind_fn: Callable[[dict[str, Any]], str],
+    build_supplement_closed_loop_instruction_fn: Callable[..., str],
+    current_biz_key: str = "",
+    multi_pass: bool = True,
+    generation_mode: str = "",
+) -> Iterator[dict[str, Any]]:
+    """Stream postprocess: dedup + quality filtering + rerank + convergence diagnostics."""
+
+    from modules.testing.test_generation_components.coverage.coverage_analyzer import analyze_coverage
+    from modules.testing.test_generation_components.prompting.prompt_orchestration import (
+        build_gap_fill_prompt,
+        build_review_select_prompt,
+    )
+
+    def _merged_unique_total(new_cases: Any) -> int:
+        merged: list[dict[str, Any]] = []
+        if append and isinstance(existing_cases, list):
+            merged.extend(existing_cases)
+        if isinstance(new_cases, list):
+            merged.extend(new_cases)
+        return count_unique_test_cases_fn(merged)
+
+    def _signature(case: dict[str, Any]) -> str:
+        module = str(case.get("test_module") or "").strip().lower()
+        desc = str(case.get("description") or "").strip().lower()
+        expected = str(case.get("expected_result") or "").strip().lower()
+        test_input = str(case.get("test_input") or "").strip().lower()
+        return f"{module}|{desc}|{expected}|{test_input}"
+
+    def _priority_score(case: dict[str, Any]) -> int:
+        value = str(case.get("priority") or "").strip().upper()
+        return 3 if value == "P0" else 2 if value == "P1" else 1 if value == "P2" else 0
+
+    def _focus_score(case: dict[str, Any]) -> int:
+        text = " ".join(
+            [
+                str(case.get("description") or ""),
+                str(case.get("expected_result") or ""),
+                str(case.get("test_input") or ""),
+                " ".join([str(x) for x in case.get("steps", [])]) if isinstance(case.get("steps"), list) else "",
+            ]
+        ).lower()
+        score = 0
+        if any(k in text for k in ["边界", "最大", "最小", "临界", "boundary", "max", "min"]):
+            score += 2
+        if any(k in text for k in ["异常", "失败", "错误", "拒绝", "exception", "error", "invalid"]):
+            score += 2
+        if any(k in text for k in ["状态", "流转", "state", "transition"]):
+            score += 1
+        return score
+
+    def _coverage_bucket(case: dict[str, Any]) -> str:
+        module = str(case.get("test_module") or "").strip().lower() or "general"
+        text = " ".join(
+            [
+                str(case.get("description") or ""),
+                str(case.get("expected_result") or ""),
+                str(case.get("test_input") or ""),
+                " ".join([str(x) for x in case.get("steps", [])]) if isinstance(case.get("steps"), list) else "",
+            ]
+        ).lower()
+        if any(k in text for k in ["异常", "失败", "错误", "拒绝", "exception", "error", "invalid"]):
+            kind = "exception"
+        elif any(k in text for k in ["边界", "最大", "最小", "临界", "boundary", "max", "min"]):
+            kind = "boundary"
+        elif any(k in text for k in ["状态", "流转", "state", "transition"]):
+            kind = "state"
+        elif any(k in text for k in ["权限", "安全", "鉴权", "性能", "permission", "security", "auth", "performance"]):
+            kind = "risk"
+        else:
+            kind = "happy"
+        return f"{module}|{kind}"
+
+    def _is_high_signal(case: dict[str, Any], score_profile: dict[str, Any] | None = None) -> bool:
+        """
+        中文注释：高信号判定以 coverage/focus 为主，不再由 priority 主导。
+        priority 仅作为极弱 tie-breaker，不参与 high_signal 结论。
+        """
+        profile = score_profile if isinstance(score_profile, dict) else {}
+        focus_score = int(_focus_score(case))
+        missing_rule_hits = [str(x) for x in (profile.get("missing_rule_hits") or []) if str(x).strip()]
+        core_rule_hits = [str(x) for x in (profile.get("core_rule_hits") or []) if str(x).strip()]
+        unique_coverage_hits = [str(x) for x in (profile.get("unique_coverage_hits") or []) if str(x).strip()]
+        rule_risk_reasons = [str(x).strip().lower() for x in (profile.get("rule_risk_reasons") or []) if str(x).strip()]
+        has_coverage_value = bool(missing_rule_hits or core_rule_hits or unique_coverage_hits)
+        has_high_risk_signal = "high" in rule_risk_reasons
+        coverage_gain_score = int(profile.get("coverage_gain_score") or 0)
+        return bool(has_coverage_value or has_high_risk_signal or focus_score >= 2 or coverage_gain_score >= 8)
+
+    def _extract_rule_keys(case: dict[str, Any]) -> list[str]:
+        text_parts: list[str] = [
+            str(case.get("description") or ""),
+            str(case.get("test_module") or ""),
+            str(case.get("test_input") or ""),
+            str(case.get("expected_result") or ""),
+        ]
+        steps = case.get("steps")
+        if isinstance(steps, list):
+            text_parts.extend([str(item) for item in steps])
+        raw = " ".join(text_parts)
+        keys = re.findall(r"\bREQ[-_ ]?\d+\b", raw, flags=re.IGNORECASE)
+        normalized = [re.sub(r"[-_ ]+", "-", key.upper()) for key in keys]
+        return sorted(set(normalized))
+
+    def _is_low_quality(case: dict[str, Any]) -> bool:
+        desc = str(case.get("description") or "").strip()
+        module = str(case.get("test_module") or "").strip()
+        expected_result = str(case.get("expected_result") or "").strip()
+        priority = str(case.get("priority") or "").strip().upper()
+        steps = case.get("steps")
+
+        if len(desc) < 4:
+            return True
+        if not module:
+            return True
+        if not expected_result:
+            return True
+        if priority not in {"P0", "P1", "P2"}:
+            return True
+        if not isinstance(steps, list) or not any(str(step).strip() for step in steps):
+            return True
+        return False
+
+    def _filter_low_quality_cases(cases: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+        kept: list[dict[str, Any]] = []
+        dropped = 0
+        for item in cases:
+            if not isinstance(item, dict):
+                dropped += 1
+                continue
+            if _is_low_quality(item):
+                dropped += 1
+                continue
+            kept.append(item)
+        return kept, dropped
+
+    def _strip_case_meta_list(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        stripped: list[dict[str, Any]] = []
+        for item in cases:
+            if not isinstance(item, dict):
+                continue
+            case = dict(item)
+            case.pop("meta", None)
+            case.pop("displayPriority", None)
+            case.pop("rawPriority", None)
+            case.pop("finalPriority", None)
+            stripped.append(case)
+        return stripped
+
+    def _semantic_normalize_text(text: str) -> str:
+        """
+        中文注释：轻量语义归一化，避免“同义换皮”导致重复保留。
+        不引入外部依赖，仅做本地规则收敛。
+        """
+        lowered = str(text or "").strip().lower()
+        if not lowered:
+            return ""
+        replacements = {
+            "toast": "提示",
+            "不可点击": "禁用",
+            "不可用": "禁用",
+            "无法点击": "禁用",
+            "置灰": "禁用",
+            "按钮可用": "可点击",
+            "按钮可点击": "可点击",
+            "显示": "展示",
+            "文案": "提示文案",
+            "入口": "功能入口",
+            "图标": "功能入口",
+        }
+        for src, dst in replacements.items():
+            lowered = lowered.replace(src, dst)
+        lowered = re.sub(r"[^\w\u4e00-\u9fff]+", "", lowered)
+        return lowered
+
+    def _semantic_tokenize(text: str, limit: int = 16) -> set[str]:
+        raw = _semantic_normalize_text(text)
+        if not raw:
+            return set()
+        tokens = re.findall(r"[\u4e00-\u9fff]{2,}|[a-z0-9_]{2,}", raw)
+        output: list[str] = []
+        seen: set[str] = set()
+        for token in tokens:
+            if token in seen:
+                continue
+            seen.add(token)
+            output.append(token)
+            if len(output) >= max(6, int(limit)):
+                break
+        return set(output)
+
+    def _semantic_signature(case: dict[str, Any], rule_keys: list[str]) -> str:
+        module = str(case.get("test_module") or "").strip().lower() or "general"
+        desc = _semantic_normalize_text(str(case.get("description") or ""))
+        expected = _semantic_normalize_text(str(case.get("expected_result") or ""))
+        steps = case.get("steps")
+        steps_text = ""
+        if isinstance(steps, list):
+            steps_text = _semantic_normalize_text(" ".join(str(x) for x in steps if str(x).strip()))
+        core_text = (desc + "|" + expected + "|" + steps_text)[:120]
+        rule_key = "|".join(sorted(rule_keys)) if rule_keys else "NO_RULE"
+        return f"{module}|{rule_key}|{core_text}"
+
+    def _jaccard_similarity(left: set[str], right: set[str]) -> float:
+        if not left or not right:
+            return 0.0
+        inter = len(left.intersection(right))
+        union = len(left.union(right))
+        if union <= 0:
+            return 0.0
+        return float(inter) / float(union)
+
+    def _is_ui_like_case(case: dict[str, Any], score_profile: dict[str, Any]) -> bool:
+        text = " ".join(
+            [
+                str(case.get("description") or ""),
+                str(case.get("expected_result") or ""),
+                str(case.get("test_input") or ""),
+                " ".join([str(x) for x in case.get("steps", [])]) if isinstance(case.get("steps"), list) else "",
+            ]
+        ).lower()
+        ui_keywords = (
+            "入口",
+            "图标",
+            "按钮",
+            "展示",
+            "布局",
+            "占位",
+            "置灰",
+            "文案",
+            "显示",
+            "隐藏",
+            "可点击",
+            "样式",
+            "icon",
+            "button",
+            "display",
+            "layout",
+            "placeholder",
+            "style",
+        )
+        if not any(keyword in text for keyword in ui_keywords):
+            return False
+        # 中文注释：若覆盖增益明确（missing/core/unique）则不把它当“低值 UI-like”。
+        has_coverage_value = bool(
+            (score_profile.get("missing_rule_hits") or [])
+            or (score_profile.get("core_rule_hits") or [])
+            or (score_profile.get("unique_coverage_hits") or [])
+        )
+        if has_coverage_value:
+            return False
+        risk_words = ("异常", "失败", "错误", "权限", "安全", "并发", "性能", "exception", "error", "security", "permission")
+        if any(word in text for word in risk_words):
+            return False
+        return True
+
+    def _rerank_and_cap_by_rule(
+        cases: list[dict[str, Any]],
+        *,
+        max_per_rule: int = 3,
+        include_trace: bool = False,
+        coverage_context: dict[str, Any] | None = None,
+        rule_diagnostics: dict[str, Any] | list[dict[str, Any]] | None = None,
+    ) -> Any:
+        # 中文注释：第三刀——rule 级收敛 + 语义去重 + UI-like 收敛，防止“覆盖正确但结构爆炸”。
+        max_cases_per_rule = max(1, min(int(max_per_rule or 1), 2))
+        max_ui_like_cases_per_bucket = 2
+        semantic_duplicate_threshold = 0.82
+
+        candidate_items = [item for item in cases if isinstance(item, dict)]
+        original_signatures = [_signature(item) for item in candidate_items]
+        candidate_items = deduplicate_test_cases_fn(candidate_items)
+        dedup_signatures = [_signature(item) for item in candidate_items]
+
+        # 中文注释：review gate 排序改为 coverage/focus 主导，priority 只做弱 tie-breaker。
+        rank_entries: list[dict[str, Any]] = []
+        for item in candidate_items:
+            signature = _signature(item)
+            score_profile = score_case_priority(
+                item,
+                coverage_context=coverage_context,
+                rule_diagnostics=rule_diagnostics,
+            )
+            missing_rule_hits = [str(x) for x in (score_profile.get("missing_rule_hits") or []) if str(x).strip()]
+            core_rule_hits = [str(x) for x in (score_profile.get("core_rule_hits") or []) if str(x).strip()]
+            unique_coverage_hits = [str(x) for x in (score_profile.get("unique_coverage_hits") or []) if str(x).strip()]
+            has_coverage_value = bool(missing_rule_hits or core_rule_hits or unique_coverage_hits)
+            focus_score = int(_focus_score(item))
+            coverage_gain_score = int(score_profile.get("coverage_gain_score") or 0)
+            high_signal_seed = _is_high_signal(item, score_profile)
+            ui_like_case = _is_ui_like_case(item, score_profile)
+            semantic_sig = _semantic_signature(item, list(_extract_rule_keys(item)))
+            semantic_tokens = _semantic_tokenize(
+                " ".join(
+                    [
+                        str(item.get("description") or ""),
+                        str(item.get("expected_result") or ""),
+                        str(item.get("test_input") or ""),
+                        " ".join([str(x) for x in item.get("steps", [])]) if isinstance(item.get("steps"), list) else "",
+                    ]
+                )
+            )
+            entry = {
+                "item": item,
+                "signature": signature,
+                "rule_keys": _extract_rule_keys(item),
+                "bucket": _coverage_bucket(item),
+                "score_profile": score_profile,
+                "missing_rule_hits": missing_rule_hits,
+                "core_rule_hits": core_rule_hits,
+                "unique_coverage_hits": unique_coverage_hits,
+                "has_coverage_value": bool(has_coverage_value),
+                "focus_score": int(focus_score),
+                "coverage_gain_score": int(coverage_gain_score),
+                "high_signal_seed": bool(high_signal_seed),
+                "ui_like_case": bool(ui_like_case),
+                "semantic_signature": semantic_sig,
+                "semantic_tokens": semantic_tokens,
+                # priority 保留为最后层 tie-breaker，弱影响
+                "priority_tiebreaker": int(_priority_score(item)),
+            }
+            rank_entries.append(entry)
+
+        def _seed_sort_key(entry: dict[str, Any]) -> tuple:
+            return (
+                int(entry.get("has_coverage_value") or False),
+                int(entry.get("high_signal_seed") or False),
+                int(bool(entry.get("core_rule_hits") or [])),
+                int(bool(entry.get("missing_rule_hits") or [])),
+                int(bool(entry.get("unique_coverage_hits") or [])),
+                int(entry.get("focus_score") or 0),
+                max(0, int(entry.get("coverage_gain_score") or 0)),
+                int(not bool(entry.get("ui_like_case"))),
+                int(entry.get("priority_tiebreaker") or 0),
+            )
+
+        seed_ordered_entries = sorted(
+            rank_entries,
+            key=lambda entry: tuple([-value for value in _seed_sort_key(entry)]) + (str(entry.get("signature") or ""),),
+        )
+        fallback_first_entry = seed_ordered_entries[0] if seed_ordered_entries else None
+        remaining_entries = list(seed_ordered_entries)
+
+        selected: list[dict[str, Any]] = []
+        seen_rules: set[str] = set()
+        seen_buckets: set[str] = set()
+        rule_counts: dict[str, int] = {}
+        primary_rule_rank_counts: dict[str, int] = {}
+        ui_like_bucket_counts: dict[str, int] = {}
+        selected_semantic_by_group: dict[str, list[dict[str, Any]]] = {}
+        trace_decisions: dict[str, dict[str, Any]] = {}
+        selected_signatures: list[str] = []
+        ordered_signatures: list[str] = []
+
+        rank = 0
+        while remaining_entries:
+            for entry in remaining_entries:
+                rule_keys = list(entry.get("rule_keys") or [])
+                bucket = str(entry.get("bucket") or "")
+                adds_rule = any(key not in seen_rules for key in rule_keys)
+                adds_bucket = bucket not in seen_buckets
+                has_coverage_value = bool(entry.get("has_coverage_value"))
+                high_signal = _is_high_signal(entry.get("item") or {}, entry.get("score_profile") or {})
+                dynamic_sort_key = (
+                    int(adds_rule),
+                    int(adds_bucket),
+                    int(has_coverage_value),
+                    int(high_signal),
+                    int(bool(entry.get("core_rule_hits") or [])),
+                    int(bool(entry.get("missing_rule_hits") or [])),
+                    int(bool(entry.get("unique_coverage_hits") or [])),
+                    int(entry.get("focus_score") or 0),
+                    max(0, int(entry.get("coverage_gain_score") or 0)),
+                    int(not bool(entry.get("ui_like_case"))),
+                    int(entry.get("priority_tiebreaker") or 0),
+                )
+                entry["adds_rule"] = bool(adds_rule)
+                entry["adds_bucket"] = bool(adds_bucket)
+                entry["high_signal_dynamic"] = bool(high_signal)
+                entry["dynamic_sort_key"] = dynamic_sort_key
+
+            remaining_entries.sort(
+                key=lambda entry: tuple([-value for value in tuple(entry.get("dynamic_sort_key") or ())])
+                + (str(entry.get("signature") or ""),)
+            )
+            current = remaining_entries.pop(0)
+            rank += 1
+            item = dict(current.get("item") or {})
+            signature = str(current.get("signature") or "")
+            rule_keys = list(current.get("rule_keys") or [])
+            bucket = str(current.get("bucket") or "")
+            adds_rule = bool(current.get("adds_rule"))
+            adds_bucket = bool(current.get("adds_bucket"))
+            has_coverage_value = bool(current.get("has_coverage_value"))
+            high_signal = bool(current.get("high_signal_dynamic"))
+            score_profile = dict(current.get("score_profile") or {})
+            missing_rule_hits = [str(x) for x in (current.get("missing_rule_hits") or []) if str(x).strip()]
+            core_rule_hits = [str(x) for x in (current.get("core_rule_hits") or []) if str(x).strip()]
+            unique_coverage_hits = [str(x) for x in (current.get("unique_coverage_hits") or []) if str(x).strip()]
+            ui_like_case = bool(current.get("ui_like_case"))
+            semantic_signature = str(current.get("semantic_signature") or "")
+            semantic_tokens = set(current.get("semantic_tokens") or set())
+            primary_rule_key = rule_keys[0] if rule_keys else f"BUCKET::{bucket}"
+            semantic_group_key = "|".join(sorted(rule_keys)) if rule_keys else f"BUCKET::{bucket}"
+            gate_sort_key = list(current.get("dynamic_sort_key") or ())
+            ordered_signatures.append(signature)
+            drop_reason = ""
+            drop_reason_detail = ""
+            rule_cap_applied = False
+            is_semantic_duplicate = False
+            duplicate_of_case_id = ""
+            retained_rank_within_rule = int(primary_rule_rank_counts.get(primary_rule_key, 0)) + 1
+
+            if rule_keys and all(rule_counts.get(key, 0) >= max_cases_per_rule for key in rule_keys):
+                rule_cap_applied = True
+                drop_reason = "drop_rule_cap"
+                drop_reason_detail = "drop_rule_level_cap"
+            elif not adds_rule and not adds_bucket and not high_signal and not has_coverage_value:
+                drop_reason = "drop_no_new_rule_no_new_bucket_no_high_signal"
+
+            if not drop_reason:
+                existed_candidates = list(selected_semantic_by_group.get(semantic_group_key) or [])
+                for existed in existed_candidates:
+                    existed_signature = str(existed.get("semantic_signature") or "")
+                    existed_tokens = set(existed.get("semantic_tokens") or set())
+                    if semantic_signature and semantic_signature == existed_signature:
+                        is_semantic_duplicate = True
+                    else:
+                        similarity = _jaccard_similarity(semantic_tokens, existed_tokens)
+                        if similarity >= semantic_duplicate_threshold:
+                            is_semantic_duplicate = True
+                    if is_semantic_duplicate:
+                        duplicate_of_case_id = str(existed.get("case_id") or "")
+                        drop_reason = "drop_semantic_duplicate"
+                        drop_reason_detail = "drop_semantic_duplicate"
+                        break
+
+            if not drop_reason and ui_like_case and not has_coverage_value:
+                ui_like_count = int(ui_like_bucket_counts.get(bucket, 0))
+                if ui_like_count >= max_ui_like_cases_per_bucket:
+                    drop_reason = "drop_ui_like_redundant_case"
+                    drop_reason_detail = "drop_ui_like_redundant_case"
+
+            selected_flag = not bool(drop_reason)
+            if selected_flag:
+                selected.append(item)
+                selected_signatures.append(signature)
+                seen_buckets.add(bucket)
+                primary_rule_rank_counts[primary_rule_key] = int(primary_rule_rank_counts.get(primary_rule_key, 0)) + 1
+                retained_rank_within_rule = int(primary_rule_rank_counts.get(primary_rule_key, 0))
+                if ui_like_case and not has_coverage_value:
+                    ui_like_bucket_counts[bucket] = int(ui_like_bucket_counts.get(bucket, 0)) + 1
+                for key in rule_keys:
+                    rule_counts[key] = rule_counts.get(key, 0) + 1
+                    seen_rules.add(key)
+                selected_semantic_by_group.setdefault(semantic_group_key, []).append(
+                    {
+                        "signature": signature,
+                        "case_id": str(item.get("id") or ""),
+                        "semantic_signature": semantic_signature,
+                        "semantic_tokens": semantic_tokens,
+                    }
+                )
+            else:
+                retained_rank_within_rule = int(primary_rule_rank_counts.get(primary_rule_key, 0))
+
+            if include_trace:
+                trace_decisions[signature] = {
+                    "signature": signature,
+                    "rank": int(rank),
+                    "selected": bool(selected_flag),
+                    "drop_reason": drop_reason or "retained",
+                    "drop_reason_detail": drop_reason_detail or (drop_reason or "retained"),
+                    "rule_keys": rule_keys,
+                    "bucket": bucket,
+                    "adds_rule": bool(adds_rule),
+                    "adds_bucket": bool(adds_bucket),
+                    "high_signal": bool(high_signal),
+                    "has_coverage_value": bool(has_coverage_value),
+                    "missing_rule_hits": missing_rule_hits,
+                    "core_rule_hits": core_rule_hits,
+                    "unique_coverage_hits": unique_coverage_hits,
+                    "gate_sort_key": gate_sort_key,
+                    "retained_reason": (
+                        "retained_due_to_coverage_value"
+                        if selected_flag and (not adds_rule and not adds_bucket and not high_signal and has_coverage_value)
+                        else "retained_default"
+                    ) if selected_flag else "",
+                    "priority_before_gate": str(item.get("priority") or ""),
+                    "priority_tiebreaker": int(current.get("priority_tiebreaker") or 0),
+                    "focus_score": int(_focus_score(item)),
+                    "semantic_signature": semantic_signature,
+                    "is_semantic_duplicate": bool(is_semantic_duplicate),
+                    "duplicate_of_case_id": duplicate_of_case_id,
+                    "rule_cap_applied": bool(rule_cap_applied),
+                    "ui_like_case": bool(ui_like_case),
+                    "retained_rank_within_rule": int(retained_rank_within_rule),
+                }
+
+        if not selected and fallback_first_entry:
+            fallback_item = dict(fallback_first_entry.get("item") or {})
+            selected = [fallback_item] if fallback_item else []
+            if include_trace:
+                signature = str(fallback_first_entry.get("signature") or "")
+                selected_signatures = [signature] if signature else []
+                if signature in trace_decisions:
+                    trace_decisions[signature]["selected"] = True
+                    trace_decisions[signature]["drop_reason"] = "retained_fallback_first"
+
+        if not include_trace:
+            return selected
+
+        from collections import Counter
+
+        original_counter = Counter(original_signatures)
+        dedup_counter = Counter(dedup_signatures)
+        dedup_dropped_signatures = sorted(
+            {
+                signature
+                for signature, count in original_counter.items()
+                if count > dedup_counter.get(signature, 0)
+            }
+        )
+        trace_payload = {
+            "decisions": trace_decisions,
+            "selected_signatures": selected_signatures,
+            "ordered_signatures": ordered_signatures,
+            "dedup_dropped_signatures": dedup_dropped_signatures,
+            "summary": {
+                "input_count": int(len(original_signatures)),
+                "dedup_input_count": int(len(dedup_signatures)),
+                "selected_count": int(len(selected)),
+                "dropped_count": int(max(0, len(dedup_signatures) - len(selected))),
+                "drop_rule_cap_count": int(
+                    sum(1 for item in trace_decisions.values() if item.get("drop_reason") == "drop_rule_cap")
+                ),
+                "rule_cap_drop_count": int(
+                    sum(1 for item in trace_decisions.values() if item.get("drop_reason") == "drop_rule_cap")
+                ),
+                "drop_no_new_signal_count": int(
+                    sum(
+                        1
+                        for item in trace_decisions.values()
+                        if item.get("drop_reason") == "drop_no_new_rule_no_new_bucket_no_high_signal"
+                    )
+                ),
+                "semantic_duplicate_drop_count": int(
+                    sum(1 for item in trace_decisions.values() if item.get("drop_reason") == "drop_semantic_duplicate")
+                ),
+                "ui_like_drop_count": int(
+                    sum(
+                        1
+                        for item in trace_decisions.values()
+                        if item.get("drop_reason") == "drop_ui_like_redundant_case"
+                    )
+                ),
+                "dedup_drop_count": int(max(0, len(original_signatures) - len(dedup_signatures))),
+            },
+        }
+        return selected, trace_payload
+
+    def _map_review_to_candidates(candidates: list[dict[str, Any]], reviewed: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        candidate_map = {_signature(item): item for item in candidates if isinstance(item, dict)}
+        mapped: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in reviewed:
+            if not isinstance(item, dict):
+                continue
+            key = _signature(item)
+            if key in seen:
+                continue
+            original = candidate_map.get(key)
+            if original is None:
+                continue
+            mapped.append(original)
+            seen.add(key)
+        return mapped

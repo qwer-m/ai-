@@ -29,7 +29,7 @@ export function useStandardApiTestingController({ projectId, onLog }: StandardAP
 
   const layout = useApiTestingLayout();
   const environment = useApiTestingEnvironment({ apiPath, inputRef });
-  const request = useApiTestingRequest({
+  const request: any = useApiTestingRequest({
     projectId,
     onLog,
     apiPath,

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from modules.knowledge_base_components.context.context_compressor import compress_context
 from modules.knowledge_base_components.retrieval.pipeline.recall_pipeline import recall_chunks
+from modules.knowledge_base_components.retrieval.retrieval_config import RetrievalConfig
 from modules.knowledge_base_components.retrieval.reranker import rerank_chunks
 from modules.knowledge_base_components.retrieval.retrieval_retry import calc_low_relevance
 from modules.knowledge_base_components.retrieval.retrieval_selection import (
@@ -16,62 +17,10 @@ from modules.knowledge_base_components.retrieval.retrieval_selection import (
 )
 
 
-def _safe_int(value: object, default: int, min_value: int, max_value: int) -> int:
-    """Clamp an int-like value into a safe range."""
-    try:
-        parsed = int(value)  # type: ignore[arg-type]
-    except Exception:
-        parsed = int(default)
-    return max(min_value, min(max_value, parsed))
-
-
-def _safe_float(value: object, default: float, min_value: float, max_value: float) -> float:
-    """Clamp a float-like value into a safe range."""
-    try:
-        parsed = float(value)  # type: ignore[arg-type]
-    except Exception:
-        parsed = float(default)
-    return max(min_value, min(max_value, parsed))
-
-
-def _normalize_doc_types(value: object) -> list[str]:
-    """把 doc_type 过滤参数统一为字符串列表。"""
-    if value is None:
-        return []
-    if isinstance(value, str):
-        return [item.strip().lower() for item in value.split(",") if item.strip()]
-    if isinstance(value, (list, tuple, set)):
-        result: list[str] = []
-        seen: set[str] = set()
-        for item in value:
-            key = str(item or "").strip().lower()
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            result.append(key)
-        return result
-    return []
-
-
 def _normalize_retrieval_options(limit: int, retrieval_options: Optional[dict]) -> dict:
     """Normalize retrieval tuning options into a single dict."""
-    opts = dict(retrieval_options or {})
-    return {
-        "retrieval_mode": str(opts.get("retrieval_mode") or "hybrid").lower(),
-        "recall_top_k": _safe_int(opts.get("recall_top_k"), max(limit * 5, 20), 6, 80),
-        "rerank_top_n": _safe_int(opts.get("rerank_top_n"), max(limit * 4, 8), 4, 80),
-        "max_chunks_per_doc": _safe_int(opts.get("max_chunks_per_doc"), 2, 1, 3),
-        "min_docs": _safe_int(opts.get("min_docs"), 2, 1, 12),
-        "enable_query_rewrite": bool(opts.get("enable_query_rewrite", True)),
-        "enable_rerank": bool(opts.get("enable_rerank", True)),
-        "vector_weight": _safe_float(opts.get("vector_weight"), 0.6, 0.0, 3.0),
-        "keyword_weight": _safe_float(opts.get("keyword_weight"), 0.25, 0.0, 3.0),
-        "title_weight": _safe_float(opts.get("title_weight"), 0.15, 0.0, 3.0),
-        "redundancy_threshold": _safe_float(opts.get("redundancy_threshold"), 0.88, 0.5, 0.99),
-        "doc_types": _normalize_doc_types(opts.get("doc_types")),
-        "enable_biz_key_expansion": bool(opts.get("enable_biz_key_expansion", True)),
-        "related_top_k": _safe_int(opts.get("related_top_k"), 5, 1, 20),
-    }
+    tuning = RetrievalConfig.from_raw(limit=limit, values=retrieval_options)
+    return tuning.to_dict()
 
 
 def _format_context_chunks(chunks: list[dict]) -> str:
@@ -158,11 +107,15 @@ def _run_retrieval_once(
     max_tokens: int,
     db: Optional[Session] = None,
     retrieval_options: Optional[dict] = None,
+    recall_fn=None,
+    rerank_fn=None,
 ) -> dict:
     """Run one retrieval and compression pass without retry control."""
     tuning = _normalize_retrieval_options(limit, retrieval_options)
+    recall_callable = recall_fn or recall_chunks
+    rerank_callable = rerank_fn or rerank_chunks
 
-    recall_result = recall_chunks(
+    recall_result = recall_callable(
         question=question,
         project_id=project_id,
         top_k=tuning["recall_top_k"],
@@ -181,7 +134,7 @@ def _run_retrieval_once(
     rerank_candidates, rerank_stage = _prepare_rerank_candidates(recalled_chunks)
 
     if tuning["enable_rerank"]:
-        reranked_chunks = rerank_chunks(
+        reranked_chunks = rerank_callable(
             chunks=rerank_candidates,
             question=question,
             top_k=tuning["rerank_top_n"],

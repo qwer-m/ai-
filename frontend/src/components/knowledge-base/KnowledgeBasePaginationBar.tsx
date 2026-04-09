@@ -24,8 +24,8 @@ export function KnowledgeBasePaginationBar({
   pageSwitchTimerActive,
 }: KnowledgeBasePaginationBarProps) {
   return (
-    <div className="px-3 py-2 d-flex justify-content-between align-items-center small text-secondary knowledge-pagination-bar">
-      <div>
+    <div className="px-2 py-1 d-flex justify-content-between align-items-center small text-secondary knowledge-pagination-bar">
+      <div className="knowledge-pagination-summary">
         共找到 <strong>{totalItems || docsLength}</strong> 条记录
         {page > 1 ? ` (第 ${page}/${totalPages} 页)` : ''}
       </div>

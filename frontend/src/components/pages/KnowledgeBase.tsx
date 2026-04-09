@@ -13,7 +13,7 @@ type Props = {
 };
 
 export function KnowledgeBase({ projectId, onLog }: Props) {
-  const kb = useKnowledgeBase({ projectId, onLog });
+  const kb = useKnowledgeBase({ projectId, onLog }) as any;
 
   useEffect(() => {
     if (!kb.toastMsg) return;

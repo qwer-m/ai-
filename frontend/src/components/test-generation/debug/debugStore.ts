@@ -1,12 +1,19 @@
 import { create } from 'zustand';
 import type { CoverageResult, GenDiagEvent } from './diagParser';
 import { parseGenDiagEvent } from './diagParser';
-import { mockGenDiagEvents } from './mockGenDiag';
 
 export type DebugStage = {
   bizKey: string;
   stage: 'primary' | 'gap' | 'review';
   caseCount: number;
+  ts: number;
+};
+
+export type ResultDebugState = {
+  mode: 'text' | 'file';
+  resultSource: 'none' | 'streaming_preview' | 'final_persisted';
+  generationId: number | null;
+  isFinalResultLoaded: boolean;
   ts: number;
 };
 
@@ -16,10 +23,11 @@ export type DebugState = {
   currentBizKey?: string;
   stages: DebugStage[];
   coverage?: CoverageResult;
+  resultState?: ResultDebugState;
   lastUpdatedAt?: number;
   ingestDiag: (event: unknown) => void;
+  setResultState: (payload: Omit<ResultDebugState, 'ts'>) => void;
   reset: () => void;
-  loadMock: () => void;
 };
 
 const INITIAL_STATE = {
@@ -28,6 +36,7 @@ const INITIAL_STATE = {
   currentBizKey: undefined as string | undefined,
   stages: [] as DebugStage[],
   coverage: undefined as CoverageResult | undefined,
+  resultState: undefined as ResultDebugState | undefined,
   lastUpdatedAt: undefined as number | undefined,
 };
 
@@ -88,27 +97,28 @@ function applyEvent(state: DebugState, event: GenDiagEvent): Partial<DebugState>
   return {};
 }
 
-export const useRagDebugStore = create<DebugState>((set, get) => ({
+export const useRagDebugStore = create<DebugState>((set) => ({
   ...INITIAL_STATE,
 
-  // 中文注释：统一入口，兼容对象与字符串日志输入。
   ingestDiag: (raw: unknown) => {
     const event = parseGenDiagEvent(raw);
     if (!event) return;
     set((state) => applyEvent(state as DebugState, event));
   },
 
-  // 中文注释：每次新生成前调用，避免上次调试数据残留。
-  reset: () => {
-    set({ ...INITIAL_STATE });
+  setResultState: (payload) => {
+    const now = Date.now();
+    set({
+      resultState: {
+        ...payload,
+        ts: now,
+      },
+      lastUpdatedAt: now,
+    });
   },
 
-  // 中文注释：本地联调辅助，不依赖后端也可查看调试面板。
-  loadMock: () => {
-    get().reset();
-    for (const item of mockGenDiagEvents) {
-      get().ingestDiag(item);
-    }
+  reset: () => {
+    set({ ...INITIAL_STATE });
   },
 }));
 
@@ -122,4 +132,3 @@ export function selectTotalCaseCount(state: DebugState): number {
   for (const v of perBizMax.values()) total += v;
   return total;
 }
-

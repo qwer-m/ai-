@@ -18,7 +18,7 @@ body.ui-overhaul-v4 .knowledge-base-shell > .alert {
 
 body.ui-overhaul-v4 .knowledge-base-shell > .knowledge-content-area {
   min-height: 0;
-  padding-bottom: 96px !important;
+  padding-bottom: 14px !important;
 }
 
 body.ui-overhaul-v4 .knowledge-toolbar-card {
@@ -157,20 +157,20 @@ body.ui-overhaul-v4 .knowledge-content-area .knowledge-linked-badge {
 }
 
 body.ui-overhaul-v4 .knowledge-pagination-bar {
-  position: sticky;
-  bottom: 0;
-  z-index: 7;
-  margin-top: -52px;
-  margin-left: auto;
-  width: fit-content;
-  max-width: calc(100% - 8px);
+  position: relative;
+  bottom: auto;
+  z-index: 2;
+  margin-top: 8px;
+  margin-left: 0;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--fd-border) 78%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--fd-surface) 36%, transparent) !important;
-  backdrop-filter: blur(16px) saturate(165%);
-  -webkit-backdrop-filter: blur(16px) saturate(165%);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--fd-surface) 92%, transparent) !important;
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
 
 body.ui-overhaul-v4 .knowledge-pagination-bar::before {
@@ -187,6 +187,10 @@ body.ui-overhaul-v4 .knowledge-pagination-bar .btn {
 
 body.ui-overhaul-v4 .knowledge-pagination-bar > div:first-child {
   white-space: nowrap;
+}
+
+body.ui-overhaul-v4 .knowledge-pagination-bar .knowledge-pagination-summary {
+  font-size: 0.82rem;
 }
 
 body.ui-overhaul-v4 .knowledge-pagination-bar .pagination .page-link:hover,
@@ -237,5 +241,9 @@ body.ui-overhaul-v4 .knowledge-content-area .btn-outline-danger:focus {
 @media (max-width: 720px) {
   body.ui-overhaul-v4 .knowledge-content-area .knowledge-doc-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body.ui-overhaul-v4 .knowledge-pagination-bar .knowledge-pagination-summary {
+    display: none;
   }
 }

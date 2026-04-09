@@ -10,7 +10,10 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from core.db.models import KnowledgeDocument, ProjectContextSnapshot
+from core.db.models import ProjectContextSnapshot
+from modules.knowledge_base_components.repositories.context_snapshot_repository import (
+    ContextSnapshotRepository,
+)
 from modules.domain.stage25_switches import STAGE25_SWITCHES
 
 logger = logging.getLogger(__name__)
@@ -86,12 +89,9 @@ def _try_repair_snapshot_stage25_schema(db: Session) -> bool:
 
 def _query_snapshot_row(db: Session, project_id: int) -> tuple[Optional[ProjectContextSnapshot], bool]:
     """Return the snapshot row and whether the schema is compatible."""
+    repo = ContextSnapshotRepository(db)
     try:
-        snapshot = (
-            db.query(ProjectContextSnapshot)
-            .filter(ProjectContextSnapshot.project_id == project_id)
-            .first()
-        )
+        snapshot = repo.get_by_project_id(project_id=project_id)
         return snapshot, True
     except Exception as e:
         if not _is_unknown_snapshot_column_error(e):
@@ -102,11 +102,7 @@ def _query_snapshot_row(db: Session, project_id: int) -> tuple[Optional[ProjectC
             pass
         if _try_repair_snapshot_stage25_schema(db):
             try:
-                snapshot = (
-                    db.query(ProjectContextSnapshot)
-                    .filter(ProjectContextSnapshot.project_id == project_id)
-                    .first()
-                )
+                snapshot = repo.get_by_project_id(project_id=project_id)
                 return snapshot, True
             except Exception as retry_err:
                 if not _is_unknown_snapshot_column_error(retry_err):

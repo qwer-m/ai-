@@ -1,18 +1,28 @@
-import { Button, Tab, Tabs } from 'react-bootstrap';
+﻿import { Button, Tab, Tabs } from 'react-bootstrap';
 import { BizKeyTimeline } from './BizKeyTimeline';
 import { CoverageTable } from './CoverageTable';
 import { GenerationOverview } from './GenerationOverview';
+import { PriorityDebugTable } from './PriorityDebugTable';
 import { useRagDebugStore } from './debugStore';
 import './rag-debug-panel.css';
+
+type ResultSource = 'none' | 'streaming_preview' | 'final_persisted';
 
 type Props = {
   className?: string;
   onRuleClick?: (ruleId: string) => void;
   activeRuleId?: string | null;
+  result?: any;
+  resultSource?: ResultSource;
 };
 
-export function RagDebugPanel({ className, onRuleClick, activeRuleId }: Props) {
-  const loadMock = useRagDebugStore((s) => s.loadMock);
+export function RagDebugPanel({
+  className,
+  onRuleClick,
+  activeRuleId,
+  result,
+  resultSource = 'none',
+}: Props) {
   const reset = useRagDebugStore((s) => s.reset);
   const lastUpdatedAt = useRagDebugStore((s) => s.lastUpdatedAt);
 
@@ -23,13 +33,10 @@ export function RagDebugPanel({ className, onRuleClick, activeRuleId }: Props) {
           <div>
             <h5 className="mb-1 fw-bold">RAG / 测试用例生成调试面板</h5>
             <div className="small text-muted rag-debug-muted">
-              {lastUpdatedAt ? `最近更新：${new Date(lastUpdatedAt).toLocaleString()}` : '等待 GEN_DIAG 数据流...'}
+              {lastUpdatedAt ? `最近更新时间：${new Date(lastUpdatedAt).toLocaleString()}` : '等待 GEN_DIAG 调试事件...'}
             </div>
           </div>
           <div className="d-flex gap-2">
-            <Button variant="outline-secondary" size="sm" onClick={loadMock}>
-              加载 Mock
-            </Button>
             <Button variant="outline-danger" size="sm" onClick={reset}>
               清空
             </Button>
@@ -46,9 +53,11 @@ export function RagDebugPanel({ className, onRuleClick, activeRuleId }: Props) {
           <Tab eventKey="coverage" title="覆盖诊断">
             <CoverageTable onRuleClick={onRuleClick} activeRuleId={activeRuleId} />
           </Tab>
+          <Tab eventKey="priority" title="优先级诊断">
+            <PriorityDebugTable result={result} resultSource={resultSource} />
+          </Tab>
         </Tabs>
       </div>
     </div>
   );
 }
-

@@ -37,7 +37,7 @@ class _FakeMultiPassClient:
         """
 
 
-def test_multi_pass_pipeline_runs_primary_gap_review() -> None:
+def test_multi_pass_pipeline_runs_quality_coverage_loop() -> None:
     client = _FakeMultiPassClient()
     requirement = "REQ-001 关闭机构前需要校验余额。REQ-002 余额边界值为0时允许关闭。"
     result = run_multi_pass_generation(
@@ -56,11 +56,14 @@ def test_multi_pass_pipeline_runs_primary_gap_review() -> None:
     )
 
     assert isinstance(result.get("final_cases"), list)
-    assert len(result["final_cases"]) == 2
+    assert len(result["final_cases"]) == 1
     stage_logs = result.get("stage_logs") or []
     assert stage_logs[0]["kind"] == "generation_mode"
     stages = [item.get("stage") for item in stage_logs if item.get("kind") == "generation_stage"]
-    assert stages == ["primary", "gap", "review"]
+    assert "primary_generation" in stages
+    assert "evaluate_quality" in stages
+    assert "evaluate_coverage" in stages
+    assert "decide_continue_or_stop" in stages
     assert result["coverage"]["kind"] == "coverage_check"
 
 
