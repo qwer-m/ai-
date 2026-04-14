@@ -71,7 +71,7 @@ export function Evaluation({
   }, [actions.toastMsg, actions.setToastMsg]);
 
   return (
-    <div className="bento-grid h-100 align-content-start evaluation-shell workbench-shell">
+    <div className="bento-grid align-content-start evaluation-shell workbench-shell">
       {showRoot ? (
         <EvaluationOverviewPanel
           diag={actions.latestDiag}

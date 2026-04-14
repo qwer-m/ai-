@@ -6,6 +6,7 @@ class TestGenRequest(BaseModel):
     project_id: int
     compress: bool = False
     expected_count: int = 20
+    enable_sample_pool_feedback: bool = True
     batch_index: int = 0
     batch_size: int = 20
     current_biz_key: str = ""

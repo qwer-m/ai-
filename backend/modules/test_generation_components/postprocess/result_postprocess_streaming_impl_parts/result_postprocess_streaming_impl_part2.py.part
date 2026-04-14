@@ -295,6 +295,10 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             coverage_context=review_candidate_coverage_context,
             rule_diagnostics=review_candidate_rule_diagnostics,
         )
+        hit_must_cover_rule = bool(_hit_must_cover_rule(rule_keys, score_profile))
+        violates_forbidden_pattern = bool(_violates_forbidden_pattern(case))
+        hits_soft_constraint = bool(_hits_soft_constraint(case))
+        satisfies_quality_hint = bool(_satisfies_quality_hint(case))
         row = {
             "candidate_index": int(index),
             "signature": signature,
@@ -323,6 +327,10 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             "missing_rule_hits": [str(item) for item in (score_profile.get("missing_rule_hits") or [])],
             "core_rule_hits": [str(item) for item in (score_profile.get("core_rule_hits") or [])],
             "coverage_gain_score": int(score_profile.get("coverage_gain_score") or 0),
+            "hit_must_cover_rule": bool(hit_must_cover_rule),
+            "violates_forbidden_pattern": bool(violates_forbidden_pattern),
+            "hits_soft_constraint": bool(hits_soft_constraint),
+            "satisfies_quality_hint": bool(satisfies_quality_hint),
         }
         review_decision_table.append(row)
 
@@ -357,6 +365,12 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         "retained_due_to_coverage_value_count": int(
             sum(1 for row in review_decision_table if str(row.get("retained_reason") or "") == "retained_due_to_coverage_value")
         ),
+        "must_cover_rule_hit_count": int(sum(1 for row in review_decision_table if bool(row.get("hit_must_cover_rule")))),
+        "forbidden_pattern_violation_count": int(
+            sum(1 for row in review_decision_table if bool(row.get("violates_forbidden_pattern")))
+        ),
+        "soft_constraint_hit_count": int(sum(1 for row in review_decision_table if bool(row.get("hits_soft_constraint")))),
+        "quality_hint_satisfied_count": int(sum(1 for row in review_decision_table if bool(row.get("satisfies_quality_hint")))),
     }
 
     coverage = {

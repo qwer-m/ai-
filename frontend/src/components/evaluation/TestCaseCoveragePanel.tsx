@@ -63,98 +63,103 @@ export function TestCaseCoveragePanel({
   savingKnowledge,
 }: Props) {
   return (
-    <div className="bento-card col-span-12 p-4 d-flex flex-column ui-section-card evaluation-testcase-card panel-card">
-      <div className="mb-3">
-        <Row className="mb-3">
-          <Col md={6}>
-            <Form.Group className="ui-section-card p-3 h-100">
-              <Form.Label className="small text-muted">生成的测试用例</Form.Label>
-              <Form.Control
-                as="textarea"
-                rows={10}
-                className="input-pro bg-light"
-                value={evalGenerated}
-                onChange={(e) => setEvalGenerated(e.target.value)}
-              />
-            </Form.Group>
-          </Col>
-          <Col md={6}>
-            <Form.Group className="ui-section-card p-3 h-100">
-              <Form.Label className="small text-muted">用户修改后的测试用例</Form.Label>
-              <Form.Control
-                as="textarea"
-                rows={10}
-                className="input-pro bg-light"
-                value={evalModified}
-                onChange={(e) => setEvalModified(e.target.value)}
-                placeholder="可以直接输入文本..."
-              />
-            </Form.Group>
-          </Col>
-        </Row>
+    <div className="col-span-12 evaluation-testcase-stack">
+      <div className="bento-card p-4 ui-section-card evaluation-testcase-card panel-card">
+        <div className="mb-3">
+          <Row className="mb-3">
+            <Col md={6}>
+              <Form.Group className="ui-section-card p-3 h-100">
+                <Form.Label className="small text-muted">生成的测试用例</Form.Label>
+                <Form.Control
+                  as="textarea"
+                  rows={10}
+                  className="input-pro bg-light"
+                  value={evalGenerated}
+                  onChange={(e) => setEvalGenerated(e.target.value)}
+                />
+              </Form.Group>
+            </Col>
+            <Col md={6}>
+              <Form.Group className="ui-section-card p-3 h-100">
+                <Form.Label className="small text-muted">用户修改后的测试用例</Form.Label>
+                <Form.Control
+                  as="textarea"
+                  rows={10}
+                  className="input-pro bg-light"
+                  value={evalModified}
+                  onChange={(e) => setEvalModified(e.target.value)}
+                  placeholder="可以直接输入文本..."
+                />
+              </Form.Group>
+            </Col>
+          </Row>
 
-        <Row className="align-items-end">
-          <Col md={6}>
-            <Form.Group className="ui-section-card p-3 h-100">
-              <Form.Label className="small text-muted">从历史加载</Form.Label>
-              <Form.Select
-                size="sm"
-                className="input-pro bg-white"
-                value={selectedGenerationId ? String(selectedGenerationId) : ''}
-                onChange={(e) => {
-                  const id = Number(e.target.value);
-                  onSelectGenerationId(id || null);
-                  if (id) onLoadGenerationById(id);
-                }}
-              >
-                <option value="">-- 选择历史记录 --</option>
-                {genHistory.map((h: any) => {
-                  const rawTitle = (h.history_title || (h.requirement_text || '').split(/[\n|]/)[0]).trim();
-                  const displayTitle = rawTitle.length > 20 ? `${rawTitle.substring(0, 20)}...` : rawTitle;
-                  const hasComparison = h?.has_comparison !== false;
-                  return (
-                    <option key={h.id} value={h.id}>
-                      {displayTitle} ({new Date(h.created_at).toLocaleString()}){hasComparison ? '' : ' - 暂无质量评估'}
-                    </option>
-                  );
-                })}
-              </Form.Select>
-            </Form.Group>
-          </Col>
-          <Col md={6}>
-            <Form.Group className="ui-section-card p-3 h-100">
-              <Form.Label className="small text-muted">或上传文件 (Excel, CSV, PNG)</Form.Label>
-              <Form.Control
-                type="file"
-                size="sm"
-                accept=".xlsx,.xls,.csv,.png"
-                className="input-pro"
-                onChange={(e) => {
-                  const target = e.target as HTMLInputElement;
-                  onFileChange(target.files && target.files.length > 0 ? target.files[0] : null);
-                }}
-              />
-              {uploadedCompareFilename ? (
-                <div className="small text-muted mt-1">
-                  当前上传文件：{uploadedCompareFilename}
-                </div>
-              ) : null}
-              {loadedCompareFilename ? (
-                <div className="small text-muted mt-1">
-                  已从历史加载对比文件内容：{loadedCompareFilename}
-                </div>
-              ) : null}
-            </Form.Group>
-          </Col>
-        </Row>
+          <Row className="align-items-end">
+            <Col md={6}>
+              <Form.Group className="ui-section-card p-3 h-100">
+                <Form.Label className="small text-muted">从历史加载</Form.Label>
+                <Form.Select
+                  size="sm"
+                  className="input-pro bg-white"
+                  value={selectedGenerationId ? String(selectedGenerationId) : ''}
+                  onChange={(e) => {
+                    const id = Number(e.target.value);
+                    onSelectGenerationId(id || null);
+                    if (id) onLoadGenerationById(id);
+                  }}
+                >
+                  <option value="">-- 选择历史记录 --</option>
+                  {genHistory.map((h: any) => {
+                    const rawTitle = (h.history_title || (h.requirement_text || '').split(/[\n|]/)[0]).trim();
+                    const displayTitle = rawTitle.length > 20 ? `${rawTitle.substring(0, 20)}...` : rawTitle;
+                    const hasComparison = h?.has_comparison !== false;
+                    return (
+                      <option key={h.id} value={h.id}>
+                        {displayTitle} ({new Date(h.created_at).toLocaleString()}){hasComparison ? '' : ' - 暂无质量评估'}
+                      </option>
+                    );
+                  })}
+                </Form.Select>
+              </Form.Group>
+            </Col>
+            <Col md={6}>
+              <Form.Group className="ui-section-card p-3 h-100">
+                <Form.Label className="small text-muted">或上传文件 (Excel, CSV, PNG)</Form.Label>
+                <Form.Control
+                  type="file"
+                  size="sm"
+                  accept=".xlsx,.xls,.csv,.png"
+                  className="input-pro"
+                  onChange={(e) => {
+                    const target = e.target as HTMLInputElement;
+                    onFileChange(target.files && target.files.length > 0 ? target.files[0] : null);
+                  }}
+                />
+                {uploadedCompareFilename ? (
+                  <div className="small text-muted mt-1">
+                    当前上传文件：{uploadedCompareFilename}
+                  </div>
+                ) : null}
+                {loadedCompareFilename ? (
+                  <div className="small text-muted mt-1">
+                    已从历史加载对比文件内容：{loadedCompareFilename}
+                  </div>
+                ) : null}
+              </Form.Group>
+            </Col>
+          </Row>
+        </div>
+
       </div>
 
-      <Button className="btn-pro-primary w-100 mt-auto panel-card-primary-action" disabled={loading === 'eval'} onClick={onCompare}>
-        {loading === 'eval' ? '评估中...' : '开始评估质量（含召回率/精准率/缺陷分析）'}
-      </Button>
+      <div className="evaluation-testcase-action-row">
+        <Button className="btn-pro-primary w-100 panel-card-primary-action" disabled={loading === 'eval'} onClick={onCompare}>
+          {loading === 'eval' ? '评估中...' : '开始评估质量（含召回率/精准率/缺陷分析）'}
+        </Button>
+      </div>
 
       {evalResult ? (
-        <div className="mt-3 alert alert-light border small automation-eval-output">
+        <div className="evaluation-testcase-report-wrap">
           <TestCaseEvaluationReport
             evalResult={evalResult}
             history={history}

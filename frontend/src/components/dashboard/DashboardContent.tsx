@@ -141,7 +141,7 @@ export function DashboardContent({
 
   return (
     <div
-      className={`dashboard-content-host dashboard-content-host-min flex-grow-1 dashboard-tab-${activeTab} position-relative ${immersive ? 'overflow-hidden' : 'overflow-auto custom-scrollbar'}`}
+      className={`dashboard-content-host dashboard-content-host-min flex-grow-1 dashboard-tab-${activeTab} position-relative ${immersive ? 'overflow-hidden' : 'dashboard-content-scroll overflow-auto custom-scrollbar'}`}
       data-active-tab={activeTab}
     >
       <Container

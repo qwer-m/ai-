@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import type { CoverageResult, GenDiagEvent } from './diagParser';
 import { parseGenDiagEvent } from './diagParser';
 
@@ -39,6 +40,7 @@ const INITIAL_STATE = {
   resultState: undefined as ResultDebugState | undefined,
   lastUpdatedAt: undefined as number | undefined,
 };
+const DEBUG_STORE_STORAGE_KEY = 'tg_rag_debug_store_v1';
 
 function normalizeStage(input: string | undefined): 'primary' | 'gap' | 'review' {
   const stage = String(input || '').trim().toLowerCase();
@@ -97,30 +99,47 @@ function applyEvent(state: DebugState, event: GenDiagEvent): Partial<DebugState>
   return {};
 }
 
-export const useRagDebugStore = create<DebugState>((set) => ({
-  ...INITIAL_STATE,
+export const useRagDebugStore = create<DebugState>()(
+  persist(
+    (set) => ({
+      ...INITIAL_STATE,
 
-  ingestDiag: (raw: unknown) => {
-    const event = parseGenDiagEvent(raw);
-    if (!event) return;
-    set((state) => applyEvent(state as DebugState, event));
-  },
-
-  setResultState: (payload) => {
-    const now = Date.now();
-    set({
-      resultState: {
-        ...payload,
-        ts: now,
+      ingestDiag: (raw: unknown) => {
+        const event = parseGenDiagEvent(raw);
+        if (!event) return;
+        set((state) => applyEvent(state as DebugState, event));
       },
-      lastUpdatedAt: now,
-    });
-  },
 
-  reset: () => {
-    set({ ...INITIAL_STATE });
-  },
-}));
+      setResultState: (payload) => {
+        const now = Date.now();
+        set({
+          resultState: {
+            ...payload,
+            ts: now,
+          },
+          lastUpdatedAt: now,
+        });
+      },
+
+      reset: () => {
+        set({ ...INITIAL_STATE });
+      },
+    }),
+    {
+      name: DEBUG_STORE_STORAGE_KEY,
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        generationMode: state.generationMode,
+        bizKeys: state.bizKeys,
+        currentBizKey: state.currentBizKey,
+        stages: state.stages,
+        coverage: state.coverage,
+        resultState: state.resultState,
+        lastUpdatedAt: state.lastUpdatedAt,
+      }),
+    }
+  )
+);
 
 export function selectTotalCaseCount(state: DebugState): number {
   if (!state.stages.length) return 0;

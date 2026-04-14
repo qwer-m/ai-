@@ -161,6 +161,52 @@ body.ui-overhaul-v4 .btn-outline-info {
   background: color-mix(in srgb, var(--fd-surface) 94%, transparent);
 }
 
+/* Keep outline button text readable on hover/focus/active instead of Bootstrap default white text. */
+body.ui-overhaul-v4 .btn-outline-secondary {
+  --bs-btn-hover-color: var(--fd-text-soft);
+  --bs-btn-hover-bg: color-mix(in srgb, var(--fd-surface-soft) 88%, transparent);
+  --bs-btn-hover-border-color: color-mix(in srgb, var(--fd-border) 94%, transparent);
+  --bs-btn-active-color: var(--fd-text-soft);
+  --bs-btn-active-bg: color-mix(in srgb, var(--fd-surface-soft) 90%, transparent);
+  --bs-btn-active-border-color: color-mix(in srgb, var(--fd-border) 94%, transparent);
+}
+
+body.ui-overhaul-v4 .btn-outline-primary {
+  --bs-btn-hover-color: var(--fd-primary);
+  --bs-btn-hover-bg: color-mix(in srgb, var(--fd-primary) 12%, transparent);
+  --bs-btn-hover-border-color: color-mix(in srgb, var(--fd-primary) 58%, var(--fd-border));
+  --bs-btn-active-color: var(--fd-primary);
+  --bs-btn-active-bg: color-mix(in srgb, var(--fd-primary) 16%, transparent);
+  --bs-btn-active-border-color: color-mix(in srgb, var(--fd-primary) 62%, var(--fd-border));
+}
+
+body.ui-overhaul-v4 .btn-outline-danger {
+  --bs-btn-hover-color: var(--fd-danger);
+  --bs-btn-hover-bg: color-mix(in srgb, var(--fd-danger) 12%, transparent);
+  --bs-btn-hover-border-color: color-mix(in srgb, var(--fd-danger) 58%, var(--fd-border));
+  --bs-btn-active-color: var(--fd-danger);
+  --bs-btn-active-bg: color-mix(in srgb, var(--fd-danger) 16%, transparent);
+  --bs-btn-active-border-color: color-mix(in srgb, var(--fd-danger) 62%, var(--fd-border));
+}
+
+body.ui-overhaul-v4 .btn-outline-warning {
+  --bs-btn-hover-color: color-mix(in srgb, var(--fd-warning) 86%, #7c2d12);
+  --bs-btn-hover-bg: color-mix(in srgb, var(--fd-warning) 14%, transparent);
+  --bs-btn-hover-border-color: color-mix(in srgb, var(--fd-warning) 58%, var(--fd-border));
+  --bs-btn-active-color: color-mix(in srgb, var(--fd-warning) 90%, #7c2d12);
+  --bs-btn-active-bg: color-mix(in srgb, var(--fd-warning) 18%, transparent);
+  --bs-btn-active-border-color: color-mix(in srgb, var(--fd-warning) 62%, var(--fd-border));
+}
+
+body.ui-overhaul-v4 .btn-outline-info {
+  --bs-btn-hover-color: #0284c7;
+  --bs-btn-hover-bg: color-mix(in srgb, #0284c7 12%, transparent);
+  --bs-btn-hover-border-color: color-mix(in srgb, #0284c7 58%, var(--fd-border));
+  --bs-btn-active-color: #0284c7;
+  --bs-btn-active-bg: color-mix(in srgb, #0284c7 16%, transparent);
+  --bs-btn-active-border-color: color-mix(in srgb, #0284c7 62%, var(--fd-border));
+}
+
 body.ui-overhaul-v4 .table-responsive {
   border: 1px solid color-mix(in srgb, var(--fd-border) 95%, transparent) !important;
   border-radius: var(--fd-card-radius-md) !important;

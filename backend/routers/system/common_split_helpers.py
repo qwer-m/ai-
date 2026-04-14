@@ -1,20 +1,21 @@
 import json
 import logging
 import re
-from datetime import datetime
 from typing import Any, Optional
 
 from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from celery_config import celery_app
 from core.authn.auth import get_current_user
 from core.db.database import get_db
-from core.db.models import KnowledgeDocument, Project, User
+from core.db.models import User
 from modules.domain.knowledge_base import knowledge_base
 from modules.knowledge_base_components.document.index_audit import run_index_consistency_audit
+from modules.knowledge_base_components.repositories.knowledge_document_repository import (
+    KnowledgeDocumentRepository,
+)
 from schemas.base.common import ErrorTranslateRequest
 from routers.system.common_responses import (
     build_knowledge_detail_response,
@@ -63,53 +64,18 @@ def list_knowledge(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    query = db.query(KnowledgeDocument).filter(KnowledgeDocument.project_id == project_id)
-
-    if search:
-        query = query.filter(KnowledgeDocument.filename.like(f"%{search}%"))
-
-    if doc_type:
-        query = query.filter(KnowledgeDocument.doc_type == doc_type)
-
-    if not include_linked_test_cases:
-        query = query.filter(
-            ~and_(
-                KnowledgeDocument.doc_type == "test_case",
-                KnowledgeDocument.source_doc_id.isnot(None),
-            )
-        )
-
-    if not include_evaluation_reports:
-        query = query.filter(KnowledgeDocument.doc_type != "evaluation_report")
-
-    if start_date:
-        try:
-            query = query.filter(
-                KnowledgeDocument.created_at >= datetime.strptime(start_date, "%Y-%m-%d")
-            )
-        except ValueError:
-            query = query.filter(KnowledgeDocument.created_at >= start_date)
-
-    if end_date:
-        try:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
-            query = query.filter(KnowledgeDocument.created_at <= end_dt)
-        except ValueError:
-            query = query.filter(KnowledgeDocument.created_at <= end_date)
-
-    total = query.count()
-    total_pages = (total + page_size - 1) // page_size if total else 1
-
-    documents = (
-        query.order_by(
-            KnowledgeDocument.display_order.desc(),
-            KnowledgeDocument.created_at.asc(),
-            KnowledgeDocument.id.asc(),
-        )
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
+    total, documents = KnowledgeDocumentRepository(db).list_project_documents_paginated(
+        project_id=project_id,
+        page=page,
+        page_size=page_size,
+        search=search,
+        doc_type=doc_type,
+        include_linked_test_cases=include_linked_test_cases,
+        include_evaluation_reports=include_evaluation_reports,
+        start_date=start_date,
+        end_date=end_date,
     )
+    total_pages = (total + page_size - 1) // page_size if total else 1
 
     linked_map, source_name_map = build_knowledge_list_related_maps(db, project_id, documents)
 

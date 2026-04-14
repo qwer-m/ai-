@@ -11,6 +11,7 @@
         only_current_biz=request.only_current_biz,
         multi_pass=request.multi_pass,
         generation_mode=request.generation_mode,
+        enable_sample_pool_feedback=request.enable_sample_pool_feedback,
     )
     try:
         count = len(result) if isinstance(result, list) else 0
@@ -50,21 +51,25 @@ async def generate_tests_async(
 ):
     get_owned_project(request.project_id, db, current_user.id)
 
-    task = generate_test_cases_task.delay(
-        requirement=request.requirement,
-        project_id=request.project_id,
-        doc_type="requirement",
-        compress=request.compress,
-        expected_count=request.expected_count,
-        batch_index=request.batch_index,
-        batch_size=request.batch_size,
-        user_id=current_user.id,
-        current_biz_key=request.current_biz_key,
-        only_current_biz=request.only_current_biz,
-        multi_pass=request.multi_pass,
-        generation_mode=request.generation_mode,
+    task_id = get_task_runtime().dispatch(
+        task_name="modules.orchestration.tasks.generate_test_cases_task",
+        kwargs={
+            "requirement": request.requirement,
+            "project_id": request.project_id,
+            "doc_type": "requirement",
+            "compress": request.compress,
+            "expected_count": request.expected_count,
+            "batch_index": request.batch_index,
+            "batch_size": request.batch_size,
+            "user_id": current_user.id,
+            "current_biz_key": request.current_biz_key,
+            "only_current_biz": request.only_current_biz,
+            "multi_pass": request.multi_pass,
+            "generation_mode": request.generation_mode,
+            "enable_sample_pool_feedback": request.enable_sample_pool_feedback,
+        },
     )
-    return {"task_id": task.id, "status": "PENDING", "message": "Task submitted successfully"}
+    return {"task_id": task_id, "status": "PENDING", "message": "Task submitted successfully"}
 
 @router.post("/generate-tests-file")
 async def generate_tests_from_file(
@@ -74,6 +79,7 @@ async def generate_tests_from_file(
     prototype_file: UploadFile | None = File(None),
     compress: bool = Form(False),
     expected_count: int = Form(20),
+    enable_sample_pool_feedback: bool = Form(True),
     force: bool = Form(False),
     append: bool = Form(False),
     current_biz_key: str = Form(""),
@@ -122,6 +128,7 @@ async def generate_tests_from_file(
             only_current_biz,
             multi_pass,
             generation_mode,
+            enable_sample_pool_feedback,
         )
         try:
             count = len(result) if isinstance(result, list) else 0
@@ -161,6 +168,7 @@ async def generate_tests_from_file_async(
     prototype_file: UploadFile | None = File(None),
     compress: bool = Form(False),
     expected_count: int = Form(20),
+    enable_sample_pool_feedback: bool = Form(True),
     force: bool = Form(False),
     append: bool = Form(False),
     current_biz_key: str = Form(""),
@@ -187,14 +195,19 @@ async def generate_tests_from_file_async(
         if duplicate_payload and not append:
             return duplicate_payload
 
-        task = generate_test_cases_task.delay(
-            requirement=content,
-            project_id=project_id,
-            doc_type=doc_type,
-            compress=compress,
-            expected_count=expected_count,
-            user_id=current_user.id,
-            current_biz_key=current_biz_key,
-            only_current_biz=only_current_biz,
-            multi_pass=multi_pass,
-            generation_mode=generation_mode,
+        task_id = get_task_runtime().dispatch(
+            task_name="modules.orchestration.tasks.generate_test_cases_task",
+            kwargs={
+                "requirement": content,
+                "project_id": project_id,
+                "doc_type": doc_type,
+                "compress": compress,
+                "expected_count": expected_count,
+                "user_id": current_user.id,
+                "current_biz_key": current_biz_key,
+                "only_current_biz": only_current_biz,
+                "multi_pass": multi_pass,
+                "generation_mode": generation_mode,
+                "enable_sample_pool_feedback": enable_sample_pool_feedback,
+            },
+        )

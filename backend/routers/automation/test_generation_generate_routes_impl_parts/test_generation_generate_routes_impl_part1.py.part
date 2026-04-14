@@ -15,7 +15,7 @@ from core.processing.workflow import WorkflowKind, WorkflowStage, log_workflow_t
 from core.settings.config import settings
 from modules.domain.knowledge_base import knowledge_base
 from modules.orchestration.context_orchestrator import context_orchestrator
-from modules.orchestration.tasks import generate_test_cases_task
+from modules.orchestration.task_runtime import get_task_runtime
 from modules.testing.test_generation import test_generator
 from routers.test_generation_routes.support import (
     build_generation_qm,
@@ -92,6 +92,7 @@ async def generate_tests_stream(
     doc_type: str = Form("requirement"),
     compress: bool = Form(False),
     expected_count: int = Form(20),
+    enable_sample_pool_feedback: bool = Form(True),
     force: bool = Form(False),
     append: bool = Form(False),
     current_biz_key: str = Form(""),
@@ -145,6 +146,7 @@ async def generate_tests_stream(
         only_current_biz=only_current_biz,
         multi_pass=multi_pass,
         generation_mode=generation_mode,
+        enable_sample_pool_feedback=enable_sample_pool_feedback,
     )
 
     def guarded_stream():

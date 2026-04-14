@@ -78,6 +78,65 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismat
   transition: color 0.16s ease, border-color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
 }
 
+.rag-debug-panel-root .tg-priority-result-scroll {
+  max-height: 560px;
+  overflow: auto;
+}
+
+.rag-debug-panel-root .tg-priority-result-table > :not(caption) > * > * {
+  padding: 0.38rem 0.42rem;
+}
+
+.rag-debug-panel-root .tg-priority-index-col {
+  width: 2.6rem;
+  min-width: 2.6rem;
+  max-width: 2.6rem;
+  padding-left: 0.2rem !important;
+  padding-right: 0.15rem !important;
+}
+
+.rag-debug-panel-root .tg-priority-result-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f1f5f9;
+}
+
+.rag-debug-panel-root .tg-priority-case-col {
+  width: 10.2em;
+  min-width: 10.2em;
+  max-width: 10.2em;
+}
+
+.rag-debug-panel-root .tg-priority-case-title {
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  width: 10.2em;
+  min-width: 10.2em;
+  max-width: 10.2em;
+  max-height: calc(1.35em * 5);
+}
+
+.rag-debug-panel-root .tg-priority-result-table > :not(caption) > * > *:nth-child(n + 3) {
+  padding-left: 0.28rem;
+  padding-right: 0.28rem;
+}
+
+.rag-debug-panel-root .tg-priority-result-table thead th:nth-child(n + 3),
+.rag-debug-panel-root .tg-priority-result-table tbody td:nth-child(n + 3) {
+  text-align: center;
+}
+
+.rag-debug-panel-root .tg-priority-result-table tbody td:nth-child(8) > .d-flex {
+  justify-content: center;
+}
+
 .rag-debug-panel-root .tg-priority-actions .btn-outline-primary:hover,
 .rag-debug-panel-root .tg-priority-actions .btn-outline-primary:focus-visible,
 .rag-debug-panel-root .tg-priority-actions .btn-outline-secondary:hover,
@@ -106,4 +165,9 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-o
   color: #c7d2fe;
   border-color: #7c8cff;
   background: rgba(99, 102, 241, 0.18);
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-result-scroll thead th,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-result-scroll thead th {
+  background: #0f172a;
 }

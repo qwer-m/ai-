@@ -91,5 +91,12 @@
         "generation_summary": generation_summary,
         "review_decision_summary": review_decision_summary,
         "review_decision_table": review_decision_table,
+        "feedback_control_debug": {
+            "control_state_applied": bool(control_state.has_signals()),
+            "must_cover_rules_count": int(len(control_state.must_cover_rules or [])),
+            "rule_quota_keys": sorted(list((control_state.rule_quota or {}).keys())),
+            "soft_constraints_count": int(len(control_state.soft_constraints or [])),
+            "quality_fix_hints_count": int(len(control_state.quality_fix_hints or [])),
+        },
     }
 

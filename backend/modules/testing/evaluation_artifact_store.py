@@ -2,10 +2,12 @@ import json
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from core.db.models import KnowledgeDocument
+from modules.testing_components.repositories.evaluation_artifact_repository import (
+    EvaluationArtifactRepository,
+)
 
 COMPARE_ARTIFACT_DOC_TYPE = "evaluation_compare_artifact"
 
@@ -22,30 +24,26 @@ def upsert_compare_artifact(
     generation_id: int,
     payload: dict[str, Any],
 ) -> KnowledgeDocument:
+    repo = EvaluationArtifactRepository(db)
     filename = build_compare_artifact_filename(generation_id)
     normalized_payload = dict(payload or {})
     normalized_payload["generation_id"] = generation_id
     normalized_payload["updated_at"] = datetime.utcnow().isoformat()
     content = json.dumps(normalized_payload, ensure_ascii=False)
 
-    doc = (
-        db.query(KnowledgeDocument)
-        .filter(
-            KnowledgeDocument.project_id == project_id,
-            KnowledgeDocument.user_id == user_id,
-            KnowledgeDocument.doc_type == COMPARE_ARTIFACT_DOC_TYPE,
-            KnowledgeDocument.filename == filename,
-        )
-        .order_by(desc(KnowledgeDocument.created_at), desc(KnowledgeDocument.id))
-        .first()
+    doc = repo.get_latest_artifact_doc(
+        project_id=project_id,
+        user_id=user_id,
+        doc_type=COMPARE_ARTIFACT_DOC_TYPE,
+        filename=filename,
     )
 
     if doc:
         doc.content = content
         doc.parse_status = "success"
         doc.parse_error = None
-        db.commit()
-        db.refresh(doc)
+        repo.commit()
+        repo.refresh(doc)
         return doc
 
     doc = KnowledgeDocument(
@@ -56,9 +54,9 @@ def upsert_compare_artifact(
         doc_type=COMPARE_ARTIFACT_DOC_TYPE,
         parse_status="success",
     )
-    db.add(doc)
-    db.commit()
-    db.refresh(doc)
+    repo.add(doc)
+    repo.commit()
+    repo.refresh(doc)
     return doc
 
 
@@ -69,17 +67,13 @@ def load_compare_artifact_payload(
     user_id: int,
     generation_id: int,
 ) -> Optional[dict[str, Any]]:
+    repo = EvaluationArtifactRepository(db)
     filename = build_compare_artifact_filename(generation_id)
-    doc = (
-        db.query(KnowledgeDocument)
-        .filter(
-            KnowledgeDocument.project_id == project_id,
-            KnowledgeDocument.user_id == user_id,
-            KnowledgeDocument.doc_type == COMPARE_ARTIFACT_DOC_TYPE,
-            KnowledgeDocument.filename == filename,
-        )
-        .order_by(desc(KnowledgeDocument.created_at), desc(KnowledgeDocument.id))
-        .first()
+    doc = repo.get_latest_artifact_doc(
+        project_id=project_id,
+        user_id=user_id,
+        doc_type=COMPARE_ARTIFACT_DOC_TYPE,
+        filename=filename,
     )
     if not doc:
         return None

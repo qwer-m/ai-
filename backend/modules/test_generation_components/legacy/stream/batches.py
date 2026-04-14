@@ -39,6 +39,7 @@ class LegacyGenerationStreamBatchesMixin:
         existing_cases = state.get("existing_cases") or []
         context_result = state.get("context_result") or {}
         gate_debug = state.get("gate_debug") or {}
+        feedback_control_state = state.get("feedback_control_state") or {}
         only_current_biz = bool(state.get("only_current_biz") or False)
         current_biz_key = str(state.get("current_biz_key") or "").strip()
         multi_pass = bool(state.get("multi_pass", True))
@@ -101,6 +102,7 @@ class LegacyGenerationStreamBatchesMixin:
             existing_cases=[c for c in existing_cases if isinstance(c, dict)] if isinstance(existing_cases, list) else [],
             current_biz_key=current_biz_key,
             only_current_biz=only_current_biz,
+            feedback_control_state=feedback_control_state,
         )
         current_biz_key = str(prompt_context.get("current_biz_key") or current_biz_key or "unknown")
         _emit_biz_key_diag(prompt_context)
@@ -110,6 +112,7 @@ class LegacyGenerationStreamBatchesMixin:
             requirement_context=prompt_context.get("requirement_context") or "",
             testcase_context=prompt_context.get("testcase_context") or "(empty)",
             supplement_context=prompt_context.get("supplement_context") or "(empty)",
+            control_context=prompt_context.get("control_context") or "",
             current_biz_key=current_biz_key,
             doc_type=doc_type,
             pretty_json=True,
@@ -192,6 +195,7 @@ class LegacyGenerationStreamBatchesMixin:
                     existing_cases=[c for c in existing_cases if isinstance(c, dict)] if isinstance(existing_cases, list) else [],
                     current_biz_key=current_biz_key,
                     only_current_biz=only_current_biz,
+                    feedback_control_state=feedback_control_state,
                 )
                 current_biz_key = str(prompt_context.get("current_biz_key") or current_biz_key or "unknown")
                 _emit_biz_key_diag(prompt_context)
@@ -206,6 +210,7 @@ class LegacyGenerationStreamBatchesMixin:
                     requirement_context=prompt_context.get("requirement_context") or "",
                     testcase_context=testcase_context,
                     supplement_context=prompt_context.get("supplement_context") or "(empty)",
+                    control_context=prompt_context.get("control_context") or "",
                     current_biz_key=current_biz_key,
                     doc_type=doc_type,
                     pretty_json=True,

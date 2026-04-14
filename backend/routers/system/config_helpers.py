@@ -215,10 +215,14 @@ def validate_text_model(
     try:
         client = build_provider(provider, api_key, base_url, model_name)
         if isinstance(client, DashScopeProvider):
-            details = client.test_connection(model=model_name)
+            # Text input box validation strategy:
+            # 1) validate as text model first
+            # 2) if it fails, validate as multimodal with text-only payload
+            details = client.test_connection_text_then_multimodal(model=model_name)
         else:
             details = client.test_connection()
         success = bool(details.get("success"))
+        detected_mode = str((details.get("model_info") or {}).get("mode") or "")
         return {
             "type": "text",
             "label": label,
@@ -226,6 +230,7 @@ def validate_text_model(
             "success": success,
             "latency": round((time.time() - started) * 1000, 2),
             "error": None if success else extract_error_message(details),
+            "mode": detected_mode,
             "details": details,
         }
     except Exception as e:

@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from core.authn.auth import get_current_user
 from core.db.database import get_db
-from core.db.models import RagDataset, RagDatasetSample, User
+from core.db.models import User
+from modules.rag_eval.services.rag_dataset_management_service import RagDatasetManagementService
 from schemas.rag.rag_dataset import (
     RagDatasetCreate,
     RagDatasetImportResponse,
@@ -25,52 +23,44 @@ router = APIRouter(tags=["RAG Datasets"])
 
 @router.get("/rag/datasets", response_model=list[RagDatasetOut])
 def list_rag_datasets(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    datasets = (
-        db.query(RagDataset)
-        .filter(RagDataset.user_id == current_user.id)
-        .order_by(RagDataset.updated_at.desc(), RagDataset.id.desc())
-        .all()
-    )
+    datasets = RagDatasetManagementService(db).list_datasets(user_id=current_user.id)
     result: list[RagDatasetOut] = []
     for ds in datasets:
-        count = db.query(RagDatasetSample).filter(RagDatasetSample.dataset_id == ds.id).count()
-        result.append(RagDatasetOut.model_validate({**ds.__dict__, "sample_count": count}))
+        result.append(RagDatasetOut.model_validate(ds))
     return result
 
 
 @router.post("/rag/datasets", response_model=RagDatasetOut)
 def create_rag_dataset(payload: RagDatasetCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    exists = db.query(RagDataset).filter(RagDataset.user_id == current_user.id, RagDataset.name == payload.name).first()
-    if exists:
+    status, ds = RagDatasetManagementService(db).create_dataset(
+        user_id=current_user.id,
+        payload=payload.model_dump(),
+    )
+    if status == "exists":
         raise HTTPException(status_code=400, detail="Dataset name already exists")
-    ds = RagDataset(user_id=current_user.id, name=payload.name, type=payload.type, description=payload.description)
-    db.add(ds)
-    db.commit()
-    db.refresh(ds)
+    if not ds:
+        raise HTTPException(status_code=500, detail="Failed to create dataset")
     return RagDatasetOut.model_validate({**ds.__dict__, "sample_count": 0})
 
 
 @router.put("/rag/datasets/{dataset_id}", response_model=RagDatasetOut)
 def update_rag_dataset(dataset_id: int, payload: RagDatasetUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    ds = db.query(RagDataset).filter(RagDataset.id == dataset_id, RagDataset.user_id == current_user.id).first()
-    if not ds:
+    status, ds = RagDatasetManagementService(db).update_dataset(
+        dataset_id=dataset_id,
+        user_id=current_user.id,
+        payload=payload.model_dump(exclude_unset=True),
+    )
+    if status == "not_found" or not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    for key, value in payload.model_dump(exclude_unset=True).items():
-        setattr(ds, key, value)
-    db.commit()
-    db.refresh(ds)
-    count = db.query(RagDatasetSample).filter(RagDatasetSample.dataset_id == ds.id).count()
+    count = RagDatasetManagementService(db).count_samples(dataset_id=dataset_id)
     return RagDatasetOut.model_validate({**ds.__dict__, "sample_count": count})
 
 
 @router.delete("/rag/datasets/{dataset_id}")
 def delete_rag_dataset(dataset_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    ds = db.query(RagDataset).filter(RagDataset.id == dataset_id, RagDataset.user_id == current_user.id).first()
-    if not ds:
+    deleted = RagDatasetManagementService(db).delete_dataset(dataset_id=dataset_id, user_id=current_user.id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    db.query(RagDatasetSample).filter(RagDatasetSample.dataset_id == ds.id).delete()
-    db.delete(ds)
-    db.commit()
     return {"success": True}
 
 
@@ -85,62 +75,50 @@ def list_dataset_samples(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    ds = db.query(RagDataset).filter(RagDataset.id == dataset_id, RagDataset.user_id == current_user.id).first()
-    if not ds:
+    parsed_tags = [x.strip() for x in (tags or "").split(",") if x.strip()] if tags else None
+    status, rows = RagDatasetManagementService(db).list_samples(
+        dataset_id=dataset_id,
+        user_id=current_user.id,
+        tags=parsed_tags,
+        difficulty=difficulty,
+        enabled_only=enabled_only,
+        page=page,
+        page_size=page_size,
+    )
+    if status == "dataset_not_found":
         raise HTTPException(status_code=404, detail="Dataset not found")
-    q = db.query(RagDatasetSample).filter(RagDatasetSample.dataset_id == dataset_id)
-    if enabled_only:
-        q = q.filter(RagDatasetSample.enabled.is_(True))
-    if difficulty != "all":
-        q = q.filter(RagDatasetSample.difficulty == difficulty)
-    if tags:
-        for t in [x.strip() for x in tags.split(",") if x.strip()]:
-            q = q.filter(RagDatasetSample.tags.contains([t]))
-    rows = q.order_by(RagDatasetSample.id.asc()).offset((page - 1) * page_size).limit(page_size).all()
     return [RagSampleOut.model_validate(x) for x in rows]
 
 
 @router.post("/rag/datasets/{dataset_id}/samples", response_model=RagSampleOut)
 def create_dataset_sample(dataset_id: int, payload: RagSampleCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    ds = db.query(RagDataset).filter(RagDataset.id == dataset_id, RagDataset.user_id == current_user.id).first()
-    if not ds:
+    status, row = RagDatasetManagementService(db).create_sample(
+        dataset_id=dataset_id,
+        user_id=current_user.id,
+        payload=payload.model_dump(),
+    )
+    if status == "dataset_not_found" or not row:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    row = RagDatasetSample(dataset_id=dataset_id, **payload.model_dump())
-    db.add(row)
-    db.commit()
-    db.refresh(row)
     return RagSampleOut.model_validate(row)
 
 
 @router.put("/rag/datasets/samples/{sample_id}", response_model=RagSampleOut)
 def update_dataset_sample(sample_id: int, payload: RagSampleUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    row = (
-        db.query(RagDatasetSample)
-        .join(RagDataset, RagDataset.id == RagDatasetSample.dataset_id)
-        .filter(RagDatasetSample.id == sample_id, RagDataset.user_id == current_user.id)
-        .first()
+    status, row = RagDatasetManagementService(db).update_sample(
+        sample_id=sample_id,
+        user_id=current_user.id,
+        payload=payload.model_dump(exclude_unset=True),
     )
-    if not row:
+    if status == "not_found" or not row:
         raise HTTPException(status_code=404, detail="Sample not found")
-    for key, value in payload.model_dump(exclude_unset=True).items():
-        setattr(row, key, value)
-    db.commit()
-    db.refresh(row)
     return RagSampleOut.model_validate(row)
 
 
 @router.delete("/rag/datasets/samples/{sample_id}")
 def delete_dataset_sample(sample_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    row = (
-        db.query(RagDatasetSample)
-        .join(RagDataset, RagDataset.id == RagDatasetSample.dataset_id)
-        .filter(RagDatasetSample.id == sample_id, RagDataset.user_id == current_user.id)
-        .first()
-    )
-    if not row:
+    deleted = RagDatasetManagementService(db).delete_sample(sample_id=sample_id, user_id=current_user.id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Sample not found")
-    db.delete(row)
-    db.commit()
     return {"success": True}
 
 
@@ -153,82 +131,34 @@ async def import_rag_dataset(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if dataset_id:
-        ds = db.query(RagDataset).filter(RagDataset.id == dataset_id, RagDataset.user_id == current_user.id).first()
-        if not ds:
-            raise HTTPException(status_code=404, detail="Dataset not found")
-    else:
-        ds = RagDataset(user_id=current_user.id, name=name or f"import-{datetime.now().strftime('%Y%m%d%H%M%S')}", type=type, description="imported")
-        db.add(ds)
-        db.commit()
-        db.refresh(ds)
-
     raw = (await file.read()).decode("utf-8", errors="ignore")
-    imported = 0
-    skipped = 0
-    errors: list[str] = []
-    for idx, line in enumerate(raw.splitlines(), start=1):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            item = json.loads(line)
-            query = str(item.get("query") or "").strip()
-            if not query:
-                skipped += 1
-                continue
-            exists = db.query(RagDatasetSample).filter(RagDatasetSample.dataset_id == ds.id, RagDatasetSample.query == query).first()
-            if exists:
-                skipped += 1
-                continue
-            row = RagDatasetSample(
-                dataset_id=ds.id,
-                query=query,
-                gold_docs=item.get("gold_docs") or [],
-                gold_chunks=item.get("gold_chunks") or [],
-                gold_answer=item.get("gold_answer") or "",
-                answer_points=item.get("answer_points") or [],
-                tags=item.get("tags") or [],
-                difficulty=item.get("difficulty") or "medium",
-                metadata_filters=item.get("metadata_filters") or {},
-                expected_doc_version=item.get("expected_doc_version"),
-                enabled=bool(item.get("enabled", True)),
-            )
-            db.add(row)
-            imported += 1
-        except Exception as e:
-            errors.append(f"line {idx}: {e}")
-    db.commit()
-    return RagDatasetImportResponse(success=True, dataset_id=ds.id, imported_count=imported, skipped_count=skipped, errors=errors[:30])
+    try:
+        ds_id, imported, skipped, errors = RagDatasetManagementService(db).import_samples(
+            user_id=current_user.id,
+            raw_content=raw,
+            dataset_id=dataset_id,
+            name=name,
+            dataset_type=type,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return RagDatasetImportResponse(
+        success=True,
+        dataset_id=ds_id,
+        imported_count=imported,
+        skipped_count=skipped,
+        errors=errors,
+    )
 
 
 @router.get("/rag/datasets/export/{dataset_id}")
 def export_rag_dataset(dataset_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    ds = db.query(RagDataset).filter(RagDataset.id == dataset_id, RagDataset.user_id == current_user.id).first()
-    if not ds:
+    status, content = RagDatasetManagementService(db).export_dataset_lines(
+        dataset_id=dataset_id,
+        user_id=current_user.id,
+    )
+    if status == "not_found":
         raise HTTPException(status_code=404, detail="Dataset not found")
-    rows = db.query(RagDatasetSample).filter(RagDatasetSample.dataset_id == dataset_id).order_by(RagDatasetSample.id.asc()).all()
-    lines = []
-    for r in rows:
-        lines.append(
-            json.dumps(
-                {
-                    "id": r.id,
-                    "query": r.query,
-                    "gold_docs": r.gold_docs or [],
-                    "gold_chunks": r.gold_chunks or [],
-                    "gold_answer": r.gold_answer or "",
-                    "answer_points": r.answer_points or [],
-                    "tags": r.tags or [],
-                    "difficulty": r.difficulty,
-                    "metadata_filters": r.metadata_filters or {},
-                    "expected_doc_version": r.expected_doc_version,
-                    "enabled": bool(r.enabled),
-                },
-                ensure_ascii=False,
-            )
-        )
-    content = "\n".join(lines)
     return Response(
         content=content.encode("utf-8"),
         media_type="application/x-ndjson",

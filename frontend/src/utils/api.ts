@@ -18,16 +18,18 @@ export function getAuthHeaders(): Record<string, string> {
   return {};
 }
 
-async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
-  // Ensure headers is an object before spreading
+function buildRequestConfig(options: RequestInit = {}, includeJsonContentType = true): RequestInit {
   const authHeaders = getAuthHeaders();
-  
-  const defaultHeaders: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...authHeaders,
-  };
+  const defaultHeaders: Record<string, string> = includeJsonContentType
+    ? {
+      'Content-Type': 'application/json',
+      ...authHeaders,
+    }
+    : {
+      ...authHeaders,
+    };
 
-  const config = {
+  const config: RequestInit = {
     ...options,
     headers: {
       ...defaultHeaders,
@@ -35,10 +37,14 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     },
   };
 
-  // If uploading file (FormData), remove Content-Type to let browser set it
   if (options.body instanceof FormData) {
-      delete (config.headers as any)['Content-Type'];
+    delete (config.headers as any)['Content-Type'];
   }
+  return config;
+}
+
+async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
+  const config = buildRequestConfig(options, true);
 
   try {
     const response = await fetch(url, config);
@@ -94,6 +100,35 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
   }
 }
 
+async function requestRaw(url: string, options: RequestInit = {}): Promise<Response> {
+  const config = buildRequestConfig(options, false);
+  const response = await fetch(url, config);
+
+  if (response.status === 401) {
+    localStorage.removeItem('token');
+  }
+  if (!response.ok) {
+    const contentType = response.headers.get('content-type') || '';
+    const rawText = await response.text();
+    let data: any = null;
+    if (rawText) {
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        data = rawText;
+      }
+    }
+    const message =
+      contentType.includes('application/json') && data && typeof data === 'object'
+        ? (data.error || data.detail || data.message || response.statusText || 'Request failed')
+        : (typeof data === 'string' && data.trim()
+            ? data
+            : (response.statusText || 'Request failed'));
+    throw new APIError(message, response.status, data);
+  }
+  return response;
+}
+
 export const api = {
   get: <T>(url: string) => request<T>(url, { method: 'GET' }),
   post: <T>(url: string, body: any) => request<T>(url, { method: 'POST', body: JSON.stringify(body) }),
@@ -104,5 +139,16 @@ export const api = {
           method: 'POST',
           body: formData
       });
-  }
+  },
+  raw: (url: string, options: RequestInit = {}) => requestRaw(url, options),
+  getBlob: (url: string, options: RequestInit = {}) => requestRaw(url, { ...options, method: options.method || 'GET' }).then((r) => r.blob()),
+  postBlob: (url: string, body: any, options: RequestInit = {}) => requestRaw(url, {
+    ...options,
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  }).then((r) => r.blob()),
 };

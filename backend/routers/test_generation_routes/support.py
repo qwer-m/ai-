@@ -7,8 +7,11 @@ from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from core.processing.file_processing import parse_file_content
-from core.db.models import Project, TestGeneration
+from core.db.models import Project
 from modules.domain.knowledge_base import knowledge_base
+from modules.test_generation_components.repositories.history_repository import (
+    TestGenerationHistoryRepository,
+)
 
 
 def get_owned_project(project_id: int, db: Session, user_id: int) -> Project:
@@ -18,7 +21,7 @@ def get_owned_project(project_id: int, db: Session, user_id: int) -> Project:
     测试生成接口会写入日志和生成记录，必须先确保项目属于当前用户，
     避免跨项目误操作。
     """
-    project = db.query(Project).filter(Project.id == project_id, Project.user_id == user_id).first()
+    project = TestGenerationHistoryRepository(db).get_owned_project(project_id=project_id, user_id=user_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
@@ -38,27 +41,21 @@ def get_previous_generation_json(
     - 超长文本再尝试前缀匹配，兼容早期截断保存场景。
     """
     prev = (
-        db.query(TestGeneration)
-        .filter(
-            TestGeneration.project_id == project_id,
-            TestGeneration.requirement_text == requirement_text,
-            TestGeneration.user_id == user_id,
+        TestGenerationHistoryRepository(db).get_latest_generation_exact(
+            project_id=project_id,
+            user_id=user_id,
+            requirement_text=requirement_text,
         )
-        .order_by(TestGeneration.created_at.desc())
-        .first()
     )
 
     if not prev and len(requirement_text) > 60000:
         prefix = requirement_text[:60000]
         prev = (
-            db.query(TestGeneration)
-            .filter(
-                TestGeneration.project_id == project_id,
-                TestGeneration.requirement_text.startswith(prefix),
-                TestGeneration.user_id == user_id,
+            TestGenerationHistoryRepository(db).get_latest_generation_by_prefix(
+                project_id=project_id,
+                user_id=user_id,
+                prefix=prefix,
             )
-            .order_by(TestGeneration.created_at.desc())
-            .first()
         )
 
     prev_json = None

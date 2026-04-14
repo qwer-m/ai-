@@ -37,6 +37,7 @@ class LegacyGenerationStreamGenerationMixin(
         only_current_biz: bool = False,
         multi_pass: bool = True,
         generation_mode: str = "",
+        enable_sample_pool_feedback: bool = True,
     ) -> Iterator[str]:
         client = get_client_for_user(user_id, db)
         request_id = uuid.uuid4().hex
@@ -58,6 +59,7 @@ class LegacyGenerationStreamGenerationMixin(
             only_current_biz=only_current_biz,
             multi_pass=multi_pass,
             generation_mode=generation_mode,
+            enable_sample_pool_feedback=enable_sample_pool_feedback,
         )
         if not isinstance(state, dict) or state.get("abort"):
             return

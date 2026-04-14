@@ -17,6 +17,48 @@ from modules.test_generation_components.postprocess.result_postprocess_priority_
 
 PRIORITY_SEMANTICS_REVISION = "2026-04-08-r5"
 
+def _should_uplift_to_p1(case_meta: dict[str, Any]) -> tuple[bool, str, str, int]:
+    """
+    中文注释：P1 uplift 判定，仅用于 P2->P1 提档。
+    返回: (是否提升, 原因文案, uplift_source, bonus_score)
+    """
+    meta = dict(case_meta or {})
+    core_rule_hits = [str(x) for x in (meta.get("core_rule_hits") or []) if str(x).strip()]
+    missing_rule_hits = [str(x) for x in (meta.get("missing_rule_hits") or []) if str(x).strip()]
+    unique_coverage_hits = [str(x) for x in (meta.get("unique_coverage_hits") or []) if str(x).strip()]
+    reasons = [str(x) for x in (meta.get("reasons") or [])]
+    rule_risk_reasons = [str(x).strip().lower() for x in (meta.get("rule_risk_reasons") or []) if str(x).strip()]
+    focus_score = int(meta.get("focus_score") or 0)
+    coverage_gain_score = int(meta.get("coverage_gain_score") or 0)
+    structural_p2_signals = bool(meta.get("structural_p2_signals"))
+    low_risk_only_covered = bool(meta.get("low_risk_only_covered"))
+    ui_like_case = bool(meta.get("ui_like_case"))
+
+    # 防止乱升
+    if structural_p2_signals:
+        return False, "structural_p2_signals", "blocked_structural", 0
+    if ui_like_case:
+        return False, "ui_like_case", "blocked_ui_like", 0
+    if low_risk_only_covered and coverage_gain_score <= 0:
+        return False, "low_risk_only_no_gain", "blocked_low_risk_only", 0
+
+    main_workflow_hit = "main_workflow_hit" in reasons
+    has_high_risk_signal = "high" in rule_risk_reasons
+
+    # uplift 触发条件
+    if core_rule_hits:
+        return True, "core_rule_hits", "core_rule", 8
+    if missing_rule_hits:
+        return True, "missing_rule_hits", "missing_rule", 8
+    if unique_coverage_hits and has_high_risk_signal:
+        return True, "unique_coverage_high_risk", "coverage_gain", 8
+    if main_workflow_hit and focus_score >= 2:
+        return True, "workflow_focus", "workflow", 6
+    if coverage_gain_score >= 8:
+        return True, "coverage_gain", "coverage_gain", 6
+
+    return False, "", "", 0
+
 
 def _normalize_score_result_for_debug_and_resolve(score_result: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(score_result or {})
@@ -61,6 +103,9 @@ def resolve_case_priority(model_priority: str, score_result: dict[str, Any], cas
     del case  # compatibility hook for future semantic overrides
     normalized_model = _normalize_existing_priority(model_priority)
     score = int(score_result.get("priority_score") or 0)
+    bonus_score = int(score_result.get("bonus_score") or 0)
+    p1_uplifted = bool(score_result.get("p1_uplifted"))
+    effective_score = int(score + bonus_score) if p1_uplifted else score
     suggested_priority = _normalize_existing_priority(score_result.get("suggested_priority") or "P1")
     guards = dict(score_result.get("guards") or {})
     case_level_hard_guard = bool(score_result.get("case_level_hard_guard"))
@@ -94,7 +139,7 @@ def resolve_case_priority(model_priority: str, score_result: dict[str, Any], cas
     # Third calibration: security/data critical hits with mid score can move from P2 to P1.
     if (
         normalized_model == "P2"
-        and score >= 20
+        and effective_score >= 20
         and "security_or_data_critical_rule_hit" in reasons
         and coverage_value_exempt
         and coverage_gain_score > 0
@@ -106,7 +151,7 @@ def resolve_case_priority(model_priority: str, score_result: dict[str, Any], cas
     # Fourth calibration: core-workflow-covered mid-score cases can move from P2 to P1.
     if (
         normalized_model == "P2"
-        and score >= 8
+        and effective_score >= 8
         and "core_workflow_rule_hit" in reasons
         and bool(core_rule_hits)
         and coverage_gain_score >= 8
@@ -119,14 +164,14 @@ def resolve_case_priority(model_priority: str, score_result: dict[str, Any], cas
     # Second calibration: near-threshold + coverage-value cases can move from P2 to P1.
     if (
         normalized_model == "P2"
-        and score >= 30
+        and effective_score >= 30
         and coverage_value_exempt
         and bool(missing_rule_hits or core_rule_hits or unique_coverage_hits)
         and not low_risk_only_covered
         and not (structural_p2_signals and not (missing_rule_hits or core_rule_hits))
     ):
         return "P1"
-    if normalized_model == "P2" and score >= 35:
+    if normalized_model == "P2" and effective_score >= 35:
         return "P1"
     if normalized_model == "P1" and case_level_hard_guard and score >= 70:
         return "P0"
@@ -179,6 +224,21 @@ def apply_priority_semantics_to_case(
         rule_diagnostics=rule_diagnostics,
     )
     score_result = _normalize_score_result_for_debug_and_resolve(score_result)
+    p1_uplifted = False
+    p1_uplift_reason = ""
+    uplift_source = ""
+    bonus_score = 0
+    if normalized_model_priority == "P2":
+        p1_uplifted, p1_uplift_reason, uplift_source, bonus_score = _should_uplift_to_p1(score_result)
+        if p1_uplifted and bool(score_result.get("p2_cap")):
+            p1_uplifted = False
+            p1_uplift_reason = "p2_cap_blocked"
+            uplift_source = "blocked_p2_cap"
+            bonus_score = 0
+    score_result["p1_uplifted"] = p1_uplifted
+    score_result["p1_uplift_reason"] = p1_uplift_reason
+    score_result["uplift_source"] = uplift_source
+    score_result["bonus_score"] = bonus_score
     final_priority = resolve_case_priority(normalized_model_priority, score_result, case)
     case["priority"] = final_priority
 
@@ -192,6 +252,8 @@ def apply_priority_semantics_to_case(
             "priority_score": int(score_result.get("priority_score") or 0),
             "suggested_priority": str(score_result.get("suggested_priority") or "P2"),
             "final_priority": final_priority,
+            "focus_score": int(score_result.get("focus_score") or 0),
+            "ui_like_case": bool(score_result.get("ui_like_case")),
             "priority_reasons": [str(item) for item in (score_result.get("reasons") or [])],
             "priority_guards": dict(score_result.get("guards") or {}),
             "covered_rule_ids": [str(item) for item in (score_result.get("covered_rule_ids") or [])],
@@ -202,6 +264,10 @@ def apply_priority_semantics_to_case(
             "rule_risk_reasons": [str(item) for item in (score_result.get("rule_risk_reasons") or [])],
             "case_level_release_blocking": bool(score_result.get("case_level_release_blocking")),
             "case_level_hard_guard": bool(score_result.get("case_level_hard_guard")),
+            "p1_uplifted": bool(score_result.get("p1_uplifted")),
+            "p1_uplift_reason": str(score_result.get("p1_uplift_reason") or ""),
+            "uplift_source": str(score_result.get("uplift_source") or ""),
+            "bonus_score": int(score_result.get("bonus_score") or 0),
             "p2_cap": bool(score_result.get("p2_cap")),
             "p2_cap_exempted": bool(score_result.get("p2_cap_exempted")),
             "p2_cap_exemption_reasons": [str(item) for item in (score_result.get("p2_cap_exemption_reasons") or [])],

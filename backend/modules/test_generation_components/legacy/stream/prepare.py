@@ -6,7 +6,13 @@ from sqlalchemy.orm import Session
 
 from core.ai.ai_client import get_client_for_user
 from core.db.models import TestGeneration
+from modules.memory_fabric.contracts.memory_context import MemoryContext
+from modules.memory_fabric.runtime.diagnostics import init_memory_diag
+from modules.memory_fabric.runtime.factory import get_memory_fabric
 from modules.testing.test_generation_components.prompting.generation_diagnostics import build_gate_reason_chain
+from modules.testing.test_generation_components.control.build_feedback_control_state import (
+    build_feedback_control_state,
+)
 from modules.testing.test_generation_components.legacy.adapters import (
     count_unique_test_cases,
     deduplicate_test_cases,
@@ -36,6 +42,7 @@ class LegacyGenerationStreamPrepareMixin:
         only_current_biz: bool = False,
         multi_pass: bool = True,
         generation_mode: str = "",
+        enable_sample_pool_feedback: bool = True,
     ) -> Iterator[dict[str, Any]]:
         # Get client for user
         client = get_client_for_user(user_id, db)
@@ -46,6 +53,19 @@ class LegacyGenerationStreamPrepareMixin:
         kb_context = ""
         context_result: dict[str, Any] = {}
         gate_debug: dict[str, Any] = {}
+        feedback_control_state: dict[str, Any] = {}
+        memory_diag: dict[str, Any] = init_memory_diag()
+        memory_fabric = None
+        try:
+            memory_fabric = get_memory_fabric()
+        except Exception:
+            memory_fabric = None
+        memory_ctx = MemoryContext.from_runtime(
+            user_id=user_id,
+            project_id=project_id,
+            run_id=request_id,
+            request_id=request_id,
+        )
         
         # Determine start_id if appending
         start_id = 1
@@ -152,6 +172,10 @@ class LegacyGenerationStreamPrepareMixin:
                 compress=compress,
                 status_messages=status_messages,
                 precision_mode=True,
+                memory_fabric=memory_fabric,
+                memory_ctx=memory_ctx,
+                memory_diag=memory_diag,
+                request_id=request_id,
             )
             fusion_debug = context_result.get("fusion_debug") or {}
             if gate_debug:
@@ -169,6 +193,17 @@ class LegacyGenerationStreamPrepareMixin:
             fusion_debug["final_generation_context_mode"] = context_result.get("context_source") or "empty"
             context_result["fusion_debug"] = fusion_debug
             kb_context = context_result.get("kb_context") or ""
+            feedback_control_state = build_feedback_control_state(
+                db=db,
+                project_id=project_id,
+                user_id=user_id,
+                requirement_text=original_requirement,
+                enable_priority_sample_pool=bool(enable_sample_pool_feedback),
+                include_agent_learning=True,
+                memory_fabric=memory_fabric,
+                memory_ctx=memory_ctx,
+                memory_diag=memory_diag,
+            ).to_dict()
 
             # 中文注释：向前端显式透出 snapshot 回退策略状态，避免将 not ready 误判为失败。
             context_debug_payload = {
@@ -324,5 +359,7 @@ class LegacyGenerationStreamPrepareMixin:
             "only_current_biz": bool(only_current_biz),
             "multi_pass": bool(multi_pass),
             "generation_mode": str(generation_mode or "").strip().lower(),
+            "feedback_control_state": feedback_control_state,
+            "memory_diag": memory_diag,
         }
 

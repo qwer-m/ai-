@@ -301,12 +301,7 @@ export async function importRagDataset(formData: FormData) {
 }
 
 export async function exportRagDataset(datasetId: number) {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`/api/rag/datasets/export/${datasetId}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) throw new Error(`导出失败: ${res.status}`);
-  return res.blob();
+  return api.getBlob(`/api/rag/datasets/export/${datasetId}`);
 }
 
 

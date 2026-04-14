@@ -29,6 +29,7 @@ def stream_postprocess_cases(
     current_biz_key: str = "",
     multi_pass: bool = True,
     generation_mode: str = "",
+    feedback_control_state: dict[str, Any] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Stream postprocess: dedup + quality filtering + rerank + convergence diagnostics."""
 
@@ -37,6 +38,32 @@ def stream_postprocess_cases(
         build_gap_fill_prompt,
         build_review_select_prompt,
     )
+    from modules.testing.test_generation_components.control.feedback_control_state import (
+        FeedbackControlState,
+    )
+
+    control_state = FeedbackControlState.from_any(feedback_control_state)
+    must_cover_rule_set = {str(rule).strip().upper() for rule in (control_state.must_cover_rules or []) if str(rule).strip()}
+    forbidden_patterns = [str(item).strip() for item in (control_state.forbidden_patterns or []) if str(item).strip()]
+    soft_constraints = [str(item).strip() for item in (control_state.soft_constraints or []) if str(item).strip()]
+    quality_fix_hints = [str(item).strip() for item in (control_state.quality_fix_hints or []) if str(item).strip()]
+
+    def _normalize_match_text(value: str) -> str:
+        lowered = str(value or "").strip().lower()
+        lowered = re.sub(r"[^\w\u4e00-\u9fff]+", "", lowered)
+        return lowered
+
+    normalized_forbidden_patterns = [_normalize_match_text(item) for item in forbidden_patterns if _normalize_match_text(item)]
+    normalized_soft_constraints = [_normalize_match_text(item) for item in soft_constraints if _normalize_match_text(item)]
+    quality_hint_keywords: list[str] = []
+    for hint in quality_fix_hints:
+        normalized_hint = _normalize_match_text(hint)
+        if not normalized_hint:
+            continue
+        tokens = re.findall(r"[\u4e00-\u9fff]{2,}|[a-z0-9_]{3,}", normalized_hint)
+        for token in tokens[:4]:
+            if token not in quality_hint_keywords:
+                quality_hint_keywords.append(token)
 
     def _merged_unique_total(new_cases: Any) -> int:
         merged: list[dict[str, Any]] = []
@@ -127,6 +154,69 @@ def stream_postprocess_cases(
         keys = re.findall(r"\bREQ[-_ ]?\d+\b", raw, flags=re.IGNORECASE)
         normalized = [re.sub(r"[-_ ]+", "-", key.upper()) for key in keys]
         return sorted(set(normalized))
+
+    def _hit_must_cover_rule(rule_keys: list[str], score_profile: dict[str, Any] | None = None) -> bool:
+        if not must_cover_rule_set:
+            return False
+        profile = dict(score_profile or {})
+        case_rules = set()
+        for key in (rule_keys or []):
+            normalized = str(key or "").strip().upper()
+            if normalized:
+                case_rules.add(normalized)
+        for field in ("covered_rule_ids", "missing_rule_hits", "core_rule_hits", "unique_coverage_hits"):
+            for item in (profile.get(field) or []):
+                normalized = str(item or "").strip().upper()
+                if normalized:
+                    case_rules.add(normalized)
+        return bool(case_rules.intersection(must_cover_rule_set))
+
+    def _violates_forbidden_pattern(case: dict[str, Any]) -> bool:
+        if not normalized_forbidden_patterns:
+            return False
+        text = _normalize_match_text(
+            " ".join(
+                [
+                    str(case.get("description") or ""),
+                    str(case.get("test_module") or ""),
+                    str(case.get("expected_result") or ""),
+                    str(case.get("test_input") or ""),
+                    " ".join([str(x) for x in (case.get("steps") or []) if str(x).strip()]) if isinstance(case.get("steps"), list) else "",
+                ]
+            )
+        )
+        return any(pattern and pattern in text for pattern in normalized_forbidden_patterns)
+
+    def _hits_soft_constraint(case: dict[str, Any]) -> bool:
+        if not normalized_soft_constraints:
+            return False
+        text = _normalize_match_text(
+            " ".join(
+                [
+                    str(case.get("description") or ""),
+                    str(case.get("test_module") or ""),
+                    str(case.get("expected_result") or ""),
+                    str(case.get("test_input") or ""),
+                    " ".join([str(x) for x in (case.get("steps") or []) if str(x).strip()]) if isinstance(case.get("steps"), list) else "",
+                ]
+            )
+        )
+        return any(pattern and pattern in text for pattern in normalized_soft_constraints)
+
+    def _satisfies_quality_hint(case: dict[str, Any]) -> bool:
+        if not quality_hint_keywords:
+            return False
+        text = _normalize_match_text(
+            " ".join(
+                [
+                    str(case.get("description") or ""),
+                    str(case.get("expected_result") or ""),
+                    str(case.get("test_input") or ""),
+                    " ".join([str(x) for x in (case.get("steps") or []) if str(x).strip()]) if isinstance(case.get("steps"), list) else "",
+                ]
+            )
+        )
+        return any(keyword in text for keyword in quality_hint_keywords)
 
     def _is_low_quality(case: dict[str, Any]) -> bool:
         desc = str(case.get("description") or "").strip()
@@ -340,6 +430,7 @@ def stream_postprocess_cases(
                 "coverage_gain_score": int(coverage_gain_score),
                 "high_signal_seed": bool(high_signal_seed),
                 "ui_like_case": bool(ui_like_case),
+                "soft_constraint_hit": bool(_hits_soft_constraint(item)),
                 "semantic_signature": semantic_sig,
                 "semantic_tokens": semantic_tokens,
                 # priority 保留为最后层 tie-breaker，弱影响
@@ -362,7 +453,12 @@ def stream_postprocess_cases(
 
         seed_ordered_entries = sorted(
             rank_entries,
-            key=lambda entry: tuple([-value for value in _seed_sort_key(entry)]) + (str(entry.get("signature") or ""),),
+            key=lambda entry: tuple([-value for value in _seed_sort_key(entry)])
+            + (
+                # soft constraint is tie-break only: never participates in primary ranking.
+                int(bool(entry.get("soft_constraint_hit"))),
+                str(entry.get("signature") or ""),
+            ),
         )
         fallback_first_entry = seed_ordered_entries[0] if seed_ordered_entries else None
         remaining_entries = list(seed_ordered_entries)
@@ -407,7 +503,11 @@ def stream_postprocess_cases(
 
             remaining_entries.sort(
                 key=lambda entry: tuple([-value for value in tuple(entry.get("dynamic_sort_key") or ())])
-                + (str(entry.get("signature") or ""),)
+                + (
+                    # soft constraint is tie-break only: applies after primary/risk/coverage ordering.
+                    int(bool(entry.get("soft_constraint_hit"))),
+                    str(entry.get("signature") or ""),
+                )
             )
             current = remaining_entries.pop(0)
             rank += 1
@@ -424,6 +524,7 @@ def stream_postprocess_cases(
             core_rule_hits = [str(x) for x in (current.get("core_rule_hits") or []) if str(x).strip()]
             unique_coverage_hits = [str(x) for x in (current.get("unique_coverage_hits") or []) if str(x).strip()]
             ui_like_case = bool(current.get("ui_like_case"))
+            soft_constraint_hit = bool(current.get("soft_constraint_hit"))
             semantic_signature = str(current.get("semantic_signature") or "")
             semantic_tokens = set(current.get("semantic_tokens") or set())
             primary_rule_key = rule_keys[0] if rule_keys else f"BUCKET::{bucket}"
@@ -520,6 +621,7 @@ def stream_postprocess_cases(
                     "duplicate_of_case_id": duplicate_of_case_id,
                     "rule_cap_applied": bool(rule_cap_applied),
                     "ui_like_case": bool(ui_like_case),
+                    "soft_constraint_hit": bool(soft_constraint_hit),
                     "retained_rank_within_rule": int(retained_rank_within_rule),
                 }
 

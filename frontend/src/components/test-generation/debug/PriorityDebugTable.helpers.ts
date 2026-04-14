@@ -5,7 +5,14 @@ export type SampleTag = 'over_raised' | 'over_lowered' | 'display_mismatch' | 'r
 export type SampleUsage = 'prompt_opt' | 'rule_opt' | 'retrieval_opt' | 'manual_review';
 export type ReasonCategory = '' | 'core_flow' | 'exception_path' | 'boundary_condition' | 'state_transition' | 'redundant_case' | 'display_issue' | 'other';
 
-export type Props = { result: any; resultSource: ResultSource };
+export type Props = {
+  result: any;
+  resultSource: ResultSource;
+  projectId?: number | null;
+  generationId?: number | null;
+  enableSamplePoolFeedback: boolean;
+  onToggleSamplePoolFeedback: (next: boolean) => void;
+};
 export type PriorityRow = {
   index: number; caseId: string; title: string; rawPriority: PriorityValue; finalPriority: PriorityValue; displayPriority: PriorityValue;
   corrected: boolean; rawFinalMismatch: boolean; displayFinalMismatch: boolean; resultSource: ResultSource; priorityDebug: Record<string, unknown> | null;
@@ -32,8 +39,8 @@ export type OptimizationInputPackage = {
 export const SAMPLE_POOL_STORAGE_KEY = 'tg_priority_anomaly_pool_v1';
 export const SAMPLE_TAG_ORDER: SampleTag[] = ['over_raised', 'over_lowered', 'display_mismatch', 'rule_adjusted', 'manual_review'];
 export const REASON_CATEGORY_OPTIONS: Array<{ value: ReasonCategory; label: string }> = [
-  { value: '', label: '未分类' }, { value: 'core_flow', label: 'core_flow' }, { value: 'exception_path', label: 'exception_path' }, { value: 'boundary_condition', label: 'boundary_condition' },
-  { value: 'state_transition', label: 'state_transition' }, { value: 'redundant_case', label: 'redundant_case' }, { value: 'display_issue', label: 'display_issue' }, { value: 'other', label: 'other' },
+  { value: '', label: '未分类' }, { value: 'core_flow', label: '核心流程' }, { value: 'exception_path', label: '异常路径' }, { value: 'boundary_condition', label: '边界条件' },
+  { value: 'state_transition', label: '状态迁移' }, { value: 'redundant_case', label: '冗余用例' }, { value: 'display_issue', label: '展示问题' }, { value: 'other', label: '其他' },
 ];
 
 export function normalizePriority(value: unknown): PriorityValue {

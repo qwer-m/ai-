@@ -15,6 +15,19 @@ from core.db.models import Evaluation, TestGenerationComparison
 import json
 import re
 
+
+_MISSING_SIGNAL_PATTERNS = (
+    re.compile(r"原生成.*未(包含|覆盖|涉及|提供)"),
+    re.compile(r"生成.*未(包含|覆盖|涉及|提供)"),
+    re.compile(r"(未包含|未覆盖|缺失|缺少|遗漏|漏测|漏掉|需补充|需要补充|补充)"),
+    re.compile(r"新增.*(用例|验证|场景|步骤)"),
+)
+
+_HALLUCINATION_SIGNAL_PATTERNS = (
+    re.compile(r"(多余|冗余|无关|重复|不必要|幻觉|臆造|虚构|凭空|杜撰|不存在|误报|错误断言)"),
+    re.compile(r"(生成|原用例).*(多余|冗余|重复|无关)"),
+)
+
 def _truncate_utf8_for_mysql_text(value: str, max_bytes: int = 65000) -> str:
     text = value or ""
     raw = text.encode("utf-8")
@@ -27,6 +40,80 @@ def _truncate_utf8_for_mysql_text(value: str, max_bytes: int = 65000) -> str:
         except UnicodeDecodeError:
             clipped = clipped[:-1]
     return ""
+
+
+def _to_clean_text_list(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    cleaned: list[str] = []
+    for item in value:
+        text = str(item).strip()
+        if text:
+            cleaned.append(text)
+    return cleaned
+
+
+def _count_signal(items: list[str], patterns: tuple[re.Pattern[str], ...]) -> int:
+    score = 0
+    for item in items:
+        if any(p.search(item) for p in patterns):
+            score += 1
+    return score
+
+
+def _should_swap_defect_lists(missing_points: list[str], hallucinations: list[str]) -> bool:
+    """
+    当 LLM 明显把 missing_points / hallucinations 方向写反时进行纠偏。
+    仅在文本信号足够明显时触发，避免误伤正常结果。
+    """
+    current_orientation_score = _count_signal(missing_points, _MISSING_SIGNAL_PATTERNS) + _count_signal(hallucinations, _HALLUCINATION_SIGNAL_PATTERNS)
+    swapped_orientation_score = _count_signal(missing_points, _HALLUCINATION_SIGNAL_PATTERNS) + _count_signal(hallucinations, _MISSING_SIGNAL_PATTERNS)
+    total_signal = current_orientation_score + swapped_orientation_score
+    return total_signal >= 2 and swapped_orientation_score >= current_orientation_score + 1
+
+
+def _normalize_compare_result_json(raw_result: str) -> str:
+    text = (raw_result or "").strip()
+    if not text:
+        return raw_result
+
+    try:
+        payload = json.loads(text)
+    except Exception:
+        return raw_result
+
+    if not isinstance(payload, dict):
+        return raw_result
+
+    defect_analysis = payload.get("defect_analysis")
+    if not isinstance(defect_analysis, dict):
+        return raw_result
+
+    missing_points = _to_clean_text_list(defect_analysis.get("missing_points"))
+    hallucinations = _to_clean_text_list(defect_analysis.get("hallucinations"))
+    modifications = _to_clean_text_list(defect_analysis.get("modifications"))
+
+    should_swap = _should_swap_defect_lists(missing_points, hallucinations)
+    if should_swap:
+        missing_points, hallucinations = hallucinations, missing_points
+
+    changed = (
+        should_swap
+        or defect_analysis.get("missing_points") != missing_points
+        or defect_analysis.get("hallucinations") != hallucinations
+        or defect_analysis.get("modifications") != modifications
+    )
+    if not changed:
+        return raw_result
+
+    normalized_defect_analysis = dict(defect_analysis)
+    normalized_defect_analysis["missing_points"] = missing_points
+    normalized_defect_analysis["hallucinations"] = hallucinations
+    if "modifications" in defect_analysis or modifications:
+        normalized_defect_analysis["modifications"] = modifications
+
+    payload["defect_analysis"] = normalized_defect_analysis
+    return json.dumps(payload, ensure_ascii=False, indent=2)
 
 class EvaluationModule:
     """
@@ -149,9 +236,14 @@ class EvaluationModule:
         4. Semantic Similarity: Overall semantic similarity score (0.0 to 1.0).
 
         Perform Defect Attribution Analysis for discrepancies:
-        - Identify missing cases/steps (Recall loss).
-        - Identify hallucinated/unnecessary cases/steps (Precision loss).
+        - Identify missing cases/steps (Recall loss): items that EXIST in Modified Test Case but are ABSENT in Generated Test Case.
+        - Identify hallucinated/unnecessary cases/steps (Precision loss): items that EXIST in Generated Test Case but are ABSENT in Modified Test Case.
         - Identify modified logic (Correction).
+
+        Field mapping rules (must follow strictly):
+        - defect_analysis.missing_points: only list "modified has, generated lacks" items.
+        - defect_analysis.hallucinations: only list "generated has, modified lacks" items.
+        - If a line implies "新增/补充/原生成未覆盖", it belongs to missing_points, NOT hallucinations.
 
         Return the result strictly in the following JSON format:
         {
@@ -183,6 +275,8 @@ class EvaluationModule:
              match = re.search(r'```\s*([\s\S]*?)\s*```', result)
              if match:
                  result = match.group(1)
+
+        result = _normalize_compare_result_json(result)
 
         if db:
             try:

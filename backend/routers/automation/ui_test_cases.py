@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
 from core.db.database import get_db
-from core.db.models import UITestCase, Project, User
+from core.db.models import User
 from core.authn.auth import get_current_user
+from modules.automation_components.services.ui_test_case_service import UITestCaseService
 
 router = APIRouter(
     prefix="/ui-test-cases",
@@ -50,12 +51,6 @@ class UITestCaseResponse(BaseModel):
 
 UITestCaseResponse.update_forward_refs()
 
-def _verify_project_access(project_id: int, db: Session, current_user: User):
-    project = db.query(Project).filter(Project.id == project_id, Project.user_id == current_user.id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
-
 @router.get("/", response_model=List[UITestCaseResponse])
 def get_test_cases(project_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
@@ -65,48 +60,35 @@ def get_test_cases(project_id: int, db: Session = Depends(get_db), current_user:
     OR we can return tree structure if we use recursive query.
     Let's return the full flat list for the project, it's easier for drag-n-drop.
     """
-    _verify_project_access(project_id, db, current_user)
-    return db.query(UITestCase).filter(UITestCase.project_id == project_id).all()
+    status, rows = UITestCaseService(db).list_cases(project_id=project_id, user_id=current_user.id)
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail="Project not found")
+    return rows
 
 @router.post("/", response_model=UITestCaseResponse)
 def create_test_case(item: UITestCaseCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    _verify_project_access(item.project_id, db, current_user)
-    db_item = UITestCase(**item.dict())
-    db.add(db_item)
-    db.commit()
-    db.refresh(db_item)
+    status, db_item = UITestCaseService(db).create_case(
+        payload=item.model_dump(),
+        user_id=current_user.id,
+    )
+    if status == "project_not_found" or not db_item:
+        raise HTTPException(status_code=404, detail="Project not found")
     return db_item
 
 @router.put("/{item_id}", response_model=UITestCaseResponse)
 def update_test_case(item_id: int, item: UITestCaseUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    db_item = (
-        db.query(UITestCase)
-        .join(Project, Project.id == UITestCase.project_id)
-        .filter(UITestCase.id == item_id, Project.user_id == current_user.id)
-        .first()
+    status, db_item = UITestCaseService(db).update_case(
+        item_id=item_id,
+        payload=item.model_dump(exclude_unset=True),
+        user_id=current_user.id,
     )
-    if not db_item:
+    if status == "not_found" or not db_item:
         raise HTTPException(status_code=404, detail="Test case not found")
-    
-    update_data = item.dict(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(db_item, key, value)
-    
-    db.commit()
-    db.refresh(db_item)
     return db_item
 
 @router.delete("/{item_id}")
 def delete_test_case(item_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    db_item = (
-        db.query(UITestCase)
-        .join(Project, Project.id == UITestCase.project_id)
-        .filter(UITestCase.id == item_id, Project.user_id == current_user.id)
-        .first()
-    )
-    if not db_item:
+    deleted = UITestCaseService(db).delete_case(item_id=item_id, user_id=current_user.id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Test case not found")
-    
-    db.delete(db_item)
-    db.commit()
     return {"ok": True}

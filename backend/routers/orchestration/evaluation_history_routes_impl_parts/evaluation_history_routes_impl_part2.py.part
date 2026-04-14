@@ -1,18 +1,16 @@
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    get_owned_project(project_id, db, current_user.id)
+    service = EvaluationHistoryService(db)
+    if not service.has_owned_project(project_id=project_id, user_id=current_user.id):
+        raise HTTPException(status_code=404, detail="Project not found")
 
-    query = db.query(KnowledgeDocument).filter(
-        KnowledgeDocument.project_id == project_id,
-        KnowledgeDocument.user_id == current_user.id,
-        KnowledgeDocument.doc_type == "evaluation_report",
-    )
     normalized_key = build_source_key(source_key or "") if source_key else None
-    if normalized_key:
-        query = query.filter(KnowledgeDocument.filename.like(f"evaluation_report_{normalized_key}_%"))
-
-    doc = query.order_by(desc(KnowledgeDocument.created_at), desc(KnowledgeDocument.id)).first()
+    doc = service.get_latest_supplement_doc(
+        project_id=project_id,
+        user_id=current_user.id,
+        source_key=normalized_key,
+    )
     if not doc:
         return {"found": False}
     return {
@@ -35,7 +33,10 @@ async def save_evaluation_knowledge(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    get_owned_project(project_id, db, current_user.id)
+    service = EvaluationHistoryService(db)
+    if not service.has_owned_project(project_id=project_id, user_id=current_user.id):
+        raise HTTPException(status_code=404, detail="Project not found")
+
     client = get_client_for_user(current_user.id, db)
     ocr_model = client.vl_model if client else ""
     normalized_source_title = normalize_source_title(source_title)
@@ -92,72 +93,27 @@ async def save_evaluation_knowledge(
     content = "\n\n".join(sections)
     filename = source_filename(normalized_source_key)
 
-    replaced_previous = False
-    previous_doc_id: Optional[int] = None
-    if doc_id:
-        doc = db.query(KnowledgeDocument).filter(
-            KnowledgeDocument.id == doc_id,
-            KnowledgeDocument.project_id == project_id,
-            KnowledgeDocument.user_id == current_user.id,
-        ).first()
-        if not doc:
-            raise HTTPException(status_code=404, detail="Knowledge document not found")
-        replaced_previous = True
-        previous_doc_id = doc.id
-        doc.filename = filename
-        doc.content = content
-        doc.doc_type = "evaluation_report"
-        db.commit()
-        db.refresh(doc)
-    else:
-        existing = (
-            db.query(KnowledgeDocument)
-            .filter(
-                KnowledgeDocument.project_id == project_id,
-                KnowledgeDocument.user_id == current_user.id,
-                KnowledgeDocument.doc_type == "evaluation_report",
-                KnowledgeDocument.filename.like(f"evaluation_report_{normalized_source_key}_%"),
-            )
-            .order_by(desc(KnowledgeDocument.created_at), desc(KnowledgeDocument.id))
-            .first()
-        )
-        if existing:
-            replaced_previous = True
-            previous_doc_id = existing.id
-            existing.filename = filename
-            existing.content = content
-            existing.doc_type = "evaluation_report"
-            db.commit()
-            db.refresh(existing)
-            doc = existing
-        else:
-            from modules.domain.knowledge_base import knowledge_base
+    status, doc, replaced_previous, previous_doc_id, conflict = service.upsert_evaluation_report(
+        project_id=project_id,
+        user_id=current_user.id,
+        doc_id=doc_id,
+        source_key=normalized_source_key,
+        filename=filename,
+        content=content,
+    )
+    if status == "not_found":
+        raise HTTPException(status_code=404, detail="Knowledge document not found")
+    if status == "conflict":
+        raise HTTPException(status_code=409, detail=conflict)
+    if not doc:
+        raise HTTPException(status_code=500, detail="Failed to save evaluation knowledge")
 
-            created = knowledge_base.add_document(
-                filename,
-                content,
-                "evaluation_report",
-                project_id,
-                db,
-                force=True,
-                user_id=current_user.id,
-            )
-            if isinstance(created, dict):
-                raise HTTPException(status_code=409, detail=created)
-            doc = created
-
-    log_workflow_trace(
-        db,
-        project_id,
-        current_user.id,
-        WorkflowKind.EVALUATION,
-        WorkflowStage.LEARN,
-        {
-            "action": "save_evaluation_knowledge",
-            "doc_id": doc.id,
-            "attachments": len(attachments),
-            "content_length": len(content),
-        },
+    service.log_save_knowledge(
+        project_id=project_id,
+        user_id=current_user.id,
+        doc_id=doc.id,
+        attachment_count=len(attachments),
+        content_length=len(content),
     )
     ocr_ok_count = sum(1 for item in attachment_details if item.get("ocr_ok"))
     ocr_failed_files = [item.get("filename") or "" for item in attachment_details if not item.get("ocr_ok")]

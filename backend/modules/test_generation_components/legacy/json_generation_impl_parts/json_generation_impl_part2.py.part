@@ -51,13 +51,17 @@
             existing_cases=[],
             current_biz_key=current_biz_key,
             only_current_biz=bool(only_current_biz),
+            feedback_control_state=feedback_control_state,
         )
+        # 中文注释：控制层只做生成约束增强，诊断字段透传到 GEN_DIAG 便于闭环观测。
+        feedback_control_diag_payload: dict[str, Any] = dict(prompt_context.get("control_summary") or {})
         resolved_current_biz = str(prompt_context.get("current_biz_key") or "unknown")
         base_prompt = build_closed_loop_base_prompt(
             strategy_plan,
             requirement_context=prompt_context.get("requirement_context") or "",
             testcase_context=prompt_context.get("testcase_context") or "(empty)",
             supplement_context=prompt_context.get("supplement_context") or "(empty)",
+            control_context=prompt_context.get("control_context") or "",
             current_biz_key=resolved_current_biz,
             doc_type=doc_type,
             pretty_json=False,
@@ -142,11 +146,12 @@ Return ONLY the JSON array.
                 multi_pass=bool(multi_pass),
                 generation_mode=generation_mode,
                 prompt_context=prompt_context,
-                build_base_prompt_fn=lambda req_ctx, tc_ctx, sup_ctx, biz_key: build_closed_loop_base_prompt(
+                build_base_prompt_fn=lambda req_ctx, tc_ctx, sup_ctx, ctl_ctx, biz_key: build_closed_loop_base_prompt(
                     strategy_plan,
                     requirement_context=req_ctx,
                     testcase_context=tc_ctx,
                     supplement_context=sup_ctx,
+                    control_context=ctl_ctx,
                     current_biz_key=biz_key,
                     doc_type=doc_type,
                     pretty_json=False,

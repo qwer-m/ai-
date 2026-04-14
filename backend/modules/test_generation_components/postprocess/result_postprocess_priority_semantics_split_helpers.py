@@ -27,6 +27,46 @@ def score_case_priority(
         if reason not in reasons:
             reasons.append(reason)
 
+    def _focus_score(value: str) -> int:
+        lowered = str(value or "").lower()
+        points = 0
+        if _contains_any(lowered, ("边界", "最大", "最小", "临界", "boundary", "max", "min")):
+            points += 2
+        if _contains_any(lowered, ("异常", "失败", "错误", "拒绝", "exception", "error", "invalid")):
+            points += 2
+        if _contains_any(lowered, ("状态", "流转", "state", "transition")):
+            points += 1
+        return points
+
+    def _is_ui_like_case(value: str) -> bool:
+        lowered = str(value or "").lower()
+        ui_keywords = (
+            "入口",
+            "图标",
+            "按钮",
+            "展示",
+            "布局",
+            "占位",
+            "置灰",
+            "文案",
+            "显示",
+            "隐藏",
+            "可点击",
+            "样式",
+            "icon",
+            "button",
+            "display",
+            "layout",
+            "placeholder",
+            "style",
+        )
+        if not _contains_any(lowered, ui_keywords):
+            return False
+        risk_words = ("异常", "失败", "错误", "权限", "安全", "并发", "性能", "exception", "error", "security", "permission")
+        if _contains_any(lowered, risk_words):
+            return False
+        return True
+
     main_workflow_hit = _contains_any(
         text,
         (
@@ -119,6 +159,9 @@ def score_case_priority(
         _add("degraded_but_usable", 10)
     if important_regression:
         _add("important_regression_validation", 8)
+
+    focus_score = int(_focus_score(text))
+    ui_like_case = bool(_is_ui_like_case(text))
 
     if _contains_any(
         text,
@@ -383,6 +426,8 @@ def score_case_priority(
         "suggested_priority": suggested,
         "guards": guards,
         "reasons": reasons,
+        "focus_score": int(focus_score),
+        "ui_like_case": bool(ui_like_case),
         "covered_rule_ids": covered_rule_ids,
         "case_covering_rules": covered_rule_ids,
         "case_unique_rule_hits_count": int(len(unique_coverage_hits)),

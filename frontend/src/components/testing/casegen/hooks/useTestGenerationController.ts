@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { cleanStreamingContent } from '../../../test-generation/streamContent';
 import { useRagDebugStore } from '../../../test-generation/debug/debugStore';
 import { extractFirstJsonArray, getUniqueCaseCount } from './testGenerationCaseUtils';
@@ -28,6 +28,7 @@ const readStoredJSON = <T,>(key: string, fallback: T) => {
 };
 
 const getProjectKey = (projectId: number | null, base: string) => (projectId ? `${base}_${projectId}` : base);
+const SAMPLE_POOL_FEEDBACK_STORAGE_KEY = 'tg_enable_sample_pool_feedback';
 
 type ResultSource = 'none' | 'streaming_preview' | 'final_persisted';
 
@@ -35,6 +36,7 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   const fileInputRef = useRef<HTMLInputElement>(null);
   const protoInputRef = useRef<HTMLInputElement>(null);
   const uploadZoneRef = useRef<HTMLDivElement>(null);
+  const previousProjectIdRef = useRef<number | null | undefined>(undefined);
   const ingestDebugEvent = useRagDebugStore((s) => s.ingestDiag);
   const resetDebugState = useRagDebugStore((s) => s.reset);
   const setResultDebugState = useRagDebugStore((s) => s.setResultState);
@@ -48,6 +50,7 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   const [docType, setDocType] = useState(() => readStoredString('tg_docType') || 'requirement');
   const [protoFile, setProtoFile] = useState<File | null>(null);
   const [force, setForce] = useState(false);
+  const [enableSamplePoolFeedback, setEnableSamplePoolFeedback] = useState(() => readStoredString(SAMPLE_POOL_FEEDBACK_STORAGE_KEY, 'true') !== 'false');
   const [isDragActive, setIsDragActive] = useState(false);
   const [compress, setCompress] = useState(() => readStoredString('tg_compress') === 'true');
   const [expectedCount, setExpectedCount] = useState(() => readStoredNumber(getProjectKey(projectId, 'tg_expectedCount'), 20));
@@ -100,9 +103,21 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   }, [isActive]);
 
   useEffect(() => {
-    // 中文注释：项目切换或标签切换后，重置调试面板以避免串项目数据。
-    resetDebugState();
-  }, [projectId, isActive, resetDebugState]);
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(SAMPLE_POOL_FEEDBACK_STORAGE_KEY, enableSamplePoolFeedback ? 'true' : 'false');
+  }, [enableSamplePoolFeedback]);
+
+  useEffect(() => {
+    // Reset debug store only when project changes; keep it when this page is temporarily hidden.
+    if (previousProjectIdRef.current === undefined) {
+      previousProjectIdRef.current = projectId;
+      return;
+    }
+    if (previousProjectIdRef.current !== projectId) {
+      resetDebugState();
+      previousProjectIdRef.current = projectId;
+    }
+  }, [projectId, resetDebugState]);
 
   useEffect(() => {
     setResultDebugState({
@@ -111,8 +126,7 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
       generationId,
       isFinalResultLoaded,
     });
-    // 中文注释：把结果来源诊断明确打到控制台，便于排查“预览态/最终态”切换问题。
-    console.info(`[TG_RESULT_DIAG] resultSource=${resultSource}`);
+    // 涓枃娉ㄩ噴锛氭妸缁撴灉鏉ユ簮璇婃柇鏄庣‘鎵撳埌鎺у埗鍙帮紝渚夸簬鎺掓煡鈥滈瑙堟€?鏈€缁堟€佲€濆垏鎹㈤棶棰樸€?    console.info(`[TG_RESULT_DIAG] resultSource=${resultSource}`);
     console.info(`[TG_RESULT_DIAG] generationId=${generationId ?? 'null'}`);
     console.info(`[TG_RESULT_DIAG] isFinalResultLoaded=${isFinalResultLoaded ? 'true' : 'false'}`);
   }, [mode, resultSource, generationId, isFinalResultLoaded, setResultDebugState]);
@@ -162,6 +176,7 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     docType,
     compress,
     force,
+    enableSamplePoolFeedback,
     expectedCount,
     appendCount,
     textResult,
@@ -259,6 +274,8 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     setAppendCount,
     force,
     setForce,
+    enableSamplePoolFeedback,
+    setEnableSamplePoolFeedback,
     projectId,
     hasJsonInResultBox,
     isLimitReached,

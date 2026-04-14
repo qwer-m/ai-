@@ -1,4 +1,4 @@
-import { getAuthHeaders } from '../../../../utils/api';
+import { api } from '../../../../utils/api';
 import type { TestGenerationMode } from '../../../test-generation/types';
 import { getCopyPayload, parseStreamingArrayContent, translateError } from './testGenerationCaseUtils';
 
@@ -40,9 +40,7 @@ export function useTestGenerationResultActions({
     }
     if (!exportData.length) return;
     try {
-      const resp = await fetch('/api/export-tests-excel', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }, body: JSON.stringify(exportData) });
-      if (!resp.ok) throw new Error('Export failed');
-      const blob = await resp.blob();
+      const blob = await api.postBlob('/api/export-tests-excel', exportData);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

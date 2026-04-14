@@ -22,6 +22,38 @@
                                 message=f"GEN_DIAG:{json.dumps(coverage_payload, ensure_ascii=False)}",
                             )
                         )
+                    if feedback_control_diag_payload:
+                        control_diag_payload = {
+                            "kind": "feedback_control_state",
+                            **dict(feedback_control_diag_payload),
+                            "request_id": request_id,
+                            "multi_pass": bool(multi_pass),
+                            "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                        }
+                        db.add(
+                            LogEntry(
+                                project_id=project_id,
+                                user_id=user_id,
+                                log_type="system",
+                                message=f"GEN_DIAG:{json.dumps(control_diag_payload, ensure_ascii=False)}",
+                            )
+                        )
+                    if memory_diag:
+                        memory_diag_payload = {
+                            "kind": "memory_fabric_diag",
+                            **dict(memory_diag),
+                            "request_id": request_id,
+                            "multi_pass": bool(multi_pass),
+                            "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                        }
+                        db.add(
+                            LogEntry(
+                                project_id=project_id,
+                                user_id=user_id,
+                                log_type="system",
+                                message=f"GEN_DIAG:{json.dumps(memory_diag_payload, ensure_ascii=False)}",
+                            )
+                        )
                     db.commit()
 
                 db_entry = TestGeneration(

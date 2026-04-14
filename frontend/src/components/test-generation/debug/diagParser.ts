@@ -53,9 +53,14 @@ export type GenDiagEvent =
   | CoverageCheckEvent
   | GenerationPersistedEvent;
 
-const VALID_KINDS = new Set(['generation_mode', 'generation_stage', 'biz_key_pass_stage', 'coverage_check', 'generation_persisted']);
+const VALID_KINDS = new Set([
+  'generation_mode',
+  'generation_stage',
+  'biz_key_pass_stage',
+  'coverage_check',
+  'generation_persisted',
+]);
 
-// 中文注释：统一解析 GEN_DIAG 输入，兼容对象、日志行字符串、纯 JSON 字符串。
 export function parseGenDiagEvent(input: unknown): GenDiagEvent | null {
   if (!input) return null;
 
@@ -70,19 +75,37 @@ export function parseGenDiagEvent(input: unknown): GenDiagEvent | null {
   const text = input.trim();
   if (!text) return null;
 
-  // 中文注释：优先处理 "GEN_DIAG:{...}" 格式。
   const idx = text.indexOf('GEN_DIAG:');
   if (idx >= 0) {
-    const maybeJson = text.slice(idx + 'GEN_DIAG:'.length).trim();
-    return parseGenDiagEvent(safeParseJson(maybeJson));
+    const segments = text.split('GEN_DIAG:').slice(1);
+    for (const segment of segments) {
+      const payload = normalizeDiagPayloadText(segment);
+      const parsed = parseGenDiagEvent(safeParseJson(payload));
+      if (parsed) return parsed;
+    }
   }
 
-  // 中文注释：其次处理整行就是 JSON 的情况。
-  if (text.startsWith('{') && text.endsWith('}')) {
-    return parseGenDiagEvent(safeParseJson(text));
+  const normalizedText = normalizeDiagPayloadText(text);
+  if (normalizedText.startsWith('{') && normalizedText.endsWith('}')) {
+    return parseGenDiagEvent(safeParseJson(normalizedText));
   }
 
   return null;
+}
+
+function normalizeDiagPayloadText(text: string): string {
+  let value = String(text || '').trim();
+
+  // Backward compatibility: some stream chunks ended with literal "\\n".
+  while (value.endsWith('\\n') || value.endsWith('\\r\\n')) {
+    if (value.endsWith('\\r\\n')) {
+      value = value.slice(0, -4).trim();
+      continue;
+    }
+    value = value.slice(0, -2).trim();
+  }
+
+  return value;
 }
 
 function safeParseJson(text: string): unknown {

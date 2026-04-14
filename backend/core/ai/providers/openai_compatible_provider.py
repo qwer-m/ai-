@@ -2,6 +2,7 @@
 
 import base64
 import json
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -18,6 +19,20 @@ class OpenAICompatibleProvider(BaseModelProvider):
         self.api_key = api_key or "sk-placeholder"
         self.model = model
 
+    def _resolve_temperature(self) -> float:
+        raw = os.getenv("AI_TEMPERATURE", "").strip()
+        if raw == "":
+            return 0.7
+        try:
+            value = float(raw)
+        except Exception:
+            return 0.7
+        if value < 0:
+            return 0.0
+        if value > 2:
+            return 2.0
+        return value
+
     def generate(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None) -> str:
         target_model = model or self.model
         url = f"{self.base_url}/chat/completions"
@@ -28,7 +43,7 @@ class OpenAICompatibleProvider(BaseModelProvider):
         payload = {
             "model": target_model,
             "messages": messages,
-            "temperature": 0.7,
+            "temperature": self._resolve_temperature(),
         }
         if max_tokens:
             payload["max_tokens"] = max_tokens
@@ -54,7 +69,7 @@ class OpenAICompatibleProvider(BaseModelProvider):
             "model": target_model,
             "messages": messages,
             "stream": True,
-            "temperature": 0.7,
+            "temperature": self._resolve_temperature(),
         }
         if max_tokens:
             payload["max_tokens"] = max_tokens

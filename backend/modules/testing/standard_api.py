@@ -1,12 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import List, Optional, Any, Dict
-from core.db.database import get_db
-from core.db.models import StandardInterface, User, Project
-from core.authn.auth import get_current_user
-from core.ai.ai_client import get_client_for_user
+from typing import Any, Dict, List, Optional
+
 from datetime import datetime
+
+from core.authn.auth import get_current_user
+from core.db.database import get_db
+from core.db.models import User
+from modules.testing_components.services.standard_interface_service import StandardInterfaceService
 
 """
 标准接口管理模块 (Standard API Management)
@@ -79,10 +81,10 @@ def get_interfaces(project_id: Optional[int] = None, db: Session = Depends(get_d
     查询当前用户在指定项目下的所有接口和目录。
     前端通常会将返回的扁平列表转换为树形结构展示。
     """
-    query = db.query(StandardInterface).filter(StandardInterface.user_id == current_user.id)
-    if project_id:
-        query = query.filter(StandardInterface.project_id == project_id)
-    return query.all()
+    return StandardInterfaceService(db).list_interfaces(
+        user_id=current_user.id,
+        project_id=project_id,
+    )
 
 @router.post("/interfaces", response_model=InterfaceResponse)
 def create_interface(item: InterfaceCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -91,16 +93,12 @@ def create_interface(item: InterfaceCreate, db: Session = Depends(get_db), curre
     
     验证项目归属权后，创建新的接口或目录节点。
     """
-    # Validate Project
-    if item.project_id:
-        project = db.query(Project).filter(Project.id == item.project_id, Project.user_id == current_user.id).first()
-        if not project:
-            raise HTTPException(status_code=404, detail=f"Project with ID {item.project_id} not found")
-
-    db_item = StandardInterface(**item.dict(), user_id=current_user.id)
-    db.add(db_item)
-    db.commit()
-    db.refresh(db_item)
+    db_item, status = StandardInterfaceService(db).create_interface(
+        payload=item.model_dump(),
+        user_id=current_user.id,
+    )
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail=f"Project with ID {item.project_id} not found")
     return db_item
 
 @router.put("/interfaces/{interface_id}", response_model=InterfaceResponse)
@@ -108,17 +106,15 @@ def update_interface(interface_id: int, item: InterfaceUpdate, db: Session = Dep
     """
     更新接口/目录 (Update Interface/Folder)
     """
-    db_item = db.query(StandardInterface).filter(StandardInterface.id == interface_id, StandardInterface.user_id == current_user.id).first()
-    if not db_item:
+    db_item, status = StandardInterfaceService(db).update_interface(
+        interface_id=interface_id,
+        payload=item.model_dump(exclude_unset=True),
+        user_id=current_user.id,
+    )
+    if status == "not_found":
         raise HTTPException(status_code=404, detail="Interface not found")
-    
-    update_data = item.dict(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(db_item, key, value)
-    
-    db.add(db_item)
-    db.commit()
-    db.refresh(db_item)
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail=f"Project with ID {item.project_id} not found")
     return db_item
 
 @router.delete("/interfaces/{interface_id}")
@@ -126,12 +122,12 @@ def delete_interface(interface_id: int, db: Session = Depends(get_db), current_u
     """
     删除接口/目录 (Delete Interface/Folder)
     """
-    db_item = db.query(StandardInterface).filter(StandardInterface.id == interface_id, StandardInterface.user_id == current_user.id).first()
-    if not db_item:
+    deleted = StandardInterfaceService(db).delete_interface(
+        interface_id=interface_id,
+        user_id=current_user.id,
+    )
+    if not deleted:
         raise HTTPException(status_code=404, detail="Interface not found")
-    
-    db.delete(db_item)
-    db.commit()
     return {"message": "Interface deleted"}
 
 class AnalysisRequest(BaseModel):
@@ -147,30 +143,8 @@ class AnalysisRequest(BaseModel):
 @router.post("/analyze_response")
 def analyze_response(req: AnalysisRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Analyze API Response using AI"""
-    client = get_client_for_user(current_user.id, db)
-    
-    prompt = f"""
-    Please analyze the following HTTP API transaction and provide a brief report.
-    
-    Request:
-    {req.method} {req.url}
-    Headers: {req.headers}
-    Body: {req.body[:1000] if req.body else 'None'}
-    
-    Response:
-    Status: {req.response_status}
-    Headers: {req.response_headers}
-    Body: {req.response_body[:2000] if req.response_body else 'None'}
-    Error: {req.error or 'None'}
-    
-    Analysis Requirements:
-    1. Summarize what happened.
-    2. Identify any errors or potential issues (Status code, format, security headers, performance).
-    3. If there is an error, explain the likely cause and how to fix it.
-    4. Provide suggestions for improvement.
-    
-    Output Format: Markdown.
-    """
-    
-    response = client.generate_response(prompt, system_prompt="You are an expert API Testing Assistant.", db=db)
+    response = StandardInterfaceService(db).analyze_response(
+        transaction=req.model_dump(),
+        user_id=current_user.id,
+    )
     return {"analysis": response}

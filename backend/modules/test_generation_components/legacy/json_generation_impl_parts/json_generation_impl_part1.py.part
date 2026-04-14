@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 from core.ai.ai_client import get_client_for_user
 from core.db.models import TestGeneration, LogEntry
 from modules.domain.stage25_switches import STAGE25_SWITCHES
+from modules.memory_fabric.contracts.memory_context import MemoryContext
+from modules.memory_fabric.runtime.diagnostics import init_memory_diag
+from modules.memory_fabric.runtime.factory import get_memory_fabric
 from modules.testing.test_generation_components.prompting.generation_diagnostics import (
     build_coverage_diagnostics,
     build_gate_reason_chain,
@@ -21,6 +24,9 @@ from modules.testing.test_generation_components.prompting.prompt_orchestration i
 )
 from modules.testing.test_generation_components.prompting.structured_context import (
     build_structured_prompt_context,
+)
+from modules.testing.test_generation_components.control.build_feedback_control_state import (
+    build_feedback_control_state,
 )
 from modules.testing.test_generation_components.postprocess.result_postprocess import (
     finalize_generated_cases,
@@ -59,6 +65,7 @@ class LegacyGenerationJsonMixin:
         only_current_biz: bool = False,
         multi_pass: bool = True,
         generation_mode: str = "",
+        enable_sample_pool_feedback: bool = True,
     ) -> dict:
         """Generate test cases in JSON format for stage-1 orchestration."""
         # Get client for user
@@ -71,6 +78,19 @@ class LegacyGenerationJsonMixin:
         gate_debug: dict[str, Any] = {}
         context_result: dict[str, Any] | None = None
         gate_result: dict[str, Any] | None = None
+        feedback_control_state: dict[str, Any] = {}
+        memory_diag: dict[str, Any] = init_memory_diag()
+        memory_fabric = None
+        try:
+            memory_fabric = get_memory_fabric()
+        except Exception:
+            memory_fabric = None
+        memory_ctx = MemoryContext.from_runtime(
+            user_id=user_id,
+            project_id=project_id,
+            run_id=request_id,
+            request_id=request_id,
+        )
         if db:
             # 涓枃娉ㄩ噴锛氱敓鎴愬墠鍏堟墽琛?snapshot readiness gate锛岄伩鍏?stale 鍦烘櫙鐩存帴 rag_only銆?
             gate_result = {
@@ -155,6 +175,10 @@ class LegacyGenerationJsonMixin:
                 user_id=user_id,
                 compress=compress,
                 precision_mode=True,
+                memory_fabric=memory_fabric,
+                memory_ctx=memory_ctx,
+                memory_diag=memory_diag,
+                request_id=request_id,
             )
             fusion_debug = context_result.get("fusion_debug") or {}
             if gate_debug:
@@ -173,6 +197,17 @@ class LegacyGenerationJsonMixin:
             fusion_debug["final_generation_context_mode"] = context_result.get("context_source") or "empty"
             context_result["fusion_debug"] = fusion_debug
             kb_context = context_result.get("kb_context") or ""
+            feedback_control_state = build_feedback_control_state(
+                db=db,
+                project_id=project_id,
+                user_id=user_id,
+                requirement_text=original_requirement,
+                enable_priority_sample_pool=bool(enable_sample_pool_feedback),
+                include_agent_learning=True,
+                memory_fabric=memory_fabric,
+                memory_ctx=memory_ctx,
+                memory_diag=memory_diag,
+            ).to_dict()
             # 涓枃娉ㄩ噴锛氬懡涓€滀笂涓嬫枃鍏ㄧ┖鍏滃簳鈥濇椂锛岀洿鎺ョ粓姝紝閬垮厤妯″瀷鍦ㄦ棤鐭ヨ瘑涓婁笅鏂囦笅瑁歌窇銆?
             if context_result.get("abort_generation"):
                 fusion_debug = context_result.get("fusion_debug") or {}

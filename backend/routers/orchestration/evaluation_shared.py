@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from core.db.models import Project
+from modules.knowledge_base_components.repositories.project_repository import ProjectRepository
 
 
 def is_attachment_ocr_ok(parsed_text: str) -> bool:
@@ -43,7 +44,7 @@ def is_attachment_ocr_ok(parsed_text: str) -> bool:
 
 
 def get_owned_project(project_id: int, db: Session, user_id: int) -> Project:
-    project = db.query(Project).filter(Project.id == project_id, Project.user_id == user_id).first()
+    project = ProjectRepository(db).get_owned_project(project_id=project_id, user_id=user_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project

@@ -6,6 +6,7 @@ def build_closed_loop_base_prompt(
     requirement_context: str = "",
     testcase_context: str = "",
     supplement_context: str = "",
+    control_context: str = "",
     current_biz_key: str = "",
     doc_type: str = "requirement",
     pretty_json: bool = False,
@@ -16,7 +17,23 @@ def build_closed_loop_base_prompt(
     requirement_context = (requirement_context or "").strip() or "(empty)"
     testcase_context = (testcase_context or "").strip() or "(empty)"
     supplement_context = (supplement_context or "").strip() or "(empty)"
+    control_context = (control_context or "").strip()
     current_biz_key = (current_biz_key or "").strip() or "unknown"
+    control_block = ""
+    if control_context and control_context.lower() != "(empty)":
+        control_block = f"""
+
+[GENERATION CONTROL - MUST FOLLOW]
+{control_context}
+
+MANDATORY CONTROL RULES:
+1. You MUST cover required rules and scenarios from control context.
+2. You MUST satisfy rule quota constraints when relevant.
+3. You MUST NOT violate forbidden patterns (hard constraints only).
+4. Soft constraints are tie-break only: do NOT lower case priority because of soft constraints.
+5. Only when two candidates have equal priority and similar coverage value, prefer the one not hitting soft constraints.
+6. If quality fix hints are provided in control context, apply them before returning final JSON.
+"""
     base_prompt = f"""You are the QA Architect Agent.
 Generate test cases in STRICT JSON format.
 
@@ -26,6 +43,7 @@ Generate test cases in STRICT JSON format.
 
 【需求规则（Requirement - SINGLE SOURCE OF TRUTH）】
 {requirement_context}
+{control_block}
 
 【已有测试用例（Testcases - STYLE ONLY）】
 {testcase_context}

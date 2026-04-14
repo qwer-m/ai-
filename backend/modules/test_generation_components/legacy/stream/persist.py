@@ -73,6 +73,8 @@ class LegacyGenerationStreamPersistMixin:
         multi_pass = bool(state.get("multi_pass", True))
         generation_mode = str(state.get("generation_mode") or "").strip().lower()
         request_id = str(state.get("request_id") or "").strip()
+        feedback_control_state = state.get("feedback_control_state") or {}
+        memory_diag = state.get("memory_diag") if isinstance(state.get("memory_diag"), dict) else {}
 
         try:
             postprocess_result = yield from stream_postprocess_cases(
@@ -97,6 +99,7 @@ class LegacyGenerationStreamPersistMixin:
                 current_biz_key=current_biz_key,
                 multi_pass=multi_pass,
                 generation_mode=generation_mode,
+                feedback_control_state=feedback_control_state,
             )
 
             stage_counts: dict[str, Any] = {}
@@ -105,6 +108,7 @@ class LegacyGenerationStreamPersistMixin:
             generation_summary_payload: dict[str, Any] = {}
             review_decision_summary_payload: dict[str, Any] = {}
             review_decision_table_payload: list[dict[str, Any]] = []
+            feedback_control_debug_payload: dict[str, Any] = {}
             if isinstance(postprocess_result, dict):
                 parsed_result = postprocess_result.get("cases")
                 if not isinstance(parsed_result, list):
@@ -119,6 +123,7 @@ class LegacyGenerationStreamPersistMixin:
                     for item in (postprocess_result.get("review_decision_table") or [])
                     if isinstance(item, dict)
                 ]
+                feedback_control_debug_payload = dict(postprocess_result.get("feedback_control_debug") or {})
             else:
                 parsed_result = postprocess_result if isinstance(postprocess_result, list) else []
 
@@ -213,7 +218,7 @@ class LegacyGenerationStreamPersistMixin:
                         user_id=user_id,
                     )
                 )
-                yield f"GEN_DIAG:{json.dumps(mode_payload, ensure_ascii=False)}\\n"
+                yield f"GEN_DIAG:{json.dumps(mode_payload, ensure_ascii=False)}\n"
 
                 # 中文注释：记录阶段日志，便于观察 multi-pass 执行情况。
                 for stage in ("primary", "gap", "review"):
@@ -298,6 +303,39 @@ class LegacyGenerationStreamPersistMixin:
                         )
                     )
                     yield f"GEN_DIAG:{json.dumps(review_summary_diag, ensure_ascii=False)}\n"
+
+                if feedback_control_debug_payload:
+                    control_diag = {
+                        "kind": "feedback_control_state",
+                        **feedback_control_debug_payload,
+                    }
+                    if request_id:
+                        control_diag["request_id"] = request_id
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(control_diag, ensure_ascii=False)}",
+                            user_id=user_id,
+                        )
+                    )
+                    yield f"GEN_DIAG:{json.dumps(control_diag, ensure_ascii=False)}\n"
+                if memory_diag:
+                    memory_diag_payload = {
+                        "kind": "memory_fabric_diag",
+                        **dict(memory_diag),
+                    }
+                    if request_id:
+                        memory_diag_payload["request_id"] = request_id
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(memory_diag_payload, ensure_ascii=False)}",
+                            user_id=user_id,
+                        )
+                    )
+                    yield f"GEN_DIAG:{json.dumps(memory_diag_payload, ensure_ascii=False)}\n"
 
                 if review_decision_table_payload:
                     review_table_diag = {

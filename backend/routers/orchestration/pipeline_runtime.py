@@ -4,13 +4,9 @@ import threading
 from datetime import datetime
 from typing import Any
 
-from fastapi import HTTPException
-from sqlalchemy.orm import Session
-
 from core.db.database import SessionLocal, engine
-from core.db.models import PipelineRun, Project
-from core.processing.workflow import WorkflowKind, WorkflowStage, log_workflow_trace
-from routers.pipeline_routes.agent_ops import (
+from core.db.models import PipelineRun
+from modules.orchestration_components.pipeline_runtime.agent_ops import (
     _aggregate_reviewer_decision,
     _run_stage_executor_agent,
     _run_stage_planner_agent,
@@ -18,9 +14,22 @@ from routers.pipeline_routes.agent_ops import (
     _save_agent_learning_snapshot,
     _upsert_agent_artifact,
 )
-from routers.pipeline_routes.schemas import RunStatus, STAGE_ORDER, StageKey
-from routers.pipeline_routes.stage_ops import _execute_stage_once
-from routers.pipeline_routes.support import _default_stage_states, _mark_stage, _persist_run
+from modules.orchestration_components.pipeline_runtime.schemas import (
+    RunStatus,
+    STAGE_ORDER,
+    StageKey,
+)
+from modules.orchestration_components.pipeline_runtime.stage_ops import _execute_stage_once
+from modules.orchestration_components.pipeline_runtime.support import (
+    _default_stage_states,
+    _mark_stage,
+    _persist_run,
+)
+from modules.orchestration_components.repositories.pipeline_runtime_repository import (
+    PipelineRuntimeRepository,
+)
+from core.processing.workflow import WorkflowKind, WorkflowStage, log_workflow_trace
+from sqlalchemy.orm import Session
 
 STAGE_WORKFLOW_KIND: dict[StageKey, WorkflowKind] = {
     "test_generation": WorkflowKind.TEST_GENERATION,
@@ -49,15 +58,6 @@ def _ensure_pipeline_table() -> None:
 
 
 _ensure_pipeline_table()
-
-
-def _get_owned_project(project_id: int, db: Session, user_id: int) -> Project:
-    project = db.query(Project).filter(Project.id == project_id, Project.user_id == user_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
-
-
 def _log_stage_trace(
     db: Session,
     project_id: int,
@@ -95,8 +95,9 @@ def _start_worker(run_id: int, start_stage: StageKey) -> None:
 
 def _run_pipeline_worker(run_id: int, start_stage: StageKey) -> None:
     db = SessionLocal()
+    repo = PipelineRuntimeRepository(db)
     try:
-        run = db.query(PipelineRun).filter(PipelineRun.id == run_id).first()
+        run = repo.get_run(run_id=run_id)
         if not run:
             return
 
@@ -126,7 +127,7 @@ def _run_pipeline_worker(run_id: int, start_stage: StageKey) -> None:
         any_stage_failed = False
 
         for stage in STAGE_ORDER[start_index:]:
-            run = db.query(PipelineRun).filter(PipelineRun.id == run_id).first()
+            run = repo.get_run(run_id=run_id)
             if not run:
                 return
             stage_states = dict(run.stage_states or _default_stage_states())
@@ -287,7 +288,7 @@ def _run_pipeline_worker(run_id: int, start_stage: StageKey) -> None:
                         error_message=stage_message,
                     )
                     if stage == "test_generation":
-                        run = db.query(PipelineRun).filter(PipelineRun.id == run_id).first()
+                        run = repo.get_run(run_id=run_id)
                         if run:
                             _persist_run(
                                 db,
@@ -310,7 +311,7 @@ def _run_pipeline_worker(run_id: int, start_stage: StageKey) -> None:
                     )
                 break
 
-        run = db.query(PipelineRun).filter(PipelineRun.id == run_id).first()
+        run = repo.get_run(run_id=run_id)
         if run:
             final_status: RunStatus = "failed" if any_stage_failed else "success"
             _persist_run(
@@ -321,7 +322,7 @@ def _run_pipeline_worker(run_id: int, start_stage: StageKey) -> None:
                 error_message=run.error_message if final_status == "failed" else "",
                 finished_at=datetime.utcnow(),
             )
-            run = db.query(PipelineRun).filter(PipelineRun.id == run_id).first()
+            run = repo.get_run(run_id=run_id)
             if run and agent_enabled:
                 ok, status = _save_agent_learning_snapshot(db, run, dict(run.artifacts or {}))
                 _log_stage_trace(
@@ -334,7 +335,7 @@ def _run_pipeline_worker(run_id: int, start_stage: StageKey) -> None:
                     detail=status,
                 )
     except Exception as worker_error:
-        run = db.query(PipelineRun).filter(PipelineRun.id == run_id).first()
+        run = repo.get_run(run_id=run_id)
         if run:
             _persist_run(
                 db,

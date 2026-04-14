@@ -55,6 +55,7 @@ def generate_test_cases_task(
     only_current_biz: bool = False,
     multi_pass: bool = True,
     generation_mode: str = "",
+    enable_sample_pool_feedback: bool = True,
 ):
     """异步生成测试用例。"""
     db = SessionLocal()
@@ -74,6 +75,7 @@ def generate_test_cases_task(
             only_current_biz=only_current_biz,
             multi_pass=multi_pass,
             generation_mode=generation_mode,
+            enable_sample_pool_feedback=enable_sample_pool_feedback,
         )
         return result
     except Exception as e:

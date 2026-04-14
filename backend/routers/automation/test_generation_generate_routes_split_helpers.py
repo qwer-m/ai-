@@ -94,6 +94,7 @@ async def generate_tests_stream(
     doc_type: str = Form("requirement"),
     compress: bool = Form(False),
     expected_count: int = Form(20),
+    enable_sample_pool_feedback: bool = Form(True),
     force: bool = Form(False),
     append: bool = Form(False),
     current_biz_key: str = Form(""),
@@ -147,6 +148,7 @@ async def generate_tests_stream(
         only_current_biz=only_current_biz,
         multi_pass=multi_pass,
         generation_mode=generation_mode,
+        enable_sample_pool_feedback=enable_sample_pool_feedback,
     )
 
     def guarded_stream():
@@ -214,6 +216,7 @@ def generate_tests(
         only_current_biz=request.only_current_biz,
         multi_pass=request.multi_pass,
         generation_mode=request.generation_mode,
+        enable_sample_pool_feedback=request.enable_sample_pool_feedback,
     )
     try:
         count = len(result) if isinstance(result, list) else 0

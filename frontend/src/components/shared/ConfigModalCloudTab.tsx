@@ -4,6 +4,7 @@ import { QuotaRing } from './ConfigModalQuotaRing';
 type Props = {
   provider: string;
   apiKey: string;
+  baseUrl: string;
   model: string;
   vlModel: string;
   turboModel: string;
@@ -13,6 +14,7 @@ type Props = {
   vlApiKey: string;
   onProviderChange: (value: string) => void;
   onApiKeyChange: (value: string) => void;
+  onBaseUrlChange: (value: string) => void;
   onModelChange: (value: string) => void;
   onVlModelChange: (value: string) => void;
   onTurboModelChange: (value: string) => void;
@@ -26,6 +28,7 @@ type Props = {
 export function CloudTab({
   provider,
   apiKey,
+  baseUrl,
   model,
   vlModel,
   turboModel,
@@ -35,6 +38,7 @@ export function CloudTab({
   vlApiKey,
   onProviderChange,
   onApiKeyChange,
+  onBaseUrlChange,
   onModelChange,
   onVlModelChange,
   onTurboModelChange,
@@ -74,6 +78,17 @@ export function CloudTab({
               />
             </InputGroup>
           </Form.Group>
+          {(provider === 'openai' || provider === 'deepseek') && (
+            <Form.Group className="config-field">
+              <Form.Label>API Base URL</Form.Label>
+              <Form.Control
+                type="text"
+                value={baseUrl}
+                onChange={(e) => onBaseUrlChange(e.target.value)}
+                placeholder={provider === 'openai' ? 'https://api.openai.com/v1' : 'https://api.deepseek.com/v1'}
+              />
+            </Form.Group>
+          )}
           <Form.Group className="config-field config-field--model">
             <Form.Label>模型名称</Form.Label>
             <div className="config-model-input-wrap">
@@ -84,7 +99,7 @@ export function CloudTab({
                 list="cloud-models"
                 className="config-model-input"
               />
-              <QuotaRing provider={provider} apiKey={apiKey} baseUrl="" model={model} />
+              <QuotaRing provider={provider} apiKey={apiKey} baseUrl={baseUrl} model={model} />
             </div>
             <datalist id="cloud-models" />
           </Form.Group>

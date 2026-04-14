@@ -8,6 +8,9 @@ from difflib import SequenceMatcher
 from sqlalchemy.orm import Session
 
 from core.db.models import TestGenerationComparison
+from modules.test_generation_components.repositories.comparison_repository import (
+    TestGenerationComparisonRepository,
+)
 
 
 def normalize_case_text(raw: str) -> str:
@@ -63,15 +66,10 @@ def find_matching_comparison(
     raw_generated_compact = re.sub(r"\s+", "", (generated_result or ""))
     normalized_generated = normalize_case_text(generated_result or "")
     compact_generated = re.sub(r"\s+", "", normalized_generated)
-    candidates = (
-        db.query(TestGenerationComparison)
-        .filter(
-            TestGenerationComparison.project_id == project_id,
-            TestGenerationComparison.user_id == user_id,
-        )
-        .order_by(TestGenerationComparison.created_at.desc(), TestGenerationComparison.id.desc())
-        .limit(200)
-        .all()
+    candidates = TestGenerationComparisonRepository(db).list_recent_project_comparisons(
+        project_id=project_id,
+        user_id=user_id,
+        limit=200,
     )
     if not candidates:
         return None

@@ -232,7 +232,7 @@ def run_multi_pass_generation(
     multi_pass: bool = True,
     generation_mode: str = "",
     prompt_context: dict[str, Any] | None = None,
-    build_base_prompt_fn: Callable[[str, str, str, str], str] | None = None,
+    build_base_prompt_fn: Callable[[str, str, str, str, str], str] | None = None,
 ) -> dict[str, Any]:
     mode = _resolve_generation_mode(multi_pass=multi_pass, generation_mode=generation_mode)
     context = dict(prompt_context or {})
@@ -304,8 +304,9 @@ def run_multi_pass_generation(
         scoped_requirement = str(scoped.get("requirement_context") or requirement_context)
         scoped_testcase = str(scoped.get("testcase_context") or context.get("testcase_context") or "(empty)")
         scoped_supplement = str(scoped.get("supplement_context") or context.get("supplement_context") or "(empty)")
+        scoped_control = str(scoped.get("control_context") or context.get("control_context") or "")
         scoped_prompt = (
-            build_base_prompt_fn(scoped_requirement, scoped_testcase, scoped_supplement, biz_key)
+            build_base_prompt_fn(scoped_requirement, scoped_testcase, scoped_supplement, scoped_control, biz_key)
             if callable(build_base_prompt_fn)
             else base_prompt
         )

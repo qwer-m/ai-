@@ -41,6 +41,8 @@ type TestGenerationPageViewProps = {
   setAppendCount: (value: number) => void;
   force: boolean;
   setForce: (value: boolean) => void;
+  enableSamplePoolFeedback: boolean;
+  setEnableSamplePoolFeedback: (value: boolean) => void;
   projectId: number | null;
   hasJsonInResultBox: boolean;
   isLimitReached: boolean;
@@ -95,6 +97,8 @@ export function TestGenerationPageView({
   setAppendCount,
   force,
   setForce,
+  enableSamplePoolFeedback,
+  setEnableSamplePoolFeedback,
   projectId,
   hasJsonInResultBox,
   isLimitReached,
@@ -219,6 +223,10 @@ export function TestGenerationPageView({
         onRuleClick={setActiveRuleId}
         result={result}
         resultSource={resultSource}
+        projectId={projectId}
+        generationId={generationId}
+        enableSamplePoolFeedback={enableSamplePoolFeedback}
+        onToggleSamplePoolFeedback={setEnableSamplePoolFeedback}
       />
     </div>
   );
