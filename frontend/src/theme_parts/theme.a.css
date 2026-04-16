@@ -62,16 +62,38 @@ body {
 
 /* 中文注释：夜间模式变量覆盖与基础背景 */
 body.theme-dark {
-  --bg-app: #0b1220;
-  --bg-surface: #111827;
-  --bg-glass: rgba(17, 24, 39, 0.94);
-  --text-primary: #e5e7eb;
-  --text-secondary: #9ca3af;
-  --text-tertiary: #6b7280;
-  --text-on-primary: #e5e7eb;
-  --border-subtle: #2a3441;
-  --border-medium: #2a3441;
+  --bg-app: #000000;
+  --bg-surface: #171b22;
+  --bg-glass: rgba(23, 27, 34, 0.94);
+  --text-primary: #9fb3cc;
+  --text-secondary: #8ea3be;
+  --text-tertiary: #7f97b3;
+  --text-on-primary: #b9cae1;
+  --border-subtle: #2a323f;
+  --border-medium: #2a323f;
+  background-color: #000000;
   background-image: none;
+}
+
+body.theme-dark .dashboard-shell h1,
+body.theme-dark .dashboard-shell h2,
+body.theme-dark .dashboard-shell h3,
+body.theme-dark .dashboard-shell h4,
+body.theme-dark .dashboard-shell h5,
+body.theme-dark .dashboard-shell h6,
+body.theme-dark .postman-theme h1,
+body.theme-dark .postman-theme h2,
+body.theme-dark .postman-theme h3,
+body.theme-dark .postman-theme h4,
+body.theme-dark .postman-theme h5,
+body.theme-dark .postman-theme h6,
+body.theme-dark .rag-console h1,
+body.theme-dark .rag-console h2,
+body.theme-dark .rag-console h3,
+body.theme-dark .rag-console h4,
+body.theme-dark .rag-console h5,
+body.theme-dark .rag-console h6 {
+  color: #b9cae1 !important;
 }
 
 /* 中文注释：夜间模式下的通用颜色修正 */
@@ -81,7 +103,7 @@ body.theme-dark .rag-console .bg-white,
 body.theme-dark .test-generation-shell .bg-white,
 body.theme-dark .evaluation-shell .bg-white,
 body.theme-dark .knowledge-base-shell .bg-white {
-  background-color: #111827 !important;
+  background-color: #1b212a !important;
 }
 body.theme-dark .dashboard-shell .bg-light,
 body.theme-dark .postman-theme .bg-light,
@@ -89,13 +111,13 @@ body.theme-dark .rag-console .bg-light,
 body.theme-dark .test-generation-shell .bg-light,
 body.theme-dark .evaluation-shell .bg-light,
 body.theme-dark .knowledge-base-shell .bg-light {
-  background-color: #111827 !important;
+  background-color: #1b212a !important;
 }
 body.theme-dark .dashboard-shell .bg-body,
 body.theme-dark .dashboard-shell .bg-body-tertiary,
 body.theme-dark .postman-theme .bg-body,
 body.theme-dark .postman-theme .bg-body-tertiary {
-  background-color: #0f172a !important;
+  background-color: #171c24 !important;
 }
 body.theme-dark .dashboard-shell .border-light,
 body.theme-dark .postman-theme .border-light,
@@ -103,7 +125,7 @@ body.theme-dark .rag-console .border-light,
 body.theme-dark .test-generation-shell .border-light,
 body.theme-dark .evaluation-shell .border-light,
 body.theme-dark .knowledge-base-shell .border-light {
-  border-color: #2a3441 !important;
+  border-color: #232a33 !important;
 }
 body.theme-dark .dashboard-shell .text-secondary,
 body.theme-dark .postman-theme .text-secondary,
@@ -111,7 +133,7 @@ body.theme-dark .rag-console .text-secondary,
 body.theme-dark .test-generation-shell .text-secondary,
 body.theme-dark .evaluation-shell .text-secondary,
 body.theme-dark .knowledge-base-shell .text-secondary {
-  color: #9ca3af !important;
+  color: #8ea3be !important;
 }
 body.theme-dark .dashboard-shell .text-muted,
 body.theme-dark .postman-theme .text-muted,
@@ -119,7 +141,7 @@ body.theme-dark .rag-console .text-muted,
 body.theme-dark .test-generation-shell .text-muted,
 body.theme-dark .evaluation-shell .text-muted,
 body.theme-dark .knowledge-base-shell .text-muted {
-  color: #6b7280 !important;
+  color: #7f97b3 !important;
 }
 body.theme-dark .dashboard-shell .text-white,
 body.theme-dark .postman-theme .text-white,
@@ -127,7 +149,7 @@ body.theme-dark .rag-console .text-white,
 body.theme-dark .test-generation-shell .text-white,
 body.theme-dark .evaluation-shell .text-white,
 body.theme-dark .knowledge-base-shell .text-white {
-  color: #e5e7eb !important;
+  color: #9fb3cc !important;
 }
 body.theme-dark .dashboard-shell .form-control,
 body.theme-dark .dashboard-shell .form-select,
@@ -147,9 +169,9 @@ body.theme-dark .evaluation-shell .input-group-text,
 body.theme-dark .knowledge-base-shell .form-control,
 body.theme-dark .knowledge-base-shell .form-select,
 body.theme-dark .knowledge-base-shell .input-group-text {
-  background-color: #0f172a !important;
-  color: #e5e7eb !important;
-  border-color: #2a3441 !important;
+  background-color: #1b212a !important;
+  color: #9fb3cc !important;
+  border-color: #232a33 !important;
 }
 body.theme-dark .dashboard-shell .form-control::placeholder,
 body.theme-dark .dashboard-shell .form-select::placeholder,
@@ -201,18 +223,22 @@ body.theme-dark .knowledge-base-shell .form-control:focus,
 body.theme-dark .knowledge-base-shell .form-select:focus,
 body.theme-dark .knowledge-base-shell input:focus,
 body.theme-dark .knowledge-base-shell textarea:focus {
-  border-color: #6366f1 !important;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2) !important;
+  border-color: #5f7398 !important;
+  box-shadow: 0 0 0 2px rgba(88, 107, 141, 0.24) !important;
 }
 body.theme-dark .glass-panel {
-  background: #111827 !important;
-  border: 1px solid #2a3441 !important;
+  background: #1b212a !important;
+  border: 1px solid #232a33 !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
 body.theme-dark .bento-card {
-  background: #111827 !important;
-  border-color: #2a3441 !important;
+  background: #1b212a !important;
+  border-color: #232a33 !important;
   box-shadow: 0 1px 3px rgba(2, 6, 23, 0.35) !important;
+}
+
+body.theme-dark .dashboard-sidebar-head {
+  background: #161b22 !important;
 }

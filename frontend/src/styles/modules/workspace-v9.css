@@ -1,4 +1,4 @@
-/* 工作台全局重构 v9：按钮体系 + 表格分页 + 顶栏侧栏层级 */
+/* 工作台全局重构 v9：按钮体�?+ 表格分页 + 顶栏侧栏层级 */
 
 body.ui-overhaul-v4 .dashboard-topbar-shell {
   min-height: 74px !important;
@@ -192,7 +192,7 @@ body.ui-overhaul-v4 .evaluation-shell .btn-sm {
 
 body.ui-overhaul-v4 .workbench-shell .btn-primary,
 body.ui-overhaul-v4 .workbench-shell .btn-pro-primary {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--fd-primary) 95%, #1d4ed8), color-mix(in srgb, var(--fd-primary-2) 82%, #7c3aed)) !important;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--fd-primary) 95%, #1d4ed8), color-mix(in srgb, var(--fd-primary-2) 82%, #5b718f)) !important;
   border: 0 !important;
   box-shadow: 0 10px 20px color-mix(in srgb, var(--fd-primary) 26%, transparent);
 }
@@ -261,9 +261,15 @@ body.ui-overhaul-v4 .rag-report-pagination .btn:hover {
 }
 
 body.theme-dark.ui-overhaul-v4 .dashboard-topbar {
-  background:
-    radial-gradient(680px 180px at 12% -40%, rgba(129, 140, 248, 0.2), transparent 64%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(11, 18, 32, 0.92)) !important;
+  background: #000000 !important;
+}
+
+body.theme-dark.ui-overhaul-v4 .dashboard-workspace {
+  background: #000000 !important;
+}
+
+body.theme-dark.ui-overhaul-v4 .dashboard-topbar-surface {
+  background: #000000 !important;
 }
 
 body.theme-dark.ui-overhaul-v4 .dashboard-project-chip,
@@ -292,12 +298,16 @@ body.theme-dark.ui-overhaul-v4 .knowledge-pagination-control .page-link,
 body.theme-dark.ui-overhaul-v4 .rag-report-pagination .btn {
   background: color-mix(in srgb, var(--fd-surface) 92%, transparent);
   border-color: color-mix(in srgb, var(--fd-border) 88%, transparent);
-  color: #cbd5e1;
+  color: #9fb3cc;
 }
 
 body.theme-dark.ui-overhaul-v4 .workbench-shell .table thead th {
   background: color-mix(in srgb, #172033 92%, transparent) !important;
-  color: #cbd5e1;
+  color: #b9cae1;
+}
+
+body.theme-dark.ui-overhaul-v4 .knowledge-pagination-control .page-item.active .page-link {
+  color: #b9cae1;
 }
 
 @media (max-width: 991px) {
@@ -325,3 +335,4 @@ body.theme-dark.ui-overhaul-v4 .workbench-shell .table thead th {
     height: 36px;
   }
 }
+

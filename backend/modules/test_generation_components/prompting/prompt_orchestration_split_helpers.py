@@ -23,16 +23,63 @@ def build_closed_loop_base_prompt(
     if control_context and control_context.lower() != "(empty)":
         control_block = f"""
 
-[GENERATION CONTROL - MUST FOLLOW]
+[GENERATION OBJECTIVE - MUST FOLLOW]
+Primary objective: prioritize core business workflow coverage and high-risk behavior paths over UI-detail coverage.
+
 {control_context}
 
-MANDATORY CONTROL RULES:
-1. You MUST cover required rules and scenarios from control context.
-2. You MUST satisfy rule quota constraints when relevant.
-3. You MUST NOT violate forbidden patterns (hard constraints only).
-4. Soft constraints are tie-break only: do NOT lower case priority because of soft constraints.
-5. Only when two candidates have equal priority and similar coverage value, prefer the one not hitting soft constraints.
-6. If quality fix hints are provided in control context, apply them before returning final JSON.
+OBJECTIVE RULES:
+1. Prioritize full workflow coverage (entry -> learning -> interaction -> practice -> completion -> return).
+2. Prioritize key state transitions (loading, switching, interruption, recovery, exception).
+3. Prioritize cross-page / cross-module behavior chains.
+4. Prioritize real user paths over single-widget checks.
+5. If a case cannot map to business workflow or state transition, lower its priority.
+
+GENERATION STRATEGY (STRICT ORDER):
+1) Workflow-path cases first (must include):
+- End-to-end learning loop closure
+- Correct page navigation
+- Reasonable interruption/recovery behavior
+- Multi-step operation consistency
+2) State/data-change cases second:
+- Data load / refresh / switch behavior
+- State consistency across grade/version/page switches
+- Race / duplicate request / overwrite risks
+3) Exception-path cases third:
+- Network failure
+- Missing data
+- Invalid input
+- Boundary conditions
+4) UI/display cases last:
+- Style/color/copy checks are supplemental only
+- Do not over-generate pure display cases
+
+PRIORITY ASSIGNMENT (BUSINESS IMPACT FIRST):
+- P1: core workflow break, wrong page jump, learning-path abnormality, state/data errors affecting usability
+- P2: UI display issues, copy issues, style issues, non-core interaction issues
+- UI-only cases must NOT be P1 unless they block core workflow.
+- If any issue meets global P0 criteria in this prompt, escalate it to P0.
+
+NEGATIVE CONSTRAINTS (WEAK, FOR DEDUP ONLY):
+- Reduce repeated non-empty validation cases
+- Reduce pure UI-display validation cases
+- Reduce copy/color/style-only cases
+- Reduce micro interactions unrelated to business workflow
+- These constraints must NOT override workflow/state generation.
+
+DIVERSITY REQUIREMENTS:
+- At least 30% workflow/path cases
+- At least 20% state/data-change cases
+- UI/display cases must be <= 40%
+- Avoid semantic duplicates (same-type cases <= 2)
+
+FINAL CHECK BEFORE OUTPUT:
+1. Is the full main workflow covered?
+2. Is there cross-page or cross-module behavior?
+3. Are state transitions or data changes covered?
+4. Are there obvious duplicate cases?
+5. Are UI/display cases too many?
+If not satisfied, revise before output.
 """
     base_prompt = f"""You are the QA Architect Agent.
 Generate test cases in STRICT JSON format.

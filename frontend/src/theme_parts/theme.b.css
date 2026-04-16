@@ -100,7 +100,7 @@ body.ui-overhaul-v4 .evaluation-shell .form-select:focus,
 body.ui-overhaul-v4 .knowledge-base-shell .form-control:focus,
 body.ui-overhaul-v4 .knowledge-base-shell .form-select:focus {
     border-color: var(--primary-400);
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-primary, var(--primary-500)) 24%, transparent);
 }
 
 body.ui-overhaul-v4 .dashboard-shell .btn-primary,

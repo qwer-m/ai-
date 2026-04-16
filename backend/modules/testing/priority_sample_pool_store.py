@@ -29,6 +29,8 @@ _MAX_PATTERN_CANONICAL_LEN = 160
 _MAX_PATTERN_CLUSTER_LEN = 96
 _MIN_PATTERN_WEIGHT_ADJUSTMENT = 0.25
 _MAX_PATTERN_WEIGHT_ADJUSTMENT = 1.5
+_VALID_SIGNAL_TYPES = {"positive", "negative"}
+_VALID_PATTERN_USAGE = {"prefer", "avoid"}
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +58,24 @@ def _safe_float(raw: Any, default: float = 0.0) -> float:
         return float(raw)
     except Exception:
         return float(default)
+
+
+def _normalize_signal_type(raw: Any) -> str:
+    text = _sanitize_text(raw, max_len=24).lower()
+    if text in _VALID_SIGNAL_TYPES:
+        return text
+    if text in {"pos", "good", "gold", "success", "best_practice"}:
+        return "positive"
+    return "negative"
+
+
+def _normalize_pattern_usage(raw: Any, *, signal_type: str) -> str:
+    text = _sanitize_text(raw, max_len=24).lower()
+    if text in _VALID_PATTERN_USAGE:
+        return text
+    if signal_type == "positive":
+        return "prefer"
+    return "avoid"
 
 
 def _canonicalize_pattern_text(raw: Any) -> str:
@@ -167,6 +187,24 @@ def normalize_priority_sample(sample: dict[str, Any]) -> dict[str, Any]:
         max_len=16,
     ).lower()
     normalized["governance_status"] = "disabled" if status == "disabled" else "active"
+    signal_type = _normalize_signal_type(
+        _sample_value(
+            normalized,
+            "signal_type",
+            "signalType",
+            "pattern_signal_type",
+            "patternSignalType",
+            "feedback_direction",
+            "feedbackDirection",
+            "sample_type",
+            "sampleType",
+        )
+    )
+    normalized["signal_type"] = signal_type
+    normalized["pattern_usage"] = _normalize_pattern_usage(
+        _sample_value(normalized, "pattern_usage", "patternUsage"),
+        signal_type=signal_type,
+    )
     adjustment = _safe_float(
         _sample_value(normalized, "pattern_weight_adjustment", "patternWeightAdjustment"),
         default=1.0,
@@ -235,6 +273,23 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
     pattern_cluster_key = _sanitize_text(sample.get("pattern_cluster_key"), max_len=_MAX_PATTERN_CLUSTER_LEN)
     pattern_source = _sanitize_text(sample.get("pattern_source"), max_len=20)
     governance_status = _sanitize_text(sample.get("governance_status"), max_len=16).lower() or "active"
+    signal_type = _normalize_signal_type(
+        _sample_value(
+            sample,
+            "signal_type",
+            "signalType",
+            "pattern_signal_type",
+            "patternSignalType",
+            "feedback_direction",
+            "feedbackDirection",
+            "sample_type",
+            "sampleType",
+        )
+    )
+    pattern_usage = _normalize_pattern_usage(
+        _sample_value(sample, "pattern_usage", "patternUsage"),
+        signal_type=signal_type,
+    )
     try:
         pattern_quality_score = float(sample.get("pattern_quality_score"))
     except Exception:
@@ -251,6 +306,8 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
             f"cluster:{pattern_cluster_key}" if pattern_cluster_key else "",
             f"title:{title}" if title else "",
             f"reason:{reason}" if reason else "",
+            f"signal:{signal_type}",
+            f"usage:{pattern_usage}",
             f"expected:{expected_priority}" if expected_priority else "",
             f"comment:{comment}" if comment else "",
             f"case:{case_id}" if case_id else "",
@@ -268,6 +325,8 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
             "pattern_cluster_key": pattern_cluster_key,
             "pattern_source": pattern_source,
             "governance_status": "disabled" if governance_status == "disabled" else "active",
+            "signal_type": signal_type,
+            "pattern_usage": pattern_usage,
             "pattern_quality_score": round(max(0.0, min(1.0, pattern_quality_score)), 4),
             "pattern_weight": round(max(0.3, min(1.8, pattern_weight)), 4),
             "reason_category": reason,
@@ -413,6 +472,11 @@ def retrieve_priority_sample_patterns(
                 "pattern_cluster_key": _sanitize_text(metadata.get("pattern_cluster_key"), max_len=_MAX_PATTERN_CLUSTER_LEN),
                 "pattern_source": _sanitize_text(metadata.get("pattern_source"), max_len=20),
                 "governance_status": _sanitize_text(metadata.get("governance_status"), max_len=16).lower() or "active",
+                "signal_type": _normalize_signal_type(metadata.get("signal_type")),
+                "pattern_usage": _normalize_pattern_usage(
+                    metadata.get("pattern_usage"),
+                    signal_type=_normalize_signal_type(metadata.get("signal_type")),
+                ),
                 "pattern_quality_score": round(max(0.0, min(1.0, pattern_quality)), 4),
                 "pattern_weight": round(max(0.3, min(1.8, pattern_weight)), 4),
                 "reason_category": _sanitize_text(metadata.get("reason_category"), max_len=40),

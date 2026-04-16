@@ -407,7 +407,8 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
       <Modal.Body className="config-modal-body">
         {message && <Alert variant={message.type}>{message.text}</Alert>}
 
-        <Tabs activeKey={tab} onSelect={(key) => setTab(key || 'cloud')} className="config-modal-tabs mb-3">
+        <section className="config-center-panel">
+          <Tabs activeKey={tab} onSelect={(key) => setTab(key || 'cloud')} className="config-modal-tabs mb-3">
           <Tab eventKey="cloud" title="云端模型 (Cloud)">
             <CloudTab
               provider={provider}
@@ -453,9 +454,9 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
               }}
             />
           </Tab>
-        </Tabs>
+          </Tabs>
 
-        <div className="config-bottom-split">
+          <div className="config-bottom-split">
           <section className="config-preview-card config-bottom-split__left">
             <div className="config-preview-card__header d-flex justify-content-between align-items-center mb-2">
               <strong>连接测试预览</strong>
@@ -498,7 +499,8 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
               {ocrHint && <div className={`config-ocr-hint config-ocr-hint--${ocrHint.type}`}>{ocrHint.text}</div>}
             </section>
           </aside>
-        </div>
+          </div>
+        </section>
       </Modal.Body>
 
       <Modal.Footer className="config-modal-footer">

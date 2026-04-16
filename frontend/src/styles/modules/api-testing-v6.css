@@ -32,3 +32,30 @@ body.ui-overhaul-v4 .api-automation-shell .btn {
   min-height: 34px;
 }
 
+body.theme-dark .api-automation-shell .api-automation-card,
+body.theme-dark.ui-overhaul-v4 .api-automation-shell .api-automation-card {
+  background: color-mix(in srgb, var(--fd-surface) 94%, #0f172a) !important;
+  border-color: color-mix(in srgb, var(--fd-border) 92%, transparent) !important;
+  color: var(--fd-text) !important;
+}
+
+body.theme-dark .api-automation-shell .api-automation-card .card-body,
+body.theme-dark.ui-overhaul-v4 .api-automation-shell .api-automation-card .card-body {
+  background: transparent !important;
+  color: var(--fd-text) !important;
+}
+
+body.theme-dark .api-automation-shell .api-automation-card .form-label,
+body.theme-dark.ui-overhaul-v4 .api-automation-shell .api-automation-card .form-label {
+  color: var(--fd-text-soft) !important;
+}
+
+body.theme-dark .api-automation-shell .api-automation-card .text-secondary,
+body.theme-dark.ui-overhaul-v4 .api-automation-shell .api-automation-card .text-secondary {
+  color: var(--fd-text-soft) !important;
+}
+
+body.theme-dark .api-automation-shell .api-automation-card .bg-light,
+body.theme-dark.ui-overhaul-v4 .api-automation-shell .api-automation-card .bg-light {
+  background: color-mix(in srgb, var(--fd-surface-soft) 90%, #0b1220) !important;
+}

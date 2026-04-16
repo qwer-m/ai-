@@ -105,6 +105,36 @@ def test_redundant_case_maps_to_soft_constraints_not_forbidden(monkeypatch) -> N
     assert "sync entry display duplicate" in state.soft_constraints
 
 
+def test_positive_pattern_maps_to_preferred_patterns(monkeypatch) -> None:
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 43,
+            "samples": [
+                {
+                    "case_id": "TC-9",
+                    "title": "stable settlement ordering",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P1",
+                    "user_comment": "golden path with deterministic assertion",
+                    "pattern_summary": "deterministic settlement assertion chain",
+                    "signal_type": "positive",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+    )
+
+    assert "deterministic settlement assertion chain" in state.preferred_patterns
+    assert state.source_meta.get("positive_selected_count") == 1
+    assert state.source_meta.get("negative_selected_count") == 0
+
+
 def test_priority_pool_requirement_retrieval_selects_topk(monkeypatch) -> None:
     def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
         return {

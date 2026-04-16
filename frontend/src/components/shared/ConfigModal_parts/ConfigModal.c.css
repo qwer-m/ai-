@@ -113,6 +113,10 @@ body.theme-dark .config-modal-tabs .nav-link.active {
   color: #f8fafc;
 }
 
+body.theme-dark .config-center-panel {
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
 body.theme-dark .config-local-alert {
   color: #bbf7d0;
   background: color-mix(in srgb, #14532d 55%, var(--ui-surface));

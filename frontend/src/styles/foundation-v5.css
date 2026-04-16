@@ -26,14 +26,14 @@
 }
 
 body.theme-dark {
-  --fd-bg: #0a1221;
-  --fd-surface: #101a2d;
-  --fd-surface-soft: #0d1627;
-  --fd-text: #e2e8f0;
-  --fd-text-soft: #9cb0c7;
-  --fd-border: #2d3b52;
-  --fd-primary: #818cf8;
-  --fd-primary-2: #60a5fa;
+  --fd-bg: #000000;
+  --fd-surface: #15181e;
+  --fd-surface-soft: #1b2028;
+  --fd-text: #9fb3cc;
+  --fd-text-soft: #8ea3be;
+  --fd-border: #232a33;
+  --fd-primary: #586b8d;
+  --fd-primary-2: #4e607f;
   --fd-shadow-sm: 0 8px 20px rgba(2, 6, 23, 0.45);
   --fd-shadow-md: 0 16px 36px rgba(2, 6, 23, 0.58);
 }

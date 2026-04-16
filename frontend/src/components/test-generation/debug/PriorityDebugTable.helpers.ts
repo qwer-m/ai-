@@ -21,6 +21,7 @@ export type PrioritySample = {
   sampleId: string; caseId: string; title: string; rawPriority: string; finalPriority: string; displayPriority: string; resultSource: ResultSource; direction: string;
   corrected: boolean; isDisplayMismatch: boolean; isRawMismatch: boolean; priorityDebug: string; tags: SampleTag[]; usage: SampleUsage;
   userComment: string; expectedPriority: PriorityValue; reasonCategory: ReasonCategory; addedAt: number;
+  manualConfirmed?: boolean; manualConfirmedAt?: number;
 };
 export type ExportRow = {
   index: number; caseId: string; title: string; rawPriority: string; finalPriority: string; displayPriority: string; corrected: string; isDisplayMismatch: string;
@@ -29,6 +30,7 @@ export type ExportRow = {
 export type EvalDatasetItem = {
   case_id: string; title: string; raw_priority: string; final_priority: string; display_priority: string; result_source: string; direction: string; tags: string[];
   usage: SampleUsage; priority_debug: Record<string, unknown> | null; user_comment: string; expected_priority: string; reason_category: string; added_at: number;
+  manual_confirmed?: boolean; manual_confirmed_at?: number;
 };
 export type RecommendationDraft = { patterns: string[]; rule_suggestions: string[]; prompt_suggestions: string[]; routing_suggestions: string[] };
 export type OptimizationInputPackage = {
@@ -132,6 +134,7 @@ export function toSample(row: PriorityRow): PrioritySample {
     sampleId, caseId: row.caseId, title: row.title || '', rawPriority: row.rawPriority || '-', finalPriority: row.finalPriority || '-', displayPriority: row.displayPriority || '-',
     resultSource: row.resultSource, direction: getDirection(row), corrected: row.corrected, isDisplayMismatch: row.displayFinalMismatch, isRawMismatch: row.rawFinalMismatch,
     priorityDebug: row.priorityDebug ? JSON.stringify(row.priorityDebug) : '', tags, usage: resolveSampleUsage(tags), userComment: '', expectedPriority: '', reasonCategory: '', addedAt: Date.now(),
+    manualConfirmed: false, manualConfirmedAt: undefined,
   };
 }
 export function buildTransitions(rows: PriorityRow[]): Array<{ transition: string; count: number }> {
@@ -176,6 +179,7 @@ export function toEvalDataset(samples: PrioritySample[]): EvalDatasetItem[] {
     case_id: s.caseId, title: s.title, raw_priority: s.rawPriority, final_priority: s.finalPriority, display_priority: s.displayPriority, result_source: s.resultSource,
     direction: s.direction, tags: s.tags, usage: s.usage, priority_debug: parsePriorityDebugString(s.priorityDebug), user_comment: s.userComment || '',
     expected_priority: s.expectedPriority || '', reason_category: s.reasonCategory || '', added_at: s.addedAt,
+    manual_confirmed: Boolean(s.manualConfirmed), manual_confirmed_at: s.manualConfirmedAt,
   }));
 }
 export function escapeCsvValue(value: unknown): string {
@@ -234,6 +238,12 @@ export function parseSamplePool(raw: string | null): PrioritySample[] {
       const tags: SampleTag[] = Array.isArray(item.tags) ? (item.tags as unknown[]).filter((tag: unknown): tag is SampleTag => SAMPLE_TAG_ORDER.includes(tag as SampleTag)) : [];
       const safeTags: SampleTag[] = tags.length > 0 ? Array.from(new Set<SampleTag>(tags)) : ['manual_review'];
       const addedAtRaw = Number(item.addedAt);
+      const manualConfirmed = Boolean(item.manualConfirmed ?? item.manual_confirmed);
+      const manualConfirmedAtMixed = item.manualConfirmedAt ?? item.manual_confirmed_at;
+      const manualConfirmedAtNumber = Number(manualConfirmedAtMixed);
+      const manualConfirmedAtTs = Number.isFinite(manualConfirmedAtNumber) && manualConfirmedAtNumber > 0
+        ? manualConfirmedAtNumber
+        : Date.parse(String(manualConfirmedAtMixed || ''));
       const expectedPriority = normalizePriority(item.expectedPriority ?? item.expected_priority ?? '');
       const reasonCategory = normalizeReasonCategory(item.reasonCategory ?? item.reason_category ?? '');
       return {
@@ -255,6 +265,8 @@ export function parseSamplePool(raw: string | null): PrioritySample[] {
         expectedPriority,
         reasonCategory,
         addedAt: Number.isFinite(addedAtRaw) && addedAtRaw > 0 ? addedAtRaw : Date.now(),
+        manualConfirmed,
+        manualConfirmedAt: Number.isFinite(manualConfirmedAtTs) && manualConfirmedAtTs > 0 ? manualConfirmedAtTs : undefined,
       } satisfies PrioritySample;
     });
   } catch {
@@ -271,6 +283,8 @@ export function mergeSamples(existing: PrioritySample[], incoming: PrioritySampl
     map.set(sample.sampleId, {
       ...old, ...sample, tags: mergedTags, usage: resolveSampleUsage(mergedTags), addedAt: old.addedAt || sample.addedAt, priorityDebug: sample.priorityDebug || old.priorityDebug,
       userComment: old.userComment || sample.userComment, expectedPriority: old.expectedPriority || sample.expectedPriority, reasonCategory: old.reasonCategory || sample.reasonCategory,
+      manualConfirmed: Boolean(old.manualConfirmed || sample.manualConfirmed),
+      manualConfirmedAt: old.manualConfirmedAt || sample.manualConfirmedAt,
     });
   }
   return Array.from(map.values()).sort((a, b) => b.addedAt - a.addedAt);

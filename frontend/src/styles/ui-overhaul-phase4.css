@@ -1,4 +1,4 @@
-﻿/* Phase 4 - Full Project UI Overhaul (global + reversible) */
+/* Phase 4 - Full Project UI Overhaul (global + reversible) */
 
 body.ui-overhaul-v4 {
   --ov-bg: #eef3fb;
@@ -26,22 +26,22 @@ body.ui-overhaul-v4 {
 }
 
 body.ui-overhaul-v4.theme-dark {
-  --ov-bg: #0a1221;
-  --ov-surface: #101a2d;
-  --ov-surface-2: #0d1627;
-  --ov-text: #e2e8f0;
-  --ov-text-soft: #9cb0c7;
-  --ov-border: #2d3b52;
-  --ov-border-strong: #41506a;
-  --ov-primary: #818cf8;
-  --ov-primary-2: #60a5fa;
-  --ov-cyan: #38bdf8;
+  --ov-bg: #000000;
+  --ov-surface: #1b212a;
+  --ov-surface-2: #151a21;
+  --ov-text: #b9cae1;
+  --ov-text-soft: #8ea3be;
+  --ov-border: #232a33;
+  --ov-border-strong: #2b3440;
+  --ov-primary: #586b8d;
+  --ov-primary-2: #4e607f;
+  --ov-cyan: #5b718f;
   --ov-shadow-soft: 0 10px 26px rgba(2, 6, 23, 0.45);
   --ov-shadow-card: 0 16px 36px rgba(2, 6, 23, 0.56);
 
   background:
-    radial-gradient(1200px 520px at 10% -12%, rgba(129, 140, 248, 0.2), transparent 62%),
-    radial-gradient(900px 460px at 98% 2%, rgba(56, 189, 248, 0.12), transparent 68%),
+    radial-gradient(1200px 520px at 10% -12%, rgba(88, 107, 141, 0.12), transparent 62%),
+    radial-gradient(900px 460px at 98% 2%, rgba(91, 113, 143, 0.1), transparent 68%),
     var(--ov-bg) !important;
 }
 
@@ -111,7 +111,7 @@ body.ui-overhaul-v4 .dashboard-shell .dashboard-sidebar-nav-wrap .sidebar-link:h
 body.ui-overhaul-v4 .dashboard-shell .dashboard-sidebar-nav-wrap .sidebar-link.active-pro {
   color: #fff !important;
   border-color: transparent !important;
-  background: linear-gradient(135deg, var(--ov-primary) 0%, var(--ov-primary-2) 64%, #7c3aed 100%) !important;
+  background: linear-gradient(135deg, var(--ov-primary) 0%, var(--ov-primary-2) 64%, #5b718f 100%) !important;
   box-shadow: 0 10px 20px rgba(79, 70, 229, 0.34);
 }
 
@@ -131,7 +131,7 @@ body.ui-overhaul-v4 .postman-theme .btn-primary,
 body.ui-overhaul-v4 .rag-console .btn-primary {
   border: none !important;
   color: #fff !important;
-  background: linear-gradient(135deg, var(--ov-primary) 0%, var(--ov-primary-2) 64%, #7c3aed 100%) !important;
+  background: linear-gradient(135deg, var(--ov-primary) 0%, var(--ov-primary-2) 64%, #5b718f 100%) !important;
   box-shadow: 0 9px 18px rgba(79, 70, 229, 0.32);
 }
 
@@ -278,3 +278,4 @@ body.ui-overhaul-v4 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     height: auto;
   }
 }
+

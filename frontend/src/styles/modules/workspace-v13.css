@@ -154,7 +154,7 @@ body.theme-dark.ui-overhaul-v4 .api-testing-workbench .api-testing-tab-link {
 
 body.theme-dark.ui-overhaul-v4 .api-testing-workbench .api-testing-tab-link.active,
 body.theme-dark.ui-overhaul-v4 .api-testing-workbench .show > .api-testing-tab-link {
-  color: color-mix(in srgb, var(--fd-text) 96%, #ffffff) !important;
+  color: color-mix(in srgb, var(--fd-text) 88%, #b9cae1) !important;
   background: color-mix(in srgb, var(--fd-surface) 92%, #111827) !important;
 }
 
@@ -175,7 +175,7 @@ body.theme-dark.ui-overhaul-v4 .dashboard-log-tabs .dashboard-log-tab-link {
 
 body.theme-dark.ui-overhaul-v4 .dashboard-log-tabs .dashboard-log-tab-link.active,
 body.theme-dark.ui-overhaul-v4 .dashboard-log-tabs .show > .dashboard-log-tab-link {
-  color: color-mix(in srgb, var(--fd-text) 96%, #ffffff) !important;
+  color: color-mix(in srgb, var(--fd-text) 88%, #b9cae1) !important;
   background: color-mix(in srgb, var(--fd-surface) 90%, #101827) !important;
   border-color: color-mix(in srgb, var(--fd-border) 95%, transparent) color-mix(in srgb, var(--fd-border) 95%, transparent) color-mix(in srgb, var(--fd-surface) 90%, #101827) !important;
 }
@@ -185,4 +185,42 @@ body.theme-dark.ui-overhaul-v4 .dashboard-log-stream-body {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--fd-surface-soft) 88%, #0b1220), color-mix(in srgb, var(--fd-surface) 92%, #101827)),
     repeating-linear-gradient(180deg, transparent 0, transparent 28px, rgba(148, 163, 184, 0.05) 28px, rgba(148, 163, 184, 0.05) 29px);
+}
+
+/* Dark mode: pure black canvas. */
+body.theme-dark.ui-overhaul-v4,
+body.theme-dark.ui-overhaul-v4 .dashboard-workspace,
+body.theme-dark.ui-overhaul-v4 .dashboard-topbar,
+body.theme-dark.ui-overhaul-v4 .dashboard-topbar-surface {
+  background: #000000 !important;
+  background-image: none !important;
+}
+
+/* Dark mode: cards use deep gray material, remove purple-tinted large-card gradients. */
+body.theme-dark.ui-overhaul-v4 .dashboard-main-surface,
+body.theme-dark.ui-overhaul-v4 .dashboard-sidebar-surface,
+body.theme-dark.ui-overhaul-v4 .workbench-header-card,
+body.theme-dark.ui-overhaul-v4 .api-testing-shell,
+body.theme-dark.ui-overhaul-v4 .api-automation-shell,
+body.theme-dark.ui-overhaul-v4 .api-testing-workbench,
+body.theme-dark.ui-overhaul-v4 .knowledge-base-shell,
+body.theme-dark.ui-overhaul-v4 .knowledge-toolbar-card,
+body.theme-dark.ui-overhaul-v4 .knowledge-content-area,
+body.theme-dark.ui-overhaul-v4 .test-generation-header,
+body.theme-dark.ui-overhaul-v4 .test-generation-input,
+body.theme-dark.ui-overhaul-v4 .test-generation-config,
+body.theme-dark.ui-overhaul-v4 .test-generation-result,
+body.theme-dark.ui-overhaul-v4 .evaluation-shell .ui-section-card,
+body.theme-dark.ui-overhaul-v4 .evaluation-shell .automation-eval-card,
+body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-surface,
+body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-panel,
+body.theme-dark.ui-overhaul-v4 .rag-console .rag-report-block,
+body.theme-dark.ui-overhaul-v4 .rag-console .rag-report-card,
+body.theme-dark.ui-overhaul-v4 .rag-console .rag-report-subpanel,
+body.theme-dark.ui-overhaul-v4 .dashboard-log-shell,
+body.theme-dark.ui-overhaul-v4 .dashboard-log-header,
+body.theme-dark.ui-overhaul-v4 .dashboard-log-toolbar,
+body.theme-dark.ui-overhaul-v4 .dashboard-log-stream-body {
+  background: linear-gradient(180deg, #1b212a 0%, #141920 100%) !important;
+  border-color: color-mix(in srgb, var(--fd-border) 92%, #3a4557) !important;
 }

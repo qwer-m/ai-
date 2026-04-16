@@ -1,0 +1,47 @@
+{
+  "A": {
+    "runs": 3,
+    "total_cases": 41,
+    "p1_count": 30,
+    "flow_count": 11,
+    "state_count": 26,
+    "ui_count": 4,
+    "p1_ratio": 0.7317,
+    "ui_ratio": 0.0976,
+    "flow_ratio": 0.2683,
+    "structure": {
+      "cross_page_case_count": 30,
+      "multi_step_case_count": 40,
+      "state_transition_case_count": 33
+    }
+  },
+  "B": {
+    "runs": 3,
+    "total_cases": 40,
+    "p1_count": 29,
+    "flow_count": 11,
+    "state_count": 23,
+    "ui_count": 6,
+    "p1_ratio": 0.725,
+    "ui_ratio": 0.15,
+    "flow_ratio": 0.275,
+    "structure": {
+      "cross_page_case_count": 32,
+      "multi_step_case_count": 40,
+      "state_transition_case_count": 34
+    }
+  },
+  "delta": {
+    "delta_p1": -0.0067,
+    "delta_ui": 0.0524,
+    "delta_flow": 0.0067,
+    "delta_cross_page_count": 2,
+    "delta_multi_step_count": 0,
+    "delta_state_transition_count": 1
+  },
+  "conclusion": {
+    "improved": "no",
+    "most_obvious_change": "ui_ratio",
+    "structural_improvement": true
+  }
+}

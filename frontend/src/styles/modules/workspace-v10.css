@@ -1,4 +1,4 @@
-/* 工作台重排 v10：三层卡片结构（标题区/操作区/内容区） */
+/* 工作台重�?v10：三层卡片结构（标题�?操作�?内容区） */
 
 body.ui-overhaul-v4 .panel-card {
   border: 1px solid color-mix(in srgb, var(--fd-border) 94%, transparent) !important;
@@ -10,6 +10,11 @@ body.ui-overhaul-v4 .panel-card {
 
 body.theme-dark.ui-overhaul-v4 .panel-card {
   box-shadow: 0 16px 30px rgba(2, 6, 23, 0.44);
+}
+
+body.theme-dark.ui-overhaul-v4 .test-generation-input .nav-link.active,
+body.theme-dark.ui-overhaul-v4 .test-generation-config .nav-link.active {
+  color: #b9cae1 !important;
 }
 
 body.ui-overhaul-v4 .panel-card-head {
@@ -74,7 +79,7 @@ body.ui-overhaul-v4 .test-generation-config .nav-link {
 
 body.ui-overhaul-v4 .test-generation-input .nav-link.active,
 body.ui-overhaul-v4 .test-generation-config .nav-link.active {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--fd-primary) 94%, #1d4ed8), color-mix(in srgb, var(--fd-primary-2) 78%, #7c3aed)) !important;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--fd-primary) 94%, #1d4ed8), color-mix(in srgb, var(--fd-primary-2) 78%, #5b718f)) !important;
   color: #fff !important;
 }
 
@@ -184,3 +189,4 @@ body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-testcase'] .ev
     font-size: 0.95rem;
   }
 }
+

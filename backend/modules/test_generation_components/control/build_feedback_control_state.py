@@ -22,6 +22,7 @@ _RULE_PATTERN = re.compile(r"\b(?:RULE|REQ)[-_ ]?\d+\b", re.IGNORECASE)
 _MAX_MUST_COVER_RULES = 12
 _MAX_SCENARIOS = 8
 _MAX_FORBIDDEN_PATTERNS = 8
+_MAX_PREFERRED_PATTERNS = 10
 _MAX_SOFT_CONSTRAINTS = 14
 _MAX_QUALITY_HINTS = 12
 _MAX_EVAL_REPORT_DOCS = 6
@@ -122,6 +123,22 @@ def _normalize_reason_category(raw: Any) -> str:
 def _normalize_expected_priority(raw: Any) -> str:
     value = str(raw or "").strip().upper()
     return value if value in {"P0", "P1", "P2", "P3"} else ""
+
+
+def _normalize_signal_type(raw: Any) -> str:
+    value = str(raw or "").strip().lower()
+    if value == "positive":
+        return "positive"
+    if value in {"pos", "good", "gold", "success", "best_practice"}:
+        return "positive"
+    return "negative"
+
+
+def _normalize_pattern_usage(raw: Any, *, signal_type: str) -> str:
+    value = str(raw or "").strip().lower()
+    if value in {"prefer", "avoid"}:
+        return value
+    return "prefer" if signal_type == "positive" else "avoid"
 
 
 def _normalize_comment_hint(comment: str) -> str:
@@ -435,10 +452,13 @@ def _build_from_priority_sample_pool(
     scenario_counter: Counter[str] = Counter()
     pattern_counter: Counter[str] = Counter()
     forbidden_patterns: list[str] = []
+    preferred_patterns: list[str] = []
     soft_constraints: list[str] = []
     quality_hints: list[str] = []
     verified_count = 0
     manual_comment_count = 0
+    positive_selected_count = 0
+    negative_selected_count = 0
 
     for sample in selected_samples:
         reason = _normalize_reason_category(
@@ -450,6 +470,23 @@ def _build_from_priority_sample_pool(
         comment = str(
             _sample_value(sample, "user_comment", "userComment") or ""
         ).strip()
+        signal_type = _normalize_signal_type(
+            _sample_value(
+                sample,
+                "signal_type",
+                "signalType",
+                "pattern_signal_type",
+                "patternSignalType",
+                "feedback_direction",
+                "feedbackDirection",
+                "sample_type",
+                "sampleType",
+            )
+        )
+        pattern_usage = _normalize_pattern_usage(
+            _sample_value(sample, "pattern_usage", "patternUsage"),
+            signal_type=signal_type,
+        )
 
         if not _is_manual_verified_sample(
             reason=reason,
@@ -482,6 +519,18 @@ def _build_from_priority_sample_pool(
         ).strip()
         if pattern_key:
             pattern_counter[pattern_key[:120]] += 1
+        if signal_type == "positive" or pattern_usage == "prefer":
+            positive_selected_count += 1
+            preferred_pattern = str(
+                _sample_value(sample, "pattern_summary", "patternSummary")
+                or _sample_value(sample, "pattern_canonical", "patternCanonical")
+                or title
+            ).strip()
+            if preferred_pattern:
+                preferred_patterns.append(preferred_pattern)
+                quality_hints.append(f"Prefer reusable pattern: {preferred_pattern[:120]}")
+        else:
+            negative_selected_count += 1
         priority_debug = _sample_value(sample, "priority_debug", "priorityDebug")
         sample_text = " ".join(
             [
@@ -497,7 +546,7 @@ def _build_from_priority_sample_pool(
             if expected_priority in {"P0", "P1"}:
                 rule_expected_high.add(rule_id)
 
-        if reason == "redundant_case":
+        if reason == "redundant_case" and not (signal_type == "positive" or pattern_usage == "prefer"):
             pattern = str(
                 _sample_value(sample, "pattern_summary", "patternSummary")
                 or ""
@@ -532,6 +581,7 @@ def _build_from_priority_sample_pool(
         must_cover_rules=must_cover_rules,
         must_have_scenarios=must_have_scenarios,
         forbidden_patterns=forbidden_patterns[:_MAX_PRIORITY_POOL_FORBIDDEN_PATTERNS],
+        preferred_patterns=preferred_patterns[:_MAX_PREFERRED_PATTERNS],
         soft_constraints=soft_constraints[:_MAX_PRIORITY_POOL_SOFT_CONSTRAINTS],
         rule_quota=rule_quota,
         quality_fix_hints=quality_hints[:_MAX_PRIORITY_POOL_HINTS],
@@ -541,6 +591,9 @@ def _build_from_priority_sample_pool(
             "priority_pool_selected_sample_count": int(len(selected_samples)),
             "verified_sample_count": int(verified_count),
             "manual_comment_count": int(manual_comment_count),
+            "preferred_pattern_count": int(len(preferred_patterns)),
+            "positive_selected_count": int(positive_selected_count),
+            "negative_selected_count": int(negative_selected_count),
             "reason_category_distribution": dict(reason_counter),
             "expected_priority_distribution": dict(expected_counter),
             "pattern_hit_distribution": {
@@ -847,6 +900,7 @@ def _compact_state(state: FeedbackControlState) -> FeedbackControlState:
     normalized.must_cover_rules = normalized.must_cover_rules[:_MAX_MUST_COVER_RULES]
     normalized.must_have_scenarios = normalized.must_have_scenarios[:_MAX_SCENARIOS]
     normalized.forbidden_patterns = normalized.forbidden_patterns[:_MAX_FORBIDDEN_PATTERNS]
+    normalized.preferred_patterns = normalized.preferred_patterns[:_MAX_PREFERRED_PATTERNS]
     normalized.soft_constraints = normalized.soft_constraints[:_MAX_SOFT_CONSTRAINTS]
     normalized.quality_fix_hints = normalized.quality_fix_hints[:_MAX_QUALITY_HINTS]
     normalized.rule_quota = {

@@ -1,0 +1,148 @@
+{
+  "label": "B_new",
+  "run_at": "2026-04-14T12:19:13.815841",
+  "config": {
+    "temperature": 0,
+    "generation_mode": "single_pass",
+    "expected_count": 12,
+    "seed_count": 3
+  },
+  "results": [
+    {
+      "seed": {
+        "source_id": -1,
+        "project_id": 8,
+        "user_id": 1,
+        "requirement_length": 459,
+        "requirement_preview": "学习模块测试需求（业务主线）：\n\n1. 用户从首页点击“同步学习”进入学习模块，默认展示最近一次学习的年级与教材版本。\n2. 用户可以切换年级与教材版本，切换后课程列表应刷新，且只展示对应年级/版本课程。\n3. 用户进入某一课程后，学习路径为：进入课程页 -> 查看知识点 -> 完成互动练习 -> 提交答案 -> 查看结果 -> 返回课程列表。\n4. 在课程学习过程中，用户中断（切后台或杀进程）后再次进入，应恢复到上次学习进度。\n5. "
+      },
+      "http_status": 200,
+      "generation_id": 363,
+      "total": 12,
+      "priority": {
+        "P1": 7,
+        "P2": 5
+      },
+      "type_count": {
+        "FLOW": 3,
+        "STATE": 7,
+        "UI": 2
+      },
+      "ratios": {
+        "p1_ratio": 0.5833,
+        "ui_ratio": 0.1667,
+        "flow_ratio": 0.25
+      },
+      "structure": {
+        "cross_page_case_count": 10,
+        "multi_step_case_count": 12,
+        "state_transition_case_count": 9
+      },
+      "control_signature": {
+        "must_cover_rules_count": 0,
+        "must_have_scenarios_count": 0,
+        "forbidden_patterns_count": 0,
+        "soft_constraints_count": 0,
+        "quality_fix_hints_count": 0,
+        "rule_quota_keys_count": 0
+      },
+      "errors": []
+    },
+    {
+      "seed": {
+        "source_id": -2,
+        "project_id": 8,
+        "user_id": 1,
+        "requirement_length": 459,
+        "requirement_preview": "学习模块测试需求（业务主线）：\n\n1. 用户从首页点击“同步学习”进入学习模块，默认展示最近一次学习的年级与教材版本。\n2. 用户可以切换年级与教材版本，切换后课程列表应刷新，且只展示对应年级/版本课程。\n3. 用户进入某一课程后，学习路径为：进入课程页 -> 查看知识点 -> 完成互动练习 -> 提交答案 -> 查看结果 -> 返回课程列表。\n4. 在课程学习过程中，用户中断（切后台或杀进程）后再次进入，应恢复到上次学习进度。\n5. "
+      },
+      "http_status": 200,
+      "generation_id": 364,
+      "total": 14,
+      "priority": {
+        "P1": 11,
+        "P2": 3
+      },
+      "type_count": {
+        "FLOW": 5,
+        "STATE": 7,
+        "UI": 2
+      },
+      "ratios": {
+        "p1_ratio": 0.7857,
+        "ui_ratio": 0.1429,
+        "flow_ratio": 0.3571
+      },
+      "structure": {
+        "cross_page_case_count": 12,
+        "multi_step_case_count": 14,
+        "state_transition_case_count": 13
+      },
+      "control_signature": {
+        "must_cover_rules_count": 0,
+        "must_have_scenarios_count": 0,
+        "forbidden_patterns_count": 0,
+        "soft_constraints_count": 0,
+        "quality_fix_hints_count": 0,
+        "rule_quota_keys_count": 0
+      },
+      "errors": []
+    },
+    {
+      "seed": {
+        "source_id": -3,
+        "project_id": 8,
+        "user_id": 1,
+        "requirement_length": 459,
+        "requirement_preview": "学习模块测试需求（业务主线）：\n\n1. 用户从首页点击“同步学习”进入学习模块，默认展示最近一次学习的年级与教材版本。\n2. 用户可以切换年级与教材版本，切换后课程列表应刷新，且只展示对应年级/版本课程。\n3. 用户进入某一课程后，学习路径为：进入课程页 -> 查看知识点 -> 完成互动练习 -> 提交答案 -> 查看结果 -> 返回课程列表。\n4. 在课程学习过程中，用户中断（切后台或杀进程）后再次进入，应恢复到上次学习进度。\n5. "
+      },
+      "http_status": 200,
+      "generation_id": 365,
+      "total": 14,
+      "priority": {
+        "P1": 11,
+        "P2": 3
+      },
+      "type_count": {
+        "FLOW": 3,
+        "STATE": 9,
+        "UI": 2
+      },
+      "ratios": {
+        "p1_ratio": 0.7857,
+        "ui_ratio": 0.1429,
+        "flow_ratio": 0.2143
+      },
+      "structure": {
+        "cross_page_case_count": 10,
+        "multi_step_case_count": 14,
+        "state_transition_case_count": 12
+      },
+      "control_signature": {
+        "must_cover_rules_count": 0,
+        "must_have_scenarios_count": 0,
+        "forbidden_patterns_count": 0,
+        "soft_constraints_count": 0,
+        "quality_fix_hints_count": 0,
+        "rule_quota_keys_count": 0
+      },
+      "errors": []
+    }
+  ],
+  "summary": {
+    "runs": 3,
+    "total_cases": 40,
+    "p1_count": 29,
+    "flow_count": 11,
+    "state_count": 23,
+    "ui_count": 6,
+    "p1_ratio": 0.725,
+    "ui_ratio": 0.15,
+    "flow_ratio": 0.275,
+    "structure": {
+      "cross_page_case_count": 32,
+      "multi_step_case_count": 40,
+      "state_transition_case_count": 34
+    }
+  }
+}

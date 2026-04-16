@@ -24,15 +24,15 @@ a:hover {
 /* dark mode is controlled by .theme-dark on body */
 
 .postman-theme {
-  --pm-bg: var(--ui-bg, #f3f6fb);
-  --pm-surface: var(--ui-surface, #ffffff);
-  --pm-surface-muted: var(--ui-surface-muted, #f8fbff);
-  --pm-text: var(--ui-text, #0f172a);
-  --pm-text-soft: var(--ui-text-soft, #64748b);
-  --pm-border: var(--ui-border, #dbe4f0);
-  --pm-border-strong: var(--ui-border-strong, #cbd5e1);
-  --pm-primary: var(--ui-primary, #4f46e5);
-  --pm-primary-soft: var(--ui-primary-soft, rgba(79, 70, 229, 0.12));
+  --pm-bg: var(--ui-bg, var(--fd-bg, #f3f6fb));
+  --pm-surface: var(--ui-surface, var(--fd-surface, #ffffff));
+  --pm-surface-muted: var(--ui-surface-muted, var(--fd-surface-soft, #f8fbff));
+  --pm-text: var(--ui-text, var(--fd-text, #0f172a));
+  --pm-text-soft: var(--ui-text-soft, var(--fd-text-soft, #64748b));
+  --pm-border: var(--ui-border, var(--fd-border, #dbe4f0));
+  --pm-border-strong: var(--ui-border-strong, var(--fd-border, #cbd5e1));
+  --pm-primary: var(--ui-primary, var(--fd-primary, #4f46e5));
+  --pm-primary-soft: var(--ui-primary-soft, color-mix(in srgb, var(--pm-primary) 22%, transparent));
 
   font-size: 13px !important;
   color: var(--pm-text);

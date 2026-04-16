@@ -199,7 +199,7 @@ body.theme-dark.ui-overhaul-v4 .evaluation-report-panel {
 
 body.theme-dark.ui-overhaul-v4 .pipeline-input-body h6,
 body.theme-dark.ui-overhaul-v4 .evaluation-report-title {
-  color: color-mix(in srgb, var(--fd-text-strong) 96%, #ffffff);
+  color: color-mix(in srgb, var(--fd-text) 86%, #b9cae1);
 }
 
 body.theme-dark.ui-overhaul-v4 .pipeline-check-group,
@@ -216,7 +216,7 @@ body.theme-dark.ui-overhaul-v4 .evaluation-report-kpi {
 
 body.theme-dark.ui-overhaul-v4 .pipeline-monitor-body .pipeline-table th {
   background: color-mix(in srgb, var(--fd-surface-soft) 90%, #121b2d);
-  color: color-mix(in srgb, var(--fd-text-strong) 98%, #ffffff);
+  color: color-mix(in srgb, var(--fd-text) 88%, #b9cae1);
 }
 
 body.theme-dark.ui-overhaul-v4 .evaluation-report-modal .modal-content {

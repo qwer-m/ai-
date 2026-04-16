@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from collections import defaultdict
 from typing import Any
@@ -25,6 +26,31 @@ _MAX_CASES_PER_BUCKET = 5
 _MAX_REQUIREMENTS_PER_BIZ = 8
 _MAX_SUPPLEMENTS_PER_BIZ = 6
 _MAX_SUPPLEMENT_CHARS = 220
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = str(os.getenv(name, "true" if default else "false") or "").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
+
+
+def _env_int(name: str, default: int, *, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int(str(os.getenv(name, str(default))).strip())
+    except Exception:
+        parsed = int(default)
+    return max(int(min_value), min(int(max_value), int(parsed)))
+
+
+def _env_float(name: str, default: float, *, min_value: float, max_value: float) -> float:
+    try:
+        parsed = float(str(os.getenv(name, str(default))).strip())
+    except Exception:
+        parsed = float(default)
+    return max(float(min_value), min(float(max_value), float(parsed)))
 
 
 def _extract_requirement_lines(text: str, limit: int) -> list[str]:
@@ -286,16 +312,36 @@ def _build_control_context(
     include_quality_fix_hints_in_text: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     state = FeedbackControlState.from_any(control_state)
+    strong_preferred_quota_enabled = bool(
+        _env_bool("TESTGEN_ENABLE_STRONG_PREFERRED_QUOTA_AB", True)
+    )
+    preferred_flow_case_quota = _env_int(
+        "TESTGEN_PREFERRED_FLOW_CASE_QUOTA",
+        2,
+        min_value=1,
+        max_value=6,
+    )
+    ui_case_ratio_cap = _env_float(
+        "TESTGEN_UI_CASE_RATIO_CAP",
+        0.40,
+        min_value=0.20,
+        max_value=0.60,
+    )
+    preferred_quota_active = bool(strong_preferred_quota_enabled and state.preferred_patterns)
     summary = {
         "control_state_applied": bool(state.has_signals()),
         "must_cover_rules_count": int(len(state.must_cover_rules)),
         "must_have_scenarios_count": int(len(state.must_have_scenarios)),
         "forbidden_patterns_count": int(len(state.forbidden_patterns)),
+        "preferred_patterns_count": int(len(state.preferred_patterns)),
         "soft_constraints_count": int(len(state.soft_constraints)),
         "rule_quota_keys": sorted(list((state.rule_quota or {}).keys())),
         "quality_fix_hints_count": int(len(state.quality_fix_hints)),
         "soft_constraints_in_prompt": bool(include_soft_constraints_in_text),
         "quality_fix_hints_in_prompt": bool(include_quality_fix_hints_in_text),
+        "preferred_quota_variant": "B" if preferred_quota_active else "A",
+        "preferred_flow_case_quota": int(preferred_flow_case_quota) if preferred_quota_active else 0,
+        "ui_case_ratio_cap": float(ui_case_ratio_cap),
         "source_meta": dict(state.source_meta or {}),
     }
 
@@ -304,6 +350,7 @@ def _build_control_context(
         or state.must_have_scenarios
         or state.rule_quota
         or state.forbidden_patterns
+        or state.preferred_patterns
         or (include_soft_constraints_in_text and state.soft_constraints)
         or (include_quality_fix_hints_in_text and state.quality_fix_hints)
     )
@@ -338,6 +385,24 @@ def _build_control_context(
         lines.extend([f"* {item}" for item in state.forbidden_patterns])
     else:
         lines.append("* (none)")
+
+    lines.append("")
+    lines.append("### PREFERRED PATTERNS")
+    if state.preferred_patterns:
+        lines.extend([f"* {item}" for item in state.preferred_patterns])
+    else:
+        lines.append("* (none)")
+
+    if preferred_quota_active:
+        lines.append("")
+        lines.append("### PREFERRED PATTERN QUOTA (AB)")
+        lines.append(
+            f"* Must generate at least {int(preferred_flow_case_quota)} workflow/state-transition cases expanded from PREFERRED PATTERNS."
+        )
+        lines.append(
+            f"* UI-only cases (display/layout/copy/style) must not exceed {int(round(ui_case_ratio_cap * 100.0))}% of total generated cases."
+        )
+        lines.append("* If quota conflicts with weak dedup/display heuristics, keep preferred-pattern quota first.")
 
     if include_soft_constraints_in_text:
         lines.append("")

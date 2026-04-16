@@ -152,7 +152,32 @@
 body.theme-dark .test-generation-upload-zone,
 body.theme-dark .test-generation-requirement,
 body.theme-dark .test-generation-result-content {
-  background: color-mix(in srgb, #0f172a 82%, transparent) !important;
+  background: #1b212a !important;
+}
+
+body.theme-dark .test-generation-shell.postman-theme.bento-grid {
+  background-color: #000000 !important;
+}
+
+body.theme-dark .test-generation-result-head .badge.bg-success {
+  background-color: #166534 !important;
+  color: #dcfce7 !important;
+}
+
+body.theme-dark .test-generation-result-head .badge.bg-primary {
+  background-color: #1e3a8a !important;
+  color: #dbeafe !important;
+}
+
+body.theme-dark .test-generation-result-head .badge.bg-secondary {
+  background-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+body.theme-dark .test-generation-result .bg-success-subtle {
+  background-color: color-mix(in srgb, var(--fd-success) 26%, #052e16) !important;
+  color: #86efac !important;
+  border-color: color-mix(in srgb, var(--fd-success) 48%, #14532d) !important;
 }
 
 body.theme-dark .test-generation-highlight-mark {
@@ -161,11 +186,20 @@ body.theme-dark .test-generation-highlight-mark {
 }
 
 body.theme-dark .test-generation-hint {
-  background: #111827;
+  background: #1b212a;
 }
 
 body.theme-dark .test-generation-hint-tail {
-  border-top-color: #111827;
+  border-top-color: #1b212a;
+}
+
+body.theme-dark .test-generation-result-head,
+body.theme-dark .test-generation-result-subhead,
+body.theme-dark .test-generation-related-cases,
+body.theme-dark .test-generation-input .nav-pills,
+body.theme-dark .test-generation-mode-switch {
+  background: #161c24 !important;
+  border-color: #2a323f !important;
 }
 
 @media (max-width: 1100px) {

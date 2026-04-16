@@ -1,4 +1,4 @@
-﻿.standard-api-shell {
+.standard-api-shell {
         --sat-bg: var(--ui-bg, #f6f8fc);
         --sat-surface: var(--ui-surface, #ffffff);
         --sat-surface-muted: var(--ui-surface-muted, #f8fafc);
@@ -21,7 +21,7 @@
         --sat-border-strong: var(--ui-border-strong, #3f5168);
         --sat-text: var(--ui-text, #e2e8f0);
         --sat-text-soft: var(--ui-text-soft, #94a3b8);
-        --sat-primary: var(--ui-primary, #818cf8);
+        --sat-primary: var(--ui-primary, #586b8d);
         --sat-primary-soft: rgba(129, 140, 248, 0.18);
         --sat-shadow: 0 6px 20px rgba(2, 6, 23, 0.52);
       }
@@ -264,4 +264,5 @@
         background: transparent !important;
         border-bottom: 2px solid var(--sat-primary);
       }
+
 

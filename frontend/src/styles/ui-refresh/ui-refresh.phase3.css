@@ -1,4 +1,4 @@
-﻿/* ===== Phase 3: Global Visual Overhaul ===== */
+/* ===== Phase 3: Global Visual Overhaul ===== */
 .dashboard-shell {
   background:
     radial-gradient(1200px 500px at 12% -8%, color-mix(in srgb, var(--ui-primary) 10%, transparent), transparent 62%),
@@ -110,7 +110,7 @@
 .dashboard-shell .btn-pro-primary,
 .dashboard-shell .btn-primary {
   border-radius: 12px !important;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--ui-primary) 96%, #1d4ed8), color-mix(in srgb, var(--ui-primary) 78%, #7c3aed)) !important;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--ui-primary) 96%, #1d4ed8), color-mix(in srgb, var(--ui-primary) 78%, #5b718f)) !important;
   border: none !important;
   box-shadow: 0 8px 16px color-mix(in srgb, var(--ui-primary) 36%, transparent);
 }
@@ -256,4 +256,5 @@ body.theme-dark .dashboard-shell .dashboard-sidebar-nav-wrap .sidebar-link:hover
 .postman-theme .nav-link.active {
   border-bottom-color: var(--ui-primary) !important;
 }
+
 

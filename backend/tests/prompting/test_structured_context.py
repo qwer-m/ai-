@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
@@ -50,17 +50,17 @@ def test_structured_context_groups_requirement_and_supplement_by_biz_key() -> No
         only_current_biz=False,
     )
 
-    assert "【Requirements - 按业务分组】" in output["requirement_context"]
-    assert "### biz_key: org_close_rule（当前业务）" in output["requirement_context"]
-    assert "### biz_key: org_open_rule（参考）" in output["requirement_context"]
-    assert "【Supplement - 按业务分组】" in output["supplement_context"]
-    assert "### biz_key: org_close_rule（当前业务）" in output["testcase_context"]
-    assert "### biz_key: org_open_rule（参考）" in output["testcase_context"]
+    assert "[Requirements - grouped by biz_key]" in output["requirement_context"]
+    assert "### biz_key: org_close_rule (当前业务)" in output["requirement_context"]
+    assert "### biz_key: org_open_rule (参考)" in output["requirement_context"]
+    assert "[Supplement - grouped by biz_key]" in output["supplement_context"]
+    assert "### biz_key: org_close_rule (当前业务)" in output["testcase_context"]
+    assert "### biz_key: org_open_rule (参考)" in output["testcase_context"]
 
 
 def test_only_current_biz_keeps_only_current_scope() -> None:
     output = build_structured_prompt_context(
-        requirement="REQ-001: 关闭机构需要校验余额。",
+        requirement="REQ-001: 关闭机构前需要校验余额。",
         rag_result={
             "debug": {
                 "final_chunks": [
@@ -69,14 +69,14 @@ def test_only_current_biz_keeps_only_current_scope() -> None:
                         "doc_type": "requirement",
                         "biz_key": "org_close_rule",
                         "module": "机构关闭",
-                        "chunk_text": "REQ-001: 关闭机构需要校验余额。",
+                        "chunk_text": "REQ-001: 关闭机构前需要校验余额。",
                     },
                     {
                         "filename": "open_req.md",
                         "doc_type": "requirement",
                         "biz_key": "org_open_rule",
                         "module": "机构开通",
-                        "chunk_text": "REQ-101: 开通机构需审批。",
+                        "chunk_text": "REQ-101: 开通机构前需审批。",
                     },
                 ]
             }
@@ -119,6 +119,54 @@ def test_missing_fields_fallback_and_degrade_when_current_unknown() -> None:
     )
 
     assert output["current_biz_key"] == "unknown"
-    assert "### biz_key: unknown（当前业务）" in output["testcase_context"]
+    assert "### biz_key: unknown (当前业务)" in output["testcase_context"]
     assert output["biz_key_isolation_log"]["mode"] == "reference_allowed_current_unknown"
     assert output["biz_key_order"]
+
+
+def test_control_context_includes_preferred_patterns() -> None:
+    output = build_structured_prompt_context(
+        requirement="REQ-901: keep settlement consistency",
+        feedback_control_state={
+            "must_cover_rules": ["RULE-901"],
+            "preferred_patterns": ["deterministic settlement assertion chain"],
+        },
+    )
+
+    assert "### PREFERRED PATTERNS" in output["control_context"]
+    assert "deterministic settlement assertion chain" in output["control_context"]
+    assert int(output["control_summary"].get("preferred_patterns_count") or 0) == 1
+    assert "### PREFERRED PATTERN QUOTA (AB)" in output["control_context"]
+    assert output["control_summary"].get("preferred_quota_variant") == "B"
+
+
+def test_control_context_applies_preferred_quota_ab_variant(monkeypatch) -> None:
+    monkeypatch.setenv("TESTGEN_ENABLE_STRONG_PREFERRED_QUOTA_AB", "true")
+    monkeypatch.setenv("TESTGEN_PREFERRED_FLOW_CASE_QUOTA", "2")
+    monkeypatch.setenv("TESTGEN_UI_CASE_RATIO_CAP", "0.4")
+    output = build_structured_prompt_context(
+        requirement="REQ-902: settlement flow reliability",
+        feedback_control_state={
+            "preferred_patterns": ["multi-step settlement closure path"],
+        },
+    )
+
+    assert "### PREFERRED PATTERN QUOTA (AB)" in output["control_context"]
+    assert "at least 2 workflow/state-transition cases" in output["control_context"]
+    assert "must not exceed 40%" in output["control_context"]
+    assert output["control_summary"].get("preferred_quota_variant") == "B"
+    assert int(output["control_summary"].get("preferred_flow_case_quota") or 0) == 2
+
+
+def test_control_context_can_disable_preferred_quota_variant_by_env(monkeypatch) -> None:
+    monkeypatch.setenv("TESTGEN_ENABLE_STRONG_PREFERRED_QUOTA_AB", "false")
+    output = build_structured_prompt_context(
+        requirement="REQ-903: legacy mode fallback",
+        feedback_control_state={
+            "preferred_patterns": ["legacy preferred pattern"],
+        },
+    )
+
+    assert "### PREFERRED PATTERN QUOTA (AB)" not in output["control_context"]
+    assert output["control_summary"].get("preferred_quota_variant") == "A"
+    assert int(output["control_summary"].get("preferred_flow_case_quota") or 0) == 0

@@ -26,13 +26,12 @@ import {
   buildRecommendationDraft,
   buildOptimizationInputPackage,
   sampleTagLabel,
-  sampleUsageLabel,
   normalizePriority,
   normalizeReasonCategory,
   classifySampleTags,
   resolveSampleUsage,
 } from './PriorityDebugTable.helpers';
-import type { Props, PriorityRow, PrioritySample, ViewFilter } from './PriorityDebugTable.helpers';
+import type { Props, PriorityRow, PrioritySample, SampleTag, ViewFilter } from './PriorityDebugTable.helpers';
 import { fetchPrioritySamplePool, savePrioritySamplePool } from './debugService';
 
 export function PriorityDebugTable({
@@ -53,6 +52,8 @@ export function PriorityDebugTable({
   const [lastCloudSavedAt, setLastCloudSavedAt] = useState<number | null>(null);
   const [isCloudSyncing, setIsCloudSyncing] = useState<boolean>(false);
   const [cloudSyncError, setCloudSyncError] = useState<string>('');
+  const [hoverManualTagSampleId, setHoverManualTagSampleId] = useState<string | null>(null);
+  const [confirmingManualTagSampleId, setConfirmingManualTagSampleId] = useState<string | null>(null);
   const skipNextRemoteSaveRef = useRef<boolean>(false);
   const hasHydratedRemoteRef = useRef<boolean>(false);
   const remoteSaveTimerRef = useRef<number | null>(null);
@@ -166,7 +167,7 @@ export function PriorityDebugTable({
   const sortedRows = useMemo(() => [...rows].sort(compareRows), [rows]);
   const filteredRows = useMemo(
     () => sortedRows.filter((row) => {
-      if (!matchPriority(row.rawPriority, rawFilter)) return false;
+      if (!matchPriority(row.finalPriority, rawFilter)) return false;
       if (!matchPriority(row.finalPriority, finalFilter)) return false;
       if (!matchPriority(row.displayPriority, displayFilter)) return false;
       if (viewFilter === 'corrected') return row.corrected;
@@ -186,6 +187,34 @@ export function PriorityDebugTable({
   const summaryLine = useMemo(() => buildSummaryLine(displayMismatchCount, correctedCount, unchangedCount), [displayMismatchCount, correctedCount, unchangedCount]);
   const sampleTagCounts = useMemo(() => getSampleTagCounts(samplePool), [samplePool]);
   const sampleDirectionTop = useMemo(() => getSampleDirectionTop(samplePool, 5), [samplePool]);
+  const samplePoolByCaseId = useMemo(() => {
+    const map = new Map<string, PrioritySample>();
+    samplePool.forEach((sample) => {
+      const key = String(sample.caseId || '').trim();
+      if (!key) return;
+      const prev = map.get(key);
+      if (!prev || (sample.addedAt || 0) >= (prev.addedAt || 0)) map.set(key, sample);
+    });
+    return map;
+  }, [samplePool]);
+
+  const buildPriorityDebugDisplay = (row: PriorityRow, linkedSample?: PrioritySample): Record<string, unknown> | null => {
+    if (!linkedSample) return row.priorityDebug;
+    const base = row.priorityDebug && typeof row.priorityDebug === 'object' ? row.priorityDebug : {};
+    return {
+      ...base,
+      manual_feedback: {
+        case_id: linkedSample.caseId,
+        tags: linkedSample.tags,
+        usage: linkedSample.usage,
+        expected_priority: linkedSample.expectedPriority || '',
+        reason_category: linkedSample.reasonCategory || '',
+        user_comment: linkedSample.userComment || '',
+        manual_confirmed: Boolean(linkedSample.manualConfirmed),
+        manual_confirmed_at: linkedSample.manualConfirmedAt ? new Date(linkedSample.manualConfirmedAt).toISOString() : null,
+      },
+    };
+  };
 
   const handleExportCurrent = () => {
     if (!filteredRows.length) { setActionMessage('当前无可导出数据'); return; }
@@ -225,6 +254,51 @@ export function PriorityDebugTable({
       setActionMessage(`已回退到下方样本池：${caseId}`);
       return next;
     });
+  };
+  const handleConfirmManualReview = async (sampleId: string, caseId: string) => {
+    let nextSamples: PrioritySample[] = [];
+    let didUpdate = false;
+    if (projectId && hasHydratedRemoteRef.current) skipNextRemoteSaveRef.current = true;
+    setSamplePool((prev) => {
+      nextSamples = prev.map((sample) => {
+        if (sample.sampleId !== sampleId) return sample;
+        didUpdate = true;
+        const filteredTags = sample.tags.filter((tag) => tag !== 'manual_review');
+        const nextTags: SampleTag[] = filteredTags.length > 0
+          ? filteredTags
+          : [sample.isDisplayMismatch ? 'display_mismatch' : 'rule_adjusted'];
+        return {
+          ...sample,
+          tags: nextTags,
+          usage: resolveSampleUsage(nextTags),
+          manualConfirmed: true,
+          manualConfirmedAt: Date.now(),
+        };
+      });
+      return nextSamples;
+    });
+    if (!didUpdate) return;
+    setHoverManualTagSampleId((prev) => (prev === sampleId ? null : prev));
+    setActionMessage(`已确认：${caseId}（前端已移除“待人工确认”）`);
+    if (!projectId || !hasHydratedRemoteRef.current) return;
+    setConfirmingManualTagSampleId(sampleId);
+    setIsCloudSyncing(true);
+    try {
+      const payload = await savePrioritySamplePool(projectId, {
+        generation_id: generationId ?? null,
+        samples: nextSamples as unknown as any[],
+      });
+      const cloudTs = Date.parse(String(payload?.updated_at || ''));
+      if (Number.isFinite(cloudTs)) setLastCloudSavedAt(cloudTs);
+      setCloudSyncError('');
+      setActionMessage(`已确认并写入云端：${caseId}`);
+    } catch {
+      setCloudSyncError('云端写入失败，数据仍保留在本地浏览器');
+      setActionMessage(`已确认：${caseId}，但云端写入失败`);
+    } finally {
+      setIsCloudSyncing(false);
+      setConfirmingManualTagSampleId((prev) => (prev === sampleId ? null : prev));
+    }
   };
   const handleExportSamplePool = () => {
     if (!samplePool.length) { setActionMessage('异常样本池为空，暂无可导出数据'); return; }
@@ -347,8 +421,8 @@ export function PriorityDebugTable({
             return (
               <div key={tag} className="d-flex align-items-center gap-2 mb-1">
                 <span style={{ minWidth: 92 }}>{sampleTagLabel(tag)}</span>
-                <div className="flex-grow-1" style={{ height: 8, background: '#e9ecef', borderRadius: 4 }}>
-                  <div style={{ height: 8, width: `${ratio}%`, background: '#6c757d', borderRadius: 4 }} />
+                <div className="flex-grow-1 tg-priority-ratio-track">
+                  <div className="tg-priority-ratio-fill" style={{ width: `${ratio}%` }} />
                 </div>
                 <span>{count}</span>
               </div>
@@ -400,44 +474,79 @@ export function PriorityDebugTable({
         <div className="mb-3 p-2 border rounded-2">
           <div className="fw-semibold mb-2">样本池解释编辑</div>
           <div className="table-responsive">
-            <table className="table table-sm align-middle mb-0">
+            <table className="table table-sm align-middle mb-0 tg-priority-sample-table">
               <thead>
                 <tr>
-                  <th style={{ whiteSpace: 'nowrap' }}>用例</th>
-                  <th style={{ whiteSpace: 'nowrap' }}>修正方向</th>
-                  <th style={{ whiteSpace: 'nowrap' }}>标签</th>
-                  <th style={{ whiteSpace: 'nowrap' }}>期望优先级</th>
-                  <th style={{ whiteSpace: 'nowrap' }}>原因分类</th>
-                  <th style={{ whiteSpace: 'nowrap' }}>用户备注</th>
-                  <th style={{ whiteSpace: 'nowrap' }}>操作</th>
+                  <th className="tg-priority-sample-case-col">用例</th>
+                  <th className="tg-priority-sample-direction-col">修正方向</th>
+                  <th className="tg-priority-sample-tag-col">标签</th>
+                  <th className="tg-priority-sample-priority-col">期望优先级</th>
+                  <th className="tg-priority-sample-reason-col">原因分类</th>
+                  <th className="tg-priority-sample-comment-col">用户备注</th>
+                  <th className="tg-priority-sample-action-col">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {samplePool.map((sample) => (
                   <tr key={sample.sampleId}>
-                    <td><div className="fw-semibold">{sample.caseId}</div><div className="small text-muted rag-debug-muted">{sample.title || '-'}</div></td>
-                    <td>{sample.direction}</td>
-                    <td>
-                      <div className="d-flex flex-wrap gap-1">
-                        {sample.tags.map((tag) => <Badge key={`${sample.sampleId}-${tag}`} bg="light" text="dark">{sampleTagLabel(tag)}</Badge>)}
-                        <Badge bg="info" text="dark">{sampleUsageLabel(sample.usage)}</Badge>
+                    <td className="tg-priority-sample-case-col">
+                      <div className="fw-semibold">{sample.caseId}</div>
+                      <div className="small text-muted rag-debug-muted tg-priority-sample-case-title">{sample.title || '-'}</div>
+                    </td>
+                    <td className="tg-priority-sample-direction-col">{sample.direction}</td>
+                    <td className="tg-priority-sample-tag-col">
+                      <div className="d-flex flex-wrap gap-1 tg-priority-tags-wrap">
+                        {sample.manualConfirmed ? <Badge bg="success">已确认</Badge> : null}
+                        {sample.tags.map((tag) => {
+                          if (tag !== 'manual_review') {
+                            return (
+                              <Badge key={`${sample.sampleId}-${tag}`} bg="light" text="dark">
+                                {sampleTagLabel(tag)}
+                              </Badge>
+                            );
+                          }
+                          const showConfirm = hoverManualTagSampleId === sample.sampleId;
+                          const isConfirming = confirmingManualTagSampleId === sample.sampleId;
+                          return (
+                            <span
+                              key={`${sample.sampleId}-${tag}`}
+                              className="tg-priority-manual-confirm-wrap"
+                              onMouseEnter={() => setHoverManualTagSampleId(sample.sampleId)}
+                              onMouseLeave={() => setHoverManualTagSampleId((prev) => (prev === sample.sampleId ? null : prev))}
+                            >
+                              {showConfirm ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline-success"
+                                  className="tg-priority-manual-confirm-btn"
+                                  disabled={isConfirming}
+                                  onClick={() => void handleConfirmManualReview(sample.sampleId, sample.caseId)}
+                                >
+                                  {isConfirming ? '确认中...' : '确认'}
+                                </Button>
+                              ) : (
+                                <Badge bg="light" text="dark">{sampleTagLabel(tag)}</Badge>
+                              )}
+                            </span>
+                          );
+                        })}
                       </div>
                     </td>
-                    <td>
+                    <td className="tg-priority-sample-priority-col">
                       <Form.Select size="sm" value={sample.expectedPriority} onChange={(e) => handleUpdateSample(sample.sampleId, { expectedPriority: normalizePriority(e.target.value) })} style={{ width: 90 }}>
                         <option value="">-</option><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option>
                       </Form.Select>
                     </td>
-                    <td>
+                    <td className="tg-priority-sample-reason-col">
                       <Form.Select size="sm" value={sample.reasonCategory} onChange={(e) => handleUpdateSample(sample.sampleId, { reasonCategory: normalizeReasonCategory(e.target.value) })} style={{ minWidth: 160 }}>
                         {REASON_CATEGORY_OPTIONS.map((opt) => <option key={`reason-${opt.value || 'none'}`} value={opt.value}>{opt.label}</option>)}
                       </Form.Select>
                     </td>
-                    <td style={{ minWidth: 280 }}>
+                    <td className="tg-priority-sample-comment-col">
                       <Form.Control size="sm" as="textarea" rows={2} placeholder="填写该样本为何不合理、你期望的优先级依据" value={sample.userComment} onChange={(e) => handleUpdateSample(sample.sampleId, { userComment: e.target.value })} />
                     </td>
-                    <td>
-                      <Button size="sm" variant="outline-secondary" style={{ whiteSpace: 'nowrap' }} onClick={() => handleRollbackSample(sample.sampleId, sample.caseId)}>case回退</Button>
+                    <td className="tg-priority-sample-action-col">
+                      <Button size="sm" variant="outline-secondary" className="tg-priority-row-action-btn" onClick={() => handleRollbackSample(sample.sampleId, sample.caseId)}>case回退</Button>
                     </td>
                   </tr>
                 ))}
@@ -458,24 +567,21 @@ export function PriorityDebugTable({
         <table className="table table-sm align-middle mb-0 tg-priority-result-table">
           <thead>
             <tr>
-              <th className="tg-priority-index-col" style={{ whiteSpace: 'nowrap' }}>序号</th>
-              <th className="tg-priority-case-col" style={{ whiteSpace: 'nowrap' }}>用例</th>
-              <th style={{ whiteSpace: 'nowrap', minWidth: 38 }}>原始</th>
-              <th style={{ whiteSpace: 'nowrap', minWidth: 38 }}>最终</th>
-              <th style={{ whiteSpace: 'nowrap', minWidth: 38 }}>展示</th>
-              <th style={{ whiteSpace: 'nowrap', minWidth: 52 }}>已修正</th>
-              <th style={{ whiteSpace: 'nowrap', minWidth: 118 }}>结果来源</th>
-              <th style={{ whiteSpace: 'nowrap', minWidth: 82 }}>标签</th>
-              <th style={{ whiteSpace: 'nowrap', minWidth: 70 }}>用途</th>
-              <th style={{ whiteSpace: 'nowrap', minWidth: 86 }}>优先级调试</th>
-              <th style={{ whiteSpace: 'nowrap', minWidth: 72 }}>操作</th>
+              <th className="tg-priority-index-col">序号</th>
+              <th className="tg-priority-case-col">用例</th>
+              <th className="tg-priority-raw-col">原始</th>
+              <th className="tg-priority-source-col">结果来源</th>
+              <th className="tg-priority-tag-col">标签</th>
+              <th className="tg-priority-debug-col">优先级调试</th>
+              <th className="tg-priority-action-col">操作</th>
             </tr>
           </thead>
           <tbody>
-            {!filteredRows.length ? (<tr><td colSpan={11} className="text-center text-muted py-4">暂无符合筛选条件的数据</td></tr>) : null}
+            {!filteredRows.length ? (<tr><td colSpan={7} className="text-center text-muted py-4">暂无符合筛选条件的数据</td></tr>) : null}
             {filteredRows.map((row) => {
-              const tags = classifySampleTags(row);
-              const usage = resolveSampleUsage(tags);
+              const linkedSample = samplePoolByCaseId.get(row.caseId);
+              const tags = linkedSample?.tags?.length ? linkedSample.tags : classifySampleTags(row);
+              const priorityDebugDisplay = buildPriorityDebugDisplay(row, linkedSample);
               return (
                 <tr key={`${row.caseId}-${row.index}`} className={row.displayFinalMismatch ? 'tg-priority-display-mismatch-row' : undefined}>
                   <td className="tg-priority-index-col"><div>{row.index}</div>{row.displayFinalMismatch ? <Badge bg="danger" className="mt-1">展示异常</Badge> : null}</td>
@@ -483,15 +589,20 @@ export function PriorityDebugTable({
                     <div className="fw-semibold">{row.caseId}</div>
                     <div className="small text-muted rag-debug-muted tg-priority-case-title">{row.title || '-'}</div>
                   </td>
-                  <td>{row.rawPriority || '-'}</td>
-                  <td className={row.displayFinalMismatch ? 'tg-priority-display-mismatch-cell' : undefined}>{row.finalPriority || '-'}</td>
-                  <td className={row.displayFinalMismatch ? 'tg-priority-display-mismatch-cell' : undefined}>{row.displayPriority || '-'}</td>
-                  <td>{row.corrected ? <Badge bg="warning" text="dark">是</Badge> : <Badge bg="secondary">否</Badge>}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{row.resultSource}</td>
-                  <td><div className="d-flex flex-wrap gap-1">{tags.map((tag) => <Badge key={`${row.caseId}-${tag}`} bg="light" text="dark">{sampleTagLabel(tag)}</Badge>)}</div></td>
-                  <td><Badge bg="info" text="dark">{sampleUsageLabel(usage)}</Badge></td>
-                  <td>{row.priorityDebug ? (<details><summary>查看</summary><pre className="rag-priority-debug-pre">{JSON.stringify(row.priorityDebug, null, 2)}</pre></details>) : (<span className="text-muted">-</span>)}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}><Button size="sm" variant="outline-secondary" style={{ whiteSpace: 'nowrap', minWidth: 84 }} onClick={() => handleAddCurrentRowToPool(row)}>加入样本池</Button></td>
+                  <td>{row.finalPriority || '-'}</td>
+                  <td className="tg-priority-source-col">{row.resultSource}</td>
+                  <td className="tg-priority-tag-col">
+                    <div className="d-flex flex-wrap gap-1 tg-priority-tags-wrap">
+                      {linkedSample?.manualConfirmed ? <Badge bg="success">已确认</Badge> : null}
+                      {tags.map((tag) => <Badge key={`${row.caseId}-${tag}`} bg="light" text="dark">{sampleTagLabel(tag)}</Badge>)}
+                    </div>
+                  </td>
+                  <td className="tg-priority-debug-col">
+                    {priorityDebugDisplay
+                      ? (<details><summary>查看</summary><pre className="rag-priority-debug-pre">{JSON.stringify(priorityDebugDisplay, null, 2)}</pre></details>)
+                      : (<span className="text-muted">-</span>)}
+                  </td>
+                  <td className="tg-priority-action-col"><Button size="sm" variant="outline-secondary" className="tg-priority-row-action-btn" onClick={() => handleAddCurrentRowToPool(row)}>加入样本池</Button></td>
                 </tr>
               );
             })}

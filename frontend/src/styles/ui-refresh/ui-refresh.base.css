@@ -14,15 +14,15 @@
 }
 
 body.theme-dark {
-  --ui-bg: #0b1220;
-  --ui-surface: #111827;
-  --ui-surface-muted: #0f172a;
-  --ui-text: #e2e8f0;
-  --ui-text-soft: #94a3b8;
-  --ui-border: #314055;
-  --ui-border-strong: #3e4f68;
-  --ui-primary: #818cf8;
-  --ui-primary-soft: rgba(129, 140, 248, 0.16);
+  --ui-bg: #000000;
+  --ui-surface: #1b212a;
+  --ui-surface-muted: #161b22;
+  --ui-text: #b9cae1;
+  --ui-text-soft: #8ea3be;
+  --ui-border: #232a33;
+  --ui-border-strong: #2b3440;
+  --ui-primary: #586b8d;
+  --ui-primary-soft: rgba(88, 107, 141, 0.18);
   --ui-danger-soft: rgba(248, 113, 113, 0.15);
   --ui-shadow-sm: 0 3px 12px rgba(2, 6, 23, 0.46);
   --ui-shadow-md: 0 12px 26px rgba(2, 6, 23, 0.58);

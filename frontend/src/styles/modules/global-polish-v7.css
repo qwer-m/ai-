@@ -142,7 +142,7 @@ body.ui-overhaul-v4 .btn-sm {
 
 body.ui-overhaul-v4 .btn-primary,
 body.ui-overhaul-v4 .btn-pro-primary {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--fd-primary) 96%, #1d4ed8), color-mix(in srgb, var(--fd-primary-2) 80%, #7c3aed)) !important;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--fd-primary) 96%, #1d4ed8), color-mix(in srgb, var(--fd-primary-2) 80%, #5b718f)) !important;
   border: none !important;
   box-shadow: 0 8px 18px color-mix(in srgb, var(--fd-primary) 28%, transparent);
 }

@@ -9,31 +9,100 @@
   vertical-align: middle;
 }
 
+.rag-debug-panel-root .tg-priority-ratio-track {
+  height: 8px;
+  border-radius: 4px;
+  background: #e9ecef;
+}
+
+.rag-debug-panel-root .tg-priority-ratio-fill {
+  height: 8px;
+  border-radius: 4px;
+  background: #6c757d;
+}
+
 body.theme-dark .rag-debug-panel-root .rag-debug-card,
 body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .rag-debug-card {
-  background: #111827;
+  background: #0f1a2e;
   border-color: rgba(71, 85, 105, 0.55);
-  color: #e5e7eb;
+  color: #9fb3cc;
+}
+
+body.theme-dark .rag-debug-panel-root .rag-debug-card h5,
+body.theme-dark .rag-debug-panel-root .rag-debug-card h6,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .rag-debug-card h5,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .rag-debug-card h6 {
+  color: #b9cae1;
 }
 
 body.theme-dark .rag-debug-panel-root .rag-debug-muted,
 body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .rag-debug-muted {
-  color: #94a3b8 !important;
+  color: #8ea3be !important;
 }
 
 body.theme-dark .rag-debug-panel-root .table,
 body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .table {
-  color: #e5e7eb;
+  color: #9fb3cc;
 }
 
 body.theme-dark .rag-debug-panel-root .table thead th,
 body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .table thead th {
-  color: #cbd5e1;
+  color: #b9cae1;
 }
 
 body.theme-dark .rag-debug-panel-root .border,
 body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .border {
   border-color: rgba(71, 85, 105, 0.55) !important;
+}
+
+body.theme-dark .rag-debug-panel-root .nav-tabs .nav-link,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .nav-tabs .nav-link {
+  color: #8ea3be !important;
+}
+
+body.theme-dark .rag-debug-panel-root .nav-tabs .nav-link.active,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .nav-tabs .nav-link.active {
+  color: #b9cae1 !important;
+}
+
+body.theme-dark .rag-debug-panel-root .btn-outline-secondary,
+body.theme-dark .rag-debug-panel-root .btn-outline-primary,
+body.theme-dark .rag-debug-panel-root .btn-outline-danger,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .btn-outline-secondary,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .btn-outline-primary,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .btn-outline-danger {
+  color: #9fb3cc !important;
+}
+
+body.theme-dark .rag-debug-panel-root .badge.bg-dark,
+body.theme-dark .rag-debug-panel-root .badge.bg-secondary,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .badge.bg-dark,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .badge.bg-secondary {
+  color: #b9cae1 !important;
+}
+
+body.theme-dark .rag-debug-panel-root .alert.alert-success,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .alert.alert-success {
+  background: color-mix(in srgb, #14532d 36%, #0b1220) !important;
+  border-color: color-mix(in srgb, #22c55e 32%, #1f2937) !important;
+  color: #b9cae1 !important;
+}
+
+body.theme-dark .rag-debug-panel-root .alert.alert-danger,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .alert.alert-danger {
+  background: color-mix(in srgb, #7f1d1d 34%, #0b1220) !important;
+  border-color: color-mix(in srgb, #ef4444 34%, #1f2937) !important;
+  color: #b9cae1 !important;
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-ratio-track,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-ratio-track {
+  background: #233246;
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-ratio-fill,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-ratio-fill {
+  background: #3f5f84;
 }
 
 .rag-debug-panel-root .rag-priority-debug-pre {
@@ -78,21 +147,110 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismat
   transition: color 0.16s ease, border-color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
 }
 
+.rag-debug-panel-root .tg-priority-manual-confirm-wrap {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
+
+.rag-debug-panel-root .tg-priority-manual-confirm-btn.btn.btn-sm {
+  --bs-btn-padding-y: 0.03rem;
+  --bs-btn-padding-x: 0.36rem;
+  line-height: 1.18;
+  min-width: 3.1rem;
+}
+
 .rag-debug-panel-root .tg-priority-result-scroll {
   max-height: 560px;
   overflow: auto;
 }
 
+.rag-debug-panel-root .tg-priority-sample-table {
+  table-layout: fixed;
+  min-width: 1040px;
+}
+
+.rag-debug-panel-root .tg-priority-sample-table > :not(caption) > * > * {
+  padding: 0.42rem 0.48rem;
+}
+
+.rag-debug-panel-root .tg-priority-sample-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f1f5f9;
+  white-space: nowrap;
+}
+
+.rag-debug-panel-root .tg-priority-sample-case-col {
+  width: 29%;
+  min-width: 17rem;
+}
+
+.rag-debug-panel-root .tg-priority-sample-direction-col {
+  width: 6.8rem;
+  min-width: 6.8rem;
+  text-align: center;
+}
+
+.rag-debug-panel-root .tg-priority-sample-tag-col {
+  width: 8.2rem;
+  min-width: 8.2rem;
+}
+
+.rag-debug-panel-root .tg-priority-sample-priority-col {
+  width: 7rem;
+  min-width: 7rem;
+  text-align: center;
+}
+
+.rag-debug-panel-root .tg-priority-sample-reason-col {
+  width: 12.5rem;
+  min-width: 12.5rem;
+}
+
+.rag-debug-panel-root .tg-priority-sample-comment-col {
+  width: 32%;
+  min-width: 18rem;
+}
+
+.rag-debug-panel-root .tg-priority-sample-action-col {
+  width: 7.2rem;
+  min-width: 7.2rem;
+  text-align: center;
+}
+
+.rag-debug-panel-root .tg-priority-sample-case-title {
+  margin-top: 0.1rem;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.rag-debug-panel-root .tg-priority-sample-comment-col .form-control {
+  min-height: calc(1.35em * 2 + 0.78rem);
+  resize: vertical;
+}
+
+.rag-debug-panel-root .tg-priority-result-table {
+  table-layout: fixed;
+  min-width: 980px;
+}
+
 .rag-debug-panel-root .tg-priority-result-table > :not(caption) > * > * {
-  padding: 0.38rem 0.42rem;
+  padding: 0.4rem 0.45rem;
 }
 
 .rag-debug-panel-root .tg-priority-index-col {
-  width: 2.6rem;
-  min-width: 2.6rem;
-  max-width: 2.6rem;
+  width: 2.8rem;
+  min-width: 2.8rem;
+  max-width: 2.8rem;
   padding-left: 0.2rem !important;
   padding-right: 0.15rem !important;
+  text-align: center;
 }
 
 .rag-debug-panel-root .tg-priority-result-scroll thead th {
@@ -103,38 +261,68 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismat
 }
 
 .rag-debug-panel-root .tg-priority-case-col {
-  width: 10.2em;
-  min-width: 10.2em;
-  max-width: 10.2em;
+  width: 16rem;
+  min-width: 16rem;
 }
 
 .rag-debug-panel-root .tg-priority-case-title {
   white-space: normal;
-  word-break: break-all;
+  word-break: break-word;
   overflow-wrap: anywhere;
-  line-height: 1.35;
+  line-height: 1.4;
   display: -webkit-box;
-  -webkit-line-clamp: 5;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  width: 10.2em;
-  min-width: 10.2em;
-  max-width: 10.2em;
-  max-height: calc(1.35em * 5);
+  max-height: calc(1.4em * 3);
 }
 
-.rag-debug-panel-root .tg-priority-result-table > :not(caption) > * > *:nth-child(n + 3) {
-  padding-left: 0.28rem;
-  padding-right: 0.28rem;
-}
-
-.rag-debug-panel-root .tg-priority-result-table thead th:nth-child(n + 3),
-.rag-debug-panel-root .tg-priority-result-table tbody td:nth-child(n + 3) {
+.rag-debug-panel-root .tg-priority-raw-col {
+  width: 4rem;
+  min-width: 4rem;
   text-align: center;
 }
 
-.rag-debug-panel-root .tg-priority-result-table tbody td:nth-child(8) > .d-flex {
-  justify-content: center;
+.rag-debug-panel-root .tg-priority-source-col {
+  width: 8rem;
+  min-width: 8rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.rag-debug-panel-root .tg-priority-tag-col {
+  width: 8.6rem;
+  min-width: 8.6rem;
+}
+
+.rag-debug-panel-root .tg-priority-debug-col {
+  width: 7rem;
+  min-width: 7rem;
+  text-align: center;
+}
+
+.rag-debug-panel-root .tg-priority-action-col {
+  width: 7.3rem;
+  min-width: 7.3rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.rag-debug-panel-root .tg-priority-tags-wrap {
+  justify-content: flex-start;
+}
+
+.rag-debug-panel-root .tg-priority-tag-col .tg-priority-tags-wrap,
+.rag-debug-panel-root .tg-priority-sample-tag-col .tg-priority-tags-wrap {
+  max-height: 3.1rem;
+  overflow: auto;
+}
+
+.rag-debug-panel-root .tg-priority-row-action-btn.btn.btn-sm {
+  min-width: 6.4rem;
+  white-space: nowrap;
+  padding-left: 0.4rem;
+  padding-right: 0.4rem;
 }
 
 .rag-debug-panel-root .tg-priority-actions .btn-outline-primary:hover,
@@ -163,11 +351,16 @@ body.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-secondar
 body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-secondary:hover,
 body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-secondary:focus-visible {
   color: #c7d2fe;
-  border-color: #7c8cff;
-  background: rgba(99, 102, 241, 0.18);
+  border-color: #3a4860;
+  background: #1a212c;
 }
 
 body.theme-dark .rag-debug-panel-root .tg-priority-result-scroll thead th,
 body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-result-scroll thead th {
+  background: #0f172a;
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-sample-table thead th,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-sample-table thead th {
   background: #0f172a;
 }

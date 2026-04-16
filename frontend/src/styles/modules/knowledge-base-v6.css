@@ -142,6 +142,17 @@ body.ui-overhaul-v4 .knowledge-content-area .doc-card .card-title {
   line-height: 1.36;
 }
 
+/* Dark mode: keep document title and unstyled card text aligned with muted readable tone. */
+body.theme-dark.ui-overhaul-v4 .knowledge-content-area .doc-card {
+  color: var(--fd-text-soft);
+}
+
+body.theme-dark.ui-overhaul-v4 .knowledge-content-area .doc-card .knowledge-doc-title,
+body.theme-dark.ui-overhaul-v4 .knowledge-content-area .doc-card .card-title,
+body.theme-dark.ui-overhaul-v4 .knowledge-content-area .doc-card .card-text {
+  color: var(--fd-text-soft);
+}
+
 body.ui-overhaul-v4 .knowledge-link-block {
   border-radius: 10px !important;
 }
@@ -206,6 +217,12 @@ body.ui-overhaul-v4 .knowledge-pagination-bar .pagination .page-item.active .pag
   background: var(--fd-primary) !important;
   border-color: var(--fd-primary) !important;
   color: #fff !important;
+}
+
+body.theme-dark.ui-overhaul-v4 .knowledge-pagination-bar .pagination .page-item.active .page-link,
+body.theme-dark.ui-overhaul-v4 .knowledge-pagination-bar .pagination .page-item.active .page-link:hover,
+body.theme-dark.ui-overhaul-v4 .knowledge-pagination-bar .pagination .page-item.active .page-link:focus {
+  color: #b9cae1 !important;
 }
 
 body.ui-overhaul-v4 .knowledge-content-area .btn-outline-primary:hover,

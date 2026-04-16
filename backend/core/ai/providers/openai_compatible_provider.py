@@ -13,11 +13,114 @@ from core.ai.providers.base import BaseModelProvider
 
 class OpenAICompatibleProvider(BaseModelProvider):
     def __init__(self, base_url: str, api_key: str, model: str):
-        self.base_url = base_url.rstrip("/")
+        raw_base_url = (base_url or "").strip().rstrip("/")
+        self.wire_api = "chat_completions"
+        if raw_base_url.endswith("/responses"):
+            # Support API router configs that provide a full responses endpoint.
+            self.wire_api = "responses"
+            raw_base_url = raw_base_url[: -len("/responses")]
+
+        self.base_url = raw_base_url.rstrip("/")
         if not self.base_url.endswith("/v1"):
             self.base_url += "/v1"
         self.api_key = api_key or "sk-placeholder"
         self.model = model
+
+    def _messages_to_input(self, messages: List[Dict[str, Any]]) -> str:
+        chunks: List[str] = []
+        for msg in messages or []:
+            role = str(msg.get("role") or "user")
+            content = msg.get("content", "")
+
+            text = ""
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                parts: List[str] = []
+                for item in content:
+                    if not isinstance(item, dict):
+                        continue
+                    if isinstance(item.get("text"), str):
+                        parts.append(str(item.get("text")))
+                text = " ".join(p for p in parts if p)
+            elif content is not None:
+                text = str(content)
+
+            if text:
+                chunks.append(f"{role}: {text}")
+
+        return "\n".join(chunks) if chunks else "user: hi"
+
+    def _extract_responses_text(self, data: Dict[str, Any]) -> str:
+        direct_text = data.get("output_text")
+        if isinstance(direct_text, str) and direct_text:
+            return direct_text
+
+        output = data.get("output")
+        if not isinstance(output, list):
+            return ""
+
+        pieces: List[str] = []
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+
+            if isinstance(item.get("text"), str):
+                pieces.append(str(item.get("text")))
+
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if isinstance(part.get("text"), str):
+                    pieces.append(str(part.get("text")))
+
+        return "".join(pieces)
+
+    def _responses_stream_collect_text(self, payload: Dict[str, Any]) -> str:
+        stream_payload = dict(payload)
+        stream_payload["stream"] = True
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        pieces: List[str] = []
+
+        with httpx.Client(timeout=30.0) as client:
+            with client.stream("POST", f"{self.base_url}/responses", headers=headers, json=stream_payload) as resp:
+                if resp.status_code != 200:
+                    return f"Error: HTTP {resp.status_code} - {resp.read().decode()}"
+
+                for line in resp.iter_lines():
+                    if not line or line.strip() == "":
+                        continue
+                    if not line.startswith("data: "):
+                        continue
+
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+
+                    try:
+                        data = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+
+                    event_type = str(data.get("type") or "")
+                    if event_type == "response.output_text.delta":
+                        delta = data.get("delta") or ""
+                        if delta:
+                            pieces.append(str(delta))
+                    elif event_type == "response.output_text.done":
+                        done_text = data.get("text") or ""
+                        if done_text and not pieces:
+                            pieces.append(str(done_text))
+                    elif event_type in {"error", "response.error"}:
+                        return f"Error: {json.dumps(data, ensure_ascii=False)}"
+
+        return "".join(pieces)
 
     def _resolve_temperature(self) -> float:
         raw = os.getenv("AI_TEMPERATURE", "").strip()
@@ -35,24 +138,41 @@ class OpenAICompatibleProvider(BaseModelProvider):
 
     def generate(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None) -> str:
         target_model = model or self.model
-        url = f"{self.base_url}/chat/completions"
+
+        if self.wire_api == "responses":
+            url = f"{self.base_url}/responses"
+            payload: Dict[str, Any] = {
+                "model": target_model,
+                "input": self._messages_to_input(messages),  # type: ignore[arg-type]
+                "temperature": self._resolve_temperature(),
+            }
+            if max_tokens:
+                payload["max_output_tokens"] = max_tokens
+        else:
+            url = f"{self.base_url}/chat/completions"
+            payload = {
+                "model": target_model,
+                "messages": messages,
+                "temperature": self._resolve_temperature(),
+            }
+            if max_tokens:
+                payload["max_tokens"] = max_tokens
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        payload = {
-            "model": target_model,
-            "messages": messages,
-            "temperature": self._resolve_temperature(),
-        }
-        if max_tokens:
-            payload["max_tokens"] = max_tokens
 
         try:
             with httpx.Client(timeout=30.0) as client:
                 resp = client.post(url, headers=headers, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()
+                    if self.wire_api == "responses":
+                        text = self._extract_responses_text(data)
+                        if text:
+                            return text
+                        return self._responses_stream_collect_text(payload)
                     return data["choices"][0]["message"]["content"]
                 return f"Error: HTTP {resp.status_code} - {resp.text}"
         except Exception as e:
@@ -60,19 +180,32 @@ class OpenAICompatibleProvider(BaseModelProvider):
 
     def generate_stream(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None):
         target_model = model or self.model
-        url = f"{self.base_url}/chat/completions"
+
+        if self.wire_api == "responses":
+            url = f"{self.base_url}/responses"
+            payload: Dict[str, Any] = {
+                "model": target_model,
+                "input": self._messages_to_input(messages),  # type: ignore[arg-type]
+                "stream": True,
+                "temperature": self._resolve_temperature(),
+            }
+            if max_tokens:
+                payload["max_output_tokens"] = max_tokens
+        else:
+            url = f"{self.base_url}/chat/completions"
+            payload = {
+                "model": target_model,
+                "messages": messages,
+                "stream": True,
+                "temperature": self._resolve_temperature(),
+            }
+            if max_tokens:
+                payload["max_tokens"] = max_tokens
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        payload = {
-            "model": target_model,
-            "messages": messages,
-            "stream": True,
-            "temperature": self._resolve_temperature(),
-        }
-        if max_tokens:
-            payload["max_tokens"] = max_tokens
 
         try:
             with httpx.Client(timeout=30.0) as client:
@@ -90,6 +223,27 @@ class OpenAICompatibleProvider(BaseModelProvider):
                                 break
                             try:
                                 data = json.loads(data_str)
+                                if self.wire_api == "responses":
+                                    event_type = str(data.get("type") or "")
+                                    if event_type == "response.output_text.delta":
+                                        delta = data.get("delta") or ""
+                                        if delta:
+                                            yield str(delta)
+                                    elif event_type == "response.output_text.done":
+                                        done_text = data.get("text") or ""
+                                        if done_text:
+                                            yield str(done_text)
+                                    elif event_type == "response.completed":
+                                        text = self._extract_responses_text(
+                                            data.get("response") if isinstance(data.get("response"), dict) else data
+                                        )
+                                        if text:
+                                            yield text
+                                    elif event_type in {"error", "response.error"}:
+                                        yield f"Error: {json.dumps(data, ensure_ascii=False)}"
+                                        return
+                                    continue
+
                                 if "choices" in data and len(data["choices"]) > 0:
                                     choice0 = data["choices"][0] or {}
                                     delta = choice0.get("delta", {}) or {}
