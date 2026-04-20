@@ -145,19 +145,74 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismat
 
 .rag-debug-panel-root .tg-priority-actions .btn {
   transition: color 0.16s ease, border-color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+  line-height: 1.15;
+}
+
+.rag-debug-panel-root .tg-priority-sample-filter-btn.is-active {
+  box-shadow: 0 0 0 0.2rem rgba(76, 101, 255, 0.14);
 }
 
 .rag-debug-panel-root .tg-priority-manual-confirm-wrap {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
+  justify-content: center;
+  min-width: 4.25rem;
+  min-height: 1.62rem;
 }
 
-.rag-debug-panel-root .tg-priority-manual-confirm-btn.btn.btn-sm {
-  --bs-btn-padding-y: 0.03rem;
-  --bs-btn-padding-x: 0.36rem;
-  line-height: 1.18;
-  min-width: 3.1rem;
+.rag-debug-panel-root .tg-priority-manual-pending-pill {
+  min-width: auto;
+  min-height: 1.32rem;
+  padding: 0.14rem 0.42rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.rag-debug-panel-root .tg-priority-manual-confirm-pill {
+  position: absolute;
+  inset: 0;
+  min-width: 100%;
+  min-height: 1.62rem;
+  padding: 0.24rem 0.58rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: none;
+  animation: none;
+  transform: none;
+}
+
+.rag-debug-panel-root .tg-priority-manual-confirm-wrap:hover .tg-priority-manual-confirm-pill,
+.rag-debug-panel-root .tg-priority-manual-confirm-wrap:focus-within .tg-priority-manual-confirm-pill {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.rag-debug-panel-root .tg-priority-manual-confirm-wrap:hover .tg-priority-manual-pending-pill,
+.rag-debug-panel-root .tg-priority-manual-confirm-wrap:focus-within .tg-priority-manual-pending-pill {
+  opacity: 0;
+}
+
+.rag-debug-panel-root .tg-priority-manual-confirm-pill.is-disabled {
+  cursor: default;
+  opacity: 0.78;
+  pointer-events: none;
 }
 
 .rag-debug-panel-root .tg-priority-result-scroll {
@@ -196,6 +251,7 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismat
 .rag-debug-panel-root .tg-priority-sample-tag-col {
   width: 8.2rem;
   min-width: 8.2rem;
+  text-align: center;
 }
 
 .rag-debug-panel-root .tg-priority-sample-priority-col {
@@ -237,20 +293,21 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismat
 
 .rag-debug-panel-root .tg-priority-result-table {
   table-layout: fixed;
-  min-width: 980px;
+  width: 100%;
+  min-width: 1120px;
 }
 
 .rag-debug-panel-root .tg-priority-result-table > :not(caption) > * > * {
-  padding: 0.4rem 0.45rem;
+  padding: 0.46rem 0.58rem;
 }
 
 .rag-debug-panel-root .tg-priority-index-col {
-  width: 2.8rem;
-  min-width: 2.8rem;
-  max-width: 2.8rem;
-  padding-left: 0.2rem !important;
-  padding-right: 0.15rem !important;
-  text-align: center;
+  width: 11%;
+  min-width: 7.4rem;
+  max-width: 8.2rem;
+  padding-left: 0.32rem !important;
+  padding-right: 0.52rem !important;
+  text-align: left;
 }
 
 .rag-debug-panel-root .tg-priority-result-scroll thead th {
@@ -261,8 +318,9 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismat
 }
 
 .rag-debug-panel-root .tg-priority-case-col {
-  width: 16rem;
-  min-width: 16rem;
+  width: 40%;
+  min-width: 20rem;
+  padding-right: 0.72rem !important;
 }
 
 .rag-debug-panel-root .tg-priority-case-title {
@@ -278,32 +336,32 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismat
 }
 
 .rag-debug-panel-root .tg-priority-raw-col {
-  width: 4rem;
-  min-width: 4rem;
+  width: 9%;
+  min-width: 6.1rem;
   text-align: center;
 }
 
 .rag-debug-panel-root .tg-priority-source-col {
-  width: 8rem;
-  min-width: 8rem;
+  width: 12%;
+  min-width: 9.2rem;
   text-align: center;
   white-space: nowrap;
 }
 
 .rag-debug-panel-root .tg-priority-tag-col {
-  width: 8.6rem;
-  min-width: 8.6rem;
+  width: 12%;
+  min-width: 9rem;
 }
 
 .rag-debug-panel-root .tg-priority-debug-col {
-  width: 7rem;
-  min-width: 7rem;
+  width: 8%;
+  min-width: 7.2rem;
   text-align: center;
 }
 
 .rag-debug-panel-root .tg-priority-action-col {
-  width: 7.3rem;
-  min-width: 7.3rem;
+  width: 8%;
+  min-width: 7.8rem;
   text-align: center;
   white-space: nowrap;
 }
@@ -312,8 +370,17 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismat
   justify-content: flex-start;
 }
 
-.rag-debug-panel-root .tg-priority-tag-col .tg-priority-tags-wrap,
 .rag-debug-panel-root .tg-priority-sample-tag-col .tg-priority-tags-wrap {
+  justify-content: center;
+  align-items: center;
+  min-height: 1.9rem;
+  flex-wrap: nowrap;
+  gap: 0.28rem;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.rag-debug-panel-root .tg-priority-tag-col .tg-priority-tags-wrap {
   max-height: 3.1rem;
   overflow: auto;
 }
@@ -323,6 +390,43 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismat
   white-space: nowrap;
   padding-left: 0.4rem;
   padding-right: 0.4rem;
+}
+
+.rag-debug-panel-root .tg-priority-row-action-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 6.4rem;
+  min-height: 1.9rem;
+}
+
+.rag-debug-panel-root .tg-priority-row-action-default {
+  transition: opacity 0.14s ease;
+}
+
+.rag-debug-panel-root .tg-priority-row-action-options {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+.rag-debug-panel-root .tg-priority-row-action-options .tg-priority-row-action-btn.btn.btn-sm {
+  min-width: 3.05rem;
+}
+
+.rag-debug-panel-root .tg-priority-row-action-switch:hover .tg-priority-row-action-options,
+.rag-debug-panel-root .tg-priority-row-action-switch:focus-within .tg-priority-row-action-options {
+  display: inline-flex;
+}
+
+.rag-debug-panel-root .tg-priority-row-action-switch:hover .tg-priority-row-action-default,
+.rag-debug-panel-root .tg-priority-row-action-switch:focus-within .tg-priority-row-action-default {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .rag-debug-panel-root .tg-priority-actions .btn-outline-primary:hover,
@@ -355,6 +459,11 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-o
   background: #1a212c;
 }
 
+body.theme-dark .rag-debug-panel-root .tg-priority-sample-filter-btn.is-active,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-sample-filter-btn.is-active {
+  box-shadow: 0 0 0 0.2rem rgba(125, 140, 255, 0.2);
+}
+
 body.theme-dark .rag-debug-panel-root .tg-priority-result-scroll thead th,
 body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-result-scroll thead th {
   background: #0f172a;
@@ -363,4 +472,163 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-result-scroll 
 body.theme-dark .rag-debug-panel-root .tg-priority-sample-table thead th,
 body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-sample-table thead th {
   background: #0f172a;
+}
+
+@keyframes tg-priority-select-focus-pop {
+  0% {
+    transform: translateY(1px) scale(0.995);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+body.theme-dark .rag-debug-panel-root .form-select,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .form-select {
+  color-scheme: dark;
+  background-color: #121b2a !important;
+  color: #c3d4ea !important;
+  border-color: rgba(71, 85, 105, 0.72) !important;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.32);
+  transition: border-color 0.16s ease, box-shadow 0.18s ease, background-color 0.16s ease, transform 0.16s ease;
+  will-change: transform, box-shadow, border-color;
+  backface-visibility: hidden;
+}
+
+body.theme-dark .rag-debug-panel-root .form-select:hover,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .form-select:hover {
+  border-color: rgba(125, 140, 255, 0.45) !important;
+  background-color: #162235 !important;
+}
+
+body.theme-dark .rag-debug-panel-root .form-select:focus,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .form-select:focus {
+  background-color: #17253a !important;
+  border-color: #7d8cff !important;
+  box-shadow: 0 0 0 0.2rem rgba(125, 140, 255, 0.2), inset 0 0 0 1px rgba(19, 30, 47, 0.45) !important;
+  animation: tg-priority-select-focus-pop 0.16s ease-out;
+}
+
+body.theme-dark .rag-debug-panel-root .form-select option,
+body.theme-dark .rag-debug-panel-root .form-select optgroup,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .form-select option,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .form-select optgroup {
+  background: #101a2a;
+  color: #c3d4ea;
+}
+
+body.theme-dark .rag-debug-panel-root .form-select option:checked,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .form-select option:checked {
+  background: #203453;
+  color: #dbeafe;
+}
+
+@keyframes tg-priority-dropdown-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.rag-debug-panel-root .tg-priority-select-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.rag-debug-panel-root .tg-priority-select-dropdown.show {
+  z-index: 1200;
+}
+
+.rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm {
+  width: 100%;
+  min-height: 2.05rem;
+  border-radius: 0.92rem;
+  text-align: left;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.3rem 0.82rem;
+  border: 1px solid rgba(71, 85, 105, 0.72) !important;
+  background: #121b2a !important;
+  color: #c3d4ea !important;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.24) !important;
+}
+
+.rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm:hover,
+.rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm:focus,
+.rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm:focus-visible,
+.rag-debug-panel-root .tg-priority-select-dropdown.show > .tg-priority-select-toggle.btn.btn-sm {
+  border-color: #7d8cff !important;
+  background: #17253a !important;
+  color: #dbeafe !important;
+  box-shadow: 0 0 0 0.2rem rgba(125, 140, 255, 0.2), inset 0 0 0 1px rgba(19, 30, 47, 0.45) !important;
+}
+
+.rag-debug-panel-root .tg-priority-select-toggle::after {
+  margin-left: 0.62rem;
+}
+
+.rag-debug-panel-root .tg-priority-select-menu.dropdown-menu,
+body.theme-dark .rag-debug-panel-root .tg-priority-select-menu.dropdown-menu,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-select-menu.dropdown-menu {
+  --bs-dropdown-bg: #0b1524;
+  --bs-dropdown-border-color: #2f435f;
+  --bs-dropdown-link-color: #dbeafe;
+  --bs-dropdown-link-hover-color: #f8fbff;
+  --bs-dropdown-link-hover-bg: #1f3552;
+  --bs-dropdown-link-active-color: #ffffff;
+  --bs-dropdown-link-active-bg: #2e4b74;
+  --bs-dropdown-color: #dbeafe;
+  width: 100%;
+  margin-top: 0.24rem;
+  padding: 0.2rem;
+  border-radius: 0.72rem;
+  border: 1px solid #2f435f !important;
+  background: #08121f !important;
+  background-color: #08121f !important;
+  background-image: none !important;
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  mix-blend-mode: normal;
+  isolation: isolate;
+  box-shadow: 0 12px 28px rgba(2, 8, 23, 0.7);
+  animation: tg-priority-dropdown-in 0.14s ease-out;
+  z-index: 1210;
+  max-height: 15rem;
+  overflow-y: auto;
+}
+
+.rag-debug-panel-root .tg-priority-select-item.dropdown-item {
+  border-radius: 0.46rem;
+  color: #d7e4f8;
+  padding: 0.38rem 0.56rem;
+  font-weight: 600;
+  background: #08121f;
+  line-height: 1.25;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.rag-debug-panel-root .tg-priority-select-item.dropdown-item:hover {
+  color: #f8fbff;
+  background: #1b304d;
+}
+
+.rag-debug-panel-root .tg-priority-select-item.dropdown-item:focus:not(.active),
+.rag-debug-panel-root .tg-priority-select-item.dropdown-item:focus-visible:not(.active) {
+  color: #dbeafe;
+  background: #0d1a2b !important;
+  box-shadow: inset 0 0 0 1px rgba(96, 126, 177, 0.38);
+}
+
+.rag-debug-panel-root .tg-priority-select-item.dropdown-item.active,
+.rag-debug-panel-root .tg-priority-select-item.dropdown-item:active {
+  color: #f8fbff;
+  background: #2a4469 !important;
+  box-shadow: inset 0 0 0 1px rgba(140, 170, 220, 0.22);
 }

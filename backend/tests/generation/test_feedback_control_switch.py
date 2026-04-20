@@ -135,6 +135,36 @@ def test_positive_pattern_maps_to_preferred_patterns(monkeypatch) -> None:
     assert state.source_meta.get("negative_selected_count") == 0
 
 
+def test_sample_kind_positive_maps_to_preferred_patterns(monkeypatch) -> None:
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 44,
+            "samples": [
+                {
+                    "case_id": "TC-10",
+                    "title": "stable lesson flow",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P1",
+                    "user_comment": "stable regression-safe flow",
+                    "pattern_summary": "stable lesson flow assertions",
+                    "sampleKind": "positive",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+    )
+
+    assert "stable lesson flow assertions" in state.preferred_patterns
+    assert state.source_meta.get("positive_selected_count") == 1
+    assert state.source_meta.get("negative_selected_count") == 0
+
+
 def test_priority_pool_requirement_retrieval_selects_topk(monkeypatch) -> None:
     def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
         return {

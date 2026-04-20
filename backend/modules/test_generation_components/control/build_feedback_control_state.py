@@ -120,6 +120,10 @@ def _normalize_reason_category(raw: Any) -> str:
     return value if value in _VALID_REASON_CATEGORY else ""
 
 
+def _normalize_pattern_category(raw: Any) -> str:
+    return str(raw or "").strip().lower()[:64]
+
+
 def _normalize_expected_priority(raw: Any) -> str:
     value = str(raw or "").strip().upper()
     return value if value in {"P0", "P1", "P2", "P3"} else ""
@@ -158,8 +162,16 @@ def _extract_forbidden_pattern_from_sample(*, title: str, comment: str) -> str:
     return candidate[:40]
 
 
-def _is_manual_verified_sample(*, reason: str, expected_priority: str, comment: str) -> bool:
+def _is_manual_verified_sample(
+    *,
+    reason: str,
+    pattern_category: str,
+    expected_priority: str,
+    comment: str,
+) -> bool:
     if reason:
+        return True
+    if pattern_category:
         return True
     if expected_priority in {"P0", "P1", "P2", "P3"}:
         return True
@@ -446,6 +458,7 @@ def _build_from_priority_sample_pool(
         return FeedbackControlState.empty()
 
     reason_counter: Counter[str] = Counter()
+    pattern_category_counter: Counter[str] = Counter()
     expected_counter: Counter[str] = Counter()
     rule_counter: Counter[str] = Counter()
     rule_expected_high: set[str] = set()
@@ -464,6 +477,9 @@ def _build_from_priority_sample_pool(
         reason = _normalize_reason_category(
             _sample_value(sample, "reason_category", "reasonCategory")
         )
+        pattern_category = _normalize_pattern_category(
+            _sample_value(sample, "pattern_category", "patternCategory")
+        )
         expected_priority = _normalize_expected_priority(
             _sample_value(sample, "expected_priority", "expectedPriority")
         )
@@ -481,6 +497,8 @@ def _build_from_priority_sample_pool(
                 "feedbackDirection",
                 "sample_type",
                 "sampleType",
+                "sample_kind",
+                "sampleKind",
             )
         )
         pattern_usage = _normalize_pattern_usage(
@@ -490,6 +508,7 @@ def _build_from_priority_sample_pool(
 
         if not _is_manual_verified_sample(
             reason=reason,
+            pattern_category=pattern_category,
             expected_priority=expected_priority,
             comment=comment,
         ):
@@ -498,6 +517,8 @@ def _build_from_priority_sample_pool(
         verified_count += 1
         if reason:
             reason_counter[reason] += 1
+        if pattern_category:
+            pattern_category_counter[pattern_category] += 1
         if expected_priority:
             expected_counter[expected_priority] += 1
 
@@ -595,6 +616,7 @@ def _build_from_priority_sample_pool(
             "positive_selected_count": int(positive_selected_count),
             "negative_selected_count": int(negative_selected_count),
             "reason_category_distribution": dict(reason_counter),
+            "pattern_category_distribution": dict(pattern_category_counter),
             "expected_priority_distribution": dict(expected_counter),
             "pattern_hit_distribution": {
                 key: int(value)

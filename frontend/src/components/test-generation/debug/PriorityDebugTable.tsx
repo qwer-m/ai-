@@ -1,9 +1,10 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
-import { Badge, Button, Form } from 'react-bootstrap';
+import { Badge, Button, Dropdown, Form } from 'react-bootstrap';
 import {
   SAMPLE_POOL_STORAGE_KEY,
   SAMPLE_TAG_ORDER,
   REASON_CATEGORY_OPTIONS,
+  PATTERN_CATEGORY_OPTIONS,
   parseSamplePool,
   buildRows,
   compareRows,
@@ -28,11 +29,16 @@ import {
   sampleTagLabel,
   normalizePriority,
   normalizeReasonCategory,
+  normalizePatternCategory,
   classifySampleTags,
   resolveSampleUsage,
+  buildWeakLinkCaseKey,
+  normalizeWeakLinkGenerationId,
 } from './PriorityDebugTable.helpers';
-import type { Props, PriorityRow, PrioritySample, SampleTag, ViewFilter } from './PriorityDebugTable.helpers';
+import type { Props, PriorityRow, PrioritySample, SampleKind, SampleTag, ViewFilter } from './PriorityDebugTable.helpers';
 import { fetchPrioritySamplePool, savePrioritySamplePool } from './debugService';
+
+type SamplePoolFilter = 'all' | 'anomaly' | 'positive';
 
 export function PriorityDebugTable({
   result,
@@ -42,17 +48,17 @@ export function PriorityDebugTable({
   enableSamplePoolFeedback,
   onToggleSamplePoolFeedback,
 }: Props) {
+  const sampleKindLabel = (kind: SampleKind): string => (kind === 'positive' ? '正向' : '异常');
+  const [samplePoolFilter, setSamplePoolFilter] = useState<SamplePoolFilter>('all');
   const [viewFilter, setViewFilter] = useState<ViewFilter>('all');
   const [rawFilter, setRawFilter] = useState<string>('all');
-  const [finalFilter, setFinalFilter] = useState<string>('all');
-  const [displayFilter, setDisplayFilter] = useState<string>('all');
+  const [debugFilter, setDebugFilter] = useState<string>('all');
   const [actionMessage, setActionMessage] = useState<string>('');
   const [recommendationText, setRecommendationText] = useState<string>('');
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [lastCloudSavedAt, setLastCloudSavedAt] = useState<number | null>(null);
   const [isCloudSyncing, setIsCloudSyncing] = useState<boolean>(false);
   const [cloudSyncError, setCloudSyncError] = useState<string>('');
-  const [hoverManualTagSampleId, setHoverManualTagSampleId] = useState<string | null>(null);
   const [confirmingManualTagSampleId, setConfirmingManualTagSampleId] = useState<string | null>(null);
   const skipNextRemoteSaveRef = useRef<boolean>(false);
   const hasHydratedRemoteRef = useRef<boolean>(false);
@@ -165,55 +171,152 @@ export function PriorityDebugTable({
 
   const rows = useMemo(() => buildRows(result, resultSource), [result, resultSource]);
   const sortedRows = useMemo(() => [...rows].sort(compareRows), [rows]);
-  const filteredRows = useMemo(
-    () => sortedRows.filter((row) => {
-      if (!matchPriority(row.finalPriority, rawFilter)) return false;
-      if (!matchPriority(row.finalPriority, finalFilter)) return false;
-      if (!matchPriority(row.displayPriority, displayFilter)) return false;
-      if (viewFilter === 'corrected') return row.corrected;
-      if (viewFilter === 'unchanged') return !row.corrected;
-      if (viewFilter === 'raw_mismatch') return row.rawFinalMismatch;
-      if (viewFilter === 'display_mismatch') return row.displayFinalMismatch;
-      return true;
-    }),
-    [sortedRows, rawFilter, finalFilter, displayFilter, viewFilter]
-  );
-  const correctedCount = useMemo(() => rows.filter((row) => row.corrected).length, [rows]);
-  const unchangedCount = useMemo(() => rows.filter((row) => !row.corrected).length, [rows]);
-  const displayMismatchCount = useMemo(() => rows.filter((row) => row.displayFinalMismatch).length, [rows]);
-  const transitions = useMemo(() => buildTransitions(rows), [rows]);
-  const displayMismatchRows = useMemo(() => sortedRows.filter((row) => row.displayFinalMismatch), [sortedRows]);
-  const anomalyRows = useMemo(() => sortedRows.filter((row) => row.displayFinalMismatch || row.rawFinalMismatch), [sortedRows]);
-  const summaryLine = useMemo(() => buildSummaryLine(displayMismatchCount, correctedCount, unchangedCount), [displayMismatchCount, correctedCount, unchangedCount]);
   const sampleTagCounts = useMemo(() => getSampleTagCounts(samplePool), [samplePool]);
   const sampleDirectionTop = useMemo(() => getSampleDirectionTop(samplePool, 5), [samplePool]);
-  const samplePoolByCaseId = useMemo(() => {
-    const map = new Map<string, PrioritySample>();
+  const samplePoolByWeakLink = useMemo(() => {
+    const withGenerationMap = new Map<string, PrioritySample>();
+    const withoutGenerationMap = new Map<string, PrioritySample>();
     samplePool.forEach((sample) => {
-      const key = String(sample.caseId || '').trim();
-      if (!key) return;
-      const prev = map.get(key);
-      if (!prev || (sample.addedAt || 0) >= (prev.addedAt || 0)) map.set(key, sample);
+      const caseKey = String(sample.weakLinkCaseKey || '').trim();
+      if (!caseKey) return;
+      const generationId = normalizeWeakLinkGenerationId(sample.weakLinkGenerationId ?? null);
+      if (generationId !== null) {
+        const mapKey = `${generationId}::${caseKey}`;
+        const prev = withGenerationMap.get(mapKey);
+        if (!prev || (sample.addedAt || 0) >= (prev.addedAt || 0)) withGenerationMap.set(mapKey, sample);
+        return;
+      }
+      const prev = withoutGenerationMap.get(caseKey);
+      if (!prev || (sample.addedAt || 0) >= (prev.addedAt || 0)) withoutGenerationMap.set(caseKey, sample);
     });
-    return map;
+    return { withGenerationMap, withoutGenerationMap };
   }, [samplePool]);
 
-  const buildPriorityDebugDisplay = (row: PriorityRow, linkedSample?: PrioritySample): Record<string, unknown> | null => {
-    if (!linkedSample) return row.priorityDebug;
+  const resolveLinkedSample = (row: PriorityRow): PrioritySample | undefined => {
+    const rowWeakLinkCaseKey = buildWeakLinkCaseKey(row);
+    const rowGenerationId = normalizeWeakLinkGenerationId(generationId ?? null);
+    return rowGenerationId !== null
+      ? samplePoolByWeakLink.withGenerationMap.get(`${rowGenerationId}::${rowWeakLinkCaseKey}`)
+      : samplePoolByWeakLink.withoutGenerationMap.get(rowWeakLinkCaseKey);
+  };
+
+  const resolvePriorityDebugValue = (row: PriorityRow, linkedSample?: PrioritySample) => {
+    const sampleExpectedPriority = normalizePriority(linkedSample?.expectedPriority ?? '');
+    if (sampleExpectedPriority) return sampleExpectedPriority;
+    if (row.finalPriority) return row.finalPriority;
+    if (row.displayPriority) return row.displayPriority;
+    return row.rawPriority;
+  };
+
+  type EvaluatedRow = {
+    row: PriorityRow;
+    rowForDisplay: PriorityRow;
+    linkedSample?: PrioritySample;
+    priorityDebugPriority: ReturnType<typeof normalizePriority>;
+  };
+
+  const evaluatedRows = useMemo<EvaluatedRow[]>(
+    () => sortedRows.map((row) => {
+      const linkedSample = resolveLinkedSample(row);
+      const priorityDebugPriority = resolvePriorityDebugValue(row, linkedSample);
+      const rawMismatch = Boolean(row.rawPriority && priorityDebugPriority && row.rawPriority !== priorityDebugPriority);
+      const displayMismatch = Boolean(row.displayPriority && priorityDebugPriority && row.displayPriority !== priorityDebugPriority);
+      const rowForDisplay: PriorityRow = {
+        ...row,
+        finalPriority: priorityDebugPriority,
+        corrected: rawMismatch,
+        rawFinalMismatch: rawMismatch,
+        displayFinalMismatch: displayMismatch,
+      };
+      return { row, rowForDisplay, linkedSample, priorityDebugPriority };
+    }),
+    [sortedRows, samplePoolByWeakLink, generationId]
+  );
+
+  const filteredRowViews = useMemo(
+    () => evaluatedRows.filter(({ rowForDisplay }) => {
+      if (!matchPriority(rowForDisplay.rawPriority, rawFilter)) return false;
+      if (!matchPriority(rowForDisplay.finalPriority, debugFilter)) return false;
+      if (viewFilter === 'corrected') return rowForDisplay.corrected;
+      if (viewFilter === 'unchanged') return !rowForDisplay.corrected;
+      if (viewFilter === 'raw_mismatch') return rowForDisplay.rawFinalMismatch;
+      if (viewFilter === 'display_mismatch') return rowForDisplay.displayFinalMismatch;
+      return true;
+    }),
+    [evaluatedRows, rawFilter, debugFilter, viewFilter]
+  );
+
+  const filteredRows = useMemo(() => filteredRowViews.map((item) => item.rowForDisplay), [filteredRowViews]);
+  const correctedCount = useMemo(() => evaluatedRows.filter((item) => item.rowForDisplay.corrected).length, [evaluatedRows]);
+  const unchangedCount = useMemo(() => evaluatedRows.filter((item) => !item.rowForDisplay.corrected).length, [evaluatedRows]);
+  const displayMismatchCount = useMemo(() => evaluatedRows.filter((item) => item.rowForDisplay.displayFinalMismatch).length, [evaluatedRows]);
+  const transitions = useMemo(() => buildTransitions(evaluatedRows.map((item) => item.rowForDisplay)), [evaluatedRows]);
+  const displayMismatchRows = useMemo(() => evaluatedRows.filter((item) => item.rowForDisplay.displayFinalMismatch).map((item) => item.rowForDisplay), [evaluatedRows]);
+  const anomalyRows = useMemo(() => evaluatedRows.filter((item) => item.rowForDisplay.displayFinalMismatch || item.rowForDisplay.rawFinalMismatch).map((item) => item.rowForDisplay), [evaluatedRows]);
+  const summaryLine = useMemo(() => buildSummaryLine(displayMismatchCount, correctedCount, unchangedCount), [displayMismatchCount, correctedCount, unchangedCount]);
+  const filteredSamplePool = useMemo(
+    () => samplePool.filter((sample) => {
+      if (samplePoolFilter === 'all') return true;
+      if (samplePoolFilter === 'anomaly') return sample.sampleKind === 'anomaly';
+      return sample.sampleKind === 'positive';
+    }),
+    [samplePool, samplePoolFilter]
+  );
+
+  const buildPriorityDebugDisplay = (row: PriorityRow, linkedSample: PrioritySample | undefined, priorityDebugPriority: ReturnType<typeof normalizePriority>): Record<string, unknown> | null => {
+    if (!linkedSample && !row.priorityDebug) return null;
     const base = row.priorityDebug && typeof row.priorityDebug === 'object' ? row.priorityDebug : {};
+    const sampleExpectedPriority = normalizePriority(linkedSample?.expectedPriority ?? '');
+    const priorityDebugSource = sampleExpectedPriority
+      ? 'sample_pool_expected_priority'
+      : (row.priorityDebug ? 'priority_debug' : 'original_list');
     return {
       ...base,
-      manual_feedback: {
-        case_id: linkedSample.caseId,
-        tags: linkedSample.tags,
-        usage: linkedSample.usage,
-        expected_priority: linkedSample.expectedPriority || '',
-        reason_category: linkedSample.reasonCategory || '',
-        user_comment: linkedSample.userComment || '',
-        manual_confirmed: Boolean(linkedSample.manualConfirmed),
-        manual_confirmed_at: linkedSample.manualConfirmedAt ? new Date(linkedSample.manualConfirmedAt).toISOString() : null,
-      },
+      priority_debug_priority: priorityDebugPriority || '',
+      priority_debug_source: priorityDebugSource,
+      final_priority: priorityDebugPriority || '',
+      final_priority_source: priorityDebugSource,
+      ...(linkedSample
+        ? {
+          manual_feedback: {
+            case_id: linkedSample.caseId,
+            sample_kind: linkedSample.sampleKind,
+            tags: linkedSample.tags,
+            usage: linkedSample.usage,
+            expected_priority: linkedSample.expectedPriority || '',
+            reason_category: linkedSample.reasonCategory || '',
+            pattern_category: linkedSample.patternCategory || '',
+            user_comment: linkedSample.userComment || '',
+            weak_link_case_key: linkedSample.weakLinkCaseKey || '',
+            weak_link_generation_id: normalizeWeakLinkGenerationId(linkedSample.weakLinkGenerationId ?? null),
+            manual_confirmed: Boolean(linkedSample.manualConfirmed),
+            manual_confirmed_at: linkedSample.manualConfirmedAt ? new Date(linkedSample.manualConfirmedAt).toISOString() : null,
+          },
+        }
+        : {}),
     };
+  };
+
+  const resolveCategoryDisplayBadge = (
+    rowForDisplay: PriorityRow,
+    linkedSample: PrioritySample | undefined
+  ): { text: string; bg: 'primary' | 'danger' } | null => {
+    if (linkedSample) {
+      if (linkedSample.sampleKind === 'positive') {
+        const patternLabel = PATTERN_CATEGORY_OPTIONS.find((opt) => opt.value === linkedSample.patternCategory)?.label || '';
+        if (patternLabel && linkedSample.patternCategory) return { text: patternLabel, bg: 'primary' };
+        const reasonLabel = REASON_CATEGORY_OPTIONS.find((opt) => opt.value === linkedSample.reasonCategory)?.label || '';
+        if (reasonLabel && linkedSample.reasonCategory) return { text: reasonLabel, bg: 'primary' };
+        return { text: '正向', bg: 'primary' };
+      }
+      const reasonLabel = REASON_CATEGORY_OPTIONS.find((opt) => opt.value === linkedSample.reasonCategory)?.label || '';
+      if (reasonLabel && linkedSample.reasonCategory) return { text: reasonLabel, bg: 'danger' };
+      const patternLabel = PATTERN_CATEGORY_OPTIONS.find((opt) => opt.value === linkedSample.patternCategory)?.label || '';
+      if (patternLabel && linkedSample.patternCategory) return { text: patternLabel, bg: 'danger' };
+      return { text: '异常', bg: 'danger' };
+    }
+    if (rowForDisplay.displayFinalMismatch) return { text: '展示异常', bg: 'danger' };
+    return null;
   };
 
   const handleExportCurrent = () => {
@@ -233,19 +336,19 @@ export function PriorityDebugTable({
   const handleAddAnomalySamples = () => {
     if (!anomalyRows.length) { setActionMessage('当前无可加入异常样本池的数据'); return; }
     setSamplePool((prev) => {
-      const next = mergeSamples(prev, anomalyRows.map(toSample));
+      const next = mergeSamples(prev, anomalyRows.map((row) => toSample(row, { generationId, sampleKind: 'anomaly' })));
       setActionMessage(`已加入异常样本池（样本池共 ${next.length} 条）`);
       return next;
     });
   };
-  const handleAddCurrentRowToPool = (row: PriorityRow) => {
+  const handleAddCurrentRowToPool = (row: PriorityRow, sampleKind: SampleKind = 'anomaly') => {
     setSamplePool((prev) => {
-      const next = mergeSamples(prev, [toSample(row)]);
-      setActionMessage(`已加入样本池：${row.caseId}`);
+      const next = mergeSamples(prev, [toSample(row, { generationId, sampleKind })]);
+      setActionMessage(`已加入${sampleKindLabel(sampleKind)}样本池：${row.caseId}`);
       return next;
     });
   };
-  const handleUpdateSample = (sampleId: string, patch: Partial<Pick<PrioritySample, 'userComment' | 'expectedPriority' | 'reasonCategory'>>) => {
+  const handleUpdateSample = (sampleId: string, patch: Partial<Pick<PrioritySample, 'userComment' | 'expectedPriority' | 'reasonCategory' | 'patternCategory'>>) => {
     setSamplePool((prev) => prev.map((sample) => (sample.sampleId === sampleId ? { ...sample, ...patch } : sample)));
   };
   const handleRollbackSample = (sampleId: string, caseId: string) => {
@@ -278,7 +381,6 @@ export function PriorityDebugTable({
       return nextSamples;
     });
     if (!didUpdate) return;
-    setHoverManualTagSampleId((prev) => (prev === sampleId ? null : prev));
     setActionMessage(`已确认：${caseId}（前端已移除“待人工确认”）`);
     if (!projectId || !hasHydratedRemoteRef.current) return;
     setConfirmingManualTagSampleId(sampleId);
@@ -301,17 +403,17 @@ export function PriorityDebugTable({
     }
   };
   const handleExportSamplePool = () => {
-    if (!samplePool.length) { setActionMessage('异常样本池为空，暂无可导出数据'); return; }
+    if (!samplePool.length) { setActionMessage('样本池为空，暂无可导出数据'); return; }
     downloadCsv(buildCsvFromRows(toSamplePoolExportRows(samplePool)), `priority-anomaly-sample-pool-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`);
-    setActionMessage(`已导出异常样本池（${samplePool.length} 条）`);
+    setActionMessage(`已导出样本池（${samplePool.length} 条）`);
   };
   const handleExportEvalDatasetJson = () => {
-    if (!samplePool.length) { setActionMessage('异常样本池为空，暂无可导出评估数据'); return; }
+    if (!samplePool.length) { setActionMessage('样本池为空，暂无可导出评估数据'); return; }
     downloadJson(`${JSON.stringify(toEvalDataset(samplePool), null, 2)}\n`, `priority-eval-dataset-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
     setActionMessage(`已导出评估数据集 JSON（${samplePool.length} 条）`);
   };
   const handleGenerateRuleSuggestions = () => {
-    if (!samplePool.length) { setActionMessage('异常样本池为空，无法生成规则建议'); return; }
+    if (!samplePool.length) { setActionMessage('样本池为空，无法生成规则建议'); return; }
     setRecommendationText(buildRecommendationText(buildRecommendationDraft(samplePool, sampleTagCounts, sampleDirectionTop)));
     setActionMessage('已基于当前样本池生成规则建议');
   };
@@ -320,7 +422,7 @@ export function PriorityDebugTable({
     try { await copyTextToClipboard(recommendationText); setActionMessage('已复制规则建议文本'); } catch { setActionMessage('复制失败，请重试'); }
   };
   const handleExportOptimizationInputPackage = () => {
-    if (!samplePool.length) { setActionMessage('异常样本池为空，暂无可导出输入包'); return; }
+    if (!samplePool.length) { setActionMessage('样本池为空，暂无可导出输入包'); return; }
     const payload = buildOptimizationInputPackage(samplePool, sampleTagCounts, sampleDirectionTop);
     downloadJson(`${JSON.stringify(payload, null, 2)}\n`, `priority-optimization-input-package-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
     setActionMessage(`已导出优化建议输入包（${samplePool.length} 条样本）`);
@@ -328,7 +430,7 @@ export function PriorityDebugTable({
   const handleClearSamplePool = () => {
     setSamplePool([]);
     setRecommendationText('');
-    setActionMessage('异常样本池已清空');
+    setActionMessage('样本池已清空');
   };
   const handleSaveSamplePool = async () => {
     if (typeof window === 'undefined') return;
@@ -381,9 +483,9 @@ export function PriorityDebugTable({
       </div>
 
       <div className="d-flex flex-wrap align-items-center gap-2 mb-3 tg-priority-actions">
-        <Button size="sm" variant={viewFilter === 'display_mismatch' ? 'primary' : 'outline-primary'} onClick={() => setViewFilter('display_mismatch')}>一键只看异常</Button>
-        <Button size="sm" variant={viewFilter === 'raw_mismatch' ? 'primary' : 'outline-primary'} onClick={() => setViewFilter('raw_mismatch')}>只看被修正</Button>
-        <Button size="sm" variant={viewFilter === 'all' ? 'primary' : 'outline-primary'} onClick={() => setViewFilter('all')}>查看全部</Button>
+        <Button size="sm" variant={samplePoolFilter === 'anomaly' ? 'primary' : 'outline-primary'} className={`tg-priority-sample-filter-btn ${samplePoolFilter === 'anomaly' ? 'is-active' : ''}`} onClick={() => setSamplePoolFilter('anomaly')}>异常</Button>
+        <Button size="sm" variant={samplePoolFilter === 'positive' ? 'primary' : 'outline-primary'} className={`tg-priority-sample-filter-btn ${samplePoolFilter === 'positive' ? 'is-active' : ''}`} onClick={() => setSamplePoolFilter('positive')}>正常</Button>
+        <Button size="sm" variant={samplePoolFilter === 'all' ? 'primary' : 'outline-primary'} className={`tg-priority-sample-filter-btn ${samplePoolFilter === 'all' ? 'is-active' : ''}`} onClick={() => setSamplePoolFilter('all')}>查看全部</Button>
         <Button size="sm" variant="outline-secondary" onClick={handleExportCurrent} disabled={!filteredRows.length}>导出当前结果</Button>
         <Button size="sm" variant="outline-secondary" onClick={() => void handleCopyCurrent()} disabled={!filteredRows.length}>复制当前结果</Button>
         <Button size="sm" variant="outline-secondary" onClick={() => void handleCopyDisplayMismatch()} disabled={!displayMismatchRows.length}>复制展示异常</Button>
@@ -410,12 +512,16 @@ export function PriorityDebugTable({
 
       <div className="mb-3 p-2 border rounded-2">
         <div className="d-flex flex-wrap align-items-center gap-2 mb-2">
-          <span className="fw-semibold">异常样本池：</span>
-          <Badge bg={samplePool.length > 0 ? 'dark' : 'secondary'}>{samplePool.length}</Badge>
+          <span className="fw-semibold">样本池：</span>
+          <Badge bg={samplePool.length > 0 ? 'dark' : 'secondary'}>
+            {samplePoolFilter === 'all' ? samplePool.length : `${filteredSamplePool.length}/${samplePool.length}`}
+          </Badge>
+          {samplePoolFilter !== 'all' ? <span className="small text-muted rag-debug-muted">当前筛选：{samplePoolFilter === 'positive' ? '正向' : '异常'}</span> : null}
         </div>
         <div className="small mb-2">
           <div className="fw-semibold mb-1">标签分布</div>
           {SAMPLE_TAG_ORDER.map((tag) => {
+            if (tag === 'rule_adjusted') return null;
             const count = sampleTagCounts[tag];
             const ratio = samplePool.length > 0 ? Math.round((count / samplePool.length) * 100) : 0;
             return (
@@ -439,8 +545,9 @@ export function PriorityDebugTable({
             <div className="text-muted rag-debug-muted">暂无方向统计</div>
           )}
         </div>
-        <div className="small text-muted rag-debug-muted">可在下方样本条目填写 user_comment / expected_priority / reason_category，用于后续优化建议。</div>
+        <div className="small text-muted rag-debug-muted">可在下方样本条目填写 user_comment / expected_priority / reason_category / pattern_category，用于后续优化建议。</div>
         <div className="small text-muted rag-debug-muted">仅填写了以上字段的样本会进入下一轮 control_state（保守闭环，避免噪音样本自动回流）。</div>
+        <div className="small text-muted rag-debug-muted">异常样本使用“原因分类”；正向样本使用“模式分类”。</div>
         <div className="small text-muted rag-debug-muted mt-1">
           编辑内容会自动保存到当前浏览器。
           {lastSavedAt ? ` 最近保存：${new Date(lastSavedAt).toLocaleString('zh-CN', { hour12: false })}` : ''}
@@ -481,23 +588,37 @@ export function PriorityDebugTable({
                   <th className="tg-priority-sample-direction-col">修正方向</th>
                   <th className="tg-priority-sample-tag-col">标签</th>
                   <th className="tg-priority-sample-priority-col">期望优先级</th>
-                  <th className="tg-priority-sample-reason-col">原因分类</th>
+                  <th className="tg-priority-sample-reason-col">分类（异常:原因 / 正向:模式）</th>
                   <th className="tg-priority-sample-comment-col">用户备注</th>
                   <th className="tg-priority-sample-action-col">操作</th>
                 </tr>
               </thead>
               <tbody>
-                {samplePool.map((sample) => (
-                  <tr key={sample.sampleId}>
+                {!filteredSamplePool.length ? (
+                  <tr>
+                    <td colSpan={7} className="text-center text-muted py-3">
+                      当前筛选下暂无样本
+                    </td>
+                  </tr>
+                ) : null}
+                {filteredSamplePool.map((sample) => {
+                  const kindSelected = samplePoolFilter !== 'all' && sample.sampleKind === samplePoolFilter;
+                  const categoryOptions = sample.sampleKind === 'positive' ? PATTERN_CATEGORY_OPTIONS : REASON_CATEGORY_OPTIONS;
+                  const categoryValue = sample.sampleKind === 'positive' ? sample.patternCategory : sample.reasonCategory;
+                  const categoryLabel = categoryOptions.find((opt) => opt.value === categoryValue)?.label || '未分类';
+                  return (
+                  <tr key={sample.sampleId} className={kindSelected ? 'tg-priority-sample-row-kind-selected' : undefined}>
                     <td className="tg-priority-sample-case-col">
                       <div className="fw-semibold">{sample.caseId}</div>
                       <div className="small text-muted rag-debug-muted tg-priority-sample-case-title">{sample.title || '-'}</div>
                     </td>
                     <td className="tg-priority-sample-direction-col">{sample.direction}</td>
                     <td className="tg-priority-sample-tag-col">
-                      <div className="d-flex flex-wrap gap-1 tg-priority-tags-wrap">
+                      <div className="d-flex gap-1 tg-priority-tags-wrap">
+                        <Badge bg={sample.sampleKind === 'positive' ? 'primary' : 'danger'} className={`tg-priority-kind-badge ${kindSelected ? 'is-selected' : ''}`}>{sampleKindLabel(sample.sampleKind)}</Badge>
                         {sample.manualConfirmed ? <Badge bg="success">已确认</Badge> : null}
                         {sample.tags.map((tag) => {
+                          if (tag === 'rule_adjusted') return null;
                           if (tag !== 'manual_review') {
                             return (
                               <Badge key={`${sample.sampleId}-${tag}`} bg="light" text="dark">
@@ -505,28 +626,33 @@ export function PriorityDebugTable({
                               </Badge>
                             );
                           }
-                          const showConfirm = hoverManualTagSampleId === sample.sampleId;
                           const isConfirming = confirmingManualTagSampleId === sample.sampleId;
                           return (
                             <span
                               key={`${sample.sampleId}-${tag}`}
                               className="tg-priority-manual-confirm-wrap"
-                              onMouseEnter={() => setHoverManualTagSampleId(sample.sampleId)}
-                              onMouseLeave={() => setHoverManualTagSampleId((prev) => (prev === sample.sampleId ? null : prev))}
                             >
-                              {showConfirm ? (
-                                <Button
-                                  size="sm"
-                                  variant="outline-success"
-                                  className="tg-priority-manual-confirm-btn"
-                                  disabled={isConfirming}
-                                  onClick={() => void handleConfirmManualReview(sample.sampleId, sample.caseId)}
-                                >
-                                  {isConfirming ? '确认中...' : '确认'}
-                                </Button>
-                              ) : (
-                                <Badge bg="light" text="dark">{sampleTagLabel(tag)}</Badge>
-                              )}
+                              <Badge bg="light" text="dark" className="tg-priority-manual-pending-pill">{sampleTagLabel(tag)}</Badge>
+                              <Badge
+                                bg="success"
+                                pill
+                                className={`tg-priority-manual-confirm-pill ${isConfirming ? 'is-disabled' : ''}`}
+                                role="button"
+                                tabIndex={isConfirming ? -1 : 0}
+                                onClick={() => {
+                                  if (isConfirming) return;
+                                  void handleConfirmManualReview(sample.sampleId, sample.caseId);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (isConfirming) return;
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    void handleConfirmManualReview(sample.sampleId, sample.caseId);
+                                  }
+                                }}
+                              >
+                                {isConfirming ? '确认中...' : '确认'}
+                              </Badge>
                             </span>
                           );
                         })}
@@ -538,18 +664,57 @@ export function PriorityDebugTable({
                       </Form.Select>
                     </td>
                     <td className="tg-priority-sample-reason-col">
-                      <Form.Select size="sm" value={sample.reasonCategory} onChange={(e) => handleUpdateSample(sample.sampleId, { reasonCategory: normalizeReasonCategory(e.target.value) })} style={{ minWidth: 160 }}>
-                        {REASON_CATEGORY_OPTIONS.map((opt) => <option key={`reason-${opt.value || 'none'}`} value={opt.value}>{opt.label}</option>)}
-                      </Form.Select>
+                      <Dropdown
+                        className="tg-priority-select-dropdown"
+                        focusFirstItemOnShow={false}
+                        onSelect={(eventKey) => {
+                          const nextValue = String(eventKey ?? '');
+                          if (sample.sampleKind === 'positive') {
+                            handleUpdateSample(sample.sampleId, { patternCategory: normalizePatternCategory(nextValue) });
+                            return;
+                          }
+                          handleUpdateSample(sample.sampleId, { reasonCategory: normalizeReasonCategory(nextValue) });
+                        }}
+                      >
+                        <Dropdown.Toggle
+                          size="sm"
+                          id={`sample-category-${sample.sampleId}`}
+                          className="tg-priority-select-toggle"
+                        >
+                          {categoryLabel}
+                        </Dropdown.Toggle>
+                        <Dropdown.Menu className="tg-priority-select-menu">
+                          {categoryOptions.map((opt) => (
+                            <Dropdown.Item
+                              key={`${sample.sampleKind}-category-${opt.value || 'none'}`}
+                              eventKey={opt.value}
+                              active={opt.value === categoryValue}
+                              className="tg-priority-select-item"
+                            >
+                              {opt.label}
+                            </Dropdown.Item>
+                          ))}
+                        </Dropdown.Menu>
+                      </Dropdown>
                     </td>
                     <td className="tg-priority-sample-comment-col">
-                      <Form.Control size="sm" as="textarea" rows={2} placeholder="填写该样本为何不合理、你期望的优先级依据" value={sample.userComment} onChange={(e) => handleUpdateSample(sample.sampleId, { userComment: e.target.value })} />
+                      <Form.Control
+                        size="sm"
+                        as="textarea"
+                        rows={2}
+                        placeholder={sample.sampleKind === 'positive'
+                          ? '填写该用例的优秀设计点，可复用的测试模式或覆盖思路'
+                          : '填写该样本为何不合理、你期望的优先级依据'}
+                        value={sample.userComment}
+                        onChange={(e) => handleUpdateSample(sample.sampleId, { userComment: e.target.value })}
+                      />
                     </td>
                     <td className="tg-priority-sample-action-col">
                       <Button size="sm" variant="outline-secondary" className="tg-priority-row-action-btn" onClick={() => handleRollbackSample(sample.sampleId, sample.caseId)}>case回退</Button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -557,19 +722,18 @@ export function PriorityDebugTable({
       ) : null}
 
       <div className="d-flex flex-wrap align-items-end gap-2 mb-3">
-        <div><div className="small text-muted rag-debug-muted mb-1">视图</div><Form.Select size="sm" value={viewFilter} onChange={(e) => setViewFilter(e.target.value as ViewFilter)} style={{ width: 180 }}><option value="all">全部</option><option value="corrected">已修正</option><option value="unchanged">未变化</option><option value="raw_mismatch">原始 != 最终</option><option value="display_mismatch">展示 != 最终</option></Form.Select></div>
+        <div><div className="small text-muted rag-debug-muted mb-1">视图</div><Form.Select size="sm" value={viewFilter} onChange={(e) => setViewFilter(e.target.value as ViewFilter)} style={{ width: 180 }}><option value="all">全部</option><option value="corrected">已修正</option><option value="unchanged">未变化</option><option value="raw_mismatch">原始 != 调试</option><option value="display_mismatch">展示 != 调试</option></Form.Select></div>
         <div><div className="small text-muted rag-debug-muted mb-1">原始优先级</div><Form.Select size="sm" value={rawFilter} onChange={(e) => setRawFilter(e.target.value)} style={{ width: 120 }}><option value="all">全部</option><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option></Form.Select></div>
-        <div><div className="small text-muted rag-debug-muted mb-1">最终优先级</div><Form.Select size="sm" value={finalFilter} onChange={(e) => setFinalFilter(e.target.value)} style={{ width: 120 }}><option value="all">全部</option><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option></Form.Select></div>
-        <div><div className="small text-muted rag-debug-muted mb-1">展示优先级</div><Form.Select size="sm" value={displayFilter} onChange={(e) => setDisplayFilter(e.target.value)} style={{ width: 120 }}><option value="all">全部</option><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option></Form.Select></div>
+        <div><div className="small text-muted rag-debug-muted mb-1">优先级调试</div><Form.Select size="sm" value={debugFilter} onChange={(e) => setDebugFilter(e.target.value)} style={{ width: 120 }}><option value="all">全部</option><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option></Form.Select></div>
       </div>
 
       <div className="table-responsive tg-priority-result-scroll">
         <table className="table table-sm align-middle mb-0 tg-priority-result-table">
           <thead>
             <tr>
-              <th className="tg-priority-index-col">序号</th>
+              <th className="tg-priority-index-col">用例标号</th>
               <th className="tg-priority-case-col">用例</th>
-              <th className="tg-priority-raw-col">原始</th>
+              <th className="tg-priority-raw-col">原始优先级</th>
               <th className="tg-priority-source-col">结果来源</th>
               <th className="tg-priority-tag-col">标签</th>
               <th className="tg-priority-debug-col">优先级调试</th>
@@ -578,23 +742,22 @@ export function PriorityDebugTable({
           </thead>
           <tbody>
             {!filteredRows.length ? (<tr><td colSpan={7} className="text-center text-muted py-4">暂无符合筛选条件的数据</td></tr>) : null}
-            {filteredRows.map((row) => {
-              const linkedSample = samplePoolByCaseId.get(row.caseId);
-              const tags = linkedSample?.tags?.length ? linkedSample.tags : classifySampleTags(row);
-              const priorityDebugDisplay = buildPriorityDebugDisplay(row, linkedSample);
+            {filteredRowViews.map(({ rowForDisplay, linkedSample, priorityDebugPriority }) => {
+              const tags = linkedSample?.tags?.length ? linkedSample.tags : classifySampleTags(rowForDisplay);
+              const priorityDebugDisplay = buildPriorityDebugDisplay(rowForDisplay, linkedSample, priorityDebugPriority);
+              const categoryBadge = resolveCategoryDisplayBadge(rowForDisplay, linkedSample);
               return (
-                <tr key={`${row.caseId}-${row.index}`} className={row.displayFinalMismatch ? 'tg-priority-display-mismatch-row' : undefined}>
-                  <td className="tg-priority-index-col"><div>{row.index}</div>{row.displayFinalMismatch ? <Badge bg="danger" className="mt-1">展示异常</Badge> : null}</td>
+                <tr key={`${rowForDisplay.caseId}-${rowForDisplay.index}`} className={rowForDisplay.displayFinalMismatch ? 'tg-priority-display-mismatch-row' : undefined}>
+                  <td className="tg-priority-index-col"><div className="fw-semibold">{rowForDisplay.caseId || '-'}</div>{categoryBadge ? <Badge bg={categoryBadge.bg} className="mt-1">{categoryBadge.text}</Badge> : null}</td>
                   <td className="tg-priority-case-col">
-                    <div className="fw-semibold">{row.caseId}</div>
-                    <div className="small text-muted rag-debug-muted tg-priority-case-title">{row.title || '-'}</div>
+                    <div className="small text-muted rag-debug-muted tg-priority-case-title">{rowForDisplay.title || '-'}</div>
                   </td>
-                  <td>{row.finalPriority || '-'}</td>
-                  <td className="tg-priority-source-col">{row.resultSource}</td>
+                  <td className="tg-priority-raw-col">{rowForDisplay.rawPriority || '-'}</td>
+                  <td className="tg-priority-source-col">{rowForDisplay.resultSource}</td>
                   <td className="tg-priority-tag-col">
                     <div className="d-flex flex-wrap gap-1 tg-priority-tags-wrap">
                       {linkedSample?.manualConfirmed ? <Badge bg="success">已确认</Badge> : null}
-                      {tags.map((tag) => <Badge key={`${row.caseId}-${tag}`} bg="light" text="dark">{sampleTagLabel(tag)}</Badge>)}
+                      {tags.filter((tag) => tag !== 'rule_adjusted').map((tag) => <Badge key={`${rowForDisplay.caseId}-${tag}`} bg="light" text="dark">{sampleTagLabel(tag)}</Badge>)}
                     </div>
                   </td>
                   <td className="tg-priority-debug-col">
@@ -602,7 +765,36 @@ export function PriorityDebugTable({
                       ? (<details><summary>查看</summary><pre className="rag-priority-debug-pre">{JSON.stringify(priorityDebugDisplay, null, 2)}</pre></details>)
                       : (<span className="text-muted">-</span>)}
                   </td>
-                  <td className="tg-priority-action-col"><Button size="sm" variant="outline-secondary" className="tg-priority-row-action-btn" onClick={() => handleAddCurrentRowToPool(row)}>加入样本池</Button></td>
+                  <td className="tg-priority-action-col">
+                    <span className="tg-priority-row-action-switch">
+                      <Button
+                        size="sm"
+                        variant="outline-secondary"
+                        className="tg-priority-row-action-btn tg-priority-row-action-default"
+                        onClick={() => handleAddCurrentRowToPool(rowForDisplay, 'anomaly')}
+                      >
+                        加入样本池
+                      </Button>
+                      <span className="tg-priority-row-action-options">
+                        <Button
+                          size="sm"
+                          variant="outline-primary"
+                          className="tg-priority-row-action-btn tg-priority-row-action-positive"
+                          onClick={() => handleAddCurrentRowToPool(rowForDisplay, 'positive')}
+                        >
+                          正向
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline-danger"
+                          className="tg-priority-row-action-btn tg-priority-row-action-anomaly"
+                          onClick={() => handleAddCurrentRowToPool(rowForDisplay, 'anomaly')}
+                        >
+                          异常
+                        </Button>
+                      </span>
+                    </span>
+                  </td>
                 </tr>
               );
             })}

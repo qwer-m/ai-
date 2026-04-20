@@ -78,6 +78,10 @@ def _normalize_pattern_usage(raw: Any, *, signal_type: str) -> str:
     return "avoid"
 
 
+def _normalize_pattern_category(raw: Any) -> str:
+    return _sanitize_text(raw, max_len=64).lower()
+
+
 def _canonicalize_pattern_text(raw: Any) -> str:
     text = _sanitize_text(raw, max_len=_MAX_PATTERN_CANONICAL_LEN).lower()
     if not text:
@@ -120,14 +124,33 @@ def _pattern_source(sample: dict[str, Any], summary: str) -> str:
 
 def _pattern_cluster_key(sample: dict[str, Any], canonical: str, summary: str) -> str:
     reason = _sanitize_text(_sample_value(sample, "reason_category", "reasonCategory"), max_len=40).lower()
+    signal_type = _normalize_signal_type(
+        _sample_value(
+            sample,
+            "signal_type",
+            "signalType",
+            "pattern_signal_type",
+            "patternSignalType",
+            "feedback_direction",
+            "feedbackDirection",
+            "sample_type",
+            "sampleType",
+            "sample_kind",
+            "sampleKind",
+        )
+    )
+    pattern_category = _normalize_pattern_category(
+        _sample_value(sample, "pattern_category", "patternCategory")
+    )
+    semantic_bucket = pattern_category if signal_type == "positive" and pattern_category else reason
     base = canonical or _canonicalize_pattern_text(summary)
     if not base:
-        return reason or "misc"
+        return semantic_bucket or "misc"
     tokens = [token for token in base.split(" ") if token]
     # Keep a compact semantic signature to cluster near-duplicate variants.
     cluster = " ".join(tokens[:6])[:_MAX_PATTERN_CLUSTER_LEN]
-    if reason:
-        return f"{reason}|{cluster}" if cluster else reason
+    if semantic_bucket:
+        return f"{semantic_bucket}|{cluster}" if cluster else semantic_bucket
     return cluster or "misc"
 
 
@@ -154,10 +177,13 @@ def _pattern_weight(sample: dict[str, Any], summary: str, quality: float, source
 
 def _default_pattern_summary(sample: dict[str, Any]) -> str:
     reason = _sanitize_text(_sample_value(sample, "reason_category", "reasonCategory"), max_len=40)
+    pattern_category = _normalize_pattern_category(
+        _sample_value(sample, "pattern_category", "patternCategory")
+    )
     title = _sanitize_text(_sample_value(sample, "title"), max_len=100)
     comment = _sanitize_text(_sample_value(sample, "user_comment", "userComment"), max_len=120)
     case_id = _sanitize_text(_sample_value(sample, "case_id", "caseId"), max_len=40)
-    parts = [part for part in [reason, title, comment, case_id] if part]
+    parts = [part for part in [pattern_category, reason, title, comment, case_id] if part]
     if not parts:
         return ""
     return " | ".join(parts)[:_MAX_PATTERN_SUMMARY_LEN]
@@ -165,6 +191,11 @@ def _default_pattern_summary(sample: dict[str, Any]) -> str:
 
 def normalize_priority_sample(sample: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(sample or {})
+    pattern_category = _normalize_pattern_category(
+        _sample_value(normalized, "pattern_category", "patternCategory")
+    )
+    if pattern_category:
+        normalized["pattern_category"] = pattern_category
     summary = _sanitize_text(
         _sample_value(normalized, "pattern_summary", "patternSummary"),
         max_len=_MAX_PATTERN_SUMMARY_LEN,
@@ -198,6 +229,8 @@ def normalize_priority_sample(sample: dict[str, Any]) -> dict[str, Any]:
             "feedbackDirection",
             "sample_type",
             "sampleType",
+            "sample_kind",
+            "sampleKind",
         )
     )
     normalized["signal_type"] = signal_type
@@ -205,6 +238,13 @@ def normalize_priority_sample(sample: dict[str, Any]) -> dict[str, Any]:
         _sample_value(normalized, "pattern_usage", "patternUsage"),
         signal_type=signal_type,
     )
+    if signal_type == "positive" and not normalized.get("pattern_category"):
+        legacy_reason = _sanitize_text(
+            _sample_value(normalized, "reason_category", "reasonCategory"),
+            max_len=40,
+        ).lower()
+        if legacy_reason:
+            normalized["pattern_category"] = legacy_reason
     adjustment = _safe_float(
         _sample_value(normalized, "pattern_weight_adjustment", "patternWeightAdjustment"),
         default=1.0,
@@ -264,6 +304,9 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
     title = _sanitize_text(_sample_value(sample, "title"), max_len=120)
     comment = _sanitize_text(_sample_value(sample, "user_comment", "userComment"), max_len=160)
     reason = _sanitize_text(_sample_value(sample, "reason_category", "reasonCategory"), max_len=40)
+    pattern_category = _normalize_pattern_category(
+        _sample_value(sample, "pattern_category", "patternCategory")
+    )
     expected_priority = _sanitize_text(
         _sample_value(sample, "expected_priority", "expectedPriority"),
         max_len=8,
@@ -284,6 +327,8 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
             "feedbackDirection",
             "sample_type",
             "sampleType",
+            "sample_kind",
+            "sampleKind",
         )
     )
     pattern_usage = _normalize_pattern_usage(
@@ -306,6 +351,7 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
             f"cluster:{pattern_cluster_key}" if pattern_cluster_key else "",
             f"title:{title}" if title else "",
             f"reason:{reason}" if reason else "",
+            f"pattern_category:{pattern_category}" if pattern_category else "",
             f"signal:{signal_type}",
             f"usage:{pattern_usage}",
             f"expected:{expected_priority}" if expected_priority else "",
@@ -328,11 +374,12 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
             "signal_type": signal_type,
             "pattern_usage": pattern_usage,
             "pattern_quality_score": round(max(0.0, min(1.0, pattern_quality_score)), 4),
-            "pattern_weight": round(max(0.3, min(1.8, pattern_weight)), 4),
-            "reason_category": reason,
-            "expected_priority": expected_priority,
-            "case_id": case_id,
-        },
+                "pattern_weight": round(max(0.3, min(1.8, pattern_weight)), 4),
+                "reason_category": reason,
+                "pattern_category": pattern_category,
+                "expected_priority": expected_priority,
+                "case_id": case_id,
+            },
     }
 
 
@@ -480,6 +527,7 @@ def retrieve_priority_sample_patterns(
                 "pattern_quality_score": round(max(0.0, min(1.0, pattern_quality)), 4),
                 "pattern_weight": round(max(0.3, min(1.8, pattern_weight)), 4),
                 "reason_category": _sanitize_text(metadata.get("reason_category"), max_len=40),
+                "pattern_category": _normalize_pattern_category(metadata.get("pattern_category")),
                 "expected_priority": _sanitize_text(metadata.get("expected_priority"), max_len=8),
                 "case_id": _sanitize_text(metadata.get("case_id"), max_len=40),
                 "document": _sanitize_text(docs[idx] if idx < len(docs) else "", max_len=220),

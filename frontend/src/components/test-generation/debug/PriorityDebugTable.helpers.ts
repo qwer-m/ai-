@@ -3,7 +3,9 @@ export type PriorityValue = 'P0' | 'P1' | 'P2' | 'P3' | '';
 export type ViewFilter = 'all' | 'corrected' | 'unchanged' | 'raw_mismatch' | 'display_mismatch';
 export type SampleTag = 'over_raised' | 'over_lowered' | 'display_mismatch' | 'rule_adjusted' | 'manual_review';
 export type SampleUsage = 'prompt_opt' | 'rule_opt' | 'retrieval_opt' | 'manual_review';
+export type SampleKind = 'anomaly' | 'positive';
 export type ReasonCategory = '' | 'core_flow' | 'exception_path' | 'boundary_condition' | 'state_transition' | 'redundant_case' | 'display_issue' | 'other';
+export type PatternCategory = '' | 'core_flow_closure' | 'cross_page_flow' | 'multi_step_interaction' | 'state_transition_pattern' | 'critical_path_coverage' | 'complex_business_combination' | 'high_value_assertion' | 'boundary_effective_coverage';
 
 export type Props = {
   result: any;
@@ -19,17 +21,19 @@ export type PriorityRow = {
 };
 export type PrioritySample = {
   sampleId: string; caseId: string; title: string; rawPriority: string; finalPriority: string; displayPriority: string; resultSource: ResultSource; direction: string;
+  sampleKind: SampleKind;
   corrected: boolean; isDisplayMismatch: boolean; isRawMismatch: boolean; priorityDebug: string; tags: SampleTag[]; usage: SampleUsage;
-  userComment: string; expectedPriority: PriorityValue; reasonCategory: ReasonCategory; addedAt: number;
+  userComment: string; expectedPriority: PriorityValue; reasonCategory: ReasonCategory; patternCategory: PatternCategory; addedAt: number;
+  weakLinkCaseKey?: string; weakLinkGenerationId?: number | null;
   manualConfirmed?: boolean; manualConfirmedAt?: number;
 };
 export type ExportRow = {
   index: number; caseId: string; title: string; rawPriority: string; finalPriority: string; displayPriority: string; corrected: string; isDisplayMismatch: string;
-  isRawMismatch: string; resultSource: string; direction: string; usage: string; tags: string; expectedPriority: string; reasonCategory: string; userComment: string; addedAt: string; priorityDebug: string;
+  isRawMismatch: string; resultSource: string; sampleKind: string; direction: string; usage: string; tags: string; expectedPriority: string; reasonCategory: string; patternCategory: string; userComment: string; addedAt: string; priorityDebug: string;
 };
 export type EvalDatasetItem = {
   case_id: string; title: string; raw_priority: string; final_priority: string; display_priority: string; result_source: string; direction: string; tags: string[];
-  usage: SampleUsage; priority_debug: Record<string, unknown> | null; user_comment: string; expected_priority: string; reason_category: string; added_at: number;
+  usage: SampleUsage; sample_kind: SampleKind; priority_debug: Record<string, unknown> | null; user_comment: string; expected_priority: string; reason_category: string; pattern_category: string; added_at: number;
   manual_confirmed?: boolean; manual_confirmed_at?: number;
 };
 export type RecommendationDraft = { patterns: string[]; rule_suggestions: string[]; prompt_suggestions: string[]; routing_suggestions: string[] };
@@ -44,6 +48,17 @@ export const REASON_CATEGORY_OPTIONS: Array<{ value: ReasonCategory; label: stri
   { value: '', label: '未分类' }, { value: 'core_flow', label: '核心流程' }, { value: 'exception_path', label: '异常路径' }, { value: 'boundary_condition', label: '边界条件' },
   { value: 'state_transition', label: '状态迁移' }, { value: 'redundant_case', label: '冗余用例' }, { value: 'display_issue', label: '展示问题' }, { value: 'other', label: '其他' },
 ];
+export const PATTERN_CATEGORY_OPTIONS: Array<{ value: PatternCategory; label: string }> = [
+  { value: '', label: '未分类' },
+  { value: 'core_flow_closure', label: '核心流程闭环' },
+  { value: 'cross_page_flow', label: '跨页面流程' },
+  { value: 'multi_step_interaction', label: '多步骤交互' },
+  { value: 'state_transition_pattern', label: '状态流转' },
+  { value: 'critical_path_coverage', label: '关键路径覆盖' },
+  { value: 'complex_business_combination', label: '复杂业务组合' },
+  { value: 'high_value_assertion', label: '高价值断言' },
+  { value: 'boundary_effective_coverage', label: '边界有效覆盖' },
+];
 
 export function normalizePriority(value: unknown): PriorityValue {
   const s = String(value ?? '').trim().toUpperCase();
@@ -57,6 +72,41 @@ export function toPriorityDebug(input: unknown): Record<string, unknown> | null 
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
   return input as Record<string, unknown>;
 }
+function pickPriorityFromDebug(debug: Record<string, unknown> | null, keys: string[]): PriorityValue {
+  if (!debug) return '';
+  for (const key of keys) {
+    const normalized = normalizePriority(debug[key]);
+    if (normalized) return normalized;
+  }
+  return '';
+}
+export function normalizeWeakLinkGenerationId(raw: unknown): number | null {
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return null;
+  const intVal = Math.trunc(num);
+  if (intVal <= 0) return null;
+  return intVal;
+}
+export function normalizeSampleKind(raw: unknown): SampleKind {
+  const text = String(raw ?? '').trim().toLowerCase();
+  return text === 'positive' ? 'positive' : 'anomaly';
+}
+function normalizeWeakLinkText(raw: unknown, maxLen: number): string {
+  return String(raw ?? '').trim().replace(/\s+/g, ' ').slice(0, maxLen);
+}
+export function buildWeakLinkCaseKey(input: Pick<PriorityRow, 'caseId' | 'title' | 'rawPriority' | 'finalPriority' | 'displayPriority' | 'resultSource'>): string {
+  const caseId = normalizeWeakLinkText(input.caseId, 64).toLowerCase();
+  const title = normalizeWeakLinkText(input.title, 320).toLowerCase();
+  const raw = normalizeWeakLinkText(input.rawPriority, 8).toUpperCase();
+  const final = normalizeWeakLinkText(input.finalPriority, 8).toUpperCase();
+  const display = normalizeWeakLinkText(input.displayPriority, 8).toUpperCase();
+  const source = normalizeWeakLinkText(input.resultSource, 32).toLowerCase();
+  return [caseId, title, raw, final, display, source].join('|');
+}
+function sanitizeSampleIdPart(raw: unknown, maxLen: number): string {
+  const text = normalizeWeakLinkText(raw, maxLen).toLowerCase();
+  return text.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, maxLen) || 'na';
+}
 export function parsePriorityDebugString(input: string): Record<string, unknown> | null {
   if (!input.trim()) return null;
   try { return toPriorityDebug(JSON.parse(input)); } catch { return null; }
@@ -64,6 +114,20 @@ export function parsePriorityDebugString(input: string): Record<string, unknown>
 export function normalizeReasonCategory(value: unknown): ReasonCategory {
   const s = String(value ?? '').trim();
   if (s === 'core_flow' || s === 'exception_path' || s === 'boundary_condition' || s === 'state_transition' || s === 'redundant_case' || s === 'display_issue' || s === 'other') return s;
+  return '';
+}
+export function normalizePatternCategory(value: unknown): PatternCategory {
+  const s = String(value ?? '').trim();
+  if (
+    s === 'core_flow_closure'
+    || s === 'cross_page_flow'
+    || s === 'multi_step_interaction'
+    || s === 'state_transition_pattern'
+    || s === 'critical_path_coverage'
+    || s === 'complex_business_combination'
+    || s === 'high_value_assertion'
+    || s === 'boundary_effective_coverage'
+  ) return s;
   return '';
 }
 export function extractCaseArray(result: any): any[] {
@@ -114,9 +178,12 @@ export function sampleUsageLabel(usage: SampleUsage): string {
 export function buildRows(result: any, resultSource: ResultSource): PriorityRow[] {
   return extractCaseArray(result).map((item, idx) => {
     const debug = toPriorityDebug(item?.priorityDebug) ?? toPriorityDebug(item?.meta?.priority_debug);
-    const rawPriority = normalizePriority(item?.rawPriority ?? debug?.original_priority ?? debug?.model_priority ?? '');
-    const displayPriority = normalizePriority(item?.displayPriority ?? item?.priority);
-    const finalPriority = normalizePriority(item?.finalPriority ?? debug?.final_priority ?? displayPriority);
+    const listDisplayPriority = normalizePriority(item?.priority ?? item?.displayPriority);
+    const debugRawPriority = pickPriorityFromDebug(debug, ['original_priority', 'model_priority', 'raw_priority', 'source_priority']);
+    const debugFinalPriority = pickPriorityFromDebug(debug, ['final_priority', 'resolved_priority', 'priority_after_rules', 'adjusted_priority', 'target_priority', 'priority']);
+    const rawPriority = normalizePriority(item?.rawPriority) || debugRawPriority || listDisplayPriority;
+    const displayPriority = listDisplayPriority;
+    const finalPriority = normalizePriority(item?.finalPriority) || debugFinalPriority || listDisplayPriority;
     const caseId = String(item?.id || item?.case_id || `CASE-${idx + 1}`);
     const title = String(item?.description || item?.title || item?.name || '').trim();
     const rawFinalMismatch = Boolean(rawPriority && finalPriority && rawPriority !== finalPriority);
@@ -127,13 +194,27 @@ export function buildRows(result: any, resultSource: ResultSource): PriorityRow[
     };
   });
 }
-export function toSample(row: PriorityRow): PrioritySample {
+export function toSample(row: PriorityRow, options?: { generationId?: number | null; sampleKind?: SampleKind }): PrioritySample {
   const tags = classifySampleTags(row);
-  const sampleId = `${row.caseId}__${row.rawPriority || '-'}__${row.finalPriority || '-'}__${row.displayPriority || '-'}__${row.resultSource}`;
+  const sampleKind = normalizeSampleKind(options?.sampleKind ?? 'anomaly');
+  const weakLinkGenerationId = normalizeWeakLinkGenerationId(options?.generationId ?? null);
+  const weakLinkCaseKey = buildWeakLinkCaseKey(row);
+  const sampleId = [
+    `kind-${sampleKind}`,
+    `gid-${weakLinkGenerationId ?? 'none'}`,
+    `case-${sanitizeSampleIdPart(row.caseId, 64)}`,
+    `raw-${sanitizeSampleIdPart(row.rawPriority || '-', 8)}`,
+    `final-${sanitizeSampleIdPart(row.finalPriority || '-', 8)}`,
+    `display-${sanitizeSampleIdPart(row.displayPriority || '-', 8)}`,
+    `src-${sanitizeSampleIdPart(row.resultSource, 32)}`,
+    `title-${sanitizeSampleIdPart(row.title, 72)}`,
+  ].join('__');
   return {
     sampleId, caseId: row.caseId, title: row.title || '', rawPriority: row.rawPriority || '-', finalPriority: row.finalPriority || '-', displayPriority: row.displayPriority || '-',
-    resultSource: row.resultSource, direction: getDirection(row), corrected: row.corrected, isDisplayMismatch: row.displayFinalMismatch, isRawMismatch: row.rawFinalMismatch,
-    priorityDebug: row.priorityDebug ? JSON.stringify(row.priorityDebug) : '', tags, usage: resolveSampleUsage(tags), userComment: '', expectedPriority: '', reasonCategory: '', addedAt: Date.now(),
+    resultSource: row.resultSource, sampleKind, direction: getDirection(row), corrected: row.corrected, isDisplayMismatch: row.displayFinalMismatch, isRawMismatch: row.rawFinalMismatch,
+    priorityDebug: row.priorityDebug ? JSON.stringify(row.priorityDebug) : '', tags, usage: resolveSampleUsage(tags), userComment: '', expectedPriority: '', reasonCategory: '', patternCategory: '', addedAt: Date.now(),
+    weakLinkCaseKey,
+    weakLinkGenerationId,
     manualConfirmed: false, manualConfirmedAt: undefined,
   };
 }
@@ -161,7 +242,7 @@ export function toExportRows(rows: PriorityRow[]): ExportRow[] {
     return {
       index: row.index, caseId: row.caseId, title: row.title || '', rawPriority: row.rawPriority || '-', finalPriority: row.finalPriority || '-', displayPriority: row.displayPriority || '-',
       corrected: row.corrected ? 'true' : 'false', isDisplayMismatch: row.displayFinalMismatch ? 'true' : 'false', isRawMismatch: row.rawFinalMismatch ? 'true' : 'false',
-      resultSource: row.resultSource, direction: getDirection(row), usage: resolveSampleUsage(tags), tags: tags.join('|'), expectedPriority: '-', reasonCategory: '-', userComment: '-', addedAt: '-',
+      resultSource: row.resultSource, sampleKind: 'anomaly', direction: getDirection(row), usage: resolveSampleUsage(tags), tags: tags.join('|'), expectedPriority: '-', reasonCategory: '-', patternCategory: '-', userComment: '-', addedAt: '-',
       priorityDebug: row.priorityDebug ? JSON.stringify(row.priorityDebug) : '',
     };
   });
@@ -170,15 +251,15 @@ export function toSamplePoolExportRows(samples: PrioritySample[]): ExportRow[] {
   return samples.map((s, i) => ({
     index: i + 1, caseId: s.caseId, title: s.title, rawPriority: s.rawPriority, finalPriority: s.finalPriority, displayPriority: s.displayPriority,
     corrected: s.corrected ? 'true' : 'false', isDisplayMismatch: s.isDisplayMismatch ? 'true' : 'false', isRawMismatch: s.isRawMismatch ? 'true' : 'false',
-    resultSource: s.resultSource, direction: s.direction, usage: s.usage, tags: s.tags.join('|'), expectedPriority: s.expectedPriority || '-', reasonCategory: s.reasonCategory || '-',
+    resultSource: s.resultSource, sampleKind: s.sampleKind, direction: s.direction, usage: s.usage, tags: s.tags.join('|'), expectedPriority: s.expectedPriority || '-', reasonCategory: s.reasonCategory || '-', patternCategory: s.patternCategory || '-',
     userComment: s.userComment || '-', addedAt: String(s.addedAt), priorityDebug: s.priorityDebug || '',
   }));
 }
 export function toEvalDataset(samples: PrioritySample[]): EvalDatasetItem[] {
   return samples.map((s) => ({
     case_id: s.caseId, title: s.title, raw_priority: s.rawPriority, final_priority: s.finalPriority, display_priority: s.displayPriority, result_source: s.resultSource,
-    direction: s.direction, tags: s.tags, usage: s.usage, priority_debug: parsePriorityDebugString(s.priorityDebug), user_comment: s.userComment || '',
-    expected_priority: s.expectedPriority || '', reason_category: s.reasonCategory || '', added_at: s.addedAt,
+    direction: s.direction, tags: s.tags, usage: s.usage, sample_kind: s.sampleKind, priority_debug: parsePriorityDebugString(s.priorityDebug), user_comment: s.userComment || '',
+    expected_priority: s.expectedPriority || '', reason_category: s.reasonCategory || '', pattern_category: s.patternCategory || '', added_at: s.addedAt,
     manual_confirmed: Boolean(s.manualConfirmed), manual_confirmed_at: s.manualConfirmedAt,
   }));
 }
@@ -187,10 +268,10 @@ export function escapeCsvValue(value: unknown): string {
   return `"${text.replace(/"/g, '""')}"`;
 }
 export function buildCsvFromRows(rows: ExportRow[]): string {
-  const header = ['index', 'caseId', 'title', 'rawPriority', 'finalPriority', 'displayPriority', 'corrected', 'isDisplayMismatch', 'isRawMismatch', 'resultSource', 'direction', 'usage', 'tags', 'expectedPriority', 'reasonCategory', 'userComment', 'addedAt', 'priorityDebug'];
+  const header = ['index', 'caseId', 'title', 'rawPriority', 'finalPriority', 'displayPriority', 'corrected', 'isDisplayMismatch', 'isRawMismatch', 'resultSource', 'sampleKind', 'direction', 'usage', 'tags', 'expectedPriority', 'reasonCategory', 'patternCategory', 'userComment', 'addedAt', 'priorityDebug'];
   const lines = [header.join(',')];
   for (const row of rows) {
-    lines.push([row.index, row.caseId, row.title, row.rawPriority, row.finalPriority, row.displayPriority, row.corrected, row.isDisplayMismatch, row.isRawMismatch, row.resultSource, row.direction, row.usage, row.tags, row.expectedPriority, row.reasonCategory, row.userComment, row.addedAt, row.priorityDebug].map(escapeCsvValue).join(','));
+    lines.push([row.index, row.caseId, row.title, row.rawPriority, row.finalPriority, row.displayPriority, row.corrected, row.isDisplayMismatch, row.isRawMismatch, row.resultSource, row.sampleKind, row.direction, row.usage, row.tags, row.expectedPriority, row.reasonCategory, row.patternCategory, row.userComment, row.addedAt, row.priorityDebug].map(escapeCsvValue).join(','));
   }
   return lines.join('\n');
 }
@@ -246,6 +327,10 @@ export function parseSamplePool(raw: string | null): PrioritySample[] {
         : Date.parse(String(manualConfirmedAtMixed || ''));
       const expectedPriority = normalizePriority(item.expectedPriority ?? item.expected_priority ?? '');
       const reasonCategory = normalizeReasonCategory(item.reasonCategory ?? item.reason_category ?? '');
+      const patternCategory = normalizePatternCategory(item.patternCategory ?? item.pattern_category ?? '');
+      const weakLinkCaseKey = normalizeWeakLinkText(item.weakLinkCaseKey ?? item.weak_link_case_key ?? '', 512);
+      const weakLinkGenerationId = normalizeWeakLinkGenerationId(item.weakLinkGenerationId ?? item.weak_link_generation_id ?? null);
+      const sampleKind = normalizeSampleKind(item.sampleKind ?? item.sample_kind ?? 'anomaly');
       return {
         sampleId: String(item.sampleId || `${item.caseId || 'CASE'}__${addedAtRaw || Date.now()}`),
         caseId: String(item.caseId || ''),
@@ -254,6 +339,7 @@ export function parseSamplePool(raw: string | null): PrioritySample[] {
         finalPriority: String(item.finalPriority || '-'),
         displayPriority: String(item.displayPriority || '-'),
         resultSource: item.resultSource === 'streaming_preview' || item.resultSource === 'final_persisted' ? item.resultSource : 'none',
+        sampleKind,
         direction: String(item.direction || '-'),
         corrected: Boolean(item.corrected),
         isDisplayMismatch: Boolean(item.isDisplayMismatch),
@@ -264,7 +350,10 @@ export function parseSamplePool(raw: string | null): PrioritySample[] {
         userComment: String(item.userComment ?? item.user_comment ?? ''),
         expectedPriority,
         reasonCategory,
+        patternCategory,
         addedAt: Number.isFinite(addedAtRaw) && addedAtRaw > 0 ? addedAtRaw : Date.now(),
+        weakLinkCaseKey: weakLinkCaseKey || undefined,
+        weakLinkGenerationId,
         manualConfirmed,
         manualConfirmedAt: Number.isFinite(manualConfirmedAtTs) && manualConfirmedAtTs > 0 ? manualConfirmedAtTs : undefined,
       } satisfies PrioritySample;
@@ -282,7 +371,10 @@ export function mergeSamples(existing: PrioritySample[], incoming: PrioritySampl
     const mergedTags = Array.from(new Set<SampleTag>([...old.tags, ...sample.tags]));
     map.set(sample.sampleId, {
       ...old, ...sample, tags: mergedTags, usage: resolveSampleUsage(mergedTags), addedAt: old.addedAt || sample.addedAt, priorityDebug: sample.priorityDebug || old.priorityDebug,
-      userComment: old.userComment || sample.userComment, expectedPriority: old.expectedPriority || sample.expectedPriority, reasonCategory: old.reasonCategory || sample.reasonCategory,
+      userComment: old.userComment || sample.userComment, expectedPriority: old.expectedPriority || sample.expectedPriority, reasonCategory: old.reasonCategory || sample.reasonCategory, patternCategory: old.patternCategory || sample.patternCategory,
+      sampleKind: normalizeSampleKind(sample.sampleKind || old.sampleKind || 'anomaly'),
+      weakLinkCaseKey: sample.weakLinkCaseKey || old.weakLinkCaseKey,
+      weakLinkGenerationId: sample.weakLinkGenerationId ?? old.weakLinkGenerationId ?? null,
       manualConfirmed: Boolean(old.manualConfirmed || sample.manualConfirmed),
       manualConfirmedAt: old.manualConfirmedAt || sample.manualConfirmedAt,
     });
