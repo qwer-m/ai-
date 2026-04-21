@@ -1,4 +1,5 @@
 import sys
+import importlib
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
@@ -8,6 +9,10 @@ from modules.test_generation_components.postprocess.result_postprocess import (
     apply_priority_semantics_to_cases,
     resolve_case_priority,
     score_case_priority,
+)
+
+priority_semantics_module = importlib.import_module(
+    "modules.test_generation_components.postprocess.result_postprocess_priority_semantics"
 )
 
 
@@ -87,6 +92,28 @@ def test_apply_priority_semantics_attaches_debug_meta() -> None:
     assert "p2_cap" in debug
     assert "low_risk_only_covered" in debug
     assert "structural_p2_signals" in debug
+
+
+def test_reuse_risk_cases_are_treated_as_high_value_for_priority() -> None:
+    case = {
+        "description": "复用页面后完成返回首页，不应残留原列表页跳转。",
+        "test_module": "lesson-flow",
+        "preconditions": [],
+        "steps": ["进入复用页面", "完成学习流程", "校验返回目标"],
+        "test_input": "lesson=A",
+        "expected_result": "返回首页且不出现旧按钮/旧跳转",
+        "priority": "P2",
+    }
+
+    score_result = score_case_priority(case)
+
+    assert score_result["reuse_risk_hit"] is True
+    assert "reuse_risk_hit" in score_result["reasons"]
+
+    output = apply_priority_semantics_to_case(dict(case), attach_debug=True)
+    debug = ((output.get("meta") or {}).get("priority_debug") or {})
+    assert debug.get("reuse_risk_hit") is True
+    assert output["priority"] in {"P1", "P2"}
 
 
 def test_rule_only_release_blocking_hit_cannot_pass_p0_guard() -> None:
@@ -463,3 +490,112 @@ def test_apply_priority_semantics_normalizes_stale_score_artifacts_without_cover
     assert "no_coverage_information_gain" not in reasons
     assert "p2_cap_no_coverage_gain_without_hard_guard" not in reasons
     assert bool(debug.get("p2_cap")) is False
+
+
+def test_apply_priority_semantics_relaxes_workflow_uplift_threshold(monkeypatch) -> None:
+    def fake_score_case_priority(*_: object, **__: object) -> dict[str, object]:
+        return {
+            "priority_score": 20,
+            "suggested_priority": "P2",
+            "guards": {
+                "main_workflow_blocking": False,
+                "workflow_blocking": False,
+                "severe_data_risk": False,
+                "severe_security_risk": False,
+                "case_level_release_blocking": False,
+            },
+            "reasons": ["main_workflow_hit"],
+            "focus_score": 1,
+            "ui_like_case": False,
+            "cross_page_flow_hit": False,
+            "state_transition_hit": False,
+            "preferred_pattern_hit": False,
+            "covered_rule_ids": [],
+            "missing_rule_hits": [],
+            "core_rule_hits": [],
+            "unique_coverage_hits": [],
+            "coverage_gain_score": 0,
+            "rule_risk_reasons": [],
+            "p2_cap": False,
+            "p2_cap_exempted": False,
+            "p2_cap_exemption_reasons": [],
+            "coverage_value_exempt": False,
+            "low_risk_only_covered": False,
+            "structural_p2_signals": False,
+            "case_level_hard_guard": False,
+            "case_level_release_blocking": False,
+        }
+
+    monkeypatch.setattr(priority_semantics_module, "score_case_priority", fake_score_case_priority)
+
+    case = {
+        "description": "main workflow path",
+        "test_module": "module-z",
+        "steps": ["submit"],
+        "expected_result": "success",
+        "priority": "P2",
+    }
+    output = priority_semantics_module.apply_priority_semantics_to_case(dict(case), attach_debug=True)
+    debug = ((output.get("meta") or {}).get("priority_debug") or {})
+    assert bool(debug.get("p1_uplifted")) is True
+    assert str(debug.get("p1_uplift_reason") or "") == "workflow_focus_relaxed"
+
+
+def test_score_case_priority_marks_flow_signal_hits() -> None:
+    case = {
+        "description": "cross-page navigation chain validates state transition",
+        "test_module": "learning-flow",
+        "steps": ["page jump to details", "resume after interruption"],
+        "expected_result": "state transition remains consistent",
+        "pattern_category": "cross_page_flow",
+        "priority": "P2",
+    }
+    score_result = score_case_priority(case)
+    reasons = set(score_result.get("reasons") or [])
+    assert bool(score_result.get("cross_page_flow_hit")) is True
+    assert bool(score_result.get("state_transition_hit")) is True
+    assert bool(score_result.get("preferred_pattern_hit")) is True
+    assert "cross_page_flow_hit" in reasons
+    assert "state_transition_hit" in reasons
+    assert "preferred_pattern_hit" in reasons
+
+
+def test_score_case_priority_ui_like_excludes_flow_or_state_depth_case() -> None:
+    case = {
+        "description": "button display check after cross-page navigation keeps context consistent",
+        "test_module": "learning-flow",
+        "steps": ["click card and jump to details", "resume and verify state transition consistency"],
+        "expected_result": "context is preserved and no wrong page jump",
+        "pattern_category": "cross_page_flow",
+        "priority": "P2",
+    }
+    score_result = score_case_priority(case)
+    assert bool(score_result.get("cross_page_flow_hit")) is True
+    assert bool(score_result.get("state_transition_hit")) is True
+    assert bool(score_result.get("ui_like_case")) is False
+
+
+def test_score_case_priority_ui_like_excludes_state_guard_expected_result_case() -> None:
+    case = {
+        "description": "button display check after resume",
+        "test_module": "learning-flow",
+        "steps": ["click card and open details"],
+        "expected_result": "\u4e0d\u4e22\u4e0a\u4e0b\u6587\uff0c\u4e0d\u4e32\u8bfe\u6587",
+        "pattern_category": "ui_display",
+        "priority": "P2",
+    }
+    score_result = score_case_priority(case)
+    assert bool(score_result.get("ui_like_case")) is False
+
+
+def test_score_case_priority_ui_like_excludes_step_guard_sequence_case() -> None:
+    case = {
+        "description": "button visibility check for recover flow",
+        "test_module": "learning-flow",
+        "steps": ["\u8fd4\u56de\u8bfe\u7a0b\u5217\u8868", "\u518d\u8fdb\u5165\u5f53\u524d\u8bfe\u7a0b\u5e76\u6821\u9a8c\u72b6\u6001"],
+        "expected_result": "display is correct",
+        "pattern_category": "ui_display",
+        "priority": "P2",
+    }
+    score_result = score_case_priority(case)
+    assert bool(score_result.get("ui_like_case")) is False

@@ -13,6 +13,7 @@ def test_business_isolation_rule_contains_current_biz_key() -> None:
     prompt = build_closed_loop_base_prompt(
         strategy_plan={"system_type": "Web", "impact_scope": "module", "suggested_ratios": {}},
         requirement_context="REQ context",
+        requirement_semantics_context="[Requirement Semantics]\n* Confirmed fact",
         testcase_context="CASE context",
         supplement_context="SUPPLEMENT context",
         current_biz_key="org_close_rule",
@@ -24,6 +25,8 @@ def test_business_isolation_rule_contains_current_biz_key() -> None:
     assert "S2 - Global Guidance" in prompt
     assert "TEST CASE PRIORITY CLASSIFICATION (MANDATORY)" in prompt
     assert "Coverage != P0" in prompt
+    assert "Requirement Semantics - CONFIRMED vs PENDING" in prompt
+    assert "Pending / Open Questions are NOT confirmed behavior" in prompt
 
 
 def test_gap_fill_prompt_consumes_coverage_result() -> None:

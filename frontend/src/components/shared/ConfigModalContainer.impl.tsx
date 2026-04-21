@@ -8,6 +8,18 @@ import { translateConfigError } from './ConfigModal.utils';
 import './ConfigModal.css';
 
 const CLOUD_PROVIDERS = ['dashscope', 'openai', 'deepseek'];
+const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
+const OFFICIAL_BASE_URL_BY_PROVIDER: Record<string, string> = {
+  deepseek: 'https://api.deepseek.com',
+};
+
+const resolveCloudBaseUrl = (provider: string, baseUrl: string): string => {
+  const official = OFFICIAL_BASE_URL_BY_PROVIDER[String(provider || '').trim().toLowerCase()];
+  if (official) {
+    return official;
+  }
+  return String(baseUrl || '').trim();
+};
 
 type Props = {
   show: boolean;
@@ -40,6 +52,7 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
 
   const [provider, setProvider] = useState('dashscope');
   const [cloudBaseUrl, setCloudBaseUrl] = useState('');
+  const [lastOpenaiBaseUrl, setLastOpenaiBaseUrl] = useState(DEFAULT_OPENAI_BASE_URL);
   const [localBaseUrl, setLocalBaseUrl] = useState('http://localhost:11434/v1');
   const [localModelName, setLocalModelName] = useState('');
   const [detectedServices, setDetectedServices] = useState<any[]>([]);
@@ -50,6 +63,7 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
   const [streamOutput, setStreamOutput] = useState('');
   const [streamState, setStreamState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [dirty, setDirty] = useState(false);
+  const effectiveCloudBaseUrl = resolveCloudBaseUrl(provider, cloudBaseUrl);
 
   useEffect(() => {
     if (message?.type === 'danger') {
@@ -92,7 +106,11 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
           setVlModelName(res.vl_model_name || '');
           setTurboModelName(res.turbo_model_name || '');
           setApiKey(res.has_api_key ? '******' : '');
-          setCloudBaseUrl(res.base_url || '');
+          const resolvedBaseUrl = resolveCloudBaseUrl(res.provider, res.base_url || '');
+          setCloudBaseUrl(resolvedBaseUrl);
+          if (res.provider === 'openai') {
+            setLastOpenaiBaseUrl(resolvedBaseUrl || DEFAULT_OPENAI_BASE_URL);
+          }
 
           setTurboProvider(res.turbo_follow_main ? 'follow_main' : res.turbo_provider || 'follow_main');
           setTurboApiKey(res.has_turbo_api_key ? '******' : '');
@@ -134,6 +152,32 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
   }, [show, initialError]);
 
   const markDirty = () => setDirty(true);
+  const handleCloudBaseUrlChange = (value: string) => {
+    setCloudBaseUrl(value);
+    if (provider === 'openai') {
+      const next = String(value || '').trim();
+      if (next) {
+        setLastOpenaiBaseUrl(next);
+      }
+    }
+  };
+
+  const handleCloudProviderChange = (value: string) => {
+    const next = String(value || '').trim();
+    if (provider === 'openai') {
+      const currentOpenaiBase = String(cloudBaseUrl || '').trim();
+      if (currentOpenaiBase) {
+        setLastOpenaiBaseUrl(currentOpenaiBase);
+      }
+    }
+    setProvider(next);
+    if (next === 'openai') {
+      setCloudBaseUrl(lastOpenaiBaseUrl || DEFAULT_OPENAI_BASE_URL);
+    } else {
+      setCloudBaseUrl(resolveCloudBaseUrl(next, cloudBaseUrl));
+    }
+    markDirty();
+  };
 
   const detectLocalServices = async () => {
     setDetectingLocal(true);
@@ -257,7 +301,7 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
         ? {
             provider,
             api_key: apiKey === '******' ? '' : apiKey,
-            base_url: cloudBaseUrl.trim(),
+            base_url: effectiveCloudBaseUrl,
             model_name: modelName,
             vl_model_name: vlModelName,
             turbo_model_name: turboModelName,
@@ -341,7 +385,7 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
           ? {
               provider,
               api_key: apiKey === '******' ? undefined : apiKey,
-              base_url: cloudBaseUrl.trim(),
+              base_url: effectiveCloudBaseUrl,
               model_name: modelName,
               vl_model_name: vlModelName,
               turbo_model_name: turboModelName,
@@ -413,7 +457,7 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
             <CloudTab
               provider={provider}
               apiKey={apiKey}
-              baseUrl={cloudBaseUrl}
+              baseUrl={effectiveCloudBaseUrl}
               model={modelName}
               vlModel={vlModelName}
               turboModel={turboModelName}
@@ -421,9 +465,9 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
               turboApiKey={turboApiKey}
               vlProvider={vlProvider}
               vlApiKey={vlApiKey}
-              onProviderChange={setProvider}
+              onProviderChange={handleCloudProviderChange}
               onApiKeyChange={setApiKey}
-              onBaseUrlChange={setCloudBaseUrl}
+              onBaseUrlChange={handleCloudBaseUrlChange}
               onModelChange={setModelName}
               onVlModelChange={setVlModelName}
               onTurboModelChange={setTurboModelName}

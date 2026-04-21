@@ -59,6 +59,7 @@
         base_prompt = build_closed_loop_base_prompt(
             strategy_plan,
             requirement_context=prompt_context.get("requirement_context") or "",
+            requirement_semantics_context=prompt_context.get("requirement_semantics_context") or "",
             testcase_context=prompt_context.get("testcase_context") or "(empty)",
             supplement_context=prompt_context.get("supplement_context") or "(empty)",
             control_context=prompt_context.get("control_context") or "",
@@ -146,9 +147,10 @@ Return ONLY the JSON array.
                 multi_pass=bool(multi_pass),
                 generation_mode=generation_mode,
                 prompt_context=prompt_context,
-                build_base_prompt_fn=lambda req_ctx, tc_ctx, sup_ctx, ctl_ctx, biz_key: build_closed_loop_base_prompt(
+                build_base_prompt_fn=lambda req_ctx, req_sem_ctx, tc_ctx, sup_ctx, ctl_ctx, biz_key: build_closed_loop_base_prompt(
                     strategy_plan,
                     requirement_context=req_ctx,
+                    requirement_semantics_context=req_sem_ctx,
                     testcase_context=tc_ctx,
                     supplement_context=sup_ctx,
                     control_context=ctl_ctx,

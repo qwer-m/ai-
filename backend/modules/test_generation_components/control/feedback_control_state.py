@@ -77,6 +77,7 @@ class FeedbackControlState:
     must_have_scenarios: list[str] = field(default_factory=list)
     forbidden_patterns: list[str] = field(default_factory=list)
     preferred_patterns: list[str] = field(default_factory=list)
+    reuse_risks: list[str] = field(default_factory=list)
     soft_constraints: list[str] = field(default_factory=list)
     rule_quota: dict[str, int] = field(default_factory=dict)
     quality_fix_hints: list[str] = field(default_factory=list)
@@ -96,6 +97,7 @@ class FeedbackControlState:
             preferred_patterns=_normalize_text_list(
                 data.get("preferred_patterns") or data.get("positive_patterns") or []
             ),
+            reuse_risks=_normalize_text_list(data.get("reuse_risks") or []),
             soft_constraints=_normalize_text_list(data.get("soft_constraints") or data.get("negative_bias") or []),
             rule_quota=_normalize_rule_quota(data.get("rule_quota") or {}),
             quality_fix_hints=_normalize_text_list(data.get("quality_fix_hints") or []),
@@ -116,6 +118,7 @@ class FeedbackControlState:
             "must_have_scenarios": _normalize_text_list(self.must_have_scenarios),
             "forbidden_patterns": _normalize_text_list(self.forbidden_patterns),
             "preferred_patterns": _normalize_text_list(self.preferred_patterns),
+            "reuse_risks": _normalize_text_list(self.reuse_risks),
             "soft_constraints": _normalize_text_list(self.soft_constraints),
             "rule_quota": _normalize_rule_quota(self.rule_quota),
             "quality_fix_hints": _normalize_text_list(self.quality_fix_hints),
@@ -132,6 +135,7 @@ class FeedbackControlState:
             must_have_scenarios=_normalize_text_list([*self.must_have_scenarios, *target.must_have_scenarios]),
             forbidden_patterns=_normalize_text_list([*self.forbidden_patterns, *target.forbidden_patterns]),
             preferred_patterns=_normalize_text_list([*self.preferred_patterns, *target.preferred_patterns]),
+            reuse_risks=_normalize_text_list([*self.reuse_risks, *target.reuse_risks]),
             soft_constraints=_normalize_text_list([*self.soft_constraints, *target.soft_constraints]),
             rule_quota=merged_quota,
             quality_fix_hints=_normalize_text_list([*self.quality_fix_hints, *target.quality_fix_hints]),
@@ -144,6 +148,7 @@ class FeedbackControlState:
             or self.must_have_scenarios
             or self.forbidden_patterns
             or self.preferred_patterns
+            or self.reuse_risks
             or self.soft_constraints
             or self.rule_quota
             or self.quality_fix_hints

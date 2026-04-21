@@ -47,6 +47,20 @@ _MAX_PRIORITY_POOL_CLUSTER_CAP = max(
         int(os.getenv("TESTGEN_PRIORITY_POOL_CLUSTER_CAP", "2")),
     ),
 )
+_PRIORITY_POOL_MIN_POSITIVE_TOP_K = max(
+    0,
+    min(
+        _MAX_PRIORITY_POOL_RETRIEVAL_TOP_K,
+        int(os.getenv("TESTGEN_PRIORITY_POOL_MIN_POSITIVE_TOP_K", "2")),
+    ),
+)
+_PRIORITY_POOL_MAX_NEGATIVE_TOP_K = max(
+    0,
+    min(
+        _MAX_PRIORITY_POOL_RETRIEVAL_TOP_K,
+        int(os.getenv("TESTGEN_PRIORITY_POOL_MAX_NEGATIVE_TOP_K", "3")),
+    ),
+)
 _SYNC_PRIORITY_INDEX_ON_READ = str(
     os.getenv("TESTGEN_PRIORITY_POOL_INDEX_SYNC_ON_READ", "false")
 ).strip().lower() in {"1", "true", "yes", "on"}
@@ -162,6 +176,131 @@ def _extract_forbidden_pattern_from_sample(*, title: str, comment: str) -> str:
     return candidate[:40]
 
 
+_UI_LOW_VALUE_PATTERN_TOKENS = (
+    "ui-only",
+    "static ui",
+    "static display",
+    "copy check",
+    "copy-only",
+    "style check",
+    "layout check",
+    "layout-only",
+    "visual only",
+    "field display",
+    "list sorting",
+    "placeholder",
+    "ui ",
+    "display",
+    "文案",
+    "样式",
+    "布局",
+    "展示",
+    "列表排序",
+    "字段展示",
+)
+
+_UI_FORBIDDEN_GUARDRAILS = (
+    "avoid static ui-only checks without workflow/state transition assertions",
+    "avoid repetitive list sorting / field display / layout-only checks unless they block workflow",
+    "copy/style/layout checks are supplemental only and must not dominate the case set",
+)
+_REUSE_RISK_PATTERNS: dict[str, tuple[str, ...]] = {
+    "wrong_return_target_risk": (
+        "回首页",
+        "回列表",
+        "返回首页",
+        "返回列表",
+        "返回目标",
+        "return home",
+        "return list",
+        "wrong return",
+    ),
+    "legacy_behavior_risk": (
+        "复用",
+        "沿用",
+        "残留",
+        "旧按钮",
+        "旧文案",
+        "旧跳转",
+        "legacy behavior",
+        "legacy button",
+        "obsolete behavior",
+    ),
+    "shared_page_residual_risk": (
+        "共享页面",
+        "共用页面",
+        "原页面",
+        "已有页面",
+        "既有页面",
+        "shared page",
+        "existing page",
+    ),
+    "shared_flow_residual_risk": (
+        "串课文",
+        "串单元",
+        "串逻辑",
+        "串流程",
+        "上下文污染",
+        "原模块",
+        "已有模块",
+        "既有模块",
+        "shared flow",
+        "wrong progression",
+        "context leak",
+    ),
+}
+_REUSE_RISK_DESCRIPTIONS = {
+    "wrong_return_target_risk": "wrong_return_target_risk: verify reused flow returns to the current module target instead of a legacy page.",
+    "legacy_behavior_risk": "legacy_behavior_risk: verify reused module does not retain legacy buttons, copy, or obsolete behaviors.",
+    "shared_page_residual_risk": "shared_page_residual_risk: verify shared page shells do not leak legacy entry or exit behavior into the new module.",
+    "shared_flow_residual_risk": "shared_flow_residual_risk: verify reused flow does not串原模块逻辑、串课文/单元或污染当前上下文。",
+}
+
+
+def _is_ui_low_value_pattern(*parts: Any) -> bool:
+    merged = " ".join(str(part or "") for part in parts).strip().lower()
+    if not merged:
+        return False
+    return any(token in merged for token in _UI_LOW_VALUE_PATTERN_TOKENS)
+
+
+def _extract_reuse_risks(*parts: Any) -> list[str]:
+    merged = " ".join(str(part or "") for part in parts).strip().lower()
+    if not merged:
+        return []
+    output: list[str] = []
+    for risk_key, markers in _REUSE_RISK_PATTERNS.items():
+        if any(marker.lower() in merged for marker in markers):
+            output.append(_REUSE_RISK_DESCRIPTIONS[risk_key])
+    return output
+
+
+def _build_negative_forbidden_patterns(
+    *,
+    sample: dict[str, Any],
+    title: str,
+    comment: str,
+    reason: str,
+) -> tuple[list[str], bool]:
+    base_pattern = str(
+        _sample_value(sample, "pattern_summary", "patternSummary")
+        or _sample_value(sample, "pattern_canonical", "patternCanonical")
+        or comment
+    ).strip() or _extract_forbidden_pattern_from_sample(title=title, comment=comment)
+    patterns: list[str] = [base_pattern[:120]] if base_pattern else []
+    is_ui_low_value = _is_ui_low_value_pattern(
+        reason,
+        _sample_value(sample, "pattern_category", "patternCategory"),
+        _sample_value(sample, "pattern_summary", "patternSummary"),
+        _sample_value(sample, "pattern_canonical", "patternCanonical"),
+        title,
+        comment,
+    )
+    if is_ui_low_value:
+        patterns.extend(_UI_FORBIDDEN_GUARDRAILS)
+    return patterns, bool(is_ui_low_value)
+
+
 def _is_manual_verified_sample(
     *,
     reason: str,
@@ -178,12 +317,169 @@ def _is_manual_verified_sample(
     return len(str(comment or "").strip()) >= 6
 
 
+_NEGATIVE_SIGNAL_KEYS = (
+    "signal_type",
+    "signalType",
+    "pattern_signal_type",
+    "patternSignalType",
+    "feedback_direction",
+    "feedbackDirection",
+    "sample_type",
+    "sampleType",
+    "sample_kind",
+    "sampleKind",
+)
+_NEGATIVE_SIGNAL_MARKERS = {
+    "negative",
+    "neg",
+    "bad",
+    "error",
+    "anomaly",
+    "anti_pattern",
+    "antipattern",
+    "forbidden",
+    "avoid",
+    "problem",
+    "异常",
+    "负向",
+    "反例",
+}
+
+
+def _has_explicit_negative_signal(sample_like: dict[str, Any]) -> bool:
+    for key in _NEGATIVE_SIGNAL_KEYS:
+        raw = str(_sample_value(sample_like, key) or "").strip().lower()
+        if not raw:
+            continue
+        compact = re.sub(r"[\s\-_]+", "", raw)
+        if raw in _NEGATIVE_SIGNAL_MARKERS or compact in _NEGATIVE_SIGNAL_MARKERS:
+            return True
+        if ("negative" in raw) or ("异常" in raw) or ("负向" in raw):
+            return True
+    return False
+
+
+def _is_manual_verified_negative_sample(
+    *,
+    sample: dict[str, Any],
+    reason: str,
+    expected_priority: str,
+    comment: str,
+) -> bool:
+    if reason:
+        return True
+    if str(comment or "").strip():
+        return True
+    if expected_priority in {"P0", "P1", "P2", "P3"}:
+        return True
+    return _has_explicit_negative_signal(sample)
+
+
 def _is_pattern_active(sample_like: dict[str, Any]) -> bool:
     status = str(
         _sample_value(sample_like, "governance_status", "pattern_status", "patternStatus")
         or ""
     ).strip().lower()
     return status != "disabled"
+
+
+def _is_preferred_signal_sample(sample_like: dict[str, Any]) -> bool:
+    signal_type = _normalize_signal_type(
+        _sample_value(
+            sample_like,
+            "signal_type",
+            "signalType",
+            "pattern_signal_type",
+            "patternSignalType",
+            "feedback_direction",
+            "feedbackDirection",
+            "sample_type",
+            "sampleType",
+            "sample_kind",
+            "sampleKind",
+        )
+    )
+    pattern_usage = _normalize_pattern_usage(
+        _sample_value(sample_like, "pattern_usage", "patternUsage"),
+        signal_type=signal_type,
+    )
+    return bool(signal_type == "positive" or pattern_usage == "prefer")
+
+
+def _count_signal_split(samples: list[dict[str, Any]]) -> tuple[int, int]:
+    positive = sum(1 for item in samples if _is_preferred_signal_sample(item))
+    negative = int(len(samples) - positive)
+    return int(positive), int(negative)
+
+
+def _apply_signal_quota(
+    candidates: list[dict[str, Any]],
+    *,
+    retrieval_meta: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if not candidates:
+        retrieval_meta["retrieval_signal_quota_applied"] = True
+        retrieval_meta["retrieval_selected_positive_count"] = 0
+        retrieval_meta["retrieval_selected_negative_count"] = 0
+        retrieval_meta["retrieval_after_quota_merge_positive_count"] = 0
+        retrieval_meta["retrieval_after_quota_merge_negative_count"] = 0
+        retrieval_meta["retrieval_final_selected_positive_count"] = 0
+        retrieval_meta["retrieval_final_selected_negative_count"] = 0
+        retrieval_meta["retrieval_signal_quota_relaxed"] = False
+        return []
+
+    target_total = min(int(_MAX_PRIORITY_POOL_RETRIEVAL_TOP_K), int(len(candidates)))
+    min_positive_quota = min(int(_PRIORITY_POOL_MIN_POSITIVE_TOP_K), int(target_total))
+    max_negative_quota = min(int(_PRIORITY_POOL_MAX_NEGATIVE_TOP_K), int(target_total))
+
+    positive_indices = [idx for idx, item in enumerate(candidates) if _is_preferred_signal_sample(item)]
+    effective_positive_quota = min(int(min_positive_quota), int(len(positive_indices)))
+    relaxed_negative_cap = bool(effective_positive_quota < min_positive_quota)
+    effective_negative_cap = int(target_total) if relaxed_negative_cap else int(max_negative_quota)
+
+    selected_indices: list[int] = list(positive_indices[:effective_positive_quota])
+    selected_index_set: set[int] = set(selected_indices)
+    negative_selected_count = 0
+    for idx in selected_indices:
+        if not _is_preferred_signal_sample(candidates[idx]):
+            negative_selected_count += 1
+
+    for idx, item in enumerate(candidates):
+        if len(selected_indices) >= target_total:
+            break
+        if idx in selected_index_set:
+            continue
+        is_positive = _is_preferred_signal_sample(item)
+        if (not is_positive) and negative_selected_count >= effective_negative_cap:
+            continue
+        selected_indices.append(idx)
+        selected_index_set.add(idx)
+        if not is_positive:
+            negative_selected_count += 1
+
+    if len(selected_indices) < target_total:
+        for idx, _ in enumerate(candidates):
+            if len(selected_indices) >= target_total:
+                break
+            if idx in selected_index_set:
+                continue
+            selected_indices.append(idx)
+            selected_index_set.add(idx)
+
+    selected = [candidates[idx] for idx in selected_indices]
+    selected_positive_count = sum(1 for item in selected if _is_preferred_signal_sample(item))
+    selected_negative_count = int(len(selected) - selected_positive_count)
+    retrieval_meta["retrieval_signal_quota_applied"] = True
+    retrieval_meta["retrieval_selected_positive_count"] = int(selected_positive_count)
+    retrieval_meta["retrieval_selected_negative_count"] = int(selected_negative_count)
+    retrieval_meta["retrieval_after_quota_merge_positive_count"] = int(selected_positive_count)
+    retrieval_meta["retrieval_after_quota_merge_negative_count"] = int(selected_negative_count)
+    retrieval_meta["retrieval_final_selected_positive_count"] = int(selected_positive_count)
+    retrieval_meta["retrieval_final_selected_negative_count"] = int(selected_negative_count)
+    retrieval_meta["retrieval_signal_quota_relaxed"] = bool(relaxed_negative_cap)
+    retrieval_meta["retrieval_positive_min_quota"] = int(min_positive_quota)
+    retrieval_meta["retrieval_negative_max_quota"] = int(max_negative_quota)
+    return selected
 
 
 def _select_priority_pool_samples_by_requirement(
@@ -208,12 +504,31 @@ def _select_priority_pool_samples_by_requirement(
         "retrieval_lexical_fallback_used": False,
         "retrieval_active_sample_count": 0,
         "retrieval_disabled_sample_count": 0,
+        "retrieval_signal_quota_applied": False,
+        "retrieval_signal_quota_relaxed": False,
+        "retrieval_positive_min_quota": int(_PRIORITY_POOL_MIN_POSITIVE_TOP_K),
+        "retrieval_negative_max_quota": int(_PRIORITY_POOL_MAX_NEGATIVE_TOP_K),
+        "retrieval_selected_positive_count": 0,
+        "retrieval_selected_negative_count": 0,
+        "retrieval_pool_positive_count": 0,
+        "retrieval_pool_negative_count": 0,
+        "retrieval_raw_positive_count": 0,
+        "retrieval_raw_negative_count": 0,
+        "retrieval_after_diversity_positive_count": 0,
+        "retrieval_after_diversity_negative_count": 0,
+        "retrieval_after_quota_merge_positive_count": 0,
+        "retrieval_after_quota_merge_negative_count": 0,
+        "retrieval_final_selected_positive_count": 0,
+        "retrieval_final_selected_negative_count": 0,
     }
     if not samples:
         return [], retrieval_meta
     active_samples = [item for item in samples if _is_pattern_active(item)]
     retrieval_meta["retrieval_active_sample_count"] = int(len(active_samples))
     retrieval_meta["retrieval_disabled_sample_count"] = int(len(samples) - len(active_samples))
+    pool_positive, pool_negative = _count_signal_split(active_samples)
+    retrieval_meta["retrieval_pool_positive_count"] = int(pool_positive)
+    retrieval_meta["retrieval_pool_negative_count"] = int(pool_negative)
     if not active_samples:
         retrieval_meta["retrieval_fallback"] = "no_active_patterns"
         return [], retrieval_meta
@@ -289,7 +604,14 @@ def _select_priority_pool_samples_by_requirement(
             ),
             reverse=True,
         )
-        selected = _apply_diversity_cap(candidates)
+        raw_positive, raw_negative = _count_signal_split(candidates)
+        retrieval_meta["retrieval_raw_positive_count"] = int(raw_positive)
+        retrieval_meta["retrieval_raw_negative_count"] = int(raw_negative)
+        selected_diversity = _apply_diversity_cap(candidates)
+        diversity_positive, diversity_negative = _count_signal_split(selected_diversity)
+        retrieval_meta["retrieval_after_diversity_positive_count"] = int(diversity_positive)
+        retrieval_meta["retrieval_after_diversity_negative_count"] = int(diversity_negative)
+        selected = _apply_signal_quota(selected_diversity, retrieval_meta=retrieval_meta)
         retrieval_meta["retrieval_selected_count"] = int(len(selected))
         retrieval_meta["retrieval_fallback"] = "top_weight_no_query"
         if selected:
@@ -346,7 +668,14 @@ def _select_priority_pool_samples_by_requirement(
         selected_raw.append(picked)
         if len(selected_raw) >= (_MAX_PRIORITY_POOL_RETRIEVAL_TOP_K * 3):
             break
-    selected = _apply_diversity_cap(selected_raw)
+    raw_positive, raw_negative = _count_signal_split(selected_raw)
+    retrieval_meta["retrieval_raw_positive_count"] = int(raw_positive)
+    retrieval_meta["retrieval_raw_negative_count"] = int(raw_negative)
+    selected_diversity = _apply_diversity_cap(selected_raw)
+    diversity_positive, diversity_negative = _count_signal_split(selected_diversity)
+    retrieval_meta["retrieval_after_diversity_positive_count"] = int(diversity_positive)
+    retrieval_meta["retrieval_after_diversity_negative_count"] = int(diversity_negative)
+    selected = _apply_signal_quota(selected_diversity, retrieval_meta=retrieval_meta)
 
     if selected:
         retrieval_meta["retrieval_selected_count"] = int(len(selected))
@@ -369,7 +698,14 @@ def _select_priority_pool_samples_by_requirement(
         ),
         reverse=True,
     )
-    lexical_selected = _apply_diversity_cap(lexical_sorted)
+    raw_positive, raw_negative = _count_signal_split(lexical_sorted)
+    retrieval_meta["retrieval_raw_positive_count"] = int(raw_positive)
+    retrieval_meta["retrieval_raw_negative_count"] = int(raw_negative)
+    lexical_selected_diversity = _apply_diversity_cap(lexical_sorted)
+    diversity_positive, diversity_negative = _count_signal_split(lexical_selected_diversity)
+    retrieval_meta["retrieval_after_diversity_positive_count"] = int(diversity_positive)
+    retrieval_meta["retrieval_after_diversity_negative_count"] = int(diversity_negative)
+    lexical_selected = _apply_signal_quota(lexical_selected_diversity, retrieval_meta=retrieval_meta)
     if lexical_selected:
         retrieval_meta["retrieval_fallback"] = "lexical_fallback"
         retrieval_meta["retrieval_lexical_fallback_used"] = True
@@ -393,7 +729,14 @@ def _select_priority_pool_samples_by_requirement(
         ),
         reverse=True,
     )
-    fallback = _apply_diversity_cap(fallback)
+    raw_positive, raw_negative = _count_signal_split(fallback)
+    retrieval_meta["retrieval_raw_positive_count"] = int(raw_positive)
+    retrieval_meta["retrieval_raw_negative_count"] = int(raw_negative)
+    fallback_diversity = _apply_diversity_cap(fallback)
+    diversity_positive, diversity_negative = _count_signal_split(fallback_diversity)
+    retrieval_meta["retrieval_after_diversity_positive_count"] = int(diversity_positive)
+    retrieval_meta["retrieval_after_diversity_negative_count"] = int(diversity_negative)
+    fallback = _apply_signal_quota(fallback_diversity, retrieval_meta=retrieval_meta)
     retrieval_meta["retrieval_selected_count"] = int(len(fallback))
     if fallback:
         retrieval_meta["retrieval_selected_weight_avg"] = round(
@@ -435,6 +778,7 @@ def _build_from_priority_sample_pool(
             samples.append(item)
     if not samples:
         return FeedbackControlState.empty()
+    pool_total_positive_count, pool_total_negative_count = _count_signal_split(samples)
     if _SYNC_PRIORITY_INDEX_ON_READ:
         try:
             ensure_priority_pool_pattern_index(
@@ -454,6 +798,42 @@ def _build_from_priority_sample_pool(
         pattern_index_token=str(payload.get("pattern_index_token") or "").strip(),
         requirement_text=str(requirement_text or ""),
     )
+    retrieval_meta["retrieval_index_resync_attempted"] = False
+    retrieval_meta["retrieval_index_resync_success"] = False
+    retrieval_meta["retrieval_index_resync_error"] = ""
+    # 中文注释：当向量检索命中为 0 且落到 lexical fallback 时，说明样本池索引可能缺失/失效；
+    # 这里按需重建一次 pattern index 并重试，避免长期停留在词法回退通道。
+    if (
+        int(retrieval_meta.get("retrieval_hit_count") or 0) <= 0
+        and str(retrieval_meta.get("retrieval_fallback") or "") == "lexical_fallback"
+    ):
+        retrieval_meta["retrieval_index_resync_attempted"] = True
+        try:
+            ensure_priority_pool_pattern_index(
+                project_id=int(project_id),
+                user_id=int(user_id),
+                generation_id=_safe_int(payload.get("generation_id"), default=0) or None,
+                pattern_index_token=str(payload.get("pattern_index_token") or "").strip(),
+                samples=samples,
+            )
+            retry_selected, retry_meta = _select_priority_pool_samples_by_requirement(
+                samples=samples,
+                project_id=int(project_id),
+                user_id=int(user_id),
+                generation_id=_safe_int(payload.get("generation_id"), default=0) or None,
+                pattern_index_token=str(payload.get("pattern_index_token") or "").strip(),
+                requirement_text=str(requirement_text or ""),
+            )
+            selected_samples = retry_selected
+            retrieval_meta = retry_meta
+            retrieval_meta["retrieval_index_resync_attempted"] = True
+            retrieval_meta["retrieval_index_resync_success"] = (
+                int(retrieval_meta.get("retrieval_hit_count") or 0) > 0
+            )
+            retrieval_meta["retrieval_index_resync_error"] = ""
+        except Exception as _resync_err:
+            retrieval_meta["retrieval_index_resync_success"] = False
+            retrieval_meta["retrieval_index_resync_error"] = str(_resync_err)[:240]
     if not selected_samples:
         return FeedbackControlState.empty()
 
@@ -465,13 +845,17 @@ def _build_from_priority_sample_pool(
     scenario_counter: Counter[str] = Counter()
     pattern_counter: Counter[str] = Counter()
     forbidden_patterns: list[str] = []
+    forbidden_pattern_seen: set[str] = set()
     preferred_patterns: list[str] = []
+    reuse_risks: list[str] = []
+    reuse_risk_seen: set[str] = set()
     soft_constraints: list[str] = []
     quality_hints: list[str] = []
     verified_count = 0
     manual_comment_count = 0
     positive_selected_count = 0
     negative_selected_count = 0
+    ui_low_value_negative_count = 0
 
     for sample in selected_samples:
         reason = _normalize_reason_category(
@@ -505,13 +889,24 @@ def _build_from_priority_sample_pool(
             _sample_value(sample, "pattern_usage", "patternUsage"),
             signal_type=signal_type,
         )
+        is_positive_signal = bool(signal_type == "positive" or pattern_usage == "prefer")
 
-        if not _is_manual_verified_sample(
-            reason=reason,
-            pattern_category=pattern_category,
-            expected_priority=expected_priority,
-            comment=comment,
-        ):
+        if is_positive_signal:
+            is_verified = _is_manual_verified_sample(
+                reason=reason,
+                pattern_category=pattern_category,
+                expected_priority=expected_priority,
+                comment=comment,
+            )
+        else:
+            is_verified = _is_manual_verified_negative_sample(
+                sample=sample,
+                reason=reason,
+                expected_priority=expected_priority,
+                comment=comment,
+            )
+
+        if not is_verified:
             continue
 
         verified_count += 1
@@ -540,7 +935,7 @@ def _build_from_priority_sample_pool(
         ).strip()
         if pattern_key:
             pattern_counter[pattern_key[:120]] += 1
-        if signal_type == "positive" or pattern_usage == "prefer":
+        if is_positive_signal:
             positive_selected_count += 1
             preferred_pattern = str(
                 _sample_value(sample, "pattern_summary", "patternSummary")
@@ -552,6 +947,24 @@ def _build_from_priority_sample_pool(
                 quality_hints.append(f"Prefer reusable pattern: {preferred_pattern[:120]}")
         else:
             negative_selected_count += 1
+            if reason != "redundant_case":
+                forbidden_candidates, ui_low_value = _build_negative_forbidden_patterns(
+                    sample=sample,
+                    title=title,
+                    comment=comment,
+                    reason=reason,
+                )
+                if ui_low_value:
+                    ui_low_value_negative_count += 1
+                for forbidden_pattern in forbidden_candidates:
+                    candidate = str(forbidden_pattern or "").strip()
+                    if not candidate:
+                        continue
+                    normalized = candidate.lower()
+                    if normalized in forbidden_pattern_seen:
+                        continue
+                    forbidden_pattern_seen.add(normalized)
+                    forbidden_patterns.append(candidate[:120])
         priority_debug = _sample_value(sample, "priority_debug", "priorityDebug")
         sample_text = " ".join(
             [
@@ -561,6 +974,17 @@ def _build_from_priority_sample_pool(
                 str(priority_debug or ""),
             ]
         )
+        for reuse_risk in _extract_reuse_risks(
+            title,
+            comment,
+            _sample_value(sample, "pattern_summary", "patternSummary"),
+            _sample_value(sample, "pattern_canonical", "patternCanonical"),
+        ):
+            normalized_risk = str(reuse_risk or "").strip().lower()
+            if not normalized_risk or normalized_risk in reuse_risk_seen:
+                continue
+            reuse_risk_seen.add(normalized_risk)
+            reuse_risks.append(reuse_risk)
         sample_rules = _extract_rule_ids(sample_text)
         for rule_id in sample_rules:
             rule_counter[rule_id] += 1
@@ -603,18 +1027,23 @@ def _build_from_priority_sample_pool(
         must_have_scenarios=must_have_scenarios,
         forbidden_patterns=forbidden_patterns[:_MAX_PRIORITY_POOL_FORBIDDEN_PATTERNS],
         preferred_patterns=preferred_patterns[:_MAX_PREFERRED_PATTERNS],
+        reuse_risks=reuse_risks[:_MAX_PREFERRED_PATTERNS],
         soft_constraints=soft_constraints[:_MAX_PRIORITY_POOL_SOFT_CONSTRAINTS],
         rule_quota=rule_quota,
         quality_fix_hints=quality_hints[:_MAX_PRIORITY_POOL_HINTS],
         source_meta={
             "sources": ["priority_sample_pool_manual_verified"],
             "priority_pool_sample_count": int(len(samples)),
+            "priority_pool_total_positive_count": int(pool_total_positive_count),
+            "priority_pool_total_negative_count": int(pool_total_negative_count),
             "priority_pool_selected_sample_count": int(len(selected_samples)),
             "verified_sample_count": int(verified_count),
             "manual_comment_count": int(manual_comment_count),
             "preferred_pattern_count": int(len(preferred_patterns)),
+            "reuse_risk_count": int(len(reuse_risks)),
             "positive_selected_count": int(positive_selected_count),
             "negative_selected_count": int(negative_selected_count),
+            "ui_low_value_negative_count": int(ui_low_value_negative_count),
             "reason_category_distribution": dict(reason_counter),
             "pattern_category_distribution": dict(pattern_category_counter),
             "expected_priority_distribution": dict(expected_counter),
@@ -886,6 +1315,8 @@ def _build_from_reports(
 
     rule_counter: Counter[str] = Counter()
     forbidden_patterns: list[str] = []
+    reuse_risks: list[str] = []
+    reuse_risk_seen: set[str] = set()
     quality_hints: list[str] = []
     must_have_scenarios: list[str] = []
     doc_types: Counter[str] = Counter()
@@ -898,6 +1329,12 @@ def _build_from_reports(
         forbidden_patterns.extend(_extract_forbidden_patterns(text))
         quality_hints.extend(_extract_quality_hints(text))
         must_have_scenarios.extend(_extract_scenarios_from_text(text))
+        for reuse_risk in _extract_reuse_risks(text):
+            normalized_risk = str(reuse_risk or "").strip().lower()
+            if not normalized_risk or normalized_risk in reuse_risk_seen:
+                continue
+            reuse_risk_seen.add(normalized_risk)
+            reuse_risks.append(reuse_risk)
 
     must_cover = [rule for rule, _ in rule_counter.most_common(_MAX_MUST_COVER_RULES)]
     scenario_counter = Counter(must_have_scenarios)
@@ -906,6 +1343,7 @@ def _build_from_reports(
         must_cover_rules=must_cover,
         must_have_scenarios=[name for name, _ in scenario_counter.most_common(_MAX_SCENARIOS)],
         forbidden_patterns=forbidden_patterns[:_MAX_FORBIDDEN_PATTERNS],
+        reuse_risks=reuse_risks[:_MAX_PREFERRED_PATTERNS],
         soft_constraints=[],
         rule_quota={rule: 1 for rule in must_cover},
         quality_fix_hints=quality_hints[:_MAX_QUALITY_HINTS],
@@ -923,6 +1361,7 @@ def _compact_state(state: FeedbackControlState) -> FeedbackControlState:
     normalized.must_have_scenarios = normalized.must_have_scenarios[:_MAX_SCENARIOS]
     normalized.forbidden_patterns = normalized.forbidden_patterns[:_MAX_FORBIDDEN_PATTERNS]
     normalized.preferred_patterns = normalized.preferred_patterns[:_MAX_PREFERRED_PATTERNS]
+    normalized.reuse_risks = normalized.reuse_risks[:_MAX_PREFERRED_PATTERNS]
     normalized.soft_constraints = normalized.soft_constraints[:_MAX_SOFT_CONSTRAINTS]
     normalized.quality_fix_hints = normalized.quality_fix_hints[:_MAX_QUALITY_HINTS]
     normalized.rule_quota = {

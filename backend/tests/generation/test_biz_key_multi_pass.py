@@ -65,7 +65,9 @@ def test_biz_key_multi_pass_runs_per_biz_stage() -> None:
         multi_pass=True,
         generation_mode="biz_key_multi_pass",
         prompt_context=prompt_context,
-        build_base_prompt_fn=lambda req_ctx, tc_ctx, sup_ctx, biz_key: f"BIZ={biz_key}\nREQ={req_ctx}\nTC={tc_ctx}\nSUP={sup_ctx}",
+        build_base_prompt_fn=lambda req_ctx, req_sem_ctx, tc_ctx, sup_ctx, ctl_ctx, biz_key: (
+            f"BIZ={biz_key}\nREQ={req_ctx}\nREQ_SEM={req_sem_ctx}\nTC={tc_ctx}\nSUP={sup_ctx}\nCTL={ctl_ctx}"
+        ),
     )
 
     assert len(result["final_cases"]) == 2

@@ -165,6 +165,90 @@ def test_sample_kind_positive_maps_to_preferred_patterns(monkeypatch) -> None:
     assert state.source_meta.get("negative_selected_count") == 0
 
 
+def test_explicit_negative_signal_enters_forbidden_patterns(monkeypatch) -> None:
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 45,
+            "samples": [
+                {
+                    "case_id": "TC-N1",
+                    "title": "avoid duplicate submit ui-only check",
+                    "pattern_summary": "avoid duplicate submit ui-only validation",
+                    "signal_type": "negative",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+    )
+
+    assert "avoid duplicate submit ui-only validation" in state.forbidden_patterns
+    assert state.source_meta.get("positive_selected_count") == 0
+    assert state.source_meta.get("negative_selected_count") == 1
+
+
+def test_ui_low_value_negative_adds_stronger_forbidden_guardrails(monkeypatch) -> None:
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 46,
+            "samples": [
+                {
+                    "case_id": "TC-N2",
+                    "title": "ui copy and layout only check",
+                    "reason_category": "display_issue",
+                    "pattern_summary": "ui copy and layout only check",
+                    "signal_type": "negative",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+    )
+
+    assert "ui copy and layout only check" in state.forbidden_patterns
+    assert "avoid static ui-only checks without workflow/state transition assertions" in state.forbidden_patterns
+    assert state.source_meta.get("ui_low_value_negative_count") == 1
+
+
+def test_priority_pool_extracts_reuse_risks(monkeypatch) -> None:
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 47,
+            "samples": [
+                {
+                    "case_id": "TC-R1",
+                    "title": "复用页面完成后回首页而不是回原列表",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P1",
+                    "user_comment": "检查旧跳转是否残留",
+                    "signal_type": "positive",
+                    "pattern_summary": "reused flow should return home without legacy redirect",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+    )
+
+    assert any("wrong_return_target_risk" in item for item in state.reuse_risks)
+    assert any("legacy_behavior_risk" in item for item in state.reuse_risks)
+
+
 def test_priority_pool_requirement_retrieval_selects_topk(monkeypatch) -> None:
     def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
         return {
@@ -368,6 +452,28 @@ def test_normalize_priority_sample_respects_weight_adjustment() -> None:
     assert adjusted.get("pattern_weight_adjustment") == 0.5
 
 
+def test_normalize_priority_sample_biases_ui_weight_by_signal() -> None:
+    negative = normalize_priority_sample(
+        {
+            "case_id": "TC-20",
+            "title": "UI copy layout verification",
+            "reason_category": "display_issue",
+            "pattern_summary": "ui copy layout check only",
+            "signal_type": "negative",
+        }
+    )
+    positive = normalize_priority_sample(
+        {
+            "case_id": "TC-21",
+            "title": "UI copy layout verification",
+            "reason_category": "display_issue",
+            "pattern_summary": "ui copy layout check only",
+            "signal_type": "positive",
+        }
+    )
+    assert float(negative.get("pattern_weight") or 0.0) > float(positive.get("pattern_weight") or 0.0)
+
+
 def test_priority_pool_selection_skips_disabled_patterns(monkeypatch) -> None:
     def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
         return {
@@ -406,3 +512,179 @@ def test_priority_pool_selection_skips_disabled_patterns(monkeypatch) -> None:
     assert state.source_meta.get("retrieval_disabled_sample_count") == 1
     assert "RULE-2" in state.must_cover_rules
     assert "RULE-1" not in state.must_cover_rules
+
+
+def test_priority_pool_selection_enforces_positive_min_quota_when_available(monkeypatch) -> None:
+    monkeypatch.setattr(control_builder, "_MAX_PRIORITY_POOL_RETRIEVAL_TOP_K", 5)
+    monkeypatch.setattr(control_builder, "_PRIORITY_POOL_MIN_POSITIVE_TOP_K", 2)
+    monkeypatch.setattr(control_builder, "_PRIORITY_POOL_MAX_NEGATIVE_TOP_K", 3)
+
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 120,
+            "samples": [
+                {
+                    "case_id": "TC-1",
+                    "title": "RULE-201 ui copy check",
+                    "reason_category": "display_issue",
+                    "expected_priority": "P2",
+                    "user_comment": "negative sample 1",
+                    "signal_type": "negative",
+                    "pattern_summary": "display copy validation",
+                    "pattern_cluster_key": "n1",
+                },
+                {
+                    "case_id": "TC-2",
+                    "title": "RULE-202 ui color check",
+                    "reason_category": "display_issue",
+                    "expected_priority": "P2",
+                    "user_comment": "negative sample 2",
+                    "signal_type": "negative",
+                    "pattern_summary": "display color validation",
+                    "pattern_cluster_key": "n2",
+                },
+                {
+                    "case_id": "TC-3",
+                    "title": "RULE-203 non-critical ui",
+                    "reason_category": "display_issue",
+                    "expected_priority": "P2",
+                    "user_comment": "negative sample 3",
+                    "signal_type": "negative",
+                    "pattern_summary": "placeholder validation",
+                    "pattern_cluster_key": "n3",
+                },
+                {
+                    "case_id": "TC-4",
+                    "title": "RULE-204 core flow closure",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P1",
+                    "user_comment": "positive sample 1",
+                    "signal_type": "positive",
+                    "pattern_summary": "core flow closure assertions",
+                    "pattern_cluster_key": "p1",
+                },
+                {
+                    "case_id": "TC-5",
+                    "title": "RULE-205 state transition flow",
+                    "reason_category": "state_transition",
+                    "expected_priority": "P1",
+                    "user_comment": "positive sample 2",
+                    "signal_type": "positive",
+                    "pattern_summary": "state transition assertions",
+                    "pattern_cluster_key": "p2",
+                },
+            ],
+        }
+
+    def fake_retrieve_priority_sample_patterns(**_: object) -> list[dict[str, object]]:
+        return [
+            {"sample_index": 0},
+            {"sample_index": 1},
+            {"sample_index": 2},
+            {"sample_index": 3},
+            {"sample_index": 4},
+        ]
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+    monkeypatch.setattr(control_builder, "retrieve_priority_sample_patterns", fake_retrieve_priority_sample_patterns)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+        requirement_text="core flow and state transition",
+    )
+
+    assert state.source_meta.get("priority_pool_selected_sample_count") == 5
+    assert state.source_meta.get("positive_selected_count") == 2
+    assert state.source_meta.get("negative_selected_count") == 3
+    assert state.source_meta.get("retrieval_signal_quota_applied") is True
+    assert state.source_meta.get("retrieval_signal_quota_relaxed") is False
+
+
+def test_priority_pool_selection_relaxes_negative_cap_when_positive_not_enough(monkeypatch) -> None:
+    monkeypatch.setattr(control_builder, "_MAX_PRIORITY_POOL_RETRIEVAL_TOP_K", 5)
+    monkeypatch.setattr(control_builder, "_PRIORITY_POOL_MIN_POSITIVE_TOP_K", 2)
+    monkeypatch.setattr(control_builder, "_PRIORITY_POOL_MAX_NEGATIVE_TOP_K", 3)
+
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 121,
+            "samples": [
+                {
+                    "case_id": "TC-1",
+                    "title": "RULE-211 ui copy check",
+                    "reason_category": "display_issue",
+                    "expected_priority": "P2",
+                    "user_comment": "negative sample 1",
+                    "signal_type": "negative",
+                    "pattern_summary": "display copy validation",
+                    "pattern_cluster_key": "n1",
+                },
+                {
+                    "case_id": "TC-2",
+                    "title": "RULE-212 ui color check",
+                    "reason_category": "display_issue",
+                    "expected_priority": "P2",
+                    "user_comment": "negative sample 2",
+                    "signal_type": "negative",
+                    "pattern_summary": "display color validation",
+                    "pattern_cluster_key": "n2",
+                },
+                {
+                    "case_id": "TC-3",
+                    "title": "RULE-213 non-critical ui",
+                    "reason_category": "display_issue",
+                    "expected_priority": "P2",
+                    "user_comment": "negative sample 3",
+                    "signal_type": "negative",
+                    "pattern_summary": "placeholder validation",
+                    "pattern_cluster_key": "n3",
+                },
+                {
+                    "case_id": "TC-4",
+                    "title": "RULE-214 fallback ui",
+                    "reason_category": "display_issue",
+                    "expected_priority": "P2",
+                    "user_comment": "negative sample 4",
+                    "signal_type": "negative",
+                    "pattern_summary": "fallback rendering",
+                    "pattern_cluster_key": "n4",
+                },
+                {
+                    "case_id": "TC-5",
+                    "title": "RULE-215 core flow closure",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P1",
+                    "user_comment": "positive sample 1",
+                    "signal_type": "positive",
+                    "pattern_summary": "core flow closure assertions",
+                    "pattern_cluster_key": "p1",
+                },
+            ],
+        }
+
+    def fake_retrieve_priority_sample_patterns(**_: object) -> list[dict[str, object]]:
+        return [
+            {"sample_index": 0},
+            {"sample_index": 1},
+            {"sample_index": 2},
+            {"sample_index": 3},
+            {"sample_index": 4},
+        ]
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+    monkeypatch.setattr(control_builder, "retrieve_priority_sample_patterns", fake_retrieve_priority_sample_patterns)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+        requirement_text="core flow",
+    )
+
+    assert state.source_meta.get("priority_pool_selected_sample_count") == 5
+    assert state.source_meta.get("positive_selected_count") == 1
+    assert state.source_meta.get("negative_selected_count") == 4
+    assert state.source_meta.get("retrieval_signal_quota_applied") is True
+    assert state.source_meta.get("retrieval_signal_quota_relaxed") is True

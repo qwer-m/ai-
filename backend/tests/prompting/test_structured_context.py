@@ -170,3 +170,42 @@ def test_control_context_can_disable_preferred_quota_variant_by_env(monkeypatch)
     assert "### PREFERRED PATTERN QUOTA (AB)" not in output["control_context"]
     assert output["control_summary"].get("preferred_quota_variant") == "A"
     assert int(output["control_summary"].get("preferred_flow_case_quota") or 0) == 0
+
+
+def test_structured_context_extracts_requirement_semantics_and_reuse_risks() -> None:
+    requirement = """
+    已确认：先选版本，再选年级。
+    复用单词消消乐页面，完成后回首页，不是回原列表页。
+    学课文 -> 词组消消乐 -> 选词填空。
+    待确认：按钮是否仅在全部完成后才展示。
+    """
+    output = build_structured_prompt_context(
+        requirement=requirement,
+        rag_result={
+            "debug": {
+                "final_chunks": [
+                    {
+                        "filename": "lesson_req.md",
+                        "doc_type": "requirement",
+                        "biz_key": "lesson_flow",
+                        "module": "学习流程",
+                        "chunk_text": "复用选词填空页面，返回目标必须是首页。",
+                    }
+                ]
+            }
+        },
+        current_biz_key="lesson_flow",
+        only_current_biz=True,
+    )
+
+    assert "先选版本，再选年级" in output["requirement_semantics_context"]
+    assert "待确认" in output["requirement_semantics_context"]
+    assert "复用单词消消乐页面" in output["requirement_semantics_context"]
+    assert "词组消消乐" in output["requirement_semantics_context"]
+    assert output["confirmed_facts"]
+    assert output["pending_items"]
+    assert output["reuse_declarations"]
+    assert output["hard_flow_constraints"]
+    assert any("wrong_return_target_risk" in item for item in output["reuse_risks"])
+    assert "### REUSE RISKS" in output["control_context"]
+    assert int(output["control_summary"].get("reuse_risks_count") or 0) >= 1

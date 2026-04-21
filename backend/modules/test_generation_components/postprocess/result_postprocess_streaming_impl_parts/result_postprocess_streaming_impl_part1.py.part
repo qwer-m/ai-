@@ -45,6 +45,7 @@ def stream_postprocess_cases(
     control_state = FeedbackControlState.from_any(feedback_control_state)
     must_cover_rule_set = {str(rule).strip().upper() for rule in (control_state.must_cover_rules or []) if str(rule).strip()}
     forbidden_patterns = [str(item).strip() for item in (control_state.forbidden_patterns or []) if str(item).strip()]
+    reuse_risks = [str(item).strip() for item in (control_state.reuse_risks or []) if str(item).strip()]
     soft_constraints = [str(item).strip() for item in (control_state.soft_constraints or []) if str(item).strip()]
     quality_fix_hints = [str(item).strip() for item in (control_state.quality_fix_hints or []) if str(item).strip()]
 
@@ -54,6 +55,7 @@ def stream_postprocess_cases(
         return lowered
 
     normalized_forbidden_patterns = [_normalize_match_text(item) for item in forbidden_patterns if _normalize_match_text(item)]
+    normalized_reuse_risks = [_normalize_match_text(item) for item in reuse_risks if _normalize_match_text(item)]
     normalized_soft_constraints = [_normalize_match_text(item) for item in soft_constraints if _normalize_match_text(item)]
     quality_hint_keywords: list[str] = []
     for hint in quality_fix_hints:
@@ -138,7 +140,10 @@ def stream_postprocess_cases(
         has_coverage_value = bool(missing_rule_hits or core_rule_hits or unique_coverage_hits)
         has_high_risk_signal = "high" in rule_risk_reasons
         coverage_gain_score = int(profile.get("coverage_gain_score") or 0)
-        return bool(has_coverage_value or has_high_risk_signal or focus_score >= 2 or coverage_gain_score >= 8)
+        reuse_risk_hit = bool(profile.get("reuse_risk_hit"))
+        return bool(
+            has_coverage_value or has_high_risk_signal or reuse_risk_hit or focus_score >= 2 or coverage_gain_score >= 8
+        )
 
     def _extract_rule_keys(case: dict[str, Any]) -> list[str]:
         text_parts: list[str] = [
@@ -202,6 +207,24 @@ def stream_postprocess_cases(
             )
         )
         return any(pattern and pattern in text for pattern in normalized_soft_constraints)
+
+    def _hits_reuse_risk(case: dict[str, Any], score_profile: dict[str, Any] | None = None) -> bool:
+        if bool((score_profile or {}).get("reuse_risk_hit")):
+            return True
+        if not normalized_reuse_risks:
+            return False
+        text = _normalize_match_text(
+            " ".join(
+                [
+                    str(case.get("description") or ""),
+                    str(case.get("test_module") or ""),
+                    str(case.get("expected_result") or ""),
+                    str(case.get("test_input") or ""),
+                    " ".join([str(x) for x in (case.get("steps") or []) if str(x).strip()]) if isinstance(case.get("steps"), list) else "",
+                ]
+            )
+        )
+        return any(pattern and pattern in text for pattern in normalized_reuse_risks)
 
     def _satisfies_quality_hint(case: dict[str, Any]) -> bool:
         if not quality_hint_keywords:
@@ -327,12 +350,15 @@ def stream_postprocess_cases(
         return float(inter) / float(union)
 
     def _is_ui_like_case(case: dict[str, Any], score_profile: dict[str, Any]) -> bool:
+        steps = case.get("steps", [])
+        step_count = len([x for x in steps if str(x or "").strip()]) if isinstance(steps, list) else 0
+        step_text = " ".join([str(x) for x in steps if str(x or "").strip()]).lower() if isinstance(steps, list) else ""
         text = " ".join(
             [
                 str(case.get("description") or ""),
                 str(case.get("expected_result") or ""),
                 str(case.get("test_input") or ""),
-                " ".join([str(x) for x in case.get("steps", [])]) if isinstance(case.get("steps"), list) else "",
+                " ".join([str(x) for x in steps]) if isinstance(steps, list) else "",
             ]
         ).lower()
         ui_keywords = (
@@ -348,16 +374,88 @@ def stream_postprocess_cases(
             "隐藏",
             "可点击",
             "样式",
+            "列表",
+            "表格",
+            "排序",
+            "筛选",
             "icon",
             "button",
             "display",
             "layout",
             "placeholder",
             "style",
+            "list",
+            "table",
+            "column",
+            "label",
+            "sort",
+            "filter",
         )
-        if not any(keyword in text for keyword in ui_keywords):
+        ui_hit_count = sum(1 for keyword in ui_keywords if keyword in text)
+        if ui_hit_count <= 0:
             return False
-        # 中文注释：若覆盖增益明确（missing/core/unique）则不把它当“低值 UI-like”。
+        pseudo_flow_tokens = (
+            "点击",
+            "进入",
+            "返回",
+            "查看",
+            "跳转",
+            "navigate",
+            "open",
+            "view",
+            "click",
+        )
+        behavior_depth_tokens = (
+            "状态",
+            "恢复",
+            "重试",
+            "回滚",
+            "幂等",
+            "一致",
+            "不丢上下文",
+            "不串课文",
+            "不错跳",
+            "上下文保持",
+            "断言",
+            "assert",
+            "state transition",
+            "context",
+            "consistent",
+            "resume",
+            "rollback",
+            "idempotent",
+        )
+        has_pseudo_flow = any(token in text for token in pseudo_flow_tokens)
+        has_behavior_depth = any(token in text for token in behavior_depth_tokens)
+        state_guard_tokens = (
+            "\u4e0d\u4e32\u8bfe\u6587",
+            "\u4e0d\u4e32\u5355\u5143",
+            "\u4e0d\u4e22\u4e0a\u4e0b\u6587",
+            "\u4e0d\u9519\u8bef\u63a8\u8fdb",
+            "\u4e0d\u6807\u8bb0\u5b8c\u6210",
+            "\u4fdd\u6301\u5f53\u524d\u8282\u70b9",
+            "context preserved",
+            "no wrong progression",
+            "keep current node",
+            "no cross-unit leak",
+            "no cross-lesson leak",
+        )
+        has_state_guard_signal = any(token in text for token in state_guard_tokens)
+        step_guard_patterns = (
+            ("\u8fd4\u56de", "\u518d\u8fdb\u5165"),
+            ("return", "re-enter"),
+            ("return", "reenter"),
+            ("\u4e0a\u4e00\u6b65", "\u4e0b\u4e00\u6b65"),
+            ("previous step", "next step"),
+            ("\u4e2d\u65ad", "\u6062\u590d"),
+            ("interrupt", "resume"),
+        )
+        has_step_guard_sequence = any(all(token in step_text for token in pattern) for pattern in step_guard_patterns)
+        failure_guard_tokens = ("\u5931\u8d25", "\u5f02\u5e38", "failure", "failed", "error")
+        current_hold_tokens = ("\u5f53\u524d\u9875", "\u5f53\u524d\u72b6\u6001", "current page", "current state")
+        has_failure_hold_sequence = any(token in step_text for token in failure_guard_tokens) and any(
+            token in step_text for token in current_hold_tokens
+        )
         has_coverage_value = bool(
             (score_profile.get("missing_rule_hits") or [])
             or (score_profile.get("core_rule_hits") or [])
@@ -368,7 +466,26 @@ def stream_postprocess_cases(
         risk_words = ("异常", "失败", "错误", "权限", "安全", "并发", "性能", "exception", "error", "security", "permission")
         if any(word in text for word in risk_words):
             return False
-        return True
+        reasons = [str(item) for item in (score_profile.get("reasons") or []) if str(item).strip()]
+        reuse_risk_hit = bool(score_profile.get("reuse_risk_hit"))
+        if (
+            bool(score_profile.get("cross_page_flow_hit"))
+            or bool(score_profile.get("state_transition_hit"))
+            or bool(score_profile.get("preferred_pattern_hit"))
+            or reuse_risk_hit
+            or ("main_workflow_hit" in reasons)
+            or has_behavior_depth
+            or has_state_guard_signal
+            or has_step_guard_sequence
+            or has_failure_hold_sequence
+            or (step_count >= 3 and has_behavior_depth)
+        ):
+            return False
+        if ui_hit_count >= 2 and not has_behavior_depth:
+            return True
+        if has_pseudo_flow and ui_hit_count >= 1 and step_count <= 2 and not has_behavior_depth:
+            return True
+        return False
 
     def _rerank_and_cap_by_rule(
         cases: list[dict[str, Any]],
@@ -405,6 +522,7 @@ def stream_postprocess_cases(
             coverage_gain_score = int(score_profile.get("coverage_gain_score") or 0)
             high_signal_seed = _is_high_signal(item, score_profile)
             ui_like_case = _is_ui_like_case(item, score_profile)
+            reuse_risk_hit = _hits_reuse_risk(item, score_profile)
             semantic_sig = _semantic_signature(item, list(_extract_rule_keys(item)))
             semantic_tokens = _semantic_tokenize(
                 " ".join(
@@ -430,6 +548,7 @@ def stream_postprocess_cases(
                 "coverage_gain_score": int(coverage_gain_score),
                 "high_signal_seed": bool(high_signal_seed),
                 "ui_like_case": bool(ui_like_case),
+                "reuse_risk_hit": bool(reuse_risk_hit),
                 "soft_constraint_hit": bool(_hits_soft_constraint(item)),
                 "semantic_signature": semantic_sig,
                 "semantic_tokens": semantic_tokens,
@@ -445,6 +564,7 @@ def stream_postprocess_cases(
                 int(bool(entry.get("core_rule_hits") or [])),
                 int(bool(entry.get("missing_rule_hits") or [])),
                 int(bool(entry.get("unique_coverage_hits") or [])),
+                int(bool(entry.get("reuse_risk_hit"))),
                 int(entry.get("focus_score") or 0),
                 max(0, int(entry.get("coverage_gain_score") or 0)),
                 int(not bool(entry.get("ui_like_case"))),
@@ -461,6 +581,20 @@ def stream_postprocess_cases(
             ),
         )
         fallback_first_entry = seed_ordered_entries[0] if seed_ordered_entries else None
+        ui_like_candidates_total = int(
+            sum(
+                1
+                for entry in seed_ordered_entries
+                if bool(entry.get("ui_like_case")) and not bool(entry.get("has_coverage_value"))
+            )
+        )
+        expected_total = max(0, int(expected_count or 0))
+        ui_min_keep_baseline = 2 if expected_total >= 12 else 1
+        ui_min_keep_ratio_count = int(round(float(expected_total) * 0.15))
+        ui_min_keep_target = min(
+            ui_like_candidates_total,
+            max(ui_min_keep_baseline, min(4, ui_min_keep_ratio_count)),
+        )
         remaining_entries = list(seed_ordered_entries)
 
         selected: list[dict[str, Any]] = []
@@ -473,6 +607,7 @@ def stream_postprocess_cases(
         trace_decisions: dict[str, dict[str, Any]] = {}
         selected_signatures: list[str] = []
         ordered_signatures: list[str] = []
+        selected_ui_like_count = 0
 
         rank = 0
         while remaining_entries:
@@ -483,6 +618,8 @@ def stream_postprocess_cases(
                 adds_bucket = bucket not in seen_buckets
                 has_coverage_value = bool(entry.get("has_coverage_value"))
                 high_signal = _is_high_signal(entry.get("item") or {}, entry.get("score_profile") or {})
+                if bool(entry.get("reuse_risk_hit")):
+                    high_signal = True
                 dynamic_sort_key = (
                     int(adds_rule),
                     int(adds_bucket),
@@ -491,6 +628,7 @@ def stream_postprocess_cases(
                     int(bool(entry.get("core_rule_hits") or [])),
                     int(bool(entry.get("missing_rule_hits") or [])),
                     int(bool(entry.get("unique_coverage_hits") or [])),
+                    int(bool(entry.get("reuse_risk_hit"))),
                     int(entry.get("focus_score") or 0),
                     max(0, int(entry.get("coverage_gain_score") or 0)),
                     int(not bool(entry.get("ui_like_case"))),
@@ -524,6 +662,7 @@ def stream_postprocess_cases(
             core_rule_hits = [str(x) for x in (current.get("core_rule_hits") or []) if str(x).strip()]
             unique_coverage_hits = [str(x) for x in (current.get("unique_coverage_hits") or []) if str(x).strip()]
             ui_like_case = bool(current.get("ui_like_case"))
+            reuse_risk_hit = bool(current.get("reuse_risk_hit"))
             soft_constraint_hit = bool(current.get("soft_constraint_hit"))
             semantic_signature = str(current.get("semantic_signature") or "")
             semantic_tokens = set(current.get("semantic_tokens") or set())
@@ -542,8 +681,9 @@ def stream_postprocess_cases(
                 rule_cap_applied = True
                 drop_reason = "drop_rule_cap"
                 drop_reason_detail = "drop_rule_level_cap"
-            elif not adds_rule and not adds_bucket and not high_signal and not has_coverage_value:
-                drop_reason = "drop_no_new_rule_no_new_bucket_no_high_signal"
+            elif not adds_rule and not adds_bucket and not high_signal and not has_coverage_value and not reuse_risk_hit:
+                if not (ui_like_case and selected_ui_like_count < ui_min_keep_target):
+                    drop_reason = "drop_no_new_rule_no_new_bucket_no_high_signal"
 
             if not drop_reason:
                 existed_candidates = list(selected_semantic_by_group.get(semantic_group_key) or [])
@@ -562,9 +702,9 @@ def stream_postprocess_cases(
                         drop_reason_detail = "drop_semantic_duplicate"
                         break
 
-            if not drop_reason and ui_like_case and not has_coverage_value:
+            if not drop_reason and ui_like_case and not has_coverage_value and not reuse_risk_hit:
                 ui_like_count = int(ui_like_bucket_counts.get(bucket, 0))
-                if ui_like_count >= max_ui_like_cases_per_bucket:
+                if ui_like_count >= max_ui_like_cases_per_bucket and selected_ui_like_count >= ui_min_keep_target:
                     drop_reason = "drop_ui_like_redundant_case"
                     drop_reason_detail = "drop_ui_like_redundant_case"
 
@@ -575,8 +715,9 @@ def stream_postprocess_cases(
                 seen_buckets.add(bucket)
                 primary_rule_rank_counts[primary_rule_key] = int(primary_rule_rank_counts.get(primary_rule_key, 0)) + 1
                 retained_rank_within_rule = int(primary_rule_rank_counts.get(primary_rule_key, 0))
-                if ui_like_case and not has_coverage_value:
+                if ui_like_case and not has_coverage_value and not reuse_risk_hit:
                     ui_like_bucket_counts[bucket] = int(ui_like_bucket_counts.get(bucket, 0)) + 1
+                    selected_ui_like_count += 1
                 for key in rule_keys:
                     rule_counts[key] = rule_counts.get(key, 0) + 1
                     seen_rules.add(key)
@@ -621,6 +762,7 @@ def stream_postprocess_cases(
                     "duplicate_of_case_id": duplicate_of_case_id,
                     "rule_cap_applied": bool(rule_cap_applied),
                     "ui_like_case": bool(ui_like_case),
+                    "reuse_risk_hit": bool(reuse_risk_hit),
                     "soft_constraint_hit": bool(soft_constraint_hit),
                     "retained_rank_within_rule": int(retained_rank_within_rule),
                 }
@@ -628,12 +770,43 @@ def stream_postprocess_cases(
         if not selected and fallback_first_entry:
             fallback_item = dict(fallback_first_entry.get("item") or {})
             selected = [fallback_item] if fallback_item else []
+            selected_ui_like_count = 1 if bool(fallback_first_entry.get("ui_like_case")) else 0
             if include_trace:
                 signature = str(fallback_first_entry.get("signature") or "")
                 selected_signatures = [signature] if signature else []
                 if signature in trace_decisions:
                     trace_decisions[signature]["selected"] = True
                     trace_decisions[signature]["drop_reason"] = "retained_fallback_first"
+
+        if selected_ui_like_count < ui_min_keep_target:
+            selected_signature_set = set(selected_signatures)
+            for entry in seed_ordered_entries:
+                if selected_ui_like_count >= ui_min_keep_target:
+                    break
+                signature = str(entry.get("signature") or "")
+                if not signature or signature in selected_signature_set:
+                    continue
+                if (
+                    not bool(entry.get("ui_like_case"))
+                    or bool(entry.get("has_coverage_value"))
+                    or bool(entry.get("reuse_risk_hit"))
+                ):
+                    continue
+                item = dict(entry.get("item") or {})
+                if not item:
+                    continue
+                selected.append(item)
+                selected_signatures.append(signature)
+                selected_signature_set.add(signature)
+                selected_ui_like_count += 1
+                if include_trace:
+                    trace_decisions[signature] = {
+                        **dict(trace_decisions.get(signature) or {}),
+                        "signature": signature,
+                        "selected": True,
+                        "drop_reason": "retained_min_ui_keep",
+                        "drop_reason_detail": "retained_min_ui_keep",
+                    }
 
         if not include_trace:
             return selected
@@ -672,6 +845,8 @@ def stream_postprocess_cases(
                         if item.get("drop_reason") == "drop_no_new_rule_no_new_bucket_no_high_signal"
                     )
                 ),
+                "ui_min_keep_target": int(ui_min_keep_target),
+                "ui_selected_after_keep": int(selected_ui_like_count),
                 "semantic_duplicate_drop_count": int(
                     sum(1 for item in trace_decisions.values() if item.get("drop_reason") == "drop_semantic_duplicate")
                 ),

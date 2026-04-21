@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import time
+from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -25,6 +26,48 @@ class OpenAICompatibleProvider(BaseModelProvider):
             self.base_url += "/v1"
         self.api_key = api_key or "sk-placeholder"
         self.model = model
+
+    def _http_timeout(self) -> httpx.Timeout:
+        raw = str(os.getenv("OPENAI_COMPAT_HTTP_TIMEOUT_SECONDS", os.getenv("AI_HTTP_TIMEOUT_SECONDS", "90"))).strip()
+        try:
+            total = float(raw)
+        except Exception:
+            total = 90.0
+        if total <= 0:
+            total = 90.0
+        connect_timeout = min(15.0, total)
+        write_timeout = min(30.0, total)
+        pool_timeout = min(15.0, total)
+        return httpx.Timeout(total, connect=connect_timeout, write=write_timeout, pool=pool_timeout)
+
+    def _resolve_max_token_cap(self, target_model: str) -> Optional[int]:
+        host = (urlparse(self.base_url).hostname or "").lower()
+        model = str(target_model or "").strip().lower()
+        if "deepseek" in host or model.startswith("deepseek"):
+            return 8192
+
+        raw = str(os.getenv("OPENAI_COMPAT_MAX_TOKENS_CAP", "")).strip()
+        if not raw:
+            return None
+        try:
+            value = int(raw)
+        except Exception:
+            return None
+        return value if value > 0 else None
+
+    def _normalize_max_tokens(self, max_tokens: Optional[int], target_model: str) -> Optional[int]:
+        if max_tokens is None:
+            return None
+        try:
+            resolved = int(max_tokens)
+        except Exception:
+            return None
+        if resolved <= 0:
+            return None
+        cap = self._resolve_max_token_cap(target_model)
+        if cap is not None:
+            resolved = min(resolved, int(cap))
+        return max(1, resolved)
 
     def _messages_to_input(self, messages: List[Dict[str, Any]]) -> str:
         chunks: List[str] = []
@@ -88,7 +131,7 @@ class OpenAICompatibleProvider(BaseModelProvider):
         }
         pieces: List[str] = []
 
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=self._http_timeout()) as client:
             with client.stream("POST", f"{self.base_url}/responses", headers=headers, json=stream_payload) as resp:
                 if resp.status_code != 200:
                     return f"Error: HTTP {resp.status_code} - {resp.read().decode()}"
@@ -138,6 +181,7 @@ class OpenAICompatibleProvider(BaseModelProvider):
 
     def generate(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None) -> str:
         target_model = model or self.model
+        resolved_max_tokens = self._normalize_max_tokens(max_tokens, target_model)
 
         if self.wire_api == "responses":
             url = f"{self.base_url}/responses"
@@ -146,8 +190,8 @@ class OpenAICompatibleProvider(BaseModelProvider):
                 "input": self._messages_to_input(messages),  # type: ignore[arg-type]
                 "temperature": self._resolve_temperature(),
             }
-            if max_tokens:
-                payload["max_output_tokens"] = max_tokens
+            if resolved_max_tokens:
+                payload["max_output_tokens"] = resolved_max_tokens
         else:
             url = f"{self.base_url}/chat/completions"
             payload = {
@@ -155,8 +199,8 @@ class OpenAICompatibleProvider(BaseModelProvider):
                 "messages": messages,
                 "temperature": self._resolve_temperature(),
             }
-            if max_tokens:
-                payload["max_tokens"] = max_tokens
+            if resolved_max_tokens:
+                payload["max_tokens"] = resolved_max_tokens
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -164,7 +208,7 @@ class OpenAICompatibleProvider(BaseModelProvider):
         }
 
         try:
-            with httpx.Client(timeout=30.0) as client:
+            with httpx.Client(timeout=self._http_timeout()) as client:
                 resp = client.post(url, headers=headers, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()
@@ -180,6 +224,7 @@ class OpenAICompatibleProvider(BaseModelProvider):
 
     def generate_stream(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None):
         target_model = model or self.model
+        resolved_max_tokens = self._normalize_max_tokens(max_tokens, target_model)
 
         if self.wire_api == "responses":
             url = f"{self.base_url}/responses"
@@ -189,8 +234,8 @@ class OpenAICompatibleProvider(BaseModelProvider):
                 "stream": True,
                 "temperature": self._resolve_temperature(),
             }
-            if max_tokens:
-                payload["max_output_tokens"] = max_tokens
+            if resolved_max_tokens:
+                payload["max_output_tokens"] = resolved_max_tokens
         else:
             url = f"{self.base_url}/chat/completions"
             payload = {
@@ -199,8 +244,8 @@ class OpenAICompatibleProvider(BaseModelProvider):
                 "stream": True,
                 "temperature": self._resolve_temperature(),
             }
-            if max_tokens:
-                payload["max_tokens"] = max_tokens
+            if resolved_max_tokens:
+                payload["max_tokens"] = resolved_max_tokens
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -208,7 +253,7 @@ class OpenAICompatibleProvider(BaseModelProvider):
         }
 
         try:
-            with httpx.Client(timeout=30.0) as client:
+            with httpx.Client(timeout=self._http_timeout()) as client:
                 with client.stream("POST", url, headers=headers, json=payload) as resp:
                     if resp.status_code != 200:
                         yield f"Error: HTTP {resp.status_code} - {resp.read().decode()}"

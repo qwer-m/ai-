@@ -110,6 +110,7 @@ class LegacyGenerationStreamBatchesMixin:
         base_prompt = build_closed_loop_base_prompt(
             strategy_plan,
             requirement_context=prompt_context.get("requirement_context") or "",
+            requirement_semantics_context=prompt_context.get("requirement_semantics_context") or "",
             testcase_context=prompt_context.get("testcase_context") or "(empty)",
             supplement_context=prompt_context.get("supplement_context") or "(empty)",
             control_context=prompt_context.get("control_context") or "",
@@ -208,6 +209,7 @@ class LegacyGenerationStreamBatchesMixin:
                 base_prompt = build_closed_loop_base_prompt(
                     strategy_plan,
                     requirement_context=prompt_context.get("requirement_context") or "",
+                    requirement_semantics_context=prompt_context.get("requirement_semantics_context") or "",
                     testcase_context=testcase_context,
                     supplement_context=prompt_context.get("supplement_context") or "(empty)",
                     control_context=prompt_context.get("control_context") or "",

@@ -60,12 +60,13 @@ def score_case_priority(
             "placeholder",
             "style",
         )
-        if not _contains_any(lowered, ui_keywords):
+        ui_hit_count = sum(1 for token in ui_keywords if token in lowered)
+        if ui_hit_count <= 0:
             return False
         risk_words = ("异常", "失败", "错误", "权限", "安全", "并发", "性能", "exception", "error", "security", "permission")
         if _contains_any(lowered, risk_words):
             return False
-        return True
+        return bool(ui_hit_count >= 2)
 
     main_workflow_hit = _contains_any(
         text,
@@ -82,6 +83,110 @@ def score_case_priority(
             "checkout", "order", "payment", "submit", "save", "publish", "approve", "login",
         ),
     )
+    cross_page_flow_hit = _contains_any(
+        text,
+        (
+            "cross-page",
+            "cross page",
+            "cross module",
+            "page jump",
+            "navigation chain",
+            "\u8de8\u9875",
+            "\u8de8\u9875\u9762",
+            "\u9875\u9762\u8df3\u8f6c",
+            "\u8de8\u6a21\u5757",
+            "\u8df3\u8f6c",
+        ),
+    )
+    state_transition_hit = _contains_any(
+        text,
+        (
+            "state transition",
+            "state-transition",
+            "state flow",
+            "status change",
+            "\u72b6\u6001\u6d41\u8f6c",
+            "\u72b6\u6001\u8fc1\u79fb",
+            "\u72b6\u6001\u53d8\u66f4",
+            "\u4e2d\u65ad",
+            "\u6062\u590d",
+            "\u91cd\u8fdb",
+        ),
+    )
+    pattern_category_raw = str(case.get("pattern_category") or case.get("patternCategory") or "").strip().lower()
+    preferred_pattern_categories = {
+        "core_flow_closure",
+        "cross_page_flow",
+        "multi_step_interaction",
+        "state_transition",
+        "key_path_coverage",
+        "complex_business_combination",
+        "high_value_assertion",
+        "boundary_effective_coverage",
+        "\u6838\u5fc3\u6d41\u7a0b\u95ed\u73af",
+        "\u8de8\u9875\u9762\u6d41\u7a0b",
+        "\u591a\u6b65\u9aa4\u4ea4\u4e92",
+        "\u72b6\u6001\u6d41\u8f6c",
+        "\u5173\u952e\u8def\u5f84\u8986\u76d6",
+        "\u590d\u6742\u4e1a\u52a1\u7ec4\u5408",
+        "\u9ad8\u4ef7\u503c\u65ad\u8a00",
+        "\u8fb9\u754c\u6709\u6548\u8986\u76d6",
+    }
+    preferred_pattern_hit = bool(pattern_category_raw in preferred_pattern_categories) or _contains_any(
+        text,
+        (
+            "preferred pattern",
+            "core flow closure",
+            "cross-page flow",
+            "multi-step interaction",
+            "key-path coverage",
+            "\u6838\u5fc3\u6d41\u7a0b\u95ed\u73af",
+            "\u8de8\u9875\u9762\u6d41\u7a0b",
+            "\u591a\u6b65\u9aa4\u4ea4\u4e92",
+            "\u72b6\u6001\u6d41\u8f6c",
+            "\u5173\u952e\u8def\u5f84\u8986\u76d6",
+        ),
+    )
+    reuse_risk_hit = _contains_any(
+        text,
+        (
+            "\u590d\u7528",
+            "\u6cbf\u7528",
+            "\u539f\u6a21\u5757",
+            "\u539f\u9875\u9762",
+            "\u65e7\u6309\u94ae",
+            "\u65e7\u6587\u6848",
+            "\u65e7\u8df3\u8f6c",
+            "\u6b8b\u7559",
+            "\u8fd4\u56de\u9996\u9875",
+            "\u8fd4\u56de\u5217\u8868",
+            "\u56de\u9996\u9875",
+            "\u56de\u5217\u8868",
+            "\u8fd4\u56de\u76ee\u6807",
+            "\u4e0d\u4e32\u8bfe\u6587",
+            "\u4e0d\u4e32\u5355\u5143",
+            "\u4e32\u539f\u6a21\u5757",
+            "reuse",
+            "reused",
+            "legacy behavior",
+            "legacy button",
+            "wrong return target",
+            "return home",
+            "return list",
+            "shared page",
+            "shared flow",
+            "context leak",
+        ),
+    )
+    if cross_page_flow_hit and "cross_page_flow_hit" not in reasons:
+        reasons.append("cross_page_flow_hit")
+    if state_transition_hit and "state_transition_hit" not in reasons:
+        reasons.append("state_transition_hit")
+    if preferred_pattern_hit and "preferred_pattern_hit" not in reasons:
+        reasons.append("preferred_pattern_hit")
+    if reuse_risk_hit and "reuse_risk_hit" not in reasons:
+        reasons.append("reuse_risk_hit")
+
     blocking_hit = _contains_any(
         text,
         (
@@ -159,9 +264,79 @@ def score_case_priority(
         _add("degraded_but_usable", 10)
     if important_regression:
         _add("important_regression_validation", 8)
+    if reuse_risk_hit:
+        _add("reuse_risk_hit", 8)
 
     focus_score = int(_focus_score(text))
     ui_like_case = bool(_is_ui_like_case(text))
+    steps = case.get("steps")
+    step_count = len([item for item in steps if str(item or "").strip()]) if isinstance(steps, list) else 0
+    step_text = " ".join([str(item) for item in steps if str(item or "").strip()]).lower() if isinstance(steps, list) else ""
+    behavior_depth_tokens = (
+        "状态",
+        "恢复",
+        "重试",
+        "回滚",
+        "幂等",
+        "一致",
+        "不丢上下文",
+        "不串课文",
+        "不错跳",
+        "上下文保持",
+        "断言",
+        "assert",
+        "state transition",
+        "context",
+        "consistent",
+        "resume",
+        "rollback",
+        "idempotent",
+    )
+    has_behavior_depth = _contains_any(text, behavior_depth_tokens)
+    state_guard_tokens = (
+        "\u4e0d\u4e32\u8bfe\u6587",
+        "\u4e0d\u4e32\u5355\u5143",
+        "\u4e0d\u4e22\u4e0a\u4e0b\u6587",
+        "\u4e0d\u9519\u8bef\u63a8\u8fdb",
+        "\u4e0d\u6807\u8bb0\u5b8c\u6210",
+        "\u4fdd\u6301\u5f53\u524d\u8282\u70b9",
+        "context preserved",
+        "no wrong progression",
+        "keep current node",
+        "no cross-unit leak",
+        "no cross-lesson leak",
+    )
+    has_state_guard_signal = _contains_any(text, state_guard_tokens)
+    return_reenter = (
+        ("\u8fd4\u56de", "\u518d\u8fdb\u5165"),
+        ("return", "re-enter"),
+        ("return", "reenter"),
+    )
+    prev_next = (
+        ("\u4e0a\u4e00\u6b65", "\u4e0b\u4e00\u6b65"),
+        ("previous step", "next step"),
+    )
+    interrupt_resume = (
+        ("\u4e2d\u65ad", "\u6062\u590d"),
+        ("interrupt", "resume"),
+    )
+    has_step_guard_sequence = any(all(token in step_text for token in pattern) for pattern in (return_reenter + prev_next + interrupt_resume))
+    failure_guard_tokens = ("\u5931\u8d25", "\u5f02\u5e38", "failure", "failed", "error")
+    current_hold_tokens = ("\u5f53\u524d\u9875", "\u5f53\u524d\u72b6\u6001", "current page", "current state")
+    has_failure_hold_sequence = _contains_any(step_text, failure_guard_tokens) and _contains_any(step_text, current_hold_tokens)
+    if ui_like_case and (
+        bool(cross_page_flow_hit)
+        or bool(state_transition_hit)
+        or bool(main_workflow_hit)
+        or bool(preferred_pattern_hit)
+        or bool(reuse_risk_hit)
+        or bool(has_behavior_depth)
+        or bool(has_state_guard_signal)
+        or bool(has_step_guard_sequence)
+        or bool(has_failure_hold_sequence)
+        or bool(step_count >= 3 and has_behavior_depth)
+    ):
+        ui_like_case = False
 
     if _contains_any(
         text,
@@ -361,6 +536,7 @@ def score_case_priority(
         or core_rule_hits
         or unique_coverage_hits
         or (main_workflow_hit and bool(core_rule_hits))
+        or reuse_risk_hit
     )
 
     if has_coverage_signals and coverage_gain_score <= 0 and not case_level_hard_guard:
@@ -428,6 +604,10 @@ def score_case_priority(
         "reasons": reasons,
         "focus_score": int(focus_score),
         "ui_like_case": bool(ui_like_case),
+        "reuse_risk_hit": bool(reuse_risk_hit),
+        "cross_page_flow_hit": bool(cross_page_flow_hit),
+        "state_transition_hit": bool(state_transition_hit),
+        "preferred_pattern_hit": bool(preferred_pattern_hit),
         "covered_rule_ids": covered_rule_ids,
         "case_covering_rules": covered_rule_ids,
         "case_unique_rule_hits_count": int(len(unique_coverage_hits)),

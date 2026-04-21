@@ -31,6 +31,28 @@ _MIN_PATTERN_WEIGHT_ADJUSTMENT = 0.25
 _MAX_PATTERN_WEIGHT_ADJUSTMENT = 1.5
 _VALID_SIGNAL_TYPES = {"positive", "negative"}
 _VALID_PATTERN_USAGE = {"prefer", "avoid"}
+_UI_LOW_VALUE_PATTERN_TOKENS = (
+    "ui-only",
+    "static ui",
+    "static display",
+    "copy check",
+    "copy-only",
+    "style check",
+    "layout check",
+    "layout-only",
+    "visual only",
+    "field display",
+    "list sorting",
+    "placeholder",
+    "ui ",
+    "display",
+    "文案",
+    "样式",
+    "布局",
+    "展示",
+    "列表排序",
+    "字段展示",
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +102,13 @@ def _normalize_pattern_usage(raw: Any, *, signal_type: str) -> str:
 
 def _normalize_pattern_category(raw: Any) -> str:
     return _sanitize_text(raw, max_len=64).lower()
+
+
+def _is_ui_low_value_pattern(*parts: Any) -> bool:
+    merged = " ".join(str(part or "") for part in parts).strip().lower()
+    if not merged:
+        return False
+    return any(token in merged for token in _UI_LOW_VALUE_PATTERN_TOKENS)
 
 
 def _canonicalize_pattern_text(raw: Any) -> str:
@@ -157,6 +186,34 @@ def _pattern_cluster_key(sample: dict[str, Any], canonical: str, summary: str) -
 def _pattern_weight(sample: dict[str, Any], summary: str, quality: float, source: str) -> float:
     expected = _sanitize_text(_sample_value(sample, "expected_priority", "expectedPriority"), max_len=8).upper()
     reason = _sanitize_text(_sample_value(sample, "reason_category", "reasonCategory"), max_len=40).lower()
+    signal_type = _normalize_signal_type(
+        _sample_value(
+            sample,
+            "signal_type",
+            "signalType",
+            "pattern_signal_type",
+            "patternSignalType",
+            "feedback_direction",
+            "feedbackDirection",
+            "sample_type",
+            "sampleType",
+            "sample_kind",
+            "sampleKind",
+        )
+    )
+    pattern_usage = _normalize_pattern_usage(
+        _sample_value(sample, "pattern_usage", "patternUsage"),
+        signal_type=signal_type,
+    )
+    is_positive_signal = bool(signal_type == "positive" or pattern_usage == "prefer")
+    is_negative_signal = not is_positive_signal
+    ui_low_value = _is_ui_low_value_pattern(
+        reason,
+        _sample_value(sample, "pattern_category", "patternCategory"),
+        summary,
+        _sample_value(sample, "title"),
+        _sample_value(sample, "user_comment", "userComment"),
+    )
     weight = 0.6 + (quality * 0.6)
     if source == "manual":
         weight += 0.15
@@ -166,6 +223,12 @@ def _pattern_weight(sample: dict[str, Any], summary: str, quality: float, source
         weight += 0.1
     if reason == "display_issue":
         weight -= 0.05
+    if is_negative_signal and ui_low_value:
+        # Keep UI-negative patterns retrievable so they can suppress low-value UI-only cases.
+        weight += 0.08
+    if is_positive_signal and ui_low_value:
+        # Avoid over-amplifying UI-positive samples in preferred pattern retrieval.
+        weight -= 0.04
     adjustment = _safe_float(
         _sample_value(sample, "pattern_weight_adjustment", "patternWeightAdjustment"),
         default=1.0,

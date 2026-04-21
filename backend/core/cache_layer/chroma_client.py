@@ -29,6 +29,20 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CHROMA_PATH = BACKEND_ROOT / "chroma_db"
 DEFAULT_EMBED_BATCH_SIZE = max(1, int(os.getenv("DASHSCOPE_EMBED_BATCH_SIZE", "25")))
 DEFAULT_EMBED_MAX_CHARS = max(128, min(2048, int(os.getenv("DASHSCOPE_EMBED_MAX_CHARS", "2000"))))
+_RUNTIME_AUTO_RECOVER = str(os.getenv("CHROMA_RUNTIME_AUTO_RECOVER", "true")).strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+_HNSW_LOAD_ERROR_SIGNALS = (
+    "error loading hnsw index",
+    "error creating hnsw segment reader",
+    "error constructing hnsw segment reader",
+    "error sending backfill request to compactor",
+    # 中文注释：查询阶段常见损坏信号，表现为索引/ID 映射不一致。
+    "error finding id",
+)
 
 
 def _normalize_metadata_value(value):
@@ -122,7 +136,11 @@ def _resolve_persist_path(persist_path: str | None) -> Path:
 def _is_chroma_store_corrupted(error: Exception) -> bool:
     """判断是否是本地持久化文件损坏导致的初始化失败。"""
     message = str(error).lower()
-    return "file is not a database" in message or "database disk image is malformed" in message
+    return (
+        "file is not a database" in message
+        or "database disk image is malformed" in message
+        or any(signal in message for signal in _HNSW_LOAD_ERROR_SIGNALS)
+    )
 
 
 def _backup_corrupted_store(path: Path) -> Path | None:
@@ -197,7 +215,10 @@ class ChromaClient:
     def __init__(self, persist_path: str | None = None):
         self.client = None
         self.collection = None
+        self.embedding_fn = None
         self.persist_path = _resolve_persist_path(persist_path)
+        self._runtime_recovering = False
+        self._runtime_auto_recover = bool(_RUNTIME_AUTO_RECOVER)
 
         try:
             self._init_client()
@@ -218,6 +239,83 @@ class ChromaClient:
                     logger.error("ChromaDB recover failed: %s", recover_error)
 
             logger.error("Failed to initialize ChromaDB: %s", e)
+
+    def _try_runtime_recover(self, *, operation: str, error: Exception) -> bool:
+        """运行时遇到索引损坏错误时，尝试备份并重建。"""
+        if not self._runtime_auto_recover:
+            return False
+        if self._runtime_recovering:
+            return False
+        if not _is_chroma_store_corrupted(error):
+            return False
+
+        self._runtime_recovering = True
+        try:
+            # 先尝试只重建 collection，避免直接动底层 sqlite 文件导致锁冲突。
+            embedding_fn = getattr(self, "embedding_fn", None)
+            if self.client is not None and embedding_fn is not None:
+                try:
+                    self.client.delete_collection(name="knowledge_base")
+                except Exception:
+                    pass
+                try:
+                    self.collection = self.client.get_or_create_collection(
+                        name="knowledge_base",
+                        embedding_function=embedding_fn,
+                    )
+                    logger.info("ChromaDB runtime recovered by collection reset during %s", operation)
+                    return True
+                except Exception as reset_error:
+                    logger.error("Chroma collection reset failed during %s: %s", operation, reset_error)
+
+            try:
+                backup_path = _backup_corrupted_store(self.persist_path)
+                logger.error(
+                    "Chroma runtime store error during %s; backed up %s, reinitializing. err=%s",
+                    operation,
+                    backup_path,
+                    error,
+                )
+                self._init_client()
+                logger.info("ChromaDB runtime recovered at %s", self.persist_path)
+                return True
+            except PermissionError:
+                fresh_path = self.persist_path.with_name(
+                    f"{self.persist_path.name}_rebuild_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+                )
+                logger.error(
+                    "Chroma backup blocked by file lock during %s; switching to fresh path %s",
+                    operation,
+                    fresh_path,
+                )
+                self.persist_path = fresh_path
+                self._init_client()
+                logger.info("ChromaDB runtime recovered on fresh path %s", self.persist_path)
+                return True
+        except Exception as recover_error:
+            logger.error("ChromaDB runtime recover failed during %s: %s", operation, recover_error)
+            return False
+        finally:
+            self._runtime_recovering = False
+
+    def _run_with_recover(self, operation: str, func, *, raise_on_error: bool = False, default=None):
+        """执行 Chroma 操作，遇到 HNSW/索引损坏时自动自愈并重试一次。"""
+        try:
+            return func()
+        except Exception as first_error:
+            recovered = self._try_runtime_recover(operation=operation, error=first_error)
+            if recovered:
+                try:
+                    return func()
+                except Exception as retry_error:
+                    logger.error("ChromaDB %s failed after runtime recover: %s", operation, retry_error)
+                    if raise_on_error:
+                        raise
+                    return default
+            logger.error("ChromaDB %s failed: %s", operation, first_error)
+            if raise_on_error:
+                raise
+            return default
 
     def _init_client(self) -> None:
         """初始化客户端和 collection。"""
@@ -264,7 +362,7 @@ class ChromaClient:
         if not self.collection:
             return
 
-        try:
+        def _do_add():
             chunk_payloads: list[tuple[str, dict]] = []
             if chunks:
                 for item in chunks:
@@ -340,10 +438,14 @@ class ChromaClient:
 
             self.collection.add(documents=documents, metadatas=metadatas, ids=ids)
             logger.debug("chroma_add_document doc_id=%s chunk_total=%s", doc_id, chunk_total)
-        except Exception as e:
-            logger.error("Failed to add document to ChromaDB: %s", e)
-            if raise_on_error:
-                raise
+            return None
+
+        self._run_with_recover(
+            "add_document",
+            _do_add,
+            raise_on_error=raise_on_error,
+            default=None,
+        )
 
     def search_by_metadata(
         self,
@@ -355,14 +457,15 @@ class ChromaClient:
         if not self.collection:
             return {}
 
-        try:
+        def _do_search():
             # 中文注释：关系扩召需要“纯 metadata 匹配”，这里使用 get 避免 query 语义噪音。
             return self.collection.get(where=where, include=["documents", "metadatas"], limit=max(1, int(n_results)))
-        except Exception as e:
-            logger.error("ChromaDB metadata search failed: %s", e)
-            if raise_on_error:
-                raise
-            return {}
+        return self._run_with_recover(
+            "search_by_metadata",
+            _do_search,
+            raise_on_error=raise_on_error,
+            default={},
+        )
 
     def search(
         self,
@@ -375,25 +478,29 @@ class ChromaClient:
         if not self.collection:
             return {}
 
-        try:
+        def _do_search():
             return self.collection.query(query_texts=[query], n_results=n_results, where=where)
-        except Exception as e:
-            logger.error("ChromaDB search failed: %s", e)
-            if raise_on_error:
-                raise
-            return {}
+        return self._run_with_recover(
+            "search",
+            _do_search,
+            raise_on_error=raise_on_error,
+            default={},
+        )
 
     def delete_document(self, doc_id: str, raise_on_error: bool = False):
         """按 metadata.doc_id 删除该文档在向量库中的所有分块。"""
         if not self.collection:
             return
 
-        try:
+        def _do_delete():
             self.collection.delete(where={"doc_id": str(doc_id)})
-        except Exception as e:
-            logger.error("Failed to delete document from ChromaDB: %s", e)
-            if raise_on_error:
-                raise
+            return None
+        self._run_with_recover(
+            "delete_document",
+            _do_delete,
+            raise_on_error=raise_on_error,
+            default=None,
+        )
 
 
 # 全局单例：业务层直接导入使用

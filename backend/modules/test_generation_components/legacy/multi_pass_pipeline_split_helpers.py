@@ -186,8 +186,20 @@ def _compute_information_gain(
     before_cases: list[dict[str, Any]],
     new_cases: list[dict[str, Any]],
 ) -> tuple[bool, dict[str, Any]]:
-    covered_before = int(coverage_before.get("covered_rules") or 0)
-    covered_after = int(coverage_after.get("covered_rules") or 0)
+    def _covered_count(payload: dict[str, Any]) -> int:
+        value = payload.get("covered_rules")
+        if isinstance(value, list):
+            return int(len(value))
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.isdigit():
+                return int(stripped)
+        return 0
+
+    covered_before = _covered_count(coverage_before)
+    covered_after = _covered_count(coverage_after)
     missing_types_before = _missing_types_count(coverage_before)
     missing_types_after = _missing_types_count(coverage_after)
 

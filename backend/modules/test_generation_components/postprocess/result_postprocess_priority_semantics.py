@@ -33,6 +33,10 @@ def _should_uplift_to_p1(case_meta: dict[str, Any]) -> tuple[bool, str, str, int
     structural_p2_signals = bool(meta.get("structural_p2_signals"))
     low_risk_only_covered = bool(meta.get("low_risk_only_covered"))
     ui_like_case = bool(meta.get("ui_like_case"))
+    cross_page_flow_hit = bool(meta.get("cross_page_flow_hit"))
+    state_transition_hit = bool(meta.get("state_transition_hit"))
+    preferred_pattern_hit = bool(meta.get("preferred_pattern_hit"))
+    reuse_risk_hit = bool(meta.get("reuse_risk_hit"))
 
     # 防止乱升
     if structural_p2_signals:
@@ -43,6 +47,9 @@ def _should_uplift_to_p1(case_meta: dict[str, Any]) -> tuple[bool, str, str, int
         return False, "low_risk_only_no_gain", "blocked_low_risk_only", 0
 
     main_workflow_hit = "main_workflow_hit" in reasons
+    cross_page_flow_hit = bool(cross_page_flow_hit or ("cross_page_flow_hit" in reasons))
+    state_transition_hit = bool(state_transition_hit or ("state_transition_hit" in reasons))
+    preferred_pattern_hit = bool(preferred_pattern_hit or ("preferred_pattern_hit" in reasons))
     has_high_risk_signal = "high" in rule_risk_reasons
 
     # uplift 触发条件
@@ -52,8 +59,18 @@ def _should_uplift_to_p1(case_meta: dict[str, Any]) -> tuple[bool, str, str, int
         return True, "missing_rule_hits", "missing_rule", 8
     if unique_coverage_hits and has_high_risk_signal:
         return True, "unique_coverage_high_risk", "coverage_gain", 8
-    if main_workflow_hit and focus_score >= 2:
-        return True, "workflow_focus", "workflow", 6
+    if main_workflow_hit and focus_score >= 1:
+        return True, "workflow_focus_relaxed", "workflow", 6
+    if main_workflow_hit and preferred_pattern_hit:
+        return True, "workflow_preferred_pattern", "workflow", 6
+    if cross_page_flow_hit:
+        return True, "cross_page_flow", "workflow", 6
+    if state_transition_hit and focus_score >= 1:
+        return True, "state_transition_focus", "workflow", 6
+    if preferred_pattern_hit and (main_workflow_hit or cross_page_flow_hit or state_transition_hit):
+        return True, "preferred_pattern_flow", "workflow", 6
+    if reuse_risk_hit and (focus_score >= 1 or main_workflow_hit or state_transition_hit):
+        return True, "reuse_risk_flow", "workflow", 6
     if coverage_gain_score >= 8:
         return True, "coverage_gain", "coverage_gain", 6
 
@@ -254,6 +271,10 @@ def apply_priority_semantics_to_case(
             "final_priority": final_priority,
             "focus_score": int(score_result.get("focus_score") or 0),
             "ui_like_case": bool(score_result.get("ui_like_case")),
+            "cross_page_flow_hit": bool(score_result.get("cross_page_flow_hit")),
+            "state_transition_hit": bool(score_result.get("state_transition_hit")),
+            "preferred_pattern_hit": bool(score_result.get("preferred_pattern_hit")),
+            "reuse_risk_hit": bool(score_result.get("reuse_risk_hit")),
             "priority_reasons": [str(item) for item in (score_result.get("reasons") or [])],
             "priority_guards": dict(score_result.get("guards") or {}),
             "covered_rule_ids": [str(item) for item in (score_result.get("covered_rule_ids") or [])],

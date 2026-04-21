@@ -50,6 +50,7 @@ export function CloudTab({
 }: Props) {
   const turboFollowMain = turboProvider === 'follow_main';
   const vlFollowMain = vlProvider === 'follow_main';
+  const showBaseUrlInput = provider === 'openai';
 
   return (
     <Form className="config-cloud-form" onChange={onDirty}>
@@ -78,14 +79,14 @@ export function CloudTab({
               />
             </InputGroup>
           </Form.Group>
-          {(provider === 'openai' || provider === 'deepseek') && (
+          {showBaseUrlInput && (
             <Form.Group className="config-field">
               <Form.Label>API Base URL</Form.Label>
               <Form.Control
                 type="text"
                 value={baseUrl}
                 onChange={(e) => onBaseUrlChange(e.target.value)}
-                placeholder={provider === 'openai' ? 'https://api.openai.com/v1' : 'https://api.deepseek.com/v1'}
+                placeholder="https://api.openai.com/v1"
               />
             </Form.Group>
           )}

@@ -4,6 +4,7 @@ def build_closed_loop_base_prompt(
     strategy_plan: dict[str, Any] | None,
     *,
     requirement_context: str = "",
+    requirement_semantics_context: str = "",
     testcase_context: str = "",
     supplement_context: str = "",
     control_context: str = "",
@@ -15,6 +16,7 @@ def build_closed_loop_base_prompt(
     plan = strategy_plan or {}
     ratios = plan.get("suggested_ratios", {}) or {}
     requirement_context = (requirement_context or "").strip() or "(empty)"
+    requirement_semantics_context = (requirement_semantics_context or "").strip() or "(empty)"
     testcase_context = (testcase_context or "").strip() or "(empty)"
     supplement_context = (supplement_context or "").strip() or "(empty)"
     control_context = (control_context or "").strip()
@@ -90,6 +92,15 @@ Generate test cases in STRICT JSON format.
 
 【需求规则（Requirement - SINGLE SOURCE OF TRUTH）】
 {requirement_context}
+
+【需求语义结构化（Requirement Semantics - CONFIRMED vs PENDING）】
+{requirement_semantics_context}
+
+SEMANTIC RULES (MANDATORY):
+1. Generate formal test cases only from Confirmed Facts, Reuse Declarations, and Hard Flow Constraints.
+2. Pending / Open Questions are NOT confirmed behavior.
+3. If a case depends on Pending / Open Questions, mark it with "[Pending Confirmation]" and do not treat it as a settled fact.
+4. Reuse Declarations must trigger reuse-adaptation checks, not only generic workflow checks.
 {control_block}
 
 【已有测试用例（Testcases - STYLE ONLY）】

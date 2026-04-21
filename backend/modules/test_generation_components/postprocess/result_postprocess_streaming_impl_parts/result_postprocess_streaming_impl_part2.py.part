@@ -242,6 +242,65 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         coverage_context=pre_priority_coverage,
         rule_diagnostics={"rule_diagnostics": pre_priority_coverage.get("rule_diagnostics") or []},
     )
+    ui_like_ratio_postprocess_drop_count = 0
+    if normalized_forbidden_patterns:
+        ui_max_ratio = 0.40
+        ui_min_keep = 2
+        total_after_priority = int(len(parsed_result))
+        if total_after_priority > 0:
+            score_profiles: list[dict[str, Any]] = []
+            ui_like_count = 0
+            for case in parsed_result:
+                # Keep UI-like cap aligned with observe_batch_a semantics (no external coverage context).
+                profile = score_case_priority(case)
+                ui_like_case = bool(profile.get("ui_like_case"))
+                if ui_like_case:
+                    ui_like_count += 1
+                score_profiles.append(profile)
+
+            allowed_ui_like_count = max(int(ui_min_keep), int(float(total_after_priority) * float(ui_max_ratio)))
+            need_drop_count = int(max(0, ui_like_count - allowed_ui_like_count))
+            if need_drop_count > 0:
+                removable: list[tuple[int, int, int, int]] = []
+                for index, (case, profile) in enumerate(zip(parsed_result, score_profiles)):
+                    if not bool(profile.get("ui_like_case")):
+                        continue
+                    has_coverage_value = bool(
+                        (profile.get("missing_rule_hits") or [])
+                        or (profile.get("core_rule_hits") or [])
+                        or (profile.get("unique_coverage_hits") or [])
+                    )
+                    reasons = [str(x) for x in (profile.get("reasons") or [])]
+                    main_workflow_hit = bool("main_workflow_hit" in reasons)
+                    preferred_pattern_hit = bool(profile.get("preferred_pattern_hit"))
+                    reuse_risk_hit = bool(profile.get("reuse_risk_hit"))
+                    cross_or_state_hit = bool(profile.get("cross_page_flow_hit") or profile.get("state_transition_hit"))
+                    if has_coverage_value or main_workflow_hit or preferred_pattern_hit or reuse_risk_hit or cross_or_state_hit:
+                        continue
+                    removable.append(
+                        (
+                            int(profile.get("focus_score") or _focus_score(case)),
+                            int(profile.get("coverage_gain_score") or 0),
+                            int(str(case.get("priority") or "").strip().upper() in {"P0", "P1"}),
+                            int(index),
+                        )
+                    )
+
+                if removable:
+                    removable.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
+                    drop_index_set = {
+                        int(item[3]) for item in removable[: int(min(need_drop_count, len(removable)))]
+                    }
+                    if drop_index_set:
+                        parsed_result = [
+                            case for idx, case in enumerate(parsed_result) if int(idx) not in drop_index_set
+                        ]
+                        parsed_result = reorder_cases_by_closed_loop_fn(
+                            parsed_result,
+                            start_id=start_id,
+                            renumber_ids=True,
+                        )
+                        ui_like_ratio_postprocess_drop_count = int(len(drop_index_set))
     parsed_result = _strip_case_meta_list(parsed_result)
     final_count = len([x for x in parsed_result if isinstance(x, dict)])
     post_review_dedup_drop = max(0, int(review_selected_count or 0) - int(final_count or 0))
@@ -327,6 +386,7 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             "missing_rule_hits": [str(item) for item in (score_profile.get("missing_rule_hits") or [])],
             "core_rule_hits": [str(item) for item in (score_profile.get("core_rule_hits") or [])],
             "coverage_gain_score": int(score_profile.get("coverage_gain_score") or 0),
+            "reuse_risk_hit": bool(score_profile.get("reuse_risk_hit")),
             "hit_must_cover_rule": bool(hit_must_cover_rule),
             "violates_forbidden_pattern": bool(violates_forbidden_pattern),
             "hits_soft_constraint": bool(hits_soft_constraint),
@@ -352,6 +412,12 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             sum(1 for row in dropped_rows if row.get("dropped_reason") == "drop_no_new_rule_no_new_bucket_no_high_signal")
         ),
         "drop_rule_cap_count": int(sum(1 for row in dropped_rows if row.get("dropped_reason") == "drop_rule_cap")),
+        "drop_ui_like_redundant_count": int(
+            sum(1 for row in dropped_rows if row.get("dropped_reason") == "drop_ui_like_redundant_case")
+        ),
+        "drop_ui_like_ratio_cap_count": int(
+            sum(1 for row in dropped_rows if row.get("dropped_reason") == "drop_ui_like_ratio_cap")
+        ),
         "drop_by_rerank_low_signal_count": int(
             sum(1 for row in dropped_rows if row.get("dropped_reason") == "drop_no_new_rule_no_new_bucket_no_high_signal")
         ),
@@ -371,6 +437,7 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         ),
         "soft_constraint_hit_count": int(sum(1 for row in review_decision_table if bool(row.get("hits_soft_constraint")))),
         "quality_hint_satisfied_count": int(sum(1 for row in review_decision_table if bool(row.get("satisfies_quality_hint")))),
+        "drop_ui_like_ratio_postprocess_count": int(ui_like_ratio_postprocess_drop_count),
     }
 
     coverage = {
