@@ -1,0 +1,32 @@
+﻿.rag-console .rag-report-shell {
+  border: 1px solid var(--rag-border);
+  border-radius: 14px;
+  padding: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.rag-console .rag-report-toolbar {
+  border: 1px dashed #dce8f8;
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: #f8fbff;
+}
+
+.rag-console .rag-report-block {
+  border: 1px solid #deebfb;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fcfeff;
+}
+
+.rag-console .rag-report-block-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 8px;
+}
+
+.rag-console .rag-report-block-title-row .rag-report-block-title {
+  margin-bottom: 0;
+}
+

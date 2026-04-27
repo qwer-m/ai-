@@ -1,0 +1,1 @@
+﻿export { UIAutomation } from './UIAutomationPanel';

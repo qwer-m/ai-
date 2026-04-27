@@ -1,0 +1,98 @@
+{
+  "rows": [
+    {
+      "generation_id": 413,
+      "review_llm_filter_applied": true,
+      "candidate_total": 39,
+      "review_selected_count": 17,
+      "drop_by_review_llm_count": 22,
+      "drop_by_review_selector_count": 0,
+      "final_count": 18,
+      "review_llm_drop_reason_breakdown": {
+        "coverage_redundant": 21,
+        "coverage_protected_omitted": 1
+      },
+      "review_llm_drop_reason_source_breakdown": {
+        "llm": 21,
+        "deterministic_backfill": 1
+      }
+    },
+    {
+      "generation_id": 414,
+      "review_llm_filter_applied": false,
+      "candidate_total": 33,
+      "review_selected_count": 20,
+      "drop_by_review_llm_count": 0,
+      "drop_by_review_selector_count": 13,
+      "final_count": 21,
+      "review_llm_drop_reason_breakdown": {},
+      "review_llm_drop_reason_source_breakdown": {}
+    },
+    {
+      "generation_id": 415,
+      "review_llm_filter_applied": false,
+      "candidate_total": 54,
+      "review_selected_count": 27,
+      "drop_by_review_llm_count": 0,
+      "drop_by_review_selector_count": 27,
+      "final_count": 28,
+      "review_llm_drop_reason_breakdown": {},
+      "review_llm_drop_reason_source_breakdown": {}
+    },
+    {
+      "generation_id": 416,
+      "review_llm_filter_applied": false,
+      "candidate_total": 56,
+      "review_selected_count": 25,
+      "drop_by_review_llm_count": 0,
+      "drop_by_review_selector_count": 31,
+      "final_count": 26,
+      "review_llm_drop_reason_breakdown": {},
+      "review_llm_drop_reason_source_breakdown": {}
+    },
+    {
+      "generation_id": 417,
+      "review_llm_filter_applied": false,
+      "candidate_total": 59,
+      "review_selected_count": 28,
+      "drop_by_review_llm_count": 0,
+      "drop_by_review_selector_count": 31,
+      "final_count": 29,
+      "review_llm_drop_reason_breakdown": {},
+      "review_llm_drop_reason_source_breakdown": {}
+    },
+    {
+      "generation_id": 418,
+      "review_llm_filter_applied": false,
+      "candidate_total": 60,
+      "review_selected_count": 28,
+      "drop_by_review_llm_count": 0,
+      "drop_by_review_selector_count": 32,
+      "final_count": 28,
+      "review_llm_drop_reason_breakdown": {},
+      "review_llm_drop_reason_source_breakdown": {}
+    },
+    {
+      "generation_id": 419,
+      "review_llm_filter_applied": false,
+      "candidate_total": 59,
+      "review_selected_count": 27,
+      "drop_by_review_llm_count": 0,
+      "drop_by_review_selector_count": 31,
+      "final_count": 28,
+      "review_llm_drop_reason_breakdown": {},
+      "review_llm_drop_reason_source_breakdown": {}
+    },
+    {
+      "generation_id": 420,
+      "review_llm_filter_applied": false,
+      "candidate_total": 33,
+      "review_selected_count": 19,
+      "drop_by_review_llm_count": 0,
+      "drop_by_review_selector_count": 14,
+      "final_count": 19,
+      "review_llm_drop_reason_breakdown": {},
+      "review_llm_drop_reason_source_breakdown": {}
+    }
+  ]
+}

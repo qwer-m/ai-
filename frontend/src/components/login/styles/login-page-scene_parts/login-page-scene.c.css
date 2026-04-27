@@ -1,0 +1,158 @@
+.geo-orange .character__eyes {
+  top: 58px;
+  left: 96px;
+}
+
+.geo-black .character__eyes {
+  top: 35px;
+  left: 21px;
+}
+
+.geo-yellow .character__eyes {
+  top: 56px;
+  left: 56px;
+}
+
+.character__eye {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #131722;
+  transition: width 0.2s ease, height 0.2s ease, border-radius 0.2s ease, transform 0.2s ease;
+  transform-origin: center;
+  animation: eye-blink 7.2s linear infinite;
+}
+
+.geo-purple .character__eye {
+  animation-duration: 6.4s;
+}
+
+.geo-black .character__eye {
+  animation-duration: 7.6s;
+  animation-delay: 0.8s;
+}
+
+.geo-orange .character__eye {
+  animation-duration: 8.2s;
+  animation-delay: 0.35s;
+}
+
+.geo-yellow .character__eye {
+  animation-duration: 6.9s;
+  animation-delay: 1.25s;
+}
+
+.character__eyes--single .character__eye + .character__eye {
+  display: none;
+}
+
+.character__mouth {
+  position: absolute;
+  display: block;
+  background: #151923;
+  transition: transform 0.2s ease, width 0.2s ease;
+}
+
+.character__mouth--tiny {
+  width: 14px;
+  height: 3px;
+  border-radius: 3px;
+  top: 56px;
+  left: 56px;
+}
+
+.character__mouth--flat {
+  width: 21px;
+  height: 4px;
+  border-radius: 3px;
+  top: 82px;
+  left: 126px;
+}
+
+.character__mouth--line {
+  width: 25px;
+  height: 4px;
+  border-radius: 3px;
+  top: 72px;
+  left: 58px;
+}
+
+.character-scene--idle .character {
+  filter: brightness(1);
+}
+
+.character-scene--email .character__eyes {
+  transform: translate(5px, -1px);
+}
+
+.character-scene--email .geo-purple {
+  transform: rotate(6deg) translateY(-3px);
+}
+
+.character-scene--email .geo-black {
+  transform: rotate(1deg) translate(2px, -2px);
+}
+
+.character-scene--email .geo-yellow {
+  transform: rotate(1deg) translateY(-2px);
+}
+
+.character-scene--password .geo-purple {
+  transform: rotate(-11deg) translate(-10px, 4px);
+}
+
+.character-scene--password .geo-black {
+  transform: rotate(-12deg) translate(-8px, 6px);
+}
+
+.character-scene--password .geo-yellow {
+  transform: rotate(10deg) translate(4px, 8px);
+}
+
+.character-scene--password .geo-orange {
+  transform: translateY(3px);
+}
+
+.character-scene--password .geo-purple .character__eye,
+.character-scene--password .geo-black .character__eye {
+  width: 9px;
+  height: 2px;
+  border-radius: 99px;
+  transform: translateY(2px);
+  animation: none;
+}
+
+.character-scene--password .geo-yellow .character__eye {
+  transform: translate(-4px, 2px);
+  animation: none;
+}
+
+.character-scene--password .geo-orange .character__eye {
+  transform: translateY(1px);
+  animation: none;
+}
+
+.character-scene--button-hover .character {
+  animation: character-hover-bob 1.05s ease-in-out infinite alternate;
+}
+
+.character-scene--button-hover .geo-purple {
+  animation-delay: 0.06s;
+}
+
+.character-scene--button-hover .geo-black {
+  animation-delay: 0.12s;
+}
+
+.character-scene--button-press .character {
+  animation: character-press 0.22s ease;
+}
+
+.character-scene--submitting .character__mouth--flat,
+.character-scene--submitting .character__mouth--line {
+  transform: scaleX(0.74);
+}
+
+.character-scene--submitting .geo-purple .character__mouth {
+  transform: translateY(2px) rotate(-9deg);
+}

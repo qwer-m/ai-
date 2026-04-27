@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, func, JSON
 from sqlalchemy.orm import relationship, backref
-from core.database import Base
+from core.db.database import Base
 
 class UITestCase(Base):
     """

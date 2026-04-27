@@ -1,0 +1,164 @@
+.login-card-shell--visible,
+.login-card-shell--ready {
+  animation: login-card-enter 0.86s cubic-bezier(0.2, 0.8, 0.26, 1) forwards;
+}
+
+.login-card {
+  min-height: 620px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 440px);
+}
+
+.login-card__scene-pane,
+.login-card__form-pane {
+  opacity: 0;
+  transform: translateY(20px) scale(0.985);
+}
+
+/* Timings:
+   - form pane enters first
+   - scene pane enters ~160ms later
+   - character scene and individual characters then stagger in */
+.login-card-shell--visible .login-card__form-pane,
+.login-card-shell--ready .login-card__form-pane {
+  animation: form-pane-enter 0.56s cubic-bezier(0.25, 0.78, 0.3, 1) 0.16s both;
+}
+
+.login-card-shell--visible .login-card__scene-pane,
+.login-card-shell--ready .login-card__scene-pane {
+  animation: scene-pane-enter 0.58s cubic-bezier(0.22, 0.8, 0.3, 1) 0.32s both;
+}
+
+.login-card__scene-pane {
+  background: #ecebf2;
+  padding: clamp(1.2rem, 2.8vw, 2.4rem);
+  position: relative;
+  overflow: hidden;
+}
+
+.login-card__scene-pane::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 80%, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 55%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0));
+  pointer-events: none;
+}
+
+.login-card__form-pane {
+  background: #fdfdff;
+  padding: clamp(1.4rem, 2.5vw, 2.2rem) clamp(1.1rem, 2.5vw, 2.4rem);
+}
+
+.character-scene {
+  --scene-scale: 1;
+  position: absolute;
+  left: clamp(0.9rem, 2.8vw, 2rem);
+  right: clamp(0.9rem, 2.8vw, 2rem);
+  bottom: clamp(0.8rem, 2.2vw, 1.7rem);
+  min-height: 365px;
+  opacity: 0;
+  transform: translateY(12px) scale(var(--scene-scale));
+  transform-origin: left bottom;
+}
+
+.login-card-shell--visible .character-scene,
+.login-card-shell--ready .character-scene {
+  animation: character-scene-reveal 0.46s cubic-bezier(0.22, 0.78, 0.3, 1) 0.4s both;
+}
+
+.character {
+  position: absolute;
+  bottom: 0;
+  opacity: 0;
+  transition: transform 0.28s ease, filter 0.28s ease;
+  will-change: transform, opacity, bottom;
+}
+
+.geo-purple {
+  width: 118px;
+  height: 232px;
+  left: 135px;
+  background: linear-gradient(172deg, #7d49ff 0%, #6431f1 100%);
+  border-radius: 22px 18px 18px 14px;
+  transform: rotate(8deg);
+  transform-origin: 50% 100%;
+}
+
+.geo-purple::after {
+  content: '';
+  position: absolute;
+  right: -6px;
+  bottom: 42px;
+  width: 30px;
+  height: 62px;
+  background: inherit;
+  border-radius: 0 24px 22px 0;
+  transform: skewY(12deg);
+}
+
+.geo-black {
+  width: 86px;
+  height: 190px;
+  left: 218px;
+  background: #161a29;
+  border-radius: 14px;
+  transform: rotate(2deg);
+  transform-origin: 50% 100%;
+}
+
+.geo-orange {
+  width: 236px;
+  height: 122px;
+  left: 20px;
+  background: #ff8a39;
+  border-radius: 132px 132px 12px 12px;
+  transform-origin: 50% 100%;
+}
+
+.geo-yellow {
+  width: 100px;
+  height: 172px;
+  left: 275px;
+  background: #f2d819;
+  border-radius: 48px 48px 14px 14px;
+  transform-origin: 50% 100%;
+}
+
+.login-card-shell--visible .geo-purple,
+.login-card-shell--ready .geo-purple {
+  animation:
+    geo-purple-enter 0.62s cubic-bezier(0.24, 0.78, 0.28, 1) 0.48s both,
+    geo-purple-idle 5.6s ease-in-out 1.2s infinite;
+}
+
+.login-card-shell--visible .geo-black,
+.login-card-shell--ready .geo-black {
+  animation:
+    geo-black-enter 0.56s cubic-bezier(0.24, 0.78, 0.28, 1) 0.58s both,
+    geo-black-idle 6.2s ease-in-out 1.28s infinite;
+}
+
+.login-card-shell--visible .geo-orange,
+.login-card-shell--ready .geo-orange {
+  animation:
+    geo-orange-enter 0.54s cubic-bezier(0.24, 0.78, 0.28, 1) 0.68s both,
+    geo-orange-idle 6.8s ease-in-out 1.34s infinite;
+}
+
+.login-card-shell--visible .geo-yellow,
+.login-card-shell--ready .geo-yellow {
+  animation:
+    geo-yellow-enter 0.58s cubic-bezier(0.24, 0.78, 0.28, 1) 0.8s both,
+    geo-yellow-idle 5.9s ease-in-out 1.46s infinite;
+}
+
+.character__eyes {
+  display: flex;
+  gap: 9px;
+  position: absolute;
+  top: 34px;
+  left: 24px;
+  transition: transform 0.22s ease;
+}

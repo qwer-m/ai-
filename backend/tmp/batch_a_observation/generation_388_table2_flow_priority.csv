@@ -1,0 +1,15 @@
+﻿case_id,main_workflow_hit,preferred_pattern_hit,cross_page_state_transition,p1_uplifted,p2_cap,final_priority
+TC-001,True,True,False,False,False,P1
+TC-002,False,False,False,False,False,P2
+TC-003,True,False,True,True,False,P2
+TC-004,False,False,True,False,False,P1
+TC-005,False,False,False,False,False,P2
+TC-006,False,False,False,False,False,P2
+TC-007,False,False,False,False,False,P1
+TC-008,True,False,False,False,False,P2
+TC-009,True,False,False,False,False,P2
+TC-010,False,False,True,False,False,P1
+TC-011,True,False,False,False,False,P1
+TC-012,True,False,False,True,False,P2
+TC-013,True,False,False,True,False,P2
+TC-014,True,False,False,False,False,P1

@@ -1,0 +1,30 @@
+{
+  "kind": "fallback_reason_coverage_validation",
+  "mode": "generation_id",
+  "generated_at": "2026-04-27T02:59:35.529494+00:00",
+  "meta": {
+    "generation_id": 437,
+    "project_id": 8,
+    "request_id": "7a2870a8348e461d8a73b3605ccdf78c"
+  },
+  "metrics": {
+    "final_source": "primary_llm",
+    "retry_parse_success": false,
+    "fallback_reason_incomplete": false,
+    "fallback_dropped_reason_count": 0,
+    "fallback_dropped_reason_mapped_count": 0,
+    "fallback_reason_coverage_ratio": 0.0,
+    "llm_reason_coverage_ratio": 0.0,
+    "deterministic_backfill_ratio": 1.0,
+    "drop_by_review_llm_count": 14
+  },
+  "acceptance": {
+    "passed": false,
+    "checks": {
+      "final_source_is_fallback_llm": false,
+      "fallback_dropped_reason_mapped_count_gt_0": false,
+      "llm_reason_coverage_ratio_gt_0": false,
+      "deterministic_backfill_ratio_lt_1": false
+    }
+  }
+}

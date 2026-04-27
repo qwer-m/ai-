@@ -1,0 +1,240 @@
+﻿.standard-api-shell .standard-api-kv-col-desc {
+        width: 40%;
+      }
+
+      .standard-api-shell .standard-api-fd-col-key {
+        width: 25%;
+      }
+
+      .standard-api-shell .standard-api-fd-col-type {
+        width: 10%;
+      }
+
+      .standard-api-shell .standard-api-fd-col-value {
+        width: 30%;
+      }
+
+      .standard-api-shell .standard-api-fd-col-desc {
+        width: 35%;
+      }
+
+      .standard-api-shell .standard-api-fd-type-select {
+        font-size: 0.875rem;
+      }
+
+      .standard-api-shell .standard-api-file-name {
+        max-width: 100px;
+      }
+
+      .standard-api-shell .standard-api-kv-desc-input {
+        padding-right: 24px;
+      }
+
+      .standard-api-shell .standard-api-kv-remove-btn {
+        z-index: 5;
+      }
+
+      .standard-api-shell .standard-api-table-key {
+        font-weight: 600;
+      }
+
+      .standard-api-shell .standard-api-cookie-value {
+        max-width: 200px;
+      }
+
+      .standard-api-shell .standard-api-error-trace {
+        white-space: pre-wrap;
+        background: var(--sat-surface);
+      }
+
+      .standard-api-shell .standard-api-env-modal-body {
+        min-height: 400px;
+      }
+
+      .standard-api-shell .standard-api-env-var-list {
+        max-height: 300px;
+        background: var(--sat-surface-muted);
+      }
+
+      .standard-api-shell .standard-api-cookie-modal-body {
+        min-height: 300px;
+        max-height: 600px;
+        overflow-y: auto;
+      }
+
+      .standard-api-shell .standard-api-cookie-op-col {
+        width: 60px;
+      }
+
+      .standard-api-shell .standard-api-response-metrics .standard-api-metric-value {
+        font-weight: 600;
+      }
+
+      .standard-api-shell .standard-api-hidden-input {
+        display: none;
+      }
+
+      .standard-api-shell .standard-api-import-overlay {
+        z-index: 100;
+        pointer-events: none;
+        border: 2px dashed var(--sat-primary);
+      }
+
+      .standard-api-shell .standard-api-import-overlay-card {
+        background: var(--sat-surface);
+        font-weight: 600;
+      }
+
+      .standard-api-shell .standard-api-sidebar-title {
+        font-weight: 600;
+      }
+
+      .standard-api-shell .standard-api-sidebar-scroll {
+        min-height: 100px;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+
+      .standard-api-shell .standard-api-sidebar-empty {
+        top: 100px;
+        left: 0;
+        pointer-events: none;
+      }
+
+      .standard-api-shell .standard-api-scroll-pane {
+        visibility: visible;
+        z-index: 10;
+        overflow-x: hidden;
+        overflow-y: scroll;
+        background: var(--sat-surface);
+      }
+
+      .standard-api-shell .standard-api-setting-inner {
+        max-width: 800px;
+      }
+
+      .standard-api-shell .standard-api-setting-desc {
+        font-size: 0.75rem;
+      }
+
+      .standard-api-shell .standard-api-setting-select-wide {
+        width: 150px;
+      }
+
+      .standard-api-shell .standard-api-setting-input-narrow {
+        width: 100px;
+      }
+
+      .standard-api-shell .standard-api-side-selector {
+        width: 200px;
+        min-width: 200px;
+        background: var(--sat-surface-muted);
+      }
+
+      .standard-api-shell .standard-api-side-selector-item {
+        cursor: pointer;
+        color: var(--sat-text-soft);
+      }
+
+      .standard-api-shell .standard-api-side-selector-item.is-active {
+        background: var(--sat-primary);
+        color: #fff;
+      }
+
+      .standard-api-shell .standard-api-auth-form-wrap {
+        max-width: 500px;
+      }
+
+      .standard-api-shell .standard-api-pane-gen-inner {
+        overflow-x: hidden;
+        overflow-y: scroll;
+      }
+
+      .standard-api-shell .standard-api-gen-textarea {
+        background: var(--sat-surface-muted) !important;
+        border: 1px solid var(--sat-border) !important;
+      }
+
+      .standard-api-shell .standard-api-body-root {
+        min-width: 0;
+      }
+
+      .standard-api-shell .standard-api-body-pane {
+        z-index: 10;
+      }
+
+      .standard-api-shell .standard-api-body-pane.is-hidden {
+        visibility: hidden;
+        z-index: 0;
+      }
+
+      .standard-api-shell .standard-api-body-modebar {
+        min-width: 0;
+      }
+
+      .standard-api-shell .standard-api-body-highlighter {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        overflow: hidden;
+        color: transparent;
+        pointer-events: none;
+        background-color: transparent;
+        z-index: 0;
+      }
+
+      .standard-api-shell .standard-api-body-raw-input {
+        resize: vertical;
+        outline: none;
+        caret-color: var(--sat-text);
+        z-index: 1;
+        position: relative;
+        min-height: 300px;
+        overflow: hidden;
+      }
+
+      .standard-api-shell .standard-api-body-raw-input.is-json {
+        color: transparent;
+      }
+
+      .standard-api-shell .standard-api-binary-pane {
+        background: var(--sat-surface-muted);
+      }
+
+      .standard-api-shell .standard-api-body-empty {
+        background: var(--sat-surface-muted);
+      }
+
+      .standard-api-shell .api-main-content { min-width: 0; }
+      .standard-api-shell .api-request-config-content { overflow-x: hidden; }
+
+      .standard-api-shell *::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+
+      .standard-api-shell *::-webkit-scrollbar-track {
+        background: color-mix(in srgb, var(--sat-surface-muted) 82%, transparent);
+      }
+
+      .standard-api-shell *::-webkit-scrollbar-thumb {
+        background: color-mix(in srgb, var(--sat-text-soft) 35%, transparent);
+        border-radius: 4px;
+      }
+
+      .standard-api-shell *::-webkit-scrollbar-thumb:hover {
+        background: color-mix(in srgb, var(--sat-text-soft) 55%, transparent);
+      }
+
+      body.theme-dark .standard-api-shell .api-method-get { color: #34d399 !important; }
+      body.theme-dark .standard-api-shell .api-method-post { color: #fbbf24 !important; }
+      body.theme-dark .standard-api-shell .api-method-put { color: #a78bfa !important; }
+      body.theme-dark .standard-api-shell .api-method-delete { color: #fb7185 !important; }
+
+      @media (max-width: 1024px) {
+        .standard-api-shell .standard-api-toolbar {
+          height: auto !important;
+          min-height: 50px;
+          flex-wrap: wrap;
+        }
+      }
+

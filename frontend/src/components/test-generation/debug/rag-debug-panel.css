@@ -1,0 +1,700 @@
+.rag-debug-panel-root .rag-debug-card {
+  border-radius: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  background: #ffffff;
+}
+
+.rag-debug-panel-root .rag-debug-card .table > :not(caption) > * > * {
+  vertical-align: middle;
+}
+
+.rag-debug-panel-root .tg-priority-ratio-track {
+  height: 8px;
+  border-radius: 4px;
+  background: #e9ecef;
+}
+
+.rag-debug-panel-root .tg-priority-ratio-fill {
+  height: 8px;
+  border-radius: 4px;
+  background: #6c757d;
+}
+
+body.theme-dark .rag-debug-panel-root .rag-debug-card,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .rag-debug-card {
+  background: #0f1a2e;
+  border-color: rgba(71, 85, 105, 0.55);
+  color: #9fb3cc;
+}
+
+body.theme-dark .rag-debug-panel-root .rag-debug-card h5,
+body.theme-dark .rag-debug-panel-root .rag-debug-card h6,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .rag-debug-card h5,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .rag-debug-card h6 {
+  color: #b9cae1;
+}
+
+body.theme-dark .rag-debug-panel-root .rag-debug-muted,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .rag-debug-muted {
+  color: #8ea3be !important;
+}
+
+body.theme-dark .rag-debug-panel-root .table,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .table {
+  color: #9fb3cc;
+}
+
+body.theme-dark .rag-debug-panel-root .table thead th,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .table thead th {
+  color: #b9cae1;
+}
+
+body.theme-dark .rag-debug-panel-root .border,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .border {
+  border-color: rgba(71, 85, 105, 0.55) !important;
+}
+
+body.theme-dark .rag-debug-panel-root .nav-tabs .nav-link,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .nav-tabs .nav-link {
+  color: #8ea3be !important;
+}
+
+body.theme-dark .rag-debug-panel-root .nav-tabs .nav-link.active,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .nav-tabs .nav-link.active {
+  color: #b9cae1 !important;
+}
+
+body.theme-dark .rag-debug-panel-root .btn-outline-secondary,
+body.theme-dark .rag-debug-panel-root .btn-outline-primary,
+body.theme-dark .rag-debug-panel-root .btn-outline-danger,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .btn-outline-secondary,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .btn-outline-primary,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .btn-outline-danger {
+  color: #9fb3cc !important;
+}
+
+body.theme-dark .rag-debug-panel-root .badge.bg-dark,
+body.theme-dark .rag-debug-panel-root .badge.bg-secondary,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .badge.bg-dark,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .badge.bg-secondary {
+  color: #b9cae1 !important;
+}
+
+body.theme-dark .rag-debug-panel-root .alert.alert-success,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .alert.alert-success {
+  background: color-mix(in srgb, #14532d 36%, #0b1220) !important;
+  border-color: color-mix(in srgb, #22c55e 32%, #1f2937) !important;
+  color: #b9cae1 !important;
+}
+
+body.theme-dark .rag-debug-panel-root .alert.alert-danger,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .alert.alert-danger {
+  background: color-mix(in srgb, #7f1d1d 34%, #0b1220) !important;
+  border-color: color-mix(in srgb, #ef4444 34%, #1f2937) !important;
+  color: #b9cae1 !important;
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-ratio-track,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-ratio-track {
+  background: #233246;
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-ratio-fill,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-ratio-fill {
+  background: #3f5f84;
+}
+
+.rag-debug-panel-root .rag-priority-debug-pre {
+  max-width: 420px;
+  max-height: 200px;
+  overflow: auto;
+  margin: 0.5rem 0 0;
+  padding: 0.5rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.5rem;
+  background: #f8fafc;
+  font-size: 12px;
+}
+
+body.theme-dark .rag-debug-panel-root .rag-priority-debug-pre,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .rag-priority-debug-pre {
+  background: #0f172a;
+  border-color: rgba(71, 85, 105, 0.55);
+  color: #e2e8f0;
+}
+
+.rag-debug-panel-root .tg-priority-display-mismatch-row > td {
+  background: rgba(220, 53, 69, 0.14);
+}
+
+.rag-debug-panel-root .tg-priority-display-mismatch-cell {
+  font-weight: 700;
+  color: #b02a37;
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-display-mismatch-row > td,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismatch-row > td {
+  background: rgba(248, 113, 113, 0.18);
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-display-mismatch-cell,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismatch-cell {
+  color: #fecaca;
+}
+
+.rag-debug-panel-root .tg-priority-actions .btn {
+  transition: color 0.16s ease, border-color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+  line-height: 1.15;
+}
+
+.rag-debug-panel-root .tg-priority-sample-filter-btn.is-active {
+  box-shadow: 0 0 0 0.2rem rgba(76, 101, 255, 0.14);
+}
+
+.rag-debug-panel-root .tg-priority-manual-confirm-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4.25rem;
+  min-height: 1.62rem;
+}
+
+.rag-debug-panel-root .tg-priority-manual-pending-pill {
+  min-width: auto;
+  min-height: 1.32rem;
+  padding: 0.14rem 0.42rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.rag-debug-panel-root .tg-priority-manual-confirm-pill {
+  position: absolute;
+  inset: 0;
+  min-width: 100%;
+  min-height: 1.62rem;
+  padding: 0.24rem 0.58rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: none;
+  animation: none;
+  transform: none;
+}
+
+.rag-debug-panel-root .tg-priority-manual-confirm-wrap:hover .tg-priority-manual-confirm-pill,
+.rag-debug-panel-root .tg-priority-manual-confirm-wrap:focus-within .tg-priority-manual-confirm-pill {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.rag-debug-panel-root .tg-priority-manual-confirm-wrap:hover .tg-priority-manual-pending-pill,
+.rag-debug-panel-root .tg-priority-manual-confirm-wrap:focus-within .tg-priority-manual-pending-pill {
+  opacity: 0;
+}
+
+.rag-debug-panel-root .tg-priority-manual-confirm-pill.is-disabled {
+  cursor: default;
+  opacity: 0.78;
+  pointer-events: none;
+}
+
+.rag-debug-panel-root .tg-priority-result-scroll {
+  max-height: 560px;
+  overflow: auto;
+}
+
+.rag-debug-panel-root .tg-priority-sample-table {
+  table-layout: fixed;
+  min-width: 1040px;
+}
+
+.rag-debug-panel-root .tg-priority-sample-table > :not(caption) > * > * {
+  padding: 0.42rem 0.48rem;
+}
+
+.rag-debug-panel-root .tg-priority-sample-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f1f5f9;
+  white-space: nowrap;
+}
+
+.rag-debug-panel-root .tg-priority-sample-case-col {
+  width: 29%;
+  min-width: 17rem;
+}
+
+.rag-debug-panel-root .tg-priority-sample-direction-col {
+  width: 6.8rem;
+  min-width: 6.8rem;
+  text-align: center;
+}
+
+.rag-debug-panel-root .tg-priority-sample-tag-col {
+  width: 8.2rem;
+  min-width: 8.2rem;
+  text-align: center;
+}
+
+.rag-debug-panel-root .tg-priority-sample-priority-col {
+  width: 7rem;
+  min-width: 7rem;
+  text-align: center;
+}
+
+.rag-debug-panel-root .tg-priority-sample-reason-col {
+  width: 12.5rem;
+  min-width: 12.5rem;
+}
+
+.rag-debug-panel-root .tg-priority-sample-comment-col {
+  width: 32%;
+  min-width: 18rem;
+}
+
+.rag-debug-panel-root .tg-priority-sample-action-col {
+  width: 7.2rem;
+  min-width: 7.2rem;
+  text-align: center;
+}
+
+.rag-debug-panel-root .tg-priority-sample-case-title {
+  margin-top: 0.1rem;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.rag-debug-panel-root .tg-priority-sample-comment-col .form-control {
+  min-height: calc(1.35em * 2 + 0.78rem);
+  resize: vertical;
+}
+
+.rag-debug-panel-root .tg-priority-result-table {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 1120px;
+}
+
+.rag-debug-panel-root .tg-priority-result-table > :not(caption) > * > * {
+  padding: 0.46rem 0.58rem;
+}
+
+.rag-debug-panel-root .tg-priority-index-col {
+  width: 11%;
+  min-width: 7.4rem;
+  max-width: 8.2rem;
+  padding-left: 0.32rem !important;
+  padding-right: 0.52rem !important;
+  text-align: left;
+}
+
+.rag-debug-panel-root .tg-priority-result-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f1f5f9;
+}
+
+.rag-debug-panel-root .tg-priority-case-col {
+  width: 40%;
+  min-width: 20rem;
+  padding-right: 0.72rem !important;
+}
+
+.rag-debug-panel-root .tg-priority-case-title {
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-height: calc(1.4em * 3);
+}
+
+.rag-debug-panel-root .tg-priority-raw-col {
+  width: 9%;
+  min-width: 6.1rem;
+  text-align: center;
+}
+
+.rag-debug-panel-root .tg-priority-source-col {
+  width: 12%;
+  min-width: 9.2rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.rag-debug-panel-root .tg-priority-tag-col {
+  width: 12%;
+  min-width: 9rem;
+}
+
+.rag-debug-panel-root .tg-priority-debug-col {
+  width: 8%;
+  min-width: 7.2rem;
+  text-align: center;
+}
+
+.rag-debug-panel-root .tg-priority-action-col {
+  width: 8%;
+  min-width: 7.8rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.rag-debug-panel-root .tg-priority-tags-wrap {
+  justify-content: flex-start;
+}
+
+.rag-debug-panel-root .tg-priority-sample-tag-col .tg-priority-tags-wrap {
+  justify-content: center;
+  align-items: center;
+  min-height: 1.9rem;
+  flex-wrap: nowrap;
+  gap: 0.28rem;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.rag-debug-panel-root .tg-priority-tag-col .tg-priority-tags-wrap {
+  max-height: 3.1rem;
+  overflow: auto;
+}
+
+.rag-debug-panel-root .tg-priority-row-action-btn.btn.btn-sm {
+  min-width: 6.4rem;
+  white-space: nowrap;
+  padding-left: 0.4rem;
+  padding-right: 0.4rem;
+}
+
+.rag-debug-panel-root .tg-priority-row-action-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 6.4rem;
+  min-height: 1.9rem;
+}
+
+.rag-debug-panel-root .tg-priority-row-action-default {
+  transition: opacity 0.14s ease;
+}
+
+.rag-debug-panel-root .tg-priority-row-action-options {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+.rag-debug-panel-root .tg-priority-row-action-options .tg-priority-row-action-btn.btn.btn-sm {
+  min-width: 3.05rem;
+}
+
+.rag-debug-panel-root .tg-priority-row-action-switch:hover .tg-priority-row-action-options,
+.rag-debug-panel-root .tg-priority-row-action-switch:focus-within .tg-priority-row-action-options {
+  display: inline-flex;
+}
+
+.rag-debug-panel-root .tg-priority-row-action-switch:hover .tg-priority-row-action-default,
+.rag-debug-panel-root .tg-priority-row-action-switch:focus-within .tg-priority-row-action-default {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.rag-debug-panel-root .tg-priority-actions .btn-outline-primary:hover,
+.rag-debug-panel-root .tg-priority-actions .btn-outline-primary:focus-visible,
+.rag-debug-panel-root .tg-priority-actions .btn-outline-secondary:hover,
+.rag-debug-panel-root .tg-priority-actions .btn-outline-secondary:focus-visible {
+  color: #3347d1;
+  border-color: #7d8cff;
+  background: rgba(76, 101, 255, 0.08);
+  box-shadow: 0 0 0 0.2rem rgba(76, 101, 255, 0.12);
+}
+
+.rag-debug-panel-root .tg-priority-actions .btn-outline-danger:hover,
+.rag-debug-panel-root .tg-priority-actions .btn-outline-danger:focus-visible {
+  color: #bd2f3f;
+  border-color: #e298a2;
+  background: rgba(220, 53, 69, 0.08);
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-primary:hover,
+body.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-primary:focus-visible,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-primary:hover,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-primary:focus-visible,
+body.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-secondary:hover,
+body.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-secondary:focus-visible,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-secondary:hover,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-secondary:focus-visible {
+  color: #c7d2fe;
+  border-color: #3a4860;
+  background: #1a212c;
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-sample-filter-btn.is-active,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-sample-filter-btn.is-active {
+  box-shadow: 0 0 0 0.2rem rgba(125, 140, 255, 0.2);
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-result-scroll thead th,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-result-scroll thead th {
+  background: #0f172a;
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-sample-table thead th,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-sample-table thead th {
+  background: #0f172a;
+}
+
+@keyframes tg-priority-select-focus-pop {
+  0% {
+    transform: translateY(1px) scale(0.995);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+body.theme-dark .rag-debug-panel-root .form-select,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .form-select {
+  color-scheme: dark;
+  background-color: #121b2a !important;
+  color: #c3d4ea !important;
+  border-color: rgba(71, 85, 105, 0.72) !important;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.32);
+  transition: border-color 0.16s ease, box-shadow 0.18s ease, background-color 0.16s ease, transform 0.16s ease;
+  will-change: transform, box-shadow, border-color;
+  backface-visibility: hidden;
+}
+
+body.theme-dark .rag-debug-panel-root .form-select:hover,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .form-select:hover {
+  border-color: rgba(125, 140, 255, 0.45) !important;
+  background-color: #162235 !important;
+}
+
+body.theme-dark .rag-debug-panel-root .form-select:focus,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .form-select:focus {
+  background-color: #17253a !important;
+  border-color: #7d8cff !important;
+  box-shadow: 0 0 0 0.2rem rgba(125, 140, 255, 0.2), inset 0 0 0 1px rgba(19, 30, 47, 0.45) !important;
+  animation: tg-priority-select-focus-pop 0.16s ease-out;
+}
+
+body.theme-dark .rag-debug-panel-root .form-select option,
+body.theme-dark .rag-debug-panel-root .form-select optgroup,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .form-select option,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .form-select optgroup {
+  background: #101a2a;
+  color: #c3d4ea;
+}
+
+body.theme-dark .rag-debug-panel-root .form-select option:checked,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .form-select option:checked {
+  background: #203453;
+  color: #dbeafe;
+}
+
+@keyframes tg-priority-dropdown-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.rag-debug-panel-root .tg-priority-select-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.rag-debug-panel-root .tg-priority-select-dropdown.show {
+  z-index: 1200;
+}
+
+.rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm {
+  width: 100%;
+  min-height: 2.05rem;
+  border-radius: 0.92rem;
+  text-align: left;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.3rem 0.82rem;
+  border: 1px solid #c8d3e5 !important;
+  background: #ffffff !important;
+  color: #23324d !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35) !important;
+}
+
+.rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm:hover,
+.rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm:focus,
+.rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm:focus-visible,
+.rag-debug-panel-root .tg-priority-select-dropdown.show > .tg-priority-select-toggle.btn.btn-sm {
+  border-color: #8ca8dc !important;
+  background: #ffffff !important;
+  color: #1d2c46 !important;
+  box-shadow: 0 0 0 0.2rem rgba(140, 168, 220, 0.24), inset 0 0 0 1px rgba(255, 255, 255, 0.45) !important;
+}
+
+.rag-debug-panel-root .tg-priority-select-toggle::after {
+  margin-left: 0.62rem;
+}
+
+.rag-debug-panel-root .tg-priority-select-menu.dropdown-menu {
+  --bs-dropdown-bg: #ffffff;
+  --bs-dropdown-border-color: #c8d3e5;
+  --bs-dropdown-link-color: #1e2f4a;
+  --bs-dropdown-link-hover-color: #14243d;
+  --bs-dropdown-link-hover-bg: #e8f0ff;
+  --bs-dropdown-link-active-color: #0f2038;
+  --bs-dropdown-link-active-bg: #d7e6ff;
+  --bs-dropdown-color: #1e2f4a;
+  width: 100%;
+  margin-top: 0.24rem;
+  padding: 0.2rem;
+  border-radius: 0.72rem;
+  border: 1px solid #c8d3e5 !important;
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  mix-blend-mode: normal;
+  isolation: isolate;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  animation: tg-priority-dropdown-in 0.14s ease-out;
+  z-index: 1210;
+  max-height: 15rem;
+  overflow-y: auto;
+}
+
+.rag-debug-panel-root .tg-priority-select-item.dropdown-item {
+  border-radius: 0.46rem;
+  color: #1e2f4a;
+  padding: 0.38rem 0.56rem;
+  font-weight: 600;
+  background: #ffffff;
+  line-height: 1.25;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.rag-debug-panel-root .tg-priority-select-item.dropdown-item:hover {
+  color: #13243d;
+  background: #e8f0ff;
+}
+
+.rag-debug-panel-root .tg-priority-select-item.dropdown-item:focus:not(.active),
+.rag-debug-panel-root .tg-priority-select-item.dropdown-item:focus-visible:not(.active) {
+  color: #1d2f4a;
+  background: #edf3ff !important;
+  box-shadow: inset 0 0 0 1px rgba(123, 154, 209, 0.45);
+}
+
+.rag-debug-panel-root .tg-priority-select-item.dropdown-item.active,
+.rag-debug-panel-root .tg-priority-select-item.dropdown-item:active {
+  color: #0f2038;
+  background: #d7e6ff !important;
+  box-shadow: inset 0 0 0 1px rgba(116, 148, 207, 0.38);
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm {
+  border: 1px solid rgba(71, 85, 105, 0.72) !important;
+  background: #121b2a !important;
+  color: #c3d4ea !important;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.24) !important;
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm:hover,
+body.theme-dark .rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm:focus,
+body.theme-dark .rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm:focus-visible,
+body.theme-dark .rag-debug-panel-root .tg-priority-select-dropdown.show > .tg-priority-select-toggle.btn.btn-sm,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm:hover,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm:focus,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-select-toggle.btn.btn-sm:focus-visible,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-select-dropdown.show > .tg-priority-select-toggle.btn.btn-sm {
+  border-color: #7d8cff !important;
+  background: #17253a !important;
+  color: #dbeafe !important;
+  box-shadow: 0 0 0 0.2rem rgba(125, 140, 255, 0.2), inset 0 0 0 1px rgba(19, 30, 47, 0.45) !important;
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-select-menu.dropdown-menu,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-select-menu.dropdown-menu {
+  --bs-dropdown-bg: #0b1524;
+  --bs-dropdown-border-color: #2f435f;
+  --bs-dropdown-link-color: #dbeafe;
+  --bs-dropdown-link-hover-color: #f8fbff;
+  --bs-dropdown-link-hover-bg: #1f3552;
+  --bs-dropdown-link-active-color: #ffffff;
+  --bs-dropdown-link-active-bg: #2e4b74;
+  --bs-dropdown-color: #dbeafe;
+  border: 1px solid #2f435f !important;
+  background: #08121f !important;
+  background-color: #08121f !important;
+  box-shadow: 0 12px 28px rgba(2, 8, 23, 0.7);
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-select-item.dropdown-item,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-select-item.dropdown-item {
+  color: #d7e4f8;
+  background: #08121f;
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-select-item.dropdown-item:hover,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-select-item.dropdown-item:hover {
+  color: #f8fbff;
+  background: #1b304d;
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-select-item.dropdown-item:focus:not(.active),
+body.theme-dark .rag-debug-panel-root .tg-priority-select-item.dropdown-item:focus-visible:not(.active),
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-select-item.dropdown-item:focus:not(.active),
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-select-item.dropdown-item:focus-visible:not(.active) {
+  color: #dbeafe;
+  background: #0d1a2b !important;
+  box-shadow: inset 0 0 0 1px rgba(96, 126, 177, 0.38);
+}
+
+body.theme-dark .rag-debug-panel-root .tg-priority-select-item.dropdown-item.active,
+body.theme-dark .rag-debug-panel-root .tg-priority-select-item.dropdown-item:active,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-select-item.dropdown-item.active,
+body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-select-item.dropdown-item:active {
+  color: #f8fbff;
+  background: #2a4469 !important;
+  box-shadow: inset 0 0 0 1px rgba(140, 170, 220, 0.22);
+}

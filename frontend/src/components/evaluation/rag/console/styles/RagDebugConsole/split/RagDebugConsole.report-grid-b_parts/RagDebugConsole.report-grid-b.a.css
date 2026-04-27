@@ -1,0 +1,194 @@
+﻿.rag-console .rag-report-check-grid .form-check {
+  border: 1px solid #deebfb;
+  border-radius: 10px;
+  padding: 8px 10px 8px 32px;
+  background: #fafdff;
+}
+
+.rag-console .rag-report-actions {
+  flex-wrap: wrap;
+  gap: 8px !important;
+}
+
+.rag-console .rag-report-actions .btn {
+  border-radius: 10px;
+}
+
+.rag-console .rag-report-status-card {
+  border: 1px solid #deebfb;
+  border-radius: 12px;
+  padding: 10px;
+  background: #fcfeff;
+}
+
+.rag-console .rag-report-kpi-grid > div {
+  border: 1px solid #deebfb;
+  background: linear-gradient(180deg, #fafdff 0%, #f4f8ff 100%) !important;
+}
+
+.rag-console .rag-report-table {
+  border: 1px solid #deebfb;
+  border-radius: 12px;
+}
+
+.rag-console .rag-report-table table {
+  margin-bottom: 0;
+}
+
+.rag-console .rag-report-table th {
+  background: #f2f7ff !important;
+  color: #334155;
+  font-weight: 700;
+  border-color: #dce8f8 !important;
+}
+
+.rag-console .rag-report-table td {
+  border-color: #e5eefb !important;
+  line-height: 1.35;
+}
+
+.rag-console .rag-report-action-cell {
+  min-width: 240px;
+}
+
+.rag-console .rag-report-action-cell .btn {
+  white-space: nowrap;
+}
+
+.rag-console .rag-report-subtitle {
+  color: #1e293b;
+  font-size: 16px;
+}
+
+.rag-console .rag-report-query-cell {
+  max-width: 280px;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.rag-console .rag-report-query-cell--wide {
+  max-width: 360px;
+}
+
+.rag-console .rag-report-card {
+  border: 1px solid #deebfb;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fcfeff;
+}
+
+.rag-console .rag-report-subpanel {
+  border: 1px solid #deebfb;
+  border-radius: 10px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.rag-console .rag-dataset-manager .ui-section-card,
+.rag-console .rag-report-subpanel .ui-section-card {
+  padding: 12px;
+}
+
+.rag-console .rag-report-shell .ui-section-title,
+.rag-console .rag-report-subpanel .ui-section-title {
+  margin-bottom: 10px;
+}
+
+.rag-console .rag-report-shell .ui-section-title-row,
+.rag-console .rag-report-subpanel .ui-section-title-row {
+  margin-bottom: 8px;
+}
+
+.rag-console .rag-report-shell .ui-actions-row,
+.rag-console .rag-report-subpanel .ui-actions-row {
+  gap: 8px;
+}
+
+.rag-console .rag-report-shell .ui-kpi-card,
+.rag-console .rag-report-subpanel .ui-kpi-card {
+  min-height: 64px;
+}
+
+.rag-console .rag-report-shell .ui-badge-soft,
+.rag-console .rag-report-subpanel .ui-badge-soft {
+  border-color: #d8e6fa;
+  background: #f4f8ff;
+}
+
+.rag-console .rag-report-pagination .btn {
+  border-radius: 9px;
+}
+
+body.theme-dark .rag-console {
+  --rag-border: #334155;
+  --rag-border-strong: #475569;
+  --rag-text-muted: #94a3b8;
+  --rag-title: #e2e8f0;
+}
+
+body.theme-dark .rag-console .rag-console-tabs .nav-link {
+  color: #cbd5e1;
+}
+
+body.theme-dark .rag-console .rag-console-tabs .nav-link.active {
+  color: #e2e8f0;
+  background: #111827;
+  border-color: #334155 #334155 #111827;
+}
+
+body.theme-dark .rag-console .rag-console-topbar {
+  background: linear-gradient(180deg, #111827 0%, #0f172a 100%) !important;
+}
+
+body.theme-dark .rag-console .rag-console-kv b {
+  color: #e2e8f0;
+}
+
+body.theme-dark .rag-console .rag-console-surface,
+body.theme-dark .rag-console .rag-console-panel,
+body.theme-dark .rag-console .rag-console-advanced,
+body.theme-dark .rag-console .rag-report-shell,
+body.theme-dark .rag-console .rag-report-block,
+body.theme-dark .rag-console .rag-report-card,
+body.theme-dark .rag-console .rag-report-subpanel,
+body.theme-dark .rag-console .rag-report-status-card {
+  background: linear-gradient(180deg, #111827 0%, #0f172a 100%) !important;
+  border-color: #334155 !important;
+}
+
+body.theme-dark .rag-console .form-control,
+body.theme-dark .rag-console .form-select,
+body.theme-dark .rag-console .input-group-text {
+  background: #0f172a !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+body.theme-dark .rag-console .rag-report-toolbar {
+  border-color: #334155 !important;
+  background: #111827 !important;
+}
+
+body.theme-dark .rag-console .rag-report-block-title,
+body.theme-dark .rag-console .rag-report-subtitle,
+body.theme-dark .rag-console .rag-console-panel-title,
+body.theme-dark .rag-console .rag-console-right-title {
+  color: #e2e8f0;
+}
+
+body.theme-dark .rag-console .rag-console-rewrite-box,
+body.theme-dark .rag-console .rag-console-movement-card,
+body.theme-dark .rag-console .rag-console-score-card,
+body.theme-dark .rag-console .rag-console-cause-card,
+body.theme-dark .rag-console .rag-console-suggestion-card,
+body.theme-dark .rag-console .rag-report-kpi-grid > div,
+body.theme-dark .rag-console .rag-report-check-grid .form-check {
+  background: #111827 !important;
+  border-color: #334155 !important;
+}
+
+body.theme-dark .rag-console .rag-console-table-wrap,
+body.theme-dark .rag-console .rag-report-table {
+  border-color: #334155 !important;
+}

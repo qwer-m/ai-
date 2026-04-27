@@ -1,0 +1,109 @@
+﻿@media (max-width: 980px) {
+  .login-card-shell {
+    width: min(620px, calc(100% - 0.6rem));
+    min-height: auto;
+  }
+
+  .login-card {
+    min-height: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .login-card__scene-pane {
+    min-height: 260px;
+  }
+
+  .login-card__form-pane {
+    padding: 1.25rem 1.25rem 1.5rem;
+  }
+
+  .character-scene {
+    --scene-scale: 0.85;
+    transform-origin: left bottom;
+  }
+}
+
+@media (max-width: 640px) {
+  .login-page {
+    padding: 0.65rem;
+  }
+
+  .login-card-shell {
+    border-radius: 24px;
+    width: 100%;
+  }
+
+  .login-card__scene-pane {
+    min-height: 205px;
+    padding: 0.75rem 0.9rem;
+  }
+
+  .character-scene {
+    --scene-scale: 0.72;
+    transform-origin: left bottom;
+    left: 0;
+    right: 0;
+    bottom: -6px;
+  }
+
+  .login-card__form-pane {
+    padding: 1rem 0.95rem 1.25rem;
+  }
+
+  .login-form-panel {
+    gap: 0.95rem;
+  }
+}
+
+@media (max-width: 440px) {
+  .login-card__scene-pane {
+    min-height: 156px;
+  }
+
+  .character-scene {
+    --scene-scale: 0.58;
+    bottom: -12px;
+  }
+
+  .login-form .form-control {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-intro--transition,
+  .login-card-shell--visible,
+  .login-card-shell--ready,
+  .login-card__form-pane,
+  .login-card__scene-pane,
+  .character-scene,
+  .geo-purple,
+  .geo-black,
+  .geo-orange,
+  .geo-yellow,
+  .character__eye,
+  .character-scene--button-hover .character,
+  .character-scene--button-press .character,
+  .login-intro__dots > span,
+  .login-intro__logo {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .login-card-shell {
+    opacity: 1;
+    transform: none;
+    clip-path: inset(0);
+    filter: none;
+  }
+
+  .login-card__form-pane,
+  .login-card__scene-pane,
+  .character-scene,
+  .character {
+    opacity: 1;
+    transform: none;
+  }
+}
+

@@ -1,0 +1,192 @@
+/* 工作台重�?v10：三层卡片结构（标题�?操作�?内容区） */
+
+body.ui-overhaul-v4 .panel-card {
+  border: 1px solid color-mix(in srgb, var(--fd-border) 94%, transparent) !important;
+  border-radius: 16px !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 98%, transparent), color-mix(in srgb, var(--fd-surface-soft) 90%, transparent)) !important;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+}
+
+body.theme-dark.ui-overhaul-v4 .panel-card {
+  box-shadow: 0 16px 30px rgba(2, 6, 23, 0.44);
+}
+
+body.theme-dark.ui-overhaul-v4 .test-generation-input .nav-link.active,
+body.theme-dark.ui-overhaul-v4 .test-generation-config .nav-link.active {
+  color: #b9cae1 !important;
+}
+
+body.ui-overhaul-v4 .panel-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--fd-border) 90%, transparent);
+}
+
+body.ui-overhaul-v4 .panel-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+body.ui-overhaul-v4 .panel-card-title {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--fd-text);
+}
+
+body.ui-overhaul-v4 .panel-card-action-link {
+  font-weight: 700;
+}
+
+body.ui-overhaul-v4 .panel-card-toolbar {
+  min-height: 50px;
+}
+
+body.ui-overhaul-v4 .panel-card-actions {
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--fd-border) 90%, transparent);
+}
+
+body.ui-overhaul-v4 .panel-card-actions-inline .badge {
+  min-height: 28px;
+}
+
+body.ui-overhaul-v4 .panel-card-primary-action {
+  min-height: 42px !important;
+}
+
+body.ui-overhaul-v4 .evaluation-shell .evaluation-testcase-card .panel-card-primary-action {
+  margin-top: 8px;
+}
+
+body.ui-overhaul-v4 .test-generation-input .nav-pills,
+body.ui-overhaul-v4 .test-generation-config .nav-pills {
+  background: color-mix(in srgb, var(--fd-surface-soft) 92%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--fd-border) 90%, transparent);
+}
+
+body.ui-overhaul-v4 .test-generation-input .nav-link,
+body.ui-overhaul-v4 .test-generation-config .nav-link {
+  border-radius: 999px !important;
+  min-height: 34px;
+}
+
+body.ui-overhaul-v4 .test-generation-input .nav-link.active,
+body.ui-overhaul-v4 .test-generation-config .nav-link.active {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--fd-primary) 94%, #1d4ed8), color-mix(in srgb, var(--fd-primary-2) 78%, #5b718f)) !important;
+  color: #fff !important;
+}
+
+body.ui-overhaul-v4 .test-generation-input-body,
+body.ui-overhaul-v4 .test-generation-result-content {
+  scrollbar-gutter: stable;
+}
+
+body.ui-overhaul-v4 .test-generation-result-head {
+  background: color-mix(in srgb, var(--fd-surface-soft) 86%, transparent) !important;
+}
+
+body.ui-overhaul-v4 .automation-eval-card .form-text {
+  line-height: 1.45;
+}
+
+body.ui-overhaul-v4 .automation-eval-card .panel-card-head {
+  margin-bottom: 8px !important;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card .panel-card-head {
+  margin-bottom: 8px;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card .input-group > .form-control {
+  min-height: 38px;
+}
+
+body.ui-overhaul-v4 .knowledge-content-area .doc-card .card-body {
+  padding: 14px;
+}
+
+body.ui-overhaul-v4 .knowledge-content-area .doc-card .btn {
+  min-height: 32px;
+  border-radius: 9px !important;
+}
+
+body.ui-overhaul-v4 .evaluation-shell .automation-eval-card,
+body.ui-overhaul-v4 .evaluation-shell .evaluation-testcase-card {
+  min-height: 560px;
+}
+
+body.ui-overhaul-v4 .evaluation-shell .evaluation-testcase-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+body.ui-overhaul-v4 .evaluation-shell .evaluation-testcase-card {
+  overflow: visible !important;
+  position: static !important;
+  z-index: auto !important;
+  height: auto;
+}
+
+body.ui-overhaul-v4 .evaluation-shell .automation-eval-output {
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--fd-border) 92%, transparent);
+  background: color-mix(in srgb, var(--fd-surface-soft) 80%, transparent);
+}
+
+body.ui-overhaul-v4 .evaluation-shell .evaluation-testcase-card .panel-card-primary-action {
+  position: static !important;
+  z-index: auto !important;
+  float: none !important;
+}
+
+body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='api-gen'] .test-generation-shell,
+body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval'] .evaluation-shell,
+body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-testcase'] .evaluation-shell,
+body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-rag'] .evaluation-shell,
+body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='kb'] .knowledge-base-shell {
+  padding-bottom: 10px;
+}
+
+body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval'],
+body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-testcase'],
+body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-ui'],
+body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-api'],
+body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-rag'] {
+  overflow-y: auto !important;
+}
+
+body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-testcase'] .evaluation-shell .evaluation-testcase-card {
+  min-height: 560px;
+}
+
+@media (max-width: 1200px) {
+  body.ui-overhaul-v4 .evaluation-shell .automation-eval-card,
+  body.ui-overhaul-v4 .evaluation-shell .evaluation-testcase-card {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 991px) {
+  body.ui-overhaul-v4 .panel-card {
+    border-radius: 14px !important;
+  }
+
+  body.ui-overhaul-v4 .panel-card-head {
+    flex-wrap: wrap;
+  }
+
+  body.ui-overhaul-v4 .panel-card-title {
+    font-size: 0.95rem;
+  }
+}
+

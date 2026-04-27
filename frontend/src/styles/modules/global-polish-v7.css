@@ -1,0 +1,320 @@
+/* 全局视觉优化 v7：统一密度、层次和深浅色观感 */
+
+:root {
+  --fd-card-radius-xl: 20px;
+  --fd-card-radius-lg: 16px;
+  --fd-card-radius-md: 12px;
+  --fd-card-padding: 16px;
+  --fd-input-height: 40px;
+  --fd-table-head-bg: color-mix(in srgb, var(--fd-surface-soft) 86%, transparent);
+}
+
+body.theme-dark {
+  --fd-table-head-bg: color-mix(in srgb, #172033 90%, transparent);
+}
+
+body.ui-overhaul-v4 .dashboard-main-surface {
+  border: 1px solid color-mix(in srgb, var(--fd-border) 94%, transparent) !important;
+  border-radius: var(--fd-card-radius-xl) !important;
+  background:
+    radial-gradient(1100px 420px at 104% -15%, color-mix(in srgb, var(--fd-primary) 9%, transparent), transparent 66%),
+    linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 96%, transparent) 0%, color-mix(in srgb, var(--fd-surface-soft) 86%, transparent) 100%) !important;
+  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.1) !important;
+}
+
+body.theme-dark.ui-overhaul-v4 .dashboard-main-surface {
+  box-shadow: 0 20px 40px rgba(2, 6, 23, 0.56) !important;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-surface {
+  border: 1px solid color-mix(in srgb, var(--fd-border) 95%, transparent) !important;
+  border-radius: var(--fd-card-radius-xl) !important;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.09) !important;
+}
+
+body.theme-dark.ui-overhaul-v4 .dashboard-sidebar-surface {
+  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.45) !important;
+}
+
+body.ui-overhaul-v4 .ui-section-card,
+body.ui-overhaul-v4 .bento-card,
+body.ui-overhaul-v4 .knowledge-toolbar-card,
+body.ui-overhaul-v4 .knowledge-content-area,
+body.ui-overhaul-v4 .rag-console .rag-console-surface,
+body.ui-overhaul-v4 .rag-console .rag-console-panel,
+body.ui-overhaul-v4 .rag-console .rag-report-block,
+body.ui-overhaul-v4 .rag-console .rag-report-card,
+body.ui-overhaul-v4 .rag-console .rag-report-subpanel {
+  border-radius: var(--fd-card-radius-lg) !important;
+}
+
+body.ui-overhaul-v4 .test-generation-shell,
+body.ui-overhaul-v4 .evaluation-shell,
+body.ui-overhaul-v4 .knowledge-base-shell {
+  align-content: start;
+}
+
+body.ui-overhaul-v4 .test-generation-header {
+  border: 1px solid color-mix(in srgb, var(--fd-primary) 20%, var(--fd-border)) !important;
+  background:
+    radial-gradient(760px 220px at 0% 0%, color-mix(in srgb, var(--fd-primary) 14%, transparent), transparent 68%),
+    linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 98%, transparent), color-mix(in srgb, var(--fd-surface-soft) 86%, transparent)) !important;
+}
+
+body.ui-overhaul-v4 .test-generation-result-panel {
+  height: 64vh;
+  min-height: 560px;
+  max-height: 760px;
+}
+
+body.ui-overhaul-v4 .test-generation-result-head {
+  background: color-mix(in srgb, var(--fd-surface-soft) 86%, transparent) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--fd-border) 92%, transparent);
+}
+
+body.ui-overhaul-v4 .evaluation-testcase-card .alert {
+  background: color-mix(in srgb, var(--fd-surface-soft) 82%, transparent);
+}
+
+body.ui-overhaul-v4 .knowledge-content-area .doc-card {
+  transition: transform 140ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+body.ui-overhaul-v4 .knowledge-content-area .doc-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+  border-color: color-mix(in srgb, var(--fd-primary) 22%, var(--fd-border));
+}
+
+body.ui-overhaul-v4 .ui-section-title {
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  margin-bottom: 10px;
+  color: var(--fd-text);
+}
+
+body.ui-overhaul-v4 .ui-section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+body.ui-overhaul-v4 .ui-actions-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+body.ui-overhaul-v4 .form-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--fd-text-soft);
+  margin-bottom: 6px;
+  letter-spacing: 0.01em;
+}
+
+body.ui-overhaul-v4 .form-control,
+body.ui-overhaul-v4 .form-select,
+body.ui-overhaul-v4 .input-group-text {
+  min-height: var(--fd-input-height);
+  border-radius: var(--fd-card-radius-md);
+  border-color: color-mix(in srgb, var(--fd-border) 96%, transparent);
+}
+
+body.ui-overhaul-v4 textarea.form-control {
+  min-height: 110px;
+}
+
+body.ui-overhaul-v4 .btn {
+  border-radius: 11px;
+  font-weight: 600;
+  min-height: 38px;
+}
+
+body.ui-overhaul-v4 .btn-sm {
+  min-height: 34px;
+  border-radius: 10px;
+}
+
+body.ui-overhaul-v4 .btn-primary,
+body.ui-overhaul-v4 .btn-pro-primary {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--fd-primary) 96%, #1d4ed8), color-mix(in srgb, var(--fd-primary-2) 80%, #5b718f)) !important;
+  border: none !important;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--fd-primary) 28%, transparent);
+}
+
+body.ui-overhaul-v4 .btn-primary:hover,
+body.ui-overhaul-v4 .btn-pro-primary:hover {
+  filter: brightness(1.05);
+}
+
+body.ui-overhaul-v4 .btn-outline-secondary,
+body.ui-overhaul-v4 .btn-outline-primary,
+body.ui-overhaul-v4 .btn-outline-danger,
+body.ui-overhaul-v4 .btn-outline-warning,
+body.ui-overhaul-v4 .btn-outline-info {
+  border-color: color-mix(in srgb, var(--fd-border) 92%, transparent);
+  background: color-mix(in srgb, var(--fd-surface) 94%, transparent);
+}
+
+/* Keep outline button text readable on hover/focus/active instead of Bootstrap default white text. */
+body.ui-overhaul-v4 .btn-outline-secondary {
+  --bs-btn-hover-color: var(--fd-text-soft);
+  --bs-btn-hover-bg: color-mix(in srgb, var(--fd-surface-soft) 88%, transparent);
+  --bs-btn-hover-border-color: color-mix(in srgb, var(--fd-border) 94%, transparent);
+  --bs-btn-active-color: var(--fd-text-soft);
+  --bs-btn-active-bg: color-mix(in srgb, var(--fd-surface-soft) 90%, transparent);
+  --bs-btn-active-border-color: color-mix(in srgb, var(--fd-border) 94%, transparent);
+}
+
+body.ui-overhaul-v4 .btn-outline-primary {
+  --bs-btn-hover-color: var(--fd-primary);
+  --bs-btn-hover-bg: color-mix(in srgb, var(--fd-primary) 12%, transparent);
+  --bs-btn-hover-border-color: color-mix(in srgb, var(--fd-primary) 58%, var(--fd-border));
+  --bs-btn-active-color: var(--fd-primary);
+  --bs-btn-active-bg: color-mix(in srgb, var(--fd-primary) 16%, transparent);
+  --bs-btn-active-border-color: color-mix(in srgb, var(--fd-primary) 62%, var(--fd-border));
+}
+
+body.ui-overhaul-v4 .btn-outline-danger {
+  --bs-btn-hover-color: var(--fd-danger);
+  --bs-btn-hover-bg: color-mix(in srgb, var(--fd-danger) 12%, transparent);
+  --bs-btn-hover-border-color: color-mix(in srgb, var(--fd-danger) 58%, var(--fd-border));
+  --bs-btn-active-color: var(--fd-danger);
+  --bs-btn-active-bg: color-mix(in srgb, var(--fd-danger) 16%, transparent);
+  --bs-btn-active-border-color: color-mix(in srgb, var(--fd-danger) 62%, var(--fd-border));
+}
+
+body.ui-overhaul-v4 .btn-outline-warning {
+  --bs-btn-hover-color: color-mix(in srgb, var(--fd-warning) 86%, #7c2d12);
+  --bs-btn-hover-bg: color-mix(in srgb, var(--fd-warning) 14%, transparent);
+  --bs-btn-hover-border-color: color-mix(in srgb, var(--fd-warning) 58%, var(--fd-border));
+  --bs-btn-active-color: color-mix(in srgb, var(--fd-warning) 90%, #7c2d12);
+  --bs-btn-active-bg: color-mix(in srgb, var(--fd-warning) 18%, transparent);
+  --bs-btn-active-border-color: color-mix(in srgb, var(--fd-warning) 62%, var(--fd-border));
+}
+
+body.ui-overhaul-v4 .btn-outline-info {
+  --bs-btn-hover-color: #0284c7;
+  --bs-btn-hover-bg: color-mix(in srgb, #0284c7 12%, transparent);
+  --bs-btn-hover-border-color: color-mix(in srgb, #0284c7 58%, var(--fd-border));
+  --bs-btn-active-color: #0284c7;
+  --bs-btn-active-bg: color-mix(in srgb, #0284c7 16%, transparent);
+  --bs-btn-active-border-color: color-mix(in srgb, #0284c7 62%, var(--fd-border));
+}
+
+body.ui-overhaul-v4 .table-responsive {
+  border: 1px solid color-mix(in srgb, var(--fd-border) 95%, transparent) !important;
+  border-radius: var(--fd-card-radius-md) !important;
+  overflow: auto;
+  background: color-mix(in srgb, var(--fd-surface) 96%, transparent);
+}
+
+body.ui-overhaul-v4 .table {
+  margin-bottom: 0;
+}
+
+body.ui-overhaul-v4 .table > :not(caption) > * > * {
+  border-color: color-mix(in srgb, var(--fd-border) 90%, transparent);
+  vertical-align: middle;
+  font-size: 0.92rem;
+}
+
+body.ui-overhaul-v4 .table thead th {
+  background: var(--fd-table-head-bg) !important;
+  color: var(--fd-text-soft);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+body.ui-overhaul-v4 .table tbody tr:hover > * {
+  background: color-mix(in srgb, var(--fd-primary) 7%, transparent);
+}
+
+body.ui-overhaul-v4 .badge {
+  font-weight: 700;
+}
+
+body.ui-overhaul-v4 .alert {
+  border: 1px solid color-mix(in srgb, var(--fd-border) 88%, transparent);
+  border-radius: 12px;
+}
+
+body.ui-overhaul-v4 .rag-console .rag-dataset-row .form-group,
+body.ui-overhaul-v4 .rag-console .rag-dataset-row .col-12 {
+  min-width: 0;
+}
+
+body.ui-overhaul-v4 .rag-console .rag-dataset-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+body.ui-overhaul-v4 .rag-console .rag-report-grid.rag-report-grid-wide {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+body.ui-overhaul-v4 .rag-console .rag-report-grid.rag-report-grid-tight {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+body.ui-overhaul-v4 .rag-console .rag-report-block-run .ui-actions-row .btn {
+  min-width: 112px;
+}
+
+body.ui-overhaul-v4 .rag-console .rag-report-action-cell {
+  min-width: 260px;
+}
+
+body.ui-overhaul-v4 .rag-console .rag-candidate-modal .modal-body .form-label {
+  margin-bottom: 4px;
+}
+
+@media (max-width: 1200px) {
+  body.ui-overhaul-v4 .grid-cols-5 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  body.ui-overhaul-v4 .grid-cols-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body.ui-overhaul-v4 .rag-console .rag-report-grid.rag-report-grid-tight {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 991px) {
+  body.ui-overhaul-v4 .dashboard-main-surface,
+  body.ui-overhaul-v4 .dashboard-sidebar-surface {
+    border-radius: 14px !important;
+  }
+
+  body.ui-overhaul-v4 .rag-console .rag-report-grid.rag-report-grid-wide,
+  body.ui-overhaul-v4 .rag-console .rag-report-grid.rag-report-grid-tight {
+    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+  }
+
+  body.ui-overhaul-v4 .rag-console .rag-dataset-row {
+    row-gap: 10px;
+  }
+
+  body.ui-overhaul-v4 .test-generation-result-panel {
+    min-height: 480px;
+    height: 58vh;
+  }
+}
+
+@media (max-width: 768px) {
+  body.ui-overhaul-v4 .grid-cols-5,
+  body.ui-overhaul-v4 .grid-cols-4,
+  body.ui-overhaul-v4 .grid-cols-3,
+  body.ui-overhaul-v4 .grid-cols-2 {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+}

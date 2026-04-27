@@ -1,0 +1,2 @@
+﻿candidate_index,case_id,description,test_module,model_priority_current,dropped_stage,dropped_reason,bucket,has_coverage_value,high_signal,covered_rule_ids
+23,TC-023,验证数据主键（用户×教材/年级×教学周）的独立性：切换维度后数据隔离,数据与状态规则,P1,review_llm,drop_not_selected_by_review_llm,数据与状态规则|happy,False,False,"[""RULE-005"", ""RULE-007"", ""RULE-011""]"

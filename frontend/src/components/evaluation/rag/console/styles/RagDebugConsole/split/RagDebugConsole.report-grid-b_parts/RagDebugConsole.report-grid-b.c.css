@@ -1,0 +1,189 @@
+body.theme-dark .rag-console .rag-console-topbar {
+  background:
+    radial-gradient(680px 220px at 0% -10%, rgba(129, 140, 248, 0.22), transparent 64%),
+    linear-gradient(180deg, #111827 0%, #0f172a 100%) !important;
+}
+
+body.theme-dark .rag-console .rag-console-surface,
+body.theme-dark .rag-console .rag-console-panel,
+body.theme-dark .rag-console .rag-report-shell,
+body.theme-dark .rag-console .rag-report-block,
+body.theme-dark .rag-console .rag-report-card,
+body.theme-dark .rag-console .rag-report-subpanel,
+body.theme-dark .rag-console .rag-report-status-card {
+  box-shadow: 0 12px 26px rgba(2, 6, 23, 0.42);
+}
+
+body.theme-dark .rag-console .rag-console-btn-outline {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+body.theme-dark .rag-console .btn-outline-primary.rag-console-btn-outline,
+body.theme-dark .rag-console .btn-outline-secondary.rag-console-btn-outline {
+  color: #cbd5e1 !important;
+}
+
+body.theme-dark .rag-console .btn-outline-primary.rag-console-btn-outline:hover,
+body.theme-dark .rag-console .btn-outline-primary.rag-console-btn-outline:focus,
+body.theme-dark .rag-console .btn-outline-primary.rag-console-btn-outline:active,
+body.theme-dark .rag-console .btn-outline-primary.rag-console-btn-outline.active,
+body.theme-dark .rag-console .btn-outline-secondary.rag-console-btn-outline:hover,
+body.theme-dark .rag-console .btn-outline-secondary.rag-console-btn-outline:focus,
+body.theme-dark .rag-console .btn-outline-secondary.rag-console-btn-outline:active,
+body.theme-dark .rag-console .btn-outline-secondary.rag-console-btn-outline.active {
+  color: #e2e8f0 !important;
+  background: #172033 !important;
+  border-color: #475569 !important;
+  box-shadow: none !important;
+}
+
+/* Flat underline tab style */
+.rag-console .rag-console-tabs .nav-tabs {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #d6deea;
+  border-radius: 0;
+  padding: 0;
+  gap: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.rag-console .rag-console-tabs .nav-item {
+  display: flex;
+}
+
+.rag-console .rag-console-tabs .nav-link {
+  min-height: 44px;
+  padding: 0 18px;
+  margin-bottom: -1px;
+  border: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  border-radius: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  color: #5f6f86;
+  font-weight: 600;
+  background: transparent !important;
+  transition: color 0.16s ease, border-color 0.16s ease;
+}
+
+.rag-console .rag-console-tabs .nav-link:hover {
+  color: #334155;
+  border-bottom-color: rgba(99, 102, 241, 0.28) !important;
+}
+
+.rag-console .rag-console-tabs .nav-link.active {
+  color: #0f172a !important;
+  border-bottom-color: #4f46e5 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body.theme-dark .rag-console .rag-console-tabs .nav-tabs {
+  border-bottom-color: #334155;
+  background: transparent;
+}
+
+body.theme-dark .rag-console .rag-console-tabs .nav-link {
+  color: #94a3b8;
+  background: transparent !important;
+}
+
+body.theme-dark .rag-console .rag-console-tabs .nav-link:hover {
+  color: #cbd5e1;
+  border-bottom-color: rgba(129, 140, 248, 0.42) !important;
+}
+
+body.theme-dark .rag-console .rag-console-tabs .nav-link.active {
+  color: #e2e8f0 !important;
+  border-bottom-color: #818cf8 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* ===== Phase 4: Density + Hierarchy polish ===== */
+.rag-console .rag-report-block-base .rag-report-grid.rag-report-grid-wide {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.rag-console .rag-report-block-base .rag-report-grid.rag-report-grid-wide .rag-col-span-2 {
+  grid-column: span 2;
+}
+
+.rag-console .rag-report-block-advanced .rag-report-grid.rag-report-grid-tight {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+.rag-console .rag-report-block-run .ui-actions-row .btn {
+  min-width: 120px;
+}
+
+.rag-console .rag-dataset-manager .rag-dataset-row {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.rag-console .rag-dataset-manager .rag-dataset-row-create > .col-12,
+.rag-console .rag-dataset-manager .rag-dataset-row-import > .col-12 {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.rag-console .rag-dataset-manager .rag-dataset-row-create > .col-lg-6,
+.rag-console .rag-dataset-manager .rag-dataset-row-import > .col-lg-6 {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.rag-console .rag-dataset-manager .rag-dataset-row-create,
+.rag-console .rag-dataset-manager .rag-dataset-row-import {
+  column-gap: 12px;
+  row-gap: 10px;
+}
+
+.rag-console .rag-dataset-actions {
+  justify-content: flex-start;
+}
+
+.rag-console .rag-candidate-modal .modal-body,
+.rag-console .rag-detail-modal .modal-body {
+  max-height: min(74vh, 820px);
+  overflow: auto;
+}
+
+.rag-console .rag-candidate-modal textarea.form-control,
+.rag-console .rag-detail-modal textarea.form-control {
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 0.86rem;
+  line-height: 1.46;
+}
+
+@media (max-width: 1199px) {
+  .rag-console .rag-report-block-base .rag-report-grid.rag-report-grid-wide {
+    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+  }
+
+  .rag-console .rag-report-block-base .rag-report-grid.rag-report-grid-wide .rag-col-span-2 {
+    grid-column: span 1;
+  }
+
+  .rag-console .rag-report-block-advanced .rag-report-grid.rag-report-grid-tight {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 991px) {
+  .rag-console .rag-report-block-advanced .rag-report-grid.rag-report-grid-tight {
+    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+  }
+
+  .rag-console .rag-report-block-run .ui-actions-row .btn {
+    min-width: 0;
+    flex: 1;
+  }
+}
+

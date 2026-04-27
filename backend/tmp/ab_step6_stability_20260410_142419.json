@@ -1,0 +1,304 @@
+{
+  "mode": "stability_validation_after_step6_single_pass_small",
+  "run_at": "2026-04-10T14:24:19.685819",
+  "sample_count": 3,
+  "results": [
+    {
+      "seed_meta": {
+        "seed_generation_id": 36,
+        "project_id": 8,
+        "user_id": 1,
+        "hash": "65a31daaf2d2a6f4c4450345a8df6a6c",
+        "features": {
+          "length": 415,
+          "line_count": 22,
+          "ui_hits": 0,
+          "behavior_hits": 0
+        },
+        "created_at": "2026-03-05 10:21:27"
+      },
+      "off": {
+        "generation_id": 57,
+        "errors": [],
+        "status_tail": [
+          "@@STATUS@@:正在进行需求元分析 (Meta-Analysis)，识别系统类型与测试策略...",
+          "@@STATUS@@:分析完成 - 系统类型: Tablet + Web, 复杂度: High, 策略: {\"functional\": 0.6, \"regression\": 0.2, \"non_functional\": 0.2}...",
+          "@@STATUS@@:正在生成第 1/1 批次 (12 条) - 第 1 次尝试...",
+          "@@STATUS@@:正常完成",
+          "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
+        ],
+        "stats": {
+          "count": 12,
+          "priority": {
+            "P0": 0,
+            "P1": 0,
+            "P2": 12,
+            "P3": 0
+          },
+          "ui_like_count": 0,
+          "behavior_like_count": 0,
+          "ui_like_ratio": 0.0,
+          "behavior_like_ratio": 0.0
+        },
+        "feedback_control_state": {
+          "soft_constraints_count": 0,
+          "soft_constraints_in_prompt": false,
+          "quality_fix_hints_count": 2,
+          "quality_fix_hints_in_prompt": false
+        },
+        "review_decision_summary": {
+          "candidate_total": 12,
+          "retained_total": 12,
+          "soft_constraint_hit_count": 0
+        }
+      },
+      "on": {
+        "generation_id": 58,
+        "errors": [],
+        "status_tail": [
+          "@@STATUS@@:正在进行需求元分析 (Meta-Analysis)，识别系统类型与测试策略...",
+          "@@STATUS@@:分析完成 - 系统类型: Unknown, 复杂度: Medium, 策略: {\"functional\": 0.6, \"regression\": 0.2, \"non_functional\": 0.2}...",
+          "@@STATUS@@:正在生成第 1/1 批次 (12 条) - 第 1 次尝试...",
+          "@@STATUS@@:正常完成",
+          "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
+        ],
+        "stats": {
+          "count": 12,
+          "priority": {
+            "P0": 0,
+            "P1": 1,
+            "P2": 11,
+            "P3": 0
+          },
+          "ui_like_count": 0,
+          "behavior_like_count": 0,
+          "ui_like_ratio": 0.0,
+          "behavior_like_ratio": 0.0
+        },
+        "feedback_control_state": {
+          "soft_constraints_count": 3,
+          "soft_constraints_in_prompt": false,
+          "quality_fix_hints_count": 12,
+          "quality_fix_hints_in_prompt": false
+        },
+        "review_decision_summary": {
+          "candidate_total": 12,
+          "retained_total": 12,
+          "soft_constraint_hit_count": 0
+        }
+      },
+      "delta": {
+        "p1_ratio_off": 0.0,
+        "p1_ratio_on": 0.0833,
+        "p1_ratio_delta_on_minus_off": 0.0833,
+        "count_off": 12,
+        "count_on": 12,
+        "count_delta_on_minus_off": 0,
+        "ui_like_ratio_off": 0.0,
+        "ui_like_ratio_on": 0.0,
+        "ui_like_ratio_delta_on_minus_off": 0.0
+      }
+    },
+    {
+      "seed_meta": {
+        "seed_generation_id": 44,
+        "project_id": 8,
+        "user_id": 1,
+        "hash": "be9fed91b6ea361e1f53b3de81902ad4",
+        "features": {
+          "length": 3718,
+          "line_count": 253,
+          "ui_hits": 0,
+          "behavior_hits": 0
+        },
+        "created_at": "2026-04-03 10:02:52"
+      },
+      "off": {
+        "generation_id": 59,
+        "errors": [],
+        "status_tail": [
+          "@@STATUS@@:正在进行需求元分析 (Meta-Analysis)，识别系统类型与测试策略...",
+          "@@STATUS@@:分析完成 - 系统类型: Unknown, 复杂度: Medium, 策略: {\"functional\": 0.6, \"regression\": 0.2, \"non_functional\": 0.2}...",
+          "@@STATUS@@:正在生成第 1/1 批次 (12 条) - 第 1 次尝试...",
+          "@@STATUS@@:正常完成",
+          "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
+        ],
+        "stats": {
+          "count": 12,
+          "priority": {
+            "P0": 0,
+            "P1": 4,
+            "P2": 8,
+            "P3": 0
+          },
+          "ui_like_count": 0,
+          "behavior_like_count": 0,
+          "ui_like_ratio": 0.0,
+          "behavior_like_ratio": 0.0
+        },
+        "feedback_control_state": {
+          "soft_constraints_count": 0,
+          "soft_constraints_in_prompt": false,
+          "quality_fix_hints_count": 2,
+          "quality_fix_hints_in_prompt": false
+        },
+        "review_decision_summary": {
+          "candidate_total": 12,
+          "retained_total": 12,
+          "soft_constraint_hit_count": 0
+        }
+      },
+      "on": {
+        "generation_id": 60,
+        "errors": [],
+        "status_tail": [
+          "@@STATUS@@:正在进行需求元分析 (Meta-Analysis)，识别系统类型与测试策略...",
+          "@@STATUS@@:分析完成 - 系统类型: Unknown, 复杂度: Medium, 策略: {\"functional\": 0.6, \"regression\": 0.2, \"non_functional\": 0.2}...",
+          "@@STATUS@@:正在生成第 1/1 批次 (12 条) - 第 1 次尝试...",
+          "@@STATUS@@:正常完成",
+          "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
+        ],
+        "stats": {
+          "count": 12,
+          "priority": {
+            "P0": 0,
+            "P1": 1,
+            "P2": 11,
+            "P3": 0
+          },
+          "ui_like_count": 0,
+          "behavior_like_count": 0,
+          "ui_like_ratio": 0.0,
+          "behavior_like_ratio": 0.0
+        },
+        "feedback_control_state": {
+          "soft_constraints_count": 3,
+          "soft_constraints_in_prompt": false,
+          "quality_fix_hints_count": 12,
+          "quality_fix_hints_in_prompt": false
+        },
+        "review_decision_summary": {
+          "candidate_total": 12,
+          "retained_total": 12,
+          "soft_constraint_hit_count": 0
+        }
+      },
+      "delta": {
+        "p1_ratio_off": 0.3333,
+        "p1_ratio_on": 0.0833,
+        "p1_ratio_delta_on_minus_off": -0.25,
+        "count_off": 12,
+        "count_on": 12,
+        "count_delta_on_minus_off": 0,
+        "ui_like_ratio_off": 0.0,
+        "ui_like_ratio_on": 0.0,
+        "ui_like_ratio_delta_on_minus_off": 0.0
+      }
+    },
+    {
+      "seed_meta": {
+        "seed_generation_id": 42,
+        "project_id": 9,
+        "user_id": 1,
+        "hash": "66b74b83c482598be7e668c47cef7ee8",
+        "features": {
+          "length": 13096,
+          "line_count": 849,
+          "ui_hits": 0,
+          "behavior_hits": 0
+        },
+        "created_at": "2026-03-18 09:53:53"
+      },
+      "off": {
+        "generation_id": 61,
+        "errors": [],
+        "status_tail": [
+          "@@STATUS@@:正在进行需求元分析 (Meta-Analysis)，识别系统类型与测试策略...",
+          "@@STATUS@@:分析完成 - 系统类型: Web, 复杂度: High, 策略: {\"functional\": 0.65, \"regression\": 0.15, \"non_functional\": 0.2}...",
+          "@@STATUS@@:正在生成第 1/1 批次 (12 条) - 第 1 次尝试...",
+          "@@STATUS@@:正常完成",
+          "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
+        ],
+        "stats": {
+          "count": 12,
+          "priority": {
+            "P0": 0,
+            "P1": 2,
+            "P2": 10,
+            "P3": 0
+          },
+          "ui_like_count": 0,
+          "behavior_like_count": 0,
+          "ui_like_ratio": 0.0,
+          "behavior_like_ratio": 0.0
+        },
+        "feedback_control_state": {
+          "soft_constraints_count": 0,
+          "soft_constraints_in_prompt": false,
+          "quality_fix_hints_count": 6,
+          "quality_fix_hints_in_prompt": false
+        },
+        "review_decision_summary": {
+          "candidate_total": 12,
+          "retained_total": 12,
+          "soft_constraint_hit_count": 0
+        }
+      },
+      "on": {
+        "generation_id": 62,
+        "errors": [],
+        "status_tail": [
+          "@@STATUS@@:正在进行需求元分析 (Meta-Analysis)，识别系统类型与测试策略...",
+          "@@STATUS@@:分析完成 - 系统类型: Unknown, 复杂度: Medium, 策略: {\"functional\": 0.6, \"regression\": 0.2, \"non_functional\": 0.2}...",
+          "@@STATUS@@:正在生成第 1/1 批次 (12 条) - 第 1 次尝试...",
+          "@@STATUS@@:正常完成",
+          "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
+        ],
+        "stats": {
+          "count": 12,
+          "priority": {
+            "P0": 0,
+            "P1": 4,
+            "P2": 8,
+            "P3": 0
+          },
+          "ui_like_count": 0,
+          "behavior_like_count": 0,
+          "ui_like_ratio": 0.0,
+          "behavior_like_ratio": 0.0
+        },
+        "feedback_control_state": {
+          "soft_constraints_count": 0,
+          "soft_constraints_in_prompt": false,
+          "quality_fix_hints_count": 6,
+          "quality_fix_hints_in_prompt": false
+        },
+        "review_decision_summary": {
+          "candidate_total": 12,
+          "retained_total": 12,
+          "soft_constraint_hit_count": 0
+        }
+      },
+      "delta": {
+        "p1_ratio_off": 0.1667,
+        "p1_ratio_on": 0.3333,
+        "p1_ratio_delta_on_minus_off": 0.1666,
+        "count_off": 12,
+        "count_on": 12,
+        "count_delta_on_minus_off": 0,
+        "ui_like_ratio_off": 0.0,
+        "ui_like_ratio_on": 0.0,
+        "ui_like_ratio_delta_on_minus_off": 0.0
+      }
+    }
+  ],
+  "summary": {
+    "p1_ratio_delta_avg": -0.0,
+    "p1_ratio_delta_min": -0.25,
+    "p1_ratio_delta_max": 0.1666,
+    "count_delta_avg": 0.0,
+    "ui_like_ratio_delta_avg": 0.0,
+    "positive_p1_delta_runs": 2,
+    "non_negative_p1_delta_runs": 2
+  }
+}

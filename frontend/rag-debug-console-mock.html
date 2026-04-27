@@ -1,0 +1,89 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RAG Debug Console Mock</title>
+  <style>
+    :root{--bg:#f3f5f9;--card:#fff;--text:#1f2937;--muted:#6b7280;--line:#e5e7eb;--primary:#2563eb;--ok:#16a34a;--warn:#f59e0b;--bad:#dc2626}
+    *{box-sizing:border-box;font-family:"Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif}
+    body{margin:0;background:var(--bg);color:var(--text)}
+    .wrap{padding:24px;max-width:1400px;margin:0 auto}
+    .top{position:sticky;top:0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 2px 8px rgba(15,23,42,.06)}
+    .btn{background:var(--primary);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:600}
+    .btn.out{background:#fff;color:#334155;border:1px solid var(--line)}
+    .meta{margin-top:8px;color:var(--muted);font-size:13px;display:flex;gap:22px}
+    .hero{margin-top:16px;display:grid;grid-template-columns:1.6fr 1fr;gap:16px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 2px 8px rgba(15,23,42,.04)}
+    .card .hd{padding:14px 16px;border-bottom:1px solid var(--line);font-weight:700}
+    .card .bd{padding:14px 16px}
+    .input{height:180px;border:1px solid var(--line);border-radius:10px;background:#fafafa;padding:10px;color:#9ca3af}
+    .field{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+    .ctl{border:1px solid var(--line);border-radius:10px;height:40px;background:#fafafa;padding:8px 10px}
+    .checks{display:flex;gap:16px;margin:10px 0;color:#334155}
+    .cta{display:flex;gap:10px}
+    .board{margin-top:16px;display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:16px}
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:12px;margin-right:6px}
+    .sec{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px;background:#fbfcfe}
+    .ttl{font-weight:700;margin-bottom:8px}
+    .row{display:flex;justify-content:space-between;font-size:13px;padding:2px 0}
+    .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+    .table{height:90px;border:1px dashed #d1d5db;border-radius:8px;background:#fff}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <div style="font-size:22px;font-weight:800">🧪 RAG 校验测试</div>
+        <div class="meta"><span>知识库：测试库A</span><span>数据集：验证集-基础</span><span>模式：单条调试</span></div>
+      </div>
+      <div style="display:flex;gap:10px"><button class="btn out">重置</button><button class="btn">保存配置</button></div>
+    </div>
+
+    <div class="hero">
+      <div class="card">
+        <div class="hd">Query</div>
+        <div class="bd">
+          <div class="input">用户输入问题...</div>
+          <div style="margin-top:10px" class="sec"><span class="ttl">🔁 Rewrite结果（自动展开）</span><div style="font-size:13px;color:#4b5563">“xxx配置流程 + 参数限制”</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="hd">⚙️ 快速参数</div>
+        <div class="bd">
+          <div class="field"><div class="ctl">检索模式: hybrid</div><div class="ctl">原始召回: 25</div></div>
+          <div class="field"><div class="ctl">重排保留: 12</div><div class="ctl">max_tokens: 1800</div></div>
+          <div class="checks"><span>☑ Query Rewrite</span><span>☑ Rerank</span></div>
+          <div class="cta"><button class="btn" style="flex:1">开始校验</button><button class="btn out">高级参数</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="board">
+      <div class="card"><div class="hd">🧾 输入理解</div><div class="bd">
+        <div class="sec"><div class="ttl">Query</div><div style="font-size:13px">xxx问题</div></div>
+        <div class="sec"><div class="ttl">Rewrite</div><div style="font-size:13px">xxx改写结果</div></div>
+        <div class="sec"><div class="ttl">标签</div><span class="badge">配置类</span><span class="badge">流程类</span></div>
+      </div></div>
+
+      <div class="card"><div class="hd">🔍 检索链路</div><div class="bd">
+        <div class="sec"><div class="ttl">① Recall（25）</div><div class="table"></div></div>
+        <div class="sec"><div class="ttl">② Rerank（12）</div><div style="font-size:13px">↑ B(0.95)  ↓ A(0.92)  ❌ C被淘汰</div></div>
+        <div class="sec"><div class="ttl">③ Final Context</div><div style="font-size:13px">✔ chunk A  ✔ chunk B  ✂ 压缩: 1200 tokens</div></div>
+      </div></div>
+
+      <div class="card"><div class="hd">🤖 结果与诊断</div><div class="bd">
+        <div class="sec"><div class="ttl">模型回答</div><div style="height:80px;border:1px solid var(--line);border-radius:8px;background:#fff"></div></div>
+        <div class="sec"><div class="ttl">自动评分</div>
+          <div class="row"><span>正确性</span><span class="ok">✅</span></div>
+          <div class="row"><span>覆盖率</span><span>80%</span></div>
+          <div class="row"><span>幻觉风险</span><span class="warn">⚠️</span></div>
+        </div>
+        <div class="sec"><div class="ttl">问题归因</div><div style="font-size:13px">[✓] Rerank误杀</div></div>
+        <div class="sec"><div class="ttl">优化建议</div><div style="font-size:13px">- 提高rerank权重<br>- 增加规则召回</div></div>
+      </div></div>
+    </div>
+  </div>
+</body>
+</html>

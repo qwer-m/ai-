@@ -1,0 +1,216 @@
+﻿.standard-api-shell .standard-api-splitter {
+        border-top-color: var(--sat-border) !important;
+        background: var(--sat-surface-muted);
+      }
+
+      .standard-api-shell .standard-api-splitter-handle {
+        height: 6px;
+        cursor: row-resize;
+        user-select: none;
+      }
+
+      .standard-api-shell .standard-api-request-config-resizable {
+        height: var(--sat-request-height, 320px);
+        min-height: 100px;
+        overflow: hidden;
+      }
+
+      .standard-api-shell .standard-api-sidebar-resizable {
+        width: var(--sat-sidebar-width, 260px);
+        min-width: var(--sat-sidebar-width, 260px);
+        overflow: hidden;
+        transition: width 0.2s ease, min-width 0.2s ease, opacity 0.2s ease;
+        opacity: 1;
+      }
+
+      .standard-api-shell .standard-api-sidebar-resizable.is-closed {
+        width: 0;
+        min-width: 0;
+        opacity: 0;
+      }
+
+      .standard-api-shell .standard-api-sidebar-resizable.is-resizing {
+        transition: none;
+      }
+
+      .standard-api-shell .standard-api-splitter.is-dragging {
+        background: color-mix(in srgb, var(--sat-primary-soft) 70%, var(--sat-surface-muted));
+      }
+
+      .standard-api-shell .standard-api-response-loading {
+        background: color-mix(in srgb, var(--sat-surface) 75%, transparent) !important;
+      }
+
+      .standard-api-shell .standard-api-toolbar {
+        min-height: 50px;
+      }
+
+      .standard-api-shell .standard-api-method-select {
+        width: 110px;
+        background-color: color-mix(in srgb, var(--sat-surface-muted) 88%, transparent);
+        border-right: 1px solid var(--sat-border) !important;
+        font-weight: 600;
+      }
+
+      .standard-api-shell .standard-api-path-highlight {
+        white-space: pre;
+        overflow: hidden;
+        pointer-events: none;
+        font: inherit;
+        color: var(--sat-text);
+        padding-left: 0;
+        padding-right: 0;
+      }
+
+      .standard-api-shell .standard-api-path-text {
+        color: var(--sat-text);
+      }
+
+      .standard-api-shell .standard-api-env-chip {
+        border-radius: 4px;
+        padding: 0 2px;
+        margin: 0 1px;
+        font-size: 1em;
+        line-height: 1.6;
+        border: 1px solid var(--sat-border);
+      }
+
+      .standard-api-shell .standard-api-env-chip--empty {
+        border-color: color-mix(in srgb, #f59e0b 45%, var(--sat-border));
+        color: color-mix(in srgb, #b45309 82%, var(--sat-text));
+      }
+
+      .standard-api-shell .standard-api-env-chip--missing {
+        background: color-mix(in srgb, #ef4444 14%, var(--sat-surface));
+        border-color: color-mix(in srgb, #ef4444 38%, var(--sat-border));
+        color: #dc2626;
+        font-weight: 600;
+      }
+
+      .standard-api-shell .standard-api-env-chip--ok {
+        color: var(--sat-primary);
+      }
+
+      .standard-api-shell .standard-api-env-popup {
+        top: 100%;
+        z-index: 1050;
+        margin-top: 4px;
+      }
+
+      .standard-api-shell .standard-api-env-popup-input-wrap {
+        background: var(--sat-surface);
+        border-color: var(--sat-border) !important;
+      }
+
+      .standard-api-shell .standard-api-env-label {
+        font-weight: 500;
+      }
+
+      .standard-api-shell .standard-api-send-btn,
+      .standard-api-shell .standard-api-save-btn,
+      .standard-api-shell .standard-api-env-manage-btn {
+        font-weight: 500;
+      }
+
+      .standard-api-shell .standard-api-tab-ai {
+        font-weight: 500;
+      }
+
+      .standard-api-shell .standard-api-format-toggle,
+      .standard-api-shell .standard-api-preview-btn {
+        font-weight: 600;
+      }
+
+      .standard-api-shell .standard-api-format-glyph {
+        width: 34px;
+      }
+
+      .standard-api-shell .standard-api-format-menu {
+        min-width: 200px;
+      }
+
+      .standard-api-shell .standard-api-body-tab-wrap,
+      .standard-api-shell .standard-api-body-content,
+      .standard-api-shell .standard-api-report-tab-wrap {
+        min-height: 0;
+      }
+
+      .standard-api-shell .standard-api-body-toolbar-divider {
+        height: 16px;
+      }
+
+      .standard-api-shell .standard-api-response-iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+      }
+
+      .standard-api-shell .standard-api-json-view {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        overflow: auto;
+        user-select: text;
+        background: var(--sat-surface);
+      }
+
+      .standard-api-shell .standard-api-response-textarea {
+        resize: none;
+        outline: none;
+        color: var(--sat-text);
+        opacity: 1;
+        background: var(--sat-surface);
+      }
+
+      .standard-api-shell .standard-api-report-card {
+        background: var(--sat-surface);
+        border-color: var(--sat-border) !important;
+      }
+
+      .standard-api-shell .standard-api-report-pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: inherit;
+      }
+
+      .standard-api-shell .standard-api-report-pre--raw {
+        word-break: break-all;
+      }
+
+      .standard-api-shell .standard-api-report-tip {
+        max-width: 400px;
+      }
+
+      .standard-api-shell .standard-api-panel-scroll {
+        min-height: 0;
+      }
+
+      .standard-api-shell .standard-api-fw-600 {
+        font-weight: 600;
+      }
+
+      .standard-api-shell .standard-api-fw-500 {
+        font-weight: 500;
+      }
+
+      .standard-api-shell .standard-api-report-failure-name {
+        max-width: 300px;
+      }
+
+      .standard-api-shell .standard-api-raw-textarea {
+        resize: none;
+        outline: none;
+      }
+
+      .standard-api-shell .standard-api-kv-table {
+        table-layout: fixed;
+      }
+
+      .standard-api-shell .standard-api-kv-table th {
+        font-weight: 500;
+      }
+
+      .standard-api-shell .standard-api-kv-col-key,
+      .standard-api-shell .standard-api-kv-col-value {
+        width: 30%;
+      }
+

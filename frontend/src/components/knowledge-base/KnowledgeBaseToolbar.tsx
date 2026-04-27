@@ -1,5 +1,5 @@
-import { Button, Card, Col, Form, InputGroup, Row, Spinner } from "react-bootstrap";
-import { FaSearch, FaWifi } from "react-icons/fa";
+﻿import { Button, Card, Col, Form, InputGroup, Row, Spinner } from 'react-bootstrap';
+import { FaSearch, FaWifi } from 'react-icons/fa';
 
 type KnowledgeBaseToolbarProps = {
   isOnline: boolean;
@@ -39,28 +39,24 @@ export function KnowledgeBaseToolbar({
   onSearch,
 }: KnowledgeBaseToolbarProps) {
   return (
-    <Card className="border-0 shadow-sm search-card">
+    <Card className="border-0 shadow-sm search-card knowledge-toolbar-card panel-card">
       <Card.Body className="p-3">
-        <Row className="g-3 align-items-end">
+        <Row className="g-3 align-items-center">
           <Col md={3}>
-            <Form.Label className="small fw-bold text-secondary">
-              上传文档 {isOnline ? "" : "(离线)"}
-            </Form.Label>
             <InputGroup size="sm">
               <Form.Control
                 type="file"
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  onFileChange(e.target.files?.[0] ?? null)
-                }
+                className="text-center"
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => onFileChange(e.target.files?.[0] ?? null)}
                 disabled={!isOnline}
               />
             </InputGroup>
           </Col>
 
           <Col md={2}>
-            <Form.Label className="small fw-bold text-secondary">类型</Form.Label>
             <Form.Select
               size="sm"
+              className="text-center"
               value={docType}
               onChange={(e) => setDocType(e.target.value)}
               disabled={!isOnline}
@@ -73,27 +69,27 @@ export function KnowledgeBaseToolbar({
             </Form.Select>
           </Col>
 
-          <Col md={1}>
+          <Col md={1} className="d-flex align-items-end justify-content-center">
             <Button
               variant="primary"
               size="sm"
-              className="w-100"
+              className="px-4 d-flex align-items-center justify-content-center knowledge-upload-btn"
               onClick={onUpload}
               disabled={uploading || !projectId || !isOnline}
             >
-              {uploading ? <Spinner size="sm" animation="border" /> : "上传"}
+              {uploading ? <Spinner size="sm" animation="border" /> : '上传'}
             </Button>
           </Col>
 
           <Col className="border-start ps-4">
             <Row className="g-2">
               <Col md={4}>
-                <Form.Label className="small fw-bold text-secondary">关键词</Form.Label>
                 <InputGroup size="sm">
-                  <InputGroup.Text>
+                  <InputGroup.Text className="bg-transparent border-0 ps-2 pe-1 shadow-none">
                     <FaSearch />
                   </InputGroup.Text>
                   <Form.Control
+                    className="text-center"
                     placeholder="搜索文件名..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -101,14 +97,15 @@ export function KnowledgeBaseToolbar({
                 </InputGroup>
               </Col>
 
-              <Col md={2} className="d-flex align-items-end">
+              <Col md={3} className="d-flex align-items-end">
                 <Form.Select
                   size="sm"
                   value={filterDocType}
                   onChange={(e) => setFilterDocType(e.target.value)}
                   aria-label="文档类型过滤"
+                  className={`text-center knowledge-filter-select ${filterDocType ? '' : 'text-muted'}`}
                 >
-                  <option value="">所有类型</option>
+                  <option value="">全部类别</option>
                   <option value="requirement">需求文档</option>
                   <option value="test_case">测试用例</option>
                   <option value="prototype">原型图</option>
@@ -117,17 +114,18 @@ export function KnowledgeBaseToolbar({
                 </Form.Select>
               </Col>
 
-              <Col md={4}>
-                <Form.Label className="small fw-bold text-secondary">日期范围</Form.Label>
+              <Col md={3}>
                 <InputGroup size="sm">
                   <Form.Control
+                    className="text-center"
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
                     aria-label="开始日期"
                   />
-                  <InputGroup.Text className="px-1">-</InputGroup.Text>
+                  <InputGroup.Text className="px-1 border-0 bg-transparent rounded-0">-</InputGroup.Text>
                   <Form.Control
+                    className="text-center"
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
@@ -136,8 +134,8 @@ export function KnowledgeBaseToolbar({
                 </InputGroup>
               </Col>
 
-              <Col md={2} className="d-flex align-items-end">
-                <Button variant="secondary" size="sm" className="w-100" onClick={onSearch}>
+              <Col md={2} className="d-flex align-items-end justify-content-center">
+                <Button variant="secondary" size="sm" className="px-4 d-flex align-items-center justify-content-center" onClick={onSearch}>
                   查询
                 </Button>
               </Col>
@@ -154,7 +152,7 @@ export function OfflineBanner({ isOnline }: { isOnline: boolean }) {
   return (
     <div className="alert alert-warning d-flex align-items-center py-2 mb-0" role="alert">
       <FaWifi className="me-2 offline-badge" />
-      <strong>离线模式</strong>: 您当前处于离线状态，部分功能不可用。
+      <strong>离线模式</strong>: 当前处于离线状态，部分功能不可用。
     </div>
   );
 }

@@ -1,0 +1,13 @@
+        return {"success": False, "error": "position must be before or after"}
+
+    moved = knowledge_base.move_document(req.project_id, req.doc_id, req.anchor_doc_id, req.position, db)
+    if not moved:
+        return {"success": False, "error": "Move failed"}
+    return {"success": True}
+
+@router.post("/error/translate")
+def translate_error(req: ErrorTranslateRequest, current_user: User = Depends(get_current_user)):
+    """把接口/网络错误翻译成更友好的中文提示。"""
+    raw = extract_error_text(req.error)
+    message = translate_error_text(raw)
+    return {"message": message, "raw": raw}

@@ -1,0 +1,176 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RAG 参数面板优化示意</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --line: #dce3ee;
+      --text: #1f2a37;
+      --muted: #5f6b7a;
+      --accent: #2563eb;
+      --chip: #eef4ff;
+      --ok: #16a34a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: radial-gradient(1200px 600px at -10% -10%, #e8f0ff 0, transparent 60%), var(--bg);
+      color: var(--text);
+    }
+    .wrap { max-width: 1480px; margin: 30px auto; padding: 0 18px; }
+    .titlebar {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .title { font-size: 24px; font-weight: 700; letter-spacing: .3px; }
+    .sub { color: var(--muted); font-size: 13px; }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--card);
+      box-shadow: 0 10px 30px rgba(18, 52, 98, .08);
+      overflow: hidden;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 0;
+      min-height: 760px;
+    }
+    .left, .right { padding: 22px; }
+    .left { border-right: 1px solid var(--line); background: linear-gradient(180deg, #fff, #fcfdff); }
+    .section-h {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .label { font-size: 13px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: .3px; }
+    .hint { color: var(--muted); font-size: 12px; }
+    textarea, input, select {
+      width: 100%; border: 1px solid var(--line); border-radius: 10px; background: #fbfcff;
+      color: var(--text); padding: 10px 12px; font-size: 16px;
+    }
+    textarea { min-height: 230px; resize: vertical; }
+    .right-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 14px;
+    }
+    .fg label {
+      display: block; font-size: 12px; color: #475569; margin-bottom: 5px; font-weight: 600;
+      letter-spacing: .2px;
+    }
+    .inline-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+    .switch {
+      display: flex; align-items: center; gap: 8px; padding: 9px 10px;
+      border: 1px dashed var(--line); border-radius: 10px; background: #fbfdff;
+      font-size: 14px;
+    }
+    .dot {
+      width: 10px; height: 10px; border-radius: 999px; background: var(--ok);
+      box-shadow: 0 0 0 5px rgba(22,163,74,.15);
+    }
+    .block {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fafcff;
+    }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .chip {
+      padding: 4px 10px; border-radius: 999px; background: var(--chip); color: #1d4ed8;
+      font-size: 12px; border: 1px solid #cfe0ff;
+    }
+    .footer {
+      display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px;
+      border-top: 1px solid var(--line); background: #fcfdff;
+    }
+    .btn {
+      border: 1px solid var(--line); background: #fff; padding: 8px 14px; border-radius: 10px; font-weight: 600;
+    }
+    .btn.primary { background: var(--accent); color: #fff; border-color: #1d4ed8; }
+    .btn.ghost { background: #f8fbff; color: #1d4ed8; border-color: #cfe0ff; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="titlebar">
+      <div>
+        <div class="title">RAG 单条调试（优化示意）</div>
+        <div class="sub">目标：减少参数疲劳，提升可读性与调参效率</div>
+      </div>
+      <div class="chips">
+        <span class="chip">参数分组</span>
+        <span class="chip">默认值高亮</span>
+        <span class="chip">开关状态可视化</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="grid">
+        <div class="left">
+          <div class="section-h">
+            <span class="label">Query 输入</span>
+            <span class="hint">支持多行，按 Enter 分段</span>
+          </div>
+          <textarea placeholder="输入问题，例如：用户余额查询接口返回 500 时，检索链路哪里可能出错？"></textarea>
+
+          <div class="block">
+            <div class="section-h" style="margin-bottom: 4px;">
+              <span class="label">检索范围</span>
+              <span class="hint">可选项可折叠</span>
+            </div>
+            <div class="inline-row">
+              <div class="fg">
+                <label>Gold 对照样本（可选）</label>
+                <select><option>数据集 / 样本</option></select>
+              </div>
+              <div class="fg">
+                <label>Gold chunk_ids（可编辑）</label>
+                <input placeholder="支持换行/逗号分隔" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="right">
+          <div class="section-h">
+            <span class="label">参数配置</span>
+            <span class="hint">按“召回/重排/生成”分组展示</span>
+          </div>
+          <div class="right-grid">
+            <div class="fg"><label>top_k</label><input value="5" /></div>
+            <div class="fg"><label>max_tokens</label><input value="1800" /></div>
+            <div class="fg"><label>llm_model（可选）</label><input placeholder="例如 glm-4.7" /></div>
+            <div class="fg"><label>retrieval_mode</label><select><option>hybrid</option></select></div>
+            <div class="fg"><label>recall_top_k</label><input value="25" /></div>
+            <div class="fg"><label>rerank_top_n</label><input value="12" /></div>
+            <div class="fg"><label>max_chunks_per_doc</label><input value="2" /></div>
+            <div class="fg"><label>min_docs</label><input value="2" /></div>
+            <div class="fg"><label>vector_weight</label><input value="0.6" /></div>
+            <div class="fg"><label>keyword_weight</label><input value="0.25" /></div>
+            <div class="fg"><label>title_weight</label><input value="0.15" /></div>
+            <div class="fg"><label>redundancy_threshold</label><input value="0.88" /></div>
+          </div>
+
+          <div class="inline-row">
+            <div class="switch"><span class="dot"></span> enable_query_rewrite</div>
+            <div class="switch"><span class="dot"></span> enable_rerank</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer">
+        <button class="btn">重置参数</button>
+        <button class="btn ghost">保存为预设</button>
+        <button class="btn primary">开始调试</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,5 @@
+﻿/**
+ * 兼容层：保留历史导出名称，避免旧引用失效。
+ * 新实现统一收敛到 DashboardContent。
+ */
+export { DashboardContent as DashboardWorkspace } from './DashboardContent';

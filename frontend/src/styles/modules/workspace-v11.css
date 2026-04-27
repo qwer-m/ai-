@@ -1,0 +1,90 @@
+/* 工作台重构 v11：企业控制台表单布局 + 固定工具条滚动内容区 */
+
+body.ui-overhaul-v4 .control-grid-lr .control-field {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+body.ui-overhaul-v4 .control-grid-lr .control-field .form-label {
+  margin-bottom: 0;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.ui-overhaul-v4 .control-grid-lr .control-field .form-control,
+body.ui-overhaul-v4 .control-grid-lr .control-field .form-select {
+  min-width: 0;
+}
+
+body.ui-overhaul-v4 .control-grid-lr .control-field textarea.form-control {
+  min-height: 132px;
+}
+
+body.ui-overhaul-v4 .rag-report-block .ui-section-title,
+body.ui-overhaul-v4 .rag-candidate-block .ui-section-title {
+  margin-bottom: 12px;
+}
+
+body.ui-overhaul-v4 .scroll-table-lg,
+body.ui-overhaul-v4 .scroll-table-md {
+  overflow: auto;
+}
+
+body.ui-overhaul-v4 .scroll-table-lg {
+  max-height: min(52vh, 520px);
+}
+
+body.ui-overhaul-v4 .scroll-table-md {
+  max-height: min(42vh, 420px);
+}
+
+body.ui-overhaul-v4 .scroll-table-lg thead th,
+body.ui-overhaul-v4 .scroll-table-md thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+body.ui-overhaul-v4 .rag-report-block-samples .rag-report-pagination,
+body.ui-overhaul-v4 .rag-candidate-list .rag-report-pagination {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding-top: 8px;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--fd-surface) 92%, transparent) 18%, color-mix(in srgb, var(--fd-surface-soft) 88%, transparent));
+}
+
+body.theme-dark.ui-overhaul-v4 .rag-report-block-samples .rag-report-pagination,
+body.theme-dark.ui-overhaul-v4 .rag-candidate-list .rag-report-pagination {
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--fd-surface) 92%, transparent) 18%, color-mix(in srgb, var(--fd-surface-soft) 92%, transparent));
+}
+
+@media (max-width: 1200px) {
+  body.ui-overhaul-v4 .control-grid-lr .control-field {
+    grid-template-columns: 120px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 991px) {
+  body.ui-overhaul-v4 .control-grid-lr .control-field {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  body.ui-overhaul-v4 .control-grid-lr .control-field .form-label {
+    text-align: left;
+    white-space: normal;
+  }
+
+  body.ui-overhaul-v4 .scroll-table-lg {
+    max-height: 48vh;
+  }
+
+  body.ui-overhaul-v4 .scroll-table-md {
+    max-height: 40vh;
+  }
+}

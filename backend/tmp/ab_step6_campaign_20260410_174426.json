@@ -1,0 +1,809 @@
+{
+  "mode": "step6_stability_campaign",
+  "run_at": "2026-04-10T17:22:22.102404+08:00",
+  "params": {
+    "per_category": 1,
+    "expected_count": 2,
+    "seed_limit": 1500,
+    "scan_multiplier": 2,
+    "generation_mode": "single_pass",
+    "multi_pass": false
+  },
+  "seed_pool_counts": {
+    "normal": 17,
+    "complex": 10,
+    "noise_ui": 80
+  },
+  "selected_counts": {
+    "normal": 1,
+    "complex": 1,
+    "noise_ui": 1
+  },
+  "treatment_audit": {
+    "normal": {
+      "pool_total": 2,
+      "pool_treated_pred": 0,
+      "pool_untreated_pred": 1,
+      "scan_cap": 2,
+      "selected_total": 1,
+      "selected_treated_pred": 0
+    },
+    "complex": {
+      "pool_total": 2,
+      "pool_treated_pred": 0,
+      "pool_untreated_pred": 2,
+      "scan_cap": 2,
+      "selected_total": 1,
+      "selected_treated_pred": 0
+    },
+    "noise_ui": {
+      "pool_total": 2,
+      "pool_treated_pred": 2,
+      "pool_untreated_pred": 0,
+      "scan_cap": 2,
+      "selected_total": 1,
+      "selected_treated_pred": 1
+    }
+  },
+  "categories": {
+    "normal": {
+      "results": [
+        {
+          "category": "normal",
+          "run": 1,
+          "seed_meta": {
+            "doc_id": 92,
+            "project_id": 9,
+            "user_id": 1,
+            "filename": "Evaluation_Feedback_20260122_145007.txt",
+            "doc_type": "evaluation_report",
+            "created_at": "2026-01-22 14:50:07",
+            "features": {
+              "length": 580,
+              "line_count": 5,
+              "ui_hits": 0,
+              "flow_hits": 0,
+              "hash": "0e32ed85988af7045d28904ee9187a63"
+            },
+            "treatment_pred": {
+              "treated_pred": false,
+              "off_control_sig": {
+                "must_cover_rules_count": 0,
+                "must_have_scenarios_count": 5,
+                "forbidden_patterns_count": 0,
+                "soft_constraints_count": 0,
+                "quality_fix_hints_count": 6,
+                "rule_quota_keys_count": 0
+              },
+              "on_control_sig": {
+                "must_cover_rules_count": 0,
+                "must_have_scenarios_count": 5,
+                "forbidden_patterns_count": 0,
+                "soft_constraints_count": 0,
+                "quality_fix_hints_count": 6,
+                "rule_quota_keys_count": 0
+              }
+            }
+          },
+          "off": {
+            "status_code": 200,
+            "generation_id": 169,
+            "chunk_count": 259,
+            "status_tail": [
+              "@@STATUS@@:hybrid fusion done: mode=snapshot+rag rag_chunks=2 tokens~1717",
+              "@@STATUS@@:正在进行需求元分析 (Meta-Analysis)，识别系统类型与测试策略...",
+              "@@STATUS@@:分析完成 - 系统类型: Mobile (Mini-program) + Web (Backend/OPS), 复杂度: High, 策略: {\"functional\": 0.65, \"regression\": 0.25, \"non_functional\": 0.1}...",
+              "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 1 次尝试...",
+              "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 2 次尝试...",
+              "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 3 次尝试...",
+              "@@STATUS@@:正常完成",
+              "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
+            ],
+            "errors": [],
+            "stats": {
+              "count": 1,
+              "priority": {
+                "P0": 0,
+                "P1": 1,
+                "P2": 0,
+                "P3": 0
+              },
+              "ui_like_count": 1,
+              "behavior_like_count": 0,
+              "ui_like_ratio": 1.0,
+              "behavior_like_ratio": 0.0
+            },
+            "feedback_control_state": {
+              "kind": "feedback_control_state",
+              "control_state_applied": true,
+              "must_cover_rules_count": 0,
+              "rule_quota_keys": [],
+              "soft_constraints_count": 0,
+              "quality_fix_hints_count": 6,
+              "request_id": "a56d64598a374983a2d3a32f2e3fa631"
+            },
+            "review_decision_summary": {
+              "kind": "review_decision_summary",
+              "candidate_total": 1,
+              "retained_total": 1,
+              "dropped_total": 0,
+              "review_llm_filter_applied": false,
+              "drop_by_review_llm_count": 0,
+              "drop_by_review_gate_count": 0,
+              "drop_by_pre_gate_dedup_count": 0,
+              "drop_by_post_review_dedup_count": 0,
+              "drop_no_new_signal_count": 0,
+              "drop_rule_cap_count": 0,
+              "drop_by_rerank_low_signal_count": 0,
+              "dropped_model_priority_p0_p1_count": 0,
+              "dropped_core_rule_hit_count": 0,
+              "dropped_missing_rule_hit_count": 0,
+              "dropped_high_signal_count": 0,
+              "dropped_has_coverage_value_count": 0,
+              "retained_due_to_coverage_value_count": 0,
+              "must_cover_rule_hit_count": 0,
+              "forbidden_pattern_violation_count": 0,
+              "soft_constraint_hit_count": 0,
+              "quality_hint_satisfied_count": 0,
+              "multi_pass": false,
+              "generation_mode": "single_pass",
+              "request_id": "a56d64598a374983a2d3a32f2e3fa631"
+            },
+            "generation_summary": {
+              "kind": "generation_summary",
+              "recommended_range": "30-50",
+              "final_count": 1,
+              "status": "completed_with_quality_stop",
+              "stop_reason": [
+                "stopped_due_to_diminishing_returns"
+              ],
+              "quality_assessment": "medium",
+              "multi_pass": false,
+              "generation_mode": "single_pass"
+            }
+          },
+          "on": {
+            "status_code": 200,
+            "generation_id": 170,
+            "chunk_count": 86,
+            "status_tail": [
+              "@@STATUS@@:snapshot ready and reusable -> using snapshot (reason=snapshot_success_and_hash_matched)",
+              "@@STATUS@@:precision retrieval enabled (explicit_precision_mode,generation_default_precision)",
+              "@@STATUS@@:hybrid fusion done: mode=snapshot+rag rag_chunks=2 tokens~1717",
+              "@@STATUS@@:正在进行需求元分析 (Meta-Analysis)，识别系统类型与测试策略...",
+              "@@STATUS@@:分析完成 - 系统类型: Mobile (Mini-program) + Web (Backend/OPS), 复杂度: High, 策略: {\"functional\": 0.65, \"regression\": 0.25, \"non_functional\": 0.1}...",
+              "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 1 次尝试...",
+              "@@STATUS@@:正常完成",
+              "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
+            ],
+            "errors": [],
+            "stats": {
+              "count": 3,
+              "priority": {
+                "P0": 0,
+                "P1": 1,
+                "P2": 2,
+                "P3": 0
+              },
+              "ui_like_count": 3,
+              "behavior_like_count": 3,
+              "ui_like_ratio": 1.0,
+              "behavior_like_ratio": 1.0
+            },
+            "feedback_control_state": {
+              "kind": "feedback_control_state",
+              "control_state_applied": true,
+              "must_cover_rules_count": 0,
+              "rule_quota_keys": [],
+              "soft_constraints_count": 0,
+              "quality_fix_hints_count": 6,
+              "request_id": "e6b77475e2264028a1966232642843ce"
+            },
+            "review_decision_summary": {
+              "kind": "review_decision_summary",
+              "candidate_total": 3,
+              "retained_total": 3,
+              "dropped_total": 0,
+              "review_llm_filter_applied": false,
+              "drop_by_review_llm_count": 0,
+              "drop_by_review_gate_count": 0,
+              "drop_by_pre_gate_dedup_count": 0,
+              "drop_by_post_review_dedup_count": 0,
+              "drop_no_new_signal_count": 0,
+              "drop_rule_cap_count": 0,
+              "drop_by_rerank_low_signal_count": 0,
+              "dropped_model_priority_p0_p1_count": 0,
+              "dropped_core_rule_hit_count": 0,
+              "dropped_missing_rule_hit_count": 0,
+              "dropped_high_signal_count": 0,
+              "dropped_has_coverage_value_count": 0,
+              "retained_due_to_coverage_value_count": 0,
+              "must_cover_rule_hit_count": 0,
+              "forbidden_pattern_violation_count": 0,
+              "soft_constraint_hit_count": 0,
+              "quality_hint_satisfied_count": 3,
+              "multi_pass": false,
+              "generation_mode": "single_pass",
+              "request_id": "e6b77475e2264028a1966232642843ce"
+            },
+            "generation_summary": {
+              "kind": "generation_summary",
+              "recommended_range": "30-50",
+              "final_count": 3,
+              "status": "completed_with_quality_stop",
+              "stop_reason": [
+                "stopped_due_to_diminishing_returns"
+              ],
+              "quality_assessment": "medium",
+              "multi_pass": false,
+              "generation_mode": "single_pass"
+            }
+          },
+          "delta": {
+            "p1_ratio_off": 1.0,
+            "p1_ratio_on": 0.3333,
+            "p1_ratio_delta_on_minus_off": -0.6667,
+            "count_off": 1,
+            "count_on": 3,
+            "count_delta_on_minus_off": 2,
+            "ui_like_ratio_off": 1.0,
+            "ui_like_ratio_on": 1.0,
+            "ui_like_ratio_delta_on_minus_off": 0.0
+          }
+        }
+      ],
+      "summary": {
+        "runs": 1,
+        "p1_ratio_delta_avg": -0.6667,
+        "p1_ratio_delta_min": -0.6667,
+        "p1_ratio_delta_max": -0.6667,
+        "positive_p1_delta_runs": 0,
+        "non_negative_p1_delta_runs": 0,
+        "negative_rate": 1.0,
+        "worst_delta": -0.6667,
+        "delta_variance": 0.0
+      }
+    },
+    "complex": {
+      "results": [
+        {
+          "category": "complex",
+          "run": 1,
+          "seed_meta": {
+            "doc_id": 108,
+            "project_id": 9,
+            "user_id": 1,
+            "filename": "绩效考核调整26.03.pdf",
+            "doc_type": "requirement",
+            "created_at": "2026-03-05 09:42:24",
+            "features": {
+              "length": 1217,
+              "line_count": 77,
+              "ui_hits": 1,
+              "flow_hits": 13,
+              "hash": "e2a034b0ed162f898ef0562f3a5afeb5"
+            },
+            "treatment_pred": {
+              "treated_pred": false,
+              "off_control_sig": {
+                "must_cover_rules_count": 0,
+                "must_have_scenarios_count": 5,
+                "forbidden_patterns_count": 0,
+                "soft_constraints_count": 0,
+                "quality_fix_hints_count": 6,
+                "rule_quota_keys_count": 0
+              },
+              "on_control_sig": {
+                "must_cover_rules_count": 0,
+                "must_have_scenarios_count": 5,
+                "forbidden_patterns_count": 0,
+                "soft_constraints_count": 0,
+                "quality_fix_hints_count": 6,
+                "rule_quota_keys_count": 0
+              }
+            }
+          },
+          "off": {
+            "status_code": 200,
+            "generation_id": 171,
+            "chunk_count": 263,
+            "status_tail": [
+              "@@STATUS@@:snapshot ready and reusable -> using snapshot (reason=snapshot_success_and_hash_matched)",
+              "@@STATUS@@:precision retrieval enabled (explicit_precision_mode,generation_default_precision,keyword_triggered)",
+              "@@STATUS@@:hybrid fusion done: mode=snapshot+rag rag_chunks=4 tokens~1550",
+              "@@STATUS@@:正在进行需求元分析 (Meta-Analysis)，识别系统类型与测试策略...",
+              "@@STATUS@@:分析完成 - 系统类型: Web, 复杂度: High, 策略: {\"functional\": 0.6, \"regression\": 0.2, \"non_functional\": 0.2}...",
+              "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 1 次尝试...",
+              "@@STATUS@@:正常完成",
+              "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
+            ],
+            "errors": [],
+            "stats": {
+              "count": 5,
+              "priority": {
+                "P0": 0,
+                "P1": 1,
+                "P2": 4,
+                "P3": 0
+              },
+              "ui_like_count": 5,
+              "behavior_like_count": 0,
+              "ui_like_ratio": 1.0,
+              "behavior_like_ratio": 0.0
+            },
+            "feedback_control_state": {
+              "kind": "feedback_control_state",
+              "control_state_applied": true,
+              "must_cover_rules_count": 0,
+              "rule_quota_keys": [],
+              "soft_constraints_count": 0,
+              "quality_fix_hints_count": 6,
+              "request_id": "a2d06d61047242afa435773b90d8fced"
+            },
+            "review_decision_summary": {
+              "kind": "review_decision_summary",
+              "candidate_total": 5,
+              "retained_total": 5,
+              "dropped_total": 0,
+              "review_llm_filter_applied": false,
+              "drop_by_review_llm_count": 0,
+              "drop_by_review_gate_count": 0,
+              "drop_by_pre_gate_dedup_count": 0,
+              "drop_by_post_review_dedup_count": 0,
+              "drop_no_new_signal_count": 0,
+              "drop_rule_cap_count": 0,
+              "drop_by_rerank_low_signal_count": 0,
+              "dropped_model_priority_p0_p1_count": 0,
+              "dropped_core_rule_hit_count": 0,
+              "dropped_missing_rule_hit_count": 0,
+              "dropped_high_signal_count": 0,
+              "dropped_has_coverage_value_count": 0,
+              "retained_due_to_coverage_value_count": 0,
+              "must_cover_rule_hit_count": 0,
+              "forbidden_pattern_violation_count": 0,
+              "soft_constraint_hit_count": 0,
+              "quality_hint_satisfied_count": 0,
+              "multi_pass": false,
+              "generation_mode": "single_pass",
+              "request_id": "a2d06d61047242afa435773b90d8fced"
+            },
+            "generation_summary": {
+              "kind": "generation_summary",
+              "recommended_range": "30-50",
+              "final_count": 5,
+              "status": "completed_with_quality_stop",
+              "stop_reason": [
+                "stopped_due_to_diminishing_returns"
+              ],
+              "quality_assessment": "medium",
+              "multi_pass": false,
+              "generation_mode": "single_pass"
+            }
+          },
+          "on": {
+            "status_code": 200,
+            "generation_id": 172,
+            "chunk_count": 350,
+            "status_tail": [
+              "@@STATUS@@:precision retrieval enabled (explicit_precision_mode,generation_default_precision,keyword_triggered)",
+              "@@STATUS@@:hybrid fusion done: mode=snapshot+rag rag_chunks=4 tokens~1550",
+              "@@STATUS@@:正在进行需求元分析 (Meta-Analysis)，识别系统类型与测试策略...",
+              "@@STATUS@@:分析完成 - 系统类型: Web, 复杂度: High, 策略: {\"functional\": 0.6, \"regression\": 0.2, \"non_functional\": 0.2}...",
+              "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 1 次尝试...",
+              "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 2 次尝试...",
+              "@@STATUS@@:正常完成",
+              "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
+            ],
+            "errors": [],
+            "stats": {
+              "count": 28,
+              "priority": {
+                "P0": 1,
+                "P1": 17,
+                "P2": 10,
+                "P3": 0
+              },
+              "ui_like_count": 16,
+              "behavior_like_count": 8,
+              "ui_like_ratio": 0.5714,
+              "behavior_like_ratio": 0.2857
+            },
+            "feedback_control_state": {
+              "kind": "feedback_control_state",
+              "control_state_applied": true,
+              "must_cover_rules_count": 0,
+              "rule_quota_keys": [],
+              "soft_constraints_count": 0,
+              "quality_fix_hints_count": 6,
+              "request_id": "c5fc1916b4d6422e91cfcd0e36d43cc7"
+            },
+            "review_decision_summary": {
+              "kind": "review_decision_summary",
+              "candidate_total": 28,
+              "retained_total": 28,
+              "dropped_total": 0,
+              "review_llm_filter_applied": false,
+              "drop_by_review_llm_count": 0,
+              "drop_by_review_gate_count": 0,
+              "drop_by_pre_gate_dedup_count": 0,
+              "drop_by_post_review_dedup_count": 0,
+              "drop_no_new_signal_count": 0,
+              "drop_rule_cap_count": 0,
+              "drop_by_rerank_low_signal_count": 0,
+              "dropped_model_priority_p0_p1_count": 0,
+              "dropped_core_rule_hit_count": 0,
+              "dropped_missing_rule_hit_count": 0,
+              "dropped_high_signal_count": 0,
+              "dropped_has_coverage_value_count": 0,
+              "retained_due_to_coverage_value_count": 0,
+              "must_cover_rule_hit_count": 0,
+              "forbidden_pattern_violation_count": 0,
+              "soft_constraint_hit_count": 0,
+              "quality_hint_satisfied_count": 0,
+              "multi_pass": false,
+              "generation_mode": "single_pass",
+              "request_id": "c5fc1916b4d6422e91cfcd0e36d43cc7"
+            },
+            "generation_summary": {
+              "kind": "generation_summary",
+              "recommended_range": "30-50",
+              "final_count": 28,
+              "status": "completed_with_quality_stop",
+              "stop_reason": [
+                "stopped_due_to_diminishing_returns"
+              ],
+              "quality_assessment": "medium",
+              "multi_pass": false,
+              "generation_mode": "single_pass"
+            }
+          },
+          "delta": {
+            "p1_ratio_off": 0.2,
+            "p1_ratio_on": 0.6071,
+            "p1_ratio_delta_on_minus_off": 0.4071,
+            "count_off": 5,
+            "count_on": 28,
+            "count_delta_on_minus_off": 23,
+            "ui_like_ratio_off": 1.0,
+            "ui_like_ratio_on": 0.5714,
+            "ui_like_ratio_delta_on_minus_off": -0.4286
+          }
+        }
+      ],
+      "summary": {
+        "runs": 1,
+        "p1_ratio_delta_avg": 0.4071,
+        "p1_ratio_delta_min": 0.4071,
+        "p1_ratio_delta_max": 0.4071,
+        "positive_p1_delta_runs": 1,
+        "non_negative_p1_delta_runs": 1,
+        "negative_rate": 0.0,
+        "worst_delta": 0.4071,
+        "delta_variance": 0.0
+      }
+    },
+    "noise_ui": {
+      "results": [
+        {
+          "category": "noise_ui",
+          "run": 1,
+          "seed_meta": {
+            "doc_id": 117,
+            "project_id": 8,
+            "user_id": 1,
+            "filename": "课后学情总结报告方案测试用例 - 全功能测试 (1).csv",
+            "doc_type": "test_case",
+            "created_at": "2026-03-05 10:47:52",
+            "features": {
+              "length": 19455,
+              "line_count": 104,
+              "ui_hits": 486,
+              "flow_hits": 63,
+              "hash": "ca52ebde51703de957a945b90877d4f5"
+            },
+            "treatment_pred": {
+              "treated_pred": true,
+              "off_control_sig": {
+                "must_cover_rules_count": 0,
+                "must_have_scenarios_count": 2,
+                "forbidden_patterns_count": 0,
+                "soft_constraints_count": 0,
+                "quality_fix_hints_count": 2,
+                "rule_quota_keys_count": 0
+              },
+              "on_control_sig": {
+                "must_cover_rules_count": 0,
+                "must_have_scenarios_count": 5,
+                "forbidden_patterns_count": 0,
+                "soft_constraints_count": 3,
+                "quality_fix_hints_count": 12,
+                "rule_quota_keys_count": 0
+              }
+            }
+          },
+          "off": {
+            "status_code": 200,
+            "generation_id": 173,
+            "chunk_count": 63,
+            "status_tail": [
+              "@@STATUS@@:snapshot stale -> queued rebuild and using rag_only (task_id=231ada0f-7dec-466f-ab91-fbc990450995, reason=corpus_hash_mismatch)",
+              "@@STATUS@@:precision retrieval enabled (explicit_precision_mode,generation_default_precision,keyword_triggered,snapshot_insufficient)",
+              "@@STATUS@@:hybrid fusion done: mode=rag_only rag_chunks=4 tokens~397",
+              "@@STATUS@@:正在进行需求元分析 (Meta-Analysis)，识别系统类型与测试策略...",
+              "@@STATUS@@:分析完成 - 系统类型: Web, 复杂度: Medium, 策略: {\"functional\": 0.7, \"regression\": 0.1, \"non_functional\": 0.2}...",
+              "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 1 次尝试...",
+              "@@STATUS@@:正常完成",
+              "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
+            ],
+            "errors": [],
+            "stats": {
+              "count": 2,
+              "priority": {
+                "P0": 0,
+                "P1": 1,
+                "P2": 1,
+                "P3": 0
+              },
+              "ui_like_count": 2,
+              "behavior_like_count": 1,
+              "ui_like_ratio": 1.0,
+              "behavior_like_ratio": 0.5
+            },
+            "feedback_control_state": {
+              "kind": "feedback_control_state",
+              "control_state_applied": true,
+              "must_cover_rules_count": 0,
+              "rule_quota_keys": [],
+              "soft_constraints_count": 0,
+              "quality_fix_hints_count": 2,
+              "request_id": "8650c9c4f67f49f09ff472c13de09246"
+            },
+            "review_decision_summary": {
+              "kind": "review_decision_summary",
+              "candidate_total": 2,
+              "retained_total": 2,
+              "dropped_total": 0,
+              "review_llm_filter_applied": false,
+              "drop_by_review_llm_count": 0,
+              "drop_by_review_gate_count": 0,
+              "drop_by_pre_gate_dedup_count": 0,
+              "drop_by_post_review_dedup_count": 0,
+              "drop_no_new_signal_count": 0,
+              "drop_rule_cap_count": 0,
+              "drop_by_rerank_low_signal_count": 0,
+              "dropped_model_priority_p0_p1_count": 0,
+              "dropped_core_rule_hit_count": 0,
+              "dropped_missing_rule_hit_count": 0,
+              "dropped_high_signal_count": 0,
+              "dropped_has_coverage_value_count": 0,
+              "retained_due_to_coverage_value_count": 0,
+              "must_cover_rule_hit_count": 0,
+              "forbidden_pattern_violation_count": 0,
+              "soft_constraint_hit_count": 0,
+              "quality_hint_satisfied_count": 0,
+              "multi_pass": false,
+              "generation_mode": "single_pass",
+              "request_id": "8650c9c4f67f49f09ff472c13de09246"
+            },
+            "generation_summary": {
+              "kind": "generation_summary",
+              "recommended_range": "30-50",
+              "final_count": 2,
+              "status": "completed_with_quality_stop",
+              "stop_reason": [
+                "stopped_due_to_diminishing_returns"
+              ],
+              "quality_assessment": "medium",
+              "multi_pass": false,
+              "generation_mode": "single_pass"
+            }
+          },
+          "on": {
+            "status_code": 200,
+            "generation_id": 174,
+            "chunk_count": 56,
+            "status_tail": [
+              "@@STATUS@@:snapshot ready and reusable -> using snapshot (reason=snapshot_success_and_hash_matched)",
+              "@@STATUS@@:precision retrieval enabled (explicit_precision_mode,generation_default_precision,keyword_triggered,snapshot_insufficient)",
+              "@@STATUS@@:hybrid fusion done: mode=snapshot+rag rag_chunks=4 tokens~1118",
+              "@@STATUS@@:正在进行需求元分析 (Meta-Analysis)，识别系统类型与测试策略...",
+              "@@STATUS@@:分析完成 - 系统类型: Web, 复杂度: Medium, 策略: {\"functional\": 0.6, \"regression\": 0.2, \"non_functional\": 0.2}...",
+              "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 1 次尝试...",
+              "@@STATUS@@:正常完成",
+              "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
+            ],
+            "errors": [],
+            "stats": {
+              "count": 2,
+              "priority": {
+                "P0": 0,
+                "P1": 2,
+                "P2": 0,
+                "P3": 0
+              },
+              "ui_like_count": 2,
+              "behavior_like_count": 0,
+              "ui_like_ratio": 1.0,
+              "behavior_like_ratio": 0.0
+            },
+            "feedback_control_state": {
+              "kind": "feedback_control_state",
+              "control_state_applied": true,
+              "must_cover_rules_count": 0,
+              "rule_quota_keys": [],
+              "soft_constraints_count": 3,
+              "quality_fix_hints_count": 12,
+              "request_id": "aacbb46843564800848c804cf95e062b"
+            },
+            "review_decision_summary": {
+              "kind": "review_decision_summary",
+              "candidate_total": 2,
+              "retained_total": 2,
+              "dropped_total": 0,
+              "review_llm_filter_applied": false,
+              "drop_by_review_llm_count": 0,
+              "drop_by_review_gate_count": 0,
+              "drop_by_pre_gate_dedup_count": 0,
+              "drop_by_post_review_dedup_count": 0,
+              "drop_no_new_signal_count": 0,
+              "drop_rule_cap_count": 0,
+              "drop_by_rerank_low_signal_count": 0,
+              "dropped_model_priority_p0_p1_count": 0,
+              "dropped_core_rule_hit_count": 0,
+              "dropped_missing_rule_hit_count": 0,
+              "dropped_high_signal_count": 0,
+              "dropped_has_coverage_value_count": 0,
+              "retained_due_to_coverage_value_count": 0,
+              "must_cover_rule_hit_count": 0,
+              "forbidden_pattern_violation_count": 0,
+              "soft_constraint_hit_count": 0,
+              "quality_hint_satisfied_count": 0,
+              "multi_pass": false,
+              "generation_mode": "single_pass",
+              "request_id": "aacbb46843564800848c804cf95e062b"
+            },
+            "generation_summary": {
+              "kind": "generation_summary",
+              "recommended_range": "30-50",
+              "final_count": 2,
+              "status": "completed_with_quality_stop",
+              "stop_reason": [
+                "stopped_due_to_diminishing_returns"
+              ],
+              "quality_assessment": "medium",
+              "multi_pass": false,
+              "generation_mode": "single_pass"
+            }
+          },
+          "delta": {
+            "p1_ratio_off": 0.5,
+            "p1_ratio_on": 1.0,
+            "p1_ratio_delta_on_minus_off": 0.5,
+            "count_off": 2,
+            "count_on": 2,
+            "count_delta_on_minus_off": 0,
+            "ui_like_ratio_off": 1.0,
+            "ui_like_ratio_on": 1.0,
+            "ui_like_ratio_delta_on_minus_off": 0.0
+          }
+        }
+      ],
+      "summary": {
+        "runs": 1,
+        "p1_ratio_delta_avg": 0.5,
+        "p1_ratio_delta_min": 0.5,
+        "p1_ratio_delta_max": 0.5,
+        "positive_p1_delta_runs": 1,
+        "non_negative_p1_delta_runs": 1,
+        "negative_rate": 0.0,
+        "worst_delta": 0.5,
+        "delta_variance": 0.0
+      }
+    }
+  },
+  "overall_summary": {
+    "runs": 3,
+    "p1_ratio_delta_avg": 0.0801,
+    "p1_ratio_delta_min": -0.6667,
+    "p1_ratio_delta_max": 0.5,
+    "positive_p1_delta_runs": 2,
+    "non_negative_p1_delta_runs": 2,
+    "negative_rate": 0.3333,
+    "worst_delta": -0.6667,
+    "delta_variance": 0.280318
+  },
+  "treated_summary": {
+    "runs": 1,
+    "p1_ratio_delta_avg": 0.5,
+    "p1_ratio_delta_min": 0.5,
+    "p1_ratio_delta_max": 0.5,
+    "positive_p1_delta_runs": 1,
+    "non_negative_p1_delta_runs": 1,
+    "negative_rate": 0.0,
+    "worst_delta": 0.5,
+    "delta_variance": 0.0
+  },
+  "untreated_summary": {
+    "runs": 2,
+    "p1_ratio_delta_avg": -0.1298,
+    "p1_ratio_delta_min": -0.6667,
+    "p1_ratio_delta_max": 0.4071,
+    "positive_p1_delta_runs": 1,
+    "non_negative_p1_delta_runs": 1,
+    "negative_rate": 0.5,
+    "worst_delta": -0.6667,
+    "delta_variance": 0.288262
+  },
+  "treatment_rate": 0.3333,
+  "negative_slice": [
+    {
+      "category": "normal",
+      "run": 1,
+      "delta": -0.6667,
+      "seed_meta": {
+        "doc_id": 92,
+        "project_id": 9,
+        "user_id": 1,
+        "filename": "Evaluation_Feedback_20260122_145007.txt",
+        "doc_type": "evaluation_report",
+        "created_at": "2026-01-22 14:50:07",
+        "features": {
+          "length": 580,
+          "line_count": 5,
+          "ui_hits": 0,
+          "flow_hits": 0,
+          "hash": "0e32ed85988af7045d28904ee9187a63"
+        },
+        "treatment_pred": {
+          "treated_pred": false,
+          "off_control_sig": {
+            "must_cover_rules_count": 0,
+            "must_have_scenarios_count": 5,
+            "forbidden_patterns_count": 0,
+            "soft_constraints_count": 0,
+            "quality_fix_hints_count": 6,
+            "rule_quota_keys_count": 0
+          },
+          "on_control_sig": {
+            "must_cover_rules_count": 0,
+            "must_have_scenarios_count": 5,
+            "forbidden_patterns_count": 0,
+            "soft_constraints_count": 0,
+            "quality_fix_hints_count": 6,
+            "rule_quota_keys_count": 0
+          }
+        }
+      },
+      "off_priority": {
+        "P0": 0,
+        "P1": 1,
+        "P2": 0,
+        "P3": 0
+      },
+      "on_priority": {
+        "P0": 0,
+        "P1": 1,
+        "P2": 2,
+        "P3": 0
+      },
+      "off_control": {
+        "kind": "feedback_control_state",
+        "control_state_applied": true,
+        "must_cover_rules_count": 0,
+        "rule_quota_keys": [],
+        "soft_constraints_count": 0,
+        "quality_fix_hints_count": 6,
+        "request_id": "a56d64598a374983a2d3a32f2e3fa631"
+      },
+      "on_control": {
+        "kind": "feedback_control_state",
+        "control_state_applied": true,
+        "must_cover_rules_count": 0,
+        "rule_quota_keys": [],
+        "soft_constraints_count": 0,
+        "quality_fix_hints_count": 6,
+        "request_id": "e6b77475e2264028a1966232642843ce"
+      }
+    }
+  ]
+}

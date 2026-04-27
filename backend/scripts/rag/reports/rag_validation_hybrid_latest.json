@@ -1,0 +1,1401 @@
+{
+  "report_name": "RAG 新索引回归验证",
+  "generated_at": "2026-03-31T15:14:12.786327",
+  "project_overview": {
+    "project_id": 9,
+    "total_docs": 38,
+    "doc_type_counts": {
+      "需求文档": 20,
+      "评估报告": 10,
+      "测试用例": 8
+    }
+  },
+  "chroma_health": {
+    "collection_name": "knowledge_base",
+    "collection_count": 636,
+    "collection_count_error": "",
+    "sample_queries": [
+      {
+        "label": "project_only",
+        "where": {
+          "project_id": 9
+        },
+        "ok": true,
+        "rows": 3,
+        "error": ""
+      },
+      {
+        "label": "project_raw",
+        "where": {
+          "$and": [
+            {
+              "project_id": 9
+            },
+            {
+              "is_summary": false
+            }
+          ]
+        },
+        "ok": true,
+        "rows": 3,
+        "error": ""
+      },
+      {
+        "label": "project_summary",
+        "where": {
+          "$and": [
+            {
+              "project_id": 9
+            },
+            {
+              "is_summary": true
+            }
+          ]
+        },
+        "ok": true,
+        "rows": 3,
+        "error": ""
+      }
+    ]
+  },
+  "retrieval_options": {
+    "retrieval_mode": "hybrid",
+    "doc_types": [],
+    "enable_query_rewrite": true,
+    "enable_rerank": true,
+    "enable_biz_key_expansion": true
+  },
+  "summary": {
+    "query_count": 3,
+    "split_chunk_query_count": 0,
+    "low_relevance_warning_count": 2,
+    "doc_coverage_trigger_count": 3,
+    "doc_type_distribution_total": {
+      "需求文档": 28,
+      "评估报告": 2
+    },
+    "issue_counts": {}
+  },
+  "query_reports": [
+    {
+      "query": "销售怎么打卡",
+      "category": "功能类",
+      "expected_doc_types": [
+        "requirement",
+        "test_case"
+      ],
+      "expect_multi_doc": false,
+      "expect_no_answer": false,
+      "doc_type_distribution": {
+        "需求文档": 10
+      },
+      "top_docs": [
+        {
+          "doc_id": "87",
+          "doc_type": "需求文档",
+          "chunk_count": 6,
+          "top_score": 0.795
+        },
+        {
+          "doc_id": "82",
+          "doc_type": "需求文档",
+          "chunk_count": 3,
+          "top_score": 0.6225
+        },
+        {
+          "doc_id": "20",
+          "doc_type": "需求文档",
+          "chunk_count": 1,
+          "top_score": 0.589
+        }
+      ],
+      "chunk_part_analysis": {
+        "has_split_chunks": false,
+        "max_parts_in_doc": 0,
+        "same_doc_part_dominance": false
+      },
+      "retrieval_metrics": {
+        "candidate_count": 121,
+        "rerank_input_count": 24,
+        "final_context_count": 6,
+        "doc_coverage_triggered": true,
+        "low_relevance_warning": false
+      },
+      "final_context_doc_distribution": {
+        "87": 2,
+        "82": 2,
+        "20": 1,
+        "83": 1
+      },
+      "issues": {
+        "same_doc_part_dominance": {
+          "detected": false,
+          "detail": ""
+        },
+        "doc_type_shift": {
+          "detected": false,
+          "detail": ""
+        },
+        "chunk_split_ranking_anomaly": {
+          "detected": false,
+          "detail": ""
+        },
+        "low_relevance_misjudge": {
+          "detected": false,
+          "detail": ""
+        },
+        "doc_diversity_not_effective": {
+          "detected": false,
+          "detail": ""
+        }
+      },
+      "raw_trace": {
+        "query_embedding_status": "success",
+        "query_embedding_error": "",
+        "recall_lanes": {
+          "original_raw": {
+            "executed": true,
+            "where_filter": {
+              "$and": [
+                {
+                  "project_id": 9
+                },
+                {
+                  "is_summary": false
+                }
+              ]
+            },
+            "fallback_where_filter": {
+              "project_id": 9
+            },
+            "raw_result_count": 60,
+            "usable_result_count": 60,
+            "error": "",
+            "error_stage": "",
+            "fallback_used": false,
+            "query_embedding_status": "success"
+          },
+          "original_summary": {
+            "executed": true,
+            "where_filter": {
+              "$and": [
+                {
+                  "project_id": 9
+                },
+                {
+                  "is_summary": true
+                }
+              ]
+            },
+            "fallback_where_filter": {
+              "project_id": 9
+            },
+            "raw_result_count": 21,
+            "usable_result_count": 21,
+            "error": "",
+            "error_stage": "",
+            "fallback_used": false,
+            "query_embedding_status": "success"
+          },
+          "rewrite_raw": {
+            "executed": false,
+            "where_filter": {},
+            "fallback_where_filter": {},
+            "raw_result_count": 0,
+            "usable_result_count": 0,
+            "error": "",
+            "error_stage": "",
+            "fallback_used": false,
+            "query_embedding_status": "disabled"
+          },
+          "rewrite_summary": {
+            "executed": false,
+            "where_filter": {},
+            "fallback_where_filter": {},
+            "raw_result_count": 0,
+            "usable_result_count": 0,
+            "error": "",
+            "error_stage": "",
+            "fallback_used": false,
+            "query_embedding_status": "disabled"
+          }
+        },
+        "merge_stage": {
+          "before_merge_count": 121,
+          "after_merge_count": 118,
+          "after_dedup_count": 115
+        },
+        "rerank_stage": {
+          "input_candidate_count": 115,
+          "filtered_out_count": 0,
+          "filtered_out_reasons": {
+            "missing_text": 0,
+            "missing_score": 0,
+            "invalid_metadata": 0,
+            "empty_content": 0,
+            "schema_incompatible": 0
+          }
+        },
+        "lane_counts": {
+          "original_raw": 60,
+          "original_summary": 21,
+          "rewrite_raw": 0,
+          "rewrite_summary": 0,
+          "keyword_docs": 40
+        },
+        "lane_reasons": {
+          "original_raw": "ok",
+          "original_summary": "ok",
+          "rewrite_raw": "disabled",
+          "rewrite_summary": "disabled",
+          "keyword_docs": "ok"
+        },
+        "biz_relation_expand": {
+          "expanded_count": 0,
+          "biz_keys": [
+            "4_2*销售考勤统计_背景_销售考勤",
+            "4_2*列表字段_销售姓名_读取销",
+            "4_2*条翻_查看数据_销售考勤详情弹窗",
+            "4_2*标题_销售姓名_考勤",
+            "4_2*标题_打卡"
+          ]
+        },
+        "merged_candidates_head": [
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.8,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.6999,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.6791,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.6751,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.6672,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "82",
+            "doc_type": "需求文档",
+            "score": 0.6275,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "82",
+            "doc_type": "需求文档",
+            "score": 0.6055,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.6022,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "20",
+            "doc_type": "需求文档",
+            "score": 0.594,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "82",
+            "doc_type": "需求文档",
+            "score": 0.5719,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "83",
+            "doc_type": "需求文档",
+            "score": 0.5692,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "82",
+            "doc_type": "需求文档",
+            "score": 0.5689,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          }
+        ],
+        "reranked_head": [
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.795,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.7349,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.6741,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.6701,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "82",
+            "doc_type": "需求文档",
+            "final_score": 0.6225,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.6022,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "82",
+            "doc_type": "需求文档",
+            "final_score": 0.6005,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.5972,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "20",
+            "doc_type": "需求文档",
+            "final_score": 0.589,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "82",
+            "doc_type": "需求文档",
+            "final_score": 0.5639,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.5587,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.5579,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          }
+        ],
+        "doc_coverage": {
+          "selected_count": 10,
+          "doc_count": 7,
+          "dropped_doc_cap": 134,
+          "dropped_redundant": 0,
+          "per_doc_counts": {
+            "87": 2,
+            "82": 2,
+            "20": 1,
+            "83": 2,
+            "108": 1,
+            "70": 1,
+            "89": 1
+          },
+          "doc_coverage_selected_docs": 2,
+          "doc_coverage_target_docs": 2,
+          "doc_coverage_triggered": true,
+          "second_round_mode": "score_plus_information_gain",
+          "max_chunks_per_doc_applied": 2
+        },
+        "final_context_chunks": [
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "selection_reason": "doc_coverage_round",
+            "final_score": 0.795
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "selection_reason": "score_info_gain_round",
+            "final_score": 0.7349
+          },
+          {
+            "doc_id": "82",
+            "doc_type": "需求文档",
+            "selection_reason": "doc_coverage_round",
+            "final_score": 0.6225
+          },
+          {
+            "doc_id": "82",
+            "doc_type": "需求文档",
+            "selection_reason": "score_info_gain_round",
+            "final_score": 0.6005
+          },
+          {
+            "doc_id": "20",
+            "doc_type": "需求文档",
+            "selection_reason": "score_info_gain_round",
+            "final_score": 0.589
+          },
+          {
+            "doc_id": "83",
+            "doc_type": "需求文档",
+            "selection_reason": "score_info_gain_round",
+            "final_score": 0.5432
+          }
+        ]
+      }
+    },
+    {
+      "query": "门店员工如何补卡",
+      "category": "功能类",
+      "expected_doc_types": [
+        "requirement",
+        "test_case"
+      ],
+      "expect_multi_doc": false,
+      "expect_no_answer": false,
+      "doc_type_distribution": {
+        "评估报告": 2,
+        "需求文档": 8
+      },
+      "top_docs": [
+        {
+          "doc_id": "200",
+          "doc_type": "评估报告",
+          "chunk_count": 2,
+          "top_score": 0.72
+        },
+        {
+          "doc_id": "195",
+          "doc_type": "需求文档",
+          "chunk_count": 6,
+          "top_score": 0.5801
+        },
+        {
+          "doc_id": "87",
+          "doc_type": "需求文档",
+          "chunk_count": 1,
+          "top_score": 0.5047
+        },
+        {
+          "doc_id": "203",
+          "doc_type": "需求文档",
+          "chunk_count": 1,
+          "top_score": 0.4663
+        }
+      ],
+      "chunk_part_analysis": {
+        "has_split_chunks": false,
+        "max_parts_in_doc": 0,
+        "same_doc_part_dominance": false
+      },
+      "retrieval_metrics": {
+        "candidate_count": 82,
+        "rerank_input_count": 24,
+        "final_context_count": 6,
+        "doc_coverage_triggered": true,
+        "low_relevance_warning": true
+      },
+      "final_context_doc_distribution": {
+        "200": 1,
+        "195": 2,
+        "87": 1,
+        "203": 1,
+        "198": 1
+      },
+      "issues": {
+        "same_doc_part_dominance": {
+          "detected": false,
+          "detail": ""
+        },
+        "doc_type_shift": {
+          "detected": false,
+          "detail": ""
+        },
+        "chunk_split_ranking_anomaly": {
+          "detected": false,
+          "detail": ""
+        },
+        "low_relevance_misjudge": {
+          "detected": false,
+          "detail": ""
+        },
+        "doc_diversity_not_effective": {
+          "detected": false,
+          "detail": ""
+        }
+      },
+      "raw_trace": {
+        "query_embedding_status": "success",
+        "query_embedding_error": "",
+        "recall_lanes": {
+          "original_raw": {
+            "executed": true,
+            "where_filter": {
+              "$and": [
+                {
+                  "project_id": 9
+                },
+                {
+                  "is_summary": false
+                }
+              ]
+            },
+            "fallback_where_filter": {
+              "project_id": 9
+            },
+            "raw_result_count": 60,
+            "usable_result_count": 60,
+            "error": "",
+            "error_stage": "",
+            "fallback_used": false,
+            "query_embedding_status": "success"
+          },
+          "original_summary": {
+            "executed": true,
+            "where_filter": {
+              "$and": [
+                {
+                  "project_id": 9
+                },
+                {
+                  "is_summary": true
+                }
+              ]
+            },
+            "fallback_where_filter": {
+              "project_id": 9
+            },
+            "raw_result_count": 21,
+            "usable_result_count": 21,
+            "error": "",
+            "error_stage": "",
+            "fallback_used": false,
+            "query_embedding_status": "success"
+          },
+          "rewrite_raw": {
+            "executed": false,
+            "where_filter": {},
+            "fallback_where_filter": {},
+            "raw_result_count": 0,
+            "usable_result_count": 0,
+            "error": "",
+            "error_stage": "",
+            "fallback_used": false,
+            "query_embedding_status": "disabled"
+          },
+          "rewrite_summary": {
+            "executed": false,
+            "where_filter": {},
+            "fallback_where_filter": {},
+            "raw_result_count": 0,
+            "usable_result_count": 0,
+            "error": "",
+            "error_stage": "",
+            "fallback_used": false,
+            "query_embedding_status": "disabled"
+          }
+        },
+        "merge_stage": {
+          "before_merge_count": 82,
+          "after_merge_count": 81,
+          "after_dedup_count": 81
+        },
+        "rerank_stage": {
+          "input_candidate_count": 84,
+          "filtered_out_count": 0,
+          "filtered_out_reasons": {
+            "missing_text": 0,
+            "missing_score": 0,
+            "invalid_metadata": 0,
+            "empty_content": 0,
+            "schema_incompatible": 0
+          }
+        },
+        "lane_counts": {
+          "original_raw": 60,
+          "original_summary": 21,
+          "rewrite_raw": 0,
+          "rewrite_summary": 0,
+          "keyword_docs": 1
+        },
+        "lane_reasons": {
+          "original_raw": "ok",
+          "original_summary": "ok",
+          "rewrite_raw": "disabled",
+          "rewrite_summary": "disabled",
+          "keyword_docs": "ok"
+        },
+        "biz_relation_expand": {
+          "expanded_count": 3,
+          "biz_keys": [
+            "evaluation_knowledge*shop*create",
+            "general*明细_店收_退费统计",
+            "general*购卡明细核对_每笔购卡的完整信_包括会员信息",
+            "evaluation_knowledge*org*update",
+            "4_2*条翻_查看数据_销售考勤详情弹窗"
+          ]
+        },
+        "merged_candidates_head": [
+          {
+            "doc_id": "200",
+            "doc_type": "评估报告",
+            "score": 0.725,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "score": 0.5567,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "score": 0.5451,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "200",
+            "doc_type": "评估报告",
+            "score": 0.5402,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.5097,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "score": 0.4752,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "203",
+            "doc_type": "需求文档",
+            "score": 0.4713,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "score": 0.4701,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.4598,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "200",
+            "doc_type": "评估报告",
+            "score": 0.45,
+            "chunk_source": "raw",
+            "query_source": "related",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "200",
+            "doc_type": "评估报告",
+            "score": 0.45,
+            "chunk_source": "raw",
+            "query_source": "related",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "198",
+            "doc_type": "评估报告",
+            "score": 0.45,
+            "chunk_source": "raw",
+            "query_source": "related",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          }
+        ],
+        "reranked_head": [
+          {
+            "doc_id": "200",
+            "doc_type": "评估报告",
+            "final_score": 0.72,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "final_score": 0.5801,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "200",
+            "doc_type": "评估报告",
+            "final_score": 0.5752,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "final_score": 0.5517,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "final_score": 0.5051,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.5047,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "final_score": 0.4721,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "final_score": 0.4702,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "203",
+            "doc_type": "需求文档",
+            "final_score": 0.4663,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "final_score": 0.4608,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "final_score": 0.4581,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "198",
+            "doc_type": "评估报告",
+            "final_score": 0.455,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          }
+        ],
+        "doc_coverage": {
+          "selected_count": 11,
+          "doc_count": 8,
+          "dropped_doc_cap": 113,
+          "dropped_redundant": 0,
+          "per_doc_counts": {
+            "200": 2,
+            "195": 2,
+            "87": 2,
+            "203": 1,
+            "198": 1,
+            "199": 1,
+            "82": 1,
+            "69": 1
+          },
+          "doc_coverage_selected_docs": 2,
+          "doc_coverage_target_docs": 2,
+          "doc_coverage_triggered": true,
+          "second_round_mode": "score_plus_information_gain",
+          "max_chunks_per_doc_applied": 2
+        },
+        "final_context_chunks": [
+          {
+            "doc_id": "200",
+            "doc_type": "评估报告",
+            "selection_reason": "doc_coverage_round",
+            "final_score": 0.72
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "selection_reason": "doc_coverage_round",
+            "final_score": 0.5801
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "selection_reason": "score_info_gain_round",
+            "final_score": 0.5517
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "selection_reason": "score_info_gain_round",
+            "final_score": 0.5047
+          },
+          {
+            "doc_id": "203",
+            "doc_type": "需求文档",
+            "selection_reason": "score_info_gain_round",
+            "final_score": 0.4663
+          },
+          {
+            "doc_id": "198",
+            "doc_type": "评估报告",
+            "selection_reason": "score_info_gain_round",
+            "final_score": 0.455
+          }
+        ]
+      }
+    },
+    {
+      "query": "请说明考勤统计口径",
+      "category": "规则类",
+      "expected_doc_types": [
+        "requirement",
+        "supplement"
+      ],
+      "expect_multi_doc": false,
+      "expect_no_answer": false,
+      "doc_type_distribution": {
+        "需求文档": 10
+      },
+      "top_docs": [
+        {
+          "doc_id": "87",
+          "doc_type": "需求文档",
+          "chunk_count": 9,
+          "top_score": 0.595
+        },
+        {
+          "doc_id": "195",
+          "doc_type": "需求文档",
+          "chunk_count": 1,
+          "top_score": 0.4657
+        }
+      ],
+      "chunk_part_analysis": {
+        "has_split_chunks": false,
+        "max_parts_in_doc": 0,
+        "same_doc_part_dominance": false
+      },
+      "retrieval_metrics": {
+        "candidate_count": 81,
+        "rerank_input_count": 24,
+        "final_context_count": 6,
+        "doc_coverage_triggered": true,
+        "low_relevance_warning": true
+      },
+      "final_context_doc_distribution": {
+        "87": 1,
+        "195": 1,
+        "69": 2,
+        "94": 2
+      },
+      "issues": {
+        "same_doc_part_dominance": {
+          "detected": false,
+          "detail": ""
+        },
+        "doc_type_shift": {
+          "detected": false,
+          "detail": ""
+        },
+        "chunk_split_ranking_anomaly": {
+          "detected": false,
+          "detail": ""
+        },
+        "low_relevance_misjudge": {
+          "detected": false,
+          "detail": ""
+        },
+        "doc_diversity_not_effective": {
+          "detected": false,
+          "detail": ""
+        }
+      },
+      "raw_trace": {
+        "query_embedding_status": "success",
+        "query_embedding_error": "",
+        "recall_lanes": {
+          "original_raw": {
+            "executed": true,
+            "where_filter": {
+              "$and": [
+                {
+                  "project_id": 9
+                },
+                {
+                  "is_summary": false
+                }
+              ]
+            },
+            "fallback_where_filter": {
+              "project_id": 9
+            },
+            "raw_result_count": 60,
+            "usable_result_count": 60,
+            "error": "",
+            "error_stage": "",
+            "fallback_used": false,
+            "query_embedding_status": "success"
+          },
+          "original_summary": {
+            "executed": true,
+            "where_filter": {
+              "$and": [
+                {
+                  "project_id": 9
+                },
+                {
+                  "is_summary": true
+                }
+              ]
+            },
+            "fallback_where_filter": {
+              "project_id": 9
+            },
+            "raw_result_count": 21,
+            "usable_result_count": 21,
+            "error": "",
+            "error_stage": "",
+            "fallback_used": false,
+            "query_embedding_status": "success"
+          },
+          "rewrite_raw": {
+            "executed": false,
+            "where_filter": {},
+            "fallback_where_filter": {},
+            "raw_result_count": 0,
+            "usable_result_count": 0,
+            "error": "",
+            "error_stage": "",
+            "fallback_used": false,
+            "query_embedding_status": "disabled"
+          },
+          "rewrite_summary": {
+            "executed": false,
+            "where_filter": {},
+            "fallback_where_filter": {},
+            "raw_result_count": 0,
+            "usable_result_count": 0,
+            "error": "",
+            "error_stage": "",
+            "fallback_used": false,
+            "query_embedding_status": "disabled"
+          }
+        },
+        "merge_stage": {
+          "before_merge_count": 81,
+          "after_merge_count": 81,
+          "after_dedup_count": 81
+        },
+        "rerank_stage": {
+          "input_candidate_count": 81,
+          "filtered_out_count": 0,
+          "filtered_out_reasons": {
+            "missing_text": 0,
+            "missing_score": 0,
+            "invalid_metadata": 0,
+            "empty_content": 0,
+            "schema_incompatible": 0
+          }
+        },
+        "lane_counts": {
+          "original_raw": 60,
+          "original_summary": 21,
+          "rewrite_raw": 0,
+          "rewrite_summary": 0,
+          "keyword_docs": 0
+        },
+        "lane_reasons": {
+          "original_raw": "ok",
+          "original_summary": "ok",
+          "rewrite_raw": "disabled",
+          "rewrite_summary": "disabled",
+          "keyword_docs": "no_hit"
+        },
+        "biz_relation_expand": {
+          "expanded_count": 0,
+          "biz_keys": [
+            "4_2*销售考勤统计_背景_销售考勤",
+            "4_2*标题_考勤管理",
+            "4_2*标题_销售姓名_考勤",
+            "4_2*条翻_查看数据_销售考勤详情弹窗",
+            "4_2*顶部统计栏_汇总数据_实际打卡"
+          ]
+        },
+        "merged_candidates_head": [
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.6,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.5993,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.5289,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.5218,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.5192,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.4914,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.4875,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "score": 0.4307,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.4275,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.4164,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.4162,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "score": 0.4153,
+            "chunk_source": "raw",
+            "query_source": "original",
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          }
+        ],
+        "reranked_head": [
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.595,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.5343,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.5239,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.5225,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.5168,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.5142,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.4864,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "final_score": 0.4657,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.4625,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.4514,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.4503,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          },
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "final_score": 0.4112,
+            "chunk_part_index": null,
+            "chunk_part_total": null
+          }
+        ],
+        "doc_coverage": {
+          "selected_count": 12,
+          "doc_count": 7,
+          "dropped_doc_cap": 176,
+          "dropped_redundant": 0,
+          "per_doc_counts": {
+            "87": 2,
+            "195": 1,
+            "69": 2,
+            "94": 2,
+            "22": 2,
+            "20": 2,
+            "70": 1
+          },
+          "doc_coverage_selected_docs": 2,
+          "doc_coverage_target_docs": 2,
+          "doc_coverage_triggered": true,
+          "second_round_mode": "score_plus_information_gain",
+          "max_chunks_per_doc_applied": 2
+        },
+        "final_context_chunks": [
+          {
+            "doc_id": "87",
+            "doc_type": "需求文档",
+            "selection_reason": "doc_coverage_round",
+            "final_score": 0.595
+          },
+          {
+            "doc_id": "195",
+            "doc_type": "需求文档",
+            "selection_reason": "doc_coverage_round",
+            "final_score": 0.4657
+          },
+          {
+            "doc_id": "69",
+            "doc_type": "需求文档",
+            "selection_reason": "score_info_gain_round",
+            "final_score": 0.3836
+          },
+          {
+            "doc_id": "69",
+            "doc_type": "需求文档",
+            "selection_reason": "score_info_gain_round",
+            "final_score": 0.3825
+          },
+          {
+            "doc_id": "94",
+            "doc_type": "需求文档",
+            "selection_reason": "score_info_gain_round",
+            "final_score": 0.3757
+          },
+          {
+            "doc_id": "94",
+            "doc_type": "需求文档",
+            "selection_reason": "score_info_gain_round",
+            "final_score": 0.368
+          }
+        ]
+      }
+    }
+  ]
+}

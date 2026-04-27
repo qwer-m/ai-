@@ -1,0 +1,32 @@
+{
+  "generation_id": 389,
+  "project_id": 8,
+  "user_id": 1,
+  "created_at": "2026-04-21 11:54:37",
+  "table1_rows": 1,
+  "table2_rows": 14,
+  "summary": {
+    "case_total": 14,
+    "flow_case_count": 8,
+    "flow_ratio": 0.5714,
+    "state_case_count": 5,
+    "state_ratio": 0.3571,
+    "ui_case_count": 1,
+    "ui_ratio": 0.0714,
+    "workflow_signal_case_count": 10,
+    "workflow_signal_ratio": 0.7143,
+    "ui_like_case_count": 0,
+    "ui_like_ratio": 0.0,
+    "cross_page_state_transition_count": 6,
+    "p1_uplifted_count": 4,
+    "p2_cap_true_count": 0,
+    "p2_cap_main_workflow_hit_count": 0,
+    "p2_cap_preferred_pattern_hit_count": 0,
+    "p2_cap_cross_page_state_hit_count": 0
+  },
+  "batch_b_gate": {
+    "condition_1_positive_quota_stable_and_no_fallback": true,
+    "condition_2_flow_cases_still_blocked_by_p2_cap": false,
+    "ready_for_batch_b": false
+  }
+}

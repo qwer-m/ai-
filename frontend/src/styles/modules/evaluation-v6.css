@@ -1,0 +1,39 @@
+/* Evaluation 模块样式 v6 */
+
+body.ui-overhaul-v4 .evaluation-shell {
+  padding-bottom: 12px;
+}
+
+body.ui-overhaul-v4 .evaluation-shell .card-header h5,
+body.ui-overhaul-v4 .evaluation-shell .card-header h6 {
+  font-size: 1rem;
+}
+
+body.ui-overhaul-v4 .evaluation-shell .btn {
+  min-height: 36px;
+}
+
+body.ui-overhaul-v4 .evaluation-shell .form-control,
+body.ui-overhaul-v4 .evaluation-shell .form-select {
+  min-height: 38px;
+}
+
+body.ui-overhaul-v4 .evaluation-shell .table td,
+body.ui-overhaul-v4 .evaluation-shell .table th {
+  padding-top: 0.58rem;
+  padding-bottom: 0.58rem;
+}
+
+body.ui-overhaul-v4 .evaluation-shell .table tbody tr:hover td {
+  background: color-mix(in srgb, var(--fd-primary) 8%, transparent) !important;
+}
+
+body.ui-overhaul-v4 .evaluation-shell .badge {
+  font-weight: 600;
+}
+
+body.ui-overhaul-v4 .evaluation-shell .alert {
+  border-radius: 12px;
+  border: 1px solid var(--fd-border);
+}
+

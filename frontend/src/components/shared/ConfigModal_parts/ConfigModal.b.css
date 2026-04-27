@@ -1,0 +1,169 @@
+.config-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.config-status-card {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  padding: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+.config-status-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+
+.config-status-card__title {
+  font-weight: 700;
+  color: var(--ui-text);
+}
+
+.config-auto-ocr-btn {
+  white-space: nowrap;
+  border-radius: 8px;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+}
+
+.config-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  padding: 0.36rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.82rem;
+  line-height: 1;
+  background: var(--ui-surface);
+}
+
+.config-status-chip__label {
+  color: var(--ui-text-soft);
+}
+
+.config-status-chip__value {
+  font-weight: 700;
+}
+
+.config-status-chip--ok {
+  border-color: color-mix(in srgb, #16a34a 36%, var(--ui-border));
+  background: color-mix(in srgb, #22c55e 12%, var(--ui-surface));
+  color: #166534;
+}
+
+.config-status-chip--warn {
+  border-color: color-mix(in srgb, #f59e0b 40%, var(--ui-border));
+  background: color-mix(in srgb, #fbbf24 12%, var(--ui-surface));
+  color: #92400e;
+}
+
+.config-status-chip--danger {
+  border-color: color-mix(in srgb, #ef4444 34%, var(--ui-border));
+  background: color-mix(in srgb, #ef4444 11%, var(--ui-surface));
+  color: #b91c1c;
+}
+
+.config-status-chip--info {
+  border-color: color-mix(in srgb, #3b82f6 36%, var(--ui-border));
+  background: color-mix(in srgb, #3b82f6 12%, var(--ui-surface));
+  color: #1d4ed8;
+}
+
+.config-status-chip--muted {
+  border-color: var(--ui-border);
+  background: var(--ui-surface-muted);
+  color: var(--ui-text-soft);
+}
+
+.config-preview-card {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  padding: 0.9rem;
+  box-shadow: var(--ui-shadow-sm);
+}
+
+.config-preview-card__header strong {
+  color: var(--ui-text);
+}
+
+.config-preview-card__content {
+  background: var(--ui-surface-muted);
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+}
+
+.config-stream-output {
+  min-height: 140px;
+  max-height: 220px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-size: 0.9em;
+}
+
+.config-modal-footer {
+  border-top: 1px solid var(--ui-border);
+  background: var(--ui-surface);
+  gap: 0.5rem;
+}
+
+.config-modal-btn {
+  min-width: 118px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.config-modal-btn--secondary {
+  background: var(--ui-surface-muted);
+  border-color: var(--ui-border);
+  color: var(--ui-text);
+}
+
+.config-modal-btn--secondary:hover {
+  background: var(--ui-surface);
+  border-color: var(--ui-border-strong);
+  color: var(--ui-text);
+}
+
+.config-modal-btn--info {
+  color: #fff;
+  border-color: color-mix(in srgb, #0284c7 72%, var(--ui-primary));
+  background: linear-gradient(180deg, color-mix(in srgb, #0ea5e9 75%, var(--ui-primary)) 0%, #0284c7 100%);
+}
+
+.config-modal-btn--info:hover {
+  color: #fff;
+  filter: brightness(0.98);
+}
+
+.config-modal-btn--primary {
+  color: #fff;
+  border-color: var(--ui-primary);
+  background: linear-gradient(180deg, var(--ui-primary) 0%, color-mix(in srgb, var(--ui-primary) 76%, #0f172a) 100%);
+}
+
+.config-modal-btn--primary:hover {
+  color: #fff;
+  filter: brightness(1.02);
+}
+
+.config-bottom-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 0.85rem;
+  margin-top: 0.2rem;
+  align-items: stretch;
+}
+
+.config-bottom-split__left,
+.config-bottom-split__right {
+  min-width: 0;
+}

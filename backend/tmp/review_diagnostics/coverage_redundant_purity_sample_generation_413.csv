@@ -1,0 +1,21 @@
+﻿generation_id,case_id,module,priority,bucket,focus_score,has_positive_evidence,has_coverage_signal,has_high_signal,has_competition_signal,suggested_purity_label
+413,TC-007,学习数据与统计,P1,学习数据与统计|state,1,False,False,False,False,possibly_overwide_should_consider_selection_tradeoff_omitted
+413,TC-016,督导端,P1,督导端|happy,0,False,False,False,False,coverage_redundant_plausible
+413,TC-018,异常与边界,P2,异常与边界|state,1,False,False,False,False,coverage_redundant_plausible
+413,TC-019,错题本与去重,P2,错题本与去重|happy,0,False,False,False,False,coverage_redundant_plausible
+413,TC-021,学习数据与统计 & 学习报告页,P1,学习数据与统计 & 学习报告页|happy,0,False,False,False,False,coverage_redundant_plausible
+413,TC-022,周末学习与测评,P1,周末学习与测评|happy,0,False,False,False,False,coverage_redundant_plausible
+413,TC-024,全局控制与权限,P2,全局控制与权限|happy,0,False,False,False,False,coverage_redundant_plausible
+413,TC-025,周末学习与测评 & 学习报告页,P2,周末学习与测评 & 学习报告页|boundary,2,False,False,False,False,coverage_redundant_plausible
+413,TC-026,全局控制与权限,P2,全局控制与权限|happy,0,False,False,False,False,coverage_redundant_plausible
+413,TC-027,全局控制与权限,P2,全局控制与权限|happy,0,False,False,False,False,coverage_redundant_plausible
+413,TC-028,全局控制与权限,P2,全局控制与权限|boundary,3,False,False,False,False,coverage_redundant_plausible
+413,TC-029,全局控制与权限,P2,全局控制与权限|state,1,False,False,False,False,coverage_redundant_plausible
+413,TC-030,全局控制与权限,P2,全局控制与权限|exception,3,False,False,False,False,coverage_redundant_plausible
+413,TC-052,全局控制与权限,P1,全局控制与权限|happy,0,False,False,False,False,coverage_redundant_plausible
+413,TC-053,全局控制与权限,P1,全局控制与权限|boundary,3,False,False,False,False,possibly_overwide_should_consider_selection_tradeoff_omitted
+413,TC-054,全局控制与权限,P2,全局控制与权限|state,1,False,False,False,False,coverage_redundant_plausible
+413,TC-055,全局控制与权限,P1,全局控制与权限|exception,2,False,False,False,False,possibly_overwide_should_consider_selection_tradeoff_omitted
+413,TC-056,全局控制与权限,P2,全局控制与权限|exception,3,False,False,False,False,coverage_redundant_plausible
+413,TC-057,全局控制与权限,P2,全局控制与权限|happy,0,False,False,False,False,coverage_redundant_plausible
+413,TC-058,全局控制与权限,P2,全局控制与权限|state,1,False,False,False,False,coverage_redundant_plausible

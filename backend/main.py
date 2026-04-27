@@ -27,32 +27,36 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text, desc
 
 # 核心基础设施
-from core.database import get_db, SessionLocal
-from core.models import LogEntry, SystemConfig
-from core.utils import logger, log_to_db
-from core.config import settings
-from core.ai_client import ai_client
-from core.config_manager import config_manager
-from core.redis_pool import redis_pool
-from core.browser_pool import browser_pool
+from core.db.database import get_db, SessionLocal
+from core.db.models import LogEntry, SystemConfig
+from core.processing.utils import logger, log_to_db
+from core.settings.config import settings
+from core.ai.ai_client import ai_client
+from core.settings.config_manager import config_manager
+from core.cache_layer.redis_pool import redis_pool
+from core.cache_layer.browser_pool import browser_pool
 
 # 业务模块路由
-from modules.auth import router as auth_router
-from modules.standard_api import router as standard_api_router
-from routers.ui_test_cases import router as ui_test_cases_router
+from modules.domain.auth import router as auth_router
+from modules.testing.standard_api import router as standard_api_router
+from routers.automation.ui_test_cases import router as ui_test_cases_router
 
 # 当前重构后路由
-from routers.projects import router as projects_router
-from routers.test_generation import router as test_gen_router
-from routers.ui_automation import router as ui_auto_router
-from routers.api_automation import router as api_auto_router
-from routers.common import router as common_router
-from routers.debug import router as debug_router
-from routers.tasks import router as tasks_router
-from routers.logs import router as logs_router
-from routers.config import router as config_router
-from routers.evaluation import router as evaluation_router
-from routers.pipeline import router as pipeline_router
+from routers.system.projects import router as projects_router
+from routers.automation.test_generation import router as test_gen_router
+from routers.automation.ui_automation import router as ui_auto_router
+from routers.automation.api_automation import router as api_auto_router
+from routers.system.common import router as common_router
+from routers.system.diagnostics.debug import router as debug_router
+from routers.system.tasks import router as tasks_router
+from routers.system.logs import router as logs_router
+from routers.system.config import router as config_router
+from routers.orchestration.evaluation import router as evaluation_router
+from routers.orchestration.pipeline import router as pipeline_router
+from routers.rag.rag_datasets import router as rag_datasets_router
+from routers.rag.rag_runs import router as rag_runs_router
+from routers.rag.rag_eval import router as rag_eval_router
+from routers.rag.rag_candidates import router as rag_candidates_router
 
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
@@ -143,6 +147,10 @@ app.include_router(logs_router, prefix="/api")
 app.include_router(config_router, prefix="/api")
 app.include_router(evaluation_router, prefix="/api")
 app.include_router(pipeline_router, prefix="/api")
+app.include_router(rag_datasets_router, prefix="/api")
+app.include_router(rag_runs_router, prefix="/api")
+app.include_router(rag_eval_router, prefix="/api")
+app.include_router(rag_candidates_router, prefix="/api")
 
 from redis import Redis
 
