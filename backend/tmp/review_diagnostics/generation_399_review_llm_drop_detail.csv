@@ -1,0 +1,11 @@
+﻿candidate_index,case_id,module,priority,scene,bucket,description,high_signal,has_coverage_value
+9,TC-009,任务与判分,P1,happy,任务与判分|happy,“完成判卷”按钮仅督导流程标记，不改学情,False,True
+19,TC-019,周末学习与测评,P1,happy,周末学习与测评|happy,周末学习断点续播,False,False
+24,TC-024,学习报告页,P1,happy,学习报告页|happy,学习报告页 - 重新学习（补做期内可重置）,False,False
+25,TC-025,学习报告页,P1,state,学习报告页|state,学习报告页 - 返回首页标记周末任务完成,False,False
+26,TC-026,督导端智能课堂,P1,state,督导端智能课堂|state,督导端智能课堂 - 周六/周日进入周中刷题切片，申请拍照判题正常流程,False,False
+27,TC-027,督导端智能课堂,P2,happy,督导端智能课堂|happy,督导端智能课堂 - 周中刷题切片无题目时界面兜底,False,False
+28,TC-028,督导端,P1,happy,督导端|happy,督导端单题错题集 - 拍照判题、预览修改、完成判卷入错题本，不触发错题推荐,False,False
+29,TC-029,督导端,P2,happy,督导端|happy,督导端单题错题集 - 拍照判题后不修改直接完成判卷,False,False
+30,TC-030,学习报表,P2,happy,学习报表|happy,新增数据模板 - 课程名称切换标准化章名与定位学模板,False,False
+31,TC-031,学习报表,P2,state,学习报表|state,新增数据模板 - 定位学模板下模块/学习量数据正确性,False,False

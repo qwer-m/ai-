@@ -1,0 +1,15 @@
+﻿case_id,module,priority,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,首页工作台,P1,周六/周日首页显示周末提升任务卡片，状态为待完成，点击后进入薄弱点定位页,PASS,-,False,False,False
+TC-002,首页工作台,P1,历史周补学：查看历史周时，待完成的任务可点击补学，完成后状态更新且数据计入该历史周统计,PASS,-,False,False,False
+TC-003,首页工作台,P1,首页知识点掌握情况区域正确显示本周各知识点的掌握度（薄弱/一般/熟练），按掌握度从低到高排序,PASS,-,False,False,False
+TC-004,首页工作台,P1,用户完成本周所有周中练习和周末提升任务后，首页显示已完成状态，统计数据汇总正确,PASS,-,False,False,False
+TC-005,首页工作台,P2,切换教材/年级到无任务数据的组合时，首页显示空状态或占位提示，无任务卡片,PASS,-,False,False,False
+TC-006,首页工作台,P2,切换教材/年级后切回原组合，原组合的进度和数据完整保留，数据完全独立,PASS,-,False,False,False
+TC-007,周中练习,P1,周中练习提交后AI即时判分：任务状态变为已完成，错题自动归集到当天错题本,PASS,-,False,False,False
+TC-008,周中练习 / 习题本,P1,周中练习有错题时“周一习题本”模块展示统计数据和首道错题详情,PASS,-,False,False,False
+TC-009,周中练习 / 习题本,P2,周中练习全对时“周一习题本”模块显示鼓励文案，不展示错题详情,PASS,-,False,False,False
+TC-010,周一习题本-重新学习,P1,周一习题本重新学习并再次提交后，最新结果覆盖原有数据，重新生成习题本,PASS,-,False,False,False
+TC-011,学习报告页,P1,学习报告页“返回首页”按钮点击后跳转首页，当前周周末提升任务标记为“已完成”,PASS,-,False,False,False
+TC-012,薄弱点定位页,P2,薄弱点定位页补做时间规则：上周在补做期内可正常点击下一步，更早历史周仅查看不可操作,PASS,-,False,False,False
+TC-013,任务过期,P1,补做期过期边界：周日24:00后，对应周次任务仅可查看，不可操作,PASS,-,False,False,False
+TC-014,周期管理,P2,周期切换边界：周一00:00系统自动切换到下一教学周，上周未完成任务变为历史待完成，可补学,PASS,-,False,False,False

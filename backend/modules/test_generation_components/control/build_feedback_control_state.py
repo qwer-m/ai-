@@ -1157,6 +1157,8 @@ def _build_from_anomaly_pool(
             sample_rows = []
 
     if (not memory_read_ok) and (not dataset_map and not sample_rows):
+        if not hasattr(db, "query"):
+            return FeedbackControlState.empty()
         dataset_rows = (
             db.query(RagDataset.id, RagDataset.type)
             .filter(
@@ -1283,6 +1285,8 @@ def _build_from_reports(
             agent_docs = []
 
     if (not memory_read_ok) and (not eval_docs and not agent_docs):
+        if not hasattr(db, "query"):
+            return FeedbackControlState.empty()
         eval_docs = (
             db.query(KnowledgeDocument)
             .filter(

@@ -1,0 +1,20 @@
+﻿case_id,module,priority,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,学习报告页,P2,重新学习：当前周/上周补做期内可重置周末任务,PASS,-,False,False,False
+TC-002,学习报告页,P2,学习报告分享：支持微信好友/朋友圈，家长仅读权限,PASS,-,False,False,False
+TC-003,学习报告页,P1,返回首页：将当前周周末任务标记为已完成,PASS,-,False,False,False
+TC-004,学习报告页,P1,学习报告补做后全量覆盖更新,PASS,-,False,False,False
+TC-005,学习报告页,P1,随堂测评提交全部后自动生成学习报告,PASS,-,False,False,False
+TC-006,全局控制与权限,P2,过期规则：周日24:00后当前周任务仅可查看不可操作，补做期截止,PASS,-,True,False,False
+TC-007,全局控制与权限,P1,付费校验：未付费用户进入定位学系统时，完整功能不可用，只能查看部分内容,PASS,-,False,False,False
+TC-008,全局控制与权限,P1,教学周自动定位当前周，支持切换前后周，历史周可补做（当前周和上周补做期内）,PASS,-,False,False,False
+TC-009,全局控制与权限,P1,教材/年级首次选择后默认加载，后续自动加载，且切换后独立计数,PASS,-,False,False,False
+TC-010,任务与判分,P1,任务状态流转：周中任务提交后状态从'待完成'变为'已完成'，且触发AI即时判分与错题归档,PASS,-,False,False,False
+TC-011,周一习题本下游,P1,周一习题本：当日任务完成后自动生成，状态三态（无/全对/有错题），重学后更新,PASS,-,False,False,False
+TC-012,学习数据与统计,P1,知识点掌握度按本周答题情况计算，分薄弱/一般/熟练，实时更新,PASS,-,False,False,False
+TC-013,学习数据与统计,P1,连续学习天数：每日完成任务+1，中断清零,PASS,-,False,False,False
+TC-014,AI定位与推荐,P1,周末课程推荐基于本周全量答题数据生成，支持增量更新与计划追加,PASS,-,False,False,False
+TC-015,AI定位与推荐,P1,AI定位：基于错题构建个人知识图谱，薄弱点列表按名称、错题数、掌握度排序,PASS,-,False,False,False
+TC-016,周末学习与测评,P1,随堂测评：打印题→手写→拍照上传，OCR+AI判分，错题归入'定位学-数学',PASS,-,False,False,False
+TC-017,周末学习与测评,P2,周末在线学习支持断点续播，进度同步至课程推荐页与首页,PASS,-,False,False,False
+TC-018,周末学习与测评,P2,周末课程包：教研基于本周错题本生成统一课程包，周六与周日内容相同,PASS,-,False,False,False
+AUTO-CORE-FLOW,学习路径-核心工作流,P1,验证完整学习路径闭环：学课文 -> 词组消消乐 -> 选词填空 -> 返回首页,REPAIRABLE,-,False,False,False

@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import os
 import tempfile
+from html import escape
 from pathlib import Path
 from typing import Any, Optional
 
@@ -21,6 +22,12 @@ from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")
+
+
+def _escape_preview_html_value(value: Any) -> str:
+    if value is None:
+        return ""
+    return escape(str(value), quote=True)
 
 
 def is_image_filename(filename: str) -> bool:
@@ -209,7 +216,8 @@ def parse_file_bytes(
                 text_content = ""
                 for sheet_name in wb.sheetnames:
                     ws = wb[sheet_name]
-                    text_content += f"<h5>Sheet: {sheet_name}</h5>"
+                    safe_sheet_name = _escape_preview_html_value(sheet_name)
+                    text_content += f"<h5>Sheet: {safe_sheet_name}</h5>"
                     text_content += (
                         '<div class="table-responsive mb-4"><table class="table table-bordered '
                         'table-sm table-hover" style="border-collapse: collapse; min-width: 100%; '
@@ -237,7 +245,7 @@ def parse_file_bytes(
                                 if merge_map[(row_idx, col_idx)] == "skip":
                                     continue
                                 rowspan, colspan = merge_map[(row_idx, col_idx)]
-                                value = str(cell.value) if cell.value is not None else ""
+                                value = _escape_preview_html_value(cell.value)
                                 style = "vertical-align: middle; white-space: pre-wrap;"
                                 if rowspan > 1 or colspan > 1:
                                     style += " background-color: #f8f9fa; font-weight: 500;"
@@ -246,7 +254,7 @@ def parse_file_bytes(
                                     f'style="{style}">{value}</td>'
                                 )
                             else:
-                                value = str(cell.value) if cell.value is not None else ""
+                                value = _escape_preview_html_value(cell.value)
                                 text_content += f'<td style="white-space: pre-wrap;">{value}</td>'
                         text_content += "</tr>"
                     text_content += "</table></div>"

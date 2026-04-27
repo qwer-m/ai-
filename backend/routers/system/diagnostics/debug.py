@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from core.authn.diagnostic_access import ensure_diagnostic_routes_enabled, validate_outbound_http_url
 from core.db.models import User
 from core.authn.auth import get_current_user
 from schemas.automation.api_testing import ProxyRequest
@@ -13,7 +14,9 @@ router = APIRouter(
 
 @router.post("/request")
 async def debug_request(req: ProxyRequest, current_user: User = Depends(get_current_user)):
+    ensure_diagnostic_routes_enabled()
     try:
+        validated_url = validate_outbound_http_url(req.url)
         content_body = None
         if req.body:
             if req.is_base64_body:
@@ -47,7 +50,7 @@ async def debug_request(req: ProxyRequest, current_user: User = Depends(get_curr
         ) as client:
             response = await client.request(
                 method=req.method,
-                url=req.url,
+                url=validated_url,
                 headers=req.headers,
                 params=req.params,
                 cookies=req.cookies,

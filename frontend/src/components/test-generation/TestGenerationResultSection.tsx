@@ -15,6 +15,16 @@ type TestGenerationResultSectionProps = {
   streamingContent: string;
   loading: boolean;
   statsCount: number;
+  previewCaseCount: number;
+  finalCaseCount: number;
+  displayCaseCount: number;
+  funnelMetrics: {
+    rawPreviewCount: number;
+    reviewCandidateCount: number | null;
+    reviewSelectedCount: number | null;
+    judgeRejectedOrPendingCount: number | null;
+    finalCount: number;
+  };
   onCopy: () => void;
   highlightRuleId?: string | null;
   onClearHighlight?: () => void;
@@ -113,6 +123,10 @@ export function TestGenerationResultSection({
   streamingContent,
   loading,
   statsCount,
+  previewCaseCount,
+  finalCaseCount,
+  displayCaseCount,
+  funnelMetrics,
   onCopy,
   highlightRuleId,
   onClearHighlight,
@@ -175,7 +189,12 @@ export function TestGenerationResultSection({
         <div className="d-flex align-items-center gap-2 panel-card-actions-inline">
           {result ? (
             <Badge bg="success" className="d-flex align-items-center gap-1">
-              总计 {statsCount} 条
+              当前展示 {displayCaseCount} 条
+            </Badge>
+          ) : null}
+          {(previewCaseCount > 0 || finalCaseCount > 0) ? (
+            <Badge bg="secondary" className="d-flex align-items-center gap-1">
+              预览 {previewCaseCount} / 最终 {finalCaseCount || statsCount}
             </Badge>
           ) : null}
           {streamingContent ? (
@@ -223,6 +242,15 @@ export function TestGenerationResultSection({
           当前展示为后处理后的最终结果。
         </div>
       ) : null}
+
+      <div className="px-4 py-2 border-bottom bg-light small d-flex flex-wrap gap-2 align-items-center">
+        <span className="fw-semibold">漏斗:</span>
+        <Badge bg="secondary">raw预览 {funnelMetrics.rawPreviewCount}</Badge>
+        <Badge bg="secondary">review候选 {funnelMetrics.reviewCandidateCount ?? '-'}</Badge>
+        <Badge bg="secondary">review入选 {funnelMetrics.reviewSelectedCount ?? '-'}</Badge>
+        <Badge bg="secondary">judge拒绝/待定 {funnelMetrics.judgeRejectedOrPendingCount ?? '-'}</Badge>
+        <Badge bg="dark">final {funnelMetrics.finalCount}</Badge>
+      </div>
 
       {priorityRows.length > 0 ? (
         <div className="px-4 py-2 border-bottom bg-light small">

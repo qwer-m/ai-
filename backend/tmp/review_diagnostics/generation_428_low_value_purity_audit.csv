@@ -1,0 +1,18 @@
+﻿candidate_index,case_id,module,priority,bucket,resolved_reason,source,has_positive_evidence,has_coverage_signal,has_high_signal,has_competition_signal,selected_count_in_bucket,coverage_gain_score,missing_rule_hits_count,core_rule_hits_count,unique_coverage_hits_count,similarity,duplicate_of_case_id,audit_label,audit_note
+13,TC-013,课程推荐,P2,课程推荐|happy,low_value,llm,True,True,True,True,1,0,0,0,1,0.0,,coverage_protected_omitted,coverage signal present
+17,TC-017,学习报告,P2,学习报告|happy,low_value,llm,True,True,True,True,1,20,0,0,1,0.0,,coverage_protected_omitted,coverage signal present
+23,TC-023,首页-学习统计,P2,首页-学习统计|happy,low_value,llm,True,True,True,False,0,-8,0,0,1,0.0,,coverage_protected_omitted,coverage signal present
+32,TC-032,周末提升-单课程学习,P1,周末提升-单课程学习|happy,low_value,llm,True,True,True,False,0,20,0,0,4,0.0,,coverage_protected_omitted,coverage signal present
+38,TC-038,督导端,P1,督导端|happy,low_value,llm,True,True,True,False,1,-8,0,0,2,0.0,,coverage_protected_omitted,coverage signal present
+39,TC-039,督导端,P1,督导端|state,low_value,llm,True,True,True,False,0,20,0,0,6,0.0,,coverage_protected_omitted,coverage signal present
+43,TC-043,首页-周次切换,P2,首页-周次切换|state,low_value,llm,True,True,True,False,0,20,0,0,6,0.0,,coverage_protected_omitted,coverage signal present
+44,TC-044,在线学习-随堂测评,P1,在线学习-随堂测评|happy,low_value,llm,True,True,True,False,0,-8,0,0,1,0.0,,coverage_protected_omitted,coverage signal present
+46,TC-046,在线学习-随堂测评,P2,在线学习-随堂测评|happy,low_value,llm,True,True,True,False,0,-8,0,0,1,0.0,,coverage_protected_omitted,coverage signal present
+47,TC-047,学习报告,P2,学习报告|happy,low_value,llm,True,True,True,True,1,20,0,0,1,0.0,,coverage_protected_omitted,coverage signal present
+48,TC-048,学习报告,P2,学习报告|state,low_value,llm,True,True,True,False,0,20,0,0,2,0.0,,coverage_protected_omitted,coverage signal present
+50,TC-050,学习报告,P2,学习报告|state,low_value,llm,True,True,True,False,0,20,0,0,1,0.0,,coverage_protected_omitted,coverage signal present
+51,TC-051,首页-连续学习天数,P2,首页-连续学习天数|boundary,low_value,llm,True,True,True,False,0,-16,0,0,1,0.0,,coverage_protected_omitted,coverage signal present
+52,TC-052,首页-连续学习天数,P2,首页-连续学习天数|happy,low_value,llm,True,True,True,False,0,20,0,0,2,0.0,,coverage_protected_omitted,coverage signal present
+53,TC-053,在线学习-随堂测评,P1,在线学习-随堂测评|exception,low_value,llm,True,True,True,False,1,20,0,0,2,0.0,,coverage_protected_omitted,coverage signal present
+58,TC-058,首页-付费校验,P2,首页-付费校验|exception,low_value,llm,True,True,True,False,0,20,0,0,11,0.0,,coverage_protected_omitted,coverage signal present
+59,TC-059,首页-付费校验,P2,首页-付费校验|happy,low_value,llm,True,True,True,True,2,20,0,0,12,0.0,,coverage_protected_omitted,coverage signal present

@@ -67,56 +67,45 @@ export function PriorityDebugTable({
   const [samplePool, setSamplePool] = useState<PrioritySample[]>(() => {
     if (typeof window === 'undefined') return [];
     const projectRaw = window.localStorage.getItem(samplePoolStorageKey);
-    if (projectRaw) return parseSamplePool(projectRaw);
-    if (projectId) {
-      const legacyRaw = window.localStorage.getItem(SAMPLE_POOL_STORAGE_KEY);
-      if (legacyRaw) {
-        window.localStorage.setItem(samplePoolStorageKey, legacyRaw);
-        return parseSamplePool(legacyRaw);
-      }
-    }
-    return [];
+    return parseSamplePool(projectRaw);
   });
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    // 切换项目后，先完成当前项目数据水合，再允许写入，避免把上一项目数据写入新项目 key。
+    if (projectId && !hasHydratedRemoteRef.current) return;
     window.localStorage.setItem(samplePoolStorageKey, JSON.stringify(samplePool));
     setLastSavedAt(Date.now());
-  }, [samplePool, samplePoolStorageKey]);
+  }, [samplePool, samplePoolStorageKey, projectId]);
 
   useEffect(() => {
     if (!projectId) {
       hasHydratedRemoteRef.current = false;
       setLastCloudSavedAt(null);
       setCloudSyncError('');
+      if (typeof window !== 'undefined') {
+        const localRaw = window.localStorage.getItem(SAMPLE_POOL_STORAGE_KEY);
+        skipNextRemoteSaveRef.current = true;
+        setSamplePool(parseSamplePool(localRaw));
+      }
       return;
     }
     let cancelled = false;
+    hasHydratedRemoteRef.current = false;
     setIsCloudSyncing(true);
     setCloudSyncError('');
     (async () => {
       try {
         const localRaw = typeof window !== 'undefined' ? window.localStorage.getItem(samplePoolStorageKey) : null;
-        let localSamples = parseSamplePool(localRaw);
-        if (!localSamples.length && typeof window !== 'undefined') {
-          const legacyRaw = window.localStorage.getItem(SAMPLE_POOL_STORAGE_KEY);
-          const legacySamples = parseSamplePool(legacyRaw);
-          if (legacySamples.length) {
-            localSamples = legacySamples;
-            window.localStorage.setItem(samplePoolStorageKey, legacyRaw || '[]');
-          }
-        }
-        if (localSamples.length > 0) {
-          skipNextRemoteSaveRef.current = true;
-          setSamplePool(localSamples);
-        }
+        const localSamples = parseSamplePool(localRaw);
+        skipNextRemoteSaveRef.current = true;
+        setSamplePool(localSamples);
         const payload = await fetchPrioritySamplePool(projectId);
         if (cancelled) return;
         const remoteSamples = parseSamplePool(JSON.stringify(payload?.samples || []));
-        if (remoteSamples.length > 0 || localSamples.length === 0) {
-          skipNextRemoteSaveRef.current = true;
-          setSamplePool(remoteSamples);
-        }
+        // 只要云端读取成功，就以当前项目云端数据为准（包括空数组），确保项目隔离不被本地旧缓存污染。
+        skipNextRemoteSaveRef.current = true;
+        setSamplePool(remoteSamples);
         const cloudTs = Date.parse(String(payload?.updated_at || ''));
         setLastCloudSavedAt(Number.isFinite(cloudTs) ? cloudTs : null);
       } catch {

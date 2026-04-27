@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.authn.auth import get_current_user
+from core.authn.diagnostic_access import ensure_diagnostic_routes_enabled, validate_outbound_http_url
 from core.db.database import get_db
 from core.db.models import User
 from modules.automation_components.services.ui_automation_service import UIAutomationService
@@ -38,12 +39,14 @@ class DetectResponse(BaseModel):
 
 
 @router.post("/detect", response_model=DetectResponse)
-async def detect_environment(request: DetectRequest):
+async def detect_environment(request: DetectRequest, current_user: User = Depends(get_current_user)):
+    _ = current_user
+    ensure_diagnostic_routes_enabled()
     if request.type == "web":
         if not request.target:
             return DetectResponse(success=False, message="请输入目标URL")
 
-        url = request.target if request.target.startswith("http") else f"https://{request.target}"
+        url = validate_outbound_http_url(request.target)
         try:
             resp = requests.head(url, timeout=5)
             return DetectResponse(success=True, message=f"URL 可访问 (Status: {resp.status_code})", data={"validated_url": url})
@@ -60,8 +63,7 @@ async def detect_environment(request: DetectRequest):
 
             device_id = devices[0]
             res = subprocess.run(
-                f'adb -s {device_id} shell "dumpsys window | grep mCurrentFocus"',
-                shell=True,
+                ["adb", "-s", device_id, "shell", "dumpsys", "window"],
                 capture_output=True,
                 text=True,
             )

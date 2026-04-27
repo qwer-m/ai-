@@ -1,4 +1,5 @@
 from modules.testing.test_generation_components.prompting.generation_diagnostics import (
+    build_context_compression_diagnostics,
     build_context_source_log,
     build_coverage_diagnostics,
     build_final_context_trace,
@@ -87,6 +88,45 @@ def test_build_context_source_log_has_snapshot_and_rag_sections():
     assert payload["kind"] == "gen_context_source"
     assert payload["snapshot"]["version"] == 3
     assert payload["rag"]["attempt_count"] == 1
+
+
+def test_build_context_compression_diagnostics_reports_core_metrics():
+    payload = build_context_compression_diagnostics(
+        context_result={
+            "context_source": "rag_only",
+            "snapshot_result": {
+                "snapshot_id": "snap-001",
+                "corpus_hash": "corpus-abc",
+            },
+            "rag_result": {
+                "debug": {
+                    "compressed_count": 2,
+                    "compressor_stats": {
+                        "input_chars": 1000,
+                        "output_chars": 400,
+                        "deduped_count": 6,
+                    },
+                    "final_chunks": [
+                        {"final_score": 0.86},
+                        {"final_score": 0.58},
+                    ],
+                    "retrieval_profile": {"query": "login", "strategy": "hybrid"},
+                }
+            },
+        }
+    )
+    assert payload["context_source"] == "rag_only"
+    assert payload["compression_ratio"] == 0.4
+    assert payload["compression_rate"] == 0.6
+    assert payload["retained_chunk_count"] == 2
+    assert payload["input_chunk_count"] == 6
+    assert payload["chunk_retention_ratio"] == round(2 / 6, 4)
+    assert payload["relevance_distribution"]["sample_size"] == 2
+    assert payload["relevance_distribution"]["high_count"] == 1
+    assert payload["relevance_distribution"]["medium_count"] == 1
+    assert payload["snapshot_id"] == "snap-001"
+    assert payload["corpus_hash"] == "corpus-abc"
+    assert isinstance(payload["retrieval_hash"], str) and len(payload["retrieval_hash"]) > 0
 
 
 def test_build_final_context_trace_rag_only_success():

@@ -1,0 +1,2 @@
+﻿case_id,module,priority,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-027,数据与状态规则,P1,验证补做操作触发全链路更新：错题本、掌握度、课程推荐、学习报告均更新,PENDING,contains_pending_logic,True,True,False

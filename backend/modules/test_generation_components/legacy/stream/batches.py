@@ -48,6 +48,23 @@ class LegacyGenerationStreamBatchesMixin:
         biz_diag_emitted = False
         system_prompt = ""
 
+        def _extract_requirement_semantics_payload(prompt_context: dict[str, Any]) -> dict[str, list[str]]:
+            payload: dict[str, list[str]] = {}
+            for key in (
+                "confirmed_facts",
+                "scoped_rules",
+                "pending_items",
+                "reuse_declarations",
+                "hard_flow_constraints",
+                "reuse_risks",
+            ):
+                values = prompt_context.get(key)
+                if isinstance(values, list):
+                    payload[key] = [str(item).strip() for item in values if str(item).strip()]
+                else:
+                    payload[key] = []
+            return payload
+
         def _emit_biz_key_diag(prompt_context: dict[str, Any]) -> None:
             """中文注释：把 biz_key 隔离检查写入 GEN_DIAG，便于前端日志区观察。"""
             nonlocal biz_diag_emitted
@@ -105,6 +122,7 @@ class LegacyGenerationStreamBatchesMixin:
             feedback_control_state=feedback_control_state,
         )
         current_biz_key = str(prompt_context.get("current_biz_key") or current_biz_key or "unknown")
+        requirement_semantics_context = _extract_requirement_semantics_payload(prompt_context)
         _emit_biz_key_diag(prompt_context)
 
         base_prompt = build_closed_loop_base_prompt(
@@ -199,6 +217,7 @@ class LegacyGenerationStreamBatchesMixin:
                     feedback_control_state=feedback_control_state,
                 )
                 current_biz_key = str(prompt_context.get("current_biz_key") or current_biz_key or "unknown")
+                requirement_semantics_context = _extract_requirement_semantics_payload(prompt_context)
                 _emit_biz_key_diag(prompt_context)
 
                 testcase_context = prompt_context.get("testcase_context") or "(empty)"
@@ -341,6 +360,7 @@ class LegacyGenerationStreamBatchesMixin:
                 "only_current_biz": only_current_biz,
                 "multi_pass": multi_pass,
                 "generation_mode": generation_mode,
+                "requirement_semantics_context": requirement_semantics_context,
             }
         )
         return state

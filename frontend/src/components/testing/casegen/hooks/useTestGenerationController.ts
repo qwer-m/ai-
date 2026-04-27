@@ -31,6 +31,13 @@ const getProjectKey = (projectId: number | null, base: string) => (projectId ? `
 const SAMPLE_POOL_FEEDBACK_STORAGE_KEY = 'tg_enable_sample_pool_feedback';
 
 type ResultSource = 'none' | 'streaming_preview' | 'final_persisted';
+type GenerationFunnelMetrics = {
+  rawPreviewCount: number;
+  reviewCandidateCount: number | null;
+  reviewSelectedCount: number | null;
+  judgeRejectedOrPendingCount: number | null;
+  finalCount: number;
+};
 
 export function useTestGenerationController({ projectId, isActive = true, onLog, onGenerated, onGenerationComplete, onError }: TestGenerationProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -40,6 +47,11 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   const ingestDebugEvent = useRagDebugStore((s) => s.ingestDiag);
   const resetDebugState = useRagDebugStore((s) => s.reset);
   const setResultDebugState = useRagDebugStore((s) => s.setResultState);
+  const genDiag = useRagDebugStore((s) => s.genDiag);
+  const generationConvergence = useRagDebugStore((s) => s.generationConvergence);
+  const reviewDecisionSummary = useRagDebugStore((s) => s.reviewDecisionSummary);
+  const judgeSummary = useRagDebugStore((s) => s.judgeSummary);
+  const generationSummary = useRagDebugStore((s) => s.generationSummary);
 
   const initialTextResult = readStoredJSON(getProjectKey(projectId, 'tg_text_result'), null);
   const initialFileResult = readStoredJSON(getProjectKey(projectId, 'tg_file_result'), null);
@@ -87,16 +99,54 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   const resultSource = mode === 'text' ? textResultSource : fileResultSource;
   const generationId = mode === 'text' ? textGenerationId : fileGenerationId;
   const isFinalResultLoaded = mode === 'text' ? textIsFinalResultLoaded : fileIsFinalResultLoaded;
+  const previewResult = mode === 'text' ? textStreamingParsedResult : fileStreamingParsedResult;
+  const finalResult = mode === 'text' ? textFinalResult : fileFinalResult;
   const parsedStream = useMemo(() => extractFirstJsonArray(cleanStreamingContent(streamingContent)), [streamingContent]);
+  const previewCaseCount = useMemo(() => getUniqueCaseCount(previewResult), [previewResult]);
+  const finalCaseCount = useMemo(() => getUniqueCaseCount(finalResult), [finalResult]);
+  const resultCaseCount = useMemo(() => getUniqueCaseCount(result), [result]);
+  const displayCaseCount = useMemo(() => {
+    if (resultSource === 'final_persisted' && isFinalResultLoaded && finalCaseCount > 0) return finalCaseCount;
+    if (resultSource === 'streaming_preview' && previewCaseCount > 0) return previewCaseCount;
+    return resultCaseCount;
+  }, [resultSource, isFinalResultLoaded, finalCaseCount, previewCaseCount, resultCaseCount]);
   const hasJsonInResultBox = useMemo(() => Boolean(
     (Array.isArray(result) && result.length > 0) ||
     (result && typeof result === 'object') ||
     (Array.isArray(parsedStream) && parsedStream.length > 0)
   ), [result, parsedStream]);
-  const currentTotal = useMemo(() => hasJsonInResultBox ? getUniqueCaseCount(result) : 0, [hasJsonInResultBox, result]);
+  const currentTotal = useMemo(() => hasJsonInResultBox ? displayCaseCount : 0, [hasJsonInResultBox, displayCaseCount]);
   const targetTotal = expectedCount + appendCount;
   const isLimitReached = hasJsonInResultBox && currentTotal >= targetTotal;
-  const stats = useMemo(() => ({ count: getUniqueCaseCount(result) }), [result]);
+  const stats = useMemo(() => ({ count: displayCaseCount }), [displayCaseCount]);
+  const funnelMetrics = useMemo<GenerationFunnelMetrics>(() => {
+    const reviewCandidateCountRaw = Number(
+      reviewDecisionSummary?.candidate_total ?? generationConvergence?.candidate_count_before_review
+    );
+    const reviewSelectedCountRaw = Number(
+      generationConvergence?.review_selected_count ?? reviewDecisionSummary?.retained_total
+    );
+    const rejectedOut = Number(judgeSummary?.rejected_out_count ?? judgeSummary?.reject_count);
+    const pendingOut = Number(judgeSummary?.pending_out_count ?? judgeSummary?.pending_count);
+    const judgeRejectedOrPendingRaw = rejectedOut + pendingOut;
+    const finalCountRaw = Number(generationSummary?.final_count ?? genDiag?.generated_count ?? displayCaseCount);
+
+    return {
+      rawPreviewCount: Number.isFinite(previewCaseCount) ? previewCaseCount : 0,
+      reviewCandidateCount: Number.isFinite(reviewCandidateCountRaw) ? reviewCandidateCountRaw : null,
+      reviewSelectedCount: Number.isFinite(reviewSelectedCountRaw) ? reviewSelectedCountRaw : null,
+      judgeRejectedOrPendingCount: Number.isFinite(judgeRejectedOrPendingRaw) ? judgeRejectedOrPendingRaw : null,
+      finalCount: Number.isFinite(finalCountRaw) ? finalCountRaw : displayCaseCount,
+    };
+  }, [
+    reviewDecisionSummary,
+    generationConvergence,
+    judgeSummary,
+    generationSummary,
+    genDiag,
+    previewCaseCount,
+    displayCaseCount,
+  ]);
 
   useEffect(() => {
     if (!isActive) setToastMsg(null);
@@ -125,11 +175,23 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
       resultSource,
       generationId,
       isFinalResultLoaded,
+      previewCaseCount,
+      finalCaseCount,
+      displayCaseCount,
     });
     // 涓枃娉ㄩ噴锛氭妸缁撴灉鏉ユ簮璇婃柇鏄庣‘鎵撳埌鎺у埗鍙帮紝渚夸簬鎺掓煡鈥滈瑙堟€?鏈€缁堟€佲€濆垏鎹㈤棶棰樸€?    console.info(`[TG_RESULT_DIAG] resultSource=${resultSource}`);
     console.info(`[TG_RESULT_DIAG] generationId=${generationId ?? 'null'}`);
     console.info(`[TG_RESULT_DIAG] isFinalResultLoaded=${isFinalResultLoaded ? 'true' : 'false'}`);
-  }, [mode, resultSource, generationId, isFinalResultLoaded, setResultDebugState]);
+  }, [
+    mode,
+    resultSource,
+    generationId,
+    isFinalResultLoaded,
+    previewCaseCount,
+    finalCaseCount,
+    displayCaseCount,
+    setResultDebugState,
+  ]);
 
   useTestGenerationPersistence({
     projectId,
@@ -285,6 +347,10 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     generationId,
     isFinalResultLoaded,
     streamingContent,
+    previewCaseCount,
+    finalCaseCount,
+    displayCaseCount,
+    funnelMetrics,
     error,
     setError,
     toastMsg,

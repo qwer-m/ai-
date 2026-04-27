@@ -1,0 +1,19 @@
+﻿case_id,module,priority,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,学习报告页,P1,验证学习报告页“返回首页”功能将标记周末任务为已完成。,PASS,-,False,False,False
+TC-002,学习报告页,P1,验证学习报告页的生成与分享功能（家长仅读）。,PASS,-,False,False,False
+TC-003,任务与判分,P1,验证周中任务提交与AI即时判分、错题归档流程。,PASS,-,False,False,False
+TC-004,全局控制与权限,P2,验证切换至未来教学周（数据可能未生成）时的系统边界行为。,PASS,-,False,False,False
+TC-005,全局控制与权限,P1,验证在切换教材/年级或教学周时发生网络异常，系统能保持数据一致性且提供重试。,PASS,-,False,False,False
+TC-006,全局控制与权限,P1,验证教材/年级切换时发生网络异常，系统提示并保留原数据。,PASS,-,False,False,False
+TC-007,全局控制与权限,P2,验证补做期的精确时间边界：在周日24:00前一刻补做上周任务成功，之后立即变为仅可查看。,PASS,-,True,False,False
+TC-008,全局控制与权限,P1,验证数据主键由用户×教材/年级×教学周三维决定的机制，确保数据隔离与正确加载。,PASS,-,True,False,False
+TC-009,全局控制与权限,P1,验证新用户首次进入定位学系统，完成教材/年级选择，并成功加载当前周数据。,PASS,-,False,False,False
+TC-010,全局控制与权限,P1,验证补做规则：尝试补做超过上周的历史周（如第8周）任务。,PASS,-,False,False,False
+TC-011,全局控制与权限,P1,验证过期规则：周日24:00后，当前周任务仅可查看。,PASS,-,False,False,False
+TC-012,异常与边界,P1,验证网络异常时，系统有通用提示，且已加载数据被保留。,PASS,-,False,False,False
+TC-013,周末学习与测评,P1,验证周末随堂测评完整流程（打印-手写-拍照上传-OCR判分-错题归档）。,PASS,-,False,False,False
+TC-014,学习数据与统计,P1,验证周一习题本在当日任务完成后自动生成，并验证其“无/全对/有错题”三态。,PASS,-,False,False,False
+TC-015,学习数据与统计,P1,验证知识点掌握度三态（薄弱/一般/熟练）的计算与展示。,PASS,-,False,False,False
+TC-016,督导端,P1,验证督导端“完成判卷”仅为流程标记，不改变学生学情数据。,PASS,-,False,False,False
+TC-017,AI定位与推荐,P1,验证周末课程推荐的数据源整合：基于本周全量答题数据（周中任务+周一习题本）生成推荐内容。,PASS,-,False,False,False
+AUTO-CORE-FLOW,学习路径-核心工作流,P1,验证完整学习路径闭环：学课文 -> 词组消消乐 -> 选词填空 -> 返回首页,REPAIRABLE,-,False,False,False

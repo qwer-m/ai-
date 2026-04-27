@@ -91,6 +91,8 @@
         "generation_summary": generation_summary,
         "review_decision_summary": review_decision_summary,
         "review_decision_table": review_decision_table,
+        "judge_summary": judge_summary_payload,
+        "judge_decision_table": judge_decision_table_payload,
         "feedback_control_debug": {
             "control_state_applied": bool(control_state.has_signals()),
             "must_cover_rules_count": int(len(control_state.must_cover_rules or [])),

@@ -1,0 +1,3 @@
+﻿candidate_index,case_id,description,test_module,model_priority_current,dropped_stage,dropped_reason,bucket,has_coverage_value,high_signal,covered_rule_ids
+26,TC-027,验证督导端单题错题集流程：拍照判题入错题本但不进行错题推荐,督导端,P1,review_llm,drop_not_selected_by_review_llm,督导端|happy,True,False,"[""RULE-004"", ""RULE-017"", ""RULE-027"", ""RULE-042"", ""RULE-045"", ""RULE-048"", ""RULE-049""]"
+32,TC-033,验证固定节奏：周中任务未全部完成时，尝试提前进入周末课程推荐页,全局控制与权限,P2,review_llm,drop_not_selected_by_review_llm,全局控制与权限|happy,False,False,"[""RULE-009""]"

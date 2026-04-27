@@ -1,0 +1,32 @@
+{
+  "generation_id": 399,
+  "request_id": "9635fb0a3ea741979df1582f5a3491b8",
+  "review_row_count_total": 31,
+  "review_llm_drop_count": 10,
+  "drop_by_module": {
+    "任务与判分": 1,
+    "周末学习与测评": 1,
+    "学习报告页": 2,
+    "督导端智能课堂": 2,
+    "督导端": 2,
+    "学习报表": 2
+  },
+  "drop_by_priority": {
+    "P1": 6,
+    "P2": 4
+  },
+  "drop_by_scene": {
+    "happy": 7,
+    "state": 3
+  },
+  "p1_drop_count": 6,
+  "p1_drop_by_module": {
+    "任务与判分": 1,
+    "周末学习与测评": 1,
+    "学习报告页": 2,
+    "督导端智能课堂": 1,
+    "督导端": 1
+  },
+  "high_signal_dropped_count": 0,
+  "coverage_value_dropped_count": 1
+}

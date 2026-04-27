@@ -3,15 +3,16 @@ import { Button, Tab, Tabs } from 'react-bootstrap';
 import { BizKeyTimeline } from './BizKeyTimeline';
 import { CoverageTable } from './CoverageTable';
 import { GenerationOverview } from './GenerationOverview';
+import { JudgeDecisionTable } from './JudgeDecisionTable';
 import { PriorityDebugTable } from './PriorityDebugTable';
 import { useRagDebugStore } from './debugStore';
 import './rag-debug-panel.css';
 
 type ResultSource = 'none' | 'streaming_preview' | 'final_persisted';
-type DebugTabKey = 'overview' | 'timeline' | 'coverage' | 'priority';
+type DebugTabKey = 'overview' | 'timeline' | 'coverage' | 'judge' | 'priority';
 
 const ACTIVE_TAB_STORAGE_KEY = 'tg_debug_panel_active_tab';
-const TAB_KEYS: DebugTabKey[] = ['overview', 'timeline', 'coverage', 'priority'];
+const TAB_KEYS: DebugTabKey[] = ['overview', 'timeline', 'coverage', 'judge', 'priority'];
 
 function readStoredActiveTab(): DebugTabKey {
   if (typeof window === 'undefined') return 'overview';
@@ -80,6 +81,9 @@ export function RagDebugPanel({
           </Tab>
           <Tab eventKey="coverage" title="覆盖诊断">
             <CoverageTable onRuleClick={onRuleClick} activeRuleId={activeRuleId} />
+          </Tab>
+          <Tab eventKey="judge" title="Judge 明细">
+            <JudgeDecisionTable />
           </Tab>
           <Tab eventKey="priority" title="优先级诊断">
             <PriorityDebugTable

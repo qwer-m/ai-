@@ -678,6 +678,8 @@ def load_priority_sample_pool(
     project_id: int,
     user_id: int,
 ) -> Optional[dict[str, Any]]:
+    if db is None or not hasattr(db, "query"):
+        return None
     repo = EvaluationArtifactRepository(db)
     filename = build_priority_sample_pool_filename(project_id)
     doc = repo.get_latest_artifact_doc(

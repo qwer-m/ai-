@@ -1,4 +1,4 @@
-﻿import { Modal, Button, Accordion, Badge } from 'react-bootstrap';
+import { Modal, Button, Accordion, Badge } from 'react-bootstrap';
 
 type Props = {
   show: boolean;
@@ -9,7 +9,64 @@ type Props = {
   loading?: boolean;
 };
 
+const TRUSTED_PREVIEW_TAGS = ['div', 'table', 'tbody', 'thead', 'tr', 'td', 'th', 'h5'] as const;
+const TRUSTED_PREVIEW_CLASS_PREFIXES = ['bg-', 'border', 'rounded', 'p-', 'table', 'mb-', 'preview-modal-content-html'];
+
+function isTrustedPreviewHtml(content: string): boolean {
+  if (!content || (!content.includes('<table') && !content.includes('<h5'))) {
+    return false;
+  }
+
+  const lowered = content.toLowerCase();
+  const blockedPatterns = [
+    '<script',
+    '<iframe',
+    '<object',
+    '<embed',
+    '<svg',
+    '<math',
+    'javascript:',
+    'data:text/html',
+    'srcdoc=',
+    'onerror=',
+    'onload=',
+    'onclick=',
+    'onmouseover=',
+    'onfocus=',
+    'onmouseenter=',
+  ];
+  if (blockedPatterns.some((pattern) => lowered.includes(pattern))) {
+    return false;
+  }
+
+  const forbiddenStylePatterns = ['expression(', 'url(', '@import'];
+  if (forbiddenStylePatterns.some((pattern) => lowered.includes(pattern))) {
+    return false;
+  }
+
+  const tagMatches = content.match(/<\/?([a-zA-Z0-9-]+)/g) || [];
+  if (
+    tagMatches.some((rawTag) => {
+      const tag = rawTag.replace(/[</>]/g, '').toLowerCase();
+      return !TRUSTED_PREVIEW_TAGS.includes(tag as (typeof TRUSTED_PREVIEW_TAGS)[number]);
+    })
+  ) {
+    return false;
+  }
+
+  const classMatches = content.match(/class="([^"]*)"/g) || [];
+  return classMatches.every((entry) => {
+    const raw = entry.slice('class="'.length, -1);
+    return raw
+      .split(/\s+/)
+      .filter(Boolean)
+      .every((cls) => TRUSTED_PREVIEW_CLASS_PREFIXES.some((prefix) => cls === prefix || cls.startsWith(prefix)));
+  });
+}
+
 export function PreviewModal({ show, onHide, title, content, linkedDocs, loading }: Props) {
+  const canRenderTrustedHtml = isTrustedPreviewHtml(content);
+
   return (
     <Modal show={show} onHide={onHide} size="xl">
       <Modal.Header closeButton>
@@ -26,7 +83,7 @@ export function PreviewModal({ show, onHide, title, content, linkedDocs, loading
           <div className="d-flex flex-column gap-3">
             <div>
               <h6 className="mb-2">文档内容</h6>
-              {content && (content.includes('<table') || content.includes('<h5')) ? (
+              {canRenderTrustedHtml ? (
                 <div
                   className="bg-light p-3 border rounded mb-0 table-responsive preview-modal-content-html"
                   dangerouslySetInnerHTML={{ __html: content }}

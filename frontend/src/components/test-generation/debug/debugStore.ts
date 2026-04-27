@@ -1,6 +1,15 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import type { CoverageResult, GenDiagEvent } from './diagParser';
+import type {
+  CoverageResult,
+  GenDiagEvent,
+  GenDiagSummaryEvent,
+  GenerationConvergenceEvent,
+  GenerationSummaryEvent,
+  JudgeDecisionTableEvent,
+  JudgeSummaryEvent,
+  ReviewDecisionSummaryEvent,
+} from './diagParser';
 import { parseGenDiagEvent } from './diagParser';
 
 export type DebugStage = {
@@ -15,6 +24,9 @@ export type ResultDebugState = {
   resultSource: 'none' | 'streaming_preview' | 'final_persisted';
   generationId: number | null;
   isFinalResultLoaded: boolean;
+  previewCaseCount?: number;
+  finalCaseCount?: number;
+  displayCaseCount?: number;
   ts: number;
 };
 
@@ -24,6 +36,12 @@ export type DebugState = {
   currentBizKey?: string;
   stages: DebugStage[];
   coverage?: CoverageResult;
+  genDiag?: GenDiagSummaryEvent;
+  generationConvergence?: GenerationConvergenceEvent;
+  reviewDecisionSummary?: ReviewDecisionSummaryEvent;
+  judgeSummary?: JudgeSummaryEvent;
+  judgeDecisionTableRows?: Array<Record<string, unknown>>;
+  generationSummary?: GenerationSummaryEvent;
   resultState?: ResultDebugState;
   lastUpdatedAt?: number;
   ingestDiag: (event: unknown) => void;
@@ -37,6 +55,12 @@ const INITIAL_STATE = {
   currentBizKey: undefined as string | undefined,
   stages: [] as DebugStage[],
   coverage: undefined as CoverageResult | undefined,
+  genDiag: undefined as GenDiagSummaryEvent | undefined,
+  generationConvergence: undefined as GenerationConvergenceEvent | undefined,
+  reviewDecisionSummary: undefined as ReviewDecisionSummaryEvent | undefined,
+  judgeSummary: undefined as JudgeSummaryEvent | undefined,
+  judgeDecisionTableRows: undefined as Array<Record<string, unknown>> | undefined,
+  generationSummary: undefined as GenerationSummaryEvent | undefined,
   resultState: undefined as ResultDebugState | undefined,
   lastUpdatedAt: undefined as number | undefined,
 };
@@ -96,6 +120,51 @@ function applyEvent(state: DebugState, event: GenDiagEvent): Partial<DebugState>
     };
   }
 
+  if (event.kind === 'gen_diag') {
+    return {
+      genDiag: event,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'generation_convergence') {
+    return {
+      generationConvergence: event,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'review_decision_summary') {
+    return {
+      reviewDecisionSummary: event,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'judge_summary') {
+    return {
+      judgeSummary: event,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'judge_decision_table') {
+    const rows = Array.isArray((event as JudgeDecisionTableEvent).rows)
+      ? (event as JudgeDecisionTableEvent).rows?.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+      : [];
+    return {
+      judgeDecisionTableRows: rows,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'generation_summary') {
+    return {
+      generationSummary: event,
+      lastUpdatedAt: now,
+    };
+  }
+
   return {};
 }
 
@@ -134,6 +203,12 @@ export const useRagDebugStore = create<DebugState>()(
         currentBizKey: state.currentBizKey,
         stages: state.stages,
         coverage: state.coverage,
+        genDiag: state.genDiag,
+        generationConvergence: state.generationConvergence,
+        reviewDecisionSummary: state.reviewDecisionSummary,
+        judgeSummary: state.judgeSummary,
+        judgeDecisionTableRows: state.judgeDecisionTableRows,
+        generationSummary: state.generationSummary,
         resultState: state.resultState,
         lastUpdatedAt: state.lastUpdatedAt,
       }),

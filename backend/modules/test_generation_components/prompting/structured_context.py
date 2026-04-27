@@ -275,6 +275,50 @@ def _contains_any_marker(text: str, markers: tuple[str, ...]) -> bool:
     return any(marker in lowered for marker in markers)
 
 
+def _is_time_window_scope_rule(fragment: str) -> bool:
+    lowered = str(fragment or "").strip().lower()
+    if not lowered:
+        return False
+
+    time_markers = (
+        "周日24:00",
+        "周日 24:00",
+        "24:00后",
+        "24:00 后",
+        "24点后",
+        "24 点后",
+        "sunday 24:00",
+        "after sunday 24:00",
+    )
+    view_only_markers = (
+        "仅可查看",
+        "只可查看",
+        "仅查看",
+        "不可操作",
+        "不能操作",
+        "禁止操作",
+        "view only",
+        "read only",
+        "read-only",
+        "readonly",
+    )
+    scope_markers = (
+        "历史周",
+        "补做",
+        "补学",
+        "历史任务",
+        "周末任务",
+        "过期规则",
+        "历史周补学",
+        "补做期",
+    )
+
+    has_time_gate = any(marker in lowered for marker in time_markers)
+    has_view_only = any(marker in lowered for marker in view_only_markers)
+    has_scope = any(marker in lowered for marker in scope_markers)
+    return bool(has_time_gate and has_view_only and (has_scope or "周日" in lowered))
+
+
 def _classify_requirement_fragment(fragment: str) -> dict[str, bool]:
     lowered = str(fragment or "").strip().lower()
     if not lowered:
@@ -283,11 +327,13 @@ def _classify_requirement_fragment(fragment: str) -> dict[str, bool]:
             "pending": False,
             "reuse": False,
             "hard_flow": False,
+            "scoped_rule": False,
         }
 
     pending = _contains_any_marker(lowered, _PENDING_REQUIREMENT_MARKERS)
     reuse = _contains_any_marker(lowered, _REUSE_DECLARATION_MARKERS)
     hard_flow = _contains_any_marker(lowered, _HARD_FLOW_MARKERS)
+    scoped_rule = _is_time_window_scope_rule(lowered)
     confirmed = bool(
         (not pending)
         and (
@@ -298,10 +344,11 @@ def _classify_requirement_fragment(fragment: str) -> dict[str, bool]:
         )
     )
     return {
-        "confirmed": bool(confirmed),
+        "confirmed": bool(confirmed and (not scoped_rule)),
         "pending": bool(pending),
         "reuse": bool(reuse),
-        "hard_flow": bool(hard_flow),
+        "hard_flow": bool(hard_flow and (not scoped_rule)),
+        "scoped_rule": bool(scoped_rule),
     }
 
 
@@ -475,6 +522,7 @@ def _build_requirement_semantics_context(
     grouped: dict[str, dict[str, list[str]]] = defaultdict(
         lambda: {
             "confirmed_facts": [],
+            "scoped_rules": [],
             "pending_items": [],
             "reuse_declarations": [],
             "hard_flow_constraints": [],
@@ -487,6 +535,8 @@ def _build_requirement_semantics_context(
         bucket = grouped[biz_key]
         if flags["confirmed"] and len(bucket["confirmed_facts"]) < _MAX_REQUIREMENT_SEMANTIC_ITEMS_PER_BUCKET:
             bucket["confirmed_facts"].append(fragment)
+        if flags["scoped_rule"] and len(bucket["scoped_rules"]) < _MAX_REQUIREMENT_SEMANTIC_ITEMS_PER_BUCKET:
+            bucket["scoped_rules"].append(fragment)
         if flags["pending"] and len(bucket["pending_items"]) < _MAX_REQUIREMENT_SEMANTIC_ITEMS_PER_BUCKET:
             bucket["pending_items"].append(fragment)
         if flags["reuse"] and len(bucket["reuse_declarations"]) < _MAX_REQUIREMENT_SEMANTIC_ITEMS_PER_BUCKET:
@@ -549,6 +599,7 @@ def _build_requirement_semantics_context(
 
     section_titles = (
         ("confirmed_facts", "Confirmed Facts"),
+        ("scoped_rules", "Scoped Rules"),
         ("pending_items", "Pending / Open Questions"),
         ("reuse_declarations", "Reuse Declarations"),
         ("hard_flow_constraints", "Hard Flow Constraints"),
@@ -893,6 +944,7 @@ def build_structured_prompt_context(
             "supplement_context": supplement_scoped.get(biz_key) or supplement_context,
             "control_context": control_context,
             "confirmed_facts": list(scoped_semantics.get("confirmed_facts") or []),
+            "scoped_rules": list(scoped_semantics.get("scoped_rules") or []),
             "pending_items": list(scoped_semantics.get("pending_items") or []),
             "reuse_declarations": list(scoped_semantics.get("reuse_declarations") or []),
             "hard_flow_constraints": list(scoped_semantics.get("hard_flow_constraints") or []),
@@ -910,6 +962,7 @@ def build_structured_prompt_context(
         "current_biz_key": resolved_current_biz,
         "only_current_biz": bool(only_current_biz),
         "confirmed_facts": list(current_semantics.get("confirmed_facts") or []),
+        "scoped_rules": list(current_semantics.get("scoped_rules") or []),
         "pending_items": list(current_semantics.get("pending_items") or []),
         "reuse_declarations": list(current_semantics.get("reuse_declarations") or []),
         "hard_flow_constraints": list(current_semantics.get("hard_flow_constraints") or []),

@@ -1,6 +1,8 @@
 """生成链路诊断工具（阶段2.5）。"""
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any
 
@@ -159,6 +161,152 @@ def build_coverage_diagnostics(
         "requirement_constraints_count": len(requirement_constraints),
         "covered_constraints_count": len(covered_constraints),
         "missing_constraints_preview": [x for x in requirement_constraints if x not in covered_constraints][:12],
+    }
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _chunk_relevance_distribution(chunks: list[dict[str, Any]]) -> dict[str, Any]:
+    scores: list[float] = []
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            continue
+        score = None
+        for key in ("final_score", "fusion_score", "rerank_score", "score", "vector_score"):
+            score = _safe_float(chunk.get(key))
+            if score is not None:
+                break
+        if score is None:
+            continue
+        scores.append(score)
+
+    if not scores:
+        return {
+            "sample_size": 0,
+            "high_count": 0,
+            "medium_count": 0,
+            "low_count": 0,
+            "high_ratio": 0.0,
+            "medium_ratio": 0.0,
+            "low_ratio": 0.0,
+            "mean_score": 0.0,
+            "min_score": 0.0,
+            "max_score": 0.0,
+        }
+
+    total = len(scores)
+    high_count = sum(1 for score in scores if score >= 0.75)
+    medium_count = sum(1 for score in scores if 0.5 <= score < 0.75)
+    low_count = total - high_count - medium_count
+
+    mean_score = sum(scores) / total
+    return {
+        "sample_size": int(total),
+        "high_count": int(high_count),
+        "medium_count": int(medium_count),
+        "low_count": int(low_count),
+        "high_ratio": round(high_count / total, 4),
+        "medium_ratio": round(medium_count / total, 4),
+        "low_ratio": round(low_count / total, 4),
+        "mean_score": round(mean_score, 4),
+        "min_score": round(min(scores), 4),
+        "max_score": round(max(scores), 4),
+    }
+
+
+def build_context_compression_diagnostics(
+    *,
+    context_result: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build compression diagnostics from retrieval debug payload."""
+    context_result = context_result or {}
+    rag_result = context_result.get("rag_result")
+    rag_debug = {}
+    if isinstance(rag_result, dict):
+        rag_debug = dict(rag_result.get("debug") or {})
+    snapshot_result = dict(context_result.get("snapshot_result") or {})
+    fusion_debug = dict(context_result.get("fusion_debug") or {})
+
+    compressor_stats = dict(rag_debug.get("compressor_stats") or {})
+    final_chunks = [item for item in (rag_debug.get("final_chunks") or []) if isinstance(item, dict)]
+    rerank_top = [item for item in (rag_debug.get("rerank_top") or []) if isinstance(item, dict)]
+    retrieval_profile = dict(rag_debug.get("retrieval_profile") or {})
+
+    input_chars = int(compressor_stats.get("input_chars") or 0)
+    output_chars = int(compressor_stats.get("output_chars") or 0)
+
+    input_chunk_count = int(
+        compressor_stats.get("deduped_count")
+        or compressor_stats.get("input_count")
+        or len(rag_debug.get("dedup_chunks") or [])
+        or 0
+    )
+    retained_chunk_count = int(rag_debug.get("compressed_count") or len(final_chunks) or 0)
+
+    compression_ratio = 1.0
+    compression_rate = 0.0
+    if input_chars > 0:
+        compression_ratio = round(output_chars / input_chars, 4)
+        compression_rate = round(1.0 - compression_ratio, 4)
+
+    chunk_retention_ratio = 1.0
+    if input_chunk_count > 0:
+        chunk_retention_ratio = round(retained_chunk_count / input_chunk_count, 4)
+
+    relevance_distribution = _chunk_relevance_distribution(final_chunks or rerank_top)
+
+    snapshot_id = snapshot_result.get("snapshot_id")
+    if snapshot_id in (None, ""):
+        snapshot_id = fusion_debug.get("snapshot_id")
+    if snapshot_id in (None, ""):
+        snapshot_id = snapshot_result.get("snapshot_version")
+    if snapshot_id in (None, ""):
+        snapshot_id = fusion_debug.get("snapshot_version")
+
+    corpus_hash = (
+        snapshot_result.get("corpus_hash")
+        or snapshot_result.get("current_corpus_hash")
+        or snapshot_result.get("snapshot_corpus_hash")
+        or retrieval_profile.get("corpus_hash")
+        or ""
+    )
+    retrieval_hash = (
+        rag_debug.get("retrieval_hash")
+        or retrieval_profile.get("retrieval_hash")
+        or ""
+    )
+    if not retrieval_hash:
+        retrieval_basis = {
+            "query": str(retrieval_profile.get("query") or ""),
+            "strategy": str(retrieval_profile.get("strategy") or ""),
+            "top_k": int(retrieval_profile.get("top_k") or len(rerank_top) or len(final_chunks) or 0),
+            "chunk_ids": [
+                str(item.get("id") or item.get("chunk_id") or item.get("doc_id") or "")
+                for item in (rerank_top or final_chunks)[:30]
+                if isinstance(item, dict)
+            ],
+        }
+        basis_text = json.dumps(retrieval_basis, ensure_ascii=False, sort_keys=True)
+        retrieval_hash = hashlib.sha256(basis_text.encode("utf-8")).hexdigest()[:16] if basis_text else ""
+
+    return {
+        "context_source": str(context_result.get("context_source") or "none"),
+        "input_chars": int(max(0, input_chars)),
+        "output_chars": int(max(0, output_chars)),
+        "compression_ratio": compression_ratio,
+        "compression_rate": compression_rate,
+        "input_chunk_count": int(max(0, input_chunk_count)),
+        "retained_chunk_count": int(max(0, retained_chunk_count)),
+        "chunk_retention_ratio": chunk_retention_ratio,
+        "relevance_distribution": relevance_distribution,
+        "snapshot_id": str(snapshot_id or ""),
+        "corpus_hash": str(corpus_hash or ""),
+        "retrieval_hash": str(retrieval_hash or ""),
     }
 
 

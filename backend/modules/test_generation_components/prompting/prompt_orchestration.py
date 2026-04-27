@@ -1,3 +1,4 @@
+import json
 from typing import Any, Callable
 
 from modules.test_generation_components.prompting.prompt_orchestration_split_helpers import (
@@ -249,6 +250,9 @@ def build_review_select_prompt(
     requirement_context: str,
     candidate_cases: list[dict[str, Any]],
     target_count: int,
+    target_min_count: int | None = None,
+    target_max_count: int | None = None,
+    coverage_constraints: dict[str, Any] | None = None,
     current_biz_key: str = "",
     pretty_json: bool = False,
 ) -> str:
@@ -257,7 +261,48 @@ def build_review_select_prompt(
     requirement_context = str(requirement_context or "").strip() or "(empty)"
     current_biz_key = str(current_biz_key or "").strip() or "unknown"
     target_count = max(1, int(target_count or 1))
+    target_min_count = max(1, int(target_min_count or target_count))
+    target_max_count = max(target_min_count, int(target_max_count or target_count))
     candidate_text = _dump_cases_for_prompt(candidate_cases, max_items=120)
+    candidate_ids = [
+        str(item.get("id") or item.get("case_id") or "").strip()
+        for item in candidate_cases
+        if isinstance(item, dict) and str(item.get("id") or item.get("case_id") or "").strip()
+    ]
+    candidate_ids = candidate_ids[:200]
+    candidate_ids_text = json.dumps(candidate_ids, ensure_ascii=False)
+    constraints = dict(coverage_constraints or {})
+    priority_min = {
+        str(key).strip().upper(): int(value)
+        for key, value in dict(constraints.get("priority_min") or {}).items()
+        if str(key).strip() and int(value or 0) > 0
+    }
+    scenario_min = {
+        str(key).strip().lower(): int(value)
+        for key, value in dict(constraints.get("scenario_min") or {}).items()
+        if str(key).strip() and int(value or 0) > 0
+    }
+    domain_min = {
+        str(key).strip().lower(): int(value)
+        for key, value in dict(constraints.get("domain_min") or {}).items()
+        if str(key).strip() and int(value or 0) > 0
+    }
+    constraint_lines: list[str] = []
+    if priority_min:
+        constraint_lines.append(
+            "- Priority minima: " + ", ".join([f"{key}>={value}" for key, value in sorted(priority_min.items())])
+        )
+    if scenario_min:
+        constraint_lines.append(
+            "- Scenario minima: " + ", ".join([f"{key}>={value}" for key, value in sorted(scenario_min.items())])
+        )
+    if domain_min:
+        constraint_lines.append(
+            "- Domain minima: " + ", ".join([f"{key}>={value}" for key, value in sorted(domain_min.items())])
+        )
+    if not constraint_lines:
+        constraint_lines.append("- No additional bucket minima.")
+    constraints_text = "\n".join(constraint_lines)
 
     prompt = f"""
 You are a Senior QA Review Agent.
@@ -274,22 +319,39 @@ Candidate cases (primary + gap):
 Primary objective:
 - Select a subset that best preserves coverage of missing rules, core rules, and unresolved coverage types/buckets.
 - Coverage completeness is more important than aggressive deduplication.
+- Before any compression, satisfy coverage/bucket minima. Do NOT trade coverage for brevity.
 
 Selection priorities (in order):
 1. Preserve cases that help close missing-rule gaps or unresolved coverage types/buckets.
 2. Preserve cases that hit core rules or high-risk paths (boundary, exception, state transition, key workflow, failure path).
 3. Deduplicate only when two cases contribute essentially the same coverage value.
 4. Do NOT remove a case only because wording is similar if it contributes different rule/type coverage.
-5. Target count reference is {target_count}, but it is NOT a hard upper bound. If coverage is still unresolved, keep more.
+5. Soft output window: keep between {target_min_count} and {target_max_count} cases whenever possible.
+6. Target count reference is {target_count}, but it is NOT a hard upper bound. If coverage is still unresolved, keep more.
+
+Hard coverage constraints (must satisfy before dedup/compression):
+{constraints_text}
 
 Stop condition:
 - Stop only when additional retained cases do NOT improve missing-rule coverage, missing-type coverage,
   core-rule preservation, or risk diversity, and are clearly repetitive/low-value.
 
 Output constraints:
-- Return ONLY a JSON array selected from the provided candidates.
+- Return JSON only, no prose.
 - Do NOT rewrite fields.
-- Required fields: id, description, test_module, preconditions, steps, test_input, expected_result, priority
+- Output schema (MANDATORY):
+  {{
+    "kept_case_ids": ["TC-001", "TC-002"],
+    "dropped": [
+      {{"case_id": "TC-010", "reason": "duplicate"}},
+      {{"case_id": "TC-011", "reason": "coverage_redundant"}}
+    ]
+  }}
+- `kept_case_ids` and `dropped[*].case_id` MUST come from this candidate list:
+{candidate_ids_text}
+- Allowed reasons (canonical only):
+  ["coverage_redundant","duplicate","low_value","coverage_protected_omitted","high_signal_omitted","selection_tradeoff_omitted","fallback_unspecified"]
+- Do not return legacy array mode. Always return the object schema above.
 """
     if pretty_json:
         prompt += "\n- JSON should use 2-space indentation.\n"

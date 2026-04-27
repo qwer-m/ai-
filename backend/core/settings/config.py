@@ -22,9 +22,17 @@ load_dotenv(os.path.join(_BACKEND_DIR, ".env"))
 load_dotenv(os.path.join(os.path.dirname(_BACKEND_DIR), ".env"))
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class Config:
     """配置类，包含项目所有配置参数"""
     ENV = os.getenv("APP_ENV", os.getenv("ENV", "development")).lower()
+    IS_DEVELOPMENT = ENV in {"dev", "development", "local"}
     
     # ===========================
     # AI模型配置
@@ -72,6 +80,7 @@ class Config:
     # ===========================
     # 安全配置
     # ===========================
+    ENABLE_DIAGNOSTIC_ROUTES = _env_flag("ENABLE_DIAGNOSTIC_ROUTES", IS_DEVELOPMENT)
     SECRET_KEY = os.getenv("SECRET_KEY")
     if not SECRET_KEY:
         if ENV in {"prod", "production"}:

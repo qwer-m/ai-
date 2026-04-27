@@ -55,6 +55,16 @@ type TestGenerationPageViewProps = {
   isFinalResultLoaded: boolean;
   streamingContent: string;
   statsCount: number;
+  previewCaseCount: number;
+  finalCaseCount: number;
+  displayCaseCount: number;
+  funnelMetrics: {
+    rawPreviewCount: number;
+    reviewCandidateCount: number | null;
+    reviewSelectedCount: number | null;
+    judgeRejectedOrPendingCount: number | null;
+    finalCount: number;
+  };
   handleCopyCurrent: () => void;
   toastMsg: string | null;
   toastType: 'success' | 'error';
@@ -111,6 +121,10 @@ export function TestGenerationPageView({
   isFinalResultLoaded,
   streamingContent,
   statsCount,
+  previewCaseCount,
+  finalCaseCount,
+  displayCaseCount,
+  funnelMetrics,
   handleCopyCurrent,
   toastMsg,
   toastType,
@@ -212,6 +226,10 @@ export function TestGenerationPageView({
         streamingContent={streamingContent}
         loading={loading}
         statsCount={statsCount}
+        previewCaseCount={previewCaseCount}
+        finalCaseCount={finalCaseCount}
+        displayCaseCount={displayCaseCount}
+        funnelMetrics={funnelMetrics}
         onCopy={handleCopyCurrent}
         highlightRuleId={activeRuleId}
         onClearHighlight={() => setActiveRuleId(null)}

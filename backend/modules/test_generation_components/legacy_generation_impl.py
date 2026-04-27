@@ -89,6 +89,8 @@ class TestGenerationModule(
     LegacyGenerationJsonMixin,
     LegacyGenerationStreamMixin,
 ):
+    __test__ = False
+
     """
     测试生成模块核心类（由拆分后的 mixin 组合而成）。
     保持对外 API 不变。

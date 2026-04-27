@@ -3,7 +3,10 @@ import json
 
 from core.db.models import LogEntry, TestGeneration
 from modules.domain.stage25_switches import STAGE25_SWITCHES
-from modules.testing.test_generation_components.prompting.generation_diagnostics import build_coverage_diagnostics
+from modules.testing.test_generation_components.prompting.generation_diagnostics import (
+    build_context_compression_diagnostics,
+    build_coverage_diagnostics,
+)
 from modules.testing.test_generation_components.prompting.prompt_orchestration import (
     build_supplement_closed_loop_instruction,
 )
@@ -26,6 +29,7 @@ _STOP_REASON_LABELS = {
     "stopped_due_to_diminishing_returns": "stopped_due_to_diminishing_returns（继续生成收益递减）",
     "optimal_case_set_reached": "optimal_case_set_reached（当前为最优测试用例集合）",
 }
+_MAX_GEN_DIAG_MESSAGE_BYTES = 60000
 
 
 def _render_stop_reason_text(stop_reasons: list[Any]) -> str:
@@ -39,6 +43,167 @@ def _render_stop_reason_text(stop_reasons: list[Any]) -> str:
             continue
         labels.append(label)
     return "；".join(labels)
+
+
+def _judge_status_key(row: dict[str, Any]) -> str:
+    status = str((row or {}).get("judge_status") or (row or {}).get("status") or "").strip().upper()
+    return status
+
+
+def _safe_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]
+
+
+def _build_judge_signal_payload(row: dict[str, Any]) -> dict[str, Any]:
+    signals_raw = row.get("signals") if isinstance(row.get("signals"), dict) else {}
+    return {
+        "violates_confirmed_fact": bool(
+            signals_raw.get("violates_confirmed_fact", row.get("violates_confirmed_fact"))
+        ),
+        "missing_core_flow": bool(
+            signals_raw.get("missing_core_flow", row.get("missing_core_flow"))
+        ),
+        "missing_reuse_risk": bool(
+            signals_raw.get("missing_reuse_risk", row.get("missing_reuse_risk"))
+        ),
+        "contains_pending_logic": bool(
+            signals_raw.get("contains_pending_logic", row.get("contains_pending_logic"))
+        ),
+        "confirmed_fact_hits": _safe_list(
+            signals_raw.get("confirmed_fact_hits", row.get("confirmed_fact_hits"))
+        ),
+        "confirmed_fact_violations": _safe_list(
+            signals_raw.get("confirmed_fact_violations", row.get("confirmed_fact_violations"))
+        ),
+        "reuse_risk_hits": _safe_list(signals_raw.get("reuse_risk_hits", row.get("reuse_risk_hits"))),
+        "pending_hits": _safe_list(signals_raw.get("pending_hits", row.get("pending_hits"))),
+    }
+
+
+def _normalize_judge_row(
+    row: dict[str, Any],
+    *,
+    generation_id: int,
+    request_id: str,
+) -> dict[str, Any]:
+    signals_payload = _build_judge_signal_payload(row)
+    before_case = row.get("before_case_snapshot")
+    if not isinstance(before_case, dict):
+        before_case = row.get("before_case")
+    if not isinstance(before_case, dict):
+        before_case = {}
+    after_case = row.get("after_case_snapshot")
+    if not isinstance(after_case, dict):
+        after_case = row.get("after_case")
+    if not isinstance(after_case, dict):
+        after_case = {}
+
+    return {
+        "generation_id": int(generation_id),
+        "request_id": str(request_id or "").strip(),
+        "case_id": str(row.get("case_id") or "").strip(),
+        "judge_status": _judge_status_key(row),
+        "reject_reason": str(row.get("reject_reason") or "").strip(),
+        "pending_reason": str(row.get("pending_reason") or "").strip(),
+        "signals": signals_payload,
+        "violates_confirmed_fact": bool(signals_payload.get("violates_confirmed_fact")),
+        "missing_core_flow": bool(signals_payload.get("missing_core_flow")),
+        "missing_reuse_risk": bool(signals_payload.get("missing_reuse_risk")),
+        "contains_pending_logic": bool(signals_payload.get("contains_pending_logic")),
+        "confirmed_fact_hits": list(signals_payload.get("confirmed_fact_hits") or []),
+        "confirmed_fact_violations": list(signals_payload.get("confirmed_fact_violations") or []),
+        "reuse_risk_hits": list(signals_payload.get("reuse_risk_hits") or []),
+        "pending_hits": list(signals_payload.get("pending_hits") or []),
+        "before_case_snapshot": dict(before_case),
+        "after_case_snapshot": dict(after_case),
+    }
+
+
+def _normalize_review_compact_rows(
+    rows: list[dict[str, Any]],
+    *,
+    generation_id: int,
+    request_id: str,
+) -> list[dict[str, Any]]:
+    compact_rows: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("dropped_stage") or "") != "review_llm":
+            continue
+        evidence = row.get("review_llm_drop_reason_evidence")
+        if not isinstance(evidence, dict):
+            evidence = {}
+        compact_rows.append(
+            {
+                "generation_id": int(generation_id),
+                "request_id": str(request_id or "").strip(),
+                "candidate_index": int(row.get("candidate_index") or 0),
+                "case_id": str(row.get("case_id") or "").strip(),
+                "test_module": str(row.get("test_module") or "").strip(),
+                "model_priority_current": str(row.get("model_priority_current") or "").strip(),
+                "bucket": str(row.get("bucket") or "").strip(),
+                "dropped_stage": "review_llm",
+                "dropped_reason": str(row.get("dropped_reason") or "").strip(),
+                "review_llm_drop_reason_raw": str(row.get("review_llm_drop_reason_raw") or "").strip(),
+                "review_llm_drop_reason": str(row.get("review_llm_drop_reason") or "").strip(),
+                "review_llm_drop_reason_source": str(row.get("review_llm_drop_reason_source") or "").strip(),
+                "high_signal": bool(row.get("high_signal")),
+                "has_coverage_value": bool(row.get("has_coverage_value")),
+                "has_positive_evidence": bool(row.get("has_positive_evidence")),
+                "has_coverage_signal": bool(row.get("has_coverage_signal")),
+                "has_high_signal": bool(row.get("has_high_signal")),
+                "has_competition_signal": bool(row.get("has_competition_signal")),
+                "focus_score": int(row.get("focus_score") or 0),
+                "evidence": {
+                    "selected_case_ids": list(evidence.get("selected_case_ids") or [])[:3],
+                    "selected_count_in_bucket": int(evidence.get("selected_count_in_bucket") or 0),
+                    "coverage_gain_score": int(evidence.get("coverage_gain_score") or 0),
+                    "missing_rule_hits_count": int(len(evidence.get("missing_rule_hits") or [])),
+                    "core_rule_hits_count": int(len(evidence.get("core_rule_hits") or [])),
+                    "unique_coverage_hits_count": int(len(evidence.get("unique_coverage_hits") or [])),
+                    "similarity": float(evidence.get("similarity") or 0.0),
+                    "duplicate_of_case_id": str(evidence.get("duplicate_of_case_id") or "").strip(),
+                },
+            }
+        )
+    return compact_rows
+
+
+def _fit_table_diag_payload_size(payload: dict[str, Any], *, max_bytes: int = _MAX_GEN_DIAG_MESSAGE_BYTES) -> dict[str, Any]:
+    fitted = dict(payload or {})
+    rows = [item for item in (fitted.get("rows") or []) if isinstance(item, dict)]
+    fitted["rows"] = rows
+    fitted["row_count"] = int(len(rows))
+    fitted.setdefault("row_count_total", int(len(rows)))
+
+    def _payload_size_bytes(obj: dict[str, Any]) -> int:
+        return len(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
+
+    if _payload_size_bytes(fitted) <= max_bytes:
+        return fitted
+
+    sampled = list(rows)
+    while sampled:
+        candidate = dict(fitted)
+        candidate["rows"] = sampled
+        candidate["row_count"] = int(len(sampled))
+        candidate["row_count_total"] = int(len(rows))
+        candidate["rows_scope"] = "sampled_due_to_size"
+        if _payload_size_bytes(candidate) <= max_bytes:
+            return candidate
+        if len(sampled) <= 1:
+            break
+        sampled = sampled[: max(1, int(len(sampled) // 2))]
+
+    fallback = dict(fitted)
+    fallback["rows"] = []
+    fallback["row_count"] = 0
+    fallback["row_count_total"] = int(len(rows))
+    fallback["rows_scope"] = "summary_only_due_to_size"
+    return fallback
 
 
 class LegacyGenerationStreamPersistMixin:
@@ -74,6 +239,7 @@ class LegacyGenerationStreamPersistMixin:
         generation_mode = str(state.get("generation_mode") or "").strip().lower()
         request_id = str(state.get("request_id") or "").strip()
         feedback_control_state = state.get("feedback_control_state") or {}
+        requirement_semantics_context = state.get("requirement_semantics_context") or {}
         memory_diag = state.get("memory_diag") if isinstance(state.get("memory_diag"), dict) else {}
 
         try:
@@ -100,6 +266,7 @@ class LegacyGenerationStreamPersistMixin:
                 multi_pass=multi_pass,
                 generation_mode=generation_mode,
                 feedback_control_state=feedback_control_state,
+                requirement_semantics_context=requirement_semantics_context,
             )
 
             stage_counts: dict[str, Any] = {}
@@ -108,7 +275,9 @@ class LegacyGenerationStreamPersistMixin:
             generation_summary_payload: dict[str, Any] = {}
             review_decision_summary_payload: dict[str, Any] = {}
             review_decision_table_payload: list[dict[str, Any]] = []
+            judge_decision_table_payload: list[dict[str, Any]] = []
             feedback_control_debug_payload: dict[str, Any] = {}
+            judge_summary_payload: dict[str, Any] = {}
             if isinstance(postprocess_result, dict):
                 parsed_result = postprocess_result.get("cases")
                 if not isinstance(parsed_result, list):
@@ -123,7 +292,13 @@ class LegacyGenerationStreamPersistMixin:
                     for item in (postprocess_result.get("review_decision_table") or [])
                     if isinstance(item, dict)
                 ]
+                judge_decision_table_payload = [
+                    item
+                    for item in (postprocess_result.get("judge_decision_table") or [])
+                    if isinstance(item, dict)
+                ]
                 feedback_control_debug_payload = dict(postprocess_result.get("feedback_control_debug") or {})
+                judge_summary_payload = dict(postprocess_result.get("judge_summary") or {})
             else:
                 parsed_result = postprocess_result if isinstance(postprocess_result, list) else []
 
@@ -242,6 +417,9 @@ class LegacyGenerationStreamPersistMixin:
                 # GEN_DIAG 鎬昏
                 full_input = (system_prompt or "") + requirement
                 actual_model = client.select_model(full_input, task_type="generation")
+                compression_diag_payload = build_context_compression_diagnostics(
+                    context_result=context_result if isinstance(context_result, dict) else {},
+                )
                 diag = {
                     "kind": "gen_diag",
                     "mode": "stream",
@@ -255,6 +433,9 @@ class LegacyGenerationStreamPersistMixin:
                     "max_tokens": client.max_tokens,
                     "multi_pass": bool(multi_pass),
                     "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    "context_compression_ratio": compression_diag_payload.get("compression_ratio"),
+                    "context_retained_chunk_count": compression_diag_payload.get("retained_chunk_count"),
+                    "context_relevance_distribution": compression_diag_payload.get("relevance_distribution") or {},
                 }
                 db.add(
                     LogEntry(
@@ -265,6 +446,23 @@ class LegacyGenerationStreamPersistMixin:
                     )
                 )
                 yield f"GEN_DIAG:{json.dumps(diag, ensure_ascii=False)}\n"
+                compression_diag = {
+                    "kind": "generation_context_compression",
+                    **compression_diag_payload,
+                    "multi_pass": bool(multi_pass),
+                    "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                }
+                if request_id:
+                    compression_diag["request_id"] = request_id
+                db.add(
+                    LogEntry(
+                        project_id=project_id,
+                        log_type="system",
+                        message=f"GEN_DIAG:{json.dumps(compression_diag, ensure_ascii=False)}",
+                        user_id=user_id,
+                    )
+                )
+                yield f"GEN_DIAG:{json.dumps(compression_diag, ensure_ascii=False)}\n"
 
                 # 中文注释：记录“质量/覆盖收敛”诊断，数量仅作为参考差异，不再判定为失败。
                 if convergence_payload:
@@ -320,6 +518,68 @@ class LegacyGenerationStreamPersistMixin:
                         )
                     )
                     yield f"GEN_DIAG:{json.dumps(control_diag, ensure_ascii=False)}\n"
+                if judge_summary_payload:
+                    judge_diag = {
+                        "kind": "judge_summary",
+                        **judge_summary_payload,
+                    }
+                    if persisted_generation_id:
+                        judge_diag["generation_id"] = int(persisted_generation_id)
+                    if request_id:
+                        judge_diag["request_id"] = request_id
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(judge_diag, ensure_ascii=False)}",
+                            user_id=user_id,
+                        )
+                    )
+                    yield f"GEN_DIAG:{json.dumps(judge_diag, ensure_ascii=False)}\n"
+                if judge_summary_payload or judge_decision_table_payload:
+                    normalized_rows = [
+                        _normalize_judge_row(
+                            item,
+                            generation_id=int(persisted_generation_id or 0),
+                            request_id=request_id,
+                        )
+                        for item in judge_decision_table_payload
+                        if isinstance(item, dict)
+                    ]
+                    reject_pending_rows = [
+                        row
+                        for row in normalized_rows
+                        if str(row.get("judge_status") or "").upper() in {"REJECT", "PENDING"}
+                    ]
+                    rows_to_persist = reject_pending_rows or normalized_rows
+                    judge_table_diag = {
+                        "kind": "judge_decision_table",
+                        "generation_id": int(persisted_generation_id or 0),
+                        "rows": rows_to_persist,
+                        "row_count": int(len(rows_to_persist)),
+                        "row_count_total": int(len(normalized_rows)),
+                        "row_count_reject_pending": int(len(reject_pending_rows)),
+                        "rows_scope": "reject_pending_only" if reject_pending_rows else "all_when_no_reject_pending",
+                        "row_evidence_incomplete": bool(
+                            int(judge_summary_payload.get("rejected_out_count") or 0)
+                            + int(judge_summary_payload.get("pending_out_count") or 0) > 0
+                            and len(reject_pending_rows) == 0
+                        ),
+                        "multi_pass": bool(multi_pass),
+                        "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    }
+                    if request_id:
+                        judge_table_diag["request_id"] = request_id
+                    judge_table_diag = _fit_table_diag_payload_size(judge_table_diag)
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(judge_table_diag, ensure_ascii=False)}",
+                            user_id=user_id,
+                        )
+                    )
+                    yield f"GEN_DIAG:{json.dumps(judge_table_diag, ensure_ascii=False)}\n"
                 if memory_diag:
                     memory_diag_payload = {
                         "kind": "memory_fabric_diag",
@@ -340,6 +600,7 @@ class LegacyGenerationStreamPersistMixin:
                 if review_decision_table_payload:
                     review_table_diag = {
                         "kind": "review_decision_table",
+                        "generation_id": int(persisted_generation_id or 0),
                         "rows": review_decision_table_payload,
                         "row_count": int(len(review_decision_table_payload)),
                         "multi_pass": bool(multi_pass),
@@ -347,6 +608,7 @@ class LegacyGenerationStreamPersistMixin:
                     }
                     if request_id:
                         review_table_diag["request_id"] = request_id
+                    review_table_diag = _fit_table_diag_payload_size(review_table_diag)
                     db.add(
                         LogEntry(
                             project_id=project_id,
@@ -356,6 +618,33 @@ class LegacyGenerationStreamPersistMixin:
                         )
                     )
                     yield f"GEN_DIAG:{json.dumps(review_table_diag, ensure_ascii=False)}\n"
+
+                    compact_rows = _normalize_review_compact_rows(
+                        review_decision_table_payload,
+                        generation_id=int(persisted_generation_id or 0),
+                        request_id=request_id,
+                    )
+                    if compact_rows:
+                        review_table_compact_diag = {
+                            "kind": "review_decision_table_compact",
+                            "generation_id": int(persisted_generation_id or 0),
+                            "rows": compact_rows,
+                            "row_count": int(len(compact_rows)),
+                            "multi_pass": bool(multi_pass),
+                            "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                        }
+                        if request_id:
+                            review_table_compact_diag["request_id"] = request_id
+                        review_table_compact_diag = _fit_table_diag_payload_size(review_table_compact_diag)
+                        db.add(
+                            LogEntry(
+                                project_id=project_id,
+                                log_type="system",
+                                message=f"GEN_DIAG:{json.dumps(review_table_compact_diag, ensure_ascii=False)}",
+                                user_id=user_id,
+                            )
+                        )
+                        yield f"GEN_DIAG:{json.dumps(review_table_compact_diag, ensure_ascii=False)}\n"
 
                 if generation_summary_payload:
                     generation_summary_diag = {

@@ -1,0 +1,59 @@
+{
+  "generation_id": 411,
+  "review_decision_summary": {
+    "kind": "review_decision_summary",
+    "candidate_total": 62,
+    "retained_total": 28,
+    "dropped_total": 34,
+    "review_llm_filter_applied": true,
+    "review_target_min_count": 14,
+    "review_target_max_count": 24,
+    "review_llm_selected_count": 24,
+    "review_constraint_selected_count": 0,
+    "review_llm_drop_reason_breakdown": {
+      "coverage_redundant": 32,
+      "duplicate": 1,
+      "low_value": 1
+    },
+    "review_llm_drop_reason_raw_breakdown": {
+      "coverage_redundant": 32,
+      "duplicate": 1,
+      "low_value": 1
+    },
+    "review_llm_drop_reason_source_breakdown": {
+      "llm": 34
+    },
+    "fallback_with_positive_evidence_count": 0,
+    "fallback_without_positive_evidence_count": 0,
+    "review_llm_pool_count": 58,
+    "must_keep_candidate_count": 4,
+    "must_keep_retained_count": 4,
+    "must_keep_dropped_count": 0,
+    "drop_by_review_llm_count": 34,
+    "drop_by_review_selector_count": 0,
+    "drop_by_review_gate_count": 0,
+    "drop_by_pre_gate_dedup_count": 0,
+    "drop_by_post_review_dedup_count": 0,
+    "drop_no_new_signal_count": 0,
+    "drop_rule_cap_count": 0,
+    "drop_ui_like_redundant_count": 0,
+    "drop_ui_like_ratio_cap_count": 0,
+    "drop_outside_target_window_count": 0,
+    "drop_by_rerank_low_signal_count": 0,
+    "dropped_model_priority_p0_p1_count": 19,
+    "dropped_core_rule_hit_count": 0,
+    "dropped_missing_rule_hit_count": 0,
+    "dropped_high_signal_count": 11,
+    "dropped_has_coverage_value_count": 0,
+    "retained_due_to_coverage_value_count": 7,
+    "must_cover_rule_hit_count": 0,
+    "forbidden_pattern_violation_count": 0,
+    "soft_constraint_hit_count": 0,
+    "quality_hint_satisfied_count": 0,
+    "drop_ui_like_ratio_postprocess_count": 0,
+    "multi_pass": true,
+    "generation_mode": "multi_pass",
+    "request_id": "1bc9dfb84e3844538159b7e66478f140"
+  },
+  "row_count": 31
+}
