@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
@@ -218,6 +218,55 @@ def generate_tests(
         generation_mode=request.generation_mode,
         enable_sample_pool_feedback=request.enable_sample_pool_feedback,
     )
+    if isinstance(result, list) and len(result) == 0:
+        error_payload = {
+            "error_code": "EMPTY_GENERATED_RESULT",
+            "error_message": "生成完成但最终测试用例为空",
+            "final_status": "empty_result_failed",
+            "empty_result_guard_triggered": True,
+            "empty_result_stage": "api_response_guard",
+        }
+        log_to_db(
+            db,
+            request.project_id,
+            "system",
+            f"GEN_DIAG:{json.dumps({'kind': 'generation_summary', **error_payload}, ensure_ascii=False)}",
+            user_id=current_user.id,
+        )
+        raise HTTPException(status_code=502, detail=error_payload)
+    if isinstance(result, dict):
+        error_code = str(result.get("error_code") or result.get("error") or "").strip()
+        if error_code == "EMPTY_GENERATED_RESULT":
+            error_payload = {
+                "error_code": "EMPTY_GENERATED_RESULT",
+                "error_message": str(result.get("error_message") or "生成完成但最终测试用例为空"),
+                "final_status": str(result.get("final_status") or "empty_result_failed"),
+                "empty_result_guard_triggered": bool(result.get("empty_result_guard_triggered", True)),
+                "empty_result_stage": str(result.get("empty_result_stage") or "generation_postprocess"),
+            }
+            raise HTTPException(status_code=502, detail=error_payload)
+        if error_code == "LOW_QUALITY_GENERATED_CASES":
+            error_payload = {
+                "error_code": "LOW_QUALITY_GENERATED_CASES",
+                "error_message": str(result.get("error_message") or "生成结果未通过质量门禁"),
+                "final_status": str(result.get("final_status") or "quality_gate_failed"),
+                "quality_gate_failed": bool(result.get("quality_gate_failed", True)),
+                "failed_checks": list(result.get("failed_checks") or []),
+                "priority_final_null_count": int(result.get("priority_final_null_count") or 0),
+                "invalid_priority_final_case_ids": list(result.get("invalid_priority_final_case_ids") or []),
+                "non_assertable_expected_result_count": int(result.get("non_assertable_expected_result_count") or 0),
+                "truncated_text_count": int(result.get("truncated_text_count") or 0),
+                "non_assertable_case_ids": list(result.get("non_assertable_case_ids") or []),
+                "truncated_case_ids": list(result.get("truncated_case_ids") or []),
+            }
+            log_to_db(
+                db,
+                request.project_id,
+                "system",
+                f"GEN_DIAG:{json.dumps({'kind': 'generation_summary', **error_payload}, ensure_ascii=False)}",
+                user_id=current_user.id,
+            )
+            raise HTTPException(status_code=502, detail=error_payload)
     try:
         count = len(result) if isinstance(result, list) else 0
         log_to_db(db, request.project_id, "system", f"测试用例生成完成(批次{request.batch_index}): 数量={count}", user_id=current_user.id)

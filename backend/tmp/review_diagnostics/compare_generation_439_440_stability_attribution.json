@@ -1,0 +1,297 @@
+{
+  "left": {
+    "generation_id": 439,
+    "request_id": "",
+    "candidate_by_stage": {
+      "primary": 0,
+      "gap": 0,
+      "review": 0,
+      "before_review": 0,
+      "retained": 0
+    },
+    "candidate_by_pass": {
+      "pass_primary": 0,
+      "pass_gap_increment": 0
+    },
+    "context_source": "",
+    "context_fingerprint": "a8c4206c065e1b4c",
+    "rag_snapshot_id": "",
+    "corpus_hash": "",
+    "retrieval_hash": "",
+    "review_primary_valid": false,
+    "review_retry_valid": false,
+    "review_final_source": "generated_result_fallback",
+    "review_input_size": 0,
+    "review_output_size": 0,
+    "reason_source_breakdown": {
+      "primary": 0,
+      "fallback": 0,
+      "backfill": 0
+    },
+    "review_runtime": {
+      "primary_model": "",
+      "primary_invalid_reason": "gen_diag_missing",
+      "primary_reason_incomplete": true,
+      "primary_dropped_reason_count": 0,
+      "primary_dropped_reason_payload_count": 0,
+      "primary_reason_coverage_ratio": 0.0,
+      "retry_invoked": false,
+      "retry_reason": "",
+      "retry_model": "",
+      "mapped_count": 0,
+      "dropped_reason_count": 0,
+      "fallback_reason_incomplete": false,
+      "fallback_dropped_reason_count": 0,
+      "fallback_dropped_reason_mapped_count": 0,
+      "fallback_dropped_reason_unmapped_count": 0,
+      "fallback_reason_coverage_ratio": 0.0,
+      "payload_has_selection_signal": false,
+      "retry_mapped_count": 0,
+      "retry_payload_has_selection_signal": false,
+      "applied_reason": "generated_result_fallback"
+    },
+    "llm_reason_coverage_ratio": 0.0,
+    "deterministic_backfill_ratio": 0.0,
+    "reason_metrics": {
+      "drop_by_review_llm_count": 0,
+      "llm_reason_count": 0,
+      "deterministic_backfill_count": 0,
+      "llm_reason_coverage_ratio": 0.0,
+      "deterministic_backfill_ratio": 0.0,
+      "sampled_detail_rows": false,
+      "sampled_detail_row_count": 0,
+      "sampled_deterministic_row_count": 0,
+      "deterministic_source_breakdown_sampled": {},
+      "mapped_count_effective": 0,
+      "dropped_reason_count_effective": 0,
+      "dominant_deterministic_source": ""
+    },
+    "priority_metrics": {
+      "priority_decision_state_breakdown": {
+        "decided": 0,
+        "conflict": 0,
+        "undetermined": 0,
+        "optional": 0,
+        "invalid": 0
+      },
+      "priority_final_breakdown": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 0,
+        "null": 0
+      },
+      "legacy_priority_breakdown": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 0,
+        "UNKNOWN": 0
+      },
+      "priority_conflict_count": 0,
+      "priority_undetermined_count": 0,
+      "priority_optional_count": 0,
+      "priority_invalid_count": 0,
+      "needs_priority_review": false
+    },
+    "priority_conflict_count": 0,
+    "priority_undetermined_count": 0,
+    "priority_optional_count": 0,
+    "needs_priority_review": false,
+    "drop_ratio": 0.0,
+    "generated_model": "",
+    "generation_mode": "",
+    "diagnostic_source": "generated_result_fallback",
+    "diagnostic_depth": "limited"
+  },
+  "right": {
+    "generation_id": 440,
+    "request_id": "3e1395464d0d49d48bc5fa9b900d2de8",
+    "candidate_by_stage": {
+      "primary": 44,
+      "gap": 0,
+      "review": 44,
+      "before_review": 44,
+      "retained": 34
+    },
+    "candidate_by_pass": {
+      "pass_primary": 44,
+      "pass_gap_increment": 0
+    },
+    "context_source": "snapshot+rag",
+    "context_fingerprint": "9be99a82cbdf7c83",
+    "rag_snapshot_id": "19",
+    "corpus_hash": "402e5c8131e88625ca74f83e9b065b5d5239502d35d050cda062ed59abd003cc",
+    "retrieval_hash": "c0004929a0190071",
+    "review_primary_valid": false,
+    "review_retry_valid": false,
+    "review_final_source": "unknown",
+    "review_input_size": 44,
+    "review_output_size": 34,
+    "reason_source_breakdown": {
+      "primary": 0,
+      "fallback": 0,
+      "backfill": 0
+    },
+    "review_runtime": {
+      "primary_model": "",
+      "primary_invalid_reason": "",
+      "primary_reason_incomplete": false,
+      "primary_dropped_reason_count": 0,
+      "primary_dropped_reason_payload_count": 0,
+      "primary_reason_coverage_ratio": 0.0,
+      "retry_invoked": false,
+      "retry_reason": "",
+      "retry_model": "",
+      "mapped_count": 0,
+      "dropped_reason_count": 0,
+      "fallback_reason_incomplete": false,
+      "fallback_dropped_reason_count": 0,
+      "fallback_dropped_reason_mapped_count": 0,
+      "fallback_dropped_reason_unmapped_count": 0,
+      "fallback_reason_coverage_ratio": 0.0,
+      "payload_has_selection_signal": false,
+      "retry_mapped_count": 0,
+      "retry_payload_has_selection_signal": false,
+      "applied_reason": ""
+    },
+    "llm_reason_coverage_ratio": 0.0,
+    "deterministic_backfill_ratio": 0.0,
+    "reason_metrics": {
+      "drop_by_review_llm_count": 0,
+      "llm_reason_count": 0,
+      "deterministic_backfill_count": 0,
+      "llm_reason_coverage_ratio": 0.0,
+      "deterministic_backfill_ratio": 0.0,
+      "sampled_detail_rows": false,
+      "sampled_detail_row_count": 0,
+      "sampled_deterministic_row_count": 0,
+      "deterministic_source_breakdown_sampled": {},
+      "mapped_count_effective": 0,
+      "dropped_reason_count_effective": 0,
+      "dominant_deterministic_source": ""
+    },
+    "priority_metrics": {
+      "priority_decision_state_breakdown": {
+        "decided": 27,
+        "conflict": 6,
+        "undetermined": 1,
+        "optional": 0,
+        "invalid": 0
+      },
+      "priority_final_breakdown": {
+        "P0": 1,
+        "P1": 17,
+        "P2": 9,
+        "null": 7
+      },
+      "legacy_priority_breakdown": {
+        "P0": 7,
+        "P1": 18,
+        "P2": 9,
+        "UNKNOWN": 0
+      },
+      "priority_conflict_count": 6,
+      "priority_undetermined_count": 1,
+      "priority_optional_count": 0,
+      "priority_invalid_count": 0,
+      "needs_priority_review": true
+    },
+    "priority_conflict_count": 6,
+    "priority_undetermined_count": 1,
+    "priority_optional_count": 0,
+    "needs_priority_review": true,
+    "drop_ratio": 0.0,
+    "generated_model": "qwen-plus",
+    "generation_mode": "multi_pass",
+    "diagnostic_source": "gen_diag",
+    "diagnostic_depth": "full"
+  },
+  "diff": {
+    "diff_rows": [
+      {
+        "metric": "candidate_total",
+        "left": 0,
+        "right": 44,
+        "delta": 44
+      },
+      {
+        "metric": "candidate_primary",
+        "left": 0,
+        "right": 44,
+        "delta": 44
+      },
+      {
+        "metric": "candidate_gap",
+        "left": 0,
+        "right": 0,
+        "delta": 0
+      },
+      {
+        "metric": "review_input_size",
+        "left": 0,
+        "right": 44,
+        "delta": 44
+      },
+      {
+        "metric": "review_output_size",
+        "left": 0,
+        "right": 34,
+        "delta": 34
+      },
+      {
+        "metric": "drop_ratio",
+        "left": 0.0,
+        "right": 0.0,
+        "delta": 0.0
+      },
+      {
+        "metric": "deterministic_backfill_ratio",
+        "left": 0.0,
+        "right": 0.0,
+        "delta": 0.0
+      },
+      {
+        "metric": "llm_reason_coverage_ratio",
+        "left": 0.0,
+        "right": 0.0,
+        "delta": 0.0
+      },
+      {
+        "metric": "priority_conflict_count",
+        "left": 0,
+        "right": 6,
+        "delta": 6
+      },
+      {
+        "metric": "priority_undetermined_count",
+        "left": 0,
+        "right": 1,
+        "delta": 1
+      }
+    ],
+    "variance_sources": [
+      "generation_stage_variance",
+      "context_variance",
+      "review_runtime_variance",
+      "review_payload_validity_variance",
+      "priority_decision_variance"
+    ],
+    "attribution": {
+      "left_dominant_deterministic_source": "",
+      "right_dominant_deterministic_source": "",
+      "left_final_source": "generated_result_fallback",
+      "right_final_source": "unknown",
+      "left_reason_source_breakdown": {
+        "primary": 0,
+        "fallback": 0,
+        "backfill": 0
+      },
+      "right_reason_source_breakdown": {
+        "primary": 0,
+        "fallback": 0,
+        "backfill": 0
+      },
+      "left_primary_invalid_reason": "gen_diag_missing",
+      "right_primary_invalid_reason": ""
+    }
+  }
+}

@@ -7,6 +7,7 @@ from typing import Any, Callable, Iterator
 from .result_postprocess_priority_semantics import (
     apply_priority_semantics_to_case,
     apply_priority_semantics_to_cases,
+    resolve_case_priority_decision,
     resolve_case_priority,
     score_case_priority,
 )

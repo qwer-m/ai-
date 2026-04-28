@@ -15,7 +15,270 @@ from modules.test_generation_components.postprocess.result_postprocess_priority_
     score_case_priority,
 )
 
-PRIORITY_SEMANTICS_REVISION = "2026-04-08-r5"
+PRIORITY_SEMANTICS_REVISION = "2026-04-28-r7"
+
+_UNCERTAIN_REQUIREMENT_SIGNALS = (
+    "需教研确认",
+    "需要讨论",
+    "本期可以不做",
+    "本期可以不要",
+    "暂不支持",
+    "模型不支持",
+    "小学没定位模型",
+    "由教研提供",
+    "待确认",
+    "待讨论",
+    "to be confirmed",
+    "need discussion",
+    "optional this phase",
+    "model not supported",
+)
+
+
+def _contains_strong_p0_signal(case_text: str) -> bool:
+    text = str(case_text or "").lower()
+    payment_gate = _contains_any(
+        text,
+        ("未付费", "付费拦截", "付费提示", "paywall", "payment gate", "payment blocked", "subscribe"),
+    )
+    ai_scoring = _contains_any(
+        text,
+        ("ai判分", "智能判分", "ocr", "ai scoring", "auto score", "scoring"),
+    )
+    wrong_collection = _contains_any(
+        text,
+        ("错题归集", "错题本", "错题", "wrong question", "error collection"),
+    )
+    week_boundary_or_makeup = _contains_any(
+        text,
+        ("周次切换", "教学周", "周日24", "时间边界", "补做期", "历史周", "补做规则", "week switch", "history week"),
+    )
+    submit_report_closure = _contains_any(
+        text,
+        ("提交全部", "查看学习报告", "学习报告", "submit all", "view report", "learning report"),
+    )
+    return bool(
+        payment_gate
+        or ai_scoring
+        or wrong_collection
+        or week_boundary_or_makeup
+        or submit_report_closure
+    )
+
+
+def _build_priority_decision(
+    *,
+    priority_final: str | None,
+    decision_state: str,
+    decision_source: str,
+    confidence: str,
+    conflict_reason: str = "",
+    resolution_reason: str = "",
+) -> dict[str, Any]:
+    final_value = str(priority_final or "").strip().upper()
+    normalized_final = final_value if final_value in {"P0", "P1", "P2"} else None
+    return {
+        "priority_final": normalized_final,
+        "priority_decision_state": str(decision_state or "undetermined"),
+        "priority_decision_source": str(decision_source or "insufficient_evidence"),
+        "priority_confidence": str(confidence or "low"),
+        "priority_conflict_reason": str(conflict_reason or ""),
+        "priority_resolution_reason": str(resolution_reason or ""),
+    }
+
+
+def _resolve_priority_conflict_to_final(
+    *,
+    normalized_model: str,
+    suggested_priority: str,
+    score_result: dict[str, Any],
+    case: dict[str, Any],
+) -> dict[str, Any]:
+    normalized_model = _normalize_existing_priority(normalized_model)
+    suggested_priority = _normalize_existing_priority(suggested_priority)
+    pair = {normalized_model, suggested_priority}
+
+    case_text = " ".join(
+        [
+            str(case.get("description") or ""),
+            str(case.get("test_module") or ""),
+            str(case.get("expected_result") or ""),
+            str(case.get("test_input") or ""),
+            " ".join(str(x) for x in (case.get("steps") or []) if str(x).strip())
+            if isinstance(case.get("steps"), list)
+            else "",
+        ]
+    ).lower()
+    reasons = [str(item) for item in (score_result.get("reasons") or [])]
+    guards = dict(score_result.get("guards") or {})
+    case_level_hard_guard = bool(score_result.get("case_level_hard_guard"))
+    if not case_level_hard_guard:
+        case_level_hard_guard = any(
+            bool(guards.get(key))
+            for key in (
+                "main_workflow_blocking",
+                "workflow_blocking",
+                "severe_data_risk",
+                "severe_security_risk",
+                "case_level_release_blocking",
+            )
+        )
+    p0_keywords = (
+        "paywall",
+        "payment gate",
+        "payment blocked",
+        "permission denied",
+        "unauthorized",
+        "access denied",
+        "data isolation",
+        "隔离",
+        "越权",
+        "未授权",
+        "权限",
+        "付费",
+        "阻断",
+        "主流程",
+        "闭环",
+        "报告生成失败",
+    )
+    p1_keywords = (
+        "掌握度",
+        "错题数",
+        "正确数",
+        "统计",
+        "计算",
+        "筛选",
+        "跳转",
+        "联动",
+        "更新",
+        "报告",
+        "习题本",
+        "state transition",
+        "cross page",
+    )
+    p2_keywords = (
+        "流畅",
+        "卡顿",
+        "性能",
+        "兼容",
+        "文案",
+        "提示",
+        "展示",
+        "缩放",
+        "滑动",
+        "ui",
+        "display",
+        "layout",
+        "performance",
+    )
+    explicit_low_value = any(
+        reason in reasons
+        for reason in (
+            "boundary_or_low_risk_validation",
+            "long_tail_or_supplemental",
+            "non_critical_perf_or_ui",
+            "completeness_only",
+            "structural_p2_low_value_signal",
+            "p2_cap_no_coverage_gain_without_hard_guard",
+            "p2_cap_low_risk_only_covered_rules",
+            "p2_cap_display_mapping_scenario",
+        )
+    ) or bool(score_result.get("structural_p2_signals"))
+    positive_p1_evidence = bool(
+        score_result.get("missing_rule_hits")
+        or score_result.get("core_rule_hits")
+        or score_result.get("unique_coverage_hits")
+        or int(score_result.get("coverage_gain_score") or 0) >= 8
+        or any(
+            reason in reasons
+            for reason in (
+                "important_non_blocking_flow",
+                "high_frequency_main_flow",
+                "main_workflow_hit",
+                "cross_page_flow_hit",
+                "state_transition_hit",
+                "reuse_risk_hit",
+            )
+        )
+    )
+    has_p0_keyword = _contains_any(case_text, p0_keywords)
+    has_p1_keyword = _contains_any(case_text, p1_keywords)
+    has_p2_keyword = _contains_any(case_text, p2_keywords)
+    conflict_reason = f"model={normalized_model},suggested={suggested_priority}"
+
+    if pair == {"P0", "P2"}:
+        if case_level_hard_guard or has_p0_keyword:
+            return _build_priority_decision(
+                priority_final="P0",
+                decision_state="conflict_resolved",
+                decision_source="conflict_resolved_by_high_risk_business_rule",
+                confidence="medium",
+                conflict_reason=conflict_reason,
+                resolution_reason="high_risk_guard_or_keyword",
+            )
+        if positive_p1_evidence or has_p1_keyword:
+            return _build_priority_decision(
+                priority_final="P1",
+                decision_state="conflict_resolved",
+                decision_source="conflict_resolved_by_core_business_rule",
+                confidence="medium",
+                conflict_reason=conflict_reason,
+                resolution_reason="core_business_evidence",
+            )
+        if explicit_low_value or has_p2_keyword:
+            return _build_priority_decision(
+                priority_final="P2",
+                decision_state="conflict_resolved",
+                decision_source="conflict_resolved_by_non_blocking_experience_rule",
+                confidence="medium",
+                conflict_reason=conflict_reason,
+                resolution_reason="explicit_low_value_or_experience_case",
+            )
+        return _build_priority_decision(
+            priority_final="P1",
+            decision_state="conflict_resolved",
+            decision_source="conflict_resolved_by_conservative_middle_priority",
+            confidence="medium",
+            conflict_reason=conflict_reason,
+            resolution_reason="conservative_middle_priority",
+        )
+
+    if pair == {"P1", "P2"}:
+        if positive_p1_evidence or has_p1_keyword or case_level_hard_guard:
+            return _build_priority_decision(
+                priority_final="P1",
+                decision_state="conflict_resolved",
+                decision_source="conflict_resolved_by_core_business_rule",
+                confidence="medium",
+                conflict_reason=conflict_reason,
+                resolution_reason="core_business_evidence",
+            )
+        if explicit_low_value or has_p2_keyword:
+            return _build_priority_decision(
+                priority_final="P2",
+                decision_state="conflict_resolved",
+                decision_source="conflict_resolved_by_non_blocking_experience_rule",
+                confidence="medium",
+                conflict_reason=conflict_reason,
+                resolution_reason="explicit_low_value_or_experience_case",
+            )
+        return _build_priority_decision(
+            priority_final="P2",
+            decision_state="conflict_resolved",
+            decision_source="conflict_resolved_by_insufficient_positive_evidence",
+            confidence="medium",
+            conflict_reason=conflict_reason,
+            resolution_reason="insufficient_positive_evidence",
+        )
+
+    return _build_priority_decision(
+        priority_final=suggested_priority,
+        decision_state="decided",
+        decision_source="semantic_fallback",
+        confidence="medium",
+        conflict_reason=conflict_reason,
+        resolution_reason="default_semantic_fallback",
+    )
 
 def _should_uplift_to_p1(case_meta: dict[str, Any]) -> tuple[bool, str, str, int]:
     """
@@ -116,9 +379,15 @@ def _normalize_score_result_for_debug_and_resolve(score_result: dict[str, Any]) 
     normalized["reasons"] = reasons
     return normalized
 
-def resolve_case_priority(model_priority: str, score_result: dict[str, Any], case: dict[str, Any]) -> str:
-    del case  # compatibility hook for future semantic overrides
+def resolve_case_priority_decision(
+    model_priority: str,
+    score_result: dict[str, Any],
+    case: dict[str, Any],
+) -> dict[str, Any]:
     normalized_model = _normalize_existing_priority(model_priority)
+    case_text = _extract_case_text(case if isinstance(case, dict) else {})
+    strong_p0_signal = _contains_strong_p0_signal(case_text)
+    uncertain_requirement_hit = _contains_any(str(case_text or "").lower(), _UNCERTAIN_REQUIREMENT_SIGNALS)
     score = int(score_result.get("priority_score") or 0)
     bonus_score = int(score_result.get("bonus_score") or 0)
     p1_uplifted = bool(score_result.get("p1_uplifted"))
@@ -137,6 +406,8 @@ def resolve_case_priority(model_priority: str, score_result: dict[str, Any], cas
                 "case_level_release_blocking",
             )
         )
+    if strong_p0_signal:
+        case_level_hard_guard = True
     p2_cap = bool(score_result.get("p2_cap"))
     coverage_value_exempt = bool(score_result.get("coverage_value_exempt"))
     missing_rule_hits = [str(item) for item in (score_result.get("missing_rule_hits") or []) if str(item).strip()]
@@ -147,11 +418,44 @@ def resolve_case_priority(model_priority: str, score_result: dict[str, Any], cas
     structural_p2_signals = bool(score_result.get("structural_p2_signals"))
     reasons = [str(item) for item in (score_result.get("reasons") or [])]
 
-    if p2_cap and not case_level_hard_guard:
-        return "P2"
+    if uncertain_requirement_hit:
+        return _build_priority_decision(
+            priority_final="P2",
+            decision_state="optional",
+            decision_source="uncertain_requirement_guard",
+            confidence="low",
+        )
 
-    if normalized_model == "P0" and (not case_level_hard_guard or score < 70):
-        return "P1"
+    if p2_cap and not case_level_hard_guard:
+        return _build_priority_decision(
+            priority_final="P2",
+            decision_state="decided",
+            decision_source="p2_cap_guard",
+            confidence="high",
+        )
+
+    if normalized_model == "P0":
+        p0_score_floor = 0 if strong_p0_signal else 70
+        if (not case_level_hard_guard) or score < p0_score_floor:
+            return _build_priority_decision(
+                priority_final="P1",
+                decision_state="decided",
+                decision_source="model_p0_guard_downgrade",
+                confidence="high",
+            )
+
+    if (
+        normalized_model == "P2"
+        and strong_p0_signal
+        and case_level_hard_guard
+        and not p2_cap
+    ):
+        return _build_priority_decision(
+            priority_final="P0",
+            decision_state="decided",
+            decision_source="strong_p0_signal_guard",
+            confidence="medium",
+        )
 
     # Third calibration: security/data critical hits with mid score can move from P2 to P1.
     if (
@@ -163,7 +467,12 @@ def resolve_case_priority(model_priority: str, score_result: dict[str, Any], cas
         and not low_risk_only_covered
         and not structural_p2_signals
     ):
-        return "P1"
+        return _build_priority_decision(
+            priority_final="P1",
+            decision_state="decided",
+            decision_source="security_data_critical_promotion",
+            confidence="medium",
+        )
 
     # Fourth calibration: core-workflow-covered mid-score cases can move from P2 to P1.
     if (
@@ -176,7 +485,12 @@ def resolve_case_priority(model_priority: str, score_result: dict[str, Any], cas
         and not low_risk_only_covered
         and not structural_p2_signals
     ):
-        return "P1"
+        return _build_priority_decision(
+            priority_final="P1",
+            decision_state="decided",
+            decision_source="core_workflow_promotion",
+            confidence="medium",
+        )
 
     # Second calibration: near-threshold + coverage-value cases can move from P2 to P1.
     if (
@@ -187,21 +501,46 @@ def resolve_case_priority(model_priority: str, score_result: dict[str, Any], cas
         and not low_risk_only_covered
         and not (structural_p2_signals and not (missing_rule_hits or core_rule_hits))
     ):
-        return "P1"
+        return _build_priority_decision(
+            priority_final="P1",
+            decision_state="decided",
+            decision_source="coverage_signal_promotion",
+            confidence="medium",
+        )
     if normalized_model == "P2" and effective_score >= 35:
-        return "P1"
-    if normalized_model == "P1" and case_level_hard_guard and score >= 70:
-        return "P0"
+        return _build_priority_decision(
+            priority_final="P1",
+            decision_state="decided",
+            decision_source="score_threshold_promotion",
+            confidence="medium",
+        )
+    if normalized_model == "P1" and case_level_hard_guard and score >= (0 if strong_p0_signal else 70):
+        return _build_priority_decision(
+            priority_final="P0",
+            decision_state="decided",
+            decision_source="hard_guard_promotion",
+            confidence="high",
+        )
 
     if suggested_priority == "P0" and not (case_level_hard_guard and score >= 70):
         suggested_priority = "P1"
 
     if normalized_model == suggested_priority:
-        return normalized_model
+        return _build_priority_decision(
+            priority_final=normalized_model,
+            decision_state="decided",
+            decision_source="model_semantic_consistent",
+            confidence="high",
+        )
 
     pair = {normalized_model, suggested_priority}
     if pair == {"P0", "P1"}:
-        return "P1"
+        return _build_priority_decision(
+            priority_final="P1",
+            decision_state="decided",
+            decision_source="guarded_downgrade",
+            confidence="medium",
+        )
     if pair == {"P1", "P2"}:
         explicit_low_value = any(
             reason in reasons
@@ -216,15 +555,64 @@ def resolve_case_priority(model_priority: str, score_result: dict[str, Any], cas
                 "p2_cap_display_mapping_scenario",
             )
         )
-        obvious_impact = score >= 45 and any(
-            reason in reasons for reason in ("important_non_blocking_flow", "high_frequency_main_flow", "main_workflow_hit")
+        positive_p1_evidence = bool(
+            missing_rule_hits
+            or core_rule_hits
+            or unique_coverage_hits
+            or int(coverage_gain_score) >= 8
+            or any(
+                reason in reasons
+                for reason in (
+                    "important_non_blocking_flow",
+                    "high_frequency_main_flow",
+                    "main_workflow_hit",
+                    "cross_page_flow_hit",
+                    "state_transition_hit",
+                    "reuse_risk_hit",
+                )
+            )
         )
-        if normalized_model == "P1" and not explicit_low_value:
-            return "P1"
-        return "P1" if obvious_impact else "P2"
+        if normalized_model == "P1" and positive_p1_evidence and not explicit_low_value:
+            return _build_priority_decision(
+                priority_final="P1",
+                decision_state="decided",
+                decision_source="model_p1_with_positive_evidence",
+                confidence="medium",
+            )
+        if normalized_model == "P1":
+            return _resolve_priority_conflict_to_final(
+                normalized_model=normalized_model,
+                suggested_priority=suggested_priority,
+                score_result=score_result,
+                case=case,
+            )
+        return _build_priority_decision(
+            priority_final="P2",
+            decision_state="decided",
+            decision_source="semantic_low_value",
+            confidence="medium",
+        )
     if pair == {"P0", "P2"}:
-        return "P1"
-    return suggested_priority
+        return _resolve_priority_conflict_to_final(
+            normalized_model=normalized_model,
+            suggested_priority=suggested_priority,
+            score_result=score_result,
+            case=case,
+        )
+    return _build_priority_decision(
+        priority_final=suggested_priority,
+        decision_state="decided",
+        decision_source="semantic_fallback",
+        confidence="medium",
+    )
+
+
+def resolve_case_priority(model_priority: str, score_result: dict[str, Any], case: dict[str, Any]) -> str:
+    decision = resolve_case_priority_decision(model_priority, score_result, case)
+    final_priority = str(decision.get("priority_final") or "").strip().upper()
+    if final_priority in {"P0", "P1", "P2"}:
+        return final_priority
+    return _normalize_existing_priority(model_priority)
 
 def apply_priority_semantics_to_case(
     case: dict[str, Any],
@@ -235,6 +623,10 @@ def apply_priority_semantics_to_case(
 ) -> dict[str, Any]:
     model_priority = str(case.get("priority") or "").strip()
     normalized_model_priority = _normalize_existing_priority(model_priority)
+    if not str(case.get("model_priority_current") or "").strip():
+        case["model_priority_current"] = normalized_model_priority
+    if not str(case.get("model_priority") or "").strip():
+        case["model_priority"] = normalized_model_priority
     score_result = score_case_priority(
         case,
         coverage_context=coverage_context,
@@ -256,8 +648,19 @@ def apply_priority_semantics_to_case(
     score_result["p1_uplift_reason"] = p1_uplift_reason
     score_result["uplift_source"] = uplift_source
     score_result["bonus_score"] = bonus_score
-    final_priority = resolve_case_priority(normalized_model_priority, score_result, case)
-    case["priority"] = final_priority
+    decision = resolve_case_priority_decision(normalized_model_priority, score_result, case)
+    final_priority = str(decision.get("priority_final") or "").strip().upper()
+    if final_priority in {"P0", "P1", "P2"}:
+        case["priority"] = final_priority
+    else:
+        case["priority"] = normalized_model_priority
+    case["legacy_priority"] = str(case.get("priority") or "").strip().upper()
+    case["priority_final"] = decision.get("priority_final")
+    case["priority_decision_state"] = str(decision.get("priority_decision_state") or "undetermined")
+    case["priority_decision_source"] = str(decision.get("priority_decision_source") or "insufficient_evidence")
+    case["priority_confidence"] = str(decision.get("priority_confidence") or "low")
+    case["priority_conflict_reason"] = str(decision.get("priority_conflict_reason") or "")
+    case["priority_resolution_reason"] = str(decision.get("priority_resolution_reason") or "")
 
     if attach_debug:
         meta = case.get("meta")
@@ -268,7 +671,12 @@ def apply_priority_semantics_to_case(
             "normalized_model_priority": normalized_model_priority,
             "priority_score": int(score_result.get("priority_score") or 0),
             "suggested_priority": str(score_result.get("suggested_priority") or "P2"),
-            "final_priority": final_priority,
+            "final_priority": case.get("priority_final"),
+            "priority_decision_state": str(decision.get("priority_decision_state") or "undetermined"),
+            "priority_decision_source": str(decision.get("priority_decision_source") or "insufficient_evidence"),
+            "priority_confidence": str(decision.get("priority_confidence") or "low"),
+            "priority_conflict_reason": str(decision.get("priority_conflict_reason") or ""),
+            "priority_resolution_reason": str(decision.get("priority_resolution_reason") or ""),
             "focus_score": int(score_result.get("focus_score") or 0),
             "ui_like_case": bool(score_result.get("ui_like_case")),
             "cross_page_flow_hit": bool(score_result.get("cross_page_flow_hit")),

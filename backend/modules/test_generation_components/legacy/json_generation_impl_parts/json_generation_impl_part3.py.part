@@ -118,6 +118,124 @@
                     )
                     db.commit()
 
+                priority_final_invalid_case_ids: list[str] = []
+                priority_final_null_count = 0
+                non_assertable_case_ids: list[str] = []
+                truncated_case_ids: list[str] = []
+                non_assertable_expected_result_count = 0
+                truncated_text_count = 0
+                non_assertable_phrases = (
+                    "对应状态变化",
+                    "关键结果可核对",
+                    "对应内容",
+                    "匹配的结果",
+                    "结果内容可校验",
+                    "正常展示",
+                    "正常跳转",
+                    "正常更新",
+                    "符合预期",
+                )
+                truncated_endings = (
+                    "或显",
+                    "对应内",
+                    "可校",
+                    "正常展",
+                    "跳转至",
+                    "显示为",
+                )
+                if isinstance(result, list):
+                    for index, case_item in enumerate(result, start=1):
+                        if not isinstance(case_item, dict):
+                            continue
+                        case_id = str(case_item.get("id") or case_item.get("case_id") or "").strip()
+                        if not case_id:
+                            case_id = f"ROW-{int(index):03d}"
+
+                        priority_final_value = str(case_item.get("priority_final") or "").strip().upper()
+                        if priority_final_value not in {"P0", "P1", "P2"}:
+                            priority_final_null_count += 1
+                            priority_final_invalid_case_ids.append(case_id)
+
+                        expected_result_text = str(case_item.get("expected_result") or "").strip()
+                        expected_result_quality = str(case_item.get("expected_result_quality") or "").strip().lower()
+                        quality_reason = str(case_item.get("expected_result_quality_reason") or "").strip().lower()
+                        truncated_flag = bool(case_item.get("truncated_text_detected"))
+
+                        phrase_hit = any(phrase in expected_result_text for phrase in non_assertable_phrases)
+                        non_assertable_hit = bool(
+                            expected_result_quality == "non_assertable"
+                            or quality_reason in {"no_concrete_assertion", "template_or_weak_assertion"}
+                            or phrase_hit
+                        )
+                        if non_assertable_hit:
+                            non_assertable_expected_result_count += 1
+                            non_assertable_case_ids.append(case_id)
+
+                        expected_result_trimmed = expected_result_text.rstrip("。！？.!? ")
+                        truncated_suffix_hit = any(
+                            expected_result_trimmed.endswith(suffix)
+                            for suffix in truncated_endings
+                        )
+                        truncated_hit = bool(
+                            expected_result_quality == "truncated"
+                            or truncated_flag
+                            or truncated_suffix_hit
+                        )
+                        if truncated_hit:
+                            truncated_text_count += 1
+                            truncated_case_ids.append(case_id)
+
+                failed_checks: list[str] = []
+                if priority_final_null_count > 0:
+                    failed_checks.append(f"priority_final_null_count={int(priority_final_null_count)}")
+                if non_assertable_expected_result_count > 0:
+                    failed_checks.append(
+                        f"non_assertable_expected_result_count={int(non_assertable_expected_result_count)}"
+                    )
+                if truncated_text_count > 0:
+                    failed_checks.append(f"truncated_text_count={int(truncated_text_count)}")
+
+                if failed_checks:
+                    quality_gate_payload = {
+                        "kind": "generation_quality_gate",
+                        "request_id": request_id,
+                        "multi_pass": bool(multi_pass),
+                        "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                        "error_code": "LOW_QUALITY_GENERATED_CASES",
+                        "final_status": "quality_gate_failed",
+                        "quality_gate_failed": True,
+                        "priority_final_null_count": int(priority_final_null_count),
+                        "invalid_priority_final_case_ids": list(priority_final_invalid_case_ids),
+                        "non_assertable_expected_result_count": int(non_assertable_expected_result_count),
+                        "truncated_text_count": int(truncated_text_count),
+                        "non_assertable_case_ids": list(non_assertable_case_ids),
+                        "truncated_case_ids": list(truncated_case_ids),
+                        "failed_checks": list(failed_checks),
+                    }
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            user_id=user_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(quality_gate_payload, ensure_ascii=False)}",
+                        )
+                    )
+                    db.commit()
+                    return {
+                        "error": "LOW_QUALITY_GENERATED_CASES",
+                        "error_code": "LOW_QUALITY_GENERATED_CASES",
+                        "error_message": "生成结果未通过质量门禁：存在不可执行或截断的预期结果",
+                        "final_status": "quality_gate_failed",
+                        "quality_gate_failed": True,
+                        "failed_checks": list(failed_checks),
+                        "priority_final_null_count": int(priority_final_null_count),
+                        "invalid_priority_final_case_ids": list(priority_final_invalid_case_ids),
+                        "non_assertable_expected_result_count": int(non_assertable_expected_result_count),
+                        "truncated_text_count": int(truncated_text_count),
+                        "non_assertable_case_ids": list(non_assertable_case_ids),
+                        "truncated_case_ids": list(truncated_case_ids),
+                    }
+
                 db_entry = TestGeneration(
                     requirement_text=original_requirement,
                     generated_result=json.dumps(result, ensure_ascii=False)
@@ -129,6 +247,223 @@
                 db.add(db_entry)
                 db.commit()
                 db.refresh(db_entry)
+                persisted_generation_id = int(db_entry.id or 0)
+
+                persisted_payload = {
+                    "kind": "generation_persisted",
+                    "generation_id": int(persisted_generation_id),
+                    "project_id": int(project_id),
+                    "request_id": request_id,
+                }
+                db.add(
+                    LogEntry(
+                        project_id=project_id,
+                        user_id=user_id,
+                        log_type="system",
+                        message=f"GEN_DIAG:{json.dumps(persisted_payload, ensure_ascii=False)}",
+                    )
+                )
+
+                generation_mode_payload = {
+                    "kind": "generation_mode",
+                    "mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    "biz_keys": [resolved_current_biz],
+                    "current_biz_key": resolved_current_biz,
+                    "multi_pass": bool(multi_pass),
+                    "request_id": request_id,
+                    "generation_id": int(persisted_generation_id),
+                }
+                db.add(
+                    LogEntry(
+                        project_id=project_id,
+                        user_id=user_id,
+                        log_type="system",
+                        message=f"GEN_DIAG:{json.dumps(generation_mode_payload, ensure_ascii=False)}",
+                    )
+                )
+
+                post_persist_gen_diag_payload = dict(gen_diag_payload or {})
+                if not post_persist_gen_diag_payload:
+                    post_persist_gen_diag_payload = {
+                        "kind": "gen_diag",
+                        "mode": "json",
+                        "doc_type": doc_type,
+                        "compress": bool(compress),
+                        "expected_count": int(expected_count or 0),
+                        "generated_count": int(count_unique_test_cases(result)) if isinstance(result, list) else 0,
+                        "request_id": request_id,
+                        "multi_pass": bool(multi_pass),
+                        "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    }
+                post_persist_gen_diag_payload["generation_id"] = int(persisted_generation_id)
+                db.add(
+                    LogEntry(
+                        project_id=project_id,
+                        user_id=user_id,
+                        log_type="system",
+                        message=f"GEN_DIAG:{json.dumps(post_persist_gen_diag_payload, ensure_ascii=False)}",
+                    )
+                )
+
+                post_persist_compression_payload = dict(compression_event_payload or {})
+                if not post_persist_compression_payload:
+                    post_persist_compression_payload = {
+                        "kind": "generation_context_compression",
+                        "request_id": request_id,
+                        "multi_pass": bool(multi_pass),
+                        "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                        "snapshot_id": "",
+                        "corpus_hash": "",
+                        "retrieval_hash": "",
+                    }
+                post_persist_compression_payload["generation_id"] = int(persisted_generation_id)
+                db.add(
+                    LogEntry(
+                        project_id=project_id,
+                        user_id=user_id,
+                        log_type="system",
+                        message=f"GEN_DIAG:{json.dumps(post_persist_compression_payload, ensure_ascii=False)}",
+                    )
+                )
+
+                if not review_decision_summary_payload:
+                    review_decision_summary_payload = {
+                        "candidate_total": int(candidate_total_before_judge or 0),
+                        "retained_total": int(final_case_count if isinstance(result, list) else 0),
+                        "dropped_total": max(
+                            0,
+                            int(candidate_total_before_judge or 0)
+                            - int(final_case_count if isinstance(result, list) else 0),
+                        ),
+                        "review_input_size": int(candidate_total_before_judge or 0),
+                        "review_output_size": int(final_case_count if isinstance(result, list) else 0),
+                        "review_decision_summary_available": False,
+                        "review_skipped_reason": "review_postprocess_not_executed_in_generate_tests_json",
+                        "reason_source_breakdown": {"primary": 0, "fallback": 0, "backfill": 0},
+                        "priority_decision_state_breakdown": {
+                            "decided": 0,
+                            "conflict": 0,
+                            "undetermined": 0,
+                            "optional": 0,
+                            "invalid": 0,
+                        },
+                        "priority_final_breakdown": {"P0": 0, "P1": 0, "P2": 0, "null": 0},
+                        "legacy_priority_breakdown": {"P0": 0, "P1": 0, "P2": 0, "UNKNOWN": 0},
+                        "priority_conflict_count": 0,
+                        "priority_undetermined_count": 0,
+                        "priority_optional_count": 0,
+                        "priority_invalid_count": 0,
+                        "needs_priority_review": False,
+                        "candidate_primary": int(candidate_total_before_judge or 0),
+                        "candidate_gap": 0,
+                        "final_case_count": int(final_case_count if isinstance(result, list) else 0),
+                        "empty_result_guard_triggered": bool(empty_result_guard_triggered),
+                        "empty_result_stage": str(empty_result_stage or ""),
+                    }
+
+                review_summary_diag_payload = {
+                    "kind": "review_decision_summary",
+                    **dict(review_decision_summary_payload or {}),
+                    "request_id": request_id,
+                    "generation_id": int(persisted_generation_id),
+                    "multi_pass": bool(multi_pass),
+                    "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                }
+                db.add(
+                    LogEntry(
+                        project_id=project_id,
+                        user_id=user_id,
+                        log_type="system",
+                        message=f"GEN_DIAG:{json.dumps(review_summary_diag_payload, ensure_ascii=False)}",
+                    )
+                )
+
+                if review_decision_table_payload:
+                    review_table_diag_payload = {
+                        "kind": "review_decision_table",
+                        "generation_id": int(persisted_generation_id),
+                        "request_id": request_id,
+                        "rows": [item for item in review_decision_table_payload if isinstance(item, dict)],
+                        "row_count": int(len([item for item in review_decision_table_payload if isinstance(item, dict)])),
+                        "row_count_total": int(len([item for item in review_decision_table_payload if isinstance(item, dict)])),
+                        "rows_scope": "all",
+                        "multi_pass": bool(multi_pass),
+                        "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    }
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            user_id=user_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(review_table_diag_payload, ensure_ascii=False)}",
+                        )
+                    )
+
+                if not convergence_payload:
+                    convergence_payload = {
+                        "primary_count": int(candidate_total_before_judge or 0),
+                        "gap_count": 0,
+                        "review_count": int(candidate_total_before_judge or 0),
+                        "candidate_count_before_review": int(candidate_total_before_judge or 0),
+                        "review_selected_count": int(final_case_count if isinstance(result, list) else 0),
+                        "final_count": int(final_case_count if isinstance(result, list) else 0),
+                        "expected_count": int(expected_count or 0),
+                        "empty_result_guard_triggered": bool(empty_result_guard_triggered),
+                        "empty_result_stage": str(empty_result_stage or ""),
+                    }
+
+                convergence_diag_payload = {
+                    "kind": "generation_convergence",
+                    **dict(convergence_payload or {}),
+                    "request_id": request_id,
+                    "generation_id": int(persisted_generation_id),
+                    "multi_pass": bool(multi_pass),
+                    "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                }
+                db.add(
+                    LogEntry(
+                        project_id=project_id,
+                        user_id=user_id,
+                        log_type="system",
+                        message=f"GEN_DIAG:{json.dumps(convergence_diag_payload, ensure_ascii=False)}",
+                    )
+                )
+
+                if not generation_summary_payload:
+                    generation_summary_payload = {
+                        "status": "failed_empty_result" if bool(empty_result_guard_triggered) else "completed",
+                        "final_status": "empty_result_failed" if bool(empty_result_guard_triggered) else "success",
+                        "final_count": int(final_case_count if isinstance(result, list) else 0),
+                        "expected_count": int(expected_count or 0),
+                        "candidate_total": int(candidate_total_before_judge or 0),
+                        "review_input_size": int(candidate_total_before_judge or 0),
+                        "review_output_size": int(final_case_count if isinstance(result, list) else 0),
+                        "review_decision_summary_available": False,
+                        "review_skipped_reason": "review_postprocess_not_executed_in_generate_tests_json",
+                        "empty_result_guard_triggered": bool(empty_result_guard_triggered),
+                        "empty_result_stage": str(empty_result_stage or ""),
+                    }
+                    if bool(empty_result_guard_triggered):
+                        generation_summary_payload["error_code"] = "EMPTY_GENERATED_RESULT"
+                        generation_summary_payload["error_message"] = "生成完成但最终测试用例为空"
+
+                generation_summary_diag_payload = {
+                    "kind": "generation_summary",
+                    **dict(generation_summary_payload or {}),
+                    "request_id": request_id,
+                    "generation_id": int(persisted_generation_id),
+                    "multi_pass": bool(multi_pass),
+                    "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                }
+                db.add(
+                    LogEntry(
+                        project_id=project_id,
+                        user_id=user_id,
+                        log_type="system",
+                        message=f"GEN_DIAG:{json.dumps(generation_summary_diag_payload, ensure_ascii=False)}",
+                    )
+                )
+                db.commit()
 
                 normalized_judge_rows: list[dict[str, Any]] = []
                 for row in (judge_decision_table_payload or []):

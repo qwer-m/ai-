@@ -13,7 +13,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from core.db.database import SessionLocal
-from core.db.models import LogEntry
+from core.db.models import LogEntry, TestGeneration
 
 
 @dataclass
@@ -91,7 +91,7 @@ def _parse_gen_diag_payload(message: str) -> dict[str, Any] | None:
     idx = text.find(marker)
     if idx < 0:
         return None
-    raw = text[idx + len(marker):].strip()
+    raw = text[idx + len(marker) :].strip()
     if not raw:
         return None
     try:
@@ -99,6 +99,31 @@ def _parse_gen_diag_payload(message: str) -> dict[str, Any] | None:
     except Exception:
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _safe_parse_generation_result(raw_text: str) -> Any:
+    text = str(raw_text or "").strip()
+    if not text:
+        return []
+    try:
+        return json.loads(text)
+    except Exception:
+        return []
+
+
+def _extract_case_list(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        direct_cases = payload.get("cases")
+        if isinstance(direct_cases, list):
+            return [item for item in direct_cases if isinstance(item, dict)]
+        nested_error = payload.get("error")
+        if isinstance(nested_error, dict):
+            nested_cases = nested_error.get("cases")
+            if isinstance(nested_cases, list):
+                return [item for item in nested_cases if isinstance(item, dict)]
+    return []
 
 
 def _find_context(generation_id: int) -> _DiagContext | None:
@@ -152,7 +177,6 @@ def _find_context(generation_id: int) -> _DiagContext | None:
         )
     finally:
         db.close()
-    return None
 
 
 def _load_review_diags(ctx: _DiagContext) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
@@ -170,9 +194,11 @@ def _load_review_diags(ctx: _DiagContext) -> tuple[dict[str, Any], dict[str, Any
         if ctx.next_persisted_log_id is not None:
             query = query.filter(LogEntry.id < ctx.next_persisted_log_id)
         rows = query.all()
+
         summary_payload: dict[str, Any] = {}
         table_payload: dict[str, Any] = {}
         table_rows: list[dict[str, Any]] = []
+
         for row in rows:
             payload = _parse_gen_diag_payload(row.message or "")
             if not payload:
@@ -192,6 +218,97 @@ def _load_review_diags(ctx: _DiagContext) -> tuple[dict[str, Any], dict[str, Any
         db.close()
 
 
+def _load_review_diags_from_generated_result(
+    generation_id: int,
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]], bool]:
+    db = SessionLocal()
+    try:
+        row = db.query(TestGeneration).filter(TestGeneration.id == int(generation_id)).first()
+        if row is None:
+            return {}, {}, [], False
+        parsed = _safe_parse_generation_result(getattr(row, "generated_result", ""))
+        cases = _extract_case_list(parsed)
+    finally:
+        db.close()
+
+    table_rows: list[dict[str, Any]] = []
+    for idx, case in enumerate(cases, start=1):
+        model_priority = str(case.get("model_priority_current") or case.get("model_priority") or case.get("priority") or "").strip()
+        legacy_priority = str(case.get("legacy_priority") or case.get("priority") or "").strip()
+        priority_state = str(case.get("priority_decision_state") or "undetermined").strip().lower()
+        if priority_state not in {"decided", "conflict", "undetermined", "optional", "invalid"}:
+            priority_state = "undetermined"
+        table_rows.append(
+            {
+                "candidate_index": int(idx),
+                "case_id": str(case.get("id") or case.get("case_id") or "").strip() or f"ROW-{idx:03d}",
+                "description": str(case.get("description") or "").strip(),
+                "test_module": str(case.get("test_module") or "").strip(),
+                "model_priority": model_priority,
+                "model_priority_current": model_priority,
+                "legacy_priority": legacy_priority,
+                "priority_final": str(case.get("priority_final") or "").strip(),
+                "priority_decision_state": priority_state,
+                "priority_decision_source": str(case.get("priority_decision_source") or "").strip(),
+                "priority_confidence": str(case.get("priority_confidence") or "").strip(),
+                "priority_conflict_reason": str(case.get("priority_conflict_reason") or "").strip(),
+                "priority_score": case.get("priority_score"),
+                "suggested_priority": str(case.get("suggested_priority") or "").strip(),
+                "priority_reasons": case.get("priority_reasons") if isinstance(case.get("priority_reasons"), list) else [],
+                "selected_by_review_llm": False,
+                "selected_by_review_must_keep": False,
+                "selected_by_review_constraints": False,
+                "selected_by_review_gate": False,
+                "retained_final": True,
+                "dropped_stage": "retained",
+                "dropped_reason": "retained",
+                "review_llm_drop_reason_raw": "",
+                "review_llm_drop_reason": "",
+                "review_llm_drop_reason_source": "",
+                "review_llm_drop_reason_evidence": {},
+                "has_positive_evidence": False,
+                "has_coverage_signal": False,
+                "has_high_signal": False,
+                "has_competition_signal": False,
+                "review_constraint_reason": "",
+                "bucket": "",
+                "rule_keys": [],
+                "adds_rule": False,
+                "adds_bucket": False,
+                "high_signal": False,
+                "has_coverage_value": False,
+                "retained_reason": "generated_result_fallback",
+                "rerank_rank": "",
+                "focus_score": "",
+                "covered_rule_ids": [],
+                "missing_rule_hits": [],
+                "core_rule_hits": [],
+                "coverage_gain_score": "",
+                "signature": "",
+            }
+        )
+
+    summary_payload = {
+        "kind": "review_decision_summary",
+        "candidate_total": int(len(table_rows)),
+        "retained_total": int(len(table_rows)),
+        "dropped_total": 0,
+        "drop_by_review_llm_count": 0,
+        "drop_by_review_selector_count": 0,
+        "review_input_size": int(len(table_rows)),
+        "review_output_size": int(len(table_rows)),
+        "review_decision_summary_available": False,
+        "review_skipped_reason": "gen_diag_missing_generated_result_fallback",
+    }
+    detail_payload = {
+        "kind": "review_decision_table",
+        "row_count": int(len(table_rows)),
+        "row_count_total": int(len(table_rows)),
+        "rows_scope": "generated_result_fallback",
+    }
+    return summary_payload, detail_payload, table_rows, True
+
+
 def _write_outputs(
     *,
     generation_id: int,
@@ -199,6 +316,8 @@ def _write_outputs(
     table_payload: dict[str, Any],
     table_rows: list[dict[str, Any]],
     out_dir: Path,
+    diagnostic_source: str = "gen_diag",
+    diagnostic_depth: str = "full",
 ) -> tuple[Path, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     summary_path = out_dir / f"generation_{generation_id}_review_summary.json"
@@ -212,6 +331,8 @@ def _write_outputs(
     summary_obj = {
         "generation_id": int(generation_id),
         "review_decision_summary": summary_payload,
+        "diagnostic_source": str(diagnostic_source or "gen_diag"),
+        "diagnostic_depth": str(diagnostic_depth or "full"),
         "candidate_total": int(export_meta.get("candidate_total") or 0),
         "exported_row_count": int(export_meta.get("exported_row_count") or 0),
         "row_count": int(export_meta.get("row_count") or 0),
@@ -229,7 +350,17 @@ def _write_outputs(
         "case_id",
         "description",
         "test_module",
+        "model_priority",
         "model_priority_current",
+        "legacy_priority",
+        "priority_final",
+        "priority_decision_state",
+        "priority_decision_source",
+        "priority_confidence",
+        "priority_conflict_reason",
+        "priority_score",
+        "suggested_priority",
+        "priority_reasons",
         "selected_by_review_llm",
         "selected_by_review_must_keep",
         "selected_by_review_constraints",
@@ -270,6 +401,8 @@ def _write_outputs(
                 value = line.get(key)
                 if isinstance(value, list):
                     line[key] = json.dumps(value, ensure_ascii=False)
+            if isinstance(line.get("priority_reasons"), list):
+                line["priority_reasons"] = json.dumps(line.get("priority_reasons"), ensure_ascii=False)
             if isinstance(line.get("review_llm_drop_reason_evidence"), dict):
                 line["review_llm_drop_reason_evidence"] = json.dumps(
                     line.get("review_llm_drop_reason_evidence"), ensure_ascii=False
@@ -279,28 +412,34 @@ def _write_outputs(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="导出指定 generation_id 的 review 保留/淘汰对照表。")
+    parser = argparse.ArgumentParser(description="Export review decision diagnostics by generation_id.")
     parser.add_argument("--generation-id", type=int, required=True, help="test_generations.id")
-    parser.add_argument(
-        "--out-dir",
-        type=str,
-        default="tmp/review_diagnostics",
-        help="导出目录（相对于 backend 工作目录）。",
-    )
+    parser.add_argument("--out-dir", type=str, default="tmp/review_diagnostics", help="output directory")
     args = parser.parse_args()
 
-    ctx = _find_context(int(args.generation_id))
-    if not ctx:
-        print(f"[ERROR] 未找到 generation_id={args.generation_id} 对应的 generation_persisted 诊断日志。")
-        return 2
+    diagnostic_source = "gen_diag"
+    diagnostic_depth = "full"
+    request_id = ""
 
-    summary_payload, table_payload, table_rows = _load_review_diags(ctx)
+    ctx = _find_context(int(args.generation_id))
+    if ctx:
+        request_id = str(ctx.request_id or "")
+        summary_payload, table_payload, table_rows = _load_review_diags(ctx)
+    else:
+        summary_payload, table_payload, table_rows, ok = _load_review_diags_from_generated_result(int(args.generation_id))
+        if not ok:
+            print(f"[ERROR] generation_id={args.generation_id} not found.")
+            return 2
+        diagnostic_source = "generated_result_fallback"
+        diagnostic_depth = "limited"
+
     if not summary_payload and not table_payload and not table_rows:
-        print(
-            f"[ERROR] generation_id={args.generation_id} 未找到 review 决策诊断数据。"
-            "请先运行带 review_decision 观测字段的新版本。"
-        )
-        return 3
+        summary_payload, table_payload, table_rows, ok = _load_review_diags_from_generated_result(int(args.generation_id))
+        if not ok:
+            print(f"[ERROR] generation_id={args.generation_id} has no review diagnostics.")
+            return 3
+        diagnostic_source = "generated_result_fallback"
+        diagnostic_depth = "limited"
 
     summary_path, table_path = _write_outputs(
         generation_id=int(args.generation_id),
@@ -308,15 +447,21 @@ def main() -> int:
         table_payload=table_payload,
         table_rows=table_rows,
         out_dir=Path(args.out_dir),
+        diagnostic_source=diagnostic_source,
+        diagnostic_depth=diagnostic_depth,
     )
     export_meta = _build_detail_export_meta(
         summary_payload=summary_payload,
         detail_payload=table_payload,
         exported_rows=table_rows,
     )
-    print("[OK] review 诊断导出完成")
+    print("[OK] review diagnostics exported")
     print(f"  generation_id: {args.generation_id}")
-    print(f"  request_id: {ctx.request_id or '(none)'}")
+    print(f"  request_id: {request_id or '(none)'}")
+    print(f"  diagnostic_source: {diagnostic_source}")
+    print(f"  diagnostic_depth: {diagnostic_depth}")
+    if str(diagnostic_depth or "").strip().lower() == "limited":
+        print("  warning: GEN_DIAG missing, using generated_result fallback; review/convergence fields may be unavailable.")
     print(f"  summary: {summary_path}")
     print(f"  table: {table_path}")
     print(f"  candidate_total: {export_meta.get('candidate_total')}")
@@ -326,24 +471,6 @@ def main() -> int:
     print(f"  truncation_reason: {export_meta.get('truncation_reason') or '-'}")
     print(f"  source_summary_available: {export_meta.get('source_summary_available')}")
     print(f"  source_detail_available: {export_meta.get('source_detail_available')}")
-    if summary_payload:
-        print("  drop_summary:")
-        for key in (
-            "candidate_total",
-            "retained_total",
-            "dropped_total",
-            "drop_by_review_llm_count",
-            "drop_by_review_gate_count",
-            "drop_by_pre_gate_dedup_count",
-            "drop_by_post_review_dedup_count",
-            "drop_no_new_signal_count",
-            "drop_rule_cap_count",
-            "dropped_model_priority_p0_p1_count",
-            "dropped_core_rule_hit_count",
-            "dropped_missing_rule_hit_count",
-        ):
-            if key in summary_payload:
-                print(f"    {key}: {summary_payload.get(key)}")
     return 0
 
 

@@ -9,7 +9,22 @@ export const getErrorText = (error: any) => {
   if (!error) return '';
   if (typeof error === 'string') return error;
   if (error?.data?.error) return String(error.data.error);
-  if (error?.data?.detail) return String(error.data.detail);
+  if (error?.data?.detail) {
+    if (typeof error.data.detail === 'string') return String(error.data.detail);
+    const detail = error.data.detail;
+    if (detail && typeof detail === 'object') {
+      const code = typeof detail.error_code === 'string' ? detail.error_code.trim() : '';
+      const message =
+        (typeof detail.error_message === 'string' && detail.error_message.trim()) ||
+        (typeof detail.error === 'string' && detail.error.trim()) ||
+        (typeof detail.message === 'string' && detail.message.trim()) ||
+        '';
+      if (message && code) return `${message} (${code})`;
+      if (message) return message;
+      if (code) return code;
+    }
+    try { return JSON.stringify(error.data.detail); } catch { return String(error.data.detail); }
+  }
   if (error?.data?.message) return String(error.data.message);
   if (error?.message) return String(error.message);
   try { return JSON.stringify(error); } catch { return String(error); }

@@ -706,12 +706,158 @@ def stream_postprocess_cases(
             return []
         return [f"{idx}. {step}" for idx, step in enumerate(normalized, start=1)]
 
+    def _strip_step_prefix(text: str) -> str:
+        return re.sub(r"^\s*\d+\.\s*", "", str(text or "").strip()).strip()
+
+    def _strip_validation_prefix(text: str) -> str:
+        cleaned = str(text or "").strip()
+        cleaned = re.sub(r"^\s*(?:验证|校验|检查)\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"^\s*(?:verify|validate|check)\b[:：\s-]*", "", cleaned, flags=re.IGNORECASE)
+        return cleaned.strip()
+
+    def _is_placeholder_expected_result(text: str) -> bool:
+        normalized = str(text or "").strip().lower()
+        if not normalized:
+            return True
+        compact = re.sub(r"\s+", "", normalized)
+        placeholder_signals = (
+            "execution succeeds and result is as configured",
+            "result is as configured",
+            "as configured",
+            "expected result",
+            "expectedresult",
+            "result meets expectations",
+            "works as expected",
+            "same as above",
+            "placeholder",
+            "tbd",
+            "todo",
+            "待补充",
+            "待确认",
+            "占位",
+            "按配置",
+            "结果符合预期",
+            "执行成功",
+            "返回成功",
+        )
+        if any(signal in normalized for signal in placeholder_signals):
+            return True
+        return compact in {"成功", "通过", "正常", "ok", "okay"}
+
+    _NON_ASSERTABLE_EXPECTED_PHRASES = (
+        "对应状态变化",
+        "关键结果可核对",
+        "对应内容",
+        "匹配的结果",
+        "结果内容可校验",
+        "正常展示",
+        "正常跳转",
+        "正常更新",
+        "符合预期",
+    )
+
+    _TRUNCATED_TEXT_ENDINGS = (
+        "或显",
+        "对应内",
+        "可校",
+        "正常展",
+        "跳转至",
+        "显示为",
+    )
+
+    def _is_non_assertable_expected_result(text: str) -> bool:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return True
+        if _is_placeholder_expected_result(normalized):
+            return True
+        return any(phrase in normalized for phrase in _NON_ASSERTABLE_EXPECTED_PHRASES)
+
+    def _looks_truncated_text(text: str) -> bool:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return False
+        trimmed = re.sub(r"[。！？.!?]+$", "", normalized).strip()
+        if not trimmed:
+            return False
+        return any(trimmed.endswith(suffix) for suffix in _TRUNCATED_TEXT_ENDINGS)
+
+    def _build_expected_result_from_case(
+        *,
+        module: str,
+        description: str,
+        normalized_steps: list[str],
+    ) -> str:
+        steps = [_strip_step_prefix(step) for step in normalized_steps if _strip_step_prefix(step)]
+        first_step = steps[0] if steps else ""
+        last_step = steps[-1] if steps else ""
+        subject = _strip_validation_prefix(description) or module or first_step or "该流程"
+        subject = re.sub(r"[。！？.!?]+$", "", subject).strip() or "该流程"
+        subject = subject[:64]
+        step_anchor = last_step or first_step or "该步骤"
+        context = " ".join([module, subject, " ".join(steps)]).lower()
+
+        if any(token in context for token in ("删除", "移除", "delete", "remove")):
+            return f"执行{step_anchor}后，应删除{subject}对应记录，且列表或查询中不再显示该记录"
+        if any(token in context for token in ("更新", "修改", "编辑", "update", "modify", "edit")):
+            return f"执行{step_anchor}后，应更新{subject}对应记录，且查询结果应反映新值"
+        if any(token in context for token in ("创建", "新增", "保存", "提交", "create", "add", "save", "submit", "register")):
+            return f"执行{step_anchor}后，应成功完成{subject}，且后续查询可验证结果"
+        if any(token in context for token in ("查询", "搜索", "筛选", "list", "query", "search", "filter")):
+            return f"执行{step_anchor}后，返回列表仅包含满足{subject}筛选条件的记录，且每条记录关键字段值正确"
+        if any(token in context for token in ("登录", "退出", "login", "logout", "认证", "授权", "permission", "auth")):
+            return f"执行{step_anchor}后，响应状态码正确，且用户仅可访问{subject}授权范围内页面或模块"
+        if any(token in context for token in ("导出", "export", "download")):
+            return f"执行{step_anchor}后，应生成可下载的{subject}导出结果"
+        if any(token in context for token in ("导入", "import", "upload")):
+            return f"执行{step_anchor}后，应完成{subject}导入并返回处理结果或统计信息"
+        if any(
+            token in context
+            for token in (
+                "付费拦截",
+                "未付费",
+                "paywall",
+                "订阅",
+                "禁止访问",
+                "无权限",
+                "permission denied",
+            )
+        ):
+            return f"执行{step_anchor}后，应触发权限或付费拦截提示，且无法继续进入{subject}相关学习流程"
+        if any(token in context for token in ("进入", "跳转", "返回", "打开", "open", "navigate", "redirect", "enter")):
+            return f"执行{step_anchor}后，应跳转到目标页面，且页面路径与标题均与{subject}一致"
+        if any(token in context for token in ("置灰", "禁用", "不可点击", "不可用", "可点击", "可用", "弹窗", "提示", "过期")):
+            return f"执行{step_anchor}后，按钮可用状态与提示文案正确，且用户权限与交互限制一致"
+        if any(
+            token in context
+            for token in (
+                "参数校验",
+                "格式校验",
+                "边界值",
+                "合法性",
+                "size limit",
+                "invalid",
+                "forbidden",
+                "超限",
+                "上限",
+            )
+        ):
+            return f"执行{step_anchor}后，应给出明确校验提示，并拦截不符合条件的输入"
+        if any(token in context for token in ("显示", "展示", "render", "display")):
+            return f"执行{step_anchor}后，应完整显示{subject}关键字段，且字段值与输入/后端数据一致"
+        return ""
+
     def _normalize_case_structure(case: dict[str, Any]) -> dict[str, Any] | None:
         normalized = dict(case or {})
         module = str(normalized.get("test_module") or "").strip()
         description = str(normalized.get("description") or "").strip()
-        expected_result = str(normalized.get("expected_result") or "").strip()
-        if not module or len(description) < 4 or not expected_result:
+        expected_result_raw = str(normalized.get("expected_result") or "").strip()
+        expected_result = expected_result_raw
+        expected_result_alignment_warning = False
+        expected_result_quality = "assertable"
+        expected_result_quality_reason = ""
+        truncated_text_detected = False
+        if not module or len(description) < 4:
             return None
 
         normalized_steps = _normalize_steps(normalized.get("steps"))
@@ -725,16 +871,51 @@ def stream_postprocess_cases(
         if not preconditions:
             preconditions = [f"User has logged in and can access module {module}"]
 
-        step_tokens = _semantic_tokenize(" ".join(normalized_steps), limit=18)
-        expected_tokens = _semantic_tokenize(expected_result, limit=12)
-        if expected_tokens and step_tokens and not step_tokens.intersection(expected_tokens):
-            last_step = str(normalized_steps[-1] or "").strip()
-            if last_step:
-                expected_result = f"{last_step} execution succeeds and result is as configured"
+        if not expected_result or _is_placeholder_expected_result(expected_result):
+            rebuilt_expected_result = _build_expected_result_from_case(
+                module=module,
+                description=description,
+                normalized_steps=normalized_steps,
+            )
+            if rebuilt_expected_result:
+                expected_result = rebuilt_expected_result
+            else:
+                expected_result = expected_result_raw
+                expected_result_quality = "non_assertable"
+                expected_result_quality_reason = "no_concrete_assertion"
+        else:
+            step_tokens = _semantic_tokenize(" ".join(normalized_steps), limit=18)
+            expected_tokens = _semantic_tokenize(expected_result, limit=12)
+            if expected_tokens and step_tokens and not step_tokens.intersection(expected_tokens):
+                expected_result_alignment_warning = True
+
+        if _looks_truncated_text(expected_result):
+            expected_result_quality = "truncated"
+            expected_result_quality_reason = "truncated_suffix_detected"
+            truncated_text_detected = True
+        elif _is_non_assertable_expected_result(expected_result):
+            expected_result_quality = "non_assertable"
+            if not expected_result_quality_reason:
+                expected_result_quality_reason = "template_or_weak_assertion"
+        else:
+            expected_result_quality = "assertable"
+            if not expected_result_quality_reason:
+                expected_result_quality_reason = "contains_concrete_assertion"
+
+        test_input = str(normalized.get("test_input") or "").strip()
+        if not test_input:
+            test_input = _strip_step_prefix(normalized_steps[0]) if normalized_steps else ""
+        if not test_input:
+            test_input = description or module or "默认输入"
 
         normalized["steps"] = normalized_steps
         normalized["preconditions"] = preconditions
+        normalized["test_input"] = test_input
         normalized["expected_result"] = expected_result
+        normalized["expected_result_quality"] = expected_result_quality
+        normalized["expected_result_quality_reason"] = expected_result_quality_reason
+        normalized["expected_result_alignment_warning"] = bool(expected_result_alignment_warning)
+        normalized["truncated_text_detected"] = bool(truncated_text_detected)
         normalized["priority"] = _normalize_priority_value(str(normalized.get("priority") or ""))
         return normalized
 
@@ -742,7 +923,7 @@ def stream_postprocess_cases(
         *,
         candidate: dict[str, Any],
         existed: dict[str, Any],
-        threshold: float = 0.9,
+        threshold: float = 0.84,
     ) -> bool:
         candidate_sig = _semantic_signature(candidate, list(_extract_rule_keys(candidate)))
         existed_sig = _semantic_signature(existed, list(_extract_rule_keys(existed)))
@@ -793,6 +974,25 @@ def stream_postprocess_cases(
         return kept, dropped
 
     def _rebuild_priority_by_semantics(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        p0_extra_tokens = (
+            "主流程",
+            "闭环",
+            "未付费",
+            "付费提示",
+            "直接url",
+            "直接url访问",
+            "ai判分",
+            "ocr",
+            "错题归集",
+            "错题本",
+            "教学周",
+            "周日24:00",
+            "周日24",
+            "补做期",
+            "历史周",
+            "提交全部",
+            "查看学习报告",
+        )
         p1_tokens = (
             "交互",
             "页面跳转",
@@ -828,7 +1028,9 @@ def stream_postprocess_cases(
                 ]
             ).lower()
             priority = _normalize_priority_value(str(updated.get("priority") or "P2"))
-            if any(token in text for tokens in _P0_GROUP_TOKENS.values() for token in tokens):
+            if any(token in text for tokens in _P0_GROUP_TOKENS.values() for token in tokens) or any(
+                token in text for token in p0_extra_tokens
+            ):
                 priority = "P0"
             elif any(token in text for token in p1_tokens):
                 priority = "P1"
@@ -916,7 +1118,14 @@ def stream_postprocess_cases(
         for case in cases:
             if not isinstance(case, dict):
                 continue
-            if _normalize_priority_value(str(case.get("priority") or "")) != "P0":
+            decision_state = str(case.get("priority_decision_state") or "").strip().lower()
+            decision_final = str(case.get("priority_final") or "").strip().upper()
+            if decision_state:
+                if decision_final != "P0":
+                    continue
+                if decision_state not in {"decided", "conflict_resolved", "overridden"}:
+                    continue
+            elif _normalize_priority_value(str(case.get("priority") or "")) != "P0":
                 continue
             text = " ".join(
                 [
@@ -982,6 +1191,15 @@ def stream_postprocess_cases(
             requirement_text=str(requirement_text or ""),
         )
         downgraded_cases = _enforce_uncertain_priority_floor(downgraded_cases)
+        if downgraded_cases:
+            priority_coverage = analyze_coverage(str(requirement_text or ""), downgraded_cases)
+            downgraded_cases = apply_priority_semantics_to_cases(
+                [item for item in downgraded_cases if isinstance(item, dict)],
+                attach_debug=False,
+                coverage_context=priority_coverage,
+                rule_diagnostics={"rule_diagnostics": priority_coverage.get("rule_diagnostics") or []},
+            )
+            downgraded_cases = _enforce_uncertain_priority_floor(downgraded_cases)
 
         required_groups = _required_p0_groups_from_requirement(str(requirement_text or ""))
         requirement_has_uncertain_signal = any(
@@ -990,8 +1208,14 @@ def stream_postprocess_cases(
         if required_groups and not requirement_has_uncertain_signal:
             covered_groups = _covered_p0_groups(downgraded_cases)
             if not covered_groups:
-                dropped += int(len(downgraded_cases))
-                return [], dropped
+                needs_priority_review = any(
+                    str(item.get("priority_decision_state") or "").strip().lower() in {"conflict", "undetermined", "invalid"}
+                    for item in downgraded_cases
+                    if isinstance(item, dict)
+                )
+                if not needs_priority_review:
+                    dropped += int(len(downgraded_cases))
+                    return [], dropped
 
         return downgraded_cases, dropped
 

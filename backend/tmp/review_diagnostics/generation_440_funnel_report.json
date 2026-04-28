@@ -1,0 +1,213 @@
+{
+  "generation_id": 440,
+  "project_id": 8,
+  "request_id": "3e1395464d0d49d48bc5fa9b900d2de8",
+  "diagnostic_source": "gen_diag",
+  "diagnostic_depth": "full",
+  "persisted_log_id": 12145,
+  "next_persisted_log_id": null,
+  "stage_counts": {},
+  "gen_diag": {
+    "kind": "gen_diag",
+    "mode": "text",
+    "doc_type": "requirement",
+    "compress": false,
+    "expected_count": 30,
+    "generated_count": 34,
+    "requirement_length": 27,
+    "kb_length": 133061,
+    "model": "qwen-plus",
+    "max_tokens": 10000,
+    "batch_index": 0,
+    "generation_mode": "multi_pass"
+  },
+  "generation_convergence": {
+    "kind": "generation_convergence",
+    "primary_count": 44,
+    "gap_count": 0,
+    "review_count": 44,
+    "candidate_count_before_review": 44,
+    "review_selected_count": 34,
+    "final_count": 34,
+    "expected_count": 30,
+    "empty_result_guard_triggered": false,
+    "empty_result_stage": "",
+    "request_id": "3e1395464d0d49d48bc5fa9b900d2de8",
+    "generation_id": 440,
+    "multi_pass": true,
+    "generation_mode": "multi_pass"
+  },
+  "review_decision_summary": {
+    "kind": "review_decision_summary",
+    "candidate_total": 44,
+    "retained_total": 34,
+    "dropped_total": 10,
+    "drop_by_review_llm_count": 0,
+    "drop_by_review_selector_count": 0,
+    "drop_by_review_gate_count": 0,
+    "drop_by_pre_gate_dedup_count": 0,
+    "drop_by_post_review_dedup_count": 0,
+    "drop_no_new_signal_count": 0,
+    "drop_rule_cap_count": 0,
+    "review_input_size": 44,
+    "review_output_size": 34,
+    "review_llm_filter_applied": false,
+    "review_decision_summary_available": false,
+    "review_skipped_reason": "review_postprocess_not_executed_in_generate_tests_json",
+    "reason_source_breakdown": {
+      "primary": 0,
+      "fallback": 0,
+      "backfill": 0
+    },
+    "priority_decision_state_breakdown": {
+      "decided": 27,
+      "conflict": 6,
+      "undetermined": 1,
+      "optional": 0,
+      "invalid": 0
+    },
+    "priority_final_breakdown": {
+      "P0": 1,
+      "P1": 17,
+      "P2": 9,
+      "null": 7
+    },
+    "legacy_priority_breakdown": {
+      "P0": 7,
+      "P1": 18,
+      "P2": 9,
+      "UNKNOWN": 0
+    },
+    "priority_conflict_count": 6,
+    "priority_undetermined_count": 1,
+    "priority_optional_count": 0,
+    "priority_invalid_count": 0,
+    "needs_priority_review": true,
+    "candidate_primary": 44,
+    "candidate_gap": 0,
+    "final_case_count": 34,
+    "empty_result_guard_triggered": false,
+    "empty_result_stage": "",
+    "request_id": "3e1395464d0d49d48bc5fa9b900d2de8",
+    "generation_id": 440,
+    "multi_pass": true,
+    "generation_mode": "multi_pass"
+  },
+  "judge_summary": {},
+  "generation_summary": {
+    "kind": "generation_summary",
+    "status": "completed",
+    "final_status": "success",
+    "final_count": 34,
+    "expected_count": 30,
+    "candidate_total": 44,
+    "review_input_size": 44,
+    "review_output_size": 34,
+    "needs_priority_review": true,
+    "review_decision_summary_available": false,
+    "review_skipped_reason": "review_postprocess_not_executed_in_generate_tests_json",
+    "empty_result_guard_triggered": false,
+    "empty_result_stage": "",
+    "request_id": "3e1395464d0d49d48bc5fa9b900d2de8",
+    "generation_id": 440,
+    "multi_pass": true,
+    "generation_mode": "multi_pass"
+  },
+  "review_detail_export_meta": {
+    "candidate_total": 44,
+    "exported_row_count": 0,
+    "is_truncated": true,
+    "truncation_reason": "no_detail_rows",
+    "source_summary_available": true,
+    "source_detail_available": false,
+    "detail_row_count_total": 0,
+    "detail_rows_scope": ""
+  },
+  "funnel": {
+    "candidate_total": 44,
+    "review_selected_count": 34,
+    "drop_by_review_llm_count": 0,
+    "drop_by_review_gate_count": 0,
+    "drop_by_pre_gate_dedup_count": 0,
+    "drop_by_post_review_dedup_count": 0,
+    "judge_rejected_or_pending_count": 0,
+    "post_review_non_judge_drop_count": 0,
+    "final_count": 34,
+    "judge_pass_out_count": 0,
+    "judge_repaired_pass_out_count": 0
+  },
+  "dropped_breakdown": {
+    "total": 10,
+    "exported_row_count": 0,
+    "is_truncated": true,
+    "truncation_reason": "no_detail_rows",
+    "source_summary_available": true,
+    "source_detail_available": false,
+    "by_stage": {},
+    "by_reason": {},
+    "by_priority_final": {},
+    "by_priority_decision_state": {},
+    "by_priority_legacy": {},
+    "by_priority": {},
+    "by_module_top10": [],
+    "dropped_case_ids": []
+  },
+  "judge_breakdown": {
+    "total": 11,
+    "rejected_or_pending_total": 11,
+    "by_status": {
+      "PENDING": 11
+    },
+    "by_reason": {
+      "contains_pending_logic": 11
+    },
+    "by_priority": {
+      "P2": 11
+    },
+    "by_priority_final": {
+      "P2": 11
+    },
+    "by_priority_decision_state": {
+      "optional": 11
+    },
+    "by_module_top10": [
+      [
+        "周末提升计划 - 第四步“学习完成啦”",
+        6
+      ],
+      [
+        "周末提升计划 - 在线学习",
+        1
+      ],
+      [
+        "周末提升计划 - 状态流转",
+        1
+      ],
+      [
+        "周末提升计划 - 打印功能（门店管理系统侧）",
+        1
+      ],
+      [
+        "周末提升计划 - 权限/鉴权异常",
+        1
+      ],
+      [
+        "周末提升计划 - 打印功能",
+        1
+      ]
+    ],
+    "rejected_or_pending_case_ids": [
+      "TC-003",
+      "TC-007",
+      "TC-008",
+      "TC-023",
+      "TC-026",
+      "TC-027",
+      "TC-035",
+      "TC-039",
+      "TC-040",
+      "TC-041",
+      "TC-044"
+    ]
+  }
+}

@@ -891,6 +891,35 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             coverage_context=review_candidate_coverage_context,
             rule_diagnostics=review_candidate_rule_diagnostics,
         )
+        model_priority_value = str(
+            case.get("model_priority_current")
+            or case.get("model_priority")
+            or ""
+        ).strip().upper()
+        legacy_priority_value = str(case.get("priority") or "").strip().upper()
+        priority_final_value = str(case.get("priority_final") or "").strip().upper()
+        priority_decision_state_value = str(case.get("priority_decision_state") or "").strip().lower()
+        priority_decision_source_value = str(case.get("priority_decision_source") or "").strip() or "insufficient_evidence"
+        priority_confidence_value = str(case.get("priority_confidence") or "").strip() or "low"
+        priority_conflict_reason_value = str(case.get("priority_conflict_reason") or "").strip()
+        priority_resolution_reason_value = str(case.get("priority_resolution_reason") or "").strip()
+        if priority_decision_state_value not in {"decided", "conflict", "undetermined", "optional", "invalid"}:
+            if priority_final_value in {"P0", "P1", "P2"}:
+                priority_decision_state_value = "decided"
+            else:
+                priority_decision_state_value = "undetermined"
+        if priority_final_value not in {"P0", "P1", "P2"}:
+            if priority_decision_state_value == "decided" and legacy_priority_value in {"P0", "P1", "P2"}:
+                priority_final_value = legacy_priority_value
+                if not priority_resolution_reason_value:
+                    priority_resolution_reason_value = "priority_final_backfilled_from_legacy_priority"
+            else:
+                priority_decision_state_value = "invalid"
+                if not priority_decision_source_value or priority_decision_source_value == "insufficient_evidence":
+                    priority_decision_source_value = "priority_final_missing_after_semantic_resolve"
+                if not priority_resolution_reason_value:
+                    priority_resolution_reason_value = "missing_priority_final_after_semantic_resolve"
+                priority_final_value = ""
         hit_must_cover_rule = bool(_hit_must_cover_rule(rule_keys, score_profile))
         violates_forbidden_pattern = bool(_violates_forbidden_pattern(case))
         hits_soft_constraint = bool(_hits_soft_constraint(case))
@@ -901,7 +930,23 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             "case_id": str(case.get("id") or ""),
             "description": str(case.get("description") or ""),
             "test_module": str(case.get("test_module") or ""),
-            "model_priority_current": str(case.get("priority") or ""),
+            "expected_result": str(case.get("expected_result") or ""),
+            "expected_result_quality": str(case.get("expected_result_quality") or ""),
+            "expected_result_quality_reason": str(case.get("expected_result_quality_reason") or ""),
+            "expected_result_alignment_warning": bool(case.get("expected_result_alignment_warning")),
+            "truncated_text_detected": bool(case.get("truncated_text_detected")),
+            "model_priority_current": model_priority_value,
+            "model_priority": model_priority_value,
+            "legacy_priority": legacy_priority_value,
+            "priority_final": priority_final_value,
+            "priority_decision_state": priority_decision_state_value,
+            "priority_decision_source": priority_decision_source_value,
+            "priority_confidence": priority_confidence_value,
+            "priority_conflict_reason": priority_conflict_reason_value,
+            "priority_resolution_reason": priority_resolution_reason_value,
+            "priority_score": int(score_profile.get("priority_score") or 0),
+            "suggested_priority": str(score_profile.get("suggested_priority") or "").strip().upper(),
+            "priority_reasons": [str(item) for item in (score_profile.get("reasons") or []) if str(item).strip()],
             "selected_by_review_llm": bool(selected_by_review_llm),
             "selected_by_review_must_keep": bool(selected_by_review_must_keep),
             "selected_by_review_constraints": bool(selected_by_review_constraints),
@@ -946,6 +991,44 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         review_decision_table.append(row)
 
     dropped_rows = [row for row in review_decision_table if not bool(row.get("retained_final"))]
+    priority_decision_state_breakdown: dict[str, int] = {
+        "decided": 0,
+        "conflict": 0,
+        "undetermined": 0,
+        "optional": 0,
+        "invalid": 0,
+    }
+    priority_final_breakdown: dict[str, int] = {"P0": 0, "P1": 0, "P2": 0, "null": 0}
+    legacy_priority_breakdown: dict[str, int] = {"P0": 0, "P1": 0, "P2": 0, "UNKNOWN": 0}
+    for row in review_decision_table:
+        decision_state_key = str(row.get("priority_decision_state") or "").strip().lower()
+        if decision_state_key not in priority_decision_state_breakdown:
+            decision_state_key = "undetermined"
+        priority_decision_state_breakdown[decision_state_key] = int(
+            priority_decision_state_breakdown.get(decision_state_key, 0)
+        ) + 1
+
+        final_priority_key = str(row.get("priority_final") or "").strip().upper()
+        if final_priority_key not in {"P0", "P1", "P2"}:
+            final_priority_key = "null"
+        priority_final_breakdown[final_priority_key] = int(priority_final_breakdown.get(final_priority_key, 0)) + 1
+
+        legacy_priority_key = str(row.get("legacy_priority") or "").strip().upper()
+        if legacy_priority_key not in {"P0", "P1", "P2"}:
+            legacy_priority_key = "UNKNOWN"
+        legacy_priority_breakdown[legacy_priority_key] = int(
+            legacy_priority_breakdown.get(legacy_priority_key, 0)
+        ) + 1
+
+    priority_conflict_count = int(priority_decision_state_breakdown.get("conflict", 0))
+    priority_undetermined_count = int(priority_decision_state_breakdown.get("undetermined", 0))
+    priority_optional_count = int(priority_decision_state_breakdown.get("optional", 0))
+    priority_invalid_count = int(priority_decision_state_breakdown.get("invalid", 0))
+    needs_priority_review = bool(
+        priority_conflict_count > 0
+        or priority_undetermined_count > 0
+        or priority_invalid_count > 0
+    )
     review_llm_drop_reason_counts: dict[str, int] = {}
     review_llm_drop_reason_raw_counts: dict[str, int] = {}
     review_llm_drop_reason_source_counts: dict[str, int] = {}
@@ -1008,6 +1091,15 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         "candidate_total": int(len(review_decision_table)),
         "retained_total": int(sum(1 for row in review_decision_table if bool(row.get("retained_final")))),
         "dropped_total": int(len(dropped_rows)),
+        "priority_decision_state_breakdown": dict(priority_decision_state_breakdown),
+        "priority_final_breakdown": dict(priority_final_breakdown),
+        "legacy_priority_breakdown": dict(legacy_priority_breakdown),
+        "priority_conflict_count": int(priority_conflict_count),
+        "priority_undetermined_count": int(priority_undetermined_count),
+        "priority_optional_count": int(priority_optional_count),
+        "priority_invalid_count": int(priority_invalid_count),
+        "priority_quality_gate_failed": bool(priority_invalid_count > 0),
+        "needs_priority_review": bool(needs_priority_review),
         "review_llm_filter_applied": bool(review_llm_applied),
         "review_input_size": int(len([item for item in review_selection_input if isinstance(item, dict)])),
         "review_output_size": int(review_selected_count or 0),

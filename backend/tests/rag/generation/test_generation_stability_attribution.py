@@ -6,8 +6,10 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 
 from scripts.qa.diagnostics.analyze_generation_stability import (  # noqa: E402
+    _build_priority_decision_metrics,
     _build_deterministic_backfill_attribution,
     _build_diff,
+    _build_run_snapshot,
 )
 
 
@@ -105,3 +107,56 @@ def test_build_diff_marks_generation_and_review_variance_sources() -> None:
     assert "review_runtime_variance" in variance
     assert "review_payload_validity_variance" in variance
     assert "reason_coverage_variance" in variance
+
+
+def test_build_priority_decision_metrics_falls_back_to_table_rows() -> None:
+    summary = {}
+    table = {
+        "rows": [
+            {"priority_decision_state": "conflict", "priority_final": "", "legacy_priority": "P1"},
+            {"priority_decision_state": "decided", "priority_final": "P0", "legacy_priority": "P0"},
+            {"priority_decision_state": "undetermined", "priority_final": None, "legacy_priority": ""},
+        ]
+    }
+    metrics = _build_priority_decision_metrics(
+        review_summary=summary,
+        review_table_payload=table,
+    )
+    assert metrics["priority_decision_state_breakdown"]["conflict"] == 1
+    assert metrics["priority_decision_state_breakdown"]["undetermined"] == 1
+    assert metrics["priority_final_breakdown"]["P0"] == 1
+    assert metrics["priority_final_breakdown"]["null"] == 2
+    assert metrics["legacy_priority_breakdown"]["P1"] == 1
+    assert metrics["priority_conflict_count"] == 1
+    assert metrics["priority_undetermined_count"] == 1
+    assert metrics["needs_priority_review"] is True
+
+
+def test_build_run_snapshot_falls_back_to_generated_result_when_context_missing(monkeypatch) -> None:
+    class _Row:
+        project_id = 99
+
+    monkeypatch.setattr(
+        "scripts.qa.diagnostics.analyze_generation_stability._find_context",
+        lambda generation_id: None,
+    )
+    monkeypatch.setattr(
+        "scripts.qa.diagnostics.analyze_generation_stability._load_generation_row_payload",
+        lambda generation_id: (
+            _Row(),
+            [
+                {
+                    "id": "TC-001",
+                    "priority": "P1",
+                    "priority_final": None,
+                    "priority_decision_state": "undetermined",
+                }
+            ],
+        ),
+    )
+
+    snapshot = _build_run_snapshot(1234)
+    assert snapshot["diagnostic_source"] == "generated_result_fallback"
+    assert snapshot["diagnostic_depth"] == "limited"
+    assert snapshot["candidate_by_stage"]["before_review"] == 1
+    assert snapshot["priority_undetermined_count"] == 1

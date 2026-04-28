@@ -85,7 +85,7 @@ def normalize_json_structure(data: Any) -> Any:
             pick(["expected_result", "expected", "expectedResult", "预期结果", "期望结果", "断言"], "")
             or ""
         ).strip()
-        priority = str(pick(["priority", "Priority", "prio", "优先级", "级别"], "P1") or "P1").strip()
+        priority = str(pick(["priority", "Priority", "prio", "优先级", "级别"], "") or "").strip()
 
         p = priority.upper()
         if p not in ["P0", "P1", "P2"]:
@@ -96,7 +96,7 @@ def normalize_json_structure(data: Any) -> Any:
             elif p in ["低", "LOW"]:
                 p = "P2"
             else:
-                p = "P1"
+                p = ""
 
         normalized.append(
             {

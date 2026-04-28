@@ -7,6 +7,7 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from modules.test_generation_components.postprocess.result_postprocess import (
     apply_priority_semantics_to_case,
     apply_priority_semantics_to_cases,
+    resolve_case_priority_decision,
     resolve_case_priority,
     score_case_priority,
 )
@@ -415,6 +416,145 @@ def test_resolve_case_priority_keeps_p2_for_core_workflow_mid_score_structural_c
         "case_level_hard_guard": False,
     }
     assert resolve_case_priority("P2", score_result, case) == "P2"
+
+
+def test_resolve_case_priority_decision_marks_conflict_for_model_p0_vs_semantic_p2() -> None:
+    case = {
+        "description": "release blocking wording exists but semantic suggestion is low",
+        "test_module": "module-conflict",
+        "steps": ["submit"],
+        "expected_result": "state stays usable",
+        "priority": "P0",
+    }
+    score_result = {
+        "priority_score": 80,
+        "suggested_priority": "P2",
+        "guards": {
+            "main_workflow_blocking": True,
+            "workflow_blocking": True,
+            "severe_data_risk": False,
+            "severe_security_risk": False,
+            "case_level_release_blocking": True,
+        },
+        "reasons": ["main_workflow_hit"],
+        "p2_cap": False,
+        "coverage_value_exempt": False,
+        "missing_rule_hits": [],
+        "core_rule_hits": [],
+        "unique_coverage_hits": [],
+        "coverage_gain_score": 0,
+        "low_risk_only_covered": False,
+        "structural_p2_signals": False,
+        "case_level_hard_guard": True,
+    }
+    decision = resolve_case_priority_decision("P0", score_result, case)
+    assert decision.get("priority_final") == "P0"
+    assert decision.get("priority_decision_state") == "conflict_resolved"
+    assert decision.get("priority_decision_source") == "conflict_resolved_by_high_risk_business_rule"
+
+
+def test_resolve_case_priority_decision_marks_undetermined_for_model_p1_without_positive_evidence() -> None:
+    case = {
+        "description": "普通展示校验",
+        "test_module": "ui-page",
+        "steps": ["open page"],
+        "expected_result": "display ok",
+        "priority": "P1",
+    }
+    score_result = {
+        "priority_score": 20,
+        "suggested_priority": "P2",
+        "guards": {
+            "main_workflow_blocking": False,
+            "workflow_blocking": False,
+            "severe_data_risk": False,
+            "severe_security_risk": False,
+            "case_level_release_blocking": False,
+        },
+        "reasons": ["no_release_blocking_guard"],
+        "p2_cap": False,
+        "coverage_value_exempt": False,
+        "missing_rule_hits": [],
+        "core_rule_hits": [],
+        "unique_coverage_hits": [],
+        "coverage_gain_score": 0,
+        "low_risk_only_covered": False,
+        "structural_p2_signals": False,
+        "case_level_hard_guard": False,
+    }
+    decision = resolve_case_priority_decision("P1", score_result, case)
+    assert decision.get("priority_final") == "P2"
+    assert decision.get("priority_decision_state") == "conflict_resolved"
+    assert decision.get("priority_decision_source") == "conflict_resolved_by_non_blocking_experience_rule"
+
+
+def test_resolve_case_priority_decision_marks_optional_when_requirement_is_uncertain() -> None:
+    case = {
+        "description": "能力模型评分需教研确认，本期可以不做",
+        "test_module": "学习报告",
+        "steps": ["open report"],
+        "expected_result": "score shown",
+        "priority": "P1",
+    }
+    score_result = {
+        "priority_score": 70,
+        "suggested_priority": "P0",
+        "guards": {
+            "main_workflow_blocking": False,
+            "workflow_blocking": False,
+            "severe_data_risk": False,
+            "severe_security_risk": False,
+            "case_level_release_blocking": False,
+        },
+        "reasons": ["main_workflow_hit"],
+        "p2_cap": False,
+        "coverage_value_exempt": False,
+        "missing_rule_hits": [],
+        "core_rule_hits": [],
+        "unique_coverage_hits": [],
+        "coverage_gain_score": 0,
+        "low_risk_only_covered": False,
+        "structural_p2_signals": False,
+        "case_level_hard_guard": False,
+    }
+    decision = resolve_case_priority_decision("P1", score_result, case)
+    assert decision.get("priority_final") == "P2"
+    assert decision.get("priority_decision_state") == "optional"
+    assert decision.get("priority_decision_source") == "uncertain_requirement_guard"
+
+
+def test_resolve_case_priority_decision_keeps_permission_isolation_case_out_of_p2() -> None:
+    case = {
+        "description": "验证未授权用户越权访问他人数据会被权限拦截",
+        "test_module": "权限与数据隔离",
+        "steps": ["open direct url", "observe forbidden response"],
+        "expected_result": "permission denied and data isolation holds",
+        "priority": "P0",
+    }
+    score_result = {
+        "priority_score": 25,
+        "suggested_priority": "P2",
+        "guards": {
+            "main_workflow_blocking": False,
+            "workflow_blocking": False,
+            "severe_data_risk": True,
+            "severe_security_risk": True,
+            "case_level_release_blocking": True,
+        },
+        "reasons": ["security_or_data_critical_rule_hit"],
+        "p2_cap": False,
+        "coverage_value_exempt": True,
+        "missing_rule_hits": [],
+        "core_rule_hits": [],
+        "unique_coverage_hits": [],
+        "coverage_gain_score": 2,
+        "low_risk_only_covered": False,
+        "structural_p2_signals": False,
+        "case_level_hard_guard": True,
+    }
+    decision = resolve_case_priority_decision("P0", score_result, case)
+    assert decision.get("priority_final") in {"P0", "P1"}
+    assert decision.get("priority_final") != "P2"
 
 
 def test_score_case_priority_skips_no_info_penalty_without_case_rule_hits() -> None:

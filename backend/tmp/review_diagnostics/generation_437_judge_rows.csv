@@ -1,0 +1,17 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,首页 / 教材年级切换,P1,P1,P1,,undetermined,insufficient_evidence,low,,切换教材/年级后页面数据立即刷新且不同组合进度独立,PASS,-,False,False,False
+TC-002,首页 / 教学周切换,P1,P1,P1,,undetermined,insufficient_evidence,low,,教学周自动定位与切换：页面首次加载定位到当前教学周，顶部箭头可切换前/后周,PASS,-,False,False,False
+TC-003,首页 / 教材年级选择,P1,P1,P1,,undetermined,insufficient_evidence,low,,首次使用教材年级选择：新用户强制选择教材版本+年级并保存为默认值,PASS,-,False,False,False
+TC-004,周中练习 / 核心流程,P1,P1,P1,,undetermined,insufficient_evidence,low,,周中练习完整流程：从待完成到提交判分完成，状态更新且错题记录,PASS,-,False,False,False
+TC-005,知识点掌握情况 / 实时更新,P1,P1,P1,,undetermined,insufficient_evidence,low,,知识点掌握度动态更新：新答题结果实时影响掌握度计算,PASS,-,False,False,False
+TC-006,异常处理 / 网络中断,P1,P1,P1,,undetermined,insufficient_evidence,low,,网络异常处理：学习过程中断网时保留已加载数据，支持重试,PASS,-,False,False,False
+TC-007,周一习题本 / 重新学习覆盖,P2,P2,P2,,undetermined,insufficient_evidence,low,,周一习题本数据覆盖：重新学习后数据更新,PASS,-,False,False,False
+TC-008,周末提升 / 任务生成,P1,P1,P1,,undetermined,insufficient_evidence,low,,周末提升任务生成：首次查看周末界面时根据本周错题本生成任务,PASS,-,False,False,False
+TC-009,周末提升 / 补做范围,P1,P1,P1,,undetermined,insufficient_evidence,low,,历史周补做权限：上周可补做，上上周仅可查看不可操作,PASS,-,False,False,False
+TC-010,教学周切换 / 自动归档,P1,P1,P1,,undetermined,insufficient_evidence,low,,周期切换归档：下周一00:00自动切换到新一周，上周数据可查看,PASS,-,False,False,False
+TC-011,督导端 / 状态隔离,P1,P1,P1,,undetermined,insufficient_evidence,low,,督导端完成判卷按钮不改变系统任务状态,PASS,-,False,False,False
+TC-012,首页 / 付费拦截,P1,P1,P1,,undetermined,insufficient_evidence,low,,付费状态在会话中从未付费变为已付费后，无需刷新页面即可正常进入学习,PASS,-,False,False,False
+TC-013,学习报告页 / 生成与覆盖,P1,P1,P1,,undetermined,insufficient_evidence,low,,学习报告生成：基于全量数据AI生成报告，补做后全量覆盖,PASS,-,False,False,False
+TC-014,薄弱点定位页 / 核心逻辑,P1,P1,P1,,undetermined,insufficient_evidence,low,,AI薄弱点定位：数据按掌握度排序且可点击跳转错题本,PASS,-,False,False,False
+TC-015,随堂测评 / 完整流程,P1,P1,P1,,undetermined,insufficient_evidence,low,,随堂测评线下作答流程：打印题目、拍照上传后AI判分并更新知识点,PASS,-,False,False,False
+TC-016,在线学习页 / 断点续播,P1,P1,P1,,undetermined,insufficient_evidence,low,,在线学习断点续播：中途退出后再次进入时从上次进度继续,PASS,-,False,False,False

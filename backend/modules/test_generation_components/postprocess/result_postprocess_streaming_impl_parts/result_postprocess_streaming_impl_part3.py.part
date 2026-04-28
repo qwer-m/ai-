@@ -55,6 +55,14 @@
         quality_assessment = "medium"
     else:
         quality_assessment = "low"
+    priority_conflict_count = int(review_decision_summary.get("priority_conflict_count") or 0)
+    priority_undetermined_count = int(review_decision_summary.get("priority_undetermined_count") or 0)
+    priority_optional_count = int(review_decision_summary.get("priority_optional_count") or 0)
+    needs_priority_review = bool(
+        review_decision_summary.get("needs_priority_review")
+        or priority_conflict_count > 0
+        or priority_undetermined_count > 0
+    )
 
     generation_summary = {
         "recommended_range": "30-50",
@@ -62,6 +70,10 @@
         "status": "completed_with_optimal_set" if converged else "completed_with_quality_stop",
         "stop_reason": summary_stop_reason,
         "quality_assessment": quality_assessment,
+        "needs_priority_review": bool(needs_priority_review),
+        "priority_conflict_count": int(priority_conflict_count),
+        "priority_undetermined_count": int(priority_undetermined_count),
+        "priority_optional_count": int(priority_optional_count),
     }
 
     convergence_debug = {
@@ -81,6 +93,10 @@
         "missing_rules_count": int(len(missing_rules_final)),
         "missing_types_exists": bool(missing_types_final),
         "low_quality_dropped_count": int(low_quality_dropped_total or 0),
+        "needs_priority_review": bool(needs_priority_review),
+        "priority_conflict_count": int(priority_conflict_count),
+        "priority_undetermined_count": int(priority_undetermined_count),
+        "priority_optional_count": int(priority_optional_count),
         "reasons": reasons,
     }
     return {
