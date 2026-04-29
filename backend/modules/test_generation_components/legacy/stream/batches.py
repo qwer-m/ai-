@@ -271,11 +271,24 @@ class LegacyGenerationStreamBatchesMixin:
                 - Verify the visual appearance matches the description/image.
                 - Do NOT skip visual details just because they are not "functional actions".
 
-                BATCH GENERATION INSTRUCTION (workflow-first):
+                BATCH GENERATION INSTRUCTION (quality-first):
                 This is batch {batch_index + 1} of {total_batches}.
                 Start the Test Case IDs from {int(current_id) + int(generated_in_batch)} (e.g., TC-{(int(current_id) + int(generated_in_batch)):03d}).
-                Target this batch size: about {need} cases.
-                Keep closed-loop continuity in current module first; do not jump modules just to match count.
+                Reference count: about {need} cases. This is NOT a quota.
+                Generate fewer cases if additional cases would be:
+                - duplicate of existing validation goals
+                - weakly grounded in requirement evidence
+                - non-assertable
+                - only generic UI/database/permission checks
+                - not adding new module, flow, rule, or scenario coverage
+
+                Every case must pass these gates:
+                1. It targets a specific business rule or workflow step.
+                2. Its expected_result is concrete and verifiable.
+                3. It adds new coverage compared with existing cases.
+                4. Keep closed-loop continuity in current module first; do not jump modules only to match count.
+
+                If no meaningful incremental cases remain, return [].
 
                 Return ONLY the JSON array.
                 """

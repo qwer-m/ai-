@@ -27,6 +27,9 @@ def test_business_isolation_rule_contains_current_biz_key() -> None:
     assert "Coverage != P0" in prompt
     assert "Requirement Semantics - CONFIRMED vs PENDING" in prompt
     assert "Pending / Open Questions are NOT confirmed behavior" in prompt
+    assert "EXPECTED_RESULT ASSERTABILITY (MANDATORY)" in prompt
+    assert "正常展示" in prompt
+    assert "do NOT generate that case" in prompt
 
 
 def test_gap_fill_prompt_consumes_coverage_result() -> None:

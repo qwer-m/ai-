@@ -114,6 +114,8 @@
         final_case_count = 0
         empty_result_guard_triggered = False
         empty_result_stage = ""
+        core_flow_backfill_apply_summary_payload: dict[str, Any] = {}
+        core_flow_backfill_generation_result: dict[str, Any] = {}
 
         system_prompt = f"""
 {base_prompt}

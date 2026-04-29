@@ -88,6 +88,16 @@ class Config:
         SECRET_KEY = "dev-secret-key-change-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days
 
+    # ===========================
+    # Core flow backfill flags
+    # ===========================
+    CORE_FLOW_BACKFILL_ENABLED = _env_flag("CORE_FLOW_BACKFILL_ENABLED", False)
+    CORE_FLOW_BACKFILL_APPLY_TO_FINAL = _env_flag("CORE_FLOW_BACKFILL_APPLY_TO_FINAL", False)
+    CORE_FLOW_BACKFILL_MAX_CANDIDATES = int(os.getenv("CORE_FLOW_BACKFILL_MAX_CANDIDATES", "12"))
+    CORE_FLOW_BACKFILL_MIN_FINAL_CASES = int(os.getenv("CORE_FLOW_BACKFILL_MIN_FINAL_CASES", "12"))
+    CORE_FLOW_BACKFILL_MAX_FINAL_CASES = int(os.getenv("CORE_FLOW_BACKFILL_MAX_FINAL_CASES", "18"))
+    CORE_FLOW_BACKFILL_MIN_COVERAGE_RATIO = float(os.getenv("CORE_FLOW_BACKFILL_MIN_COVERAGE_RATIO", "0.8"))
+
 
 # 创建配置实例
 settings = Config()

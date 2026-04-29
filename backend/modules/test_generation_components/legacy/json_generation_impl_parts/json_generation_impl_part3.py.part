@@ -118,82 +118,230 @@
                     )
                     db.commit()
 
-                priority_final_invalid_case_ids: list[str] = []
-                priority_final_null_count = 0
-                non_assertable_case_ids: list[str] = []
-                truncated_case_ids: list[str] = []
-                non_assertable_expected_result_count = 0
-                truncated_text_count = 0
-                non_assertable_phrases = (
-                    "对应状态变化",
-                    "关键结果可核对",
-                    "对应内容",
-                    "匹配的结果",
-                    "结果内容可校验",
-                    "正常展示",
-                    "正常跳转",
-                    "正常更新",
-                    "符合预期",
+                from core.settings.config import settings
+                from modules.test_generation_components.coverage.core_flow_coverage_contract import (
+                    audit_core_flow_coverage,
                 )
-                truncated_endings = (
-                    "或显",
-                    "对应内",
-                    "可校",
-                    "正常展",
-                    "跳转至",
-                    "显示为",
+                from modules.test_generation_components.coverage.core_flow_backfill import (
+                    plan_core_flow_backfill,
                 )
+                from modules.test_generation_components.coverage.core_flow_backfill_generation import (
+                    generate_core_flow_backfill_candidates,
+                    summarize_case_quality_gate,
+                )
+
                 if isinstance(result, list):
-                    for index, case_item in enumerate(result, start=1):
-                        if not isinstance(case_item, dict):
-                            continue
-                        case_id = str(case_item.get("id") or case_item.get("case_id") or "").strip()
-                        if not case_id:
-                            case_id = f"ROW-{int(index):03d}"
+                    backfill_enabled = bool(getattr(settings, "CORE_FLOW_BACKFILL_ENABLED", False))
+                    backfill_apply_to_final = bool(getattr(settings, "CORE_FLOW_BACKFILL_APPLY_TO_FINAL", False))
+                    backfill_max_candidates = int(getattr(settings, "CORE_FLOW_BACKFILL_MAX_CANDIDATES", 12) or 12)
+                    backfill_min_final_cases = int(getattr(settings, "CORE_FLOW_BACKFILL_MIN_FINAL_CASES", 12) or 12)
+                    backfill_max_final_cases = int(getattr(settings, "CORE_FLOW_BACKFILL_MAX_FINAL_CASES", 18) or 18)
+                    backfill_min_coverage_ratio = float(getattr(settings, "CORE_FLOW_BACKFILL_MIN_COVERAGE_RATIO", 0.8) or 0.8)
+                    backfill_applied = False
+                    apply_skip_reason = ""
+                    final_quality_gate_passed = True
+                    primary_case_count_before_backfill = int(len([x for x in result if isinstance(x, dict)]))
+                    core_flow_coverage_before_apply = audit_core_flow_coverage([x for x in result if isinstance(x, dict)])
+                    core_flow_coverage_after_apply = dict(core_flow_coverage_before_apply)
+                    core_flow_still_missing_after_apply = list(core_flow_coverage_before_apply.get("missing_core_flows") or [])
+                    merged_quality_gate = {
+                        "passed": True,
+                        "failed_checks": [],
+                        "priority_final_null_count": 0,
+                        "invalid_priority_final_count": 0,
+                        "invalid_priority_final_case_ids": [],
+                        "non_assertable_expected_result_count": 0,
+                        "truncated_text_count": 0,
+                        "non_assertable_case_ids": [],
+                        "truncated_case_ids": [],
+                    }
+                    merged_coverage_ratio = float(core_flow_coverage_after_apply.get("core_flow_coverage_ratio") or 0.0)
 
-                        priority_final_value = str(case_item.get("priority_final") or "").strip().upper()
-                        if priority_final_value not in {"P0", "P1", "P2"}:
-                            priority_final_null_count += 1
-                            priority_final_invalid_case_ids.append(case_id)
-
-                        expected_result_text = str(case_item.get("expected_result") or "").strip()
-                        expected_result_quality = str(case_item.get("expected_result_quality") or "").strip().lower()
-                        quality_reason = str(case_item.get("expected_result_quality_reason") or "").strip().lower()
-                        truncated_flag = bool(case_item.get("truncated_text_detected"))
-
-                        phrase_hit = any(phrase in expected_result_text for phrase in non_assertable_phrases)
-                        non_assertable_hit = bool(
-                            expected_result_quality == "non_assertable"
-                            or quality_reason in {"no_concrete_assertion", "template_or_weak_assertion"}
-                            or phrase_hit
+                    if not backfill_enabled:
+                        apply_skip_reason = "backfill_feature_disabled"
+                    else:
+                        backfill_plan = plan_core_flow_backfill(
+                            requirement_context=requirement,
+                            existing_cases=[x for x in result if isinstance(x, dict)],
+                            coverage_audit=core_flow_coverage_before_apply,
+                            max_backfill_cases=backfill_max_candidates,
                         )
-                        if non_assertable_hit:
-                            non_assertable_expected_result_count += 1
-                            non_assertable_case_ids.append(case_id)
-
-                        expected_result_trimmed = expected_result_text.rstrip("。！？.!? ")
-                        truncated_suffix_hit = any(
-                            expected_result_trimmed.endswith(suffix)
-                            for suffix in truncated_endings
+                        backfill_plan["project_id"] = int(project_id)
+                        backfill_plan["user_id"] = int(user_id or 0)
+                        backfill_plan["request_id"] = request_id
+                        backfill_plan["generation_mode"] = normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass")
+                        core_flow_backfill_generation_result = generate_core_flow_backfill_candidates(
+                            requirement_context=requirement,
+                            existing_cases=[x for x in result if isinstance(x, dict)],
+                            backfill_plan=backfill_plan,
+                            db=db,
+                            llm_client=client,
+                            max_candidates=backfill_max_candidates,
+                            preview_min_total=backfill_min_final_cases,
+                            preview_max_total=backfill_max_final_cases,
                         )
-                        truncated_hit = bool(
-                            expected_result_quality == "truncated"
-                            or truncated_flag
-                            or truncated_suffix_hit
-                        )
-                        if truncated_hit:
-                            truncated_text_count += 1
-                            truncated_case_ids.append(case_id)
+                        merged_preview_cases = [
+                            x for x in (core_flow_backfill_generation_result.get("merged_preview_cases") or []) if isinstance(x, dict)
+                        ]
+                        merged_quality_gate = summarize_case_quality_gate(merged_preview_cases)
+                        core_flow_coverage_after_apply = audit_core_flow_coverage(merged_preview_cases)
+                        core_flow_still_missing_after_apply = list(core_flow_coverage_after_apply.get("missing_core_flows") or [])
+                        merged_coverage_ratio = float(core_flow_coverage_after_apply.get("core_flow_coverage_ratio") or 0.0)
 
-                failed_checks: list[str] = []
-                if priority_final_null_count > 0:
-                    failed_checks.append(f"priority_final_null_count={int(priority_final_null_count)}")
-                if non_assertable_expected_result_count > 0:
-                    failed_checks.append(
-                        f"non_assertable_expected_result_count={int(non_assertable_expected_result_count)}"
+                        if not backfill_apply_to_final:
+                            apply_skip_reason = "apply_to_final_disabled_shadow_only"
+                        elif not merged_preview_cases:
+                            final_quality_gate_passed = False
+                            apply_skip_reason = "merged_preview_empty"
+                        elif len(merged_preview_cases) < backfill_min_final_cases or len(merged_preview_cases) > backfill_max_final_cases:
+                            final_quality_gate_passed = False
+                            apply_skip_reason = "merged_preview_case_count_out_of_range"
+                        elif not bool(merged_quality_gate.get("passed")):
+                            final_quality_gate_passed = False
+                            apply_skip_reason = "merged_result_quality_gate_failed"
+                        elif merged_coverage_ratio < backfill_min_coverage_ratio:
+                            final_quality_gate_passed = False
+                            apply_skip_reason = "merged_result_coverage_below_threshold"
+                        else:
+                            result = merged_preview_cases
+                            final_cases_after_judge = [x for x in result if isinstance(x, dict)]
+                            final_case_count = int(len(final_cases_after_judge))
+                            backfill_applied = True
+                            apply_skip_reason = ""
+
+                        if backfill_apply_to_final and not final_quality_gate_passed:
+                            core_flow_backfill_apply_summary_payload = {
+                                "kind": "core_flow_backfill_apply_summary",
+                                "request_id": request_id,
+                                "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                                "backfill_enabled": bool(backfill_enabled),
+                                "backfill_apply_to_final": bool(backfill_apply_to_final),
+                                "backfill_applied": bool(backfill_applied),
+                                "primary_case_count": int(primary_case_count_before_backfill),
+                                "final_case_count": int(len([x for x in result if isinstance(x, dict)])) if isinstance(result, list) else 0,
+                                "generated_backfill_candidate_count": int(len(core_flow_backfill_generation_result.get("generated_backfill_candidate_cases") or [])),
+                                "accepted_backfill_candidate_count": int(len(core_flow_backfill_generation_result.get("accepted_backfill_cases") or [])),
+                                "rejected_backfill_candidate_count": int(len(core_flow_backfill_generation_result.get("rejected_backfill_cases") or [])),
+                                "accepted_for_preview_count": int(core_flow_backfill_generation_result.get("accepted_for_preview_count") or 0),
+                                "primary_retained_count": int(core_flow_backfill_generation_result.get("primary_retained_count") or 0),
+                                "primary_trimmed_count": int(core_flow_backfill_generation_result.get("primary_trimmed_count") or 0),
+                                "backfill_retained_count": int(core_flow_backfill_generation_result.get("backfill_retained_count") or 0),
+                                "backfill_trimmed_count": int(core_flow_backfill_generation_result.get("backfill_trimmed_count") or 0),
+                                "coverage_before": {
+                                    "covered_count": int(core_flow_coverage_before_apply.get("core_flow_covered_count") or 0),
+                                    "required_count": int(core_flow_coverage_before_apply.get("core_flow_required_count") or 0),
+                                    "coverage_ratio": float(core_flow_coverage_before_apply.get("core_flow_coverage_ratio") or 0.0),
+                                },
+                                "coverage_after": {
+                                    "covered_count": int(core_flow_coverage_after_apply.get("core_flow_covered_count") or 0),
+                                    "required_count": int(core_flow_coverage_after_apply.get("core_flow_required_count") or 0),
+                                    "coverage_ratio": float(core_flow_coverage_after_apply.get("core_flow_coverage_ratio") or 0.0),
+                                },
+                                "still_missing_core_flows": list(core_flow_still_missing_after_apply),
+                                "final_quality_gate_passed": bool(final_quality_gate_passed),
+                                "apply_skip_reason": str(apply_skip_reason or ""),
+                            }
+                            db.add(
+                                LogEntry(
+                                    project_id=project_id,
+                                    user_id=user_id,
+                                    log_type="system",
+                                    message=f"GEN_DIAG:{json.dumps(core_flow_backfill_apply_summary_payload, ensure_ascii=False)}",
+                                )
+                            )
+                            quality_gate_payload = {
+                                "kind": "generation_quality_gate",
+                                "request_id": request_id,
+                                "multi_pass": bool(multi_pass),
+                                "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                                "error_code": "LOW_QUALITY_GENERATED_CASES",
+                                "final_status": "quality_gate_failed",
+                                "quality_gate_failed": True,
+                                **{k: v for k, v in merged_quality_gate.items() if k != "passed"},
+                                "apply_skip_reason": apply_skip_reason,
+                                "core_flow_coverage_ratio": float(core_flow_coverage_after_apply.get("core_flow_coverage_ratio") or 0.0),
+                                "core_flow_min_required_ratio": float(backfill_min_coverage_ratio),
+                            }
+                            db.add(
+                                LogEntry(
+                                    project_id=project_id,
+                                    user_id=user_id,
+                                    log_type="system",
+                                    message=f"GEN_DIAG:{json.dumps(quality_gate_payload, ensure_ascii=False)}",
+                                )
+                            )
+                            db.commit()
+                            return {
+                                "error": "LOW_QUALITY_GENERATED_CASES",
+                                "error_code": "LOW_QUALITY_GENERATED_CASES",
+                                "error_message": "merged backfill result failed quality gate or coverage threshold",
+                                "final_status": "quality_gate_failed",
+                                "quality_gate_failed": True,
+                                **{k: v for k, v in merged_quality_gate.items() if k != "passed"},
+                                "apply_skip_reason": apply_skip_reason,
+                                "core_flow_coverage_ratio": float(core_flow_coverage_after_apply.get("core_flow_coverage_ratio") or 0.0),
+                                "core_flow_min_required_ratio": float(backfill_min_coverage_ratio),
+                            }
+
+                    core_flow_backfill_apply_summary_payload = {
+                        "kind": "core_flow_backfill_apply_summary",
+                        "request_id": request_id,
+                        "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                        "backfill_enabled": bool(backfill_enabled),
+                        "backfill_apply_to_final": bool(backfill_apply_to_final),
+                        "backfill_applied": bool(backfill_applied),
+                        "primary_case_count": int(primary_case_count_before_backfill),
+                        "final_case_count": int(len([x for x in result if isinstance(x, dict)])) if isinstance(result, list) else 0,
+                        "generated_backfill_candidate_count": int(len(core_flow_backfill_generation_result.get("generated_backfill_candidate_cases") or [])),
+                        "accepted_backfill_candidate_count": int(len(core_flow_backfill_generation_result.get("accepted_backfill_cases") or [])),
+                        "rejected_backfill_candidate_count": int(len(core_flow_backfill_generation_result.get("rejected_backfill_cases") or [])),
+                        "accepted_for_preview_count": int(core_flow_backfill_generation_result.get("accepted_for_preview_count") or 0),
+                        "primary_retained_count": int(core_flow_backfill_generation_result.get("primary_retained_count") or 0),
+                        "primary_trimmed_count": int(core_flow_backfill_generation_result.get("primary_trimmed_count") or 0),
+                        "backfill_retained_count": int(core_flow_backfill_generation_result.get("backfill_retained_count") or 0),
+                        "backfill_trimmed_count": int(core_flow_backfill_generation_result.get("backfill_trimmed_count") or 0),
+                        "coverage_before": {
+                            "covered_count": int(core_flow_coverage_before_apply.get("core_flow_covered_count") or 0),
+                            "required_count": int(core_flow_coverage_before_apply.get("core_flow_required_count") or 0),
+                            "coverage_ratio": float(core_flow_coverage_before_apply.get("core_flow_coverage_ratio") or 0.0),
+                        },
+                        "coverage_after": {
+                            "covered_count": int(core_flow_coverage_after_apply.get("core_flow_covered_count") or 0),
+                            "required_count": int(core_flow_coverage_after_apply.get("core_flow_required_count") or 0),
+                            "coverage_ratio": float(core_flow_coverage_after_apply.get("core_flow_coverage_ratio") or 0.0),
+                        },
+                        "still_missing_core_flows": list(core_flow_still_missing_after_apply),
+                        "final_quality_gate_passed": bool(final_quality_gate_passed),
+                        "apply_skip_reason": str(apply_skip_reason or ""),
+                    }
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            user_id=user_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(core_flow_backfill_apply_summary_payload, ensure_ascii=False)}",
+                        )
                     )
-                if truncated_text_count > 0:
-                    failed_checks.append(f"truncated_text_count={int(truncated_text_count)}")
+                    db.commit()
+
+                    generation_summary_payload["core_flow_backfill_enabled"] = bool(backfill_enabled)
+                    generation_summary_payload["core_flow_backfill_applied"] = bool(backfill_applied)
+                    generation_summary_payload["primary_case_count_before_backfill"] = int(primary_case_count_before_backfill)
+                    generation_summary_payload["final_count"] = int(len([x for x in result if isinstance(x, dict)])) if isinstance(result, list) else 0
+                    generation_summary_payload["final_case_count_after_backfill"] = int(len([x for x in result if isinstance(x, dict)])) if isinstance(result, list) else 0
+                    generation_summary_payload["core_flow_coverage_before"] = float(core_flow_coverage_before_apply.get("core_flow_coverage_ratio") or 0.0)
+                    generation_summary_payload["core_flow_coverage_after"] = float(core_flow_coverage_after_apply.get("core_flow_coverage_ratio") or 0.0)
+                    generation_summary_payload["core_flow_still_missing_count"] = int(len(core_flow_still_missing_after_apply))
+
+                quality_gate_result = summarize_case_quality_gate(result if isinstance(result, list) else [])
+                priority_final_invalid_case_ids = list(quality_gate_result.get("invalid_priority_final_case_ids") or [])
+                invalid_priority_final_count = int(quality_gate_result.get("invalid_priority_final_count") or len(priority_final_invalid_case_ids))
+                priority_final_null_count = int(quality_gate_result.get("priority_final_null_count") or 0)
+                non_assertable_case_ids = list(quality_gate_result.get("non_assertable_case_ids") or [])
+                truncated_case_ids = list(quality_gate_result.get("truncated_case_ids") or [])
+                non_assertable_expected_result_count = int(quality_gate_result.get("non_assertable_expected_result_count") or 0)
+                truncated_text_count = int(quality_gate_result.get("truncated_text_count") or 0)
+                failed_checks: list[str] = list(quality_gate_result.get("failed_checks") or [])
 
                 if failed_checks:
                     quality_gate_payload = {
@@ -205,6 +353,7 @@
                         "final_status": "quality_gate_failed",
                         "quality_gate_failed": True,
                         "priority_final_null_count": int(priority_final_null_count),
+                        "invalid_priority_final_count": int(invalid_priority_final_count),
                         "invalid_priority_final_case_ids": list(priority_final_invalid_case_ids),
                         "non_assertable_expected_result_count": int(non_assertable_expected_result_count),
                         "truncated_text_count": int(truncated_text_count),
@@ -229,6 +378,7 @@
                         "quality_gate_failed": True,
                         "failed_checks": list(failed_checks),
                         "priority_final_null_count": int(priority_final_null_count),
+                        "invalid_priority_final_count": int(invalid_priority_final_count),
                         "invalid_priority_final_case_ids": list(priority_final_invalid_case_ids),
                         "non_assertable_expected_result_count": int(non_assertable_expected_result_count),
                         "truncated_text_count": int(truncated_text_count),
@@ -562,6 +712,74 @@
                         )
                     )
                     db.commit()
+
+                if isinstance(result, list):
+                    from modules.test_generation_components.coverage.core_flow_coverage_contract import (
+                        audit_core_flow_coverage,
+                    )
+                    from core.settings.config import settings
+                    core_flow_audit = audit_core_flow_coverage(
+                        [x for x in result if isinstance(x, dict)]
+                    )
+                    core_flow_audit_payload = {
+                        "kind": "core_flow_coverage",
+                        "request_id": request_id,
+                        "generation_id": int(persisted_generation_id),
+                        "multi_pass": bool(multi_pass),
+                        "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                        "core_flow_covered_count": int(core_flow_audit["core_flow_covered_count"]),
+                        "core_flow_required_count": int(core_flow_audit["core_flow_required_count"]),
+                        "core_flow_coverage_ratio": float(core_flow_audit["core_flow_coverage_ratio"]),
+                        "core_flow_coverage_passed": bool(core_flow_audit["core_flow_coverage_passed"]),
+                        "missing_core_flows": list(core_flow_audit["missing_core_flows"]),
+                        "false_positive_guard_notes": list(core_flow_audit["false_positive_guard_notes"]),
+                    }
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            user_id=user_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(core_flow_audit_payload, ensure_ascii=False)}",
+                        )
+                    )
+                    db.commit()
+
+                    if bool(getattr(settings, "CORE_FLOW_BACKFILL_ENABLED", False)):
+                        from modules.test_generation_components.coverage.core_flow_backfill import (
+                            plan_core_flow_backfill,
+                        )
+                        backfill_plan = plan_core_flow_backfill(
+                            requirement_context=requirement,
+                            existing_cases=[x for x in result if isinstance(x, dict)],
+                            coverage_audit=core_flow_audit,
+                            max_backfill_cases=int(getattr(settings, "CORE_FLOW_BACKFILL_MAX_CANDIDATES", 12) or 12),
+                        )
+                        backfill_diag_payload = {
+                            "kind": "core_flow_backfill_dry_run",
+                            "request_id": request_id,
+                            "generation_id": int(persisted_generation_id),
+                            "multi_pass": bool(multi_pass),
+                            "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                            **{k: v for k, v in backfill_plan.items() if k != "backfill_plan"},
+                            "backfill_plan_summary": [
+                                {
+                                    "flow_key": item["flow_key"],
+                                    "flow_name": item["flow_name"],
+                                    "suggested_priority": item["suggested_priority"],
+                                    "target_case_count": item["target_case_count"],
+                                }
+                                for item in backfill_plan.get("backfill_plan") or []
+                            ],
+                        }
+                        db.add(
+                            LogEntry(
+                                project_id=project_id,
+                                user_id=user_id,
+                                log_type="system",
+                                message=f"GEN_DIAG:{json.dumps(backfill_diag_payload, ensure_ascii=False)}",
+                            )
+                        )
+                        db.commit()
             except Exception as e:
                 print(f"Failed to save to DB: {e}")
 

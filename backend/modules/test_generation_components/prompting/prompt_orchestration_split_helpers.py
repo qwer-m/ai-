@@ -265,6 +265,22 @@ Constraints:
 ❗若出现杜撰、重复或低信息增益内容 → 必须删除后再输出；允许数量低于参考值
 
 # ================================
+# EXPECTED_RESULT ASSERTABILITY (MANDATORY)
+# ================================
+
+- expected_result MUST be a concrete, verifiable assertion.
+- expected_result MUST describe observable outcome/state/data, not template wording.
+- Forbidden placeholder expressions in expected_result include:
+  - 正常展示
+  - 符合预期
+  - 执行成功
+  - 返回成功
+  - 结果可核对
+  - 结果正确
+  - 正常 / 成功 / OK (without concrete assertion target)
+- If a scenario cannot provide a concrete expected_result assertion, do NOT generate that case.
+
+# ================================
 # 📦 OUTPUT REQUIREMENTS（STRICT）
 # ================================
 
