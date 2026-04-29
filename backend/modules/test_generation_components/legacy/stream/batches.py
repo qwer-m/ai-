@@ -259,7 +259,6 @@ class LegacyGenerationStreamBatchesMixin:
 
             generated_in_batch = 0
             attempt = 0
-            batch_content = ""
             parsed_batch_cases: list[dict[str, Any]] = []
 
             while generated_in_batch < current_batch_count and attempt < 3:
@@ -389,11 +388,11 @@ class LegacyGenerationStreamBatchesMixin:
                     task_type="generation",
                 )
                 chunk_acc = ""
+                attempt_content = ""
                 provider_error = None
                 for chunk in stream:
                     chunk_acc += chunk
-                    full_content += chunk
-                    batch_content += chunk
+                    attempt_content += chunk
                     yield chunk
                     if chunk.startswith("Error:") or chunk.startswith("[额度耗尽]") or chunk.startswith("Exception occurred:"):
                         provider_error = chunk
@@ -414,19 +413,22 @@ class LegacyGenerationStreamBatchesMixin:
                     attempt = 3
                     break
 
-                full_content += "\n"
-                batch_content += "\n"
                 yield "\n"
 
                 try:
-                    parsed_batch = clean_and_parse_json(batch_content)
+                    parsed_batch = clean_and_parse_json(attempt_content)
                     parsed_batch = normalize_json_structure(parsed_batch)
                     if isinstance(parsed_batch, list):
-                        generated_in_batch = len(parsed_batch)
                         parsed_batch_cases = [case for case in parsed_batch if isinstance(case, dict)]
-                        for case in parsed_batch:
-                            if isinstance(case, dict):
+                        generated_in_batch = current_batch_count
+                        if parsed_batch_cases:
+                            full_content += json.dumps(parsed_batch_cases, ensure_ascii=False, indent=2)
+                            full_content += "\n"
+                            for case in parsed_batch_cases:
                                 history_summaries.append(f"{case.get('id', '')}: {case.get('description', '')}")
+                        else:
+                            full_content += "[]\n"
+                        break
                 except Exception:
                     pass
 

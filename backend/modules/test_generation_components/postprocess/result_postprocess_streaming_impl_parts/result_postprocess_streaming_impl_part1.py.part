@@ -1109,6 +1109,21 @@ def stream_postprocess_cases(
         text = str(requirement_text or "").lower()
         required_groups: set[str] = set()
         for group, tokens in _P0_GROUP_TOKENS.items():
+            if group == "week_flow":
+                week_specific_tokens = (
+                    "周中",
+                    "周末",
+                    "周次",
+                    "周日24",
+                    "周日 24",
+                    "学习报告",
+                    "week flow",
+                    "weekly flow",
+                    "week switch",
+                )
+                if any(token in text for token in week_specific_tokens):
+                    required_groups.add(group)
+                continue
             if any(token in text for token in tokens):
                 required_groups.add(group)
         return required_groups

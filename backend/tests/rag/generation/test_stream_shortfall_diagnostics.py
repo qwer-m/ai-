@@ -208,3 +208,50 @@ def test_review_gate_retains_case_when_coverage_value_exists(monkeypatch) -> Non
     retained_coverage_rows = [row for row in review_table if row.get("retained_reason") == "retained_due_to_coverage_value"]
     assert len(retained_coverage_rows) == 1
     assert retained_coverage_rows[0].get("case_id") == "TC-002"
+
+
+def test_completion_word_does_not_trigger_week_flow_p0_hard_drop() -> None:
+    client = _SinglePassClient()
+    full_content = """
+    [
+      {
+        "id":"TC-001",
+        "description":"验证完成选词填空后返回首页",
+        "test_module":"学习路径",
+        "preconditions":["用户已进入选词填空页面"],
+        "steps":["完成选词填空","点击完成"],
+        "test_input":"正常学习流程",
+        "expected_result":"页面跳转至首页，且学习路径状态标记为已完成",
+        "priority":"P1"
+      }
+    ]
+    """
+
+    gen = stream_postprocess_cases(
+        client=client,
+        requirement="用户完成选词填空后返回首页",
+        base_prompt="BASE",
+        kb_context="",
+        full_content=full_content,
+        expected_count=5,
+        append=False,
+        existing_cases=[],
+        existing_unique_count=0,
+        start_id=1,
+        db=None,
+        clean_and_parse_json_fn=clean_and_parse_json,
+        normalize_json_structure_fn=normalize_json_structure,
+        deduplicate_test_cases_fn=deduplicate_test_cases,
+        reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+        count_unique_test_cases_fn=count_unique_test_cases,
+        infer_case_kind_fn=infer_case_kind,
+        build_supplement_closed_loop_instruction_fn=lambda **_: "",
+        multi_pass=False,
+        generation_mode="single_pass",
+    )
+    result = _drain_with_return(gen)
+
+    cases = [row for row in (result or {}).get("cases") or [] if isinstance(row, dict)]
+    assert len(cases) >= 1
+    convergence_debug = dict((result or {}).get("convergence_debug") or {})
+    assert convergence_debug.get("low_quality_dropped_count") == 0

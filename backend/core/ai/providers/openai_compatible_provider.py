@@ -259,6 +259,7 @@ class OpenAICompatibleProvider(BaseModelProvider):
                         yield f"Error: HTTP {resp.status_code} - {resp.read().decode()}"
                         return
 
+                    emitted_text = False
                     for line in resp.iter_lines():
                         if not line or line.strip() == "":
                             continue
@@ -273,16 +274,19 @@ class OpenAICompatibleProvider(BaseModelProvider):
                                     if event_type == "response.output_text.delta":
                                         delta = data.get("delta") or ""
                                         if delta:
+                                            emitted_text = True
                                             yield str(delta)
                                     elif event_type == "response.output_text.done":
                                         done_text = data.get("text") or ""
-                                        if done_text:
+                                        if done_text and not emitted_text:
+                                            emitted_text = True
                                             yield str(done_text)
                                     elif event_type == "response.completed":
                                         text = self._extract_responses_text(
                                             data.get("response") if isinstance(data.get("response"), dict) else data
                                         )
-                                        if text:
+                                        if text and not emitted_text:
+                                            emitted_text = True
                                             yield text
                                     elif event_type in {"error", "response.error"}:
                                         yield f"Error: {json.dumps(data, ensure_ascii=False)}"
@@ -296,21 +300,23 @@ class OpenAICompatibleProvider(BaseModelProvider):
 
                                     reasoning = delta.get("reasoning_content") or ""
                                     if reasoning:
-                                        yield reasoning
                                         continue
 
                                     if content:
+                                        emitted_text = True
                                         yield content
                                         continue
 
                                     msg = choice0.get("message", {}) or {}
                                     msg_content = msg.get("content") or ""
-                                    if msg_content:
+                                    if msg_content and not emitted_text:
+                                        emitted_text = True
                                         yield msg_content
                                         continue
 
                                     text = choice0.get("text") or ""
-                                    if text:
+                                    if text and not emitted_text:
+                                        emitted_text = True
                                         yield text
                             except json.JSONDecodeError:
                                 pass
