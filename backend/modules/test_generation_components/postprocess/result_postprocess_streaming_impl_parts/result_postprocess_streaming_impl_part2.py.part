@@ -5,10 +5,17 @@
         parsed_result = []
     parsed_result = deduplicate_test_cases_fn(parsed_result)
     parsed_result = apply_priority_semantics_to_cases([x for x in parsed_result if isinstance(x, dict)], attach_debug=False)
-    parsed_result, low_quality_dropped_total = _filter_low_quality_cases(
+    parsed_result, initial_filter_stats = _filter_low_quality_cases_with_stats(
         parsed_result,
         requirement_text=requirement,
     )
+    low_quality_structural_dropped_total = int(initial_filter_stats.get("invalid_structure_dropped") or 0) + int(
+        initial_filter_stats.get("weak_case_dropped") or 0
+    )
+    semantic_dedup_dropped_total = int(initial_filter_stats.get("semantic_dedup_dropped") or 0)
+    governance_hard_drop_total = int(initial_filter_stats.get("governance_hard_drop") or 0)
+    low_quality_dropped_total = int(low_quality_structural_dropped_total)
+    postprocess_filter_drop_total = int(initial_filter_stats.get("total_dropped") or 0)
 
     stage_counts = {
         "primary": len(parsed_result),
@@ -107,11 +114,17 @@ RESCUE INSTRUCTION:
                     [x for x in rescue_parsed if isinstance(x, dict)],
                     attach_debug=False,
                 )
-                rescue_parsed, dropped_rescue = _filter_low_quality_cases(
+                rescue_parsed, rescue_filter_stats = _filter_low_quality_cases_with_stats(
                     rescue_parsed,
                     requirement_text=requirement,
                 )
-                low_quality_dropped_total += dropped_rescue
+                low_quality_structural_dropped_total += int(rescue_filter_stats.get("invalid_structure_dropped") or 0) + int(
+                    rescue_filter_stats.get("weak_case_dropped") or 0
+                )
+                semantic_dedup_dropped_total += int(rescue_filter_stats.get("semantic_dedup_dropped") or 0)
+                governance_hard_drop_total += int(rescue_filter_stats.get("governance_hard_drop") or 0)
+                low_quality_dropped_total = int(low_quality_structural_dropped_total)
+                postprocess_filter_drop_total += int(rescue_filter_stats.get("total_dropped") or 0)
                 parsed_result = rescue_parsed
                 stage_counts["primary"] = len(parsed_result)
                 current_total = _merged_unique_total(parsed_result)
@@ -190,11 +203,17 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                             [x for x in extra_parsed if isinstance(x, dict)],
                             attach_debug=False,
                         )
-                        extra_parsed, dropped_extra = _filter_low_quality_cases(
+                        extra_parsed, extra_filter_stats = _filter_low_quality_cases_with_stats(
                             extra_parsed,
                             requirement_text=requirement,
                         )
-                        low_quality_dropped_total += dropped_extra
+                        low_quality_structural_dropped_total += int(extra_filter_stats.get("invalid_structure_dropped") or 0) + int(
+                            extra_filter_stats.get("weak_case_dropped") or 0
+                        )
+                        semantic_dedup_dropped_total += int(extra_filter_stats.get("semantic_dedup_dropped") or 0)
+                        governance_hard_drop_total += int(extra_filter_stats.get("governance_hard_drop") or 0)
+                        low_quality_dropped_total = int(low_quality_structural_dropped_total)
+                        postprocess_filter_drop_total += int(extra_filter_stats.get("total_dropped") or 0)
                         parsed_result.extend([x for x in extra_parsed if isinstance(x, dict)])
                         parsed_result = normalize_json_structure_fn(parsed_result)
                         parsed_result = deduplicate_test_cases_fn(parsed_result)
@@ -215,11 +234,17 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         yield "@@STATUS@@:[multi-pass] Stage 3/3 review selection started...\n"
 
         candidate_cases = [x for x in parsed_result if isinstance(x, dict)]
-        candidate_cases, dropped_review_stage = _filter_low_quality_cases(
+        candidate_cases, review_filter_stats = _filter_low_quality_cases_with_stats(
             candidate_cases,
             requirement_text=requirement,
         )
-        low_quality_dropped_total += dropped_review_stage
+        low_quality_structural_dropped_total += int(review_filter_stats.get("invalid_structure_dropped") or 0) + int(
+            review_filter_stats.get("weak_case_dropped") or 0
+        )
+        semantic_dedup_dropped_total += int(review_filter_stats.get("semantic_dedup_dropped") or 0)
+        governance_hard_drop_total += int(review_filter_stats.get("governance_hard_drop") or 0)
+        low_quality_dropped_total = int(low_quality_structural_dropped_total)
+        postprocess_filter_drop_total += int(review_filter_stats.get("total_dropped") or 0)
         candidate_count_before_review = len(candidate_cases)
         review_candidate_cases = list(candidate_cases)
 

@@ -255,3 +255,50 @@ def test_completion_word_does_not_trigger_week_flow_p0_hard_drop() -> None:
     assert len(cases) >= 1
     convergence_debug = dict((result or {}).get("convergence_debug") or {})
     assert convergence_debug.get("low_quality_dropped_count") == 0
+
+
+def test_hidden_wrong_question_entry_does_not_trigger_wrong_collection_p0_hard_drop() -> None:
+    client = _SinglePassClient()
+    full_content = """
+    [
+      {
+        "id":"TC-001",
+        "description":"验证二轮复习课程详情页隐藏讲知识错题入口",
+        "test_module":"二轮复习课程详情页",
+        "preconditions":["用户已进入二轮复习课程详情页"],
+        "steps":["打开左侧导航","检查导航入口列表"],
+        "test_input":"二轮复习课程",
+        "expected_result":"左侧导航不显示讲知识错题入口，仅保留学&练相关课程目录节点",
+        "priority":"P1"
+      }
+    ]
+    """
+
+    gen = stream_postprocess_cases(
+        client=client,
+        requirement="二轮复习课程详情页隐藏讲知识错题等流程入口，仅保留学&练。",
+        base_prompt="BASE",
+        kb_context="",
+        full_content=full_content,
+        expected_count=5,
+        append=False,
+        existing_cases=[],
+        existing_unique_count=0,
+        start_id=1,
+        db=None,
+        clean_and_parse_json_fn=clean_and_parse_json,
+        normalize_json_structure_fn=normalize_json_structure,
+        deduplicate_test_cases_fn=deduplicate_test_cases,
+        reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+        count_unique_test_cases_fn=count_unique_test_cases,
+        infer_case_kind_fn=infer_case_kind,
+        build_supplement_closed_loop_instruction_fn=lambda **_: "",
+        multi_pass=False,
+        generation_mode="single_pass",
+    )
+    result = _drain_with_return(gen)
+
+    cases = [row for row in (result or {}).get("cases") or [] if isinstance(row, dict)]
+    assert len(cases) >= 1
+    convergence_debug = dict((result or {}).get("convergence_debug") or {})
+    assert convergence_debug.get("governance_hard_drop_count") == 0

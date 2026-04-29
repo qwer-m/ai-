@@ -28,6 +28,10 @@
 
     if low_quality_dropped_total > 0:
         reasons.append("low_quality_filtered")
+    if int(semantic_dedup_dropped_total or 0) > 0:
+        reasons.append("semantic_dedup_reduced_count")
+    if int(governance_hard_drop_total or 0) > 0:
+        reasons.append("governance_hard_drop_applied")
 
     duplication_rate_estimate = 0.0
     if int(review_selected_count or 0) > 0:
@@ -93,6 +97,9 @@
         "missing_rules_count": int(len(missing_rules_final)),
         "missing_types_exists": bool(missing_types_final),
         "low_quality_dropped_count": int(low_quality_dropped_total or 0),
+        "postprocess_filter_drop_total": int(postprocess_filter_drop_total or 0),
+        "semantic_dedup_dropped_count": int(semantic_dedup_dropped_total or 0),
+        "governance_hard_drop_count": int(governance_hard_drop_total or 0),
         "needs_priority_review": bool(needs_priority_review),
         "priority_conflict_count": int(priority_conflict_count),
         "priority_undetermined_count": int(priority_undetermined_count),

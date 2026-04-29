@@ -1124,6 +1124,20 @@ def stream_postprocess_cases(
                 if any(token in text for token in week_specific_tokens):
                     required_groups.add(group)
                 continue
+            if group == "wrong_collection":
+                wrong_collection_specific_tokens = (
+                    "错题归集",
+                    "错题本",
+                    "错题收集",
+                    "错题自动归集",
+                    "生成错题",
+                    "收录错题",
+                    "wrong question collection",
+                    "error collection",
+                )
+                if any(token in text for token in wrong_collection_specific_tokens):
+                    required_groups.add(group)
+                continue
             if any(token in text for token in tokens):
                 required_groups.add(group)
         return required_groups
@@ -1177,28 +1191,34 @@ def stream_postprocess_cases(
             return True
         return False
 
-    def _filter_low_quality_cases(
+    def _filter_low_quality_cases_with_stats(
         cases: list[dict[str, Any]],
         *,
         requirement_text: str = "",
-    ) -> tuple[list[dict[str, Any]], int]:
+    ) -> tuple[list[dict[str, Any]], dict[str, int]]:
         normalized_cases: list[dict[str, Any]] = []
-        dropped = 0
+        stats = {
+            "invalid_structure_dropped": 0,
+            "weak_case_dropped": 0,
+            "semantic_dedup_dropped": 0,
+            "governance_hard_drop": 0,
+            "total_dropped": 0,
+        }
         for item in cases:
             if not isinstance(item, dict):
-                dropped += 1
+                stats["invalid_structure_dropped"] += 1
                 continue
             normalized = _normalize_case_structure(item)
             if not isinstance(normalized, dict):
-                dropped += 1
+                stats["invalid_structure_dropped"] += 1
                 continue
             if _is_low_quality(normalized):
-                dropped += 1
+                stats["weak_case_dropped"] += 1
                 continue
             normalized_cases.append(normalized)
 
         deduplicated_cases, dedup_dropped = _semantic_deduplicate_cases(normalized_cases)
-        dropped += int(dedup_dropped)
+        stats["semantic_dedup_dropped"] += int(dedup_dropped)
 
         reprioritized_cases = _rebuild_priority_by_semantics(deduplicated_cases)
         downgraded_cases = _apply_uncertain_requirement_downgrade(
@@ -1229,10 +1249,28 @@ def stream_postprocess_cases(
                     if isinstance(item, dict)
                 )
                 if not needs_priority_review:
-                    dropped += int(len(downgraded_cases))
-                    return [], dropped
+                    stats["governance_hard_drop"] += int(len(downgraded_cases))
+                    stats["total_dropped"] = int(sum(stats.values()))
+                    return [], stats
 
-        return downgraded_cases, dropped
+        stats["total_dropped"] = int(
+            stats.get("invalid_structure_dropped", 0)
+            + stats.get("weak_case_dropped", 0)
+            + stats.get("semantic_dedup_dropped", 0)
+            + stats.get("governance_hard_drop", 0)
+        )
+        return downgraded_cases, stats
+
+    def _filter_low_quality_cases(
+        cases: list[dict[str, Any]],
+        *,
+        requirement_text: str = "",
+    ) -> tuple[list[dict[str, Any]], int]:
+        filtered_cases, stats = _filter_low_quality_cases_with_stats(
+            cases,
+            requirement_text=requirement_text,
+        )
+        return filtered_cases, int((stats or {}).get("total_dropped") or 0)
 
     def _strip_case_meta_list(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
         stripped: list[dict[str, Any]] = []
