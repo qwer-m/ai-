@@ -27,6 +27,22 @@ class _DuplicateBatchClient:
         )
 
 
+class _PromptCaptureClient:
+    def __init__(self) -> None:
+        self.stream_prompts: list[str] = []
+
+    def generate_response(self, *args, **kwargs):
+        return "[]"
+
+    def generate_response_stream(self, requirement: str, prompt: str, **kwargs):  # noqa: ANN001, ARG002
+        self.stream_prompts.append(str(prompt or ""))
+        yield (
+            '[{"id":"TC-001","description":"验证二轮复习模块顺序","test_module":"首页",'
+            '"preconditions":["用户已登录"],"steps":["打开首页"],"test_input":"无",'
+            '"expected_result":"二轮复习模块位于查漏补缺与真题套卷之间","priority":"P1"}]'
+        )
+
+
 def test_meta_analysis_returns_default_when_non_dict():
     module = TestGenerationModule()
     client = _FakeClient()
@@ -113,3 +129,42 @@ def test_stream_batches_early_stop_on_low_incremental_gain() -> None:
     assert metrics[0].get("low_gain_detected") is True
     assert metrics[1].get("low_gain_detected") is True
     assert any("GEN_DIAG:" in str(chunk) and "stream_batch_quality" in str(chunk) for chunk in chunks)
+
+
+def test_stream_batches_injects_coverage_plan_lite() -> None:
+    module = TestGenerationModule()
+    client = _PromptCaptureClient()
+    state = {
+        "client": client,
+        "requirement": "新增二轮复习模块，插入至查漏补缺与真题套卷之间；打印功能保留教材和答案双选项。",
+        "project_id": 1,
+        "db": None,
+        "doc_type": "requirement",
+        "expected_count": 1,
+        "batch_size": 1,
+        "append": False,
+        "user_id": 1,
+        "request_id": "r-3",
+        "kb_context": "",
+        "start_id": 1,
+        "existing_cases": [],
+        "context_result": {},
+        "gate_debug": {},
+    }
+
+    gen = module._stream_run_batches_phase(state=state)
+    final_state = None
+    while True:
+        try:
+            next(gen)
+        except StopIteration as stop:
+            final_state = stop.value
+            break
+
+    assert isinstance(final_state, dict)
+    assert int(final_state.get("stream_coverage_plan_rule_count") or 0) >= 1
+    assert client.stream_prompts
+    prompt = client.stream_prompts[-1]
+    assert "COVERAGE PLAN-LITE" in prompt
+    assert "新增二轮复习模块" in prompt
+    assert "打印功能保留教材和答案双选项" in prompt

@@ -2,6 +2,9 @@ from typing import Any, Iterator
 import json
 
 from core.db.models import LogEntry
+from modules.testing.test_generation_components.coverage.coverage_analyzer import (
+    analyze_coverage,
+)
 from modules.testing.test_generation_components.prompting.prompt_orchestration import (
     build_append_closed_loop_coverage_instruction,
     build_closed_loop_base_prompt,
@@ -164,6 +167,33 @@ class LegacyGenerationStreamBatchesMixin:
             )
             return any(token in normalized for token in weak_tokens)
 
+        def _build_stream_coverage_plan_lite(requirement_text: str) -> tuple[str, list[dict[str, Any]]]:
+            coverage_seed = analyze_coverage(str(requirement_text or ""), [])
+            diagnostics = [
+                item
+                for item in (coverage_seed.get("rule_diagnostics") or [])
+                if isinstance(item, dict) and str(item.get("rule_text") or "").strip()
+            ]
+            rules = diagnostics[:16]
+            if not rules:
+                return "", []
+            lines = [
+                "# --- COVERAGE PLAN-LITE (internal planning, do not output this section) ---",
+                "Use these confirmed requirement rules as the generation plan.",
+                "Prefer one high-value case per distinct rule first; add boundary/exception/risk cases only when the rule itself supports them.",
+            ]
+            for index, item in enumerate(rules, start=1):
+                rule_text = str(item.get("rule_text") or "").strip()
+                rule_id = str(item.get("rule_id") or f"RULE-{index:03d}").strip()
+                lines.append(f"{index}. {rule_id}: {rule_text[:180]}")
+            lines.extend(
+                [
+                    "Before adding a case, identify its validation goal internally.",
+                    "Do not generate cases for headings, notes, pending运营补充文案, or unsupported assumptions.",
+                ]
+            )
+            return "\n".join(lines), rules
+
         # --- STEP 1: META-ANALYSIS ---
         if multi_pass:
             yield "@@STATUS@@:[multi-pass] 阶段1/3 主生成开始...\n"
@@ -189,6 +219,7 @@ class LegacyGenerationStreamBatchesMixin:
         )
         current_biz_key = str(prompt_context.get("current_biz_key") or current_biz_key or "unknown")
         requirement_semantics_context = _extract_requirement_semantics_payload(prompt_context)
+        coverage_plan_lite, coverage_plan_rules = _build_stream_coverage_plan_lite(requirement)
         _emit_biz_key_diag(prompt_context)
 
         base_prompt = build_closed_loop_base_prompt(
@@ -327,6 +358,8 @@ class LegacyGenerationStreamBatchesMixin:
                 {coverage_instruction}
 
                 {history_context_str}
+
+                {coverage_plan_lite}
 
                 # --- GENERATION STRATEGY ---
                 1. ANALYZE the User's Requirement (provided in the next message) step-by-step.
@@ -513,6 +546,8 @@ class LegacyGenerationStreamBatchesMixin:
                 "multi_pass": multi_pass,
                 "generation_mode": generation_mode,
                 "requirement_semantics_context": requirement_semantics_context,
+                "stream_coverage_plan_lite": coverage_plan_lite,
+                "stream_coverage_plan_rule_count": int(len(coverage_plan_rules)),
                 "stream_batch_quality_metrics": batch_quality_metrics,
                 "stream_early_stop_triggered": bool(early_stop_triggered),
                 "stream_early_stop_reason": str(early_stop_reason or ""),

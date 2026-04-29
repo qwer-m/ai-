@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 
@@ -26,9 +27,104 @@ _BOUNDARY_HINTS = {"边界", "上限", "下限", "最大", "最小", "临界", "
 _EXCEPTION_HINTS = {"异常", "失败", "错误", "拒绝", "超时", "fail", "error", "exception", "invalid"}
 _RISK_HINTS = {"权限", "安全", "鉴权", "并发", "性能", "风控", "risk", "security", "permission", "performance"}
 
+_RULE_ACTION_HINTS = (
+    "新增",
+    "调整",
+    "插入",
+    "后移",
+    "保持",
+    "保留",
+    "隐藏",
+    "显示",
+    "展示",
+    "支持",
+    "点击",
+    "返回",
+    "切换",
+    "播放",
+    "打印",
+    "适配",
+    "不变",
+    "不做改动",
+    "只保留",
+    "增加入口",
+    "must",
+    "should",
+    "hide",
+    "show",
+    "display",
+    "keep",
+    "support",
+)
+
+_HEADING_PATTERNS = (
+    r"^[一二三四五六七八九十]+[、.．]\s*[^：:]{1,24}$",
+    r"^\d+[、.．]\s*[^：:]{1,24}$",
+    r".*说明$",
+    r".*调整说明$",
+)
+
+_OCR_CHAR_TRANSLATION = str.maketrans(
+    {
+        "⾼": "高",
+        "⾸": "首",
+        "⻚": "页",
+        "⽂": "文",
+        "⽣": "生",
+        "⼊": "入",
+        "⼝": "口",
+        "⼆": "二",
+        "⼀": "一",
+        "⽬": "目",
+        "⽤": "用",
+        "⼾": "户",
+        "⽀": "支",
+        "⻓": "长",
+        "⽅": "方",
+        "⻅": "见",
+        "⽇": "日",
+        "⾃": "自",
+        "⼒": "力",
+        "⾄": "至",
+        "⼼": "心",
+        "⼯": "工",
+        "⽆": "无",
+        "⽹": "网",
+    }
+)
+
+
+def _normalize_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", str(text or ""))
+    normalized = normalized.translate(_OCR_CHAR_TRANSLATION)
+    normalized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", normalized)
+    normalized = normalized.replace("\u3000", " ")
+    return normalized
+
+
+def _looks_like_heading_or_fragment(line: str) -> bool:
+    normalized = _normalize_text(line).strip()
+    if not normalized:
+        return True
+    if normalized.startswith("@"):
+        return True
+    if any(re.fullmatch(pattern, normalized) for pattern in _HEADING_PATTERNS):
+        return True
+    tokens = re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z_][A-Za-z0-9_]{2,}", normalized)
+    if normalized.endswith(("如", "需", "核", "场", "内", "选", "按")):
+        return True
+    if len(tokens) <= 1 and not any(hint in normalized.lower() for hint in _RULE_ACTION_HINTS):
+        return True
+    return False
+
+
+def _has_rule_action_signal(line: str) -> bool:
+    normalized = _normalize_text(line).lower()
+    return any(hint.lower() in normalized for hint in _RULE_ACTION_HINTS)
+
 
 def _tokenize(text: str, limit: int = 18) -> list[str]:
-    tokens = re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z_][A-Za-z0-9_]{2,}", str(text or ""))
+    tokens = re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z_][A-Za-z0-9_]{2,}", _normalize_text(text))
     output: list[str] = []
     seen: set[str] = set()
     expanded: list[str] = []
@@ -58,7 +154,7 @@ def _extract_rule_id(text: str) -> str | None:
 
 def _extract_requirement_rules(requirement_context: str) -> list[dict[str, Any]]:
     """中文注释：解析 requirement_context，提取规则级条目（支持按 biz_key 分组文本）。"""
-    text = str(requirement_context or "").strip()
+    text = _normalize_text(requirement_context).strip()
     if not text:
         return []
 
@@ -67,7 +163,7 @@ def _extract_requirement_rules(requirement_context: str) -> list[dict[str, Any]]
     current_biz_key = "unknown"
 
     for raw_line in text.splitlines():
-        line = str(raw_line or "").strip()
+        line = _normalize_text(raw_line).strip()
         if not line:
             continue
         biz_match = re.match(r"^###\s*biz_key:\s*([^\s（(]+)", line, flags=re.IGNORECASE)
@@ -79,9 +175,13 @@ def _extract_requirement_rules(requirement_context: str) -> list[dict[str, Any]]
         normalized = re.sub(r"^\s*[-*•]\s*", "", line).strip()
         if len(normalized) < 4:
             continue
+        if _looks_like_heading_or_fragment(normalized):
+            continue
         if normalized.lower().startswith("biz_key:") or normalized.lower().startswith("test_module:"):
             continue
         if normalized.lower().startswith("priority:"):
+            continue
+        if not _has_rule_action_signal(normalized) and not _extract_rule_id(normalized):
             continue
 
         segments = [normalized]
@@ -125,11 +225,11 @@ def _flatten_case_text(case: dict[str, Any]) -> str:
             parts.extend(str(item) for item in value if item)
         elif isinstance(value, str):
             parts.append(value)
-    return "\n".join(parts)
+    return _normalize_text("\n".join(parts))
 
 
 def _detect_case_types(case_text: str) -> set[str]:
-    lowered = str(case_text or "").lower()
+    lowered = _normalize_text(case_text).lower()
     types: set[str] = set()
     if any(keyword in lowered for keyword in _BOUNDARY_HINTS):
         types.add("boundary")
@@ -145,7 +245,7 @@ def _detect_case_types(case_text: str) -> set[str]:
 
 
 def _required_types_for_rule(rule_text: str) -> set[str]:
-    lowered = str(rule_text or "").lower()
+    lowered = _normalize_text(rule_text).lower()
     required = {"happy"}
     if any(keyword in lowered for keyword in _BOUNDARY_HINTS):
         required.add("boundary")
@@ -157,9 +257,9 @@ def _required_types_for_rule(rule_text: str) -> set[str]:
 
 
 def _is_rule_hit(rule: dict[str, Any], case_text: str) -> bool:
-    lowered_case = str(case_text or "").lower()
+    lowered_case = _normalize_text(case_text).lower()
     rule_id = str(rule.get("rule_id") or "").strip().lower().replace(" ", "")
-    rule_text = str(rule.get("rule_text") or "").strip()
+    rule_text = _normalize_text(str(rule.get("rule_text") or "")).strip()
     if rule_id and rule_id in lowered_case.replace(" ", ""):
         return True
     if rule_text and rule_text.lower() in lowered_case:
@@ -168,6 +268,13 @@ def _is_rule_hit(rule: dict[str, Any], case_text: str) -> bool:
     if not tokens:
         return False
     hit_count = sum(1 for token in tokens if token.lower() in lowered_case)
+    strong_hits = [
+        token
+        for token in tokens
+        if len(token) >= 2 and token.lower() in lowered_case and token.lower() not in _STOPWORDS
+    ]
+    if len(strong_hits) >= 2 and any(hint.lower() in lowered_case for hint in _RULE_ACTION_HINTS):
+        return True
     return (hit_count / len(tokens)) >= 0.35
 
 
