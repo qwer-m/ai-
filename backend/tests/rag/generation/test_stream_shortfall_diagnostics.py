@@ -66,14 +66,14 @@ def test_stream_postprocess_exposes_convergence_debug_when_under_reference_count
     assert isinstance(result, dict)
     convergence_debug = dict((result or {}).get("convergence_debug") or {})
     assert convergence_debug.get("suggested_count") == 5
-    assert convergence_debug.get("final_count") == 1
-    assert convergence_debug.get("reference_gap") == 4
+    assert convergence_debug.get("final_count") == 2
+    assert convergence_debug.get("reference_gap") == 3
     assert convergence_debug.get("converged") is True
     reasons = set(convergence_debug.get("reasons") or [])
     assert "quality_converged_before_reference_count" in reasons
     generation_summary = dict((result or {}).get("generation_summary") or {})
     assert generation_summary.get("recommended_range") == "30-50"
-    assert generation_summary.get("final_count") == 1
+    assert generation_summary.get("final_count") == 2
     assert generation_summary.get("status") == "completed_with_optimal_set"
     stop_reason = set(generation_summary.get("stop_reason") or [])
     assert "coverage_satisfied" in stop_reason
@@ -82,8 +82,12 @@ def test_stream_postprocess_exposes_convergence_debug_when_under_reference_count
     review_summary = dict((result or {}).get("review_decision_summary") or {})
     review_table = list((result or {}).get("review_decision_table") or [])
     assert review_summary.get("candidate_total") == 2
-    assert review_summary.get("retained_total") == 1
-    assert review_summary.get("drop_no_new_signal_count") == 1
+    assert review_summary.get("retained_total") == 2
+    assert review_summary.get("drop_no_new_signal_count") == 0
+    assert review_summary.get("review_shortfall_detected") is True
+    assert review_summary.get("review_post_rerank_floor_count") == 2
+    assert review_summary.get("review_post_rerank_recovered_count") == 1
+    assert review_summary.get("review_fill_source") == "post_rerank_recovery"
     assert len(review_table) == 2
     assert all("dropped_reason" in row for row in review_table if isinstance(row, dict))
 
@@ -125,12 +129,16 @@ def test_stream_postprocess_collects_review_drop_reasons() -> None:
     review_summary = dict((result or {}).get("review_decision_summary") or {})
     review_table = [row for row in (result or {}).get("review_decision_table") or [] if isinstance(row, dict)]
     assert review_summary.get("candidate_total") == 3
-    assert review_summary.get("retained_total") == 1
-    assert review_summary.get("drop_no_new_signal_count") == 2
-    assert review_summary.get("drop_by_review_gate_count") == 2
+    assert review_summary.get("retained_total") == 2
+    assert review_summary.get("drop_no_new_signal_count") == 1
+    assert review_summary.get("drop_by_review_gate_count") == 1
+    assert review_summary.get("review_shortfall_detected") is True
+    assert review_summary.get("review_post_rerank_floor_count") == 2
+    assert review_summary.get("review_post_rerank_recovered_count") == 1
+    assert review_summary.get("review_fill_source") == "post_rerank_recovery"
     assert len(review_table) == 3
     dropped = [row for row in review_table if not bool(row.get("retained_final"))]
-    assert len(dropped) == 2
+    assert len(dropped) == 1
     assert all(row.get("dropped_reason") == "drop_no_new_rule_no_new_bucket_no_high_signal" for row in dropped)
 
 

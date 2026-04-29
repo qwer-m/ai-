@@ -13,6 +13,20 @@ class _FakeClient:
         yield "[]"
 
 
+class _DuplicateBatchClient:
+    """中文注释：固定返回同一条用例，验证连续低增益批次会触发提前停止。"""
+
+    def generate_response(self, *args, **kwargs):
+        return "[]"
+
+    def generate_response_stream(self, *args, **kwargs):
+        yield (
+            '[{"id":"TC-001","description":"重复场景","test_module":"模块A",'
+            '"preconditions":[],"steps":["step1"],"test_input":"input",'
+            '"expected_result":"执行成功","priority":"P2"}]'
+        )
+
+
 def test_meta_analysis_returns_default_when_non_dict():
     module = TestGenerationModule()
     client = _FakeClient()
@@ -58,3 +72,44 @@ def test_stream_batches_guard_against_none_plan(monkeypatch):
 
     # 中文注释：恢复被 monkeypatch 的符号，避免 lint 报未使用导入。
     assert batches_mod is not None
+
+
+def test_stream_batches_early_stop_on_low_incremental_gain() -> None:
+    module = TestGenerationModule()
+    client = _DuplicateBatchClient()
+    state = {
+        "client": client,
+        "requirement": "需求A",
+        "project_id": 1,
+        "db": None,
+        "doc_type": "requirement",
+        "expected_count": 80,
+        "batch_size": 25,
+        "append": False,
+        "user_id": 1,
+        "request_id": "r-2",
+        "kb_context": "",
+        "start_id": 1,
+        "existing_cases": [],
+        "context_result": {},
+        "gate_debug": {},
+    }
+
+    gen = module._stream_run_batches_phase(state=state)
+    final_state = None
+    chunks: list[str] = []
+    while True:
+        try:
+            chunks.append(next(gen))
+        except StopIteration as stop:
+            final_state = stop.value
+            break
+
+    assert isinstance(final_state, dict)
+    assert final_state.get("stream_early_stop_triggered") is True
+    assert final_state.get("stream_early_stop_reason") == "low_incremental_gain_two_batches"
+    metrics = [row for row in (final_state.get("stream_batch_quality_metrics") or []) if isinstance(row, dict)]
+    assert len(metrics) >= 2
+    assert metrics[0].get("low_gain_detected") is True
+    assert metrics[1].get("low_gain_detected") is True
+    assert any("GEN_DIAG:" in str(chunk) and "stream_batch_quality" in str(chunk) for chunk in chunks)

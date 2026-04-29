@@ -36,6 +36,14 @@
     review_constraint_reason_map: dict[str, str] = {}
     review_target_min_count = 1
     review_target_max_count = 1
+    review_candidate_coverage_context: dict[str, Any] = {}
+    review_candidate_rule_diagnostics: dict[str, Any] = {"rule_diagnostics": []}
+    review_shortfall_detected = False
+    review_shortfall_before_count = 0
+    review_shortfall_recovered_count = 0
+    review_post_rerank_floor_count = 1
+    review_post_rerank_recovered_count = 0
+    review_fill_source = "none"
     review_must_keep_signatures: set[str] = set()
     review_must_keep_reason_map: dict[str, list[str]] = {}
     review_decision_table: list[dict[str, Any]] = []
@@ -564,6 +572,48 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             selection_seen_signatures.add(signature)
             selection_input.append(case)
 
+        # If review output collapses below target_min_count, deterministically recover from
+        # already-filtered candidate pool instead of accepting a 50->1 shortfall.
+        review_shortfall_before_count = int(len(selection_input))
+        if int(review_target_min_count or 1) > 0 and int(len(selection_input)) < int(review_target_min_count or 1):
+            review_shortfall_detected = True
+            review_fill_source = "constraint_fill"
+            selection_signatures_local = set(selection_seen_signatures)
+            fill_pool = [
+                item
+                for item in candidate_cases
+                if isinstance(item, dict) and _signature(item) not in selection_signatures_local
+            ]
+            fill_pool.sort(
+                key=lambda item: tuple(
+                    [
+                        -value
+                        for value in _rank_review_case_for_fill(
+                            item,
+                            coverage_context=review_candidate_coverage_context,
+                            rule_diagnostics=review_candidate_rule_diagnostics,
+                        )
+                    ]
+                )
+                + (_review_case_id(item),)
+            )
+            for fill_case in fill_pool:
+                if int(len(selection_input)) >= int(review_target_min_count or 1):
+                    break
+                signature = _signature(fill_case)
+                if not signature or signature in selection_signatures_local:
+                    continue
+                selection_input.append(fill_case)
+                selection_signatures_local.add(signature)
+                review_constraint_reason_map.setdefault(signature, "retained_by_shortfall_recovery")
+
+            review_shortfall_recovered_count = max(
+                0,
+                int(len(selection_input)) - int(review_shortfall_before_count),
+            )
+        else:
+            review_shortfall_before_count = int(len(selection_input))
+
         review_selection_input = [x for x in selection_input if isinstance(x, dict)]
         review_selection_coverage = analyze_coverage(requirement, review_selection_input)
         rerank_result = _rerank_and_cap_by_rule(
@@ -620,6 +670,10 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         review_candidate_cases = list(candidate_cases)
         review_selection_input = list(candidate_cases)
         review_candidate_coverage = analyze_coverage(requirement, candidate_cases)
+        review_candidate_coverage_context = review_candidate_coverage
+        review_candidate_rule_diagnostics = {
+            "rule_diagnostics": review_candidate_coverage_context.get("rule_diagnostics") or []
+        }
         rerank_result = _rerank_and_cap_by_rule(
             candidate_cases,
             max_per_rule=3,
@@ -635,6 +689,60 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             review_gate_trace = {}
         review_selected_count = len(parsed_result)
         stage_counts["review"] = len(parsed_result)
+
+    # Anti-collapse safeguard: avoid severe 50->1 style collapse after rerank when
+    # candidate pool still has enough high-quality items.
+    if int(candidate_count_before_review or 0) >= 2:
+        if int(reference_count_effective or 0) >= 10:
+            review_post_rerank_floor_count = min(
+                int(candidate_count_before_review or 0),
+                max(2, int(round(float(reference_count_effective or 0) * 0.2))),
+            )
+        else:
+            review_post_rerank_floor_count = min(int(candidate_count_before_review or 0), 2)
+    else:
+        review_post_rerank_floor_count = 1
+
+    if int(len(parsed_result)) < int(review_post_rerank_floor_count or 1):
+        review_shortfall_detected = True
+        recovery_before = int(len(parsed_result))
+        recovered_signatures = {_signature(item) for item in parsed_result if isinstance(item, dict)}
+        recovery_pool: list[dict[str, Any]] = []
+        for source_case in [*review_selection_input, *candidate_cases]:
+            if not isinstance(source_case, dict):
+                continue
+            sig = _signature(source_case)
+            if not sig or sig in recovered_signatures:
+                continue
+            recovered_signatures.add(sig)
+            recovery_pool.append(source_case)
+        recovery_pool.sort(
+            key=lambda item: tuple(
+                [
+                    -value
+                    for value in _rank_review_case_for_fill(
+                        item,
+                        coverage_context=review_candidate_coverage_context,
+                        rule_diagnostics=review_candidate_rule_diagnostics,
+                    )
+                ]
+            )
+            + (_review_case_id(item),)
+        )
+        for fill_case in recovery_pool:
+            if int(len(parsed_result)) >= int(review_post_rerank_floor_count or 1):
+                break
+            parsed_result.append(fill_case)
+        review_post_rerank_recovered_count = max(
+            0,
+            int(len(parsed_result)) - int(recovery_before),
+        )
+        if review_post_rerank_recovered_count > 0:
+            review_fill_source = (
+                "post_rerank_recovery"
+                if str(review_fill_source or "none") in {"", "none"}
+                else f"{review_fill_source}+post_rerank_recovery"
+            )
 
     parsed_result = normalize_json_structure_fn(parsed_result)
     parsed_result = deduplicate_test_cases_fn(parsed_result)
@@ -1102,10 +1210,16 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         "needs_priority_review": bool(needs_priority_review),
         "review_llm_filter_applied": bool(review_llm_applied),
         "review_input_size": int(len([item for item in review_selection_input if isinstance(item, dict)])),
-        "review_output_size": int(review_selected_count or 0),
+            "review_output_size": int(review_selected_count or 0),
         "review_target_min_count": int(review_target_min_count or 1),
         "review_target_max_count": int(review_target_max_count or review_target_min_count or 1),
-        "review_llm_selected_count": int(len(review_llm_selected_signatures)),
+        "review_shortfall_detected": bool(review_shortfall_detected),
+        "review_shortfall_before_count": int(review_shortfall_before_count),
+        "review_shortfall_recovered_count": int(review_shortfall_recovered_count),
+        "review_post_rerank_floor_count": int(review_post_rerank_floor_count or 1),
+        "review_post_rerank_recovered_count": int(review_post_rerank_recovered_count or 0),
+        "review_fill_source": str(review_fill_source or "none"),
+            "review_llm_selected_count": int(len(review_llm_selected_signatures)),
         "review_llm_runtime_debug": dict(review_llm_runtime_debug),
         "review_constraint_selected_count": int(len(review_constraint_retained_signatures)),
         "review_llm_drop_reason_breakdown": review_llm_drop_reason_counts,

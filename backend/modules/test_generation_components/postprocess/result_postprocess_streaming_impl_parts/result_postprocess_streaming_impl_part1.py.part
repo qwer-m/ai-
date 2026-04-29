@@ -1738,15 +1738,24 @@ def stream_postprocess_cases(
                 }
 
         if not selected and fallback_first_entry:
-            fallback_item = dict(fallback_first_entry.get("item") or {})
-            selected = [fallback_item] if fallback_item else []
-            selected_ui_like_count = 1 if bool(fallback_first_entry.get("ui_like_case")) else 0
+            fallback_min_keep = 1
+            if len(seed_ordered_entries) > 1 and expected_total >= 12:
+                fallback_min_keep = min(3, len(seed_ordered_entries), 2)
+            fallback_entries = seed_ordered_entries[: int(max(1, fallback_min_keep))]
+            selected = [dict(entry.get("item") or {}) for entry in fallback_entries if dict(entry.get("item") or {})]
+            selected_signatures = [str(entry.get("signature") or "") for entry in fallback_entries if str(entry.get("signature") or "")]
+            selected_ui_like_count = int(
+                sum(
+                    1
+                    for entry in fallback_entries
+                    if bool(entry.get("ui_like_case"))
+                )
+            )
             if include_trace:
-                signature = str(fallback_first_entry.get("signature") or "")
-                selected_signatures = [signature] if signature else []
-                if signature in trace_decisions:
-                    trace_decisions[signature]["selected"] = True
-                    trace_decisions[signature]["drop_reason"] = "retained_fallback_first"
+                for signature in selected_signatures:
+                    if signature in trace_decisions:
+                        trace_decisions[signature]["selected"] = True
+                        trace_decisions[signature]["drop_reason"] = "retained_fallback_first"
 
         if selected_ui_like_count < ui_min_keep_target:
             selected_signature_set = set(selected_signatures)

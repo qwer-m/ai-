@@ -98,6 +98,72 @@ class LegacyGenerationStreamBatchesMixin:
                     pass
                 print(f"Failed to emit biz key isolation log(stream): {e}")
 
+        def _emit_stream_batch_quality_diag(batch_metric: dict[str, Any]) -> None:
+            """中文注释：输出每批质量指标到 GEN_DIAG，便于实时观察低增益趋势。"""
+            payload = {
+                "kind": "stream_batch_quality",
+                "project_id": int(project_id),
+                "request_id": str(request_id or ""),
+                "current_biz_key": str(current_biz_key or "unknown"),
+                "multi_pass": bool(multi_pass),
+                "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                **dict(batch_metric or {}),
+            }
+            if self._is_active_db_session(db):
+                try:
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            user_id=user_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(payload, ensure_ascii=False)}",
+                        )
+                    )
+                    db.commit()
+                except Exception:
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
+            try:
+                payload_json = json.dumps(payload, ensure_ascii=False)
+                # 说明：写入前端 stream 诊断通道，不依赖 DB 持久化成功与否。
+                stream_batch_diags.append(f"GEN_DIAG:{payload_json}\n")
+            except Exception:
+                pass
+
+        def _norm_text(value: Any) -> str:
+            return "".join(str(value or "").strip().lower().split())
+
+        def _build_case_signature(case: dict[str, Any]) -> str:
+            steps = case.get("steps") if isinstance(case.get("steps"), list) else []
+            return "|".join(
+                [
+                    _norm_text(case.get("test_module")),
+                    _norm_text(case.get("description")),
+                    _norm_text(case.get("test_input")),
+                    _norm_text(case.get("expected_result")),
+                    _norm_text(" ".join([str(step) for step in steps])),
+                ]
+            )
+
+        def _is_non_assertable_expected_result(text: str) -> bool:
+            normalized = _norm_text(text)
+            if not normalized:
+                return True
+            weak_tokens = (
+                "正常展示",
+                "符合预期",
+                "执行成功",
+                "返回成功",
+                "结果可核对",
+                "结果正确",
+                "shows expected result",
+                "works as expected",
+                "success",
+            )
+            return any(token in normalized for token in weak_tokens)
+
         # --- STEP 1: META-ANALYSIS ---
         if multi_pass:
             yield "@@STATUS@@:[multi-pass] 阶段1/3 主生成开始...\n"
@@ -171,10 +237,19 @@ class LegacyGenerationStreamBatchesMixin:
 
         # 中文注释：追踪历史摘要用于去重提示。
         history_summaries: list[str] = []
+        seen_case_signatures: set[str] = set()
+        batch_quality_metrics: list[dict[str, Any]] = []
+        low_gain_streak = 0
+        early_stop_triggered = False
+        early_stop_reason = ""
+        stream_batch_diags: list[str] = []
         if append and isinstance(existing_cases, list):
             for case in existing_cases:
                 if isinstance(case, dict):
                     history_summaries.append(f"{case.get('id', '')}: {case.get('description', '')}")
+                    signature = _build_case_signature(case)
+                    if signature:
+                        seen_case_signatures.add(signature)
 
         for batch_index in range(total_batches):
             remaining = expected_count - (current_id - start_id)
@@ -185,6 +260,7 @@ class LegacyGenerationStreamBatchesMixin:
             generated_in_batch = 0
             attempt = 0
             batch_content = ""
+            parsed_batch_cases: list[dict[str, Any]] = []
 
             while generated_in_batch < current_batch_count and attempt < 3:
                 need = current_batch_count - generated_in_batch
@@ -347,13 +423,74 @@ class LegacyGenerationStreamBatchesMixin:
                     parsed_batch = normalize_json_structure(parsed_batch)
                     if isinstance(parsed_batch, list):
                         generated_in_batch = len(parsed_batch)
+                        parsed_batch_cases = [case for case in parsed_batch if isinstance(case, dict)]
                         for case in parsed_batch:
                             if isinstance(case, dict):
                                 history_summaries.append(f"{case.get('id', '')}: {case.get('description', '')}")
                 except Exception:
                     pass
 
+            if parsed_batch_cases:
+                new_valid_cases_count = int(len(parsed_batch_cases))
+                unique_increment = 0
+                non_assertable_count = 0
+                for case in parsed_batch_cases:
+                    signature = _build_case_signature(case)
+                    if signature and signature not in seen_case_signatures:
+                        seen_case_signatures.add(signature)
+                        unique_increment += 1
+                    if _is_non_assertable_expected_result(str(case.get("expected_result") or "")):
+                        non_assertable_count += 1
+                duplicate_count = max(0, new_valid_cases_count - unique_increment)
+                duplicate_rate = float(duplicate_count) / float(new_valid_cases_count) if new_valid_cases_count > 0 else 1.0
+                coverage_gain_count = int(unique_increment)
+                low_quality_filtered_count = int(non_assertable_count)
+                low_gain_detected = bool(
+                    (coverage_gain_count <= 1)
+                    or (duplicate_rate >= 0.6)
+                    or (new_valid_cases_count > 0 and (float(non_assertable_count) / float(new_valid_cases_count)) >= 0.5)
+                )
+                if low_gain_detected:
+                    low_gain_streak += 1
+                else:
+                    low_gain_streak = 0
+
+                batch_quality_metrics.append(
+                    {
+                        "batch_index": int(batch_index + 1),
+                        "new_valid_cases_count": int(new_valid_cases_count),
+                        "duplicate_rate": round(float(duplicate_rate), 4),
+                        "non_assertable_count": int(non_assertable_count),
+                        "low_quality_filtered_count": int(low_quality_filtered_count),
+                        "coverage_gain_count": int(coverage_gain_count),
+                        "low_gain_detected": bool(low_gain_detected),
+                        "low_gain_streak": int(low_gain_streak),
+                    }
+                )
+                _emit_stream_batch_quality_diag(batch_quality_metrics[-1])
+                if stream_batch_diags:
+                    yield stream_batch_diags.pop()
+
+                if low_gain_streak >= 2:
+                    early_stop_triggered = True
+                    early_stop_reason = "low_incremental_gain_two_batches"
+                    _emit_stream_batch_quality_diag(
+                        {
+                            "batch_index": int(batch_index + 1),
+                            "early_stop_triggered": True,
+                            "early_stop_reason": str(early_stop_reason),
+                            "low_gain_streak": int(low_gain_streak),
+                        }
+                    )
+                    if stream_batch_diags:
+                        yield stream_batch_diags.pop()
+                    yield "@@STATUS@@:检测到连续2批低信息增益，提前停止后续批次生成。\n"
+            else:
+                low_gain_streak = 0
+
             current_id += current_batch_count
+            if early_stop_triggered:
+                break
 
         state.update(
             {
@@ -374,6 +511,9 @@ class LegacyGenerationStreamBatchesMixin:
                 "multi_pass": multi_pass,
                 "generation_mode": generation_mode,
                 "requirement_semantics_context": requirement_semantics_context,
+                "stream_batch_quality_metrics": batch_quality_metrics,
+                "stream_early_stop_triggered": bool(early_stop_triggered),
+                "stream_early_stop_reason": str(early_stop_reason or ""),
             }
         )
         return state
