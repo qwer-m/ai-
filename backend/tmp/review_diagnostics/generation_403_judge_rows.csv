@@ -1,3 +1,0 @@
-﻿case_id,module,priority,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
-TC-008,核心业务闭环,P1,验证核心教学闭环（采集-定位-推荐-反馈）的完整性：用户完成周中任务、生成错题、查看薄弱点、完成周末推荐课程与测评、查看报告并反馈至下周,PENDING,contains_pending_logic,False,True,False
-TC-033,全局控制与权限,P2,验证补做功能的时间边界：在补做期最后时刻（如周日23:59）与刚过期时（周一00:01）进行操作,REJECT,violates_confirmed_fact,True,False,False

@@ -1,2 +1,0 @@
-﻿candidate_index,case_id,description,test_module,model_priority_current,dropped_stage,dropped_reason,bucket,has_coverage_value,high_signal,covered_rule_ids
-27,TC-029,验证补做功能的时间边界：在补做期最后时刻（如周日23:59）与刚过期时（周一00:01）进行操作,全局控制与权限,P2,post_review_dedup_or_reorder,drop_post_review_dedup_or_reorder,全局控制与权限|boundary,True,True,"[""RULE-009"", ""RULE-049""]"
