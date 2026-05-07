@@ -2,13 +2,18 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type {
   CoverageResult,
+  FeedbackControlStateEvent,
   GenDiagEvent,
   GenDiagSummaryEvent,
+  GenerationContextCompressionEvent,
   GenerationConvergenceEvent,
+  GenerationQualityLedgerEvent,
   GenerationSummaryEvent,
   JudgeDecisionTableEvent,
   JudgeSummaryEvent,
+  MemoryFabricDiagEvent,
   ReviewDecisionSummaryEvent,
+  ReviewDecisionTableCompactEvent,
 } from './diagParser';
 import { parseGenDiagEvent } from './diagParser';
 
@@ -39,9 +44,14 @@ export type DebugState = {
   genDiag?: GenDiagSummaryEvent;
   generationConvergence?: GenerationConvergenceEvent;
   reviewDecisionSummary?: ReviewDecisionSummaryEvent;
+  reviewDecisionTableCompactRows?: Array<Record<string, unknown>>;
   judgeSummary?: JudgeSummaryEvent;
   judgeDecisionTableRows?: Array<Record<string, unknown>>;
   generationSummary?: GenerationSummaryEvent;
+  generationContextCompression?: GenerationContextCompressionEvent;
+  feedbackControlState?: FeedbackControlStateEvent;
+  generationQualityLedger?: GenerationQualityLedgerEvent;
+  memoryFabricDiag?: MemoryFabricDiagEvent;
   resultState?: ResultDebugState;
   lastUpdatedAt?: number;
   ingestDiag: (event: unknown) => void;
@@ -58,9 +68,14 @@ const INITIAL_STATE = {
   genDiag: undefined as GenDiagSummaryEvent | undefined,
   generationConvergence: undefined as GenerationConvergenceEvent | undefined,
   reviewDecisionSummary: undefined as ReviewDecisionSummaryEvent | undefined,
+  reviewDecisionTableCompactRows: undefined as Array<Record<string, unknown>> | undefined,
   judgeSummary: undefined as JudgeSummaryEvent | undefined,
   judgeDecisionTableRows: undefined as Array<Record<string, unknown>> | undefined,
   generationSummary: undefined as GenerationSummaryEvent | undefined,
+  generationContextCompression: undefined as GenerationContextCompressionEvent | undefined,
+  feedbackControlState: undefined as FeedbackControlStateEvent | undefined,
+  generationQualityLedger: undefined as GenerationQualityLedgerEvent | undefined,
+  memoryFabricDiag: undefined as MemoryFabricDiagEvent | undefined,
   resultState: undefined as ResultDebugState | undefined,
   lastUpdatedAt: undefined as number | undefined,
 };
@@ -158,9 +173,47 @@ function applyEvent(state: DebugState, event: GenDiagEvent): Partial<DebugState>
     };
   }
 
+  if (event.kind === 'review_decision_table_compact') {
+    const rows = Array.isArray((event as ReviewDecisionTableCompactEvent).rows)
+      ? (event as ReviewDecisionTableCompactEvent).rows?.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+      : [];
+    return {
+      reviewDecisionTableCompactRows: rows,
+      lastUpdatedAt: now,
+    };
+  }
+
   if (event.kind === 'generation_summary') {
     return {
       generationSummary: event,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'generation_context_compression') {
+    return {
+      generationContextCompression: event,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'feedback_control_state') {
+    return {
+      feedbackControlState: event,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'generation_quality_ledger') {
+    return {
+      generationQualityLedger: event,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'memory_fabric_diag') {
+    return {
+      memoryFabricDiag: event as MemoryFabricDiagEvent,
       lastUpdatedAt: now,
     };
   }
@@ -206,9 +259,14 @@ export const useRagDebugStore = create<DebugState>()(
         genDiag: state.genDiag,
         generationConvergence: state.generationConvergence,
         reviewDecisionSummary: state.reviewDecisionSummary,
+        reviewDecisionTableCompactRows: state.reviewDecisionTableCompactRows,
         judgeSummary: state.judgeSummary,
         judgeDecisionTableRows: state.judgeDecisionTableRows,
         generationSummary: state.generationSummary,
+        generationContextCompression: state.generationContextCompression,
+        feedbackControlState: state.feedbackControlState,
+        generationQualityLedger: state.generationQualityLedger,
+        memoryFabricDiag: state.memoryFabricDiag,
         resultState: state.resultState,
         lastUpdatedAt: state.lastUpdatedAt,
       }),

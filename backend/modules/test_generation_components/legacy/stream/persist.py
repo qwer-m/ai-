@@ -12,6 +12,8 @@ from modules.testing.test_generation_components.prompting.prompt_orchestration i
 )
 from modules.testing.test_generation_components.postprocess.result_postprocess import (
     merge_cases_for_append,
+    normalize_final_case_priorities,
+    strip_case_meta_fields,
     stream_postprocess_cases,
 )
 from modules.testing.test_generation_components.legacy.adapters import (
@@ -43,6 +45,86 @@ def _render_stop_reason_text(stop_reasons: list[Any]) -> str:
             continue
         labels.append(label)
     return "；".join(labels)
+
+
+def _build_quality_ledger_payload(
+    *,
+    generation_id: int | None,
+    request_id: str,
+    mode: str,
+    stage_counts: dict[str, Any],
+    coverage_payload: dict[str, Any],
+    convergence_payload: dict[str, Any],
+    generation_summary_payload: dict[str, Any],
+    review_decision_summary_payload: dict[str, Any],
+    judge_summary_payload: dict[str, Any],
+    feedback_control_debug_payload: dict[str, Any],
+    compression_diag_payload: dict[str, Any],
+    context_result: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a compact evidence ledger for one generation run."""
+    context_debug = dict((context_result or {}).get("context_debug") or {})
+    fusion_debug = dict((context_result or {}).get("fusion_debug") or {})
+    context_source = str((context_result or {}).get("context_source") or "").strip()
+    compression_source = str(compression_diag_payload.get("context_source") or "").strip()
+    missing_types = coverage_payload.get("missing_types") if isinstance(coverage_payload.get("missing_types"), dict) else {}
+    return {
+        "kind": "generation_quality_ledger",
+        "generation_id": int(generation_id or 0),
+        "request_id": str(request_id or ""),
+        "generation_mode": str(mode or ""),
+        "final_count": int(generation_summary_payload.get("final_count") or convergence_payload.get("final_count") or 0),
+        "quality_assessment": str(generation_summary_payload.get("quality_assessment") or ""),
+        "stop_reason": list(generation_summary_payload.get("stop_reason") or []),
+        "coverage": {
+            "coverage_rate": float(coverage_payload.get("coverage_rate") or 0.0),
+            "total_rules": int(coverage_payload.get("total_rules") or 0),
+            "total_extracted_rules": int(coverage_payload.get("total_extracted_rules") or coverage_payload.get("total_rules") or 0),
+            "missing_rules_count": int(len(coverage_payload.get("missing_rules") or [])),
+            "missing_boundary_count": int(len(missing_types.get("boundary") or [])),
+            "missing_exception_count": int(len(missing_types.get("exception") or [])),
+            "non_blocking_rules_count": int(len(coverage_payload.get("non_blocking_rules") or [])),
+        },
+        "funnel": {
+            "primary_count": int(stage_counts.get("primary") or convergence_payload.get("primary_count") or 0),
+            "gap_count": int(stage_counts.get("gap") or convergence_payload.get("gap_count") or 0),
+            "review_count": int(stage_counts.get("review") or convergence_payload.get("review_count") or 0),
+            "candidate_count_before_review": int(convergence_payload.get("candidate_count_before_review") or 0),
+            "review_selected_count": int(convergence_payload.get("review_selected_count") or 0),
+            "post_review_dedup_drop": int(convergence_payload.get("post_review_dedup_drop") or 0),
+            "low_quality_dropped_count": int(convergence_payload.get("low_quality_dropped_count") or 0),
+            "semantic_dedup_dropped_count": int(convergence_payload.get("semantic_dedup_dropped_count") or 0),
+        },
+        "review": {
+            "candidate_total": int(review_decision_summary_payload.get("candidate_total") or 0),
+            "retained_total": int(review_decision_summary_payload.get("retained_total") or 0),
+            "drop_by_review_llm_count": int(review_decision_summary_payload.get("drop_by_review_llm_count") or 0),
+            "drop_by_review_gate_count": int(review_decision_summary_payload.get("drop_by_review_gate_count") or 0),
+            "drop_by_post_review_dedup_count": int(
+                review_decision_summary_payload.get("drop_by_post_review_dedup_count") or 0
+            ),
+        },
+        "judge": {
+            "total": int(judge_summary_payload.get("total") or judge_summary_payload.get("input_count") or 0),
+            "rejected_out_count": int(judge_summary_payload.get("rejected_out_count") or 0),
+            "pending_out_count": int(judge_summary_payload.get("pending_out_count") or 0),
+        },
+        "context": {
+            "snapshot_status": str(context_debug.get("snapshot_status") or ""),
+            "snapshot_used": bool(context_debug.get("snapshot_used")),
+            "realtime_rag_used": bool(context_debug.get("realtime_rag_used")),
+            "current_document_used": bool(context_debug.get("current_document_used")),
+            "fusion_mode": str(fusion_debug.get("mode") or context_source or compression_source or ""),
+            "compression_ratio": compression_diag_payload.get("compression_ratio"),
+            "retained_chunk_count": int(compression_diag_payload.get("retained_chunk_count") or 0),
+        },
+        "control": {
+            "control_state_applied": bool(feedback_control_debug_payload.get("control_state_applied")),
+            "generation_coverage_mode": str(feedback_control_debug_payload.get("generation_coverage_mode") or ""),
+            "must_cover_rules_count": int(feedback_control_debug_payload.get("must_cover_rules_count") or 0),
+            "quality_fix_hints_count": int(feedback_control_debug_payload.get("quality_fix_hints_count") or 0),
+        },
+    }
 
 
 def _judge_status_key(row: dict[str, Any]) -> str:
@@ -306,6 +388,8 @@ class LegacyGenerationStreamPersistMixin:
                 yield "\n@@STATUS@@:鐢熸垚澶辫触\n"
                 yield "Error: 妯″瀷杩斿洖绌虹粨鏋滄垨瑙ｆ瀽涓嶅埌鏈夋晥鐢ㄤ緥锛岃妫€鏌ユā鍨嬮厤缃?鎻愮ず璇?缃戠粶鍚庨噸璇昞n"
 
+            parsed_result = normalize_final_case_priorities(parsed_result, requirement_text=requirement)
+            parsed_result = strip_case_meta_fields(parsed_result)
             cleaned_response = json.dumps(parsed_result, ensure_ascii=False)
             persisted_generation_id: int | None = None
 
@@ -674,6 +758,30 @@ class LegacyGenerationStreamPersistMixin:
                         yield "@@STATUS@@:已达到质量停止条件\n"
                         yield "@@STATUS@@:当前为最优测试用例集合\n"
                         yield "@@STATUS@@:继续生成将降低质量或增加冗余\n"
+
+                quality_ledger_payload = _build_quality_ledger_payload(
+                    generation_id=persisted_generation_id,
+                    request_id=request_id,
+                    mode=generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    stage_counts=stage_counts,
+                    coverage_payload=coverage_payload,
+                    convergence_payload=convergence_payload,
+                    generation_summary_payload=generation_summary_payload,
+                    review_decision_summary_payload=review_decision_summary_payload,
+                    judge_summary_payload=judge_summary_payload,
+                    feedback_control_debug_payload=feedback_control_debug_payload,
+                    compression_diag_payload=compression_diag_payload,
+                    context_result=context_result if isinstance(context_result, dict) else {},
+                )
+                db.add(
+                    LogEntry(
+                        project_id=project_id,
+                        log_type="system",
+                        message=f"GEN_DIAG:{json.dumps(quality_ledger_payload, ensure_ascii=False)}",
+                        user_id=user_id,
+                    )
+                )
+                yield f"GEN_DIAG:{json.dumps(quality_ledger_payload, ensure_ascii=False)}\n"
 
                 # 中文注释：记录覆盖检查日志。
                 if coverage_payload:

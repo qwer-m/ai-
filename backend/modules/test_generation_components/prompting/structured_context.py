@@ -729,6 +729,8 @@ def _build_control_context(
         max_value=0.60,
     )
     preferred_quota_active = bool(strong_preferred_quota_enabled and state.preferred_patterns)
+    generation_profile = dict((state.source_meta or {}).get("generation_coverage_profile") or {})
+    generation_coverage_mode = str(generation_profile.get("coverage_mode") or "").strip()
     summary = {
         "control_state_applied": bool(state.has_signals()),
         "must_cover_rules_count": int(len(state.must_cover_rules)),
@@ -744,6 +746,9 @@ def _build_control_context(
         "preferred_quota_variant": "B" if preferred_quota_active else "A",
         "preferred_flow_case_quota": int(preferred_flow_case_quota) if preferred_quota_active else 0,
         "ui_case_ratio_cap": float(ui_case_ratio_cap),
+        "generation_coverage_mode": generation_coverage_mode,
+        "generation_case_density": str(generation_profile.get("case_density") or "").strip(),
+        "generation_target_case_range": dict(generation_profile.get("target_case_range") or {}),
         "source_meta": dict(state.source_meta or {}),
     }
 
@@ -754,6 +759,7 @@ def _build_control_context(
         or state.forbidden_patterns
         or state.preferred_patterns
         or state.reuse_risks
+        or generation_coverage_mode
         or (include_soft_constraints_in_text and state.soft_constraints)
         or (include_quality_fix_hints_in_text and state.quality_fix_hints)
     )
@@ -802,6 +808,23 @@ def _build_control_context(
         lines.extend([f"* {item}" for item in state.reuse_risks])
     else:
         lines.append("* (none)")
+
+    if generation_coverage_mode:
+        target_range = dict(generation_profile.get("target_case_range") or {})
+        lines.append("")
+        lines.append("### GENERATION COVERAGE MODE")
+        lines.append(f"* mode: {generation_coverage_mode}")
+        if target_range:
+            lines.append(
+                f"* target case range: {int(target_range.get('min') or 0)}-{int(target_range.get('max') or 0)}"
+            )
+        lines.append("* Use this as a coverage-density strategy, not a quota.")
+        if generation_coverage_mode == "full_functional_regression":
+            lines.append("* Expand module x state x exception x cross-module coverage before stopping.")
+        elif generation_coverage_mode == "standard_regression":
+            lines.append("* Balance core flow, state transitions, boundary/exception, and regression coverage.")
+        else:
+            lines.append("* Keep a compact high-value core set.")
 
     if preferred_quota_active:
         lines.append("")

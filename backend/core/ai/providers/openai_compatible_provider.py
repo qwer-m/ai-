@@ -26,6 +26,7 @@ class OpenAICompatibleProvider(BaseModelProvider):
             self.base_url += "/v1"
         self.api_key = api_key or "sk-placeholder"
         self.model = model
+        self.last_response_metadata: Dict[str, Any] = {}
 
     def _http_timeout(self) -> httpx.Timeout:
         raw = str(os.getenv("OPENAI_COMPAT_HTTP_TIMEOUT_SECONDS", os.getenv("AI_HTTP_TIMEOUT_SECONDS", "90"))).strip()
@@ -182,6 +183,11 @@ class OpenAICompatibleProvider(BaseModelProvider):
     def generate(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None) -> str:
         target_model = model or self.model
         resolved_max_tokens = self._normalize_max_tokens(max_tokens, target_model)
+        self.last_response_metadata = {
+            "model": target_model,
+            "wire_api": self.wire_api,
+            "max_tokens": resolved_max_tokens,
+        }
 
         if self.wire_api == "responses":
             url = f"{self.base_url}/responses"
@@ -210,16 +216,49 @@ class OpenAICompatibleProvider(BaseModelProvider):
         try:
             with httpx.Client(timeout=self._http_timeout()) as client:
                 resp = client.post(url, headers=headers, json=payload)
+                self.last_response_metadata.update(
+                    {
+                        "http_status": resp.status_code,
+                        "url_path": "/responses" if self.wire_api == "responses" else "/chat/completions",
+                    }
+                )
                 if resp.status_code == 200:
                     data = resp.json()
                     if self.wire_api == "responses":
                         text = self._extract_responses_text(data)
+                        self.last_response_metadata.update(
+                            {
+                                "content_len": len(text or ""),
+                                "raw_keys": list(data.keys())[:20],
+                            }
+                        )
                         if text:
                             return text
-                        return self._responses_stream_collect_text(payload)
-                    return data["choices"][0]["message"]["content"]
+                        streamed_text = self._responses_stream_collect_text(payload)
+                        self.last_response_metadata["stream_fallback_content_len"] = len(streamed_text or "")
+                        return streamed_text
+                    choice0 = (data.get("choices") or [{}])[0] or {}
+                    message = choice0.get("message") or {}
+                    content = message.get("content") or ""
+                    reasoning_content = message.get("reasoning_content") or ""
+                    self.last_response_metadata.update(
+                        {
+                            "finish_reason": choice0.get("finish_reason"),
+                            "content_len": len(str(content or "")),
+                            "reasoning_len": len(str(reasoning_content or "")),
+                            "message_keys": list(message.keys())[:20],
+                        }
+                    )
+                    return content
+                self.last_response_metadata["error_preview"] = resp.text[:500]
                 return f"Error: HTTP {resp.status_code} - {resp.text}"
         except Exception as e:
+            self.last_response_metadata.update(
+                {
+                    "exception_type": type(e).__name__,
+                    "exception": str(e)[:500],
+                }
+            )
             return f"Exception occurred: {str(e)}"
 
     def generate_stream(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None):

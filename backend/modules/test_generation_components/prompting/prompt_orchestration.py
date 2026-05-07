@@ -161,6 +161,46 @@ def _dump_cases_for_prompt(cases: list[dict[str, Any]], max_items: int = 60) -> 
     return json.dumps(payload, ensure_ascii=False)
 
 
+def _compact_case_for_review_prompt(case: dict[str, Any]) -> dict[str, Any]:
+    """Keep review prompts stable by excluding postprocess/debug metadata."""
+
+    def _clip(value: Any, limit: int) -> str:
+        text = str(value or "").strip()
+        if len(text) <= limit:
+            return text
+        return text[:limit].rstrip() + "..."
+
+    steps_raw = case.get("steps")
+    steps: list[str] = []
+    if isinstance(steps_raw, list):
+        steps = [_clip(item, 120) for item in steps_raw[:5] if str(item or "").strip()]
+    elif str(steps_raw or "").strip():
+        steps = [_clip(steps_raw, 240)]
+
+    return {
+        "id": str(case.get("id") or case.get("case_id") or "").strip(),
+        "description": _clip(case.get("description"), 180),
+        "test_module": _clip(case.get("test_module"), 80),
+        "priority": str(case.get("priority_final") or case.get("priority") or "").strip().upper(),
+        "steps": steps,
+        "test_input": _clip(case.get("test_input"), 120),
+        "expected_result": _clip(case.get("expected_result"), 220),
+    }
+
+
+def _dump_review_cases_for_prompt(cases: list[dict[str, Any]], max_items: int = 120) -> str:
+    payload = [
+        _compact_case_for_review_prompt(item)
+        for item in cases
+        if isinstance(item, dict)
+    ][:max(1, int(max_items))]
+    if not payload:
+        return "[]"
+    import json
+
+    return json.dumps(payload, ensure_ascii=False)
+
+
 def _build_coverage_gap_text(
     *,
     coverage_result: dict[str, Any] | None,
@@ -263,7 +303,7 @@ def build_review_select_prompt(
     target_count = max(1, int(target_count or 1))
     target_min_count = max(1, int(target_min_count or target_count))
     target_max_count = max(target_min_count, int(target_max_count or target_count))
-    candidate_text = _dump_cases_for_prompt(candidate_cases, max_items=120)
+    candidate_text = _dump_review_cases_for_prompt(candidate_cases, max_items=120)
     candidate_ids = [
         str(item.get("id") or item.get("case_id") or "").strip()
         for item in candidate_cases

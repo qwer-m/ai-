@@ -93,6 +93,50 @@ export type GenerationSummaryEvent = {
   status?: string;
 };
 
+export type GenerationContextCompressionEvent = {
+  kind: 'generation_context_compression';
+  compression_ratio?: number;
+  retained_chunk_count?: number;
+  relevance_distribution?: Record<string, unknown>;
+};
+
+export type FeedbackControlStateEvent = {
+  kind: 'feedback_control_state';
+  control_state_applied?: boolean;
+  generation_coverage_mode?: string;
+  must_cover_rules_count?: number;
+  quality_fix_hints_count?: number;
+  preferred_patterns_count?: number;
+  forbidden_patterns_count?: number;
+  source_meta?: Record<string, unknown>;
+};
+
+export type GenerationQualityLedgerEvent = {
+  kind: 'generation_quality_ledger';
+  generation_id?: number;
+  generation_mode?: string;
+  final_count?: number;
+  quality_assessment?: string;
+  stop_reason?: string[];
+  coverage?: Record<string, unknown>;
+  funnel?: Record<string, unknown>;
+  review?: Record<string, unknown>;
+  judge?: Record<string, unknown>;
+  context?: Record<string, unknown>;
+  control?: Record<string, unknown>;
+};
+
+export type ReviewDecisionTableCompactEvent = {
+  kind: 'review_decision_table_compact';
+  rows?: Array<Record<string, unknown>>;
+  row_count?: number;
+};
+
+export type MemoryFabricDiagEvent = {
+  kind: 'memory_fabric_diag';
+  [key: string]: unknown;
+};
+
 export type GenDiagEvent =
   | GenerationModeEvent
   | GenerationStageEvent
@@ -104,7 +148,12 @@ export type GenDiagEvent =
   | ReviewDecisionSummaryEvent
   | JudgeSummaryEvent
   | JudgeDecisionTableEvent
-  | GenerationSummaryEvent;
+  | GenerationSummaryEvent
+  | GenerationContextCompressionEvent
+  | FeedbackControlStateEvent
+  | GenerationQualityLedgerEvent
+  | ReviewDecisionTableCompactEvent
+  | MemoryFabricDiagEvent;
 
 const VALID_KINDS = new Set([
   'generation_mode',
@@ -118,6 +167,11 @@ const VALID_KINDS = new Set([
   'judge_summary',
   'judge_decision_table',
   'generation_summary',
+  'generation_context_compression',
+  'feedback_control_state',
+  'generation_quality_ledger',
+  'review_decision_table_compact',
+  'memory_fabric_diag',
 ]);
 
 export function parseGenDiagEvent(input: unknown): GenDiagEvent | null {

@@ -33,8 +33,11 @@ class AIClient:
         self.model = settings.MODEL_NAME
         self.turbo_model = settings.TURBO_MODEL_NAME
         self.vl_model = settings.VL_MODEL_NAME
+        self.review_model = str(getattr(settings, "REVIEW_MODEL_NAME", "") or "").strip()
         self.turbo_provider: BaseModelProvider | None = None
         self.vl_provider: BaseModelProvider | None = None
+        self.review_provider: BaseModelProvider | None = None
+        self.last_response_metadata: dict[str, Any] = {}
         self.max_tokens = getattr(settings, "MAX_TOKENS", 2000)
         if not self._provider:
             self._init_from_settings()
@@ -120,6 +123,26 @@ class AIClient:
             client.turbo_model = config.turbo_model_name
         if config.vl_model_name:
             client.vl_model = config.vl_model_name
+        review_meta = cls._read_target_meta(config, "review")
+        if isinstance(review_meta, dict):
+            review_model_name = str(review_meta.get("model_name") or "").strip()
+            if review_model_name:
+                client.review_model = review_model_name
+            if (
+                not bool(review_meta.get("follow_main", True))
+                and client.review_model
+            ):
+                review_provider_name = str(review_meta.get("provider") or "").strip().lower()
+                review_api_key = cls._decrypt_metadata_key(review_meta.get("api_key"))
+                review_base_url = str(review_meta.get("base_url") or "").strip() or None
+                review_provider = cls._build_provider_by_name(
+                    review_provider_name,
+                    api_key=review_api_key,
+                    base_url=review_base_url,
+                    model_name=client.review_model,
+                )
+                if review_provider:
+                    client.review_provider = review_provider
         turbo_meta = cls._read_target_meta(config, "turbo")
         if (
             isinstance(turbo_meta, dict)
@@ -164,12 +187,14 @@ class AIClient:
         """鎸変换鍔＄被鍨嬮€夋嫨妯″瀷锛屼繚鎸佸巻鍙插垎閰嶇瓥鐣ヤ笉鍙樸€?"""
         if not self._provider:
             return self.model
+        if task_type == "review" and self.review_model:
+            return self.review_model
+        if task_type in ["compression", "summary"] and self.turbo_model:
+            return self.turbo_model
+        if task_type == "ocr" and self.vl_model:
+            return self.vl_model
         if isinstance(self._provider, OpenAICompatibleProvider):
             return self._provider.model
-        if task_type in ["compression", "summary"]:
-            return self.turbo_model
-        if task_type == "ocr":
-            return self.vl_model
         return self.model
     def generate_response(
         self,
@@ -198,3 +223,18 @@ class AIClient:
         target_model = model
         if not target_model:
             target_model = self.select_model((system_prompt or "") + user_input, task_type)
+        target_provider = self.provider
+        if (
+            task_type == "review"
+            and self.review_provider
+            and (not model or target_model == self.review_model)
+        ):
+            target_provider = self.review_provider
+        elif (
+            task_type in {"compression", "summary"}
+            and self.turbo_provider
+            and (not model or target_model == self.turbo_model)
+        ):
+            target_provider = self.turbo_provider
+        if not target_provider:
+            return "Error: AI Provider not configured."

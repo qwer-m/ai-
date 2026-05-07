@@ -55,6 +55,18 @@ def _retry_payload_only_kept(keep_count: int) -> str:
     return json.dumps({"kept_case_ids": kept_ids}, ensure_ascii=False)
 
 
+def _reason_repair_payload(start: int, end: int) -> str:
+    return json.dumps(
+        {
+            "dropped": [
+                {"case_id": f"TC-{i:03d}", "reason": "coverage_redundant"}
+                for i in range(start, end + 1)
+            ]
+        },
+        ensure_ascii=False,
+    )
+
+
 def _retry_payload_with_partial_unmapped_dropped() -> str:
     return json.dumps(
         {
@@ -70,9 +82,16 @@ def _retry_payload_with_partial_unmapped_dropped() -> str:
 
 
 class _ReplayClient:
-    def __init__(self, *, primary_review_response: str, retry_review_response: str) -> None:
+    def __init__(
+        self,
+        *,
+        primary_review_response: str,
+        retry_review_response: str,
+        reason_repair_response: str = "",
+    ) -> None:
         self.primary_review_response = str(primary_review_response or "")
         self.retry_review_response = str(retry_review_response or "")
+        self.reason_repair_response = str(reason_repair_response or "")
         self.model = "deepseek-reasoner"
         self.turbo_model = "deepseek-chat"
 
@@ -80,7 +99,9 @@ class _ReplayClient:
         return "deepseek-reasoner"
 
     def generate_response(self, requirement: str, prompt: str, db: Any = None, **kwargs) -> str:  # noqa: ARG002
-        if str(prompt or "").strip() == "You are a QA Auditor.":
+        if str(prompt or "").strip().startswith("You are a QA Auditor."):
+            if "REVIEW REASON REPAIR ONLY" in str(requirement or "") and self.reason_repair_response:
+                return self.reason_repair_response
             if str(kwargs.get("model") or "").strip():
                 return self.retry_review_response
             return self.primary_review_response
@@ -190,6 +211,24 @@ def test_retry_on_schema_parse_error_payload() -> None:
     assert int(reason_source_breakdown.get("fallback") or 0) > 0
 
 
+def test_empty_primary_response_retries_same_review_model_with_compact_prompt() -> None:
+    client = _ReplayClient(
+        primary_review_response="Error: Empty response from model deepseek-reasoner",
+        retry_review_response=_valid_retry_payload(keep_count=4, total_count=18),
+    )
+    result = _run_review_replay(client, case_count=18)
+    summary = dict((result or {}).get("review_decision_summary") or {})
+    runtime = dict(summary.get("review_llm_runtime_debug") or {})
+
+    assert summary.get("review_llm_filter_applied") is True
+    assert runtime.get("primary_invalid_reason") == "error_response"
+    assert runtime.get("primary_compact_retry_invoked") is True
+    assert runtime.get("primary_compact_retry_invalid_reason") == ""
+    assert runtime.get("retry_parse_success") is True
+    assert runtime.get("final_source") == "primary_compact_retry"
+    assert int(runtime.get("retry_mapped_count") or 0) > 0
+
+
 def test_retry_valid_selection_but_without_dropped_reasons_marks_incomplete() -> None:
     client = _ReplayClient(
         primary_review_response="NOT_JSON_PAYLOAD",
@@ -277,8 +316,35 @@ def test_primary_valid_payload_without_dropped_reasons_marks_primary_reason_inco
     assert summary.get("review_llm_filter_applied") is True
     assert runtime.get("final_source") == "primary_llm"
     assert runtime.get("primary_reason_incomplete") is True
+    assert runtime.get("final_reason_incomplete") is True
+    assert runtime.get("applied_reason") == "mapped_valid_payload_reason_incomplete"
     assert int(runtime.get("primary_dropped_reason_count") or 0) == 0
     assert float(runtime.get("primary_reason_coverage_ratio") or 0.0) == 0.0
     assert summary.get("primary_reason_incomplete") is True
+    assert summary.get("final_reason_incomplete") is True
+    assert float(summary.get("final_reason_coverage_ratio") or 0.0) == 0.0
     assert int(summary.get("primary_dropped_reason_count") or 0) == 0
     assert float(summary.get("primary_reason_coverage_ratio") or 0.0) == 0.0
+
+
+def test_reason_repair_fills_dropped_reasons_without_changing_selection() -> None:
+    client = _ReplayClient(
+        primary_review_response=_retry_payload_only_kept(keep_count=6),
+        retry_review_response="",
+        reason_repair_response=_reason_repair_payload(start=7, end=14),
+    )
+    result = _run_review_replay(client, case_count=14)
+    summary = dict((result or {}).get("review_decision_summary") or {})
+    runtime = dict(summary.get("review_llm_runtime_debug") or {})
+
+    assert summary.get("review_llm_filter_applied") is True
+    assert runtime.get("final_source") == "primary_llm"
+    assert runtime.get("reason_repair_invoked") is True
+    assert int(runtime.get("reason_repair_mapped_count") or 0) > 0
+    assert runtime.get("reason_repair_invalid_reason") == ""
+    assert runtime.get("final_reason_incomplete") is False
+    assert float(runtime.get("final_reason_coverage_ratio") or 0.0) > 0.0
+    assert summary.get("final_reason_incomplete") is False
+    assert float(summary.get("final_reason_coverage_ratio") or 0.0) > 0.0
+    assert int(summary.get("drop_by_review_llm_count") or 0) > 0
+    assert int((summary.get("reason_source_breakdown") or {}).get("primary") or 0) > 0

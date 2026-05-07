@@ -270,17 +270,6 @@ def normalize_priority_sample(sample: dict[str, Any]) -> dict[str, Any]:
     quality = _pattern_quality_score(summary)
     weight = _pattern_weight(normalized, summary, quality, source)
     cluster_key = _pattern_cluster_key(normalized, canonical, summary)
-    normalized["pattern_summary"] = summary
-    normalized["pattern_canonical"] = canonical
-    normalized["pattern_cluster_key"] = cluster_key
-    normalized["pattern_source"] = source
-    normalized["pattern_quality_score"] = quality
-    normalized["pattern_weight"] = weight
-    status = _sanitize_text(
-        _sample_value(normalized, "governance_status", "pattern_status", "patternStatus"),
-        max_len=16,
-    ).lower()
-    normalized["governance_status"] = "disabled" if status == "disabled" else "active"
     signal_type = _normalize_signal_type(
         _sample_value(
             normalized,
@@ -296,6 +285,27 @@ def normalize_priority_sample(sample: dict[str, Any]) -> dict[str, Any]:
             "sampleKind",
         )
     )
+    normalized["pattern_summary"] = summary
+    normalized["pattern_canonical"] = canonical
+    normalized["pattern_cluster_key"] = cluster_key
+    normalized["pattern_source"] = source
+    pattern_scope = _sanitize_text(
+        _sample_value(normalized, "pattern_scope", "patternScope"),
+        max_len=40,
+    ).lower()
+    normalized["pattern_scope"] = pattern_scope or "project"
+    pattern_grain = _sanitize_text(
+        _sample_value(normalized, "pattern_grain", "patternGrain"),
+        max_len=40,
+    ).lower()
+    normalized["pattern_grain"] = pattern_grain or ("pattern" if signal_type == "positive" else "anti_pattern")
+    normalized["pattern_quality_score"] = quality
+    normalized["pattern_weight"] = weight
+    status = _sanitize_text(
+        _sample_value(normalized, "governance_status", "pattern_status", "patternStatus"),
+        max_len=16,
+    ).lower()
+    normalized["governance_status"] = "disabled" if status == "disabled" else "active"
     normalized["signal_type"] = signal_type
     normalized["pattern_usage"] = _normalize_pattern_usage(
         _sample_value(normalized, "pattern_usage", "patternUsage"),
@@ -378,6 +388,8 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
     pattern_canonical = _sanitize_text(sample.get("pattern_canonical"), max_len=_MAX_PATTERN_CANONICAL_LEN)
     pattern_cluster_key = _sanitize_text(sample.get("pattern_cluster_key"), max_len=_MAX_PATTERN_CLUSTER_LEN)
     pattern_source = _sanitize_text(sample.get("pattern_source"), max_len=20)
+    pattern_scope = _sanitize_text(_sample_value(sample, "pattern_scope", "patternScope"), max_len=40).lower()
+    pattern_grain = _sanitize_text(_sample_value(sample, "pattern_grain", "patternGrain"), max_len=40).lower()
     governance_status = _sanitize_text(sample.get("governance_status"), max_len=16).lower() or "active"
     signal_type = _normalize_signal_type(
         _sample_value(
@@ -417,6 +429,8 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
             f"pattern_category:{pattern_category}" if pattern_category else "",
             f"signal:{signal_type}",
             f"usage:{pattern_usage}",
+            f"scope:{pattern_scope}" if pattern_scope else "",
+            f"grain:{pattern_grain}" if pattern_grain else "",
             f"expected:{expected_priority}" if expected_priority else "",
             f"comment:{comment}" if comment else "",
             f"case:{case_id}" if case_id else "",
@@ -433,6 +447,8 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
             "pattern_canonical": pattern_canonical,
             "pattern_cluster_key": pattern_cluster_key,
             "pattern_source": pattern_source,
+            "pattern_scope": pattern_scope or "project",
+            "pattern_grain": pattern_grain or ("pattern" if signal_type == "positive" else "anti_pattern"),
             "governance_status": "disabled" if governance_status == "disabled" else "active",
             "signal_type": signal_type,
             "pattern_usage": pattern_usage,
@@ -581,6 +597,8 @@ def retrieve_priority_sample_patterns(
                 "pattern_canonical": _sanitize_text(metadata.get("pattern_canonical"), max_len=_MAX_PATTERN_CANONICAL_LEN),
                 "pattern_cluster_key": _sanitize_text(metadata.get("pattern_cluster_key"), max_len=_MAX_PATTERN_CLUSTER_LEN),
                 "pattern_source": _sanitize_text(metadata.get("pattern_source"), max_len=20),
+                "pattern_scope": _sanitize_text(metadata.get("pattern_scope"), max_len=40).lower() or "project",
+                "pattern_grain": _sanitize_text(metadata.get("pattern_grain"), max_len=40).lower() or "case",
                 "governance_status": _sanitize_text(metadata.get("governance_status"), max_len=16).lower() or "active",
                 "signal_type": _normalize_signal_type(metadata.get("signal_type")),
                 "pattern_usage": _normalize_pattern_usage(
@@ -694,6 +712,9 @@ def load_priority_sample_pool(
         payload = json.loads(doc.content or "{}")
         if not isinstance(payload, dict):
             return None
+        samples = payload.get("samples")
+        if isinstance(samples, list):
+            payload["samples"] = normalize_priority_samples(samples, max_items=5000)
         payload["artifact_doc_id"] = doc.id
         payload["artifact_filename"] = doc.filename
         return payload

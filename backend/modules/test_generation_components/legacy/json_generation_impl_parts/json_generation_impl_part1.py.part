@@ -29,6 +29,10 @@ from modules.testing.test_generation_components.prompting.structured_context imp
 from modules.testing.test_generation_components.control.build_feedback_control_state import (
     build_feedback_control_state,
 )
+from modules.testing.test_generation_components.control.generation_mode_activation import (
+    merge_generation_mode_control_state,
+    resolve_linked_final_case_signal,
+)
 from modules.testing.test_generation_components.postprocess.result_postprocess import (
     finalize_generated_cases,
     merge_cases_for_append,
@@ -89,6 +93,12 @@ class LegacyGenerationJsonMixin:
         context_result: dict[str, Any] | None = None
         gate_result: dict[str, Any] | None = None
         feedback_control_state: dict[str, Any] = {}
+        linked_final_case_signal = resolve_linked_final_case_signal(
+            db=db,
+            project_id=project_id,
+            user_id=user_id,
+            requirement_text=original_requirement,
+        )
         memory_diag: dict[str, Any] = init_memory_diag()
         memory_fabric = None
         try:
@@ -207,16 +217,21 @@ class LegacyGenerationJsonMixin:
             fusion_debug["final_generation_context_mode"] = context_result.get("context_source") or "empty"
             context_result["fusion_debug"] = fusion_debug
             kb_context = context_result.get("kb_context") or ""
-            feedback_control_state = build_feedback_control_state(
-                db=db,
-                project_id=project_id,
-                user_id=user_id,
+            feedback_control_state = merge_generation_mode_control_state(
+                build_feedback_control_state(
+                    db=db,
+                    project_id=project_id,
+                    user_id=user_id,
+                    requirement_text=original_requirement,
+                    enable_priority_sample_pool=bool(enable_sample_pool_feedback),
+                    include_agent_learning=True,
+                    memory_fabric=memory_fabric,
+                    memory_ctx=memory_ctx,
+                    memory_diag=memory_diag,
+                ),
                 requirement_text=original_requirement,
-                enable_priority_sample_pool=bool(enable_sample_pool_feedback),
-                include_agent_learning=True,
-                memory_fabric=memory_fabric,
-                memory_ctx=memory_ctx,
-                memory_diag=memory_diag,
+                expected_count=int(expected_count or 0),
+                linked_final_case_count=int(linked_final_case_signal.get("linked_final_case_count") or 0),
             ).to_dict()
             # 涓枃娉ㄩ噴锛氬懡涓€滀笂涓嬫枃鍏ㄧ┖鍏滃簳鈥濇椂锛岀洿鎺ョ粓姝紝閬垮厤妯″瀷鍦ㄦ棤鐭ヨ瘑涓婁笅鏂囦笅瑁歌窇銆?
             if context_result.get("abort_generation"):

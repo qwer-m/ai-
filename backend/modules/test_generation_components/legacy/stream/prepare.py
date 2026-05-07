@@ -13,6 +13,10 @@ from modules.testing.test_generation_components.prompting.generation_diagnostics
 from modules.testing.test_generation_components.control.build_feedback_control_state import (
     build_feedback_control_state,
 )
+from modules.testing.test_generation_components.control.generation_mode_activation import (
+    merge_generation_mode_control_state,
+    resolve_linked_final_case_signal,
+)
 from modules.testing.test_generation_components.legacy.adapters import (
     count_unique_test_cases,
     deduplicate_test_cases,
@@ -50,6 +54,12 @@ class LegacyGenerationStreamPrepareMixin:
 
         # Retrieve context from Knowledge Base if DB is available
         original_requirement = requirement
+        linked_final_case_signal = resolve_linked_final_case_signal(
+            db=db,
+            project_id=project_id,
+            user_id=user_id,
+            requirement_text=original_requirement,
+        )
         kb_context = ""
         context_result: dict[str, Any] = {}
         gate_debug: dict[str, Any] = {}
@@ -193,16 +203,21 @@ class LegacyGenerationStreamPrepareMixin:
             fusion_debug["final_generation_context_mode"] = context_result.get("context_source") or "empty"
             context_result["fusion_debug"] = fusion_debug
             kb_context = context_result.get("kb_context") or ""
-            feedback_control_state = build_feedback_control_state(
-                db=db,
-                project_id=project_id,
-                user_id=user_id,
+            feedback_control_state = merge_generation_mode_control_state(
+                build_feedback_control_state(
+                    db=db,
+                    project_id=project_id,
+                    user_id=user_id,
+                    requirement_text=original_requirement,
+                    enable_priority_sample_pool=bool(enable_sample_pool_feedback),
+                    include_agent_learning=True,
+                    memory_fabric=memory_fabric,
+                    memory_ctx=memory_ctx,
+                    memory_diag=memory_diag,
+                ),
                 requirement_text=original_requirement,
-                enable_priority_sample_pool=bool(enable_sample_pool_feedback),
-                include_agent_learning=True,
-                memory_fabric=memory_fabric,
-                memory_ctx=memory_ctx,
-                memory_diag=memory_diag,
+                expected_count=int(expected_count or 0),
+                linked_final_case_count=int(linked_final_case_signal.get("linked_final_case_count") or 0),
             ).to_dict()
 
             # 中文注释：向前端显式透出 snapshot 回退策略状态，避免将 not ready 误判为失败。
@@ -226,6 +241,7 @@ class LegacyGenerationStreamPrepareMixin:
                     or ""
                 ),
             }
+            context_result["context_debug"] = context_debug_payload
             yield f"@@CONTEXT_DEBUG@@:{json.dumps(context_debug_payload, ensure_ascii=False)}\n"
 
             for status_message in status_messages:
@@ -333,6 +349,12 @@ class LegacyGenerationStreamPrepareMixin:
                 except Exception:
                     pass
 
+        feedback_control_state = merge_generation_mode_control_state(
+            feedback_control_state,
+            requirement_text=original_requirement,
+            expected_count=int(expected_count or 0),
+            linked_final_case_count=int(linked_final_case_signal.get("linked_final_case_count") or 0),
+        ).to_dict()
 
         return {
             "abort": False,

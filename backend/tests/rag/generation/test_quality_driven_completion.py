@@ -213,3 +213,123 @@ def test_persist_status_reports_normal_completion_and_stop_reasons(monkeypatch) 
     assert review_summary_payload.get("candidate_total") == 1
     assert isinstance(review_table_payload, dict)
     assert int(review_table_payload.get("row_count") or 0) == 1
+
+
+def test_persist_strips_priority_debug_and_uses_final_priority(monkeypatch) -> None:
+    from modules.testing.test_generation_components.legacy.stream import persist as persist_module
+
+    def _fake_stream_postprocess_cases(**kwargs):
+        if False:
+            yield ""
+        return {
+            "cases": [
+                {
+                    **_build_case(1),
+                    "priority": "P0",
+                    "priority_final": "P1",
+                    "model_priority_current": "P0",
+                    "priority_decision_source": "conflict_resolved_by_core_business_rule",
+                }
+            ],
+            "stage_counts": {"primary": 1, "gap": 0, "review": 1},
+            "coverage": {"kind": "coverage_check", "missing_rules": [], "rule_diagnostics": []},
+            "generation_summary": {"final_count": 1, "status": "completed"},
+        }
+
+    monkeypatch.setattr(persist_module, "stream_postprocess_cases", _fake_stream_postprocess_cases)
+
+    state = {
+        "client": _NoBackfillClient(),
+        "requirement": "REQ",
+        "project_id": 1,
+        "db": _DummyDb(),
+        "doc_type": "requirement",
+        "compress": False,
+        "expected_count": 50,
+        "overwrite": False,
+        "append": False,
+        "user_id": 1001,
+        "original_requirement": "REQ",
+        "kb_context": "",
+        "start_id": 1,
+        "existing_cases": [],
+        "existing_entry": None,
+        "context_result": {},
+        "gate_debug": {},
+        "base_prompt": "BASE",
+        "full_content": "[]",
+        "existing_unique_count": 0,
+        "system_prompt": "",
+        "current_biz_key": "default",
+        "multi_pass": True,
+        "generation_mode": "multi_pass",
+    }
+
+    runner = _PersistRunner()
+    _drain_with_return(runner._stream_persist_phase(state=state))
+
+    stored = json.loads(state["db"].rows[0].generated_result)
+    assert stored[0]["priority"] == "P1"
+    assert "priority_final" not in stored[0]
+    assert "model_priority_current" not in stored[0]
+
+
+def test_persist_recalculates_priority_when_upstream_final_priority_was_stripped(monkeypatch) -> None:
+    from modules.testing.test_generation_components.legacy.stream import persist as persist_module
+
+    def _fake_stream_postprocess_cases(**kwargs):
+        if False:
+            yield ""
+        return {
+            "cases": [
+                {
+                    "id": "TC-010",
+                    "description": "学员信息表格-课后显示报告和历史记录按钮：课程完成后，信息表格显示「报告」和「历史记录」按钮",
+                    "test_module": "学员信息表格",
+                    "preconditions": ["选取一名已完成某课程的学员", "该课程有课后报告功能"],
+                    "steps": ["1. 进入课程管理页面", "2. 查看学习进度区域"],
+                    "test_input": "无",
+                    "expected_result": "学习进度区域显示最近完成的课程信息；显示「报告」按钮和「历史记录」按钮；点击后分别跳转到学习报告和学习历史页面。",
+                    "priority": "P0",
+                }
+            ],
+            "stage_counts": {"primary": 1, "gap": 0, "review": 1},
+            "coverage": {"kind": "coverage_check", "missing_rules": [], "rule_diagnostics": []},
+            "generation_summary": {"final_count": 1, "status": "completed"},
+        }
+
+    monkeypatch.setattr(persist_module, "stream_postprocess_cases", _fake_stream_postprocess_cases)
+
+    state = {
+        "client": _NoBackfillClient(),
+        "requirement": "近期课程和排课页面需要展示学习计划、学习报告、历史记录等入口，验证按钮跳转和状态展示。",
+        "project_id": 1,
+        "db": _DummyDb(),
+        "doc_type": "requirement",
+        "compress": False,
+        "expected_count": 50,
+        "overwrite": False,
+        "append": False,
+        "user_id": 1001,
+        "original_requirement": "REQ",
+        "kb_context": "",
+        "start_id": 1,
+        "existing_cases": [],
+        "existing_entry": None,
+        "context_result": {},
+        "gate_debug": {},
+        "base_prompt": "BASE",
+        "full_content": "[]",
+        "existing_unique_count": 0,
+        "system_prompt": "",
+        "current_biz_key": "default",
+        "multi_pass": True,
+        "generation_mode": "multi_pass",
+    }
+
+    runner = _PersistRunner()
+    _drain_with_return(runner._stream_persist_phase(state=state))
+
+    stored = json.loads(state["db"].rows[0].generated_result)
+    assert stored[0]["priority"] == "P1"
+    assert "priority_final" not in stored[0]

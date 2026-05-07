@@ -184,23 +184,7 @@ def _resolve_priority_conflict_to_final(
             "p2_cap_display_mapping_scenario",
         )
     ) or bool(score_result.get("structural_p2_signals"))
-    positive_p1_evidence = bool(
-        score_result.get("missing_rule_hits")
-        or score_result.get("core_rule_hits")
-        or score_result.get("unique_coverage_hits")
-        or int(score_result.get("coverage_gain_score") or 0) >= 8
-        or any(
-            reason in reasons
-            for reason in (
-                "important_non_blocking_flow",
-                "high_frequency_main_flow",
-                "main_workflow_hit",
-                "cross_page_flow_hit",
-                "state_transition_hit",
-                "reuse_risk_hit",
-            )
-        )
-    )
+    positive_p1_evidence = _has_positive_p1_evidence(score_result, reasons)
     has_p0_keyword = _contains_any(case_text, p0_keywords)
     has_p1_keyword = _contains_any(case_text, p1_keywords)
     has_p2_keyword = _contains_any(case_text, p2_keywords)
@@ -338,6 +322,45 @@ def _should_uplift_to_p1(case_meta: dict[str, Any]) -> tuple[bool, str, str, int
         return True, "coverage_gain", "coverage_gain", 6
 
     return False, "", "", 0
+
+
+def _has_positive_p1_evidence(score_result: dict[str, Any], reasons: list[str] | None = None) -> bool:
+    """Return true only for coverage/workflow evidence strong enough to keep P1.
+
+    A low-risk unique coverage hit alone means "new case", not "important case".
+    Without this guard, almost every selected display/config case can keep model P1.
+    """
+    reasons = [str(item) for item in (reasons or score_result.get("reasons") or [])]
+    missing_rule_hits = [str(item) for item in (score_result.get("missing_rule_hits") or []) if str(item).strip()]
+    core_rule_hits = [str(item) for item in (score_result.get("core_rule_hits") or []) if str(item).strip()]
+    unique_coverage_hits = [str(item) for item in (score_result.get("unique_coverage_hits") or []) if str(item).strip()]
+    coverage_gain_score = int(score_result.get("coverage_gain_score") or 0)
+    low_risk_only_covered = bool(score_result.get("low_risk_only_covered"))
+    structural_p2_signals = bool(score_result.get("structural_p2_signals"))
+    rule_risk_reasons = {
+        str(item).strip().lower()
+        for item in (score_result.get("rule_risk_reasons") or [])
+        if str(item).strip()
+    }
+    high_risk_coverage = bool(rule_risk_reasons.intersection({"high", "critical", "release_blocking"}))
+
+    if missing_rule_hits or core_rule_hits:
+        return not (low_risk_only_covered and coverage_gain_score <= 0 and not high_risk_coverage)
+    if unique_coverage_hits:
+        return bool(high_risk_coverage or coverage_gain_score >= 8)
+    if coverage_gain_score >= 8 and not (structural_p2_signals or low_risk_only_covered):
+        return True
+    return any(
+        reason in reasons
+        for reason in (
+            "important_non_blocking_flow",
+            "high_frequency_main_flow",
+            "main_workflow_hit",
+            "cross_page_flow_hit",
+            "state_transition_hit",
+            "reuse_risk_hit",
+        )
+    )
 
 
 def _normalize_score_result_for_debug_and_resolve(score_result: dict[str, Any]) -> dict[str, Any]:
@@ -555,23 +578,7 @@ def resolve_case_priority_decision(
                 "p2_cap_display_mapping_scenario",
             )
         )
-        positive_p1_evidence = bool(
-            missing_rule_hits
-            or core_rule_hits
-            or unique_coverage_hits
-            or int(coverage_gain_score) >= 8
-            or any(
-                reason in reasons
-                for reason in (
-                    "important_non_blocking_flow",
-                    "high_frequency_main_flow",
-                    "main_workflow_hit",
-                    "cross_page_flow_hit",
-                    "state_transition_hit",
-                    "reuse_risk_hit",
-                )
-            )
-        )
+        positive_p1_evidence = _has_positive_p1_evidence(score_result, reasons)
         if normalized_model == "P1" and positive_p1_evidence and not explicit_low_value:
             return _build_priority_decision(
                 priority_final="P1",
@@ -621,12 +628,20 @@ def apply_priority_semantics_to_case(
     coverage_context: dict[str, Any] | None = None,
     rule_diagnostics: dict[str, Any] | list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    model_priority = str(case.get("priority") or "").strip()
+    input_priority = str(case.get("priority") or "").strip()
+    model_priority = str(
+        case.get("model_priority_current")
+        or case.get("model_priority")
+        or input_priority
+    ).strip()
     normalized_model_priority = _normalize_existing_priority(model_priority)
+    normalized_input_priority = _normalize_existing_priority(input_priority)
     if not str(case.get("model_priority_current") or "").strip():
         case["model_priority_current"] = normalized_model_priority
     if not str(case.get("model_priority") or "").strip():
         case["model_priority"] = normalized_model_priority
+    if not str(case.get("legacy_priority") or "").strip():
+        case["legacy_priority"] = normalized_input_priority
     score_result = score_case_priority(
         case,
         coverage_context=coverage_context,
@@ -654,7 +669,6 @@ def apply_priority_semantics_to_case(
         case["priority"] = final_priority
     else:
         case["priority"] = normalized_model_priority
-    case["legacy_priority"] = str(case.get("priority") or "").strip().upper()
     case["priority_final"] = decision.get("priority_final")
     case["priority_decision_state"] = str(decision.get("priority_decision_state") or "undetermined")
     case["priority_decision_source"] = str(decision.get("priority_decision_source") or "insufficient_evidence")

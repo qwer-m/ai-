@@ -323,6 +323,8 @@ def test_normalize_priority_sample_generates_pattern_summary() -> None:
     assert summary
     assert "state_transition" in summary
     assert normalized.get("pattern_canonical")
+    assert normalized.get("pattern_scope") == "project"
+    assert normalized.get("pattern_grain") == "anti_pattern"
     assert float(normalized.get("pattern_quality_score") or 0) > 0
     assert float(normalized.get("pattern_weight") or 0) > 0
 
@@ -512,6 +514,123 @@ def test_priority_pool_selection_skips_disabled_patterns(monkeypatch) -> None:
     assert state.source_meta.get("retrieval_disabled_sample_count") == 1
     assert "RULE-2" in state.must_cover_rules
     assert "RULE-1" not in state.must_cover_rules
+
+
+def test_priority_pool_selection_skips_low_confidence_patterns(monkeypatch) -> None:
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 78,
+            "samples": [
+                {
+                    "case_id": "TC-1",
+                    "title": "RULE-1 weak learned pattern",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P1",
+                    "pattern_summary": "weak learned pattern",
+                    "signal_type": "positive",
+                    "pattern_confidence": 0.3,
+                },
+                {
+                    "case_id": "TC-2",
+                    "title": "RULE-2 strong learned pattern",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P1",
+                    "pattern_summary": "strong learned pattern",
+                    "signal_type": "positive",
+                    "pattern_confidence": 0.82,
+                },
+            ],
+        }
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+        requirement_text="",
+    )
+
+    assert state.source_meta.get("retrieval_low_confidence_sample_count") == 1
+    assert "RULE-2" in state.must_cover_rules
+    assert "RULE-1" not in state.must_cover_rules
+
+
+def test_priority_pool_query_selection_skips_low_confidence_patterns(monkeypatch) -> None:
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 79,
+            "samples": [
+                {
+                    "case_id": "TC-1",
+                    "title": "RULE-1 weak vector hit",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P1",
+                    "pattern_summary": "weak learned pattern",
+                    "signal_type": "positive",
+                    "pattern_confidence": 0.3,
+                },
+                {
+                    "case_id": "TC-2",
+                    "title": "RULE-2 strong vector hit",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P1",
+                    "pattern_summary": "strong learned pattern",
+                    "signal_type": "positive",
+                    "pattern_confidence": 0.82,
+                },
+            ],
+        }
+
+    def fake_retrieve_priority_sample_patterns(**_: object) -> list[dict[str, object]]:
+        return [{"sample_index": 0}, {"sample_index": 1}]
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+    monkeypatch.setattr(control_builder, "retrieve_priority_sample_patterns", fake_retrieve_priority_sample_patterns)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+        requirement_text="core flow",
+    )
+
+    assert state.source_meta.get("retrieval_low_confidence_sample_count") == 1
+    assert "RULE-2" in state.must_cover_rules
+    assert "RULE-1" not in state.must_cover_rules
+
+
+def test_priority_pool_source_meta_tracks_pattern_scope_and_grain(monkeypatch) -> None:
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 80,
+            "samples": [
+                {
+                    "case_id": "TC-1",
+                    "title": "RULE-1 reusable project pattern",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P1",
+                    "pattern_summary": "state consistency pattern",
+                    "signal_type": "positive",
+                    "pattern_scope": "project",
+                    "pattern_grain": "pattern",
+                    "pattern_confidence": 0.82,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+        requirement_text="",
+    )
+
+    assert state.source_meta.get("pattern_scope_distribution") == {"project": 1}
+    assert state.source_meta.get("pattern_grain_distribution") == {"pattern": 1}
+    assert "state consistency pattern" in state.preferred_patterns
 
 
 def test_priority_pool_selection_enforces_positive_min_quota_when_available(monkeypatch) -> None:

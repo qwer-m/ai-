@@ -24,6 +24,24 @@ _STOPWORDS = {
 }
 
 _BOUNDARY_HINTS = {"边界", "上限", "下限", "最大", "最小", "临界", "范围", "boundary", "max", "min"}
+_BOUNDARY_REQUIRED_HINTS = {
+    "边界",
+    "上限",
+    "下限",
+    "最大",
+    "最小",
+    "临界",
+    "超过",
+    "少于",
+    "至少",
+    "至多",
+    "最多",
+    "最少",
+    "boundary",
+    "max",
+    "min",
+}
+
 _EXCEPTION_HINTS = {"异常", "失败", "错误", "拒绝", "超时", "fail", "error", "exception", "invalid"}
 _RISK_HINTS = {"权限", "安全", "鉴权", "并发", "性能", "风控", "risk", "security", "permission", "performance"}
 
@@ -63,6 +81,16 @@ _HEADING_PATTERNS = (
     r".*说明$",
     r".*调整说明$",
 )
+
+_GENERIC_NON_BLOCKING_RULES = {
+    "页面布局与展示",
+    "页面布局展示",
+    "页面展示",
+    "布局展示",
+    "页面布局",
+    "展示说明",
+    "交互说明",
+}
 
 _OCR_CHAR_TRANSLATION = str.maketrans(
     {
@@ -123,6 +151,75 @@ def _has_rule_action_signal(line: str) -> bool:
     return any(hint.lower() in normalized for hint in _RULE_ACTION_HINTS)
 
 
+def _is_low_confidence_requirement_discussion(line: str) -> bool:
+    normalized = _normalize_text(line).strip()
+    if not normalized:
+        return True
+    lowered = normalized.lower()
+    explicit_tokens = (
+        "必须",
+        "禁止",
+        "不可",
+        "不能",
+        "应",
+        "需要",
+        "需",
+        "固定",
+        "只显示",
+        "不显示",
+        "隐藏",
+        "展示",
+        "显示",
+        "支持",
+        "保留",
+        "不保留",
+        "must",
+        "should",
+        "required",
+        "forbid",
+        "hide",
+        "show",
+        "display",
+        "support",
+        "keep",
+    )
+    has_explicit_signal = any(token in lowered for token in explicit_tokens)
+    uncertain_tokens = (
+        "是否",
+        "如何",
+        "怎么",
+        "吗",
+        "？",
+        "?",
+        "待确认",
+        "暂不确定",
+        "待定",
+        "本期不做",
+        "这一期不做",
+        "这期不做",
+        "不做",
+        "可能",
+        "可选",
+        "看情况",
+        "哈",
+    )
+    if "是否" in normalized and "已确认" not in normalized and "确认" not in normalized:
+        return True
+    if ("如何" in normalized or "怎么" in normalized) and "已确认" not in normalized and "确认" not in normalized:
+        return True
+    if any(token in normalized for token in uncertain_tokens) and not has_explicit_signal:
+        return True
+    if re.match(r"^[a-zA-Z]\s*[\.\)、)]", normalized) and re.search(
+        r"(没有按照|问题|需调整|需要调整|结构.*调整)", normalized
+    ):
+        return True
+    if normalized.startswith("这是") and not has_explicit_signal:
+        return True
+    if re.match(r"^[a-zA-Z]\s*[\.\)、)]", normalized) and not has_explicit_signal:
+        return True
+    return False
+
+
 def _tokenize(text: str, limit: int = 18) -> list[str]:
     tokens = re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z_][A-Za-z0-9_]{2,}", _normalize_text(text))
     output: list[str] = []
@@ -150,6 +247,59 @@ def _extract_rule_id(text: str) -> str | None:
     if not match:
         return None
     return match.group(0).upper().replace(" ", "")
+
+
+def _classify_requirement_rule(rule_text: str) -> dict[str, Any]:
+    """Classify extracted rules so diagnostics can keep context without over-blocking."""
+    normalized = _normalize_text(rule_text).strip()
+    lowered = normalized.lower()
+    if normalized in _GENERIC_NON_BLOCKING_RULES:
+        return {
+            "rule_level": "soft",
+            "confidence": "low",
+            "source_type": "generic_display_heading",
+            "blocking": False,
+            "non_blocking_reason": "generic_display_heading",
+        }
+    if any(re.fullmatch(pattern, normalized) for pattern in _HEADING_PATTERNS):
+        return {
+            "rule_level": "soft",
+            "confidence": "low",
+            "source_type": "section_heading",
+            "blocking": False,
+            "non_blocking_reason": "section_heading",
+        }
+    if normalized.endswith((":", "：")) and not _extract_rule_id(normalized):
+        return {
+            "rule_level": "soft",
+            "confidence": "low",
+            "source_type": "label_fragment",
+            "blocking": False,
+            "non_blocking_reason": "label_fragment",
+        }
+    if len(_tokenize(normalized, limit=8)) <= 1 and not _extract_rule_id(normalized):
+        return {
+            "rule_level": "soft",
+            "confidence": "low",
+            "source_type": "short_fragment",
+            "blocking": False,
+            "non_blocking_reason": "short_fragment",
+        }
+    if "原型" in normalized and not any(token in lowered for token in ("必须", "需要", "固定", "禁止", "支持")):
+        return {
+            "rule_level": "soft",
+            "confidence": "medium",
+            "source_type": "prototype_reference",
+            "blocking": False,
+            "non_blocking_reason": "prototype_reference",
+        }
+    return {
+        "rule_level": "hard",
+        "confidence": "high" if _extract_rule_id(normalized) or _has_rule_action_signal(normalized) else "medium",
+        "source_type": "confirmed_requirement",
+        "blocking": True,
+        "non_blocking_reason": "",
+    }
 
 
 def _extract_requirement_rules(requirement_context: str) -> list[dict[str, Any]]:
@@ -181,6 +331,8 @@ def _extract_requirement_rules(requirement_context: str) -> list[dict[str, Any]]
             continue
         if normalized.lower().startswith("priority:"):
             continue
+        if _is_low_confidence_requirement_discussion(normalized):
+            continue
         if not _has_rule_action_signal(normalized) and not _extract_rule_id(normalized):
             continue
 
@@ -194,7 +346,14 @@ def _extract_requirement_rules(requirement_context: str) -> list[dict[str, Any]]
             if key in seen:
                 continue
             seen.add(key)
-            rules.append({"rule_id": rule_id, "rule_text": segment, "biz_key": current_biz_key})
+            rules.append(
+                {
+                    "rule_id": rule_id,
+                    "rule_text": segment,
+                    "biz_key": current_biz_key,
+                    **_classify_requirement_rule(segment),
+                }
+            )
 
     if not rules:
         for sentence in re.split(r"[\n。；;]+", text):
@@ -206,7 +365,14 @@ def _extract_requirement_rules(requirement_context: str) -> list[dict[str, Any]]
             if key in seen:
                 continue
             seen.add(key)
-            rules.append({"rule_id": rule_id, "rule_text": normalized, "biz_key": "unknown"})
+            rules.append(
+                {
+                    "rule_id": rule_id,
+                    "rule_text": normalized,
+                    "biz_key": "unknown",
+                    **_classify_requirement_rule(normalized),
+                }
+            )
             if len(rules) >= 120:
                 break
 
@@ -247,7 +413,7 @@ def _detect_case_types(case_text: str) -> set[str]:
 def _required_types_for_rule(rule_text: str) -> set[str]:
     lowered = _normalize_text(rule_text).lower()
     required = {"happy"}
-    if any(keyword in lowered for keyword in _BOUNDARY_HINTS):
+    if any(keyword in lowered for keyword in _BOUNDARY_REQUIRED_HINTS):
         required.add("boundary")
     if any(keyword in lowered for keyword in _EXCEPTION_HINTS):
         required.add("exception")
@@ -282,10 +448,13 @@ def analyze_coverage(requirement_context: str, cases: list[dict[str, Any]]) -> d
     """中文注释：规则级覆盖诊断（可直接驱动 gap 阶段精准补漏）。"""
     normalized_cases = [item for item in (cases or []) if isinstance(item, dict)]
     rules = _extract_requirement_rules(requirement_context)
-    total_rules = len(rules)
+    blocking_rules = [rule for rule in rules if bool(rule.get("blocking", True))]
+    total_rules = len(blocking_rules)
     if total_rules <= 0:
         return {
             "total_rules": 0,
+            "total_extracted_rules": len(rules),
+            "non_blocking_rules": [rule.get("rule_id") for rule in rules if not bool(rule.get("blocking", True))],
             "covered_rules": [],
             "missing_rules": [],
             "rule_diagnostics": [],
@@ -309,21 +478,29 @@ def analyze_coverage(requirement_context: str, cases: list[dict[str, Any]]) -> d
             if _is_rule_hit(rule, case_text):
                 coverage_types.update(case_type_map[idx])
         covered = bool(coverage_types)
-        if covered:
+        blocking = bool(rule.get("blocking", True))
+        if covered and blocking:
             covered_rules.append(rule["rule_id"])
             missing_types = sorted(required_types - coverage_types)
-        else:
+        elif not covered and blocking:
             missing_rules.append(rule["rule_id"])
             missing_types = sorted(required_types)
-        if "boundary" in missing_types:
+        else:
+            missing_types = []
+        if blocking and "boundary" in missing_types:
             missing_boundary.append(rule["rule_id"])
-        if "exception" in missing_types:
+        if blocking and "exception" in missing_types:
             missing_exception.append(rule["rule_id"])
         diagnostics.append(
             {
                 "rule_id": rule["rule_id"],
                 "rule_text": rule["rule_text"],
                 "biz_key": rule.get("biz_key") or "unknown",
+                "rule_level": rule.get("rule_level") or ("hard" if blocking else "soft"),
+                "confidence": rule.get("confidence") or ("high" if blocking else "low"),
+                "source_type": rule.get("source_type") or "confirmed_requirement",
+                "blocking": blocking,
+                "non_blocking_reason": rule.get("non_blocking_reason") or "",
                 "covered": covered,
                 "coverage_types": sorted(coverage_types) if covered else [],
                 "missing_types": missing_types,
@@ -335,6 +512,8 @@ def analyze_coverage(requirement_context: str, cases: list[dict[str, Any]]) -> d
 
     return {
         "total_rules": total_rules,
+        "total_extracted_rules": len(rules),
+        "non_blocking_rules": [rule.get("rule_id") for rule in rules if not bool(rule.get("blocking", True))],
         "covered_rules": covered_rules,
         "missing_rules": missing_rules,
         "rule_diagnostics": diagnostics,

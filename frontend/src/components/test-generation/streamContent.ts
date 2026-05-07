@@ -1,6 +1,21 @@
 export function cleanStreamingContent(content: string) {
   if (!content) return '';
-  return content.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+  return content
+    .replace(/```json\s*/g, '')
+    .replace(/```\s*/g, '')
+    .split(/\r?\n/)
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      return !(
+        trimmed.startsWith('GEN_DIAG:')
+        || trimmed.startsWith('GEN_COVERAGE_DIAG:')
+        || trimmed.startsWith('@@STATUS@@:')
+        || trimmed.startsWith('@@CONTEXT_DEBUG@@:')
+        || trimmed.startsWith('@@DUPLICATE@@')
+      );
+    })
+    .join('\n');
 }
 
 export function getCopyContent(result: any, streamingContent: string) {

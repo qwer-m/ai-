@@ -55,3 +55,59 @@ def test_rule_match_supports_req_id_and_sentence() -> None:
     assert "REQ-100" in result["covered_rules"]
     assert "REQ-101" in result["missing_rules"]
     assert 0 <= result["coverage_rate"] <= 1
+
+
+def test_requirement_discussion_questions_do_not_become_hard_missing_rules() -> None:
+    requirement = """
+是否保留打印按钮
+按钮颜色要不要改？
+表如何展示?
+这个这一期不做单独的点击
+这是点击“编辑报告”时的异常
+b. 功能没有按照功能类型区分，结构需要调整
+必须隐藏旧入口
+固定显示本周学习时长排行榜
+"""
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "验证旧入口隐藏",
+            "test_module": "首页",
+            "preconditions": ["已登录"],
+            "steps": ["1. 打开首页"],
+            "test_input": "无",
+            "expected_result": "旧入口不可见，用户无法点击进入旧页面",
+            "priority": "P1",
+        }
+    ]
+
+    result = analyze_coverage(requirement, cases)
+    rule_texts = [str(item.get("rule_text") or "") for item in result["rule_diagnostics"]]
+
+    assert not any("是否保留打印按钮" in text for text in rule_texts)
+    assert not any("按钮颜色要不要改" in text for text in rule_texts)
+    assert not any("表如何展示" in text for text in rule_texts)
+    assert not any("这一期不做" in text for text in rule_texts)
+    assert not any("这是点击" in text for text in rule_texts)
+    assert not any("功能没有按照功能类型区分" in text for text in rule_texts)
+    assert any("必须隐藏旧入口" in text for text in rule_texts)
+    assert any("固定显示本周学习时长排行榜" in text for text in rule_texts)
+
+
+def test_generic_display_headings_are_diagnostic_not_blocking_rules() -> None:
+    requirement = """
+页面布局与展示
+必须隐藏旧入口
+"""
+    cases = []
+
+    result = analyze_coverage(requirement, cases)
+    diagnostics = [item for item in result["rule_diagnostics"] if isinstance(item, dict)]
+    generic_rows = [item for item in diagnostics if item.get("rule_text") == "页面布局与展示"]
+
+    assert result["total_extracted_rules"] == 2
+    assert result["total_rules"] == 1
+    assert result["missing_rules"] == ["RULE-002"]
+    assert generic_rows
+    assert generic_rows[0].get("blocking") is False
+    assert generic_rows[0].get("non_blocking_reason") == "generic_display_heading"

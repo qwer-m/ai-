@@ -44,6 +44,14 @@
         else:
             # 中文注释：元分析异常时使用默认策略，避免中断主链路。
             strategy_plan = self._default_strategy_plan()
+        feedback_control_state = merge_generation_mode_control_state(
+            feedback_control_state,
+            requirement_text=original_requirement,
+            expected_count=int(expected_count or 0),
+            linked_final_case_count=int(
+                (linked_final_case_signal or {}).get("linked_final_case_count") or 0
+            ),
+        ).to_dict()
         prompt_context = build_structured_prompt_context(
             requirement=requirement or "",
             kb_context=kb_context or "",

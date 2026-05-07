@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cleanStreamingContent } from '../../../test-generation/streamContent';
 import { useRagDebugStore } from '../../../test-generation/debug/debugStore';
+import { api } from '../../../../utils/api';
 import { extractFirstJsonArray, getUniqueCaseCount } from './testGenerationCaseUtils';
+import { normalizeHistoryCases } from './useTestGenerationGeneration.helpers';
 import { useTestGenerationFileHandlers } from './useTestGenerationFileHandlers';
 import { useTestGenerationGeneration } from './useTestGenerationGeneration';
 import { useTestGenerationPersistence } from './useTestGenerationPersistence';
@@ -44,6 +46,7 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   const protoInputRef = useRef<HTMLInputElement>(null);
   const uploadZoneRef = useRef<HTMLDivElement>(null);
   const previousProjectIdRef = useRef<number | null | undefined>(undefined);
+  const lastFinalSyncKeyRef = useRef<string>('');
   const ingestDebugEvent = useRagDebugStore((s) => s.ingestDiag);
   const resetDebugState = useRagDebugStore((s) => s.reset);
   const setResultDebugState = useRagDebugStore((s) => s.setResultState);
@@ -191,6 +194,71 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     finalCaseCount,
     displayCaseCount,
     setResultDebugState,
+  ]);
+
+  useEffect(() => {
+    if (!generationId || !isFinalResultLoaded) return;
+    const expectedFinalCount = Number(generationSummary?.final_count);
+    if (!Number.isFinite(expectedFinalCount) || expectedFinalCount <= 0) return;
+    if (finalCaseCount === expectedFinalCount) return;
+
+    const syncKey = `${mode}:${generationId}:${expectedFinalCount}:${finalCaseCount}`;
+    if (lastFinalSyncKeyRef.current === syncKey) return;
+    lastFinalSyncKeyRef.current = syncKey;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await api.get(`/api/test-generations/${generationId}`);
+        if (cancelled) return;
+        const syncedCases = normalizeHistoryCases(data);
+        if (!syncedCases.length) return;
+        const syncedCount = getUniqueCaseCount(syncedCases);
+        if (syncedCount !== expectedFinalCount) {
+          onLog?.(`Final result sync skipped: fetched ${syncedCount}, expected ${expectedFinalCount}.`);
+          return;
+        }
+        if (mode === 'text') {
+          setTextResult(syncedCases);
+          setTextFinalResult(syncedCases);
+          setTextResultSource('final_persisted');
+          setTextIsFinalResultLoaded(true);
+          setTextGenerationId(generationId);
+        } else {
+          setFileResult(syncedCases);
+          setFileFinalResult(syncedCases);
+          setFileResultSource('final_persisted');
+          setFileIsFinalResultLoaded(true);
+          setFileGenerationId(generationId);
+        }
+        onGenerated(syncedCases);
+        onLog?.(`Final result re-synced from persisted result (generation_id=${generationId}, cases=${syncedCount}).`);
+      } catch (err) {
+        onLog?.(`Final result sync failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    generationId,
+    isFinalResultLoaded,
+    generationSummary?.final_count,
+    finalCaseCount,
+    mode,
+    onGenerated,
+    onLog,
+    setTextResult,
+    setTextFinalResult,
+    setTextResultSource,
+    setTextIsFinalResultLoaded,
+    setTextGenerationId,
+    setFileResult,
+    setFileFinalResult,
+    setFileResultSource,
+    setFileIsFinalResultLoaded,
+    setFileGenerationId,
   ]);
 
   useTestGenerationPersistence({

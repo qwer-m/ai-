@@ -8,8 +8,11 @@ type Props = {
   model: string;
   vlModel: string;
   turboModel: string;
+  reviewModel: string;
   turboProvider: string;
   turboApiKey: string;
+  reviewProvider: string;
+  reviewApiKey: string;
   vlProvider: string;
   vlApiKey: string;
   onProviderChange: (value: string) => void;
@@ -18,8 +21,11 @@ type Props = {
   onModelChange: (value: string) => void;
   onVlModelChange: (value: string) => void;
   onTurboModelChange: (value: string) => void;
+  onReviewModelChange: (value: string) => void;
   onTurboProviderChange: (value: string) => void;
   onTurboApiKeyChange: (value: string) => void;
+  onReviewProviderChange: (value: string) => void;
+  onReviewApiKeyChange: (value: string) => void;
   onVlProviderChange: (value: string) => void;
   onVlApiKeyChange: (value: string) => void;
   onDirty: () => void;
@@ -32,8 +38,11 @@ export function CloudTab({
   model,
   vlModel,
   turboModel,
+  reviewModel,
   turboProvider,
   turboApiKey,
+  reviewProvider,
+  reviewApiKey,
   vlProvider,
   vlApiKey,
   onProviderChange,
@@ -42,13 +51,17 @@ export function CloudTab({
   onModelChange,
   onVlModelChange,
   onTurboModelChange,
+  onReviewModelChange,
   onTurboProviderChange,
   onTurboApiKeyChange,
+  onReviewProviderChange,
+  onReviewApiKeyChange,
   onVlProviderChange,
   onVlApiKeyChange,
   onDirty,
 }: Props) {
   const turboFollowMain = turboProvider === 'follow_main';
+  const reviewFollowMain = reviewProvider === 'follow_main';
   const vlFollowMain = vlProvider === 'follow_main';
   const showBaseUrlInput = provider === 'openai';
 
@@ -148,6 +161,51 @@ export function CloudTab({
               list="turbo-models"
             />
             <datalist id="turbo-models" />
+          </Form.Group>
+        </section>
+
+        <section className="config-model-card">
+          <div className="config-model-card__header">
+            <h6>审查模型</h6>
+            <span>用于测试用例评审/筛选</span>
+          </div>
+          <Form.Group className="config-field">
+            <Form.Label>服务商</Form.Label>
+            <Form.Select value={reviewProvider} onChange={(e) => onReviewProviderChange(e.target.value)}>
+              <option value="follow_main">跟随主模型（文本模型）</option>
+              <option value="dashscope">DashScope (阿里云灵积)</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="openai">OpenAI (兼容服务)</option>
+            </Form.Select>
+          </Form.Group>
+          <Form.Group className="config-field">
+            <Form.Label>API Key</Form.Label>
+            <InputGroup>
+              <Form.Control
+                type="password"
+                value={reviewApiKey}
+                onChange={(e) => onReviewApiKeyChange(e.target.value)}
+                placeholder={
+                  reviewFollowMain
+                    ? '跟随主模型，无需单独填写'
+                    : reviewApiKey === '******'
+                      ? '已加密存储'
+                      : 'sk-...'
+                }
+                disabled={reviewFollowMain}
+              />
+            </InputGroup>
+          </Form.Group>
+          <Form.Group className="config-field config-field--model">
+            <Form.Label>模型名称</Form.Label>
+            <Form.Control
+              type="text"
+              value={reviewModel}
+              onChange={(e) => onReviewModelChange(e.target.value)}
+              placeholder="e.g. deepseek-chat"
+              list="review-models"
+            />
+            <datalist id="review-models" />
           </Form.Group>
         </section>
 

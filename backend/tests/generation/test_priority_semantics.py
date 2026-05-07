@@ -95,6 +95,28 @@ def test_apply_priority_semantics_attaches_debug_meta() -> None:
     assert "structural_p2_signals" in debug
 
 
+def test_apply_priority_semantics_preserves_original_priority_fields_on_reapply() -> None:
+    case = {
+        "description": "Important submit flow remains usable after a non-blocking warning.",
+        "test_module": "submit-form",
+        "preconditions": [],
+        "steps": ["submit main form"],
+        "test_input": "valid payload",
+        "expected_result": "warning is shown and user can continue",
+        "priority": "P2",
+    }
+
+    first = apply_priority_semantics_to_case(dict(case), attach_debug=True)
+    second = apply_priority_semantics_to_case(dict(first), attach_debug=True)
+
+    assert first["model_priority_current"] == "P2"
+    assert first["model_priority"] == "P2"
+    assert first["legacy_priority"] == "P2"
+    assert second["model_priority_current"] == "P2"
+    assert second["model_priority"] == "P2"
+    assert second["legacy_priority"] == "P2"
+
+
 def test_reuse_risk_cases_are_treated_as_high_value_for_priority() -> None:
     case = {
         "description": "复用页面后完成返回首页，不应残留原列表页跳转。",

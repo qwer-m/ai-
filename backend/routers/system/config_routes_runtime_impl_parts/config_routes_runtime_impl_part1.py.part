@@ -63,8 +63,10 @@ async def get_current_config(
             ocr_auto_detect_message = "未检测到本地 OCR 引擎，建议使用云端 OCR 或安装本地 OCR 模块后重试。"
     target_nodes = extract_target_nodes(meta)
     turbo_node = target_nodes.get("turbo") if isinstance(target_nodes.get("turbo"), dict) else {}
+    review_node = target_nodes.get("review") if isinstance(target_nodes.get("review"), dict) else {}
     vision_node = target_nodes.get("vision") if isinstance(target_nodes.get("vision"), dict) else {}
     turbo_follow_main = bool(turbo_node.get("follow_main", True))
+    review_follow_main = bool(review_node.get("follow_main", True))
     vl_follow_main = bool(vision_node.get("follow_main", True))
     return {
         "active": True,
@@ -78,6 +80,11 @@ async def get_current_config(
         "turbo_base_url": str(turbo_node.get("base_url") or ""),
         "turbo_follow_main": turbo_follow_main,
         "has_turbo_api_key": bool(turbo_node.get("api_key")) and not turbo_follow_main,
+        "review_model_name": str(review_node.get("model_name") or ""),
+        "review_provider": str(review_node.get("provider") or ""),
+        "review_base_url": str(review_node.get("base_url") or ""),
+        "review_follow_main": review_follow_main,
+        "has_review_api_key": bool(review_node.get("api_key")) and not review_follow_main,
         "vl_provider": str(vision_node.get("provider") or ""),
         "vl_base_url": str(vision_node.get("base_url") or ""),
         "vl_follow_main": vl_follow_main,

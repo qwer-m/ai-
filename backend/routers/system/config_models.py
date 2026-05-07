@@ -16,6 +16,11 @@ class ConfigValidateRequest(BaseModel):
     turbo_api_key: Optional[str] = None
     turbo_base_url: Optional[str] = None
     turbo_follow_main: Optional[bool] = True
+    review_model_name: Optional[str] = None
+    review_provider: Optional[str] = None
+    review_api_key: Optional[str] = None
+    review_base_url: Optional[str] = None
+    review_follow_main: Optional[bool] = True
     vl_provider: Optional[str] = None
     vl_api_key: Optional[str] = None
     vl_base_url: Optional[str] = None
@@ -35,6 +40,11 @@ class ConfigSaveRequest(BaseModel):
     turbo_api_key: Optional[str] = None
     turbo_base_url: Optional[str] = None
     turbo_follow_main: Optional[bool] = True
+    review_model_name: Optional[str] = None
+    review_provider: Optional[str] = None
+    review_api_key: Optional[str] = None
+    review_base_url: Optional[str] = None
+    review_follow_main: Optional[bool] = True
     vl_provider: Optional[str] = None
     vl_api_key: Optional[str] = None
     vl_base_url: Optional[str] = None

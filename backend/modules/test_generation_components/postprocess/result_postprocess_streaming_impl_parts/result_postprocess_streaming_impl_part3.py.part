@@ -32,6 +32,8 @@
         reasons.append("semantic_dedup_reduced_count")
     if int(governance_hard_drop_total or 0) > 0:
         reasons.append("governance_hard_drop_applied")
+    if int(append_cap_drop_total or 0) > 0:
+        reasons.append("append_target_cap_applied")
 
     duplication_rate_estimate = 0.0
     if int(review_selected_count or 0) > 0:
@@ -68,8 +70,17 @@
         or priority_undetermined_count > 0
     )
 
+    target_min = generation_target_case_range.get("min") if isinstance(generation_target_case_range, dict) else None
+    target_max = generation_target_case_range.get("max") if isinstance(generation_target_case_range, dict) else None
+    recommended_range = (
+        f"{int(target_min)}-{int(target_max)}"
+        if target_min is not None and target_max is not None
+        else "30-50"
+    )
+
     generation_summary = {
-        "recommended_range": "30-50",
+        "recommended_range": recommended_range,
+        "generation_coverage_mode": str(generation_coverage_mode or "core_smoke"),
         "final_count": int(final_count or 0),
         "status": "completed_with_optimal_set" if converged else "completed_with_quality_stop",
         "stop_reason": summary_stop_reason,
@@ -100,11 +111,16 @@
         "postprocess_filter_drop_total": int(postprocess_filter_drop_total or 0),
         "semantic_dedup_dropped_count": int(semantic_dedup_dropped_total or 0),
         "governance_hard_drop_count": int(governance_hard_drop_total or 0),
+        "append_target_count": int(append_target_count or 0),
+        "append_final_cap_count": int(append_final_cap_count or 0),
+        "append_cap_drop_count": int(append_cap_drop_total or 0),
         "needs_priority_review": bool(needs_priority_review),
         "priority_conflict_count": int(priority_conflict_count),
         "priority_undetermined_count": int(priority_undetermined_count),
         "priority_optional_count": int(priority_optional_count),
         "reasons": reasons,
+        "generation_coverage_mode": str(generation_coverage_mode or "core_smoke"),
+        "generation_target_case_range": dict(generation_target_case_range or {}),
     }
     return {
         "cases": parsed_result,
@@ -118,10 +134,15 @@
         "judge_decision_table": judge_decision_table_payload,
         "feedback_control_debug": {
             "control_state_applied": bool(control_state.has_signals()),
+            "generation_coverage_mode": str(generation_coverage_mode or "core_smoke"),
+            "generation_target_case_range": dict(generation_target_case_range or {}),
             "must_cover_rules_count": int(len(control_state.must_cover_rules or [])),
             "rule_quota_keys": sorted(list((control_state.rule_quota or {}).keys())),
             "soft_constraints_count": int(len(control_state.soft_constraints or [])),
             "quality_fix_hints_count": int(len(control_state.quality_fix_hints or [])),
+            "preferred_patterns_count": int(len(control_state.preferred_patterns or [])),
+            "forbidden_patterns_count": int(len(control_state.forbidden_patterns or [])),
+            "source_meta": dict(control_state.source_meta or {}),
         },
     }
 

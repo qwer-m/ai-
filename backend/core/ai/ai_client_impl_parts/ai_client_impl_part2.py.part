@@ -3,7 +3,10 @@
             cached = cache_service.get(cache_key_content, "L4", db)
             if cached:
                 return cached
-        result = self.provider.generate(messages, target_model, max_tokens or self.max_tokens)
+        result = target_provider.generate(messages, target_model, max_tokens or self.max_tokens)
+        self.last_response_metadata = dict(getattr(target_provider, "last_response_metadata", {}) or {})
+        if not str(result or "").strip():
+            return f"Error: Empty response from model {target_model}"
         if db and not result.startswith("Error") and not result.startswith("Exception"):
             cache_service.set(cache_key_content, result, "L4", db, metadata={"model": target_model})
         return result
@@ -79,6 +82,27 @@
                 if cached:
                     return cached
             result = self.turbo_provider.generate(messages, target_model, self.max_tokens)
+            if (
+                str(result or "").startswith(("Error", "Exception"))
+                and self.provider
+                and self.provider is not self.turbo_provider
+            ):
+                fallback_model = self.model
+                fallback_result = self.provider.generate(messages, fallback_model, self.max_tokens)
+                if fallback_result and not str(fallback_result).startswith(("Error", "Exception")):
+                    if db:
+                        cache_service.set(
+                            cache_key_content,
+                            fallback_result,
+                            "L4",
+                            db,
+                            metadata={
+                                "model": fallback_model,
+                                "task_type": "compression",
+                                "fallback_from": target_model,
+                            },
+                        )
+                    return fallback_result
             if db and not result.startswith("Error") and not result.startswith("Exception"):
                 cache_service.set(
                     cache_key_content,

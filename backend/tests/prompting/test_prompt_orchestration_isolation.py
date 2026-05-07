@@ -6,6 +6,7 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from modules.test_generation_components.prompting.prompt_orchestration import (
     build_closed_loop_base_prompt,
     build_gap_fill_prompt,
+    build_review_select_prompt,
 )
 
 
@@ -63,3 +64,39 @@ def test_gap_fill_prompt_consumes_coverage_result() -> None:
     assert "REQ-023" in prompt
     assert "missing_types=boundary,exception" in prompt
     assert "coverage" in prompt.lower()
+
+
+def test_review_select_prompt_uses_compact_candidate_payload() -> None:
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "verify close org happy path",
+            "test_module": "org-close",
+            "preconditions": ["logged in"],
+            "steps": ["1. submit close request"],
+            "test_input": "org=A",
+            "expected_result": "org A status changes to closed and disappears from active list",
+            "priority": "P1",
+            "model_priority_current": "P0",
+            "legacy_priority": "P0",
+            "priority_final": "P1",
+            "priority_decision_source": "debug-only",
+            "priority_reasons": ["debug-only"],
+            "review_llm_drop_reason_evidence": {"large": "debug"},
+        }
+        for _ in range(20)
+    ]
+
+    prompt = build_review_select_prompt(
+        requirement_context="REQ close org",
+        candidate_cases=cases,
+        target_count=20,
+        target_min_count=10,
+        target_max_count=20,
+    )
+
+    assert '"priority": "P1"' in prompt
+    assert "model_priority_current" not in prompt
+    assert "priority_decision_source" not in prompt
+    assert "review_llm_drop_reason_evidence" not in prompt
+    assert len(prompt) < 20000

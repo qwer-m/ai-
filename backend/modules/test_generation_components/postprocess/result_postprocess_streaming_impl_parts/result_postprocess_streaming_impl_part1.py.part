@@ -44,6 +44,11 @@ def stream_postprocess_cases(
     )
 
     control_state = FeedbackControlState.from_any(feedback_control_state)
+    generation_coverage_profile = dict(
+        (dict(control_state.source_meta or {}).get("generation_coverage_profile") or {})
+    )
+    generation_coverage_mode = str(generation_coverage_profile.get("coverage_mode") or "core_smoke")
+    generation_target_case_range = dict(generation_coverage_profile.get("target_case_range") or {})
     must_cover_rule_set = {str(rule).strip().upper() for rule in (control_state.must_cover_rules or []) if str(rule).strip()}
     forbidden_patterns = [str(item).strip() for item in (control_state.forbidden_patterns or []) if str(item).strip()]
     reuse_risks = [str(item).strip() for item in (control_state.reuse_risks or []) if str(item).strip()]
@@ -195,6 +200,7 @@ def stream_postprocess_cases(
         cases: list[dict[str, Any]],
         *,
         reference_count: int,
+        generation_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         candidate_cases = [item for item in cases if isinstance(item, dict)]
         total = int(len(candidate_cases))
@@ -208,6 +214,8 @@ def stream_postprocess_cases(
             }
 
         reference = max(1, int(reference_count or total))
+        profile = dict(generation_profile or {})
+        coverage_mode = str(profile.get("coverage_mode") or "").strip()
 
         priority_counts: dict[str, int] = {}
         scenario_counts: dict[str, int] = {}
@@ -261,8 +269,43 @@ def stream_postprocess_cases(
             ),
         )
 
-        reference_cap = max(12, int(round(reference * 0.65)))
-        target_max = min(target_max, total, reference_cap)
+        if coverage_mode == "full_functional_regression":
+            target_min = min(
+                total,
+                max(
+                    target_min,
+                    int(round(total * 0.65)),
+                    int(round(reference * 0.35)),
+                ),
+            )
+            target_max = min(
+                total,
+                max(
+                    target_min,
+                    int(round(total * 0.90)),
+                    int(round(reference * 0.75)),
+                ),
+            )
+        elif coverage_mode == "standard_regression":
+            target_min = min(
+                total,
+                max(
+                    target_min,
+                    int(round(total * 0.45)),
+                    int(round(reference * 0.35)),
+                ),
+            )
+            target_max = min(
+                total,
+                max(
+                    target_min,
+                    int(round(total * 0.70)),
+                    int(round(reference * 0.65)),
+                ),
+            )
+        else:
+            reference_cap = max(12, int(round(reference * 0.65)))
+            target_max = min(target_max, total, reference_cap)
         target_min = min(target_min, target_max)
 
         return {
@@ -750,6 +793,11 @@ def stream_postprocess_cases(
         "对应内容",
         "匹配的结果",
         "结果内容可校验",
+        "后续查询可验证结果",
+        "可验证结果",
+        "应成功完成",
+        "需求说",
+        "按规则",
         "正常展示",
         "正常跳转",
         "正常更新",
@@ -771,7 +819,41 @@ def stream_postprocess_cases(
             return True
         if _is_placeholder_expected_result(normalized):
             return True
+        if _is_ambiguous_expected_result(normalized):
+            return True
         return any(phrase in normalized for phrase in _NON_ASSERTABLE_EXPECTED_PHRASES)
+
+    def _is_ambiguous_expected_result(text: str) -> bool:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return False
+        ambiguous_tokens = (
+            "可能",
+            "默认可能",
+            "视情况",
+            "可选",
+            "或显示",
+            "或提示",
+            "或按钮",
+            "或直接",
+            "或弹窗",
+            "或跳转",
+            "或进入",
+            "或置灰",
+            "或隐藏",
+            "？",
+            "?",
+            "or show",
+            "or display",
+            "or prompt",
+            "or directly",
+            "or navigate",
+            "or hide",
+            "or disable",
+        )
+        if any(token in normalized for token in ambiguous_tokens):
+            return True
+        return bool(re.search(r"\b[xX]{2,}\b", normalized))
 
     def _looks_truncated_text(text: str) -> bool:
         normalized = str(text or "").strip()
@@ -1249,9 +1331,11 @@ def stream_postprocess_cases(
                     if isinstance(item, dict)
                 )
                 if not needs_priority_review:
-                    stats["governance_hard_drop"] += int(len(downgraded_cases))
-                    stats["total_dropped"] = int(sum(stats.values()))
-                    return [], stats
+                    # Missing P0 coverage is a review/diagnostic signal, not a valid reason
+                    # to erase every generated candidate. The previous hard-drop path caused
+                    # stream preview candidates to persist as [] when broad requirement tokens
+                    # accidentally activated a P0 group.
+                    pass
 
         stats["total_dropped"] = int(
             stats.get("invalid_structure_dropped", 0)
@@ -1273,15 +1357,34 @@ def stream_postprocess_cases(
         return filtered_cases, int((stats or {}).get("total_dropped") or 0)
 
     def _strip_case_meta_list(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        debug_fields = {
+            "meta",
+            "displayPriority",
+            "rawPriority",
+            "finalPriority",
+            "model_priority_current",
+            "model_priority",
+            "legacy_priority",
+            "priority_final",
+            "priority_decision_state",
+            "priority_decision_source",
+            "priority_confidence",
+            "priority_conflict_reason",
+            "priority_resolution_reason",
+            "priority_score",
+            "suggested_priority",
+            "priority_reasons",
+        }
         stripped: list[dict[str, Any]] = []
         for item in cases:
             if not isinstance(item, dict):
                 continue
             case = dict(item)
-            case.pop("meta", None)
-            case.pop("displayPriority", None)
-            case.pop("rawPriority", None)
-            case.pop("finalPriority", None)
+            final_priority = str(case.get("priority_final") or "").strip().upper()
+            if final_priority in {"P0", "P1", "P2"}:
+                case["priority"] = final_priority
+            for field in debug_fields:
+                case.pop(field, None)
             stripped.append(case)
         return stripped
 
@@ -1493,11 +1596,23 @@ def stream_postprocess_cases(
         include_trace: bool = False,
         coverage_context: dict[str, Any] | None = None,
         rule_diagnostics: dict[str, Any] | list[dict[str, Any]] | None = None,
+        generation_profile: dict[str, Any] | None = None,
     ) -> Any:
         # 中文注释：第三刀——rule 级收敛 + 语义去重 + UI-like 收敛，防止“覆盖正确但结构爆炸”。
-        max_cases_per_rule = max(1, min(int(max_per_rule or 1), 2))
-        max_ui_like_cases_per_bucket = 2
-        semantic_duplicate_threshold = 0.82
+        profile = dict(generation_profile or {})
+        coverage_mode = str(profile.get("coverage_mode") or "").strip()
+        if coverage_mode == "full_functional_regression":
+            max_cases_per_rule = max(1, min(int(max_per_rule or 4), 4))
+            max_ui_like_cases_per_bucket = 4
+            semantic_duplicate_threshold = 0.90
+        elif coverage_mode == "standard_regression":
+            max_cases_per_rule = max(1, min(int(max_per_rule or 3), 3))
+            max_ui_like_cases_per_bucket = 3
+            semantic_duplicate_threshold = 0.86
+        else:
+            max_cases_per_rule = max(1, min(int(max_per_rule or 1), 2))
+            max_ui_like_cases_per_bucket = 2
+            semantic_duplicate_threshold = 0.82
 
         candidate_items = [item for item in cases if isinstance(item, dict)]
         original_signatures = [_signature(item) for item in candidate_items]
@@ -1567,6 +1682,8 @@ def stream_postprocess_cases(
         )
         preserve_dense_quality_set = bool(
             len(rank_entries) >= 30 and signal_bearing_candidate_total == 0
+        ) or bool(
+            coverage_mode == "full_functional_regression" and len(rank_entries) >= 30
         )
 
         def _seed_sort_key(entry: dict[str, Any]) -> tuple:

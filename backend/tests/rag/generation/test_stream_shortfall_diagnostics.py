@@ -142,6 +142,62 @@ def test_stream_postprocess_collects_review_drop_reasons() -> None:
     assert all(row.get("dropped_reason") == "drop_no_new_rule_no_new_bucket_no_high_signal" for row in dropped)
 
 
+def test_append_mode_caps_final_new_cases_to_requested_delta() -> None:
+    client = _SinglePassClient()
+    full_content = """
+    [
+      {"id":"TC-095","description":"新增学习计划入口跳转验证","test_module":"学习计划","preconditions":["用户已登录"],"steps":["点击学习计划入口"],"test_input":"无","expected_result":"页面跳转到学习计划首页并显示本周任务模块","priority":"P1"},
+      {"id":"TC-096","description":"新增排行榜标题展示验证","test_module":"学习计划","preconditions":["用户已登录"],"steps":["打开学习计划首页"],"test_input":"无","expected_result":"页面固定展示本周学习时长排行榜标题和Top5列表","priority":"P2"},
+      {"id":"TC-097","description":"新增历史课程复习入口验证","test_module":"学习计划","preconditions":["存在历史课程"],"steps":["点击历史课程复习按钮"],"test_input":"无","expected_result":"页面进入所选历史课程的复习流程","priority":"P2"}
+    ]
+    """
+
+    gen = stream_postprocess_cases(
+        client=client,
+        requirement="学习计划首页需要支持入口跳转、排行榜展示、历史课程复习",
+        base_prompt="BASE",
+        kb_context="",
+        full_content=full_content,
+        expected_count=95,
+        append=True,
+        existing_cases=[
+            {
+                "id": "TC-001",
+                "description": "已有用例",
+                "test_module": "已有模块",
+                "preconditions": [],
+                "steps": ["执行已有流程"],
+                "test_input": "无",
+                "expected_result": "已有流程结果可验证",
+                "priority": "P1",
+            }
+        ],
+        existing_unique_count=94,
+        start_id=95,
+        db=None,
+        clean_and_parse_json_fn=clean_and_parse_json,
+        normalize_json_structure_fn=normalize_json_structure,
+        deduplicate_test_cases_fn=deduplicate_test_cases,
+        reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+        count_unique_test_cases_fn=count_unique_test_cases,
+        infer_case_kind_fn=infer_case_kind,
+        build_supplement_closed_loop_instruction_fn=lambda **_: "",
+        multi_pass=False,
+        generation_mode="single_pass",
+    )
+    result = _drain_with_return(gen)
+
+    cases = list((result or {}).get("cases") or [])
+    convergence_debug = dict((result or {}).get("convergence_debug") or {})
+    review_table = [row for row in (result or {}).get("review_decision_table") or [] if isinstance(row, dict)]
+
+    assert len(cases) == 1
+    assert convergence_debug.get("append_target_count") == 1
+    assert convergence_debug.get("append_final_cap_count") == 1
+    assert convergence_debug.get("append_cap_drop_count") >= 1
+    assert any(row.get("dropped_stage") == "append_target_cap" for row in review_table)
+
+
 def test_review_gate_retains_case_when_coverage_value_exists(monkeypatch) -> None:
     client = _SinglePassClient()
     full_content = """
@@ -300,5 +356,52 @@ def test_hidden_wrong_question_entry_does_not_trigger_wrong_collection_p0_hard_d
 
     cases = [row for row in (result or {}).get("cases") or [] if isinstance(row, dict)]
     assert len(cases) >= 1
+    convergence_debug = dict((result or {}).get("convergence_debug") or {})
+    assert convergence_debug.get("governance_hard_drop_count") == 0
+
+
+def test_missing_required_p0_group_does_not_hard_drop_all_candidates() -> None:
+    client = _SinglePassClient()
+    full_content = """
+    [
+      {
+        "id":"TC-001",
+        "description":"Validate general course page entry layout remains available",
+        "test_module":"course page",
+        "preconditions":["User has logged in and can open the course page"],
+        "steps":["Open the course page","Check the primary entry area"],
+        "test_input":"normal course page",
+        "expected_result":"The primary entry area is visible and links to the course detail page",
+        "priority":"P1"
+      }
+    ]
+    """
+
+    gen = stream_postprocess_cases(
+        client=client,
+        requirement="The payment gate and subscription flow must be covered for unpaid users.",
+        base_prompt="BASE",
+        kb_context="",
+        full_content=full_content,
+        expected_count=5,
+        append=False,
+        existing_cases=[],
+        existing_unique_count=0,
+        start_id=1,
+        db=None,
+        clean_and_parse_json_fn=clean_and_parse_json,
+        normalize_json_structure_fn=normalize_json_structure,
+        deduplicate_test_cases_fn=deduplicate_test_cases,
+        reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+        count_unique_test_cases_fn=count_unique_test_cases,
+        infer_case_kind_fn=infer_case_kind,
+        build_supplement_closed_loop_instruction_fn=lambda **_: "",
+        multi_pass=False,
+        generation_mode="single_pass",
+    )
+    result = _drain_with_return(gen)
+
+    cases = [row for row in (result or {}).get("cases") or [] if isinstance(row, dict)]
+    assert len(cases) == 1
     convergence_debug = dict((result or {}).get("convergence_debug") or {})
     assert convergence_debug.get("governance_hard_drop_count") == 0

@@ -150,15 +150,14 @@ def test_quality_governance_backfills_placeholder_expected_result_and_test_input
         normalize_json_structure_fn=lambda value: value,
     )
     output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
-    assert len(output_cases) == 1
-    case = output_cases[0]
-    expected_result = str(case.get("expected_result") or "").strip()
-    test_input = str(case.get("test_input") or "").strip()
-    assert expected_result
-    assert expected_result != "execution succeeds and result is as configured"
-    assert "execution succeeds and result is as configured" not in expected_result
-    assert "应返回明确校验结论" not in expected_result
-    assert test_input
+    assert len(output_cases) == 0
+    table = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    assert table
+    assert str(table[0].get("expected_result_quality") or "") == "non_assertable"
+    assert str(table[0].get("expected_result_quality_reason") or "") in {
+        "no_concrete_assertion",
+        "template_or_weak_assertion",
+    }
 
 
 def test_quality_governance_uncertain_requirement_downgrades_case_priority() -> None:
@@ -172,16 +171,17 @@ def test_quality_governance_uncertain_requirement_downgrades_case_priority() -> 
                 "preconditions": ["已完成学习任务"],
                 "steps": ["1. 进入能力模型页", "2. 查看评分结果"],
                 "test_input": "标准学习数据",
-                "expected_result": "展示能力模型评分结果",
+                "expected_result": "能力模型页显示总分、维度分和更新时间，且总分与标准学习数据计算结果一致",
                 "priority": "P0",
             }
         ],
     )
     output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
-    assert len(output_cases) == 1
-    case = output_cases[0]
-    assert str(case.get("priority") or "").upper() == "P2"
-    assert "可选/视配置" in str(case.get("expected_result") or "")
+    assert len(output_cases) == 0
+    table = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    assert table
+    assert str(table[0].get("priority_final") or "").upper() != "P0"
+    assert "可选/视配置" in str(table[0].get("expected_result") or "")
 
 
 def test_quality_governance_fails_when_required_p0_coverage_missing() -> None:
@@ -277,7 +277,7 @@ def test_expected_result_phrase_state_change_marked_non_assertable() -> None:
         ],
     )
     output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
-    assert len(output_cases) == 1
+    assert len(output_cases) == 0
     table = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
     assert len(table) == 1
     row = table[0]
@@ -302,7 +302,7 @@ def test_expected_result_phrase_target_content_marked_non_assertable() -> None:
         ],
     )
     output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
-    assert len(output_cases) == 1
+    assert len(output_cases) == 0
     table = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
     assert len(table) == 1
     row = table[0]
@@ -326,11 +326,138 @@ def test_expected_result_phrase_match_result_marked_non_assertable() -> None:
         ],
     )
     output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
-    assert len(output_cases) == 1
+    assert len(output_cases) == 0
     table = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
     assert len(table) == 1
     row = table[0]
     assert str(row.get("expected_result_quality") or "") == "non_assertable"
+
+
+def test_expected_result_ambiguous_alternative_marked_non_assertable() -> None:
+    result = _run_cases(
+        requirement="保存失败时必须给出明确错误提示。",
+        cases=[
+            {
+                "id": "TC-AMB-001",
+                "description": "保存计划网络失败时保留编辑数据",
+                "test_module": "排课-新增计划",
+                "preconditions": ["已完成计划编辑"],
+                "steps": ["1. 断开网络", "2. 点击保存"],
+                "test_input": "无网络",
+                "expected_result": "弹出提示‘保存失败，请重试’或显示错误信息，已编辑数据不丢失",
+                "priority": "P1",
+            }
+        ],
+    )
+    rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    assert rows
+    row = rows[0]
+    assert str(row.get("expected_result_quality") or "") == "non_assertable"
+    assert str(row.get("expected_result_quality_reason") or "") == "template_or_weak_assertion"
+
+
+def test_expected_result_possible_or_xx_placeholder_marked_non_assertable() -> None:
+    result = _run_cases(
+        requirement="排课完成后必须显示明确的课程学习状态和时间。",
+        cases=[
+            {
+                "id": "TC-AMB-002",
+                "description": "验证排课后课程学习时间展示",
+                "test_module": "排课-学习状态",
+                "preconditions": ["已完成排课"],
+                "steps": ["1. 进入排课详情", "2. 查看课程学习时间"],
+                "test_input": "正常排课数据",
+                "expected_result": "页面可能会增加复习时间，已学xx:xx",
+                "priority": "P1",
+            }
+        ],
+    )
+    rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    assert rows
+    row = rows[0]
+    assert str(row.get("expected_result_quality") or "") == "non_assertable"
+    assert str(row.get("expected_result_quality_reason") or "") == "template_or_weak_assertion"
+
+
+def test_expected_result_generic_success_completion_marked_non_assertable() -> None:
+    result = _run_cases(
+        requirement="The scheduling wizard must preserve unsaved selections and show explicit exit confirmation.",
+        cases=[
+            {
+                "id": "TC-AMB-003",
+                "description": "Scheduling wizard step switch and exit confirmation",
+                "test_module": "schedule wizard",
+                "preconditions": ["The user has selected courses but has not saved"],
+                "steps": ["1. Switch between wizard steps", "2. Click the back button"],
+                "test_input": "unsaved selected courses",
+                "expected_result": "执行点击左上角返回按钮后，应成功完成排课步骤切换与退出保存验证，且后续查询可验证结果",
+                "priority": "P1",
+            }
+        ],
+    )
+    rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    assert rows
+    assert str(rows[0].get("expected_result_quality") or "") == "non_assertable"
+    assert not [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+
+
+def test_expected_result_self_explanation_question_mark_marked_non_assertable() -> None:
+    result = _run_cases(
+        requirement="Recent learning plan should display the current course and next course with explicit deletion behavior.",
+        cases=[
+            {
+                "id": "TC-AMB-004",
+                "description": "Recent learning plan after current course was deleted",
+                "test_module": "recent learning plan",
+                "preconditions": ["The current learning course was deleted from the plan"],
+                "steps": ["1. Open recent learning plan", "2. Check current and next course"],
+                "test_input": "deleted current course",
+                "expected_result": "当前学习仍显示第一讲，下一节课显示更新后的计划最近一节课（第二讲），按规则保留当前学习课程？需求说当前在学课程保留",
+                "priority": "P2",
+            }
+        ],
+    )
+    rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    assert rows
+    assert str(rows[0].get("expected_result_quality") or "") == "non_assertable"
+    assert not [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+
+
+def test_final_cases_drop_non_assertable_expected_result_even_when_review_selected() -> None:
+    result = _run_cases(
+        requirement="Course completion must show explicit report navigation and history navigation behavior.",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "Report button opens the concrete learning report page",
+                "test_module": "student report table",
+                "preconditions": ["The student has completed the course and a report exists"],
+                "steps": ["1. Open the student report table", "2. Click the report button"],
+                "test_input": "completed course with report",
+                "expected_result": "The report page opens and displays the same student name, course name, and report title as the selected row",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-002",
+                "description": "Post-course optional review button display",
+                "test_module": "post course optional actions",
+                "preconditions": ["The course is completed and wrong-question records exist"],
+                "steps": ["1. Open the post-course action area", "2. Check available buttons"],
+                "test_input": "completed course with wrong-question records",
+                "expected_result": "The area shows the report button or show a review button depending on configuration",
+                "priority": "P0",
+            },
+        ],
+    )
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    assert len(output_cases) == 1
+    assert "or show" not in str(output_cases[0].get("expected_result") or "").lower()
+
+    rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    weak_rows = [row for row in rows if row.get("case_id") == "TC-002"]
+    assert weak_rows
+    assert str(weak_rows[0].get("expected_result_quality") or "") == "non_assertable"
+    assert str(weak_rows[0].get("dropped_stage") or "") == "post_review_dedup_or_reorder"
 
 
 def test_expected_result_truncated_suffix_marked_truncated() -> None:
@@ -350,7 +477,7 @@ def test_expected_result_truncated_suffix_marked_truncated() -> None:
         ],
     )
     output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
-    assert len(output_cases) == 1
+    assert len(output_cases) == 0
     table = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
     assert len(table) == 1
     row = table[0]
@@ -440,7 +567,7 @@ def test_quality_governance_marks_priority_review_when_required_p0_is_conflict(m
     assert generation_summary.get("needs_priority_review") is True
 
 
-def test_quality_governance_output_priority_final_always_valid() -> None:
+def test_quality_governance_hides_priority_debug_fields_from_final_cases() -> None:
     result = _run_cases(
         requirement="验证核心流程与权限校验",
         cases=[
@@ -469,7 +596,36 @@ def test_quality_governance_output_priority_final_always_valid() -> None:
     output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
     assert len(output_cases) >= 1
     for case in output_cases:
-        assert str(case.get("priority_final") or "").strip().upper() in {"P0", "P1", "P2"}
+        assert str(case.get("priority") or "").strip().upper() in {"P0", "P1", "P2"}
+        assert "priority_final" not in case
+        assert "model_priority_current" not in case
+        assert "priority_decision_source" not in case
+
+    diagnostic_rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    assert diagnostic_rows
+    assert any(str(row.get("priority_final") or "").strip().upper() in {"P0", "P1", "P2"} for row in diagnostic_rows)
+
+
+def test_quality_governance_final_priority_uses_semantic_final_value_after_debug_strip() -> None:
+    result = _run_cases(
+        requirement="Secondary settings panel copy display check.",
+        cases=[
+            {
+                "id": "TC-403",
+                "description": "Button copy display check on a secondary settings panel",
+                "test_module": "settings display",
+                "preconditions": ["User has opened the settings panel"],
+                "steps": ["1. Open the panel", "2. Check the button copy"],
+                "test_input": "default settings",
+                "expected_result": "The secondary button copy is visible",
+                "priority": "P1",
+            },
+        ],
+    )
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    assert len(output_cases) == 1
+    assert str(output_cases[0].get("priority") or "").strip().upper() == "P2"
+    assert "priority_final" not in output_cases[0]
 
 
 def test_generate_tests_empty_result_raises_http_error(monkeypatch) -> None:

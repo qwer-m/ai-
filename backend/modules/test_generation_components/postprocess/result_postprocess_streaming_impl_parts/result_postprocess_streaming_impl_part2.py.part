@@ -27,7 +27,16 @@
     gap_stopped_by_provider_error = False
     candidate_count_before_review = len([x for x in parsed_result if isinstance(x, dict)])
     review_selected_count = len([x for x in parsed_result if isinstance(x, dict)])
-    reference_count_effective = max(1, int(expected_count or 1))
+    append_target_count = 0
+    if append:
+        append_target_count = max(0, int(expected_count or 0) - int(existing_unique_count or 0))
+    reference_count_effective = max(
+        1,
+        int(append_target_count or 0) if append and int(append_target_count or 0) > 0 else int(expected_count or 1),
+    )
+    append_final_cap_count = int(append_target_count or 0) if append and int(append_target_count or 0) > 0 else 0
+    append_cap_drop_total = 0
+    append_cap_drop_signatures: set[str] = set()
     review_candidate_cases: list[dict[str, Any]] = []
     review_selection_input: list[dict[str, Any]] = []
     review_gate_trace: dict[str, Any] = {}
@@ -67,6 +76,12 @@
         "primary_reason_coverage_ratio": 0.0,
         "response_len": 0,
         "response_preview": "",
+        "primary_response_metadata": {},
+        "primary_compact_retry_invoked": False,
+        "primary_compact_retry_model": "",
+        "primary_compact_retry_invalid_reason": "",
+        "primary_compact_retry_response_len": 0,
+        "primary_compact_retry_response_metadata": {},
         "retry_invoked": False,
         "retry_reason": "",
         "retry_model": "",
@@ -83,12 +98,24 @@
         "dropped_reason_payload_count": 0,
         "dropped_reason_unmapped_count": 0,
         "payload_has_selection_signal": False,
+        "final_selected_and_dropped_overlap_count": 0,
+        "final_selected_and_dropped_overlap_case_ids": [],
+        "final_payload_consistent": True,
+        "reason_repair_invoked": False,
+        "reason_repair_model": "",
+        "reason_repair_candidate_count": 0,
+        "reason_repair_response_len": 0,
+        "reason_repair_mapped_count": 0,
+        "reason_repair_invalid_reason": "",
+        "reason_repair_response_metadata": {},
         "final_source": "review_selector",
         "applied": False,
         "applied_reason": "",
         "exception": "",
         "forced_reset_by_fallback": False,
         "fallback_reason_incomplete": False,
+        "final_reason_incomplete": False,
+        "final_reason_coverage_ratio": 0.0,
     }
     judge_summary_payload: dict[str, Any] = {}
     judge_decision_table_payload: list[dict[str, Any]] = []
@@ -278,6 +305,7 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         review_constraints = _build_review_selection_constraints(
             llm_pool_cases,
             reference_count=int(reference_count_effective or len(llm_pool_cases) or 1),
+            generation_profile=generation_coverage_profile,
         )
         review_target_min_count = int(review_constraints.get("target_min_count") or 1)
         review_target_max_count = int(review_constraints.get("target_max_count") or review_target_min_count)
@@ -294,6 +322,11 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         selected_from_llm_pool: list[dict[str, Any]] = list(llm_pool_cases)
         review_llm_runtime_debug["pool_size"] = int(len(llm_pool_cases))
         review_llm_runtime_debug["pool_non_empty"] = bool(llm_pool_cases)
+        review_llm_runtime_debug["prompt_chars"] = int(len(review_prompt or ""))
+        review_llm_runtime_debug["prompt_est_tokens"] = int(round(len(review_prompt or "") / 4))
+        review_llm_runtime_debug["candidate_count"] = int(len(llm_pool_cases))
+        review_llm_runtime_debug["append_target_count"] = int(append_target_count or 0)
+        review_llm_runtime_debug["append_final_cap_count"] = int(append_final_cap_count or 0)
         try:
             if llm_pool_cases:
                 review_llm_runtime_debug["invoked"] = True
@@ -371,9 +404,46 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                         "invalid_reason": str(invalid_reason_local),
                     }
 
+                def _compact_review_retry_prompt() -> str:
+                    def _clip(value: Any, limit: int = 180) -> str:
+                        text = str(value or "").strip()
+                        return text[:limit]
+
+                    compact_cases: list[dict[str, Any]] = []
+                    for item in llm_pool_cases:
+                        if not isinstance(item, dict):
+                            continue
+                        case_id = _review_case_id(item)
+                        if not case_id:
+                            continue
+                        compact_cases.append(
+                            {
+                                "id": case_id,
+                                "module": _clip(item.get("test_module"), 80),
+                                "description": _clip(item.get("description"), 180),
+                                "expected_result": _clip(item.get("expected_result"), 180),
+                                "priority": _clip(item.get("priority_final") or item.get("priority"), 12),
+                            }
+                        )
+                    candidate_ids = [str(item.get("id") or "") for item in compact_cases if item.get("id")]
+                    return (
+                        "REVIEW COMPACT RETRY.\n"
+                        "The previous review response had no usable final answer. Do not reason aloud.\n"
+                        "Return STRICT compact JSON only, no prose, no markdown, no code fences.\n"
+                        f"Keep between {review_target_min_count} and {review_target_max_count} cases when possible.\n"
+                        "Schema:\n"
+                        '{"kept_case_ids":["TC-001"],"dropped":[{"case_id":"TC-002","reason":"coverage_redundant"}]}\n'
+                        "Allowed reasons: coverage_redundant, duplicate, low_value, coverage_protected_omitted, "
+                        "high_signal_omitted, selection_tradeoff_omitted, fallback_unspecified.\n"
+                        "Case ids must come from this list only:\n"
+                        f"{json.dumps(candidate_ids[:200], ensure_ascii=False)}\n"
+                        "Compact candidate facts:\n"
+                        f"{json.dumps(compact_cases[:200], ensure_ascii=False, separators=(',', ':'))}"
+                    )
+
                 try:
                     review_llm_runtime_debug["primary_model"] = str(
-                        client.select_model(review_prompt, "generation")
+                        client.select_model(review_prompt, "review")
                     )
                 except Exception:
                     review_llm_runtime_debug["primary_model"] = ""
@@ -381,9 +451,12 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                     review_prompt,
                     "You are a QA Auditor.",
                     db=db,
-                    task_type="generation",
+                    task_type="review",
                 )
                 review_response_text = str(review_response or "")
+                review_llm_runtime_debug["primary_response_metadata"] = dict(
+                    getattr(client, "last_response_metadata", {}) or {}
+                )
                 primary_result = _analyze_review_payload(review_response_text, reason_origin="llm")
                 review_llm_runtime_debug["response_len"] = int(len(review_response_text))
                 review_llm_runtime_debug["response_preview"] = review_response_text[:500]
@@ -420,6 +493,42 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                 if retry_reason:
                     review_llm_runtime_debug["retry_invoked"] = True
                     review_llm_runtime_debug["retry_reason"] = retry_reason
+                    primary_model_for_retry = str(review_llm_runtime_debug.get("primary_model") or "").strip()
+                    if (
+                        retry_reason in {"empty_response", "error_response"}
+                        and primary_model_for_retry
+                        and str(review_response_text or "").startswith("Error: Empty response")
+                    ):
+                        review_llm_runtime_debug["primary_compact_retry_invoked"] = True
+                        review_llm_runtime_debug["primary_compact_retry_model"] = primary_model_for_retry
+                        compact_retry_text = str(
+                            client.generate_response(
+                                _compact_review_retry_prompt(),
+                                "You are a QA Auditor. Return strict JSON only.",
+                                db=db,
+                                task_type="review",
+                                model=primary_model_for_retry,
+                                max_tokens=4096,
+                            )
+                            or ""
+                        )
+                        review_llm_runtime_debug["primary_compact_retry_response_len"] = int(len(compact_retry_text))
+                        review_llm_runtime_debug["primary_compact_retry_response_metadata"] = dict(
+                            getattr(client, "last_response_metadata", {}) or {}
+                        )
+                        compact_retry_result = _analyze_review_payload(
+                            compact_retry_text,
+                            reason_origin="primary_compact_retry",
+                        )
+                        compact_retry_invalid_reason = str(compact_retry_result.get("invalid_reason") or "")
+                        review_llm_runtime_debug["primary_compact_retry_invalid_reason"] = compact_retry_invalid_reason
+                        if not compact_retry_invalid_reason:
+                            review_response_text = compact_retry_text
+                            final_result = compact_retry_result
+                            final_source = "primary_compact_retry"
+                            retry_reason = ""
+
+                if retry_reason:
                     fallback_models: list[str] = []
                     primary_model_name = str(review_llm_runtime_debug.get("primary_model") or "").strip().lower()
                     if "deepseek" in primary_model_name and primary_model_name != "deepseek-chat":
@@ -466,7 +575,7 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                             repair_prompt,
                             "You are a QA Auditor.",
                             db=db,
-                            task_type="generation",
+                            task_type="review",
                             model=model_key,
                         )
                         retry_text = str(review_response_retry or "")
@@ -530,6 +639,34 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                     review_llm_drop_reason_raw_map = dict(final_result.get("dropped_reason_map") or {})
                     review_llm_drop_reason_raw_origin_map = dict(final_result.get("dropped_reason_origin_map") or {})
                     final_dropped_reason_count = int(len(review_llm_drop_reason_raw_map))
+                    final_mapped_signatures = {
+                        str(signature or "").strip()
+                        for signature in set(final_result.get("mapped_signatures") or set())
+                        if str(signature or "").strip()
+                    }
+                    final_dropped_signatures = {
+                        str(signature or "").strip()
+                        for signature in review_llm_drop_reason_raw_map.keys()
+                        if str(signature or "").strip()
+                    }
+                    selected_and_dropped_overlap = final_mapped_signatures & final_dropped_signatures
+                    signature_to_case_id = {
+                        _signature(item): _review_case_id(item)
+                        for item in llm_pool_cases
+                        if isinstance(item, dict) and _signature(item)
+                    }
+                    overlap_case_ids = [
+                        str(signature_to_case_id.get(signature) or "")
+                        for signature in selected_and_dropped_overlap
+                    ]
+                    overlap_case_ids = [case_id for case_id in overlap_case_ids if case_id]
+                    review_llm_runtime_debug["final_selected_and_dropped_overlap_count"] = int(
+                        len(selected_and_dropped_overlap)
+                    )
+                    review_llm_runtime_debug["final_selected_and_dropped_overlap_case_ids"] = overlap_case_ids[:20]
+                    review_llm_runtime_debug["final_payload_consistent"] = bool(
+                        len(selected_and_dropped_overlap) == 0
+                    )
                     review_llm_runtime_debug["final_dropped_reason_count"] = int(final_dropped_reason_count)
                     review_llm_runtime_debug["final_dropped_reason_payload_count"] = int(
                         final_result.get("dropped_reason_payload_count") or 0
@@ -564,6 +701,137 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         selected_signature_after_constraints = {
             _signature(item) for item in selected_from_llm_pool if isinstance(item, dict)
         }
+        if review_llm_applied and llm_pool_cases:
+            pool_by_signature = {
+                _signature(item): item
+                for item in llm_pool_cases
+                if isinstance(item, dict) and _signature(item)
+            }
+            dropped_after_constraints = [
+                item
+                for signature, item in pool_by_signature.items()
+                if signature and signature not in selected_signature_after_constraints
+            ]
+            missing_reason_cases = [
+                item
+                for item in dropped_after_constraints
+                if _signature(item) and _signature(item) not in review_llm_drop_reason_raw_map
+            ]
+            if missing_reason_cases:
+                def _reason_repair_clip(value: Any, limit: int = 160) -> str:
+                    return str(value or "").strip()[:limit]
+
+                repair_candidates: list[dict[str, Any]] = []
+                for item in missing_reason_cases[:80]:
+                    if not isinstance(item, dict):
+                        continue
+                    case_id = _review_case_id(item)
+                    if not case_id:
+                        continue
+                    repair_candidates.append(
+                        {
+                            "id": case_id,
+                            "module": _reason_repair_clip(item.get("test_module"), 80),
+                            "description": _reason_repair_clip(item.get("description"), 180),
+                            "expected_result": _reason_repair_clip(item.get("expected_result"), 180),
+                            "priority": _reason_repair_clip(item.get("priority_final") or item.get("priority"), 12),
+                        }
+                    )
+                if repair_candidates:
+                    repair_ids = [str(item.get("id") or "") for item in repair_candidates if item.get("id")]
+                    repair_prompt = (
+                        "REVIEW REASON REPAIR ONLY.\n"
+                        "The final selected case set is already fixed. Do NOT select or rewrite cases.\n"
+                        "For each dropped candidate below, assign exactly one canonical drop reason.\n"
+                        "Return STRICT JSON only, no prose, no markdown.\n"
+                        "Schema:\n"
+                        '{"dropped":[{"case_id":"TC-001","reason":"coverage_redundant"}]}\n'
+                        "Allowed reasons: coverage_redundant, duplicate, low_value, selection_tradeoff_omitted.\n"
+                        "Use coverage_redundant when another retained case covers the same rule or workflow value.\n"
+                        "Use duplicate only for near-identical validation targets.\n"
+                        "Use low_value for weak, generic, or low business-signal cases.\n"
+                        "Use selection_tradeoff_omitted when the case has some value but was omitted to keep the final set concise.\n"
+                        f"case_id must come from: {json.dumps(repair_ids, ensure_ascii=False)}\n"
+                        f"Dropped candidates: {json.dumps(repair_candidates, ensure_ascii=False, separators=(',', ':'))}"
+                    )
+                    review_llm_runtime_debug["reason_repair_invoked"] = True
+                    review_llm_runtime_debug["reason_repair_candidate_count"] = int(len(repair_candidates))
+                    try:
+                        review_llm_runtime_debug["reason_repair_model"] = str(
+                            client.select_model(repair_prompt, "review")
+                        )
+                    except Exception:
+                        review_llm_runtime_debug["reason_repair_model"] = ""
+                    repair_response_text = str(
+                        client.generate_response(
+                            repair_prompt,
+                            "You are a QA Auditor. Return strict JSON only.",
+                            db=db,
+                            task_type="review",
+                            max_tokens=2048,
+                        )
+                        or ""
+                    )
+                    review_llm_runtime_debug["reason_repair_response_len"] = int(len(repair_response_text))
+                    review_llm_runtime_debug["reason_repair_response_metadata"] = dict(
+                        getattr(client, "last_response_metadata", {}) or {}
+                    )
+                    repair_payload = clean_and_parse_json_fn(repair_response_text)
+                    repair_invalid_reason = ""
+                    if not str(repair_response_text or "").strip():
+                        repair_invalid_reason = "empty_response"
+                    elif str(repair_response_text).startswith(("Error:", "Exception")):
+                        repair_invalid_reason = "error_response"
+                    elif (
+                        isinstance(repair_payload, dict)
+                        and bool(str(repair_payload.get("error") or "").strip())
+                    ):
+                        repair_invalid_reason = "schema_parse_error"
+                    elif not isinstance(repair_payload, dict):
+                        repair_invalid_reason = "schema_not_dict"
+                    dropped_payload = repair_payload.get("dropped") if isinstance(repair_payload, dict) else None
+                    if not isinstance(dropped_payload, list):
+                        dropped_payload = []
+                    case_by_id = {
+                        _review_case_id(item): item
+                        for item in missing_reason_cases
+                        if isinstance(item, dict) and _review_case_id(item)
+                    }
+                    mapped_reason_count = 0
+                    allowed_repair_reasons = {
+                        "coverage_redundant",
+                        "duplicate",
+                        "low_value",
+                        "selection_tradeoff_omitted",
+                    }
+                    for dropped_item in dropped_payload:
+                        if not isinstance(dropped_item, dict):
+                            continue
+                        case_id = str(dropped_item.get("case_id") or dropped_item.get("id") or "").strip()
+                        reason = str(dropped_item.get("reason") or "").strip().lower()
+                        if reason not in allowed_repair_reasons:
+                            continue
+                        original = case_by_id.get(case_id)
+                        if not isinstance(original, dict):
+                            continue
+                        signature = _signature(original)
+                        if not signature or signature in review_llm_drop_reason_raw_map:
+                            continue
+                        review_llm_drop_reason_raw_map[signature] = reason
+                        review_llm_drop_reason_raw_origin_map[signature] = "llm"
+                        mapped_reason_count += 1
+                    if mapped_reason_count <= 0 and not repair_invalid_reason:
+                        repair_invalid_reason = "no_mapped_reasons"
+                    review_llm_runtime_debug["reason_repair_mapped_count"] = int(mapped_reason_count)
+                    review_llm_runtime_debug["reason_repair_invalid_reason"] = str(repair_invalid_reason)
+                    if mapped_reason_count > 0:
+                        review_llm_runtime_debug["final_dropped_reason_count"] = int(
+                            len(review_llm_drop_reason_raw_map)
+                        )
+                        review_llm_runtime_debug["final_dropped_reason_payload_count"] = int(
+                            len(review_llm_drop_reason_raw_map)
+                        )
+                        review_llm_runtime_debug["final_dropped_reason_unmapped_count"] = 0
         review_llm_drop_reason_map, review_llm_drop_reason_source_map, review_llm_drop_reason_evidence_map = (
             _resolve_review_llm_drop_reason_maps(
                 pool_cases=[item for item in llm_pool_cases if isinstance(item, dict)],
@@ -647,6 +915,7 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             include_trace=True,
             coverage_context=review_selection_coverage,
             rule_diagnostics={"rule_diagnostics": review_selection_coverage.get("rule_diagnostics") or []},
+            generation_profile=generation_coverage_profile,
         )
         if isinstance(rerank_result, tuple) and len(rerank_result) == 2:
             parsed_result = [x for x in (rerank_result[0] or []) if isinstance(x, dict)]
@@ -662,6 +931,7 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                 include_trace=True,
                 coverage_context=fallback_coverage,
                 rule_diagnostics={"rule_diagnostics": fallback_coverage.get("rule_diagnostics") or []},
+                generation_profile=generation_coverage_profile,
             )
             if isinstance(fallback_result, tuple) and len(fallback_result) == 2:
                 parsed_result = [x for x in (fallback_result[0] or []) if isinstance(x, dict)]
@@ -705,6 +975,7 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             include_trace=True,
             coverage_context=review_candidate_coverage,
             rule_diagnostics={"rule_diagnostics": review_candidate_coverage.get("rule_diagnostics") or []},
+            generation_profile=generation_coverage_profile,
         )
         if isinstance(rerank_result, tuple) and len(rerank_result) == 2:
             parsed_result = [x for x in (rerank_result[0] or []) if isinstance(x, dict)]
@@ -928,6 +1199,23 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
     except Exception:
         judge_summary_payload = {}
         judge_decision_table_payload = []
+    final_quality_filtered_result: list[dict[str, Any]] = []
+    final_quality_drop_total = 0
+    for case in [x for x in parsed_result if isinstance(x, dict)]:
+        expected_text = str(case.get("expected_result") or "").strip()
+        expected_quality = str(case.get("expected_result_quality") or "").strip().lower()
+        if (
+            expected_quality in {"non_assertable", "truncated"}
+            or _looks_truncated_text(expected_text)
+            or _is_non_assertable_expected_result(expected_text)
+        ):
+            final_quality_drop_total += 1
+            continue
+        final_quality_filtered_result.append(case)
+    if final_quality_drop_total > 0:
+        parsed_result = final_quality_filtered_result
+        low_quality_dropped_total += int(final_quality_drop_total)
+        postprocess_filter_drop_total += int(final_quality_drop_total)
     pre_priority_coverage = analyze_coverage(requirement, [x for x in parsed_result if isinstance(x, dict)])
     parsed_result = apply_priority_semantics_to_cases(
         [x for x in parsed_result if isinstance(x, dict)],
@@ -939,6 +1227,42 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         [x for x in parsed_result if isinstance(x, dict)]
     )
     parsed_result = _strip_case_meta_list(parsed_result)
+    if int(append_final_cap_count or 0) > 0 and len([x for x in parsed_result if isinstance(x, dict)]) > int(append_final_cap_count):
+        cap_coverage = analyze_coverage(requirement, [x for x in parsed_result if isinstance(x, dict)])
+        cap_rule_diagnostics = {"rule_diagnostics": cap_coverage.get("rule_diagnostics") or []}
+        indexed_cases = [
+            (index, item)
+            for index, item in enumerate(parsed_result)
+            if isinstance(item, dict)
+        ]
+        indexed_cases.sort(
+            key=lambda pair: tuple(
+                [
+                    -value
+                    for value in _rank_review_case_for_fill(
+                        pair[1],
+                        coverage_context=cap_coverage,
+                        rule_diagnostics=cap_rule_diagnostics,
+                    )
+                ]
+            )
+            + (int(pair[0]),)
+        )
+        keep_indices = {
+            int(index)
+            for index, _case in indexed_cases[: int(append_final_cap_count)]
+        }
+        append_cap_drop_signatures = {
+            _signature(case)
+            for index, case in enumerate(parsed_result)
+            if isinstance(case, dict) and int(index) not in keep_indices
+        }
+        append_cap_drop_total = int(len(append_cap_drop_signatures))
+        parsed_result = [
+            case
+            for index, case in enumerate(parsed_result)
+            if isinstance(case, dict) and int(index) in keep_indices
+        ]
     final_count = len([x for x in parsed_result if isinstance(x, dict)])
     post_review_dedup_drop = max(0, int(review_selected_count or 0) - int(final_count or 0))
 
@@ -1006,6 +1330,9 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                 dropped_reason = "drop_after_llm_selection"
             else:
                 dropped_reason = "drop_selector_fallback"
+        elif signature in append_cap_drop_signatures:
+            dropped_stage = "append_target_cap"
+            dropped_reason = "drop_exceeds_append_target_count"
         elif signature in dedup_drop_signatures:
             dropped_stage = "review_dedup_pre_gate"
             dropped_reason = "drop_dedup_pre_gate"
@@ -1029,7 +1356,7 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             or case.get("model_priority")
             or ""
         ).strip().upper()
-        legacy_priority_value = str(case.get("priority") or "").strip().upper()
+        legacy_priority_value = str(case.get("legacy_priority") or case.get("priority") or "").strip().upper()
         priority_final_value = str(case.get("priority_final") or "").strip().upper()
         priority_decision_state_value = str(case.get("priority_decision_state") or "").strip().lower()
         priority_decision_source_value = str(case.get("priority_decision_source") or "").strip() or "insufficient_evidence"
@@ -1220,6 +1547,15 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         float(deterministic_backfill_total) / float(drop_by_review_llm_count),
         4,
     ) if drop_by_review_llm_count > 0 else 0.0
+    final_reason_incomplete = bool(drop_by_review_llm_count > 0 and llm_reason_total <= 0)
+    final_reason_coverage_ratio = round(
+        float(llm_reason_total) / float(drop_by_review_llm_count),
+        4,
+    ) if drop_by_review_llm_count > 0 else 1.0
+    review_llm_runtime_debug["final_reason_incomplete"] = bool(final_reason_incomplete)
+    review_llm_runtime_debug["final_reason_coverage_ratio"] = float(final_reason_coverage_ratio)
+    if final_reason_incomplete and str(review_llm_runtime_debug.get("applied_reason") or "") == "mapped_valid_payload":
+        review_llm_runtime_debug["applied_reason"] = "mapped_valid_payload_reason_incomplete"
     review_decision_summary = {
         "candidate_total": int(len(review_decision_table)),
         "retained_total": int(sum(1 for row in review_decision_table if bool(row.get("retained_final")))),
@@ -1251,6 +1587,8 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         "review_llm_drop_reason_raw_breakdown": review_llm_drop_reason_raw_counts,
         "review_llm_drop_reason_source_breakdown": review_llm_drop_reason_source_counts,
         "fallback_reason_incomplete": bool(fallback_reason_incomplete),
+        "final_reason_incomplete": bool(final_reason_incomplete),
+        "final_reason_coverage_ratio": float(final_reason_coverage_ratio),
         "fallback_dropped_reason_count": int(fallback_dropped_reason_count),
         "fallback_dropped_reason_mapped_count": int(fallback_dropped_reason_mapped_count),
         "fallback_dropped_reason_unmapped_count": int(fallback_dropped_reason_unmapped_count),

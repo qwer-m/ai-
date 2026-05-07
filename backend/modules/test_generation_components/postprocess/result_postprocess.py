@@ -12,19 +12,59 @@ from .result_postprocess_priority_semantics import (
     score_case_priority,
 )
 
+def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") -> Any:
+    """Re-apply priority semantics to public final cases before persistence."""
+    if not isinstance(result, list):
+        return result
+    cases = [dict(item) for item in result if isinstance(item, dict)]
+    if not cases:
+        return []
+    try:
+        from ..coverage.coverage_analyzer import analyze_coverage
+    except Exception:
+        from modules.testing.test_generation_components.coverage.coverage_analyzer import analyze_coverage
+
+    coverage_context = analyze_coverage(str(requirement_text or ""), cases)
+    return apply_priority_semantics_to_cases(
+        cases,
+        attach_debug=False,
+        coverage_context=coverage_context,
+        rule_diagnostics={"rule_diagnostics": coverage_context.get("rule_diagnostics") or []},
+    )
+
+
 def strip_case_meta_fields(result: Any) -> Any:
     """Remove debug/meta payload from case outputs."""
     if not isinstance(result, list):
         return result
+    debug_fields = {
+        "meta",
+        "displayPriority",
+        "rawPriority",
+        "finalPriority",
+        "model_priority_current",
+        "model_priority",
+        "legacy_priority",
+        "priority_final",
+        "priority_decision_state",
+        "priority_decision_source",
+        "priority_confidence",
+        "priority_conflict_reason",
+        "priority_resolution_reason",
+        "priority_score",
+        "suggested_priority",
+        "priority_reasons",
+    }
     cleaned: list[dict[str, Any]] = []
     for item in result:
         if not isinstance(item, dict):
             continue
         case = dict(item)
-        case.pop("meta", None)
-        case.pop("displayPriority", None)
-        case.pop("rawPriority", None)
-        case.pop("finalPriority", None)
+        final_priority = str(case.get("priority_final") or "").strip().upper()
+        if final_priority in {"P0", "P1", "P2"}:
+            case["priority"] = final_priority
+        for field in debug_fields:
+            case.pop(field, None)
         cleaned.append(case)
     return cleaned
 

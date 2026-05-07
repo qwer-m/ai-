@@ -1,4 +1,39 @@
             )
+    review_name = (req.review_model_name or "").strip()
+    if review_name:
+        try:
+            review_provider, review_key, review_base_url, review_follow_main = resolve_target_credentials(
+                target_key="review",
+                follow_main=bool(req.review_follow_main if req.review_follow_main is not None else True),
+                submitted_provider=req.review_provider,
+                submitted_api_key=req.review_api_key,
+                submitted_base_url=req.review_base_url,
+                main_provider=provider,
+                main_api_key=api_key,
+                main_base_url=base_url,
+                active_config=active_config,
+            )
+            review_check = validate_text_model(
+                review_provider,
+                review_key,
+                review_base_url,
+                review_name,
+                "审查模型",
+            )
+            review_check["follow_main"] = review_follow_main
+            review_check["provider"] = review_provider
+            checks.append(review_check)
+        except Exception as e:
+            checks.append(
+                {
+                    "type": "text",
+                    "label": "审查模型",
+                    "model": review_name,
+                    "success": False,
+                    "latency": 0,
+                    "error": str(e),
+                }
+            )
     vl_name = (req.vl_model_name or "").strip()
     if vl_name:
         try:
@@ -67,6 +102,7 @@ async def save_config(
             resolved_api_key = req.api_key
         resolved_base_url = resolve_base_url(normalized_main_provider, req.base_url, active_config)
         turbo_follow_main = bool(req.turbo_follow_main if req.turbo_follow_main is not None else True)
+        review_follow_main = bool(req.review_follow_main if req.review_follow_main is not None else True)
         vl_follow_main = bool(req.vl_follow_main if req.vl_follow_main is not None else True)
         turbo_provider, turbo_key, turbo_base_url, _ = resolve_target_credentials(
             target_key="turbo",
@@ -85,6 +121,17 @@ async def save_config(
             submitted_provider=req.vl_provider,
             submitted_api_key=req.vl_api_key,
             submitted_base_url=req.vl_base_url,
+            main_provider=normalized_main_provider,
+            main_api_key=resolved_api_key,
+            main_base_url=resolved_base_url,
+            active_config=active_config,
+        )
+        review_provider, review_key, review_base_url, _ = resolve_target_credentials(
+            target_key="review",
+            follow_main=review_follow_main,
+            submitted_provider=req.review_provider,
+            submitted_api_key=req.review_api_key,
+            submitted_base_url=req.review_base_url,
             main_provider=normalized_main_provider,
             main_api_key=resolved_api_key,
             main_base_url=resolved_base_url,
@@ -118,6 +165,13 @@ async def save_config(
                     "provider": "" if turbo_follow_main else turbo_provider,
                     "api_key": "" if turbo_follow_main else encrypt_key_for_storage(turbo_key),
                     "base_url": "" if turbo_follow_main else (turbo_base_url or ""),
+                },
+                "review": {
+                    "follow_main": review_follow_main,
+                    "provider": "" if review_follow_main else review_provider,
+                    "api_key": "" if review_follow_main else encrypt_key_for_storage(review_key),
+                    "base_url": "" if review_follow_main else (review_base_url or ""),
+                    "model_name": (req.review_model_name or "").strip(),
                 },
                 "vision": {
                     "follow_main": vl_follow_main,

@@ -64,6 +64,13 @@ _PRIORITY_POOL_MAX_NEGATIVE_TOP_K = max(
 _SYNC_PRIORITY_INDEX_ON_READ = str(
     os.getenv("TESTGEN_PRIORITY_POOL_INDEX_SYNC_ON_READ", "false")
 ).strip().lower() in {"1", "true", "yes", "on"}
+_MIN_PRIORITY_POOL_PATTERN_CONFIDENCE = max(
+    0.0,
+    min(
+        1.0,
+        float(os.getenv("TESTGEN_PRIORITY_POOL_MIN_PATTERN_CONFIDENCE", "0.6")),
+    ),
+)
 _ASCII_TOKEN_PATTERN = re.compile(r"[a-z0-9_]+", re.IGNORECASE)
 _CJK_CHAR_PATTERN = re.compile(r"[\u4e00-\u9fff]")
 
@@ -100,6 +107,13 @@ def _safe_int(raw: Any, default: int = 0) -> int:
         return int(raw)
     except Exception:
         return int(default)
+
+
+def _safe_float(raw: Any, default: float = 0.0) -> float:
+    try:
+        return float(raw)
+    except Exception:
+        return float(default)
 
 
 def _sample_value(sample: Any, key: str, default: Any = None) -> Any:
@@ -383,6 +397,13 @@ def _is_pattern_active(sample_like: dict[str, Any]) -> bool:
     return status != "disabled"
 
 
+def _pattern_confidence(sample_like: dict[str, Any]) -> float:
+    raw = _sample_value(sample_like, "pattern_confidence", "patternConfidence")
+    if raw in (None, ""):
+        return 1.0
+    return max(0.0, min(1.0, _safe_float(raw, default=1.0)))
+
+
 def _is_preferred_signal_sample(sample_like: dict[str, Any]) -> bool:
     signal_type = _normalize_signal_type(
         _sample_value(
@@ -504,6 +525,8 @@ def _select_priority_pool_samples_by_requirement(
         "retrieval_lexical_fallback_used": False,
         "retrieval_active_sample_count": 0,
         "retrieval_disabled_sample_count": 0,
+        "retrieval_low_confidence_sample_count": 0,
+        "retrieval_min_pattern_confidence": float(_MIN_PRIORITY_POOL_PATTERN_CONFIDENCE),
         "retrieval_signal_quota_applied": False,
         "retrieval_signal_quota_relaxed": False,
         "retrieval_positive_min_quota": int(_PRIORITY_POOL_MIN_POSITIVE_TOP_K),
@@ -523,9 +546,15 @@ def _select_priority_pool_samples_by_requirement(
     }
     if not samples:
         return [], retrieval_meta
-    active_samples = [item for item in samples if _is_pattern_active(item)]
+    active_status_samples = [item for item in samples if _is_pattern_active(item)]
+    active_samples = [
+        item
+        for item in active_status_samples
+        if _pattern_confidence(item) >= float(_MIN_PRIORITY_POOL_PATTERN_CONFIDENCE)
+    ]
     retrieval_meta["retrieval_active_sample_count"] = int(len(active_samples))
-    retrieval_meta["retrieval_disabled_sample_count"] = int(len(samples) - len(active_samples))
+    retrieval_meta["retrieval_disabled_sample_count"] = int(len(samples) - len(active_status_samples))
+    retrieval_meta["retrieval_low_confidence_sample_count"] = int(len(active_status_samples) - len(active_samples))
     pool_positive, pool_negative = _count_signal_split(active_samples)
     retrieval_meta["retrieval_pool_positive_count"] = int(pool_positive)
     retrieval_meta["retrieval_pool_negative_count"] = int(pool_negative)
@@ -656,6 +685,8 @@ def _select_priority_pool_samples_by_requirement(
         index_seen.add(sample_index)
         picked = samples[sample_index]
         if not _is_pattern_active(picked):
+            continue
+        if _pattern_confidence(picked) < float(_MIN_PRIORITY_POOL_PATTERN_CONFIDENCE):
             continue
         if canonical:
             pattern_seen.add(canonical)
@@ -844,6 +875,8 @@ def _build_from_priority_sample_pool(
     rule_expected_high: set[str] = set()
     scenario_counter: Counter[str] = Counter()
     pattern_counter: Counter[str] = Counter()
+    pattern_scope_counter: Counter[str] = Counter()
+    pattern_grain_counter: Counter[str] = Counter()
     forbidden_patterns: list[str] = []
     forbidden_pattern_seen: set[str] = set()
     preferred_patterns: list[str] = []
@@ -916,6 +949,14 @@ def _build_from_priority_sample_pool(
             pattern_category_counter[pattern_category] += 1
         if expected_priority:
             expected_counter[expected_priority] += 1
+        pattern_scope = str(
+            _sample_value(sample, "pattern_scope", "patternScope") or "unknown"
+        ).strip() or "unknown"
+        pattern_grain = str(
+            _sample_value(sample, "pattern_grain", "patternGrain") or "case"
+        ).strip() or "case"
+        pattern_scope_counter[pattern_scope[:40]] += 1
+        pattern_grain_counter[pattern_grain[:40]] += 1
 
         scenario_label = _REASON_TO_SCENARIO.get(reason)
         if scenario_label:
@@ -1046,6 +1087,8 @@ def _build_from_priority_sample_pool(
             "ui_low_value_negative_count": int(ui_low_value_negative_count),
             "reason_category_distribution": dict(reason_counter),
             "pattern_category_distribution": dict(pattern_category_counter),
+            "pattern_scope_distribution": dict(pattern_scope_counter),
+            "pattern_grain_distribution": dict(pattern_grain_counter),
             "expected_priority_distribution": dict(expected_counter),
             "pattern_hit_distribution": {
                 key: int(value)

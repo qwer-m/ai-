@@ -563,6 +563,7 @@ def main() -> int:
     judge_table_payload = _pick_latest_payload(payloads, "judge_decision_table")
     generation_summary = _pick_latest_payload(payloads, "generation_summary")
     review_table_payload = _pick_latest_payload(payloads, "review_decision_table")
+    quality_ledger = _pick_latest_payload(payloads, "generation_quality_ledger")
 
     rows = [item for item in (review_table_payload.get("rows") or []) if isinstance(item, dict)]
     review_export_meta = _build_detail_export_meta(
@@ -657,6 +658,7 @@ def main() -> int:
         "review_decision_summary": review_summary,
         "judge_summary": judge_summary,
         "generation_summary": generation_summary,
+        "generation_quality_ledger": quality_ledger,
         "review_detail_export_meta": review_export_meta,
         "funnel": funnel,
         "dropped_breakdown": {
@@ -725,6 +727,13 @@ def main() -> int:
     print("  judge_breakdown:")
     print(f"    total: {len(judge_rows)}")
     print(f"    rejected_or_pending_total: {len(judge_rejected_rows)}")
+    if quality_ledger:
+        print("  quality_ledger:")
+        print(f"    final_count: {quality_ledger.get('final_count')}")
+        print(f"    quality_assessment: {quality_ledger.get('quality_assessment')}")
+        coverage_ledger = quality_ledger.get("coverage") if isinstance(quality_ledger.get("coverage"), dict) else {}
+        print(f"    coverage_rate: {coverage_ledger.get('coverage_rate')}")
+        print(f"    missing_rules_count: {coverage_ledger.get('missing_rules_count')}")
     return 0
 
 
