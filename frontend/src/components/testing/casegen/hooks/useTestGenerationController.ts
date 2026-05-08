@@ -37,6 +37,7 @@ type GenerationFunnelMetrics = {
   rawPreviewCount: number;
   reviewCandidateCount: number | null;
   reviewSelectedCount: number | null;
+  judgeInputCount: number | null;
   judgeRejectedOrPendingCount: number | null;
   finalCount: number;
 };
@@ -55,6 +56,7 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   const reviewDecisionSummary = useRagDebugStore((s) => s.reviewDecisionSummary);
   const judgeSummary = useRagDebugStore((s) => s.judgeSummary);
   const generationSummary = useRagDebugStore((s) => s.generationSummary);
+  const generationQualityLedger = useRagDebugStore((s) => s.generationQualityLedger);
 
   const initialTextResult = readStoredJSON(getProjectKey(projectId, 'tg_text_result'), null);
   const initialFileResult = readStoredJSON(getProjectKey(projectId, 'tg_file_result'), null);
@@ -132,12 +134,23 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     const rejectedOut = Number(judgeSummary?.rejected_out_count ?? judgeSummary?.reject_count);
     const pendingOut = Number(judgeSummary?.pending_out_count ?? judgeSummary?.pending_count);
     const judgeRejectedOrPendingRaw = rejectedOut + pendingOut;
+    const ledgerJudge = generationQualityLedger?.judge && typeof generationQualityLedger.judge === 'object'
+      ? generationQualityLedger.judge as Record<string, unknown>
+      : {};
+    const passCount = Number(judgeSummary?.confirmed_pass_out_count ?? judgeSummary?.pass_count);
+    const repairableCount = Number(judgeSummary?.repairable_count ?? judgeSummary?.repaired_pass_out_count);
+    const judgeInputFallback = (Number.isFinite(passCount) ? passCount : 0)
+      + (Number.isFinite(repairableCount) ? repairableCount : 0)
+      + (Number.isFinite(rejectedOut) ? rejectedOut : 0)
+      + (Number.isFinite(pendingOut) ? pendingOut : 0);
+    const judgeInputRaw = Number(ledgerJudge.total ?? judgeInputFallback);
     const finalCountRaw = Number(generationSummary?.final_count ?? genDiag?.generated_count ?? displayCaseCount);
 
     return {
       rawPreviewCount: Number.isFinite(previewCaseCount) ? previewCaseCount : 0,
       reviewCandidateCount: Number.isFinite(reviewCandidateCountRaw) ? reviewCandidateCountRaw : null,
       reviewSelectedCount: Number.isFinite(reviewSelectedCountRaw) ? reviewSelectedCountRaw : null,
+      judgeInputCount: Number.isFinite(judgeInputRaw) ? judgeInputRaw : null,
       judgeRejectedOrPendingCount: Number.isFinite(judgeRejectedOrPendingRaw) ? judgeRejectedOrPendingRaw : null,
       finalCount: Number.isFinite(finalCountRaw) ? finalCountRaw : displayCaseCount,
     };
@@ -145,6 +158,7 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     reviewDecisionSummary,
     generationConvergence,
     judgeSummary,
+    generationQualityLedger,
     generationSummary,
     genDiag,
     previewCaseCount,

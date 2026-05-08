@@ -22,9 +22,15 @@ from modules.test_generation_components.repositories.history_repository import (
 )
 
 _MAX_DERIVED_POSITIVE_SAMPLES = 120
+_MAX_DERIVED_POSITIVE_PATTERNS = 40
+_MAX_POSITIVE_SAMPLES_PER_PATTERN_KEY = 2
 _MAX_DERIVED_NEGATIVE_SAMPLES = 80
 _MAX_POOL_SAMPLES = 5000
 _SIMILARITY_MATCH_THRESHOLD = 0.62
+_MAX_EVALUATION_LEARNING_CANDIDATES = 80
+_MAX_EVALUATION_POSITIVE_CANDIDATES_PER_FIELD = 8
+_MAX_EVALUATION_FIX_CANDIDATES_PER_FIELD = 6
+_MAX_EVALUATION_NEGATIVE_CANDIDATES_PER_FIELD = 3
 
 _CASE_FIELD_ALIASES = {
     "id": ("id", "case_id", "用例编号", "编号"),
@@ -200,10 +206,13 @@ def build_learning_samples_from_final_cases(
     normalized_final = [_normalize_case_dict(item) for item in final_cases if isinstance(item, dict)]
     ledger_summary = _compact_quality_ledger(quality_ledger)
 
-    positives: list[dict[str, Any]] = []
+    positive_candidates: list[dict[str, Any]] = []
     for idx, case in enumerate(normalized_final[:_MAX_DERIVED_POSITIVE_SAMPLES], start=1):
-        extension = not _case_is_grounded_in_requirement(case, requirement_text)
-        positives.append(
+        extension = bool(str(requirement_text or "").strip()) and not _case_is_grounded_in_requirement(
+            case,
+            requirement_text,
+        )
+        positive_candidates.append(
             _build_positive_sample(
                 case,
                 index=idx,
@@ -213,6 +222,7 @@ def build_learning_samples_from_final_cases(
                 quality_ledger=ledger_summary,
             )
         )
+    positives = _aggregate_positive_pattern_samples(positive_candidates)
 
     negatives: list[dict[str, Any]] = []
     if include_negative_samples:
@@ -242,13 +252,171 @@ def build_learning_samples_from_final_cases(
         "diagnostics": {
             "generated_case_count": len(normalized_generated),
             "final_case_count": len(normalized_final),
+            "positive_candidate_count": len(positive_candidates),
             "positive_sample_count": len(positives),
             "negative_sample_count": len(negatives),
             "manual_business_extension_count": sum(
                 1 for item in positives if item.get("manual_business_extension") is True
             ),
+            "manual_business_extension_candidate_count": sum(
+                1 for item in positive_candidates if item.get("manual_business_extension") is True
+            ),
+            "positive_aggregation_policy": (
+                f"pattern_key_top{_MAX_POSITIVE_SAMPLES_PER_PATTERN_KEY}_cap{_MAX_DERIVED_POSITIVE_PATTERNS}"
+            ),
             "negative_policy": "ai_only_clear_quality_failure_only",
             "quality_ledger_attached": bool(ledger_summary),
+        },
+    }
+
+
+def parse_evaluation_result_payload(raw: Any) -> dict[str, Any]:
+    """Parse the quality-evaluation report into a dict.
+
+    The evaluation endpoint may return plain JSON, markdown fenced JSON, or an
+    already-parsed object. Keep this parser local so both API and tests share
+    the same tolerance as the frontend report renderer.
+    """
+    if isinstance(raw, dict):
+        return raw
+    text = str(raw or "").strip()
+    if not text:
+        return {}
+    block = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text, flags=re.IGNORECASE)
+    if block:
+        text = block.group(1).strip()
+    first_open = text.find("{")
+    last_close = text.rfind("}")
+    if first_open >= 0 and last_close > first_open:
+        text = text[first_open : last_close + 1]
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def build_learning_candidates_from_evaluation_result(evaluation_result: Any) -> dict[str, Any]:
+    """Convert quality-evaluation defects into user-confirmable learning candidates.
+
+    This does not write anything. The candidate contains the exact sample that
+    will later be inserted into the existing priority sample pool if the user
+    confirms it.
+    """
+    payload = parse_evaluation_result_payload(evaluation_result)
+    defect = payload.get("defect_analysis") if isinstance(payload.get("defect_analysis"), dict) else {}
+    metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
+
+    candidates: list[dict[str, Any]] = []
+
+    def add_candidate(
+        *,
+        source_field: str,
+        item: Any,
+        index: int,
+        signal_type: str,
+        pattern_usage: str,
+        pattern_category: str,
+        reason_category: str,
+        candidate_type: str,
+        selected_by_default: bool,
+        confidence: float,
+    ) -> None:
+        text = _text(item)
+        if not text:
+            return
+        candidate_id = f"{source_field}-{index}"
+        sample = {
+            "signal_type": signal_type,
+            "pattern_usage": pattern_usage,
+            "pattern_category": pattern_category,
+            "reason_category": reason_category,
+            "expected_priority": "P1" if signal_type == "positive" else "P2",
+            "case_id": candidate_id,
+            "title": text[:120],
+            "user_comment": text[:240],
+            "pattern_summary": _summarize_evaluation_defect_pattern(
+                text=text,
+                signal_type=signal_type,
+                pattern_category=pattern_category,
+            ),
+            "pattern_grain": "pattern" if signal_type == "positive" else "anti_pattern",
+            "source": "quality_evaluation_defect_analysis",
+            "learning_signal_source": f"defect_analysis.{source_field}",
+            "pattern_scope": "project",
+            "pattern_confidence": round(max(0.35, min(0.9, confidence)), 4),
+            "evaluation_metrics": _compact_evaluation_metrics(metrics),
+        }
+        candidates.append(
+            {
+                "id": candidate_id,
+                "candidate_type": candidate_type,
+                "target": "priority_sample_pool",
+                "source_field": source_field,
+                "text": text,
+                "selected_by_default": bool(selected_by_default),
+                "confidence": sample["pattern_confidence"],
+                "sample": sample,
+            }
+        )
+
+    for idx, item in enumerate(_as_text_list(defect.get("missing_points")), start=1):
+        add_candidate(
+            source_field="missing_points",
+            item=item,
+            index=idx,
+            signal_type="positive",
+            pattern_usage="prefer",
+            pattern_category="recall_gap_missing_business_coverage",
+            reason_category="recall_gap",
+            candidate_type="positive_pattern",
+            selected_by_default=True,
+            confidence=_confidence_from_metrics(metrics, base=0.72, metric_name="recall", inverse=True),
+        )
+    for idx, item in enumerate(_as_text_list(defect.get("modifications")), start=1):
+        add_candidate(
+            source_field="modifications",
+            item=item,
+            index=idx,
+            signal_type="positive",
+            pattern_usage="prefer",
+            pattern_category="quality_fix_hint",
+            reason_category="quality_fix_hint",
+            candidate_type="quality_fix_hint",
+            selected_by_default=True,
+            confidence=_confidence_from_metrics(metrics, base=0.68, metric_name="semantic_similarity", inverse=False),
+        )
+    for idx, item in enumerate(_as_text_list(defect.get("hallucinations")), start=1):
+        add_candidate(
+            source_field="hallucinations",
+            item=item,
+            index=idx,
+            signal_type="negative",
+            pattern_usage="avoid",
+            pattern_category="hallucination_or_redundant_case",
+            reason_category="hallucination_or_redundant_case",
+            candidate_type="negative_pattern",
+            selected_by_default=False,
+            confidence=_confidence_from_metrics(metrics, base=0.6, metric_name="precision", inverse=True),
+        )
+
+    raw_candidate_count = len(candidates)
+    candidates = _aggregate_evaluation_learning_candidates(candidates)
+    candidates = candidates[:_MAX_EVALUATION_LEARNING_CANDIDATES]
+    return {
+        "candidates": candidates,
+        "diagnostics": {
+            "raw_candidate_count": raw_candidate_count,
+            "candidate_count": len(candidates),
+            "selected_by_default_count": sum(1 for item in candidates if item.get("selected_by_default") is True),
+            "missing_points_count": len(_as_text_list(defect.get("missing_points"))),
+            "modifications_count": len(_as_text_list(defect.get("modifications"))),
+            "hallucinations_count": len(_as_text_list(defect.get("hallucinations"))),
+            "candidate_aggregation_policy": (
+                "defect_field_semantic_bucket_positive8_fix6_negative3"
+            ),
+            "target": "priority_sample_pool",
+            "write_policy": "user_confirmed_only",
         },
     }
 
@@ -260,6 +428,215 @@ class FinalCaseLearningService:
         self._db = db
         self.history_repo = TestGenerationHistoryRepository(db)
         self.knowledge_repo = KnowledgeDocumentRepository(db)
+
+    def learn_from_case_pair(
+        self,
+        *,
+        project_id: int,
+        user_id: int,
+        generated_cases: Any,
+        final_cases: Any,
+        generation_id: int | None = None,
+        include_negative_samples: bool = True,
+        dry_run: bool = False,
+    ) -> tuple[str, dict[str, Any] | None]:
+        if not self.history_repo.get_owned_project(project_id=project_id, user_id=user_id):
+            return "project_not_found", None
+
+        normalized_generated = parse_test_cases_payload(generated_cases)
+        normalized_final = parse_test_cases_payload(final_cases)
+        if not normalized_final:
+            return (
+                "no_final_cases",
+                {
+                    "project_id": project_id,
+                    "samples": [],
+                    "diagnostics": {
+                        "generated_case_count": len(normalized_generated),
+                        "final_case_count": 0,
+                    },
+                },
+            )
+
+        requirement_text = ""
+        ledger: dict[str, Any] = {}
+        effective_generation_id = generation_id
+        if generation_id:
+            entry = self.history_repo.get_generation(generation_id=int(generation_id))
+            if not entry or int(getattr(entry, "project_id", 0) or 0) != int(project_id):
+                return "generation_not_found", None
+            requirement_text = getattr(entry, "requirement_text", "") or ""
+            ledger = self._find_quality_ledger(entry)
+            if not normalized_generated:
+                normalized_generated = parse_test_cases_payload(getattr(entry, "generated_result", None))
+
+        derived = build_learning_samples_from_final_cases(
+            generated_cases=normalized_generated,
+            final_cases=normalized_final,
+            requirement_text=requirement_text,
+            generation_id=effective_generation_id,
+            linked_doc_ids=[],
+            include_negative_samples=include_negative_samples,
+            quality_ledger=ledger,
+        )
+        if dry_run:
+            return (
+                "ok",
+                {
+                    "project_id": project_id,
+                    "artifact_doc_id": None,
+                    "derived": derived,
+                    "sample_pool_count": None,
+                    "updated_at": None,
+                    "dry_run": True,
+                },
+            )
+
+        existing_payload = (
+            load_priority_sample_pool(
+                db=self._db,
+                project_id=project_id,
+                user_id=user_id,
+            )
+            or {}
+        )
+        existing_samples = existing_payload.get("samples") if isinstance(existing_payload.get("samples"), list) else []
+        merged_samples = (existing_samples or []) + derived["samples"]
+        if len(merged_samples) > _MAX_POOL_SAMPLES:
+            merged_samples = merged_samples[-_MAX_POOL_SAMPLES:]
+
+        doc = upsert_priority_sample_pool(
+            db=self._db,
+            project_id=project_id,
+            user_id=user_id,
+            generation_id=None,
+            samples=merged_samples,
+        )
+        payload = (
+            load_priority_sample_pool(
+                db=self._db,
+                project_id=project_id,
+                user_id=user_id,
+            )
+            or {}
+        )
+        normalized_samples = payload.get("samples") if isinstance(payload.get("samples"), list) else []
+        return (
+            "ok",
+            {
+                "project_id": project_id,
+                "artifact_doc_id": doc.id,
+                "derived": derived,
+                "sample_pool_count": len(normalized_samples),
+                "updated_at": payload.get("updated_at"),
+                "dry_run": False,
+            },
+        )
+
+    def build_learning_candidates_from_evaluation(
+        self,
+        *,
+        project_id: int,
+        user_id: int,
+        evaluation_result: Any,
+    ) -> tuple[str, dict[str, Any] | None]:
+        if not self.history_repo.get_owned_project(project_id=project_id, user_id=user_id):
+            return "project_not_found", None
+        derived = build_learning_candidates_from_evaluation_result(evaluation_result)
+        return (
+            "ok",
+            {
+                "project_id": project_id,
+                **derived,
+            },
+        )
+
+    def apply_learning_candidates(
+        self,
+        *,
+        project_id: int,
+        user_id: int,
+        candidates: list[dict[str, Any]],
+        dry_run: bool = True,
+    ) -> tuple[str, dict[str, Any] | None]:
+        if not self.history_repo.get_owned_project(project_id=project_id, user_id=user_id):
+            return "project_not_found", None
+
+        candidate_items = candidates if isinstance(candidates, list) else []
+        samples: list[dict[str, Any]] = []
+        for candidate in candidate_items:
+            if not isinstance(candidate, dict):
+                continue
+            sample = candidate.get("sample")
+            if isinstance(sample, dict):
+                samples.append(sample)
+            elif _candidate_has_sample_shape(candidate):
+                samples.append(candidate)
+        samples = samples[:_MAX_EVALUATION_LEARNING_CANDIDATES]
+        derived = {
+            "samples": samples,
+            "diagnostics": {
+                "candidate_count": len(candidate_items),
+                "sample_count": len(samples),
+                "positive_sample_count": sum(1 for item in samples if str(item.get("signal_type") or "") == "positive"),
+                "negative_sample_count": sum(1 for item in samples if str(item.get("signal_type") or "") == "negative"),
+                "target": "priority_sample_pool",
+                "source": "quality_evaluation_defect_analysis",
+            },
+        }
+        if dry_run:
+            return (
+                "ok",
+                {
+                    "project_id": project_id,
+                    "artifact_doc_id": None,
+                    "derived": derived,
+                    "sample_pool_count": None,
+                    "updated_at": None,
+                    "dry_run": True,
+                },
+            )
+
+        existing_payload = (
+            load_priority_sample_pool(
+                db=self._db,
+                project_id=project_id,
+                user_id=user_id,
+            )
+            or {}
+        )
+        existing_samples = existing_payload.get("samples") if isinstance(existing_payload.get("samples"), list) else []
+        merged_samples = (existing_samples or []) + samples
+        if len(merged_samples) > _MAX_POOL_SAMPLES:
+            merged_samples = merged_samples[-_MAX_POOL_SAMPLES:]
+
+        doc = upsert_priority_sample_pool(
+            db=self._db,
+            project_id=project_id,
+            user_id=user_id,
+            generation_id=None,
+            samples=merged_samples,
+        )
+        payload = (
+            load_priority_sample_pool(
+                db=self._db,
+                project_id=project_id,
+                user_id=user_id,
+            )
+            or {}
+        )
+        normalized_samples = payload.get("samples") if isinstance(payload.get("samples"), list) else []
+        return (
+            "ok",
+            {
+                "project_id": project_id,
+                "artifact_doc_id": doc.id,
+                "derived": derived,
+                "sample_pool_count": len(normalized_samples),
+                "updated_at": payload.get("updated_at"),
+                "dry_run": False,
+            },
+        )
 
     def learn_from_generation_final_cases(
         self,
@@ -450,6 +827,174 @@ def _parse_csv_cases(text: str) -> list[dict[str, Any]]:
     return [_normalize_case_dict(row) for row in rows if any(str(v or "").strip() for v in row.values())]
 
 
+def _as_text_list(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [item for item in (_text(item) for item in raw) if item]
+    text = _text(raw)
+    return [text] if text else []
+
+
+def _compact_evaluation_metrics(metrics: dict[str, Any] | None) -> dict[str, float]:
+    if not isinstance(metrics, dict):
+        return {}
+    result: dict[str, float] = {}
+    for key in ("precision", "recall", "f1_score", "semantic_similarity"):
+        try:
+            result[key] = round(float(metrics.get(key)), 4)
+        except Exception:
+            continue
+    return result
+
+
+def _confidence_from_metrics(
+    metrics: dict[str, Any] | None,
+    *,
+    base: float,
+    metric_name: str,
+    inverse: bool,
+) -> float:
+    value = None
+    if isinstance(metrics, dict):
+        try:
+            value = float(metrics.get(metric_name))
+        except Exception:
+            value = None
+    if value is None:
+        return round(base, 4)
+    value = max(0.0, min(1.0, value))
+    if inverse:
+        return round(base + ((1.0 - value) * 0.12), 4)
+    return round(base + (value * 0.08), 4)
+
+
+def _summarize_evaluation_defect_pattern(
+    *,
+    text: str,
+    signal_type: str,
+    pattern_category: str,
+) -> str:
+    prefix = "prefer" if signal_type == "positive" else "avoid"
+    return f"{prefix} | {pattern_category} | {_text(text)[:140]}"[:180]
+
+
+def _aggregate_evaluation_learning_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for candidate in candidates:
+        key = _evaluation_candidate_key(candidate)
+        buckets.setdefault(key, []).append(candidate)
+
+    selected: list[dict[str, Any]] = []
+    field_counts: dict[str, int] = {}
+    for _key, bucket in sorted(buckets.items(), key=lambda item: _evaluation_candidate_bucket_rank(item[1])):
+        candidate = _merge_evaluation_candidate_bucket(bucket)
+        source_field = str(candidate.get("source_field") or "")
+        limit = _evaluation_candidate_field_limit(source_field, candidate)
+        if field_counts.get(source_field, 0) >= limit:
+            continue
+        field_counts[source_field] = field_counts.get(source_field, 0) + 1
+        selected.append(candidate)
+    return selected
+
+
+def _evaluation_candidate_key(candidate: dict[str, Any]) -> str:
+    source_field = str(candidate.get("source_field") or "")
+    candidate_type = str(candidate.get("candidate_type") or "")
+    text = _text(candidate.get("text"))
+    return "|".join(
+        [
+            source_field,
+            candidate_type,
+            _semantic_bucket_for_learning_text(text),
+        ]
+    )
+
+
+def _semantic_bucket_for_learning_text(text: str) -> str:
+    normalized = text.lower()
+    token_groups = [
+        ("schedule_time", ("排课", "课程时间", "时间区间", "顺延", "课程延期", "节假日", "时间冲突", "schedule")),
+        ("learning_plan", ("学习计划", "计划页", "卡片", "周列表", "学习中", "复习", "计划")),
+        ("course_status", ("课程状态", "已完成", "未完成", "进度", "归档", "下架", "状态")),
+        ("navigation_flow", ("跳转", "进入", "返回", "下一步", "页面流转", "入口")),
+        ("teacher_admin", ("督导", "老师", "书房", "中房端", "后台", "管理端", "ta", "ops")),
+        ("ui_copy", ("文案", "提示", "按钮", "标题", "标签", "弹窗", "显示")),
+        ("duplicate_redundant", ("重复", "相似", "合并", "大量", "冗余")),
+        ("buried_point", ("埋点", "pv", "uv", "上报")),
+    ]
+    for name, tokens in token_groups:
+        if any(token in normalized for token in tokens):
+            return name
+    compact = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "", text.lower())
+    return compact[:24] or "general"
+
+
+def _evaluation_candidate_field_limit(source_field: str, candidate: dict[str, Any]) -> int:
+    if source_field == "hallucinations" or str(candidate.get("candidate_type") or "") == "negative_pattern":
+        return _MAX_EVALUATION_NEGATIVE_CANDIDATES_PER_FIELD
+    if source_field == "modifications":
+        return _MAX_EVALUATION_FIX_CANDIDATES_PER_FIELD
+    return _MAX_EVALUATION_POSITIVE_CANDIDATES_PER_FIELD
+
+
+def _evaluation_candidate_bucket_rank(bucket: list[dict[str, Any]]) -> tuple[int, float, str]:
+    first = bucket[0] if bucket else {}
+    candidate_type = str(first.get("candidate_type") or "")
+    type_rank = {
+        "positive_pattern": 0,
+        "quality_fix_hint": 1,
+        "negative_pattern": 2,
+    }.get(candidate_type, 3)
+    confidence = float(first.get("confidence") or 0.0)
+    return (type_rank, -confidence, _evaluation_candidate_key(first))
+
+
+def _merge_evaluation_candidate_bucket(bucket: list[dict[str, Any]]) -> dict[str, Any]:
+    if not bucket:
+        return {}
+    base = dict(bucket[0])
+    if len(bucket) <= 1:
+        return base
+    texts = [_text(item.get("text")) for item in bucket if _text(item.get("text"))]
+    summary = _summarize_candidate_texts(texts)
+    base["text"] = summary
+    base["id"] = f"{base.get('source_field')}-{_semantic_bucket_for_learning_text(summary)}"
+    base["confidence"] = round(max(float(item.get("confidence") or 0.0) for item in bucket), 4)
+    sample = dict(base.get("sample") or {})
+    sample["case_id"] = str(base["id"])
+    sample["title"] = summary[:120]
+    sample["user_comment"] = summary[:240]
+    sample["pattern_summary"] = _summarize_evaluation_defect_pattern(
+        text=summary,
+        signal_type=str(sample.get("signal_type") or "positive"),
+        pattern_category=str(sample.get("pattern_category") or base.get("candidate_type") or "evaluation_defect"),
+    )
+    sample["pattern_confidence"] = base["confidence"]
+    sample["aggregated_evidence_count"] = len(bucket)
+    sample["aggregated_evidence_examples"] = texts[:5]
+    base["sample"] = sample
+    base["aggregated_count"] = len(bucket)
+    return base
+
+
+def _summarize_candidate_texts(texts: list[str]) -> str:
+    if not texts:
+        return ""
+    if len(texts) == 1:
+        return texts[0]
+    first = texts[0]
+    bucket = _semantic_bucket_for_learning_text(first)
+    examples = "；".join(text[:60] for text in texts[:3])
+    return f"{bucket} 类问题聚合：{len(texts)} 条相似缺陷，代表例：{examples}"[:240]
+
+
+def _candidate_has_sample_shape(candidate: dict[str, Any]) -> bool:
+    if not isinstance(candidate, dict):
+        return False
+    return bool(candidate.get("signal_type") and candidate.get("pattern_usage") and candidate.get("pattern_summary"))
+
+
 def _normalize_case_dict(item: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for canonical, aliases in _CASE_FIELD_ALIASES.items():
@@ -547,6 +1092,49 @@ def _infer_pattern_category(case: dict[str, Any]) -> str:
 def _priority(case: dict[str, Any]) -> str:
     value = str(case.get("priority") or case.get("priority_final") or case.get("model_priority") or "P2").upper()
     return value if value in {"P0", "P1", "P2"} else "P2"
+
+
+def _aggregate_positive_pattern_samples(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep representative final-case patterns instead of storing every final case."""
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for sample in samples:
+        key = _positive_pattern_key(sample)
+        buckets.setdefault(key, []).append(sample)
+
+    selected: list[dict[str, Any]] = []
+    # Prefer high-risk and cross-system buckets first; within a bucket keep only
+    # a few representative final cases so the pool stores reusable patterns.
+    for _key, bucket in sorted(buckets.items(), key=lambda item: _positive_bucket_rank(item[1])):
+        selected.extend(bucket[:_MAX_POSITIVE_SAMPLES_PER_PATTERN_KEY])
+        if len(selected) >= _MAX_DERIVED_POSITIVE_PATTERNS:
+            break
+    return selected[:_MAX_DERIVED_POSITIVE_PATTERNS]
+
+
+def _positive_pattern_key(sample: dict[str, Any]) -> str:
+    return "|".join(
+        [
+            str(sample.get("pattern_category") or ""),
+            str(sample.get("expected_priority") or ""),
+            "ext" if sample.get("manual_business_extension") is True else "req",
+            _summarize_module_hint(str(sample.get("source_case_module") or "")).lower(),
+        ]
+    )
+
+
+def _positive_bucket_rank(bucket: list[dict[str, Any]]) -> tuple[int, int, str]:
+    first = bucket[0] if bucket else {}
+    category = str(first.get("pattern_category") or "")
+    priority = str(first.get("expected_priority") or "P2")
+    category_rank = {
+        "transaction_business_risk": 0,
+        "permission_or_scope_guard": 1,
+        "cross_system_business_flow": 2,
+        "state_consistency_flow": 3,
+        "manual_final_business_coverage": 4,
+    }.get(category, 5)
+    priority_rank = {"P0": 0, "P1": 1, "P2": 2}.get(priority, 2)
+    return (category_rank, priority_rank, _positive_pattern_key(first))
 
 
 def _build_positive_sample(

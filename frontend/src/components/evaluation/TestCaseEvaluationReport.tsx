@@ -1,4 +1,4 @@
-﻿import type { ChangeEvent, ClipboardEvent } from 'react';
+﻿import { useState, type ChangeEvent, type ClipboardEvent } from 'react';
 import { Button, Form, Modal, Spinner } from 'react-bootstrap';
 import {
   CategoryScale,
@@ -12,12 +12,17 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { FaPlus, FaRobot } from 'react-icons/fa';
-import { parseQualityReport } from './state/evaluationService';
+import {
+  applyLearningCandidatesRequest,
+  buildLearningCandidatesFromEvaluationRequest,
+  parseQualityReport,
+} from './state/evaluationService';
 import type { DefectAnalysis } from './state/types';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 type Props = {
+  projectId: number | null;
   evalResult: string;
   history: any[];
   showSupplement: boolean;
@@ -35,6 +40,7 @@ type Props = {
 };
 
 export function TestCaseEvaluationReport({
+  projectId,
   evalResult,
   history,
   showSupplement,
@@ -50,6 +56,10 @@ export function TestCaseEvaluationReport({
   handleSaveKnowledge,
   savingKnowledge,
 }: Props) {
+  const [learningCandidates, setLearningCandidates] = useState<any[]>([]);
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(new Set());
+  const [candidateLoading, setCandidateLoading] = useState(false);
+  const [candidateMessage, setCandidateMessage] = useState('');
   const report = parseQualityReport(evalResult);
   if (!report) {
     return <div className="evaluation-prewrap">{evalResult}</div>;
@@ -59,6 +69,81 @@ export function TestCaseEvaluationReport({
   const disableConfirm =
     (!supplementText.trim() && supplementImages.length === 0)
     || (savedDocId !== null && supplementText === lastSavedContent && supplementImages.length === 0);
+  const selectedCandidates = learningCandidates.filter((item) => selectedCandidateIds.has(String(item.id)));
+
+  const buildLearningCandidates = async () => {
+    if (!projectId) {
+      window.alert('请先选择项目。');
+      return;
+    }
+    setCandidateLoading(true);
+    setCandidateMessage('正在从缺陷归因生成学习候选...');
+    try {
+      const payload = await buildLearningCandidatesFromEvaluationRequest({
+        project_id: projectId,
+        evaluation_result: evalResult,
+      });
+      const candidates = Array.isArray(payload?.candidates) ? payload.candidates : [];
+      setLearningCandidates(candidates);
+      setSelectedCandidateIds(
+        new Set(
+          candidates
+            .filter((item: any) => item?.selected_by_default)
+            .map((item: any) => String(item.id)),
+        ),
+      );
+      const defaultCount = Number(payload?.diagnostics?.selected_by_default_count || 0);
+      setCandidateMessage(`已生成 ${candidates.length} 个候选，默认选中 ${defaultCount} 个。`);
+    } catch (err) {
+      setCandidateMessage(`生成候选失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setCandidateLoading(false);
+    }
+  };
+
+  const applySelectedCandidates = async () => {
+    if (!projectId) {
+      window.alert('请先选择项目。');
+      return;
+    }
+    if (selectedCandidates.length === 0) {
+      window.alert('请至少选择一个候选。');
+      return;
+    }
+    setCandidateLoading(true);
+    setCandidateMessage('正在预览候选写入...');
+    try {
+      const preview = await applyLearningCandidatesRequest({
+        project_id: projectId,
+        candidates: selectedCandidates,
+        dry_run: true,
+      });
+      const diagnostics = preview?.derived?.diagnostics || {};
+      const positiveCount = Number(diagnostics.positive_sample_count || 0);
+      const negativeCount = Number(diagnostics.negative_sample_count || 0);
+      const confirmed = window.confirm(
+        `将写入现有样本池：正向 ${positiveCount} 条，异常 ${negativeCount} 条。\n\n这些候选来自本次质量评估缺陷归因，只有本次选中的项会写入。是否确认？`,
+      );
+      if (!confirmed) {
+        setCandidateMessage('已取消写入。');
+        return;
+      }
+      setCandidateMessage('正在写入现有样本池...');
+      const applied = await applyLearningCandidatesRequest({
+        project_id: projectId,
+        candidates: selectedCandidates,
+        dry_run: false,
+      });
+      const appliedDiagnostics = applied?.derived?.diagnostics || diagnostics;
+      setCandidateMessage(
+        `已写入样本池：正向 ${Number(appliedDiagnostics.positive_sample_count || 0)} 条，异常 ${Number(appliedDiagnostics.negative_sample_count || 0)} 条；当前样本池 ${Number(applied?.sample_pool_count || 0)} 条。`,
+      );
+    } catch (err) {
+      setCandidateMessage(`写入候选失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setCandidateLoading(false);
+    }
+  };
 
   return (
     <div className="evaluation-report-panel panel-card">
@@ -244,6 +329,61 @@ export function TestCaseEvaluationReport({
           </Button>
         </Modal.Footer>
       </Modal>
+
+      <div className="mb-3 p-2 border rounded bg-white evaluation-report-learning-candidates">
+        <div className="d-flex align-items-center justify-content-between gap-2 mb-2">
+          <div>
+            <strong className="small">缺陷归因学习候选</strong>
+            <div className="x-small text-muted">从本次质量评估的遗漏、幻觉、逻辑修正中提取，确认后写入现有样本池。</div>
+          </div>
+          <div className="d-flex gap-2">
+            <Button variant="outline-primary" size="sm" disabled={candidateLoading || !projectId} onClick={buildLearningCandidates}>
+              {candidateLoading && learningCandidates.length === 0 ? <Spinner animation="border" size="sm" className="me-1" /> : null}
+              生成候选
+            </Button>
+            <Button variant="primary" size="sm" disabled={candidateLoading || selectedCandidates.length === 0} onClick={applySelectedCandidates}>
+              {candidateLoading && learningCandidates.length > 0 ? <Spinner animation="border" size="sm" className="me-1" /> : null}
+              写入选中
+            </Button>
+          </div>
+        </div>
+        {learningCandidates.length > 0 ? (
+          <div className="d-flex flex-column gap-1">
+            {learningCandidates.map((item: any) => {
+              const id = String(item.id);
+              const checked = selectedCandidateIds.has(id);
+              return (
+                <Form.Check
+                  key={id}
+                  type="checkbox"
+                  id={`learning-candidate-${id}`}
+                  checked={checked}
+                  onChange={(e) => {
+                    const nextChecked = e.currentTarget.checked;
+                    setSelectedCandidateIds((prev) => {
+                      const next = new Set(prev);
+                      if (nextChecked) next.add(id);
+                      else next.delete(id);
+                      return next;
+                    });
+                  }}
+                  label={(
+                    <span className="small">
+                      <span className={item.candidate_type === 'negative_pattern' ? 'text-danger' : 'text-primary'}>
+                        {item.candidate_type}
+                      </span>
+                      <span className="text-muted ms-2">{item.source_field}</span>
+                      <span className="ms-2">{item.text}</span>
+                      <span className="text-muted ms-2">confidence {Number(item.confidence || 0).toFixed(2)}</span>
+                    </span>
+                  )}
+                />
+              );
+            })}
+          </div>
+        ) : null}
+        {candidateMessage ? <div className="small text-muted mt-2">{candidateMessage}</div> : null}
+      </div>
 
       {defectAnalysis.missing_points?.length ? (
         <div className="mb-2 evaluation-report-defect-group">

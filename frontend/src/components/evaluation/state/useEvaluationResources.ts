@@ -6,6 +6,54 @@ import {
 } from './evaluationService';
 import type { EvaluationView, LoadingType, ToastMessage } from './types';
 
+const EVALUATION_DRAFT_DB = 'ai-test-platform-evaluation-drafts';
+const EVALUATION_DRAFT_FILE_STORE = 'compare-files';
+
+function openEvaluationDraftDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(EVALUATION_DRAFT_DB, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(EVALUATION_DRAFT_FILE_STORE)) {
+        db.createObjectStore(EVALUATION_DRAFT_FILE_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveEvaluationDraftFile(projectId: number | null, file: File | null): Promise<void> {
+  if (!projectId || typeof window === 'undefined' || !window.indexedDB) return;
+  const db = await openEvaluationDraftDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(EVALUATION_DRAFT_FILE_STORE, 'readwrite');
+    const store = tx.objectStore(EVALUATION_DRAFT_FILE_STORE);
+    const key = String(projectId);
+    if (file) {
+      store.put(file, key);
+    } else {
+      store.delete(key);
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+async function loadEvaluationDraftFile(projectId: number | null): Promise<File | null> {
+  if (!projectId || typeof window === 'undefined' || !window.indexedDB) return null;
+  const db = await openEvaluationDraftDb();
+  const file = await new Promise<File | null>((resolve, reject) => {
+    const tx = db.transaction(EVALUATION_DRAFT_FILE_STORE, 'readonly');
+    const request = tx.objectStore(EVALUATION_DRAFT_FILE_STORE).get(String(projectId));
+    request.onsuccess = () => resolve(request.result instanceof File ? request.result : null);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return file;
+}
+
 type UseEvaluationResourcesParams = {
   projectId: number | null;
   logs: any[];
@@ -83,6 +131,7 @@ export function useEvaluationResources({
   const latestQm = useMemo(() => parseLatestPrefixedJson<any>(logs, 'GEN_QM:'), [logs]);
 
   useEffect(() => {
+    let cancelled = false;
     setSavedDocId(null);
     setSupplementText('');
     setLastSavedContent('');
@@ -92,7 +141,22 @@ export function useEvaluationResources({
     setFile(null);
     setUploadedCompareFilename('');
     setLoadedCompareFilename('');
+    void loadEvaluationDraftFile(projectId)
+      .then((storedFile) => {
+        if (cancelled || !storedFile) return;
+        setFile(storedFile);
+        setUploadedCompareFilename(storedFile.name || '');
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [projectId]);
+
+  const setPersistentFile = (nextFile: File | null) => {
+    setFile(nextFile);
+    void saveEvaluationDraftFile(projectId, nextFile).catch(() => {});
+  };
 
   /**
    * 评估结果变更后主动刷新历史趋势，保证图表与当前结果同源。
@@ -133,7 +197,7 @@ export function useEvaluationResources({
     loading,
     setLoading,
     file,
-    setFile,
+    setFile: setPersistentFile,
     uploadedCompareFilename,
     setUploadedCompareFilename,
     loadedCompareFilename,

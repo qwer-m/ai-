@@ -135,6 +135,30 @@ def stream_postprocess_cases(
     def _review_case_id(case: dict[str, Any]) -> str:
         return str(case.get("id") or case.get("case_id") or "").strip()
 
+    def _final_description_dedup_key(case: dict[str, Any]) -> str:
+        return re.sub(r"\s+", " ", str(case.get("description") or "").strip()).lower()
+
+    def _dedupe_by_final_description(cases: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], set[str]]:
+        """Drop exact normalized description duplicates to match the frontend MECE guard."""
+        if not isinstance(cases, list):
+            return [], set()
+        kept: list[dict[str, Any]] = []
+        dropped_signatures: set[str] = set()
+        seen: set[str] = set()
+        for case in cases:
+            if not isinstance(case, dict):
+                continue
+            key = _final_description_dedup_key(case)
+            if key and key in seen:
+                signature = _signature(case)
+                if signature:
+                    dropped_signatures.add(signature)
+                continue
+            if key:
+                seen.add(key)
+            kept.append(case)
+        return kept, dropped_signatures
+
     def _review_scenario(case: dict[str, Any]) -> str:
         bucket = str(_coverage_bucket(case) or "")
         kind = bucket.split("|")[-1].strip().lower() if "|" in bucket else "happy"

@@ -68,6 +68,17 @@ def _build_quality_ledger_payload(
     context_source = str((context_result or {}).get("context_source") or "").strip()
     compression_source = str(compression_diag_payload.get("context_source") or "").strip()
     missing_types = coverage_payload.get("missing_types") if isinstance(coverage_payload.get("missing_types"), dict) else {}
+    judge_total = int(
+        judge_summary_payload.get("total")
+        or judge_summary_payload.get("input_count")
+        or (
+            int(judge_summary_payload.get("pass_count") or judge_summary_payload.get("confirmed_pass_out_count") or 0)
+            + int(judge_summary_payload.get("repairable_count") or 0)
+            + int(judge_summary_payload.get("reject_count") or judge_summary_payload.get("rejected_out_count") or 0)
+            + int(judge_summary_payload.get("pending_count") or judge_summary_payload.get("pending_out_count") or 0)
+        )
+        or 0
+    )
     return {
         "kind": "generation_quality_ledger",
         "generation_id": int(generation_id or 0),
@@ -92,6 +103,10 @@ def _build_quality_ledger_payload(
             "candidate_count_before_review": int(convergence_payload.get("candidate_count_before_review") or 0),
             "review_selected_count": int(convergence_payload.get("review_selected_count") or 0),
             "post_review_dedup_drop": int(convergence_payload.get("post_review_dedup_drop") or 0),
+            "final_description_dedup_drop_count": int(
+                convergence_payload.get("final_description_dedup_drop_count") or 0
+            ),
+            "total_dedup_drop_count": int(convergence_payload.get("total_dedup_drop_count") or 0),
             "low_quality_dropped_count": int(convergence_payload.get("low_quality_dropped_count") or 0),
             "semantic_dedup_dropped_count": int(convergence_payload.get("semantic_dedup_dropped_count") or 0),
         },
@@ -103,9 +118,12 @@ def _build_quality_ledger_payload(
             "drop_by_post_review_dedup_count": int(
                 review_decision_summary_payload.get("drop_by_post_review_dedup_count") or 0
             ),
+            "drop_final_description_duplicate_count": int(
+                review_decision_summary_payload.get("drop_final_description_duplicate_count") or 0
+            ),
         },
         "judge": {
-            "total": int(judge_summary_payload.get("total") or judge_summary_payload.get("input_count") or 0),
+            "total": int(judge_total),
             "rejected_out_count": int(judge_summary_payload.get("rejected_out_count") or 0),
             "pending_out_count": int(judge_summary_payload.get("pending_out_count") or 0),
         },

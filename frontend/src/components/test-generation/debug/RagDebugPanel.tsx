@@ -22,7 +22,7 @@ function readStoredActiveTab(): DebugTabKey {
 
 type Props = {
   className?: string;
-  onRuleClick?: (ruleId: string) => void;
+  onRuleClick?: (ruleId: string, ruleText?: string) => void;
   activeRuleId?: string | null;
   result?: any;
   resultSource?: ResultSource;

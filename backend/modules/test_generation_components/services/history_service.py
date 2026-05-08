@@ -9,6 +9,7 @@ from typing import Any
 from modules.testing.evaluation_artifact_store import load_compare_artifact_payload
 from modules.testing.priority_sample_pool_store import (
     load_priority_sample_pool,
+    remove_priority_sample_from_pool,
     upsert_priority_sample_pool,
 )
 from modules.test_generation_components.repositories.history_repository import (
@@ -273,6 +274,41 @@ class TestGenerationHistoryService:
             generation_id=generation_id,
             samples=safe_samples,
         )
+        payload = load_priority_sample_pool(
+            db=self._db,
+            project_id=project_id,
+            user_id=user_id,
+        ) or {}
+        return (
+            "ok",
+            {
+                "project_id": project_id,
+                "generation_id": payload.get("generation_id"),
+                "samples": payload.get("samples") if isinstance(payload.get("samples"), list) else [],
+                "updated_at": payload.get("updated_at"),
+                "artifact_doc_id": doc.id,
+            },
+        )
+
+    def delete_priority_sample_pool_item(
+        self,
+        *,
+        project_id: int,
+        user_id: int,
+        generation_id: int | None,
+        sample_id: str,
+    ) -> tuple[str, dict[str, Any] | None]:
+        if not self.repo.get_owned_project(project_id=project_id, user_id=user_id):
+            return "project_not_found", None
+        doc = remove_priority_sample_from_pool(
+            db=self._db,
+            project_id=project_id,
+            user_id=user_id,
+            generation_id=generation_id,
+            sample_id=sample_id,
+        )
+        if not doc:
+            return "sample_not_found", None
         payload = load_priority_sample_pool(
             db=self._db,
             project_id=project_id,

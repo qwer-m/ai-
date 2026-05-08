@@ -26,6 +26,8 @@ export type PrioritySample = {
   userComment: string; expectedPriority: PriorityValue; reasonCategory: ReasonCategory; patternCategory: PatternCategory; addedAt: number;
   weakLinkCaseKey?: string; weakLinkGenerationId?: number | null;
   manualConfirmed?: boolean; manualConfirmedAt?: number;
+  source?: string;
+  persistedSampleId?: string;
 };
 export type ExportRow = {
   index: number; caseId: string; title: string; rawPriority: string; finalPriority: string; displayPriority: string; corrected: string; isDisplayMismatch: string;
@@ -216,6 +218,8 @@ export function toSample(row: PriorityRow, options?: { generationId?: number | n
     weakLinkCaseKey,
     weakLinkGenerationId,
     manualConfirmed: false, manualConfirmedAt: undefined,
+    source: 'priority_debug_manual_add',
+    persistedSampleId: sampleId,
   };
 }
 export function buildTransitions(rows: PriorityRow[]): Array<{ transition: string; count: number }> {
@@ -315,10 +319,13 @@ export function parseSamplePool(raw: string | null): PrioritySample[] {
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item) => item && typeof item === 'object').map((item) => {
+    const seenSampleIds = new Map<string, number>();
+    return parsed.filter((item) => item && typeof item === 'object').map((item, index) => {
       const tags: SampleTag[] = Array.isArray(item.tags) ? (item.tags as unknown[]).filter((tag: unknown): tag is SampleTag => SAMPLE_TAG_ORDER.includes(tag as SampleTag)) : [];
-      const safeTags: SampleTag[] = tags.length > 0 ? Array.from(new Set<SampleTag>(tags)) : ['manual_review'];
-      const addedAtRaw = Number(item.addedAt);
+      const sampleKind = normalizeSampleKind(item.sampleKind ?? item.sample_kind ?? (item.signal_type === 'positive' ? 'positive' : 'anomaly'));
+      const inferredTags: SampleTag[] = sampleKind === 'positive' ? ['manual_review'] : ['display_mismatch', 'manual_review'];
+      const safeTags: SampleTag[] = tags.length > 0 ? Array.from(new Set<SampleTag>(tags)) : inferredTags;
+      const addedAtRaw = Number(item.addedAt ?? item.added_at ?? item.created_at);
       const manualConfirmed = Boolean(item.manualConfirmed ?? item.manual_confirmed);
       const manualConfirmedAtMixed = item.manualConfirmedAt ?? item.manual_confirmed_at;
       const manualConfirmedAtNumber = Number(manualConfirmedAtMixed);
@@ -330,21 +337,52 @@ export function parseSamplePool(raw: string | null): PrioritySample[] {
       const patternCategory = normalizePatternCategory(item.patternCategory ?? item.pattern_category ?? '');
       const weakLinkCaseKey = normalizeWeakLinkText(item.weakLinkCaseKey ?? item.weak_link_case_key ?? '', 512);
       const weakLinkGenerationId = normalizeWeakLinkGenerationId(item.weakLinkGenerationId ?? item.weak_link_generation_id ?? null);
-      const sampleKind = normalizeSampleKind(item.sampleKind ?? item.sample_kind ?? 'anomaly');
+      const explicitSource = String(item.source ?? item.sampleSource ?? item.sample_source ?? '').trim();
+      const hasPriorityDebugTableShape = Boolean(
+        item.resultSource
+        || item.caseId
+        || item.rawPriority
+        || item.finalPriority
+        || item.displayPriority
+        || item.weakLinkCaseKey
+        || item.weak_link_case_key
+      );
+      const source = explicitSource || (hasPriorityDebugTableShape ? 'priority_debug_manual_add' : '');
+      const caseId = String(item.caseId ?? item.case_id ?? item.id ?? item.sampleId ?? item.sample_id ?? `SAMPLE-${index + 1}`);
+      const title = String(item.title ?? item.source_case_title ?? item.pattern_summary ?? item.user_comment ?? '');
+      const rawPriority = String(item.rawPriority ?? item.raw_priority ?? '-');
+      const finalPriority = String(item.finalPriority ?? item.final_priority ?? item.expected_priority ?? '-');
+      const displayPriority = String(item.displayPriority ?? item.display_priority ?? '-');
+      const resultSource = item.resultSource === 'streaming_preview' || item.resultSource === 'final_persisted' ? item.resultSource : 'none';
+      const direction = String(item.direction || `${rawPriority || '-'}->${finalPriority || '-'}`);
+      const baseSampleId = String(
+        item.sampleId
+        || item.sample_id
+        || [
+          `kind-${sampleKind}`,
+          `gid-${weakLinkGenerationId ?? item.generation_id ?? 'none'}`,
+          `case-${sanitizeSampleIdPart(caseId, 64)}`,
+          `source-${sanitizeSampleIdPart(item.source || 'sample-pool', 48)}`,
+          `summary-${sanitizeSampleIdPart(title, 72)}`,
+        ].join('__')
+      );
+      const duplicateIndex = seenSampleIds.get(baseSampleId) || 0;
+      seenSampleIds.set(baseSampleId, duplicateIndex + 1);
+      const sampleId = duplicateIndex > 0 ? `${baseSampleId}__dup-${duplicateIndex}` : baseSampleId;
       return {
-        sampleId: String(item.sampleId || `${item.caseId || 'CASE'}__${addedAtRaw || Date.now()}`),
-        caseId: String(item.caseId || ''),
-        title: String(item.title || ''),
-        rawPriority: String(item.rawPriority || '-'),
-        finalPriority: String(item.finalPriority || '-'),
-        displayPriority: String(item.displayPriority || '-'),
-        resultSource: item.resultSource === 'streaming_preview' || item.resultSource === 'final_persisted' ? item.resultSource : 'none',
+        sampleId,
+        caseId,
+        title,
+        rawPriority,
+        finalPriority,
+        displayPriority,
+        resultSource,
         sampleKind,
-        direction: String(item.direction || '-'),
+        direction,
         corrected: Boolean(item.corrected),
         isDisplayMismatch: Boolean(item.isDisplayMismatch),
         isRawMismatch: Boolean(item.isRawMismatch),
-        priorityDebug: typeof item.priorityDebug === 'string' ? item.priorityDebug : JSON.stringify(item.priorityDebug ?? ''),
+        priorityDebug: typeof item.priorityDebug === 'string' ? item.priorityDebug : JSON.stringify(item.priorityDebug ?? item.quality_ledger ?? ''),
         tags: safeTags,
         usage: resolveSampleUsage(safeTags),
         userComment: String(item.userComment ?? item.user_comment ?? ''),
@@ -356,6 +394,8 @@ export function parseSamplePool(raw: string | null): PrioritySample[] {
         weakLinkGenerationId,
         manualConfirmed,
         manualConfirmedAt: Number.isFinite(manualConfirmedAtTs) && manualConfirmedAtTs > 0 ? manualConfirmedAtTs : undefined,
+        source: source || undefined,
+        persistedSampleId: baseSampleId,
       } satisfies PrioritySample;
     });
   } catch {

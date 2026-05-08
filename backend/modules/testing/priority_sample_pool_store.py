@@ -690,6 +690,56 @@ def upsert_priority_sample_pool(
     return doc
 
 
+def remove_priority_sample_from_pool(
+    *,
+    db: Session,
+    project_id: int,
+    user_id: int,
+    generation_id: int | None,
+    sample_id: str,
+) -> KnowledgeDocument | None:
+    payload = load_priority_sample_pool(
+        db=db,
+        project_id=project_id,
+        user_id=user_id,
+    )
+    if not payload:
+        return None
+
+    target_id = _sanitize_text(sample_id, max_len=512)
+    if not target_id:
+        return None
+
+    current_samples = payload.get("samples")
+    if not isinstance(current_samples, list):
+        current_samples = []
+
+    next_samples: list[dict[str, Any]] = []
+    removed = False
+    for sample in current_samples:
+        if not isinstance(sample, dict):
+            continue
+        current_id = _sanitize_text(
+            _sample_value(sample, "sample_id", "sampleId"),
+            max_len=512,
+        )
+        if current_id == target_id:
+            removed = True
+            continue
+        next_samples.append(sample)
+
+    if not removed:
+        return None
+
+    return upsert_priority_sample_pool(
+        db=db,
+        project_id=project_id,
+        user_id=user_id,
+        generation_id=generation_id if generation_id is not None else payload.get("generation_id"),
+        samples=next_samples,
+    )
+
+
 def load_priority_sample_pool(
     *,
     db: Session,

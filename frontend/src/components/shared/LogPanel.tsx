@@ -74,6 +74,7 @@ function formatStopReasons(value: unknown): string {
     stopped_due_to_diminishing_returns: '收益递减',
     optimal_case_set_reached: '最优集合',
     dedup_reduced_count_stop: '去重后收敛',
+    final_description_dedup_reduced_count: '最终描述去重',
     low_quality_filtered: '低质已过滤',
   };
   return reasons.map((item) => map[item] || item).join(' / ');
@@ -125,7 +126,7 @@ function formatGenDiagMessage(message: string): string | null {
       : '';
     return [
       `Review摘要：候选 ${numberText(payload.candidate_total)} → 保留 ${numberText(payload.retained_total)}，丢弃 ${numberText(payload.dropped_total)}`,
-      `丢弃来源：LLM ${numberText(payload.drop_by_review_llm_count)}，Gate ${numberText(payload.drop_by_review_gate_count)}，去重 ${numberText(payload.drop_by_post_review_dedup_count)}`,
+      `丢弃来源：LLM ${numberText(payload.drop_by_review_llm_count)}，Gate ${numberText(payload.drop_by_review_gate_count)}，语义去重 ${numberText(payload.drop_by_post_review_dedup_count)}，最终描述重复 ${numberText(payload.drop_final_description_duplicate_count)}`,
       `审查调用：主模型 ${String(runtime.primary_model || '-')}，fallback ${String(runtime.retry_model || '-')}${compactRetry}${reasonRepairText}，来源 ${String(runtime.final_source || '-')}${consistencyText}${reasonHealthText}`,
       responseMetaText,
     ].filter(Boolean).join('\n');
@@ -136,7 +137,7 @@ function formatGenDiagMessage(message: string): string | null {
   }
 
   if (kind === 'generation_convergence') {
-    return `收敛摘要：primary ${numberText(payload.primary_count)} / gap ${numberText(payload.gap_count)} / review ${numberText(payload.review_count)} / final ${numberText(payload.final_count)}，重复率 ${percentText(payload.duplication_rate_estimate)}`;
+    return `收敛摘要：primary ${numberText(payload.primary_count)} / gap ${numberText(payload.gap_count)} / review ${numberText(payload.review_count)} / final ${numberText(payload.final_count)}，重复率 ${percentText(payload.duplication_rate_estimate)}，最终描述重复 ${numberText(payload.final_description_dedup_drop_count)}`;
   }
 
   return null;

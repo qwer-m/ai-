@@ -19,3 +19,10 @@ export async function savePrioritySamplePool(projectId: number, payload: { gener
   });
 }
 
+export async function deletePrioritySamplePoolItem(projectId: number, payload: { generation_id?: number | null; sample_id: string }) {
+  return api.post<PrioritySamplePoolPayload>(`/api/test-generations/projects/${projectId}/priority-sample-pool/delete-sample`, {
+    generation_id: payload.generation_id ?? null,
+    sample_id: payload.sample_id,
+  });
+}
+

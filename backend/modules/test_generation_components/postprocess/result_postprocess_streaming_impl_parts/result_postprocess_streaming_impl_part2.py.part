@@ -37,6 +37,7 @@
     append_final_cap_count = int(append_target_count or 0) if append and int(append_target_count or 0) > 0 else 0
     append_cap_drop_total = 0
     append_cap_drop_signatures: set[str] = set()
+    final_description_dedup_drop_signatures: set[str] = set()
     review_candidate_cases: list[dict[str, Any]] = []
     review_selection_input: list[dict[str, Any]] = []
     review_gate_trace: dict[str, Any] = {}
@@ -1227,6 +1228,15 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         [x for x in parsed_result if isinstance(x, dict)]
     )
     parsed_result = _strip_case_meta_list(parsed_result)
+    parsed_result, final_description_dedup_drop_signatures = _dedupe_by_final_description(
+        [x for x in parsed_result if isinstance(x, dict)]
+    )
+    if final_description_dedup_drop_signatures:
+        parsed_result = reorder_cases_by_closed_loop_fn(
+            parsed_result,
+            start_id=start_id,
+            renumber_ids=True,
+        )
     if int(append_final_cap_count or 0) > 0 and len([x for x in parsed_result if isinstance(x, dict)]) > int(append_final_cap_count):
         cap_coverage = analyze_coverage(requirement, [x for x in parsed_result if isinstance(x, dict)])
         cap_rule_diagnostics = {"rule_diagnostics": cap_coverage.get("rule_diagnostics") or []}
@@ -1333,6 +1343,9 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         elif signature in append_cap_drop_signatures:
             dropped_stage = "append_target_cap"
             dropped_reason = "drop_exceeds_append_target_count"
+        elif signature in final_description_dedup_drop_signatures:
+            dropped_stage = "post_review_dedup_or_reorder"
+            dropped_reason = "drop_final_description_duplicate"
         elif signature in dedup_drop_signatures:
             dropped_stage = "review_dedup_pre_gate"
             dropped_reason = "drop_dedup_pre_gate"
@@ -1670,6 +1683,7 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         "soft_constraint_hit_count": int(sum(1 for row in review_decision_table if bool(row.get("hits_soft_constraint")))),
         "quality_hint_satisfied_count": int(sum(1 for row in review_decision_table if bool(row.get("satisfies_quality_hint")))),
         "drop_ui_like_ratio_postprocess_count": int(ui_like_ratio_postprocess_drop_count),
+        "drop_final_description_duplicate_count": int(len(final_description_dedup_drop_signatures)),
     }
 
     coverage = {

@@ -54,6 +54,15 @@ export function GenerationOverview() {
   const reviewSelectedCount = Number(generationConvergence?.review_selected_count ?? reviewDecisionSummary?.retained_total);
   const judgeRejectedOrPending = Number(judgeSummary?.rejected_out_count ?? judgeSummary?.reject_count)
     + Number(judgeSummary?.pending_out_count ?? judgeSummary?.pending_count);
+  const ledgerJudge = generationQualityLedger?.judge && typeof generationQualityLedger.judge === 'object'
+    ? generationQualityLedger.judge as Record<string, unknown>
+    : {};
+  const passCount = Number(judgeSummary?.confirmed_pass_out_count ?? judgeSummary?.pass_count);
+  const repairableCount = Number(judgeSummary?.repairable_count ?? judgeSummary?.repaired_pass_out_count);
+  const judgeInputFallback = (Number.isFinite(passCount) ? passCount : 0)
+    + (Number.isFinite(repairableCount) ? repairableCount : 0)
+    + (Number.isFinite(judgeRejectedOrPending) ? judgeRejectedOrPending : 0);
+  const judgeInputCount = Number(ledgerJudge.total ?? judgeInputFallback);
   const finalCount = Number(generationSummary?.final_count ?? resultState?.displayCaseCount ?? 0);
   const sourceMeta = feedbackControlState?.source_meta || {};
   const ledgerCoverage = generationQualityLedger?.coverage || {};
@@ -73,7 +82,7 @@ export function GenerationOverview() {
           <div className="fw-semibold">{currentBizKey || '-'}</div>
         </div>
         <div className="col-md-4">
-          <div className="small text-muted rag-debug-muted mb-1">总用例数</div>
+          <div className="small text-muted rag-debug-muted mb-1">阶段候选数</div>
           <div className="fw-semibold">{totalCases}</div>
         </div>
         <div className="col-md-4">
@@ -97,9 +106,9 @@ export function GenerationOverview() {
           <div className="fw-semibold">{boolLabel(resultState?.isFinalResultLoaded)}</div>
         </div>
         <div className="col-md-12">
-          <div className="small text-muted rag-debug-muted mb-1">漏斗摘要 (raw → review → judge → final)</div>
+          <div className="small text-muted rag-debug-muted mb-1">漏斗摘要 (raw → review候选 → review后 → judge输入 → judge拒绝/待定 → final)</div>
           <div className="fw-semibold">
-            {resultState?.previewCaseCount ?? '-'} {' → '} {Number.isFinite(reviewCandidateCount) ? reviewCandidateCount : '-'} {' → '} {Number.isFinite(reviewSelectedCount) ? reviewSelectedCount : '-'} {' → '} {Number.isFinite(judgeRejectedOrPending) ? judgeRejectedOrPending : '-'} {' → '} {Number.isFinite(finalCount) ? finalCount : '-'}
+            {resultState?.previewCaseCount ?? '-'} {' → '} {Number.isFinite(reviewCandidateCount) ? reviewCandidateCount : '-'} {' → '} {Number.isFinite(reviewSelectedCount) ? reviewSelectedCount : '-'} {' → '} {Number.isFinite(judgeInputCount) ? judgeInputCount : '-'} {' → '} {Number.isFinite(judgeRejectedOrPending) ? judgeRejectedOrPending : '-'} {' → '} {Number.isFinite(finalCount) ? finalCount : '-'}
           </div>
         </div>
       </div>
@@ -148,6 +157,9 @@ export function GenerationOverview() {
               </div>
               <div className="small text-muted rag-debug-muted">
                 compact rows: {reviewDecisionTableCompactRows?.length ?? 0}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                judge input: {numberLabel(judgeInputCount)}
               </div>
               <div className="small text-muted rag-debug-muted">
                 judge reject/pending: {numberLabel(judgeRejectedOrPending)}

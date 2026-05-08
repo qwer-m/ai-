@@ -159,11 +159,16 @@ export const normalizeStandardCases = (items: any[]) => items
 
 export const deduplicateStandardCases = (items: any[]) => {
   const seen = new Set<string>();
+  const seenDescription = new Set<string>();
   const norm = (v: unknown) => String(v ?? '').trim().toLowerCase().replace(/\r/g, '').replace(/\n/g, ' ');
+  const normDescription = (v: unknown) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
   return items.filter((item) => {
+    const descriptionKey = normDescription(item.description);
+    if (descriptionKey && seenDescription.has(descriptionKey)) return false;
     const steps = Array.isArray(item.steps) ? item.steps.map((s: unknown) => norm(s)).join(' | ') : norm(item.steps);
     const key = `${norm(item.test_module)}||${norm(item.description)}||${norm(item.test_input)}||${norm(item.expected_result)}||${steps}`;
     if (!key || seen.has(key)) return false;
+    if (descriptionKey) seenDescription.add(descriptionKey);
     seen.add(key);
     return true;
   });

@@ -111,13 +111,13 @@ class _ReplayClient:
         yield "[]"
 
 
-def _run_review_replay(client: _ReplayClient, *, case_count: int) -> dict[str, Any]:
+def _run_review_replay(client: _ReplayClient, *, case_count: int, full_content: str | None = None) -> dict[str, Any]:
     gen = stream_postprocess_cases(
         client=client,
         requirement="回放测试需求",
         base_prompt="BASE",
         kb_context="",
-        full_content=_build_full_content(case_count),
+        full_content=full_content if full_content is not None else _build_full_content(case_count),
         expected_count=20,
         append=False,
         existing_cases=[],
@@ -348,3 +348,26 @@ def test_reason_repair_fills_dropped_reasons_without_changing_selection() -> Non
     assert float(summary.get("final_reason_coverage_ratio") or 0.0) > 0.0
     assert int(summary.get("drop_by_review_llm_count") or 0) > 0
     assert int((summary.get("reason_source_breakdown") or {}).get("primary") or 0) > 0
+
+
+def test_final_description_dedup_removes_frontend_mece_duplicates() -> None:
+    cases = [_build_case(i) for i in range(1, 8)]
+    cases[1]["description"] = "same validation goal"
+    cases[2]["description"] = "same validation goal"
+    cases[2]["expected_result"] = "different expected detail but same frontend MECE description"
+    client = _ReplayClient(
+        primary_review_response=_valid_retry_payload(keep_count=7, total_count=7),
+        retry_review_response="",
+    )
+
+    result = _run_review_replay(
+        client,
+        case_count=7,
+        full_content=json.dumps(cases, ensure_ascii=False),
+    )
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    descriptions = [str(item.get("description") or "").strip().lower() for item in output_cases]
+    summary = dict((result or {}).get("review_decision_summary") or {})
+
+    assert descriptions.count("same validation goal") == 1
+    assert int(summary.get("drop_final_description_duplicate_count") or 0) == 1

@@ -79,12 +79,18 @@ export type JudgeSummaryEvent = {
   pending_out_count?: number;
   confirmed_pass_out_count?: number;
   repaired_pass_out_count?: number;
+  pass_count?: number;
+  repairable_count?: number;
 };
 
 export type JudgeDecisionTableEvent = {
   kind: 'judge_decision_table';
   rows?: Array<Record<string, unknown>>;
   row_count?: number;
+  row_count_total?: number;
+  row_count_reject_pending?: number;
+  rows_scope?: string;
+  row_evidence_incomplete?: boolean;
 };
 
 export type GenerationSummaryEvent = {

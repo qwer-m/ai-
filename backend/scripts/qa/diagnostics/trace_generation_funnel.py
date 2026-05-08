@@ -575,6 +575,9 @@ def main() -> int:
     judge_rows_raw = [item for item in (judge_table_payload.get("rows") or []) if isinstance(item, dict)]
     judge_rows = _build_judge_export_rows(judge_rows_raw)
     judge_rejected_rows = [item for item in judge_rows if str(item.get("judge_status") or "").upper() in {"REJECT", "PENDING"}]
+    judge_row_count_total = _as_int(judge_table_payload.get("row_count_total"), len(judge_rows))
+    judge_row_count_reject_pending = _as_int(judge_table_payload.get("row_count_reject_pending"), len(judge_rejected_rows))
+    judge_rows_scope = str(judge_table_payload.get("rows_scope") or "").strip()
 
     dropped_stage_counter = Counter(str(item.get("dropped_stage") or "") for item in dropped_rows)
     dropped_reason_counter = Counter(str(item.get("dropped_reason") or "") for item in dropped_rows)
@@ -607,8 +610,8 @@ def main() -> int:
         or 0
     )
     review_selected_count = int(
-        review_summary.get("retained_total")
-        or convergence.get("review_selected_count")
+        convergence.get("review_selected_count")
+        or review_summary.get("retained_total")
         or stage_map.get("review")
         or 0
     )
@@ -678,8 +681,10 @@ def main() -> int:
             "dropped_case_ids": [str(item.get("case_id") or "") for item in dropped_rows],
         },
         "judge_breakdown": {
-            "total": int(len(judge_rows)),
-            "rejected_or_pending_total": int(len(judge_rejected_rows)),
+            "total": int(judge_row_count_total),
+            "exported_row_count": int(len(judge_rows)),
+            "rows_scope": judge_rows_scope,
+            "rejected_or_pending_total": int(judge_row_count_reject_pending),
             "by_status": dict(judge_status_counter),
             "by_reason": dict(judge_reason_counter),
             "by_priority": dict(judge_priority_counter),
@@ -725,8 +730,10 @@ def main() -> int:
     ):
         print(f"    {key}: {review_export_meta.get(key)}")
     print("  judge_breakdown:")
-    print(f"    total: {len(judge_rows)}")
-    print(f"    rejected_or_pending_total: {len(judge_rejected_rows)}")
+    print(f"    total: {judge_row_count_total}")
+    print(f"    exported_row_count: {len(judge_rows)}")
+    print(f"    rows_scope: {judge_rows_scope or '-'}")
+    print(f"    rejected_or_pending_total: {judge_row_count_reject_pending}")
     if quality_ledger:
         print("  quality_ledger:")
         print(f"    final_count: {quality_ledger.get('final_count')}")

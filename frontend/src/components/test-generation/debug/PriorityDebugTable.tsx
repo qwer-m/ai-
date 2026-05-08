@@ -36,7 +36,7 @@ import {
   normalizeWeakLinkGenerationId,
 } from './PriorityDebugTable.helpers';
 import type { Props, PriorityRow, PrioritySample, SampleKind, SampleTag, ViewFilter } from './PriorityDebugTable.helpers';
-import { fetchPrioritySamplePool, savePrioritySamplePool } from './debugService';
+import { deletePrioritySamplePoolItem, fetchPrioritySamplePool, savePrioritySamplePool } from './debugService';
 
 type SamplePoolFilter = 'all' | 'anomaly' | 'positive';
 
@@ -106,6 +106,9 @@ export function PriorityDebugTable({
         // 只要云端读取成功，就以当前项目云端数据为准（包括空数组），确保项目隔离不被本地旧缓存污染。
         skipNextRemoteSaveRef.current = true;
         setSamplePool(remoteSamples);
+        window.setTimeout(() => {
+          if (!cancelled) skipNextRemoteSaveRef.current = false;
+        }, 0);
         const cloudTs = Date.parse(String(payload?.updated_at || ''));
         setLastCloudSavedAt(Number.isFinite(cloudTs) ? cloudTs : null);
       } catch {
@@ -340,13 +343,59 @@ export function PriorityDebugTable({
   const handleUpdateSample = (sampleId: string, patch: Partial<Pick<PrioritySample, 'userComment' | 'expectedPriority' | 'reasonCategory' | 'patternCategory'>>) => {
     setSamplePool((prev) => prev.map((sample) => (sample.sampleId === sampleId ? { ...sample, ...patch } : sample)));
   };
-  const handleRollbackSample = (sampleId: string, caseId: string) => {
-    setSamplePool((prev) => {
-      const next = prev.filter((sample) => sample.sampleId !== sampleId);
-      setActionMessage(`已回退到下方样本池：${caseId}`);
-      return next;
-    });
+  const handleRollbackSample = async (sampleId: string, caseId: string) => {
+    const targetSample = samplePool.find((sample) => sample.sampleId === sampleId);
+    const persistedSampleId = String(targetSample?.persistedSampleId || sampleId);
+    const persistedIdCount = samplePool.filter((sample) => String(sample.persistedSampleId || sample.sampleId) === persistedSampleId).length;
+    const nextSamples = samplePool.filter((sample) => sample.sampleId !== sampleId);
+    if (projectId && hasHydratedRemoteRef.current) skipNextRemoteSaveRef.current = true;
+    setSamplePool(nextSamples);
+    setActionMessage(`已从样本池删除：${caseId}`);
+    if (!projectId || !hasHydratedRemoteRef.current) return;
+    setIsCloudSyncing(true);
+    try {
+      const payload = persistedIdCount <= 1
+        ? await deletePrioritySamplePoolItem(projectId, {
+          generation_id: generationId ?? null,
+          sample_id: persistedSampleId,
+        })
+        : await savePrioritySamplePool(projectId, {
+          generation_id: generationId ?? null,
+          samples: nextSamples as unknown as any[],
+        });
+      const remoteSamples = parseSamplePool(JSON.stringify(payload?.samples || []));
+      skipNextRemoteSaveRef.current = true;
+      setSamplePool(remoteSamples);
+      const cloudTs = Date.parse(String(payload?.updated_at || ''));
+      if (Number.isFinite(cloudTs)) setLastCloudSavedAt(cloudTs);
+      setCloudSyncError('');
+      setActionMessage(`已从样本池删除并写入云端：${caseId}`);
+    } catch {
+      try {
+        const payload = await savePrioritySamplePool(projectId, {
+          generation_id: generationId ?? null,
+          samples: nextSamples as unknown as any[],
+        });
+        const remoteSamples = parseSamplePool(JSON.stringify(payload?.samples || []));
+        skipNextRemoteSaveRef.current = true;
+        setSamplePool(remoteSamples);
+        const cloudTs = Date.parse(String(payload?.updated_at || ''));
+        if (Number.isFinite(cloudTs)) setLastCloudSavedAt(cloudTs);
+        setCloudSyncError('');
+        setActionMessage(`已通过安全覆盖删除并写入云端：${caseId}`);
+      } catch {
+        setSamplePool(samplePool);
+        setCloudSyncError('云端删除失败，已恢复本地显示');
+        setActionMessage(`删除失败，已恢复：${caseId}`);
+      }
+    } finally {
+      setIsCloudSyncing(false);
+    }
   };
+  const isManualDebugSample = (sample: PrioritySample): boolean => (
+    sample.source === 'priority_debug_manual_add'
+    || Boolean(sample.weakLinkCaseKey)
+  );
   const handleConfirmManualReview = async (sampleId: string, caseId: string) => {
     let nextSamples: PrioritySample[] = [];
     let didUpdate = false;
@@ -699,7 +748,14 @@ export function PriorityDebugTable({
                       />
                     </td>
                     <td className="tg-priority-sample-action-col">
-                      <Button size="sm" variant="outline-secondary" className="tg-priority-row-action-btn" onClick={() => handleRollbackSample(sample.sampleId, sample.caseId)}>case回退</Button>
+                      <Button
+                        size="sm"
+                        variant={isManualDebugSample(sample) ? 'outline-secondary' : 'outline-danger'}
+                        className="tg-priority-row-action-btn"
+                        onClick={() => void handleRollbackSample(sample.sampleId, sample.caseId)}
+                      >
+                        {isManualDebugSample(sample) ? 'case回退' : '删除样本'}
+                      </Button>
                     </td>
                   </tr>
                   );

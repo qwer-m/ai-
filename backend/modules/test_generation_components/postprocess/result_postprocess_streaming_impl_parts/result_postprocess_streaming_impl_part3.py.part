@@ -22,9 +22,14 @@
     elif reference_gap > 0:
         reasons.append("quality_converged_before_reference_count")
 
+    final_description_dedup_drop = int(len(final_description_dedup_drop_signatures or set()))
+    total_dedup_drop = int(post_review_dedup_drop or 0) + int(final_description_dedup_drop or 0)
+
     if post_review_dedup_drop > 0:
         reasons.append("dedup_reduced_count_stop")
         reasons.append("no_backfill_after_dedup")
+    if final_description_dedup_drop > 0:
+        reasons.append("final_description_dedup_reduced_count")
 
     if low_quality_dropped_total > 0:
         reasons.append("low_quality_filtered")
@@ -37,7 +42,7 @@
 
     duplication_rate_estimate = 0.0
     if int(review_selected_count or 0) > 0:
-        duplication_rate_estimate = float(post_review_dedup_drop or 0) / float(review_selected_count or 1)
+        duplication_rate_estimate = float(total_dedup_drop or 0) / float(review_selected_count or 1)
 
     summary_stop_reason: list[str] = []
     if converged:
@@ -103,6 +108,8 @@
         "candidate_count_before_review": int(candidate_count_before_review or 0),
         "review_selected_count": int(review_selected_count or 0),
         "post_review_dedup_drop": int(post_review_dedup_drop or 0),
+        "final_description_dedup_drop_count": int(final_description_dedup_drop or 0),
+        "total_dedup_drop_count": int(total_dedup_drop or 0),
         "gap_attempts": int(gap_attempts or 0),
         "gap_remaining_after_attempts": int(gap_remaining_after_attempts or 0),
         "missing_rules_count": int(len(missing_rules_final)),

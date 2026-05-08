@@ -35,6 +35,14 @@ export type ResultDebugState = {
   ts: number;
 };
 
+export type JudgeDecisionTableMeta = {
+  rowCount?: number;
+  rowCountTotal?: number;
+  rowCountRejectPending?: number;
+  rowsScope?: string;
+  rowEvidenceIncomplete?: boolean;
+};
+
 export type DebugState = {
   generationMode?: string;
   bizKeys: string[];
@@ -47,6 +55,7 @@ export type DebugState = {
   reviewDecisionTableCompactRows?: Array<Record<string, unknown>>;
   judgeSummary?: JudgeSummaryEvent;
   judgeDecisionTableRows?: Array<Record<string, unknown>>;
+  judgeDecisionTableMeta?: JudgeDecisionTableMeta;
   generationSummary?: GenerationSummaryEvent;
   generationContextCompression?: GenerationContextCompressionEvent;
   feedbackControlState?: FeedbackControlStateEvent;
@@ -71,6 +80,7 @@ const INITIAL_STATE = {
   reviewDecisionTableCompactRows: undefined as Array<Record<string, unknown>> | undefined,
   judgeSummary: undefined as JudgeSummaryEvent | undefined,
   judgeDecisionTableRows: undefined as Array<Record<string, unknown>> | undefined,
+  judgeDecisionTableMeta: undefined as JudgeDecisionTableMeta | undefined,
   generationSummary: undefined as GenerationSummaryEvent | undefined,
   generationContextCompression: undefined as GenerationContextCompressionEvent | undefined,
   feedbackControlState: undefined as FeedbackControlStateEvent | undefined,
@@ -129,8 +139,11 @@ function applyEvent(state: DebugState, event: GenDiagEvent): Partial<DebugState>
   }
 
   if (event.kind === 'coverage_check') {
+    const coveragePayload = event.data && typeof event.data === 'object'
+      ? event.data
+      : event;
     return {
-      coverage: event.data || state.coverage,
+      coverage: coveragePayload as CoverageResult,
       lastUpdatedAt: now,
     };
   }
@@ -164,11 +177,19 @@ function applyEvent(state: DebugState, event: GenDiagEvent): Partial<DebugState>
   }
 
   if (event.kind === 'judge_decision_table') {
+    const tableEvent = event as JudgeDecisionTableEvent;
     const rows = Array.isArray((event as JudgeDecisionTableEvent).rows)
       ? (event as JudgeDecisionTableEvent).rows?.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
       : [];
     return {
       judgeDecisionTableRows: rows,
+      judgeDecisionTableMeta: {
+        rowCount: Number(tableEvent.row_count),
+        rowCountTotal: Number(tableEvent.row_count_total),
+        rowCountRejectPending: Number(tableEvent.row_count_reject_pending),
+        rowsScope: String(tableEvent.rows_scope || ''),
+        rowEvidenceIncomplete: Boolean(tableEvent.row_evidence_incomplete),
+      },
       lastUpdatedAt: now,
     };
   }
@@ -262,6 +283,7 @@ export const useRagDebugStore = create<DebugState>()(
         reviewDecisionTableCompactRows: state.reviewDecisionTableCompactRows,
         judgeSummary: state.judgeSummary,
         judgeDecisionTableRows: state.judgeDecisionTableRows,
+        judgeDecisionTableMeta: state.judgeDecisionTableMeta,
         generationSummary: state.generationSummary,
         generationContextCompression: state.generationContextCompression,
         feedbackControlState: state.feedbackControlState,

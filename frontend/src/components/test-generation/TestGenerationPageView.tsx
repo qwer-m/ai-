@@ -62,6 +62,7 @@ type TestGenerationPageViewProps = {
     rawPreviewCount: number;
     reviewCandidateCount: number | null;
     reviewSelectedCount: number | null;
+    judgeInputCount: number | null;
     judgeRejectedOrPendingCount: number | null;
     finalCount: number;
   };
@@ -136,7 +137,14 @@ export function TestGenerationPageView({
   handleDuplicateCancel,
   handleDuplicateConfirm,
 }: TestGenerationPageViewProps) {
-  const [activeRuleId, setActiveRuleId] = useState<string | null>(null);
+  const [activeRuleFocus, setActiveRuleFocus] = useState<{ ruleId: string; ruleText: string } | null>(null);
+
+  const handleRuleClick = (ruleId: string, ruleText = '') => {
+    setActiveRuleFocus({ ruleId, ruleText });
+    window.setTimeout(() => {
+      document.querySelector('.test-generation-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+  };
 
   return (
     <div className="test-generation-shell workbench-shell bento-grid h-100 align-content-start position-relative postman-theme">
@@ -231,14 +239,15 @@ export function TestGenerationPageView({
         displayCaseCount={displayCaseCount}
         funnelMetrics={funnelMetrics}
         onCopy={handleCopyCurrent}
-        highlightRuleId={activeRuleId}
-        onClearHighlight={() => setActiveRuleId(null)}
+        highlightRuleId={activeRuleFocus?.ruleId ?? null}
+        highlightRuleText={activeRuleFocus?.ruleText ?? ''}
+        onClearHighlight={() => setActiveRuleFocus(null)}
       />
 
       <RagDebugPanel
         className="col-span-12"
-        activeRuleId={activeRuleId}
-        onRuleClick={setActiveRuleId}
+        activeRuleId={activeRuleFocus?.ruleId ?? null}
+        onRuleClick={handleRuleClick}
         result={result}
         resultSource={resultSource}
         projectId={projectId}

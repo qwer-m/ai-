@@ -1,4 +1,4 @@
-﻿import { Suspense, lazy } from 'react';
+﻿import { Suspense, lazy, useEffect, useState } from 'react';
 import { Container, Spinner } from 'react-bootstrap';
 import type { Project } from '../pages/ProjectManagement';
 import type { LogEntry } from './model/types';
@@ -59,6 +59,20 @@ const isImmersiveTab = (tab: string) => {
   return tab === 'kb' || tab.startsWith('ui-exec-ui') || tab === 'api-standard' || tab === 'api-ai';
 };
 
+type EvaluationViewKey = 'root' | 'testcase' | 'ui' | 'api' | 'rag';
+
+const getEvaluationView = (tab: string): EvaluationViewKey => {
+  if (tab === 'eval-testcase') return 'testcase';
+  if (tab === 'eval-ui') return 'ui';
+  if (tab === 'eval-api') return 'api';
+  if (tab === 'eval-rag') return 'rag';
+  return 'root';
+};
+
+const isEvaluationTab = (tab: string) => {
+  return tab === 'eval' || tab === 'eval-testcase' || tab === 'eval-ui' || tab === 'eval-api' || tab === 'eval-rag';
+};
+
 export function DashboardContent({
   activeTab,
   projectId,
@@ -102,6 +116,13 @@ export function DashboardContent({
   openProjectCreateSignal,
 }: Props) {
   const immersive = isImmersiveTab(activeTab);
+  const evaluationTabActive = isEvaluationTab(activeTab);
+  const currentEvaluationView = getEvaluationView(activeTab);
+  const [lastEvaluationView, setLastEvaluationView] = useState(currentEvaluationView);
+
+  useEffect(() => {
+    if (evaluationTabActive) setLastEvaluationView(currentEvaluationView);
+  }, [currentEvaluationView, evaluationTabActive]);
 
   const commonEvaluationProps = {
     projectId,
@@ -241,69 +262,19 @@ export function DashboardContent({
             </Suspense>
           ) : null}
 
-          {activeTab === 'eval' ? (
+          <div className={`dashboard-tab-panel ${evaluationTabActive ? 'is-active' : ''}`} style={{ display: evaluationTabActive ? undefined : 'none' }}>
             <Suspense fallback={renderLazyFallback('加载评测模块...')}>
               <Evaluation
                 {...commonEvaluationProps}
                 onLog={(msg: string) => {
                   void onUserLog(msg);
                 }}
-                view="root"
+                view={evaluationTabActive ? currentEvaluationView : lastEvaluationView}
                 shouldAutoEval={shouldAutoEval}
                 setShouldAutoEval={setShouldAutoEval}
               />
             </Suspense>
-          ) : null}
-
-          {activeTab === 'eval-testcase' ? (
-            <Suspense fallback={renderLazyFallback('加载测试用例评测模块...')}>
-              <Evaluation
-                {...commonEvaluationProps}
-                onLog={(msg: string) => {
-                  void onUserLog(msg);
-                }}
-                view="testcase"
-                shouldAutoEval={shouldAutoEval}
-                setShouldAutoEval={setShouldAutoEval}
-              />
-            </Suspense>
-          ) : null}
-
-          {activeTab === 'eval-ui' ? (
-            <Suspense fallback={renderLazyFallback('加载 UI 评测模块...')}>
-              <Evaluation
-                {...commonEvaluationProps}
-                onLog={(msg: string) => {
-                  void onUserLog(msg);
-                }}
-                view="ui"
-              />
-            </Suspense>
-          ) : null}
-
-          {activeTab === 'eval-api' ? (
-            <Suspense fallback={renderLazyFallback('加载 API 评测模块...')}>
-              <Evaluation
-                {...commonEvaluationProps}
-                onLog={(msg: string) => {
-                  void onUserLog(msg);
-                }}
-                view="api"
-              />
-            </Suspense>
-          ) : null}
-
-          {activeTab === 'eval-rag' ? (
-            <Suspense fallback={renderLazyFallback('加载 RAG 评测模块...')}>
-              <Evaluation
-                {...commonEvaluationProps}
-                onLog={(msg: string) => {
-                  void onUserLog(msg);
-                }}
-                view="rag"
-              />
-            </Suspense>
-          ) : null}
+          </div>
         </div>
       </Container>
     </div>

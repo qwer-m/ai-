@@ -3,12 +3,18 @@ import { Badge, Button, Form } from 'react-bootstrap';
 import { useRagDebugStore } from './debugStore';
 
 type Props = {
-  onRuleClick?: (ruleId: string) => void;
+  onRuleClick?: (ruleId: string, ruleText?: string) => void;
   activeRuleId?: string | null;
 };
 
 function toArray(input: unknown): string[] {
   return Array.isArray(input) ? input.map((x) => String(x)) : [];
+}
+
+function countValue(input: unknown): number {
+  if (Array.isArray(input)) return input.length;
+  const n = Number(input);
+  return Number.isFinite(n) ? n : 0;
 }
 
 export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
@@ -52,7 +58,7 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
       </div>
 
       <div className="small text-muted rag-debug-muted mb-2">
-        total_rules: {coverage?.total_rules ?? 0} / covered_rules: {coverage?.covered_rules ?? 0} / missing_rules: {coverage?.missing_rules ?? 0}
+        total_rules: {countValue(coverage?.total_rules)} / covered_rules: {countValue(coverage?.covered_rules)} / missing_rules: {countValue(coverage?.missing_rules)}
       </div>
 
       <div className="table-responsive">
@@ -76,6 +82,7 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
             ) : null}
             {diagnostics.map((item, idx) => {
               const ruleId = String(item?.rule_id || `rule-${idx + 1}`);
+              const ruleText = String((item as any)?.rule_text || '');
               const covered = Boolean(item?.covered);
               const coverageTypes = toArray((item as any)?.coverage_types);
               const missingTypes = toArray((item as any)?.missing_types);
@@ -106,7 +113,7 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
                     </div>
                   </td>
                   <td>
-                    <Button variant="outline-secondary" size="sm" onClick={() => onRuleClick?.(ruleId)} disabled={!onRuleClick}>
+                    <Button variant="outline-secondary" size="sm" onClick={() => onRuleClick?.(ruleId, ruleText)} disabled={!onRuleClick}>
                       查看关联
                     </Button>
                   </td>

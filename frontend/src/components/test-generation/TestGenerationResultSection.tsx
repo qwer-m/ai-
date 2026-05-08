@@ -22,11 +22,13 @@ type TestGenerationResultSectionProps = {
     rawPreviewCount: number;
     reviewCandidateCount: number | null;
     reviewSelectedCount: number | null;
+    judgeInputCount: number | null;
     judgeRejectedOrPendingCount: number | null;
     finalCount: number;
   };
   onCopy: () => void;
   highlightRuleId?: string | null;
+  highlightRuleText?: string;
   onClearHighlight?: () => void;
 };
 
@@ -71,6 +73,53 @@ function getMatchedCases(result: any, keyword: string): MatchedCase[] {
       caseId: String(item?.id || item?.case_id || `CASE-${idx + 1}`),
       description: String(item?.description || item?.title || '').slice(0, 80),
     }));
+}
+
+function buildRuleSearchTokens(ruleId: string, ruleText?: string): string[] {
+  const stopWords = new Set(['页面', '功能', '验证', '显示', '按钮', '入口', '操作', '状态', '模块', '当前']);
+  const raw = `${ruleId} ${ruleText || ''}`
+    .replace(/[，。；、：:;,.()[\]（）【】"'“”‘’/\\|<>《》\r\n\t]/g, ' ')
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const tokens: string[] = [];
+  for (const item of raw) {
+    const token = item.length > 28 ? item.slice(0, 28) : item;
+    const hasCjk = /[\u4e00-\u9fff]/.test(token);
+    if (stopWords.has(token)) continue;
+    if ((hasCjk && token.length >= 2) || (!hasCjk && token.length >= 3)) {
+      tokens.push(token.toLowerCase());
+    }
+  }
+  return Array.from(new Set(tokens)).slice(0, 24);
+}
+
+function getMatchedCasesByRule(result: any, ruleId: string, ruleText?: string): MatchedCase[] {
+  const exactMatches = getMatchedCases(result, ruleId);
+  if (exactMatches.length) return exactMatches;
+  if (!Array.isArray(result)) return [];
+  const tokens = buildRuleSearchTokens('', ruleText);
+  if (!tokens.length) return [];
+  return result
+    .map((item, idx) => {
+      const text = JSON.stringify(item ?? {}).toLowerCase();
+      const hits = tokens.filter((token) => text.includes(token));
+      const strongHit = hits.some((token) => token.length >= 6);
+      return { item, idx, score: hits.length + (strongHit ? 1 : 0) };
+    })
+    .filter((row) => row.score >= 2)
+    .sort((a, b) => b.score - a.score || a.idx - b.idx)
+    .map(({ item, idx }) => ({
+      caseId: String(item?.id || item?.case_id || `CASE-${idx + 1}`),
+      description: String(item?.description || item?.title || '').slice(0, 80),
+    }));
+}
+
+function pickHighlightToken(renderedText: string, ruleId: string, ruleText?: string): string {
+  if (!renderedText) return '';
+  const lower = renderedText.toLowerCase();
+  if (ruleId && lower.includes(ruleId.toLowerCase())) return ruleId;
+  return buildRuleSearchTokens('', ruleText).find((token) => lower.includes(token)) || '';
 }
 
 function normalizePriorityValue(v: unknown): 'P0' | 'P1' | 'P2' {
@@ -129,11 +178,19 @@ export function TestGenerationResultSection({
   funnelMetrics,
   onCopy,
   highlightRuleId,
+  highlightRuleText,
   onClearHighlight,
 }: TestGenerationResultSectionProps) {
   const normalizedRuleId = normalizeRuleToken(highlightRuleId);
   const renderedText = useMemo(() => getRenderedText(mode, result, streamingContent), [mode, result, streamingContent]);
-  const matchedCases = useMemo(() => getMatchedCases(result, normalizedRuleId), [result, normalizedRuleId]);
+  const matchedCases = useMemo(
+    () => getMatchedCasesByRule(result, normalizedRuleId, highlightRuleText),
+    [result, normalizedRuleId, highlightRuleText]
+  );
+  const highlightToken = useMemo(
+    () => pickHighlightToken(renderedText, normalizedRuleId, highlightRuleText),
+    [renderedText, normalizedRuleId, highlightRuleText]
+  );
   const firstMarkRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -144,8 +201,8 @@ export function TestGenerationResultSection({
   }, [normalizedRuleId, renderedText]);
 
   const renderedContent = useMemo(() => {
-    if (!normalizedRuleId || !renderedText) return renderedText;
-    const regex = new RegExp(`(${escapeRegExp(normalizedRuleId)})`, 'ig');
+    if (!highlightToken || !renderedText) return renderedText;
+    const regex = new RegExp(`(${escapeRegExp(highlightToken)})`, 'ig');
     const segments = renderedText.split(regex);
     let marked = false;
     return segments.map((seg, idx) => {
@@ -171,7 +228,7 @@ export function TestGenerationResultSection({
         </mark>
       );
     });
-  }, [normalizedRuleId, renderedText]);
+  }, [highlightToken, renderedText]);
 
   const isPreview = resultSource === 'streaming_preview';
   const isFinal = resultSource === 'final_persisted' && isFinalResultLoaded;
@@ -248,6 +305,7 @@ export function TestGenerationResultSection({
         <Badge bg="secondary">raw预览 {funnelMetrics.rawPreviewCount}</Badge>
         <Badge bg="secondary">review候选 {funnelMetrics.reviewCandidateCount ?? '-'}</Badge>
         <Badge bg="secondary">review入选 {funnelMetrics.reviewSelectedCount ?? '-'}</Badge>
+        <Badge bg="secondary">judge输入 {funnelMetrics.judgeInputCount ?? '-'}</Badge>
         <Badge bg="secondary">judge拒绝/待定 {funnelMetrics.judgeRejectedOrPendingCount ?? '-'}</Badge>
         <Badge bg="dark">final {funnelMetrics.finalCount}</Badge>
       </div>

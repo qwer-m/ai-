@@ -1,12 +1,15 @@
 ﻿from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Any
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from core.authn.auth import get_current_user
 from core.db.database import get_db
 from core.db.models import User
+from core.processing.file_processing import is_image_filename, parse_file_bytes, parse_image_bytes_with_fallback
 from modules.test_generation_components.services.final_case_learning_service import (
     FinalCaseLearningService,
 )
@@ -20,12 +23,37 @@ class PrioritySamplePoolSaveRequest(BaseModel):
     samples: list[dict] = Field(default_factory=list)
 
 
+class PrioritySamplePoolDeleteRequest(BaseModel):
+    generation_id: int | None = Field(default=None)
+    sample_id: str = Field(default="")
+
+
 class FinalCaseLearningRequest(BaseModel):
     final_cases: list[dict] = Field(default_factory=list)
     final_case_doc_ids: list[int] = Field(default_factory=list)
     source_doc_ids: list[int] = Field(default_factory=list)
     include_linked_docs: bool = Field(default=True)
     include_negative_samples: bool = Field(default=True)
+    dry_run: bool = Field(default=True)
+
+
+class EvaluationCaseLearningRequest(BaseModel):
+    project_id: int
+    generated_cases: Any = Field(default="")
+    final_cases: Any = Field(default="")
+    generation_id: int | None = Field(default=None)
+    include_negative_samples: bool = Field(default=True)
+    dry_run: bool = Field(default=True)
+
+
+class EvaluationDefectLearningCandidateRequest(BaseModel):
+    project_id: int
+    evaluation_result: Any = Field(default="")
+
+
+class ApplyEvaluationLearningCandidatesRequest(BaseModel):
+    project_id: int
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
     dry_run: bool = Field(default=True)
 
 
@@ -42,6 +70,124 @@ def list_test_generations(
     if status == "project_not_found":
         raise HTTPException(status_code=404, detail="Project not found")
     return rows
+
+
+@router.post("/test-generations/learn-from-evaluation")
+def learn_from_evaluation_cases(
+    req: EvaluationCaseLearningRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    status, payload = FinalCaseLearningService(db).learn_from_case_pair(
+        project_id=int(req.project_id),
+        user_id=current_user.id,
+        generated_cases=req.generated_cases,
+        final_cases=req.final_cases,
+        generation_id=req.generation_id,
+        include_negative_samples=bool(req.include_negative_samples),
+        dry_run=bool(req.dry_run),
+    )
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail="Project not found")
+    if status == "generation_not_found":
+        raise HTTPException(status_code=404, detail="Generation not found")
+    return payload
+
+
+@router.post("/test-generations/learn-from-evaluation-file")
+async def learn_from_evaluation_cases_file(
+    project_id: int = Form(...),
+    generated_cases: str = Form(""),
+    final_cases: str = Form(""),
+    generation_id: int | None = Form(None),
+    include_negative_samples: bool = Form(True),
+    dry_run: bool = Form(True),
+    file: UploadFile | None = File(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    final_payload = (final_cases or "").strip()
+    file_meta: dict[str, Any] = {
+        "from_upload": False,
+        "filename": "",
+        "content_type": "",
+        "size": 0,
+    }
+    if not final_payload and file is not None:
+        filename = file.filename or ""
+        raw_bytes = await file.read()
+        file_meta.update(
+            {
+                "from_upload": True,
+                "filename": filename,
+                "content_type": file.content_type or "",
+                "size": len(raw_bytes),
+            }
+        )
+        if is_image_filename(filename):
+            final_payload, _ocr_meta = parse_image_bytes_with_fallback(
+                filename=filename,
+                content_bytes=raw_bytes,
+                db=db,
+                user_id=current_user.id,
+            )
+        else:
+            final_payload = parse_file_bytes(
+                filename=filename,
+                content_bytes=raw_bytes,
+                db=db,
+                user_id=current_user.id,
+            )
+
+    status, payload = FinalCaseLearningService(db).learn_from_case_pair(
+        project_id=int(project_id),
+        user_id=current_user.id,
+        generated_cases=generated_cases,
+        final_cases=final_payload,
+        generation_id=generation_id,
+        include_negative_samples=bool(include_negative_samples),
+        dry_run=bool(dry_run),
+    )
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail="Project not found")
+    if status == "generation_not_found":
+        raise HTTPException(status_code=404, detail="Generation not found")
+    if isinstance(payload, dict):
+        payload["file_parse"] = file_meta
+    return payload
+
+
+@router.post("/test-generations/learning-candidates/from-evaluation")
+def build_learning_candidates_from_evaluation(
+    req: EvaluationDefectLearningCandidateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    status, payload = FinalCaseLearningService(db).build_learning_candidates_from_evaluation(
+        project_id=int(req.project_id),
+        user_id=current_user.id,
+        evaluation_result=req.evaluation_result,
+    )
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail="Project not found")
+    return payload
+
+
+@router.post("/test-generations/learning-candidates/apply")
+def apply_learning_candidates(
+    req: ApplyEvaluationLearningCandidatesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    status, payload = FinalCaseLearningService(db).apply_learning_candidates(
+        project_id=int(req.project_id),
+        user_id=current_user.id,
+        candidates=req.candidates or [],
+        dry_run=bool(req.dry_run),
+    )
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail="Project not found")
+    return payload
 
 
 @router.get("/test-generations/{generation_id}")
@@ -128,4 +274,24 @@ def save_priority_sample_pool(
     )
     if status == "project_not_found":
         raise HTTPException(status_code=404, detail="Project not found")
+    return payload
+
+
+@router.post("/test-generations/projects/{project_id}/priority-sample-pool/delete-sample")
+def delete_priority_sample_pool_item(
+    project_id: int,
+    req: PrioritySamplePoolDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    status, payload = TestGenerationHistoryService(db).delete_priority_sample_pool_item(
+        project_id=project_id,
+        user_id=current_user.id,
+        generation_id=req.generation_id,
+        sample_id=req.sample_id,
+    )
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail="Project not found")
+    if status == "sample_not_found":
+        raise HTTPException(status_code=404, detail="Sample not found")
     return payload

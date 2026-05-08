@@ -27,10 +27,14 @@ function toText(value: unknown): string {
 }
 
 function extractRow(input: Record<string, unknown>): JudgeRow {
-  const beforeCase = (input.before_case && typeof input.before_case === 'object'
+  const beforeCase = (input.before_case_snapshot && typeof input.before_case_snapshot === 'object'
+    ? (input.before_case_snapshot as Record<string, unknown>)
+    : input.before_case && typeof input.before_case === 'object'
     ? (input.before_case as Record<string, unknown>)
     : {}) as Record<string, unknown>;
-  const afterCase = (input.after_case && typeof input.after_case === 'object'
+  const afterCase = (input.after_case_snapshot && typeof input.after_case_snapshot === 'object'
+    ? (input.after_case_snapshot as Record<string, unknown>)
+    : input.after_case && typeof input.after_case === 'object'
     ? (input.after_case as Record<string, unknown>)
     : {}) as Record<string, unknown>;
   const chosenCase = Object.keys(beforeCase).length ? beforeCase : afterCase;
@@ -38,7 +42,7 @@ function extractRow(input: Record<string, unknown>): JudgeRow {
   const module = toText(chosenCase.test_module) || '-';
   const priority = toText(chosenCase.model_priority_current) || toText(chosenCase.priority) || '-';
   const scene = toText(chosenCase.description) || '-';
-  const judgeStatus = toText(input.status) || '-';
+  const judgeStatus = toText(input.judge_status) || toText(input.status) || '-';
   const rejectReason = toText(input.reject_reason) || toText(input.pending_reason) || '-';
   const hitConfirmedFact = toBool(input.violates_confirmed_fact)
     || (Array.isArray(input.confirmed_fact_hits) && input.confirmed_fact_hits.length > 0);
@@ -61,6 +65,7 @@ function extractRow(input: Record<string, unknown>): JudgeRow {
 
 export function JudgeDecisionTable() {
   const rawRows = useRagDebugStore((s) => s.judgeDecisionTableRows) ?? EMPTY_ROWS;
+  const meta = useRagDebugStore((s) => s.judgeDecisionTableMeta);
   const [statusFilter, setStatusFilter] = useState<JudgeStatus>('ALL');
 
   const rows = useMemo(() => {
@@ -87,6 +92,10 @@ export function JudgeDecisionTable() {
     };
   }, [rawRows]);
 
+  const totalRows = Number(meta?.rowCountTotal);
+  const displayedRows = rawRows.length;
+  const isSampled = Boolean(meta?.rowsScope && meta.rowsScope !== 'full');
+
   return (
     <div className="rag-debug-card rounded-2xl shadow-md p-4 border bg-white dark:bg-slate-900">
       <div className="d-flex justify-content-between align-items-center mb-3">
@@ -106,7 +115,13 @@ export function JudgeDecisionTable() {
       </div>
 
       <div className="small text-muted rag-debug-muted mb-2 d-flex flex-wrap gap-2">
-        <Badge bg="secondary">total {summary.total}</Badge>
+        <Badge bg="secondary">展示 {summary.total}</Badge>
+        {Number.isFinite(totalRows) && totalRows > 0 ? (
+          <Badge bg={isSampled ? 'warning' : 'success'} text={isSampled ? 'dark' : undefined}>
+            明细 {displayedRows}/{totalRows}
+          </Badge>
+        ) : null}
+        {isSampled ? <Badge bg="warning" text="dark">sampled_due_to_size</Badge> : null}
         <Badge bg="success">pass {summary.PASS}</Badge>
         <Badge bg="warning" text="dark">repairable {summary.REPAIRABLE}</Badge>
         <Badge bg="danger">reject {summary.REJECT}</Badge>
