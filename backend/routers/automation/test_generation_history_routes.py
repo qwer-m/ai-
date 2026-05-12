@@ -26,6 +26,30 @@ class PrioritySamplePoolSaveRequest(BaseModel):
 class PrioritySamplePoolDeleteRequest(BaseModel):
     generation_id: int | None = Field(default=None)
     sample_id: str = Field(default="")
+    delete_reason: str = Field(default="")
+
+
+class PrioritySamplePoolAddRequest(BaseModel):
+    generation_id: int | None = Field(default=None)
+    samples: list[dict] = Field(default_factory=list)
+
+
+class PrioritySamplePoolUpdateRequest(BaseModel):
+    generation_id: int | None = Field(default=None)
+    sample_id: str = Field(default="")
+    patch: dict[str, Any] = Field(default_factory=dict)
+
+
+class PrioritySamplePoolConfirmRequest(BaseModel):
+    generation_id: int | None = Field(default=None)
+    sample_id: str = Field(default="")
+    patch: dict[str, Any] = Field(default_factory=dict)
+
+
+class PrioritySamplePoolBulkArchiveRequest(BaseModel):
+    generation_id: int | None = Field(default=None)
+    sample_ids: list[str] = Field(default_factory=list)
+    delete_reason: str = Field(default="")
 
 
 class FinalCaseLearningRequest(BaseModel):
@@ -259,6 +283,21 @@ def get_priority_sample_pool(
     return payload
 
 
+@router.get("/test-generations/projects/{project_id}/priority-sample-pool/consistency")
+def get_priority_sample_pool_consistency(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    status, payload = TestGenerationHistoryService(db).get_priority_sample_pool_consistency(
+        project_id=project_id,
+        user_id=current_user.id,
+    )
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail="Project not found")
+    return payload
+
+
 @router.put("/test-generations/projects/{project_id}/priority-sample-pool")
 def save_priority_sample_pool(
     project_id: int,
@@ -289,9 +328,108 @@ def delete_priority_sample_pool_item(
         user_id=current_user.id,
         generation_id=req.generation_id,
         sample_id=req.sample_id,
+        delete_reason=req.delete_reason,
     )
     if status == "project_not_found":
         raise HTTPException(status_code=404, detail="Project not found")
     if status == "sample_not_found":
         raise HTTPException(status_code=404, detail="Sample not found")
     return payload
+
+
+@router.post("/test-generations/projects/{project_id}/priority-sample-pool/add-samples")
+def add_priority_sample_pool_items(
+    project_id: int,
+    req: PrioritySamplePoolAddRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    status, payload = TestGenerationHistoryService(db).add_priority_sample_pool_items(
+        project_id=project_id,
+        user_id=current_user.id,
+        generation_id=req.generation_id,
+        samples=req.samples or [],
+    )
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail="Project not found")
+    if status == "no_samples":
+        raise HTTPException(status_code=400, detail="No samples provided")
+    return payload
+
+
+@router.post("/test-generations/projects/{project_id}/priority-sample-pool/update-sample")
+def update_priority_sample_pool_item(
+    project_id: int,
+    req: PrioritySamplePoolUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    status, payload = TestGenerationHistoryService(db).update_priority_sample_pool_item(
+        project_id=project_id,
+        user_id=current_user.id,
+        generation_id=req.generation_id,
+        sample_id=req.sample_id,
+        patch=req.patch,
+    )
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail="Project not found")
+    if status == "sample_not_found":
+        raise HTTPException(status_code=404, detail="Sample not found")
+    return payload
+
+
+@router.post("/test-generations/projects/{project_id}/priority-sample-pool/confirm-sample")
+def confirm_priority_sample_pool_item(
+    project_id: int,
+    req: PrioritySamplePoolConfirmRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    status, payload = TestGenerationHistoryService(db).confirm_priority_sample_pool_item(
+        project_id=project_id,
+        user_id=current_user.id,
+        generation_id=req.generation_id,
+        sample_id=req.sample_id,
+        patch=req.patch,
+    )
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail="Project not found")
+    if status == "sample_not_found":
+        raise HTTPException(status_code=404, detail="Sample not found")
+    return payload
+
+
+@router.post("/test-generations/projects/{project_id}/priority-sample-pool/bulk-archive")
+def bulk_archive_priority_sample_pool_items(
+    project_id: int,
+    req: PrioritySamplePoolBulkArchiveRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    status, payload = TestGenerationHistoryService(db).bulk_archive_priority_sample_pool_items(
+        project_id=project_id,
+        user_id=current_user.id,
+        generation_id=req.generation_id,
+        sample_ids=req.sample_ids or [],
+        delete_reason=req.delete_reason,
+    )
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail="Project not found")
+    if status == "no_samples_archived":
+        raise HTTPException(status_code=404, detail="No samples matched for archival")
+    return payload
+
+
+@router.get("/test-generations/projects/{project_id}/priority-sample-pool/learning-history")
+def get_learning_selection_history(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    status, events = TestGenerationHistoryService(db).get_learning_selection_history(
+        project_id=project_id,
+        user_id=current_user.id,
+    )
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"project_id": project_id, "events": events}

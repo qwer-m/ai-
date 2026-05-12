@@ -2,9 +2,20 @@
             cache_key_content = f"{target_model}:{json.dumps(messages, ensure_ascii=False)}"
             cached = cache_service.get(cache_key_content, "L4", db)
             if cached:
+                self.last_response_metadata = {
+                    "model": target_model,
+                    "cached": True,
+                    "input_tokens_estimated": max(1, len(json.dumps(messages, ensure_ascii=False)) // 4),
+                    "output_tokens_estimated": max(0, len(str(cached or "")) // 4),
+                    "token_estimate_method": "chars_div_4",
+                }
                 return cached
         result = target_provider.generate(messages, target_model, max_tokens or self.max_tokens)
         self.last_response_metadata = dict(getattr(target_provider, "last_response_metadata", {}) or {})
+        self.last_response_metadata.setdefault("model", target_model)
+        self.last_response_metadata.setdefault("input_tokens_estimated", max(1, len(json.dumps(messages, ensure_ascii=False)) // 4))
+        self.last_response_metadata.setdefault("output_tokens_estimated", max(0, len(str(result or "")) // 4))
+        self.last_response_metadata.setdefault("token_estimate_method", "chars_div_4")
         if not str(result or "").strip():
             return f"Error: Empty response from model {target_model}"
         if db and not result.startswith("Error") and not result.startswith("Exception"):
@@ -27,7 +38,16 @@
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": user_input})
         target_model = model or self.select_model((system_prompt or "") + user_input, task_type)
-        yield from self.provider.generate_stream(messages, target_model, max_tokens or self.max_tokens)
+        output_parts = []
+        for chunk in self.provider.generate_stream(messages, target_model, max_tokens or self.max_tokens):
+            output_parts.append(str(chunk or ""))
+            yield chunk
+        output_text = "".join(output_parts)
+        self.last_response_metadata = dict(getattr(self.provider, "last_response_metadata", {}) or {})
+        self.last_response_metadata.setdefault("model", target_model)
+        self.last_response_metadata.setdefault("input_tokens_estimated", max(1, len(json.dumps(messages, ensure_ascii=False)) // 4))
+        self.last_response_metadata.setdefault("output_tokens_estimated", max(0, len(output_text or "") // 4))
+        self.last_response_metadata.setdefault("token_estimate_method", "chars_div_4")
     def analyze_image(
         self,
         image_path_or_url: str,

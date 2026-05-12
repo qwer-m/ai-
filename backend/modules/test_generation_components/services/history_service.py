@@ -8,10 +8,15 @@ from typing import Any
 
 from modules.testing.evaluation_artifact_store import load_compare_artifact_payload
 from modules.testing.priority_sample_pool_store import (
+    add_samples_to_pool,
+    bulk_archive_priority_samples,
+    confirm_priority_sample_in_pool,
     load_priority_sample_pool,
     remove_priority_sample_from_pool,
+    update_priority_sample_in_pool,
     upsert_priority_sample_pool,
 )
+from modules.testing.sample_pool_shadow_store import shadow_read_consistency_check
 from modules.test_generation_components.repositories.history_repository import (
     TestGenerationHistoryRepository,
 )
@@ -236,17 +241,26 @@ class TestGenerationHistoryService:
                     "project_id": project_id,
                     "generation_id": None,
                     "samples": [],
+                    "patterns": [],
+                    "signals": [],
+                    "learning_events": [],
                     "updated_at": None,
                     "artifact_doc_id": None,
                 },
             )
         samples = payload.get("samples")
+        learning_events = payload.get("learning_events")
+        patterns = payload.get("patterns")
+        signals_data = payload.get("signals")
         return (
             "ok",
             {
                 "project_id": project_id,
                 "generation_id": payload.get("generation_id"),
                 "samples": samples if isinstance(samples, list) else [],
+                "patterns": patterns if isinstance(patterns, list) else [],
+                "signals": signals_data if isinstance(signals_data, list) else [],
+                "learning_events": learning_events if isinstance(learning_events, list) else [],
                 "updated_at": payload.get("updated_at"),
                 "artifact_doc_id": payload.get("artifact_doc_id"),
             },
@@ -297,6 +311,7 @@ class TestGenerationHistoryService:
         user_id: int,
         generation_id: int | None,
         sample_id: str,
+        delete_reason: str = "",
     ) -> tuple[str, dict[str, Any] | None]:
         if not self.repo.get_owned_project(project_id=project_id, user_id=user_id):
             return "project_not_found", None
@@ -306,6 +321,7 @@ class TestGenerationHistoryService:
             user_id=user_id,
             generation_id=generation_id,
             sample_id=sample_id,
+            delete_reason=delete_reason,
         )
         if not doc:
             return "sample_not_found", None
@@ -324,3 +340,209 @@ class TestGenerationHistoryService:
                 "artifact_doc_id": doc.id,
             },
         )
+
+    def add_priority_sample_pool_items(
+        self,
+        *,
+        project_id: int,
+        user_id: int,
+        generation_id: int | None,
+        samples: list[dict[str, Any]],
+    ) -> tuple[str, dict[str, Any] | None]:
+        if not self.repo.get_owned_project(project_id=project_id, user_id=user_id):
+            return "project_not_found", None
+        safe_samples = samples if isinstance(samples, list) else []
+        if not safe_samples:
+            return "no_samples", None
+        doc = add_samples_to_pool(
+            db=self._db,
+            project_id=project_id,
+            user_id=user_id,
+            generation_id=generation_id,
+            incoming=safe_samples,
+        )
+        if not doc:
+            return "store_error", None
+        payload = load_priority_sample_pool(
+            db=self._db,
+            project_id=project_id,
+            user_id=user_id,
+        ) or {}
+        return (
+            "ok",
+            {
+                "project_id": project_id,
+                "generation_id": payload.get("generation_id"),
+                "samples": payload.get("samples") if isinstance(payload.get("samples"), list) else [],
+                "updated_at": payload.get("updated_at"),
+                "artifact_doc_id": doc.id,
+            },
+        )
+
+    def update_priority_sample_pool_item(
+        self,
+        *,
+        project_id: int,
+        user_id: int,
+        generation_id: int | None,
+        sample_id: str,
+        patch: dict[str, Any],
+    ) -> tuple[str, dict[str, Any] | None]:
+        if not self.repo.get_owned_project(project_id=project_id, user_id=user_id):
+            return "project_not_found", None
+        doc = update_priority_sample_in_pool(
+            db=self._db,
+            project_id=project_id,
+            user_id=user_id,
+            generation_id=generation_id,
+            sample_id=sample_id,
+            patch=patch,
+        )
+        if not doc:
+            return "sample_not_found", None
+        payload = load_priority_sample_pool(
+            db=self._db,
+            project_id=project_id,
+            user_id=user_id,
+        ) or {}
+        return (
+            "ok",
+            {
+                "project_id": project_id,
+                "generation_id": payload.get("generation_id"),
+                "samples": payload.get("samples") if isinstance(payload.get("samples"), list) else [],
+                "updated_at": payload.get("updated_at"),
+                "artifact_doc_id": doc.id,
+            },
+        )
+
+    def confirm_priority_sample_pool_item(
+        self,
+        *,
+        project_id: int,
+        user_id: int,
+        generation_id: int | None,
+        sample_id: str,
+        patch: dict[str, Any] | None = None,
+    ) -> tuple[str, dict[str, Any] | None]:
+        if not self.repo.get_owned_project(project_id=project_id, user_id=user_id):
+            return "project_not_found", None
+        doc = confirm_priority_sample_in_pool(
+            db=self._db,
+            project_id=project_id,
+            user_id=user_id,
+            generation_id=generation_id,
+            sample_id=sample_id,
+            patch=patch,
+        )
+        if not doc:
+            return "sample_not_found", None
+        payload = load_priority_sample_pool(
+            db=self._db,
+            project_id=project_id,
+            user_id=user_id,
+        ) or {}
+        return (
+            "ok",
+            {
+                "project_id": project_id,
+                "generation_id": payload.get("generation_id"),
+                "samples": payload.get("samples") if isinstance(payload.get("samples"), list) else [],
+                "updated_at": payload.get("updated_at"),
+                "artifact_doc_id": doc.id,
+            },
+        )
+
+    def get_priority_sample_pool_consistency(
+        self,
+        *,
+        project_id: int,
+        user_id: int,
+    ) -> tuple[str, dict[str, Any] | None]:
+        if not self.repo.get_owned_project(project_id=project_id, user_id=user_id):
+            return "project_not_found", None
+        payload = load_priority_sample_pool(
+            db=self._db,
+            project_id=project_id,
+            user_id=user_id,
+        ) or {}
+        samples = payload.get("samples") if isinstance(payload.get("samples"), list) else []
+        patterns = payload.get("patterns") if isinstance(payload.get("patterns"), list) else []
+        learning_events = payload.get("learning_events") if isinstance(payload.get("learning_events"), list) else []
+        consistency = shadow_read_consistency_check(
+            db=self._db,
+            project_id=project_id,
+            json_samples=samples,
+            json_patterns=patterns,
+            json_events=learning_events,
+        )
+        return (
+            "ok",
+            {
+                "project_id": project_id,
+                "generation_id": payload.get("generation_id"),
+                "json_sample_count": len(samples),
+                "json_pattern_count": len(patterns),
+                "json_event_count": len(learning_events),
+                "consistency": consistency,
+                "updated_at": payload.get("updated_at"),
+                "artifact_doc_id": payload.get("artifact_doc_id"),
+            },
+        )
+
+    def bulk_archive_priority_sample_pool_items(
+        self,
+        *,
+        project_id: int,
+        user_id: int,
+        generation_id: int | None,
+        sample_ids: list[str],
+        delete_reason: str = "",
+    ) -> tuple[str, dict[str, Any] | None]:
+        if not self.repo.get_owned_project(project_id=project_id, user_id=user_id):
+            return "project_not_found", None
+        doc = bulk_archive_priority_samples(
+            db=self._db,
+            project_id=project_id,
+            user_id=user_id,
+            generation_id=generation_id,
+            sample_ids=sample_ids,
+            delete_reason=delete_reason,
+        )
+        if not doc:
+            return "no_samples_archived", None
+        payload = load_priority_sample_pool(
+            db=self._db,
+            project_id=project_id,
+            user_id=user_id,
+        ) or {}
+        return (
+            "ok",
+            {
+                "project_id": project_id,
+                "generation_id": payload.get("generation_id"),
+                "samples": payload.get("samples") if isinstance(payload.get("samples"), list) else [],
+                "updated_at": payload.get("updated_at"),
+                "artifact_doc_id": doc.id,
+            },
+        )
+
+    def get_learning_selection_history(
+        self,
+        *,
+        project_id: int,
+        user_id: int,
+    ) -> tuple[str, list[dict[str, Any]]]:
+        if not self.repo.get_owned_project(project_id=project_id, user_id=user_id):
+            return "project_not_found", []
+        payload = load_priority_sample_pool(
+            db=self._db,
+            project_id=project_id,
+            user_id=user_id,
+        )
+        if not payload:
+            return "ok", []
+        events = payload.get("learning_events")
+        if isinstance(events, list):
+            return "ok", events
+        return "ok", []

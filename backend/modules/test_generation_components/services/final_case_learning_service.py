@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import re
+from datetime import datetime
 from difflib import SequenceMatcher
 from io import StringIO
 from typing import Any
@@ -14,6 +15,7 @@ from modules.knowledge_base_components.repositories.knowledge_document_repositor
     KnowledgeDocumentRepository,
 )
 from modules.testing.priority_sample_pool_store import (
+    append_learning_event,
     load_priority_sample_pool,
     upsert_priority_sample_pool,
 )
@@ -341,7 +343,10 @@ def build_learning_candidates_from_evaluation_result(evaluation_result: Any) -> 
                 pattern_category=pattern_category,
             ),
             "pattern_grain": "pattern" if signal_type == "positive" else "anti_pattern",
-            "source": "quality_evaluation_defect_analysis",
+            "source": "quality_evaluation_defect",
+            "source_type": "quality_evaluation_defect",
+            "source_id": None,
+            "source_case_id": str(candidate_id),
             "learning_signal_source": f"defect_analysis.{source_field}",
             "pattern_scope": "project",
             "pattern_confidence": round(max(0.35, min(0.9, confidence)), 4),
@@ -581,7 +586,7 @@ class FinalCaseLearningService:
                 "positive_sample_count": sum(1 for item in samples if str(item.get("signal_type") or "") == "positive"),
                 "negative_sample_count": sum(1 for item in samples if str(item.get("signal_type") or "") == "negative"),
                 "target": "priority_sample_pool",
-                "source": "quality_evaluation_defect_analysis",
+                "source": "quality_evaluation_defect",
             },
         }
         if dry_run:
@@ -596,6 +601,16 @@ class FinalCaseLearningService:
                     "dry_run": True,
                 },
             )
+
+        now_iso = datetime.utcnow().isoformat()
+        accepted_candidate_ids: list[str] = []
+        for sample in samples:
+            sample["learning_status"] = "user_confirmed"
+            sample["learning_confirmed_at"] = now_iso
+            sample["learning_confirmed_by"] = int(user_id)
+            cid = sample.get("case_id") or sample.get("id")
+            if cid:
+                accepted_candidate_ids.append(str(cid))
 
         existing_payload = (
             load_priority_sample_pool(
@@ -616,6 +631,18 @@ class FinalCaseLearningService:
             user_id=user_id,
             generation_id=None,
             samples=merged_samples,
+        )
+        append_learning_event(
+            db=self._db,
+            project_id=project_id,
+            user_id=user_id,
+            event_type="quality_evaluation_candidates_applied",
+            event_payload={
+                "candidate_count": len(candidate_items),
+                "accepted_count": len(samples),
+                "accepted_candidate_ids": accepted_candidate_ids,
+                "source": "quality_evaluation_defect",
+            },
         )
         payload = (
             load_priority_sample_pool(
@@ -1167,7 +1194,18 @@ def _build_positive_sample(
         "pattern_grain": "pattern",
         "source_case_title": description[:160],
         "source_case_module": module[:80],
-        "source": "linked_final_test_case",
+        "source": (
+            "linked_final_case_business_extension"
+            if manual_business_extension
+            else "linked_final_case_pattern"
+        ),
+        "source_type": (
+            "linked_final_case_business_extension"
+            if manual_business_extension
+            else "linked_final_case_pattern"
+        ),
+        "source_id": int(generation_id) if generation_id is not None else None,
+        "source_case_id": _text(case.get("id")) or None,
         "learning_signal_source": extension_note,
         "pattern_scope": "project",
         "pattern_confidence": _pattern_confidence_from_ledger(quality_ledger, positive=True),
@@ -1267,7 +1305,10 @@ def _build_negative_sample(
         "pattern_summary": f"{reason} | {description}"[:180],
         "pattern_grain": "anti_pattern",
         "source_case_title": description[:160],
-        "source": "ai_only_quality_failure",
+        "source": "quality_evaluation_defect",
+        "source_type": "quality_evaluation_defect",
+        "source_id": int(generation_id) if generation_id is not None else None,
+        "source_case_id": _text(case.get("id")) or None,
         "pattern_scope": "project",
         "pattern_confidence": _pattern_confidence_from_ledger(quality_ledger, positive=False),
         "quality_ledger": dict(quality_ledger or {}),

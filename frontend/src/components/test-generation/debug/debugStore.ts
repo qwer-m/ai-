@@ -14,6 +14,7 @@ import type {
   MemoryFabricDiagEvent,
   ReviewDecisionSummaryEvent,
   ReviewDecisionTableCompactEvent,
+  StreamBatchTokenUsageEvent,
 } from './diagParser';
 import { parseGenDiagEvent } from './diagParser';
 
@@ -61,6 +62,7 @@ export type DebugState = {
   feedbackControlState?: FeedbackControlStateEvent;
   generationQualityLedger?: GenerationQualityLedgerEvent;
   memoryFabricDiag?: MemoryFabricDiagEvent;
+  streamBatchTokenUsageRows?: StreamBatchTokenUsageEvent[];
   resultState?: ResultDebugState;
   lastUpdatedAt?: number;
   ingestDiag: (event: unknown) => void;
@@ -86,6 +88,7 @@ const INITIAL_STATE = {
   feedbackControlState: undefined as FeedbackControlStateEvent | undefined,
   generationQualityLedger: undefined as GenerationQualityLedgerEvent | undefined,
   memoryFabricDiag: undefined as MemoryFabricDiagEvent | undefined,
+  streamBatchTokenUsageRows: undefined as StreamBatchTokenUsageEvent[] | undefined,
   resultState: undefined as ResultDebugState | undefined,
   lastUpdatedAt: undefined as number | undefined,
 };
@@ -239,6 +242,26 @@ function applyEvent(state: DebugState, event: GenDiagEvent): Partial<DebugState>
     };
   }
 
+  if (event.kind === 'stream_batch_token_usage') {
+    const incoming = event as StreamBatchTokenUsageEvent;
+    const rows = Array.isArray(state.streamBatchTokenUsageRows) ? [...state.streamBatchTokenUsageRows] : [];
+    const idx = rows.findIndex((row) => (
+      Number(row.batch_index) === Number(incoming.batch_index)
+      && Number(row.attempt || 1) === Number(incoming.attempt || 1)
+      && String(row.request_id || '') === String(incoming.request_id || '')
+    ));
+    if (idx >= 0) rows[idx] = incoming;
+    else rows.push(incoming);
+    rows.sort((a, b) => (
+      Number(a.batch_index || 0) - Number(b.batch_index || 0)
+      || Number(a.attempt || 0) - Number(b.attempt || 0)
+    ));
+    return {
+      streamBatchTokenUsageRows: rows.slice(-80),
+      lastUpdatedAt: now,
+    };
+  }
+
   return {};
 }
 
@@ -289,6 +312,7 @@ export const useRagDebugStore = create<DebugState>()(
         feedbackControlState: state.feedbackControlState,
         generationQualityLedger: state.generationQualityLedger,
         memoryFabricDiag: state.memoryFabricDiag,
+        streamBatchTokenUsageRows: state.streamBatchTokenUsageRows,
         resultState: state.resultState,
         lastUpdatedAt: state.lastUpdatedAt,
       }),

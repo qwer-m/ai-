@@ -143,6 +143,24 @@ export type MemoryFabricDiagEvent = {
   [key: string]: unknown;
 };
 
+export type StreamBatchTokenUsageEvent = {
+  kind: 'stream_batch_token_usage';
+  batch_index?: number;
+  total_batches?: number;
+  attempt?: number;
+  requested_count?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  token_source?: string;
+  estimate_method?: string;
+  model?: string;
+  current_biz_key?: string;
+  request_id?: string;
+  multi_pass?: boolean;
+  generation_mode?: string;
+};
+
 export type GenDiagEvent =
   | GenerationModeEvent
   | GenerationStageEvent
@@ -159,7 +177,8 @@ export type GenDiagEvent =
   | FeedbackControlStateEvent
   | GenerationQualityLedgerEvent
   | ReviewDecisionTableCompactEvent
-  | MemoryFabricDiagEvent;
+  | MemoryFabricDiagEvent
+  | StreamBatchTokenUsageEvent;
 
 const VALID_KINDS = new Set([
   'generation_mode',
@@ -178,6 +197,7 @@ const VALID_KINDS = new Set([
   'generation_quality_ledger',
   'review_decision_table_compact',
   'memory_fabric_diag',
+  'stream_batch_token_usage',
 ]);
 
 export function parseGenDiagEvent(input: unknown): GenDiagEvent | null {

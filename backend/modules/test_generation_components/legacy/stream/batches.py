@@ -135,6 +135,87 @@ class LegacyGenerationStreamBatchesMixin:
             except Exception:
                 pass
 
+        def _approx_tokens(text: Any) -> int:
+            return max(0, int(len(str(text or "")) / 4))
+
+        def _build_batch_token_usage(
+            *,
+            batch_index: int,
+            total_batches: int,
+            attempt: int,
+            need: int,
+            system_prompt_text: str,
+            requirement_text: str,
+            output_text: str,
+        ) -> dict[str, Any]:
+            metadata = dict(getattr(client, "last_response_metadata", {}) or {})
+
+            def _meta_int(*keys: str) -> int:
+                for key in keys:
+                    value = metadata.get(key)
+                    try:
+                        number = int(value)
+                    except Exception:
+                        continue
+                    if number >= 0:
+                        return number
+                return -1
+
+            input_tokens = _meta_int("input_tokens", "prompt_tokens", "input_tokens_estimated", "prompt_tokens_estimated")
+            output_tokens = _meta_int("output_tokens", "completion_tokens", "output_tokens_estimated", "completion_tokens_estimated")
+            estimate_method = str(metadata.get("token_estimate_method") or "").strip()
+            token_source = "provider"
+            if input_tokens < 0:
+                input_tokens = _approx_tokens(f"{system_prompt_text}\n{requirement_text}")
+                token_source = "估算"
+                estimate_method = estimate_method or "chars_div_4"
+            if output_tokens < 0:
+                output_tokens = _approx_tokens(output_text)
+                token_source = "估算"
+                estimate_method = estimate_method or "chars_div_4"
+            if estimate_method:
+                token_source = "估算"
+            return {
+                "kind": "stream_batch_token_usage",
+                "project_id": int(project_id),
+                "request_id": str(request_id or ""),
+                "current_biz_key": str(current_biz_key or "unknown"),
+                "multi_pass": bool(multi_pass),
+                "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                "batch_index": int(batch_index),
+                "total_batches": int(total_batches),
+                "attempt": int(attempt),
+                "requested_count": int(need),
+                "input_tokens": int(input_tokens),
+                "output_tokens": int(output_tokens),
+                "total_tokens": int(input_tokens + output_tokens),
+                "token_source": token_source,
+                "estimate_method": estimate_method,
+                "model": str(metadata.get("model") or getattr(client, "model", "") or ""),
+            }
+
+        def _emit_stream_batch_token_usage_diag(payload: dict[str, Any]) -> None:
+            if self._is_active_db_session(db):
+                try:
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            user_id=user_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(payload, ensure_ascii=False)}",
+                        )
+                    )
+                    db.commit()
+                except Exception:
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
+            try:
+                stream_batch_diags.append(f"GEN_DIAG:{json.dumps(payload, ensure_ascii=False)}\n")
+            except Exception:
+                pass
+
         def _norm_text(value: Any) -> str:
             return "".join(str(value or "").strip().lower().split())
 
@@ -430,6 +511,19 @@ class LegacyGenerationStreamBatchesMixin:
                     if chunk.startswith("Error:") or chunk.startswith("[额度耗尽]") or chunk.startswith("Exception occurred:"):
                         provider_error = chunk
                         break
+
+                token_usage_diag = _build_batch_token_usage(
+                    batch_index=batch_index + 1,
+                    total_batches=total_batches,
+                    attempt=attempt,
+                    need=need,
+                    system_prompt_text=system_prompt,
+                    requirement_text=requirement,
+                    output_text=attempt_content,
+                )
+                _emit_stream_batch_token_usage_diag(token_usage_diag)
+                if stream_batch_diags:
+                    yield stream_batch_diags.pop()
 
                 if not provider_error and not chunk_acc.strip():
                     if attempt < 3:

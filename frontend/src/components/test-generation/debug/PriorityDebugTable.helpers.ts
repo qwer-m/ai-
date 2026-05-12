@@ -7,6 +7,51 @@ export type SampleKind = 'anomaly' | 'positive';
 export type ReasonCategory = '' | 'core_flow' | 'exception_path' | 'boundary_condition' | 'state_transition' | 'redundant_case' | 'display_issue' | 'other';
 export type PatternCategory = '' | 'core_flow_closure' | 'cross_page_flow' | 'multi_step_interaction' | 'state_transition_pattern' | 'critical_path_coverage' | 'complex_business_combination' | 'high_value_assertion' | 'boundary_effective_coverage';
 
+export const SAMPLE_SOURCES = {
+  PRIORITY_DEBUG_MANUAL_ADD: 'priority_debug_manual_add',
+  QUALITY_EVALUATION_DEFECT: 'quality_evaluation_defect',
+  LINKED_FINAL_CASE_PATTERN: 'linked_final_case_pattern',
+  LINKED_FINAL_CASE_BUSINESS_EXTENSION: 'linked_final_case_business_extension',
+  MANUAL_POOL_INPUT: 'manual_pool_input',
+} as const;
+export type SampleSource = (typeof SAMPLE_SOURCES)[keyof typeof SAMPLE_SOURCES];
+
+export function sourceTypeLabel(source: string | null | undefined): string {
+  const s = (source ?? '').trim();
+  if (s === SAMPLE_SOURCES.PRIORITY_DEBUG_MANUAL_ADD) return '手动标记';
+  if (s === SAMPLE_SOURCES.QUALITY_EVALUATION_DEFECT) return '质量评估';
+  if (s === SAMPLE_SOURCES.LINKED_FINAL_CASE_PATTERN) return '关联用例';
+  if (s === SAMPLE_SOURCES.LINKED_FINAL_CASE_BUSINESS_EXTENSION) return '业务扩展';
+  if (s === SAMPLE_SOURCES.MANUAL_POOL_INPUT) return '手动入池';
+  return s || '未知';
+}
+
+export function sourceTypeBadgeVariant(source: string | null | undefined): string {
+  const s = (source ?? '').trim();
+  if (s === SAMPLE_SOURCES.PRIORITY_DEBUG_MANUAL_ADD) return 'secondary';
+  if (s === SAMPLE_SOURCES.QUALITY_EVALUATION_DEFECT) return 'warning';
+  if (s === SAMPLE_SOURCES.LINKED_FINAL_CASE_PATTERN) return 'primary';
+  if (s === SAMPLE_SOURCES.LINKED_FINAL_CASE_BUSINESS_EXTENSION) return 'info';
+  if (s === SAMPLE_SOURCES.MANUAL_POOL_INPUT) return 'dark';
+  return 'light';
+}
+
+export function statusLabel(status: string | null | undefined): string {
+  const s = (status ?? '').trim().toLowerCase();
+  if (s === 'deleted') return '已删除';
+  if (s === 'disabled') return '已禁用';
+  return '活跃';
+}
+
+export function formatWeight(weight: number | null | undefined): string {
+  if (weight == null) return '-';
+  return weight.toFixed(2);
+}
+
+export function isInPattern(sample: PrioritySample): boolean {
+  return Boolean(sample.patternClusterKey && sample.patternClusterKey !== 'misc');
+}
+
 export type Props = {
   result: any;
   resultSource: ResultSource;
@@ -27,7 +72,17 @@ export type PrioritySample = {
   weakLinkCaseKey?: string; weakLinkGenerationId?: number | null;
   manualConfirmed?: boolean; manualConfirmedAt?: number;
   source?: string;
+  status?: string | null;
+  sourceType?: string | null;
+  sourceId?: number | null;
+  sourceCaseId?: string | null;
+  confidence?: number | null;
+  patternClusterKey?: string | null;
+  patternWeight?: number | null;
   persistedSampleId?: string;
+  learningStatus?: string | null;
+  learningConfirmedAt?: string | null;
+  learningConfirmedBy?: number | null;
 };
 export type ExportRow = {
   index: number; caseId: string; title: string; rawPriority: string; finalPriority: string; displayPriority: string; corrected: string; isDisplayMismatch: string;
@@ -61,6 +116,75 @@ export const PATTERN_CATEGORY_OPTIONS: Array<{ value: PatternCategory; label: st
   { value: 'high_value_assertion', label: '高价值断言' },
   { value: 'boundary_effective_coverage', label: '边界有效覆盖' },
 ];
+
+type CategoryInferenceInput = {
+  sampleKind?: SampleKind | string | null;
+  title?: unknown;
+  userComment?: unknown;
+  reasonCategory?: unknown;
+  patternCategory?: unknown;
+  patternClusterKey?: unknown;
+  patternSummary?: unknown;
+  tags?: unknown;
+};
+
+function buildCategoryInferenceText(input: CategoryInferenceInput): string {
+  const tags = Array.isArray(input.tags) ? input.tags.join(' ') : '';
+  return [
+    input.patternCategory,
+    input.reasonCategory,
+    input.patternClusterKey,
+    input.patternSummary,
+    input.title,
+    input.userComment,
+    tags,
+  ].map((part) => String(part ?? '').toLowerCase()).join(' ');
+}
+
+function hasAnyCategorySignal(text: string, tokens: string[]): boolean {
+  return tokens.some((token) => text.includes(token));
+}
+
+export function inferPatternCategoryFromMode(input: CategoryInferenceInput): PatternCategory {
+  const explicit = normalizePatternCategory(input.patternCategory);
+  if (explicit) return explicit;
+  const text = buildCategoryInferenceText(input);
+  if (!text.trim()) return '';
+  if (hasAnyCategorySignal(text, ['boundary', '边界'])) return 'boundary_effective_coverage';
+  if (hasAnyCategorySignal(text, ['assertion', 'assert', '断言', '校验点'])) return 'high_value_assertion';
+  if (hasAnyCategorySignal(text, ['complex', 'combination', '组合', '复杂业务'])) return 'complex_business_combination';
+  if (hasAnyCategorySignal(text, ['critical', '关键路径', '阻断', '高风险'])) return 'critical_path_coverage';
+  if (hasAnyCategorySignal(text, ['state', 'transition', 'consistency', '状态', '流转', '迁移', '一致性'])) return 'state_transition_pattern';
+  if (hasAnyCategorySignal(text, ['cross_page', 'cross-page', 'cross page', 'cross_system', 'cross-system', '跨页面', '跨系统'])) return 'cross_page_flow';
+  if (hasAnyCategorySignal(text, ['multi_step', 'multi-step', 'multi step', 'interaction', '多步骤', '交互', '连续操作'])) return 'multi_step_interaction';
+  if (hasAnyCategorySignal(text, ['core_flow', 'closure', 'transaction', 'permission', 'scope', 'manual_final_business_coverage', 'business_flow', '核心', '主流程', '闭环', '权限', '范围', '业务流程'])) return 'core_flow_closure';
+  return 'core_flow_closure';
+}
+
+export function inferReasonCategoryFromMode(input: CategoryInferenceInput): ReasonCategory {
+  const explicit = normalizeReasonCategory(input.reasonCategory);
+  if (explicit) return explicit;
+  const text = buildCategoryInferenceText(input);
+  if (!text.trim()) return '';
+  if (hasAnyCategorySignal(text, ['display_issue', 'ui_display', 'ui-only', 'static ui', 'static display', 'low_value_ui', 'priority_overpromotion_for_low_value_ui_case', '展示', '页面', '样式', '布局', '文案'])) return 'display_issue';
+  if (hasAnyCategorySignal(text, ['redundant', 'hallucination', 'duplicate', '重复', '冗余', '幻觉'])) return 'redundant_case';
+  if (hasAnyCategorySignal(text, ['boundary', '边界'])) return 'boundary_condition';
+  if (hasAnyCategorySignal(text, ['state', 'transition', 'consistency', '状态', '流转', '迁移', '一致性'])) return 'state_transition';
+  if (hasAnyCategorySignal(text, ['exception', 'error', 'failure', 'failed', 'rollback', '异常', '错误', '失败', '回滚'])) return 'exception_path';
+  if (hasAnyCategorySignal(text, ['core_flow', 'critical', 'transaction', 'permission', 'scope', 'business_flow', '核心', '主流程', '关键路径', '权限', '业务流程'])) return 'core_flow';
+  return 'other';
+}
+
+export function applyAutoCategoryFromMode(sample: PrioritySample): PrioritySample {
+  if (sample.sampleKind === 'positive') {
+    if (sample.patternCategory) return sample;
+    const patternCategory = inferPatternCategoryFromMode(sample);
+    return patternCategory ? { ...sample, patternCategory } : sample;
+  }
+  if (sample.reasonCategory) return sample;
+  const reasonCategory = inferReasonCategoryFromMode(sample);
+  return reasonCategory ? { ...sample, reasonCategory } : sample;
+}
 
 export function normalizePriority(value: unknown): PriorityValue {
   const s = String(value ?? '').trim().toUpperCase();
@@ -171,10 +295,29 @@ export function sampleTagLabel(tag: SampleTag): string {
   return '待人工确认';
 }
 export function sampleUsageLabel(usage: SampleUsage): string {
-  if (usage === 'prompt_opt') return 'prompt_opt';
-  if (usage === 'rule_opt') return 'rule_opt';
-  if (usage === 'retrieval_opt') return 'retrieval_opt';
-  return 'manual_review';
+  if (usage === 'prompt_opt') return '提示词优化';
+  if (usage === 'rule_opt') return '规则优化';
+  if (usage === 'retrieval_opt') return '检索优化';
+  return '人工复核';
+}
+export function resultSourceLabel(source: ResultSource | string | null | undefined): string {
+  if (source === 'streaming_preview') return '流式预览';
+  if (source === 'final_persisted') return '最终结果';
+  if (source === 'none') return '无';
+  return String(source || '未知');
+}
+export function sampleKindLabel(kind: SampleKind | string | null | undefined): string {
+  return kind === 'positive' ? '正向' : '异常';
+}
+export function directionLabel(direction: string | null | undefined): string {
+  return String(direction || '-').replace('->', ' → ');
+}
+export function priorityDebugSourceLabel(source: string | null | undefined): string {
+  const s = String(source || '').trim();
+  if (s === 'sample_pool_expected_priority') return '样本池期望优先级';
+  if (s === 'priority_debug') return '调试判定';
+  if (s === 'original_list') return '原始列表';
+  return s || '未知';
 }
 
 export function buildRows(result: any, resultSource: ResultSource): PriorityRow[] {
@@ -218,7 +361,11 @@ export function toSample(row: PriorityRow, options?: { generationId?: number | n
     weakLinkCaseKey,
     weakLinkGenerationId,
     manualConfirmed: false, manualConfirmedAt: undefined,
-    source: 'priority_debug_manual_add',
+    source: SAMPLE_SOURCES.PRIORITY_DEBUG_MANUAL_ADD,
+    sourceType: SAMPLE_SOURCES.PRIORITY_DEBUG_MANUAL_ADD,
+    sourceId: null,
+    sourceCaseId: row.caseId || undefined,
+    confidence: null,
     persistedSampleId: sampleId,
   };
 }
@@ -246,7 +393,7 @@ export function toExportRows(rows: PriorityRow[]): ExportRow[] {
     return {
       index: row.index, caseId: row.caseId, title: row.title || '', rawPriority: row.rawPriority || '-', finalPriority: row.finalPriority || '-', displayPriority: row.displayPriority || '-',
       corrected: row.corrected ? 'true' : 'false', isDisplayMismatch: row.displayFinalMismatch ? 'true' : 'false', isRawMismatch: row.rawFinalMismatch ? 'true' : 'false',
-      resultSource: row.resultSource, sampleKind: 'anomaly', direction: getDirection(row), usage: resolveSampleUsage(tags), tags: tags.join('|'), expectedPriority: '-', reasonCategory: '-', patternCategory: '-', userComment: '-', addedAt: '-',
+      resultSource: resultSourceLabel(row.resultSource), sampleKind: '异常', direction: directionLabel(getDirection(row)), usage: sampleUsageLabel(resolveSampleUsage(tags)), tags: tags.map(sampleTagLabel).join('|'), expectedPriority: '-', reasonCategory: '-', patternCategory: '-', userComment: '-', addedAt: '-',
       priorityDebug: row.priorityDebug ? JSON.stringify(row.priorityDebug) : '',
     };
   });
@@ -255,7 +402,7 @@ export function toSamplePoolExportRows(samples: PrioritySample[]): ExportRow[] {
   return samples.map((s, i) => ({
     index: i + 1, caseId: s.caseId, title: s.title, rawPriority: s.rawPriority, finalPriority: s.finalPriority, displayPriority: s.displayPriority,
     corrected: s.corrected ? 'true' : 'false', isDisplayMismatch: s.isDisplayMismatch ? 'true' : 'false', isRawMismatch: s.isRawMismatch ? 'true' : 'false',
-    resultSource: s.resultSource, sampleKind: s.sampleKind, direction: s.direction, usage: s.usage, tags: s.tags.join('|'), expectedPriority: s.expectedPriority || '-', reasonCategory: s.reasonCategory || '-', patternCategory: s.patternCategory || '-',
+    resultSource: resultSourceLabel(s.resultSource), sampleKind: sampleKindLabel(s.sampleKind), direction: directionLabel(s.direction), usage: sampleUsageLabel(s.usage), tags: s.tags.map(sampleTagLabel).join('|'), expectedPriority: s.expectedPriority || '-', reasonCategory: s.reasonCategory || '-', patternCategory: s.patternCategory || '-',
     userComment: s.userComment || '-', addedAt: String(s.addedAt), priorityDebug: s.priorityDebug || '',
   }));
 }
@@ -311,7 +458,7 @@ export function buildSummaryLine(displayMismatchCount: number, correctedCount: n
 }
 export function buildCopyText(rows: PriorityRow[], summaryLine: string, title: string): string {
   const lines = [title, summaryLine, `共 ${rows.length} 条`];
-  rows.forEach((row, idx) => lines.push(`${idx + 1}. [caseId=${row.caseId}] ${row.title || '-'} | raw=${row.rawPriority || '-'} | final=${row.finalPriority || '-'} | display=${row.displayPriority || '-'} | source=${row.resultSource} | direction=${getDirection(row)}`));
+  rows.forEach((row, idx) => lines.push(`${idx + 1}. [用例=${row.caseId}] ${row.title || '-'} | 原始=${row.rawPriority || '-'} | 最终=${row.finalPriority || '-'} | 展示=${row.displayPriority || '-'} | 来源=${resultSourceLabel(row.resultSource)} | 方向=${directionLabel(getDirection(row))}`));
   return lines.join('\n');
 }
 export function parseSamplePool(raw: string | null): PrioritySample[] {
@@ -333,8 +480,10 @@ export function parseSamplePool(raw: string | null): PrioritySample[] {
         ? manualConfirmedAtNumber
         : Date.parse(String(manualConfirmedAtMixed || ''));
       const expectedPriority = normalizePriority(item.expectedPriority ?? item.expected_priority ?? '');
-      const reasonCategory = normalizeReasonCategory(item.reasonCategory ?? item.reason_category ?? '');
-      const patternCategory = normalizePatternCategory(item.patternCategory ?? item.pattern_category ?? '');
+      const rawReasonCategory = item.reasonCategory ?? item.reason_category ?? '';
+      const rawPatternCategory = item.patternCategory ?? item.pattern_category ?? '';
+      const reasonCategory = normalizeReasonCategory(rawReasonCategory);
+      const patternCategory = normalizePatternCategory(rawPatternCategory);
       const weakLinkCaseKey = normalizeWeakLinkText(item.weakLinkCaseKey ?? item.weak_link_case_key ?? '', 512);
       const weakLinkGenerationId = normalizeWeakLinkGenerationId(item.weakLinkGenerationId ?? item.weak_link_generation_id ?? null);
       const explicitSource = String(item.source ?? item.sampleSource ?? item.sample_source ?? '').trim();
@@ -347,14 +496,34 @@ export function parseSamplePool(raw: string | null): PrioritySample[] {
         || item.weakLinkCaseKey
         || item.weak_link_case_key
       );
-      const source = explicitSource || (hasPriorityDebugTableShape ? 'priority_debug_manual_add' : '');
+      const source = explicitSource || (hasPriorityDebugTableShape ? SAMPLE_SOURCES.PRIORITY_DEBUG_MANUAL_ADD : '');
       const caseId = String(item.caseId ?? item.case_id ?? item.id ?? item.sampleId ?? item.sample_id ?? `SAMPLE-${index + 1}`);
       const title = String(item.title ?? item.source_case_title ?? item.pattern_summary ?? item.user_comment ?? '');
+      const userComment = String(item.userComment ?? item.user_comment ?? '');
       const rawPriority = String(item.rawPriority ?? item.raw_priority ?? '-');
       const finalPriority = String(item.finalPriority ?? item.final_priority ?? item.expected_priority ?? '-');
       const displayPriority = String(item.displayPriority ?? item.display_priority ?? '-');
       const resultSource = item.resultSource === 'streaming_preview' || item.resultSource === 'final_persisted' ? item.resultSource : 'none';
       const direction = String(item.direction || `${rawPriority || '-'}->${finalPriority || '-'}`);
+      const patternClusterKey = String(item.patternClusterKey ?? item.pattern_cluster_key ?? '').trim() || null;
+      const patternWeight = typeof (item.patternWeight ?? item.pattern_weight) === 'number'
+        ? (item.patternWeight ?? item.pattern_weight) as number
+        : null;
+      const confidence = typeof (item.confidence ?? item.pattern_confidence ?? item.patternConfidence) === 'number'
+        ? (item.confidence ?? item.pattern_confidence ?? item.patternConfidence) as number
+        : null;
+      const categoryInput = {
+        sampleKind,
+        title,
+        userComment,
+        reasonCategory: rawReasonCategory,
+        patternCategory: rawPatternCategory,
+        patternClusterKey,
+        patternSummary: item.patternSummary ?? item.pattern_summary ?? item.patternCanonical ?? item.pattern_canonical ?? '',
+        tags: safeTags,
+      };
+      const resolvedReasonCategory = reasonCategory || (sampleKind === 'anomaly' ? inferReasonCategoryFromMode(categoryInput) : '');
+      const resolvedPatternCategory = patternCategory || (sampleKind === 'positive' ? inferPatternCategoryFromMode(categoryInput) : '');
       const baseSampleId = String(
         item.sampleId
         || item.sample_id
@@ -369,7 +538,7 @@ export function parseSamplePool(raw: string | null): PrioritySample[] {
       const duplicateIndex = seenSampleIds.get(baseSampleId) || 0;
       seenSampleIds.set(baseSampleId, duplicateIndex + 1);
       const sampleId = duplicateIndex > 0 ? `${baseSampleId}__dup-${duplicateIndex}` : baseSampleId;
-      return {
+      return applyAutoCategoryFromMode({
         sampleId,
         caseId,
         title,
@@ -385,18 +554,30 @@ export function parseSamplePool(raw: string | null): PrioritySample[] {
         priorityDebug: typeof item.priorityDebug === 'string' ? item.priorityDebug : JSON.stringify(item.priorityDebug ?? item.quality_ledger ?? ''),
         tags: safeTags,
         usage: resolveSampleUsage(safeTags),
-        userComment: String(item.userComment ?? item.user_comment ?? ''),
+        userComment,
         expectedPriority,
-        reasonCategory,
-        patternCategory,
+        reasonCategory: resolvedReasonCategory,
+        patternCategory: resolvedPatternCategory,
         addedAt: Number.isFinite(addedAtRaw) && addedAtRaw > 0 ? addedAtRaw : Date.now(),
         weakLinkCaseKey: weakLinkCaseKey || undefined,
         weakLinkGenerationId,
         manualConfirmed,
         manualConfirmedAt: Number.isFinite(manualConfirmedAtTs) && manualConfirmedAtTs > 0 ? manualConfirmedAtTs : undefined,
         source: source || undefined,
+        status: String(item.status ?? item.sampleStatus ?? 'active').trim().toLowerCase() || 'active',
         persistedSampleId: baseSampleId,
-      } satisfies PrioritySample;
+        learningStatus: (item.learningStatus ?? item.learning_status ?? null) as string | null | undefined,
+        learningConfirmedAt: (item.learningConfirmedAt ?? item.learning_confirmed_at ?? null) as string | null | undefined,
+        learningConfirmedBy: typeof (item.learningConfirmedBy ?? item.learning_confirmed_by) === 'number'
+          ? (item.learningConfirmedBy ?? item.learning_confirmed_by) as number
+          : null,
+        sourceType: String(item.sourceType ?? item.source_type ?? item.source ?? item.sampleSource ?? '').trim() || undefined,
+        sourceId: typeof (item.sourceId ?? item.source_id) === 'number' ? (item.sourceId ?? item.source_id) as number : null,
+        sourceCaseId: String(item.sourceCaseId ?? item.source_case_id ?? '').trim() || undefined,
+        confidence,
+        patternClusterKey,
+        patternWeight,
+      } satisfies PrioritySample);
     });
   } catch {
     return [];
@@ -407,9 +588,9 @@ export function mergeSamples(existing: PrioritySample[], incoming: PrioritySampl
   for (const sample of existing) map.set(sample.sampleId, sample);
   for (const sample of incoming) {
     const old = map.get(sample.sampleId);
-    if (!old) { map.set(sample.sampleId, sample); continue; }
+    if (!old) { map.set(sample.sampleId, applyAutoCategoryFromMode(sample)); continue; }
     const mergedTags = Array.from(new Set<SampleTag>([...old.tags, ...sample.tags]));
-    map.set(sample.sampleId, {
+    map.set(sample.sampleId, applyAutoCategoryFromMode({
       ...old, ...sample, tags: mergedTags, usage: resolveSampleUsage(mergedTags), addedAt: old.addedAt || sample.addedAt, priorityDebug: sample.priorityDebug || old.priorityDebug,
       userComment: old.userComment || sample.userComment, expectedPriority: old.expectedPriority || sample.expectedPriority, reasonCategory: old.reasonCategory || sample.reasonCategory, patternCategory: old.patternCategory || sample.patternCategory,
       sampleKind: normalizeSampleKind(sample.sampleKind || old.sampleKind || 'anomaly'),
@@ -417,7 +598,7 @@ export function mergeSamples(existing: PrioritySample[], incoming: PrioritySampl
       weakLinkGenerationId: sample.weakLinkGenerationId ?? old.weakLinkGenerationId ?? null,
       manualConfirmed: Boolean(old.manualConfirmed || sample.manualConfirmed),
       manualConfirmedAt: old.manualConfirmedAt || sample.manualConfirmedAt,
-    });
+    }));
   }
   return Array.from(map.values()).sort((a, b) => b.addedAt - a.addedAt);
 }
@@ -443,41 +624,41 @@ export function buildRecommendationDraft(samples: PrioritySample[], tagCounts: R
   const displayIssueCount = samples.filter((s) => s.reasonCategory === 'display_issue').length;
   const expectedP0Count = samples.filter((s) => s.expectedPriority === 'P0').length;
   if (tagCounts.over_lowered > 0) {
-    patterns.push('存在过度压低（over_lowered）样本，关键场景可能被降级。');
+    patterns.push('存在“过度压低”样本，关键场景可能被降级。');
     ruleSuggestions.push('对核心流程与阻断型失败增加最低优先级下限，避免被压到 P2。');
     promptSuggestions.push('补充“关键链路失败场景优先级不得低于 P1，阻断场景优先 P0”。');
-    routingSuggestions.push('优先回流到 prompt_opt 与 priority semantics 规则校准。');
+    routingSuggestions.push('优先回流到提示词优化与优先级语义规则校准。');
   }
   if (tagCounts.over_raised > 0) {
-    patterns.push('存在过度抬高（over_raised）样本，补充性/展示态 case 被抬高。');
+    patterns.push('存在“过度抬高”样本，补充性或展示态用例被抬高。');
     ruleSuggestions.push('对补充性展示态、弱边界校验设定上限，默认不高于 P2。');
     promptSuggestions.push('补充“展示态、映射类与长尾补充默认 P2，除非存在明确阻断证据”。');
-    routingSuggestions.push('优先回流到 prompt_opt，次级回流 rule_opt。');
+    routingSuggestions.push('优先回流到提示词优化，次级回流规则优化。');
   }
   if (tagCounts.display_mismatch > 0 || displayIssueCount > 0) {
-    patterns.push('仍有展示链路不一致（display_mismatch），页面展示值与最终值存在偏差。');
+    patterns.push('仍有展示链路不一致，页面展示值与最终值存在偏差。');
     ruleSuggestions.push('增加 displayPriority 与 finalPriority 一致性校验点，减少展示层误导。');
-    promptSuggestions.push('此类问题优先修正展示链路，不建议通过生成 prompt 规避。');
-    routingSuggestions.push('优先回流到前端展示链路与 rule_opt。');
+    promptSuggestions.push('此类问题优先修正展示链路，不建议通过生成提示词规避。');
+    routingSuggestions.push('优先回流到前端展示链路与规则优化。');
   }
   if (coreFlowCount > 0 || expectedP0Count > 0) {
     patterns.push('样本中有核心流程被人工标注为高优先级，当前判定与业务认知存在偏差。');
     ruleSuggestions.push('将核心流程相关标签（core_flow）纳入优先级放行条件，减少误降级。');
     promptSuggestions.push('强化“核心流程与发布阻断风险优先识别，证据不足时保持 P1”。');
-    routingSuggestions.push('优先回流 prompt_opt + rule_opt 双通道联调。');
+    routingSuggestions.push('优先回流提示词优化与规则优化双通道联调。');
   }
   const hasManualReview = samples.some((s) => s.tags.includes('manual_review') || s.reasonCategory === 'other');
   if (hasManualReview) {
     patterns.push('部分样本需人工确认，当前规则无法稳定覆盖边界语义。');
-    ruleSuggestions.push('为 manual_review 样本补充判定样例并形成白名单/黑名单规则。');
-    routingSuggestions.push('先走 manual_review，再决定 prompt_opt 或 rule_opt。');
+    ruleSuggestions.push('为人工复核样本补充判定样例并形成白名单/黑名单规则。');
+    routingSuggestions.push('先走人工复核，再决定提示词优化或规则优化。');
   }
   if (topDirections.length > 0) patterns.push(`主要修正方向集中在：${topDirections.slice(0, 3).map((x) => `${x.direction}(${x.count})`).join('，')}。`);
   if (!patterns.length) {
     patterns.push('当前样本池暂无明显误判模式，建议继续积累样本后再做规则调整。');
     ruleSuggestions.push('维持现有优先级规则，仅补充少量人工复核样本。');
-    promptSuggestions.push('暂不调整 prompt 主体，仅保留保守优先级约束。');
-    routingSuggestions.push('当前优先走 manual_review。');
+    promptSuggestions.push('暂不调整提示词主体，仅保留保守优先级约束。');
+    routingSuggestions.push('当前优先走人工复核。');
   }
   return { patterns: Array.from(new Set(patterns)), rule_suggestions: Array.from(new Set(ruleSuggestions)), prompt_suggestions: Array.from(new Set(promptSuggestions)), routing_suggestions: Array.from(new Set(routingSuggestions)) };
 }

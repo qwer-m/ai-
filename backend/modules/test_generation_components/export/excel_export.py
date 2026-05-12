@@ -27,6 +27,7 @@ EXPORT_COLUMNS = [
 
 # 中文注释：Excel XML 不允许的控制字符，需在写入前清洗。
 _ILLEGAL_XML_RE = re.compile(r"[\x00-\x08\x0B-\x0C\x0E-\x1F]")
+_STEP_NUMBER_RE = re.compile(r"^\s*(?:\d+\s*[\.\)、)]|[（(]\s*\d+\s*[）)])\s*")
 
 
 def _sanitize_excel_text(value: Any) -> str:
@@ -35,6 +36,14 @@ def _sanitize_excel_text(value: Any) -> str:
         return ""
     text = str(value)
     return _ILLEGAL_XML_RE.sub("", text)
+
+
+def _format_steps_for_export(values: list[Any]) -> str:
+    step_list = [str(s).strip() for s in values if str(s).strip()]
+    return "\n".join(
+        step if _STEP_NUMBER_RE.match(step) else f"{i}. {step}"
+        for i, step in enumerate(step_list, 1)
+    )
 
 
 def _normalize_rows(json_data: list | dict) -> list[dict[str, Any]]:
@@ -71,14 +80,12 @@ def _normalize_rows(json_data: list | dict) -> list[dict[str, Any]]:
 
         steps = row.get("steps")
         if isinstance(steps, list):
-            step_list = [str(s).strip() for s in steps if str(s).strip()]
-            row["steps"] = "\n".join([f"{i}. {s}" for i, s in enumerate(step_list, 1)])
+            row["steps"] = _format_steps_for_export(steps)
         elif isinstance(steps, str) and steps.strip().startswith("[") and steps.strip().endswith("]"):
             try:
                 val = ast.literal_eval(steps)
                 if isinstance(val, list):
-                    step_list = [str(s).strip() for s in val if str(s).strip()]
-                    row["steps"] = "\n".join([f"{i}. {s}" for i, s in enumerate(step_list, 1)])
+                    row["steps"] = _format_steps_for_export(val)
             except Exception:
                 pass
 
