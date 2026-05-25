@@ -108,6 +108,17 @@ _STANDARD_REGRESSION_TOKENS = (
     "standard regression",
     "regression",
 )
+_EXPANDED_REGRESSION_TOKENS = (
+    "中高密度",
+    "主要功能全覆盖",
+    "完整覆盖",
+    "覆盖充分",
+    "扩展回归",
+    "较完整",
+    "expanded regression",
+    "broad coverage",
+    "major feature coverage",
+)
 
 _FULL_REGRESSION_SCENARIOS = (
     "入口与导航：覆盖入口展示、跳转、返回、空状态和旧入口残留。",
@@ -121,6 +132,12 @@ _STANDARD_REGRESSION_SCENARIOS = (
     "入口、主流程、编辑/删除/保存、异常提示、跨页返回至少各覆盖一类。",
     "状态变化用例必须验证操作前后差异，不只验证静态展示。",
     "保留少量原有模块回归，避免新增功能影响既有链路。",
+)
+_EXPANDED_REGRESSION_SCENARIOS = (
+    "Preserve broad module coverage while pruning near-duplicate cases.",
+    "Keep core happy paths, permission boundaries, state transitions, and high-value exceptions.",
+    "Prefer requirement-specific business details over generic UI display checks.",
+    "Keep enough cross-module cases to validate end-to-end business closure.",
 )
 _CORE_SMOKE_SCENARIOS = (
     "优先覆盖最高价值主流程、关键异常和一个回归风险点。",
@@ -148,6 +165,15 @@ def infer_generation_coverage_profile(
         target_range = {"min": 80, "max": 120}
         scenarios = list(_FULL_REGRESSION_SCENARIOS)
         density = "high"
+    elif (
+        60 <= expected < 80
+        or 60 <= linked_count < 80
+        or _contains_any(text, _EXPANDED_REGRESSION_TOKENS)
+    ):
+        mode = "expanded_regression"
+        target_range = {"min": 60, "max": 80}
+        scenarios = list(_EXPANDED_REGRESSION_SCENARIOS)
+        density = "medium_high"
     elif expected >= 30 or linked_count >= 30 or _contains_any(text, _STANDARD_REGRESSION_TOKENS):
         mode = "standard_regression"
         target_range = {"min": 30, "max": 50}
@@ -167,6 +193,7 @@ def infer_generation_coverage_profile(
             "expected_count": expected,
             "linked_final_case_count": linked_count,
             "full_regression_token_hit": bool(_contains_any(text, _FULL_REGRESSION_TOKENS)),
+            "expanded_regression_token_hit": bool(_contains_any(text, _EXPANDED_REGRESSION_TOKENS)),
             "standard_regression_token_hit": bool(_contains_any(text, _STANDARD_REGRESSION_TOKENS)),
         },
         "coverage_layers": scenarios,
@@ -195,6 +222,16 @@ def build_generation_mode_control_state(
     if mode == "full_functional_regression":
         quality_hints.append("全功能回归模式下按模块/状态/异常/跨模块分层生成，允许数量显著高于核心冒烟集。")
         soft_constraints.append("不要把全功能回归压缩成只覆盖核心流程的 10-20 条核心集。")
+        quality_hints.append("Full regression must keep high-value negative and exception coverage: validation failure, submit failure, retry, load failure, permission denial, audit/reject rules, notification/state sync, and configurable thresholds when supported by requirements.")
+        quality_hints.append("For modules with community, comment/reply, publish, or review concepts, keep at least one moderation/audit-state case and one front-end state-sync case when the requirement mentions those concepts.")
+        quality_hints.append("For modules with generated or processed results, keep both successful result display and failure/retry paths; do not replace them with generic UI display checks.")
+        quality_hints.append("For file/media or generated-result flows, include supported upload permission, format/size, upload failure, processing interruption, processing failure, retry, and result recovery cases before adding more display-only cases.")
+        quality_hints.append("For moderation/audit flows, split materially different rejection reasons such as topic mismatch, privacy/safety issue, plagiarism/duplicate content, and large source-content deviation when those reasons are present in the requirement.")
+        quality_hints.append("For downloadable or playable resources, keep load failure, reload/retry, storage permission, and download failure cases when the requirement includes those resource operations.")
+    elif mode == "expanded_regression":
+        quality_hints.append("Expanded regression mode should keep broad requirement coverage, remove near-duplicates, and avoid collapsing a 60-70 case draft into a compact smoke set.")
+        quality_hints.append("For 60-80 case output, keep a small P0 minority for supported blocking main-path, submit/publish, permission, payment, or state-closing risks; keep ordinary coverage at P1/P2.")
+        quality_hints.append("Current requirement semantics override legacy regression assumptions; drop cases that assert an older opposite rule unless the current requirement explicitly keeps it.")
     elif mode == "standard_regression":
         quality_hints.append("标准回归模式下优先覆盖主流程、状态变化、异常边界和既有功能回归。")
     else:

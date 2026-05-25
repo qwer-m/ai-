@@ -86,6 +86,7 @@ export function parseQualityReport(rawText: string): ParsedQualityReport {
   return {
     metrics: payload.metrics || {},
     defectAnalysis: payload.defect_analysis || {},
+    requirementBaseline: payload.requirement_baseline || payload.requirementBaseline || undefined,
     summary: payload.summary || '',
   };
 }

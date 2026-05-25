@@ -41,10 +41,397 @@ _PENDING_HINTS = (
     "暂未确定",
 )
 
+_VAGUE_UNCONFIRMED_HINTS = (
+    "\u6216\u9700\u6c42\u5b9a\u4e49",
+    "\u9700\u6c42\u5b9a\u4e49\u7684\u6587\u6848",
+    "\u6839\u636e\u5b9e\u9645",
+    "\u6839\u636e\u4ea7\u54c1",
+    "\u5b9e\u9645\u4ea7\u54c1\u8bbe\u8ba1",
+    "\u5b9e\u9645\u8bbe\u8ba1",
+    "\u9700\u786e\u8ba4",
+    "\u5f85\u786e\u8ba4",
+    "\u6682\u4e0d\u786e\u5b9a",
+    "\u6216\u7c7b\u4f3c\u6587\u6848",
+    "\u6216\u7c7b\u4f3c\u683c\u5f0f",
+    "\u7b26\u5408\u63cf\u8ff0\u683c\u5f0f",
+    "\u5bf9\u5e94\u7a7a\u72b6\u6001\u6587\u6848",
+    "\u6216\u5176\u4ed6\u5df2\u660e\u786e",
+    "\u5df2\u660e\u786e\u7684\u8bbe\u8ba1\u8272\u503c",
+    "\u6301\u5e73\u6216",
+    "\u4ee5\u5b9e\u9645",
+    "\u5982\u679c\u8bbe\u8ba1\u5982\u6b64",
+    "\u82e5\u65e0",
+    "\u53ef\u8bbe\u8ba1\u4e3a",
+    "\u53ef\u80fd",
+    "\u9700\u6c42\u672a\u7ec6\u8bf4",
+    "\u672a\u7ec6\u8bf4",
+    "\u65e0\u8865\u5145\u8bf4\u660e",
+    "\u6216\u5f53\u65e5",
+    "\u4e0d\u53d8\u6216\u589e\u52a0",
+    "\u5e94\u8df3\u8f6c\u5230\u76ee\u6807\u9875\u9762",
+    "\u9875\u9762\u8def\u5f84\u4e0e\u6807\u9898",
+    "\u54cd\u5e94\u72b6\u6001\u7801\u6b63\u786e",
+    "\u6388\u6743\u8303\u56f4\u5185\u9875\u9762\u6216\u6a21\u5757",
+    "\u5e94\u5b8c\u6574\u663e\u793a",
+    "\u5173\u952e\u5b57\u6bb5",
+    "\u5b57\u6bb5\u503c\u4e0e\u8f93\u5165",
+    "\u540e\u7aef\u6570\u636e\u4e00\u81f4",
+    "to be confirmed",
+    "as designed",
+    "depends on actual",
+    "depending on actual",
+    "if designed",
+    "requirement-defined",
+    "per actual design",
+)
+
+_DUPLICATE_SCENARIO_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("initial_popup", ("首次进入", "首次加载", "弹窗", "已智能完成全页批改", "批改完成弹窗", "popup", "dialog")),
+    ("title_format", ("标题", "格式", "title")),
+    ("statistics", ("统计", "总题数", "正确数", "错误数", "数量", "count", "statistics")),
+    ("filter_toggle", ("只看错题", "开关", "筛选", "隐藏正确题", "filter", "toggle")),
+    ("empty_state", ("空状态", "暂无", "无记录", "无数据", "未识别到有效题目", "无有效题目", "empty", "no data")),
+    ("card_element", ("题目卡片", "状态角标", "元信息", "查看详解", "卡片元素", "card")),
+    ("workbook_scope", ("习题本", "拍照搜题", "课内练习", "快问快答", "牛刀小试", "不包含", "只显示")),
+    ("bad_image_review", ("模糊", "全黑", "不完整", "允许上传", "待复核", "图片质量", "bad image")),
+    ("media_preview", ("图片", "预览", "缩略图", "滑动", "image", "preview")),
+    ("answer_analysis_placeholder", ("暂无正确答案", "暂无解析内容", "无解析", "无正确答案", "placeholder")),
+    ("source_consistency", ("来源", "标签", "配置", "知识点", "source", "tag")),
+    ("network_error", ("网络", "断网", "弱网", "network")),
+    ("permission", ("权限", "摄像头", "permission")),
+    ("save_delete", ("保存", "删除", "清空", "save", "delete", "clear")),
+    ("manual_mark_correct", ("判定正确", "改为正确", "变为正确", "修正为正确", "错题本移除", "被移除", "正确数", "mark correct")),
+    ("manual_mark_wrong", ("判定错误", "改为错误", "变为错误", "修正为错误", "错题本新增", "错误数", "mark wrong")),
+    ("manual_correction", ("手动", "修正", "更正", "历史误判", "上报模型优化", "manual", "correct")),
+    ("review_status_color", ("序号栏", "颜色", "绿色", "橙色", "红色", "需关注", "status color")),
+    ("review_warm_hint", ("温馨提示", "书写差异", "特殊题型", "人工复核", "重点核对", "warm hint")),
+    ("review_detail_content", ("单题详情", "模型判断", "学生答案", "参考答案", "判定按钮", "detail content")),
+    ("review_filter_tabs", ("筛选标签", "待复核", "需关注", "题量", "全部标签", "filter tabs")),
+    ("feedback", ("反馈", "12小时", "专用模型", "feedback")),
+    ("plan_step1_scope", ("第一步", "数据范围", "已完成", "精准学习题本", "牛刀", "当前教学周", "weakness scope")),
+    ("plan_step1_sorting", ("第一步", "错题率", "错题数", "降序", "前3", "目标知识点", "weakness sort")),
+    ("plan_second_step_navigation", ("第二步", "上一步", "开始学习", "专属学习方案", "目标知识点", "second step")),
+    ("plan_slice_auto_advance", ("第三步", "切片", "自动进入", "自动切换", "下一个切片", "auto advance")),
+    ("plan_slice_regeneration", ("第三步", "重新生成", "薄弱知识点", "课程切片", "左侧导航树", "同步更新", "slice regeneration")),
+    ("plan_fourth_summary", ("第四步", "学习完成啦", "周末提升成果", "本周练习汇总", "只读", "数据源", "fourth step")),
+    ("workflow_navigation", ("第一步", "第二步", "第三步", "第四步", "上一步", "下一步", "开始学习", "完成学习", "再次学习", "批改下一位学生", "回到首页", "跳转", "step")),
+    ("sorting_limit", ("排序", "降序", "取前", "最多", "sort", "limit")),
+    ("print_export", ("打印", "出门测", "教材", "print", "export")),
+    ("report_trigger", ("触发条件", "回到首页", "报告自动生成", "点击回到首页", "generate report")),
+    ("generation_trigger", ("生成", "自动生成", "触发", "generate", "trigger")),
+    ("share_friend", ("微信好友", "好友", "微信群", "H5链接", "二维码", "分享卡片", "friend share")),
+    ("share_moments", ("朋友圈", "长图", "信息长图", "moments share")),
+    ("share", ("分享", "H5", "二维码", "share", "link")),
+    ("report_comment_ai", ("督导评语", "AI初稿", "肯定", "表扬", "指出", "鼓励", "comment ai")),
+    ("report_comment_voice", ("督导评语", "语音输入", "转文字", "录音", "麦克风", "voice")),
+    ("report_comment_edit", ("督导评语", "编辑修改", "保存", "comment edit")),
+    ("report_overview_cards", ("本周学习概览", "四个数据卡", "数据卡", "来源标注", "观看视频数", "完成练习题数")),
+    ("report_wrong_analysis", ("本周错题分析", "高频", "重点错题", "错误答案", "正确答案", "wrong analysis")),
+    ("report_next_plan", ("下周学习计划", "未掌握", "薄弱点", "教学进度", "next plan")),
+    ("readonly", ("只读", "隐藏编辑", "不可编辑", "readonly")),
+    ("quota_exhaustion", ("额度", "耗尽", "拦截", "体验次数已用完", "无法生成", "学习入口", "quota exhausted")),
+    ("quota_consumption", ("额度", "初始", "50", "49", "扣减", "每题", "消耗", "quota consumption")),
+    ("quota_limit", ("额度", "次数", "耗尽", "拦截", "quota", "limit")),
+    ("silent_refresh", ("静默刷新", "无弹窗", "新增错题", "重新批改", "知识点掌握度", "silent", "refresh")),
+    ("history_makeup", ("历史", "补做", "补学", "history", "makeup")),
+)
+
+_DUPLICATE_SCENARIO_PATTERNS += (
+    ("essay_submission_failure_reason", ("\u6295\u7a3f", "\u5931\u8d25\u539f\u56e0", "\u9a73\u56de\u539f\u56e0", "\u5ba1\u6838\u5931\u8d25", "submission", "failure reason")),
+    ("essay_polish_copy", ("\u5168\u6587\u6da6\u8272", "\u590d\u5236", "\u6da6\u8272\u6587", "polish", "copy")),
+    ("essay_critique_button_availability", ("\u53bb\u6279\u6539", "\u6309\u94ae", "\u4e0d\u53ef\u70b9", "\u4e0d\u53ef\u7528", "\u53ef\u7528", "critique button", "disabled")),
+    ("nonlinear_course_unlock", ("\u975e\u7ebf\u6027", "\u4efb\u610f\u8fdb\u5165", "\u65e0\u9700\u524d\u7f6e", "\u672a\u9501", "nonlinear", "any stage", "no prerequisite")),
+    ("free_first_lesson", ("\u666e\u901a\u7528\u6237", "\u7b2c\u4e00\u8bfe", "\u8bd5\u5b66", "\u4f1a\u5458\u4e2d\u5fc3", "first lesson", "trial", "member center")),
+    ("secret_overlay", ("\u79d8\u7c4d", "\u8499\u5c42", "\u83b7\u5f97", "\u5f39\u5c42", "secret", "overlay")),
+    ("my_essay_limit", ("\u6211\u7684\u4f5c\u6587", "\u6700\u591a20\u6761", "\u4e0a\u9650", "my essays", "max 20")),
+    ("essay_submission_success_state", ("\u6295\u7a3f\u6210\u529f", "\u63d0\u4ea4\u6210\u529f", "\u5ba1\u6838\u4e2d", "\u72b6\u6001", "submission success", "pending review")),
+    ("pdf_download_content", ("pdf", "\u4e0b\u8f7d", "\u5185\u5bb9", "\u8d44\u6599", "download", "content")),
+    ("critique_limit", ("\u540c\u4e00\u4e3b\u9898", "5\u6b21", "\u6279\u6539\u4e0a\u9650", "\u6b21\u6570", "critique limit")),
+    ("star_rating", ("\u7efc\u5408\u70b9\u8bc4", "\u661f\u661f", "6\u5206\u5236", "star rating")),
+    ("sentence_comment_jump", ("\u5206\u53e5\u70b9\u8bc4", "\u5212\u7ebf", "\u8df3\u8f6c", "\u5207\u6362", "sentence comment")),
+    ("hot_recommend_entry", ("\u70ed\u95e8\u63a8\u8350", "\u5165\u53e3", "\u5c55\u793a", "hot recommendation")),
+    ("secret_entry_list", ("\u5199\u4f5c\u79d8\u7c4d", "\u79d8\u7c4d", "\u5165\u53e3", "\u5217\u8868", "secret list")),
+    ("essay_sample_numbering", ("\u4f18\u79c0\u8303\u6587", "\u591a\u7bc7", "\u5355\u7bc7", "\u5e8f\u53f7", "sample numbering")),
+    ("essay_empty_state", ("\u6211\u7684\u4f5c\u6587", "\u7a7a\u72b6\u6001", "\u6682\u65e0", "my essays empty")),
+    ("delete_restore_unsubmitted", ("\u5220\u9664", "\u5df2\u53d1\u5e03", "\u672a\u6295\u7a3f", "\u6062\u590d", "delete restore")),
+    ("featured_sorting", ("\u4f5c\u6587\u5708", "\u7cbe\u9009", "\u6392\u5e8f", "\u6743\u91cd", "featured sorting")),
+    ("original_image_toggle", ("\u539f\u56fe", "\u663e", "\u9690", "\u6309\u94ae", "original image toggle")),
+)
+
+_DUPLICATE_SIMPLE_SCENARIOS = {
+    "title_format",
+    "initial_popup",
+    "filter_toggle",
+    "empty_state",
+    "card_element",
+    "workbook_scope",
+    "bad_image_review",
+    "media_preview",
+    "answer_analysis_placeholder",
+    "source_consistency",
+    "network_error",
+    "permission",
+    "save_delete",
+    "manual_mark_correct",
+    "manual_mark_wrong",
+    "review_warm_hint",
+    "review_detail_content",
+    "review_status_color",
+    "review_filter_tabs",
+    "feedback",
+    "plan_step1_scope",
+    "plan_second_step_navigation",
+    "plan_slice_auto_advance",
+    "plan_slice_regeneration",
+    "plan_fourth_summary",
+    "sorting_limit",
+    "print_export",
+    "report_trigger",
+    "generation_trigger",
+    "share_friend",
+    "share_moments",
+    "report_comment_ai",
+    "report_comment_voice",
+    "report_comment_edit",
+    "report_overview_cards",
+    "report_wrong_analysis",
+    "report_next_plan",
+    "readonly",
+    "quota_exhaustion",
+    "quota_consumption",
+    "quota_limit",
+    "silent_refresh",
+    "history_makeup",
+    "essay_submission_failure_reason",
+    "essay_polish_copy",
+    "essay_critique_button_availability",
+    "nonlinear_course_unlock",
+    "free_first_lesson",
+    "secret_overlay",
+    "my_essay_limit",
+    "essay_submission_success_state",
+    "pdf_download_content",
+    "critique_limit",
+    "star_rating",
+    "sentence_comment_jump",
+    "hot_recommend_entry",
+    "secret_entry_list",
+    "essay_sample_numbering",
+    "essay_empty_state",
+    "delete_restore_unsubmitted",
+    "featured_sorting",
+    "original_image_toggle",
+}
+
+_DUPLICATE_SCENARIO_THRESHOLDS: dict[str, tuple[float, int]] = {
+    "quota_consumption": (0.22, 8),
+    "essay_submission_failure_reason": (0.22, 6),
+    "essay_polish_copy": (0.22, 6),
+    "essay_critique_button_availability": (0.20, 5),
+    "nonlinear_course_unlock": (0.20, 5),
+    "free_first_lesson": (0.20, 5),
+    "secret_overlay": (0.20, 5),
+    "my_essay_limit": (0.20, 5),
+    "essay_submission_success_state": (0.20, 5),
+    "pdf_download_content": (0.20, 5),
+    "critique_limit": (0.20, 5),
+    "star_rating": (0.20, 5),
+    "sentence_comment_jump": (0.20, 5),
+    "hot_recommend_entry": (0.20, 5),
+    "secret_entry_list": (0.20, 5),
+    "essay_sample_numbering": (0.20, 5),
+    "essay_empty_state": (0.20, 5),
+    "delete_restore_unsubmitted": (0.20, 5),
+    "featured_sorting": (0.20, 5),
+    "original_image_toggle": (0.20, 5),
+}
+
+_CROSS_MODULE_DUPLICATE_SCENARIOS = {
+    "nonlinear_course_unlock",
+    "free_first_lesson",
+    "secret_overlay",
+    "my_essay_limit",
+    "essay_submission_success_state",
+    "pdf_download_content",
+    "essay_empty_state",
+    "delete_restore_unsubmitted",
+    "featured_sorting",
+}
+
+_SEMANTIC_STOP_TOKENS = {
+    "case",
+    "default",
+    "input",
+    "module",
+    "none",
+    "null",
+    "ok",
+    "output",
+    "step",
+    "test",
+    "测试",
+    "验证",
+    "用例",
+}
+
 
 def _normalize_text(value: Any) -> str:
     lowered = str(value or "").strip().lower()
     return re.sub(r"[^\w\u4e00-\u9fff]+", "", lowered)
+
+
+def _priority_rank(value: Any) -> int:
+    priority = str(value or "").strip().upper()
+    if priority == "P0":
+        return 3
+    if priority == "P1":
+        return 2
+    if priority == "P2":
+        return 1
+    return 0
+
+
+def _module_family(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    if not re.search(r"[\u4e00-\u9fff]", text):
+        return _normalize_text(text)
+    root = re.split(r"[-_/(（]", text, maxsplit=1)[0]
+    return _normalize_text(root or text)
+
+
+def _semantic_similarity_text(case: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for field in ("description", "test_module", "test_input", "expected_result"):
+        value = case.get(field)
+        if value is not None:
+            parts.append(str(value))
+    steps = case.get("steps")
+    if isinstance(steps, list):
+        parts.extend(str(item) for item in steps[:3] if str(item).strip())
+    elif steps is not None:
+        parts.append(str(steps))
+    return " ".join(parts)
+
+
+def _semantic_tokens(value: Any) -> set[str]:
+    text = str(value or "").strip().lower()
+    if not text:
+        return set()
+    text = re.sub(r"tc-\d+", " ", text)
+    tokens: set[str] = set()
+    for segment in re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]+", text):
+        if not segment:
+            continue
+        if re.fullmatch(r"[a-z0-9]+", segment):
+            if len(segment) > 1 and not segment.isdigit() and segment not in _SEMANTIC_STOP_TOKENS:
+                tokens.add(segment)
+            continue
+        if len(segment) == 1:
+            tokens.add(segment)
+            continue
+        for width in (2, 3):
+            if len(segment) < width:
+                continue
+            for index in range(0, len(segment) - width + 1):
+                token = segment[index : index + width]
+                if token not in _SEMANTIC_STOP_TOKENS:
+                    tokens.add(token)
+    return tokens
+
+
+def _semantic_similarity(left: dict[str, Any], right: dict[str, Any]) -> float:
+    left_tokens = _semantic_tokens(_semantic_similarity_text(left))
+    right_tokens = _semantic_tokens(_semantic_similarity_text(right))
+    if not left_tokens or not right_tokens:
+        return 0.0
+    intersection = len(left_tokens & right_tokens)
+    union = len(left_tokens | right_tokens)
+    jaccard = float(intersection) / float(union) if union else 0.0
+    containment = float(intersection) / float(min(len(left_tokens), len(right_tokens)))
+    return max(jaccard, containment)
+
+
+def _semantic_overlap_size(left: dict[str, Any], right: dict[str, Any]) -> int:
+    left_tokens = _semantic_tokens(_semantic_similarity_text(left))
+    right_tokens = _semantic_tokens(_semantic_similarity_text(right))
+    return len(left_tokens & right_tokens)
+
+
+def _scenario_kind(case: dict[str, Any]) -> str:
+    text = _semantic_similarity_text(case).lower()
+    compact = _normalize_text(text)
+    best_kind = ""
+    best_score = 0
+    for kind, patterns in _DUPLICATE_SCENARIO_PATTERNS:
+        matched: list[str] = []
+        for pattern in patterns:
+            marker = _normalize_text(pattern)
+            if marker and marker in compact:
+                matched.append(marker)
+        if not matched:
+            continue
+        long_marker_count = sum(1 for marker in matched if len(marker) >= 4)
+        if len(matched) < 2 and long_marker_count < 1:
+            continue
+        score = len(matched) * 10 + long_marker_count * 3 + max(len(marker) for marker in matched)
+        if kind in {"manual_mark_correct", "manual_mark_wrong"}:
+            score += 40
+        if score > best_score:
+            best_kind = kind
+            best_score = score
+    return best_kind
+
+
+def _same_module_family(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    left_module = _module_family(left.get("test_module"))
+    right_module = _module_family(right.get("test_module"))
+    if not left_module or not right_module:
+        return True
+    return left_module == right_module or left_module in right_module or right_module in left_module
+
+
+def _is_semantic_duplicate_case(candidate: dict[str, Any], existed: dict[str, Any]) -> tuple[bool, float]:
+    candidate_desc = _normalize_text(candidate.get("description"))
+    existed_desc = _normalize_text(existed.get("description"))
+    if candidate_desc and existed_desc and candidate_desc == existed_desc:
+        return True, 1.0
+    score = _semantic_similarity(candidate, existed)
+    overlap = _semantic_overlap_size(candidate, existed)
+    candidate_kind = _scenario_kind(candidate)
+    existed_kind = _scenario_kind(existed)
+    if not _same_module_family(candidate, existed):
+        if (
+            candidate_kind
+            and candidate_kind == existed_kind
+            and candidate_kind in _CROSS_MODULE_DUPLICATE_SCENARIOS
+        ):
+            simple_score, simple_overlap = _DUPLICATE_SCENARIO_THRESHOLDS.get(candidate_kind, (0.30, 8))
+            if score >= simple_score and overlap >= simple_overlap:
+                return True, score
+        return False, 0.0
+    if candidate_kind and candidate_kind == existed_kind:
+        simple_score, simple_overlap = _DUPLICATE_SCENARIO_THRESHOLDS.get(candidate_kind, (0.30, 8))
+        if candidate_kind in _DUPLICATE_SIMPLE_SCENARIOS and score >= simple_score and overlap >= simple_overlap:
+            return True, score
+        if score >= 0.46 and overlap >= 12:
+            return True, score
+    if score >= 0.90 and overlap >= 30:
+        return True, score
+    return False, score
+
+
+def _case_quality_key(case: dict[str, Any], original_index: int) -> tuple[int, int, int, int]:
+    steps = case.get("steps")
+    step_count = len([item for item in steps if str(item).strip()]) if isinstance(steps, list) else 0
+    concrete_text_len = len(_normalize_text(case.get("expected_result"))) + len(_normalize_text(case.get("description")))
+    return (
+        _priority_rank(case.get("priority") or case.get("priority_final")),
+        min(step_count, 6),
+        min(concrete_text_len, 240),
+        -int(original_index),
+    )
 
 
 def _dedupe_texts(values: list[Any] | None) -> list[str]:
@@ -86,6 +473,35 @@ def normalize_requirement_semantics_context(requirement_semantics_context: dict[
     }
 
 
+def _merge_fact_profile_semantics(
+    semantics: dict[str, list[str]],
+    control_state: dict[str, Any] | None = None,
+) -> dict[str, list[str]]:
+    if not isinstance(control_state, dict):
+        return semantics
+    source_meta = control_state.get("source_meta") if isinstance(control_state.get("source_meta"), dict) else {}
+    profile = source_meta.get("fact_profile") if isinstance(source_meta, dict) else None
+    if not isinstance(profile, dict):
+        return semantics
+    merged = {key: list(value or []) for key, value in (semantics or {}).items()}
+    mapping = {
+        "confirmed_facts": "confirmed_facts",
+        "scoped_rules": "scoped_rules",
+        "pending_items": "pending_items",
+        "reuse_declarations": "reuse_declarations",
+        "hard_flow_constraints": "hard_flow_constraints",
+        "reuse_risks": "reuse_risks",
+    }
+    for profile_key, target_key in mapping.items():
+        values = profile.get(profile_key)
+        if isinstance(values, list):
+            merged[target_key] = _dedupe_texts([*merged.get(target_key, []), *values])
+    forbidden = profile.get("forbidden_facts")
+    if isinstance(forbidden, list):
+        merged["confirmed_facts"] = _dedupe_texts([*merged.get("confirmed_facts", []), *forbidden])
+    return merged
+
+
 def _collect_case_text(case: dict[str, Any]) -> str:
     parts: list[str] = []
     for field in ("id", "description", "test_module", "test_input", "expected_result"):
@@ -113,6 +529,22 @@ def _contains_pending_logic(case_text: str, pending_items: list[str]) -> tuple[b
             hits.append(item)
     deduped = _dedupe_texts(hits)
     return bool(deduped), deduped
+
+
+def _contains_vague_unconfirmed_logic(case: dict[str, Any]) -> tuple[bool, list[str]]:
+    parts: list[str] = []
+    for field in ("description", "test_input", "expected_result"):
+        value = case.get(field)
+        if value is not None:
+            parts.append(str(value))
+    targeted_text = " ".join(parts)
+    normalized_case = _normalize_text(targeted_text)
+    hits: list[str] = []
+    for hint in _VAGUE_UNCONFIRMED_HINTS:
+        marker = _normalize_text(hint)
+        if marker and marker in normalized_case:
+            hits.append(hint)
+    return bool(hits), _dedupe_texts(hits)
 
 
 def _extract_sequence_candidates(value: str) -> list[str]:
@@ -394,13 +826,18 @@ def judge_case(
     requirement_semantics_context: dict[str, Any] | str | None,
     control_state: dict[str, Any] | None = None,
 ) -> JudgeResult:
-    _ = control_state
-    semantics = normalize_requirement_semantics_context(requirement_semantics_context)
+    semantics = _merge_fact_profile_semantics(
+        normalize_requirement_semantics_context(requirement_semantics_context),
+        control_state=control_state,
+    )
     before = deepcopy(case) if isinstance(case, dict) else {}
     case_id = str(before.get("id") or before.get("case_id") or "").strip() or "UNKNOWN"
     case_text = _collect_case_text(before)
 
     contains_pending_logic, pending_hits = _contains_pending_logic(case_text, semantics.get("pending_items") or [])
+    contains_vague_unconfirmed, vague_or_unconfirmed_hits = _contains_vague_unconfirmed_logic(before)
+    contains_pending_logic = bool(contains_pending_logic or contains_vague_unconfirmed)
+    pending_hits = _dedupe_texts([*pending_hits, *vague_or_unconfirmed_hits])
     confirmed_fact_hits, confirmed_fact_violations = _find_confirmed_fact_violations(
         case_text,
         semantics.get("confirmed_facts") or [],
@@ -416,6 +853,7 @@ def judge_case(
         confirmed_fact_violations=confirmed_fact_violations,
         reuse_risk_hits=reuse_risk_hits,
         pending_hits=pending_hits,
+        vague_or_unconfirmed_hits=vague_or_unconfirmed_hits,
     )
 
     if signals.contains_pending_logic:
@@ -482,7 +920,10 @@ def judge_cases(
     requirement_semantics_context: dict[str, Any] | str | None,
     control_state: dict[str, Any] | None = None,
 ) -> JudgeBatchResult:
-    semantics = normalize_requirement_semantics_context(requirement_semantics_context)
+    semantics = _merge_fact_profile_semantics(
+        normalize_requirement_semantics_context(requirement_semantics_context),
+        control_state=control_state,
+    )
     judged_cases: list[JudgeResult] = []
     for index, case in enumerate(cases or [], start=1):
         if not isinstance(case, dict):
@@ -491,6 +932,70 @@ def judge_cases(
         if not judged.case_id or judged.case_id == "UNKNOWN":
             judged.case_id = str(case.get("id") or f"CASE-{index:03d}")
         judged_cases.append(judged)
+
+    kept_passes: list[tuple[int, JudgeResult, dict[str, Any]]] = []
+    for index, item in enumerate(judged_cases):
+        if item.status != JudgeStatus.PASS:
+            continue
+        candidate_case = item.after_case if item.after_case else item.before_case
+        if not isinstance(candidate_case, dict):
+            continue
+
+        duplicate_match: tuple[int, JudgeResult, dict[str, Any], float] | None = None
+        for kept_index, kept_item, kept_case in kept_passes:
+            is_duplicate, similarity = _is_semantic_duplicate_case(candidate_case, kept_case)
+            if not is_duplicate:
+                continue
+            if duplicate_match is None or similarity > duplicate_match[3]:
+                duplicate_match = (kept_index, kept_item, kept_case, similarity)
+
+        if duplicate_match is None:
+            kept_passes.append((index, item, candidate_case))
+            continue
+
+        kept_index, kept_item, kept_case, similarity = duplicate_match
+        candidate_quality = _case_quality_key(candidate_case, index)
+        kept_quality = _case_quality_key(kept_case, kept_index)
+
+        if candidate_quality > kept_quality:
+            kept_item.status = JudgeStatus.REJECT
+            kept_item.reject_reason = f"semantic_duplicate:{item.case_id}"
+            kept_item.signals.is_semantic_duplicate = True
+            kept_item.signals.duplicate_of_case_id = item.case_id
+            kept_item.signals.duplicate_similarity = round(float(similarity), 4)
+            kept_item.signals.notes = _dedupe_texts([*kept_item.signals.notes, "batch_semantic_duplicate"])
+            kept_item.suggested_actions = [
+                RepairAction(
+                    action_type=RepairActionType.DROP_CASE,
+                    reason="Case is semantically duplicated by a stronger candidate.",
+                    target_case_id=kept_item.case_id,
+                    payload={"duplicate_of_case_id": item.case_id, "similarity": round(float(similarity), 4)},
+                )
+            ]
+            kept_passes = [
+                (
+                    index if existing_index == kept_index else existing_index,
+                    item if existing_index == kept_index else existing_item,
+                    candidate_case if existing_index == kept_index else existing_case,
+                )
+                for existing_index, existing_item, existing_case in kept_passes
+            ]
+            continue
+
+        item.status = JudgeStatus.REJECT
+        item.reject_reason = f"semantic_duplicate:{kept_item.case_id}"
+        item.signals.is_semantic_duplicate = True
+        item.signals.duplicate_of_case_id = kept_item.case_id
+        item.signals.duplicate_similarity = round(float(similarity), 4)
+        item.signals.notes = _dedupe_texts([*item.signals.notes, "batch_semantic_duplicate"])
+        item.suggested_actions = [
+            RepairAction(
+                action_type=RepairActionType.DROP_CASE,
+                reason="Case is semantically duplicated by an already accepted candidate.",
+                target_case_id=item.case_id,
+                payload={"duplicate_of_case_id": kept_item.case_id, "similarity": round(float(similarity), 4)},
+            )
+        ]
 
     pass_cases = [
         item.after_case if item.after_case else item.before_case

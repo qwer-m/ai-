@@ -23,6 +23,14 @@ def test_quality_ledger_compacts_generation_evidence() -> None:
             "review_selected_count": 83,
             "post_review_dedup_drop": 8,
             "low_quality_dropped_count": 0,
+            "low_quality_dropped_examples": [
+                {
+                    "stage": "post_judge_quality_filter",
+                    "reason": "non_assertable_expected_result",
+                    "case_id": "TC-009",
+                    "description": "weak expected result",
+                }
+            ],
             "semantic_dedup_dropped_count": 8,
         },
         generation_summary_payload={
@@ -61,6 +69,8 @@ def test_quality_ledger_compacts_generation_evidence() -> None:
     assert payload["coverage"]["missing_rules_count"] == 2
     assert payload["coverage"]["non_blocking_rules_count"] == 1
     assert payload["review"]["drop_by_review_llm_count"] == 9
+    assert payload["funnel"]["low_quality_dropped_examples"][0]["case_id"] == "TC-009"
+    assert payload["funnel"]["low_quality_dropped_examples"][0]["reason"] == "non_assertable_expected_result"
     assert payload["context"]["snapshot_used"] is True
     assert payload["context"]["realtime_rag_used"] is True
     assert payload["context"]["current_document_used"] is True

@@ -1,4 +1,4 @@
-﻿import { Button, Form, InputGroup, Spinner } from 'react-bootstrap';
+import { Button, Form, Spinner } from 'react-bootstrap';
 import { FaCog, FaDownload, FaFileImage, FaPlay, FaTrash } from 'react-icons/fa';
 import type { RefObject } from 'react';
 import type { TestGenerationMode } from './types';
@@ -15,7 +15,6 @@ type TestGenerationConfigSectionProps = {
   onCompressChange: (checked: boolean) => void;
   expectedCount: number;
   onExpectedCountChange: (value: number) => void;
-  isEstimating: boolean;
   appendCount: number;
   onAppendCountChange: (value: number) => void;
   force: boolean;
@@ -41,7 +40,6 @@ export function TestGenerationConfigSection({
   onCompressChange,
   expectedCount,
   onExpectedCountChange,
-  isEstimating,
   appendCount,
   onAppendCountChange,
   force,
@@ -113,21 +111,14 @@ export function TestGenerationConfigSection({
           <div className="d-flex gap-2">
             <div className="flex-grow-1">
               <Form.Label className="small fw-bold text-secondary">推荐生成用例数</Form.Label>
-              <InputGroup>
-                <Form.Control
-                  type="number"
-                  className={`input-pro ${isEstimating ? 'test-generation-estimating-input' : ''}`}
-                  value={expectedCount}
-                  min={1}
-                  step={1}
-                  onChange={(e) => onExpectedCountChange(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
-                />
-                {isEstimating ? (
-                  <InputGroup.Text className="bg-white border-start-0 ps-0">
-                    <Spinner animation="border" size="sm" variant="primary" />
-                  </InputGroup.Text>
-                ) : null}
-              </InputGroup>
+              <Form.Control
+                type="number"
+                className="input-pro"
+                value={expectedCount}
+                min={1}
+                step={1}
+                onChange={(e) => onExpectedCountChange(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+              />
             </div>
             <div className="flex-grow-1">
               <Form.Label className="small fw-bold text-secondary">追加用例数</Form.Label>

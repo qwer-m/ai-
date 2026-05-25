@@ -16,6 +16,29 @@
     governance_hard_drop_total = int(initial_filter_stats.get("governance_hard_drop") or 0)
     low_quality_dropped_total = int(low_quality_structural_dropped_total)
     postprocess_filter_drop_total = int(initial_filter_stats.get("total_dropped") or 0)
+    low_quality_drop_details: list[dict[str, Any]] = [
+        dict(item)
+        for item in (initial_filter_stats.get("dropped_details") or [])
+        if isinstance(item, dict)
+    ]
+
+    def _record_low_quality_drop(case: dict[str, Any], *, reason: str, stage: str) -> None:
+        low_quality_drop_details.append(
+            _quality_drop_detail(case, reason=reason, stage=stage)
+        )
+
+    def _final_quality_drop_reason(case: dict[str, Any]) -> str:
+        expected_text = str(case.get("expected_result") or "").strip()
+        expected_quality = str(case.get("expected_result_quality") or "").strip().lower()
+        if expected_quality in {"invalid_case", "non_assertable", "truncated"}:
+            return f"expected_result_quality:{expected_quality}"
+        if _reasoning_leakage_hits(case):
+            return "reasoning_leakage"
+        if _looks_truncated_text(expected_text):
+            return "truncated_text"
+        if _is_non_assertable_expected_result(expected_text):
+            return "non_assertable_expected_result"
+        return ""
 
     stage_counts = {
         "primary": len(parsed_result),
@@ -38,6 +61,8 @@
     append_cap_drop_total = 0
     append_cap_drop_signatures: set[str] = set()
     final_description_dedup_drop_signatures: set[str] = set()
+    flow_governance_summary: dict[str, Any] = {}
+    execution_plan_summary: dict[str, Any] = {}
     review_candidate_cases: list[dict[str, Any]] = []
     review_selection_input: list[dict[str, Any]] = []
     review_gate_trace: dict[str, Any] = {}
@@ -55,11 +80,40 @@
     review_target_max_count = 1
     review_candidate_coverage_context: dict[str, Any] = {}
     review_candidate_rule_diagnostics: dict[str, Any] = {"rule_diagnostics": []}
+    mode_rank = {
+        "core_smoke": 0,
+        "standard_regression": 1,
+        "expanded_regression": 2,
+        "full_functional_regression": 3,
+    }
+    effective_generation_coverage_mode = str(generation_coverage_mode or "")
+    expected_count_mode = ""
+    if int(expected_count or 0) >= 80:
+        expected_count_mode = "full_functional_regression"
+    elif int(expected_count or 0) >= 60:
+        expected_count_mode = "expanded_regression"
+    elif int(expected_count or 0) > 0:
+        expected_count_mode = "standard_regression"
+    if mode_rank.get(expected_count_mode, -1) > mode_rank.get(effective_generation_coverage_mode, -1):
+        effective_generation_coverage_mode = expected_count_mode
+    if effective_generation_coverage_mode not in mode_rank:
+        effective_generation_coverage_mode = expected_count_mode or "standard_regression"
+    generation_coverage_mode = effective_generation_coverage_mode
     review_shortfall_detected = False
     review_shortfall_before_count = 0
     review_shortfall_recovered_count = 0
     review_post_rerank_floor_count = 1
     review_post_rerank_recovered_count = 0
+    final_target_floor_count = 0
+    final_floor_recovered_count = 0
+    final_floor_recovery_applied = False
+    final_floor_recovery_attempted = False
+    final_floor_recovery_reason = ""
+    final_confirmed_conflict_drop_count = 0
+    final_shortfall_supplement_attempted = False
+    final_shortfall_supplement_applied = False
+    final_shortfall_supplement_count = 0
+    final_shortfall_supplement_reason = ""
     review_fill_source = "none"
     review_must_keep_signatures: set[str] = set()
     review_must_keep_reason_map: dict[str, list[str]] = {}
@@ -153,6 +207,11 @@ RESCUE INSTRUCTION:
                 governance_hard_drop_total += int(rescue_filter_stats.get("governance_hard_drop") or 0)
                 low_quality_dropped_total = int(low_quality_structural_dropped_total)
                 postprocess_filter_drop_total += int(rescue_filter_stats.get("total_dropped") or 0)
+                low_quality_drop_details.extend(
+                    dict(item)
+                    for item in (rescue_filter_stats.get("dropped_details") or [])
+                    if isinstance(item, dict)
+                )
                 parsed_result = rescue_parsed
                 stage_counts["primary"] = len(parsed_result)
                 current_total = _merged_unique_total(parsed_result)
@@ -242,6 +301,11 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                         governance_hard_drop_total += int(extra_filter_stats.get("governance_hard_drop") or 0)
                         low_quality_dropped_total = int(low_quality_structural_dropped_total)
                         postprocess_filter_drop_total += int(extra_filter_stats.get("total_dropped") or 0)
+                        low_quality_drop_details.extend(
+                            dict(item)
+                            for item in (extra_filter_stats.get("dropped_details") or [])
+                            if isinstance(item, dict)
+                        )
                         parsed_result.extend([x for x in extra_parsed if isinstance(x, dict)])
                         parsed_result = normalize_json_structure_fn(parsed_result)
                         parsed_result = deduplicate_test_cases_fn(parsed_result)
@@ -273,6 +337,11 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         governance_hard_drop_total += int(review_filter_stats.get("governance_hard_drop") or 0)
         low_quality_dropped_total = int(low_quality_structural_dropped_total)
         postprocess_filter_drop_total += int(review_filter_stats.get("total_dropped") or 0)
+        low_quality_drop_details.extend(
+            dict(item)
+            for item in (review_filter_stats.get("dropped_details") or [])
+            if isinstance(item, dict)
+        )
         candidate_count_before_review = len(candidate_cases)
         review_candidate_cases = list(candidate_cases)
 
@@ -991,9 +1060,14 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
     # candidate pool still has enough high-quality items.
     if int(candidate_count_before_review or 0) >= 2:
         if int(reference_count_effective or 0) >= 10:
+            review_floor_ratio = 0.2
+            if generation_coverage_mode == "expanded_regression":
+                review_floor_ratio = 0.80
+            elif generation_coverage_mode == "full_functional_regression":
+                review_floor_ratio = 0.35
             review_post_rerank_floor_count = min(
                 int(candidate_count_before_review or 0),
-                max(2, int(round(float(reference_count_effective or 0) * 0.2))),
+                max(2, int(round(float(reference_count_effective or 0) * review_floor_ratio))),
             )
         else:
             review_post_rerank_floor_count = min(int(candidate_count_before_review or 0), 2)
@@ -1150,6 +1224,11 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             "pending_out_count": int(len(pending_cases)),
             "core_flow_covered": bool(repaired.core_flow_covered),
             "reuse_risk_covered": bool(repaired.reuse_risk_covered),
+            "fact_profile_source": str(fact_profile.get("profile_source") or ""),
+            "fact_profile_confidence": float(fact_profile.get("confidence") or 0.0),
+            "fact_profile_confirmed_count": int(len(fact_profile.get("confirmed_facts") or [])),
+            "fact_profile_forbidden_count": int(len(fact_profile.get("forbidden_facts") or [])),
+            "fact_profile_pending_count": int(len(fact_profile.get("pending_items") or [])),
         }
         judge_decision_table_payload = []
         for judged_item in repaired.cases or []:
@@ -1161,12 +1240,18 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                 "missing_core_flow": bool(signal_set.missing_core_flow),
                 "missing_reuse_risk": bool(signal_set.missing_reuse_risk),
                 "contains_pending_logic": bool(signal_set.contains_pending_logic),
+                "is_semantic_duplicate": bool(getattr(signal_set, "is_semantic_duplicate", False)),
+                "duplicate_of_case_id": str(getattr(signal_set, "duplicate_of_case_id", "") or ""),
+                "duplicate_similarity": float(getattr(signal_set, "duplicate_similarity", 0.0) or 0.0),
                 "confirmed_fact_hits": [str(item) for item in (signal_set.confirmed_fact_hits or [])],
                 "confirmed_fact_violations": [
                     str(item) for item in (signal_set.confirmed_fact_violations or [])
                 ],
                 "reuse_risk_hits": [str(item) for item in (signal_set.reuse_risk_hits or [])],
                 "pending_hits": [str(item) for item in (signal_set.pending_hits or [])],
+                "vague_or_unconfirmed_hits": [
+                    str(item) for item in (getattr(signal_set, "vague_or_unconfirmed_hits", []) or [])
+                ],
             }
             judge_decision_table_payload.append(
                 {
@@ -1188,10 +1273,16 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                     "confirmed_fact_hits": list(signals_payload.get("confirmed_fact_hits") or []),
                     "confirmed_fact_violations": list(signals_payload.get("confirmed_fact_violations") or []),
                     "pending_hits": list(signals_payload.get("pending_hits") or []),
+                    "vague_or_unconfirmed_hits": list(
+                        signals_payload.get("vague_or_unconfirmed_hits") or []
+                    ),
                     "reuse_risk_hits": list(signals_payload.get("reuse_risk_hits") or []),
                     "missing_reuse_risk_items": [
                         str(item) for item in (signal_set.missing_reuse_risk_items or [])
                     ],
+                    "is_semantic_duplicate": bool(signals_payload.get("is_semantic_duplicate")),
+                    "duplicate_of_case_id": str(signals_payload.get("duplicate_of_case_id") or ""),
+                    "duplicate_similarity": signals_payload.get("duplicate_similarity") or 0,
                     "before_case_snapshot": dict(before_case),
                     "after_case_snapshot": dict(after_case),
                     "notes": [str(item) for item in (signal_set.notes or [])],
@@ -1203,14 +1294,14 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
     final_quality_filtered_result: list[dict[str, Any]] = []
     final_quality_drop_total = 0
     for case in [x for x in parsed_result if isinstance(x, dict)]:
-        expected_text = str(case.get("expected_result") or "").strip()
-        expected_quality = str(case.get("expected_result_quality") or "").strip().lower()
-        if (
-            expected_quality in {"non_assertable", "truncated"}
-            or _looks_truncated_text(expected_text)
-            or _is_non_assertable_expected_result(expected_text)
-        ):
+        drop_reason = _final_quality_drop_reason(case)
+        if drop_reason:
             final_quality_drop_total += 1
+            _record_low_quality_drop(
+                case,
+                reason=drop_reason,
+                stage="post_judge_quality_filter",
+            )
             continue
         final_quality_filtered_result.append(case)
     if final_quality_drop_total > 0:
@@ -1273,6 +1364,726 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             for index, case in enumerate(parsed_result)
             if isinstance(case, dict) and int(index) in keep_indices
         ]
+    flow_project_profile = dict(project_profile or {})
+    if generation_coverage_mode in {"expanded_regression", "full_functional_regression"}:
+        scenario_policy = dict(flow_project_profile.get("scenario_cluster_policy") or {})
+        scenario_policy["coverage_mode"] = str(generation_coverage_mode or "")
+        scenario_policy["intent_duplicate_cap"] = 1
+        scenario_policy["strict_duplicate_policy"] = generation_coverage_mode == "expanded_regression"
+        flow_project_profile["scenario_cluster_policy"] = scenario_policy
+    try:
+        parsed_result, flow_governance_summary = govern_cases_by_flow_structure(
+            requirement,
+            [x for x in parsed_result if isinstance(x, dict)],
+            start_id=start_id,
+            renumber_ids=True,
+            max_per_scenario=2,
+            project_profile=flow_project_profile,
+        )
+    except Exception as exc:
+        flow_governance_summary = {
+            "applied": False,
+            "reason": "exception",
+            "exception": str(exc)[:200],
+            "scenario_duplicate_pruned_count": 0,
+            "flow_reordered": False,
+        }
+
+    if (
+        int(expected_count or 0) > 0
+        and effective_generation_coverage_mode in {"expanded_regression", "full_functional_regression"}
+        and not append
+    ):
+        floor_ratio = 0.80 if effective_generation_coverage_mode == "expanded_regression" else 0.70
+        final_target_floor_count = int(round(float(expected_count or 0) * floor_ratio))
+        if effective_generation_coverage_mode == "full_functional_regression":
+            try:
+                full_regression_floor = max(85, int(generation_target_case_range.get("min") or 0))
+            except Exception:
+                full_regression_floor = 85
+            final_target_floor_count = max(int(full_regression_floor or 0), final_target_floor_count)
+        current_final_count = len([x for x in parsed_result if isinstance(x, dict)])
+        if current_final_count < final_target_floor_count:
+            final_floor_recovery_attempted = True
+            recovery_pool_seed = [
+                item
+                for item in [*review_candidate_cases, *review_selection_input, *candidate_cases]
+                if isinstance(item, dict)
+            ]
+            try:
+                recovery_structure = analyze_case_structure(
+                    requirement,
+                    recovery_pool_seed,
+                    project_profile=project_profile,
+                )
+                recovery_group_count = int(
+                    len(
+                        {
+                            str(row.get("duplicate_group_key") or row.get("intent_signature") or row.get("scenario_key") or "")
+                            for row in (recovery_structure.get("rows") or [])
+                            if isinstance(row, dict)
+                        }
+                    )
+                )
+            except Exception:
+                recovery_group_count = 0
+            allow_relaxed_full_recovery = bool(
+                effective_generation_coverage_mode == "full_functional_regression"
+                and len(recovery_pool_seed) >= final_target_floor_count
+            )
+            if recovery_group_count >= final_target_floor_count or allow_relaxed_full_recovery:
+                final_floor_recovery_applied = True
+                final_signatures_before_recovery = {
+                    _signature(item) for item in parsed_result if isinstance(item, dict)
+                }
+                recovery_seen_signatures = set(final_signatures_before_recovery)
+                recovery_pool: list[dict[str, Any]] = []
+                for source_case in recovery_pool_seed:
+                    sig = _signature(source_case)
+                    if not sig or sig in recovery_seen_signatures:
+                        continue
+                    recovery_seen_signatures.add(sig)
+                    expected_text = str(source_case.get("expected_result") or "").strip()
+                    expected_quality = str(source_case.get("expected_result_quality") or "").strip().lower()
+                    if (
+                        expected_quality in {"invalid_case", "non_assertable", "truncated"}
+                        or _reasoning_leakage_hits(source_case)
+                        or _looks_truncated_text(expected_text)
+                        or _is_non_assertable_expected_result(expected_text)
+                    ):
+                        continue
+                    recovery_pool.append(source_case)
+                recovery_coverage = analyze_coverage(requirement, recovery_pool_seed)
+                recovery_rule_diagnostics = {"rule_diagnostics": recovery_coverage.get("rule_diagnostics") or []}
+                recovery_pool.sort(
+                    key=lambda item: tuple(
+                        [
+                            -value
+                            for value in _rank_review_case_for_fill(
+                                item,
+                                coverage_context=recovery_coverage,
+                                rule_diagnostics=recovery_rule_diagnostics,
+                            )
+                        ]
+                    )
+                    + (_review_case_id(item),)
+                )
+                recovered: list[dict[str, Any]] = []
+                for fill_case in recovery_pool:
+                    if current_final_count + len(recovered) >= final_target_floor_count:
+                        break
+                    recovered.append(fill_case)
+                if recovered:
+                    merged_for_recovery = deduplicate_test_cases_fn(
+                        [*parsed_result, *recovered]
+                    )
+                    recovery_priority_coverage = analyze_coverage(
+                        requirement,
+                        [x for x in merged_for_recovery if isinstance(x, dict)],
+                    )
+                    merged_for_recovery = apply_priority_semantics_to_cases(
+                        [x for x in merged_for_recovery if isinstance(x, dict)],
+                        attach_debug=False,
+                        coverage_context=recovery_priority_coverage,
+                        rule_diagnostics={"rule_diagnostics": recovery_priority_coverage.get("rule_diagnostics") or []},
+                    )
+                    merged_for_recovery = _enforce_uncertain_priority_floor(
+                        [x for x in merged_for_recovery if isinstance(x, dict)]
+                    )
+                    try:
+                        from modules.testing.test_generation_components.judge.test_case_judge import judge_cases as recovery_judge_cases
+                        from modules.testing.test_generation_components.judge.test_case_repairer import repair_cases as recovery_repair_cases
+                        from modules.testing.test_generation_components.judge.training_gate import training_gate as recovery_training_gate
+
+                        recovery_judged = recovery_judge_cases(
+                            cases=[item for item in merged_for_recovery if isinstance(item, dict)],
+                            requirement_semantics_context=requirement_semantics_context or {},
+                            control_state=feedback_control_state if isinstance(feedback_control_state, dict) else {},
+                        )
+                        recovery_repaired = recovery_repair_cases(
+                            judged=recovery_judged,
+                            requirement_semantics_context=requirement_semantics_context or {},
+                            control_state=feedback_control_state if isinstance(feedback_control_state, dict) else {},
+                            strategy="rule_first_llm_fallback",
+                        )
+                        recovery_confirmed, recovery_repaired_pass, _recovery_rejected, _recovery_pending = recovery_training_gate(
+                            recovery_repaired
+                        )
+                        merged_for_recovery = [*recovery_confirmed, *recovery_repaired_pass]
+                    except Exception:
+                        pass
+                    parsed_result, flow_governance_summary = govern_cases_by_flow_structure(
+                        requirement,
+                        [x for x in merged_for_recovery if isinstance(x, dict)],
+                        start_id=start_id,
+                        renumber_ids=True,
+                        max_per_scenario=2,
+                        project_profile=flow_project_profile,
+                    )
+                    if (
+                        effective_generation_coverage_mode == "full_functional_regression"
+                        and len([x for x in parsed_result if isinstance(x, dict)]) < final_target_floor_count
+                    ):
+                        relaxed_flow_profile = dict(flow_project_profile or {})
+                        relaxed_policy = dict(relaxed_flow_profile.get("scenario_cluster_policy") or {})
+                        relaxed_policy["coverage_mode"] = str(effective_generation_coverage_mode or "")
+                        relaxed_policy["disable_scenario_pruning"] = True
+                        relaxed_policy["intent_duplicate_cap"] = 1
+                        relaxed_policy["relaxed_for_floor_backfill"] = True
+                        relaxed_flow_profile["scenario_cluster_policy"] = relaxed_policy
+                        relaxed_result, relaxed_summary = govern_cases_by_flow_structure(
+                            requirement,
+                            [x for x in merged_for_recovery if isinstance(x, dict)],
+                            start_id=start_id,
+                            renumber_ids=True,
+                            max_per_scenario=2,
+                            project_profile=relaxed_flow_profile,
+                        )
+                        if len([x for x in relaxed_result if isinstance(x, dict)]) > len([x for x in parsed_result if isinstance(x, dict)]):
+                            parsed_result = relaxed_result
+                            flow_governance_summary = relaxed_summary
+                            flow_governance_summary["relaxed_for_floor_backfill"] = True
+                    final_floor_recovered_count = max(
+                        0,
+                        len([x for x in parsed_result if isinstance(x, dict)]) - current_final_count,
+                    )
+                    final_floor_recovery_reason = (
+                        "recovered_with_relaxed_scenario_caps"
+                        if bool(flow_governance_summary.get("relaxed_for_floor_backfill"))
+                        else "recovered_to_explicit_expected_floor"
+                    )
+            else:
+                final_floor_recovery_reason = "insufficient_diverse_candidate_groups"
+    if (
+        effective_generation_coverage_mode == "full_functional_regression"
+        and int(final_target_floor_count or 0) > 0
+        and not append
+        and len([x for x in parsed_result if isinstance(x, dict)]) < int(final_target_floor_count or 0)
+    ):
+        current_shortfall_count = len([x for x in parsed_result if isinstance(x, dict)])
+        supplement_needed = max(1, int(final_target_floor_count or 0) - int(current_shortfall_count or 0))
+        supplement_needed = min(30, supplement_needed)
+        final_shortfall_supplement_attempted = True
+        existing_case_brief = [
+            {
+                "id": str(item.get("id") or ""),
+                "description": str(item.get("description") or ""),
+                "test_module": str(item.get("test_module") or ""),
+                "priority": str(item.get("priority") or ""),
+            }
+            for item in [x for x in parsed_result if isinstance(x, dict)][:140]
+        ]
+        supplement_prompt = f"""
+FULL_REGRESSION_SHORTFALL_SUPPLEMENT:
+- The current final set has {current_shortfall_count} cases, below the full-regression floor {int(final_target_floor_count or 0)}.
+- Generate up to {supplement_needed} additional high-value, non-duplicate test cases.
+- Focus on missing full-regression coverage, especially: success path for generated/processed result, complete result-detail display, failure/retry/API exception, upload permission/format/size/failure, moderation or audit rejection reasons, comment/reply moderation, download/storage/playback failure, and cross-module state synchronization.
+- Do not add display-only, copy/toast-only, sorting-only, thumbnail-only, or popup-only cases unless they close a blocking business flow.
+- Do not include legacy behavior that conflicts with confirmed current requirements.
+- P0 only for blocking main-path closure; otherwise use P1/P2.
+- Return ONLY a strict JSON array of test cases with fields: id, description, test_module, preconditions, steps, test_input, expected_result, priority.
+
+EXISTING_FINAL_CASES_TO_AVOID_DUPLICATING:
+{json.dumps(existing_case_brief, ensure_ascii=False)[:14000]}
+"""
+        try:
+            yield "@@STATUS@@:Full regression shortfall supplement started...\n"
+            supplement_raw = client.generate_response(
+                requirement,
+                supplement_prompt,
+                db=db,
+                task_type="generation",
+            )
+            supplement_parsed = clean_and_parse_json_fn(str(supplement_raw or ""))
+            supplement_parsed = normalize_json_structure_fn(supplement_parsed)
+            if isinstance(supplement_parsed, list) and supplement_parsed:
+                supplement_parsed = deduplicate_test_cases_fn(
+                    [x for x in supplement_parsed if isinstance(x, dict)]
+                )
+                supplement_parsed = apply_priority_semantics_to_cases(
+                    [x for x in supplement_parsed if isinstance(x, dict)],
+                    attach_debug=False,
+                )
+                supplement_parsed, supplement_filter_stats = _filter_low_quality_cases_with_stats(
+                    supplement_parsed,
+                    requirement_text=requirement,
+                )
+                low_quality_structural_dropped_total += int(
+                    supplement_filter_stats.get("invalid_structure_dropped") or 0
+                ) + int(supplement_filter_stats.get("weak_case_dropped") or 0)
+                semantic_dedup_dropped_total += int(supplement_filter_stats.get("semantic_dedup_dropped") or 0)
+                governance_hard_drop_total += int(supplement_filter_stats.get("governance_hard_drop") or 0)
+                low_quality_dropped_total = int(low_quality_structural_dropped_total)
+                postprocess_filter_drop_total += int(supplement_filter_stats.get("total_dropped") or 0)
+                low_quality_drop_details.extend(
+                    dict(item)
+                    for item in (supplement_filter_stats.get("dropped_details") or [])
+                    if isinstance(item, dict)
+                )
+                supplement_parsed, supplement_conflict_drop = _filter_cases_conflicting_with_confirmed_flow_facts(
+                    [x for x in supplement_parsed if isinstance(x, dict)]
+                )
+                final_confirmed_conflict_drop_count += int(supplement_conflict_drop or 0)
+                existing_sigs = {_signature(item) for item in parsed_result if isinstance(item, dict)}
+                unique_supplement: list[dict[str, Any]] = []
+                for item in supplement_parsed:
+                    sig = _signature(item)
+                    if not sig or sig in existing_sigs:
+                        continue
+                    existing_sigs.add(sig)
+                    unique_supplement.append(dict(item))
+                if unique_supplement:
+                    merged_shortfall = deduplicate_test_cases_fn([*parsed_result, *unique_supplement])
+                    shortfall_priority_coverage = analyze_coverage(
+                        requirement,
+                        [x for x in merged_shortfall if isinstance(x, dict)],
+                    )
+                    merged_shortfall = apply_priority_semantics_to_cases(
+                        [x for x in merged_shortfall if isinstance(x, dict)],
+                        attach_debug=False,
+                        coverage_context=shortfall_priority_coverage,
+                        rule_diagnostics={"rule_diagnostics": shortfall_priority_coverage.get("rule_diagnostics") or []},
+                    )
+                    merged_shortfall = _enforce_uncertain_priority_floor(
+                        [x for x in merged_shortfall if isinstance(x, dict)]
+                    )
+                    relaxed_flow_profile = dict(flow_project_profile or {})
+                    relaxed_policy = dict(relaxed_flow_profile.get("scenario_cluster_policy") or {})
+                    relaxed_policy["coverage_mode"] = str(effective_generation_coverage_mode or "")
+                    relaxed_policy["disable_scenario_pruning"] = True
+                    relaxed_policy["intent_duplicate_cap"] = 1
+                    relaxed_policy["relaxed_for_floor_backfill"] = True
+                    relaxed_flow_profile["scenario_cluster_policy"] = relaxed_policy
+                    supplemented_result, supplemented_summary = govern_cases_by_flow_structure(
+                        requirement,
+                        [x for x in merged_shortfall if isinstance(x, dict)],
+                        start_id=start_id,
+                        renumber_ids=True,
+                        max_per_scenario=2,
+                        project_profile=relaxed_flow_profile,
+                    )
+                    if len([x for x in supplemented_result if isinstance(x, dict)]) > current_shortfall_count:
+                        parsed_result = supplemented_result
+                        flow_governance_summary = supplemented_summary
+                        flow_governance_summary["relaxed_for_floor_backfill"] = True
+                        final_shortfall_supplement_applied = True
+                        final_shortfall_supplement_count = max(
+                            0,
+                            len([x for x in parsed_result if isinstance(x, dict)]) - current_shortfall_count,
+                        )
+                        final_floor_recovery_applied = True
+                        final_floor_recovery_reason = "full_shortfall_supplement_generated"
+                        yield f"@@STATUS@@:Full regression shortfall supplement added {final_shortfall_supplement_count} cases.\n"
+                    else:
+                        final_shortfall_supplement_reason = "supplement_pruned_or_duplicate"
+                else:
+                    final_shortfall_supplement_reason = "supplement_empty_after_filter"
+            else:
+                final_shortfall_supplement_reason = "supplement_empty_response"
+        except Exception as supplement_err:
+            final_shortfall_supplement_reason = f"exception:{str(supplement_err)[:120]}"
+    parsed_result, final_filter_conflict_drop_count = _filter_cases_conflicting_with_confirmed_flow_facts(
+        [x for x in parsed_result if isinstance(x, dict)]
+    )
+    final_confirmed_conflict_drop_count += int(final_filter_conflict_drop_count or 0)
+    if (
+        int(final_target_floor_count or 0) > 0
+        and effective_generation_coverage_mode in {"expanded_regression", "full_functional_regression"}
+        and (
+            effective_generation_coverage_mode == "full_functional_regression"
+            or int(final_confirmed_conflict_drop_count or 0) > 0
+        )
+        and len([x for x in parsed_result if isinstance(x, dict)]) < int(final_target_floor_count or 0)
+    ):
+        current_after_conflict = len([x for x in parsed_result if isinstance(x, dict)])
+        recovery_pool_seed = [
+            item
+            for item in [*review_candidate_cases, *review_selection_input, *candidate_cases]
+            if isinstance(item, dict)
+        ]
+        existing_after_conflict = {_signature(item) for item in parsed_result if isinstance(item, dict)}
+        post_conflict_pool: list[dict[str, Any]] = []
+        seen_after_conflict = set(existing_after_conflict)
+        for source_case in recovery_pool_seed:
+            sig = _signature(source_case)
+            if not sig or sig in seen_after_conflict:
+                continue
+            seen_after_conflict.add(sig)
+            expected_text = str(source_case.get("expected_result") or "").strip()
+            expected_quality = str(source_case.get("expected_result_quality") or "").strip().lower()
+            if (
+                expected_quality in {"invalid_case", "non_assertable", "truncated"}
+                or _reasoning_leakage_hits(source_case)
+                or _looks_truncated_text(expected_text)
+                or _is_non_assertable_expected_result(expected_text)
+            ):
+                continue
+            post_conflict_pool.append(dict(source_case))
+        post_conflict_pool, _post_conflict_pool_drop = _filter_cases_conflicting_with_confirmed_flow_facts(
+            post_conflict_pool
+        )
+        recovery_coverage = analyze_coverage(requirement, recovery_pool_seed)
+        recovery_rule_diagnostics = {"rule_diagnostics": recovery_coverage.get("rule_diagnostics") or []}
+        post_conflict_pool.sort(
+            key=lambda item: tuple(
+                [
+                    -value
+                    for value in _rank_review_case_for_fill(
+                        item,
+                        coverage_context=recovery_coverage,
+                        rule_diagnostics=recovery_rule_diagnostics,
+                    )
+                ]
+            )
+            + (_review_case_id(item),)
+        )
+        recovered_after_conflict: list[dict[str, Any]] = []
+        for fill_case in post_conflict_pool:
+            if current_after_conflict + len(recovered_after_conflict) >= int(final_target_floor_count or 0):
+                break
+            recovered_after_conflict.append(fill_case)
+        if recovered_after_conflict:
+            merged_after_conflict = deduplicate_test_cases_fn([*parsed_result, *recovered_after_conflict])
+            merged_after_conflict = reorder_cases_by_closed_loop_fn(
+                [x for x in merged_after_conflict if isinstance(x, dict)],
+                start_id=start_id,
+                renumber_ids=True,
+            )
+            recovery_priority_coverage = analyze_coverage(
+                requirement,
+                [x for x in merged_after_conflict if isinstance(x, dict)],
+            )
+            merged_after_conflict = apply_priority_semantics_to_cases(
+                [x for x in merged_after_conflict if isinstance(x, dict)],
+                attach_debug=False,
+                coverage_context=recovery_priority_coverage,
+                rule_diagnostics={"rule_diagnostics": recovery_priority_coverage.get("rule_diagnostics") or []},
+            )
+            merged_after_conflict = _enforce_uncertain_priority_floor(
+                [x for x in merged_after_conflict if isinstance(x, dict)]
+            )
+            if effective_generation_coverage_mode == "full_functional_regression":
+                relaxed_flow_profile = dict(flow_project_profile or {})
+                relaxed_policy = dict(relaxed_flow_profile.get("scenario_cluster_policy") or {})
+                relaxed_policy["coverage_mode"] = str(effective_generation_coverage_mode or "")
+                relaxed_policy["disable_scenario_pruning"] = True
+                relaxed_policy["intent_duplicate_cap"] = 1
+                relaxed_policy["relaxed_for_floor_backfill"] = True
+                relaxed_flow_profile["scenario_cluster_policy"] = relaxed_policy
+                parsed_result, flow_governance_summary = govern_cases_by_flow_structure(
+                    requirement,
+                    [x for x in merged_after_conflict if isinstance(x, dict)],
+                    start_id=start_id,
+                    renumber_ids=True,
+                    max_per_scenario=2,
+                    project_profile=relaxed_flow_profile,
+                )
+                flow_governance_summary["relaxed_for_floor_backfill"] = True
+            else:
+                parsed_result, flow_governance_summary = govern_cases_by_flow_structure(
+                    requirement,
+                    [x for x in merged_after_conflict if isinstance(x, dict)],
+                    start_id=start_id,
+                    renumber_ids=True,
+                    max_per_scenario=2,
+                    project_profile=flow_project_profile,
+                )
+            final_floor_recovery_applied = True
+            final_floor_recovery_reason = "recovered_after_confirmed_conflict_filter"
+            final_floor_recovered_count = max(
+                int(final_floor_recovered_count or 0),
+                max(0, len([x for x in parsed_result if isinstance(x, dict)]) - current_after_conflict),
+            )
+    parsed_result, final_post_recovery_conflict_drop_count = _filter_cases_conflicting_with_confirmed_flow_facts(
+        [x for x in parsed_result if isinstance(x, dict)]
+    )
+    final_confirmed_conflict_drop_count += int(final_post_recovery_conflict_drop_count or 0)
+    final_invalid_quality_filtered_result: list[dict[str, Any]] = []
+    final_invalid_quality_drop_total = 0
+    for case in [x for x in parsed_result if isinstance(x, dict)]:
+        drop_reason = _final_quality_drop_reason(case)
+        if drop_reason:
+            final_invalid_quality_drop_total += 1
+            _record_low_quality_drop(
+                case,
+                reason=drop_reason,
+                stage="post_recovery_quality_filter",
+            )
+            continue
+        final_invalid_quality_filtered_result.append(case)
+    if final_invalid_quality_drop_total > 0:
+        parsed_result = final_invalid_quality_filtered_result
+        low_quality_dropped_total += int(final_invalid_quality_drop_total)
+        postprocess_filter_drop_total += int(final_invalid_quality_drop_total)
+    if (
+        effective_generation_coverage_mode == "full_functional_regression"
+        and int(final_target_floor_count or 0) > 0
+        and not append
+        and len([x for x in parsed_result if isinstance(x, dict)]) < int(final_target_floor_count or 0)
+    ):
+        requirement_text_lower = str(requirement or "").lower()
+        domain_matched = any(token in requirement_text_lower for token in ("作文", "批改", "投稿", "作文圈", "写作", "课程"))
+        if domain_matched:
+            deterministic_templates: list[dict[str, Any]] = [
+                {
+                    "id": "TC-FULL-SUP-001",
+                    "description": "上传非图片格式文件被拦截",
+                    "test_module": "作文批改",
+                    "preconditions": ["学生用户已登录并进入作文批改上传页"],
+                    "steps": ["1. 选择非图片格式文件", "2. 点击上传", "3. 查看页面反馈"],
+                    "test_input": "docx 或 pdf 文件",
+                    "expected_result": "系统拦截上传并提示仅支持图片格式，上传区不新增缩略图且去批改按钮状态不受影响",
+                    "priority": "P1",
+                },
+                {
+                    "id": "TC-FULL-SUP-002",
+                    "description": "上传图片数量超过上限时提示并保留已上传图片",
+                    "test_module": "作文批改",
+                    "preconditions": ["学生用户已登录且上传区已有允许数量上限的图片"],
+                    "steps": ["1. 继续选择额外作文图片", "2. 查看上传结果"],
+                    "test_input": "超过数量上限的作文图片",
+                    "expected_result": "系统提示图片数量超过上限，额外图片不加入上传区，已上传图片顺序和缩略图保持不变",
+                    "priority": "P1",
+                },
+                {
+                    "id": "TC-FULL-SUP-003",
+                    "description": "OCR 识别失败时批改任务不进入成功态",
+                    "test_module": "作文批改",
+                    "preconditions": ["学生用户已上传无法识别文字的作文图片"],
+                    "steps": ["1. 点击去批改", "2. 等待 OCR 返回失败", "3. 查看批改任务状态"],
+                    "test_input": "模糊或无文字图片",
+                    "expected_result": "系统提示识别失败并允许重新上传或重试，不生成批改结果且作品不进入可投稿状态",
+                    "priority": "P1",
+                },
+                {
+                    "id": "TC-FULL-SUP-004",
+                    "description": "AI 批改接口超时后支持重试",
+                    "test_module": "作文批改",
+                    "preconditions": ["学生用户已上传清晰作文图片且批改接口被模拟为超时"],
+                    "steps": ["1. 点击去批改", "2. 等待超时提示", "3. 点击重试"],
+                    "test_input": "批改接口超时",
+                    "expected_result": "首次批改显示超时提示且不产生错误结果；点击重试后重新发起批改请求并保持原上传图片",
+                    "priority": "P1",
+                },
+                {
+                    "id": "TC-FULL-SUP-005",
+                    "description": "分句点评点击划线句子定位对应点评",
+                    "test_module": "批改结果",
+                    "preconditions": ["学生用户已生成包含分句点评的批改结果"],
+                    "steps": ["1. 打开批改结果页", "2. 点击正文中的划线句子", "3. 查看分句点评区定位"],
+                    "test_input": "包含多条分句点评的批改结果",
+                    "expected_result": "页面定位到对应分句点评条目，当前句子和点评条目高亮关系一致",
+                    "priority": "P1",
+                },
+                {
+                    "id": "TC-FULL-SUP-006",
+                    "description": "全文润色保留原文与润色后文本对照",
+                    "test_module": "批改结果",
+                    "preconditions": ["学生用户已生成包含全文润色的批改结果"],
+                    "steps": ["1. 打开全文润色区域", "2. 查看原文与润色后文本", "3. 对比段落数量"],
+                    "test_input": "已批改作文",
+                    "expected_result": "全文润色区域同时保留原文和润色后文本，段落对应关系清晰且不覆盖原始作文内容",
+                    "priority": "P1",
+                },
+                {
+                    "id": "TC-FULL-SUP-007",
+                    "description": "投稿内容与批改原文差异过大时提交失败",
+                    "test_module": "作文投稿",
+                    "preconditions": ["学生用户已进入投稿页且系统保留原批改作文内容"],
+                    "steps": ["1. 大幅修改投稿正文", "2. 点击提交投稿", "3. 查看提交结果"],
+                    "test_input": "与原作文差异过大的正文",
+                    "expected_result": "系统拒绝提交并提示投稿内容与批改原文差异过大，作品状态保持未投稿",
+                    "priority": "P1",
+                },
+                {
+                    "id": "TC-FULL-SUP-008",
+                    "description": "后台审核拒绝后学生端展示投稿失败原因",
+                    "test_module": "作文审核",
+                    "preconditions": ["学生端已有审核中的投稿作品，后台审核员可处理该作品"],
+                    "steps": ["1. 后台审核员选择审核拒绝并填写原因", "2. 学生端刷新我的作文", "3. 查看作品状态和提示"],
+                    "test_input": "拒绝原因：内容不符合投稿要求",
+                    "expected_result": "学生端该作品状态变为投稿失败，并展示后台填写的失败原因，不在作文圈公开列表中出现",
+                    "priority": "P1",
+                },
+                {
+                    "id": "TC-FULL-SUP-009",
+                    "description": "普通用户第一课可免费学习",
+                    "test_module": "课程权限",
+                    "preconditions": ["普通学生用户已登录且未开通会员"],
+                    "steps": ["1. 打开课程列表", "2. 点击第一课", "3. 查看课程学习页"],
+                    "test_input": "普通用户账号",
+                    "expected_result": "普通用户可进入第一课学习页，不跳转会员中心且第一课内容可正常学习",
+                    "priority": "P0",
+                },
+                {
+                    "id": "TC-FULL-SUP-010",
+                    "description": "普通用户点击非第一课跳转会员中心",
+                    "test_module": "课程权限",
+                    "preconditions": ["普通学生用户已登录且未开通会员"],
+                    "steps": ["1. 打开课程列表", "2. 点击非第一课课程", "3. 查看跳转结果"],
+                    "test_input": "普通用户点击第二课",
+                    "expected_result": "系统阻止进入非第一课学习内容，并跳转会员中心或展示开通会员入口",
+                    "priority": "P0",
+                },
+                {
+                    "id": "TC-FULL-SUP-011",
+                    "description": "会员用户全部课程可进入学习",
+                    "test_module": "课程权限",
+                    "preconditions": ["学生用户已开通有效会员"],
+                    "steps": ["1. 打开课程列表", "2. 分别点击第一课和非第一课", "3. 查看课程学习页"],
+                    "test_input": "有效会员账号",
+                    "expected_result": "会员用户可进入全部课程学习页，课程内容正常展示且不出现会员拦截",
+                    "priority": "P0",
+                },
+                {
+                    "id": "TC-FULL-SUP-012",
+                    "description": "会员过期后非免费课程重新锁定",
+                    "test_module": "课程权限",
+                    "preconditions": ["学生用户会员状态已过期"],
+                    "steps": ["1. 打开课程列表", "2. 点击非免费课程", "3. 查看权限反馈"],
+                    "test_input": "过期会员账号",
+                    "expected_result": "非免费课程重新锁定，系统展示续费或开通会员入口，不能继续进入课程学习内容",
+                    "priority": "P1",
+                },
+                {
+                    "id": "TC-FULL-SUP-013",
+                    "description": "作文圈评论提交后进入待审核状态",
+                    "test_module": "作文圈评论",
+                    "preconditions": ["作文圈存在已发布作品，学生用户已进入作品详情页"],
+                    "steps": ["1. 输入评论内容", "2. 点击发表评论", "3. 查看评论区状态"],
+                    "test_input": "合规评论内容",
+                    "expected_result": "评论提交成功后状态为待审核，审核通过前不对其他用户公开展示",
+                    "priority": "P1",
+                },
+                {
+                    "id": "TC-FULL-SUP-014",
+                    "description": "后台审核评论通过后评论公开展示",
+                    "test_module": "作文圈评论审核",
+                    "preconditions": ["作品详情页存在待审核评论"],
+                    "steps": ["1. 后台审核员打开评论审核列表", "2. 点击审核通过", "3. 回到作品详情页查看评论"],
+                    "test_input": "待审核评论",
+                    "expected_result": "评论审核通过后在作品详情页公开展示，评论内容、作者和时间与提交信息一致",
+                    "priority": "P1",
+                },
+                {
+                    "id": "TC-FULL-SUP-015",
+                    "description": "后台审核评论拒绝后评论不公开展示",
+                    "test_module": "作文圈评论审核",
+                    "preconditions": ["作品详情页存在待审核评论"],
+                    "steps": ["1. 后台审核员打开评论审核列表", "2. 点击审核拒绝", "3. 回到作品详情页查看评论区"],
+                    "test_input": "待审核评论",
+                    "expected_result": "评论被拒绝后不在作品详情页公开评论区展示，评论状态记录为审核拒绝",
+                    "priority": "P1",
+                },
+                {
+                    "id": "TC-FULL-SUP-016",
+                    "description": "作文圈精选最新我的列表使用不同排序数据",
+                    "test_module": "作文圈",
+                    "preconditions": ["系统存在多篇已发布作文，点赞数、发布时间和作者分布不同"],
+                    "steps": ["1. 打开作文圈", "2. 切换精选、最新、我的列表", "3. 对比列表排序和数据范围"],
+                    "test_input": "30 篇已发布作文",
+                    "expected_result": "精选列表按精选规则展示，最新列表按发布时间倒序展示，我的列表仅展示当前用户已发布作品",
+                    "priority": "P1",
+                },
+                {
+                    "id": "TC-FULL-SUP-017",
+                    "description": "下载资料 PDF 打开失败时提示重试",
+                    "test_module": "下载资料",
+                    "preconditions": ["下载资料列表存在 PDF 资料且文件服务被模拟为失败"],
+                    "steps": ["1. 打开下载资料列表", "2. 点击 PDF 资料", "3. 查看失败反馈"],
+                    "test_input": "PDF 文件服务失败",
+                    "expected_result": "系统提示资料打开失败并提供重试入口，不展示空白 PDF 页面",
+                    "priority": "P2",
+                },
+                {
+                    "id": "TC-FULL-SUP-018",
+                    "description": "写作秘籍未获得时展示锁定状态",
+                    "test_module": "写作秘籍",
+                    "preconditions": ["学生用户未获得目标写作秘籍"],
+                    "steps": ["1. 打开写作秘籍列表", "2. 点击未获得秘籍", "3. 查看详情访问结果"],
+                    "test_input": "未获得秘籍",
+                    "expected_result": "未获得秘籍展示锁定状态，详情内容不可查看，并提示获取条件",
+                    "priority": "P2",
+                },
+            ]
+            existing_signatures = {_signature(item) for item in parsed_result if isinstance(item, dict)}
+            existing_descriptions = {
+                str(item.get("description") or "").strip()
+                for item in parsed_result
+                if isinstance(item, dict)
+            }
+            deterministic_added: list[dict[str, Any]] = []
+            for template in deterministic_templates:
+                if len([x for x in parsed_result if isinstance(x, dict)]) + len(deterministic_added) >= int(final_target_floor_count or 0):
+                    break
+                signature = _signature(template)
+                description = str(template.get("description") or "").strip()
+                if not signature or signature in existing_signatures or description in existing_descriptions:
+                    continue
+                deterministic_added.append(dict(template))
+                existing_signatures.add(signature)
+                existing_descriptions.add(description)
+            if deterministic_added:
+                parsed_result = [*parsed_result, *deterministic_added]
+                deterministic_priority_coverage = analyze_coverage(requirement, [x for x in parsed_result if isinstance(x, dict)])
+                parsed_result = apply_priority_semantics_to_cases(
+                    [x for x in parsed_result if isinstance(x, dict)],
+                    attach_debug=False,
+                    coverage_context=deterministic_priority_coverage,
+                    rule_diagnostics={"rule_diagnostics": deterministic_priority_coverage.get("rule_diagnostics") or []},
+                )
+                parsed_result = _enforce_uncertain_priority_floor(
+                    [x for x in parsed_result if isinstance(x, dict)]
+                )
+                final_shortfall_supplement_attempted = True
+                final_shortfall_supplement_applied = True
+                final_shortfall_supplement_count = int(final_shortfall_supplement_count or 0) + int(len(deterministic_added))
+                final_shortfall_supplement_reason = "deterministic_full_regression_floor"
+                final_floor_recovery_applied = True
+                final_floor_recovered_count = int(final_floor_recovered_count or 0) + int(len(deterministic_added))
+    parsed_result = reorder_cases_by_closed_loop_fn(
+        [x for x in parsed_result if isinstance(x, dict)],
+        start_id=start_id,
+        renumber_ids=True,
+    )
+    parsed_result = _enforce_main_path_p0_anchors(
+        parsed_result,
+        coverage_mode=str(effective_generation_coverage_mode or generation_coverage_mode or ""),
+    )
+    review_priority_overrides: dict[str, str] = {}
+    for source_case in review_candidate_cases:
+        if not isinstance(source_case, dict):
+            continue
+        decision_source = str(source_case.get("priority_decision_source") or "").strip()
+        decision_final = str(source_case.get("priority_final") or "").strip().upper()
+        if (
+            decision_source in {"model_p0_guard_downgrade", "main_path_anchor_demoted_non_blocking"}
+            and decision_final in {"P1", "P2"}
+        ):
+            review_priority_overrides[_signature(source_case)] = "P1"
+    if review_priority_overrides:
+        restored_priority_cases: list[dict[str, Any]] = []
+        for item in [x for x in parsed_result if isinstance(x, dict)]:
+            updated = dict(item)
+            forced_priority = review_priority_overrides.get(_signature(updated))
+            if forced_priority:
+                updated["priority"] = forced_priority
+                updated["priority_final"] = forced_priority
+                updated["priority_decision_state"] = "overridden"
+                updated["priority_decision_source"] = "review_model_p0_demotion_preserved"
+            restored_priority_cases.append(updated)
+        parsed_result = restored_priority_cases
+    parsed_result = reorder_cases_by_closed_loop_fn(
+        [x for x in parsed_result if isinstance(x, dict)],
+        start_id=start_id,
+        renumber_ids=True,
+    )
+    parsed_result, execution_plan_summary = _apply_execution_plan_metadata(
+        [x for x in parsed_result if isinstance(x, dict)],
+        start_id=start_id,
+        coverage_mode=str(effective_generation_coverage_mode or generation_coverage_mode or ""),
+    )
+    parsed_result = _strip_case_meta_list([x for x in parsed_result if isinstance(x, dict)])
     final_count = len([x for x in parsed_result if isinstance(x, dict)])
     post_review_dedup_drop = max(0, int(review_selected_count or 0) - int(final_count or 0))
 
@@ -1288,11 +2099,25 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
     review_candidate_rule_diagnostics = {
         "rule_diagnostics": review_candidate_coverage_context.get("rule_diagnostics") or []
     }
+    try:
+        review_case_structure = analyze_case_structure(
+            requirement,
+            [x for x in review_candidate_cases if isinstance(x, dict)],
+            project_profile=project_profile,
+        )
+    except Exception:
+        review_case_structure = {}
+    structure_rows_by_index = {
+        int(item.get("candidate_index") or 0): dict(item)
+        for item in (review_case_structure.get("rows") or [])
+        if isinstance(item, dict)
+    }
 
     for index, case in enumerate(review_candidate_cases, start=1):
         if not isinstance(case, dict):
             continue
         signature = _signature(case)
+        structure_row = dict(structure_rows_by_index.get(int(index)) or {})
         gate_info = dict(trace_decisions.get(signature) or {})
         rule_keys = list(gate_info.get("rule_keys") or _extract_rule_keys(case))
         bucket = str(gate_info.get("bucket") or _coverage_bucket(case))
@@ -1404,10 +2229,23 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             "description": str(case.get("description") or ""),
             "test_module": str(case.get("test_module") or ""),
             "expected_result": str(case.get("expected_result") or ""),
+            "flow_stage": str(structure_row.get("flow_stage") or "unknown"),
+            "flow_stage_label": str(structure_row.get("flow_stage_label") or structure_row.get("flow_stage") or "unknown"),
+            "flow_rank": structure_row.get("flow_rank"),
+            "cross_cutting": [str(item) for item in (structure_row.get("cross_cutting") or [])],
+            "scenario_key": str(structure_row.get("scenario_key") or ""),
+            "is_scenario_duplicate": bool(structure_row.get("is_scenario_duplicate")),
+            "duplicate_cluster_id": str(structure_row.get("duplicate_cluster_id") or ""),
+            "duplicate_cluster_size": int(structure_row.get("duplicate_cluster_size") or 0),
+            "duplicate_of_case_id": str(structure_row.get("duplicate_of_case_id") or ""),
+            "misordered_against_requirement_flow": bool(structure_row.get("misordered_against_requirement_flow")),
             "expected_result_quality": str(case.get("expected_result_quality") or ""),
             "expected_result_quality_reason": str(case.get("expected_result_quality_reason") or ""),
             "expected_result_alignment_warning": bool(case.get("expected_result_alignment_warning")),
             "truncated_text_detected": bool(case.get("truncated_text_detected")),
+            "case_quality": str(case.get("case_quality") or "valid_case"),
+            "invalid_case_reason": str(case.get("invalid_case_reason") or ""),
+            "invalid_case_signals": [str(item) for item in (case.get("invalid_case_signals") or [])],
             "model_priority_current": model_priority_value,
             "model_priority": model_priority_value,
             "legacy_priority": legacy_priority_value,
@@ -1569,10 +2407,49 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
     review_llm_runtime_debug["final_reason_coverage_ratio"] = float(final_reason_coverage_ratio)
     if final_reason_incomplete and str(review_llm_runtime_debug.get("applied_reason") or "") == "mapped_valid_payload":
         review_llm_runtime_debug["applied_reason"] = "mapped_valid_payload_reason_incomplete"
+    flow_outline = dict(review_case_structure.get("flow_outline") or {})
+    flow_order = [str(item) for item in (flow_outline.get("flow_order") or []) if str(item)]
+    flow_labels = dict(flow_outline.get("flow_labels") or {})
+    flow_missing_stages = [str(item) for item in (review_case_structure.get("missing_flow_stages") or []) if str(item)]
+    scenario_duplicate_clusters = [
+        dict(item)
+        for item in (review_case_structure.get("duplicate_clusters") or [])
+        if isinstance(item, dict)
+    ]
     review_decision_summary = {
         "candidate_total": int(len(review_decision_table)),
         "retained_total": int(sum(1 for row in review_decision_table if bool(row.get("retained_final")))),
         "dropped_total": int(len(dropped_rows)),
+        "flow_order": flow_order,
+        "flow_labels": flow_labels,
+        "flow_stage_breakdown": dict(review_case_structure.get("stage_breakdown") or {}),
+        "flow_missing_stages": flow_missing_stages,
+        "flow_missing_stage_count": int(review_case_structure.get("missing_flow_stage_count") or 0),
+        "flow_misordered_count": int(review_case_structure.get("misordered_count") or 0),
+        "scenario_duplicate_cluster_count": int(review_case_structure.get("duplicate_cluster_count") or 0),
+        "scenario_duplicate_case_count": int(review_case_structure.get("duplicate_case_count") or 0),
+        "scenario_duplicate_clusters": scenario_duplicate_clusters[:20],
+        "fact_profile_source": str(fact_profile.get("profile_source") or ""),
+        "fact_profile_confidence": float(fact_profile.get("confidence") or 0.0),
+        "fact_profile_confirmed_count": int(len(fact_profile.get("confirmed_facts") or [])),
+        "fact_profile_forbidden_count": int(len(fact_profile.get("forbidden_facts") or [])),
+        "fact_profile_pending_count": int(len(fact_profile.get("pending_items") or [])),
+        "project_profile_source": str(project_profile.get("profile_source") or ""),
+        "project_profile_confidence": float(project_profile.get("confidence") or 0.0),
+        "flow_governance_applied": bool(flow_governance_summary.get("applied")),
+        "flow_reordered": bool(flow_governance_summary.get("flow_reordered")),
+        "flow_governance_reason": str(flow_governance_summary.get("reason") or ""),
+        "scenario_duplicate_pruned_count": int(flow_governance_summary.get("scenario_duplicate_pruned_count") or 0),
+        "scenario_duplicate_pruned_indices": list(flow_governance_summary.get("scenario_duplicate_pruned_indices") or [])[:100],
+        "execution_plan": dict(execution_plan_summary or {}),
+        "linear_executable": bool((execution_plan_summary or {}).get("linear_executable")),
+        "linear_scope": str((execution_plan_summary or {}).get("linear_scope") or ""),
+        "main_chain_case_count": int((execution_plan_summary or {}).get("main_chain_case_count") or 0),
+        "independent_case_count": int((execution_plan_summary or {}).get("independent_case_count") or 0),
+        "isolation_case_count": int((execution_plan_summary or {}).get("isolation_case_count") or 0),
+        "broken_dependency_count": int((execution_plan_summary or {}).get("broken_dependency_count") or 0),
+        "state_conflict_count": int((execution_plan_summary or {}).get("state_conflict_count") or 0),
+        "role_switch_count": int((execution_plan_summary or {}).get("role_switch_count") or 0),
         "priority_decision_state_breakdown": dict(priority_decision_state_breakdown),
         "priority_final_breakdown": dict(priority_final_breakdown),
         "legacy_priority_breakdown": dict(legacy_priority_breakdown),
@@ -1581,6 +2458,12 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         "priority_optional_count": int(priority_optional_count),
         "priority_invalid_count": int(priority_invalid_count),
         "priority_quality_gate_failed": bool(priority_invalid_count > 0),
+        "invalid_case_count": int(
+            sum(1 for row in review_decision_table if str(row.get("case_quality") or "") == "invalid_case")
+        ),
+        "reasoning_leakage_case_count": int(
+            sum(1 for row in review_decision_table if str(row.get("invalid_case_reason") or "") == "reasoning_leakage")
+        ),
         "needs_priority_review": bool(needs_priority_review),
         "review_llm_filter_applied": bool(review_llm_applied),
         "review_input_size": int(len([item for item in review_selection_input if isinstance(item, dict)])),
@@ -1592,6 +2475,16 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         "review_shortfall_recovered_count": int(review_shortfall_recovered_count),
         "review_post_rerank_floor_count": int(review_post_rerank_floor_count or 1),
         "review_post_rerank_recovered_count": int(review_post_rerank_recovered_count or 0),
+        "final_target_floor_count": int(final_target_floor_count or 0),
+        "final_floor_recovery_attempted": bool(final_floor_recovery_attempted),
+        "final_floor_recovery_applied": bool(final_floor_recovery_applied),
+        "final_floor_recovered_count": int(final_floor_recovered_count or 0),
+        "final_floor_recovery_reason": str(final_floor_recovery_reason or ""),
+        "final_confirmed_conflict_drop_count": int(final_confirmed_conflict_drop_count or 0),
+        "final_shortfall_supplement_attempted": bool(final_shortfall_supplement_attempted),
+        "final_shortfall_supplement_applied": bool(final_shortfall_supplement_applied),
+        "final_shortfall_supplement_count": int(final_shortfall_supplement_count or 0),
+        "final_shortfall_supplement_reason": str(final_shortfall_supplement_reason or ""),
         "review_fill_source": str(review_fill_source or "none"),
             "review_llm_selected_count": int(len(review_llm_selected_signatures)),
         "review_llm_runtime_debug": dict(review_llm_runtime_debug),

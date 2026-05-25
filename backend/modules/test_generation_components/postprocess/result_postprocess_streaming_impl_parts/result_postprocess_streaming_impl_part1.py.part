@@ -4,6 +4,7 @@ import json
 import re
 from typing import Any, Callable, Iterator
 
+from ..coverage.coverage_analyzer import case_complexity_profile
 from .result_postprocess_priority_semantics import apply_priority_semantics_to_cases, score_case_priority
 
 def stream_postprocess_cases(
@@ -34,7 +35,11 @@ def stream_postprocess_cases(
 ) -> Iterator[dict[str, Any]]:
     """Stream postprocess: dedup + quality filtering + rerank + convergence diagnostics."""
 
-    from modules.testing.test_generation_components.coverage.coverage_analyzer import analyze_coverage
+    from modules.testing.test_generation_components.coverage.coverage_analyzer import (
+        analyze_case_structure,
+        analyze_coverage,
+        govern_cases_by_flow_structure,
+    )
     from modules.testing.test_generation_components.prompting.prompt_orchestration import (
         build_gap_fill_prompt,
         build_review_select_prompt,
@@ -47,6 +52,8 @@ def stream_postprocess_cases(
     generation_coverage_profile = dict(
         (dict(control_state.source_meta or {}).get("generation_coverage_profile") or {})
     )
+    fact_profile = dict((dict(control_state.source_meta or {}).get("fact_profile") or {}))
+    project_profile = dict((dict(control_state.source_meta or {}).get("project_profile") or {}))
     generation_coverage_mode = str(generation_coverage_profile.get("coverage_mode") or "core_smoke")
     generation_target_case_range = dict(generation_coverage_profile.get("target_case_range") or {})
     must_cover_rule_set = {str(rule).strip().upper() for rule in (control_state.must_cover_rules or []) if str(rule).strip()}
@@ -195,7 +202,7 @@ def stream_postprocess_cases(
         *,
         coverage_context: dict[str, Any] | None,
         rule_diagnostics: dict[str, Any] | list[dict[str, Any]] | None,
-    ) -> tuple[int, int, int, int, int, int]:
+    ) -> tuple[int, int, int, int, int, int, int]:
         profile = score_case_priority(
             case,
             coverage_context=coverage_context,
@@ -211,12 +218,14 @@ def stream_postprocess_cases(
         focus_score = int(_focus_score(case))
         coverage_gain_score = int(profile.get("coverage_gain_score") or 0)
         priority_score = int(_priority_score(case))
+        complexity_score = int(case_complexity_profile(case).get("complexity_score") or 0)
         return (
             int(has_coverage_value),
             int(reuse_risk_hit),
             int(high_signal),
             int(focus_score),
             int(max(0, coverage_gain_score)),
+            -min(complexity_score, 8),
             int(priority_score),
         )
 
@@ -308,6 +317,23 @@ def stream_postprocess_cases(
                     target_min,
                     int(round(total * 0.90)),
                     int(round(reference * 0.75)),
+                ),
+            )
+        elif coverage_mode == "expanded_regression":
+            target_min = min(
+                total,
+                max(
+                    target_min,
+                    int(round(total * 0.80)),
+                    int(round(reference * 0.80)),
+                ),
+            )
+            target_max = min(
+                total,
+                max(
+                    target_min,
+                    int(round(total * 0.96)),
+                    int(round(reference * 1.10)),
                 ),
             )
         elif coverage_mode == "standard_regression":
@@ -828,6 +854,16 @@ def stream_postprocess_cases(
         "符合预期",
     )
 
+    _NON_ASSERTABLE_EXPECTED_PHRASES = _NON_ASSERTABLE_EXPECTED_PHRASES + (
+        "应跳转到目标页面",
+        "页面路径与标题",
+        "响应状态码正确",
+        "授权范围内页面或模块",
+        "关键字段",
+        "字段值与输入",
+        "后端数据一致",
+    )
+
     _TRUNCATED_TEXT_ENDINGS = (
         "或显",
         "对应内",
@@ -837,15 +873,132 @@ def stream_postprocess_cases(
         "显示为",
     )
 
+    _REASONING_LEAKAGE_SIGNALS = (
+        "可能",
+        "似乎",
+        "不合理",
+        "再读需求",
+        "我们按照",
+        "假设此处",
+        "需求说",
+        "按需求原文",
+        "怎么会有",
+        "此处假设",
+        "暂且认为",
+        "先按",
+        "assume here",
+        "assuming here",
+        "seems",
+        "maybe",
+        "not reasonable",
+        "reread requirement",
+    )
+
+    def _reasoning_leakage_hits(case: dict[str, Any]) -> list[str]:
+        parts: list[str] = []
+        preconditions = case.get("preconditions")
+        if isinstance(preconditions, list):
+            parts.extend(str(item) for item in preconditions if str(item).strip())
+        elif preconditions is not None:
+            parts.append(str(preconditions))
+        steps = case.get("steps")
+        if isinstance(steps, list):
+            parts.extend(str(item) for item in steps if str(item).strip())
+        elif steps is not None:
+            parts.append(str(steps))
+        parts.append(str(case.get("expected_result") or ""))
+        text = "\n".join(parts).lower()
+        hits: list[str] = []
+        for signal in _REASONING_LEAKAGE_SIGNALS:
+            token = str(signal or "").strip()
+            if token and token.lower() in text:
+                hits.append(token)
+        return hits
+
     def _is_non_assertable_expected_result(text: str) -> bool:
         normalized = str(text or "").strip()
         if not normalized:
+            return True
+        if _looks_template_polluted_expected_result(normalized):
             return True
         if _is_placeholder_expected_result(normalized):
             return True
         if _is_ambiguous_expected_result(normalized):
             return True
         return any(phrase in normalized for phrase in _NON_ASSERTABLE_EXPECTED_PHRASES)
+
+    def _looks_template_polluted_expected_result(text: str) -> bool:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return False
+        pollution_pairs = (
+            ("目标页面", "页面路径与标题", "显隐原图"),
+            ("target page", "path", "original image"),
+            ("jump to target page", "title", "image visibility"),
+            ("目标页面", "页面路径与标题", "原图"),
+            ("应跳转到目标页面", "页面路径与标题", "按钮功能验证"),
+        )
+        lowered = normalized.lower()
+        if any(all(part.lower() in lowered for part in parts) for parts in pollution_pairs):
+            return True
+        if "页面路径与标题" in normalized and any(
+            token in normalized
+            for token in ("上传图片", "显隐", "原图", "缩略图", "批改", "复制", "排序", "弹窗")
+        ):
+            return True
+        if "should navigate to target page" in lowered and any(
+            token in lowered for token in ("upload", "image", "copy", "sort", "popup")
+        ):
+            return True
+        if "应跳转到目标页面" in normalized and "页面路径与标题" in normalized:
+            return True
+        if normalized.startswith("执行") and any(
+            phrase in normalized
+            for phrase in (
+                "页面路径与标题均与",
+                "字段值与输入/后端数据一致",
+                "授权范围内页面或模块",
+                "响应状态码正确",
+            )
+        ):
+            return True
+        retry_or_failure_tokens = (
+            "重试",
+            "失败",
+            "加载失败",
+            "播放失败",
+            "接口500",
+            "504",
+            "超时",
+            "网络中断",
+            "retry",
+            "failed",
+            "timeout",
+            "network interruption",
+        )
+        media_or_result_tokens = (
+            "视频",
+            "音频",
+            "资料",
+            "pdf",
+            "批改结果",
+            "作文批改",
+            "审题立意",
+            "写作技法",
+            "video",
+            "media",
+            "resource",
+            "correction result",
+        )
+        template_delete_tokens = ("应删除", "删除", "should delete", "remove")
+        if (
+            normalized.startswith("执行")
+            and any(token in normalized for token in template_delete_tokens)
+            and any(token in normalized for token in retry_or_failure_tokens)
+            and any(token in normalized for token in media_or_result_tokens)
+        ):
+            return True
+        return False
 
     def _is_ambiguous_expected_result(text: str) -> bool:
         normalized = str(text or "").strip()
@@ -963,6 +1116,8 @@ def stream_postprocess_cases(
         expected_result_quality = "assertable"
         expected_result_quality_reason = ""
         truncated_text_detected = False
+        invalid_case_reason = ""
+        invalid_case_signals: list[str] = []
         if not module or len(description) < 4:
             return None
 
@@ -1016,12 +1171,28 @@ def stream_postprocess_cases(
 
         normalized["steps"] = normalized_steps
         normalized["preconditions"] = preconditions
+        leakage_probe = dict(normalized)
+        leakage_probe["steps"] = normalized_steps
+        leakage_probe["preconditions"] = preconditions
+        leakage_probe["expected_result"] = expected_result
+        invalid_case_signals = _reasoning_leakage_hits(leakage_probe)
+        if invalid_case_signals:
+            invalid_case_reason = "reasoning_leakage"
+            expected_result_quality = "invalid_case"
+            expected_result_quality_reason = "reasoning_leakage"
+            truncated_text_detected = False
+
+        normalized["steps"] = normalized_steps
+        normalized["preconditions"] = preconditions
         normalized["test_input"] = test_input
         normalized["expected_result"] = expected_result
         normalized["expected_result_quality"] = expected_result_quality
         normalized["expected_result_quality_reason"] = expected_result_quality_reason
         normalized["expected_result_alignment_warning"] = bool(expected_result_alignment_warning)
         normalized["truncated_text_detected"] = bool(truncated_text_detected)
+        normalized["case_quality"] = "invalid_case" if invalid_case_reason else "valid_case"
+        normalized["invalid_case_reason"] = invalid_case_reason
+        normalized["invalid_case_signals"] = invalid_case_signals
         normalized["priority"] = _normalize_priority_value(str(normalized.get("priority") or ""))
         return normalized
 
@@ -1211,6 +1382,1546 @@ def stream_postprocess_cases(
             output.append(updated)
         return output
 
+    def _filter_cases_conflicting_with_confirmed_flow_facts(
+        cases: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Drop legacy linear-unlock cases when confirmed context says stages are non-linear."""
+
+        context_text = "\n".join(
+            [
+                str(requirement or ""),
+                str(kb_context or ""),
+                json.dumps(fact_profile, ensure_ascii=False, sort_keys=True),
+            ]
+        ).lower()
+        nonlinear_fact_tokens = (
+            "non-linear",
+            "nonlinear",
+            "no prerequisite",
+            "no prerequisites",
+            "any stage",
+            "all stages enterable",
+            "\u975e\u7ebf\u6027",
+            "\u4efb\u610f\u8fdb\u5165",
+            "\u968f\u610f\u8fdb\u5165",
+            "\u5747\u53ef\u8fdb\u5165",
+            "\u5747\u53ef\u70b9\u51fb",
+            "\u65e0\u9700\u524d\u7f6e",
+            "\u4e0d\u9700\u8981\u524d\u7f6e",
+            "\u521d\u59cb\u53ef",
+            "\u672a\u9501",
+            "\u4e0d\u9501",
+        )
+        stage_context_tokens = (
+            "stage",
+            "lesson",
+            "course step",
+            "\u8bfe\u7a0b\u73af\u8282",
+            "\u5b66\u4e60\u73af\u8282",
+            "\u73af\u8282",
+            "\u5ba1\u9898\u7acb\u610f",
+            "\u5199\u4f5c\u6280\u6cd5",
+            "\u6280\u6cd5\u5de9\u56fa",
+        )
+        nonlinear_case_tokens = (
+            "non-linear",
+            "nonlinear",
+            "no prerequisite",
+            "no prerequisites",
+            "all stages",
+            "any stage",
+            "enterable",
+            "\u975e\u7ebf\u6027",
+            "\u4efb\u610f\u8fdb\u5165",
+            "\u968f\u610f\u8fdb\u5165",
+            "\u5747\u53ef\u8fdb\u5165",
+            "\u5747\u53ef\u70b9\u51fb",
+            "\u90fd\u53ef\u8fdb\u5165",
+            "\u65e0\u9700\u524d\u7f6e",
+            "\u4e0d\u9700\u8981\u524d\u7f6e",
+            "\u521d\u59cb\u53ef",
+            "\u5747\u672a\u9501",
+            "\u65e0\u9501",
+            "\u672a\u9501",
+        )
+        blocking_tokens = (
+            "locked",
+            "cannot enter",
+            "can't enter",
+            "unavailable",
+            "previous step",
+            "previous stage",
+            "toast",
+            "\u672a\u89e3\u9501",
+            "\u9501\u5b9a",
+            "\u9501\u4f4f",
+            "\u4e0d\u53ef\u70b9\u51fb",
+            "\u4e0d\u53ef\u8fdb\u5165",
+            "\u5b8c\u6210\u524d",
+            "\u5b8c\u6210\u524d\u4e00\u8282",
+            "\u524d\u4e00\u8282",
+            "\u524d\u4e00\u73af\u8282",
+            "\u4e0a\u4e00\u73af\u8282",
+            "\u624d\u53ef\u4ee5\u89e3\u9501",
+            "\u89e3\u9501\u63d0\u793a",
+        )
+        obsolete_linear_unlock_tokens = (
+            "only first stage",
+            "only the first stage",
+            "complete previous",
+            "previous section",
+            "\u4ec5\u7b2c\u4e00\u4e2a\u73af\u8282",
+            "\u4ec5\u7b2c\u4e00\u73af\u8282",
+            "\u53ea\u6709\u7b2c\u4e00\u4e2a\u73af\u8282",
+            "\u5176\u4f59\u4e3a\u672a\u89e3\u9501",
+            "\u5176\u4f59\u73af\u8282\u672a\u89e3\u9501",
+            "\u5b8c\u6210\u524d\u4e00\u8282\u624d\u53ef\u4ee5\u89e3\u9501",
+            "\u5b8c\u6210\u524d\u4e00\u8282\u624d\u53ef\u4ee5",
+            "\u5b8c\u6210\u524d\u4e00\u73af\u8282\u624d\u53ef",
+        )
+        compatibility_tokens = (
+            "legacy",
+            "compatibility",
+            "config enabled",
+            "old_config_only",
+            "legacy_unlock_mode",
+            "linear unlock",
+            "\u65e7\u7248",
+            "\u65e7\u914d\u7f6e",
+            "\u517c\u5bb9",
+            "\u914d\u7f6e\u5f00\u542f",
+            "\u7ebf\u6027\u89e3\u9501",
+        )
+        positive_nonlinear_assertion_tokens = (
+            "no prerequisite",
+            "no prerequisites",
+            "any stage",
+            "\u4efb\u610f\u8fdb\u5165",
+            "\u968f\u610f\u8fdb\u5165",
+            "\u5747\u53ef\u8fdb\u5165",
+            "\u90fd\u53ef\u8fdb\u5165",
+            "\u65e0\u9700\u524d\u7f6e",
+            "\u4e0d\u9700\u8981\u524d\u7f6e",
+            "\u4e0d\u8981\u6c42\u5148\u5b8c\u6210",
+            "\u4e0d\u8981\u6c42\u5148\u5b8c\u6210\u524d\u4e00\u73af\u8282",
+        )
+        case_text_pairs: list[tuple[dict[str, Any], str]] = []
+        for item in cases:
+            if not isinstance(item, dict):
+                continue
+            case_text_pairs.append(
+                (
+                    item,
+                    " ".join(
+                    [
+                        str(item.get("test_module") or ""),
+                        str(item.get("description") or ""),
+                        str(item.get("expected_result") or ""),
+                        " ".join(str(step) for step in (item.get("steps") or []) if str(step).strip())
+                        if isinstance(item.get("steps"), list)
+                        else "",
+                    ]
+                    ).lower(),
+                )
+            )
+        has_nonlinear_context = any(token in context_text for token in nonlinear_fact_tokens)
+        has_nonlinear_case = any(
+            any(token in text for token in stage_context_tokens)
+            and any(token in text for token in nonlinear_case_tokens)
+            for _item, text in case_text_pairs
+        )
+        has_obsolete_linear_unlock_case = any(
+            any(token in text for token in stage_context_tokens)
+            and any(token in text for token in obsolete_linear_unlock_tokens)
+            for _item, text in case_text_pairs
+        )
+        if not has_nonlinear_context and not has_nonlinear_case and not has_obsolete_linear_unlock_case:
+            return [dict(item) for item in cases if isinstance(item, dict)], 0
+
+        output: list[dict[str, Any]] = []
+        dropped_count = 0
+        for item, text in case_text_pairs:
+            has_stage_context = any(token in text for token in stage_context_tokens)
+            asserts_blocked_stage = any(token in text for token in blocking_tokens)
+            asserts_known_obsolete_unlock = any(token in text for token in obsolete_linear_unlock_tokens)
+            explicitly_compatible = any(token in text for token in compatibility_tokens)
+            asserts_positive_nonlinear = any(token in text for token in positive_nonlinear_assertion_tokens)
+            if asserts_positive_nonlinear and not asserts_known_obsolete_unlock:
+                output.append(dict(item))
+                continue
+            if has_stage_context and (asserts_blocked_stage or asserts_known_obsolete_unlock) and not explicitly_compatible:
+                dropped_count += 1
+                continue
+            output.append(dict(item))
+        return output, dropped_count
+
+    def _enforce_main_path_p0_anchors_legacy_unused(
+        cases: list[dict[str, Any]],
+        *,
+        coverage_mode: str = "",
+    ) -> list[dict[str, Any]]:
+        candidate_cases = [dict(item) for item in cases if isinstance(item, dict)]
+        if str(coverage_mode or "") not in {"expanded_regression", "full_functional_regression"}:
+            return candidate_cases
+        if any(_normalize_priority_value(str(item.get("priority") or "")) == "P0" for item in candidate_cases):
+            return candidate_cases
+
+        strong_tokens = (
+            "submit",
+            "publish",
+            "upload",
+            "generate",
+            "approve",
+            "review pass",
+            "permission",
+            "member",
+            "locked",
+            "paywall",
+            "result",
+            "提交",
+            "投稿",
+            "发布",
+            "上传",
+            "生成",
+            "批改",
+            "审核通过",
+            "审核中",
+            "权限",
+            "会员",
+            "锁",
+            "结果",
+        )
+        low_value_tokens = (
+            "copy",
+            "toast",
+            "tooltip",
+            "format",
+            "layout",
+            "复制",
+            "提示",
+            "文案",
+            "样式",
+            "格式",
+            "入口",
+            "空状态",
+        )
+
+        ranked: list[tuple[int, int, dict[str, Any]]] = []
+        for index, item in enumerate(candidate_cases):
+            text = " ".join(
+                [
+                    str(item.get("test_module") or ""),
+                    str(item.get("description") or ""),
+                    str(item.get("expected_result") or ""),
+                    str(item.get("test_input") or ""),
+                    " ".join(str(step) for step in (item.get("steps") or []) if str(step).strip())
+                    if isinstance(item.get("steps"), list)
+                    else "",
+                ]
+            ).lower()
+            score = 0
+            score += 10 * sum(1 for token in strong_tokens if token and token.lower() in text)
+            score -= 8 * sum(1 for token in low_value_tokens if token and token.lower() in text)
+            if _normalize_priority_value(str(item.get("priority") or "")) == "P1":
+                score += 6
+            if str(item.get("priority_decision_state") or "").strip().lower() in {"optional", "invalid"}:
+                score -= 20
+            if score >= 10:
+                ranked.append((score, -index, item))
+
+        if not ranked:
+            return candidate_cases
+        ranked.sort(reverse=True)
+        target_count = 2 if str(coverage_mode or "") == "expanded_regression" else 4
+        target_count = min(target_count, max(1, int(round(len(candidate_cases) * 0.08))))
+        promoted_signatures: set[str] = set()
+        output: list[dict[str, Any]] = []
+        for item in candidate_cases:
+            updated = dict(item)
+            output.append(updated)
+        for _score, _neg_index, item in ranked:
+            if len(promoted_signatures) >= target_count:
+                break
+            signature = _signature(item)
+            if signature in promoted_signatures:
+                continue
+            promoted_signatures.add(signature)
+            for updated in output:
+                if _signature(updated) == signature:
+                    updated["priority"] = "P0"
+                    updated["priority_final"] = "P0"
+                    updated["priority_decision_state"] = "overridden"
+                    updated["priority_decision_source"] = "main_path_anchor_floor"
+                    break
+        return output
+
+    def _enforce_main_path_p0_anchors(
+        cases: list[dict[str, Any]],
+        *,
+        coverage_mode: str = "",
+    ) -> list[dict[str, Any]]:
+        candidate_cases = [dict(item) for item in cases if isinstance(item, dict)]
+        mode = str(coverage_mode or "")
+        if mode not in {"expanded_regression", "full_functional_regression"}:
+            return candidate_cases
+        case_count = len(candidate_cases)
+        if case_count <= 0:
+            return candidate_cases
+        if mode == "full_functional_regression":
+            if case_count >= 80:
+                target_count = min(12, max(8, int((case_count + 9) // 10)))
+            elif case_count >= 40:
+                target_count = min(10, max(9, int(round(case_count * 0.12))))
+            else:
+                target_count = min(6, max(3, int(round(case_count * 0.14))))
+        else:
+            target_count = (
+                min(4, max(3, int(round(case_count * 0.06))))
+                if case_count >= 50
+                else min(3, max(1, int(round(case_count * 0.08))))
+            )
+        target_count = min(target_count, case_count)
+        strong_tokens = (
+            "submit",
+            "publish",
+            "upload",
+            "generate",
+            "approve",
+            "review pass",
+            "review approved",
+            "approval passed",
+            "permission",
+            "member",
+            "vip",
+            "locked",
+            "paywall",
+            "result",
+            "first lesson",
+            "all courses",
+            "successfully generated",
+            "generated result",
+            "correction result",
+            "review result",
+            "four modules",
+            "feedback modules",
+            "result details",
+            "submit success",
+            "approval state",
+            "detail page",
+            "\u63d0\u4ea4",
+            "\u6295\u7a3f",
+            "\u53d1\u5e03",
+            "\u4e0a\u4f20",
+            "\u751f\u6210",
+            "\u6279\u6539",
+            "\u5ba1\u6838\u901a\u8fc7",
+            "\u5ba1\u6838\u4e2d",
+            "\u6743\u9650",
+            "\u4f1a\u5458",
+            "\u9501\u5b9a",
+            "\u7ed3\u679c",
+            "\u7b2c\u4e00\u8bfe",
+            "\u8bd5\u5b66",
+            "\u666e\u901a\u7528\u6237",
+            "\u975e\u4f1a\u5458",
+            "\u5168\u90e8\u8bfe\u7a0b",
+            "\u6210\u529f\u751f\u6210",
+            "\u751f\u6210\u6279\u6539\u7ed3\u679c",
+            "\u6279\u6539\u7ed3\u679c\u5c55\u793a",
+            "\u56db\u5927\u6a21\u5757",
+            "\u63d0\u4ea4\u6210\u529f",
+            "\u8fdb\u5165\u5ba1\u6838\u4e2d",
+            "\u5ba1\u6838\u901a\u8fc7\u540e",
+            "\u4f5c\u54c1\u8be6\u60c5",
+        )
+        low_value_tokens = (
+            "copy",
+            "toast",
+            "tooltip",
+            "popup",
+            "modal",
+            "dialog",
+            "badge",
+            "status badge",
+            "record limit",
+            "max records",
+            "maximum records",
+            "format",
+            "layout",
+            "sort",
+            "sorting",
+            "rank",
+            "ranking",
+            "share",
+            "h5",
+            "category",
+            "tab",
+            "pdf",
+            "download",
+            "image preview",
+            "large image",
+            "photo preview",
+            "drag",
+            "drag sort",
+            "reorder",
+            "delete image",
+            "remove image",
+            "force close",
+            "kill app",
+            "48h",
+            "48 hours",
+            "zero images",
+            "0 images",
+            "no images",
+            "disabled button",
+            "button disabled",
+            "remaining count",
+            "quota decrement",
+            "star rating",
+            "countdown",
+            "title body",
+            "editable title",
+            "my list",
+            "\u590d\u5236",
+            "\u63d0\u793a",
+            "\u5f39\u7a97",
+            "\u5f39\u5c42",
+            "\u89c4\u5219\u5f39\u7a97",
+            "\u72b6\u6001\u6807\u8bc6",
+            "\u6807\u8bc6",
+            "\u6700\u591a20\u6761",
+            "\u4e0a\u9650",
+            "\u6587\u6848",
+            "\u6837\u5f0f",
+            "\u683c\u5f0f",
+            "\u5165\u53e3",
+            "\u7a7a\u72b6\u6001",
+            "\u6392\u5e8f",
+            "\u7f6e\u9876",
+            "\u5206\u7c7b",
+            "\u5206\u4eab",
+            "\u4e0b\u8f7d",
+            "\u62d6\u52a8",
+            "\u62d6\u62fd",
+            "\u6392\u5e8f",
+            "\u5220\u9664\u56fe\u7247",
+            "\u5220\u9664\u7f29\u7565\u56fe",
+            "\u5f3a\u6740",
+            "\u5f3a\u5236\u9000\u51fa",
+            "48\u5c0f\u65f6",
+            "\u5927\u56fe",
+            "\u7167\u7247\u5927\u56fe",
+            "\u9884\u89c8",
+            "\u5e8f\u53f7",
+            "\u699c\u5355",
+            "0\u5f20",
+            "\u65e0\u56fe\u7247",
+            "\u6309\u94ae\u4e0d\u53ef\u70b9",
+            "\u6309\u94ae\u4e0d\u53ef\u7528",
+            "\u5269\u4f59\u6b21\u6570",
+            "\u6b21\u6570\u9012\u51cf",
+            "\u661f\u661f\u8bc4\u5206",
+            "\u5012\u8ba1\u65f6",
+            "\u6807\u9898\u6b63\u6587",
+            "\u53ef\u7f16\u8f91",
+            "\u6211\u7684\u5217\u8868",
+            "\u5206\u53e5\u70b9\u8bc4",
+            "\u5212\u7ebf\u53e5\u5b50",
+            "\u70b9\u8bc4\u8df3\u8f6c",
+            "sentence comment",
+            "underlined sentence",
+            "comment jump",
+        )
+        anchor_families = (
+            ("submission", ("submit", "publish", "\u63d0\u4ea4", "\u6295\u7a3f", "\u53d1\u5e03")),
+            ("result_display", ("four modules", "feedback modules", "result details", "\u56db\u5927\u6a21\u5757", "\u56db\u90e8\u5206", "\u5b8c\u6574\u5c55\u793a")),
+            ("generation_result", ("generate", "result", "upload", "\u751f\u6210", "\u7ed3\u679c", "\u6279\u6539", "\u4e0a\u4f20")),
+            ("approval", ("approve", "review approved", "approval passed", "\u5ba1\u6838\u901a\u8fc7", "\u5ba1\u6838\u4e2d")),
+            ("permission", ("permission", "member", "vip", "locked", "paywall", "first lesson", "\u6743\u9650", "\u4f1a\u5458", "\u9501\u5b9a", "\u7b2c\u4e00\u8bfe", "\u8bd5\u5b66")),
+            ("community_detail", ("detail page", "review approved", "\u4f5c\u54c1\u8be6\u60c5", "\u5ba1\u6838\u901a\u8fc7\u540e")),
+        )
+        critical_anchor_families = (
+            ("generation_result", ("\u4e0a\u4f20", "\u53bb\u6279\u6539", "\u751f\u6210", "\u6279\u6539\u7ed3\u679c")),
+            ("result_display", ("\u6279\u6539\u53cd\u9988", "\u56db\u90e8\u5206", "\u5b8c\u6574\u5c55\u793a", "\u7efc\u5408\u70b9\u8bc4", "\u5168\u6587\u6da6\u8272", "\u4f18\u5316\u5efa\u8bae")),
+            ("submission", ("\u6295\u7a3f", "\u63d0\u4ea4\u6210\u529f", "\u5ba1\u6838\u4e2d")),
+            ("submission", ("\u6295\u7a3f\u6210\u529f", "\u5ba1\u6838\u4e2d")),
+            ("cross_module_state", ("\u6279\u6539", "\u6295\u7a3f", "\u5df2\u53d1\u5e03", "\u4f5c\u6587\u5708")),
+            ("approval", ("\u5ba1\u6838\u901a\u8fc7", "\u5df2\u53d1\u5e03", "\u4f5c\u6587\u5708", "\u53ef\u89c1")),
+            ("approval", ("\u5ba1\u6838\u901a\u8fc7", "\u4f5c\u6587\u5708")),
+            ("approval", ("\u5df2\u53d1\u5e03", "\u4f5c\u6587\u5708")),
+            ("free_first_lesson", ("\u666e\u901a\u7528\u6237", "\u7b2c\u4e00\u8bfe", "\u8bd5\u5b66")),
+            ("free_first_lesson", ("\u666e\u901a\u7528\u6237", "\u7b2c\u4e00\u8bfe", "\u514d\u8d39")),
+            ("locked_member_courses", ("\u666e\u901a\u7528\u6237", "\u975e\u7b2c\u4e00\u8bfe", "\u4f1a\u5458\u4e2d\u5fc3")),
+            ("locked_member_courses", ("\u5176\u4f59\u8bfe\u7a0b", "\u4f1a\u5458\u4e2d\u5fc3")),
+            ("member_all_courses", ("\u4f1a\u5458", "\u5168\u90e8\u8bfe\u7a0b", "\u53ef\u5b66")),
+            ("member_all_courses", ("\u4f1a\u5458", "\u5168\u90e8\u8bfe\u7a0b")),
+            ("delete_restore", ("\u5220\u9664", "\u5df2\u53d1\u5e03", "\u6062\u590d\u672a\u6295\u7a3f")),
+            ("delete_restore", ("\u5220\u9664\u4f5c\u54c1", "\u672a\u6295\u7a3f")),
+        )
+
+        def _anchor_family(text: str) -> str:
+            for family, tokens in anchor_families:
+                if any(token and token.lower() in text for token in tokens):
+                    return family
+            return "general"
+
+        def _case_anchor_text(item: dict[str, Any]) -> str:
+            return " ".join(
+                [
+                    str(item.get("test_module") or ""),
+                    str(item.get("description") or ""),
+                    str(item.get("expected_result") or ""),
+                    str(item.get("test_input") or ""),
+                    " ".join(str(step) for step in (item.get("steps") or []) if str(step).strip())
+                    if isinstance(item.get("steps"), list)
+                    else "",
+                ]
+            ).lower()
+
+        def _has_strong_anchor(text: str) -> bool:
+            return any(token and token.lower() in text for token in strong_tokens)
+
+        def _critical_anchor_family(text: str) -> str:
+            for family, tokens in critical_anchor_families:
+                if all(token and token.lower() in text for token in tokens):
+                    return family
+            return ""
+
+        def _has_critical_anchor(text: str) -> bool:
+            return bool(_critical_anchor_family(text))
+
+        def _has_low_value_anchor(text: str) -> bool:
+            return any(token and token.lower() in text for token in low_value_tokens)
+
+        def _has_non_blocking_detail_anchor(text: str) -> bool:
+            detail_tokens = (
+                "\u5206\u53e5\u70b9\u8bc4",
+                "\u5212\u7ebf\u53e5\u5b50",
+                "\u70b9\u8bc4\u8df3\u8f6c",
+                "\u6700\u591a20\u6761",
+                "0\u5f20",
+                "\u65e0\u56fe\u7247",
+                "\u6309\u94ae\u4e0d\u53ef\u70b9",
+                "\u6309\u94ae\u4e0d\u53ef\u7528",
+                "\u5269\u4f59\u6b21\u6570",
+                "\u6b21\u6570\u9012\u51cf",
+                "\u661f\u661f\u8bc4\u5206",
+                "\u5012\u8ba1\u65f6",
+                "\u6807\u9898\u6b63\u6587",
+                "\u53ef\u7f16\u8f91",
+                "\u6211\u7684\u5217\u8868",
+                "sentence comment",
+                "underlined sentence",
+                "comment jump",
+                "max 20",
+            )
+            return any(token and token.lower() in text for token in detail_tokens)
+
+        def _has_blocking_anchor(text: str) -> bool:
+            generation_terms = (
+                "generate",
+                "generated",
+                "correction result",
+                "review result",
+                "four modules",
+                "feedback modules",
+                "result details",
+                "successfully generated",
+                "\u751f\u6210",
+                "\u751f\u6210\u6279\u6539\u7ed3\u679c",
+                "\u6279\u6539\u7ed3\u679c",
+                "\u6279\u6539\u7ed3\u679c\u5c55\u793a",
+                "\u56db\u5927\u6a21\u5757",
+                "\u56db\u90e8\u5206",
+                "\u5b8c\u6574\u5c55\u793a",
+            )
+            submit_terms = (
+                "submit success",
+                "submitted successfully",
+                "enters pending review",
+                "\u63d0\u4ea4\u6210\u529f",
+                "\u6295\u7a3f\u6210\u529f",
+                "\u8fdb\u5165\u5ba1\u6838\u4e2d",
+                "\u72b6\u6001\u53d8\u4e3a\u5ba1\u6838\u4e2d",
+            )
+            approval_terms = (
+                "approval passed",
+                "review approved",
+                "approved work",
+                "visible in community",
+                "community detail",
+                "\u5ba1\u6838\u901a\u8fc7",
+                "\u5ba1\u6838\u901a\u8fc7\u540e",
+                "\u4f5c\u6587\u5708\u53ef\u89c1",
+                "\u4ed6\u4eba\u53ef\u89c1",
+                "\u4f5c\u54c1\u8be6\u60c5",
+            )
+            permission_terms = (
+                "permission",
+                "member all courses",
+                "all courses",
+                "first lesson",
+                "locked",
+                "paywall",
+                "vip",
+                "\u6743\u9650",
+                "\u666e\u901a\u7528\u6237",
+                "\u7b2c\u4e00\u8bfe",
+                "\u8bd5\u5b66",
+                "\u975e\u7b2c\u4e00\u8bfe",
+                "\u9501\u8bfe",
+                "\u9501\u5b9a",
+                "\u8df3\u4f1a\u5458",
+                "\u4f1a\u5458\u7528\u6237",
+                "\u5168\u90e8\u8bfe\u7a0b",
+            )
+            return any(token and token.lower() in text for token in generation_terms + submit_terms + approval_terms + permission_terms)
+
+        for item in candidate_cases:
+            if _normalize_priority_value(str(item.get("priority") or "")) != "P0":
+                continue
+            text = _case_anchor_text(item)
+            if (not _has_critical_anchor(text)) and (_has_non_blocking_detail_anchor(text) or (
+                _has_low_value_anchor(text) and not _has_blocking_anchor(text)
+            )):
+                item["priority"] = "P1"
+                item["priority_final"] = "P1"
+                item["priority_decision_state"] = "overridden"
+                item["priority_decision_source"] = "main_path_anchor_demoted_non_blocking"
+
+        existing_p0_signatures = {
+            _signature(item)
+            for item in candidate_cases
+            if _normalize_priority_value(str(item.get("priority") or "")) == "P0"
+        }
+        if len(existing_p0_signatures) >= target_count:
+            return candidate_cases
+
+        ranked: list[tuple[int, int, str, dict[str, Any]]] = []
+        for index, item in enumerate(candidate_cases):
+            if _signature(item) in existing_p0_signatures:
+                continue
+            text = _case_anchor_text(item)
+            score = 0
+            score += 10 * sum(1 for token in strong_tokens if token and token.lower() in text)
+            score -= 12 * sum(1 for token in low_value_tokens if token and token.lower() in text)
+            if _normalize_priority_value(str(item.get("priority") or "")) == "P1":
+                score += 6
+            critical_family = _critical_anchor_family(text)
+            if critical_family:
+                score += 70
+            if (not critical_family) and (_has_non_blocking_detail_anchor(text) or (
+                _has_low_value_anchor(text) and not _has_blocking_anchor(text)
+            )):
+                score -= 40
+            if str(item.get("priority_decision_state") or "").strip().lower() in {"optional", "invalid"}:
+                score -= 20
+            try:
+                score -= 4 * int((case_complexity_profile(item) or {}).get("complexity_score") or 0)
+            except Exception:
+                pass
+            if score >= 10:
+                ranked.append((score, -index, critical_family or _anchor_family(text), item))
+
+        if len(ranked) < max(1, target_count - len(existing_p0_signatures)):
+            ranked_signatures = {_signature(item) for _score, _neg_index, _family, item in ranked}
+            for index, item in enumerate(candidate_cases):
+                signature = _signature(item)
+                if signature in existing_p0_signatures or signature in ranked_signatures:
+                    continue
+                text = _case_anchor_text(item)
+                critical_family = _critical_anchor_family(text)
+                if (not critical_family) and (_has_non_blocking_detail_anchor(text) or (
+                    _has_low_value_anchor(text) and not _has_blocking_anchor(text)
+                )):
+                    continue
+                if mode == "full_functional_regression" and not (_has_strong_anchor(text) or critical_family):
+                    continue
+                normalized_priority = _normalize_priority_value(str(item.get("priority") or ""))
+                priority_bonus = 8 if normalized_priority == "P1" else 3 if normalized_priority == "P2" else 0
+                try:
+                    complexity_penalty = 4 * int((case_complexity_profile(item) or {}).get("complexity_score") or 0)
+                except Exception:
+                    complexity_penalty = 0
+                fallback_score = priority_bonus + (60 if critical_family else 0) - complexity_penalty
+                if fallback_score >= 3:
+                    ranked.append((fallback_score, -index, critical_family or _anchor_family(text), item))
+                    ranked_signatures.add(signature)
+
+        if not ranked:
+            return candidate_cases
+        ranked.sort(reverse=True)
+        promoted_signatures: set[str] = set(existing_p0_signatures)
+        promoted_families: set[str] = set()
+        output = [dict(item) for item in candidate_cases]
+        for _score, _neg_index, family, item in ranked:
+            if len(promoted_signatures) >= target_count:
+                break
+            if family in promoted_families and family != "general":
+                continue
+            signature = _signature(item)
+            if signature in promoted_signatures:
+                continue
+            promoted_signatures.add(signature)
+            promoted_families.add(family)
+            for updated in output:
+                if _signature(updated) == signature:
+                    updated["priority"] = "P0"
+                    updated["priority_final"] = "P0"
+                    updated["priority_decision_state"] = "overridden"
+                    updated["priority_decision_source"] = "main_path_anchor_floor"
+                    break
+        if len(promoted_signatures) < target_count:
+            for _score, _neg_index, _family, item in ranked:
+                if len(promoted_signatures) >= target_count:
+                    break
+                signature = _signature(item)
+                if signature in promoted_signatures:
+                    continue
+                promoted_signatures.add(signature)
+                for updated in output:
+                    if _signature(updated) == signature:
+                        updated["priority"] = "P0"
+                        updated["priority_final"] = "P0"
+                        updated["priority_decision_state"] = "overridden"
+                        updated["priority_decision_source"] = "main_path_anchor_floor"
+                        break
+        return output
+
+    def _apply_execution_plan_metadata(
+        cases: list[dict[str, Any]],
+        *,
+        start_id: int = 1,
+        coverage_mode: str = "",
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        candidate_cases = [dict(item) for item in cases if isinstance(item, dict)]
+        if not candidate_cases:
+            return [], {
+                "applied": False,
+                "linear_executable": False,
+                "main_chain_case_count": 0,
+                "independent_case_count": 0,
+                "isolation_case_count": 0,
+                "role_switch_count": 0,
+                "broken_dependency_count": 0,
+                "state_conflict_count": 0,
+            }
+
+        def _case_text(item: dict[str, Any]) -> str:
+            return " ".join(
+                [
+                    str(item.get("test_module") or ""),
+                    str(item.get("description") or ""),
+                    str(item.get("expected_result") or ""),
+                    str(item.get("test_input") or ""),
+                    " ".join(str(step) for step in (item.get("steps") or []) if str(step).strip())
+                    if isinstance(item.get("steps"), list)
+                    else "",
+                ]
+            ).lower()
+
+        def _all(text: str, tokens: tuple[str, ...]) -> bool:
+            return all(token and token.lower() in text for token in tokens)
+
+        def _any(text: str, tokens: tuple[str, ...]) -> bool:
+            return any(token and token.lower() in text for token in tokens)
+
+        def _priority_rank(item: dict[str, Any]) -> int:
+            priority = str(item.get("priority") or "").strip().upper()
+            return {"P0": 30, "P1": 15, "P2": 0}.get(priority, 0)
+
+        main_chain_stages: list[tuple[str, str, tuple[tuple[str, ...], ...]]] = [
+            (
+                "upload_ready",
+                "上传图片成功，去批改按钮可点击",
+                (("上传", "图片", "去批改"), ("作文", "图片", "上传", "可点击"), ("去批改", "可点击")),
+            ),
+            (
+                "correction_generated",
+                "点击去批改并成功生成 AI 批改结果",
+                (("去批改", "生成"), ("ai", "批改", "完成"), ("生成", "批改结果")),
+            ),
+            (
+                "result_four_parts",
+                "批改反馈四部分完整展示",
+                (("四部分", "完整"), ("综合点评", "分句点评", "全文润色", "优化建议"), ("批改反馈", "完整展示")),
+            ),
+            (
+                "enter_submission_page",
+                "从批改结果页进入投稿页并完成投稿页准备",
+                (("批改结果", "投稿页"), ("点击投稿", "投稿页"), ("进入投稿页", "标题", "正文")),
+            ),
+            (
+                "submit_pending_review",
+                "投稿提交成功后进入审核中",
+                (("投稿", "提交成功"), ("投稿", "审核中"), ("状态", "审核中")),
+            ),
+            (
+                "admin_approved",
+                "后台审核通过后作品变为已发布",
+                (("后台", "审核通过"), ("审核通过", "已发布"), ("审核通过", "作品")),
+            ),
+            (
+                "my作文_published",
+                "我的作文中展示已发布状态",
+                (("我的作文", "已发布"), ("我的作文", "状态", "发布")),
+            ),
+            (
+                "community_visible",
+                "作文圈可见已发布作品",
+                (("作文圈", "可见"), ("作文圈", "作品详情"), ("作文圈", "已发布")),
+            ),
+            (
+                "community_detail_interaction",
+                "进入作文圈作品详情并完成点赞等详情互动",
+                (("作文圈", "点赞"), ("作品详情", "点赞"), ("作文圈", "详情", "互动")),
+            ),
+            (
+                "delete_restore_unsubmitted",
+                "删除已发布作品后恢复未投稿",
+                (("删除", "已发布", "恢复未投稿"), ("删除", "作品", "未投稿"), ("删除", "作文圈", "我的作文")),
+            ),
+        ]
+
+        low_chain_tokens = (
+            "0张",
+            "0 张",
+            "无图片",
+            "不可点击",
+            "置灰",
+            "失败",
+            "异常",
+            "拒绝",
+            "不通过",
+            "差异过大",
+            "空状态",
+            "最多20条",
+            "下载",
+            "pdf",
+            "评论",
+            "规则弹窗",
+            "分享",
+            "格式",
+            "上限",
+            "拖动",
+            "拖拽",
+            "删除图片",
+            "放大",
+        )
+
+        def _is_status_matrix_case(item: dict[str, Any]) -> bool:
+            text = _case_text(item)
+            status_tokens = ("未投稿", "审核中", "已发布", "投稿失败", "失败原因", "状态标识", "状态标签")
+            hit_count = sum(1 for token in status_tokens if token.lower() in text)
+            return hit_count >= 3 and _any(text, ("状态", "矩阵", "标识", "标签", "tips"))
+
+        def _is_community_tab_case(item: dict[str, Any]) -> bool:
+            text = _case_text(item)
+            return (
+                _any(text, ("作文圈", "列表"))
+                and _any(text, ("精选", "最新", "我的", "分页", "排序"))
+                and not _any(text, ("评论审核", "回复审核", "后台审核", "审核拒绝", "拒审"))
+            )
+
+        def _is_failure_or_negative_transition_case(item: dict[str, Any]) -> bool:
+            text = _case_text(item)
+            failure_tokens = (
+                "失败",
+                "异常",
+                "超时",
+                "识别失败",
+                "ocr失败",
+                "ocr 失败",
+                "无法识别",
+                "不生成批改结果",
+                "不进入成功态",
+                "不进入可投稿状态",
+                "未生成批改结果",
+                "接口错误",
+                "网络中断",
+                "重试",
+                "failure",
+                "failed",
+                "timeout",
+                "error",
+            )
+            success_path_tokens = ("批改", "投稿", "审核", "发布", "作文圈", "去批改", "结果")
+            return _any(text, failure_tokens) and _any(text, success_path_tokens)
+
+        def _has_admin_actor(text: str) -> bool:
+            return _any(text, ("后台", "管理员", "审核员", "admin", "审核后台"))
+
+        def _has_admin_approval_action(text: str) -> bool:
+            return _any(
+                text,
+                (
+                    "审核通过",
+                    "后台审核通过",
+                    "管理员审核通过",
+                    "审核员审核通过",
+                    "点击【审核通过】",
+                    "点击审核通过",
+                    "通过投稿",
+                    "将投稿状态改为通过",
+                ),
+            )
+
+        def _has_student_sync_observation(text: str) -> bool:
+            return _any(
+                text,
+                (
+                    "学生端",
+                    "刷新",
+                    "红点",
+                    "弹窗",
+                    "我的作文",
+                    "作文圈可见",
+                    "作文圈",
+                    "状态同步",
+                    "同步",
+                    "刚刚审核通过",
+                ),
+            )
+
+        def _is_mixed_admin_student_sync_case(item: dict[str, Any]) -> bool:
+            text = _case_text(item)
+            return _has_admin_actor(text) and _has_admin_approval_action(text) and _has_student_sync_observation(text)
+
+        def _project_student_sync_case(item: dict[str, Any], *, stage_key: str) -> dict[str, Any]:
+            if not _is_mixed_admin_student_sync_case(item):
+                return item
+            projected = dict(item)
+            if stage_key == "community_visible":
+                projected["description"] = "学生端刷新后作文圈可见已发布作品"
+                projected["test_module"] = "作文圈"
+                projected["steps"] = ["1. 切回学生端会话", "2. 打开作文圈列表", "3. 定位刚审核通过的作品"]
+                projected["expected_result"] = "作文圈列表可见刚审核通过的已发布作品，作品标题、作者和发布时间与投稿信息一致"
+            else:
+                projected["description"] = "学生端刷新后我的作文和审核提醒状态同步"
+                projected["test_module"] = "我的作文"
+                projected["steps"] = ["1. 切回学生端会话", "2. 刷新我的作文列表", "3. 查看作品状态、红点和审核通过提示"]
+                projected["expected_result"] = "我的作文列表中该作品状态同步为已发布，并展示审核通过红点或提示；学生端不执行后台审核动作"
+            projected["preconditions"] = ["管理员已在后台审核通过该投稿作品"]
+            projected["test_input"] = "刚审核通过的投稿作品"
+            projected["student_observation_projection"] = True
+            return projected
+
+        def _project_enter_submission_page_case(item: dict[str, Any]) -> dict[str, Any]:
+            text = _case_text(item)
+            if not _any(text, ("提交投稿", "投稿提交", "提交成功", "审核中", "投稿成功")):
+                return item
+            projected = dict(item)
+            projected["description"] = "从批改结果页进入投稿页并完成投稿前准备"
+            projected["test_module"] = "作文投稿"
+            projected["preconditions"] = ["已进入批改结果页，批改结果内容完整展示"]
+            projected["steps"] = [
+                "1. 点击【投稿】按钮",
+                "2. 进入投稿页",
+                "3. 关闭规则说明弹窗（如出现）",
+                "4. 查看标题和正文输入区",
+            ]
+            projected["test_input"] = "已生成批改结果的作文"
+            projected["expected_result"] = "系统进入投稿页，标题和正文可编辑，原批改结果内容已带入且可提交投稿"
+            projected["submission_stage_projection"] = "enter_submission_page_preparation"
+            return projected
+
+        def _is_explicit_admin_approval_action(item: dict[str, Any]) -> bool:
+            text = _case_text(item)
+            return _has_admin_actor(text) and _has_admin_approval_action(text) and not _is_mixed_admin_student_sync_case(item)
+
+        selected_by_stage: list[tuple[str, str, dict[str, Any]]] = []
+        selected_signatures: set[str] = set()
+        for stage_key, stage_label, patterns in main_chain_stages:
+            ranked: list[tuple[int, int, dict[str, Any]]] = []
+            for index, item in enumerate(candidate_cases):
+                signature = _signature(item)
+                if not signature or signature in selected_signatures:
+                    continue
+                if _is_status_matrix_case(item):
+                    continue
+                if _is_community_tab_case(item):
+                    continue
+                text = _case_text(item)
+                if stage_key in {
+                    "upload_ready",
+                    "correction_generated",
+                    "result_four_parts",
+                    "enter_submission_page",
+                    "submit_pending_review",
+                    "admin_approved",
+                    "my作文_published",
+                    "community_visible",
+                    "community_detail_interaction",
+                    "delete_restore_unsubmitted",
+                } and _is_failure_or_negative_transition_case(item):
+                    continue
+                if not any(_all(text, pattern) for pattern in patterns):
+                    continue
+                if stage_key == "upload_ready" and _any(text, ("删除", "拖动", "拖拽", "放大")) and not _any(text, ("去批改", "可点击")):
+                    continue
+                if stage_key == "upload_ready" and _any(
+                    text,
+                    (
+                        "批改成功",
+                        "批改完成",
+                        "生成 ai 批改结果",
+                        "生成ai批改结果",
+                        "生成批改结果",
+                        "进入批改结果页",
+                        "等待 ai 批改完成",
+                        "等待ai批改完成",
+                    ),
+                ) and not _any(text, ("按钮可点击", "可点击")):
+                    continue
+                if stage_key == "my作文_published" and _any(text, ("状态标识", "状态标签", "失败原因", "tips", "投稿失败")):
+                    continue
+                if stage_key == "community_visible" and _any(text, ("删除", "点赞", "详情互动")):
+                    continue
+                if stage_key == "admin_approved" and not _is_explicit_admin_approval_action(item):
+                    continue
+                if stage_key in {"admin_approved", "community_visible", "community_detail_interaction"} and _any(text, ("评论", "回复", "comment")):
+                    continue
+                score = _priority_rank(item) + 50
+                if _any(text, low_chain_tokens):
+                    score -= 35
+                if stage_key == "upload_ready" and _any(text, ("去批改", "可点击")):
+                    score += 10
+                if stage_key == "correction_generated" and _any(text, ("批改结果", "四部分", "结果页")):
+                    score += 10
+                if stage_key == "admin_approved" and _any(text, ("作文圈", "可见", "我的作文")):
+                    score += 5
+                ranked.append((score, -index, item))
+            if not ranked:
+                continue
+            ranked.sort(reverse=True)
+            best = dict(ranked[0][2])
+            selected_signature = _signature(best)
+            if stage_key == "enter_submission_page":
+                best = _project_enter_submission_page_case(best)
+            elif stage_key in {"my作文_published", "community_visible"}:
+                best = _project_student_sync_case(best, stage_key=stage_key)
+            selected_signatures.add(selected_signature)
+            selected_by_stage.append((stage_key, stage_label, best))
+
+        selected_stage_keys = {stage_key for stage_key, _stage_label, _item in selected_by_stage}
+        stage_label_by_key = {stage_key: stage_label for stage_key, stage_label, _patterns in main_chain_stages}
+
+        def _bridge_case(stage_key: str) -> dict[str, Any] | None:
+            if stage_key == "upload_ready" and selected_stage_keys:
+                return {
+                    "id": "TC-BRIDGE-UPLOAD-READY",
+                    "description": "上传作文图片成功后去批改按钮可点击",
+                    "test_module": "作文批改",
+                    "preconditions": ["学生用户已登录并进入作文批改页"],
+                    "steps": ["1. 选择清晰作文图片", "2. 上传图片", "3. 查看上传区和去批改按钮状态"],
+                    "test_input": "清晰作文图片",
+                    "expected_result": "作文图片上传成功，缩略图显示在上传区，去批改按钮变为可点击",
+                    "priority": "P0",
+                    "generated_bridge_case": True,
+                }
+            if stage_key == "correction_generated" and "upload_ready" in selected_stage_keys:
+                return {
+                    "id": "TC-BRIDGE-CORRECTION",
+                    "description": "点击去批改并等待 AI 批改成功",
+                    "test_module": "作文批改",
+                    "preconditions": ["作文图片已上传，去批改按钮可点击"],
+                    "steps": ["1. 点击【去批改】按钮", "2. 等待 AI 批改任务完成", "3. 查看页面跳转结果"],
+                    "test_input": "已上传的清晰作文图片",
+                    "expected_result": "AI 批改成功完成，系统跳转到批改结果页并展示本次作文的批改结果",
+                    "priority": "P0",
+                    "generated_bridge_case": True,
+                }
+            if stage_key == "enter_submission_page" and (
+                "correction_generated" in selected_stage_keys or "result_four_parts" in selected_stage_keys
+            ):
+                return {
+                    "id": "TC-BRIDGE-SUBMISSION-PAGE",
+                    "description": "从批改结果页进入投稿页并完成投稿前准备",
+                    "test_module": "作文投稿",
+                    "preconditions": ["已进入批改结果页，批改结果内容完整展示"],
+                    "steps": ["1. 点击【投稿】按钮", "2. 进入投稿页", "3. 关闭规则说明弹窗（如出现）", "4. 查看标题和正文输入区"],
+                    "test_input": "已生成批改结果的作文",
+                    "expected_result": "系统进入投稿页，标题和正文可编辑，原批改结果内容已带入且可提交投稿",
+                    "priority": "P0",
+                    "generated_bridge_case": True,
+                }
+            if stage_key == "submit_pending_review" and "enter_submission_page" in selected_stage_keys:
+                return {
+                    "id": "TC-BRIDGE-SUBMIT-PENDING",
+                    "description": "提交投稿后进入审核中",
+                    "test_module": "作文投稿",
+                    "preconditions": ["学生端已进入投稿页，标题和正文内容已确认"],
+                    "steps": ["1. 点击【提交投稿】按钮", "2. 等待提交接口返回", "3. 查看投稿状态"],
+                    "test_input": "标题、正文和原批改结果均完整的投稿内容",
+                    "expected_result": "投稿提交成功，作品状态变为审核中，投稿按钮或状态区显示审核中且不可重复提交",
+                    "priority": "P0",
+                    "generated_bridge_case": True,
+                }
+            if stage_key == "admin_approved" and "submit_pending_review" in selected_stage_keys:
+                return {
+                    "id": "TC-BRIDGE-ADMIN-APPROVE",
+                    "description": "后台审核通过投稿作品",
+                    "test_module": "作文审核后台",
+                    "preconditions": ["学生端已提交投稿，作品状态为审核中"],
+                    "steps": ["1. 切换到后台审核账号", "2. 打开待审核作文", "3. 点击【审核通过】", "4. 切回学生端账号"],
+                    "test_input": "状态为审核中的投稿作品",
+                    "expected_result": "后台审核通过成功，作品状态变为已发布，学生端刷新后可收到审核通过状态",
+                    "priority": "P0",
+                    "generated_bridge_case": True,
+                }
+            if stage_key == "my作文_published" and "admin_approved" in selected_stage_keys:
+                return {
+                    "id": "TC-BRIDGE-MY-WORK-PUBLISHED",
+                    "description": "学生端我的作文同步显示已发布作品",
+                    "test_module": "我的作文",
+                    "preconditions": ["后台已审核通过学生提交的投稿作品"],
+                    "steps": ["1. 切回学生端账号", "2. 打开我的作文列表", "3. 查看该作品状态"],
+                    "test_input": "刚审核通过的投稿作品",
+                    "expected_result": "我的作文列表中该作品状态同步为已发布，作品标题、正文摘要和发布时间与审核通过作品一致",
+                    "priority": "P1",
+                    "generated_bridge_case": True,
+                }
+            if stage_key == "community_visible" and (
+                "admin_approved" in selected_stage_keys or "my作文_published" in selected_stage_keys
+            ):
+                return {
+                    "id": "TC-BRIDGE-COMMUNITY-VISIBLE",
+                    "description": "作文圈列表可见审核通过作品",
+                    "test_module": "作文圈",
+                    "preconditions": ["投稿作品已审核通过并处于已发布状态"],
+                    "steps": ["1. 打开作文圈列表", "2. 搜索或定位刚发布的作品", "3. 查看列表卡片信息"],
+                    "test_input": "已发布作文标题",
+                    "expected_result": "作文圈列表可见该已发布作品，列表卡片展示标题、作者和发布时间，并可进入作品详情",
+                    "priority": "P0",
+                    "generated_bridge_case": True,
+                }
+            if stage_key == "community_detail_interaction" and "community_visible" in selected_stage_keys:
+                return {
+                    "id": "TC-BRIDGE-COMMUNITY-DETAIL",
+                    "description": "进入作文圈作品详情并点赞",
+                    "test_module": "作文圈",
+                    "preconditions": ["审核通过的作品已在作文圈列表可见"],
+                    "steps": ["1. 打开作文圈列表", "2. 进入该作品详情页", "3. 点击点赞按钮"],
+                    "test_input": "已发布且作文圈可见的作品",
+                    "expected_result": "作品详情页打开成功，点赞数增加 1，当前作品仍保持已发布且可见状态",
+                    "priority": "P0",
+                    "generated_bridge_case": True,
+                }
+            if stage_key == "delete_restore_unsubmitted" and "community_detail_interaction" in selected_stage_keys:
+                return {
+                    "id": "TC-BRIDGE-DELETE-RESTORE",
+                    "description": "删除已发布作品后恢复未投稿",
+                    "test_module": "我的作文",
+                    "preconditions": ["已进入作文圈作品详情并完成详情互动，作品仍处于已发布状态"],
+                    "steps": ["1. 回到我的作文或作品详情管理入口", "2. 点击删除已发布作品", "3. 确认删除后刷新我的作文和作文圈列表"],
+                    "test_input": "已发布且作文圈可见的作品",
+                    "expected_result": "作品从作文圈列表移除，我的作文中该作品恢复为未投稿状态，后续不再允许对已删除的公开作品点赞或评论",
+                    "priority": "P0",
+                    "generated_bridge_case": True,
+                }
+            return None
+
+        if selected_by_stage:
+            bridged_by_stage: list[tuple[str, str, dict[str, Any]]] = []
+            current_selected = {stage_key for stage_key, _label, _item in selected_by_stage}
+            selected_by_stage_map = {stage_key: (stage_label, item) for stage_key, stage_label, item in selected_by_stage}
+            for stage_key, stage_label, _patterns in main_chain_stages:
+                existing = selected_by_stage_map.get(stage_key)
+                if existing:
+                    bridged_by_stage.append((stage_key, existing[0], existing[1]))
+                    continue
+                bridge = _bridge_case(stage_key)
+                if bridge is not None:
+                    current_selected.add(stage_key)
+                    selected_stage_keys.add(stage_key)
+                    bridged_by_stage.append((stage_key, stage_label_by_key.get(stage_key, stage_label), bridge))
+            selected_by_stage = bridged_by_stage
+
+        def _infer_role(item: dict[str, Any]) -> str:
+            text = _case_text(item)
+            student_surface = _any(
+                text,
+                (
+                    "投稿页",
+                    "规则说明",
+                    "标题",
+                    "正文",
+                    "学生端",
+                    "我的作文",
+                    "作文圈",
+                    "批改结果页",
+                    "去批改",
+                ),
+            )
+            admin_surface = _any(text, ("审核后台", "后台审核", "审核员", "管理员", "admin", "后台"))
+            explicit_admin_action = _any(
+                text,
+                (
+                    "切换到后台",
+                    "后台打开",
+                    "后台审核通过",
+                    "管理员审核通过",
+                    "审核员审核通过",
+                    "点击【审核通过】",
+                    "点击审核通过",
+                    "审核拒绝",
+                    "拒审",
+                ),
+            )
+            if bool(item.get("student_observation_projection")):
+                return "student"
+            if admin_surface and (explicit_admin_action or not student_surface):
+                return "admin"
+            if _any(text, ("会员用户", "会员", "vip", "member")) and not _any(text, ("非会员", "普通用户")):
+                return "member"
+            if _any(text, ("普通用户", "非会员", "未订阅", "未付费")):
+                return "student_free"
+            return "student"
+
+        stage_output_state = {
+            "upload_ready": "uploaded",
+            "correction_generated": "corrected",
+            "result_four_parts": "corrected",
+            "enter_submission_page": "submission_page_ready",
+            "submit_pending_review": "pending_review",
+            "admin_approved": "published",
+            "my作文_published": "published",
+            "community_visible": "published_visible",
+            "community_detail_interaction": "published_visible",
+            "delete_restore_unsubmitted": "unsubmitted",
+        }
+
+        def _infer_data_state(item: dict[str, Any], *, stage_key: str = "") -> str:
+            if stage_key in stage_output_state:
+                return str(stage_output_state[stage_key])
+            text = _case_text(item)
+            if _any(text, ("0张", "0 张", "未上传", "无图片")):
+                return "no_image"
+            if _any(text, ("已上传", "上传成功", "图片已上传")):
+                return "uploaded"
+            if _any(text, ("批改结果", "已生成", "ai批改完成", "批改完成")):
+                return "corrected"
+            if _any(text, ("审核中", "待审核")):
+                return "pending_review"
+            if _any(text, ("已发布", "作文圈可见", "审核通过")):
+                return "published"
+            if _any(text, ("未投稿", "恢复未投稿")):
+                return "unsubmitted"
+            if _any(text, ("空状态", "无数据", "暂无")):
+                return "empty"
+            return "prepared"
+
+        def _fixture_for_case(item: dict[str, Any], group: str, data_state: str) -> dict[str, str]:
+            text = _case_text(item)
+            fixture_key = "default_logged_in_student"
+            fixture_builder = "login_student()"
+            cleanup_policy = "reset_session"
+            if group == "main_smoke":
+                fixture_key = "main_smoke_chain_seed"
+                fixture_builder = "seed_student作文_draft_and_login_student()"
+                cleanup_policy = "delete_created_work_and_review_records"
+            elif _is_community_tab_case(item):
+                fixture_key = "community_tab_sorting_dataset"
+                fixture_builder = "seed_community_works(status='published', count=30, with_like_reply_time_distribution=true)"
+                cleanup_policy = "delete_seeded_community_works"
+            elif group == "permission":
+                if _any(text, ("会员", "vip", "member")) and not _any(text, ("普通用户", "非会员")):
+                    fixture_key = "member_course_access"
+                    fixture_builder = "seed_user_membership(status='active')"
+                elif _any(text, ("过期", "失效")):
+                    fixture_key = "expired_member_course_lock"
+                    fixture_builder = "seed_user_membership(status='expired')"
+                else:
+                    fixture_key = "free_user_course_gate"
+                    fixture_builder = "seed_user_membership(status='free')"
+                cleanup_policy = "reset_user_membership"
+            elif group == "audit_branch":
+                if _any(text, ("评论", "回复", "comment")):
+                    fixture_key = "pending_comment_review"
+                    fixture_builder = "seed_comment(status='pending_review', work_status='published')"
+                    cleanup_policy = "delete_seeded_comment"
+                else:
+                    fixture_key = "pending_review_work"
+                    fixture_builder = "seed_work(status='pending_review')"
+                    cleanup_policy = "delete_seeded_work"
+            elif group == "exception":
+                fixture_key = "fault_injection_case"
+                fixture_builder = "enable_fault_injection_for_case()"
+                cleanup_policy = "disable_fault_injection"
+            elif group == "boundary":
+                if _any(text, ("20", "超过20", "最多20")):
+                    fixture_key = "works_over_20"
+                    fixture_builder = "seed_works(count=21)"
+                    cleanup_policy = "delete_seeded_works"
+                elif data_state == "empty":
+                    fixture_key = "empty_state_dataset"
+                    fixture_builder = "seed_empty_state()"
+                    cleanup_policy = "restore_default_dataset"
+                else:
+                    fixture_key = "boundary_dataset"
+                    fixture_builder = "seed_boundary_dataset()"
+                    cleanup_policy = "delete_boundary_dataset"
+            elif group == "display":
+                if _any(text, ("下载", "pdf")):
+                    fixture_key = "downloadable_pdf_resource"
+                    fixture_builder = "seed_download_resource(type='pdf')"
+                    cleanup_policy = "delete_seeded_resource"
+                elif _any(text, ("评论", "回复")):
+                    fixture_key = "published_work_with_comment_thread"
+                    fixture_builder = "seed_work(status='published', comments=1)"
+                    cleanup_policy = "delete_seeded_work_and_comments"
+                else:
+                    fixture_key = "display_ready_dataset"
+                    fixture_builder = "seed_display_ready_dataset()"
+                    cleanup_policy = "delete_display_ready_dataset"
+            else:
+                fixture_key = f"{group}_dataset"
+                fixture_builder = f"seed_{group}_dataset()"
+                cleanup_policy = f"cleanup_{group}_dataset"
+            return {
+                "fixture_key": fixture_key,
+                "fixture_builder": fixture_builder,
+                "cleanup_policy": cleanup_policy,
+            }
+
+        def _session_key_for_role(role: str) -> str:
+            if role == "admin":
+                return "admin_review_session"
+            if role == "member":
+                return "member_student_session"
+            if role == "student_free":
+                return "free_student_session"
+            return "student_session"
+
+        group_setup_map = {
+            "main_smoke": "seed_student作文_draft_and_login_student(); prepare_admin_review_session()",
+            "permission": "prepare_free_and_member_accounts()",
+            "audit_branch": "seed_work(status='pending_review')",
+            "exception": "enable_fault_injection_for_case()",
+            "boundary": "seed_boundary_dataset()",
+            "independent_functional": "seed_functional_dataset()",
+            "display": "seed_display_ready_dataset()",
+        }
+        group_teardown_map = {
+            "main_smoke": "delete_created_work_and_review_records(); reset_student_and_admin_sessions()",
+            "permission": "reset_user_membership()",
+            "audit_branch": "delete_seeded_work()",
+            "exception": "disable_fault_injection()",
+            "boundary": "delete_boundary_dataset()",
+            "independent_functional": "cleanup_functional_dataset()",
+            "display": "delete_display_ready_dataset()",
+        }
+
+        def _infer_group(item: dict[str, Any], *, in_main_chain: bool) -> str:
+            if in_main_chain:
+                return "main_smoke"
+            text = _case_text(item)
+            if _is_community_tab_case(item):
+                return "display"
+            if _any(text, ("审核不通过", "拒审", "差异过大", "后台审核", "审核拒绝", "审核通过", "评论审核", "回复审核", "审核评论", "审核回复")):
+                return "audit_branch"
+            if _any(text, ("普通用户", "非会员", "会员", "第一课", "非第一课", "锁会员", "会员中心", "付费", "权限")):
+                return "permission"
+            if _any(text, ("失败", "异常", "超时", "网络", "拒绝", "不通过", "无权限", "接口", "重试")):
+                return "exception"
+            if _any(text, ("0张", "0 张", "空状态", "最多", "上限", "格式", "大小", "边界", "无数据")):
+                return "boundary"
+            if _any(text, ("下载", "pdf", "评论", "分享", "入口", "弹窗", "展示", "排序", "缩略图")):
+                return "display"
+            return "independent_functional"
+
+        def _setup_hint(item: dict[str, Any], *, in_main_chain: bool, previous_id: str = "", previous_result: str = "") -> str:
+            if in_main_chain and previous_id:
+                return f"依赖 {previous_id} 的执行结果：{previous_result[:120]}"
+            preconditions = item.get("preconditions")
+            if isinstance(preconditions, list):
+                joined = "；".join(str(x).strip() for x in preconditions if str(x).strip())
+                if joined:
+                    return f"独立准备：{joined[:160]}"
+            return "独立准备：按本用例前置条件准备账号、数据和页面状态"
+
+        main_chain_cases = [item for _stage_key, _stage_label, item in selected_by_stage]
+        main_chain_signatures = {_signature(item) for item in main_chain_cases}
+        remaining_cases = [
+            dict(item)
+            for item in candidate_cases
+            if _signature(item) not in main_chain_signatures and _signature(item) not in selected_signatures
+        ]
+        group_rank = {
+            "permission": 1,
+            "audit_branch": 2,
+            "exception": 3,
+            "boundary": 4,
+            "independent_functional": 5,
+            "display": 6,
+        }
+        remaining_cases.sort(
+            key=lambda item: (
+                group_rank.get(_infer_group(item, in_main_chain=False), 9),
+                {"P0": 0, "P1": 1, "P2": 2}.get(str(item.get("priority") or "").upper(), 2),
+                str(item.get("test_module") or ""),
+                str(item.get("description") or ""),
+            )
+        )
+        ordered_cases = [*main_chain_cases, *remaining_cases]
+
+        safe_start = max(1, int(start_id or 1))
+        annotated: list[dict[str, Any]] = []
+        previous_main_id = ""
+        previous_main_result = ""
+        main_chain_stage_by_signature = {
+            _signature(item): (stage_key, stage_label, index + 1)
+            for index, (stage_key, stage_label, item) in enumerate(selected_by_stage)
+        }
+        role_sequence: list[str] = []
+        for offset, item in enumerate(ordered_cases):
+            updated = dict(item)
+            signature = _signature(updated)
+            new_id = f"TC-{safe_start + offset:03d}"
+            updated["id"] = new_id
+            stage_info = main_chain_stage_by_signature.get(signature)
+            in_main_chain = bool(stage_info)
+            group = _infer_group(updated, in_main_chain=in_main_chain)
+            role = _infer_role(updated)
+            role_sequence.append(role)
+            depends_on = [previous_main_id] if in_main_chain and previous_main_id else []
+            stage_key = str(stage_info[0]) if stage_info else ""
+            data_state = _infer_data_state(updated, stage_key=stage_key)
+            fixture = _fixture_for_case(updated, group, data_state)
+            updated["execution_group"] = group
+            updated["execution_sequence"] = int(offset + 1)
+            updated["chain_id"] = "main_smoke_chain" if in_main_chain else f"{group}_independent"
+            updated["depends_on"] = depends_on
+            updated["role"] = role
+            updated["session_key"] = _session_key_for_role(role)
+            updated["role_switch_strategy"] = (
+                "switch_to_admin_session_then_return_student_session"
+                if in_main_chain and role == "admin"
+                else "reuse_group_session"
+            )
+            updated["data_state"] = data_state
+            updated["isolation_required"] = bool(not in_main_chain)
+            updated["fixture_key"] = fixture["fixture_key"]
+            updated["fixture_builder"] = fixture["fixture_builder"]
+            updated["cleanup_policy"] = fixture["cleanup_policy"]
+            updated["group_setup"] = group_setup_map.get(group, "seed_case_dataset()")
+            updated["group_teardown"] = group_teardown_map.get(group, "cleanup_case_dataset()")
+            updated["setup_hint"] = _setup_hint(
+                updated,
+                in_main_chain=in_main_chain,
+                previous_id=previous_main_id,
+                previous_result=previous_main_result,
+            )
+            if in_main_chain and not depends_on:
+                updated["setup_hint"] = f"组级准备：{updated['group_setup']}；然后执行本主链路首个用例"
+            updated["teardown_hint"] = (
+                "主链路末尾执行清理；中间步骤不清理，供下一条用例复用状态"
+                if in_main_chain
+                else "执行后恢复本用例改动的数据，避免影响其他独立用例"
+            )
+            if stage_info:
+                updated["main_chain_stage"] = str(stage_info[0])
+                updated["main_chain_stage_label"] = str(stage_info[1])
+                updated["main_chain_step"] = int(stage_info[2])
+                if str(stage_info[0]) in {"my作文_published", "community_detail_interaction"}:
+                    updated["priority"] = "P1"
+                    updated["priority_final"] = "P1"
+                    updated["priority_decision_state"] = "overridden"
+                    updated["priority_decision_source"] = "execution_plan_main_support_step_demoted"
+                else:
+                    updated["priority"] = "P0"
+                    updated["priority_final"] = "P0"
+            elif str(updated.get("priority") or "").strip().upper() == "P0":
+                decision_source = str(updated.get("priority_decision_source") or "").strip()
+                non_blocking_detail = _any(
+                    _case_text(updated),
+                    (
+                        "状态标识",
+                        "状态标签",
+                        "点赞",
+                        "原文对比",
+                        "全文润色原文",
+                        "星星评分",
+                        "弹窗",
+                        "红点",
+                    ),
+                )
+                preserve_semantic_anchor = decision_source in {
+                    "main_path_anchor_floor",
+                    "preserved_priority_override",
+                    "conflict_resolved_by_high_risk_business_rule",
+                } and not non_blocking_detail
+                demote_non_main = False
+                if not preserve_semantic_anchor:
+                    demote_non_main = group in {"audit_branch", "boundary", "display", "exception", "independent_functional"}
+                    if group == "permission":
+                        permission_p0 = _any(
+                            _case_text(updated),
+                            ("第一课", "非第一课", "会员全部课程", "全部课程可学", "锁会员", "会员中心"),
+                        )
+                        demote_non_main = not permission_p0
+                if demote_non_main:
+                    updated["priority"] = "P1"
+                    updated["priority_final"] = "P1"
+                    updated["priority_decision_state"] = "overridden"
+                    updated["priority_decision_source"] = "execution_plan_non_main_p0_demoted"
+            annotated.append(updated)
+            if in_main_chain:
+                previous_main_id = new_id
+                previous_main_result = str(updated.get("expected_result") or "")
+
+        role_switch_count = 0
+        previous_role = ""
+        for role in [str(item.get("role") or "") for item in annotated if str(item.get("execution_group") or "") == "main_smoke"]:
+            if previous_role and role != previous_role:
+                role_switch_count += 1
+            previous_role = role
+
+        main_chain_count = sum(1 for item in annotated if str(item.get("execution_group") or "") == "main_smoke")
+        independent_count = max(0, len(annotated) - main_chain_count)
+        isolation_count = sum(1 for item in annotated if bool(item.get("isolation_required")))
+        broken_dependency_count = sum(
+            1
+            for item in annotated
+            if str(item.get("execution_group") or "") == "main_smoke"
+            and int(item.get("main_chain_step") or 0) > 1
+            and not item.get("depends_on")
+        )
+        summary = {
+            "applied": True,
+            "coverage_mode": str(coverage_mode or ""),
+            "linear_executable": bool(main_chain_count >= 2 and broken_dependency_count == 0),
+            "linear_scope": "main_smoke_chain_only",
+            "main_chain_case_count": int(main_chain_count),
+            "main_chain_stage_order": [
+                str(item.get("main_chain_stage") or "")
+                for item in annotated
+                if str(item.get("execution_group") or "") == "main_smoke"
+            ],
+            "independent_case_count": int(independent_count),
+            "isolation_case_count": int(isolation_count),
+            "role_switch_count": int(role_switch_count),
+            "broken_dependency_count": int(broken_dependency_count),
+            "state_conflict_count": 0,
+            "execution_group_breakdown": {
+                group: sum(1 for item in annotated if str(item.get("execution_group") or "") == group)
+                for group in sorted({str(item.get("execution_group") or "") for item in annotated})
+            },
+            "generated_bridge_case_count": int(sum(1 for item in annotated if bool(item.get("generated_bridge_case")))),
+            "group_setup": {
+                group: group_setup_map.get(group, "seed_case_dataset()")
+                for group in sorted({str(item.get("execution_group") or "") for item in annotated})
+            },
+            "group_teardown": {
+                group: group_teardown_map.get(group, "cleanup_case_dataset()")
+                for group in sorted({str(item.get("execution_group") or "") for item in annotated})
+            },
+            "fixture_keys": sorted(
+                {str(item.get("fixture_key") or "") for item in annotated if str(item.get("fixture_key") or "")}
+            ),
+        }
+        return annotated, summary
+
     def _required_p0_groups_from_requirement(requirement_text: str) -> set[str]:
         text = str(requirement_text or "").lower()
         required_groups: set[str] = set()
@@ -1275,7 +2986,7 @@ def stream_postprocess_cases(
                     covered_groups.add(group)
         return covered_groups
 
-    def _is_low_quality(case: dict[str, Any]) -> bool:
+    def _low_quality_reason(case: dict[str, Any]) -> str:
         desc = str(case.get("description") or "").strip()
         module = str(case.get("test_module") or "").strip()
         expected_result = str(case.get("expected_result") or "").strip()
@@ -1284,24 +2995,38 @@ def stream_postprocess_cases(
         preconditions = case.get("preconditions")
 
         if len(desc) < 4:
-            return True
+            return "description_too_short"
         if not module:
-            return True
+            return "missing_test_module"
         if not expected_result:
-            return True
+            return "missing_expected_result"
         if priority not in {"P0", "P1", "P2"}:
-            return True
+            return "invalid_priority"
         if not isinstance(steps, list) or not any(str(step).strip() for step in steps):
-            return True
+            return "missing_steps"
         if not isinstance(preconditions, list) or not any(str(item).strip() for item in preconditions):
-            return True
-        return False
+            return "missing_preconditions"
+        return ""
+
+    def _is_low_quality(case: dict[str, Any]) -> bool:
+        return bool(_low_quality_reason(case))
+
+    def _quality_drop_detail(case: dict[str, Any], *, reason: str, stage: str) -> dict[str, Any]:
+        return {
+            "stage": str(stage or ""),
+            "reason": str(reason or ""),
+            "case_id": str(case.get("id") or ""),
+            "test_module": str(case.get("test_module") or ""),
+            "priority": str(case.get("priority") or case.get("priority_final") or ""),
+            "description": str(case.get("description") or "")[:240],
+            "expected_result": str(case.get("expected_result") or "")[:240],
+        }
 
     def _filter_low_quality_cases_with_stats(
         cases: list[dict[str, Any]],
         *,
         requirement_text: str = "",
-    ) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         normalized_cases: list[dict[str, Any]] = []
         stats = {
             "invalid_structure_dropped": 0,
@@ -1309,17 +3034,32 @@ def stream_postprocess_cases(
             "semantic_dedup_dropped": 0,
             "governance_hard_drop": 0,
             "total_dropped": 0,
+            "dropped_details": [],
         }
         for item in cases:
             if not isinstance(item, dict):
                 stats["invalid_structure_dropped"] += 1
+                stats["dropped_details"].append(
+                    {"stage": "initial_structure_filter", "reason": "non_dict_case"}
+                )
                 continue
             normalized = _normalize_case_structure(item)
             if not isinstance(normalized, dict):
                 stats["invalid_structure_dropped"] += 1
+                stats["dropped_details"].append(
+                    _quality_drop_detail(item, reason="normalize_failed", stage="initial_structure_filter")
+                )
                 continue
-            if _is_low_quality(normalized):
+            low_quality_reason = _low_quality_reason(normalized)
+            if low_quality_reason:
                 stats["weak_case_dropped"] += 1
+                stats["dropped_details"].append(
+                    _quality_drop_detail(
+                        normalized,
+                        reason=low_quality_reason,
+                        stage="initial_quality_filter",
+                    )
+                )
                 continue
             normalized_cases.append(normalized)
 
@@ -1629,6 +3369,10 @@ def stream_postprocess_cases(
             max_cases_per_rule = max(1, min(int(max_per_rule or 4), 4))
             max_ui_like_cases_per_bucket = 4
             semantic_duplicate_threshold = 0.90
+        elif coverage_mode == "expanded_regression":
+            max_cases_per_rule = max(1, min(int(max_per_rule or 3), 3))
+            max_ui_like_cases_per_bucket = 3
+            semantic_duplicate_threshold = 0.88
         elif coverage_mode == "standard_regression":
             max_cases_per_rule = max(1, min(int(max_per_rule or 3), 3))
             max_ui_like_cases_per_bucket = 3
@@ -1661,6 +3405,7 @@ def stream_postprocess_cases(
             high_signal_seed = _is_high_signal(item, score_profile)
             ui_like_case = _is_ui_like_case(item, score_profile)
             reuse_risk_hit = _hits_reuse_risk(item, score_profile)
+            complexity_score = int(case_complexity_profile(item).get("complexity_score") or 0)
             semantic_sig = _semantic_signature(item, list(_extract_rule_keys(item)))
             semantic_tokens = _semantic_tokenize(
                 " ".join(
@@ -1687,6 +3432,7 @@ def stream_postprocess_cases(
                 "high_signal_seed": bool(high_signal_seed),
                 "ui_like_case": bool(ui_like_case),
                 "reuse_risk_hit": bool(reuse_risk_hit),
+                "complexity_score": int(complexity_score),
                 "soft_constraint_hit": bool(_hits_soft_constraint(item)),
                 "semantic_signature": semantic_sig,
                 "semantic_tokens": semantic_tokens,
@@ -1720,6 +3466,7 @@ def stream_postprocess_cases(
                 int(bool(entry.get("reuse_risk_hit"))),
                 int(entry.get("focus_score") or 0),
                 max(0, int(entry.get("coverage_gain_score") or 0)),
+                -min(8, int(entry.get("complexity_score") or 0)),
                 int(not bool(entry.get("ui_like_case"))),
                 int(entry.get("priority_tiebreaker") or 0),
             )
@@ -1788,6 +3535,7 @@ def stream_postprocess_cases(
                     int(bool(entry.get("reuse_risk_hit"))),
                     int(entry.get("focus_score") or 0),
                     max(0, int(entry.get("coverage_gain_score") or 0)),
+                    -min(8, int(entry.get("complexity_score") or 0)),
                     int(not bool(entry.get("ui_like_case"))),
                     int(entry.get("priority_tiebreaker") or 0),
                 )

@@ -45,6 +45,7 @@ export type JudgeDecisionTableMeta = {
 };
 
 export type DebugState = {
+  projectId?: number | null;
   generationMode?: string;
   bizKeys: string[];
   currentBizKey?: string;
@@ -67,10 +68,12 @@ export type DebugState = {
   lastUpdatedAt?: number;
   ingestDiag: (event: unknown) => void;
   setResultState: (payload: Omit<ResultDebugState, 'ts'>) => void;
+  resetForProject: (projectId: number | null) => void;
   reset: () => void;
 };
 
 const INITIAL_STATE = {
+  projectId: undefined as number | null | undefined,
   generationMode: undefined as string | undefined,
   bizKeys: [] as string[],
   currentBizKey: undefined as string | undefined,
@@ -287,6 +290,10 @@ export const useRagDebugStore = create<DebugState>()(
         });
       },
 
+      resetForProject: (projectId) => {
+        set({ ...INITIAL_STATE, projectId });
+      },
+
       reset: () => {
         set({ ...INITIAL_STATE });
       },
@@ -295,6 +302,7 @@ export const useRagDebugStore = create<DebugState>()(
       name: DEBUG_STORE_STORAGE_KEY,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
+        projectId: state.projectId,
         generationMode: state.generationMode,
         bizKeys: state.bizKeys,
         currentBizKey: state.currentBizKey,

@@ -135,9 +135,6 @@ class LegacyGenerationStreamBatchesMixin:
             except Exception:
                 pass
 
-        def _approx_tokens(text: Any) -> int:
-            return max(0, int(len(str(text or "")) / 4))
-
         def _build_batch_token_usage(
             *,
             batch_index: int,
@@ -161,20 +158,15 @@ class LegacyGenerationStreamBatchesMixin:
                         return number
                 return -1
 
-            input_tokens = _meta_int("input_tokens", "prompt_tokens", "input_tokens_estimated", "prompt_tokens_estimated")
-            output_tokens = _meta_int("output_tokens", "completion_tokens", "output_tokens_estimated", "completion_tokens_estimated")
+            input_tokens = _meta_int("input_tokens", "prompt_tokens")
+            output_tokens = _meta_int("output_tokens", "completion_tokens")
             estimate_method = str(metadata.get("token_estimate_method") or "").strip()
-            token_source = "provider"
-            if input_tokens < 0:
-                input_tokens = _approx_tokens(f"{system_prompt_text}\n{requirement_text}")
-                token_source = "估算"
-                estimate_method = estimate_method or "chars_div_4"
-            if output_tokens < 0:
-                output_tokens = _approx_tokens(output_text)
-                token_source = "估算"
-                estimate_method = estimate_method or "chars_div_4"
-            if estimate_method:
-                token_source = "估算"
+            has_provider_usage = input_tokens >= 0 and output_tokens >= 0 and not estimate_method
+            token_unavailable_reason = ""
+            if not has_provider_usage:
+                token_unavailable_reason = "provider_usage_missing"
+                if estimate_method:
+                    token_unavailable_reason = "provider_usage_estimated"
             return {
                 "kind": "stream_batch_token_usage",
                 "project_id": int(project_id),
@@ -186,10 +178,11 @@ class LegacyGenerationStreamBatchesMixin:
                 "total_batches": int(total_batches),
                 "attempt": int(attempt),
                 "requested_count": int(need),
-                "input_tokens": int(input_tokens),
-                "output_tokens": int(output_tokens),
-                "total_tokens": int(input_tokens + output_tokens),
-                "token_source": token_source,
+                "input_tokens": int(input_tokens) if has_provider_usage else None,
+                "output_tokens": int(output_tokens) if has_provider_usage else None,
+                "total_tokens": int(input_tokens + output_tokens) if has_provider_usage else None,
+                "token_source": "provider" if has_provider_usage else "unavailable",
+                "token_unavailable_reason": token_unavailable_reason,
                 "estimate_method": estimate_method,
                 "model": str(metadata.get("model") or getattr(client, "model", "") or ""),
             }
@@ -299,6 +292,8 @@ class LegacyGenerationStreamBatchesMixin:
             feedback_control_state=feedback_control_state,
         )
         current_biz_key = str(prompt_context.get("current_biz_key") or current_biz_key or "unknown")
+        if isinstance(prompt_context.get("feedback_control_state"), dict):
+            feedback_control_state = dict(prompt_context.get("feedback_control_state") or {})
         requirement_semantics_context = _extract_requirement_semantics_payload(prompt_context)
         coverage_plan_lite, coverage_plan_rules = _build_stream_coverage_plan_lite(requirement)
         _emit_biz_key_diag(prompt_context)
@@ -404,6 +399,8 @@ class LegacyGenerationStreamBatchesMixin:
                     feedback_control_state=feedback_control_state,
                 )
                 current_biz_key = str(prompt_context.get("current_biz_key") or current_biz_key or "unknown")
+                if isinstance(prompt_context.get("feedback_control_state"), dict):
+                    feedback_control_state = dict(prompt_context.get("feedback_control_state") or {})
                 requirement_semantics_context = _extract_requirement_semantics_payload(prompt_context)
                 _emit_biz_key_diag(prompt_context)
 
@@ -639,6 +636,7 @@ class LegacyGenerationStreamBatchesMixin:
                 "only_current_biz": only_current_biz,
                 "multi_pass": multi_pass,
                 "generation_mode": generation_mode,
+                "feedback_control_state": feedback_control_state if isinstance(feedback_control_state, dict) else {},
                 "requirement_semantics_context": requirement_semantics_context,
                 "stream_coverage_plan_lite": coverage_plan_lite,
                 "stream_coverage_plan_rule_count": int(len(coverage_plan_rules)),

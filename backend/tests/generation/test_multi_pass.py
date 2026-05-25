@@ -66,7 +66,6 @@ def test_multi_pass_pipeline_runs_quality_coverage_loop() -> None:
     assert "decide_continue_or_stop" in stages
     assert result["coverage"]["kind"] == "coverage_check"
 
-
 def test_coverage_analyzer_returns_rule_diagnostics() -> None:
     requirement = "REQ-001 登录成功流程。REQ-002 登录失败超过5次触发异常提示。REQ-003 用户名长度边界值20。"
     coverage = analyze_coverage(

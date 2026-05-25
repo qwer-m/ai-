@@ -12,6 +12,7 @@ from core.db.models import User
 from core.processing.file_processing import is_image_filename, parse_file_bytes, parse_image_bytes_with_fallback
 from core.processing.workflow import WorkflowKind, WorkflowStage, log_workflow_trace
 from modules.orchestration.context_orchestrator import context_orchestrator
+from modules.test_generation_components.repositories.history_repository import TestGenerationHistoryRepository
 from modules.testing.evaluation import evaluator
 from modules.testing.evaluation_artifact_store import upsert_compare_artifact
 from routers.orchestration.evaluation_shared import get_owned_project, is_attachment_ocr_ok
@@ -74,6 +75,16 @@ async def compare_test_cases(
     if not final_modified:
         raise HTTPException(status_code=400, detail="Missing modified_test_case or file")
 
+    requirement_text = ""
+    if generation_id is not None:
+        generation = TestGenerationHistoryRepository(db).get_generation(generation_id=generation_id)
+        if (
+            generation is not None
+            and generation.project_id == project_id
+            and generation.user_id == current_user.id
+        ):
+            requirement_text = generation.requirement_text or ""
+
     context_bundle = context_orchestrator.assemble_context(
         WorkflowKind.EVALUATION,
         project_id,
@@ -100,6 +111,7 @@ async def compare_test_cases(
         db=db,
         project_id=project_id,
         user_id=current_user.id,
+        requirement_text=requirement_text,
     )
     artifact_saved = False
     artifact_doc_id: Optional[int] = None
@@ -111,6 +123,7 @@ async def compare_test_cases(
                 "source_file_content_type": upload_persist["content_type"],
                 "source_file_size": upload_persist["size"],
                 "modified_test_case": final_modified,
+                "requirement_text": requirement_text,
                 "comparison_result": result,
                 "ocr": {
                     "source": upload_persist["ocr_source"],

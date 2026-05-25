@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>学生投稿作文内容审核后台线框原型</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #eef2f7; color: #263244; font-family: "Microsoft YaHei", Arial, sans-serif; }
+    .shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+    .side { background: #132033; color: #d9e3f2; padding: 20px 14px; }
+    .brand { font-size: 18px; font-weight: 700; margin-bottom: 28px; }
+    .nav { display: grid; gap: 8px; }
+    .nav div { padding: 11px 12px; border-radius: 6px; color: #aebbd0; }
+    .nav .active, .nav div:hover { background: #22314a; color: #fff; }
+    .main { min-width: 0; }
+    .topbar { height: 64px; background: #fff; border-bottom: 1px solid #d8e0eb; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; }
+    .search { width: 360px; padding: 10px 12px; border: 1px solid #cfd8e6; border-radius: 6px; color: #68768a; }
+    .content { padding: 22px; display: grid; gap: 18px; }
+    .card { background: #fff; border: 1px solid #d8e0eb; border-radius: 8px; padding: 16px; }
+    .title { font-size: 18px; font-weight: 700; margin: 0 0 12px; }
+    .muted { color: #6b7890; font-size: 13px; }
+    .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+    .kpi { background: #fff; border: 1px solid #d8e0eb; border-radius: 8px; padding: 14px; }
+    .kpi strong { display: block; font-size: 26px; margin-top: 6px; }
+    .layout { display: grid; grid-template-columns: 38% 1fr; gap: 16px; align-items: start; }
+    .filters { display: grid; grid-template-columns: 1fr 110px 110px; gap: 8px; margin-bottom: 12px; }
+    input, select, textarea { border: 1px solid #cfd8e6; border-radius: 6px; padding: 9px 10px; font-family: inherit; background: #fff; }
+    textarea { width: 100%; min-height: 104px; resize: vertical; }
+    .list { display: grid; gap: 10px; }
+    .essay { border: 1px solid #dbe3ef; border-radius: 7px; padding: 12px; background: #fbfdff; }
+    .essay.active { border-color: #3b82f6; box-shadow: inset 3px 0 0 #3b82f6; }
+    .essay-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+    .essay-title { font-weight: 700; }
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .tag { font-size: 12px; border-radius: 999px; padding: 3px 8px; background: #e8eef7; color: #475569; }
+    .tag.pending { background: #e0edff; color: #1d4ed8; }
+    .tag.pass { background: #dcfce7; color: #15803d; }
+    .tag.reject { background: #fee2e2; color: #b91c1c; }
+    .tag.pick { background: #fef3c7; color: #92400e; }
+    .tag.delete { background: #e5e7eb; color: #4b5563; }
+    .detail-head { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 14px; }
+    .essay-body { line-height: 1.8; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 14px; min-height: 190px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+    .btn { border: 1px solid transparent; border-radius: 6px; padding: 9px 14px; background: #f8fafc; color: #334155; font-weight: 700; }
+    .btn.primary { background: #2563eb; color: #fff; }
+    .btn.success { background: #16a34a; color: #fff; }
+    .btn.danger { background: #dc2626; color: #fff; }
+    .btn.warn { background: #f59e0b; color: #fff; }
+    .btn.ghost { border-color: #cfd8e6; background: #fff; }
+    .switch { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #f1c95a; background: #fffbeb; border-radius: 6px; color: #92400e; font-weight: 700; }
+    .table { width: 100%; border-collapse: collapse; }
+    .table th, .table td { border-bottom: 1px solid #e2e8f0; padding: 11px 9px; text-align: left; font-size: 14px; vertical-align: top; }
+    .table th { color: #64748b; background: #f8fafc; }
+    .two { display: grid; grid-template-columns: 1fr 340px; gap: 16px; }
+    .drawer { background: #fff; border: 1px solid #d8e0eb; border-radius: 8px; padding: 16px; min-height: 360px; }
+    .modal-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .modal { border: 1px solid #cfd8e6; border-radius: 8px; background: #fff; overflow: hidden; }
+    .modal h3 { margin: 0; padding: 13px 14px; border-bottom: 1px solid #e2e8f0; font-size: 16px; }
+    .modal .body { padding: 14px; display: grid; gap: 10px; }
+    .modal .foot { padding: 12px 14px; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 8px; }
+    .section-label { font-weight: 700; margin-bottom: 8px; }
+    @media (max-width: 1100px) {
+      .shell { grid-template-columns: 1fr; }
+      .side { display: none; }
+      .kpis, .layout, .two, .modal-row { grid-template-columns: 1fr; }
+      .search { width: 220px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="side">
+      <div class="brand">作文审核后台</div>
+      <nav class="nav">
+        <div>工作台</div>
+        <div class="active">作文审核</div>
+        <div>评论审核</div>
+        <div>审核消息</div>
+        <div>删除记录</div>
+      </nav>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <input class="search" value="搜索作文标题 / 学生 / 评论内容" />
+        <div class="muted">老师 张老师 · 今日待处理 48</div>
+      </header>
+
+      <section class="content">
+        <div class="kpis">
+          <div class="kpi"><span class="muted">待审核作文</span><strong>26</strong></div>
+          <div class="kpi"><span class="muted">待审核评论</span><strong>84</strong></div>
+          <div class="kpi"><span class="muted">今日通过</span><strong>19</strong></div>
+          <div class="kpi"><span class="muted">今日不通过</span><strong>7</strong></div>
+          <div class="kpi"><span class="muted">今日删除</span><strong>3</strong></div>
+        </div>
+
+        <div class="layout">
+          <section class="card">
+            <h2 class="title">作文审核列表</h2>
+            <div class="filters">
+              <input value="搜索：标题/学生/班级" />
+              <select><option>待审核</option><option>已通过</option><option>不通过</option><option>已删除</option></select>
+              <select><option>最新投稿</option><option>评论最多</option></select>
+            </div>
+            <div class="list">
+              <article class="essay active">
+                <div class="essay-head">
+                  <div class="essay-title">春天的校园</div>
+                  <span class="tag pending">待审核</span>
+                </div>
+                <div class="muted">学生：林小雨 · 五年级 2 班 · 832 字 · 10 分钟前</div>
+                <div class="tags"><span class="tag">评论 0</span><span class="tag">投稿作文</span></div>
+              </article>
+              <article class="essay">
+                <div class="essay-head">
+                  <div class="essay-title">我和书的故事</div>
+                  <span class="tag pass">已通过</span>
+                </div>
+                <div class="muted">学生：周安安 · 六年级 1 班 · 1024 字 · 1 小时前</div>
+                <div class="tags"><span class="tag pick">精选</span><span class="tag">评论 12</span></div>
+              </article>
+              <article class="essay">
+                <div class="essay-head">
+                  <div class="essay-title">难忘的一天</div>
+                  <span class="tag reject">不通过</span>
+                </div>
+                <div class="muted">学生：王乐 · 四年级 3 班 · 518 字 · 昨天</div>
+                <div class="tags"><span class="tag">原因：内容不完整</span></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="detail-head">
+              <div>
+                <h2 class="title">春天的校园</h2>
+                <div class="muted">林小雨 · 五年级 2 班 · 阳光小学 · 投稿时间 2026-05-13 09:42</div>
+              </div>
+              <div class="tags"><span class="tag pending">待审核</span></div>
+            </div>
+            <div class="section-label">作文正文</div>
+            <div class="essay-body">
+              春天来了，校园里的树发出了嫩芽。操场边的小花一朵一朵开了，同学们在阳光下朗读课文。老师带我们观察植物，我发现每一片叶子都像刚睡醒一样……
+            </div>
+            <div class="actions">
+              <button class="btn success">通过并公开展示</button>
+              <button class="btn danger">不通过并填写原因</button>
+              <span class="switch">精选标签：通过后可设置</span>
+              <button class="btn ghost">复制正文</button>
+              <button class="btn warn">删除作文</button>
+            </div>
+          </section>
+        </div>
+
+        <section class="card">
+          <h2 class="title">审核弹窗状态</h2>
+          <div class="modal-row">
+            <div class="modal">
+              <h3>确认通过投稿作文</h3>
+              <div class="body">
+                <div>通过后，该作文将在 APP 中对全部用户展示。</div>
+                <label><input type="checkbox" checked /> 同时设为精选</label>
+              </div>
+              <div class="foot"><button class="btn ghost">取消</button><button class="btn success">确认通过</button></div>
+            </div>
+            <div class="modal">
+              <h3>填写不通过原因</h3>
+              <div class="body">
+                <select><option>内容不完整</option><option>与主题不符</option><option>含不适宜内容</option><option>疑似抄袭</option><option>其他原因</option></select>
+                <textarea>作文内容较短，主题表达不完整，请补充具体事件和结尾总结。</textarea>
+                <div class="muted">学生消息预览：你的作文《春天的校园》未通过审核，原因：作文内容较短……</div>
+              </div>
+              <div class="foot"><button class="btn ghost">取消</button><button class="btn danger">确认不通过</button></div>
+            </div>
+            <div class="modal">
+              <h3>确认删除作文</h3>
+              <div class="body">
+                <div>删除后作文将不再在 APP 展示，相关评论也将隐藏。</div>
+                <textarea placeholder="删除原因，可选"></textarea>
+              </div>
+              <div class="foot"><button class="btn ghost">取消</button><button class="btn warn">确认删除</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="two">
+          <div class="card">
+            <h2 class="title">评论审核</h2>
+            <div class="filters">
+              <input value="搜索评论内容/用户/作文标题" />
+              <select><option>待审核</option><option>已通过</option><option>不通过</option></select>
+              <select><option>全部作文</option><option>精选作文</option></select>
+            </div>
+            <table class="table">
+              <thead><tr><th>评论内容</th><th>评论用户</th><th>所属作文</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr><td>写得很有画面感，结尾可以再加强。</td><td>小陈</td><td>春天的校园</td><td><span class="tag pending">待审核</span></td><td>通过 / 不通过 / 删除</td></tr>
+                <tr><td>这篇作文很好看！</td><td>木木</td><td>我和书的故事</td><td><span class="tag pass">已通过</span></td><td>删除</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <aside class="drawer">
+            <h2 class="title">评论详情抽屉</h2>
+            <div class="section-label">评论全文</div>
+            <div class="essay-body" style="min-height: 90px;">写得很有画面感，结尾可以再加强。</div>
+            <div class="muted" style="margin-top: 12px;">所属作文：春天的校园 · 作者：林小雨</div>
+            <div class="actions">
+              <button class="btn success">通过评论</button>
+              <button class="btn danger">不通过</button>
+              <button class="btn warn">删除评论</button>
+            </div>
+          </aside>
+        </section>
+
+        <section class="card">
+          <h2 class="title">审核消息与删除记录</h2>
+          <table class="table">
+            <thead><tr><th>类型</th><th>对象</th><th>接收人/作者</th><th>内容/原因</th><th>时间</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td>作文不通过消息</td><td>难忘的一天</td><td>王乐</td><td>内容不完整，请补充具体事件。</td><td>2026-05-13 10:18</td><td>已发送</td></tr>
+              <tr><td>删除记录</td><td>评论留言</td><td>游客A</td><td>含不适宜表达</td><td>2026-05-13 10:04</td><td>已删除</td></tr>
+            </tbody>
+          </table>
+        </section>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

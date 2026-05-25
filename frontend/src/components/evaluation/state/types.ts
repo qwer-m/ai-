@@ -63,9 +63,38 @@ export type DefectAnalysis = {
   modifications?: string[];
 };
 
+export type RequirementBaseline = {
+  requirement_points?: string[];
+  ai_requirement_gaps?: string[];
+  human_requirement_gaps?: string[];
+  ai_unanchored_points?: string[];
+  human_added_value?: string[];
+  both_missing_points?: string[];
+  missing_in_generated?: string[];
+  missing_in_modified?: string[];
+  covered_by_both?: string[];
+  generated_coverage_count?: number;
+  modified_coverage_count?: number;
+  generated_coverage_rate?: number;
+  modified_coverage_rate?: number;
+  summary?: string;
+  heuristic?: {
+    requirement_points?: string[];
+    missing_in_generated?: string[];
+    missing_in_modified?: string[];
+    both_missing_points?: string[];
+    covered_by_both?: string[];
+    generated_coverage_count?: number;
+    modified_coverage_count?: number;
+    generated_coverage_rate?: number;
+    modified_coverage_rate?: number;
+  };
+};
+
 export type ParsedQualityReport = {
   metrics: QualityMetrics;
   defectAnalysis: DefectAnalysis;
+  requirementBaseline?: RequirementBaseline;
   summary: string;
 } | null;
 

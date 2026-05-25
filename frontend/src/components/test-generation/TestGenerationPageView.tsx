@@ -36,7 +36,6 @@ type TestGenerationPageViewProps = {
   setCompress: (value: boolean) => void;
   expectedCount: number;
   setExpectedCount: (value: number) => void;
-  isEstimating: boolean;
   appendCount: number;
   setAppendCount: (value: number) => void;
   force: boolean;
@@ -103,7 +102,6 @@ export function TestGenerationPageView({
   setCompress,
   expectedCount,
   setExpectedCount,
-  isEstimating,
   appendCount,
   setAppendCount,
   force,
@@ -193,7 +191,6 @@ export function TestGenerationPageView({
         onCompressChange={setCompress}
         expectedCount={expectedCount}
         onExpectedCountChange={setExpectedCount}
-        isEstimating={isEstimating}
         appendCount={appendCount}
         onAppendCountChange={setAppendCount}
         force={force}

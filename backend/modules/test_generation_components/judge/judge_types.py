@@ -29,14 +29,18 @@ class JudgeSignalSet(BaseModel):
     missing_core_flow: bool = False
     missing_reuse_risk: bool = False
     contains_pending_logic: bool = False
+    is_semantic_duplicate: bool = False
 
     confirmed_fact_hits: list[str] = Field(default_factory=list)
     confirmed_fact_violations: list[str] = Field(default_factory=list)
 
     reuse_risk_hits: list[str] = Field(default_factory=list)
     missing_reuse_risk_items: list[str] = Field(default_factory=list)
+    duplicate_of_case_id: str = ""
+    duplicate_similarity: float = 0.0
 
     pending_hits: list[str] = Field(default_factory=list)
+    vague_or_unconfirmed_hits: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
 

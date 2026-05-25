@@ -8,7 +8,15 @@ from typing import Any
 from modules.memory_fabric.contracts.memory_context import MemoryContext
 from modules.memory_fabric.contracts.memory_fabric import MemoryFabric
 from modules.memory_fabric.runtime.diagnostics import record_memory_read
+from modules.test_generation_components.control.fact_profile_activation import (
+    build_fact_profile,
+    merge_fact_profile_control_state,
+)
 from modules.test_generation_components.control.feedback_control_state import FeedbackControlState
+from modules.test_generation_components.control.project_profile_activation import (
+    build_project_profile,
+    merge_project_profile_control_state,
+)
 from modules.test_generation_components.prompting.structured_context_split_helpers import (
     _biz_tag,
     _clip_text,
@@ -414,10 +422,7 @@ def _build_testcase_context(
     for biz_key in biz_order:
         lines: list[str] = [f"### biz_key: {biz_key} ({_biz_tag(biz_key, current_biz_key)})"]
         module_map = grouped.get(biz_key, {})
-        module_order = sorted(
-            module_map.keys(),
-            key=lambda key: (-sum(len(items) for items in module_map[key].values()), key),
-        )
+        module_order = list(module_map.keys())
         for module_name in module_order:
             lines.append(f"#### test_module: {module_name}")
             for priority in _PRIORITY_ORDER:
@@ -508,6 +513,104 @@ def _build_requirement_context(
         full_lines.append("")
         full_lines.extend(block_lines)
     return _clip_text("\n".join(full_lines), max_chars) or "(empty)", counts, scoped_map
+
+
+def _dedupe_ordered_texts(values: list[Any]) -> list[str]:
+    output: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        key = re.sub(r"\s+", "", text).lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        output.append(text)
+    return output
+
+
+def _extract_requirement_module_order(
+    *,
+    chunks: list[dict[str, Any]],
+    current_biz_key: str,
+    only_current_biz: bool,
+) -> dict[str, list[str]]:
+    effective_only_current = bool(only_current_biz) and current_biz_key != "unknown"
+    grouped: dict[str, list[str]] = defaultdict(list)
+
+    for chunk in chunks[:_MAX_REQUIREMENT_SEMANTIC_SOURCE_CHUNKS]:
+        if not isinstance(chunk, dict):
+            continue
+        metadata = chunk.get("metadata") if isinstance(chunk.get("metadata"), dict) else {}
+        biz_key = _safe_str(chunk.get("biz_key") or metadata.get("biz_key"), "unknown")
+        if effective_only_current and biz_key != current_biz_key:
+            continue
+
+        doc_type = _safe_str(chunk.get("doc_type") or metadata.get("doc_type"), "unknown").lower()
+        text = str(chunk.get("chunk_text") or "").strip()
+        if text and "requirement" not in doc_type and "需求" not in doc_type and "REQ-" not in text:
+            continue
+
+        module = _safe_str(
+            chunk.get("module")
+            or chunk.get("test_module")
+            or metadata.get("module")
+            or metadata.get("test_module"),
+            "",
+        )
+        if module:
+            grouped[biz_key].append(module)
+
+    return {biz_key: _dedupe_ordered_texts(items) for biz_key, items in grouped.items() if items}
+
+
+def _extract_reference_module_order(
+    *,
+    existing_cases: list[dict[str, Any]] | None,
+    current_biz_key: str,
+    only_current_biz: bool,
+) -> dict[str, list[str]]:
+    effective_only_current = bool(only_current_biz) and current_biz_key != "unknown"
+    grouped: dict[str, list[str]] = defaultdict(list)
+    for case in existing_cases or []:
+        if not isinstance(case, dict):
+            continue
+        biz_key = _safe_str(case.get("biz_key"), "unknown")
+        if effective_only_current and biz_key != current_biz_key:
+            continue
+        module = _safe_str(case.get("test_module") or case.get("module"), "")
+        if module:
+            grouped[biz_key].append(module)
+    return {biz_key: _dedupe_ordered_texts(items) for biz_key, items in grouped.items() if items}
+
+
+def _merge_module_order(
+    *,
+    requirement_order: dict[str, list[str]],
+    reference_order: dict[str, list[str]],
+    biz_key_order: list[str],
+    current_biz_key: str,
+) -> tuple[list[str], dict[str, list[str]], str]:
+    by_biz: dict[str, list[str]] = {}
+    source = "none"
+    for biz_key in biz_key_order:
+        ordered = _dedupe_ordered_texts([
+            *(requirement_order.get(biz_key) or []),
+            *(reference_order.get(biz_key) or []),
+        ])
+        if ordered:
+            by_biz[biz_key] = ordered
+            if source == "none":
+                source = "requirement_document" if requirement_order.get(biz_key) else "reference_cases"
+
+    current_order = by_biz.get(current_biz_key) or []
+    if not current_order:
+        for biz_key in biz_key_order:
+            current_order = by_biz.get(biz_key) or []
+            if current_order:
+                break
+    return current_order, by_biz, source
 
 
 def _build_requirement_semantics_context(
@@ -730,6 +833,9 @@ def _build_control_context(
     )
     preferred_quota_active = bool(strong_preferred_quota_enabled and state.preferred_patterns)
     generation_profile = dict((state.source_meta or {}).get("generation_coverage_profile") or {})
+    fact_profile = dict((state.source_meta or {}).get("fact_profile") or {})
+    project_profile = dict((state.source_meta or {}).get("project_profile") or {})
+    project_flow_outline = dict(project_profile.get("flow_outline") or {})
     generation_coverage_mode = str(generation_profile.get("coverage_mode") or "").strip()
     summary = {
         "control_state_applied": bool(state.has_signals()),
@@ -749,6 +855,15 @@ def _build_control_context(
         "generation_coverage_mode": generation_coverage_mode,
         "generation_case_density": str(generation_profile.get("case_density") or "").strip(),
         "generation_target_case_range": dict(generation_profile.get("target_case_range") or {}),
+        "fact_profile_source": str(fact_profile.get("profile_source") or "").strip(),
+        "fact_profile_confidence": float(fact_profile.get("confidence") or 0.0),
+        "fact_profile_confirmed_count": int(len(fact_profile.get("confirmed_facts") or [])),
+        "fact_profile_pending_count": int(len(fact_profile.get("pending_items") or [])),
+        "fact_profile_forbidden_count": int(len(fact_profile.get("forbidden_facts") or [])),
+        "project_profile_source": str(project_profile.get("profile_source") or "").strip(),
+        "project_profile_confidence": float(project_profile.get("confidence") or 0.0),
+        "project_profile_flow_count": int(len(project_flow_outline.get("flow_order") or [])),
+        "project_profile_cross_cutting_count": int(len(project_flow_outline.get("cross_cutting") or [])),
         "source_meta": dict(state.source_meta or {}),
     }
 
@@ -760,6 +875,8 @@ def _build_control_context(
         or state.preferred_patterns
         or state.reuse_risks
         or generation_coverage_mode
+        or fact_profile
+        or project_profile
         or (include_soft_constraints_in_text and state.soft_constraints)
         or (include_quality_fix_hints_in_text and state.quality_fix_hints)
     )
@@ -809,6 +926,57 @@ def _build_control_context(
     else:
         lines.append("* (none)")
 
+    if fact_profile:
+        lines.append("")
+        lines.append("### FACT PROFILE")
+        lines.append(f"* source: {str(fact_profile.get('profile_source') or 'unknown')}")
+        lines.append(f"* confidence: {float(fact_profile.get('confidence') or 0.0):.2f}")
+        lines.append("* Use this as factual guardrail. Current requirement wins on conflict.")
+        for title, key, limit in (
+            ("confirmed facts", "confirmed_facts", 8),
+            ("forbidden facts", "forbidden_facts", 8),
+            ("pending items", "pending_items", 6),
+            ("hard flow constraints", "hard_flow_constraints", 6),
+        ):
+            values = [str(item).strip() for item in (fact_profile.get(key) or []) if str(item).strip()]
+            if not values:
+                continue
+            lines.append(f"* {title}:")
+            lines.extend([f"  - {item}" for item in values[:limit]])
+
+    if project_profile:
+        flow_outline = dict(project_profile.get("flow_outline") or {})
+        flow_order = [str(item) for item in (flow_outline.get("flow_order") or []) if str(item).strip()]
+        flow_labels = dict(flow_outline.get("flow_labels") or {})
+        cross_cutting = [str(item) for item in (flow_outline.get("cross_cutting") or []) if str(item).strip()]
+        cross_labels = dict(flow_outline.get("cross_cutting_labels") or {})
+        lines.append("")
+        lines.append("### PROJECT STRUCTURE PROFILE")
+        lines.append(f"* source: {str(project_profile.get('profile_source') or 'unknown')}")
+        lines.append(f"* confidence: {float(project_profile.get('confidence') or 0.0):.2f}")
+        lines.append("* Use this as ordering and coverage structure only; it is not a fact source.")
+        lines.append("* Final test cases should follow the flow outline first; put cross-cutting modules after the main flow unless a case explicitly validates their interaction with a main-flow step.")
+        if flow_order:
+            labels = [str(flow_labels.get(key) or key) for key in flow_order]
+            lines.append(f"* flow outline: {' -> '.join(labels[:24])}")
+        data_flow_edges = [
+            item for item in (flow_outline.get("data_flow_edges") or []) if isinstance(item, dict)
+        ]
+        if data_flow_edges:
+            edge_labels = [
+                f"{str(item.get('from_label') or item.get('from') or '')} -> {str(item.get('to_label') or item.get('to') or '')}"
+                for item in data_flow_edges[:12]
+            ]
+            lines.append(f"* data-flow edges: {'; '.join(edge_labels)}")
+        if cross_cutting:
+            labels = [str(cross_labels.get(key) or key) for key in cross_cutting]
+            lines.append(f"* cross-cutting modules: {', '.join(labels[:16])}")
+        scenario_policy = dict(project_profile.get("scenario_cluster_policy") or {})
+        if scenario_policy:
+            lines.append(
+                f"* default max per scenario: {int(scenario_policy.get('default_max_per_scenario') or 2)}"
+            )
+
     if generation_coverage_mode:
         target_range = dict(generation_profile.get("target_case_range") or {})
         lines.append("")
@@ -821,6 +989,9 @@ def _build_control_context(
         lines.append("* Use this as a coverage-density strategy, not a quota.")
         if generation_coverage_mode == "full_functional_regression":
             lines.append("* Expand module x state x exception x cross-module coverage before stopping.")
+            lines.append("* Prefer high-value failure/recovery, permission, moderation, retry, upload/download, and state-sync cases over additional display-only variants.")
+        elif generation_coverage_mode == "expanded_regression":
+            lines.append("* Keep broad requirement coverage, then prune near-duplicates and generic low-value checks.")
         elif generation_coverage_mode == "standard_regression":
             lines.append("* Balance core flow, state transitions, boundary/exception, and regression coverage.")
         else:
@@ -956,8 +1127,42 @@ def build_structured_prompt_context(
             testcase_render_counts.get(biz_key, 0)
         ) + int(supplement_counts.get(biz_key, 0))
     biz_key_order = _ordered_biz_keys(biz_counts_for_order, resolved_current_biz)
+    requirement_module_order_by_biz = _extract_requirement_module_order(
+        chunks=chunks,
+        current_biz_key=resolved_current_biz,
+        only_current_biz=strict_only_enabled,
+    )
+    reference_module_order_by_biz = _extract_reference_module_order(
+        existing_cases=existing_cases,
+        current_biz_key=resolved_current_biz,
+        only_current_biz=strict_only_enabled,
+    )
+    module_order_hint, module_order_by_biz, module_order_source = _merge_module_order(
+        requirement_order=requirement_module_order_by_biz,
+        reference_order=reference_module_order_by_biz,
+        biz_key_order=biz_key_order,
+        current_biz_key=resolved_current_biz,
+    )
+    fact_profile = build_fact_profile(
+        requirement_semantics_by_biz=requirement_semantics_by_biz,
+        current_biz_key=resolved_current_biz,
+        source="requirement_semantics",
+    )
+    project_profile = build_project_profile(
+        requirement_text=requirement_context or requirement or "",
+        cases=[c for c in (existing_cases or []) if isinstance(c, dict)],
+        module_order_hint=list(module_order_hint),
+        module_order_source=module_order_source,
+    )
+    resolved_control_state = merge_fact_profile_control_state(resolved_control_state, fact_profile)
+    resolved_control_state = merge_project_profile_control_state(resolved_control_state, project_profile)
+    control_context, control_summary = _build_control_context(
+        control_state=resolved_control_state,
+        include_soft_constraints_in_text=bool(include_soft_constraints_in_prompt),
+        include_quality_fix_hints_in_text=bool(include_quality_fix_hints_in_prompt),
+    )
 
-    context_by_biz: dict[str, dict[str, str]] = {}
+    context_by_biz: dict[str, dict[str, Any]] = {}
     for biz_key in biz_key_order:
         scoped_semantics = dict(requirement_semantics_by_biz.get(biz_key) or {})
         context_by_biz[biz_key] = {
@@ -972,6 +1177,9 @@ def build_structured_prompt_context(
             "reuse_declarations": list(scoped_semantics.get("reuse_declarations") or []),
             "hard_flow_constraints": list(scoped_semantics.get("hard_flow_constraints") or []),
             "reuse_risks": list(scoped_semantics.get("reuse_risks") or []),
+            "module_order_hint": list(module_order_by_biz.get(biz_key) or []),
+            "fact_profile": fact_profile,
+            "project_profile": project_profile,
         }
 
     current_semantics = dict(requirement_semantics_by_biz.get(resolved_current_biz) or {})
@@ -982,6 +1190,7 @@ def build_structured_prompt_context(
         "supplement_context": supplement_context or "(empty)",
         "control_context": control_context or "(empty)",
         "control_summary": control_summary,
+        "feedback_control_state": resolved_control_state.to_dict(),
         "current_biz_key": resolved_current_biz,
         "only_current_biz": bool(only_current_biz),
         "confirmed_facts": list(current_semantics.get("confirmed_facts") or []),
@@ -993,5 +1202,10 @@ def build_structured_prompt_context(
         "requirement_semantics_by_biz": requirement_semantics_by_biz,
         "biz_key_isolation_log": isolation_log,
         "biz_key_order": biz_key_order,
+        "module_order_hint": list(module_order_hint),
+        "module_order_by_biz": module_order_by_biz,
+        "module_order_source": module_order_source,
+        "fact_profile": fact_profile,
+        "project_profile": project_profile,
         "context_by_biz": context_by_biz,
     }

@@ -106,6 +106,90 @@ def test_only_current_biz_keeps_only_current_scope() -> None:
     assert output["biz_key_isolation_log"]["mode"] == "strict_current_only"
 
 
+def test_testcase_context_preserves_reference_module_order() -> None:
+    output = build_structured_prompt_context(
+        requirement="按参考用例顺序生成",
+        existing_cases=[
+            {
+                "id": "TC-001",
+                "biz_key": "learning_flow",
+                "test_module": "督导端入口",
+                "priority": "P0",
+                "description": "入口展示",
+            },
+            {
+                "id": "TC-002",
+                "biz_key": "learning_flow",
+                "test_module": "作业拍照批改",
+                "priority": "P0",
+                "description": "拍照批改",
+            },
+            {
+                "id": "TC-003",
+                "biz_key": "learning_flow",
+                "test_module": "习题本",
+                "priority": "P0",
+                "description": "习题本展示",
+            },
+        ],
+        current_biz_key="learning_flow",
+        only_current_biz=False,
+    )
+
+    text = output["testcase_context"]
+
+    assert text.index("#### test_module: 督导端入口") < text.index("#### test_module: 作业拍照批改")
+    assert text.index("#### test_module: 作业拍照批改") < text.index("#### test_module: 习题本")
+
+
+def test_module_order_hint_prefers_requirement_document_order_over_reference_cases() -> None:
+    output = build_structured_prompt_context(
+        requirement="按需求文档流程生成",
+        rag_result={
+            "debug": {
+                "final_chunks": [
+                    {
+                        "filename": "req.md",
+                        "doc_type": "requirement",
+                        "biz_key": "learning_flow",
+                        "module": "习题本",
+                        "chunk_text": "REQ-001: 先查看习题本。",
+                    },
+                    {
+                        "filename": "req.md",
+                        "doc_type": "requirement",
+                        "biz_key": "learning_flow",
+                        "module": "周末提升计划",
+                        "chunk_text": "REQ-002: 再进入周末提升计划。",
+                    },
+                ]
+            }
+        },
+        existing_cases=[
+            {
+                "id": "TC-001",
+                "biz_key": "learning_flow",
+                "test_module": "周末提升计划",
+                "priority": "P0",
+                "description": "参考用例顺序靠前",
+            },
+            {
+                "id": "TC-002",
+                "biz_key": "learning_flow",
+                "test_module": "习题本",
+                "priority": "P0",
+                "description": "参考用例顺序靠后",
+            },
+        ],
+        current_biz_key="learning_flow",
+        only_current_biz=False,
+    )
+
+    assert output["module_order_source"] == "requirement_document"
+    assert output["module_order_hint"] == ["习题本", "周末提升计划"]
+    assert output["context_by_biz"]["learning_flow"]["module_order_hint"] == ["习题本", "周末提升计划"]
+
+
 def test_missing_fields_fallback_and_degrade_when_current_unknown() -> None:
     output = build_structured_prompt_context(
         requirement="登录失败超过5次触发异常提示。",
@@ -138,6 +222,44 @@ def test_control_context_includes_preferred_patterns() -> None:
     assert int(output["control_summary"].get("preferred_patterns_count") or 0) == 1
     assert "### PREFERRED PATTERN QUOTA (AB)" in output["control_context"]
     assert output["control_summary"].get("preferred_quota_variant") == "B"
+
+
+def test_structured_context_builds_fact_and_project_profiles() -> None:
+    output = build_structured_prompt_context(
+        requirement="REQ-100: Inventory imports must not include archived records.",
+        rag_result={
+            "debug": {
+                "final_chunks": [
+                    {
+                        "filename": "inventory_req.md",
+                        "doc_type": "requirement",
+                        "biz_key": "inventory_flow",
+                        "module": "Upload Center",
+                        "chunk_text": "REQ-101: Upload Center validates files before Review Queue.",
+                    },
+                    {
+                        "filename": "inventory_req.md",
+                        "doc_type": "requirement",
+                        "biz_key": "inventory_flow",
+                        "module": "Review Queue",
+                        "chunk_text": "REQ-102: Review Queue approval happens before Dashboard statistics.",
+                    },
+                ]
+            }
+        },
+        current_biz_key="inventory_flow",
+        only_current_biz=True,
+    )
+
+    assert output["fact_profile"]["confirmed_facts"]
+    assert output["fact_profile"]["forbidden_facts"]
+    assert output["project_profile"]["flow_outline"]["flow_order"]
+    assert output["project_profile"]["flow_outline"]["data_flow_edges"]
+    assert "### FACT PROFILE" in output["control_context"]
+    assert "### PROJECT STRUCTURE PROFILE" in output["control_context"]
+    assert "* data-flow edges:" in output["control_context"]
+    assert output["feedback_control_state"]["source_meta"]["fact_profile"]["forbidden_facts"]
+    assert output["feedback_control_state"]["source_meta"]["project_profile"]["flow_outline"]["flow_order"]
 
 
 def test_control_context_applies_preferred_quota_ab_variant(monkeypatch) -> None:

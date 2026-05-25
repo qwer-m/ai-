@@ -445,6 +445,9 @@ Return ONLY the JSON array.
                     ],
                     "reuse_risk_hits": [str(item) for item in (signal_set.reuse_risk_hits or [])],
                     "pending_hits": [str(item) for item in (signal_set.pending_hits or [])],
+                    "vague_or_unconfirmed_hits": [
+                        str(item) for item in (getattr(signal_set, "vague_or_unconfirmed_hits", []) or [])
+                    ],
                 }
                 judge_decision_table_payload.append(
                     {
@@ -461,6 +464,9 @@ Return ONLY the JSON array.
                         "confirmed_fact_violations": list(signals_payload.get("confirmed_fact_violations") or []),
                         "reuse_risk_hits": list(signals_payload.get("reuse_risk_hits") or []),
                         "pending_hits": list(signals_payload.get("pending_hits") or []),
+                        "vague_or_unconfirmed_hits": list(
+                            signals_payload.get("vague_or_unconfirmed_hits") or []
+                        ),
                         "before_case_snapshot": dict(before_case),
                         "after_case_snapshot": dict(after_case),
                     }

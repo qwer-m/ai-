@@ -108,6 +108,11 @@ def _build_quality_ledger_payload(
             ),
             "total_dedup_drop_count": int(convergence_payload.get("total_dedup_drop_count") or 0),
             "low_quality_dropped_count": int(convergence_payload.get("low_quality_dropped_count") or 0),
+            "low_quality_dropped_examples": [
+                dict(item)
+                for item in (convergence_payload.get("low_quality_dropped_examples") or [])[:10]
+                if isinstance(item, dict)
+            ],
             "semantic_dedup_dropped_count": int(convergence_payload.get("semantic_dedup_dropped_count") or 0),
         },
         "review": {
@@ -179,6 +184,9 @@ def _build_judge_signal_payload(row: dict[str, Any]) -> dict[str, Any]:
         ),
         "reuse_risk_hits": _safe_list(signals_raw.get("reuse_risk_hits", row.get("reuse_risk_hits"))),
         "pending_hits": _safe_list(signals_raw.get("pending_hits", row.get("pending_hits"))),
+        "vague_or_unconfirmed_hits": _safe_list(
+            signals_raw.get("vague_or_unconfirmed_hits", row.get("vague_or_unconfirmed_hits"))
+        ),
     }
 
 
@@ -216,6 +224,7 @@ def _normalize_judge_row(
         "confirmed_fact_violations": list(signals_payload.get("confirmed_fact_violations") or []),
         "reuse_risk_hits": list(signals_payload.get("reuse_risk_hits") or []),
         "pending_hits": list(signals_payload.get("pending_hits") or []),
+        "vague_or_unconfirmed_hits": list(signals_payload.get("vague_or_unconfirmed_hits") or []),
         "before_case_snapshot": dict(before_case),
         "after_case_snapshot": dict(after_case),
     }
@@ -243,6 +252,12 @@ def _normalize_review_compact_rows(
                 "candidate_index": int(row.get("candidate_index") or 0),
                 "case_id": str(row.get("case_id") or "").strip(),
                 "test_module": str(row.get("test_module") or "").strip(),
+                "flow_stage": str(row.get("flow_stage") or "").strip(),
+                "flow_stage_label": str(row.get("flow_stage_label") or "").strip(),
+                "scenario_key": str(row.get("scenario_key") or "").strip(),
+                "is_scenario_duplicate": bool(row.get("is_scenario_duplicate")),
+                "duplicate_cluster_id": str(row.get("duplicate_cluster_id") or "").strip(),
+                "misordered_against_requirement_flow": bool(row.get("misordered_against_requirement_flow")),
                 "model_priority_current": str(row.get("model_priority_current") or "").strip(),
                 "bucket": str(row.get("bucket") or "").strip(),
                 "dropped_stage": "review_llm",

@@ -46,10 +46,10 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   const fileInputRef = useRef<HTMLInputElement>(null);
   const protoInputRef = useRef<HTMLInputElement>(null);
   const uploadZoneRef = useRef<HTMLDivElement>(null);
-  const previousProjectIdRef = useRef<number | null | undefined>(undefined);
   const lastFinalSyncKeyRef = useRef<string>('');
   const ingestDebugEvent = useRagDebugStore((s) => s.ingestDiag);
-  const resetDebugState = useRagDebugStore((s) => s.reset);
+  const debugStoreProjectId = useRagDebugStore((s) => s.projectId);
+  const resetDebugStateForProject = useRagDebugStore((s) => s.resetForProject);
   const setResultDebugState = useRagDebugStore((s) => s.setResultState);
   const genDiag = useRagDebugStore((s) => s.genDiag);
   const generationConvergence = useRagDebugStore((s) => s.generationConvergence);
@@ -72,7 +72,6 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   const [compress, setCompress] = useState(() => readStoredString('tg_compress') === 'true');
   const [expectedCount, setExpectedCount] = useState(() => readStoredNumber(getProjectKey(projectId, 'tg_expectedCount'), 20));
   const [appendCount, setAppendCount] = useState(() => readStoredNumber(getProjectKey(projectId, 'tg_appendCount'), 10));
-  const [isEstimating, setIsEstimating] = useState(false);
   const [loading, setLoading] = useState(false);
   const [pollStatus, setPollStatus] = useState('');
   const [textResult, setTextResult] = useState<any>(() => initialTextResult);
@@ -175,16 +174,12 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   }, [enableSamplePoolFeedback]);
 
   useEffect(() => {
-    // Reset debug store only when project changes; keep it when this page is temporarily hidden.
-    if (previousProjectIdRef.current === undefined) {
-      previousProjectIdRef.current = projectId;
-      return;
+    // The test generation page is keyed by projectId, so component refs do not survive
+    // project switches. Keep ownership in the persisted debug store itself.
+    if (debugStoreProjectId !== projectId) {
+      resetDebugStateForProject(projectId);
     }
-    if (previousProjectIdRef.current !== projectId) {
-      resetDebugState();
-      previousProjectIdRef.current = projectId;
-    }
-  }, [projectId, resetDebugState]);
+  }, [projectId, debugStoreProjectId, resetDebugStateForProject]);
 
   useEffect(() => {
     setResultDebugState({
@@ -345,18 +340,15 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     setLoading,
     setError,
     setPollStatus,
-    setIsEstimating,
     setDuplicateData,
     setShowDuplicateModal,
     duplicateData,
-    setToastType,
-    setToastMsg,
     onLog,
     onGenerated,
     onGenerationComplete,
     onError,
     onDebugEvent: ingestDebugEvent,
-    onDebugReset: resetDebugState,
+    onDebugReset: () => resetDebugStateForProject(projectId),
   });
 
   const resultActions = useTestGenerationResultActions({
@@ -413,7 +405,6 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     setCompress,
     expectedCount,
     setExpectedCount,
-    isEstimating,
     appendCount,
     setAppendCount,
     force,

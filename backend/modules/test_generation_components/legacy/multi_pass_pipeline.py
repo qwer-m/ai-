@@ -336,7 +336,12 @@ def run_multi_pass_generation(
             deduplicate_test_cases_fn=deduplicate_test_cases_fn,
         )
         all_primary.extend(round_result.get("primary_cases") or [])
-        all_selected.extend(round_result.get("final_cases") or [])
+        scoped_final_cases = reorder_cases_by_closed_loop_fn(
+            deduplicate_test_cases_fn(round_result.get("final_cases") or []),
+            start_id=1,
+            renumber_ids=False,
+        )
+        all_selected.extend(scoped_final_cases)
         raw_payload[biz_key] = round_result.get("raw") or {}
 
         for round_evaluation in round_result.get("round_evaluations") or []:

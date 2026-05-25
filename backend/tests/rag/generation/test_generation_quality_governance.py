@@ -55,6 +55,8 @@ def _run_cases(
     requirement: str,
     cases: list[dict[str, Any]],
     *,
+    expected_count: int = 30,
+    feedback_control_state: dict[str, Any] | None = None,
     normalize_json_structure_fn=normalize_json_structure,
 ) -> dict[str, Any]:
     gen = stream_postprocess_cases(
@@ -63,7 +65,7 @@ def _run_cases(
         base_prompt="BASE",
         kb_context="",
         full_content=json.dumps(cases, ensure_ascii=False),
-        expected_count=30,
+        expected_count=expected_count,
         append=False,
         existing_cases=[],
         existing_unique_count=0,
@@ -78,6 +80,7 @@ def _run_cases(
         build_supplement_closed_loop_instruction_fn=lambda **_: "",
         multi_pass=True,
         generation_mode="multi_pass",
+        feedback_control_state=feedback_control_state,
     )
     result = _drain_with_return(gen)
     assert isinstance(result, dict)
@@ -356,7 +359,7 @@ def test_expected_result_ambiguous_alternative_marked_non_assertable() -> None:
     assert str(row.get("expected_result_quality_reason") or "") == "template_or_weak_assertion"
 
 
-def test_expected_result_possible_or_xx_placeholder_marked_non_assertable() -> None:
+def test_expected_result_possible_or_xx_placeholder_marked_invalid_case() -> None:
     result = _run_cases(
         requirement="排课完成后必须显示明确的课程学习状态和时间。",
         cases=[
@@ -375,8 +378,43 @@ def test_expected_result_possible_or_xx_placeholder_marked_non_assertable() -> N
     rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
     assert rows
     row = rows[0]
-    assert str(row.get("expected_result_quality") or "") == "non_assertable"
-    assert str(row.get("expected_result_quality_reason") or "") == "template_or_weak_assertion"
+    assert str(row.get("case_quality") or "") == "invalid_case"
+    assert str(row.get("invalid_case_reason") or "") == "reasoning_leakage"
+    assert str(row.get("expected_result_quality") or "") == "invalid_case"
+    assert str(row.get("expected_result_quality_reason") or "") == "reasoning_leakage"
+    assert not [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+
+
+def test_reasoning_leakage_in_case_fields_marked_invalid_case() -> None:
+    result = _run_cases(
+        requirement="作文批改结果页支持按主题筛选点评内容。",
+        cases=[
+            {
+                "id": "TC-010",
+                "description": "点评主题筛选仅展示当前主题内容",
+                "test_module": "作文批改",
+                "preconditions": [
+                    "可能？需求：默认显示全部主题，可切换只显示当前主题。但批改本身是针对当前主题，怎么会有多个？我们按照需求原文生成用例"
+                ],
+                "steps": ["1. 打开批改结果页", "2. 切换主题筛选"],
+                "test_input": "已生成批改结果",
+                "expected_result": "仅展示所选主题下的点评内容，其他主题点评不显示",
+                "priority": "P1",
+            }
+        ],
+    )
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    assert not output_cases
+    rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    assert len(rows) == 1
+    row = rows[0]
+    assert str(row.get("case_id") or "") == "TC-010"
+    assert str(row.get("case_quality") or "") == "invalid_case"
+    assert str(row.get("invalid_case_reason") or "") == "reasoning_leakage"
+    assert str(row.get("expected_result_quality") or "") == "invalid_case"
+    assert str(row.get("dropped_stage") or "") == "post_review_dedup_or_reorder"
+    summary = dict(result.get("review_decision_summary") or {})
+    assert int(summary.get("reasoning_leakage_case_count") or 0) == 1
 
 
 def test_expected_result_generic_success_completion_marked_non_assertable() -> None:
@@ -401,7 +439,103 @@ def test_expected_result_generic_success_completion_marked_non_assertable() -> N
     assert not [item for item in (result.get("cases") or []) if isinstance(item, dict)]
 
 
-def test_expected_result_self_explanation_question_mark_marked_non_assertable() -> None:
+def test_expected_result_video_retry_delete_template_marked_non_assertable() -> None:
+    result = _run_cases(
+        requirement="课程视频加载失败时展示失败提示，允许重试，重试失败时不影响返回课程环节页。",
+        cases=[
+            {
+                "id": "TC-037",
+                "description": "审题立意或写作技法环节中视频加载失败时可重试",
+                "test_module": "课程环节",
+                "preconditions": ["用户已进入课程环节页"],
+                "steps": ["1. 进入审题立意环节", "2. 模拟视频资源加载失败", "3. 点击重试按钮"],
+                "test_input": "视频资源接口返回超时",
+                "expected_result": "执行操作重试按钮（若有）后，应删除审题立意或写作技法环节中视频加载失败提示，并后续查询可验证结果",
+                "priority": "P1",
+            }
+        ],
+    )
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    assert not output_cases
+    rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    assert rows
+    assert str(rows[0].get("expected_result_quality") or "") == "non_assertable"
+    assert str(rows[0].get("expected_result_quality_reason") or "") == "template_or_weak_assertion"
+
+
+def test_confirmed_nonlinear_course_unlock_drops_legacy_locked_case() -> None:
+    result = _run_cases(
+        requirement="新版课程环节采用非线性解锁，初始状态下审题立意、写作技法、技法巩固三个环节均可任意进入。",
+        cases=[
+            {
+                "id": "TC-034",
+                "description": "课程环节初始为非线性解锁，可随意进入任意环节",
+                "test_module": "课程环节",
+                "preconditions": ["普通用户已进入第一课课程环节页"],
+                "steps": ["1. 查看三个课程环节", "2. 分别点击审题立意、写作技法、技法巩固"],
+                "test_input": "第一课初始学习状态",
+                "expected_result": "三个环节均未锁定，均可进入对应学习内容，不要求先完成前一环节。",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-040",
+                "description": "初始进入某单元时，三个环节均显示未解锁",
+                "test_module": "课程环节",
+                "preconditions": ["普通用户首次进入单元"],
+                "steps": ["1. 打开课程环节页", "2. 点击任一未解锁环节"],
+                "test_input": "第一课初始学习状态",
+                "expected_result": "三个环节均显示未解锁，点击提示“完成前一节才可以解锁哦”。",
+                "priority": "P1",
+            },
+        ],
+    )
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    descriptions = " ".join(str(item.get("description") or "") for item in output_cases)
+    assert "非线性解锁" in descriptions
+    assert "三个环节均显示未解锁" not in descriptions
+    rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    dropped = [row for row in rows if str(row.get("case_id") or "") == "TC-040"]
+    assert dropped
+    assert str(dropped[0].get("dropped_stage") or "")
+
+
+def test_obsolete_linear_unlock_case_dropped_without_explicit_legacy_tag() -> None:
+    result = _run_cases(
+        requirement="课程环节当前必须采用任意环节可进入的学习方式。",
+        cases=[
+            {
+                "id": "TC-014",
+                "description": "初始状态下会员用户仅第一个环节已解锁，其余为未解锁",
+                "test_module": "课程环节",
+                "preconditions": ["会员用户进入课程环节页"],
+                "steps": ["1. 查看审题立意、写作技法、技法巩固三个环节", "2. 点击未解锁环节"],
+                "test_input": "会员用户初始学习状态",
+                "expected_result": "仅第一个环节已解锁，其余环节点击弹出toast“完成前一节才可以解锁哦”。",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-015",
+                "description": "会员用户初始可进入任意课程环节",
+                "test_module": "课程环节",
+                "preconditions": ["会员用户进入课程环节页"],
+                "steps": ["1. 分别点击审题立意、写作技法、技法巩固"],
+                "test_input": "会员用户初始学习状态",
+                "expected_result": "三个环节均可进入对应学习内容，不要求先完成前一环节。",
+                "priority": "P0",
+            },
+        ],
+    )
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    descriptions = " ".join(str(item.get("description") or "") for item in output_cases)
+    assert "仅第一个环节已解锁" not in descriptions
+    assert "初始可进入任意课程环节" in descriptions
+    rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    dropped = [row for row in rows if str(row.get("case_id") or "") == "TC-014"]
+    assert dropped
+    assert str(dropped[0].get("dropped_stage") or "")
+
+
+def test_expected_result_self_explanation_question_mark_marked_invalid_case() -> None:
     result = _run_cases(
         requirement="Recent learning plan should display the current course and next course with explicit deletion behavior.",
         cases=[
@@ -419,7 +553,9 @@ def test_expected_result_self_explanation_question_mark_marked_non_assertable() 
     )
     rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
     assert rows
-    assert str(rows[0].get("expected_result_quality") or "") == "non_assertable"
+    assert str(rows[0].get("case_quality") or "") == "invalid_case"
+    assert str(rows[0].get("invalid_case_reason") or "") == "reasoning_leakage"
+    assert str(rows[0].get("expected_result_quality") or "") == "invalid_case"
     assert not [item for item in (result.get("cases") or []) if isinstance(item, dict)]
 
 
@@ -541,12 +677,12 @@ def test_quality_governance_marks_priority_review_when_required_p0_is_conflict(m
             cases=[
                 {
                     "id": "TC-300",
-                    "description": "validate generic flow behavior",
+                    "description": "validate paywall blocks access when quota is exhausted",
                     "test_module": "flow-module",
                     "preconditions": ["user logged in"],
-                    "steps": ["1. open page", "2. click action"],
+                    "steps": ["1. open protected learning page", "2. verify paywall banner"],
                     "test_input": "default input",
-                    "expected_result": "shows expected result",
+                    "expected_result": "The protected content stays hidden and the paywall banner remains visible.",
                     "priority": "P0",
                 }
             ],
@@ -626,6 +762,801 @@ def test_quality_governance_final_priority_uses_semantic_final_value_after_debug
     assert len(output_cases) == 1
     assert str(output_cases[0].get("priority") or "").strip().upper() == "P2"
     assert "priority_final" not in output_cases[0]
+
+
+def test_full_regression_priority_demotes_non_blocking_p0_and_promotes_main_path() -> None:
+    full_regression_state = {
+        "source_meta": {
+            "generation_coverage_profile": {
+                "coverage_mode": "full_functional_regression",
+                "target_case_range": {"min": 85, "max": 90},
+            }
+        }
+    }
+    result = _run_cases(
+        requirement="作文批改 full regression：上传图片后可去批改并生成批改结果；批改反馈四部分完整展示；分句点评点击划线句子可定位；我的作文最多20条。",
+        expected_count=90,
+        feedback_control_state=full_regression_state,
+        cases=[
+            {
+                "id": "TC-017",
+                "description": "分句点评点击划线句子跳转到对应点评",
+                "test_module": "作文批改",
+                "preconditions": ["批改结果页已展示分句点评"],
+                "steps": ["1. 点击正文中的划线句子", "2. 查看右侧分句点评定位"],
+                "test_input": "包含分句点评的批改结果",
+                "expected_result": "右侧定位到该划线句子对应的分句点评内容，当前批改结果页不丢失。",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-058",
+                "description": "我的作文最多20条",
+                "test_module": "我的作文",
+                "preconditions": ["用户已有超过20篇作文记录"],
+                "steps": ["1. 打开我的作文列表", "2. 查看列表数量和分页入口"],
+                "test_input": "21篇作文记录",
+                "expected_result": "列表默认展示最新20条作文记录，第21条不在首屏列表中，可通过分页或加载更多继续查看。",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-081",
+                "description": "上传图片后点击去批改成功生成批改结果",
+                "test_module": "作文批改",
+                "preconditions": ["用户已登录且上传了作文图片"],
+                "steps": ["1. 上传作文图片", "2. 点击去批改", "3. 等待AI批改完成"],
+                "test_input": "清晰作文图片",
+                "expected_result": "系统成功生成批改结果，结果页展示综合点评、分句点评、全文润色和优化建议四部分内容。",
+                "priority": "P1",
+            },
+        ],
+    )
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    by_description = {str(item.get("description") or ""): item for item in output_cases}
+    assert str(by_description["分句点评点击划线句子跳转到对应点评"].get("priority") or "") == "P1"
+    assert str(by_description["我的作文最多20条"].get("priority") or "") == "P1"
+    assert str(by_description["上传图片后点击去批改成功生成批改结果"].get("priority") or "") == "P0"
+    generation_summary = dict(result.get("generation_summary") or {})
+    assert int(generation_summary.get("hard_min_count") or 0) >= 85
+
+
+def test_full_regression_demotes_detail_p0_cases_called_out_by_review() -> None:
+    full_regression_state = {
+        "source_meta": {
+            "generation_coverage_profile": {
+                "coverage_mode": "full_functional_regression",
+                "target_case_range": {"min": 85, "max": 90},
+            }
+        }
+    }
+    result = _run_cases(
+        requirement="\u4f5c\u6587\u6279\u6539 full regression\uff1a\u4e0a\u4f20\u56fe\u7247\u540e\u751f\u6210\u6279\u6539\u7ed3\u679c\uff0c\u6295\u7a3f\u540e\u8fdb\u5165\u5ba1\u6838\u4e2d\uff0c\u7ec6\u8282\u4ea4\u4e92\u4e0d\u5e94\u4f5c\u4e3a P0\u3002",
+        expected_count=90,
+        feedback_control_state=full_regression_state,
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "\u4e0a\u4f20\u56fe\u7247\u540e\u70b9\u51fb\u53bb\u6279\u6539\u6210\u529f\u751f\u6210\u6279\u6539\u7ed3\u679c",
+                "test_module": "\u4f5c\u6587\u6279\u6539",
+                "preconditions": ["\u7528\u6237\u5df2\u767b\u5f55\u4e14\u4e0a\u4f20\u4f5c\u6587\u56fe\u7247"],
+                "steps": ["1. \u4e0a\u4f20\u56fe\u7247", "2. \u70b9\u51fb\u53bb\u6279\u6539", "3. \u7b49\u5f85AI\u6279\u6539\u5b8c\u6210"],
+                "test_input": "\u6e05\u6670\u4f5c\u6587\u56fe\u7247",
+                "expected_result": "\u6279\u6539\u7ed3\u679c\u9875\u5c55\u793a\u7efc\u5408\u70b9\u8bc4\u3001\u5206\u53e5\u70b9\u8bc4\u3001\u5168\u6587\u6da6\u8272\u548c\u4f18\u5316\u5efa\u8bae\u56db\u90e8\u5206\u5185\u5bb9",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-002",
+                "description": "0\u5f20\u56fe\u7247\u65f6\u53bb\u6279\u6539\u6309\u94ae\u4e0d\u53ef\u70b9",
+                "test_module": "\u4f5c\u6587\u6279\u6539",
+                "preconditions": ["\u7528\u6237\u672a\u4e0a\u4f20\u56fe\u7247"],
+                "steps": ["1. \u6253\u5f00\u4f5c\u6587\u6279\u6539\u9875", "2. \u67e5\u770b\u53bb\u6279\u6539\u6309\u94ae"],
+                "test_input": "0\u5f20\u56fe\u7247",
+                "expected_result": "\u53bb\u6279\u6539\u6309\u94ae\u7f6e\u7070\u4e14\u4e0d\u53d1\u8d77\u6279\u6539\u8bf7\u6c42",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-003",
+                "description": "\u7efc\u5408\u70b9\u8bc4\u661f\u661f\u8bc4\u5206\u5c55\u793a",
+                "test_module": "\u6279\u6539\u7ed3\u679c",
+                "preconditions": ["\u5df2\u751f\u6210\u6279\u6539\u7ed3\u679c"],
+                "steps": ["1. \u6253\u5f00\u6279\u6539\u7ed3\u679c", "2. \u67e5\u770b\u7efc\u5408\u70b9\u8bc4\u661f\u661f\u8bc4\u5206"],
+                "test_input": "\u5df2\u6279\u6539\u4f5c\u6587",
+                "expected_result": "\u661f\u661f\u6570\u91cf\u4e0e\u7efc\u5408\u8bc4\u5206\u503c\u5339\u914d",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-004",
+                "description": "\u6295\u7a3f\u9875\u6807\u9898\u6b63\u6587\u53ef\u7f16\u8f91",
+                "test_module": "\u4f5c\u6587\u6295\u7a3f",
+                "preconditions": ["\u7528\u6237\u5df2\u8fdb\u5165\u6295\u7a3f\u9875"],
+                "steps": ["1. \u4fee\u6539\u6807\u9898", "2. \u4fee\u6539\u6b63\u6587"],
+                "test_input": "\u65b0\u6807\u9898\u548c\u65b0\u6b63\u6587",
+                "expected_result": "\u6807\u9898\u548c\u6b63\u6587\u8f93\u5165\u6846\u4fdd\u7559\u7f16\u8f91\u540e\u7684\u5185\u5bb9",
+                "priority": "P0",
+            },
+        ],
+    )
+
+    by_description = {str(item.get("description") or ""): item for item in (result.get("cases") or [])}
+    assert str(by_description["\u4e0a\u4f20\u56fe\u7247\u540e\u70b9\u51fb\u53bb\u6279\u6539\u6210\u529f\u751f\u6210\u6279\u6539\u7ed3\u679c"].get("priority") or "") == "P0"
+    assert str(by_description["0\u5f20\u56fe\u7247\u65f6\u53bb\u6279\u6539\u6309\u94ae\u4e0d\u53ef\u70b9"].get("priority") or "") == "P1"
+    assert str(by_description["\u7efc\u5408\u70b9\u8bc4\u661f\u661f\u8bc4\u5206\u5c55\u793a"].get("priority") or "") == "P1"
+    assert str(by_description["\u6295\u7a3f\u9875\u6807\u9898\u6b63\u6587\u53ef\u7f16\u8f91"].get("priority") or "") == "P1"
+
+
+def test_full_regression_promotes_core_business_chain_p0_floor() -> None:
+    state = {
+        "source_meta": {
+            "generation_coverage_profile": {
+                "coverage_mode": "full_functional_regression",
+                "target_case_range": {"min": 85, "max": 90},
+            }
+        }
+    }
+    cases = [
+        ("上传图片后点击去批改成功生成批改结果", "作文批改", "批改结果页展示综合点评、分句点评、全文润色和优化建议四部分内容"),
+        ("批改反馈四部分完整展示", "批改结果", "结果页完整展示综合点评、分句点评、全文润色和优化建议四部分"),
+        ("投稿提交成功后状态进入审核中", "作文投稿", "作品提交成功且状态变为审核中"),
+        ("后台审核通过后作品已发布并在作文圈可见", "作文圈", "作品状态为已发布且作文圈列表可见该作品"),
+        ("普通用户第一课免费可试学", "课程权限", "普通用户可进入第一课试学且不跳转会员中心"),
+        ("普通用户非第一课跳转会员中心", "课程权限", "普通用户点击非第一课时跳转会员中心"),
+        ("会员用户全部课程可学", "会员课程", "会员用户可进入全部课程学习"),
+        ("删除已发布作品后恢复未投稿状态", "我的作文", "删除已发布作品后该作文恢复为未投稿状态"),
+        ("批改后投稿审核通过同步到我的作文和作文圈", "跨模块状态", "批改作品审核通过后我的作文显示已发布且作文圈我的列表出现作品"),
+    ]
+    core_cases = [
+        {
+            "id": f"TC-{index:03d}",
+            "description": description,
+            "test_module": module,
+            "preconditions": ["用户已登录并满足对应业务前置条件"],
+            "steps": ["1. 打开对应业务页面", "2. 执行业务操作", "3. 查看最终状态"],
+            "test_input": description,
+            "expected_result": expected,
+            "priority": "P1",
+        }
+        for index, (description, module, expected) in enumerate(cases, start=1)
+    ]
+    filler_cases = [
+        {
+            "id": f"TC-{index:03d}",
+            "description": f"辅助回归场景{index}展示与交互校验",
+            "test_module": "辅助回归",
+            "preconditions": ["用户已登录"],
+            "steps": ["1. 打开辅助页面", "2. 执行辅助操作", "3. 查看页面反馈"],
+            "test_input": f"辅助数据{index}",
+            "expected_result": f"辅助场景{index}按产品规则展示反馈",
+            "priority": "P2",
+        }
+        for index in range(len(core_cases) + 1, 86)
+    ]
+    result = _run_cases(
+        requirement="作文批改 full regression：上传图片后可去批改；批改反馈四部分完整展示；投稿成功进入审核中；审核通过后作文圈可见；普通用户第一课免费，其余课程锁会员；会员全部课程可学；删除已发布作品恢复未投稿。",
+        expected_count=90,
+        feedback_control_state=state,
+        cases=[*core_cases, *filler_cases],
+    )
+
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    p0_descriptions = {
+        str(item.get("description") or "")
+        for item in output_cases
+        if str(item.get("priority") or "").strip().upper() == "P0"
+    }
+
+    assert len(p0_descriptions) >= 8
+    assert "上传图片后点击去批改成功生成批改结果" in p0_descriptions
+    assert "批改反馈四部分完整展示" in p0_descriptions
+    assert "投稿提交成功后状态进入审核中" in p0_descriptions
+    assert "后台审核通过投稿作品" in p0_descriptions
+    assert any(
+        bool(item.get("student_observation_projection"))
+        and str(item.get("role") or "") == "student"
+        and str(item.get("session_key") or "") == "student_session"
+        for item in output_cases
+    )
+    assert "普通用户第一课免费可试学" in p0_descriptions
+    assert "会员用户全部课程可学" in p0_descriptions
+    assert any("删除已发布作品后恢复未投稿" in description for description in p0_descriptions)
+
+
+def test_execution_plan_orders_main_chain_and_marks_isolated_branches() -> None:
+    cases = [
+        {
+            "id": "TC-020",
+            "description": "上传失败时保留当前页面并提示重试",
+            "test_module": "作文批改",
+            "preconditions": ["用户已登录且网络异常"],
+            "steps": ["1. 选择作文图片", "2. 模拟上传接口超时"],
+            "test_input": "上传接口超时",
+            "expected_result": "页面停留在作文批改上传区，显示上传失败提示且未生成批改结果",
+            "priority": "P1",
+        },
+        {
+            "id": "TC-001",
+            "description": "上传作文图片成功后去批改按钮可点击",
+            "test_module": "作文批改",
+            "preconditions": ["学生用户已登录并进入作文批改页"],
+            "steps": ["1. 选择清晰作文图片", "2. 上传图片"],
+            "test_input": "清晰作文图片",
+            "expected_result": "作文图片上传成功，缩略图显示在上传区，去批改按钮变为可点击",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-004",
+            "description": "投稿提交成功后作品进入审核中",
+            "test_module": "作文投稿",
+            "preconditions": ["已生成批改结果"],
+            "steps": ["1. 点击投稿", "2. 提交作品"],
+            "test_input": "已批改作文",
+            "expected_result": "投稿提交成功，作品状态变为审核中，投稿按钮显示审核中状态",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-003",
+            "description": "批改反馈四部分完整展示",
+            "test_module": "批改结果",
+            "preconditions": ["已生成批改结果"],
+            "steps": ["1. 打开批改结果页", "2. 查看反馈内容"],
+            "test_input": "已生成批改结果的作文",
+            "expected_result": "批改反馈完整展示综合点评、分句点评、全文润色和优化建议四部分内容",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-002",
+            "description": "点击去批改后成功生成 AI 批改结果",
+            "test_module": "作文批改",
+            "preconditions": ["作文图片已上传"],
+            "steps": ["1. 点击去批改", "2. 等待AI批改完成"],
+            "test_input": "已上传作文图片",
+            "expected_result": "AI批改完成并生成批改结果，页面进入批改结果页",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-005",
+            "description": "后台审核通过后作品变为已发布",
+            "test_module": "作文审核后台",
+            "preconditions": ["作品处于审核中"],
+            "steps": ["1. 后台打开待审核作品", "2. 点击审核通过"],
+            "test_input": "审核中的投稿作品",
+            "expected_result": "后台审核通过后作品状态变为已发布",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-006",
+            "description": "作文圈可见已发布作品",
+            "test_module": "作文圈",
+            "preconditions": ["作品已发布"],
+            "steps": ["1. 打开作文圈列表", "2. 搜索作品标题"],
+            "test_input": "已发布作文",
+            "expected_result": "作文圈列表可见该已发布作品并可进入作品详情",
+            "priority": "P0",
+        },
+    ]
+    result = _run_cases(
+        requirement="作文批改主链路：上传图片后去批改，生成批改结果，批改反馈四部分完整展示，投稿进入审核中，后台审核通过后作文圈可见。",
+        cases=cases,
+        expected_count=20,
+    )
+
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    main_cases = [item for item in output_cases if str(item.get("execution_group") or "") == "main_smoke"]
+    assert [item.get("main_chain_stage") for item in main_cases] == [
+        "upload_ready",
+        "correction_generated",
+        "enter_submission_page",
+        "submit_pending_review",
+        "admin_approved",
+        "my作文_published",
+        "community_visible",
+        "community_detail_interaction",
+        "delete_restore_unsubmitted",
+    ]
+    for index, case in enumerate(main_cases):
+        if index == 0:
+            assert case.get("depends_on") == []
+        else:
+            assert case.get("depends_on") == [main_cases[index - 1]["id"]]
+            assert str(main_cases[index - 1].get("expected_result") or "")[:20] in str(case.get("setup_hint") or "")
+        assert case.get("isolation_required") is False
+        assert str(case.get("fixture_key") or "") == "main_smoke_chain_seed"
+        assert str(case.get("group_setup") or "").startswith("seed_student")
+        assert str(case.get("group_teardown") or "").startswith("delete_created_work")
+        if case.get("main_chain_stage") in {"my作文_published", "community_detail_interaction"}:
+            assert str(case.get("priority") or "") == "P1"
+        else:
+            assert str(case.get("priority") or "") == "P0"
+
+    bridge_cases = [item for item in main_cases if item.get("generated_bridge_case")]
+    assert bridge_cases
+    assert any(item.get("main_chain_stage") == "enter_submission_page" for item in bridge_cases)
+    assert any(item.get("main_chain_stage") == "community_detail_interaction" for item in bridge_cases)
+
+    isolated = [item for item in output_cases if "上传失败" in str(item.get("description") or "")]
+    assert isolated
+    assert isolated[0].get("isolation_required") is True
+    assert str(isolated[0].get("execution_group") or "") == "exception"
+    assert str(isolated[0].get("fixture_key") or "") == "fault_injection_case"
+    assert str(isolated[0].get("fixture_builder") or "") == "enable_fault_injection_for_case()"
+
+    summary = dict(result.get("review_decision_summary") or {})
+    assert summary.get("linear_executable") is True
+    assert summary.get("linear_scope") == "main_smoke_chain_only"
+    assert int(summary.get("main_chain_case_count") or 0) == len(main_cases)
+    assert int(summary.get("isolation_case_count") or 0) >= 1
+    plan = dict(summary.get("execution_plan") or {})
+    assert int(plan.get("generated_bridge_case_count") or 0) >= 1
+    assert "main_smoke_chain_seed" in (plan.get("fixture_keys") or [])
+    assert dict(plan.get("group_setup") or {}).get("main_smoke")
+
+
+def test_execution_plan_classifies_comment_review_as_audit_fixture() -> None:
+    result = _run_cases(
+        requirement="作文圈评论需要后台审核通过后才展示。",
+        cases=[
+            {
+                "id": "TC-008",
+                "description": "后台审核评论通过后评论展示",
+                "test_module": "作文圈评论审核",
+                "preconditions": ["作品详情页存在一条待审核评论"],
+                "steps": ["1. 后台打开评论审核列表", "2. 点击审核通过", "3. 回到作品详情页查看评论"],
+                "test_input": "待审核评论",
+                "expected_result": "评论审核通过后在作品详情页评论区展示，评论状态为已通过",
+                "priority": "P0",
+            }
+        ],
+    )
+
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    assert output_cases
+    case = output_cases[0]
+    assert str(case.get("execution_group") or "") == "audit_branch"
+    assert str(case.get("fixture_key") or "") == "pending_comment_review"
+    assert str(case.get("fixture_builder") or "") == "seed_comment(status='pending_review', work_status='published')"
+    assert str(case.get("priority") or "") == "P1"
+
+
+def test_execution_plan_orders_detail_before_delete_and_keeps_delete_as_terminal_p0() -> None:
+    result = _run_cases(
+        requirement="作文批改主链路：审核通过后作文圈可见，进入详情点赞后，最后删除已发布作品并恢复未投稿。",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "上传作文图片成功后去批改按钮可点击",
+                "test_module": "作文批改",
+                "preconditions": ["学生用户已登录并进入作文批改页"],
+                "steps": ["1. 上传作文图片"],
+                "test_input": "作文图片",
+                "expected_result": "作文图片上传成功，去批改按钮可点击",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-002",
+                "description": "投稿提交成功后作品进入审核中",
+                "test_module": "作文投稿",
+                "preconditions": ["已生成批改结果"],
+                "steps": ["1. 提交投稿"],
+                "test_input": "已批改作文",
+                "expected_result": "投稿提交成功，作品状态变为审核中",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-003",
+                "description": "后台审核通过后作文圈可见已发布作品",
+                "test_module": "作文审核后台",
+                "preconditions": ["作品审核中"],
+                "steps": ["1. 后台审核通过"],
+                "test_input": "审核中的作品",
+                "expected_result": "作品变为已发布且作文圈可见",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-004",
+                "description": "删除作文圈已发布作品后恢复未投稿",
+                "test_module": "我的作文",
+                "preconditions": ["作品已发布"],
+                "steps": ["1. 点击删除作品"],
+                "test_input": "已发布作品",
+                "expected_result": "删除后作文圈中该作品被移除，我的作文中恢复未投稿状态",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-005",
+                "description": "进入作文圈作品详情并点赞",
+                "test_module": "作文圈",
+                "preconditions": ["作品已在作文圈可见"],
+                "steps": ["1. 进入作品详情", "2. 点击点赞"],
+                "test_input": "已发布作品",
+                "expected_result": "作品详情页打开成功，点赞数增加 1，作品仍保持已发布且可见",
+                "priority": "P0",
+            },
+        ],
+    )
+
+    main_cases = [
+        item for item in (result.get("cases") or [])
+        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
+    ]
+    stages = [str(item.get("main_chain_stage") or "") for item in main_cases]
+    assert "community_detail_interaction" in stages
+    assert "delete_restore_unsubmitted" in stages
+    assert stages.index("community_detail_interaction") < stages.index("delete_restore_unsubmitted")
+    detail_case = next(item for item in main_cases if item.get("main_chain_stage") == "community_detail_interaction")
+    delete_case = next(item for item in main_cases if item.get("main_chain_stage") == "delete_restore_unsubmitted")
+    assert detail_case.get("depends_on") != [delete_case.get("id")]
+    assert delete_case.get("depends_on") == [detail_case.get("id")]
+    assert str(detail_case.get("priority") or "") == "P1"
+    assert str(delete_case.get("priority") or "") == "P0"
+
+
+def test_execution_plan_projects_duplicate_submission_case_into_enter_page_preparation() -> None:
+    result = _run_cases(
+        requirement="作文投稿主链路：批改成功后先进入投稿页准备，再提交投稿进入审核中。",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "上传作文图片成功后去批改按钮可点击",
+                "test_module": "作文批改",
+                "preconditions": ["学生用户已登录"],
+                "steps": ["1. 上传作文图片"],
+                "test_input": "清晰作文图片",
+                "expected_result": "上传成功且去批改按钮可点击",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-002",
+                "description": "点击去批改并等待 AI 批改成功",
+                "test_module": "作文批改",
+                "preconditions": ["作文图片已上传"],
+                "steps": ["1. 点击去批改", "2. 等待批改完成"],
+                "test_input": "已上传作文图片",
+                "expected_result": "AI 批改成功并进入批改结果页",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-003",
+                "description": "投稿页提交后显示投稿成功弹窗并返回审核中",
+                "test_module": "作文投稿",
+                "preconditions": ["已进入批改结果页"],
+                "steps": ["1. 点击投稿", "2. 进入投稿页", "3. 点击提交投稿"],
+                "test_input": "已批改作文",
+                "expected_result": "投稿成功弹窗显示，点击我知道了后返回批改详情页，按钮状态变为审核中",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-004",
+                "description": "提交投稿后进入审核中",
+                "test_module": "作文投稿",
+                "preconditions": ["学生端已进入投稿页，标题和正文内容已确认"],
+                "steps": ["1. 点击提交投稿"],
+                "test_input": "完整投稿内容",
+                "expected_result": "投稿提交成功，作品状态变为审核中",
+                "priority": "P0",
+            },
+        ],
+    )
+
+    main_cases = [
+        item for item in (result.get("cases") or [])
+        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
+    ]
+    enter_case = next(item for item in main_cases if item.get("main_chain_stage") == "enter_submission_page")
+    submit_case = next(item for item in main_cases if item.get("main_chain_stage") == "submit_pending_review")
+    assert str(enter_case.get("description") or "") == "从批改结果页进入投稿页并完成投稿前准备"
+    assert enter_case.get("submission_stage_projection") == "enter_submission_page_preparation"
+    assert "提交投稿" not in " ".join(str(step) for step in (enter_case.get("steps") or []))
+    assert "审核中" not in str(enter_case.get("expected_result") or "")
+    assert "审核中" in str(submit_case.get("expected_result") or "")
+    assert submit_case.get("depends_on") == [enter_case.get("id")]
+
+
+def test_execution_plan_keeps_ocr_failure_out_of_main_smoke_and_bridges_success() -> None:
+    result = _run_cases(
+        requirement="作文批改主链路：上传图片后点击去批改，AI批改成功后进入批改结果页；OCR失败属于异常分支。",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "上传作文图片成功后去批改按钮可点击",
+                "test_module": "作文批改",
+                "preconditions": ["学生用户已登录并进入作文批改页"],
+                "steps": ["1. 上传清晰作文图片"],
+                "test_input": "清晰作文图片",
+                "expected_result": "作文图片上传成功，去批改按钮可点击",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-002",
+                "description": "OCR 识别失败时批改任务不进入成功态",
+                "test_module": "作文批改",
+                "preconditions": ["学生用户已上传无法识别文字的作文图片"],
+                "steps": ["1. 点击去批改", "2. 等待 OCR 返回失败"],
+                "test_input": "模糊或无文字图片",
+                "expected_result": "系统提示识别失败，不生成批改结果，作品不进入可投稿状态",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-003",
+                "description": "批改成功返回完整批改结果",
+                "test_module": "批改结果",
+                "preconditions": ["已生成批改结果"],
+                "steps": ["1. 查看批改结果页"],
+                "test_input": "已批改作文",
+                "expected_result": "批改结果页展示综合点评、分句点评、全文润色和优化建议四部分内容",
+                "priority": "P0",
+            },
+        ],
+    )
+
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    main_cases = [item for item in output_cases if str(item.get("execution_group") or "") == "main_smoke"]
+    main_descriptions = [str(item.get("description") or "") for item in main_cases]
+    assert "OCR 识别失败时批改任务不进入成功态" not in main_descriptions
+    assert any(item.get("generated_bridge_case") and item.get("main_chain_stage") == "correction_generated" for item in main_cases)
+    ocr_case = next(item for item in output_cases if "OCR 识别失败" in str(item.get("description") or ""))
+    assert str(ocr_case.get("execution_group") or "") == "exception"
+    assert str(ocr_case.get("fixture_key") or "") == "fault_injection_case"
+
+
+def test_execution_plan_keeps_timeout_retry_out_of_first_main_step() -> None:
+    result = _run_cases(
+        requirement="作文批改主链路：上传图片后点击去批改，AI批改成功后进入批改结果页；接口超时重试属于异常分支。",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "AI 批改接口超时后支持重试",
+                "test_module": "作文批改",
+                "preconditions": ["学生用户已上传清晰作文图片且批改接口被模拟为超时"],
+                "steps": ["1. 点击去批改", "2. 等待超时提示", "3. 点击重试"],
+                "test_input": "批改接口超时",
+                "expected_result": "首次批改显示超时提示且不产生错误结果；点击重试后重新发起批改请求并保持原上传图片",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-002",
+                "description": "点击去批改后成功生成 AI 批改结果",
+                "test_module": "作文批改",
+                "preconditions": ["作文图片已上传"],
+                "steps": ["1. 点击去批改", "2. 等待 AI 批改完成"],
+                "test_input": "已上传作文图片",
+                "expected_result": "AI 批改成功完成，系统进入批改结果页并展示本次作文的批改结果",
+                "priority": "P0",
+            },
+        ],
+    )
+
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    main_cases = [item for item in output_cases if str(item.get("execution_group") or "") == "main_smoke"]
+    assert main_cases
+    assert str(main_cases[0].get("main_chain_stage") or "") == "upload_ready"
+    assert "超时" not in str(main_cases[0].get("description") or "")
+    assert str(main_cases[0].get("description") or "") == "上传作文图片成功后去批改按钮可点击"
+    timeout_case = next(item for item in output_cases if "超时" in str(item.get("description") or ""))
+    assert str(timeout_case.get("execution_group") or "") == "exception"
+    assert str(timeout_case.get("chain_id") or "") == "exception_independent"
+    assert str(timeout_case.get("priority") or "") == "P1"
+
+
+def test_execution_plan_inserts_admin_approval_before_student_observation() -> None:
+    result = _run_cases(
+        requirement="投稿成功进入审核中后，需要管理员审核通过，学生端再看到审核通过弹窗和已发布状态。",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "上传作文图片成功后去批改按钮可点击",
+                "test_module": "作文批改",
+                "preconditions": ["学生用户已登录"],
+                "steps": ["1. 上传作文图片"],
+                "test_input": "作文图片",
+                "expected_result": "上传成功且去批改按钮可点击",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-002",
+                "description": "投稿提交成功后作品进入审核中",
+                "test_module": "作文投稿",
+                "preconditions": ["已生成批改结果"],
+                "steps": ["1. 提交投稿"],
+                "test_input": "已批改作文",
+                "expected_result": "投稿提交成功，作品状态变为审核中",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-003",
+                "description": "学生端作品刚刚审核通过时显示红点和弹窗",
+                "test_module": "我的作文",
+                "preconditions": ["作品刚刚审核通过"],
+                "steps": ["1. 学生端刷新我的作文", "2. 查看红点和弹窗"],
+                "test_input": "刚审核通过的作品",
+                "expected_result": "学生端显示审核通过红点和弹窗，作品状态为已发布",
+                "priority": "P1",
+            },
+        ],
+    )
+
+    main_cases = [
+        item for item in (result.get("cases") or [])
+        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
+    ]
+    admin_case = next(item for item in main_cases if item.get("main_chain_stage") == "admin_approved")
+    student_cases_after_admin = [
+        item for item in main_cases
+        if int(item.get("main_chain_step") or 0) > int(admin_case.get("main_chain_step") or 0)
+    ]
+    assert admin_case.get("generated_bridge_case") is True
+    assert str(admin_case.get("role") or "") == "admin"
+    assert str(admin_case.get("session_key") or "") == "admin_review_session"
+    assert any("学生端" in str(item.get("description") or "") or item.get("main_chain_stage") == "my作文_published" for item in student_cases_after_admin)
+
+
+def test_execution_plan_splits_admin_approval_from_student_sync_case() -> None:
+    result = _run_cases(
+        requirement="作文投稿主链路：投稿审核中后，管理员审核通过，学生端刷新后我的作文、作文圈和红点状态同步。",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "上传作文图片成功后去批改按钮可点击",
+                "test_module": "作文批改",
+                "preconditions": ["学生用户已登录"],
+                "steps": ["1. 上传作文图片"],
+                "test_input": "作文图片",
+                "expected_result": "上传成功且去批改按钮可点击",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-002",
+                "description": "投稿提交成功后作品进入审核中",
+                "test_module": "作文投稿",
+                "preconditions": ["已生成批改结果"],
+                "steps": ["1. 提交投稿"],
+                "test_input": "已批改作文",
+                "expected_result": "投稿提交成功，作品状态变为审核中",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-003",
+                "description": "审核通过后学生端我的作文作文圈红点状态同步",
+                "test_module": "我的作文",
+                "preconditions": ["作品处于审核中"],
+                "steps": ["1. 后台审核通过该投稿", "2. 学生端刷新我的作文", "3. 查看作文圈和红点"],
+                "test_input": "审核中的投稿作品",
+                "expected_result": "我的作文状态为已发布，作文圈可见该作品，学生端展示审核通过红点",
+                "priority": "P0",
+            },
+        ],
+    )
+
+    main_cases = [
+        item for item in (result.get("cases") or [])
+        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
+    ]
+    admin_case = next(item for item in main_cases if item.get("main_chain_stage") == "admin_approved")
+    sync_case = next(item for item in main_cases if bool(item.get("student_observation_projection")))
+    assert admin_case.get("generated_bridge_case") is True
+    assert str(admin_case.get("role") or "") == "admin"
+    assert str(admin_case.get("session_key") or "") == "admin_review_session"
+    assert str(sync_case.get("role") or "") == "student"
+    assert str(sync_case.get("session_key") or "") == "student_session"
+    assert "后台审核通过" not in " ".join(str(step) for step in (sync_case.get("steps") or []))
+    assert sync_case.get("depends_on") == [admin_case.get("id")]
+
+
+def test_execution_plan_keeps_submission_rule_popup_on_student_session() -> None:
+    result = _run_cases(
+        requirement="作文投稿：学生从批改结果进入投稿页，首次进入会弹出规则说明弹窗。",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "投稿页首次进入自动弹出规则说明弹窗",
+                "test_module": "作文投稿",
+                "preconditions": ["学生用户已生成批改结果"],
+                "steps": ["1. 点击投稿", "2. 进入投稿页", "3. 查看规则说明弹窗和标题正文"],
+                "test_input": "已批改作文",
+                "expected_result": "学生端进入投稿页后弹出规则说明弹窗，关闭后标题和正文输入区可编辑",
+                "priority": "P1",
+            }
+        ],
+    )
+
+    case = next(
+        item for item in (result.get("cases") or [])
+        if isinstance(item, dict) and "规则说明弹窗" in str(item.get("description") or "")
+    )
+    assert str(case.get("role") or "") == "student"
+    assert str(case.get("session_key") or "") == "student_session"
+    assert str(case.get("role_switch_strategy") or "") == "reuse_group_session"
+
+
+def test_execution_plan_uses_community_tab_fixture_for_list_sorting() -> None:
+    result = _run_cases(
+        requirement="作文圈精选、最新、我的列表需要按已发布作品数据排序展示。",
+        cases=[
+            {
+                "id": "TC-013",
+                "description": "作文圈精选最新我的列表仅展示审核通过作品并按规则排序",
+                "test_module": "作文圈",
+                "preconditions": ["存在多篇已审核通过作文"],
+                "steps": ["1. 打开作文圈", "2. 切换精选、最新、我的列表"],
+                "test_input": "30篇已发布作文",
+                "expected_result": "精选列表、最新列表和我的列表均只展示已发布作品，并分别按点赞、时间和作者范围展示",
+                "priority": "P1",
+            }
+        ],
+    )
+
+    case = next(item for item in (result.get("cases") or []) if isinstance(item, dict))
+    assert str(case.get("execution_group") or "") == "display"
+    assert str(case.get("fixture_key") or "") == "community_tab_sorting_dataset"
+    assert str(case.get("fixture_builder") or "") == "seed_community_works(status='published', count=30, with_like_reply_time_distribution=true)"
+
+
+def test_full_regression_deterministic_floor_supplement_restores_85_cases() -> None:
+    state = {
+        "source_meta": {
+            "generation_coverage_profile": {
+                "coverage_mode": "full_functional_regression",
+                "target_case_range": {"min": 85, "max": 90},
+            }
+        }
+    }
+    cases = [
+        {
+            "id": f"TC-{index:03d}",
+            "description": f"作文批改完整回归辅助场景{index}",
+            "test_module": "作文批改",
+            "preconditions": ["学生用户已登录并准备好对应数据"],
+            "steps": ["1. 打开对应页面", "2. 执行业务操作", "3. 查看页面和数据状态"],
+            "test_input": f"辅助数据{index}",
+            "expected_result": f"辅助场景{index}的页面反馈和数据状态与本次业务操作一致",
+            "priority": "P2",
+        }
+        for index in range(1, 71)
+    ]
+    result = _run_cases(
+        requirement="作文批改 full regression：覆盖上传图片、AI批改、投稿审核、作文圈、课程权限、写作秘籍和下载资料。",
+        cases=cases,
+        expected_count=90,
+        feedback_control_state=state,
+    )
+
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    assert len(output_cases) >= 85
+    assert [str(item.get("id") or "") for item in output_cases] == [
+        f"TC-{index:03d}" for index in range(1, len(output_cases) + 1)
+    ]
+    summary = dict(result.get("review_decision_summary") or {})
+    assert summary.get("final_shortfall_supplement_applied") is True
+    assert int(summary.get("final_shortfall_supplement_count") or 0) >= 15
+
+
+def test_quality_governance_drops_template_polluted_original_image_assertion() -> None:
+    result = _run_cases(
+        requirement="投稿页显隐原图按钮：默认显示原图缩略图，点击后隐藏原图，再次点击恢复显示。",
+        cases=[
+            {
+                "id": "TC-064",
+                "description": "投稿页显/隐原图按钮功能验证",
+                "test_module": "作文投稿",
+                "preconditions": ["用户已进入投稿页且存在原图"],
+                "steps": ["1. 点击显隐原图按钮", "2. 再次点击该按钮"],
+                "test_input": "投稿页原图",
+                "expected_result": "执行再次点击该按钮后，应跳转到目标页面，且页面路径与标题均与投稿页显/隐原图按钮功能验证一致",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-065",
+                "description": "投稿页显隐原图按钮正确切换",
+                "test_module": "作文投稿",
+                "preconditions": ["用户已进入投稿页且存在原图"],
+                "steps": ["1. 点击显隐原图按钮", "2. 再次点击该按钮"],
+                "test_input": "投稿页原图",
+                "expected_result": "默认显示原图缩略图；点击后隐藏原图并切换按钮状态；再次点击后恢复原图显示",
+                "priority": "P1",
+            },
+        ],
+    )
+
+    descriptions = {str(item.get("description") or "") for item in (result.get("cases") or [])}
+    assert "投稿页显/隐原图按钮功能验证" not in descriptions
+    assert "投稿页显隐原图按钮正确切换" in descriptions
 
 
 def test_generate_tests_empty_result_raises_http_error(monkeypatch) -> None:

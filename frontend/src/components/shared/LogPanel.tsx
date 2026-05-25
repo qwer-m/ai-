@@ -126,6 +126,7 @@ function formatGenDiagMessage(message: string): string | null {
       : '';
     return [
       `Review摘要：候选 ${numberText(payload.candidate_total)} → 保留 ${numberText(payload.retained_total)}，丢弃 ${numberText(payload.dropped_total)}`,
+      `结构诊断：流程缺口 ${numberText(payload.flow_missing_stage_count)}，顺序倒挂 ${numberText(payload.flow_misordered_count)}，场景重复簇 ${numberText(payload.scenario_duplicate_cluster_count)}，重复用例 ${numberText(payload.scenario_duplicate_case_count)}，已裁剪 ${numberText(payload.scenario_duplicate_pruned_count)}，已重排=${boolText(payload.flow_reordered)}`,
       `丢弃来源：LLM ${numberText(payload.drop_by_review_llm_count)}，Gate ${numberText(payload.drop_by_review_gate_count)}，语义去重 ${numberText(payload.drop_by_post_review_dedup_count)}，最终描述重复 ${numberText(payload.drop_final_description_duplicate_count)}`,
       `审查调用：主模型 ${String(runtime.primary_model || '-')}，fallback ${String(runtime.retry_model || '-')}${compactRetry}${reasonRepairText}，来源 ${String(runtime.final_source || '-')}${consistencyText}${reasonHealthText}`,
       responseMetaText,

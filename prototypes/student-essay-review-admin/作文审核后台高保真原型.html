@@ -1,0 +1,1185 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>作文审核后台高保真原型</title>
+  <style>
+    :root {
+      --bg: #f3f6fb;
+      --canvas: #e9eef7;
+      --frame: #ffffff;
+      --line: #dbe4f0;
+      --line-strong: #c7d4e5;
+      --text: #1f2a37;
+      --muted: #6a7a90;
+      --nav: #0f1b2d;
+      --nav-2: #16243a;
+      --blue: #2563eb;
+      --blue-soft: #eaf2ff;
+      --green: #16a34a;
+      --green-soft: #e8f7ee;
+      --red: #dc2626;
+      --red-soft: #fdecec;
+      --gold: #b7791f;
+      --gold-soft: #fff6dd;
+      --gray-soft: #eef3f8;
+      --shadow: 0 10px 30px rgba(23, 36, 61, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      color: var(--text);
+      background: linear-gradient(180deg, #f6f9fd 0%, #eef3f9 100%);
+    }
+
+    .page {
+      padding: 28px;
+    }
+
+    .header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.2;
+    }
+
+    .header p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .tips {
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.7);
+      color: var(--muted);
+      font-size: 13px;
+      max-width: 460px;
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(560px, 1fr));
+      gap: 24px;
+      align-items: start;
+    }
+
+    .frame {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--frame);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .frame-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfe;
+    }
+
+    .frame-label strong {
+      font-size: 15px;
+    }
+
+    .frame-label span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .screen {
+      background: var(--bg);
+      min-height: 760px;
+      display: grid;
+      grid-template-columns: 220px 1fr;
+    }
+
+    .sidebar {
+      background: linear-gradient(180deg, #122036 0%, #0f1b2d 100%);
+      color: #d7e3f4;
+      padding: 20px 14px;
+    }
+
+    .brand {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 26px;
+    }
+
+    .menu {
+      display: grid;
+      gap: 8px;
+    }
+
+    .menu-item {
+      padding: 11px 12px;
+      border-radius: 8px;
+      color: #aebbd0;
+      font-size: 14px;
+      background: transparent;
+    }
+
+    .menu-item.active {
+      background: #22314b;
+      color: #ffffff;
+    }
+
+    .main {
+      min-width: 0;
+    }
+
+    .topbar {
+      height: 68px;
+      background: rgba(255, 255, 255, 0.92);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 0 20px;
+    }
+
+    .search {
+      width: 340px;
+      height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #ffffff;
+      color: #8b9ab0;
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      font-size: 13px;
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #dbe7ff;
+      color: var(--blue);
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+    }
+
+    .content {
+      padding: 20px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .card-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .card-title strong {
+      font-size: 17px;
+    }
+
+    .card-title span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .kpi {
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+      border-radius: 12px;
+      padding: 14px;
+    }
+
+    .kpi .name {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .kpi .value {
+      margin-top: 8px;
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    .kpi .sub {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .panel-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 16px;
+    }
+
+    .list-table,
+    .record-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .list-table th,
+    .list-table td,
+    .record-table th,
+    .record-table td {
+      padding: 11px 8px;
+      border-bottom: 1px solid #ecf1f7;
+      text-align: left;
+      font-size: 13px;
+      vertical-align: top;
+    }
+
+    .list-table th,
+    .record-table th {
+      color: var(--muted);
+      background: #f8fbff;
+      font-weight: 600;
+    }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      height: 24px;
+      padding: 0 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+
+    .tag.pending {
+      background: #e9f1ff;
+      color: #2456cf;
+    }
+
+    .tag.pass {
+      background: var(--green-soft);
+      color: #18753c;
+    }
+
+    .tag.reject {
+      background: var(--red-soft);
+      color: #b42318;
+    }
+
+    .tag.pick {
+      background: var(--gold-soft);
+      color: var(--gold);
+    }
+
+    .tag.delete {
+      background: #edf1f5;
+      color: #5a687b;
+    }
+
+    .quick-links {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .quick-link {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      background: #fafcff;
+    }
+
+    .quick-link strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    .quick-link span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .review-layout {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 16px;
+    }
+
+    .filters {
+      display: grid;
+      grid-template-columns: 1fr 96px 96px;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .field,
+    .select {
+      height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #ffffff;
+      color: #8393a9;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      font-size: 12px;
+    }
+
+    .essay-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .essay-item {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfdff;
+      padding: 12px;
+    }
+
+    .essay-item.active {
+      border-color: #8db3ff;
+      box-shadow: inset 3px 0 0 var(--blue);
+      background: #f8fbff;
+    }
+
+    .essay-item .top {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .essay-item strong {
+      font-size: 14px;
+    }
+
+    .essay-item p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .detail-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 14px;
+    }
+
+    .detail-head h3 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .meta {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .essay-body {
+      border: 1px solid var(--line);
+      background: #fbfcfe;
+      border-radius: 12px;
+      padding: 15px;
+      line-height: 1.9;
+      font-size: 14px;
+      color: #364255;
+      min-height: 250px;
+    }
+
+    .action-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+      align-items: center;
+    }
+
+    .btn {
+      height: 38px;
+      padding: 0 14px;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid transparent;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .btn.primary {
+      background: var(--blue);
+      color: #ffffff;
+    }
+
+    .btn.success {
+      background: var(--green);
+      color: #ffffff;
+    }
+
+    .btn.danger {
+      background: var(--red);
+      color: #ffffff;
+    }
+
+    .btn.ghost {
+      background: #ffffff;
+      border-color: var(--line-strong);
+      color: #415166;
+    }
+
+    .btn.warn {
+      background: #f59e0b;
+      color: #ffffff;
+    }
+
+    .switch {
+      height: 38px;
+      padding: 0 12px;
+      border-radius: 10px;
+      border: 1px solid #f0d58a;
+      background: #fff8e8;
+      color: #9a6a06;
+      display: inline-flex;
+      align-items: center;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .comment-layout {
+      display: grid;
+      grid-template-columns: 1fr 300px;
+      gap: 16px;
+    }
+
+    .drawer {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #ffffff;
+      padding: 16px;
+      min-height: 520px;
+    }
+
+    .drawer-block {
+      margin-bottom: 14px;
+    }
+
+    .drawer-block strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+
+    .drawer-block p {
+      margin: 0;
+      color: #405065;
+      font-size: 13px;
+      line-height: 1.8;
+    }
+
+    .message-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .message-item {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #ffffff;
+      padding: 14px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .message-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .message-top strong {
+      font-size: 14px;
+    }
+
+    .message-item p {
+      margin: 0;
+      color: #44556c;
+      font-size: 13px;
+      line-height: 1.8;
+    }
+
+    .message-item .meta {
+      margin-top: 0;
+    }
+
+    .modal-zone {
+      padding: 18px;
+      background: #f7faff;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      border-top: 1px solid var(--line);
+    }
+
+    .modal {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #ffffff;
+      overflow: hidden;
+      box-shadow: 0 8px 22px rgba(28, 44, 74, 0.08);
+    }
+
+    .modal-head {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .modal-body {
+      padding: 14px 16px;
+      display: grid;
+      gap: 10px;
+      color: #425268;
+      font-size: 13px;
+      line-height: 1.8;
+    }
+
+    .textarea {
+      min-height: 88px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fbfcff;
+      padding: 10px 12px;
+      color: #607086;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .modal-foot {
+      padding: 12px 16px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: end;
+      gap: 8px;
+    }
+
+    .full {
+      grid-column: 1 / -1;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <div>
+        <h1>作文审核后台高保真原型</h1>
+        <p>用于先出视觉稿，再贴入 Axure 继续补交互。页面已按老师审核后台的实际使用场景组织。</p>
+      </div>
+      <div class="tips">建议用法：先按整页截图或局部截图导入 Axure，再依据下方页面结构把弹窗、抽屉、按钮热点拆成动态面板和交互。</div>
+    </div>
+
+    <div class="board">
+      <section class="frame">
+        <div class="frame-label">
+          <strong>页面 1 · 工作台</strong>
+          <span>总览入口页</span>
+        </div>
+        <div class="screen">
+          <aside class="sidebar">
+            <div class="brand">作文审核后台</div>
+            <div class="menu">
+              <div class="menu-item active">工作台</div>
+              <div class="menu-item">作文审核</div>
+              <div class="menu-item">评论审核</div>
+              <div class="menu-item">审核消息</div>
+              <div class="menu-item">删除记录</div>
+            </div>
+          </aside>
+          <main class="main">
+            <div class="topbar">
+              <div class="search">搜索作文标题 / 学生昵称 / 评论内容</div>
+              <div class="topbar-right">
+                <span>今日待处理 48 项</span>
+                <div class="avatar">张</div>
+              </div>
+            </div>
+            <div class="content">
+              <div class="kpi-grid">
+                <div class="kpi">
+                  <div class="name">待审核作文</div>
+                  <div class="value">26</div>
+                  <div class="sub">较昨日 +4</div>
+                </div>
+                <div class="kpi">
+                  <div class="name">待审核评论</div>
+                  <div class="value">84</div>
+                  <div class="sub">高峰时段集中提交</div>
+                </div>
+                <div class="kpi">
+                  <div class="name">今日通过</div>
+                  <div class="value">19</div>
+                  <div class="sub">公开展示中 143</div>
+                </div>
+                <div class="kpi">
+                  <div class="name">今日不通过</div>
+                  <div class="value">7</div>
+                  <div class="sub">已全部通知学生</div>
+                </div>
+                <div class="kpi">
+                  <div class="name">今日删除</div>
+                  <div class="value">3</div>
+                  <div class="sub">含评论 2 条</div>
+                </div>
+              </div>
+
+              <div class="panel-grid">
+                <div class="card">
+                  <div class="card-title">
+                    <strong>最近待办</strong>
+                    <span>优先处理近 2 小时内投稿</span>
+                  </div>
+                  <table class="list-table">
+                    <thead>
+                      <tr>
+                        <th>类型</th>
+                        <th>标题 / 摘要</th>
+                        <th>学生</th>
+                        <th>时间</th>
+                        <th>状态</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>作文</td>
+                        <td>春天的校园</td>
+                        <td>林小雨</td>
+                        <td>09:42</td>
+                        <td><span class="tag pending">待审核</span></td>
+                      </tr>
+                      <tr>
+                        <td>评论</td>
+                        <td>“结尾可以再丰富一点”</td>
+                        <td>小陈</td>
+                        <td>09:36</td>
+                        <td><span class="tag pending">待审核</span></td>
+                      </tr>
+                      <tr>
+                        <td>作文</td>
+                        <td>难忘的一天</td>
+                        <td>王乐</td>
+                        <td>08:57</td>
+                        <td><span class="tag reject">待复核</span></td>
+                      </tr>
+                      <tr>
+                        <td>作文</td>
+                        <td>我和书的故事</td>
+                        <td>周安安</td>
+                        <td>08:14</td>
+                        <td><span class="tag pass">已通过</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="card">
+                  <div class="card-title">
+                    <strong>快捷入口</strong>
+                    <span>按操作目标分组</span>
+                  </div>
+                  <div class="quick-links">
+                    <div class="quick-link">
+                      <strong>进入作文审核</strong>
+                      <span>默认筛选待审核作文，适合快速清理新投稿。</span>
+                    </div>
+                    <div class="quick-link">
+                      <strong>进入评论审核</strong>
+                      <span>只放行通过审核的留言，保持公开评论区质量。</span>
+                    </div>
+                    <div class="quick-link">
+                      <strong>查看审核消息</strong>
+                      <span>重点查看不通过通知是否已成功送达学生端。</span>
+                    </div>
+                    <div class="quick-link">
+                      <strong>查看删除记录</strong>
+                      <span>追踪作文、评论删除操作，方便后续复盘。</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      </section>
+
+      <section class="frame">
+        <div class="frame-label">
+          <strong>页面 2 · 作文审核</strong>
+          <span>核心操作页</span>
+        </div>
+        <div class="screen">
+          <aside class="sidebar">
+            <div class="brand">作文审核后台</div>
+            <div class="menu">
+              <div class="menu-item">工作台</div>
+              <div class="menu-item active">作文审核</div>
+              <div class="menu-item">评论审核</div>
+              <div class="menu-item">审核消息</div>
+              <div class="menu-item">删除记录</div>
+            </div>
+          </aside>
+          <main class="main">
+            <div class="topbar">
+              <div class="search">搜索标题 / 学生 / 学校 / 班级</div>
+              <div class="topbar-right">
+                <span>待审核作文 26</span>
+                <div class="avatar">张</div>
+              </div>
+            </div>
+            <div class="content">
+              <div class="review-layout">
+                <section class="card">
+                  <div class="card-title">
+                    <strong>作文列表</strong>
+                    <span>按最新投稿排序</span>
+                  </div>
+                  <div class="filters">
+                    <div class="field">标题 / 学生 / 班级</div>
+                    <div class="select">待审核</div>
+                    <div class="select">最新投稿</div>
+                  </div>
+                  <div class="essay-list">
+                    <div class="essay-item active">
+                      <div class="top">
+                        <strong>春天的校园</strong>
+                        <span class="tag pending">待审核</span>
+                      </div>
+                      <p>林小雨 · 五年级 2 班 · 832 字 · 10 分钟前</p>
+                      <div class="tag-row" style="margin-top: 8px;">
+                        <span class="tag">评论 0</span>
+                        <span class="tag">首次投稿</span>
+                      </div>
+                    </div>
+                    <div class="essay-item">
+                      <div class="top">
+                        <strong>我和书的故事</strong>
+                        <span class="tag pass">已通过</span>
+                      </div>
+                      <p>周安安 · 六年级 1 班 · 1024 字 · 1 小时前</p>
+                      <div class="tag-row" style="margin-top: 8px;">
+                        <span class="tag pick">精选</span>
+                        <span class="tag">评论 12</span>
+                      </div>
+                    </div>
+                    <div class="essay-item">
+                      <div class="top">
+                        <strong>难忘的一天</strong>
+                        <span class="tag reject">不通过</span>
+                      </div>
+                      <p>王乐 · 四年级 3 班 · 518 字 · 昨天</p>
+                      <div class="tag-row" style="margin-top: 8px;">
+                        <span class="tag">原因：内容不完整</span>
+                      </div>
+                    </div>
+                    <div class="essay-item">
+                      <div class="top">
+                        <strong>窗外的雨</strong>
+                        <span class="tag delete">已删除</span>
+                      </div>
+                      <p>陈溪 · 五年级 5 班 · 760 字 · 3 天前</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="card">
+                  <div class="detail-head">
+                    <div>
+                      <h3>春天的校园</h3>
+                      <div class="meta">林小雨 · 五年级 2 班 · 阳光小学 · 投稿时间 2026-05-13 09:42 · 当前状态：待审核</div>
+                    </div>
+                    <div class="tag-row">
+                      <span class="tag pending">待审核</span>
+                    </div>
+                  </div>
+                  <div class="card-title" style="margin-bottom: 10px;">
+                    <strong>正文预览</strong>
+                    <span>支持复制与长文展开</span>
+                  </div>
+                  <div class="essay-body">
+                    春天来了，校园像被悄悄换上了一件新的衣裳。操场边的树枝长出了嫩绿的叶子，花坛里的小花一朵朵地开了。早读的时候，阳光落在教室窗边，同学们的读书声和风声一起轻轻飘进来。老师带着我们观察植物，我发现每一片叶子都像刚刚睡醒一样，安静又有精神。课间的时候，我们在跑道旁边聊天、跳绳，整个校园都变得明亮起来……
+                  </div>
+                  <div class="action-bar">
+                    <div class="btn success">通过并公开展示</div>
+                    <div class="btn danger">不通过并填写原因</div>
+                    <div class="switch">精选标签：通过后可设置</div>
+                    <div class="btn ghost">复制正文</div>
+                    <div class="btn warn">删除作文</div>
+                  </div>
+                </section>
+              </div>
+
+              <div class="modal-zone">
+                <div class="modal">
+                  <div class="modal-head">通过确认</div>
+                  <div class="modal-body">
+                    <div>通过后，该作文将在 APP 中对全部用户展示。</div>
+                    <div class="field">同时设为精选：是</div>
+                  </div>
+                  <div class="modal-foot">
+                    <div class="btn ghost">取消</div>
+                    <div class="btn success">确认通过</div>
+                  </div>
+                </div>
+
+                <div class="modal">
+                  <div class="modal-head">不通过原因</div>
+                  <div class="modal-body">
+                    <div class="field">原因类型：内容不完整</div>
+                    <div class="textarea">作文整体立意明确，但内容展开较短，事件细节与结尾总结不够完整，请补充后再次投稿。</div>
+                    <div style="color: var(--muted); font-size: 12px;">学生将收到消息：“你的作文《春天的校园》未通过审核，原因：内容不完整，请补充细节后再次投稿。”</div>
+                  </div>
+                  <div class="modal-foot">
+                    <div class="btn ghost">取消</div>
+                    <div class="btn danger">确认不通过</div>
+                  </div>
+                </div>
+
+                <div class="modal">
+                  <div class="modal-head">删除确认</div>
+                  <div class="modal-body">
+                    <div>删除后作文将不再在 APP 展示，相关评论也将自动隐藏。</div>
+                    <div class="textarea">删除原因（可选）</div>
+                  </div>
+                  <div class="modal-foot">
+                    <div class="btn ghost">取消</div>
+                    <div class="btn warn">确认删除</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      </section>
+
+      <section class="frame">
+        <div class="frame-label">
+          <strong>页面 3 · 评论审核</strong>
+          <span>表格 + 抽屉结构</span>
+        </div>
+        <div class="screen">
+          <aside class="sidebar">
+            <div class="brand">作文审核后台</div>
+            <div class="menu">
+              <div class="menu-item">工作台</div>
+              <div class="menu-item">作文审核</div>
+              <div class="menu-item active">评论审核</div>
+              <div class="menu-item">审核消息</div>
+              <div class="menu-item">删除记录</div>
+            </div>
+          </aside>
+          <main class="main">
+            <div class="topbar">
+              <div class="search">搜索评论内容 / 评论用户 / 作文标题</div>
+              <div class="topbar-right">
+                <span>待审核评论 84</span>
+                <div class="avatar">张</div>
+              </div>
+            </div>
+            <div class="content">
+              <div class="comment-layout">
+                <section class="card">
+                  <div class="card-title">
+                    <strong>评论审核列表</strong>
+                    <span>只允许审核通过的评论对外展示</span>
+                  </div>
+                  <div class="filters">
+                    <div class="field">评论 / 用户 / 作文</div>
+                    <div class="select">待审核</div>
+                    <div class="select">全部作文</div>
+                  </div>
+                  <table class="list-table">
+                    <thead>
+                      <tr>
+                        <th>评论内容</th>
+                        <th>评论用户</th>
+                        <th>所属作文</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>写得很有画面感，结尾可以再丰富一点。</td>
+                        <td>小陈</td>
+                        <td>春天的校园</td>
+                        <td><span class="tag pending">待审核</span></td>
+                        <td>通过 / 不通过 / 删除</td>
+                      </tr>
+                      <tr>
+                        <td>这篇作文让我想到自己的校园生活。</td>
+                        <td>木木</td>
+                        <td>我和书的故事</td>
+                        <td><span class="tag pass">已通过</span></td>
+                        <td>删除</td>
+                      </tr>
+                      <tr>
+                        <td>内容太假了吧。</td>
+                        <td>游客 A</td>
+                        <td>难忘的一天</td>
+                        <td><span class="tag reject">不通过</span></td>
+                        <td>查看记录</td>
+                      </tr>
+                      <tr>
+                        <td>无意义刷屏评论。</td>
+                        <td>游客 B</td>
+                        <td>春天的校园</td>
+                        <td><span class="tag delete">已删除</span></td>
+                        <td>查看记录</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </section>
+
+                <aside class="drawer">
+                  <div class="card-title">
+                    <strong>评论详情抽屉</strong>
+                    <span>右侧展开</span>
+                  </div>
+                  <div class="drawer-block">
+                    <strong>评论全文</strong>
+                    <p>写得很有画面感，结尾可以再丰富一点，让整个作文的情绪收束得更完整。</p>
+                  </div>
+                  <div class="drawer-block">
+                    <strong>所属作文</strong>
+                    <p>春天的校园 · 作者：林小雨</p>
+                  </div>
+                  <div class="drawer-block">
+                    <strong>正文摘要</strong>
+                    <p>春天来了，校园像换上了一件新的衣裳。操场边的树枝长出了嫩绿的叶子……</p>
+                  </div>
+                  <div class="drawer-block">
+                    <strong>评论用户</strong>
+                    <p>小陈 · 五年级用户 · 评论时间 2026-05-13 09:36</p>
+                  </div>
+                  <div class="drawer-block">
+                    <strong>历史审核记录</strong>
+                    <p>暂无审核记录，本次为首次审核。</p>
+                  </div>
+                  <div class="action-bar">
+                    <div class="btn success">通过评论</div>
+                    <div class="btn danger">不通过</div>
+                    <div class="btn warn">删除评论</div>
+                  </div>
+                </aside>
+              </div>
+            </div>
+          </main>
+        </div>
+      </section>
+
+      <section class="frame">
+        <div class="frame-label">
+          <strong>页面 4 · 审核消息</strong>
+          <span>面向通知追踪</span>
+        </div>
+        <div class="screen">
+          <aside class="sidebar">
+            <div class="brand">作文审核后台</div>
+            <div class="menu">
+              <div class="menu-item">工作台</div>
+              <div class="menu-item">作文审核</div>
+              <div class="menu-item">评论审核</div>
+              <div class="menu-item active">审核消息</div>
+              <div class="menu-item">删除记录</div>
+            </div>
+          </aside>
+          <main class="main">
+            <div class="topbar">
+              <div class="search">搜索接收学生 / 作文标题 / 消息内容</div>
+              <div class="topbar-right">
+                <span>今日已发消息 31</span>
+                <div class="avatar">张</div>
+              </div>
+            </div>
+            <div class="content">
+              <div class="card">
+                <div class="card-title">
+                  <strong>审核消息记录</strong>
+                  <span>重点查看不通过通知和重新发送状态</span>
+                </div>
+                <div class="message-list">
+                  <div class="message-item">
+                    <div class="message-top">
+                      <strong>作文不通过通知</strong>
+                      <span class="tag reject">已发送</span>
+                    </div>
+                    <p>接收学生：王乐 · 关联作文：《难忘的一天》</p>
+                    <p>消息内容：你的作文《难忘的一天》未通过审核，原因是内容不完整，请补充具体事件与结尾总结后再次投稿。</p>
+                    <div class="meta">发送时间 2026-05-13 10:18 · 操作：查看详情 / 重新发送</div>
+                  </div>
+
+                  <div class="message-item">
+                    <div class="message-top">
+                      <strong>作文通过通知</strong>
+                      <span class="tag pass">已发送</span>
+                    </div>
+                    <p>接收学生：周安安 · 关联作文：《我和书的故事》</p>
+                    <p>消息内容：你的作文已通过审核，现已在 APP 中公开展示，并被设为精选推荐。</p>
+                    <div class="meta">发送时间 2026-05-13 09:08 · 操作：查看详情</div>
+                  </div>
+
+                  <div class="message-item">
+                    <div class="message-top">
+                      <strong>评论不通过通知</strong>
+                      <span class="tag pending">发送中</span>
+                    </div>
+                    <p>接收学生：游客 A · 关联作文：《春天的校园》</p>
+                    <p>消息内容：你的评论未通过审核，请避免使用攻击性或无意义表达。</p>
+                    <div class="meta">发送时间 2026-05-13 09:41 · 操作：查看详情 / 重新发送</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      </section>
+
+      <section class="frame full">
+        <div class="frame-label">
+          <strong>页面 5 · 删除记录</strong>
+          <span>风险操作留痕</span>
+        </div>
+        <div class="screen">
+          <aside class="sidebar">
+            <div class="brand">作文审核后台</div>
+            <div class="menu">
+              <div class="menu-item">工作台</div>
+              <div class="menu-item">作文审核</div>
+              <div class="menu-item">评论审核</div>
+              <div class="menu-item">审核消息</div>
+              <div class="menu-item active">删除记录</div>
+            </div>
+          </aside>
+          <main class="main">
+            <div class="topbar">
+              <div class="search">搜索删除对象 / 原作者 / 删除原因</div>
+              <div class="topbar-right">
+                <span>近 7 天删除 18 条</span>
+                <div class="avatar">张</div>
+              </div>
+            </div>
+            <div class="content">
+              <div class="card">
+                <div class="card-title">
+                  <strong>删除记录列表</strong>
+                  <span>管理员可查看全部删除历史</span>
+                </div>
+                <table class="record-table">
+                  <thead>
+                    <tr>
+                      <th>删除对象</th>
+                      <th>标题 / 内容摘要</th>
+                      <th>原作者</th>
+                      <th>删除老师</th>
+                      <th>删除时间</th>
+                      <th>删除原因</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><span class="tag delete">作文</span></td>
+                      <td>窗外的雨</td>
+                      <td>陈溪</td>
+                      <td>张老师</td>
+                      <td>2026-05-13 09:12</td>
+                      <td>重复投稿，内容与历史作品高度一致</td>
+                    </tr>
+                    <tr>
+                      <td><span class="tag delete">评论</span></td>
+                      <td>“内容太假了吧。”</td>
+                      <td>游客 A</td>
+                      <td>张老师</td>
+                      <td>2026-05-13 08:56</td>
+                      <td>不友善表达，影响公开评论区氛围</td>
+                    </tr>
+                    <tr>
+                      <td><span class="tag delete">评论</span></td>
+                      <td>无意义刷屏评论</td>
+                      <td>游客 B</td>
+                      <td>李老师</td>
+                      <td>2026-05-12 17:31</td>
+                      <td>重复发布，无有效交流内容</td>
+                    </tr>
+                    <tr>
+                      <td><span class="tag delete">作文</span></td>
+                      <td>我的周末计划</td>
+                      <td>何安</td>
+                      <td>管理员</td>
+                      <td>2026-05-12 15:07</td>
+                      <td>用户主动撤回投稿后同步删除</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </main>
+        </div>
+      </section>
+    </div>
+  </div>
+</body>
+</html>

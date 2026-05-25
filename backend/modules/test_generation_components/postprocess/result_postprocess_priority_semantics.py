@@ -60,7 +60,6 @@ def _contains_strong_p0_signal(case_text: str) -> bool:
     return bool(
         payment_gate
         or ai_scoring
-        or wrong_collection
         or week_boundary_or_makeup
         or submit_report_closure
     )
@@ -447,6 +446,14 @@ def resolve_case_priority_decision(
             decision_state="optional",
             decision_source="uncertain_requirement_guard",
             confidence="low",
+        )
+
+    if p2_cap and normalized_model == "P0" and not case_level_hard_guard:
+        return _build_priority_decision(
+            priority_final="P1",
+            decision_state="decided",
+            decision_source="model_p0_guard_downgrade",
+            confidence="high",
         )
 
     if p2_cap and not case_level_hard_guard:

@@ -1,5 +1,6 @@
 ﻿import { useMemo, useState } from 'react';
 import { Badge, Button, Form } from 'react-bootstrap';
+import { coverageTypeLabel } from './debugLabels';
 import { useRagDebugStore } from './debugStore';
 
 type Props = {
@@ -58,7 +59,7 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
       </div>
 
       <div className="small text-muted rag-debug-muted mb-2">
-        total_rules: {countValue(coverage?.total_rules)} / covered_rules: {countValue(coverage?.covered_rules)} / missing_rules: {countValue(coverage?.missing_rules)}
+        规则总数：{countValue(coverage?.total_rules)} / 已覆盖：{countValue(coverage?.covered_rules)} / 未覆盖：{countValue(coverage?.missing_rules)}
       </div>
 
       <div className="table-responsive">
@@ -97,7 +98,7 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
                     <div className="d-flex flex-wrap gap-1">
                       {coverageTypes.map((tag) => (
                         <Badge key={`${ruleId}-cov-${tag}`} bg="success-subtle" text="success">
-                          {tag}
+                          {coverageTypeLabel(tag)}
                         </Badge>
                       ))}
                     </div>
@@ -107,7 +108,7 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
                     <div className="d-flex flex-wrap gap-1">
                       {missingTypes.map((tag) => (
                         <Badge key={`${ruleId}-miss-${tag}`} bg="danger-subtle" text="danger">
-                          {tag}
+                          {coverageTypeLabel(tag)}
                         </Badge>
                       ))}
                     </div>

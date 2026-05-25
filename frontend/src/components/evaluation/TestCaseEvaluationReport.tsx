@@ -65,7 +65,20 @@ export function TestCaseEvaluationReport({
     return <div className="evaluation-prewrap">{evalResult}</div>;
   }
 
-  const { metrics, defectAnalysis, summary } = report;
+  const { metrics, defectAnalysis, requirementBaseline, summary } = report;
+  const baselineHeuristic = requirementBaseline?.heuristic;
+  const generatedCoverageRate = typeof requirementBaseline?.generated_coverage_rate === 'number'
+    ? requirementBaseline.generated_coverage_rate
+    : baselineHeuristic?.generated_coverage_rate;
+  const modifiedCoverageRate = typeof requirementBaseline?.modified_coverage_rate === 'number'
+    ? requirementBaseline.modified_coverage_rate
+    : baselineHeuristic?.modified_coverage_rate;
+  const requirementPoints = requirementBaseline?.requirement_points || baselineHeuristic?.requirement_points || [];
+  const aiRequirementGaps = requirementBaseline?.ai_requirement_gaps || requirementBaseline?.missing_in_generated || baselineHeuristic?.missing_in_generated || [];
+  const humanRequirementGaps = requirementBaseline?.human_requirement_gaps || requirementBaseline?.missing_in_modified || baselineHeuristic?.missing_in_modified || [];
+  const bothMissingPoints = requirementBaseline?.both_missing_points || baselineHeuristic?.both_missing_points || [];
+  const aiUnanchoredPoints = requirementBaseline?.ai_unanchored_points || [];
+  const humanAddedValue = requirementBaseline?.human_added_value || [];
   const disableConfirm =
     (!supplementText.trim() && supplementImages.length === 0)
     || (savedDocId !== null && supplementText === lastSavedContent && supplementImages.length === 0);
@@ -384,6 +397,71 @@ export function TestCaseEvaluationReport({
         ) : null}
         {candidateMessage ? <div className="small text-muted mt-2">{candidateMessage}</div> : null}
       </div>
+
+      {requirementBaseline ? (
+        <div className="mb-3 p-2 border rounded bg-white evaluation-report-requirement-baseline">
+          <div className="d-flex align-items-center justify-content-between gap-2 mb-2">
+            <div>
+              <strong className="small">需求基准评估</strong>
+              <div className="x-small text-muted">以需求文档为锚点，同时检查 AI 生成用例和人工最终用例。</div>
+            </div>
+            <div className="d-flex gap-2 text-center">
+              <div className="px-2 py-1 border rounded bg-light">
+                <div className="fw-bold text-primary">{typeof generatedCoverageRate === 'number' ? generatedCoverageRate.toFixed(2) : '-'}</div>
+                <div className="x-small text-muted">AI覆盖</div>
+              </div>
+              <div className="px-2 py-1 border rounded bg-light">
+                <div className="fw-bold text-primary">{typeof modifiedCoverageRate === 'number' ? modifiedCoverageRate.toFixed(2) : '-'}</div>
+                <div className="x-small text-muted">人工覆盖</div>
+              </div>
+            </div>
+          </div>
+          {requirementBaseline.summary ? <div className="small text-secondary mb-2">{requirementBaseline.summary}</div> : null}
+          {requirementPoints.length ? (
+            <div className="small text-muted mb-2">识别需求点：{requirementPoints.length} 个</div>
+          ) : null}
+          {humanAddedValue.length ? (
+            <div className="mb-2 evaluation-report-defect-group">
+              <span className="badge bg-success text-white me-2">人工增益</span>
+              <ul className="mb-1 ps-3 mt-1 text-muted">
+                {humanAddedValue.map((item, index) => <li key={index}>{item}</li>)}
+              </ul>
+            </div>
+          ) : null}
+          {aiRequirementGaps.length ? (
+            <div className="mb-2 evaluation-report-defect-group">
+              <span className="badge bg-warning text-dark me-2">AI需求遗漏</span>
+              <ul className="mb-1 ps-3 mt-1 text-muted">
+                {aiRequirementGaps.map((item, index) => <li key={index}>{item}</li>)}
+              </ul>
+            </div>
+          ) : null}
+          {humanRequirementGaps.length ? (
+            <div className="mb-2 evaluation-report-defect-group">
+              <span className="badge bg-secondary text-white me-2">人工需复核</span>
+              <ul className="mb-1 ps-3 mt-1 text-muted">
+                {humanRequirementGaps.map((item, index) => <li key={index}>{item}</li>)}
+              </ul>
+            </div>
+          ) : null}
+          {bothMissingPoints.length ? (
+            <div className="mb-2 evaluation-report-defect-group">
+              <span className="badge bg-dark text-white me-2">双方遗漏</span>
+              <ul className="mb-1 ps-3 mt-1 text-muted">
+                {bothMissingPoints.map((item, index) => <li key={index}>{item}</li>)}
+              </ul>
+            </div>
+          ) : null}
+          {aiUnanchoredPoints.length ? (
+            <div className="mb-2 evaluation-report-defect-group">
+              <span className="badge bg-danger text-white me-2">AI无需求依据</span>
+              <ul className="mb-1 ps-3 mt-1 text-muted">
+                {aiUnanchoredPoints.map((item, index) => <li key={index}>{item}</li>)}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {defectAnalysis.missing_points?.length ? (
         <div className="mb-2 evaluation-report-defect-group">

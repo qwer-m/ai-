@@ -652,6 +652,11 @@
                                 "confirmed_fact_violations": list(signals_raw.get("confirmed_fact_violations") or row.get("confirmed_fact_violations") or []),
                                 "reuse_risk_hits": list(signals_raw.get("reuse_risk_hits") or row.get("reuse_risk_hits") or []),
                                 "pending_hits": list(signals_raw.get("pending_hits") or row.get("pending_hits") or []),
+                                "vague_or_unconfirmed_hits": list(
+                                    signals_raw.get("vague_or_unconfirmed_hits")
+                                    or row.get("vague_or_unconfirmed_hits")
+                                    or []
+                                ),
                             },
                             "before_case_snapshot": dict(before_case),
                             "after_case_snapshot": dict(after_case),

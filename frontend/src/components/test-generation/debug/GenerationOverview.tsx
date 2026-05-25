@@ -53,49 +53,68 @@ function formatTokenCount(value: unknown): string {
 }
 
 function tokenSourceLabel(value: unknown): string {
-  return String(value || '').trim().toLowerCase() === 'provider' ? '模型返回' : '估算';
+  return String(value || '').trim().toLowerCase() === 'provider' ? '模型返回' : '未提供';
+}
+
+function isFiniteTokenValue(value: unknown): boolean {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0;
 }
 
 function TokenUsagePanel({ rows }: { rows: TokenUsageRow[] }) {
-  const visibleRows = rows.filter((row) => Number(row.batch_index || 0) > 0).slice(-12);
+  const visibleRows = rows
+    .filter((row) => (
+      Number(row.batch_index || 0) > 0
+      && tokenSourceLabel(row.token_source) === '模型返回'
+      && isFiniteTokenValue(row.input_tokens)
+      && isFiniteTokenValue(row.output_tokens)
+    ))
+    .slice(-12);
   const totals = visibleRows.reduce(
     (acc, row) => {
-      acc.input += Number(row.input_tokens || 0);
-      acc.output += Number(row.output_tokens || 0);
-      acc.total += Number(row.total_tokens || 0);
+      const input = Number(row.input_tokens);
+      const output = Number(row.output_tokens);
+      const total = isFiniteTokenValue(row.total_tokens) ? Number(row.total_tokens) : input + output;
+      acc.input += input;
+      acc.output += output;
+      acc.total += total;
       return acc;
     },
     { input: 0, output: 0, total: 0 }
   );
-  const maxTotal = Math.max(1, ...visibleRows.map((row) => Number(row.total_tokens || 0)));
-  const source = visibleRows.some((row) => tokenSourceLabel(row.token_source) === '模型返回') ? '模型返回' : '估算';
+  const maxTotal = Math.max(1, ...visibleRows.map((row) => {
+    const input = Number(row.input_tokens);
+    const output = Number(row.output_tokens);
+    return isFiniteTokenValue(row.total_tokens) ? Number(row.total_tokens) : input + output;
+  }));
+  const hasRealTokenRows = visibleRows.length > 0;
 
   return (
     <div className="tg-token-usage-panel border rounded-2 p-3">
       <div className="d-flex justify-content-between align-items-center gap-2 mb-2">
         <div className="fw-semibold small">每轮输入/产出</div>
-        <span className="tg-token-source-pill">{source}</span>
+        <span className="tg-token-source-pill">{hasRealTokenRows ? '模型返回' : '未提供'}</span>
       </div>
       <div className="tg-token-summary-grid mb-2">
         <div>
           <div className="small text-muted rag-debug-muted">输入</div>
-          <div className="fw-semibold">{formatTokenCount(totals.input)}</div>
+          <div className="fw-semibold">{hasRealTokenRows ? formatTokenCount(totals.input) : '-'}</div>
         </div>
         <div>
           <div className="small text-muted rag-debug-muted">产出</div>
-          <div className="fw-semibold">{formatTokenCount(totals.output)}</div>
+          <div className="fw-semibold">{hasRealTokenRows ? formatTokenCount(totals.output) : '-'}</div>
         </div>
         <div>
           <div className="small text-muted rag-debug-muted">合计</div>
-          <div className="fw-semibold">{formatTokenCount(totals.total)}</div>
+          <div className="fw-semibold">{hasRealTokenRows ? formatTokenCount(totals.total) : '-'}</div>
         </div>
       </div>
       {visibleRows.length ? (
         <div className="tg-token-bars">
           {visibleRows.map((row) => {
-            const input = Number(row.input_tokens || 0);
-            const output = Number(row.output_tokens || 0);
-            const total = Math.max(1, Number(row.total_tokens || input + output || 0));
+            const input = Number(row.input_tokens);
+            const output = Number(row.output_tokens);
+            const total = Math.max(1, isFiniteTokenValue(row.total_tokens) ? Number(row.total_tokens) : input + output);
             const totalWidth = Math.max(6, Math.round((total / maxTotal) * 100));
             const inputWidth = Math.round((input / total) * 100);
             const outputWidth = Math.max(0, 100 - inputWidth);
@@ -114,7 +133,7 @@ function TokenUsagePanel({ rows }: { rows: TokenUsageRow[] }) {
           })}
         </div>
       ) : (
-        <div className="small text-muted rag-debug-muted">暂无批次 token 数据</div>
+        <div className="small text-muted rag-debug-muted">暂无模型返回的真实 token 数据</div>
       )}
       <div className="tg-token-legend small text-muted rag-debug-muted mt-2">
         <span><i className="tg-token-dot tg-token-dot-input" />输入</span>
@@ -198,7 +217,7 @@ export function GenerationOverview() {
           <div className="fw-semibold">{boolLabel(resultState?.isFinalResultLoaded)}</div>
         </div>
         <div className="col-md-12">
-          <div className="small text-muted rag-debug-muted mb-1">漏斗摘要 (raw → review候选 → review后 → judge输入 → judge拒绝/待定 → final)</div>
+          <div className="small text-muted rag-debug-muted mb-1">漏斗摘要（原始 → Review 候选 → Review 后 → Judge 输入 → Judge 拒绝/待定 → 最终）</div>
           <div className="fw-semibold">
             {resultState?.previewCaseCount ?? '-'} {' → '} {Number.isFinite(reviewCandidateCount) ? reviewCandidateCount : '-'} {' → '} {Number.isFinite(reviewSelectedCount) ? reviewSelectedCount : '-'} {' → '} {Number.isFinite(judgeInputCount) ? judgeInputCount : '-'} {' → '} {Number.isFinite(judgeRejectedOrPending) ? judgeRejectedOrPending : '-'} {' → '} {Number.isFinite(finalCount) ? finalCount : '-'}
           </div>
@@ -215,9 +234,9 @@ export function GenerationOverview() {
               <div className="small text-muted rag-debug-muted mb-1">上下文 / RAG</div>
               <div className="fw-semibold">{stageStatus(!!generationContextCompression || !!generationQualityLedger)}</div>
               <div className="small text-muted rag-debug-muted mt-2">
-                snapshot: {boolLabel(Boolean(ledgerContext.snapshot_used))}
+                快照：{boolLabel(Boolean(ledgerContext.snapshot_used))}
                 {' / '}
-                fusion: {String(ledgerContext.fusion_mode || '-')}
+                融合模式：{String(ledgerContext.fusion_mode || '-')}
               </div>
               <div className="small text-muted rag-debug-muted">
                 压缩率: {numberLabel(generationContextCompression?.compression_ratio ?? ledgerContext.compression_ratio)}
@@ -229,16 +248,19 @@ export function GenerationOverview() {
               <div className="small text-muted rag-debug-muted mb-1">样本池 / Pattern 回流</div>
               <div className="fw-semibold">{stageStatus(!!feedbackControlState)}</div>
               <div className="small text-muted rag-debug-muted mt-2">
-                applied: {boolLabel(feedbackControlState?.control_state_applied ?? Boolean(ledgerControl.control_state_applied))}
+                已应用：{boolLabel(feedbackControlState?.control_state_applied ?? Boolean(ledgerControl.control_state_applied))}
               </div>
               <div className="small text-muted rag-debug-muted">
-                preferred/forbidden: {numberLabel(feedbackControlState?.preferred_patterns_count)} / {numberLabel(feedbackControlState?.forbidden_patterns_count)}
+                偏好/禁用模式：{numberLabel(feedbackControlState?.preferred_patterns_count)} / {numberLabel(feedbackControlState?.forbidden_patterns_count)}
               </div>
               <div className="small text-muted rag-debug-muted">
-                low-confidence skipped: {numberLabel(sourceMeta.retrieval_low_confidence_sample_count)}
+                低置信跳过：{numberLabel(sourceMeta.retrieval_low_confidence_sample_count)}
               </div>
               <div className="small text-muted rag-debug-muted">
-                grain: {compactJson(sourceMeta.pattern_grain_distribution)}
+                模式粒度：{compactJson(sourceMeta.pattern_grain_distribution)}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                事实/项目画像：{String(feedbackControlState?.fact_profile_source || reviewDecisionSummary?.fact_profile_source || '-')} / {String(feedbackControlState?.project_profile_source || reviewDecisionSummary?.project_profile_source || '-')}
               </div>
             </div>
           </div>
@@ -247,16 +269,28 @@ export function GenerationOverview() {
               <div className="small text-muted rag-debug-muted mb-1">Review / Judge</div>
               <div className="fw-semibold">{stageStatus(!!reviewDecisionSummary || !!judgeSummary)}</div>
               <div className="small text-muted rag-debug-muted mt-2">
-                review: {numberLabel(reviewDecisionSummary?.candidate_total)} → {numberLabel(reviewDecisionSummary?.retained_total)}
+                Review：{numberLabel(reviewDecisionSummary?.candidate_total)} → {numberLabel(reviewDecisionSummary?.retained_total)}
               </div>
               <div className="small text-muted rag-debug-muted">
-                compact rows: {reviewDecisionTableCompactRows?.length ?? 0}
+                压缩明细行：{reviewDecisionTableCompactRows?.length ?? 0}
               </div>
               <div className="small text-muted rag-debug-muted">
-                judge input: {numberLabel(judgeInputCount)}
+                流程缺失/顺序异常：{numberLabel(reviewDecisionSummary?.flow_missing_stage_count)} / {numberLabel(reviewDecisionSummary?.flow_misordered_count)}
               </div>
               <div className="small text-muted rag-debug-muted">
-                judge reject/pending: {numberLabel(judgeRejectedOrPending)}
+                场景重复簇：{numberLabel(reviewDecisionSummary?.scenario_duplicate_cluster_count)} 组
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                已裁剪/已重排：{numberLabel(reviewDecisionSummary?.scenario_duplicate_pruned_count)} / {reviewDecisionSummary?.flow_reordered ? '是' : '否'}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                事实拒绝依据：{numberLabel(reviewDecisionSummary?.fact_profile_forbidden_count)} 禁用 / {numberLabel(reviewDecisionSummary?.fact_profile_pending_count)} 待确认
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                Judge 输入：{numberLabel(judgeInputCount)}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                Judge 拒绝/待确认：{numberLabel(judgeRejectedOrPending)}
               </div>
             </div>
           </div>
@@ -265,13 +299,13 @@ export function GenerationOverview() {
               <div className="small text-muted rag-debug-muted mb-1">质量账本</div>
               <div className="fw-semibold">{stageStatus(!!generationQualityLedger)}</div>
               <div className="small text-muted rag-debug-muted mt-2">
-                final: {numberLabel(generationQualityLedger?.final_count ?? finalCount)}
+                最终数：{numberLabel(generationQualityLedger?.final_count ?? finalCount)}
               </div>
               <div className="small text-muted rag-debug-muted">
-                coverage: {percentLabel(ledgerCoverage.coverage_rate)}
+                覆盖率：{percentLabel(ledgerCoverage.coverage_rate)}
               </div>
               <div className="small text-muted rag-debug-muted">
-                missing/non-blocking: {numberLabel(ledgerCoverage.missing_rules_count)} / {numberLabel(ledgerCoverage.non_blocking_rules_count)}
+                缺失/非阻断：{numberLabel(ledgerCoverage.missing_rules_count)} / {numberLabel(ledgerCoverage.non_blocking_rules_count)}
               </div>
             </div>
           </div>

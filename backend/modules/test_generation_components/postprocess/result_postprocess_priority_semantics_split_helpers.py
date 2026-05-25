@@ -250,6 +250,28 @@ def score_case_priority(
         text,
         ("高频", "频繁", "常用", "daily", "high frequency", "frequent"),
     )
+    important_detail_navigation = _contains_any(
+        text,
+        (
+            "分句点评",
+            "划线句子",
+            "点评跳转",
+            "sentence comment",
+            "underlined sentence",
+            "comment jump",
+        ),
+    )
+    important_personal_content_limit = _contains_any(
+        text,
+        (
+            "我的作文最多20条",
+            "我的作文最多 20 条",
+            "作品最多20条",
+            "作品最多 20 条",
+            "my essays max 20",
+            "my compositions max 20",
+        ),
+    )
     usability_degraded = _contains_any(
         text,
         ("体验劣化", "体验差", "功能异常但可用", "可继续", "degraded", "still usable", "usability"),
@@ -260,6 +282,10 @@ def score_case_priority(
         _add("important_non_blocking_flow", 12)
     if high_frequency_main_flow:
         _add("high_frequency_main_flow", 10)
+    if important_detail_navigation:
+        _add("important_detail_navigation", 35)
+    if important_personal_content_limit:
+        _add("important_personal_content_limit", 35)
     if usability_degraded:
         _add("degraded_but_usable", 10)
     if important_regression:

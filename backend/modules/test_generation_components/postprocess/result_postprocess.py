@@ -12,6 +12,54 @@ from .result_postprocess_priority_semantics import (
     score_case_priority,
 )
 
+_REASONING_LEAKAGE_SIGNALS = (
+    "可能",
+    "似乎",
+    "不合理",
+    "再读需求",
+    "我们按照",
+    "假设此处",
+    "需求说",
+    "按需求原文",
+    "怎么会有",
+    "此处假设",
+    "暂且认为",
+    "assume here",
+    "assuming here",
+    "maybe",
+    "seems",
+    "reread requirement",
+)
+
+
+def _case_has_reasoning_leakage(case: dict[str, Any]) -> bool:
+    parts: list[str] = []
+    for field in ("preconditions", "steps"):
+        value = case.get(field)
+        if isinstance(value, list):
+            parts.extend(str(item) for item in value if str(item).strip())
+        elif value is not None:
+            parts.append(str(value))
+    parts.append(str(case.get("expected_result") or ""))
+    text = "\n".join(parts).lower()
+    return any(str(signal).lower() in text for signal in _REASONING_LEAKAGE_SIGNALS)
+
+
+def filter_invalid_final_cases(result: Any) -> Any:
+    """Remove invalid cases that must never enter final persistence."""
+    if not isinstance(result, list):
+        return result
+    filtered: list[dict[str, Any]] = []
+    for item in result:
+        if not isinstance(item, dict):
+            continue
+        quality = str(item.get("case_quality") or item.get("expected_result_quality") or "").strip().lower()
+        if quality == "invalid_case" or _case_has_reasoning_leakage(item):
+            continue
+        filtered.append(item)
+    return filtered
+
+
 def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") -> Any:
     """Re-apply priority semantics to public final cases before persistence."""
     if not isinstance(result, list):
@@ -19,18 +67,143 @@ def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") 
     cases = [dict(item) for item in result if isinstance(item, dict)]
     if not cases:
         return []
+
+    def _public_p0_main_path_anchor(case: dict[str, Any]) -> bool:
+        text = " ".join(
+            [
+                str(case.get("test_module") or ""),
+                str(case.get("description") or ""),
+                str(case.get("expected_result") or ""),
+                str(case.get("test_input") or ""),
+                " ".join(str(step) for step in (case.get("steps") or []) if str(step).strip())
+                if isinstance(case.get("steps"), list)
+                else "",
+            ]
+        ).lower()
+        core_tokens = (
+            "upload",
+            "submit",
+            "publish",
+            "generate",
+            "generated",
+            "result",
+            "approval",
+            "approved",
+            "review pass",
+            "permission",
+            "member",
+            "locked",
+            "paywall",
+            "first lesson",
+            "all courses",
+            "\u4e0a\u4f20",
+            "\u63d0\u4ea4",
+            "\u6295\u7a3f",
+            "\u53d1\u5e03",
+            "\u751f\u6210",
+            "\u6279\u6539\u7ed3\u679c",
+            "\u5ba1\u6838\u901a\u8fc7",
+            "\u6743\u9650",
+            "\u4f1a\u5458",
+            "\u9501\u5b9a",
+            "\u7b2c\u4e00\u8bfe",
+            "\u5168\u90e8\u8bfe\u7a0b",
+        )
+        low_value_tokens = (
+            "copy",
+            "toast",
+            "popup",
+            "modal",
+            "format",
+            "layout",
+            "sort",
+            "ranking",
+            "download",
+            "pdf",
+            "0 images",
+            "disabled button",
+            "star rating",
+            "countdown",
+            "\u590d\u5236",
+            "\u5f39\u7a97",
+            "\u683c\u5f0f",
+            "\u6837\u5f0f",
+            "\u6392\u5e8f",
+            "\u4e0b\u8f7d",
+            "\u6700\u591a20\u6761",
+            "0\u5f20",
+            "\u6309\u94ae\u4e0d\u53ef\u70b9",
+            "\u661f\u661f\u8bc4\u5206",
+            "\u5012\u8ba1\u65f6",
+            "\u5206\u53e5\u70b9\u8bc4",
+        )
+        return any(token in text for token in core_tokens) and not any(token in text for token in low_value_tokens)
+
+    forced_priority_by_signature: dict[str, str] = {}
+    for item in cases:
+        source = str(item.get("priority_decision_source") or "").strip()
+        final_priority = str(item.get("priority_final") or item.get("priority") or "").strip().upper()
+        if source in {
+            "main_path_anchor_floor",
+            "main_path_anchor_demoted_non_blocking",
+            "model_p0_guard_downgrade",
+        } and final_priority in {"P0", "P1", "P2"}:
+            signature = "|".join(
+                [
+                    str(item.get("test_module") or "").strip(),
+                    str(item.get("description") or "").strip(),
+                    str(item.get("expected_result") or "").strip(),
+                    str(item.get("test_input") or "").strip(),
+                ]
+            )
+            if signature:
+                forced_priority_by_signature[signature] = final_priority
+        elif final_priority == "P0" and _public_p0_main_path_anchor(item):
+            signature = "|".join(
+                [
+                    str(item.get("test_module") or "").strip(),
+                    str(item.get("description") or "").strip(),
+                    str(item.get("expected_result") or "").strip(),
+                    str(item.get("test_input") or "").strip(),
+                ]
+            )
+            if signature:
+                forced_priority_by_signature[signature] = "P0"
     try:
         from ..coverage.coverage_analyzer import analyze_coverage
     except Exception:
         from modules.testing.test_generation_components.coverage.coverage_analyzer import analyze_coverage
 
     coverage_context = analyze_coverage(str(requirement_text or ""), cases)
-    return apply_priority_semantics_to_cases(
+    normalized = apply_priority_semantics_to_cases(
         cases,
         attach_debug=False,
         coverage_context=coverage_context,
         rule_diagnostics={"rule_diagnostics": coverage_context.get("rule_diagnostics") or []},
     )
+    if not forced_priority_by_signature:
+        return normalized
+    restored: list[dict[str, Any]] = []
+    for item in normalized:
+        if not isinstance(item, dict):
+            continue
+        updated = dict(item)
+        signature = "|".join(
+            [
+                str(updated.get("test_module") or "").strip(),
+                str(updated.get("description") or "").strip(),
+                str(updated.get("expected_result") or "").strip(),
+                str(updated.get("test_input") or "").strip(),
+            ]
+        )
+        forced_priority = forced_priority_by_signature.get(signature)
+        if forced_priority in {"P0", "P1", "P2"}:
+            updated["priority"] = forced_priority
+            updated["priority_final"] = forced_priority
+            updated["priority_decision_state"] = "overridden"
+            updated["priority_decision_source"] = "preserved_priority_override"
+        restored.append(updated)
+    return restored
 
 
 def strip_case_meta_fields(result: Any) -> Any:
@@ -116,6 +289,7 @@ def finalize_generated_cases(
 
     if isinstance(result, list):
         result = normalize_json_structure_fn(result)
+        result = filter_invalid_final_cases(result)
         result = deduplicate_test_cases_fn(result)
         result = reorder_cases_by_closed_loop_fn(
             result,
@@ -141,6 +315,7 @@ def merge_cases_for_append(
     if isinstance(existing_cases, list):
         merged_result.extend(existing_cases)
     merged_result.extend(new_cases)
+    merged_result = filter_invalid_final_cases(merged_result)
     merged_result = deduplicate_test_cases_fn(merged_result)
     merged_result = reorder_cases_by_closed_loop_fn(
         merged_result,
