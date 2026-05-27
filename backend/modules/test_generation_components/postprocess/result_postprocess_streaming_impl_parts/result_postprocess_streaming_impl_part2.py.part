@@ -1822,7 +1822,15 @@ EXISTING_FINAL_CASES_TO_AVOID_DUPLICATING:
         and len([x for x in parsed_result if isinstance(x, dict)]) < int(final_target_floor_count or 0)
     ):
         requirement_text_lower = str(requirement or "").lower()
-        domain_matched = any(token in requirement_text_lower for token in ("作文", "批改", "投稿", "作文圈", "写作", "课程"))
+        essay_domain_tokens = ("\u4f5c\u6587", "\u6295\u7a3f", "\u4f5c\u6587\u5708", "\u5199\u4f5c")
+        essay_support_tokens = ("\u6279\u6539", "ocr", "\u53bb\u6279\u6539")
+        course_only_tokens = ("\u6392\u8bfe", "\u8fd1\u671f\u8bfe\u7a0b", "\u5b66\u4e60\u8ba1\u5212", "\u672c\u5468\u8bfe\u7a0b")
+        domain_matched = False and (
+            any(token in requirement_text_lower for token in essay_domain_tokens) or (
+            any(token in requirement_text_lower for token in essay_support_tokens)
+            and not any(token in requirement_text_lower for token in course_only_tokens)
+            )
+        )
         if domain_matched:
             deterministic_templates: list[dict[str, Any]] = [
                 {
@@ -2302,6 +2310,18 @@ EXISTING_FINAL_CASES_TO_AVOID_DUPLICATING:
         review_decision_table.append(row)
 
     dropped_rows = [row for row in review_decision_table if not bool(row.get("retained_final"))]
+    retained_description_keys = {
+        _final_description_dedup_key(row)
+        for row in review_decision_table
+        if bool(row.get("retained_final")) and _final_description_dedup_key(row)
+    }
+    for row in dropped_rows:
+        description_key = _final_description_dedup_key(row)
+        if not description_key or description_key not in retained_description_keys:
+            continue
+        signature = str(row.get("signature") or "").strip()
+        if signature:
+            final_description_dedup_drop_signatures.add(signature)
     priority_decision_state_breakdown: dict[str, int] = {
         "decided": 0,
         "conflict": 0,

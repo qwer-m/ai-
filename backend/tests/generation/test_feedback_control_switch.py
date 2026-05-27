@@ -310,6 +310,95 @@ def test_priority_pool_requirement_retrieval_selects_topk(monkeypatch) -> None:
     assert "RULE-102" not in state.must_cover_rules
 
 
+def test_priority_pool_requirement_domain_filter_blocks_unrelated_pool_samples(monkeypatch) -> None:
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 470,
+            "samples": [
+                {
+                    "case_id": "TC-SCHEDULE",
+                    "title": "RULE-SCHEDULE course scheduling save path",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P0",
+                    "signal_type": "positive",
+                    "pattern_summary": "\u6392\u8bfe\u65b0\u589e\u8ba1\u5212\u4fdd\u5b58\u540e\u8df3\u8f6c\u8bfe\u7a0b\u7ba1\u7406",
+                },
+                {
+                    "case_id": "TC-AI",
+                    "title": "RULE-AI wrong-question teaching retry path",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P0",
+                    "signal_type": "positive",
+                    "pattern_summary": "\u8bb2\u9519\u9898\u63d0\u4ea4\u8d85\u65f6\u540e\u53ef\u91cd\u8bd5\u5e76\u4fdd\u7559\u5bf9\u8bdd",
+                },
+            ],
+        }
+
+    def fake_retrieve_priority_sample_patterns(**_: object) -> list[dict[str, object]]:
+        return [{"sample_index": 0}]
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+    monkeypatch.setattr(control_builder, "retrieve_priority_sample_patterns", fake_retrieve_priority_sample_patterns)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+        requirement_text="\u8bb2\u9519\u9898\u63a5\u5165AI\uff1a\u8986\u76d6\u8ffd\u95ee\u3001\u8bc4\u5206\u548c\u5bf9\u8bdd\u6062\u590d",
+    )
+
+    assert state.source_meta.get("retrieval_domain_filter_applied") is True
+    assert state.source_meta.get("retrieval_domain_matched_sample_count") == 1
+    assert "RULE-AI" in state.must_cover_rules
+    assert "RULE-SCHEDULE" not in state.must_cover_rules
+
+
+def test_priority_pool_requirement_domain_no_match_disables_pool_signal(monkeypatch) -> None:
+    monkeypatch.setattr(control_builder, "retrieve_priority_sample_patterns", lambda **_: [])
+    selected, meta = control_builder._select_priority_pool_samples_by_requirement(
+        samples=[
+            {
+                "case_id": "TC-SCHEDULE",
+                "title": "RULE-SCHEDULE course scheduling save path",
+                "reason_category": "core_flow",
+                "expected_priority": "P0",
+                "signal_type": "positive",
+                "pattern_summary": "\u8fd1\u671f\u8bfe\u7a0b\u6392\u8bfe\u4fdd\u5b58\u540e\u540c\u6b65\u672c\u5468\u4efb\u52a1",
+            }
+        ],
+        project_id=1,
+        user_id=1,
+        requirement_text="\u8bb2\u9519\u9898\u63a5\u5165AI\uff1a\u8986\u76d6\u8ffd\u95ee\u3001\u8bc4\u5206\u548c\u5bf9\u8bdd\u6062\u590d",
+    )
+
+    assert selected == []
+    assert meta.get("retrieval_fallback") == "domain_no_match"
+    assert meta.get("retrieval_domain_no_match") is True
+
+
+def test_priority_pool_requirement_domain_filter_keeps_matching_schedule_samples(monkeypatch) -> None:
+    monkeypatch.setattr(control_builder, "retrieve_priority_sample_patterns", lambda **_: [])
+    selected, meta = control_builder._select_priority_pool_samples_by_requirement(
+        samples=[
+            {
+                "case_id": "TC-SCHEDULE",
+                "title": "RULE-SCHEDULE course scheduling save path",
+                "reason_category": "core_flow",
+                "expected_priority": "P0",
+                "signal_type": "positive",
+                "pattern_summary": "\u8fd1\u671f\u8bfe\u7a0b\u6392\u8bfe\u4fdd\u5b58\u540e\u540c\u6b65\u672c\u5468\u4efb\u52a1",
+            }
+        ],
+        project_id=1,
+        user_id=1,
+        requirement_text="\u8fd1\u671f\u8bfe\u7a0b+\u6392\u8bfe\u56de\u5f52",
+    )
+
+    assert len(selected) == 1
+    assert meta.get("retrieval_domain_filter_applied") is True
+    assert meta.get("retrieval_domain_matched_sample_count") == 1
+
+
 def test_normalize_priority_sample_generates_pattern_summary() -> None:
     normalized = normalize_priority_sample(
         {

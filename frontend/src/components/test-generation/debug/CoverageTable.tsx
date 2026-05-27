@@ -1,5 +1,6 @@
 ﻿import { useMemo, useState } from 'react';
 import { Badge, Button, Form } from 'react-bootstrap';
+import { Fragment } from 'react';
 import { coverageTypeLabel } from './debugLabels';
 import { useRagDebugStore } from './debugStore';
 
@@ -48,7 +49,7 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
             onChange={(e) => setOnlyMissing(e.target.checked)}
           />
           <Form.Select size="sm" value={bizFilter} onChange={(e) => setBizFilter(e.target.value)} style={{ width: 170 }}>
-            <option value="all">全部 biz_key</option>
+            <option value="all">全部业务</option>
             {bizKeys.map((key) => (
               <option key={key} value={key}>
                 {key}
@@ -66,7 +67,7 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
         <table className="table table-sm align-middle mb-0">
           <thead>
             <tr>
-              <th>Rule ID</th>
+              <th>规则编号</th>
               <th>状态</th>
               <th>已覆盖</th>
               <th>缺失</th>
@@ -88,37 +89,49 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
               const coverageTypes = toArray((item as any)?.coverage_types);
               const missingTypes = toArray((item as any)?.missing_types);
               return (
-                <tr key={`${ruleId}-${idx}`} className={activeRuleId && activeRuleId === ruleId ? 'table-warning' : undefined}>
-                  <td className="fw-semibold">{ruleId}</td>
-                  <td>
-                    <Badge bg={covered ? 'success' : 'danger'}>{covered ? '已覆盖' : '未覆盖'}</Badge>
-                  </td>
-                  <td>
-                    {!coverageTypes.length ? <span className="text-muted">-</span> : null}
-                    <div className="d-flex flex-wrap gap-1">
-                      {coverageTypes.map((tag) => (
-                        <Badge key={`${ruleId}-cov-${tag}`} bg="success-subtle" text="success">
-                          {coverageTypeLabel(tag)}
-                        </Badge>
-                      ))}
-                    </div>
-                  </td>
-                  <td>
-                    {!missingTypes.length ? <span className="text-muted">-</span> : null}
-                    <div className="d-flex flex-wrap gap-1">
-                      {missingTypes.map((tag) => (
-                        <Badge key={`${ruleId}-miss-${tag}`} bg="danger-subtle" text="danger">
-                          {coverageTypeLabel(tag)}
-                        </Badge>
-                      ))}
-                    </div>
-                  </td>
-                  <td>
-                    <Button variant="outline-secondary" size="sm" onClick={() => onRuleClick?.(ruleId, ruleText)} disabled={!onRuleClick}>
-                      查看关联
-                    </Button>
-                  </td>
-                </tr>
+                <Fragment key={`${ruleId}-${idx}`}>
+                  <tr key={`${ruleId}-${idx}`} className={activeRuleId && activeRuleId === ruleId ? 'table-warning' : undefined}>
+                    <td className="fw-semibold">{ruleId}</td>
+                    <td>
+                      <Badge bg={covered ? 'success' : 'danger'}>{covered ? '已覆盖' : '未覆盖'}</Badge>
+                    </td>
+                    <td>
+                      {!coverageTypes.length ? <span className="text-muted">-</span> : null}
+                      <div className="d-flex flex-wrap gap-1">
+                        {coverageTypes.map((tag) => (
+                          <Badge key={`${ruleId}-cov-${tag}`} bg="success-subtle" text="success">
+                            {coverageTypeLabel(tag)}
+                          </Badge>
+                        ))}
+                      </div>
+                    </td>
+                    <td>
+                      {!missingTypes.length ? <span className="text-muted">-</span> : null}
+                      <div className="d-flex flex-wrap gap-1">
+                        {missingTypes.map((tag) => (
+                          <Badge key={`${ruleId}-miss-${tag}`} bg="danger-subtle" text="danger">
+                            {coverageTypeLabel(tag)}
+                          </Badge>
+                        ))}
+                      </div>
+                    </td>
+                    <td>
+                      <Button variant="outline-secondary" size="sm" onClick={() => onRuleClick?.(ruleId, ruleText)} disabled={!onRuleClick}>
+                        查看需求点
+                      </Button>
+                    </td>
+                  </tr>
+                  {activeRuleId === ruleId ? (
+                    <tr key={`${ruleId}-${idx}-detail`} className="table-warning">
+                      <td colSpan={5}>
+                        <div className="small">
+                          <span className="fw-semibold me-2">需求文档对应需求点：</span>
+                          <span>{ruleText || '当前覆盖诊断未返回需求点文本'}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               );
             })}
           </tbody>

@@ -139,9 +139,6 @@ export function TestGenerationPageView({
 
   const handleRuleClick = (ruleId: string, ruleText = '') => {
     setActiveRuleFocus({ ruleId, ruleText });
-    window.setTimeout(() => {
-      document.querySelector('.test-generation-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 0);
   };
 
   return (

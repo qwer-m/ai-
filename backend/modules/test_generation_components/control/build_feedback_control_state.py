@@ -74,6 +74,53 @@ _MIN_PRIORITY_POOL_PATTERN_CONFIDENCE = max(
 _ASCII_TOKEN_PATTERN = re.compile(r"[a-z0-9_]+", re.IGNORECASE)
 _CJK_CHAR_PATTERN = re.compile(r"[\u4e00-\u9fff]")
 
+_DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
+    "ai_wrong_question_teaching": (
+        "\u8bb2\u9519\u9898",
+        "\u77e5\u8bc6\u9519\u9898",
+        "\u9519\u9898\u8bb2\u89e3",
+        "\u70b9\u51fb\u5bf9\u8bdd",
+        "\u7ee7\u7eed\u5f55\u97f3",
+        "\u8bed\u97f3\u5f55\u5236",
+        "\u8bed\u97f3\u8f6c\u6587\u5b57",
+        "\u5b66\u5458\u56de\u7b54",
+        "\u5b66\u751f\u56de\u7b54",
+        "\u8ffd\u95ee",
+        "\u56db\u8f6e\u5bf9\u8bdd",
+        "\u8bc4\u5206\u5f39\u7a97",
+        "\u7efc\u5408\u8bc4\u5206",
+        "\u7b54\u975e\u6240\u95ee",
+        "\u5b57\u6570\u4e0d\u8db3",
+        "\u67e5\u770b\u8bb2\u9519\u9898",
+        "\u8d39\u66fc",
+        "\u968f\u5802\u6d4b",
+        "\u53bb\u65e5\u6e05",
+        "feynman",
+        "follow-up",
+        "wrong question",
+    ),
+    "recent_course_scheduling": (
+        "\u8fd1\u671f\u8bfe\u7a0b",
+        "\u6392\u8bfe",
+        "\u65b0\u589e\u8ba1\u5212",
+        "\u5df2\u6709\u8ba1\u5212",
+        "\u7f16\u8f91\u8ba1\u5212",
+        "\u8bfe\u7a0b\u89c4\u5212",
+        "\u8bfe\u7a0b\u7ba1\u7406",
+        "\u5b66\u4e60\u8ba1\u5212",
+        "\u672c\u5468\u8fdb\u5ea6",
+        "\u672c\u5468\u4efb\u52a1",
+        "\u8bfe\u5802\u7ba1\u7406",
+        "\u8282\u5047\u65e5",
+        "\u4e0a\u8bfe\u65e5",
+        "\u987a\u5ef6",
+        "\u5feb\u8fdb",
+        "\u9632\u6284\u7b54\u6848",
+        "course scheduling",
+        "schedule plan",
+    ),
+}
+
 
 _VALID_REASON_CATEGORY = {
     "core_flow",
@@ -433,6 +480,46 @@ def _count_signal_split(samples: list[dict[str, Any]]) -> tuple[int, int]:
     return int(positive), int(negative)
 
 
+def _sample_text_for_retrieval(sample_like: dict[str, Any]) -> str:
+    return " ".join(
+        str(part or "")
+        for part in [
+            _sample_value(sample_like, "pattern_summary", "patternSummary"),
+            _sample_value(sample_like, "pattern_canonical", "patternCanonical"),
+            _sample_value(sample_like, "title"),
+            _sample_value(sample_like, "source_case_title", "sourceCaseTitle"),
+            _sample_value(sample_like, "source_case_module", "sourceCaseModule"),
+            _sample_value(sample_like, "source_case_steps", "sourceCaseSteps"),
+            _sample_value(sample_like, "source_case_expected_result", "sourceCaseExpectedResult"),
+            _sample_value(sample_like, "business_assertion", "businessAssertion"),
+            _sample_value(sample_like, "user_comment", "userComment"),
+            _sample_value(sample_like, "reason_category", "reasonCategory"),
+            _sample_value(sample_like, "pattern_category", "patternCategory"),
+            _sample_value(sample_like, "test_module", "testModule"),
+            _sample_value(sample_like, "description"),
+            _sample_value(sample_like, "expected_result", "expectedResult"),
+        ]
+        if str(part or "").strip()
+    )
+
+
+def _infer_domain_tags(text: str) -> set[str]:
+    lowered = str(text or "").lower()
+    tags: set[str] = set()
+    if not lowered:
+        return tags
+    for domain, hints in _DOMAIN_HINTS.items():
+        hit_count = 0
+        for hint in hints:
+            token = str(hint or "").strip().lower()
+            if token and token in lowered:
+                hit_count += 1
+                if hit_count >= 1:
+                    tags.add(domain)
+                    break
+    return tags
+
+
 def _apply_signal_quota(
     candidates: list[dict[str, Any]],
     *,
@@ -543,6 +630,11 @@ def _select_priority_pool_samples_by_requirement(
         "retrieval_after_quota_merge_negative_count": 0,
         "retrieval_final_selected_positive_count": 0,
         "retrieval_final_selected_negative_count": 0,
+        "retrieval_query_domain_tags": [],
+        "retrieval_domain_filter_applied": False,
+        "retrieval_domain_matched_sample_count": 0,
+        "retrieval_domain_skipped_sample_count": 0,
+        "retrieval_domain_no_match": False,
     }
     if not samples:
         return [], retrieval_meta
@@ -561,6 +653,28 @@ def _select_priority_pool_samples_by_requirement(
     if not active_samples:
         retrieval_meta["retrieval_fallback"] = "no_active_patterns"
         return [], retrieval_meta
+
+    query = str(requirement_text or "").strip()
+    query_domains = _infer_domain_tags(query)
+    retrieval_meta["retrieval_query_domain_tags"] = sorted(query_domains)
+    allowed_object_ids: set[int] = {id(item) for item in active_samples}
+    if query_domains:
+        domain_matched_samples = [
+            item
+            for item in active_samples
+            if _infer_domain_tags(_sample_text_for_retrieval(item)) & query_domains
+        ]
+        retrieval_meta["retrieval_domain_matched_sample_count"] = int(len(domain_matched_samples))
+        retrieval_meta["retrieval_domain_skipped_sample_count"] = int(
+            len(active_samples) - len(domain_matched_samples)
+        )
+        retrieval_meta["retrieval_domain_filter_applied"] = True
+        if not domain_matched_samples:
+            retrieval_meta["retrieval_domain_no_match"] = True
+            retrieval_meta["retrieval_fallback"] = "domain_no_match"
+            return [], retrieval_meta
+        active_samples = domain_matched_samples
+        allowed_object_ids = {id(item) for item in active_samples}
 
     def _cluster_key(sample_like: dict[str, Any]) -> str:
         return str(
@@ -596,33 +710,28 @@ def _select_priority_pool_samples_by_requirement(
     def _cjk_chars(text: str) -> set[str]:
         return {char for char in _CJK_CHAR_PATTERN.findall(str(text or "")) if char.strip()}
 
-    query = str(requirement_text or "").strip()
     query_ascii = _ascii_tokens(query)
     query_cjk = _cjk_chars(query)
 
     def _lexical_score(sample_like: dict[str, Any]) -> float:
-        text = " ".join(
-            str(part or "")
-            for part in [
-                _sample_value(sample_like, "pattern_summary", "patternSummary"),
-                _sample_value(sample_like, "pattern_canonical", "patternCanonical"),
-                _sample_value(sample_like, "title"),
-                _sample_value(sample_like, "user_comment", "userComment"),
-                _sample_value(sample_like, "reason_category", "reasonCategory"),
-            ]
-            if str(part or "").strip()
-        )
+        text = _sample_text_for_retrieval(sample_like)
         if not text:
             return 0.0
         sample_ascii = _ascii_tokens(text)
         sample_cjk = _cjk_chars(text)
         ascii_overlap = len(query_ascii & sample_ascii) if query_ascii else 0
         cjk_overlap = len(query_cjk & sample_cjk) if query_cjk else 0
+        domain_overlap = len(_infer_domain_tags(text) & query_domains) if query_domains else 0
         try:
             weight = float(_sample_value(sample_like, "pattern_weight") or 0.0)
         except Exception:
             weight = 0.0
-        return float(ascii_overlap * 2.0 + cjk_overlap * 0.6 + min(max(weight, 0.0), 2.0) * 0.2)
+        return float(
+            domain_overlap * 12.0
+            + ascii_overlap * 2.0
+            + cjk_overlap * 0.6
+            + min(max(weight, 0.0), 2.0) * 0.2
+        )
 
     if not query:
         candidates = sorted(
@@ -685,6 +794,8 @@ def _select_priority_pool_samples_by_requirement(
         index_seen.add(sample_index)
         picked = samples[sample_index]
         if not _is_pattern_active(picked):
+            continue
+        if id(picked) not in allowed_object_ids:
             continue
         if _pattern_confidence(picked) < float(_MIN_PRIORITY_POOL_PATTERN_CONFIDENCE):
             continue

@@ -559,6 +559,114 @@ def test_full_mode_maintains_p0_anchor_floor_when_one_p0_exists() -> None:
     assert persisted_priorities.count("P0") >= 8
 
 
+def test_public_normalization_preserves_full_regression_main_path_floor_with_ui_words() -> None:
+    anchor_cases = [
+        {
+            "id": "TC-001",
+            "description": "批改反馈-完整四部分生成：校验综合点评、分句点评、提升思路、全文润色全部正确显示",
+            "test_module": "作文批改-批改结果页",
+            "expected_result": "四部分内容均正确生成，综合点评、分句点评、提升思路、全文润色完整展示",
+            "priority": "P1",
+        },
+        {
+            "id": "TC-002",
+            "description": "投稿页-提交投稿：校验提交后显示投稿成功弹窗，点击我知道了返回批改详情页，按钮状态变为审核中",
+            "test_module": "作文批改-投稿页",
+            "expected_result": "提交后弹出投稿成功弹窗；点击后返回批改结果页，投稿按钮文案变为审核中且不可点击",
+            "priority": "P1",
+        },
+        {
+            "id": "TC-003",
+            "description": "后台审核通过投稿作品",
+            "test_module": "作文审核后台",
+            "expected_result": "后台审核通过成功，作品状态变为已发布",
+            "priority": "P1",
+        },
+        {
+            "id": "TC-004",
+            "description": "普通用户第一课免费试学，其余课程锁住并点击跳转会员中心",
+            "test_module": "课程列表页 - 权限",
+            "expected_result": "第一课可免费进入学习；第二课及以后显示锁图标，点击后跳转至会员中心页面",
+            "priority": "P1",
+        },
+        {
+            "id": "TC-005",
+            "description": "会员用户进入同步作文课程列表页可看到所有课程均可学习",
+            "test_module": "课程列表页 - 权限",
+            "expected_result": "所有课程均显示为可学习状态，无锁图标或可点击进入",
+            "priority": "P1",
+        },
+        {
+            "id": "TC-006",
+            "description": "删除已发布作品后恢复未投稿",
+            "test_module": "我的作文",
+            "expected_result": "作品从作文圈列表移除，我的作文中该作品恢复为未投稿状态",
+            "priority": "P1",
+        },
+        {
+            "id": "TC-007",
+            "description": "上传图片成功后点击去批改生成批改结果",
+            "test_module": "作文批改",
+            "expected_result": "上传成功后点击去批改，系统生成批改结果并进入结果页",
+            "priority": "P1",
+        },
+        {
+            "id": "TC-008",
+            "description": "审核通过后作文圈可见作品详情",
+            "test_module": "作文圈",
+            "expected_result": "审核通过后作品在作文圈可见，打开作品详情展示正文",
+            "priority": "P1",
+        },
+    ]
+    filler_cases = [
+        {
+            "id": f"TC-{idx:03d}",
+            "description": f"展示型补充用例 {idx}",
+            "test_module": "展示",
+            "expected_result": "页面展示正确",
+            "priority": "P2",
+        }
+        for idx in range(9, 90)
+    ]
+
+    normalized = strip_case_meta_fields(
+        normalize_final_case_priorities(
+            [*anchor_cases, *filler_cases],
+            requirement_text="小学同步作文 full functional regression",
+        )
+    )
+
+    assert sum(1 for item in normalized if str(item.get("priority") or "").upper() == "P0") >= 8
+
+
+def test_public_normalization_does_not_promote_essay_cases_for_schedule_requirement() -> None:
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "上传作文图片成功后点击去批改生成批改结果",
+            "test_module": "作文批改",
+            "expected_result": "上传成功后点击去批改，系统生成批改结果并进入结果页",
+            "priority": "P1",
+        },
+        {
+            "id": "TC-002",
+            "description": "提交投稿后进入审核中",
+            "test_module": "作文投稿",
+            "expected_result": "投稿提交成功，作品状态变为审核中",
+            "priority": "P1",
+        },
+    ]
+
+    normalized = strip_case_meta_fields(
+        normalize_final_case_priorities(
+            cases,
+            requirement_text="近期课程+排课：本周课程、学习计划、课程时间冲突和顺延规则",
+        )
+    )
+
+    assert all(str(item.get("priority") or "").upper() != "P0" for item in normalized)
+
+
 def test_full_mode_does_not_promote_non_blocking_display_cases_to_p0() -> None:
     state = build_generation_mode_control_state(
         requirement_text="full functional regression for upload, submit, approval, permission, sorting, and sharing workflow",

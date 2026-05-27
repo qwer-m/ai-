@@ -862,6 +862,16 @@ def stream_postprocess_cases(
         "关键字段",
         "字段值与输入",
         "后端数据一致",
+        "公式计算",
+        "按公式",
+        "排序与",
+        "排序算法",
+        "计算结果一致",
+        "数据一致",
+        "与预期一致",
+        "应一致",
+        "功能正常",
+        "执行成功且结果正确",
     )
 
     _TRUNCATED_TEXT_ENDINGS = (
@@ -915,6 +925,68 @@ def stream_postprocess_cases(
                 hits.append(token)
         return hits
 
+    def _has_concrete_expected_assertion(text: str) -> bool:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return False
+        if re.search(r"[\"'`“”‘’].{4,}[\"'`“”‘’]", normalized):
+            return True
+        if re.search(r"\d+\s*/\s*\d+", normalized) and any(
+            token in normalized for token in ("\u663e\u793a\u4e3a", "\u5269\u4f59\u6279\u6539\u6b21\u6570", "\u5269\u4f59\u6b21\u6570")
+        ):
+            return True
+        concrete_tokens = (
+            "\u7cfb\u7edf\u63d0\u793a",
+            "\u4e0d\u53ef\u70b9\u51fb",
+            "\u4e0d\u53ef\u64cd\u4f5c",
+            "\u7f6e\u7070",
+            "\u9690\u85cf",
+            "\u79fb\u9664",
+            "\u6062\u590d\u4e3a",
+            "\u53ef\u91cd\u65b0",
+            "\u65e0\u9501",
+            "\u65e0\u4efb\u4f55\u9501",
+            "\u65e0\u63d0\u793a",
+            "\u65e0\u9700\u89e3\u9501",
+            "\u63d0\u793a\u963b\u6b62",
+            "\u76f4\u63a5\u8fdb\u5165",
+            "\u5f53\u524d\u5355\u5143",
+            "\u4e3b\u9898\u540d\u79f0",
+            "\u4e0a\u518c",
+            "\u4e0b\u518c",
+            "\u5217\u8868\u4f9d\u6b21",
+            "\u987a\u5e8f\u4e0e",
+            "\u6743\u91cd\u516c\u5f0f",
+            "\u516c\u5f0f\u8ba1\u7b97\u7ed3\u679c\u4e00\u81f4",
+            "\u964d\u5e8f\u6392\u5217",
+            "\u4f5c\u6587\u5708",
+            "\u6211\u7684\u4f5c\u6587",
+            "\u6279\u6539\u8bb0\u5f55",
+            "\u56fe\u7247\u4e0d\u6e05\u6670",
+            "\u91cd\u8bd5\u9009\u9879",
+            "disabled",
+            "hidden",
+            "restore",
+            "removed",
+        )
+        return any(token in normalized for token in concrete_tokens)
+
+    def _has_weak_ambiguous_expected_result(text: str) -> bool:
+        normalized = str(text or "").strip().lower()
+        weak_alternatives = (
+            "\u6216\u663e\u793a\u9519\u8bef\u4fe1\u606f",
+            "\u6216\u63d0\u793a\u9519\u8bef",
+            "\u6216\u63d0\u793a\u5f02\u5e38",
+            "\u6216\u663e\u793a\u5f02\u5e38",
+            "\u6216\u663e\u793a\u5bf9\u5e94\u5185\u5bb9",
+            "\u6216\u6309\u914d\u7f6e",
+            "or show error",
+            "or display error",
+            "or prompt error",
+            "or as configured",
+        )
+        return any(token in normalized for token in weak_alternatives)
+
     def _is_non_assertable_expected_result(text: str) -> bool:
         normalized = str(text or "").strip()
         if not normalized:
@@ -923,8 +995,13 @@ def stream_postprocess_cases(
             return True
         if _is_placeholder_expected_result(normalized):
             return True
+        concrete_assertion = _has_concrete_expected_assertion(normalized)
         if _is_ambiguous_expected_result(normalized):
+            if concrete_assertion and not _has_weak_ambiguous_expected_result(normalized):
+                return False
             return True
+        if concrete_assertion:
+            return False
         return any(phrase in normalized for phrase in _NON_ASSERTABLE_EXPECTED_PHRASES)
 
     def _looks_template_polluted_expected_result(text: str) -> bool:
@@ -2218,8 +2295,8 @@ def stream_postprocess_cases(
         def _is_community_tab_case(item: dict[str, Any]) -> bool:
             text = _case_text(item)
             return (
-                _any(text, ("作文圈", "列表"))
-                and _any(text, ("精选", "最新", "我的", "分页", "排序"))
+                _any(text, ("作文圈", "作文社区", "community"))
+                and _any(text, ("列表", "精选", "最新", "我的", "分页", "排序"))
                 and not _any(text, ("评论审核", "回复审核", "后台审核", "审核拒绝", "拒审"))
             )
 
@@ -2553,6 +2630,25 @@ def stream_postprocess_cases(
                     "去批改",
                 ),
             )
+            supervisor_surface = _any(
+                text,
+                (
+                    "督导端",
+                    "督导",
+                    "老师端",
+                    "教师端",
+                    "学员列表",
+                    "学员信息",
+                    "课程管理",
+                    "排课管理",
+                    "新增计划",
+                    "已有计划",
+                    "编辑计划",
+                    "课堂管理",
+                    "查看讲错题",
+                    "查看学习记录",
+                ),
+            )
             admin_surface = _any(text, ("审核后台", "后台审核", "审核员", "管理员", "admin", "后台"))
             explicit_admin_action = _any(
                 text,
@@ -2572,6 +2668,8 @@ def stream_postprocess_cases(
                 return "student"
             if admin_surface and (explicit_admin_action or not student_surface):
                 return "admin"
+            if supervisor_surface and not student_surface:
+                return "supervisor"
             if _any(text, ("会员用户", "会员", "vip", "member")) and not _any(text, ("非会员", "普通用户")):
                 return "member"
             if _any(text, ("普通用户", "非会员", "未订阅", "未付费")):
@@ -2625,16 +2723,26 @@ def stream_postprocess_cases(
                 fixture_builder = "seed_community_works(status='published', count=30, with_like_reply_time_distribution=true)"
                 cleanup_policy = "delete_seeded_community_works"
             elif group == "permission":
-                if _any(text, ("会员", "vip", "member")) and not _any(text, ("普通用户", "非会员")):
+                if _any(text, ("麦克风", "语音", "录音", "浏览器权限", "授权")):
+                    fixture_key = "browser_permission_state"
+                    fixture_builder = "set_browser_permission(permission='microphone', state='prompt')"
+                    cleanup_policy = "reset_browser_permissions"
+                elif _any(text, ("会员", "vip", "member")) and not _any(text, ("普通用户", "非会员")):
                     fixture_key = "member_course_access"
                     fixture_builder = "seed_user_membership(status='active')"
+                    cleanup_policy = "reset_user_membership"
                 elif _any(text, ("过期", "失效")):
                     fixture_key = "expired_member_course_lock"
                     fixture_builder = "seed_user_membership(status='expired')"
-                else:
+                    cleanup_policy = "reset_user_membership"
+                elif _any(text, ("普通用户", "非会员", "未订阅", "未付费", "付费", "课程权限", "会员中心")):
                     fixture_key = "free_user_course_gate"
                     fixture_builder = "seed_user_membership(status='free')"
-                cleanup_policy = "reset_user_membership"
+                    cleanup_policy = "reset_user_membership"
+                else:
+                    fixture_key = "permission_state_dataset"
+                    fixture_builder = "seed_permission_state_dataset()"
+                    cleanup_policy = "reset_permission_state_dataset"
             elif group == "audit_branch":
                 if _any(text, ("评论", "回复", "comment")):
                     fixture_key = "pending_comment_review"
@@ -2649,11 +2757,7 @@ def stream_postprocess_cases(
                 fixture_builder = "enable_fault_injection_for_case()"
                 cleanup_policy = "disable_fault_injection"
             elif group == "boundary":
-                if _any(text, ("20", "超过20", "最多20")):
-                    fixture_key = "works_over_20"
-                    fixture_builder = "seed_works(count=21)"
-                    cleanup_policy = "delete_seeded_works"
-                elif data_state == "empty":
+                if data_state == "empty":
                     fixture_key = "empty_state_dataset"
                     fixture_builder = "seed_empty_state()"
                     cleanup_policy = "restore_default_dataset"
@@ -2687,6 +2791,8 @@ def stream_postprocess_cases(
         def _session_key_for_role(role: str) -> str:
             if role == "admin":
                 return "admin_review_session"
+            if role == "supervisor":
+                return "supervisor_session"
             if role == "member":
                 return "member_student_session"
             if role == "student_free":
@@ -2806,6 +2912,13 @@ def stream_postprocess_cases(
             updated["cleanup_policy"] = fixture["cleanup_policy"]
             updated["group_setup"] = group_setup_map.get(group, "seed_case_dataset()")
             updated["group_teardown"] = group_teardown_map.get(group, "cleanup_case_dataset()")
+            if group == "permission" and fixture["fixture_key"] in {"browser_permission_state", "permission_state_dataset"}:
+                updated["group_setup"] = fixture["fixture_builder"]
+                updated["group_teardown"] = (
+                    "reset_browser_permissions()"
+                    if fixture["fixture_key"] == "browser_permission_state"
+                    else "reset_permission_state_dataset()"
+                )
             updated["setup_hint"] = _setup_hint(
                 updated,
                 in_main_chain=in_main_chain,

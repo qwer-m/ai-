@@ -49,6 +49,26 @@ _MIN_PATTERN_WEIGHT_ADJUSTMENT = 0.25
 _MAX_PATTERN_WEIGHT_ADJUSTMENT = 1.5
 _VALID_SIGNAL_TYPES = {"positive", "negative"}
 _VALID_PATTERN_USAGE = {"prefer", "avoid"}
+_EXECUTION_SCAFFOLD_FIELDS = frozenset(
+    {
+        "execution_group",
+        "execution_sequence",
+        "chain_id",
+        "depends_on",
+        "role",
+        "session_key",
+        "role_switch_strategy",
+        "data_state",
+        "isolation_required",
+        "fixture_key",
+        "fixture_builder",
+        "cleanup_policy",
+        "group_setup",
+        "group_teardown",
+        "setup_hint",
+        "teardown_hint",
+    }
+)
 _VALID_SAMPLE_SOURCES = frozenset(
     {
         "priority_debug_manual_add",
@@ -166,6 +186,79 @@ def _canonicalize_pattern_text(raw: Any) -> str:
     text = re.sub(r"[:;/|,_\-]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:_MAX_PATTERN_CANONICAL_LEN]
+
+
+_LEGACY_HARDCODED_COMMENT_MARKERS = (
+    "linked human-final case; extra business coverage is positive evidence",
+    "ai-only case is treated as negative only because it has a clear quality failure",
+)
+
+_PATTERN_CATEGORY_LABELS = {
+    "permission_or_scope_guard": "权限/范围防护",
+    "cross_system_business_flow": "跨端业务流程",
+    "transaction_business_risk": "交易业务风险",
+    "state_consistency_flow": "状态一致性",
+    "manual_final_business_coverage": "人工业务覆盖",
+    "core_flow_closure": "核心流程闭环",
+    "cross_page_flow": "跨页面流程",
+    "multi_step_interaction": "多步骤交互",
+    "state_transition_pattern": "状态流转",
+    "critical_path_coverage": "关键路径覆盖",
+    "complex_business_combination": "复杂业务组合",
+    "high_value_assertion": "高价值断言",
+    "boundary_effective_coverage": "边界有效覆盖",
+    "recall_gap_missing_business_coverage": "业务覆盖遗漏",
+    "quality_fix_hint": "质量修正建议",
+    "hallucination_or_redundant_case": "幻觉/冗余用例",
+    "duplicate_redundant": "重复/冗余",
+    "schedule_time": "排课/时间规则",
+}
+
+_REASON_CATEGORY_LABELS = {
+    "core_flow": "核心流程",
+    "exception_path": "异常路径",
+    "boundary_condition": "边界条件",
+    "state_transition": "状态迁移",
+    "redundant_case": "冗余用例",
+    "display_issue": "展示问题",
+    "other": "其他",
+    "non_assertable_expected_result": "预期不可断言",
+    "priority_overpromotion_for_low_value_ui_case": "低价值展示误提级",
+    "hallucination_or_redundant_case": "幻觉/冗余用例",
+    "recall_gap": "召回缺口",
+    "quality_fix_hint": "质量修正建议",
+    "generated_only_defect_misfiled_as_missing": "生成侧缺陷误归为遗漏",
+    "generated_only_defect_misfiled_as_modification": "生成侧缺陷误归为修改建议",
+    "duplicate_redundant": "重复/冗余",
+    "schedule_time": "排课/时间规则",
+}
+
+
+def _clean_sample_user_comment(raw: Any) -> str:
+    comment = _sanitize_text(raw, max_len=240)
+    lowered = comment.lower()
+    if any(marker in lowered for marker in _LEGACY_HARDCODED_COMMENT_MARKERS):
+        return ""
+    return comment
+
+
+def _category_label(sample: dict[str, Any], *, signal_type: str) -> str:
+    raw_label = _sanitize_text(
+        _sample_value(sample, "category_label", "categoryLabel"),
+        max_len=80,
+    )
+    if raw_label:
+        return raw_label
+    if signal_type == "positive":
+        category = _normalize_pattern_category(
+            _sample_value(sample, "pattern_category", "patternCategory")
+        )
+        return _PATTERN_CATEGORY_LABELS.get(category, category)
+    reason = _sanitize_text(
+        _sample_value(sample, "reason_category", "reasonCategory"),
+        max_len=64,
+    ).lower()
+    return _REASON_CATEGORY_LABELS.get(reason, reason)
 
 
 def _pattern_quality_score(summary: str) -> float:
@@ -288,9 +381,13 @@ def _default_pattern_summary(sample: dict[str, Any]) -> str:
         _sample_value(sample, "pattern_category", "patternCategory")
     )
     title = _sanitize_text(_sample_value(sample, "title"), max_len=100)
+    assertion = _sanitize_text(
+        _sample_value(sample, "business_assertion", "businessAssertion", "source_case_expected_result", "sourceCaseExpectedResult", "expected_result", "expectedResult"),
+        max_len=120,
+    )
     comment = _sanitize_text(_sample_value(sample, "user_comment", "userComment"), max_len=120)
     case_id = _sanitize_text(_sample_value(sample, "case_id", "caseId"), max_len=40)
-    parts = [part for part in [pattern_category, reason, title, comment, case_id] if part]
+    parts = [part for part in [pattern_category, reason, title, assertion, comment, case_id] if part]
     if not parts:
         return ""
     return " | ".join(parts)[:_MAX_PATTERN_SUMMARY_LEN]
@@ -298,6 +395,21 @@ def _default_pattern_summary(sample: dict[str, Any]) -> str:
 
 def normalize_priority_sample(sample: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(sample or {})
+    scaffold_snapshot = {
+        key: normalized.get(key)
+        for key in _EXECUTION_SCAFFOLD_FIELDS
+        if key in normalized and normalized.get(key) not in (None, "", [], {})
+    }
+    if scaffold_snapshot:
+        normalized["source_execution_scaffold"] = scaffold_snapshot
+        normalized["execution_scaffold_learning_policy"] = "source_only_do_not_reuse"
+        for key in _EXECUTION_SCAFFOLD_FIELDS:
+            normalized.pop(key, None)
+    cleaned_comment = _clean_sample_user_comment(
+        _sample_value(normalized, "user_comment", "userComment")
+    )
+    normalized["user_comment"] = cleaned_comment
+    normalized["userComment"] = cleaned_comment
     pattern_category = _normalize_pattern_category(
         _sample_value(normalized, "pattern_category", "patternCategory")
     )
@@ -419,11 +531,42 @@ def normalize_priority_sample(sample: dict[str, Any]) -> dict[str, Any]:
         max_len=256,
     )
     normalized["source_case_id"] = source_case_id or None
+    normalized["source_case_title"] = _sanitize_text(
+        _sample_value(normalized, "source_case_title", "sourceCaseTitle", "title"),
+        max_len=160,
+    ) or None
+    normalized["source_case_module"] = _sanitize_text(
+        _sample_value(normalized, "source_case_module", "sourceCaseModule", "test_module", "testModule"),
+        max_len=120,
+    ) or None
+    normalized["source_case_steps"] = _sanitize_text(
+        _sample_value(normalized, "source_case_steps", "sourceCaseSteps", "steps"),
+        max_len=240,
+    ) or None
+    business_assertion = _sanitize_text(
+        _sample_value(
+            normalized,
+            "business_assertion", "businessAssertion",
+            "source_case_expected_result", "sourceCaseExpectedResult",
+            "expected_result", "expectedResult",
+        ),
+        max_len=240,
+    )
+    normalized["source_case_expected_result"] = business_assertion or None
+    normalized["business_assertion"] = business_assertion or None
     # sample_kind: unified with signal_type ('positive'/'negative')
     normalized["sample_kind"] = signal_type
     # confidence: canonical name (was pattern_confidence)
     confidence_raw = _sample_value(normalized, "confidence", "pattern_confidence", "patternConfidence")
     normalized["confidence"] = round(max(0.0, min(1.0, _safe_float(confidence_raw, default=0.5))), 4)
+    category_source = _sanitize_text(
+        _sample_value(normalized, "category_source", "categorySource"),
+        max_len=40,
+    )
+    category_label = _category_label(normalized, signal_type=signal_type)
+    normalized["category_label"] = category_label or ""
+    normalized["category_source"] = category_source or ("backend_inferred" if category_label else "")
+    normalized["category_confidence"] = normalized["confidence"] if category_label else None
     # Keep legacy aliases for backward compatibility
     normalized["source"] = normalized["source_type"]
     normalized["pattern_confidence"] = normalized["confidence"]
@@ -651,13 +794,10 @@ def derive_signals_from_patterns(
 
 
 def normalize_raw_priority_samples(samples: list[dict[str, Any]] | None, *, max_items: int = _MAX_POOL_SAMPLES) -> list[dict[str, Any]]:
-    """Normalize persisted sample-pool rows without collapsing business cases.
-
-    The sample pool is an audit/data source. Pattern aggregation belongs to the
-    derived pattern layer, not to persisted raw samples.
-    """
+    """Normalize persisted sample-pool rows and collapse semantic duplicates."""
     normalized: list[dict[str, Any]] = []
     seen_ids: dict[str, int] = {}
+    seen_semantic: dict[str, int] = {}
     for item in (samples if isinstance(samples, list) else []):
         if not isinstance(item, dict):
             continue
@@ -671,11 +811,102 @@ def normalize_raw_priority_samples(samples: list[dict[str, Any]] | None, *, max_
             sample["sample_id"] = sample_id
             sample["sampleId"] = sample_id
         if sample_id in seen_ids:
-            normalized[seen_ids[sample_id]] = sample
-        else:
-            seen_ids[sample_id] = len(normalized)
-            normalized.append(sample)
+            target_idx = seen_ids[sample_id]
+            normalized[target_idx] = _choose_raw_sample_winner(normalized[target_idx], sample)
+            continue
+        semantic_key = _raw_sample_semantic_key(sample)
+        if semantic_key and semantic_key in seen_semantic:
+            target_idx = seen_semantic[semantic_key]
+            normalized[target_idx] = _choose_raw_sample_winner(normalized[target_idx], sample)
+            kept_id = _sanitize_text(
+                _sample_value(normalized[target_idx], "sample_id", "sampleId"),
+                max_len=512,
+            )
+            if kept_id:
+                seen_ids[kept_id] = target_idx
+            continue
+        seen_ids[sample_id] = len(normalized)
+        if semantic_key:
+            seen_semantic[semantic_key] = len(normalized)
+        normalized.append(sample)
     return normalized[: max(1, int(max_items))]
+
+
+def _raw_sample_semantic_key(sample: dict[str, Any]) -> str:
+    signal_type = _normalize_signal_type(
+        _sample_value(sample, "signal_type", "signalType", "sample_kind", "sampleKind")
+    )
+    source_type = _normalize_sample_source(
+        _sample_value(sample, "source_type", "sourceType", "source")
+    )
+    category = (
+        _normalize_pattern_category(_sample_value(sample, "pattern_category", "patternCategory"))
+        if signal_type == "positive"
+        else _sanitize_text(_sample_value(sample, "reason_category", "reasonCategory"), max_len=64).lower()
+    )
+    expected = _sanitize_text(
+        _sample_value(sample, "expected_priority", "expectedPriority"),
+        max_len=8,
+    ).upper()
+    title_key = _canonicalize_pattern_text(
+        _sample_value(sample, "source_case_title", "sourceCaseTitle", "title")
+    )
+    module_key = _canonicalize_pattern_text(
+        _sample_value(sample, "source_case_module", "sourceCaseModule", "test_module", "testModule")
+    )
+    assertion_key = _canonicalize_pattern_text(
+        _sample_value(
+            sample,
+            "business_assertion", "businessAssertion",
+            "source_case_expected_result", "sourceCaseExpectedResult",
+            "expected_result", "expectedResult",
+        )
+    )
+    steps_key = _canonicalize_pattern_text(
+        _sample_value(sample, "source_case_steps", "sourceCaseSteps", "steps")
+    )[:80]
+    if not title_key and not assertion_key:
+        fallback = _sanitize_text(sample.get("pattern_canonical"), max_len=_MAX_PATTERN_CANONICAL_LEN)
+        if not fallback:
+            fallback = _canonicalize_pattern_text(sample.get("pattern_summary"))
+        title_key = fallback
+    if not title_key and not assertion_key:
+        return ""
+    return "|".join(
+        part
+        for part in [
+            signal_type,
+            source_type,
+            category,
+            expected,
+            module_key,
+            title_key,
+            assertion_key,
+            steps_key,
+        ]
+        if part
+    )
+
+
+def _choose_raw_sample_winner(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    def rank(sample: dict[str, Any]) -> tuple[float, int, float, float]:
+        edited_score = 0
+        if _clean_sample_user_comment(_sample_value(sample, "user_comment", "userComment")):
+            edited_score += 4
+        if _sanitize_text(_sample_value(sample, "expected_priority", "expectedPriority"), max_len=8):
+            edited_score += 2
+        if _sanitize_text(_sample_value(sample, "reason_category", "reasonCategory"), max_len=64):
+            edited_score += 1
+        if _sanitize_text(_sample_value(sample, "pattern_category", "patternCategory"), max_len=64):
+            edited_score += 1
+        if _sanitize_text(_sample_value(sample, "learning_status", "learningStatus"), max_len=24):
+            edited_score += 2
+        active_score = 1.0 if sample.get("status") != "deleted" else 0.0
+        confidence = _safe_float(_sample_value(sample, "confidence", "pattern_confidence", "patternConfidence"), default=0.0)
+        weight = _safe_float(_sample_value(sample, "pattern_weight", "patternWeight"), default=0.0)
+        return (active_score, edited_score, confidence, weight)
+
+    return right if rank(right) > rank(left) else left
 
 
 def select_priority_pattern_samples(samples: list[dict[str, Any]] | None, *, max_items: int = _MAX_INDEXED_PATTERN_SAMPLES) -> list[dict[str, Any]]:

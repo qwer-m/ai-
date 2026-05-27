@@ -149,6 +149,14 @@ export type GenerationQualityLedgerEvent = {
   generation_mode?: string;
   final_count?: number;
   quality_assessment?: string;
+  initial_quality_score?: number;
+  quality_score?: number;
+  quality_score_grade?: string;
+  quality_score_source?: string;
+  quality_score_basis?: string;
+  quality_score_confidence?: string;
+  quality_score_deductions?: Array<Record<string, unknown>>;
+  quality_score_inputs?: Record<string, unknown>;
   stop_reason?: string[];
   coverage?: Record<string, unknown>;
   funnel?: Record<string, unknown>;

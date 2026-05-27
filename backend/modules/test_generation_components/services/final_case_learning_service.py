@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import io
 import json
 import re
 from datetime import datetime
@@ -182,10 +183,45 @@ def parse_test_cases_payload(raw: Any) -> list[dict[str, Any]]:
     parsed = _parse_json_cases(text)
     if parsed:
         return parsed
+    parsed = _parse_html_table_cases(text)
+    if parsed:
+        return parsed
     parsed = _parse_csv_cases(text)
     if parsed:
         return parsed
     return []
+
+
+def parse_test_cases_spreadsheet_bytes(filename: str, content_bytes: bytes) -> list[dict[str, Any]]:
+    """Parse uploaded spreadsheet bytes directly into normalized test cases."""
+    lowered = str(filename or "").lower()
+    if not lowered.endswith((".xlsx", ".xls")):
+        return []
+
+    header_markers = _case_table_header_markers()
+    all_rows: list[list[str]] = []
+    if lowered.endswith(".xlsx"):
+        try:
+            import openpyxl
+
+            workbook = openpyxl.load_workbook(io.BytesIO(content_bytes), data_only=True)
+            for sheet in workbook.worksheets:
+                for row in sheet.iter_rows(values_only=True):
+                    all_rows.append([_text(cell).strip() for cell in row])
+        except Exception:
+            all_rows = []
+
+    if not all_rows:
+        try:
+            import pandas as pd
+
+            sheets = pd.read_excel(io.BytesIO(content_bytes), sheet_name=None, header=None)
+            for sheet in sheets.values():
+                all_rows.extend(sheet.fillna("").astype(str).values.tolist())
+        except Exception:
+            return []
+
+    return _parse_case_table_rows(all_rows, header_markers=header_markers)
 
 
 def build_learning_samples_from_final_cases(
@@ -366,6 +402,20 @@ def build_learning_candidates_from_evaluation_result(evaluation_result: Any) -> 
         )
 
     for idx, item in enumerate(_as_text_list(defect.get("missing_points")), start=1):
+        if _is_generated_only_evaluation_defect(item):
+            add_candidate(
+                source_field="missing_points",
+                item=item,
+                index=idx,
+                signal_type="negative",
+                pattern_usage="avoid",
+                pattern_category="hallucination_or_redundant_case",
+                reason_category="generated_only_defect_misfiled_as_missing",
+                candidate_type="negative_pattern",
+                selected_by_default=False,
+                confidence=_confidence_from_metrics(metrics, base=0.62, metric_name="precision", inverse=True),
+            )
+            continue
         add_candidate(
             source_field="missing_points",
             item=item,
@@ -379,6 +429,20 @@ def build_learning_candidates_from_evaluation_result(evaluation_result: Any) -> 
             confidence=_confidence_from_metrics(metrics, base=0.72, metric_name="recall", inverse=True),
         )
     for idx, item in enumerate(_as_text_list(defect.get("modifications")), start=1):
+        if _is_generated_only_evaluation_defect(item):
+            add_candidate(
+                source_field="modifications",
+                item=item,
+                index=idx,
+                signal_type="negative",
+                pattern_usage="avoid",
+                pattern_category="hallucination_or_redundant_case",
+                reason_category="generated_only_defect_misfiled_as_modification",
+                candidate_type="negative_pattern",
+                selected_by_default=False,
+                confidence=_confidence_from_metrics(metrics, base=0.62, metric_name="precision", inverse=True),
+            )
+            continue
         add_candidate(
             source_field="modifications",
             item=item,
@@ -418,7 +482,7 @@ def build_learning_candidates_from_evaluation_result(evaluation_result: Any) -> 
             "modifications_count": len(_as_text_list(defect.get("modifications"))),
             "hallucinations_count": len(_as_text_list(defect.get("hallucinations"))),
             "candidate_aggregation_policy": (
-                "defect_field_semantic_bucket_positive8_fix6_negative3"
+                "defect_field_semantic_bucket_positive8_fix6_negative3_generated_only_guard"
             ),
             "target": "priority_sample_pool",
             "write_policy": "user_confirmed_only",
@@ -854,6 +918,66 @@ def _parse_csv_cases(text: str) -> list[dict[str, Any]]:
     return [_normalize_case_dict(row) for row in rows if any(str(v or "").strip() for v in row.values())]
 
 
+def _parse_html_table_cases(text: str) -> list[dict[str, Any]]:
+    if "<table" not in text.lower():
+        return []
+    try:
+        import pandas as pd
+
+        tables = pd.read_html(StringIO(text))
+    except Exception:
+        return []
+
+    parsed_cases: list[dict[str, Any]] = []
+    header_markers = _case_table_header_markers()
+    for table in tables:
+        rows = table.fillna("").astype(str).values.tolist()
+        parsed_cases.extend(_parse_case_table_rows(rows, header_markers=header_markers))
+    return parsed_cases
+
+
+def _case_table_header_markers() -> set[str]:
+    return {
+        "\u7528\u4f8b\u6807\u9898",
+        "\u7528\u4f8b\u540d\u79f0",
+        "\u6d4b\u8bd5\u7528\u4f8b",
+        "\u6d4b\u8bd5\u70b9",
+        "\u6d4b\u8bd5\u6a21\u5757",
+        "\u6267\u884c\u6b65\u9aa4",
+        "\u64cd\u4f5c\u6b65\u9aa4",
+        "\u9884\u671f\u7ed3\u679c",
+        "\u671f\u671b\u7ed3\u679c",
+        "\u7528\u4f8b\u7ea7\u522b",
+    }
+
+
+def _parse_case_table_rows(rows: list[list[Any]], *, header_markers: set[str] | None = None) -> list[dict[str, Any]]:
+    markers = header_markers or _case_table_header_markers()
+    header_index = -1
+    for idx, row in enumerate(rows):
+        non_empty = {_text(cell).strip() for cell in row if _text(cell).strip()}
+        if len(non_empty & markers) >= 2:
+            header_index = idx
+            break
+    if header_index < 0:
+        return []
+
+    headers = [_text(cell).strip() for cell in rows[header_index]]
+    parsed_cases: list[dict[str, Any]] = []
+    for row in rows[header_index + 1 :]:
+        raw: dict[str, Any] = {}
+        for header, value in zip(headers, row):
+            key = _text(header).strip()
+            cell_value = _text(value).strip()
+            if not key or key.lower().startswith("unnamed") or not cell_value:
+                continue
+            raw[key] = cell_value
+        normalized = _normalize_case_dict(raw)
+        if _text(normalized.get("description")) or _text(normalized.get("expected_result")):
+            parsed_cases.append(normalized)
+    return parsed_cases
+
+
 def _as_text_list(raw: Any) -> list[str]:
     if raw is None:
         return []
@@ -904,6 +1028,46 @@ def _summarize_evaluation_defect_pattern(
 ) -> str:
     prefix = "prefer" if signal_type == "positive" else "avoid"
     return f"{prefix} | {pattern_category} | {_text(text)[:140]}"[:180]
+
+
+def _is_generated_only_evaluation_defect(raw: Any) -> bool:
+    text = _text(raw)
+    if not text:
+        return False
+    generated_side_tokens = (
+        "生成用例",
+        "原生成",
+        "AI 生成",
+        "AI生成",
+        "generated",
+    )
+    final_absent_tokens = (
+        "修改用例未涉及",
+        "修改用例未覆盖",
+        "修改用例不存在",
+        "修改用例完全不存在",
+        "修改版本未涉及",
+        "修改版本未覆盖",
+        "修改版本中未体现",
+        "修改后未涉及",
+        "在修改用例中不存在",
+        "在修改用例中未体现",
+        "modified version does not",
+        "absent from modified",
+    )
+    generated_excess_tokens = (
+        "生成用例包含大量",
+        "生成用例中新增了大量",
+        "生成用例新增了大量",
+        "生成用例额外包含",
+        "generated contains many",
+        "generated adds many",
+    )
+    lowered = text.lower()
+    has_generated_side = any(token.lower() in lowered for token in generated_side_tokens)
+    if not has_generated_side:
+        return False
+    return any(token.lower() in lowered for token in final_absent_tokens + generated_excess_tokens)
 
 
 def _aggregate_evaluation_learning_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1024,7 +1188,24 @@ def _candidate_has_sample_shape(candidate: dict[str, Any]) -> bool:
 
 def _normalize_case_dict(item: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {}
+    explicit_aliases = {
+        "id": ("用例编号", "编号"),
+        "description": ("用例标题", "用例名称", "测试点", "测试用例"),
+        "test_module": ("模块", "所属模块", "功能模块", "测试模块"),
+        "preconditions": ("前置条件",),
+        "steps": ("测试步骤", "操作步骤", "执行步骤", "步骤"),
+        "test_input": ("输入", "测试数据", "数据", "测试输入"),
+        "expected_result": ("预期结果", "期望结果"),
+        "priority": ("优先级", "用例级别"),
+    }
+    for canonical, aliases in explicit_aliases.items():
+        for alias in aliases:
+            if alias in item and item.get(alias) not in (None, ""):
+                result[canonical] = item.get(alias)
+                break
     for canonical, aliases in _CASE_FIELD_ALIASES.items():
+        if canonical in result:
+            continue
         for alias in aliases:
             if alias in item and item.get(alias) not in (None, ""):
                 result[canonical] = item.get(alias)
@@ -1088,6 +1269,83 @@ def _contains_any(text: str, tokens: tuple[str, ...]) -> bool:
     return any(token.lower() in lowered for token in tokens)
 
 
+def _is_state_consistency_case(text: str) -> bool:
+    lowered = text.lower()
+    strong_phrases = (
+        "状态流转",
+        "状态迁移",
+        "状态变化",
+        "状态同步",
+        "状态一致",
+        "跨端同步",
+        "跨端一致",
+        "刷新后保持",
+        "切换后保持",
+        "返回后保持",
+        "state transition",
+        "state consistency",
+        "status transition",
+        "status consistency",
+        "switch-back",
+        "switch back",
+    )
+    if any(token in lowered for token in strong_phrases):
+        return True
+    state_terms = (
+        "状态",
+        "status",
+        "state",
+    )
+    transition_terms = (
+        "流转",
+        "迁移",
+        "切换",
+        "跳转",
+        "返回",
+        "变更",
+        "从",
+        "到",
+        "transition",
+        "switch",
+        "change",
+    )
+    consistency_terms = (
+        "一致",
+        "同步",
+        "保留",
+        "保持",
+        "未丢失",
+        "持久",
+        "刷新后",
+        "回到",
+        "回退",
+        "consistent",
+        "sync",
+        "retain",
+        "retained",
+        "unchanged",
+        "persist",
+        "persistence",
+        "refresh",
+        "rollback",
+    )
+    weak_progress_terms = (
+        "进度",
+        "记录",
+        "progress",
+        "record",
+    )
+    has_state = any(token in lowered for token in state_terms)
+    has_transition = any(token in lowered for token in transition_terms)
+    has_consistency = any(token in lowered for token in consistency_terms)
+    has_weak_progress = any(token in lowered for token in weak_progress_terms)
+    if has_state and (has_transition or has_consistency):
+        return True
+    if has_weak_progress and has_transition and has_consistency:
+        return True
+    return False
+
+
 def _case_is_grounded_in_requirement(case: dict[str, Any], requirement_text: str) -> bool:
     requirement = _fingerprint(requirement_text)
     if not requirement:
@@ -1111,7 +1369,7 @@ def _infer_pattern_category(case: dict[str, Any]) -> str:
         return "cross_system_business_flow"
     if _contains_any(text, _TRANSACTION_TOKENS):
         return "transaction_business_risk"
-    if _contains_any(text, _STATE_TOKENS):
+    if _is_state_consistency_case(text):
         return "state_consistency_flow"
     return "manual_final_business_coverage"
 
@@ -1175,6 +1433,8 @@ def _build_positive_sample(
 ) -> dict[str, Any]:
     description = _text(case.get("description")) or f"final-case-{index}"
     module = _text(case.get("test_module"))
+    expected_result = _text(case.get("expected_result"))
+    steps = _text(case.get("steps"))
     category = _infer_pattern_category(case)
     pattern_summary = _summarize_positive_pattern(description, module, category)
     extension_note = "manual_business_extension" if manual_business_extension else "requirement_grounded_final_case"
@@ -1186,14 +1446,14 @@ def _build_positive_sample(
         "expected_priority": _priority(case),
         "case_id": _text(case.get("id")) or f"final-{index}",
         "title": description[:120],
-        "user_comment": (
-            "Linked human-final case; extra business coverage is positive evidence, "
-            "not an anomaly."
-        ),
+        "user_comment": _text(case.get("user_comment") or case.get("comment"))[:240],
         "pattern_summary": pattern_summary,
         "pattern_grain": "pattern",
         "source_case_title": description[:160],
         "source_case_module": module[:80],
+        "source_case_steps": steps[:240],
+        "source_case_expected_result": expected_result[:240],
+        "business_assertion": expected_result[:240],
         "source": (
             "linked_final_case_business_extension"
             if manual_business_extension
@@ -1222,7 +1482,7 @@ def _summarize_positive_pattern(description: str, module: str, category: str) ->
     detail = _positive_pattern_detail(category)
     parts = [category, detail]
     if module_hint:
-        parts.append(f"domain:{module_hint}")
+        parts.append(f"领域:{module_hint}")
     return " | ".join(part for part in parts if part)[:180]
 
 
@@ -1238,24 +1498,19 @@ def _summarize_module_hint(module: str) -> str:
 def _positive_pattern_detail(category: str) -> str:
     mapping = {
         "permission_or_scope_guard": (
-            "verify unauthorized, unopened, hidden, or out-of-scope access is blocked "
-            "without side effects"
+            "覆盖未授权、未开通、隐藏或越权访问的拦截，并验证无副作用"
         ),
         "cross_system_business_flow": (
-            "cover state and permission consistency across related clients, admin surfaces, "
-            "and downstream reports"
+            "覆盖客户端、管理端和下游报表之间的状态与权限一致性"
         ),
         "transaction_business_risk": (
-            "cover payment, refund, order, entitlement, and rollback consistency across the "
-            "full business chain"
+            "覆盖支付、退款、订单、权益和回滚在完整业务链路中的一致性"
         ),
         "state_consistency_flow": (
-            "verify state transition, persistence, refresh, switch-back, and progress "
-            "consistency after user actions"
+            "验证用户操作后的状态迁移、持久化、刷新、切回和进度一致性"
         ),
         "manual_final_business_coverage": (
-            "prefer business workflow and regression coverage with concrete assertions over "
-            "isolated static display checks"
+            "优先学习带明确断言的业务流程和回归覆盖，弱化孤立静态展示检查"
         ),
     }
     return mapping.get(category) or mapping["manual_final_business_coverage"]
@@ -1290,6 +1545,9 @@ def _build_negative_sample(
     quality_ledger: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     description = _text(case.get("description")) or f"generated-case-{index}"
+    expected_result = _text(case.get("expected_result"))
+    steps = _text(case.get("steps"))
+    module = _text(case.get("test_module"))
     return {
         "signal_type": "negative",
         "pattern_usage": "avoid",
@@ -1298,13 +1556,14 @@ def _build_negative_sample(
         "expected_priority": "P2",
         "case_id": _text(case.get("id")) or f"generated-{index}",
         "title": description[:120],
-        "user_comment": (
-            "AI-only case is treated as negative only because it has a clear quality failure; "
-            "missing from human final alone is not enough."
-        ),
+        "user_comment": _text(case.get("user_comment") or case.get("comment"))[:240],
         "pattern_summary": f"{reason} | {description}"[:180],
         "pattern_grain": "anti_pattern",
         "source_case_title": description[:160],
+        "source_case_module": module[:80],
+        "source_case_steps": steps[:240],
+        "source_case_expected_result": expected_result[:240],
+        "business_assertion": expected_result[:240],
         "source": "quality_evaluation_defect",
         "source_type": "quality_evaluation_defect",
         "source_id": int(generation_id) if generation_id is not None else None,
@@ -1327,6 +1586,8 @@ def _compact_quality_ledger(payload: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "generation_id": int(payload.get("generation_id") or 0),
         "quality_assessment": str(payload.get("quality_assessment") or ""),
+        "initial_quality_score": int(payload.get("initial_quality_score") or payload.get("quality_score") or 0),
+        "quality_score_grade": str(payload.get("quality_score_grade") or ""),
         "final_count": int(payload.get("final_count") or 0),
         "coverage_rate": float(coverage.get("coverage_rate") or 0.0),
         "missing_rules_count": int(coverage.get("missing_rules_count") or 0),

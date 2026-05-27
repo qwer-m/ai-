@@ -311,7 +311,7 @@ def test_upsert_preserves_soft_deleted_samples(monkeypatch) -> None:
 
 # ── Aggregation & rate-limiting tests ──────────────────────────────
 
-def test_raw_sample_pool_normalization_does_not_collapse_same_pattern_cluster() -> None:
+def test_raw_sample_pool_normalization_collapses_semantic_duplicates() -> None:
     samples = [
         {
             "sample_id": f"sample-{idx}",
@@ -327,9 +327,108 @@ def test_raw_sample_pool_normalization_does_not_collapse_same_pattern_cluster() 
     raw = normalize_raw_priority_samples(samples)
     indexed = normalize_priority_samples(samples)
 
-    assert len(raw) == 8
-    assert {item.get("sample_id") for item in raw} == {f"sample-{idx}" for idx in range(8)}
-    assert len(indexed) < len(raw)
+    assert len(raw) == 1
+    assert raw[0].get("pattern_canonical") == "business"
+    assert len(indexed) == 1
+
+
+def test_raw_sample_pool_dedup_uses_title_and_business_assertion() -> None:
+    samples = [
+        {
+            "sample_id": "rank-display",
+            "source": "linked_final_case_pattern",
+            "signal_type": "positive",
+            "pattern_category": "manual_final_business_coverage",
+            "expected_priority": "P0",
+            "source_case_title": "页面面板块展示",
+            "source_case_module": "学习首页",
+            "source_case_expected_result": "展示排行榜数据和前三名用户",
+            "pattern_summary": "manual_final_business_coverage | 业务覆盖",
+        },
+        {
+            "sample_id": "progress-display",
+            "source": "linked_final_case_pattern",
+            "signal_type": "positive",
+            "pattern_category": "manual_final_business_coverage",
+            "expected_priority": "P0",
+            "source_case_title": "页面面板块展示",
+            "source_case_module": "学习首页",
+            "source_case_expected_result": "展示个人学习进度和已完成讲次",
+            "pattern_summary": "manual_final_business_coverage | 业务覆盖",
+        },
+        {
+            "sample_id": "rank-display-dup",
+            "source": "linked_final_case_pattern",
+            "signal_type": "positive",
+            "pattern_category": "manual_final_business_coverage",
+            "expected_priority": "P0",
+            "source_case_title": "页面面板块展示",
+            "source_case_module": "学习首页",
+            "source_case_expected_result": "展示排行榜数据和前三名用户",
+            "pattern_summary": "manual_final_business_coverage | 业务覆盖",
+        },
+    ]
+
+    raw = normalize_raw_priority_samples(samples)
+
+    assert len(raw) == 2
+    assertions = {item.get("business_assertion") for item in raw}
+    assert "展示排行榜数据和前三名用户" in assertions
+    assert "展示个人学习进度和已完成讲次" in assertions
+    assert all(item.get("category_label") == "人工业务覆盖" for item in raw)
+    assert all(item.get("category_source") == "backend_inferred" for item in raw)
+
+
+def test_raw_sample_pool_strips_execution_scaffold_from_learned_pattern() -> None:
+    raw = normalize_raw_priority_samples([
+        {
+            "sample_id": "final-case-with-scaffold",
+            "source": "linked_final_case_pattern",
+            "signal_type": "positive",
+            "pattern_category": "manual_final_business_coverage",
+            "source_case_title": "督导端查看讲错题详情",
+            "source_case_expected_result": "弹窗展示AI问题、学生回答、追问和最终得分",
+            "role": "student",
+            "session_key": "student_session",
+            "fixture_key": "community_tab_sorting_dataset",
+            "fixture_builder": "seed_community_works(status='published', count=30, with_like_reply_time_distribution=true)",
+            "group_setup": "seed_display_ready_dataset()",
+        }
+    ])
+
+    assert len(raw) == 1
+    sample = raw[0]
+    assert sample.get("execution_scaffold_learning_policy") == "source_only_do_not_reuse"
+    assert "role" not in sample
+    assert "session_key" not in sample
+    assert "fixture_key" not in sample
+    assert "fixture_builder" not in sample
+    assert "group_setup" not in sample
+    scaffold = dict(sample.get("source_execution_scaffold") or {})
+    assert scaffold.get("fixture_key") == "community_tab_sorting_dataset"
+
+
+def test_raw_sample_pool_normalization_cleans_legacy_hardcoded_comments() -> None:
+    raw = normalize_raw_priority_samples([
+        {
+            "sample_id": "legacy-final-comment",
+            "pattern_summary": "manual_final_business_coverage | old",
+            "source": "linked_final_case_pattern",
+            "signal_type": "positive",
+            "user_comment": "Linked human-final case; extra business coverage is positive evidence, not an anomaly.",
+        },
+        {
+            "sample_id": "legacy-negative-comment",
+            "pattern_summary": "non_assertable_expected_result | old",
+            "source": "quality_evaluation_defect",
+            "signal_type": "negative",
+            "user_comment": "AI-only case is treated as negative only because it has a clear quality failure; missing from human final alone is not enough.",
+        },
+    ])
+
+    assert len(raw) == 2
+    assert all(item.get("user_comment") == "" for item in raw)
+    assert all(item.get("userComment") == "" for item in raw)
 
 
 def _make_sample(

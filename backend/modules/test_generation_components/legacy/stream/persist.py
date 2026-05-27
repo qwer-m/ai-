@@ -34,6 +34,155 @@ _STOP_REASON_LABELS = {
 _MAX_GEN_DIAG_MESSAGE_BYTES = 60000
 
 
+def _to_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _clamp_score(value: float) -> int:
+    return int(round(max(0.0, min(100.0, float(value)))))
+
+
+def _build_initial_quality_score(
+    *,
+    coverage_payload: dict[str, Any],
+    convergence_payload: dict[str, Any],
+    generation_summary_payload: dict[str, Any],
+    review_decision_summary_payload: dict[str, Any],
+    judge_summary_payload: dict[str, Any],
+    feedback_control_debug_payload: dict[str, Any],
+    context_result: dict[str, Any],
+) -> dict[str, Any]:
+    """Score the generated batch from persisted pipeline diagnostics.
+
+    This is intentionally deterministic and evidence-based: it uses only
+    coverage, review, judge, funnel and context signals produced by the run.
+    It is not a model opinion and should be displayed with its source.
+    """
+    missing_types = coverage_payload.get("missing_types") if isinstance(coverage_payload.get("missing_types"), dict) else {}
+    coverage_rate = max(0.0, min(1.0, _to_float(coverage_payload.get("coverage_rate"), 0.0)))
+    total_rules = _to_int(coverage_payload.get("total_rules"))
+    missing_rules_count = len(coverage_payload.get("missing_rules") or [])
+    missing_boundary_count = len(missing_types.get("boundary") or [])
+    missing_exception_count = len(missing_types.get("exception") or [])
+
+    final_count = _to_int(generation_summary_payload.get("final_count") or convergence_payload.get("final_count"))
+    low_quality_dropped_count = _to_int(convergence_payload.get("low_quality_dropped_count"))
+    semantic_dedup_dropped_count = _to_int(convergence_payload.get("semantic_dedup_dropped_count"))
+    total_dedup_drop_count = _to_int(convergence_payload.get("total_dedup_drop_count"))
+    candidate_total = _to_int(review_decision_summary_payload.get("candidate_total"))
+    retained_total = _to_int(review_decision_summary_payload.get("retained_total"))
+
+    flow_missing_count = _to_int(review_decision_summary_payload.get("flow_missing_stage_count"))
+    flow_misordered_count = _to_int(review_decision_summary_payload.get("flow_misordered_count"))
+    scenario_duplicate_cluster_count = _to_int(review_decision_summary_payload.get("scenario_duplicate_cluster_count"))
+    scenario_duplicate_case_count = _to_int(review_decision_summary_payload.get("scenario_duplicate_case_count"))
+    fact_forbidden_count = _to_int(review_decision_summary_payload.get("fact_profile_forbidden_count"))
+    fact_pending_count = _to_int(review_decision_summary_payload.get("fact_profile_pending_count"))
+
+    judge_total = _to_int(
+        judge_summary_payload.get("total")
+        or judge_summary_payload.get("input_count")
+        or (
+            _to_int(judge_summary_payload.get("pass_count") or judge_summary_payload.get("confirmed_pass_out_count"))
+            + _to_int(judge_summary_payload.get("repairable_count"))
+            + _to_int(judge_summary_payload.get("reject_count") or judge_summary_payload.get("rejected_out_count"))
+            + _to_int(judge_summary_payload.get("pending_count") or judge_summary_payload.get("pending_out_count"))
+        )
+    )
+    rejected_count = _to_int(judge_summary_payload.get("reject_count") or judge_summary_payload.get("rejected_out_count"))
+    pending_count = _to_int(judge_summary_payload.get("pending_count") or judge_summary_payload.get("pending_out_count"))
+    repairable_count = _to_int(judge_summary_payload.get("repairable_count") or judge_summary_payload.get("repaired_pass_out_count"))
+
+    context_debug = dict((context_result or {}).get("context_debug") or {})
+    realtime_rag_used = bool(context_debug.get("realtime_rag_used"))
+    current_document_used = bool(context_debug.get("current_document_used"))
+    control_state_applied = bool(feedback_control_debug_payload.get("control_state_applied"))
+
+    deductions: list[dict[str, Any]] = []
+
+    def add_deduction(key: str, label: str, count: int | float, points: float) -> None:
+        if points <= 0:
+            return
+        deductions.append(
+            {
+                "key": key,
+                "label": label,
+                "count": count,
+                "points": round(float(points), 2),
+            }
+        )
+
+    add_deduction("coverage_gap", "规则覆盖缺口", round(1.0 - coverage_rate, 4), (1.0 - coverage_rate) * 35)
+    add_deduction("missing_rules", "未覆盖阻断规则", missing_rules_count, min(30, missing_rules_count * 6))
+    add_deduction("missing_boundary", "缺少边界覆盖", missing_boundary_count, min(12, missing_boundary_count * 2))
+    add_deduction("missing_exception", "缺少异常覆盖", missing_exception_count, min(12, missing_exception_count * 2))
+    add_deduction("flow_missing", "流程缺失", flow_missing_count, min(25, flow_missing_count * 5))
+    add_deduction("flow_misordered", "流程顺序异常", flow_misordered_count, min(25, flow_misordered_count * 3))
+    add_deduction("scenario_duplicates", "重复意图", scenario_duplicate_case_count or scenario_duplicate_cluster_count, min(25, scenario_duplicate_case_count * 0.75 + scenario_duplicate_cluster_count * 1.5))
+    add_deduction("judge_rejected", "判定拒绝", rejected_count, min(30, rejected_count * 3))
+    add_deduction("judge_pending", "待确认逻辑", pending_count, min(15, pending_count * 1.5))
+    add_deduction("judge_repairable", "可修复问题", repairable_count, min(8, repairable_count * 1))
+    add_deduction("fact_forbidden", "违反已确认事实", fact_forbidden_count, min(30, fact_forbidden_count * 6))
+    add_deduction("fact_pending", "命中待确认事实", fact_pending_count, min(12, fact_pending_count * 1.5))
+    add_deduction("low_quality_dropped", "低质量用例被过滤", low_quality_dropped_count, min(20, low_quality_dropped_count * 3))
+    add_deduction("semantic_dedup", "语义去重压力", semantic_dedup_dropped_count or total_dedup_drop_count, min(10, max(semantic_dedup_dropped_count, total_dedup_drop_count) * 0.5))
+    if candidate_total > 0 and retained_total <= 0:
+        add_deduction("empty_retained", "复核后无可用用例", 1, 40)
+    if final_count <= 0:
+        add_deduction("empty_final", "最终无可用用例", 1, 50)
+    if not current_document_used:
+        add_deduction("missing_current_document", "当前需求上下文未确认使用", 1, 8)
+    if not realtime_rag_used and not control_state_applied:
+        add_deduction("weak_context_control", "缺少RAG或样本池治理信号", 1, 5)
+
+    total_deduction = sum(float(item["points"]) for item in deductions)
+    score = _clamp_score(100 - total_deduction)
+    if score >= 85:
+        grade = "high"
+    elif score >= 70:
+        grade = "medium"
+    elif score >= 50:
+        grade = "low"
+    else:
+        grade = "critical"
+    return {
+        "initial_quality_score": score,
+        "quality_score": score,
+        "quality_score_grade": grade,
+        "quality_score_source": "backend_diagnostic_v1",
+        "quality_score_basis": "coverage+review+judge+funnel+context",
+        "quality_score_confidence": "high" if total_rules > 0 and judge_total > 0 else "medium",
+        "quality_score_deductions": deductions[:20],
+        "quality_score_inputs": {
+            "coverage_rate": round(coverage_rate, 4),
+            "total_rules": total_rules,
+            "missing_rules_count": missing_rules_count,
+            "final_count": final_count,
+            "candidate_total": candidate_total,
+            "retained_total": retained_total,
+            "judge_total": judge_total,
+            "rejected_count": rejected_count,
+            "pending_count": pending_count,
+            "repairable_count": repairable_count,
+            "flow_missing_count": flow_missing_count,
+            "flow_misordered_count": flow_misordered_count,
+            "scenario_duplicate_cluster_count": scenario_duplicate_cluster_count,
+            "scenario_duplicate_case_count": scenario_duplicate_case_count,
+            "low_quality_dropped_count": low_quality_dropped_count,
+        },
+    }
+
+
 def _render_stop_reason_text(stop_reasons: list[Any]) -> str:
     labels: list[str] = []
     for reason in stop_reasons:
@@ -79,6 +228,15 @@ def _build_quality_ledger_payload(
         )
         or 0
     )
+    score_payload = _build_initial_quality_score(
+        coverage_payload=coverage_payload,
+        convergence_payload=convergence_payload,
+        generation_summary_payload=generation_summary_payload,
+        review_decision_summary_payload=review_decision_summary_payload,
+        judge_summary_payload=judge_summary_payload,
+        feedback_control_debug_payload=feedback_control_debug_payload,
+        context_result=context_result,
+    )
     return {
         "kind": "generation_quality_ledger",
         "generation_id": int(generation_id or 0),
@@ -86,6 +244,7 @@ def _build_quality_ledger_payload(
         "generation_mode": str(mode or ""),
         "final_count": int(generation_summary_payload.get("final_count") or convergence_payload.get("final_count") or 0),
         "quality_assessment": str(generation_summary_payload.get("quality_assessment") or ""),
+        **score_payload,
         "stop_reason": list(generation_summary_payload.get("stop_reason") or []),
         "coverage": {
             "coverage_rate": float(coverage_payload.get("coverage_rate") or 0.0),
@@ -126,11 +285,30 @@ def _build_quality_ledger_payload(
             "drop_final_description_duplicate_count": int(
                 review_decision_summary_payload.get("drop_final_description_duplicate_count") or 0
             ),
+            "flow_missing_stage_count": int(review_decision_summary_payload.get("flow_missing_stage_count") or 0),
+            "flow_misordered_count": int(review_decision_summary_payload.get("flow_misordered_count") or 0),
+            "scenario_duplicate_cluster_count": int(
+                review_decision_summary_payload.get("scenario_duplicate_cluster_count") or 0
+            ),
+            "scenario_duplicate_case_count": int(
+                review_decision_summary_payload.get("scenario_duplicate_case_count") or 0
+            ),
+            "fact_profile_forbidden_count": int(
+                review_decision_summary_payload.get("fact_profile_forbidden_count") or 0
+            ),
+            "fact_profile_pending_count": int(review_decision_summary_payload.get("fact_profile_pending_count") or 0),
         },
         "judge": {
             "total": int(judge_total),
-            "rejected_out_count": int(judge_summary_payload.get("rejected_out_count") or 0),
-            "pending_out_count": int(judge_summary_payload.get("pending_out_count") or 0),
+            "rejected_out_count": int(
+                judge_summary_payload.get("rejected_out_count") or judge_summary_payload.get("reject_count") or 0
+            ),
+            "pending_out_count": int(
+                judge_summary_payload.get("pending_out_count") or judge_summary_payload.get("pending_count") or 0
+            ),
+            "repairable_count": int(
+                judge_summary_payload.get("repairable_count") or judge_summary_payload.get("repaired_pass_out_count") or 0
+            ),
         },
         "context": {
             "snapshot_status": str(context_debug.get("snapshot_status") or ""),

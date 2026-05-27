@@ -14,6 +14,7 @@ import {
   buildTransitions,
   buildSummaryLine,
   sourceTypeLabel,
+  categoryDisplayLabel,
   sourceTypeBadgeVariant,
   formatWeight,
   isInPattern,
@@ -42,14 +43,12 @@ import {
   normalizeReasonCategory,
   normalizePatternCategory,
   classifySampleTags,
-  resolveSampleUsage,
   buildWeakLinkCaseKey,
   normalizeWeakLinkGenerationId,
 } from './PriorityDebugTable.helpers';
 import type { Props, PriorityRow, PrioritySample, SampleKind, SampleTag, SampleUsage, ViewFilter } from './PriorityDebugTable.helpers';
 import {
   addPrioritySamplePoolItems,
-  confirmPrioritySamplePoolItem,
   deletePrioritySamplePoolItem,
   fetchPrioritySamplePoolConsistency,
   fetchPrioritySamplePool,
@@ -74,8 +73,6 @@ const PRIORITY_DEBUG_KEY_LABELS: Record<string, string> = {
   user_comment: '人工备注',
   weak_link_case_key: '弱关联用例键',
   weak_link_generation_id: '关联生成记录',
-  manual_confirmed: '人工已确认',
-  manual_confirmed_at: '人工确认时间',
   original_priority: '原始优先级',
   model_priority: '模型优先级',
   raw_priority: '原始优先级',
@@ -108,7 +105,6 @@ export function PriorityDebugTable({
   const [lastCloudSavedAt, setLastCloudSavedAt] = useState<number | null>(null);
   const [isCloudSyncing, setIsCloudSyncing] = useState<boolean>(false);
   const [cloudSyncError, setCloudSyncError] = useState<string>('');
-  const [confirmingManualTagSampleId, setConfirmingManualTagSampleId] = useState<string | null>(null);
   const skipNextRemoteSaveRef = useRef<boolean>(false);
   const hasHydratedRemoteRef = useRef<boolean>(false);
   const remoteSaveTimerRef = useRef<number | null>(null);
@@ -306,8 +302,6 @@ export function PriorityDebugTable({
             user_comment: linkedSample.userComment || '',
             weak_link_case_key: linkedSample.weakLinkCaseKey || '',
             weak_link_generation_id: normalizeWeakLinkGenerationId(linkedSample.weakLinkGenerationId ?? null),
-            manual_confirmed: Boolean(linkedSample.manualConfirmed),
-            manual_confirmed_at: linkedSample.manualConfirmedAt ? new Date(linkedSample.manualConfirmedAt).toISOString() : null,
           },
         }
         : {}),
@@ -322,10 +316,10 @@ export function PriorityDebugTable({
     if (key === 'usage') return sampleUsageLabel(String(value || '') as SampleUsage);
     if (key === 'tags' && Array.isArray(value)) return value.map((tag) => sampleTagLabel(String(tag) as SampleTag));
     if (key === 'reason_category') {
-      return REASON_CATEGORY_OPTIONS.find((opt) => opt.value === value)?.label || value;
+      return categoryDisplayLabel(value, 'anomaly') || value;
     }
     if (key === 'pattern_category') {
-      return PATTERN_CATEGORY_OPTIONS.find((opt) => opt.value === value)?.label || value;
+      return categoryDisplayLabel(value, 'positive') || value;
     }
     if (key === 'manual_confirmed') return value ? '是' : '否';
     return value;
@@ -349,15 +343,15 @@ export function PriorityDebugTable({
   ): { text: string; bg: 'primary' | 'danger' } | null => {
     if (linkedSample) {
       if (linkedSample.sampleKind === 'positive') {
-        const patternLabel = PATTERN_CATEGORY_OPTIONS.find((opt) => opt.value === linkedSample.patternCategory)?.label || '';
+        const patternLabel = linkedSample.categoryLabel || categoryDisplayLabel(linkedSample.patternCategory, 'positive');
         if (patternLabel && linkedSample.patternCategory) return { text: patternLabel, bg: 'primary' };
-        const reasonLabel = REASON_CATEGORY_OPTIONS.find((opt) => opt.value === linkedSample.reasonCategory)?.label || '';
+        const reasonLabel = linkedSample.categoryLabel || categoryDisplayLabel(linkedSample.reasonCategory, 'anomaly');
         if (reasonLabel && linkedSample.reasonCategory) return { text: reasonLabel, bg: 'primary' };
         return { text: '正向', bg: 'primary' };
       }
-      const reasonLabel = REASON_CATEGORY_OPTIONS.find((opt) => opt.value === linkedSample.reasonCategory)?.label || '';
+      const reasonLabel = linkedSample.categoryLabel || categoryDisplayLabel(linkedSample.reasonCategory, 'anomaly');
       if (reasonLabel && linkedSample.reasonCategory) return { text: reasonLabel, bg: 'danger' };
-      const patternLabel = PATTERN_CATEGORY_OPTIONS.find((opt) => opt.value === linkedSample.patternCategory)?.label || '';
+      const patternLabel = linkedSample.categoryLabel || categoryDisplayLabel(linkedSample.patternCategory, 'positive');
       if (patternLabel && linkedSample.patternCategory) return { text: patternLabel, bg: 'danger' };
       return { text: '异常', bg: 'danger' };
     }
@@ -468,70 +462,6 @@ export function PriorityDebugTable({
     sample.source === SAMPLE_SOURCES.PRIORITY_DEBUG_MANUAL_ADD
     || Boolean(sample.weakLinkCaseKey)
   );
-  const handleConfirmManualReview = async (sampleId: string, caseId: string) => {
-    const targetSample = samplePool.find((sample) => sample.sampleId === sampleId);
-    const persistedSampleId = String(targetSample?.persistedSampleId || sampleId);
-    const confirmPatch = targetSample ? {
-      user_comment: targetSample.userComment || '',
-      userComment: targetSample.userComment || '',
-      expected_priority: targetSample.expectedPriority || '',
-      expectedPriority: targetSample.expectedPriority || '',
-      reason_category: targetSample.reasonCategory || '',
-      reasonCategory: targetSample.reasonCategory || '',
-      pattern_category: targetSample.patternCategory || '',
-      patternCategory: targetSample.patternCategory || '',
-      signal_type: targetSample.sampleKind,
-      signalType: targetSample.sampleKind,
-      pattern_usage: targetSample.usage || '',
-      patternUsage: targetSample.usage || '',
-    } : {};
-    let nextSamples: PrioritySample[] = [];
-    let didUpdate = false;
-    if (projectId && hasHydratedRemoteRef.current) skipNextRemoteSaveRef.current = true;
-    setSamplePool((prev) => {
-      nextSamples = prev.map((sample) => {
-        if (sample.sampleId !== sampleId) return sample;
-        didUpdate = true;
-        const filteredTags = sample.tags.filter((tag) => tag !== 'manual_review');
-        const nextTags: SampleTag[] = filteredTags.length > 0
-          ? filteredTags
-          : [sample.isDisplayMismatch ? 'display_mismatch' : 'rule_adjusted'];
-        return {
-          ...sample,
-          tags: nextTags,
-          usage: resolveSampleUsage(nextTags),
-          manualConfirmed: true,
-          manualConfirmedAt: Date.now(),
-        };
-      });
-      return nextSamples;
-    });
-    if (!didUpdate) return;
-    setActionMessage(`已确认：${caseId}（前端已移除“待人工确认”）`);
-    if (!projectId || !hasHydratedRemoteRef.current) return;
-    setConfirmingManualTagSampleId(sampleId);
-    setIsCloudSyncing(true);
-    try {
-      const payload = await confirmPrioritySamplePoolItem(projectId, {
-        generation_id: generationId ?? null,
-        sample_id: persistedSampleId,
-        patch: confirmPatch,
-      });
-      const remoteSamples = parseSamplePool(JSON.stringify(payload?.samples || []));
-      skipNextRemoteSaveRef.current = true;
-      setSamplePool(remoteSamples);
-      const cloudTs = Date.parse(String(payload?.updated_at || ''));
-      if (Number.isFinite(cloudTs)) setLastCloudSavedAt(cloudTs);
-      setCloudSyncError('');
-      setActionMessage(`已确认并写入云端：${caseId}`);
-    } catch {
-      setCloudSyncError('云端写入失败，数据仍保留在本地浏览器');
-      setActionMessage(`已确认：${caseId}，但云端写入失败`);
-    } finally {
-      setIsCloudSyncing(false);
-      setConfirmingManualTagSampleId((prev) => (prev === sampleId ? null : prev));
-    }
-  };
   const handleExportSamplePool = () => {
     if (!samplePool.length) { setActionMessage('样本池为空，暂无可导出数据'); return; }
     downloadCsv(buildCsvFromRows(toSamplePoolExportRows(samplePool)), `priority-anomaly-sample-pool-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`);
@@ -703,7 +633,7 @@ export function PriorityDebugTable({
             <div className="text-muted rag-debug-muted">暂无方向统计</div>
           )}
         </div>
-        <div className="small text-muted rag-debug-muted">主链路优先消费分类、模式、权重和置信度；人工补充说明仅作为待确认、低置信或纠偏场景的辅助证据。</div>
+        <div className="small text-muted rag-debug-muted">主链路优先消费分类、模式、权重和置信度；补充说明仅作为低置信或纠偏场景的辅助证据。</div>
         <div className="small text-muted rag-debug-muted">异常样本使用“原因分类”；正向样本使用“模式分类”。备注不再承担模式描述职责。</div>
         <div className="small text-muted rag-debug-muted mt-1">
           编辑内容会自动保存到当前浏览器。
@@ -761,7 +691,6 @@ export function PriorityDebugTable({
                 <tr>
                   <th className="tg-priority-sample-case-col">用例</th>
                   <th className="tg-priority-sample-source-col">来源</th>
-                  <th className="tg-priority-sample-direction-col">方向</th>
                   <th className="tg-priority-sample-tag-col">标签</th>
                   <th className="tg-priority-sample-priority-col">期望优先级</th>
                   <th className="tg-priority-sample-reason-col">分类</th>
@@ -772,7 +701,7 @@ export function PriorityDebugTable({
               <tbody>
                 {!filteredSamplePool.length ? (
                   <tr>
-                    <td colSpan={8} className="text-center text-muted py-3">
+                    <td colSpan={7} className="text-center text-muted py-3">
                       当前筛选下暂无样本
                     </td>
                   </tr>
@@ -781,7 +710,7 @@ export function PriorityDebugTable({
                   const kindSelected = samplePoolFilter !== 'all' && sample.sampleKind === samplePoolFilter;
                   const categoryOptions = sample.sampleKind === 'positive' ? PATTERN_CATEGORY_OPTIONS : REASON_CATEGORY_OPTIONS;
                   const categoryValue = sample.sampleKind === 'positive' ? sample.patternCategory : sample.reasonCategory;
-                  const categoryLabel = categoryOptions.find((opt) => opt.value === categoryValue)?.label || '未分类';
+                  const categoryLabel = sample.categoryLabel || categoryDisplayLabel(categoryValue, sample.sampleKind) || '未分类';
                   const hasUserComment = Boolean(sample.userComment.trim());
                   const isLowConfidence = sample.confidence != null && sample.confidence < 0.7;
                   const isManualReview = sample.tags.includes('manual_review');
@@ -800,14 +729,11 @@ export function PriorityDebugTable({
                       <Badge bg={sourceTypeBadgeVariant(sample.sourceType || sample.source)}>{sourceTypeLabel(sample.sourceType || sample.source)}</Badge>
                       {sample.status === 'deleted' ? <Badge bg="danger" className="mt-1">已删除</Badge> : null}
                     </td>
-                    <td className="tg-priority-sample-direction-col">{directionLabel(sample.direction)}</td>
                     <td className="tg-priority-sample-tag-col">
                       <div className="d-flex gap-1 tg-priority-tags-wrap">
                         <Badge bg={sample.sampleKind === 'positive' ? 'primary' : 'danger'} className={`tg-priority-kind-badge ${kindSelected ? 'is-selected' : ''}`}>{sampleKindDisplayLabel(sample.sampleKind)}</Badge>
-                        {sample.manualConfirmed ? <Badge bg="success">已确认</Badge> : null}
-                        {sample.learningStatus === 'user_confirmed' ? <Badge bg="info">已确认学习</Badge> : null}
                         {sample.tags.map((tag) => {
-                          if (tag === 'rule_adjusted') return null;
+                          if (tag === 'rule_adjusted' || tag === 'display_mismatch') return null;
                           if (tag !== 'manual_review') {
                             return (
                               <Badge key={`${sample.sampleId}-${tag}`} bg="light" text="dark">
@@ -815,35 +741,7 @@ export function PriorityDebugTable({
                               </Badge>
                             );
                           }
-                          const isConfirming = confirmingManualTagSampleId === sample.sampleId;
-                          return (
-                            <span
-                              key={`${sample.sampleId}-${tag}`}
-                              className="tg-priority-manual-confirm-wrap"
-                            >
-                              <Badge bg="light" text="dark" className="tg-priority-manual-pending-pill">{sampleTagLabel(tag)}</Badge>
-                              <Badge
-                                bg="success"
-                                pill
-                                className={`tg-priority-manual-confirm-pill ${isConfirming ? 'is-disabled' : ''}`}
-                                role="button"
-                                tabIndex={isConfirming ? -1 : 0}
-                                onClick={() => {
-                                  if (isConfirming) return;
-                                  void handleConfirmManualReview(sample.sampleId, sample.caseId);
-                                }}
-                                onKeyDown={(e) => {
-                                  if (isConfirming) return;
-                                  if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault();
-                                    void handleConfirmManualReview(sample.sampleId, sample.caseId);
-                                  }
-                                }}
-                              >
-                                {isConfirming ? '确认中...' : '确认'}
-                              </Badge>
-                            </span>
-                          );
+                          return null;
                         })}
                       </div>
                     </td>
@@ -974,8 +872,11 @@ export function PriorityDebugTable({
                   <td className="tg-priority-source-col">{resultSourceLabel(rowForDisplay.resultSource)}</td>
                   <td className="tg-priority-tag-col">
                     <div className="d-flex flex-wrap gap-1 tg-priority-tags-wrap">
-                      {linkedSample?.manualConfirmed ? <Badge bg="success">已确认</Badge> : null}
-                      {tags.filter((tag) => tag !== 'rule_adjusted').map((tag) => <Badge key={`${rowForDisplay.caseId}-${tag}`} bg="light" text="dark">{sampleTagLabel(tag)}</Badge>)}
+                      {tags.map((tag) => {
+                        const label = sampleTagLabel(tag);
+                        if (!label) return null;
+                        return <Badge key={`${rowForDisplay.caseId}-${tag}`} bg="light" text="dark">{label}</Badge>;
+                      })}
                     </div>
                   </td>
                   <td className="tg-priority-debug-col">

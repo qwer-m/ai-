@@ -28,7 +28,7 @@ export function BizKeyTimeline() {
 
   return (
     <div className="rag-debug-card rounded-2xl shadow-md p-4 border bg-white dark:bg-slate-900">
-      <h6 className="mb-3 fw-bold">biz_key 执行过程</h6>
+      <h6 className="mb-3 fw-bold">业务标识执行过程</h6>
       {!grouped.length ? <div className="text-muted rag-debug-muted small">暂无执行事件</div> : null}
       <div className="d-grid gap-3">
         {grouped.map(([bizKey, rows]) => (

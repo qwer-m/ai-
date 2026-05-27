@@ -1,5 +1,5 @@
 import classNames from 'classnames';
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import { Badge, Button } from 'react-bootstrap';
 import { FaCheckCircle, FaCopy, FaFileCode } from 'react-icons/fa';
 import type { TestGenerationMode } from './types';
@@ -32,11 +32,6 @@ type TestGenerationResultSectionProps = {
   onClearHighlight?: () => void;
 };
 
-type MatchedCase = {
-  caseId: string;
-  description: string;
-};
-
 type PriorityRow = {
   id: string;
   rawPriority: 'P0' | 'P1' | 'P2';
@@ -45,10 +40,6 @@ type PriorityRow = {
   changed: boolean;
   hasPriorityDebug: boolean;
 };
-
-function escapeRegExp(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 function normalizeRuleToken(ruleId: string | null | undefined): string {
   return String(ruleId || '').trim();
@@ -62,64 +53,6 @@ function getRenderedText(mode: TestGenerationMode, result: any, streamingContent
     return result ? JSON.stringify(result, null, 2) : '';
   }
   return result ? JSON.stringify(result, null, 2) : '';
-}
-
-function getMatchedCases(result: any, keyword: string): MatchedCase[] {
-  if (!Array.isArray(result) || !keyword) return [];
-  const lower = keyword.toLowerCase();
-  return result
-    .filter((item) => JSON.stringify(item ?? {}).toLowerCase().includes(lower))
-    .map((item, idx) => ({
-      caseId: String(item?.id || item?.case_id || `CASE-${idx + 1}`),
-      description: String(item?.description || item?.title || '').slice(0, 80),
-    }));
-}
-
-function buildRuleSearchTokens(ruleId: string, ruleText?: string): string[] {
-  const stopWords = new Set(['页面', '功能', '验证', '显示', '按钮', '入口', '操作', '状态', '模块', '当前']);
-  const raw = `${ruleId} ${ruleText || ''}`
-    .replace(/[，。；、：:;,.()[\]（）【】"'“”‘’/\\|<>《》\r\n\t]/g, ' ')
-    .split(/\s+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-  const tokens: string[] = [];
-  for (const item of raw) {
-    const token = item.length > 28 ? item.slice(0, 28) : item;
-    const hasCjk = /[\u4e00-\u9fff]/.test(token);
-    if (stopWords.has(token)) continue;
-    if ((hasCjk && token.length >= 2) || (!hasCjk && token.length >= 3)) {
-      tokens.push(token.toLowerCase());
-    }
-  }
-  return Array.from(new Set(tokens)).slice(0, 24);
-}
-
-function getMatchedCasesByRule(result: any, ruleId: string, ruleText?: string): MatchedCase[] {
-  const exactMatches = getMatchedCases(result, ruleId);
-  if (exactMatches.length) return exactMatches;
-  if (!Array.isArray(result)) return [];
-  const tokens = buildRuleSearchTokens('', ruleText);
-  if (!tokens.length) return [];
-  return result
-    .map((item, idx) => {
-      const text = JSON.stringify(item ?? {}).toLowerCase();
-      const hits = tokens.filter((token) => text.includes(token));
-      const strongHit = hits.some((token) => token.length >= 6);
-      return { item, idx, score: hits.length + (strongHit ? 1 : 0) };
-    })
-    .filter((row) => row.score >= 2)
-    .sort((a, b) => b.score - a.score || a.idx - b.idx)
-    .map(({ item, idx }) => ({
-      caseId: String(item?.id || item?.case_id || `CASE-${idx + 1}`),
-      description: String(item?.description || item?.title || '').slice(0, 80),
-    }));
-}
-
-function pickHighlightToken(renderedText: string, ruleId: string, ruleText?: string): string {
-  if (!renderedText) return '';
-  const lower = renderedText.toLowerCase();
-  if (ruleId && lower.includes(ruleId.toLowerCase())) return ruleId;
-  return buildRuleSearchTokens('', ruleText).find((token) => lower.includes(token)) || '';
 }
 
 function normalizePriorityValue(v: unknown): 'P0' | 'P1' | 'P2' {
@@ -183,52 +116,6 @@ export function TestGenerationResultSection({
 }: TestGenerationResultSectionProps) {
   const normalizedRuleId = normalizeRuleToken(highlightRuleId);
   const renderedText = useMemo(() => getRenderedText(mode, result, streamingContent), [mode, result, streamingContent]);
-  const matchedCases = useMemo(
-    () => getMatchedCasesByRule(result, normalizedRuleId, highlightRuleText),
-    [result, normalizedRuleId, highlightRuleText]
-  );
-  const highlightToken = useMemo(
-    () => pickHighlightToken(renderedText, normalizedRuleId, highlightRuleText),
-    [renderedText, normalizedRuleId, highlightRuleText]
-  );
-  const firstMarkRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (!normalizedRuleId) return;
-    if (firstMarkRef.current) {
-      firstMarkRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, [normalizedRuleId, renderedText]);
-
-  const renderedContent = useMemo(() => {
-    if (!highlightToken || !renderedText) return renderedText;
-    const regex = new RegExp(`(${escapeRegExp(highlightToken)})`, 'ig');
-    const segments = renderedText.split(regex);
-    let marked = false;
-    return segments.map((seg, idx) => {
-      const isHit = idx % 2 === 1;
-      if (!isHit) return <span key={`seg-${idx}`}>{seg}</span>;
-      if (!marked) {
-        marked = true;
-        return (
-          <mark
-            key={`seg-${idx}`}
-            ref={(node) => {
-              if (node) firstMarkRef.current = node;
-            }}
-            className="test-generation-highlight-mark"
-          >
-            {seg}
-          </mark>
-        );
-      }
-      return (
-        <mark key={`seg-${idx}`} className="test-generation-highlight-mark">
-          {seg}
-        </mark>
-      );
-    });
-  }, [highlightToken, renderedText]);
 
   const isPreview = resultSource === 'streaming_preview';
   const isFinal = resultSource === 'final_persisted' && isFinalResultLoaded;
@@ -364,28 +251,16 @@ export function TestGenerationResultSection({
 
       {normalizedRuleId ? (
         <div className="px-4 py-2 border-bottom bg-warning-subtle small d-flex justify-content-between align-items-center">
-          <div className="d-flex align-items-center gap-2">
-            <span className="fw-semibold">规则聚焦:</span>
+          <div className="d-flex align-items-center gap-2 flex-wrap">
+            <span className="fw-semibold">需求点聚焦:</span>
             <Badge bg="warning" text="dark">
               {normalizedRuleId}
             </Badge>
-            <span className="text-muted">命中用例 {matchedCases.length} 条</span>
+            <span className="text-muted">{highlightRuleText || '缺少需求点文本'}</span>
           </div>
           <Button variant="outline-secondary" size="sm" onClick={onClearHighlight}>
             清除聚焦
           </Button>
-        </div>
-      ) : null}
-
-      {normalizedRuleId && matchedCases.length ? (
-        <div className="px-4 py-2 border-bottom small test-generation-related-cases">
-          <span className="fw-semibold me-2">关联用例:</span>
-          {matchedCases.slice(0, 8).map((item) => (
-            <Badge key={`${item.caseId}-${item.description}`} bg="light" text="dark" className="me-2 mb-1">
-              {item.caseId}
-            </Badge>
-          ))}
-          {matchedCases.length > 8 ? <span className="text-muted">+{matchedCases.length - 8} 条</span> : null}
         </div>
       ) : null}
 
@@ -397,7 +272,7 @@ export function TestGenerationResultSection({
           <div className="flex-grow-1 overflow-auto p-4 font-monospace test-generation-result-content test-generation-prewrap">
             {mode === 'text' ? (
               result || renderedText ? (
-                renderedContent
+                renderedText
               ) : (
                 <div className="text-center text-muted mt-5 py-5">
                   <div className="mb-3 opacity-25">
@@ -407,7 +282,7 @@ export function TestGenerationResultSection({
                 </div>
               )
             ) : result || renderedText ? (
-              renderedContent
+              renderedText
             ) : (
               <div className="text-center text-muted mt-5 py-5">
                 <div className="mb-3 opacity-25">

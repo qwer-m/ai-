@@ -86,7 +86,7 @@ export function RagDebugPanel({
           <Tab eventKey="coverage" title="覆盖诊断">
             <CoverageTable onRuleClick={onRuleClick} activeRuleId={activeRuleId} />
           </Tab>
-          <Tab eventKey="judge" title="Judge 明细">
+          <Tab eventKey="judge" title="判定明细">
             <JudgeDecisionTable />
           </Tab>
           <Tab eventKey="priority" title="优先级诊断">

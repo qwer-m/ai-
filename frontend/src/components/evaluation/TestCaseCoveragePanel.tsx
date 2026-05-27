@@ -1,4 +1,4 @@
-﻿import { useState, type ChangeEvent, type ClipboardEvent } from 'react';
+﻿import { useEffect, useState, type ChangeEvent, type ClipboardEvent } from 'react';
 import { Button, Col, Form, Row, Spinner } from 'react-bootstrap';
 import {
   learnFromEvaluationCasePairFileRequest,
@@ -74,15 +74,20 @@ export function TestCaseCoveragePanel({
 }: Props) {
   const [learning, setLearning] = useState(false);
   const [learningMessage, setLearningMessage] = useState('');
+  const [casePairLearningApplied, setCasePairLearningApplied] = useState(false);
   const hasFinalCasesInput = Boolean(evalModified.trim() || compareFile);
   const hasEvaluationResult = Boolean(evalResult && String(evalResult).trim());
 
+  useEffect(() => {
+    setCasePairLearningApplied(false);
+  }, [evalResult, evalGenerated, evalModified, compareFile, selectedGenerationId]);
+
   const requestLearning = (dryRun: boolean) => {
-    if (compareFile && !evalModified.trim()) {
+    if (compareFile) {
       const formData = new FormData();
       formData.append('project_id', String(projectId));
       formData.append('generated_cases', evalGenerated);
-      formData.append('final_cases', '');
+      formData.append('final_cases', evalModified);
       if (selectedGenerationId) formData.append('generation_id', String(selectedGenerationId));
       formData.append('include_negative_samples', 'true');
       formData.append('dry_run', String(dryRun));
@@ -117,14 +122,20 @@ export function TestCaseCoveragePanel({
     setLearningMessage('正在预览样本池学习结果...');
     try {
       const preview = await requestLearning(true);
-      const diagnostics = preview?.derived?.diagnostics || {};
+      const diagnostics = preview?.derived?.diagnostics || preview?.diagnostics || {};
       const positiveCount = Number(diagnostics.positive_sample_count || 0);
       const positiveCandidateCount = Number(diagnostics.positive_candidate_count || positiveCount);
       const negativeCount = Number(diagnostics.negative_sample_count || 0);
       const extensionCount = Number(diagnostics.manual_business_extension_count || 0);
       const totalCount = positiveCount + negativeCount;
       if (totalCount <= 0) {
-        setLearningMessage('未抽取到可写入样本池的学习样本。');
+        const generatedCaseCount = Number(diagnostics.generated_case_count || 0);
+        const finalCaseCount = Number(diagnostics.final_case_count || 0);
+        const fileMeta = preview?.file_parse || {};
+        const fileInfo = fileMeta?.filename ? `文件：${fileMeta.filename}；` : '';
+        setLearningMessage(
+          `未抽取到可写入样本池的学习样本。${fileInfo}生成侧解析 ${generatedCaseCount} 条，终稿侧解析 ${finalCaseCount} 条。`,
+        );
         return;
       }
 
@@ -144,6 +155,7 @@ export function TestCaseCoveragePanel({
       const appliedPositiveCount = Number(appliedDiagnostics.positive_sample_count || positiveCount);
       const appliedNegativeCount = Number(appliedDiagnostics.negative_sample_count || negativeCount);
       const poolCount = Number(applied?.sample_pool_count || 0);
+      setCasePairLearningApplied(true);
       setLearningMessage(
         `已写入样本池：正向模式 ${appliedPositiveCount} 条，异常模式 ${appliedNegativeCount} 条；当前样本池 ${poolCount} 条。`,
       );
@@ -258,7 +270,7 @@ export function TestCaseCoveragePanel({
         <Button
           variant={hasEvaluationResult ? 'outline-primary' : 'outline-secondary'}
           className="flex-fill"
-          disabled={learning || loading === 'eval' || !hasEvaluationResult || !evalGenerated.trim() || !hasFinalCasesInput}
+          disabled={casePairLearningApplied || learning || loading === 'eval' || !hasEvaluationResult || !evalGenerated.trim() || !hasFinalCasesInput}
           onClick={handleLearnFromEvaluation}
         >
           {learning ? (
@@ -267,7 +279,7 @@ export function TestCaseCoveragePanel({
               {'样本池学习中...'}
             </>
           ) : (
-            '从本次评估写入样本池（先预览）'
+            casePairLearningApplied ? '已写入样本池' : '从本次评估写入样本池（先预览）'
           )}
         </Button>
         {learningMessage ? <div className="small text-muted text-center w-100">{learningMessage}</div> : null}

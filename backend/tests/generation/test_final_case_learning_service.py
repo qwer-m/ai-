@@ -6,6 +6,7 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from modules.test_generation_components.services.final_case_learning_service import (
     build_learning_candidates_from_evaluation_result,
     build_learning_samples_from_final_cases,
+    parse_test_cases_spreadsheet_bytes,
     parse_test_cases_payload,
 )
 from routers.automation.test_generation_history_routes import FinalCaseLearningRequest
@@ -116,6 +117,7 @@ def test_ai_only_with_non_assertable_expected_result_becomes_negative() -> None:
     assert negative["signal_type"] == "negative"
     assert negative["pattern_usage"] == "avoid"
     assert negative["pattern_category"] == "non_assertable_expected_result"
+    assert negative["user_comment"] == ""
 
 
 def test_final_case_learning_samples_attach_quality_ledger_scope_and_confidence() -> None:
@@ -193,7 +195,51 @@ def test_final_case_learning_positive_samples_use_pattern_grain() -> None:
     assert positive["source_case_title"] == final_title
     assert positive["pattern_scope"] == "project"
     assert positive["pattern_summary"] != final_title
-    assert "state transition" in positive["pattern_summary"]
+    assert "状态迁移" in positive["pattern_summary"]
+
+
+def test_final_case_learning_positive_sample_does_not_prefill_hardcoded_comment() -> None:
+    result = build_learning_samples_from_final_cases(
+        generated_cases=[],
+        final_cases=[
+            {
+                "id": "TC-H-001",
+                "description": "Verify learning progress dashboard renders latest rank",
+                "test_module": "learning dashboard",
+                "steps": ["open dashboard", "view rank card"],
+                "expected_result": "rank card renders the latest ranking data",
+                "priority": "P0",
+            }
+        ],
+        requirement_text="learning dashboard should render progress and rank data",
+        generation_id=464,
+    )
+
+    positive = result["positive_samples"][0]
+    assert positive["user_comment"] == ""
+    assert "Linked human-final case" not in str(positive)
+
+
+def test_final_case_learning_progress_display_does_not_default_to_state_flow() -> None:
+    result = build_learning_samples_from_final_cases(
+        generated_cases=[],
+        final_cases=[
+            {
+                "id": "TC-H-002",
+                "description": "Verify learning progress dashboard renders latest rank",
+                "test_module": "learning dashboard",
+                "steps": ["open dashboard", "view progress card"],
+                "expected_result": "progress card and rank list are visible",
+                "priority": "P0",
+            }
+        ],
+        requirement_text="learning dashboard should render progress and rank data",
+        generation_id=464,
+    )
+
+    positive = result["positive_samples"][0]
+    assert positive["pattern_category"] == "manual_final_business_coverage"
+    assert "状态迁移" not in positive["pattern_summary"]
 
 
 def test_final_case_learning_aggregates_final_cases_into_patterns() -> None:
@@ -293,6 +339,72 @@ def test_evaluation_defect_analysis_accepts_markdown_json() -> None:
 
     assert result["diagnostics"]["candidate_count"] == 1
     assert result["candidates"][0]["sample"]["learning_signal_source"] == "defect_analysis.missing_points"
+
+
+def test_parse_test_cases_payload_accepts_excel_html_table_export() -> None:
+    raw = """
+<h5>Sheet: 功能测试</h5>
+<table>
+  <tr><td>相关文档</td><td></td><td>近期课程+排课</td><td></td></tr>
+  <tr><td>用例标题</td><td>测试模块</td><td>执行步骤</td><td>预期结果</td><td>用例级别</td></tr>
+  <tr><td>排课展示入口</td><td>入口</td><td>书房app-首页</td><td>顶部展示本周进度、本周课程、全部学习计划</td><td>P0</td></tr>
+  <tr><td>课程卡片展示</td><td>本周课程模块</td><td>打开首页查看卡片</td><td>展示课程名称、讲次和学习状态</td><td>P1</td></tr>
+</table>
+"""
+
+    cases = parse_test_cases_payload(raw)
+
+    assert len(cases) == 2
+    assert cases[0]["description"] == "排课展示入口"
+    assert cases[0]["test_module"] == "入口"
+    assert cases[0]["priority"] == "P0"
+    assert cases[1]["expected_result"] == "展示课程名称、讲次和学习状态"
+
+
+def test_parse_test_cases_spreadsheet_bytes_reads_uploaded_xlsx_rows() -> None:
+    from io import BytesIO
+
+    import openpyxl
+
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "\u529f\u80fd\u6d4b\u8bd5"
+    sheet.append(["\u76f8\u5173\u6587\u6863", "", "\u8fd1\u671f\u8bfe\u7a0b+\u6392\u8bfe"])
+    sheet.append(["\u7528\u4f8b\u6807\u9898", "\u6d4b\u8bd5\u6a21\u5757", "\u6267\u884c\u6b65\u9aa4", "\u9884\u671f\u7ed3\u679c", "\u7528\u4f8b\u7ea7\u522b"])
+    sheet.append(["\u6392\u8bfe\u5c55\u793a\u5165\u53e3", "\u5165\u53e3", "\u4e66\u623fapp-\u9996\u9875", "\u9876\u90e8\u5c55\u793a\u672c\u5468\u8fdb\u5ea6", "P0"])
+    sheet.append(["\u8bfe\u7a0b\u5361\u7247\u5c55\u793a", "\u672c\u5468\u8bfe\u7a0b\u6a21\u5757", "\u6253\u5f00\u9996\u9875", "\u5c55\u793a\u8bfe\u7a0b\u540d\u79f0", "P1"])
+    buffer = BytesIO()
+    workbook.save(buffer)
+
+    cases = parse_test_cases_spreadsheet_bytes("\u8fd1\u671f\u8bfe\u7a0b+\u6392\u8bfe.xlsx", buffer.getvalue())
+
+    assert len(cases) == 2
+    assert cases[0]["description"] == "\u6392\u8bfe\u5c55\u793a\u5165\u53e3"
+    assert cases[0]["test_module"] == "\u5165\u53e3"
+    assert cases[0]["priority"] == "P0"
+
+
+def test_evaluation_defect_analysis_does_not_prefer_generated_only_missing_point() -> None:
+    report = {
+        "metrics": {"precision": 0.49, "recall": 0.67},
+        "defect_analysis": {
+            "missing_points": [
+                "生成用例包含大量作文批改模块用例（去批改、投稿前准备、提交投稿、审核通过、作文圈列表、点赞），修改用例未涉及"
+            ],
+        },
+    }
+
+    result = build_learning_candidates_from_evaluation_result(report)
+
+    assert result["diagnostics"]["candidate_count"] == 1
+    assert result["diagnostics"]["selected_by_default_count"] == 0
+    candidate = result["candidates"][0]
+    assert candidate["source_field"] == "missing_points"
+    assert candidate["candidate_type"] == "negative_pattern"
+    assert candidate["selected_by_default"] is False
+    assert candidate["sample"]["signal_type"] == "negative"
+    assert candidate["sample"]["pattern_usage"] == "avoid"
+    assert candidate["sample"]["reason_category"] == "generated_only_defect_misfiled_as_missing"
 
 
 def test_evaluation_defect_analysis_aggregates_negative_candidates() -> None:

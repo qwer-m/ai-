@@ -58,6 +58,7 @@ export function TestCaseEvaluationReport({
 }: Props) {
   const [learningCandidates, setLearningCandidates] = useState<any[]>([]);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(new Set());
+  const [appliedCandidateIds, setAppliedCandidateIds] = useState<Set<string>>(new Set());
   const [candidateLoading, setCandidateLoading] = useState(false);
   const [candidateMessage, setCandidateMessage] = useState('');
   const report = parseQualityReport(evalResult);
@@ -98,6 +99,7 @@ export function TestCaseEvaluationReport({
       });
       const candidates = Array.isArray(payload?.candidates) ? payload.candidates : [];
       setLearningCandidates(candidates);
+      setAppliedCandidateIds(new Set());
       setSelectedCandidateIds(
         new Set(
           candidates
@@ -148,6 +150,17 @@ export function TestCaseEvaluationReport({
         dry_run: false,
       });
       const appliedDiagnostics = applied?.derived?.diagnostics || diagnostics;
+      const appliedIds = new Set(selectedCandidates.map((item: any) => String(item.id)));
+      setAppliedCandidateIds((prev) => {
+        const next = new Set(prev);
+        appliedIds.forEach((id) => next.add(id));
+        return next;
+      });
+      setSelectedCandidateIds((prev) => {
+        const next = new Set(prev);
+        appliedIds.forEach((id) => next.delete(id));
+        return next;
+      });
       setCandidateMessage(
         `已写入样本池：正向 ${Number(appliedDiagnostics.positive_sample_count || 0)} 条，异常 ${Number(appliedDiagnostics.negative_sample_count || 0)} 条；当前样本池 ${Number(applied?.sample_pool_count || 0)} 条。`,
       );
@@ -364,6 +377,7 @@ export function TestCaseEvaluationReport({
           <div className="d-flex flex-column gap-1">
             {learningCandidates.map((item: any) => {
               const id = String(item.id);
+              const applied = appliedCandidateIds.has(id);
               const checked = selectedCandidateIds.has(id);
               return (
                 <Form.Check
@@ -371,6 +385,7 @@ export function TestCaseEvaluationReport({
                   type="checkbox"
                   id={`learning-candidate-${id}`}
                   checked={checked}
+                  disabled={applied || candidateLoading}
                   onChange={(e) => {
                     const nextChecked = e.currentTarget.checked;
                     setSelectedCandidateIds((prev) => {
@@ -388,6 +403,7 @@ export function TestCaseEvaluationReport({
                       <span className="text-muted ms-2">{item.source_field}</span>
                       <span className="ms-2">{item.text}</span>
                       <span className="text-muted ms-2">confidence {Number(item.confidence || 0).toFixed(2)}</span>
+                      {applied ? <span className="badge bg-success ms-2">已写入</span> : null}
                     </span>
                   )}
                 />

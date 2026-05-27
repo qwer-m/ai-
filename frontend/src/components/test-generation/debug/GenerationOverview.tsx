@@ -1,16 +1,5 @@
 ﻿import { useRagDebugStore, selectTotalCaseCount } from './debugStore';
 
-type TokenUsageRow = {
-  batch_index?: number;
-  attempt?: number;
-  input_tokens?: number;
-  output_tokens?: number;
-  total_tokens?: number;
-  token_source?: string;
-};
-
-const EMPTY_TOKEN_USAGE_ROWS: TokenUsageRow[] = [];
-
 function resultSourceLabel(source?: string): string {
   if (source === 'streaming_preview') return '流式预览结果';
   if (source === 'final_persisted') return '最终持久化结果';
@@ -34,113 +23,87 @@ function percentLabel(value: unknown): string {
   return `${Math.round(n * 1000) / 10}%`;
 }
 
-function compactJson(value: unknown): string {
-  if (!value || typeof value !== 'object') return '-';
-  const entries = Object.entries(value as Record<string, unknown>);
-  if (!entries.length) return '-';
-  return entries.slice(0, 4).map(([key, val]) => `${key}:${String(val)}`).join(' / ');
-}
-
 function stageStatus(ok: boolean): string {
   return ok ? '已流通' : '未收到';
 }
 
-function formatTokenCount(value: unknown): string {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '-';
-  if (n >= 10000) return `${Math.round(n / 100) / 10}万`;
-  return n.toLocaleString('zh-CN');
+function enumLabel(value: unknown, labels: Record<string, string>, emptyLabel = '-'): string {
+  const key = String(value || '').trim();
+  if (!key) return emptyLabel;
+  return labels[key] || key;
 }
 
-function tokenSourceLabel(value: unknown): string {
-  return String(value || '').trim().toLowerCase() === 'provider' ? '模型返回' : '未提供';
+function generationModeLabel(value?: string): string {
+  return enumLabel(value, {
+    multi_pass: '多轮生成',
+    single_pass: '单轮生成',
+    full_functional_regression: '全功能回归',
+    standard_regression: '标准回归',
+    expanded_regression: '扩展回归',
+    main_smoke: '核心冒烟',
+    append: '追加补齐',
+    repair: '修复生成',
+  });
 }
 
-function isFiniteTokenValue(value: unknown): boolean {
-  const n = Number(value);
-  return Number.isFinite(n) && n >= 0;
+function businessKeyLabel(value?: string): string {
+  const key = String(value || '').trim();
+  if (!key) return '-';
+  if (key === 'unknown') return '未识别';
+  return enumLabel(key, {
+    global: '全局',
+    current: '当前业务',
+    default: '默认业务',
+    org_close_rule: '机构关闭规则',
+    org_open_rule: '机构开通规则',
+    learning_flow: '学习流程',
+    inventory_flow: '库存流程',
+    lesson_flow: '课程流程',
+    schedule_time: '排课/时间规则',
+    learning_plan: '学习计划',
+  });
 }
 
-function TokenUsagePanel({ rows }: { rows: TokenUsageRow[] }) {
-  const visibleRows = rows
-    .filter((row) => (
-      Number(row.batch_index || 0) > 0
-      && tokenSourceLabel(row.token_source) === '模型返回'
-      && isFiniteTokenValue(row.input_tokens)
-      && isFiniteTokenValue(row.output_tokens)
-    ))
-    .slice(-12);
-  const totals = visibleRows.reduce(
-    (acc, row) => {
-      const input = Number(row.input_tokens);
-      const output = Number(row.output_tokens);
-      const total = isFiniteTokenValue(row.total_tokens) ? Number(row.total_tokens) : input + output;
-      acc.input += input;
-      acc.output += output;
-      acc.total += total;
-      return acc;
-    },
-    { input: 0, output: 0, total: 0 }
-  );
-  const maxTotal = Math.max(1, ...visibleRows.map((row) => {
-    const input = Number(row.input_tokens);
-    const output = Number(row.output_tokens);
-    return isFiniteTokenValue(row.total_tokens) ? Number(row.total_tokens) : input + output;
-  }));
-  const hasRealTokenRows = visibleRows.length > 0;
+function fusionModeLabel(value: unknown): string {
+  return enumLabel(value, {
+    rag: 'RAG',
+    snapshot: '快照',
+    'snapshot+rag': '快照+RAG',
+    snapshot_rag: '快照+RAG',
+    none: '未融合',
+    unknown: '未识别',
+  });
+}
 
-  return (
-    <div className="tg-token-usage-panel border rounded-2 p-3">
-      <div className="d-flex justify-content-between align-items-center gap-2 mb-2">
-        <div className="fw-semibold small">每轮输入/产出</div>
-        <span className="tg-token-source-pill">{hasRealTokenRows ? '模型返回' : '未提供'}</span>
-      </div>
-      <div className="tg-token-summary-grid mb-2">
-        <div>
-          <div className="small text-muted rag-debug-muted">输入</div>
-          <div className="fw-semibold">{hasRealTokenRows ? formatTokenCount(totals.input) : '-'}</div>
-        </div>
-        <div>
-          <div className="small text-muted rag-debug-muted">产出</div>
-          <div className="fw-semibold">{hasRealTokenRows ? formatTokenCount(totals.output) : '-'}</div>
-        </div>
-        <div>
-          <div className="small text-muted rag-debug-muted">合计</div>
-          <div className="fw-semibold">{hasRealTokenRows ? formatTokenCount(totals.total) : '-'}</div>
-        </div>
-      </div>
-      {visibleRows.length ? (
-        <div className="tg-token-bars">
-          {visibleRows.map((row) => {
-            const input = Number(row.input_tokens);
-            const output = Number(row.output_tokens);
-            const total = Math.max(1, isFiniteTokenValue(row.total_tokens) ? Number(row.total_tokens) : input + output);
-            const totalWidth = Math.max(6, Math.round((total / maxTotal) * 100));
-            const inputWidth = Math.round((input / total) * 100);
-            const outputWidth = Math.max(0, 100 - inputWidth);
-            return (
-              <div key={`${row.batch_index}-${row.attempt || 1}`} className="tg-token-row">
-                <div className="tg-token-row-label">第{Number(row.batch_index)}轮</div>
-                <div className="tg-token-track" title={`输入 ${formatTokenCount(input)}，产出 ${formatTokenCount(output)}`}>
-                  <div className="tg-token-stack" style={{ width: `${totalWidth}%` }}>
-                    <span className="tg-token-input" style={{ width: `${inputWidth}%` }} />
-                    <span className="tg-token-output" style={{ width: `${outputWidth}%` }} />
-                  </div>
-                </div>
-                <div className="tg-token-row-value">{formatTokenCount(total)}</div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="small text-muted rag-debug-muted">暂无模型返回的真实 token 数据</div>
-      )}
-      <div className="tg-token-legend small text-muted rag-debug-muted mt-2">
-        <span><i className="tg-token-dot tg-token-dot-input" />输入</span>
-        <span><i className="tg-token-dot tg-token-dot-output" />产出</span>
-      </div>
-    </div>
-  );
+function sourceLabel(value: unknown): string {
+  return enumLabel(value, {
+    requirement_semantics: '需求语义',
+    document_extracted: '文档抽取',
+    sample_pool: '样本池',
+    priority_sample_pool: '优先级样本池',
+    pattern: '模式',
+    final_case_learning: '终稿用例学习',
+    fallback: '兜底',
+    none: '无',
+    unknown: '未识别',
+  });
+}
+
+function patternGrainLabel(value: string): string {
+  return enumLabel(value, {
+    pattern: '模式',
+    anti_pattern: '反模式',
+    case: '用例',
+    rule: '规则',
+    source: '来源',
+  });
+}
+
+function compactLabeledCounts(value: unknown, labeler: (value: string) => string): string {
+  if (!value || typeof value !== 'object') return '-';
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (!entries.length) return '-';
+  return entries.slice(0, 4).map(([key, val]) => `${labeler(key)}:${String(val)}`).join(' / ');
 }
 
 export function GenerationOverview() {
@@ -156,7 +119,6 @@ export function GenerationOverview() {
   const feedbackControlState = useRagDebugStore((s) => s.feedbackControlState);
   const generationQualityLedger = useRagDebugStore((s) => s.generationQualityLedger);
   const reviewDecisionTableCompactRows = useRagDebugStore((s) => s.reviewDecisionTableCompactRows);
-  const tokenUsageRows = (useRagDebugStore((s) => s.streamBatchTokenUsageRows) || EMPTY_TOKEN_USAGE_ROWS) as TokenUsageRow[];
 
   const reviewCandidateCount = Number(
     reviewDecisionSummary?.candidate_total ?? generationConvergence?.candidate_count_before_review
@@ -186,11 +148,11 @@ export function GenerationOverview() {
         <div className="tg-overview-metrics row g-3">
         <div className="col-md-6">
           <div className="small text-muted rag-debug-muted mb-1">模式</div>
-          <div className="fw-semibold">{generationMode || '-'}</div>
+          <div className="fw-semibold">{generationModeLabel(generationMode)}</div>
         </div>
         <div className="col-md-6">
           <div className="small text-muted rag-debug-muted mb-1">当前业务</div>
-          <div className="fw-semibold">{currentBizKey || '-'}</div>
+          <div className="fw-semibold">{businessKeyLabel(currentBizKey)}</div>
         </div>
         <div className="col-md-6">
           <div className="small text-muted rag-debug-muted mb-1">阶段候选数</div>
@@ -217,13 +179,12 @@ export function GenerationOverview() {
           <div className="fw-semibold">{boolLabel(resultState?.isFinalResultLoaded)}</div>
         </div>
         <div className="col-md-12">
-          <div className="small text-muted rag-debug-muted mb-1">漏斗摘要（原始 → Review 候选 → Review 后 → Judge 输入 → Judge 拒绝/待定 → 最终）</div>
+          <div className="small text-muted rag-debug-muted mb-1">漏斗摘要（原始 → 复核候选 → 复核后 → 判定输入 → 判定拒绝/待定 → 最终）</div>
           <div className="fw-semibold">
             {resultState?.previewCaseCount ?? '-'} {' → '} {Number.isFinite(reviewCandidateCount) ? reviewCandidateCount : '-'} {' → '} {Number.isFinite(reviewSelectedCount) ? reviewSelectedCount : '-'} {' → '} {Number.isFinite(judgeInputCount) ? judgeInputCount : '-'} {' → '} {Number.isFinite(judgeRejectedOrPending) ? judgeRejectedOrPending : '-'} {' → '} {Number.isFinite(finalCount) ? finalCount : '-'}
           </div>
         </div>
         </div>
-        <TokenUsagePanel rows={tokenUsageRows} />
       </div>
 
       <div className="mt-4">
@@ -236,7 +197,7 @@ export function GenerationOverview() {
               <div className="small text-muted rag-debug-muted mt-2">
                 快照：{boolLabel(Boolean(ledgerContext.snapshot_used))}
                 {' / '}
-                融合模式：{String(ledgerContext.fusion_mode || '-')}
+                融合模式：{fusionModeLabel(ledgerContext.fusion_mode)}
               </div>
               <div className="small text-muted rag-debug-muted">
                 压缩率: {numberLabel(generationContextCompression?.compression_ratio ?? ledgerContext.compression_ratio)}
@@ -245,7 +206,7 @@ export function GenerationOverview() {
           </div>
           <div className="col-md-3">
             <div className="p-3 border rounded-2 h-100">
-              <div className="small text-muted rag-debug-muted mb-1">样本池 / Pattern 回流</div>
+              <div className="small text-muted rag-debug-muted mb-1">样本池 / 模式回流</div>
               <div className="fw-semibold">{stageStatus(!!feedbackControlState)}</div>
               <div className="small text-muted rag-debug-muted mt-2">
                 已应用：{boolLabel(feedbackControlState?.control_state_applied ?? Boolean(ledgerControl.control_state_applied))}
@@ -257,19 +218,19 @@ export function GenerationOverview() {
                 低置信跳过：{numberLabel(sourceMeta.retrieval_low_confidence_sample_count)}
               </div>
               <div className="small text-muted rag-debug-muted">
-                模式粒度：{compactJson(sourceMeta.pattern_grain_distribution)}
+                模式粒度：{compactLabeledCounts(sourceMeta.pattern_grain_distribution, patternGrainLabel)}
               </div>
               <div className="small text-muted rag-debug-muted">
-                事实/项目画像：{String(feedbackControlState?.fact_profile_source || reviewDecisionSummary?.fact_profile_source || '-')} / {String(feedbackControlState?.project_profile_source || reviewDecisionSummary?.project_profile_source || '-')}
+                事实/项目画像：{sourceLabel(feedbackControlState?.fact_profile_source || reviewDecisionSummary?.fact_profile_source)} / {sourceLabel(feedbackControlState?.project_profile_source || reviewDecisionSummary?.project_profile_source)}
               </div>
             </div>
           </div>
           <div className="col-md-3">
             <div className="p-3 border rounded-2 h-100">
-              <div className="small text-muted rag-debug-muted mb-1">Review / Judge</div>
+              <div className="small text-muted rag-debug-muted mb-1">复核 / 判定</div>
               <div className="fw-semibold">{stageStatus(!!reviewDecisionSummary || !!judgeSummary)}</div>
               <div className="small text-muted rag-debug-muted mt-2">
-                Review：{numberLabel(reviewDecisionSummary?.candidate_total)} → {numberLabel(reviewDecisionSummary?.retained_total)}
+                复核：{numberLabel(reviewDecisionSummary?.candidate_total)} → {numberLabel(reviewDecisionSummary?.retained_total)}
               </div>
               <div className="small text-muted rag-debug-muted">
                 压缩明细行：{reviewDecisionTableCompactRows?.length ?? 0}
@@ -287,10 +248,10 @@ export function GenerationOverview() {
                 事实拒绝依据：{numberLabel(reviewDecisionSummary?.fact_profile_forbidden_count)} 禁用 / {numberLabel(reviewDecisionSummary?.fact_profile_pending_count)} 待确认
               </div>
               <div className="small text-muted rag-debug-muted">
-                Judge 输入：{numberLabel(judgeInputCount)}
+                判定输入：{numberLabel(judgeInputCount)}
               </div>
               <div className="small text-muted rag-debug-muted">
-                Judge 拒绝/待确认：{numberLabel(judgeRejectedOrPending)}
+                判定拒绝/待确认：{numberLabel(judgeRejectedOrPending)}
               </div>
             </div>
           </div>
@@ -300,6 +261,9 @@ export function GenerationOverview() {
               <div className="fw-semibold">{stageStatus(!!generationQualityLedger)}</div>
               <div className="small text-muted rag-debug-muted mt-2">
                 最终数：{numberLabel(generationQualityLedger?.final_count ?? finalCount)}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                初评得分：{numberLabel((generationQualityLedger as any)?.initial_quality_score ?? (generationQualityLedger as any)?.quality_score)}
               </div>
               <div className="small text-muted rag-debug-muted">
                 覆盖率：{percentLabel(ledgerCoverage.coverage_rate)}

@@ -20,6 +20,13 @@ type QualityIssue = {
   examples?: string[];
 };
 
+type ScoreDeduction = {
+  key: string;
+  label: string;
+  count: unknown;
+  points: number;
+};
+
 const WEAK_EXPECTED_RESULT_PATTERNS = [
   '正常显示',
   '显示正常',
@@ -35,6 +42,11 @@ function toFiniteNumber(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function toOptionalFiniteNumber(value: unknown): number | undefined {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 function toText(value: unknown): string {
   return String(value ?? '').trim();
 }
@@ -44,6 +56,33 @@ function percentLabel(value: number): string {
   return `${Math.round(value * 1000) / 10}%`;
 }
 
+function normalizeDeductions(value: unknown): ScoreDeduction[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+    .map((item) => ({
+      key: String(item.key || '').trim(),
+      label: String(item.label || item.key || '扣分项').trim(),
+      count: item.count,
+      points: toFiniteNumber(item.points),
+    }))
+    .filter((item) => item.points > 0)
+    .slice(0, 8);
+}
+
+function confidenceLabel(value: string): string {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'high') return '高';
+  if (normalized === 'medium') return '中';
+  if (normalized === 'low') return '低';
+  return value;
+}
+
+function scoreSourceLabel(value: string): string {
+  if (value === 'backend_diagnostic_v1') return '后端诊断评分 v1';
+  return value;
+}
+
 function issueBadgeVariant(level: IssueLevel): string {
   if (level === 'danger') return 'danger';
   if (level === 'warning') return 'warning';
@@ -51,10 +90,16 @@ function issueBadgeVariant(level: IssueLevel): string {
   return 'info';
 }
 
-function batchVerdict(score: number, riskCount: number): { text: string; variant: string } {
+function scoreVerdict(score: number, riskCount: number): { text: string; variant: string } {
   if (score >= 85 && riskCount === 0) return { text: '可直接采用', variant: 'success' };
   if (score >= 70) return { text: '建议复核后采用', variant: 'warning' };
   return { text: '高风险，建议补生成或人工复核', variant: 'danger' };
+}
+
+function signalVerdict(dangerCount: number, warningCount: number): { text: string; variant: string } {
+  if (dangerCount > 0) return { text: '高风险，建议人工复核', variant: 'danger' };
+  if (warningCount > 0) return { text: '存在风险，建议复核', variant: 'warning' };
+  return { text: '未发现明显风险', variant: 'success' };
 }
 
 function extractCaseId(item: any, index: number): string {
@@ -135,12 +180,12 @@ export function InitialQualityReview({ result, resultSource = 'none' }: Props) {
         title: '重复意图偏多',
         count: Math.max(duplicateCases, judgeDuplicate, duplicateClusters),
         level: 'warning',
-        detail: `Review 发现重复簇 ${duplicateClusters} 组、重复用例 ${duplicateCases} 条；Judge 明细命中重复 ${judgeDuplicate} 条。`,
+        detail: `复核阶段发现重复簇 ${duplicateClusters} 组、重复用例 ${duplicateCases} 条；判定明细命中重复 ${judgeDuplicate} 条。`,
       });
     }
     if (weakExpectedRows.length > 0) {
       issues.push({
-        title: '弱 expected_result',
+        title: '预期结果断言偏弱',
         count: weakExpectedRows.length,
         level: 'warning',
         detail: '部分预期结果为空或只描述“正常/成功”，缺少可断言的页面、数据或状态变化。',
@@ -157,7 +202,7 @@ export function InitialQualityReview({ result, resultSource = 'none' }: Props) {
     }
     if (rejectCount > 0 || pendingCount > 0 || repairableCount > 0) {
       issues.push({
-        title: 'Judge 拒绝/待修复',
+        title: '判定拒绝/待修复',
         count: rejectCount + pendingCount + repairableCount,
         level: rejectCount > 0 ? 'danger' : 'warning',
         detail: `拒绝 ${rejectCount} 条，待确认 ${pendingCount} 条，可修复 ${repairableCount} 条。`,
@@ -181,29 +226,33 @@ export function InitialQualityReview({ result, resultSource = 'none' }: Props) {
     }
 
     const riskCount = issues.filter((issue) => issue.level === 'danger' || issue.level === 'warning').length;
-    const penalty = (
-      missingRules * 8
-      + flowMissing * 10
-      + flowMisordered * 5
-      + duplicateClusters * 6
-      + Math.min(weakExpectedRows.length * 3, 24)
-      + confirmedFactHits * 10
-      + pendingHits * 5
-      + vagueHits * 4
-      + rejectCount * 8
-      + pendingCount * 4
-      + (p0Count ? 0 : cases.length ? 15 : 0)
+    const dangerCount = issues.filter((issue) => issue.level === 'danger').length;
+    const warningCount = issues.filter((issue) => issue.level === 'warning').length;
+    const explicitScore = toOptionalFiniteNumber(
+      (generationQualityLedger as any)?.initial_quality_score
+      ?? (generationQualityLedger as any)?.quality_score
+      ?? (generationQualityLedger as any)?.quality?.score
     );
-    const score = Math.max(0, Math.min(100, Math.round(100 - penalty)));
+    const scoreDeductions = normalizeDeductions((generationQualityLedger as any)?.quality_score_deductions);
+    const scoreSource = String((generationQualityLedger as any)?.quality_score_source || '').trim();
+    const scoreConfidence = String((generationQualityLedger as any)?.quality_score_confidence || '').trim();
 
     return {
-      score,
+      score: explicitScore,
+      scoreText: explicitScore === undefined ? '未接入' : String(explicitScore),
+      scoreNote: explicitScore === undefined
+        ? '当前只展示规则信号，不生成前端假分数'
+        : `后端诊断评分${scoreConfidence ? `，置信度 ${confidenceLabel(scoreConfidence)}` : ''}`,
+      scoreSource,
+      scoreDeductions,
       riskCount,
-      verdict: batchVerdict(score, riskCount),
+      verdict: explicitScore === undefined ? signalVerdict(dangerCount, warningCount) : scoreVerdict(explicitScore, riskCount),
       caseCount: cases.length || resultState?.displayCaseCount || generationQualityLedger?.final_count || 0,
       coverageRate,
+      coverageEvidence: totalRules > 0 ? `规则命中 ${coveredRules}/${totalRules}` : '暂无规则诊断',
       p0Count,
-      issueCount: issues.reduce((sum, issue) => sum + issue.count, 0),
+      issueCount: riskCount,
+      signalCount: issues.reduce((sum, issue) => sum + issue.count, 0),
       issues,
     };
   }, [coverage, generationQualityLedger, reviewDecisionSummary, judgeSummary, judgeDecisionRows, priorityRows, cases, resultState]);
@@ -223,7 +272,7 @@ export function InitialQualityReview({ result, resultSource = 'none' }: Props) {
         <div>
           <h6 className="mb-1 fw-bold">质量初评</h6>
           <div className="small text-muted rag-debug-muted">
-            基于当前批次的覆盖、Review、Judge、优先级和用例文本信号聚合；后续可替换为模型初评结果。
+            基于当前批次的覆盖、复核、判定、优先级和用例文本信号聚合；后续可接入模型初评结果。
           </div>
         </div>
         <Badge bg={review.verdict.variant}>{review.verdict.text}</Badge>
@@ -236,7 +285,8 @@ export function InitialQualityReview({ result, resultSource = 'none' }: Props) {
           <div className="tg-initial-quality-grid mb-3">
             <div className="tg-initial-quality-metric">
               <div className="small text-muted rag-debug-muted">初评得分</div>
-              <div className="fw-bold fs-4">{review.score}</div>
+              <div className="fw-bold fs-4">{review.scoreText}</div>
+              <div className="small text-muted rag-debug-muted">{review.scoreNote}</div>
             </div>
             <div className="tg-initial-quality-metric">
               <div className="small text-muted rag-debug-muted">可见用例</div>
@@ -245,16 +295,34 @@ export function InitialQualityReview({ result, resultSource = 'none' }: Props) {
             <div className="tg-initial-quality-metric">
               <div className="small text-muted rag-debug-muted">规则覆盖率</div>
               <div className="fw-bold fs-4">{percentLabel(review.coverageRate)}</div>
+              <div className="small text-muted rag-debug-muted">{review.coverageEvidence}</div>
             </div>
             <div className="tg-initial-quality-metric">
               <div className="small text-muted rag-debug-muted">P0 数量</div>
               <div className="fw-bold fs-4">{review.p0Count}</div>
             </div>
             <div className="tg-initial-quality-metric">
-              <div className="small text-muted rag-debug-muted">风险项</div>
+              <div className="small text-muted rag-debug-muted">风险类型</div>
               <div className="fw-bold fs-4">{review.issueCount}</div>
+              <div className="small text-muted rag-debug-muted">命中信号 {review.signalCount}</div>
             </div>
           </div>
+
+          {review.scoreDeductions.length ? (
+            <div className="tg-initial-quality-issue border rounded-3 p-3 mb-3">
+              <div className="fw-semibold mb-2">评分扣分依据</div>
+              <div className="d-flex flex-wrap gap-2">
+                {review.scoreDeductions.map((item) => (
+                  <Badge key={`${item.key}-${item.points}`} bg="light" text="dark">
+                    {item.label} -{item.points}
+                  </Badge>
+                ))}
+              </div>
+              {review.scoreSource ? (
+                <div className="small text-muted rag-debug-muted mt-2">评分来源：{scoreSourceLabel(review.scoreSource)}</div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="d-grid gap-3">
             {review.issues.length ? review.issues.map((issue) => (
@@ -289,7 +357,7 @@ export function InitialQualityReview({ result, resultSource = 'none' }: Props) {
               {' '}
               {Array.from(new Set(coverage.rule_diagnostics.flatMap((item) => [...(item.coverage_types || []), ...(item.missing_types || [])])))
                 .slice(0, 8)
-                .map((item) => `${item}=${coverageTypeLabel(item)}`)
+                .map((item) => coverageTypeLabel(item))
                 .join('，')}
             </div>
           ) : null}
@@ -300,7 +368,7 @@ export function InitialQualityReview({ result, resultSource = 'none' }: Props) {
           ) : null}
           {judgeDecisionRows.length ? (
             <div className="small text-muted rag-debug-muted mt-2">
-              Judge 状态保留原始枚举：{['PASS', 'REPAIRABLE', 'REJECT', 'PENDING'].map(judgeStatusLabel).join(' / ')}
+              判定状态：{['PASS', 'REPAIRABLE', 'REJECT', 'PENDING'].map(judgeStatusLabel).join(' / ')}
             </div>
           ) : null}
         </>

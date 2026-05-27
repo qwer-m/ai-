@@ -126,115 +126,13 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .rag-priority-debug-pre {
 
 .rag-debug-panel-root .tg-overview-main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(22rem, 31rem);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 1.35rem;
 }
 
 .rag-debug-panel-root .tg-overview-metrics {
   min-width: 0;
-}
-
-.rag-debug-panel-root .tg-token-usage-panel {
-  background: #f8fafc;
-  align-self: start;
-  margin-top: 0.1rem;
-  min-height: 8.2rem;
-}
-
-.rag-debug-panel-root .tg-token-source-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 2.6rem;
-  padding: 0.18rem 0.46rem;
-  border-radius: 999px;
-  color: #fff;
-  background: #6c757d;
-  font-size: 0.78rem;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.rag-debug-panel-root .tg-token-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
-}
-
-.rag-debug-panel-root .tg-token-bars {
-  display: grid;
-  gap: 0.38rem;
-}
-
-.rag-debug-panel-root .tg-token-row {
-  display: grid;
-  grid-template-columns: 3.8rem minmax(8rem, 1fr) 4.2rem;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.78rem;
-}
-
-.rag-debug-panel-root .tg-token-row-label,
-.rag-debug-panel-root .tg-token-row-value {
-  color: #64748b;
-  white-space: nowrap;
-}
-
-.rag-debug-panel-root .tg-token-row-value {
-  text-align: right;
-}
-
-.rag-debug-panel-root .tg-token-track {
-  height: 0.58rem;
-  border-radius: 999px;
-  background: #e2e8f0;
-  overflow: hidden;
-}
-
-.rag-debug-panel-root .tg-token-stack {
-  display: flex;
-  height: 100%;
-  min-width: 0.35rem;
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.rag-debug-panel-root .tg-token-input {
-  display: block;
-  background: #2563eb;
-}
-
-.rag-debug-panel-root .tg-token-output {
-  display: block;
-  background: #16a34a;
-}
-
-.rag-debug-panel-root .tg-token-legend {
-  display: flex;
-  align-items: center;
-  gap: 0.9rem;
-}
-
-.rag-debug-panel-root .tg-token-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.28rem;
-}
-
-.rag-debug-panel-root .tg-token-dot {
-  display: inline-block;
-  width: 0.48rem;
-  height: 0.48rem;
-  border-radius: 999px;
-}
-
-.rag-debug-panel-root .tg-token-dot-input {
-  background: #2563eb;
-}
-
-.rag-debug-panel-root .tg-token-dot-output {
-  background: #16a34a;
 }
 
 .rag-debug-panel-root .tg-initial-quality-grid {
@@ -258,25 +156,11 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .rag-priority-debug-pre {
   padding-left: 1rem;
 }
 
-body.theme-dark .rag-debug-panel-root .tg-token-usage-panel,
-body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-token-usage-panel,
 body.theme-dark .rag-debug-panel-root .tg-initial-quality-metric,
 body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-initial-quality-metric,
 body.theme-dark .rag-debug-panel-root .tg-initial-quality-issue,
 body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-initial-quality-issue {
   background: #111d31;
-}
-
-body.theme-dark .rag-debug-panel-root .tg-token-track,
-body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-token-track {
-  background: #233246;
-}
-
-body.theme-dark .rag-debug-panel-root .tg-token-row-label,
-body.theme-dark .rag-debug-panel-root .tg-token-row-value,
-body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-token-row-label,
-body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-token-row-value {
-  color: #8ea3be;
 }
 
 @media (max-width: 900px) {

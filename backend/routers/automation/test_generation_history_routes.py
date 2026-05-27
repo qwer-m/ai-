@@ -12,6 +12,7 @@ from core.db.models import User
 from core.processing.file_processing import is_image_filename, parse_file_bytes, parse_image_bytes_with_fallback
 from modules.test_generation_components.services.final_case_learning_service import (
     FinalCaseLearningService,
+    parse_test_cases_spreadsheet_bytes,
 )
 from modules.test_generation_components.services.history_service import TestGenerationHistoryService
 
@@ -130,14 +131,14 @@ async def learn_from_evaluation_cases_file(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    final_payload = (final_cases or "").strip()
+    final_payload: Any = (final_cases or "").strip()
     file_meta: dict[str, Any] = {
         "from_upload": False,
         "filename": "",
         "content_type": "",
         "size": 0,
     }
-    if not final_payload and file is not None:
+    if file is not None:
         filename = file.filename or ""
         raw_bytes = await file.read()
         file_meta.update(
@@ -148,20 +149,27 @@ async def learn_from_evaluation_cases_file(
                 "size": len(raw_bytes),
             }
         )
-        if is_image_filename(filename):
+        direct_cases = parse_test_cases_spreadsheet_bytes(filename, raw_bytes)
+        if direct_cases:
+            final_payload = direct_cases
+            file_meta["parse_strategy"] = "spreadsheet_rows"
+            file_meta["parsed_case_count"] = len(direct_cases)
+        elif is_image_filename(filename) and not final_payload:
             final_payload, _ocr_meta = parse_image_bytes_with_fallback(
                 filename=filename,
                 content_bytes=raw_bytes,
                 db=db,
                 user_id=current_user.id,
             )
-        else:
+            file_meta["parse_strategy"] = "image_ocr"
+        elif not final_payload:
             final_payload = parse_file_bytes(
                 filename=filename,
                 content_bytes=raw_bytes,
                 db=db,
                 user_id=current_user.id,
             )
+            file_meta["parse_strategy"] = "file_text"
 
     status, payload = FinalCaseLearningService(db).learn_from_case_pair(
         project_id=int(project_id),

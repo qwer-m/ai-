@@ -439,6 +439,134 @@ def test_expected_result_generic_success_completion_marked_non_assertable() -> N
     assert not [item for item in (result.get("cases") or []) if isinstance(item, dict)]
 
 
+def test_concrete_ui_state_expected_results_not_marked_non_assertable() -> None:
+    result = _run_cases(
+        requirement="\u4f5c\u6587\u6295\u7a3f\u548c\u8bfe\u7a0b\u73af\u8282\u72b6\u6001\u9700\u8981\u53ef\u9a8c\u8bc1\u7684 UI \u65ad\u8a00",
+        cases=[
+            {
+                "id": "TC-LOCK-001",
+                "description": "\u521d\u59cb\u72b6\u6001\u4e0b\u4e09\u4e2a\u73af\u8282\u5747\u53ef\u968f\u610f\u8fdb\u5165",
+                "test_module": "\u8bfe\u7a0b\u73af\u8282 - \u89e3\u9501\u903b\u8f91",
+                "preconditions": ["\u666e\u901a\u7528\u6237\u5df2\u8fdb\u5165\u8bfe\u7a0b\u73af\u8282\u9875"],
+                "steps": [
+                    "1. \u5206\u522b\u70b9\u51fb\u5ba1\u9898\u7acb\u610f\u3001\u5199\u4f5c\u6280\u6cd5\u3001\u6280\u6cd5\u5de9\u56fa",
+                    "2. \u89c2\u5bdf\u8fdb\u5165\u7ed3\u679c",
+                ],
+                "test_input": "\u7b2c\u4e00\u8bfe\u521d\u59cb\u5b66\u4e60\u72b6\u6001",
+                "expected_result": "\u4e09\u4e2a\u73af\u8282\u5747\u53ef\u6b63\u5e38\u8fdb\u5165\uff0c\u65e0\u4efb\u4f55\u9501\u6216\u63d0\u793a\u963b\u6b62",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-OCR-001",
+                "description": "\u6279\u6539-OCR\u8bc6\u522b\u5931\u8d25\uff08\u56fe\u7247\u6a21\u7cca\uff09\u63d0\u793a\u91cd\u8bd5",
+                "test_module": "\u4f5c\u6587\u6279\u6539-\u6279\u6539\u7ed3\u679c\u9875",
+                "preconditions": ["\u7528\u6237\u5df2\u4e0a\u4f20\u6a21\u7cca\u4f5c\u6587\u56fe\u7247"],
+                "steps": ["1. \u63d0\u4ea4\u6a21\u7cca\u56fe\u7247", "2. \u89c2\u5bdf\u6279\u6539\u5165\u53e3\u548c\u63d0\u793a"],
+                "test_input": "\u6a21\u7cca\u4f5c\u6587\u56fe\u7247",
+                "expected_result": "\u7cfb\u7edf\u63d0\u793a\u2018\u56fe\u7247\u4e0d\u6e05\u6670\uff0c\u8bf7\u91cd\u65b0\u62cd\u6444\u6216\u9009\u62e9\u6e05\u6670\u56fe\u7247\u2019\uff0c\u3010\u53bb\u6279\u6539\u3011\u6309\u94ae\u53d8\u4e3a\u4e0d\u53ef\u70b9\u51fb\u6216\u663e\u793a\u91cd\u8bd5\u9009\u9879",
+                "priority": "P0",
+            },
+        ],
+    )
+    rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    assert len(rows) == 2
+    assert {str(row.get("expected_result_quality") or "") for row in rows} == {"assertable"}
+    assert len([item for item in (result.get("cases") or []) if isinstance(item, dict)]) == 2
+
+
+def test_concrete_formula_order_expected_result_not_marked_non_assertable() -> None:
+    result = _run_cases(
+        requirement="\u4f5c\u6587\u5708\u7cbe\u9009\u6392\u5e8f\u6309\u6743\u91cd S=0.3L+0.2R+0.5T \u964d\u5e8f\u5c55\u793a",
+        cases=[
+            {
+                "id": "TC-FORMULA-001",
+                "description": "\u4f5c\u6587\u5708\u7cbe\u9009\u6392\u5e8f\uff1a\u6309\u6743\u91cdS=0.3L+0.2R+0.5T\u964d\u5e8f\u6392\u5217",
+                "test_module": "\u4f5c\u6587\u5708-\u5217\u8868",
+                "preconditions": ["\u5b58\u5728\u4e09\u7bc7\u4f5c\u54c1 A\u3001B\u3001C\uff0c\u4e14\u70b9\u8d5e/\u9605\u8bfb/\u65f6\u95f4\u6307\u6807\u53ef\u8ba1\u7b97"],
+                "steps": ["1. \u8fdb\u5165\u4f5c\u6587\u5708\u7cbe\u9009\u5217\u8868", "2. \u89c2\u5bdf\u4f5c\u54c1\u5c55\u793a\u987a\u5e8f"],
+                "test_input": "A\u7684S\u503c\u6700\u9ad8\uff0cB\u5c45\u4e2d\uff0cC\u6700\u4f4e",
+                "expected_result": "\u5217\u8868\u4f9d\u6b21\u663e\u793a\u4f5c\u54c1A\u3001B\u3001C\uff08A\u7684S\u503c\u6700\u9ad8\uff0cC\u6700\u4f4e\uff09\uff0c\u987a\u5e8f\u4e0e\u6743\u91cd\u516c\u5f0f\u8ba1\u7b97\u7ed3\u679c\u4e00\u81f4",
+                "priority": "P1",
+            }
+        ],
+    )
+    rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    assert len(rows) == 1
+    assert str(rows[0].get("expected_result_quality") or "") == "assertable"
+    assert len([item for item in (result.get("cases") or []) if isinstance(item, dict)]) == 1
+
+
+def test_concrete_counter_expected_result_not_marked_non_assertable() -> None:
+    result = _run_cases(
+        requirement="\u6279\u6539\u5b8c\u6210\u540e\u9700\u8981\u66f4\u65b0\u5269\u4f59\u6279\u6539\u6b21\u6570",
+        cases=[
+            {
+                "id": "TC-COUNTER-001",
+                "description": "\u6279\u6539\u6b21\u6570\u5269\u4f59\u66f4\u65b0\uff1a\u7b2c\u4e00\u6b21\u6279\u6539\u540e\u5269\u4f59\u6b21\u6570\u4ece5\u53d8\u4e3a4",
+                "test_module": "\u4f5c\u6587\u6279\u6539",
+                "preconditions": ["\u7528\u6237\u5f53\u524d\u5269\u4f59 5 \u6b21\u6279\u6539\u6b21\u6570"],
+                "steps": ["1. \u4e0a\u4f20\u4f5c\u6587\u56fe\u7247", "2. \u70b9\u51fb\u53bb\u6279\u6539\u5e76\u7b49\u5f85\u6279\u6539\u5b8c\u6210"],
+                "test_input": "\u6e05\u6670\u4f5c\u6587\u56fe\u7247",
+                "expected_result": "\u6279\u6539\u5b8c\u6210\u540e\uff0c\u9875\u9762\u4e0a\u65b9\u6216\u6309\u94ae\u5904\u7684\u5269\u4f59\u6279\u6539\u6b21\u6570\u663e\u793a\u4e3a4/5",
+                "priority": "P1",
+            }
+        ],
+    )
+    rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    assert len(rows) == 1
+    assert str(rows[0].get("expected_result_quality") or "") == "assertable"
+    assert len([item for item in (result.get("cases") or []) if isinstance(item, dict)]) == 1
+
+
+def _disabled_semantic_dedup_collapses_generic_intent_variants() -> None:
+    result = _run_cases(
+        requirement="保存操作需要覆盖失败保留数据和成功跳转两个意图；同一失败保留数据意图不要重复生成。",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "保存失败时提示错误并保留表单数据",
+                "test_module": "通用表单保存",
+                "preconditions": ["用户已填写完整表单"],
+                "steps": ["1. 点击保存", "2. 模拟接口返回500", "3. 查看页面提示和表单内容"],
+                "test_input": "接口返回500",
+                "expected_result": "页面显示“保存失败，请重试”，已填写的表单数据保持不变，可再次点击保存",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-002",
+                "description": "网络异常导致保存失败时，用户输入内容不丢失",
+                "test_module": "通用表单保存",
+                "preconditions": ["用户已填写完整表单"],
+                "steps": ["1. 点击保存按钮", "2. 模拟网络异常", "3. 查看错误提示和表单字段"],
+                "test_input": "网络异常",
+                "expected_result": "页面显示“保存失败，请重试”，表单字段仍展示提交前的输入值，用户可重试保存",
+                "priority": "P2",
+            },
+            {
+                "id": "TC-003",
+                "description": "保存成功后跳转详情页",
+                "test_module": "通用表单保存",
+                "preconditions": ["用户已填写完整表单"],
+                "steps": ["1. 点击保存", "2. 接口返回成功", "3. 查看页面跳转"],
+                "test_input": "接口返回成功",
+                "expected_result": "页面跳转到详情页，详情页展示刚保存的数据，地址包含新数据ID",
+                "priority": "P1",
+            },
+        ],
+    )
+
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    failure_cases = [
+        item
+        for item in output_cases
+        if "失败" in str(item.get("description") or "")
+        or "保存失败" in str(item.get("expected_result") or "")
+    ]
+    assert len(failure_cases) == 1
+    assert any("保存成功" in str(item.get("description") or "") for item in output_cases)
+    assert len(output_cases) == 2
+
+
 def test_expected_result_video_retry_delete_template_marked_non_assertable() -> None:
     result = _run_cases(
         requirement="课程视频加载失败时展示失败提示，允许重试，重试失败时不影响返回课程环节页。",
@@ -1488,7 +1616,101 @@ def test_execution_plan_uses_community_tab_fixture_for_list_sorting() -> None:
     assert str(case.get("fixture_builder") or "") == "seed_community_works(status='published', count=30, with_like_reply_time_distribution=true)"
 
 
-def test_full_regression_deterministic_floor_supplement_restores_85_cases() -> None:
+def test_execution_plan_does_not_use_community_fixture_for_generic_student_list_sorting() -> None:
+    result = _run_cases(
+        requirement="督导端学员列表支持科目筛选和列表展示，不涉及作文圈或社区作品。",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "督导端科目筛选功能：选择数学后，学员列表只显示数学科目学员",
+                "test_module": "督导端学员列表",
+                "preconditions": ["督导已登录，学员列表包含数学、物理等多个科目的学员"],
+                "steps": ["1. 点击科目筛选下拉框", "2. 选择数学", "3. 查看学员列表"],
+                "test_input": "筛选条件：数学",
+                "expected_result": "列表仅显示科目为数学的学员，其他科目学员不再出现",
+                "priority": "P1",
+            }
+        ],
+    )
+
+    case = next(item for item in (result.get("cases") or []) if isinstance(item, dict))
+    assert str(case.get("role") or "") == "supervisor"
+    assert str(case.get("session_key") or "") == "supervisor_session"
+    assert str(case.get("fixture_key") or "") != "community_tab_sorting_dataset"
+    assert str(case.get("fixture_builder") or "") != "seed_community_works(status='published', count=30, with_like_reply_time_distribution=true)"
+
+
+def test_execution_plan_uses_browser_permission_fixture_for_microphone_permission() -> None:
+    result = _run_cases(
+        requirement="学员端讲错题支持语音录制，首次使用需要处理浏览器麦克风授权。",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "学员端语音录制功能异常场景：首次使用时用户拒绝麦克风权限",
+                "test_module": "学员端讲错题页面录音功能",
+                "preconditions": ["学员尚未授权麦克风权限"],
+                "steps": ["1. 点击语音录制按钮", "2. 在浏览器权限弹窗中选择禁止", "3. 观察页面反馈"],
+                "test_input": "用户拒绝麦克风权限",
+                "expected_result": "页面提示麦克风权限被拒绝，且输入框仍可正常输入文字提交",
+                "priority": "P1",
+            }
+        ],
+    )
+
+    case = next(item for item in (result.get("cases") or []) if isinstance(item, dict))
+    assert str(case.get("execution_group") or "") == "permission"
+    assert str(case.get("fixture_key") or "") == "browser_permission_state"
+    assert str(case.get("fixture_builder") or "") == "set_browser_permission(permission='microphone', state='prompt')"
+    assert str(case.get("group_setup") or "") == "set_browser_permission(permission='microphone', state='prompt')"
+    assert str(case.get("cleanup_policy") or "") == "reset_browser_permissions"
+
+
+def test_execution_plan_does_not_use_works_over_20_fixture_for_score_boundary_20() -> None:
+    result = _run_cases(
+        requirement="学员端讲错题评分规则必须断言：回答字数不足50字时完整性20分扣50%后显示为10/20，不涉及作文作品列表数量。",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "评分规则：回答字数不足50字时，完整性20分扣50%后显示为10/20",
+                "test_module": "学员端-讲错题页面-评分规则-边界",
+                "preconditions": ["学员已完成一轮讲错题回答，回答字数少于50字"],
+                "steps": ["1. 提交少于50字的回答", "2. 完成交互并触发评分", "3. 查看评分明细"],
+                "test_input": "少于50字的回答文本",
+                "expected_result": "评分明细中完整性显示为10/20，清晰度同步按规则扣减，最终总分按扣分后计算",
+                "priority": "P1",
+            }
+        ],
+    )
+
+    case = next(item for item in (result.get("cases") or []) if isinstance(item, dict))
+    assert str(case.get("execution_group") or "") == "boundary"
+    assert str(case.get("fixture_key") or "") != "works_over_20"
+    assert str(case.get("fixture_builder") or "") != "seed_works(count=21)"
+
+
+def test_execution_plan_uses_generic_boundary_fixture_for_composition_list_limit() -> None:
+    result = _run_cases(
+        requirement="我的作文列表最多展示20条作品，超过20条时需要验证数量上限。",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "我的作文最多20条：超过20篇作文记录时列表仅展示20条",
+                "test_module": "我的作文",
+                "preconditions": ["用户已有超过20篇作文记录"],
+                "steps": ["1. 进入我的作文列表", "2. 查看列表展示数量"],
+                "test_input": "21篇作文记录",
+                "expected_result": "我的作文列表最多展示20条作品记录，其余记录通过分页或加载更多方式展示",
+                "priority": "P1",
+            }
+        ],
+    )
+
+    case = next(item for item in (result.get("cases") or []) if isinstance(item, dict))
+    assert str(case.get("fixture_key") or "") == "boundary_dataset"
+    assert str(case.get("fixture_builder") or "") == "seed_boundary_dataset()"
+
+
+def test_full_regression_does_not_use_deterministic_floor_supplement_templates() -> None:
     state = {
         "source_meta": {
             "generation_coverage_profile": {
@@ -1518,13 +1740,12 @@ def test_full_regression_deterministic_floor_supplement_restores_85_cases() -> N
     )
 
     output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
-    assert len(output_cases) >= 85
     assert [str(item.get("id") or "") for item in output_cases] == [
         f"TC-{index:03d}" for index in range(1, len(output_cases) + 1)
     ]
     summary = dict(result.get("review_decision_summary") or {})
-    assert summary.get("final_shortfall_supplement_applied") is True
-    assert int(summary.get("final_shortfall_supplement_count") or 0) >= 15
+    assert summary.get("final_shortfall_supplement_applied") is not True
+    assert int(summary.get("final_shortfall_supplement_count") or 0) == 0
 
 
 def test_quality_governance_drops_template_polluted_original_image_assertion() -> None:

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Badge, Form } from 'react-bootstrap';
-import { judgeStatusLabel } from './debugLabels';
+import { judgeReasonLabel, judgeStatusLabel } from './debugLabels';
 import { useRagDebugStore } from './debugStore';
 
 type JudgeStatus = 'ALL' | 'PASS' | 'REPAIRABLE' | 'REJECT' | 'PENDING';
@@ -132,7 +132,7 @@ export function JudgeDecisionTable() {
   return (
     <div className="rag-debug-card rounded-2xl shadow-md p-4 border bg-white dark:bg-slate-900">
       <div className="d-flex justify-content-between align-items-center mb-3">
-        <h6 className="mb-0 fw-bold">Judge 决策明细</h6>
+        <h6 className="mb-0 fw-bold">判定决策明细</h6>
         <Form.Select
           size="sm"
           style={{ width: 160 }}
@@ -140,10 +140,10 @@ export function JudgeDecisionTable() {
           onChange={(e) => setStatusFilter(e.target.value as JudgeStatus)}
         >
           <option value="ALL">全部状态</option>
-          <option value="REJECT">仅拒绝 REJECT</option>
-          <option value="PENDING">仅待确认 PENDING</option>
-          <option value="REPAIRABLE">仅可修复 REPAIRABLE</option>
-          <option value="PASS">仅通过 PASS</option>
+          <option value="REJECT">仅拒绝</option>
+          <option value="PENDING">仅待确认</option>
+          <option value="REPAIRABLE">仅可修复</option>
+          <option value="PASS">仅通过</option>
         </Form.Select>
       </div>
 
@@ -170,7 +170,7 @@ export function JudgeDecisionTable() {
               <th>模块</th>
               <th>优先级</th>
               <th>场景</th>
-              <th>Judge 状态</th>
+              <th>判定状态</th>
               <th>拒绝/待定原因</th>
               <th>命中确认事实</th>
               <th>命中待确认逻辑</th>
@@ -184,7 +184,7 @@ export function JudgeDecisionTable() {
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={12} className="text-center text-muted py-4">
-                  暂无 Judge 决策明细数据
+                  暂无判定决策明细数据
                 </td>
               </tr>
             ) : null}
@@ -195,7 +195,7 @@ export function JudgeDecisionTable() {
                 <td>{row.priority}</td>
                 <td>{row.scene}</td>
                 <td title={row.judgeStatus}>{judgeStatusLabel(row.judgeStatus)}</td>
-                <td>{row.rejectReason}</td>
+                <td title={row.rejectReason}>{judgeReasonLabel(row.rejectReason)}</td>
                 <td>{row.hitConfirmedFact ? '是' : '否'}</td>
                 <td>{row.hitPending ? '是' : '否'}</td>
                 <td>{row.hitVague ? '是' : '否'}</td>
