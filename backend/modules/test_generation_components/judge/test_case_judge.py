@@ -5,6 +5,13 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from modules.test_generation_components.coverage.scenario_registry import (
+    cross_module_scenario_kinds,
+    judge_duplicate_thresholds,
+    scenario_pattern_entries,
+    specific_scenario_kinds,
+)
+
 from .judge_types import (
     JudgeBatchResult,
     JudgeResult,
@@ -136,27 +143,9 @@ _DUPLICATE_SCENARIO_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("history_makeup", ("历史", "补做", "补学", "history", "makeup")),
 )
 
-_DUPLICATE_SCENARIO_PATTERNS += (
-    ("essay_submission_failure_reason", ("\u6295\u7a3f", "\u5931\u8d25\u539f\u56e0", "\u9a73\u56de\u539f\u56e0", "\u5ba1\u6838\u5931\u8d25", "submission", "failure reason")),
-    ("essay_polish_copy", ("\u5168\u6587\u6da6\u8272", "\u590d\u5236", "\u6da6\u8272\u6587", "polish", "copy")),
-    ("essay_critique_button_availability", ("\u53bb\u6279\u6539", "\u6309\u94ae", "\u4e0d\u53ef\u70b9", "\u4e0d\u53ef\u7528", "\u53ef\u7528", "critique button", "disabled")),
-    ("nonlinear_course_unlock", ("\u975e\u7ebf\u6027", "\u4efb\u610f\u8fdb\u5165", "\u65e0\u9700\u524d\u7f6e", "\u672a\u9501", "nonlinear", "any stage", "no prerequisite")),
-    ("free_first_lesson", ("\u666e\u901a\u7528\u6237", "\u7b2c\u4e00\u8bfe", "\u8bd5\u5b66", "\u4f1a\u5458\u4e2d\u5fc3", "first lesson", "trial", "member center")),
-    ("secret_overlay", ("\u79d8\u7c4d", "\u8499\u5c42", "\u83b7\u5f97", "\u5f39\u5c42", "secret", "overlay")),
-    ("my_essay_limit", ("\u6211\u7684\u4f5c\u6587", "\u6700\u591a20\u6761", "\u4e0a\u9650", "my essays", "max 20")),
-    ("essay_submission_success_state", ("\u6295\u7a3f\u6210\u529f", "\u63d0\u4ea4\u6210\u529f", "\u5ba1\u6838\u4e2d", "\u72b6\u6001", "submission success", "pending review")),
-    ("pdf_download_content", ("pdf", "\u4e0b\u8f7d", "\u5185\u5bb9", "\u8d44\u6599", "download", "content")),
-    ("critique_limit", ("\u540c\u4e00\u4e3b\u9898", "5\u6b21", "\u6279\u6539\u4e0a\u9650", "\u6b21\u6570", "critique limit")),
-    ("star_rating", ("\u7efc\u5408\u70b9\u8bc4", "\u661f\u661f", "6\u5206\u5236", "star rating")),
-    ("sentence_comment_jump", ("\u5206\u53e5\u70b9\u8bc4", "\u5212\u7ebf", "\u8df3\u8f6c", "\u5207\u6362", "sentence comment")),
-    ("hot_recommend_entry", ("\u70ed\u95e8\u63a8\u8350", "\u5165\u53e3", "\u5c55\u793a", "hot recommendation")),
-    ("secret_entry_list", ("\u5199\u4f5c\u79d8\u7c4d", "\u79d8\u7c4d", "\u5165\u53e3", "\u5217\u8868", "secret list")),
-    ("essay_sample_numbering", ("\u4f18\u79c0\u8303\u6587", "\u591a\u7bc7", "\u5355\u7bc7", "\u5e8f\u53f7", "sample numbering")),
-    ("essay_empty_state", ("\u6211\u7684\u4f5c\u6587", "\u7a7a\u72b6\u6001", "\u6682\u65e0", "my essays empty")),
-    ("delete_restore_unsubmitted", ("\u5220\u9664", "\u5df2\u53d1\u5e03", "\u672a\u6295\u7a3f", "\u6062\u590d", "delete restore")),
-    ("featured_sorting", ("\u4f5c\u6587\u5708", "\u7cbe\u9009", "\u6392\u5e8f", "\u6743\u91cd", "featured sorting")),
-    ("original_image_toggle", ("\u539f\u56fe", "\u663e", "\u9690", "\u6309\u94ae", "original image toggle")),
-)
+_REGISTERED_SCENARIO_KINDS = specific_scenario_kinds()
+_REGISTERED_SCENARIO_THRESHOLDS = judge_duplicate_thresholds()
+_DUPLICATE_SCENARIO_PATTERNS = (*scenario_pattern_entries(), *_DUPLICATE_SCENARIO_PATTERNS)
 
 _DUPLICATE_SIMPLE_SCENARIOS = {
     "title_format",
@@ -202,61 +191,16 @@ _DUPLICATE_SIMPLE_SCENARIOS = {
     "quota_limit",
     "silent_refresh",
     "history_makeup",
-    "essay_submission_failure_reason",
-    "essay_polish_copy",
-    "essay_critique_button_availability",
-    "nonlinear_course_unlock",
-    "free_first_lesson",
-    "secret_overlay",
-    "my_essay_limit",
-    "essay_submission_success_state",
-    "pdf_download_content",
-    "critique_limit",
-    "star_rating",
-    "sentence_comment_jump",
-    "hot_recommend_entry",
-    "secret_entry_list",
-    "essay_sample_numbering",
-    "essay_empty_state",
-    "delete_restore_unsubmitted",
-    "featured_sorting",
-    "original_image_toggle",
 }
+_DUPLICATE_SIMPLE_SCENARIOS.update(_REGISTERED_SCENARIO_KINDS)
 
 _DUPLICATE_SCENARIO_THRESHOLDS: dict[str, tuple[float, int]] = {
     "quota_consumption": (0.22, 8),
-    "essay_submission_failure_reason": (0.22, 6),
-    "essay_polish_copy": (0.22, 6),
-    "essay_critique_button_availability": (0.20, 5),
-    "nonlinear_course_unlock": (0.20, 5),
-    "free_first_lesson": (0.20, 5),
-    "secret_overlay": (0.20, 5),
-    "my_essay_limit": (0.20, 5),
-    "essay_submission_success_state": (0.20, 5),
-    "pdf_download_content": (0.20, 5),
-    "critique_limit": (0.20, 5),
-    "star_rating": (0.20, 5),
-    "sentence_comment_jump": (0.20, 5),
-    "hot_recommend_entry": (0.20, 5),
-    "secret_entry_list": (0.20, 5),
-    "essay_sample_numbering": (0.20, 5),
-    "essay_empty_state": (0.20, 5),
-    "delete_restore_unsubmitted": (0.20, 5),
-    "featured_sorting": (0.20, 5),
-    "original_image_toggle": (0.20, 5),
 }
+_DUPLICATE_SCENARIO_THRESHOLDS.update(_REGISTERED_SCENARIO_THRESHOLDS)
 
-_CROSS_MODULE_DUPLICATE_SCENARIOS = {
-    "nonlinear_course_unlock",
-    "free_first_lesson",
-    "secret_overlay",
-    "my_essay_limit",
-    "essay_submission_success_state",
-    "pdf_download_content",
-    "essay_empty_state",
-    "delete_restore_unsubmitted",
-    "featured_sorting",
-}
+_CROSS_MODULE_DUPLICATE_SCENARIOS = set()
+_CROSS_MODULE_DUPLICATE_SCENARIOS.update(cross_module_scenario_kinds())
 
 _SEMANTIC_STOP_TOKENS = {
     "case",

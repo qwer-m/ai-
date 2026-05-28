@@ -1,0 +1,972 @@
+{
+  "version": 1,
+  "strict_modes": [
+    "core_smoke",
+    "standard_regression",
+    "expanded_regression",
+    "full_functional_regression"
+  ],
+  "domains": [
+    {
+      "key": "ai_wrong_question_teaching",
+      "hints": [
+        "讲错题",
+        "知识错题",
+        "错题讲解",
+        "点击对话",
+        "继续录音",
+        "语音录制",
+        "语音转文字",
+        "学员回答",
+        "学生回答",
+        "追问",
+        "四轮对话",
+        "评分弹窗",
+        "综合评分",
+        "答非所问",
+        "字数不足",
+        "查看讲错题",
+        "费曼",
+        "随堂测",
+        "去日清",
+        "feynman",
+        "follow-up",
+        "wrong question"
+      ],
+      "dominant_threshold": 0.35,
+      "min_strong_score": 3,
+      "min_tag_score": 2,
+      "source": "manual_seed",
+      "status": "active",
+      "documents": [
+        "讲错题接入AI.pdf"
+      ],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": true
+    },
+    {
+      "key": "recent_course_scheduling",
+      "hints": [
+        "近期课程",
+        "排课",
+        "新增计划",
+        "已有计划",
+        "编辑计划",
+        "课程规划",
+        "课程管理",
+        "学习计划",
+        "本周进度",
+        "本周任务",
+        "课堂管理",
+        "节假日",
+        "上课日",
+        "顺延",
+        "快进",
+        "防抄答案",
+        "course scheduling",
+        "schedule plan"
+      ],
+      "dominant_threshold": 0.35,
+      "min_strong_score": 3,
+      "min_tag_score": 2,
+      "source": "manual_seed",
+      "status": "active",
+      "documents": [
+        "近期课程+排课.pdf"
+      ]
+    },
+    {
+      "key": "essay_writing",
+      "hints": [
+        "作文",
+        "投稿",
+        "批改",
+        "润色",
+        "作文圈",
+        "范文",
+        "pdf",
+        "essay",
+        "writing"
+      ],
+      "dominant_threshold": 0.35,
+      "min_strong_score": 3,
+      "min_tag_score": 2,
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": []
+    },
+    {
+      "key": "course_access",
+      "hints": [
+        "课程",
+        "试学",
+        "会员",
+        "权限",
+        "解锁",
+        "course",
+        "trial",
+        "member"
+      ],
+      "dominant_threshold": 0.35,
+      "min_strong_score": 2,
+      "min_tag_score": 1,
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": []
+    }
+  ],
+  "scenarios": [
+    {
+      "key": "ai_answer_irrelevant_score_zero",
+      "keywords": [
+        "答非所问",
+        "准确性",
+        "0分",
+        "无关",
+        "天气",
+        "score zero"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 1,
+        "expanded_regression": 1,
+        "full_functional_regression": 1
+      },
+      "domain": "ai_wrong_question_teaching",
+      "source": "manual_seed",
+      "status": "active",
+      "documents": [
+        "讲错题接入AI.pdf"
+      ]
+    },
+    {
+      "key": "ai_completed_reentry_readonly",
+      "keywords": [
+        "已完成",
+        "再次进入",
+        "历史对话",
+        "置灰",
+        "不可操作",
+        "重复打分",
+        "只读"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 1,
+        "expanded_regression": 1,
+        "full_functional_regression": 1
+      },
+      "domain": "ai_wrong_question_teaching"
+    },
+    {
+      "key": "ai_direct_answer_guard",
+      "keywords": [
+        "直接给出答案",
+        "正确答案",
+        "你错了",
+        "直接否定",
+        "不直接",
+        "引导",
+        "no direct answer"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 1,
+        "expanded_regression": 1,
+        "full_functional_regression": 1
+      },
+      "domain": "ai_wrong_question_teaching"
+    },
+    {
+      "key": "ai_recording_input_state",
+      "keywords": [
+        "录音",
+        "继续录音",
+        "取消录音",
+        "语音上传",
+        "语音转文字",
+        "重试",
+        "audio"
+      ],
+      "default_cap": 2,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 2,
+        "expanded_regression": 2,
+        "full_functional_regression": 2
+      },
+      "domain": "ai_wrong_question_teaching"
+    },
+    {
+      "key": "ai_short_answer_score_boundary",
+      "keywords": [
+        "49字",
+        "50字",
+        "字数不足",
+        "扣50%",
+        "完整性",
+        "清晰度",
+        "少于50"
+      ],
+      "default_cap": 2,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 2,
+        "expanded_regression": 2,
+        "full_functional_regression": 2
+      },
+      "domain": "ai_wrong_question_teaching"
+    },
+    {
+      "key": "ai_teacher_score_conversion",
+      "keywords": [
+        "教师",
+        "百分制",
+        "10分制",
+        "换算",
+        "纠错有效性",
+        "扣分",
+        "满分"
+      ],
+      "default_cap": 2,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 2,
+        "expanded_regression": 2,
+        "full_functional_regression": 2
+      },
+      "domain": "ai_wrong_question_teaching"
+    },
+    {
+      "key": "ai_supervisor_detail_button_state",
+      "keywords": [
+        "督导",
+        "查看讲错题",
+        "按钮",
+        "置灰",
+        "完成",
+        "未完成",
+        "详情"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 1,
+        "expanded_regression": 1,
+        "full_functional_regression": 1
+      },
+      "domain": "ai_wrong_question_teaching"
+    },
+    {
+      "key": "ai_score_popup_threshold",
+      "keywords": [
+        "太棒啦",
+        "太遗憾了",
+        "去日清",
+        "联系督导",
+        "5秒",
+        "评分弹窗"
+      ],
+      "default_cap": 2,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 2,
+        "expanded_regression": 2,
+        "full_functional_regression": 2
+      },
+      "domain": "ai_wrong_question_teaching"
+    },
+    {
+      "key": "ai_print_dialog",
+      "keywords": [
+        "打印",
+        "打印内容",
+        "打印预览",
+        "仅题目",
+        "题目+答案"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 1,
+        "expanded_regression": 1,
+        "full_functional_regression": 1
+      },
+      "domain": "ai_wrong_question_teaching"
+    },
+    {
+      "key": "quiz_result_action_navigation",
+      "keywords": [
+        "随堂测",
+        "查看解析",
+        "重学课程",
+        "讲知识错题",
+        "正确率",
+        "结果弹窗"
+      ],
+      "default_cap": 2,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 2,
+        "expanded_regression": 2,
+        "full_functional_regression": 2
+      },
+      "domain": "ai_wrong_question_teaching"
+    },
+    {
+      "key": "schedule_week_progress_empty",
+      "keywords": [
+        "本周暂无学习计划",
+        "本周进度",
+        "空状态",
+        "无课程",
+        "暂无学习计划"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 1,
+        "expanded_regression": 1,
+        "full_functional_regression": 1
+      },
+      "domain": "recent_course_scheduling"
+    },
+    {
+      "key": "schedule_task_card_display",
+      "keywords": [
+        "本周任务",
+        "任务卡片",
+        "重要知识点",
+        "全部完成时长",
+        "课程类型标识"
+      ],
+      "default_cap": 2,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 2,
+        "expanded_regression": 2,
+        "full_functional_regression": 2
+      },
+      "domain": "recent_course_scheduling"
+    },
+    {
+      "key": "schedule_fast_forward_answer_control",
+      "keywords": [
+        "禁止快进",
+        "允许快进",
+        "防抄答案",
+        "扫码",
+        "查看答案",
+        "进度条"
+      ],
+      "default_cap": 2,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 2,
+        "expanded_regression": 2,
+        "full_functional_regression": 2
+      },
+      "domain": "recent_course_scheduling"
+    },
+    {
+      "key": "schedule_plan_edit_lifecycle",
+      "keywords": [
+        "编辑计划",
+        "下架",
+        "二次确认",
+        "已完成讲次",
+        "开始日期不可编辑",
+        "已有计划"
+      ],
+      "default_cap": 2,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 2,
+        "expanded_regression": 2,
+        "full_functional_regression": 2
+      },
+      "domain": "recent_course_scheduling"
+    },
+    {
+      "key": "schedule_lesson_time_shift",
+      "keywords": [
+        "顺延",
+        "时间冲突",
+        "手动微调",
+        "课程时间调整",
+        "固定间隔"
+      ],
+      "default_cap": 2,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 2,
+        "expanded_regression": 2,
+        "full_functional_regression": 2
+      },
+      "domain": "recent_course_scheduling"
+    },
+    {
+      "key": "schedule_auto_course_selection",
+      "keywords": [
+        "自动选课",
+        "测评",
+        "推荐课程",
+        "测评报告",
+        "近半年"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 1,
+        "expanded_regression": 1,
+        "full_functional_regression": 1
+      },
+      "domain": "recent_course_scheduling"
+    },
+    {
+      "key": "schedule_analytics_event",
+      "keywords": [
+        "埋点",
+        "上报",
+        "学生ID",
+        "督导ID",
+        "停留时间",
+        "PV",
+        "UV"
+      ],
+      "default_cap": 2,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "core_smoke": 1,
+        "standard_regression": 2,
+        "expanded_regression": 2,
+        "full_functional_regression": 2
+      },
+      "domain": "recent_course_scheduling"
+    },
+    {
+      "key": "pdf_download_content",
+      "keywords": [
+        "pdf",
+        "下载",
+        "内容",
+        "资料",
+        "download",
+        "content"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": true
+    },
+    {
+      "key": "essay_empty_state",
+      "keywords": [
+        "我的作文空状态",
+        "我的作文",
+        "暂无作文",
+        "空状态",
+        "my essays empty"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": true
+    },
+    {
+      "key": "delete_restore_unsubmitted",
+      "keywords": [
+        "删除",
+        "已发布",
+        "未投稿",
+        "恢复",
+        "delete restore"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": true
+    },
+    {
+      "key": "featured_sorting",
+      "keywords": [
+        "作文圈",
+        "精选",
+        "排序",
+        "权重",
+        "featured sorting"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": true
+    },
+    {
+      "key": "essay_submission_failure_reason",
+      "keywords": [
+        "投稿",
+        "失败原因",
+        "驳回原因",
+        "审核失败",
+        "submission",
+        "failure reason"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.22,
+        "overlap": 6
+      },
+      "cross_module": false
+    },
+    {
+      "key": "essay_polish_copy",
+      "keywords": [
+        "全文润色",
+        "复制",
+        "润色文",
+        "polish",
+        "copy"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.22,
+        "overlap": 6
+      },
+      "cross_module": false
+    },
+    {
+      "key": "essay_critique_button_availability",
+      "keywords": [
+        "去批改",
+        "按钮",
+        "不可点",
+        "不可用",
+        "可用",
+        "critique button",
+        "disabled"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": false
+    },
+    {
+      "key": "my_essay_limit",
+      "keywords": [
+        "我的作文",
+        "最多20条",
+        "上限",
+        "my essays",
+        "max 20"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": true
+    },
+    {
+      "key": "nonlinear_course_unlock",
+      "keywords": [
+        "非线性",
+        "任意进入",
+        "无需前置",
+        "未锁",
+        "nonlinear",
+        "any stage",
+        "no prerequisite"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "course_access",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": true
+    },
+    {
+      "key": "free_first_lesson",
+      "keywords": [
+        "普通用户",
+        "第一课",
+        "试学",
+        "会员中心",
+        "first lesson",
+        "trial",
+        "member center"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "course_access",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": true
+    },
+    {
+      "key": "secret_overlay",
+      "keywords": [
+        "秘籍",
+        "蒙层",
+        "获得",
+        "弹层",
+        "获得秘籍",
+        "秘籍弹窗",
+        "secret",
+        "overlay"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 0,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": true
+    },
+    {
+      "key": "essay_submission_success_state",
+      "keywords": [
+        "投稿成功",
+        "提交成功",
+        "审核中",
+        "状态",
+        "submission success",
+        "pending review"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": true
+    },
+    {
+      "key": "critique_limit",
+      "keywords": [
+        "同一主题",
+        "5次",
+        "批改上限",
+        "次数",
+        "critique limit"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": false
+    },
+    {
+      "key": "star_rating",
+      "keywords": [
+        "综合点评",
+        "星星",
+        "6分制",
+        "star rating"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": false
+    },
+    {
+      "key": "sentence_comment_jump",
+      "keywords": [
+        "分句点评",
+        "划线",
+        "跳转",
+        "切换",
+        "sentence comment"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": false
+    },
+    {
+      "key": "hot_recommend_entry",
+      "keywords": [
+        "热门推荐",
+        "入口",
+        "展示",
+        "hot recommendation"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": false
+    },
+    {
+      "key": "secret_entry_list",
+      "keywords": [
+        "写作秘籍",
+        "秘籍",
+        "入口",
+        "列表",
+        "secret list"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": false
+    },
+    {
+      "key": "essay_sample_numbering",
+      "keywords": [
+        "优秀范文",
+        "多篇",
+        "单篇",
+        "序号",
+        "sample numbering"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": false
+    },
+    {
+      "key": "original_image_toggle",
+      "keywords": [
+        "原图",
+        "显",
+        "隐",
+        "按钮",
+        "original image toggle"
+      ],
+      "default_cap": 1,
+      "specific": true,
+      "precedence": 5,
+      "mode_caps": {
+        "full_functional_regression": 1
+      },
+      "domain": "essay_writing",
+      "source": "legacy_duplicate_policy",
+      "status": "active",
+      "documents": [],
+      "judge_threshold": {
+        "score": 0.2,
+        "overlap": 5
+      },
+      "cross_module": false
+    }
+  ]
+}

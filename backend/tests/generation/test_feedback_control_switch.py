@@ -105,6 +105,36 @@ def test_redundant_case_maps_to_soft_constraints_not_forbidden(monkeypatch) -> N
     assert "sync entry display duplicate" in state.soft_constraints
 
 
+def test_redundant_case_maps_registered_family_to_scenario_cap(monkeypatch) -> None:
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 43,
+            "samples": [
+                {
+                    "case_id": "TC-1",
+                    "title": "\u7b54\u975e\u6240\u95ee\u51c6\u786e\u60270\u5206\u91cd\u590d\u7528\u4f8b",
+                    "reason_category": "redundant_case",
+                    "expected_priority": "P2",
+                    "user_comment": "\u548c\u5df2\u6709\u7b54\u975e\u6240\u95ee\u51c6\u786e\u60270\u5206\u7528\u4f8b\u91cd\u590d",
+                    "pattern_summary": "\u7b54\u975e\u6240\u95ee\u65f6\u51c6\u786e\u6027\u5f970\u5206",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+    )
+
+    assert state.forbidden_patterns == []
+    assert state.source_meta["priority_pool_redundant_scenario_caps"] == {
+        "ai_answer_irrelevant_score_zero": 1
+    }
+
+
 def test_positive_pattern_maps_to_preferred_patterns(monkeypatch) -> None:
     def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
         return {
@@ -133,6 +163,37 @@ def test_positive_pattern_maps_to_preferred_patterns(monkeypatch) -> None:
     assert "deterministic settlement assertion chain" in state.preferred_patterns
     assert state.source_meta.get("positive_selected_count") == 1
     assert state.source_meta.get("negative_selected_count") == 0
+
+
+def test_positive_case_maps_registered_family_to_must_have_scenario(monkeypatch) -> None:
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 44,
+            "samples": [
+                {
+                    "case_id": "TC-1",
+                    "title": "\u7b54\u975e\u6240\u95ee\u51c6\u786e\u60270\u5206\u4f18\u8d28\u7528\u4f8b",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P1",
+                    "user_comment": "\u4fdd\u7559\u8fd9\u7c7b\u7b54\u975e\u6240\u95ee\u51c6\u786e\u60270\u5206\u7684\u8bc4\u5206\u89c4\u5219\u8986\u76d6",
+                    "pattern_summary": "\u7b54\u975e\u6240\u95ee\u65f6\u51c6\u786e\u6027\u5f970\u5206",
+                    "signal_type": "positive",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+    )
+
+    assert "ai_answer_irrelevant_score_zero" in state.must_have_scenarios
+    assert state.source_meta["priority_pool_positive_scenario_families"] == {
+        "ai_answer_irrelevant_score_zero": 1
+    }
 
 
 def test_sample_kind_positive_maps_to_preferred_patterns(monkeypatch) -> None:

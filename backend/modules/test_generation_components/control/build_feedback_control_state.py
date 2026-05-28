@@ -11,6 +11,10 @@ from modules.memory_fabric.contracts.memory_fabric import MemoryFabric
 from modules.memory_fabric.runtime.diagnostics import record_memory_read
 from modules.memory_fabric.runtime.factory import get_memory_fabric
 from modules.test_generation_components.control.feedback_control_state import FeedbackControlState
+from modules.test_generation_components.coverage.scenario_registry import (
+    classify_registered_scenario_family,
+    infer_domain_tags,
+)
 from modules.testing.priority_sample_pool_store import (
     ensure_priority_pool_pattern_index,
     load_priority_sample_pool,
@@ -18,7 +22,7 @@ from modules.testing.priority_sample_pool_store import (
 )
 
 
-_RULE_PATTERN = re.compile(r"\b(?:RULE|REQ)[-_ ]?\d+\b", re.IGNORECASE)
+_RULE_PATTERN = re.compile(r"\b(?:RULE|REQ)[-_ ]?[A-Z0-9]+\b", re.IGNORECASE)
 _MAX_MUST_COVER_RULES = 12
 _MAX_SCENARIOS = 8
 _MAX_FORBIDDEN_PATTERNS = 8
@@ -73,54 +77,6 @@ _MIN_PRIORITY_POOL_PATTERN_CONFIDENCE = max(
 )
 _ASCII_TOKEN_PATTERN = re.compile(r"[a-z0-9_]+", re.IGNORECASE)
 _CJK_CHAR_PATTERN = re.compile(r"[\u4e00-\u9fff]")
-
-_DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
-    "ai_wrong_question_teaching": (
-        "\u8bb2\u9519\u9898",
-        "\u77e5\u8bc6\u9519\u9898",
-        "\u9519\u9898\u8bb2\u89e3",
-        "\u70b9\u51fb\u5bf9\u8bdd",
-        "\u7ee7\u7eed\u5f55\u97f3",
-        "\u8bed\u97f3\u5f55\u5236",
-        "\u8bed\u97f3\u8f6c\u6587\u5b57",
-        "\u5b66\u5458\u56de\u7b54",
-        "\u5b66\u751f\u56de\u7b54",
-        "\u8ffd\u95ee",
-        "\u56db\u8f6e\u5bf9\u8bdd",
-        "\u8bc4\u5206\u5f39\u7a97",
-        "\u7efc\u5408\u8bc4\u5206",
-        "\u7b54\u975e\u6240\u95ee",
-        "\u5b57\u6570\u4e0d\u8db3",
-        "\u67e5\u770b\u8bb2\u9519\u9898",
-        "\u8d39\u66fc",
-        "\u968f\u5802\u6d4b",
-        "\u53bb\u65e5\u6e05",
-        "feynman",
-        "follow-up",
-        "wrong question",
-    ),
-    "recent_course_scheduling": (
-        "\u8fd1\u671f\u8bfe\u7a0b",
-        "\u6392\u8bfe",
-        "\u65b0\u589e\u8ba1\u5212",
-        "\u5df2\u6709\u8ba1\u5212",
-        "\u7f16\u8f91\u8ba1\u5212",
-        "\u8bfe\u7a0b\u89c4\u5212",
-        "\u8bfe\u7a0b\u7ba1\u7406",
-        "\u5b66\u4e60\u8ba1\u5212",
-        "\u672c\u5468\u8fdb\u5ea6",
-        "\u672c\u5468\u4efb\u52a1",
-        "\u8bfe\u5802\u7ba1\u7406",
-        "\u8282\u5047\u65e5",
-        "\u4e0a\u8bfe\u65e5",
-        "\u987a\u5ef6",
-        "\u5feb\u8fdb",
-        "\u9632\u6284\u7b54\u6848",
-        "course scheduling",
-        "schedule plan",
-    ),
-}
-
 
 _VALID_REASON_CATEGORY = {
     "core_flow",
@@ -503,23 +459,6 @@ def _sample_text_for_retrieval(sample_like: dict[str, Any]) -> str:
     )
 
 
-def _infer_domain_tags(text: str) -> set[str]:
-    lowered = str(text or "").lower()
-    tags: set[str] = set()
-    if not lowered:
-        return tags
-    for domain, hints in _DOMAIN_HINTS.items():
-        hit_count = 0
-        for hint in hints:
-            token = str(hint or "").strip().lower()
-            if token and token in lowered:
-                hit_count += 1
-                if hit_count >= 1:
-                    tags.add(domain)
-                    break
-    return tags
-
-
 def _apply_signal_quota(
     candidates: list[dict[str, Any]],
     *,
@@ -655,14 +594,14 @@ def _select_priority_pool_samples_by_requirement(
         return [], retrieval_meta
 
     query = str(requirement_text or "").strip()
-    query_domains = _infer_domain_tags(query)
+    query_domains = infer_domain_tags(query)
     retrieval_meta["retrieval_query_domain_tags"] = sorted(query_domains)
     allowed_object_ids: set[int] = {id(item) for item in active_samples}
     if query_domains:
         domain_matched_samples = [
             item
             for item in active_samples
-            if _infer_domain_tags(_sample_text_for_retrieval(item)) & query_domains
+            if infer_domain_tags(_sample_text_for_retrieval(item)) & query_domains
         ]
         retrieval_meta["retrieval_domain_matched_sample_count"] = int(len(domain_matched_samples))
         retrieval_meta["retrieval_domain_skipped_sample_count"] = int(
@@ -721,7 +660,7 @@ def _select_priority_pool_samples_by_requirement(
         sample_cjk = _cjk_chars(text)
         ascii_overlap = len(query_ascii & sample_ascii) if query_ascii else 0
         cjk_overlap = len(query_cjk & sample_cjk) if query_cjk else 0
-        domain_overlap = len(_infer_domain_tags(text) & query_domains) if query_domains else 0
+        domain_overlap = len(infer_domain_tags(text) & query_domains) if query_domains else 0
         try:
             weight = float(_sample_value(sample_like, "pattern_weight") or 0.0)
         except Exception:
@@ -995,6 +934,8 @@ def _build_from_priority_sample_pool(
     reuse_risk_seen: set[str] = set()
     soft_constraints: list[str] = []
     quality_hints: list[str] = []
+    positive_scenario_counter: Counter[str] = Counter()
+    redundant_scenario_cap_counter: Counter[str] = Counter()
     verified_count = 0
     manual_comment_count = 0
     positive_selected_count = 0
@@ -1097,6 +1038,19 @@ def _build_from_priority_sample_pool(
             if preferred_pattern:
                 preferred_patterns.append(preferred_pattern)
                 quality_hints.append(f"Prefer reusable pattern: {preferred_pattern[:120]}")
+            scenario_family = classify_registered_scenario_family(
+                "\n".join(
+                    [
+                        _sample_text_for_retrieval(sample),
+                        preferred_pattern,
+                        title,
+                        comment,
+                    ]
+                )
+            )
+            if scenario_family:
+                positive_scenario_counter[scenario_family] += 1
+                scenario_counter[scenario_family] += 1
         else:
             negative_selected_count += 1
             if reason != "redundant_case":
@@ -1150,6 +1104,18 @@ def _build_from_priority_sample_pool(
             ).strip() or _extract_forbidden_pattern_from_sample(title=title, comment=comment)
             if pattern:
                 soft_constraints.append(pattern)
+            scenario_family = classify_registered_scenario_family(
+                "\n".join(
+                    [
+                        _sample_text_for_retrieval(sample),
+                        pattern,
+                        title,
+                        comment,
+                    ]
+                )
+            )
+            if scenario_family:
+                redundant_scenario_cap_counter[scenario_family] += 1
 
         comment_hint = _normalize_comment_hint(comment)
         if comment_hint:
@@ -1205,6 +1171,15 @@ def _build_from_priority_sample_pool(
                 key: int(value)
                 for key, value in pattern_counter.most_common(12)
             },
+            "priority_pool_redundant_scenario_caps": {
+                key: 1 for key, _ in redundant_scenario_cap_counter.most_common(12)
+            },
+            "priority_pool_redundant_scenario_cap_count": int(len(redundant_scenario_cap_counter)),
+            "priority_pool_positive_scenario_families": {
+                key: int(value)
+                for key, value in positive_scenario_counter.most_common(12)
+            },
+            "priority_pool_positive_scenario_family_count": int(len(positive_scenario_counter)),
             "pattern_hit_total": int(sum(pattern_counter.values())),
             "generation_id": payload.get("generation_id"),
             **retrieval_meta,

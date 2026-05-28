@@ -4,6 +4,15 @@ import re
 import unicodedata
 from typing import Any
 
+from modules.test_generation_components.coverage.scenario_registry import (
+    default_scenario_caps,
+    mode_scenario_caps,
+    scenario_pattern_entries,
+    scenario_registry_meta,
+    specific_scenario_kinds,
+    specific_scenario_precedence,
+)
+
 
 _STOPWORDS = {
     "以及",
@@ -438,18 +447,7 @@ _SCENARIO_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 _SCENARIO_PATTERNS += (
-    ("critique_limit", ("\u540c\u4e00\u4e3b\u9898", "5\u6b21", "\u6279\u6539\u4e0a\u9650", "\u6b21\u6570", "critique limit")),
-    ("star_rating", ("\u7efc\u5408\u70b9\u8bc4", "\u661f\u661f", "6\u5206\u5236", "star rating")),
-    ("sentence_comment_jump", ("\u5206\u53e5\u70b9\u8bc4", "\u5212\u7ebf", "\u8df3\u8f6c", "\u5207\u6362", "sentence comment")),
-    ("hot_recommend_entry", ("\u70ed\u95e8\u63a8\u8350", "\u5165\u53e3", "\u5c55\u793a", "hot recommendation")),
-    ("secret_entry_list", ("\u5199\u4f5c\u79d8\u7c4d", "\u79d8\u7c4d", "\u5165\u53e3", "\u5217\u8868", "secret list")),
-    ("pdf_download_content", ("pdf", "\u4e0b\u8f7d", "\u5185\u5bb9", "\u8d44\u6599", "download content")),
-    ("essay_sample_numbering", ("\u4f18\u79c0\u8303\u6587", "\u591a\u7bc7", "\u5355\u7bc7", "\u5e8f\u53f7", "sample numbering")),
-    ("essay_empty_state", ("\u6211\u7684\u4f5c\u6587\u7a7a\u72b6\u6001", "\u6682\u65e0\u4f5c\u6587", "\u7a7a\u72b6\u6001", "my essays empty")),
     ("submission_success_state", ("\u6295\u7a3f\u6210\u529f", "\u5ba1\u6838\u4e2d", "\u5f39\u7a97", "submission success")),
-    ("delete_restore_unsubmitted", ("\u5220\u9664", "\u5df2\u53d1\u5e03", "\u672a\u6295\u7a3f", "\u6062\u590d", "delete restore")),
-    ("featured_sorting", ("\u4f5c\u6587\u5708", "\u7cbe\u9009", "\u6392\u5e8f", "\u6743\u91cd", "featured sorting")),
-    ("original_image_toggle", ("\u539f\u56fe", "\u663e", "\u9690", "\u6309\u94ae", "original image toggle")),
     ("community_empty_state", ("\u4f5c\u6587\u5708\u7a7a\u72b6\u6001", "\u4f5c\u6587\u5708\u6682\u65e0", "\u6682\u65e0\u4f5c\u6587", "\u65e0\u6570\u636e", "community empty")),
     ("full_text_copy", ("\u590d\u5236\u5168\u6587", "\u5168\u6587\u590d\u5236", "\u590d\u5236\u6210\u529f", "copy full text")),
     ("polish_original_compare", ("\u5168\u6587\u6da6\u8272", "\u539f\u6587\u5bf9\u6bd4", "\u5bf9\u6bd4\u663e\u793a", "polish original compare")),
@@ -457,22 +455,11 @@ _SCENARIO_PATTERNS += (
     ("category_sorting", ("\u8bed\u6587\u5206\u7c7b", "\u5206\u7c7b\u6392\u5e8f", "\u7c7b\u76ee\u6392\u5e8f", "category sorting")),
     ("upload_image_management", ("\u4e0a\u4f20\u56fe\u7247", "\u5220\u9664\u56fe\u7247", "\u62d6\u52a8", "\u7f29\u7565\u56fe", "upload image management")),
     ("essay_limit_20", ("\u6211\u7684\u4f5c\u658720\u6761", "20\u6761\u4e0a\u9650", "\u6700\u591a20", "essay limit 20")),
-    ("secret_overlay", ("\u83b7\u5f97\u79d8\u7c4d", "\u8499\u5c42", "\u79d8\u7c4d\u5f39\u7a97", "secret overlay")),
 )
+_SCENARIO_PATTERNS += scenario_pattern_entries()
 
 _SPECIFIC_SCENARIO_KINDS = {
-    "critique_limit",
-    "star_rating",
-    "sentence_comment_jump",
-    "hot_recommend_entry",
-    "secret_entry_list",
-    "pdf_download_content",
-    "essay_sample_numbering",
-    "essay_empty_state",
     "submission_success_state",
-    "delete_restore_unsubmitted",
-    "featured_sorting",
-    "original_image_toggle",
     "community_empty_state",
     "full_text_copy",
     "polish_original_compare",
@@ -480,11 +467,10 @@ _SPECIFIC_SCENARIO_KINDS = {
     "category_sorting",
     "upload_image_management",
     "essay_limit_20",
-    "secret_overlay",
 }
+_SPECIFIC_SCENARIO_KINDS.update(specific_scenario_kinds())
 
 _SPECIFIC_SCENARIO_PRECEDENCE = {
-    "delete_restore_unsubmitted": 0,
     "submission_success_state": 0,
     "upload_image_management": 0,
     "essay_limit_20": 0,
@@ -493,8 +479,8 @@ _SPECIFIC_SCENARIO_PRECEDENCE = {
     "polish_original_compare": 0,
     "technique_practice_answer": 0,
     "category_sorting": 0,
-    "secret_overlay": 0,
 }
+_SPECIFIC_SCENARIO_PRECEDENCE.update(specific_scenario_precedence())
 
 _DEFAULT_SCENARIO_CAPS: dict[str, int] = {
     "title_format": 1,
@@ -517,18 +503,7 @@ _DEFAULT_SCENARIO_CAPS: dict[str, int] = {
     "history_makeup": 1,
     "manual_correction": 2,
     "workflow_navigation": 2,
-    "critique_limit": 1,
-    "star_rating": 1,
-    "sentence_comment_jump": 1,
-    "hot_recommend_entry": 1,
-    "secret_entry_list": 1,
-    "pdf_download_content": 1,
-    "essay_sample_numbering": 1,
-    "essay_empty_state": 1,
     "submission_success_state": 1,
-    "delete_restore_unsubmitted": 1,
-    "featured_sorting": 1,
-    "original_image_toggle": 1,
     "community_empty_state": 1,
     "full_text_copy": 1,
     "polish_original_compare": 1,
@@ -536,8 +511,8 @@ _DEFAULT_SCENARIO_CAPS: dict[str, int] = {
     "category_sorting": 1,
     "upload_image_management": 1,
     "essay_limit_20": 1,
-    "secret_overlay": 1,
 }
+_DEFAULT_SCENARIO_CAPS.update(default_scenario_caps())
 
 _SCENARIO_CAPS_BY_MODE: dict[str, dict[str, int]] = {
     "core_smoke": {
@@ -575,18 +550,7 @@ _SCENARIO_CAPS_BY_MODE: dict[str, dict[str, int]] = {
         "filter_toggle": 4,
         "statistics": 4,
         "feedback": 4,
-        "critique_limit": 1,
-        "star_rating": 1,
-        "sentence_comment_jump": 1,
-        "hot_recommend_entry": 1,
-        "secret_entry_list": 1,
-        "pdf_download_content": 1,
-        "essay_sample_numbering": 1,
-        "essay_empty_state": 1,
         "submission_success_state": 1,
-        "delete_restore_unsubmitted": 1,
-        "featured_sorting": 1,
-        "original_image_toggle": 1,
         "community_empty_state": 1,
         "full_text_copy": 1,
         "polish_original_compare": 1,
@@ -594,13 +558,14 @@ _SCENARIO_CAPS_BY_MODE: dict[str, dict[str, int]] = {
         "category_sorting": 1,
         "upload_image_management": 1,
         "essay_limit_20": 1,
-        "secret_overlay": 1,
         "toast": 8,
         "list": 8,
         "navigate": 8,
         "intent": 5,
     },
 }
+for _mode_name, _mode_caps in mode_scenario_caps().items():
+    _SCENARIO_CAPS_BY_MODE.setdefault(_mode_name, {}).update(_mode_caps)
 
 _STAGE_SPLIT_RE = re.compile(r"\s*(?:->|=>|[\\/\|>:_\-—–／：])\s*")
 _STAGE_TRAILING_NOISE_RE = re.compile(
@@ -1404,7 +1369,7 @@ def _priority_score(value: Any) -> int:
     return 0
 
 
-def _case_value_score(case: dict[str, Any], original_index: int) -> tuple[int, int, int, int, int, int]:
+def _case_value_score(case: dict[str, Any], original_index: int) -> tuple[int, int, int, int, int, int, int]:
     steps = case.get("steps")
     step_count = len([item for item in steps if str(item).strip()]) if isinstance(steps, list) else 0
     text_len = len(str(case.get("description") or "")) + len(str(case.get("expected_result") or ""))
@@ -1413,12 +1378,25 @@ def _case_value_score(case: dict[str, Any], original_index: int) -> tuple[int, i
     complexity_score = int(case_complexity_profile(case).get("complexity_score") or 0)
     return (
         _priority_score(case.get("priority_final") or case.get("priority")),
+        -_legacy_compatibility_penalty(case),
         -min(complexity_score, 8),
         min(step_count, 8),
         min(precondition_count, 6),
         min(text_len, 400),
         -int(original_index),
     )
+
+
+def _legacy_compatibility_penalty(case: dict[str, Any]) -> int:
+    text = _flatten_case_text(case)
+    legacy_hits = (
+        "\u65e7\u7248\u672c",
+        "\u65e7\u7248",
+        "\u517c\u5bb9\u6a21\u5f0f",
+        "legacy",
+        "compatibility mode",
+    )
+    return sum(1 for token in legacy_hits if token and token in text)
 
 
 def _scenario_kind_from_key(scenario_key: str) -> str:
@@ -1502,17 +1480,6 @@ def govern_cases_by_flow_structure(
     flow_outline = dict(structure.get("flow_outline") or {})
     flow_order = [str(item) for item in (flow_outline.get("flow_order") or []) if str(item)]
     cross_order = [str(item) for item in (flow_outline.get("cross_cutting") or []) if str(item)]
-    if not flow_order and not cross_order:
-        return (
-            _renumber_cases(normalized_cases, start_id) if renumber_ids else normalized_cases,
-            {
-                "applied": False,
-                "reason": "no_flow_outline",
-                "scenario_duplicate_pruned_count": 0,
-                "flow_reordered": False,
-            },
-        )
-
     rows = [dict(item) for item in (structure.get("rows") or []) if isinstance(item, dict)]
     row_by_index = {int(row.get("candidate_index") or 0): row for row in rows}
     drop_indices: set[int] = set()
@@ -1575,7 +1542,7 @@ def govern_cases_by_flow_structure(
             group = stage_base + len(cross_rank) + 1
         return (int(group), int(row.get("flow_rank") or 9999), int(index), str(row.get("scenario_key") or ""))
 
-    ordered_pairs = sorted(kept_pairs, key=_sort_key)
+    ordered_pairs = sorted(kept_pairs, key=_sort_key) if (flow_order or cross_order) else kept_pairs
     ordered_cases = [dict(case) for _index, case in ordered_pairs]
     if renumber_ids:
         ordered_cases = _renumber_cases(ordered_cases, start_id)
@@ -1583,7 +1550,9 @@ def govern_cases_by_flow_structure(
     original_order = [int(index) for index, _case in kept_pairs]
     new_order = [int(index) for index, _case in ordered_pairs]
     return ordered_cases, {
-        "applied": True,
+        "applied": bool(flow_order or cross_order or drop_indices),
+        "reason": "" if (flow_order or cross_order or drop_indices) else "no_flow_outline",
+        **scenario_registry_meta(),
         "flow_reordered": bool(original_order != new_order),
         "flow_order": flow_order,
         "cross_cutting_order": cross_order,

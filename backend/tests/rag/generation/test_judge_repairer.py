@@ -113,6 +113,44 @@ def test_judge_rejects_near_duplicate_same_scenario_cases_at_batch_level() -> No
     assert all(item.reject_reason == "semantic_duplicate:TC-001" for item in duplicate_rows)
 
 
+def test_judge_rejects_registered_registry_duplicate_scenarios_across_modules() -> None:
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "\u9a8c\u8bc1\u5b66\u5458\u56de\u7b54\u7b54\u975e\u6240\u95ee\u65f6\uff0c\u51c6\u786e\u6027\u76f4\u63a5\u8bb0\u4e3a0\u5206",
+            "test_module": "\u5b66\u5458\u7aefAI\u8bc4\u5206",
+            "steps": [
+                "1. AI\u63d0\u95ee\u5177\u4f53\u6570\u5b66\u9898",
+                "2. \u5b66\u5458\u8f93\u5165\u4e0e\u9898\u76ee\u65e0\u5173\u7684\u5185\u5bb9",
+                "3. \u67e5\u770b\u51c6\u786e\u6027\u5206\u6570",
+            ],
+            "test_input": "\u4eca\u5929\u5929\u6c14\u5f88\u597d",
+            "expected_result": "\u51c6\u786e\u6027\u5206\u6570\u4e3a0\u5206\uff0c\u5176\u4ed6\u7ef4\u5ea6\u6b63\u5e38\u8bc4\u5206",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-002",
+            "description": "\u9a8c\u8bc1\u5b66\u5458\u7aef\u56de\u7b54\u7b54\u975e\u6240\u95ee\u65f6\u51c6\u786e\u6027\u81ea\u52a80\u5206\uff0c\u4e14\u603b\u5206\u6309\u89c4\u5219\u8ba1\u7b97",
+            "test_module": "\u5b66\u5458\u7aefAI\u8bb2\u9519\u9898\u8bc4\u5206",
+            "steps": [
+                "1. \u5728AI\u8ffd\u95ee\u540e\u8f93\u5165\u4e0e\u95ee\u9898\u65e0\u5173\u7684\u56de\u7b54",
+                "2. \u5b8c\u6210\u4ea4\u4e92\u540e\u67e5\u770b\u8bc4\u5206\u660e\u7ec6",
+            ],
+            "test_input": "\u4eca\u5929\u5929\u6c14\u4e0d\u9519",
+            "expected_result": "\u51c6\u786e\u6027\u7ef4\u5ea6\u5f970\u5206\uff0c\u7cfb\u7edf\u6807\u6ce8\u7b54\u975e\u6240\u95ee",
+            "priority": "P1",
+        },
+    ]
+
+    judged = judge_cases(cases, {})
+    duplicate = next(item for item in judged.cases if item.case_id == "TC-002")
+
+    assert duplicate.status == "REJECT"
+    assert duplicate.reject_reason == "semantic_duplicate:TC-001"
+    assert duplicate.signals.is_semantic_duplicate is True
+    assert duplicate.signals.duplicate_of_case_id == "TC-001"
+
+
 def test_judge_rejects_popup_card_share_quota_and_refresh_duplicate_scenarios() -> None:
     cases = [
         {

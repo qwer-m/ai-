@@ -1365,11 +1365,36 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             if isinstance(case, dict) and int(index) in keep_indices
         ]
     flow_project_profile = dict(project_profile or {})
+    feedback_source_meta = dict(getattr(control_state, "source_meta", {}) or {})
+    feedback_redundant_caps = (
+        feedback_source_meta.get("priority_pool_redundant_scenario_caps")
+        if isinstance(feedback_source_meta.get("priority_pool_redundant_scenario_caps"), dict)
+        else {}
+    )
     if generation_coverage_mode in {"expanded_regression", "full_functional_regression"}:
         scenario_policy = dict(flow_project_profile.get("scenario_cluster_policy") or {})
         scenario_policy["coverage_mode"] = str(generation_coverage_mode or "")
         scenario_policy["intent_duplicate_cap"] = 1
         scenario_policy["strict_duplicate_policy"] = generation_coverage_mode == "expanded_regression"
+        flow_project_profile["scenario_cluster_policy"] = scenario_policy
+    if feedback_redundant_caps:
+        scenario_policy = dict(flow_project_profile.get("scenario_cluster_policy") or {})
+        scenario_caps = dict(scenario_policy.get("scenario_caps") or {})
+        for scenario_key, cap in feedback_redundant_caps.items():
+            key = str(scenario_key or "").strip()
+            if not key:
+                continue
+            try:
+                resolved_cap = max(1, int(cap or 1))
+            except Exception:
+                resolved_cap = 1
+            current_cap = scenario_caps.get(key)
+            try:
+                scenario_caps[key] = min(int(current_cap), resolved_cap) if current_cap is not None else resolved_cap
+            except Exception:
+                scenario_caps[key] = resolved_cap
+        scenario_policy["scenario_caps"] = scenario_caps
+        scenario_policy["feedback_redundant_caps_applied"] = True
         flow_project_profile["scenario_cluster_policy"] = scenario_policy
     try:
         parsed_result, flow_governance_summary = govern_cases_by_flow_structure(
