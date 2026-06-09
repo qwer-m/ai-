@@ -16,6 +16,9 @@ from .core_flow_coverage_contract import (
 from ..postprocess.result_postprocess_priority_semantics import (
     apply_priority_semantics_to_cases,
 )
+from ..postprocess.streaming_expected_result_quality import (
+    is_non_assertable_expected_result as _is_non_assertable_expected_result_shared,
+)
 
 _NON_ASSERTABLE_EXPECTED_PHRASES = (
     "对应状态变化",
@@ -108,7 +111,7 @@ def _is_non_assertable_expected_result(text: str) -> bool:
     normalized = str(text or "").strip()
     if not normalized:
         return True
-    return any(phrase in normalized for phrase in _NON_ASSERTABLE_EXPECTED_PHRASES)
+    return _is_non_assertable_expected_result_shared(normalized)
 
 
 def _case_exact_signature(case: dict[str, Any]) -> str:
@@ -439,12 +442,12 @@ def summarize_case_quality_gate(cases: list[dict[str, Any]]) -> dict[str, Any]:
         quality_reason = str(case_item.get("expected_result_quality_reason") or "").strip().lower()
         truncated_flag = bool(case_item.get("truncated_text_detected"))
 
-        phrase_hit = any(phrase in expected_result_text for phrase in _NON_ASSERTABLE_EXPECTED_PHRASES)
-        non_assertable_hit = bool(
+        text_non_assertable = _is_non_assertable_expected_result(expected_result_text)
+        metadata_non_assertable = bool(
             expected_result_quality == "non_assertable"
             or quality_reason in {"no_concrete_assertion", "template_or_weak_assertion"}
-            or phrase_hit
         )
+        non_assertable_hit = bool(text_non_assertable or (metadata_non_assertable and not expected_result_text))
         if non_assertable_hit:
             non_assertable_expected_result_count += 1
             non_assertable_case_ids.append(case_id)

@@ -1336,3 +1336,341 @@ def test_final_set_internal_nonlinear_stage_conflict_drops_legacy_locked_case() 
     assert "locked toast" not in descriptions
     summary = dict(result.get("review_decision_summary") or {})
     assert int(summary.get("final_confirmed_conflict_drop_count") or 0) >= 1
+
+
+def test_external_workflow_blueprint_disconnected_states_do_not_publish_main_smoke_chain() -> None:
+    blueprint = {
+        "id": "schedule_flow",
+        "workflow_id": "schedule_flow",
+        "source_type": "human_reviewed",
+        "repository_source": "workflow_blueprint_repository",
+        "trusted": True,
+        "steps": [
+            {
+                "id": "entry",
+                "label": "Open schedule creation",
+                "action": "open schedule creation",
+                "state_in": "initial",
+                "state_out": "schedule_create_started",
+                "stage_kind": "entry",
+                "actor": "supervisor",
+                "allow_bridge": True,
+                "match_keywords": ["open schedule creation"],
+            },
+            {
+                "id": "configure",
+                "label": "Select courses and time",
+                "action": "select courses and time",
+                "state_in": "courses_selected",
+                "state_out": "schedule_configured",
+                "stage_kind": "configure",
+                "actor": "supervisor",
+                "match_keywords": ["select courses and time"],
+            },
+            {
+                "id": "preview",
+                "label": "Preview schedule plan",
+                "action": "preview schedule plan",
+                "state_in": "schedule_configured",
+                "state_out": "schedule_preview_ready",
+                "stage_kind": "preview",
+                "actor": "supervisor",
+                "match_keywords": ["preview schedule plan"],
+            },
+            {
+                "id": "commit",
+                "label": "Save schedule plan",
+                "action": "save schedule plan",
+                "state_in": "schedule_preview_ready",
+                "state_out": "schedule_committed",
+                "stage_kind": "commit",
+                "actor": "supervisor",
+                "match_keywords": ["save schedule plan"],
+            },
+            {
+                "id": "downstream",
+                "label": "Student home displays saved schedule",
+                "action": "display saved schedule on student home",
+                "state_in": "schedule_committed",
+                "state_out": "student_home_visible",
+                "stage_kind": "downstream_visibility",
+                "actor": "student",
+                "match_keywords": ["student home displays saved schedule"],
+            },
+            {
+                "id": "consume",
+                "label": "Student opens visible course",
+                "action": "open visible course",
+                "state_in": "student_home_visible",
+                "state_out": "course_learning_opened",
+                "stage_kind": "consume",
+                "actor": "student",
+                "match_keywords": ["student opens visible course"],
+            },
+        ],
+    }
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "Open schedule creation entry",
+            "test_module": "Schedule Entry",
+            "preconditions": ["Supervisor is logged in"],
+            "steps": ["Open schedule creation"],
+            "test_input": "schedule entry",
+            "expected_result": "Schedule creation page is displayed.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-002",
+            "description": "Select courses and time",
+            "test_module": "Schedule Configure",
+            "preconditions": ["Schedule creation page is open"],
+            "steps": ["Select courses", "Select time slots"],
+            "test_input": "courses and time slots",
+            "expected_result": "Selected courses and time slots are retained.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-003",
+            "description": "Preview schedule plan",
+            "test_module": "Schedule Preview",
+            "preconditions": ["Courses and time slots are selected"],
+            "steps": ["Preview schedule plan"],
+            "test_input": "configured plan",
+            "expected_result": "Preview displays selected dates and course count.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-004",
+            "description": "Save schedule plan",
+            "test_module": "Schedule Save",
+            "preconditions": ["Preview is ready"],
+            "steps": ["Save schedule plan"],
+            "test_input": "previewed plan",
+            "expected_result": "Plan is saved and success message is shown.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-005",
+            "description": "Student home displays saved schedule",
+            "test_module": "Student Home",
+            "preconditions": ["Plan is saved"],
+            "steps": ["Open student home"],
+            "test_input": "saved plan",
+            "expected_result": "Saved schedule is visible on student home.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-006",
+            "description": "Student opens visible course",
+            "test_module": "Student Course",
+            "preconditions": ["Saved schedule is visible"],
+            "steps": ["Open visible course"],
+            "test_input": "visible course",
+            "expected_result": "Course learning page opens.",
+            "priority": "P0",
+        },
+    ]
+
+    result = _drain_with_return(
+        stream_postprocess_cases(
+            client=_NoopClient(),
+            requirement="Schedule workflow from creation to student learning.",
+            base_prompt="BASE",
+            kb_context="",
+            full_content=__import__("json").dumps(cases, ensure_ascii=False),
+            expected_count=6,
+            append=False,
+            existing_cases=[],
+            existing_unique_count=0,
+            start_id=1,
+            db=None,
+            clean_and_parse_json_fn=clean_and_parse_json,
+            normalize_json_structure_fn=normalize_json_structure,
+            deduplicate_test_cases_fn=deduplicate_test_cases,
+            reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+            count_unique_test_cases_fn=count_unique_test_cases,
+            infer_case_kind_fn=infer_case_kind,
+            build_supplement_closed_loop_instruction_fn=lambda **_: "",
+            multi_pass=False,
+            generation_mode="single_pass",
+            feedback_control_state={"workflow_blueprints": [blueprint]},
+        )
+    )
+
+    final_cases = result.get("cases") or []
+    assert final_cases
+    assert not [item for item in final_cases if str(item.get("execution_group") or "") == "main_smoke"]
+    summary = dict(result.get("review_decision_summary") or {})
+    execution_plan = dict(summary.get("execution_plan") or {})
+    assert execution_plan["workflow_blueprint_source"] == "feedback_control_state"
+    assert execution_plan["main_chain_case_count"] == 0
+    assert execution_plan["main_chain_incomplete_reason"] == "state_chain_conflict"
+    assert execution_plan["selected_stage_state_conflicts"][0]["reason"] == "state_not_connected"
+
+
+def test_external_workflow_blueprint_materializes_missing_trusted_middle_step() -> None:
+    blueprint = {
+        "id": "course_schedule_flow",
+        "workflow_id": "course_schedule_flow",
+        "source_type": "human_reviewed",
+        "repository_source": "workflow_blueprint_repository",
+        "trusted": True,
+        "steps": [
+            {
+                "id": "entry",
+                "label": "Open schedule creation",
+                "action": "open schedule creation",
+                "state_in": "initial",
+                "state_out": "creation_opened",
+                "stage_kind": "entry",
+                "actor": "supervisor",
+                "allow_bridge": True,
+                "match_keywords": ["open schedule creation"],
+            },
+            {
+                "id": "choose_course",
+                "label": "Choose recent course",
+                "action": "choose recent course",
+                "state_in": "creation_opened",
+                "state_out": "course_chosen",
+                "stage_kind": "configure",
+                "actor": "supervisor",
+                "allow_bridge": True,
+                "match_keywords": ["choose recent course"],
+            },
+            {
+                "id": "configure_time",
+                "label": "Configure schedule time",
+                "action": "configure schedule time",
+                "state_in": "course_chosen",
+                "state_out": "time_configured",
+                "stage_kind": "configure",
+                "actor": "supervisor",
+                "allow_bridge": True,
+                "match_keywords": ["configure schedule time"],
+            },
+            {
+                "id": "save_plan",
+                "label": "Save schedule plan",
+                "action": "save schedule plan",
+                "state_in": "time_configured",
+                "state_out": "plan_saved",
+                "stage_kind": "commit",
+                "actor": "supervisor",
+                "allow_bridge": True,
+                "match_keywords": ["save schedule plan"],
+            },
+            {
+                "id": "student_visible",
+                "label": "Student home displays schedule",
+                "action": "student home displays schedule",
+                "state_in": "plan_saved",
+                "state_out": "student_visible",
+                "stage_kind": "downstream_visibility",
+                "actor": "student",
+                "allow_bridge": True,
+                "match_keywords": ["student home displays schedule"],
+            },
+        ],
+    }
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "Open schedule creation entry",
+            "test_module": "Schedule Entry",
+            "preconditions": ["Supervisor is logged in"],
+            "steps": ["Open schedule creation"],
+            "test_input": "schedule entry",
+            "expected_result": "Schedule creation page is displayed.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-002",
+            "description": "Configure schedule time",
+            "test_module": "Schedule Configure",
+            "preconditions": ["A course has been chosen"],
+            "steps": ["Configure schedule time"],
+            "test_input": "weekday time slot",
+            "expected_result": "Schedule time is retained and the next step is available.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-003",
+            "description": "Save schedule plan",
+            "test_module": "Schedule Save",
+            "preconditions": ["Schedule time is configured"],
+            "steps": ["Save schedule plan"],
+            "test_input": "configured schedule",
+            "expected_result": "Plan is saved and success message is shown.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-004",
+            "description": "Student home displays schedule",
+            "test_module": "Student Home",
+            "preconditions": ["Plan is saved"],
+            "steps": ["Open student home"],
+            "test_input": "saved schedule",
+            "expected_result": "Saved schedule is visible on student home.",
+            "priority": "P0",
+        },
+    ]
+
+    result = _drain_with_return(
+        stream_postprocess_cases(
+            client=_NoopClient(),
+            requirement="Schedule workflow from creation to student home visibility.",
+            base_prompt="BASE",
+            kb_context="",
+            full_content=__import__("json").dumps(cases, ensure_ascii=False),
+            expected_count=5,
+            append=False,
+            existing_cases=[],
+            existing_unique_count=0,
+            start_id=1,
+            db=None,
+            clean_and_parse_json_fn=clean_and_parse_json,
+            normalize_json_structure_fn=normalize_json_structure,
+            deduplicate_test_cases_fn=deduplicate_test_cases,
+            reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+            count_unique_test_cases_fn=count_unique_test_cases,
+            infer_case_kind_fn=infer_case_kind,
+            build_supplement_closed_loop_instruction_fn=lambda **_: "",
+            multi_pass=False,
+            generation_mode="single_pass",
+            feedback_control_state={"workflow_blueprints": [blueprint]},
+        )
+    )
+
+    summary = dict(result.get("review_decision_summary") or {})
+    execution_plan = dict(summary.get("execution_plan") or {})
+    assert execution_plan["linear_executable"] is True
+    assert execution_plan["state_conflict_count"] == 0
+    assert execution_plan["workflow_contract_materialized_case_count"] == 1
+    main_cases = [
+        item
+        for item in (result.get("cases") or [])
+        if str(item.get("execution_group") or "") == "main_smoke"
+    ]
+    assert [item.get("main_chain_stage") for item in main_cases] == [
+        "entry",
+        "choose_course",
+        "configure_time",
+        "save_plan",
+        "student_visible",
+    ]
+    assert any(item.get("description") == "Choose recent course" for item in main_cases)
+    assert not any(bool(item.get("generated_bridge_case")) for item in main_cases)
+    materialized = next(item for item in main_cases if item.get("description") == "Choose recent course")
+    public_text = " ".join(
+        [
+            str(materialized.get("test_module") or ""),
+            str(materialized.get("description") or ""),
+            str(materialized.get("expected_result") or ""),
+            str(materialized.get("test_input") or ""),
+            " ".join(str(step) for step in materialized.get("steps") or []),
+        ]
+    )
+    assert "workflow_blueprint" not in public_text
+    assert "course_schedule_flow" not in public_text

@@ -29,22 +29,23 @@ from schemas.automation.test_generation import TestGenRequest as _TestGenRequest
 
 def _main_chain_cases() -> list[dict]:
     stages = [
-        ("entry", "ready", "started"),
-        ("configure", "started", "configured"),
-        ("preview", "configured", "preview_ready"),
-        ("commit", "preview_ready", "committed"),
-        ("downstream_visibility", "committed", "visible"),
-        ("consume", "visible", "consumed"),
+        ("entry", "ready", "started", "open workflow entry"),
+        ("configure", "started", "configured", "select courses and configure schedule time"),
+        ("preview", "configured", "preview_ready", "preview schedule plan before save"),
+        ("commit", "preview_ready", "committed", "save plan and confirm creation"),
+        ("downstream_visibility", "committed", "visible", "saved plan is synced and visible on student home"),
+        ("consume", "visible", "consumed", "student clicks visible course and enters learning"),
     ]
     return [
         {
             "id": f"TC-{index:03d}",
-            "description": f"workflow step {index}",
+            "description": description,
             "priority": "P0",
             "execution_group": "main_smoke",
             "main_chain_step": index,
             "role": "student",
             "session_key": "student_session",
+            "expected_result": f"state reaches {target_state}",
             "workflow_transition": {
                 "workflow_id": "schedule_flow",
                 "source_state": source_state,
@@ -58,7 +59,7 @@ def _main_chain_cases() -> list[dict]:
                 "stage_kind": stage_kind,
             },
         }
-        for index, (stage_kind, source_state, target_state) in enumerate(stages, start=1)
+        for index, (stage_kind, source_state, target_state, description) in enumerate(stages, start=1)
     ]
 
 
@@ -113,7 +114,7 @@ def test_validator_treats_save_and_display_case_as_commit_not_downstream() -> No
         ("review preview", "configured", "preview_ready"),
         ("save plan and display confirmation", "preview_ready", "committed"),
         ("display saved plan on student home", "committed", "visible"),
-        ("learn course from visible plan", "visible", "consumed"),
+        ("learn course from plan and enter learning", "visible", "consumed"),
     ]
     cases = [
         {
@@ -186,6 +187,57 @@ def test_validator_reports_disconnected_state_and_blocking_main_case() -> None:
     assert "state_not_connected" in reasons
     assert "blocking_case_in_main_smoke" in reasons
     assert "non_advancing_case_in_main_smoke" in reasons
+
+
+def test_validator_rejects_stage_labels_that_do_not_match_case_text() -> None:
+    cases = _main_chain_cases()
+    cases[1]["description"] = "existing plan list is sorted by course time and status labels"
+    cases[1]["expected_result"] = "list rows are sorted and marked completed or in progress"
+    cases[2]["description"] = "exit schedule creation and verify selected courses are not retained"
+    cases[2]["expected_result"] = "selection is cleared and the page returns to blank initial state"
+    cases[3]["description"] = "preview schedule plan"
+    cases[3]["steps"] = ["preview_schedule_plan"]
+    cases[3]["expected_result"] = "schedule_preview_ready"
+    cases[3]["generated_bridge_case"] = True
+
+    result = validate_execution_plan(
+        cases,
+        workflow_blueprints=[_trusted_blueprint()],
+        execution_plan={"workflow_blueprint_source": "feedback_control_state"},
+    )
+
+    reasons = {item["reason"] for item in result["semantic_conflicts"]}
+    assert result["passed"] is False
+    assert "main_smoke_semantic_conflict" in result["failure_reasons"]
+    assert "reset_or_abort_case_in_main_smoke" in reasons
+    assert "stage_text_lacks_configure_action" in reasons
+    assert "passive_list_status_case_used_as_configure" in reasons
+    assert "generated_bridge_case_in_final_main_smoke" in reasons
+    assert "internal_placeholder_text_in_final_main_smoke" in reasons
+
+
+def test_validator_rejects_management_report_case_as_student_completion_sync() -> None:
+    cases = _main_chain_cases()
+    terminal = cases[-1]
+    terminal["description"] = "student info table shows report and history buttons after class"
+    terminal["test_module"] = "student info table learning progress"
+    terminal["expected_result"] = "report and history buttons open the report page and history page"
+    terminal["role"] = "student"
+    terminal["workflow_transition"]["stage_kind"] = "completion_sync"
+    terminal["workflow_transition"]["action"] = "update_learning_progress"
+    terminal["workflow_transition"]["target_state"] = "progress_updated"
+
+    result = validate_execution_plan(
+        cases,
+        workflow_blueprints=[_trusted_blueprint()],
+        execution_plan={"workflow_blueprint_source": "feedback_control_state"},
+    )
+
+    reasons = {item["reason"] for item in result["semantic_conflicts"]}
+    assert result["passed"] is False
+    assert "main_smoke_semantic_conflict" in result["failure_reasons"]
+    assert "student_role_with_management_surface_text" in reasons
+    assert "report_history_case_not_completion_sync" in reasons
 
 
 def test_validator_rejects_candidate_derived_blueprint_as_strong_proof() -> None:

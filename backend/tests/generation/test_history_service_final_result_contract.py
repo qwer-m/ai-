@@ -20,6 +20,8 @@ class _Repo:
 
 
 def test_history_generation_preserves_final_case_contract_fields() -> None:
+    assert TestGenerationHistoryService.__test__ is False
+
     cases = [
         {
             "id": "TC-001",

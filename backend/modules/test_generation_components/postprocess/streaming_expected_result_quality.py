@@ -48,6 +48,125 @@ TRUNCATED_TEXT_ENDINGS = (
     "显示为",
 )
 
+_BUSINESS_ASSERTION_PREDICATES = (
+    "支持",
+    "默认",
+    "可选",
+    "可选择",
+    "自动",
+    "生成",
+    "展示",
+    "显示",
+    "出现",
+    "保留",
+    "更新",
+    "同步",
+    "生效",
+    "保存",
+    "创建",
+    "新增",
+    "跳转",
+    "进入",
+    "返回",
+    "置灰",
+    "禁用",
+    "隐藏",
+    "锁定",
+    "解锁",
+    "排序",
+    "过滤",
+    "匹配",
+    "一致",
+    "contains",
+    "shows",
+    "displays",
+    "generates",
+    "updates",
+    "syncs",
+    "defaults",
+    "supports",
+    "retains",
+    "matches",
+)
+
+_BUSINESS_ASSERTION_OBJECTS = (
+    "页面",
+    "列表",
+    "按钮",
+    "弹窗",
+    "文案",
+    "状态",
+    "时间",
+    "日期",
+    "数量",
+    "次数",
+    "记录",
+    "字段",
+    "表单",
+    "入口",
+    "预览",
+    "结果",
+    "数据",
+    "进度",
+    "任务",
+    "计划",
+    "课程",
+    "课时",
+    "toast",
+    "message",
+    "status",
+    "count",
+    "record",
+    "field",
+    "preview",
+    "result",
+    "data",
+)
+
+_CONCRETE_VALUE_RE = re.compile(
+    r"(?:\d+\s*[:：]\s*\d+(?:\s*[-~至到]\s*\d+\s*[:：]\s*\d+)?)"
+    r"|(?:\d+\s*/\s*\d+)"
+    r"|(?:\d+(?:\.\d+)?\s*(?:%|px|ms|s|秒|分钟|小时|天|周|月|年|节|次|条|个|页|张|人|份))"
+    r"|(?:[A-Z]{1,5}-\d{2,})"
+)
+
+
+def _non_assertable_phrase_hit(text: str) -> bool:
+    return any(phrase in text for phrase in NON_ASSERTABLE_EXPECTED_PHRASES)
+
+
+def _has_concrete_value(text: str) -> bool:
+    return bool(_CONCRETE_VALUE_RE.search(text))
+
+
+def _has_business_assertion_predicate(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(token.lower() in lowered for token in _BUSINESS_ASSERTION_PREDICATES)
+
+
+def _has_business_assertion_object(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(token.lower() in lowered for token in _BUSINESS_ASSERTION_OBJECTS)
+
+
+def _business_assertion_clause_count(text: str) -> int:
+    clauses = [
+        part.strip()
+        for part in re.split(r"[；;。.!！\n]+", str(text or ""))
+        if part.strip()
+    ]
+    if len(clauses) < 2:
+        return 0
+    concrete_count = 0
+    for clause in clauses:
+        if _non_assertable_phrase_hit(clause):
+            continue
+        if not _has_business_assertion_predicate(clause):
+            continue
+        if _has_concrete_value(clause) or _has_business_assertion_object(clause):
+            concrete_count += 1
+    return concrete_count
+
 
 def has_concrete_expected_assertion(text: str) -> bool:
     normalized = str(text or "").strip()
@@ -93,7 +212,11 @@ def has_concrete_expected_assertion(text: str) -> bool:
         "restore",
         "removed",
     )
-    return any(token in normalized for token in concrete_tokens)
+    if any(token in normalized for token in concrete_tokens):
+        return True
+    if _business_assertion_clause_count(normalized) >= 2:
+        return True
+    return False
 
 
 def has_weak_ambiguous_expected_result(text: str) -> bool:
@@ -128,7 +251,7 @@ def is_non_assertable_expected_result(text: str) -> bool:
         return True
     if concrete_assertion:
         return False
-    return any(phrase in normalized for phrase in NON_ASSERTABLE_EXPECTED_PHRASES)
+    return _non_assertable_phrase_hit(normalized)
 
 
 def looks_template_polluted_expected_result(text: str) -> bool:

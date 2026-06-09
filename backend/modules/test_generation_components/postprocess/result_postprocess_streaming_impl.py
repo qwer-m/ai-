@@ -8,6 +8,7 @@ from ..control.workflow_blueprint_repository import is_trusted_workflow_contract
 from ..coverage.coverage_analyzer import case_complexity_profile
 from .execution_plan_validator import (
     materialize_final_case_state_fields,
+    validate_main_smoke_semantic_alignment,
     validate_main_smoke_state_chain,
 )
 from .priority_anchor_rules import (
@@ -1743,6 +1744,35 @@ def stream_postprocess_cases(
                 return False, "missing_configure_or_entry_step", stage_kinds
             return True, "", stage_kinds
 
+        def _selected_stage_state_conflicts(
+            selected: list[tuple[str, str, dict[str, Any]]],
+        ) -> list[dict[str, Any]]:
+            conflicts: list[dict[str, Any]] = []
+            previous_stage_key = ""
+            previous_case_id = ""
+            previous_target_state = ""
+            for stage_key, _stage_label, item in selected:
+                step_meta = workflow_stage_meta_by_key.get(stage_key) or {}
+                source_state = str(step_meta.get("state_in") or "").strip()
+                target_state = str(step_meta.get("state_out") or "").strip()
+                case_id = str(item.get("id") or "").strip()
+                if previous_target_state and source_state and previous_target_state != source_state:
+                    conflicts.append(
+                        {
+                            "prev_stage_key": previous_stage_key,
+                            "curr_stage_key": str(stage_key),
+                            "prev_case_id": previous_case_id,
+                            "curr_case_id": case_id,
+                            "prev_target_state": previous_target_state,
+                            "curr_source_state": source_state,
+                            "reason": "state_not_connected",
+                        }
+                    )
+                previous_stage_key = str(stage_key)
+                previous_case_id = case_id
+                previous_target_state = target_state
+            return conflicts
+
         def _workflow_phase(text: str) -> int:
             lowered = str(text or "").lower()
             if _any(lowered, ("打开", "进入", "访问", "入口", "open", "enter", "entry")):
@@ -2070,6 +2100,7 @@ def stream_postprocess_cases(
 
         selected_by_stage: list[tuple[str, str, dict[str, Any]]] = []
         selected_signatures: set[str] = set()
+        strict_blueprint_semantic_filter = bool(workflow_blueprints)
         for stage_key, stage_label, patterns in main_chain_stages:
             ranked: list[tuple[int, int, dict[str, Any]]] = []
             for index, item in enumerate(candidate_cases):
@@ -2088,7 +2119,6 @@ def stream_postprocess_cases(
                 if bool(step_meta.get("exclude_failure_steps")) and _any(text, low_chain_tokens):
                     _record_main_chain_exclusion(item, "failure_step_excluded_by_blueprint", stage_key=stage_key)
                     continue
-                score = _priority_rank(item) + min(80, match_score)
                 expected_stage_kind = str(step_meta.get("stage_kind") or "").strip().lower()
                 if not expected_stage_kind:
                     expected_stage_kind = _workflow_stage_kind_from_text(
@@ -2102,6 +2132,19 @@ def stream_postprocess_cases(
                         )
                     )
                 candidate_stage_kind = _workflow_stage_kind_from_text(text)
+                if strict_blueprint_semantic_filter:
+                    semantic_probe = dict(item)
+                    semantic_probe["execution_group"] = "main_smoke"
+                    semantic_probe["main_chain_stage_kind"] = expected_stage_kind
+                    semantic_probe["role"] = str(
+                        step_meta.get("actor") or item.get("role") or _infer_actor_from_text(text)
+                    ).strip()
+                    semantic_conflicts = validate_main_smoke_semantic_alignment([semantic_probe])
+                    if semantic_conflicts:
+                        first_reason = str(semantic_conflicts[0].get("reason") or "main_chain_semantic_conflict")
+                        _record_main_chain_exclusion(item, first_reason, stage_key=stage_key)
+                        continue
+                score = _priority_rank(item) + min(80, match_score)
                 if expected_stage_kind in {"commit", "downstream_visibility"}:
                     if candidate_stage_kind == expected_stage_kind:
                         score += 30
@@ -2156,10 +2199,78 @@ def stream_postprocess_cases(
                 "workflow_blueprint_bridge": True,
             }
 
+        def _is_internal_state_text(value: str) -> bool:
+            return bool(re.search(r"\b[a-z][a-z0-9]*_[a-z0-9_]*\b", str(value or "").strip().lower()))
+
+        def _public_contract_module_label(step_meta: dict[str, Any], label: str) -> str:
+            for raw in (
+                step_meta.get("module"),
+                step_meta.get("domain"),
+                step_meta.get("feature"),
+                step_meta.get("blueprint_name"),
+            ):
+                value = str(raw or "").strip()
+                if value and not _is_internal_state_text(value):
+                    return value[:80]
+            if _any(str(label or "").lower(), ("学生", "学员", "student")):
+                return "学生端主链路"
+            return "业务主链路"
+
+        def _contract_materialized_expected_result(label: str, stage_kind: str) -> str:
+            stage = str(stage_kind or "").strip().lower()
+            if stage == "entry":
+                return f"{label}完成，目标入口页面可继续操作"
+            if stage == "configure":
+                return f"{label}完成，已选配置在页面中保留并可进入下一步"
+            if stage == "preview":
+                return f"{label}完成，预览内容展示当前配置结果"
+            if stage == "commit":
+                return f"{label}完成，保存结果展示成功状态"
+            if stage == "downstream_visibility":
+                return f"{label}完成，下游页面展示最新业务结果"
+            if stage == "consume":
+                return f"{label}完成，目标页面打开并展示可操作内容"
+            if stage == "completion_sync":
+                return f"{label}完成，进度状态更新"
+            return f"{label}完成，业务状态已更新并可继续执行下一步"
+
+        def _contract_materialized_case(
+            stage_key: str,
+            *,
+            available_stage_keys: set[str] | None = None,
+        ) -> dict[str, Any] | None:
+            bridge = _bridge_case(stage_key, available_stage_keys=available_stage_keys)
+            if bridge is None:
+                return None
+            step_meta = workflow_stage_meta_by_key.get(stage_key) or {}
+            label = str(step_meta.get("label") or stage_key).strip()
+            if not label or _is_internal_state_text(label):
+                return None
+            stage_kind = str(step_meta.get("stage_kind") or "").strip().lower()
+            assertion = str(step_meta.get("assertion") or step_meta.get("expected_result") or "").strip()
+            expected_result = (
+                assertion
+                if assertion and not _is_internal_state_text(assertion)
+                else _contract_materialized_expected_result(label, stage_kind)
+            )
+            return {
+                "id": f"TC-CONTRACT-{stage_key.upper().replace(':', '-').replace(' ', '-')[:40]}",
+                "description": label,
+                "test_module": _public_contract_module_label(step_meta, label),
+                "preconditions": [f"已具备执行“{label}”的前置业务状态"],
+                "steps": [label],
+                "test_input": label,
+                "expected_result": expected_result,
+                "priority": "P0" if bool(step_meta.get("main_path_step", True)) else "P1",
+                "role": str(step_meta.get("actor") or "student"),
+                "workflow_contract_materialized_case": True,
+            }
+
         if selected_by_stage or trusted_workflow_contracts:
             bridged_by_stage: list[tuple[str, str, dict[str, Any]]] = []
             current_selected = {stage_key for stage_key, _label, _item in selected_by_stage}
             selected_by_stage_map = {stage_key: (stage_label, item) for stage_key, stage_label, item in selected_by_stage}
+            allow_contract_materialization = bool(strict_blueprint_semantic_filter and selected_by_stage)
             for stage_key, stage_label, _patterns in main_chain_stages:
                 existing = selected_by_stage_map.get(stage_key)
                 if existing:
@@ -2167,8 +2278,16 @@ def stream_postprocess_cases(
                     selected_stage_keys.add(stage_key)
                     bridged_by_stage.append((stage_key, existing[0], existing[1]))
                     continue
-                bridge = _bridge_case(stage_key, available_stage_keys=current_selected)
+                bridge = (
+                    _contract_materialized_case(stage_key, available_stage_keys=current_selected)
+                    if allow_contract_materialization
+                    else _bridge_case(stage_key, available_stage_keys=current_selected)
+                )
                 if bridge is not None:
+                    if strict_blueprint_semantic_filter:
+                        if not bool(bridge.get("workflow_contract_materialized_case")):
+                            _record_main_chain_exclusion(bridge, "bridge_case_not_public_final_case", stage_key=stage_key)
+                            continue
                     current_selected.add(stage_key)
                     selected_stage_keys.add(stage_key)
                     bridged_by_stage.append((stage_key, stage_label_by_key.get(stage_key, stage_label), bridge))
@@ -2182,6 +2301,29 @@ def stream_postprocess_cases(
             else "none"
         )
         main_chain_stage_kinds: list[str] = []
+        selected_stage_state_conflicts: list[dict[str, Any]] = []
+        if selected_by_stage and strict_blueprint_semantic_filter:
+            selected_stage_state_conflicts = _selected_stage_state_conflicts(selected_by_stage)
+            if selected_stage_state_conflicts:
+                main_chain_incomplete_reason = "state_chain_conflict"
+                conflicted_stage_keys = {
+                    str(conflict.get("prev_stage_key") or "")
+                    for conflict in selected_stage_state_conflicts
+                    if str(conflict.get("prev_stage_key") or "")
+                } | {
+                    str(conflict.get("curr_stage_key") or "")
+                    for conflict in selected_stage_state_conflicts
+                    if str(conflict.get("curr_stage_key") or "")
+                }
+                for excluded_stage_key, _excluded_stage_label, excluded_item in selected_by_stage:
+                    if str(excluded_stage_key) in conflicted_stage_keys:
+                        _record_main_chain_exclusion(
+                            excluded_item,
+                            "state_bridge_missing",
+                            stage_key=excluded_stage_key,
+                        )
+                selected_by_stage = []
+                selected_signatures.clear()
         if selected_by_stage:
             closure_ok, closure_reason, main_chain_stage_kinds = _main_chain_closure_status(
                 selected_by_stage,
@@ -2196,6 +2338,7 @@ def stream_postprocess_cases(
                         stage_key=excluded_stage_key,
                     )
                 selected_by_stage = []
+                selected_signatures.clear()
 
         def _infer_role(item: dict[str, Any]) -> str:
             explicit_role = str(item.get("role") or "").strip().lower()
@@ -2667,6 +2810,7 @@ def stream_postprocess_cases(
             and not item.get("depends_on")
         )
         state_conflicts = validate_main_smoke_state_chain(annotated)
+        semantic_conflicts = validate_main_smoke_semantic_alignment(annotated)
         summary = {
             "applied": True,
             "coverage_mode": str(coverage_mode or ""),
@@ -2680,7 +2824,12 @@ def stream_postprocess_cases(
                 if plan_workflow_blueprints
                 else "none"
             ),
-            "linear_executable": bool(main_chain_count >= 2 and broken_dependency_count == 0 and not state_conflicts),
+            "linear_executable": bool(
+                main_chain_count >= 2
+                and broken_dependency_count == 0
+                and not state_conflicts
+                and not semantic_conflicts
+            ),
             "linear_scope": "main_smoke_chain_only",
             "main_chain_case_count": int(main_chain_count),
             "main_chain_stage_order": [
@@ -2701,11 +2850,17 @@ def stream_postprocess_cases(
             "broken_dependency_count": int(broken_dependency_count),
             "state_conflict_count": int(len(state_conflicts)),
             "state_conflicts": state_conflicts[:50],
+            "selected_stage_state_conflicts": selected_stage_state_conflicts[:50],
+            "semantic_conflict_count": int(len(semantic_conflicts)),
+            "semantic_conflicts": semantic_conflicts[:50],
             "execution_group_breakdown": {
                 group: sum(1 for item in annotated if str(item.get("execution_group") or "") == group)
                 for group in sorted({str(item.get("execution_group") or "") for item in annotated})
             },
             "generated_bridge_case_count": int(sum(1 for item in annotated if bool(item.get("generated_bridge_case")))),
+            "workflow_contract_materialized_case_count": int(
+                sum(1 for item in annotated if bool(item.get("workflow_contract_materialized_case")))
+            ),
             "group_setup": {
                 group: group_setup_map.get(group, "seed_case_dataset()")
                 for group in sorted({str(item.get("execution_group") or "") for item in annotated})

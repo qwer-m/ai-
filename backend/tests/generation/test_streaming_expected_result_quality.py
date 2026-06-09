@@ -8,6 +8,9 @@ from modules.test_generation_components.postprocess.streaming_expected_result_qu
     looks_template_polluted_expected_result,
     looks_truncated_text,
 )
+from modules.test_generation_components.coverage.core_flow_backfill_generation import (
+    summarize_case_quality_gate,
+)
 
 
 def test_expected_result_quality_detects_concrete_assertions() -> None:
@@ -31,6 +34,29 @@ def test_expected_result_quality_allows_ambiguous_text_when_specific_assertion_e
     assert has_concrete_expected_assertion(text)
     assert not has_weak_ambiguous_expected_result(text)
     assert not is_non_assertable_expected_result(text)
+
+
+def test_expected_result_quality_allows_multiclause_business_assertions_with_option_text() -> None:
+    text = "上课日支持多选；默认每节2小时；时间段可选8:00-10:00；预览中按所选日期生成课程"
+
+    assert is_ambiguous_expected_result(text)
+    assert has_concrete_expected_assertion(text)
+    assert not has_weak_ambiguous_expected_result(text)
+    assert not is_non_assertable_expected_result(text)
+
+    gate = summarize_case_quality_gate(
+        [
+            {
+                "id": "TC-067",
+                "priority_final": "P1",
+                "expected_result": text,
+                "expected_result_quality": "non_assertable",
+                "expected_result_quality_reason": "template_or_weak_assertion",
+            }
+        ]
+    )
+    assert gate["passed"] is True
+    assert gate["non_assertable_expected_result_count"] == 0
 
 
 def test_expected_result_quality_detects_template_pollution_and_truncation() -> None:

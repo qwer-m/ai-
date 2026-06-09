@@ -32,6 +32,8 @@ from routers.automation.test_generation_shared import (
 class TestGenerationHistoryService:
     """Use-case layer for test generation history retrieval and bundle composition."""
 
+    __test__ = False
+
     def __init__(self, db):
         self.repo = TestGenerationHistoryRepository(db)
         self._db = db

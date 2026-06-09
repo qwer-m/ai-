@@ -79,6 +79,152 @@ _CONFIGURE_TOKENS = (
     "select",
     "edit",
 )
+_RESET_OR_ABORT_TOKENS = (
+    "\u9000\u51fa",
+    "\u91cd\u65b0\u8fdb\u5165",
+    "\u4e0d\u4fdd\u7559",
+    "\u6e05\u7a7a",
+    "\u7a7a\u767d",
+    "\u521d\u59cb\u72b6\u6001",
+    "exit",
+    "reset",
+    "clear",
+    "not retained",
+    "not retain",
+)
+_CONFIGURE_ACTION_REQUIRED_TOKENS = (
+    "\u9009\u62e9",
+    "\u8bbe\u7f6e",
+    "\u914d\u7f6e",
+    "\u7f16\u8f91",
+    "\u4fee\u6539",
+    "\u65b0\u589e",
+    "\u6dfb\u52a0",
+    "\u9009\u8bfe",
+    "\u9009\u65f6\u95f4",
+    "\u4e0b\u4e00\u6b65",
+    "select",
+    "set",
+    "configure",
+    "edit",
+    "modify",
+    "add",
+    "choose",
+    "next",
+)
+_PASSIVE_LIST_STATUS_TOKENS = (
+    "\u5df2\u6709\u8ba1\u5212",
+    "\u5217\u8868",
+    "\u6392\u5e8f",
+    "\u5347\u5e8f",
+    "\u964d\u5e8f",
+    "\u6807\u8bb0",
+    "\u72b6\u6001\u6807\u8bb0",
+    "\u5df2\u5b8c\u6210",
+    "\u8fdb\u884c\u4e2d",
+    "existing plan",
+    "list",
+    "sort",
+    "sorted",
+    "status label",
+)
+_PREVIEW_REQUIRED_TOKENS = (
+    "\u9884\u89c8",
+    "\u9884\u89c8\u786e\u8ba4",
+    "\u786e\u8ba4\u9875",
+    "\u68c0\u67e5",
+    "preview",
+    "review",
+)
+_COMMIT_REQUIRED_TOKENS = (
+    "\u4fdd\u5b58",
+    "\u63d0\u4ea4",
+    "\u786e\u8ba4",
+    "\u5b8c\u6210\u521b\u5efa",
+    "\u521b\u5efa\u6210\u529f",
+    "save",
+    "submit",
+    "commit",
+    "confirm",
+    "created",
+)
+_DOWNSTREAM_PROPAGATION_TOKENS = (
+    "\u540c\u6b65",
+    "\u751f\u6548",
+    "\u6700\u65b0",
+    "\u65b0\u8ba1\u5212",
+    "\u65b0\u589e",
+    "\u521b\u5efa",
+    "\u4fdd\u5b58",
+    "\u4e00\u81f4",
+    "\u4e66\u623f\u7aef",
+    "\u5b66\u751f\u7aef",
+    "sync",
+    "synced",
+    "effective",
+    "latest",
+    "new plan",
+    "created",
+    "saved",
+    "consistent",
+    "reflect",
+    "reflected",
+)
+_CONSUME_REQUIRED_TOKENS = (
+    "\u8df3\u8f6c",
+    "\u8fdb\u5165",
+    "\u6253\u5f00",
+    "\u5b66\u4e60",
+    "\u70b9\u51fb",
+    "navigate",
+    "enter",
+    "open",
+    "learn",
+    "click",
+)
+_COMPLETION_REQUIRED_TOKENS = (
+    "\u5b8c\u6210",
+    "\u8fdb\u5ea6",
+    "\u72b6\u6001\u540c\u6b65",
+    "\u8fdb\u5ea6\u66f4\u65b0",
+    "\u66f4\u65b0",
+    "complete",
+    "completion",
+    "progress",
+    "status sync",
+    "updated",
+)
+_COMPLETION_STRONG_TOKENS = (
+    "\u72b6\u6001\u540c\u6b65",
+    "\u8fdb\u5ea6\u66f4\u65b0",
+    "\u5b8c\u6210\u540e",
+    "\u540c\u6b65",
+    "\u66f4\u65b0",
+    "completion sync",
+    "progress updated",
+    "synced",
+    "updated",
+)
+_REPORT_HISTORY_ONLY_TOKENS = (
+    "\u62a5\u544a",
+    "\u5386\u53f2\u8bb0\u5f55",
+    "\u5386\u53f2\u8bfe\u7a0b",
+    "report",
+    "history",
+)
+_MANAGEMENT_SURFACE_TOKENS = (
+    "\u7763\u5bfc",
+    "\u8001\u5e08",
+    "\u6559\u5e08",
+    "\u5b66\u5458\u4fe1\u606f\u8868\u683c",
+    "\u8bfe\u7a0b\u7ba1\u7406",
+    "\u8bfe\u5802\u7ba1\u7406",
+    "supervisor",
+    "teacher",
+    "student info table",
+    "course management",
+)
+_INTERNAL_PLACEHOLDER_PATTERN = re.compile(r"\b[a-z]+(?:_[a-z0-9]+){2,}\b")
 
 
 @dataclass(frozen=True)
@@ -168,6 +314,44 @@ def _stage_kind(case: dict[str, Any]) -> str:
     if _token_hit(text, _CONFIGURE_TOKENS):
         return "configure"
     return "unknown"
+
+
+def _case_semantic_text(case: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for field in ("test_module", "description", "test_input", "expected_result"):
+        value = _text(case.get(field))
+        if value:
+            parts.append(value)
+    for field in ("preconditions", "steps"):
+        raw = case.get(field)
+        if isinstance(raw, list):
+            parts.extend(_text(item) for item in raw if _text(item))
+        else:
+            value = _text(raw)
+            if value:
+                parts.append(value)
+    return " ".join(parts).lower()
+
+
+def _has_any_text(text: str, tokens: tuple[str, ...]) -> bool:
+    return any(_text(token).lower() in text for token in tokens if _text(token))
+
+
+def _add_semantic_conflict(
+    conflicts: list[dict[str, Any]],
+    *,
+    case: dict[str, Any],
+    reason: str,
+    stage_kind: str,
+) -> None:
+    conflicts.append(
+        {
+            "case_id": _text(case.get("id")) or "main-smoke-case",
+            "reason": reason,
+            "stage_kind": stage_kind,
+            "description": _text(case.get("description"))[:160],
+        }
+    )
 
 
 def materialize_final_case_state_fields(cases: Any) -> Any:
@@ -282,6 +466,128 @@ def validate_main_smoke_state_chain(cases: Any) -> list[dict[str, Any]]:
     return conflicts
 
 
+def validate_main_smoke_semantic_alignment(cases: Any) -> list[dict[str, Any]]:
+    """Validate that user-facing case text supports the assigned main-chain stage."""
+    normalized = materialize_final_case_state_fields(cases)
+    final_cases = [dict(item) for item in normalized if isinstance(item, dict)] if isinstance(normalized, list) else []
+    main_cases = _main_smoke_cases(final_cases)
+    conflicts: list[dict[str, Any]] = []
+
+    for case in main_cases:
+        stage_kind = _stage_kind(case)
+        text = _case_semantic_text(case)
+        if not text:
+            _add_semantic_conflict(
+                conflicts,
+                case=case,
+                reason="empty_main_smoke_case_text",
+                stage_kind=stage_kind,
+            )
+            continue
+
+        if bool(case.get("generated_bridge_case")) or bool(case.get("workflow_blueprint_bridge")):
+            _add_semantic_conflict(
+                conflicts,
+                case=case,
+                reason="generated_bridge_case_in_final_main_smoke",
+                stage_kind=stage_kind,
+            )
+
+        placeholder_hits = [hit for hit in _INTERNAL_PLACEHOLDER_PATTERN.findall(text) if not hit.startswith("tc_")]
+        if placeholder_hits and len(" ".join(placeholder_hits)) >= 18:
+            _add_semantic_conflict(
+                conflicts,
+                case=case,
+                reason="internal_placeholder_text_in_final_main_smoke",
+                stage_kind=stage_kind,
+            )
+
+        if _has_any_text(text, _RESET_OR_ABORT_TOKENS):
+            _add_semantic_conflict(
+                conflicts,
+                case=case,
+                reason="reset_or_abort_case_in_main_smoke",
+                stage_kind=stage_kind,
+            )
+
+        role = _text(case.get("role")).lower()
+        if role == "student" and _has_any_text(text, _MANAGEMENT_SURFACE_TOKENS):
+            _add_semantic_conflict(
+                conflicts,
+                case=case,
+                reason="student_role_with_management_surface_text",
+                stage_kind=stage_kind,
+            )
+
+        if stage_kind == "configure":
+            has_configure_action = _has_any_text(text, _CONFIGURE_ACTION_REQUIRED_TOKENS)
+            if not has_configure_action:
+                _add_semantic_conflict(
+                    conflicts,
+                    case=case,
+                    reason="stage_text_lacks_configure_action",
+                    stage_kind=stage_kind,
+                )
+            if _has_any_text(text, _PASSIVE_LIST_STATUS_TOKENS) and not has_configure_action:
+                _add_semantic_conflict(
+                    conflicts,
+                    case=case,
+                    reason="passive_list_status_case_used_as_configure",
+                    stage_kind=stage_kind,
+                )
+        elif stage_kind == "preview":
+            if not _has_any_text(text, _PREVIEW_REQUIRED_TOKENS):
+                _add_semantic_conflict(
+                    conflicts,
+                    case=case,
+                    reason="stage_text_lacks_preview_action",
+                    stage_kind=stage_kind,
+                )
+        elif stage_kind == "commit":
+            if not _has_any_text(text, _COMMIT_REQUIRED_TOKENS):
+                _add_semantic_conflict(
+                    conflicts,
+                    case=case,
+                    reason="stage_text_lacks_commit_action",
+                    stage_kind=stage_kind,
+                )
+        elif stage_kind == "downstream_visibility":
+            if not _has_any_text(text, _DOWNSTREAM_PROPAGATION_TOKENS):
+                _add_semantic_conflict(
+                    conflicts,
+                    case=case,
+                    reason="stage_text_lacks_downstream_propagation",
+                    stage_kind=stage_kind,
+                )
+        elif stage_kind == "consume":
+            if not _has_any_text(text, _CONSUME_REQUIRED_TOKENS):
+                _add_semantic_conflict(
+                    conflicts,
+                    case=case,
+                    reason="stage_text_lacks_consume_action",
+                    stage_kind=stage_kind,
+                )
+        elif stage_kind == "completion_sync":
+            if not _has_any_text(text, _COMPLETION_REQUIRED_TOKENS):
+                _add_semantic_conflict(
+                    conflicts,
+                    case=case,
+                    reason="stage_text_lacks_completion_sync",
+                    stage_kind=stage_kind,
+                )
+            if _has_any_text(text, _REPORT_HISTORY_ONLY_TOKENS) and not _has_any_text(
+                text, _COMPLETION_STRONG_TOKENS
+            ):
+                _add_semantic_conflict(
+                    conflicts,
+                    case=case,
+                    reason="report_history_case_not_completion_sync",
+                    stage_kind=stage_kind,
+                )
+
+    return conflicts
+
+
 def _closure_metrics(main_cases: list[dict[str, Any]]) -> dict[str, Any]:
     stage_kinds = [_stage_kind(item) for item in main_cases]
     commit_indexes = [index for index, kind in enumerate(stage_kinds) if kind == "commit"]
@@ -327,6 +633,7 @@ def validate_execution_plan(
     )
     workflow_id_missing_count = sum(1 for item in main_cases if not _text(_state_value(item, "workflow_id")))
     state_conflicts = validate_main_smoke_state_chain(cases)
+    semantic_conflicts = validate_main_smoke_semantic_alignment(cases)
     closure = _closure_metrics(main_cases)
     resolved_execution_plan = dict(execution_plan or {})
     blueprint_source = _text(resolved_execution_plan.get("workflow_blueprint_source")).lower()
@@ -350,6 +657,8 @@ def validate_execution_plan(
         failure_reasons.append("workflow_id_missing_rate_above_threshold")
     if state_conflicts:
         failure_reasons.append("state_chain_conflict")
+    if semantic_conflicts:
+        failure_reasons.append("main_smoke_semantic_conflict")
     if not bool(closure.get("commit_downstream_completion_closed")):
         failure_reasons.append("commit_downstream_completion_missing")
     if trusted_workflow_contract_count <= 0:
@@ -370,9 +679,11 @@ def validate_execution_plan(
             "workflow_id_missing_count": int(workflow_id_missing_count),
             "workflow_id_missing_rate": float(workflow_id_missing_rate),
             "state_conflict_count": int(len(state_conflicts)),
+            "semantic_conflict_count": int(len(semantic_conflicts)),
             "linear_executable": bool(
                 len(main_cases) >= int(resolved_policy.min_main_smoke_count)
                 and not state_conflicts
+                and not semantic_conflicts
                 and closure.get("commit_downstream_completion_closed")
             ),
             "workflow_blueprint_count": int(blueprint_count),
@@ -389,6 +700,7 @@ def validate_execution_plan(
             **closure,
         },
         "state_conflicts": state_conflicts[:100],
+        "semantic_conflicts": semantic_conflicts[:100],
         "cases": cases,
     }
 
@@ -398,4 +710,5 @@ __all__ = [
     "materialize_final_case_state_fields",
     "validate_execution_plan",
     "validate_main_smoke_state_chain",
+    "validate_main_smoke_semantic_alignment",
 ]
