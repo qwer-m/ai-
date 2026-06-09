@@ -1,4 +1,4 @@
-﻿"""Development environment one-click startup script."""
+"""Development environment one-click startup script."""
 
 import os
 import subprocess

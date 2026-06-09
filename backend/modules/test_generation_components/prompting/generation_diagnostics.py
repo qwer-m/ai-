@@ -27,7 +27,7 @@ _STOPWORDS = {
     "数据",
 }
 
-from modules.test_generation_components.prompting.generation_diagnostics_split_helpers import (
+from .generation_diagnostics_split_helpers import (
     _extract_keywords,
     _flatten_case_text,
     _priority_distribution,

@@ -12,12 +12,12 @@ from modules.memory_fabric.contracts.memory_context import MemoryContext
 from modules.memory_fabric.contracts.memory_fabric import MemoryFabric
 from modules.memory_fabric.runtime.diagnostics import record_memory_read
 from modules.memory_fabric.runtime.factory import get_memory_fabric
-from modules.testing.test_generation_components.context.hybrid_context_builder import (
+from ...context.hybrid_context_builder import (
     HYBRID_CONFIG,
     build_hybrid_context,
     should_use_rag,
 )
-from modules.testing.test_generation_components.context.hybrid_guard import (
+from ...context.hybrid_guard import (
     HYBRID_EMPTY_GUARD_CONFIG,
     detect_hybrid_empty_context,
     parse_snapshot_queue_info,

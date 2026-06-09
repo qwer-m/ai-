@@ -1,10 +1,7 @@
-"""
-鏂囦欢瑙ｆ瀽妯″潡銆?
+"""File parsing helpers.
 
-鎻愪緵涓夌鍏ュ彛锛?
-1. parse_file_content: 澶勭悊 FastAPI UploadFile锛堝湪绾胯姹傚満鏅級銆?
-2. parse_file_bytes: 澶勭悊瀛楄妭娴侊紙澶嶇敤鏍稿績瑙ｆ瀽閫昏緫锛夈€?
-3. parse_file_path: 澶勭悊鏈湴鏂囦欢璺緞锛堢绾?Celery 鍦烘櫙锛夈€?
+Provides upload, byte, and path based parsing for documents and images,
+including local/cloud OCR fallback behavior for image inputs.
 """
 
 from __future__ import annotations
@@ -44,9 +41,9 @@ def _is_ocr_failure_text(text: str) -> bool:
         return True
 
     failure_markers = (
-        "\u989d\u5ea6\u8017\u5c3d",
-        "\u514d\u8d39\u989d\u5ea6\u5df2\u7528\u5b8c",
-        "\u4f59\u989d\u4e0d\u8db3",
+        "额度耗尽",
+        "免费额度已用完",
+        "余额不足",
         "insufficient_quota",
         "quota exceeded",
         "rate limit",
@@ -192,11 +189,7 @@ def parse_file_bytes(
     db: Optional[Session] = None,
     user_id: Optional[int] = None,
 ) -> str:
-    """
-    鎸夋墿灞曞悕瑙ｆ瀽鏂囦欢鍐呭銆?
-
-    璁捐鐩爣锛氬悓涓€浠借В鏋愰€昏緫鍙悓鏃舵湇鍔″悓姝ヤ笂浼犲拰绂荤嚎浠诲姟锛岄伩鍏嶄袱濂楀疄鐜版紓绉汇€?
-    """
+    """Parse uploaded file bytes into text or HTML preview content."""
     lowered_name = (filename or "").lower()
     text_content = ""
 

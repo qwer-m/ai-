@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from core.ai.providers.openai_compatible_provider import OpenAICompatibleProvider
 

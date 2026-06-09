@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import ast
 import json
@@ -8,12 +8,12 @@ from typing import Any
 
 from core.ai.ai_client import ai_client, get_client_for_user
 from core.db.models import LogEntry
-from modules.test_generation_components.coverage.core_flow_coverage_contract import (
+from .core_flow_coverage_contract import (
     CORE_FLOWS,
     audit_core_flow_coverage,
     map_case_to_core_flows,
 )
-from modules.test_generation_components.postprocess.result_postprocess_priority_semantics import (
+from ..postprocess.result_postprocess_priority_semantics import (
     apply_priority_semantics_to_cases,
 )
 

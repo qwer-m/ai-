@@ -23,6 +23,23 @@ EXPORT_COLUMNS = [
     "test_input",
     "expected_result",
     "priority",
+    "priority_final",
+    "workflow_id",
+    "source_state",
+    "action",
+    "target_state",
+    "path_type",
+    "blocking",
+    "destructive",
+    "can_advance_main_flow",
+    "execution_group",
+    "execution_sequence",
+    "role",
+    "session_key",
+    "depends_on",
+    "fixture_key",
+    "setup_hint",
+    "teardown_hint",
 ]
 
 # 中文注释：Excel XML 不允许的控制字符，需在写入前清洗。
@@ -88,6 +105,10 @@ def _normalize_rows(json_data: list | dict) -> list[dict[str, Any]]:
                     row["steps"] = _format_steps_for_export(val)
             except Exception:
                 pass
+
+        depends_on = row.get("depends_on")
+        if isinstance(depends_on, list):
+            row["depends_on"] = "\n".join(str(item).strip() for item in depends_on if str(item).strip())
 
         rows.append(row)
     return rows

@@ -174,3 +174,139 @@ def test_quality_ledger_score_penalizes_real_diagnostic_risks() -> None:
     assert {"flow_misordered", "scenario_duplicates", "judge_rejected", "judge_pending"}.issubset(
         deduction_keys
     )
+
+
+def test_quality_ledger_scores_final_structure_instead_of_candidate_noise() -> None:
+    payload = _build_quality_ledger_payload(
+        generation_id=464,
+        request_id="req-5",
+        mode="multi_pass",
+        stage_counts={},
+        coverage_payload={"coverage_rate": 1.0, "total_rules": 22, "missing_rules": [], "missing_types": {}},
+        convergence_payload={"final_count": 104},
+        generation_summary_payload={
+            "final_count": 104,
+            "min_acceptable_final": 104,
+            "quality_assessment": "medium",
+            "stop_reason": [],
+        },
+        review_decision_summary_payload={
+            "candidate_total": 149,
+            "retained_total": 104,
+            "flow_misordered_count": 98,
+            "scenario_duplicate_cluster_count": 53,
+            "scenario_duplicate_case_count": 155,
+            "final_flow_misordered_count": 0,
+            "final_scenario_duplicate_cluster_count": 0,
+            "final_scenario_duplicate_case_count": 0,
+            "final_reasoning_leakage_case_count": 0,
+        },
+        judge_summary_payload={"total": 104, "rejected_out_count": 0, "pending_out_count": 0},
+        feedback_control_debug_payload={"control_state_applied": True},
+        compression_diag_payload={},
+        context_result={"context_debug": {"current_document_used": True, "realtime_rag_used": True}},
+    )
+
+    assert payload["quality_score_inputs"]["structure_metric_scope"] == "final_cases"
+    assert payload["quality_score_inputs"]["flow_misordered_count"] == 0
+    assert payload["quality_score_inputs"]["scenario_duplicate_case_count"] == 0
+    assert payload["quality_score"] == 100
+    assert payload["case_quality_gate"]["passed"] is True
+
+
+def test_quality_ledger_clusters_judge_reject_reasons_and_keeps_quality_gate_shadow() -> None:
+    rows = [
+        {
+            "case_id": f"TC-{index:03d}",
+            "status": "REJECT",
+            "reject_reason": f"semantic_duplicate:TC-{index - 1:03d}",
+            "signals": {"is_semantic_duplicate": True},
+        }
+        for index in range(2, 24)
+    ]
+    payload = _build_quality_ledger_payload(
+        generation_id=465,
+        request_id="req-6",
+        mode="multi_pass",
+        stage_counts={},
+        coverage_payload={"coverage_rate": 1.0, "total_rules": 22, "missing_rules": [], "missing_types": {}},
+        convergence_payload={"final_count": 83},
+        generation_summary_payload={
+            "final_count": 83,
+            "min_acceptable_final": 104,
+            "quality_assessment": "low",
+            "stop_reason": [],
+        },
+        review_decision_summary_payload={
+            "final_flow_misordered_count": 0,
+            "final_scenario_duplicate_case_count": 0,
+            "final_reasoning_leakage_case_count": 0,
+        },
+        judge_summary_payload={"total": 104, "rejected_out_count": 22, "pending_out_count": 0},
+        feedback_control_debug_payload={"control_state_applied": True},
+        compression_diag_payload={},
+        context_result={"context_debug": {"current_document_used": True, "realtime_rag_used": True}},
+        judge_decision_table_payload=rows,
+    )
+
+    assert payload["judge"]["reason_clusters"] == {"semantic_duplicate": 22}
+    assert payload["judge"]["dominant_reason"] == "semantic_duplicate"
+    assert payload["case_quality_gate"]["mode"] == "shadow"
+    assert payload["case_quality_gate"]["blocked"] is False
+    assert payload["case_quality_gate"]["passed"] is False
+    assert {
+        "final_count_below_min_acceptable",
+        "judge_rejected_above_threshold",
+    }.issubset(set(payload["case_quality_gate"]["failure_reasons"]))
+
+
+def test_quality_ledger_penalizes_manual_profile_delivery_drift() -> None:
+    payload = _build_quality_ledger_payload(
+        generation_id=466,
+        request_id="req-7",
+        mode="multi_pass",
+        stage_counts={},
+        coverage_payload={"coverage_rate": 1.0, "total_rules": 22, "missing_rules": [], "missing_types": {}},
+        convergence_payload={"final_count": 10},
+        generation_summary_payload={
+            "final_count": 10,
+            "quality_assessment": "medium",
+            "stop_reason": [],
+            "final_priority_breakdown": {"P0": 1, "P1": 1, "P2": 8},
+            "final_module_breakdown_top": {"display": 5, "other": 5},
+            "final_display_ratio": 0.5,
+            "final_high_priority_ratio": 0.2,
+        },
+        review_decision_summary_payload={
+            "final_flow_misordered_count": 0,
+            "final_scenario_duplicate_case_count": 0,
+        },
+        judge_summary_payload={"total": 10, "rejected_out_count": 0, "pending_out_count": 0},
+        feedback_control_debug_payload={
+            "control_state_applied": True,
+            "source_meta": {
+                "manual_quality_profile": {
+                    "kind": "manual_quality_profile",
+                    "profile_source": "priority_sample_pool_manual_verified",
+                    "profile_version": "stable-1",
+                    "trusted_sample_count": 20,
+                    "profile_case_count": 10,
+                    "priority_distribution": {"P0": 4, "P1": 4, "P2": 2},
+                    "module_distribution_top": {"core": 7, "plan": 3},
+                    "high_priority_ratio": 0.8,
+                    "display_ratio_cap": 0.25,
+                }
+            },
+        },
+        compression_diag_payload={},
+        context_result={"context_debug": {"current_document_used": True, "realtime_rag_used": True}},
+    )
+
+    assert payload["manual_delivery"]["applied"] is True
+    assert payload["manual_delivery"]["high_priority_ratio_shortfall"] == 0.6
+    assert payload["manual_delivery"]["display_ratio_excess"] == 0.25
+    deduction_keys = {item["key"] for item in payload["quality_score_deductions"]}
+    assert "manual_high_priority_shortfall" in deduction_keys
+    assert "manual_display_ratio_excess" in deduction_keys
+    assert payload["quality_score_inputs"]["manual_quality_profile_version"] == "stable-1"
+    assert payload["quality_score_basis"].endswith("+manual_profile")

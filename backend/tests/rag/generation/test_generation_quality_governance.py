@@ -18,6 +18,8 @@ from modules.testing.test_generation_components.legacy.adapters import (
     reorder_cases_by_closed_loop,
 )
 from modules.testing.test_generation_components.postprocess.result_postprocess import (
+    filter_invalid_final_cases,
+    normalize_final_case_priorities,
     stream_postprocess_cases,
 )
 from modules.testing.test_generation_components.postprocess import result_postprocess_streaming_impl
@@ -417,6 +419,29 @@ def test_reasoning_leakage_in_case_fields_marked_invalid_case() -> None:
     assert int(summary.get("reasoning_leakage_case_count") or 0) == 1
 
 
+def test_reasoning_leakage_actual_trigger_condition_marked_invalid_case() -> None:
+    result = _run_cases(
+        requirement="排课新增计划容量不足时必须给出明确提示。",
+        cases=[
+            {
+                "id": "TC-007",
+                "description": "排课-新增计划-课程设置过少",
+                "test_module": "排课-新增计划",
+                "preconditions": ["但需故意设置更少？实际触发条件为已选课程数大于可排课容量"],
+                "steps": ["1. 进入新增计划", "2. 选择课程", "3. 设置时间"],
+                "test_input": "课程数大于可排课容量",
+                "expected_result": "系统提示课程设置过少，无法完成全部课程排课",
+                "priority": "P1",
+            }
+        ],
+    )
+
+    assert not [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    assert rows
+    assert str(rows[0].get("invalid_case_reason") or "") == "reasoning_leakage"
+
+
 def test_expected_result_generic_success_completion_marked_non_assertable() -> None:
     result = _run_cases(
         requirement="The scheduling wizard must preserve unsaved selections and show explicit exit confirmation.",
@@ -441,29 +466,29 @@ def test_expected_result_generic_success_completion_marked_non_assertable() -> N
 
 def test_concrete_ui_state_expected_results_not_marked_non_assertable() -> None:
     result = _run_cases(
-        requirement="\u4f5c\u6587\u6295\u7a3f\u548c\u8bfe\u7a0b\u73af\u8282\u72b6\u6001\u9700\u8981\u53ef\u9a8c\u8bc1\u7684 UI \u65ad\u8a00",
+        requirement="作文投稿和课程环节状态需要可验证的 UI 断言",
         cases=[
             {
                 "id": "TC-LOCK-001",
-                "description": "\u521d\u59cb\u72b6\u6001\u4e0b\u4e09\u4e2a\u73af\u8282\u5747\u53ef\u968f\u610f\u8fdb\u5165",
-                "test_module": "\u8bfe\u7a0b\u73af\u8282 - \u89e3\u9501\u903b\u8f91",
-                "preconditions": ["\u666e\u901a\u7528\u6237\u5df2\u8fdb\u5165\u8bfe\u7a0b\u73af\u8282\u9875"],
+                "description": "初始状态下三个环节均可随意进入",
+                "test_module": "课程环节 - 解锁逻辑",
+                "preconditions": ["普通用户已进入课程环节页"],
                 "steps": [
-                    "1. \u5206\u522b\u70b9\u51fb\u5ba1\u9898\u7acb\u610f\u3001\u5199\u4f5c\u6280\u6cd5\u3001\u6280\u6cd5\u5de9\u56fa",
-                    "2. \u89c2\u5bdf\u8fdb\u5165\u7ed3\u679c",
+                    "1. 分别点击审题立意、写作技法、技法巩固",
+                    "2. 观察进入结果",
                 ],
-                "test_input": "\u7b2c\u4e00\u8bfe\u521d\u59cb\u5b66\u4e60\u72b6\u6001",
-                "expected_result": "\u4e09\u4e2a\u73af\u8282\u5747\u53ef\u6b63\u5e38\u8fdb\u5165\uff0c\u65e0\u4efb\u4f55\u9501\u6216\u63d0\u793a\u963b\u6b62",
+                "test_input": "第一课初始学习状态",
+                "expected_result": "三个环节均可正常进入，无任何锁或提示阻止",
                 "priority": "P1",
             },
             {
                 "id": "TC-OCR-001",
-                "description": "\u6279\u6539-OCR\u8bc6\u522b\u5931\u8d25\uff08\u56fe\u7247\u6a21\u7cca\uff09\u63d0\u793a\u91cd\u8bd5",
-                "test_module": "\u4f5c\u6587\u6279\u6539-\u6279\u6539\u7ed3\u679c\u9875",
-                "preconditions": ["\u7528\u6237\u5df2\u4e0a\u4f20\u6a21\u7cca\u4f5c\u6587\u56fe\u7247"],
-                "steps": ["1. \u63d0\u4ea4\u6a21\u7cca\u56fe\u7247", "2. \u89c2\u5bdf\u6279\u6539\u5165\u53e3\u548c\u63d0\u793a"],
-                "test_input": "\u6a21\u7cca\u4f5c\u6587\u56fe\u7247",
-                "expected_result": "\u7cfb\u7edf\u63d0\u793a\u2018\u56fe\u7247\u4e0d\u6e05\u6670\uff0c\u8bf7\u91cd\u65b0\u62cd\u6444\u6216\u9009\u62e9\u6e05\u6670\u56fe\u7247\u2019\uff0c\u3010\u53bb\u6279\u6539\u3011\u6309\u94ae\u53d8\u4e3a\u4e0d\u53ef\u70b9\u51fb\u6216\u663e\u793a\u91cd\u8bd5\u9009\u9879",
+                "description": "批改-OCR识别失败（图片模糊）提示重试",
+                "test_module": "作文批改-批改结果页",
+                "preconditions": ["用户已上传模糊作文图片"],
+                "steps": ["1. 提交模糊图片", "2. 观察批改入口和提示"],
+                "test_input": "模糊作文图片",
+                "expected_result": "系统提示‘图片不清晰，请重新拍摄或选择清晰图片’，【去批改】按钮变为不可点击或显示重试选项",
                 "priority": "P0",
             },
         ],
@@ -476,16 +501,16 @@ def test_concrete_ui_state_expected_results_not_marked_non_assertable() -> None:
 
 def test_concrete_formula_order_expected_result_not_marked_non_assertable() -> None:
     result = _run_cases(
-        requirement="\u4f5c\u6587\u5708\u7cbe\u9009\u6392\u5e8f\u6309\u6743\u91cd S=0.3L+0.2R+0.5T \u964d\u5e8f\u5c55\u793a",
+        requirement="作文圈精选排序按权重 S=0.3L+0.2R+0.5T 降序展示",
         cases=[
             {
                 "id": "TC-FORMULA-001",
-                "description": "\u4f5c\u6587\u5708\u7cbe\u9009\u6392\u5e8f\uff1a\u6309\u6743\u91cdS=0.3L+0.2R+0.5T\u964d\u5e8f\u6392\u5217",
-                "test_module": "\u4f5c\u6587\u5708-\u5217\u8868",
-                "preconditions": ["\u5b58\u5728\u4e09\u7bc7\u4f5c\u54c1 A\u3001B\u3001C\uff0c\u4e14\u70b9\u8d5e/\u9605\u8bfb/\u65f6\u95f4\u6307\u6807\u53ef\u8ba1\u7b97"],
-                "steps": ["1. \u8fdb\u5165\u4f5c\u6587\u5708\u7cbe\u9009\u5217\u8868", "2. \u89c2\u5bdf\u4f5c\u54c1\u5c55\u793a\u987a\u5e8f"],
-                "test_input": "A\u7684S\u503c\u6700\u9ad8\uff0cB\u5c45\u4e2d\uff0cC\u6700\u4f4e",
-                "expected_result": "\u5217\u8868\u4f9d\u6b21\u663e\u793a\u4f5c\u54c1A\u3001B\u3001C\uff08A\u7684S\u503c\u6700\u9ad8\uff0cC\u6700\u4f4e\uff09\uff0c\u987a\u5e8f\u4e0e\u6743\u91cd\u516c\u5f0f\u8ba1\u7b97\u7ed3\u679c\u4e00\u81f4",
+                "description": "作文圈精选排序：按权重S=0.3L+0.2R+0.5T降序排列",
+                "test_module": "作文圈-列表",
+                "preconditions": ["存在三篇作品 A、B、C，且点赞/阅读/时间指标可计算"],
+                "steps": ["1. 进入作文圈精选列表", "2. 观察作品展示顺序"],
+                "test_input": "A的S值最高，B居中，C最低",
+                "expected_result": "列表依次显示作品A、B、C（A的S值最高，C最低），顺序与权重公式计算结果一致",
                 "priority": "P1",
             }
         ],
@@ -498,16 +523,16 @@ def test_concrete_formula_order_expected_result_not_marked_non_assertable() -> N
 
 def test_concrete_counter_expected_result_not_marked_non_assertable() -> None:
     result = _run_cases(
-        requirement="\u6279\u6539\u5b8c\u6210\u540e\u9700\u8981\u66f4\u65b0\u5269\u4f59\u6279\u6539\u6b21\u6570",
+        requirement="批改完成后需要更新剩余批改次数",
         cases=[
             {
                 "id": "TC-COUNTER-001",
-                "description": "\u6279\u6539\u6b21\u6570\u5269\u4f59\u66f4\u65b0\uff1a\u7b2c\u4e00\u6b21\u6279\u6539\u540e\u5269\u4f59\u6b21\u6570\u4ece5\u53d8\u4e3a4",
-                "test_module": "\u4f5c\u6587\u6279\u6539",
-                "preconditions": ["\u7528\u6237\u5f53\u524d\u5269\u4f59 5 \u6b21\u6279\u6539\u6b21\u6570"],
-                "steps": ["1. \u4e0a\u4f20\u4f5c\u6587\u56fe\u7247", "2. \u70b9\u51fb\u53bb\u6279\u6539\u5e76\u7b49\u5f85\u6279\u6539\u5b8c\u6210"],
-                "test_input": "\u6e05\u6670\u4f5c\u6587\u56fe\u7247",
-                "expected_result": "\u6279\u6539\u5b8c\u6210\u540e\uff0c\u9875\u9762\u4e0a\u65b9\u6216\u6309\u94ae\u5904\u7684\u5269\u4f59\u6279\u6539\u6b21\u6570\u663e\u793a\u4e3a4/5",
+                "description": "批改次数剩余更新：第一次批改后剩余次数从5变为4",
+                "test_module": "作文批改",
+                "preconditions": ["用户当前剩余 5 次批改次数"],
+                "steps": ["1. 上传作文图片", "2. 点击去批改并等待批改完成"],
+                "test_input": "清晰作文图片",
+                "expected_result": "批改完成后，页面上方或按钮处的剩余批改次数显示为4/5",
                 "priority": "P1",
             }
         ],
@@ -831,7 +856,7 @@ def test_quality_governance_marks_priority_review_when_required_p0_is_conflict(m
     assert generation_summary.get("needs_priority_review") is True
 
 
-def test_quality_governance_hides_priority_debug_fields_from_final_cases() -> None:
+def test_quality_governance_keeps_final_priority_but_hides_debug_fields_from_final_cases() -> None:
     result = _run_cases(
         requirement="验证核心流程与权限校验",
         cases=[
@@ -861,7 +886,7 @@ def test_quality_governance_hides_priority_debug_fields_from_final_cases() -> No
     assert len(output_cases) >= 1
     for case in output_cases:
         assert str(case.get("priority") or "").strip().upper() in {"P0", "P1", "P2"}
-        assert "priority_final" not in case
+        assert str(case.get("priority_final") or "").strip().upper() in {"P0", "P1", "P2"}
         assert "model_priority_current" not in case
         assert "priority_decision_source" not in case
 
@@ -889,7 +914,7 @@ def test_quality_governance_final_priority_uses_semantic_final_value_after_debug
     output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
     assert len(output_cases) == 1
     assert str(output_cases[0].get("priority") or "").strip().upper() == "P2"
-    assert "priority_final" not in output_cases[0]
+    assert str(output_cases[0].get("priority_final") or "").strip().upper() == "P2"
 
 
 def test_full_regression_priority_demotes_non_blocking_p0_and_promotes_main_path() -> None:
@@ -957,58 +982,58 @@ def test_full_regression_demotes_detail_p0_cases_called_out_by_review() -> None:
         }
     }
     result = _run_cases(
-        requirement="\u4f5c\u6587\u6279\u6539 full regression\uff1a\u4e0a\u4f20\u56fe\u7247\u540e\u751f\u6210\u6279\u6539\u7ed3\u679c\uff0c\u6295\u7a3f\u540e\u8fdb\u5165\u5ba1\u6838\u4e2d\uff0c\u7ec6\u8282\u4ea4\u4e92\u4e0d\u5e94\u4f5c\u4e3a P0\u3002",
+        requirement="作文批改 full regression：上传图片后生成批改结果，投稿后进入审核中，细节交互不应作为 P0。",
         expected_count=90,
         feedback_control_state=full_regression_state,
         cases=[
             {
                 "id": "TC-001",
-                "description": "\u4e0a\u4f20\u56fe\u7247\u540e\u70b9\u51fb\u53bb\u6279\u6539\u6210\u529f\u751f\u6210\u6279\u6539\u7ed3\u679c",
-                "test_module": "\u4f5c\u6587\u6279\u6539",
-                "preconditions": ["\u7528\u6237\u5df2\u767b\u5f55\u4e14\u4e0a\u4f20\u4f5c\u6587\u56fe\u7247"],
-                "steps": ["1. \u4e0a\u4f20\u56fe\u7247", "2. \u70b9\u51fb\u53bb\u6279\u6539", "3. \u7b49\u5f85AI\u6279\u6539\u5b8c\u6210"],
-                "test_input": "\u6e05\u6670\u4f5c\u6587\u56fe\u7247",
-                "expected_result": "\u6279\u6539\u7ed3\u679c\u9875\u5c55\u793a\u7efc\u5408\u70b9\u8bc4\u3001\u5206\u53e5\u70b9\u8bc4\u3001\u5168\u6587\u6da6\u8272\u548c\u4f18\u5316\u5efa\u8bae\u56db\u90e8\u5206\u5185\u5bb9",
+                "description": "上传图片后点击去批改成功生成批改结果",
+                "test_module": "作文批改",
+                "preconditions": ["用户已登录且上传作文图片"],
+                "steps": ["1. 上传图片", "2. 点击去批改", "3. 等待AI批改完成"],
+                "test_input": "清晰作文图片",
+                "expected_result": "批改结果页展示综合点评、分句点评、全文润色和优化建议四部分内容",
                 "priority": "P1",
             },
             {
                 "id": "TC-002",
-                "description": "0\u5f20\u56fe\u7247\u65f6\u53bb\u6279\u6539\u6309\u94ae\u4e0d\u53ef\u70b9",
-                "test_module": "\u4f5c\u6587\u6279\u6539",
-                "preconditions": ["\u7528\u6237\u672a\u4e0a\u4f20\u56fe\u7247"],
-                "steps": ["1. \u6253\u5f00\u4f5c\u6587\u6279\u6539\u9875", "2. \u67e5\u770b\u53bb\u6279\u6539\u6309\u94ae"],
-                "test_input": "0\u5f20\u56fe\u7247",
-                "expected_result": "\u53bb\u6279\u6539\u6309\u94ae\u7f6e\u7070\u4e14\u4e0d\u53d1\u8d77\u6279\u6539\u8bf7\u6c42",
+                "description": "0张图片时去批改按钮不可点",
+                "test_module": "作文批改",
+                "preconditions": ["用户未上传图片"],
+                "steps": ["1. 打开作文批改页", "2. 查看去批改按钮"],
+                "test_input": "0张图片",
+                "expected_result": "去批改按钮置灰且不发起批改请求",
                 "priority": "P0",
             },
             {
                 "id": "TC-003",
-                "description": "\u7efc\u5408\u70b9\u8bc4\u661f\u661f\u8bc4\u5206\u5c55\u793a",
-                "test_module": "\u6279\u6539\u7ed3\u679c",
-                "preconditions": ["\u5df2\u751f\u6210\u6279\u6539\u7ed3\u679c"],
-                "steps": ["1. \u6253\u5f00\u6279\u6539\u7ed3\u679c", "2. \u67e5\u770b\u7efc\u5408\u70b9\u8bc4\u661f\u661f\u8bc4\u5206"],
-                "test_input": "\u5df2\u6279\u6539\u4f5c\u6587",
-                "expected_result": "\u661f\u661f\u6570\u91cf\u4e0e\u7efc\u5408\u8bc4\u5206\u503c\u5339\u914d",
+                "description": "综合点评星星评分展示",
+                "test_module": "批改结果",
+                "preconditions": ["已生成批改结果"],
+                "steps": ["1. 打开批改结果", "2. 查看综合点评星星评分"],
+                "test_input": "已批改作文",
+                "expected_result": "星星数量与综合评分值匹配",
                 "priority": "P0",
             },
             {
                 "id": "TC-004",
-                "description": "\u6295\u7a3f\u9875\u6807\u9898\u6b63\u6587\u53ef\u7f16\u8f91",
-                "test_module": "\u4f5c\u6587\u6295\u7a3f",
-                "preconditions": ["\u7528\u6237\u5df2\u8fdb\u5165\u6295\u7a3f\u9875"],
-                "steps": ["1. \u4fee\u6539\u6807\u9898", "2. \u4fee\u6539\u6b63\u6587"],
-                "test_input": "\u65b0\u6807\u9898\u548c\u65b0\u6b63\u6587",
-                "expected_result": "\u6807\u9898\u548c\u6b63\u6587\u8f93\u5165\u6846\u4fdd\u7559\u7f16\u8f91\u540e\u7684\u5185\u5bb9",
+                "description": "投稿页标题正文可编辑",
+                "test_module": "作文投稿",
+                "preconditions": ["用户已进入投稿页"],
+                "steps": ["1. 修改标题", "2. 修改正文"],
+                "test_input": "新标题和新正文",
+                "expected_result": "标题和正文输入框保留编辑后的内容",
                 "priority": "P0",
             },
         ],
     )
 
     by_description = {str(item.get("description") or ""): item for item in (result.get("cases") or [])}
-    assert str(by_description["\u4e0a\u4f20\u56fe\u7247\u540e\u70b9\u51fb\u53bb\u6279\u6539\u6210\u529f\u751f\u6210\u6279\u6539\u7ed3\u679c"].get("priority") or "") == "P0"
-    assert str(by_description["0\u5f20\u56fe\u7247\u65f6\u53bb\u6279\u6539\u6309\u94ae\u4e0d\u53ef\u70b9"].get("priority") or "") == "P1"
-    assert str(by_description["\u7efc\u5408\u70b9\u8bc4\u661f\u661f\u8bc4\u5206\u5c55\u793a"].get("priority") or "") == "P1"
-    assert str(by_description["\u6295\u7a3f\u9875\u6807\u9898\u6b63\u6587\u53ef\u7f16\u8f91"].get("priority") or "") == "P1"
+    assert str(by_description["上传图片后点击去批改成功生成批改结果"].get("priority") or "") == "P0"
+    assert str(by_description["0张图片时去批改按钮不可点"].get("priority") or "") == "P1"
+    assert str(by_description["综合点评星星评分展示"].get("priority") or "") == "P1"
+    assert str(by_description["投稿页标题正文可编辑"].get("priority") or "") == "P1"
 
 
 def test_full_regression_promotes_core_business_chain_p0_floor() -> None:
@@ -1075,7 +1100,7 @@ def test_full_regression_promotes_core_business_chain_p0_floor() -> None:
     assert "上传图片后点击去批改成功生成批改结果" in p0_descriptions
     assert "批改反馈四部分完整展示" in p0_descriptions
     assert "投稿提交成功后状态进入审核中" in p0_descriptions
-    assert "后台审核通过投稿作品" in p0_descriptions
+    assert any("审核通过" in description and "作文圈" in description for description in p0_descriptions)
     assert any(
         bool(item.get("student_observation_projection"))
         and str(item.get("role") or "") == "student"
@@ -1087,484 +1112,605 @@ def test_full_regression_promotes_core_business_chain_p0_floor() -> None:
     assert any("删除已发布作品后恢复未投稿" in description for description in p0_descriptions)
 
 
-def test_execution_plan_orders_main_chain_and_marks_isolated_branches() -> None:
-    cases = [
-        {
-            "id": "TC-020",
-            "description": "上传失败时保留当前页面并提示重试",
-            "test_module": "作文批改",
-            "preconditions": ["用户已登录且网络异常"],
-            "steps": ["1. 选择作文图片", "2. 模拟上传接口超时"],
-            "test_input": "上传接口超时",
-            "expected_result": "页面停留在作文批改上传区，显示上传失败提示且未生成批改结果",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-001",
-            "description": "上传作文图片成功后去批改按钮可点击",
-            "test_module": "作文批改",
-            "preconditions": ["学生用户已登录并进入作文批改页"],
-            "steps": ["1. 选择清晰作文图片", "2. 上传图片"],
-            "test_input": "清晰作文图片",
-            "expected_result": "作文图片上传成功，缩略图显示在上传区，去批改按钮变为可点击",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-004",
-            "description": "投稿提交成功后作品进入审核中",
-            "test_module": "作文投稿",
-            "preconditions": ["已生成批改结果"],
-            "steps": ["1. 点击投稿", "2. 提交作品"],
-            "test_input": "已批改作文",
-            "expected_result": "投稿提交成功，作品状态变为审核中，投稿按钮显示审核中状态",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-003",
-            "description": "批改反馈四部分完整展示",
-            "test_module": "批改结果",
-            "preconditions": ["已生成批改结果"],
-            "steps": ["1. 打开批改结果页", "2. 查看反馈内容"],
-            "test_input": "已生成批改结果的作文",
-            "expected_result": "批改反馈完整展示综合点评、分句点评、全文润色和优化建议四部分内容",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-002",
-            "description": "点击去批改后成功生成 AI 批改结果",
-            "test_module": "作文批改",
-            "preconditions": ["作文图片已上传"],
-            "steps": ["1. 点击去批改", "2. 等待AI批改完成"],
-            "test_input": "已上传作文图片",
-            "expected_result": "AI批改完成并生成批改结果，页面进入批改结果页",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-005",
-            "description": "后台审核通过后作品变为已发布",
-            "test_module": "作文审核后台",
-            "preconditions": ["作品处于审核中"],
-            "steps": ["1. 后台打开待审核作品", "2. 点击审核通过"],
-            "test_input": "审核中的投稿作品",
-            "expected_result": "后台审核通过后作品状态变为已发布",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-006",
-            "description": "作文圈可见已发布作品",
-            "test_module": "作文圈",
-            "preconditions": ["作品已发布"],
-            "steps": ["1. 打开作文圈列表", "2. 搜索作品标题"],
-            "test_input": "已发布作文",
-            "expected_result": "作文圈列表可见该已发布作品并可进入作品详情",
-            "priority": "P0",
-        },
-    ]
+def test_execution_plan_uses_workflow_blueprint_without_domain_template() -> None:
+    state = {
+        "workflow_blueprints": [
+            {
+                "id": "checkout_flow",
+                "name": "checkout flow",
+                "steps": [
+                    {
+                        "id": "submit_order",
+                        "label": "Submit order",
+                        "actor": "student",
+                        "state_in": "cart_ready",
+                        "state_out": "order_created",
+                        "match_keywords": ["submit order"],
+                        "assertion": "order is created",
+                    },
+                    {
+                        "id": "verify_paid",
+                        "label": "Verify paid status",
+                        "actor": "supervisor",
+                        "state_in": "order_created",
+                        "state_out": "paid_status_visible",
+                        "match_keywords": ["paid status"],
+                        "assertion": "status is paid",
+                    },
+                ],
+            }
+        ]
+    }
     result = _run_cases(
-        requirement="作文批改主链路：上传图片后去批改，生成批改结果，批改反馈四部分完整展示，投稿进入审核中，后台审核通过后作文圈可见。",
-        cases=cases,
-        expected_count=20,
+        requirement="Checkout regression",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "Submit order creates an order record",
+                "test_module": "checkout",
+                "steps": ["Open checkout", "Submit order"],
+                "expected_result": "order is created",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-002",
+                "description": "Order detail shows paid status",
+                "test_module": "order detail",
+                "steps": ["Open order detail"],
+                "expected_result": "status is paid",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-003",
+                "description": "Network timeout shows retry action",
+                "test_module": "checkout",
+                "steps": ["Submit order during timeout"],
+                "expected_result": "retry action is shown",
+                "priority": "P0",
+            },
+        ],
+        expected_count=10,
+        feedback_control_state=state,
+    )
+
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    main_cases = [item for item in output_cases if str(item.get("execution_group") or "") == "main_smoke"]
+    assert [item.get("main_chain_stage") for item in main_cases] == ["submit_order", "verify_paid"]
+    assert main_cases[0].get("depends_on") == []
+    assert main_cases[1].get("depends_on") == [main_cases[0]["id"]]
+    assert [item.get("role") for item in main_cases] == ["student", "supervisor"]
+    assert [item.get("data_state") for item in main_cases] == ["order_created", "paid_status_visible"]
+    assert all(str(item.get("fixture_key") or "") == "workflow_blueprint_chain_seed" for item in main_cases)
+    timeout_case = next(item for item in output_cases if "timeout" in str(item.get("description") or "").lower())
+    assert str(timeout_case.get("execution_group") or "") == "exception"
+    summary = dict(result.get("review_decision_summary") or {})
+    plan = dict(summary.get("execution_plan") or {})
+    assert plan.get("workflow_blueprint_count") == 1
+    assert plan.get("linear_executable") is True
+
+
+def test_execution_plan_attaches_transition_contract_to_main_smoke() -> None:
+    state = {
+        "workflow_blueprints": [
+            {
+                "id": "checkout_flow",
+                "name": "checkout flow",
+                "steps": [
+                    {
+                        "id": "submit_order",
+                        "label": "Submit order",
+                        "actor": "student",
+                        "state_in": "cart_ready",
+                        "state_out": "order_created",
+                        "match_keywords": ["submit order"],
+                        "assertion": "order is created",
+                    },
+                    {
+                        "id": "verify_paid",
+                        "label": "Verify paid status",
+                        "actor": "student",
+                        "state_in": "order_created",
+                        "state_out": "paid_status_visible",
+                        "match_keywords": ["paid status"],
+                        "assertion": "status is paid",
+                    },
+                ],
+            }
+        ]
+    }
+    result = _run_cases(
+        requirement="Checkout regression",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "Submit order creates an order record",
+                "test_module": "checkout",
+                "steps": ["Open checkout", "Submit order"],
+                "expected_result": "order is created",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-002",
+                "description": "Order detail shows paid status",
+                "test_module": "order detail",
+                "steps": ["Open order detail"],
+                "expected_result": "status is paid",
+                "priority": "P1",
+            },
+        ],
+        expected_count=10,
+        feedback_control_state=state,
+    )
+
+    main_cases = [
+        item for item in (result.get("cases") or [])
+        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
+    ]
+    assert main_cases
+    transitions = [dict(item.get("workflow_transition") or {}) for item in main_cases]
+    assert [item.get("source_state") for item in transitions] == ["cart_ready", "order_created"]
+    assert [item.get("target_state") for item in transitions] == ["order_created", "paid_status_visible"]
+    assert all(item.get("path_type") == "positive" for item in transitions)
+    assert all(item.get("blocking") is False for item in transitions)
+    assert all(item.get("destructive") is False for item in transitions)
+    assert all(item.get("can_advance_main_flow") is True for item in transitions)
+    assert [item.get("workflow_id") for item in main_cases] == ["checkout_flow", "checkout_flow"]
+    assert [item.get("source_state") for item in main_cases] == ["cart_ready", "order_created"]
+    assert [item.get("target_state") for item in main_cases] == ["order_created", "paid_status_visible"]
+    assert all(float(item.get("state_transition_confidence") or 0.0) >= 0.9 for item in main_cases)
+
+
+def test_trusted_repository_contract_bridges_full_main_chain_when_candidates_do_not_match() -> None:
+    states = [
+        ("start", "Ready", "open_workflow", "ready", "started", "entry"),
+        ("configure", "Configure", "configure_workflow", "started", "configured", "configure"),
+        ("preview", "Preview", "preview_workflow", "configured", "preview_ready", "preview"),
+        ("commit", "Commit", "commit_workflow", "preview_ready", "committed", "commit"),
+        ("visible", "Visible", "show_downstream", "committed", "visible", "downstream_visibility"),
+        ("consume", "Consume", "consume_workflow", "visible", "consumed", "consume"),
+    ]
+    state = {
+        "workflow_blueprints": [
+            {
+                "id": "trusted_bridge_flow",
+                "workflow_id": "trusted_bridge_flow",
+                "name": "trusted bridge flow",
+                "source_type": "human_reviewed",
+                "repository_source": "workflow_blueprint_repository",
+                "trusted": True,
+                "steps": [
+                    {
+                        "id": step_id,
+                        "label": label,
+                        "action": action,
+                        "actor": "student",
+                        "state_in": state_in,
+                        "state_out": state_out,
+                        "stage_kind": stage_kind,
+                        "allow_bridge": True,
+                        "match_keywords": [f"__no_candidate_match_{step_id}__"],
+                    }
+                    for step_id, label, action, state_in, state_out, stage_kind in states
+                ],
+            }
+        ]
+    }
+    result = _run_cases(
+        requirement="Trusted repository contract bridge regression",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "Unrelated profile preference update",
+                "test_module": "profile",
+                "steps": ["Update profile preference"],
+                "expected_result": "profile preference is updated",
+                "priority": "P1",
+            }
+        ],
+        expected_count=10,
+        feedback_control_state=state,
+    )
+
+    main_cases = [
+        item for item in (result.get("cases") or [])
+        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
+    ]
+    assert [item.get("main_chain_stage") for item in main_cases] == [item[0] for item in states]
+    assert all(item.get("workflow_blueprint_bridge") is True for item in main_cases)
+    assert all(str(item.get("priority") or "") == "P0" for item in main_cases)
+    plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
+    assert plan.get("trusted_workflow_contract_count") == 1
+    assert plan.get("generated_bridge_case_count") == len(states)
+    assert plan.get("main_chain_stage_kinds") == [item[5] for item in states]
+    assert plan.get("linear_executable") is True
+
+
+def test_text_stage_classifier_keeps_save_and_display_as_commit() -> None:
+    steps = [
+        ("start", "open workflow alpha entry", "ready", "started"),
+        ("configure", "configure schedule beta slot", "started", "configured"),
+        ("preview", "review preview gamma summary", "configured", "preview_ready"),
+        ("commit", "save plan and display delta confirmation", "preview_ready", "committed"),
+        ("visible", "display saved plan on student home epsilon card", "committed", "visible"),
+        ("consume", "learn course from visible plan zeta lesson", "visible", "consumed"),
+    ]
+    state = {
+        "workflow_blueprints": [
+            {
+                "id": "save_display_flow",
+                "workflow_id": "save_display_flow",
+                "name": "save display flow",
+                "source_type": "human_reviewed",
+                "repository_source": "workflow_blueprint_repository",
+                "trusted": True,
+                "steps": [
+                    {
+                        "id": step_id,
+                        "label": action,
+                        "action": action,
+                        "actor": "student",
+                        "state_in": state_in,
+                        "state_out": state_out,
+                        "match_keywords": [action],
+                    }
+                    for step_id, action, state_in, state_out in steps
+                ],
+            }
+        ]
+    }
+    result = _run_cases(
+        requirement="Save plan then display it on student home",
+        cases=[
+            {
+                "id": f"TC-{index:03d}",
+                "description": action,
+                "test_module": f"workflow {step_id}",
+                "steps": [action, f"complete unique {step_id} operation"],
+                "test_input": f"{state_in} dataset for {step_id}",
+                "expected_result": "saved plan is visible on epsilon card" if step_id == "visible" else f"state reaches {state_out} for {step_id}",
+                "priority": "P0",
+            }
+            for index, (step_id, action, state_in, state_out) in enumerate(steps, start=1)
+        ],
+        expected_count=10,
+        feedback_control_state=state,
+    )
+
+    plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
+    main_cases = [
+        item for item in (result.get("cases") or [])
+        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
+    ]
+    assert plan.get("main_chain_stage_kinds")[3] == "commit"
+    assert plan.get("main_chain_stage_kinds")[4] == "downstream_visibility"
+    assert [dict(item.get("workflow_transition") or {}).get("stage_kind") for item in main_cases][3:5] == [
+        "commit",
+        "downstream_visibility",
+    ]
+    assert plan.get("linear_executable") is True
+
+
+def test_persist_priority_normalization_preserves_execution_plan_p0() -> None:
+    result = normalize_final_case_priorities(
+        [
+            {
+                "id": "TC-001",
+                "description": "Homepage course card title display",
+                "test_module": "student home display",
+                "preconditions": ["plan saved"],
+                "steps": ["open student home"],
+                "test_input": "saved plan",
+                "expected_result": "course card title is visible",
+                "priority": "P0",
+                "priority_final": "P0",
+                "execution_group": "main_smoke",
+            }
+        ],
+        requirement_text="student home shows the saved plan",
+    )
+
+    assert str(result[0].get("priority") or "") == "P0"
+    assert str(result[0].get("priority_final") or "") == "P0"
+    assert str(result[0].get("priority_decision_source") or "") == "preserved_execution_plan_priority"
+
+
+def test_execution_plan_excludes_negative_and_destructive_cases_from_main_smoke() -> None:
+    state = {
+        "workflow_blueprints": [
+            {
+                "id": "create_plan_flow",
+                "name": "create plan flow",
+                "steps": [
+                    {
+                        "id": "configure_plan",
+                        "label": "Configure plan",
+                        "actor": "supervisor",
+                        "state_in": "initial",
+                        "state_out": "plan_configured",
+                        "match_keywords": ["configure plan"],
+                        "assertion": "plan is configured",
+                    },
+                    {
+                        "id": "save_plan",
+                        "label": "Save plan",
+                        "actor": "supervisor",
+                        "state_in": "plan_configured",
+                        "state_out": "plan_saved",
+                        "match_keywords": ["save plan"],
+                        "assertion": "plan is saved",
+                    },
+                    {
+                        "id": "student_visibility",
+                        "label": "Student visibility",
+                        "actor": "student",
+                        "state_in": "plan_saved",
+                        "state_out": "student_home_visible",
+                        "match_keywords": ["student home visible"],
+                        "assertion": "new plan is visible",
+                    },
+                    {
+                        "id": "open_course",
+                        "label": "Open course",
+                        "actor": "student",
+                        "state_in": "student_home_visible",
+                        "state_out": "course_opened",
+                        "match_keywords": ["open course"],
+                        "assertion": "course page opens",
+                    },
+                ],
+            }
+        ]
+    }
+    result = _run_cases(
+        requirement="Supervisor creates a plan, student sees the new plan and opens the course.",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "Configure plan with selected courses",
+                "test_module": "plan create",
+                "steps": ["Open create plan", "Select courses"],
+                "expected_result": "plan is configured with selected courses",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-002",
+                "description": "Capacity shortage blocks configure plan",
+                "test_module": "plan create",
+                "steps": ["Select too many courses"],
+                "expected_result": "system shows capacity limit and cannot continue",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-003",
+                "description": "Save plan successfully",
+                "test_module": "plan create",
+                "steps": ["Preview plan", "Save plan"],
+                "expected_result": "plan is saved with id PLAN-100",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-004",
+                "description": "Save plan blocked by time conflict",
+                "test_module": "plan create",
+                "steps": ["Save plan with conflicting time"],
+                "expected_result": "save is blocked and conflict message is shown",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-005",
+                "description": "Student home visible after new plan sync",
+                "test_module": "student home",
+                "steps": ["Open student home"],
+                "expected_result": "new plan is visible on student home",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-006",
+                "description": "Open course from student home",
+                "test_module": "student home",
+                "steps": ["Click course card"],
+                "expected_result": "course page opens for PLAN-100",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-007",
+                "description": "Save plan fails during network timeout",
+                "test_module": "plan create",
+                "steps": ["Save plan during network timeout"],
+                "expected_result": "save plan failed and retry action is shown",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-008",
+                "description": "Delete existing plan",
+                "test_module": "plan management",
+                "steps": ["Delete plan PLAN-100"],
+                "expected_result": "plan is removed from management list",
+                "priority": "P0",
+            },
+        ],
+        expected_count=80,
+        feedback_control_state=state,
     )
 
     output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
     main_cases = [item for item in output_cases if str(item.get("execution_group") or "") == "main_smoke"]
     assert [item.get("main_chain_stage") for item in main_cases] == [
-        "upload_ready",
-        "correction_generated",
-        "enter_submission_page",
-        "submit_pending_review",
-        "admin_approved",
-        "my作文_published",
-        "community_visible",
-        "community_detail_interaction",
-        "delete_restore_unsubmitted",
+        "configure_plan",
+        "save_plan",
+        "student_visibility",
+        "open_course",
     ]
-    for index, case in enumerate(main_cases):
-        if index == 0:
-            assert case.get("depends_on") == []
-        else:
-            assert case.get("depends_on") == [main_cases[index - 1]["id"]]
-            assert str(main_cases[index - 1].get("expected_result") or "")[:20] in str(case.get("setup_hint") or "")
-        assert case.get("isolation_required") is False
-        assert str(case.get("fixture_key") or "") == "main_smoke_chain_seed"
-        assert str(case.get("group_setup") or "").startswith("seed_student")
-        assert str(case.get("group_teardown") or "").startswith("delete_created_work")
-        if case.get("main_chain_stage") in {"my作文_published", "community_detail_interaction"}:
-            assert str(case.get("priority") or "") == "P1"
-        else:
-            assert str(case.get("priority") or "") == "P0"
-
-    bridge_cases = [item for item in main_cases if item.get("generated_bridge_case")]
-    assert bridge_cases
-    assert any(item.get("main_chain_stage") == "enter_submission_page" for item in bridge_cases)
-    assert any(item.get("main_chain_stage") == "community_detail_interaction" for item in bridge_cases)
-
-    isolated = [item for item in output_cases if "上传失败" in str(item.get("description") or "")]
-    assert isolated
-    assert isolated[0].get("isolation_required") is True
-    assert str(isolated[0].get("execution_group") or "") == "exception"
-    assert str(isolated[0].get("fixture_key") or "") == "fault_injection_case"
-    assert str(isolated[0].get("fixture_builder") or "") == "enable_fault_injection_for_case()"
-
-    summary = dict(result.get("review_decision_summary") or {})
-    assert summary.get("linear_executable") is True
-    assert summary.get("linear_scope") == "main_smoke_chain_only"
-    assert int(summary.get("main_chain_case_count") or 0) == len(main_cases)
-    assert int(summary.get("isolation_case_count") or 0) >= 1
-    plan = dict(summary.get("execution_plan") or {})
-    assert int(plan.get("generated_bridge_case_count") or 0) >= 1
-    assert "main_smoke_chain_seed" in (plan.get("fixture_keys") or [])
-    assert dict(plan.get("group_setup") or {}).get("main_smoke")
+    assert all(str(item.get("priority") or "") == "P0" for item in main_cases)
+    main_descriptions = " ".join(str(item.get("description") or "") for item in main_cases).lower()
+    assert "capacity" not in main_descriptions
+    assert "conflict" not in main_descriptions
+    assert "delete" not in main_descriptions
+    plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
+    excluded_reasons = {str(item.get("reason") or "") for item in (plan.get("main_chain_excluded_candidates") or [])}
+    assert "boundary_capacity" in excluded_reasons
+    assert plan.get("linear_executable") is True
+    final_breakdown = dict((result.get("review_decision_summary") or {}).get("priority_final_breakdown") or {})
+    assert int(final_breakdown.get("P0") or 0) >= len(main_cases)
 
 
-def test_execution_plan_classifies_comment_review_as_audit_fixture() -> None:
+def test_execution_plan_does_not_infer_main_smoke_without_workflow_blueprint() -> None:
     result = _run_cases(
-        requirement="作文圈评论需要后台审核通过后才展示。",
-        cases=[
-            {
-                "id": "TC-008",
-                "description": "后台审核评论通过后评论展示",
-                "test_module": "作文圈评论审核",
-                "preconditions": ["作品详情页存在一条待审核评论"],
-                "steps": ["1. 后台打开评论审核列表", "2. 点击审核通过", "3. 回到作品详情页查看评论"],
-                "test_input": "待审核评论",
-                "expected_result": "评论审核通过后在作品详情页评论区展示，评论状态为已通过",
-                "priority": "P0",
-            }
-        ],
-    )
-
-    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
-    assert output_cases
-    case = output_cases[0]
-    assert str(case.get("execution_group") or "") == "audit_branch"
-    assert str(case.get("fixture_key") or "") == "pending_comment_review"
-    assert str(case.get("fixture_builder") or "") == "seed_comment(status='pending_review', work_status='published')"
-    assert str(case.get("priority") or "") == "P1"
-
-
-def test_execution_plan_orders_detail_before_delete_and_keeps_delete_as_terminal_p0() -> None:
-    result = _run_cases(
-        requirement="作文批改主链路：审核通过后作文圈可见，进入详情点赞后，最后删除已发布作品并恢复未投稿。",
+        requirement="Checkout regression",
         cases=[
             {
                 "id": "TC-001",
-                "description": "上传作文图片成功后去批改按钮可点击",
-                "test_module": "作文批改",
-                "preconditions": ["学生用户已登录并进入作文批改页"],
-                "steps": ["1. 上传作文图片"],
-                "test_input": "作文图片",
-                "expected_result": "作文图片上传成功，去批改按钮可点击",
+                "description": "Submit order creates an order record",
+                "test_module": "checkout",
+                "steps": ["Open checkout", "Submit order"],
+                "expected_result": "order is created",
                 "priority": "P0",
             },
             {
                 "id": "TC-002",
-                "description": "投稿提交成功后作品进入审核中",
-                "test_module": "作文投稿",
-                "preconditions": ["已生成批改结果"],
-                "steps": ["1. 提交投稿"],
-                "test_input": "已批改作文",
-                "expected_result": "投稿提交成功，作品状态变为审核中",
+                "description": "Order detail shows paid status",
+                "test_module": "order detail",
+                "steps": ["Open order detail"],
+                "expected_result": "status is paid",
+                "priority": "P0",
+            },
+        ],
+        expected_count=10,
+    )
+
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    assert not [item for item in output_cases if str(item.get("execution_group") or "") == "main_smoke"]
+    plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
+    assert plan.get("workflow_blueprint_count") == 0
+
+
+def test_execution_plan_can_bridge_generic_main_flow_without_domain_template() -> None:
+    result = _run_cases(
+        requirement="Generic workflow regression should preserve a positive entry, commit, and downstream visibility chain.",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "Open workflow entry and prepare state",
+                "test_module": "workflow entry",
+                "steps": ["Open entry page", "Prepare valid state"],
+                "expected_result": "workflow entry is ready",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-002",
+                "description": "Commit the workflow change successfully",
+                "test_module": "workflow commit",
+                "steps": ["Save change"],
+                "expected_result": "workflow change is saved successfully",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-003",
+                "description": "Downstream view reflects the committed change",
+                "test_module": "workflow downstream",
+                "steps": ["Refresh downstream page"],
+                "expected_result": "new state becomes visible downstream",
+                "priority": "P1",
+            },
+        ],
+        expected_count=10,
+    )
+
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    main_cases = [item for item in output_cases if str(item.get("execution_group") or "") == "main_smoke"]
+    assert len(main_cases) >= 2
+    transitions = [dict(item.get("workflow_transition") or {}) for item in main_cases]
+    assert all(item.get("path_type") == "positive" for item in transitions)
+    assert all(item.get("blocking") is False for item in transitions)
+    assert all(item.get("destructive") is False for item in transitions)
+    assert all(item.get("can_advance_main_flow") is True for item in transitions)
+    plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
+    assert plan.get("linear_executable") is True
+    assert plan.get("main_chain_case_count") == len(main_cases)
+
+
+def test_execution_plan_does_not_fake_current_main_smoke_when_commit_is_pruned() -> None:
+    result = _run_cases(
+        requirement="督导完成新增计划后，学生端首页展示本周任务并可点击学习。",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "首页本周任务卡片展示",
+                "test_module": "首页",
+                "steps": ["1. 打开学生端首页", "2. 查看本周任务"],
+                "expected_result": "首页展示本周任务卡片",
+                "priority": "P2",
+            },
+            {
+                "id": "TC-002",
+                "description": "排课新增计划第一步选择课程",
+                "test_module": "排课-新增计划",
+                "steps": ["1. 督导进入新增计划", "2. 选择课程", "3. 点击下一步"],
+                "expected_result": "课程加入已选列表并进入时间设置步骤",
                 "priority": "P0",
             },
             {
                 "id": "TC-003",
-                "description": "后台审核通过后作文圈可见已发布作品",
-                "test_module": "作文审核后台",
-                "preconditions": ["作品审核中"],
-                "steps": ["1. 后台审核通过"],
-                "test_input": "审核中的作品",
-                "expected_result": "作品变为已发布且作文圈可见",
+                "description": "排课新增计划第二步设置上课时间",
+                "test_module": "排课-新增计划",
+                "steps": ["1. 设置上课时间", "2. 点击下一步"],
+                "expected_result": "上课时间保存到计划草稿并进入预览步骤",
                 "priority": "P0",
             },
             {
                 "id": "TC-004",
-                "description": "删除作文圈已发布作品后恢复未投稿",
-                "test_module": "我的作文",
-                "preconditions": ["作品已发布"],
-                "steps": ["1. 点击删除作品"],
-                "test_input": "已发布作品",
-                "expected_result": "删除后作文圈中该作品被移除，我的作文中恢复未投稿状态",
+                "description": "排课新增计划第三步预览并保存",
+                "test_module": "排课-新增计划",
+                "steps": ["1. 查看预览", "2. 点击保存"],
+                "expected_result": "计划保存成功并回到课程管理页",
                 "priority": "P0",
             },
             {
                 "id": "TC-005",
-                "description": "进入作文圈作品详情并点赞",
-                "test_module": "作文圈",
-                "preconditions": ["作品已在作文圈可见"],
-                "steps": ["1. 进入作品详情", "2. 点击点赞"],
-                "test_input": "已发布作品",
-                "expected_result": "作品详情页打开成功，点赞数增加 1，作品仍保持已发布且可见",
+                "description": "学生点击学习进入正确课程",
+                "test_module": "首页本周任务",
+                "steps": ["1. 学生端首页点击学习按钮"],
+                "expected_result": "系统进入对应课程学习页",
                 "priority": "P0",
+            },
+            {
+                "id": "TC-006",
+                "description": "学习计划页 PV/UV 埋点上报",
+                "test_module": "埋点",
+                "steps": ["1. 打开学习计划页"],
+                "expected_result": "PV 和 UV 埋点上报成功",
+                "priority": "P2",
             },
         ],
-    )
-
-    main_cases = [
-        item for item in (result.get("cases") or [])
-        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
-    ]
-    stages = [str(item.get("main_chain_stage") or "") for item in main_cases]
-    assert "community_detail_interaction" in stages
-    assert "delete_restore_unsubmitted" in stages
-    assert stages.index("community_detail_interaction") < stages.index("delete_restore_unsubmitted")
-    detail_case = next(item for item in main_cases if item.get("main_chain_stage") == "community_detail_interaction")
-    delete_case = next(item for item in main_cases if item.get("main_chain_stage") == "delete_restore_unsubmitted")
-    assert detail_case.get("depends_on") != [delete_case.get("id")]
-    assert delete_case.get("depends_on") == [detail_case.get("id")]
-    assert str(detail_case.get("priority") or "") == "P1"
-    assert str(delete_case.get("priority") or "") == "P0"
-
-
-def test_execution_plan_projects_duplicate_submission_case_into_enter_page_preparation() -> None:
-    result = _run_cases(
-        requirement="作文投稿主链路：批改成功后先进入投稿页准备，再提交投稿进入审核中。",
-        cases=[
-            {
-                "id": "TC-001",
-                "description": "上传作文图片成功后去批改按钮可点击",
-                "test_module": "作文批改",
-                "preconditions": ["学生用户已登录"],
-                "steps": ["1. 上传作文图片"],
-                "test_input": "清晰作文图片",
-                "expected_result": "上传成功且去批改按钮可点击",
-                "priority": "P0",
-            },
-            {
-                "id": "TC-002",
-                "description": "点击去批改并等待 AI 批改成功",
-                "test_module": "作文批改",
-                "preconditions": ["作文图片已上传"],
-                "steps": ["1. 点击去批改", "2. 等待批改完成"],
-                "test_input": "已上传作文图片",
-                "expected_result": "AI 批改成功并进入批改结果页",
-                "priority": "P0",
-            },
-            {
-                "id": "TC-003",
-                "description": "投稿页提交后显示投稿成功弹窗并返回审核中",
-                "test_module": "作文投稿",
-                "preconditions": ["已进入批改结果页"],
-                "steps": ["1. 点击投稿", "2. 进入投稿页", "3. 点击提交投稿"],
-                "test_input": "已批改作文",
-                "expected_result": "投稿成功弹窗显示，点击我知道了后返回批改详情页，按钮状态变为审核中",
-                "priority": "P0",
-            },
-            {
-                "id": "TC-004",
-                "description": "提交投稿后进入审核中",
-                "test_module": "作文投稿",
-                "preconditions": ["学生端已进入投稿页，标题和正文内容已确认"],
-                "steps": ["1. 点击提交投稿"],
-                "test_input": "完整投稿内容",
-                "expected_result": "投稿提交成功，作品状态变为审核中",
-                "priority": "P0",
-            },
-        ],
-    )
-
-    main_cases = [
-        item for item in (result.get("cases") or [])
-        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
-    ]
-    enter_case = next(item for item in main_cases if item.get("main_chain_stage") == "enter_submission_page")
-    submit_case = next(item for item in main_cases if item.get("main_chain_stage") == "submit_pending_review")
-    assert str(enter_case.get("description") or "") == "从批改结果页进入投稿页并完成投稿前准备"
-    assert enter_case.get("submission_stage_projection") == "enter_submission_page_preparation"
-    assert "提交投稿" not in " ".join(str(step) for step in (enter_case.get("steps") or []))
-    assert "审核中" not in str(enter_case.get("expected_result") or "")
-    assert "审核中" in str(submit_case.get("expected_result") or "")
-    assert submit_case.get("depends_on") == [enter_case.get("id")]
-
-
-def test_execution_plan_keeps_ocr_failure_out_of_main_smoke_and_bridges_success() -> None:
-    result = _run_cases(
-        requirement="作文批改主链路：上传图片后点击去批改，AI批改成功后进入批改结果页；OCR失败属于异常分支。",
-        cases=[
-            {
-                "id": "TC-001",
-                "description": "上传作文图片成功后去批改按钮可点击",
-                "test_module": "作文批改",
-                "preconditions": ["学生用户已登录并进入作文批改页"],
-                "steps": ["1. 上传清晰作文图片"],
-                "test_input": "清晰作文图片",
-                "expected_result": "作文图片上传成功，去批改按钮可点击",
-                "priority": "P0",
-            },
-            {
-                "id": "TC-002",
-                "description": "OCR 识别失败时批改任务不进入成功态",
-                "test_module": "作文批改",
-                "preconditions": ["学生用户已上传无法识别文字的作文图片"],
-                "steps": ["1. 点击去批改", "2. 等待 OCR 返回失败"],
-                "test_input": "模糊或无文字图片",
-                "expected_result": "系统提示识别失败，不生成批改结果，作品不进入可投稿状态",
-                "priority": "P1",
-            },
-            {
-                "id": "TC-003",
-                "description": "批改成功返回完整批改结果",
-                "test_module": "批改结果",
-                "preconditions": ["已生成批改结果"],
-                "steps": ["1. 查看批改结果页"],
-                "test_input": "已批改作文",
-                "expected_result": "批改结果页展示综合点评、分句点评、全文润色和优化建议四部分内容",
-                "priority": "P0",
-            },
-        ],
+        expected_count=10,
     )
 
     output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
     main_cases = [item for item in output_cases if str(item.get("execution_group") or "") == "main_smoke"]
-    main_descriptions = [str(item.get("description") or "") for item in main_cases]
-    assert "OCR 识别失败时批改任务不进入成功态" not in main_descriptions
-    assert any(item.get("generated_bridge_case") and item.get("main_chain_stage") == "correction_generated" for item in main_cases)
-    ocr_case = next(item for item in output_cases if "OCR 识别失败" in str(item.get("description") or ""))
-    assert str(ocr_case.get("execution_group") or "") == "exception"
-    assert str(ocr_case.get("fixture_key") or "") == "fault_injection_case"
+    assert not main_cases
+    analytics_cases = [item for item in output_cases if "埋点" in str(item.get("description") or "")]
+    assert all(str(item.get("execution_group") or "") != "main_smoke" for item in analytics_cases)
+    plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
+    assert plan.get("workflow_blueprint_source") == "none"
+    assert plan.get("linear_executable") is False
 
 
-def test_execution_plan_keeps_timeout_retry_out_of_first_main_step() -> None:
-    result = _run_cases(
-        requirement="作文批改主链路：上传图片后点击去批改，AI批改成功后进入批改结果页；接口超时重试属于异常分支。",
-        cases=[
+def test_reasoning_leakage_is_detected_in_description() -> None:
+    filtered = filter_invalid_final_cases(
+        [
             {
                 "id": "TC-001",
-                "description": "AI 批改接口超时后支持重试",
-                "test_module": "作文批改",
-                "preconditions": ["学生用户已上传清晰作文图片且批改接口被模拟为超时"],
-                "steps": ["1. 点击去批改", "2. 等待超时提示", "3. 点击重试"],
-                "test_input": "批改接口超时",
-                "expected_result": "首次批改显示超时提示且不产生错误结果；点击重试后重新发起批改请求并保持原上传图片",
-                "priority": "P0",
-            },
-            {
-                "id": "TC-002",
-                "description": "点击去批改后成功生成 AI 批改结果",
-                "test_module": "作文批改",
-                "preconditions": ["作文图片已上传"],
-                "steps": ["1. 点击去批改", "2. 等待 AI 批改完成"],
-                "test_input": "已上传作文图片",
-                "expected_result": "AI 批改成功完成，系统进入批改结果页并展示本次作文的批改结果",
-                "priority": "P0",
-            },
-        ],
-    )
-
-    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
-    main_cases = [item for item in output_cases if str(item.get("execution_group") or "") == "main_smoke"]
-    assert main_cases
-    assert str(main_cases[0].get("main_chain_stage") or "") == "upload_ready"
-    assert "超时" not in str(main_cases[0].get("description") or "")
-    assert str(main_cases[0].get("description") or "") == "上传作文图片成功后去批改按钮可点击"
-    timeout_case = next(item for item in output_cases if "超时" in str(item.get("description") or ""))
-    assert str(timeout_case.get("execution_group") or "") == "exception"
-    assert str(timeout_case.get("chain_id") or "") == "exception_independent"
-    assert str(timeout_case.get("priority") or "") == "P1"
-
-
-def test_execution_plan_inserts_admin_approval_before_student_observation() -> None:
-    result = _run_cases(
-        requirement="投稿成功进入审核中后，需要管理员审核通过，学生端再看到审核通过弹窗和已发布状态。",
-        cases=[
-            {
-                "id": "TC-001",
-                "description": "上传作文图片成功后去批改按钮可点击",
-                "test_module": "作文批改",
-                "preconditions": ["学生用户已登录"],
-                "steps": ["1. 上传作文图片"],
-                "test_input": "作文图片",
-                "expected_result": "上传成功且去批改按钮可点击",
-                "priority": "P0",
-            },
-            {
-                "id": "TC-002",
-                "description": "投稿提交成功后作品进入审核中",
-                "test_module": "作文投稿",
-                "preconditions": ["已生成批改结果"],
-                "steps": ["1. 提交投稿"],
-                "test_input": "已批改作文",
-                "expected_result": "投稿提交成功，作品状态变为审核中",
-                "priority": "P0",
-            },
-            {
-                "id": "TC-003",
-                "description": "学生端作品刚刚审核通过时显示红点和弹窗",
-                "test_module": "我的作文",
-                "preconditions": ["作品刚刚审核通过"],
-                "steps": ["1. 学生端刷新我的作文", "2. 查看红点和弹窗"],
-                "test_input": "刚审核通过的作品",
-                "expected_result": "学生端显示审核通过红点和弹窗，作品状态为已发布",
+                "description": "针对已存在计划编辑场景？但新增计划不应有已完成/进行中。",
+                "test_module": "排课-新增计划",
+                "preconditions": ["督导登录"],
+                "steps": ["进入新增计划"],
+                "expected_result": "新建计划页面正常展示",
                 "priority": "P1",
-            },
-        ],
+            }
+        ]
     )
 
-    main_cases = [
-        item for item in (result.get("cases") or [])
-        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
-    ]
-    admin_case = next(item for item in main_cases if item.get("main_chain_stage") == "admin_approved")
-    student_cases_after_admin = [
-        item for item in main_cases
-        if int(item.get("main_chain_step") or 0) > int(admin_case.get("main_chain_step") or 0)
-    ]
-    assert admin_case.get("generated_bridge_case") is True
-    assert str(admin_case.get("role") or "") == "admin"
-    assert str(admin_case.get("session_key") or "") == "admin_review_session"
-    assert any("学生端" in str(item.get("description") or "") or item.get("main_chain_stage") == "my作文_published" for item in student_cases_after_admin)
-
-
-def test_execution_plan_splits_admin_approval_from_student_sync_case() -> None:
-    result = _run_cases(
-        requirement="作文投稿主链路：投稿审核中后，管理员审核通过，学生端刷新后我的作文、作文圈和红点状态同步。",
-        cases=[
-            {
-                "id": "TC-001",
-                "description": "上传作文图片成功后去批改按钮可点击",
-                "test_module": "作文批改",
-                "preconditions": ["学生用户已登录"],
-                "steps": ["1. 上传作文图片"],
-                "test_input": "作文图片",
-                "expected_result": "上传成功且去批改按钮可点击",
-                "priority": "P0",
-            },
-            {
-                "id": "TC-002",
-                "description": "投稿提交成功后作品进入审核中",
-                "test_module": "作文投稿",
-                "preconditions": ["已生成批改结果"],
-                "steps": ["1. 提交投稿"],
-                "test_input": "已批改作文",
-                "expected_result": "投稿提交成功，作品状态变为审核中",
-                "priority": "P0",
-            },
-            {
-                "id": "TC-003",
-                "description": "审核通过后学生端我的作文作文圈红点状态同步",
-                "test_module": "我的作文",
-                "preconditions": ["作品处于审核中"],
-                "steps": ["1. 后台审核通过该投稿", "2. 学生端刷新我的作文", "3. 查看作文圈和红点"],
-                "test_input": "审核中的投稿作品",
-                "expected_result": "我的作文状态为已发布，作文圈可见该作品，学生端展示审核通过红点",
-                "priority": "P0",
-            },
-        ],
-    )
-
-    main_cases = [
-        item for item in (result.get("cases") or [])
-        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
-    ]
-    admin_case = next(item for item in main_cases if item.get("main_chain_stage") == "admin_approved")
-    sync_case = next(item for item in main_cases if bool(item.get("student_observation_projection")))
-    assert admin_case.get("generated_bridge_case") is True
-    assert str(admin_case.get("role") or "") == "admin"
-    assert str(admin_case.get("session_key") or "") == "admin_review_session"
-    assert str(sync_case.get("role") or "") == "student"
-    assert str(sync_case.get("session_key") or "") == "student_session"
-    assert "后台审核通过" not in " ".join(str(step) for step in (sync_case.get("steps") or []))
-    assert sync_case.get("depends_on") == [admin_case.get("id")]
+    assert filtered == []
 
 
 def test_execution_plan_keeps_submission_rule_popup_on_student_session() -> None:
@@ -1591,29 +1737,6 @@ def test_execution_plan_keeps_submission_rule_popup_on_student_session() -> None
     assert str(case.get("role") or "") == "student"
     assert str(case.get("session_key") or "") == "student_session"
     assert str(case.get("role_switch_strategy") or "") == "reuse_group_session"
-
-
-def test_execution_plan_uses_community_tab_fixture_for_list_sorting() -> None:
-    result = _run_cases(
-        requirement="作文圈精选、最新、我的列表需要按已发布作品数据排序展示。",
-        cases=[
-            {
-                "id": "TC-013",
-                "description": "作文圈精选最新我的列表仅展示审核通过作品并按规则排序",
-                "test_module": "作文圈",
-                "preconditions": ["存在多篇已审核通过作文"],
-                "steps": ["1. 打开作文圈", "2. 切换精选、最新、我的列表"],
-                "test_input": "30篇已发布作文",
-                "expected_result": "精选列表、最新列表和我的列表均只展示已发布作品，并分别按点赞、时间和作者范围展示",
-                "priority": "P1",
-            }
-        ],
-    )
-
-    case = next(item for item in (result.get("cases") or []) if isinstance(item, dict))
-    assert str(case.get("execution_group") or "") == "display"
-    assert str(case.get("fixture_key") or "") == "community_tab_sorting_dataset"
-    assert str(case.get("fixture_builder") or "") == "seed_community_works(status='published', count=30, with_like_reply_time_distribution=true)"
 
 
 def test_execution_plan_does_not_use_community_fixture_for_generic_student_list_sorting() -> None:
@@ -2044,6 +2167,7 @@ def _configure_backfill_apply_env(
     monkeypatch.setattr(settings, "CORE_FLOW_BACKFILL_MIN_FINAL_CASES", 12, raising=False)
     monkeypatch.setattr(settings, "CORE_FLOW_BACKFILL_MAX_FINAL_CASES", 18, raising=False)
     monkeypatch.setattr(settings, "CORE_FLOW_BACKFILL_MIN_COVERAGE_RATIO", 0.8, raising=False)
+    monkeypatch.setattr(settings, "EXECUTION_PLAN_GATE_MODE", "shadow", raising=False)
 
     monkeypatch.setattr(json_generation_mod, "get_client_for_user", lambda user_id, db: _BackfillApplyClient())
     monkeypatch.setattr(TestGenerationModule, "_is_active_db_session", lambda self, db: True)
@@ -2140,6 +2264,127 @@ def _configure_backfill_apply_env(
     monkeypatch.setattr(backfill_generation_mod, "generate_core_flow_backfill_candidates", _fake_generate_core_flow_backfill_candidates)
     monkeypatch.setattr(coverage_contract_mod, "audit_core_flow_coverage", _fake_audit_core_flow_coverage)
     return call_counter
+
+
+def test_json_persistence_projects_final_case_contract(monkeypatch) -> None:
+    _configure_backfill_apply_env(
+        monkeypatch,
+        enabled=False,
+        apply_to_final=False,
+        merged_preview_cases=[],
+    )
+
+    source_cases = _primary_cases_for_backfill_apply()
+    source_cases[0].update(
+        {
+            "workflow_transition": {
+                "workflow_id": "schedule-main",
+                "source_state": "course_selected",
+                "action": "configure_time",
+                "target_state": "time_configured",
+                "path_type": "main",
+                "blocking": True,
+                "destructive": False,
+                "can_advance_main_flow": True,
+            },
+            "execution_group": "schedule-main",
+            "execution_sequence": 1,
+            "role": "teacher",
+            "session_key": "teacher_session",
+            "model_priority_current": "P1",
+            "priority_decision_state": "decided",
+            "priority_debug": {"reason": "debug-only"},
+        }
+    )
+
+    monkeypatch.setattr(
+        json_generation_mod,
+        "run_multi_pass_generation",
+        lambda **kwargs: {
+            "final_cases": [dict(item) for item in source_cases],
+            "stage_logs": [
+                {"kind": "generation_stage", "stage": "primary", "case_count": len(source_cases)},
+                {"kind": "generation_stage", "stage": "gap", "case_count": 0},
+                {"kind": "generation_stage", "stage": "review", "case_count": len(source_cases)},
+            ],
+            "coverage": {"kind": "coverage_check", "covered_rules": ["RULE-001"], "missing_rules": []},
+            "raw": {},
+        },
+    )
+
+    module = TestGenerationModule()
+    db = _FakeActiveSession()
+    result = module.generate_test_cases_json(
+        requirement="json path should persist only formal case fields",
+        project_id=16,
+        db=db,
+        user_id=9,
+        expected_count=8,
+        multi_pass=True,
+        generation_mode="multi_pass",
+    )
+
+    assert isinstance(result, list)
+    assert db.generations
+    stored = json.loads(str(db.generations[-1].generated_result or "[]"))
+    assert stored[0]["priority"] == "P1"
+    assert stored[0]["priority_final"] == "P1"
+    assert stored[0]["workflow_id"] == "schedule-main"
+    assert stored[0]["source_state"] == "course_selected"
+    assert stored[0]["target_state"] == "time_configured"
+    assert stored[0]["execution_group"] == "schedule-main"
+    assert stored[0]["role"] == "teacher"
+    assert stored[0]["session_key"] == "teacher_session"
+    assert "model_priority_current" not in stored[0]
+    assert "priority_decision_state" not in stored[0]
+    assert "priority_debug" not in stored[0]
+    assert "workflow_transition" not in stored[0]
+
+
+def test_json_persistence_recalculates_priority_final_when_upstream_stripped(monkeypatch) -> None:
+    _configure_backfill_apply_env(
+        monkeypatch,
+        enabled=False,
+        apply_to_final=False,
+        merged_preview_cases=[],
+    )
+
+    source_cases = _primary_cases_for_backfill_apply()
+    for item in source_cases:
+        item.pop("priority_final", None)
+
+    monkeypatch.setattr(
+        json_generation_mod,
+        "run_multi_pass_generation",
+        lambda **kwargs: {
+            "final_cases": [dict(item) for item in source_cases],
+            "stage_logs": [
+                {"kind": "generation_stage", "stage": "primary", "case_count": len(source_cases)},
+                {"kind": "generation_stage", "stage": "gap", "case_count": 0},
+                {"kind": "generation_stage", "stage": "review", "case_count": len(source_cases)},
+            ],
+            "coverage": {"kind": "coverage_check", "covered_rules": ["RULE-001"], "missing_rules": []},
+            "raw": {},
+        },
+    )
+
+    module = TestGenerationModule()
+    db = _FakeActiveSession()
+    result = module.generate_test_cases_json(
+        requirement="json path should finalize priority when priority_final is stripped",
+        project_id=17,
+        db=db,
+        user_id=9,
+        expected_count=8,
+        multi_pass=True,
+        generation_mode="multi_pass",
+    )
+
+    assert isinstance(result, list)
+    stored = json.loads(str(db.generations[-1].generated_result or "[]"))
+    assert stored
+    assert all(str(item.get("priority_final") or "").strip().upper() == "P1" for item in stored)
+    assert all(str(item.get("priority") or "").strip().upper() == "P1" for item in stored)
 
 
 def test_backfill_apply_default_disabled_keeps_primary_result(monkeypatch) -> None:
@@ -2300,3 +2545,33 @@ def test_backfill_apply_to_final_blocks_low_coverage_result(monkeypatch) -> None
     assert apply_summary["backfill_applied"] is False
     assert apply_summary["final_quality_gate_passed"] is False
     assert apply_summary["apply_skip_reason"] == "merged_result_coverage_below_threshold"
+
+
+def test_json_persistence_enforce_mode_blocks_without_workflow_contract(monkeypatch) -> None:
+    _configure_backfill_apply_env(
+        monkeypatch,
+        enabled=False,
+        apply_to_final=False,
+        merged_preview_cases=[],
+    )
+    monkeypatch.setattr(settings, "EXECUTION_PLAN_GATE_MODE", "enforce", raising=False)
+
+    module = TestGenerationModule()
+    db = _FakeActiveSession()
+    result = module.generate_test_cases_json(
+        requirement="formal persistence requires an executable workflow contract",
+        project_id=15,
+        db=db,
+        user_id=9,
+        expected_count=8,
+        multi_pass=True,
+        generation_mode="multi_pass",
+    )
+
+    assert isinstance(result, dict)
+    assert result["error_code"] == "execution_plan_failed"
+    assert "workflow_contract_missing" in list(result.get("failure_reasons") or [])
+    assert db.generations == []
+    persistence_gate = _extract_gen_diag(db, "persistence_gate")
+    assert persistence_gate["blocked"] is True
+    assert persistence_gate["failure_code"] == "execution_plan_failed"

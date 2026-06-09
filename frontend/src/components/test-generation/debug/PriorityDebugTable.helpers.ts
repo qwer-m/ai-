@@ -360,13 +360,13 @@ export function priorityDebugSourceLabel(source: string | null | undefined): str
 
 export function buildRows(result: any, resultSource: ResultSource): PriorityRow[] {
   return extractCaseArray(result).map((item, idx) => {
-    const debug = toPriorityDebug(item?.priorityDebug) ?? toPriorityDebug(item?.meta?.priority_debug);
+    const debug = toPriorityDebug(item?.priorityDebug) ?? toPriorityDebug(item?.priority_debug) ?? toPriorityDebug(item?.meta?.priority_debug);
     const listDisplayPriority = normalizePriority(item?.priority ?? item?.displayPriority);
     const debugRawPriority = pickPriorityFromDebug(debug, ['original_priority', 'model_priority', 'raw_priority', 'source_priority']);
     const debugFinalPriority = pickPriorityFromDebug(debug, ['final_priority', 'resolved_priority', 'priority_after_rules', 'adjusted_priority', 'target_priority', 'priority']);
-    const rawPriority = normalizePriority(item?.rawPriority) || debugRawPriority || listDisplayPriority;
+    const rawPriority = normalizePriority(item?.rawPriority ?? item?.raw_priority) || debugRawPriority || listDisplayPriority;
     const displayPriority = listDisplayPriority;
-    const finalPriority = normalizePriority(item?.finalPriority) || debugFinalPriority || listDisplayPriority;
+    const finalPriority = normalizePriority(item?.finalPriority ?? item?.final_priority ?? item?.priority_final) || debugFinalPriority || listDisplayPriority;
     const caseId = String(item?.id || item?.case_id || `CASE-${idx + 1}`);
     const title = String(item?.description || item?.title || item?.name || '').trim();
     const rawFinalMismatch = Boolean(rawPriority && finalPriority && rawPriority !== finalPriority);

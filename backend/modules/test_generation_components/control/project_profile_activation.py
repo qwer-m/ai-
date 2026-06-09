@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from modules.test_generation_components.control.feedback_control_state import FeedbackControlState
-from modules.test_generation_components.coverage.coverage_analyzer import extract_flow_outline
+from .feedback_control_state import FeedbackControlState
+from ..coverage.coverage_analyzer import extract_flow_outline
 
 
 _DATA_FLOW_PHASES: tuple[tuple[str, tuple[str, ...]], ...] = (

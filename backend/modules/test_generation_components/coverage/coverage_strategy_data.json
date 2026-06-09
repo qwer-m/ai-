@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "intent_action_keywords": [
+    ["submit", ["submit", "commit", "publish", "post", "提交", "投稿", "发布"]],
+    ["open", ["open", "enter", "view", "click", "tap", "打开", "进入", "查看", "点击"]],
+    ["switch", ["switch", "toggle", "filter", "select", "切换", "筛选", "选择"]],
+    ["delete", ["delete", "remove", "clear", "删除", "移除", "清空"]],
+    ["copy", ["copy", "复制"]],
+    ["upload", ["upload", "attach", "上传", "选择图片", "选择文件"]],
+    ["share", ["share", "link", "分享", "链接"]],
+    ["download", ["download", "export", "pdf", "下载", "导出"]],
+    ["sort", ["sort", "order", "rank", "排序"]],
+    ["edit", ["edit", "input", "modify", "填写", "编辑", "修改", "输入"]]
+  ],
+  "intent_outcome_keywords": [
+    ["toast", ["toast", "提示", "复制成功", "成功", "失败原因"]],
+    ["navigate", ["navigate", "redirect", "jump", "跳转", "返回", "进入"]],
+    ["dialog", ["dialog", "popup", "modal", "tips", "弹窗", "浮层", "蒙层"]],
+    ["status", ["status", "badge", "state", "状态", "标识", "红点", "置灰", "锁"]],
+    ["list", ["list", "empty", "列表", "缺省", "空状态"]],
+    ["content", ["display", "show", "render", "显示", "展示", "内容"]],
+    ["permission", ["permission", "auth", "member", "权限", "会员", "不可点击"]],
+    ["count", ["count", "quota", "limit", "数量", "次数", "上限"]],
+    ["sort", ["sort", "rank", "order", "排序", "权重"]]
+  ],
+  "intent_stopwords": [
+    "test", "case", "verify", "validation", "page", "module", "status",
+    "button", "user", "system", "click", "view", "validate", "shown",
+    "correctly", "correct", "recalculate", "recalculated", "after", "before",
+    "current", "follows", "follow", "display", "displays", "show", "opens",
+    "open", "a", "an", "the", "are", "is", "visible", "filtering"
+  ],
+  "stopwords": [
+    "以及", "或者", "并且", "如果", "那么", "需要", "可以", "必须",
+    "系统", "模块", "页面", "用户", "功能", "流程", "规则"
+  ],
+  "complexity_hints": [
+    "同时", "分别", "全部", "所有", "以及", "并且", "且", "包含",
+    "both", "all", "respectively", "and", "as well as"
+  ],
+  "boundary_hints": ["边界", "上限", "下限", "最大", "最小", "临界", "范围", "boundary", "max", "min"],
+  "boundary_required_hints": [
+    "边界", "上限", "下限", "最大", "最小", "临界", "超过", "少于",
+    "至少", "至多", "最多", "最少", "boundary", "max", "min"
+  ],
+  "exception_hints": ["异常", "失败", "错误", "拒绝", "超时", "fail", "error", "exception", "invalid"],
+  "risk_hints": ["权限", "安全", "鉴权", "并发", "性能", "风控", "risk", "security", "permission", "performance"],
+  "rule_action_hints": [
+    "新增", "调整", "插入", "后移", "保持", "保留", "隐藏", "显示", "展示",
+    "支持", "点击", "返回", "切换", "播放", "打印", "适配", "不变", "不做改动",
+    "只保留", "增加入口", "must", "should", "hide", "show", "display", "keep", "support"
+  ],
+  "generic_non_blocking_rules": [
+    "页面布局与展示", "页面布局展示", "页面展示", "布局展示",
+    "页面布局", "展示说明", "交互说明"
+  ],
+  "cross_cutting_hints": [
+    "异常", "例外", "权限", "额度", "限制", "历史", "补做", "补学",
+    "全局", "规则", "风险", "exception", "permission", "quota", "limit",
+    "history", "global", "rule", "risk"
+  ],
+  "data_flow_phases": [
+    ["entry_capture", ["拍照", "拍摄", "上传", "采集", "识别", "批改", "入口", "capture", "upload", "import", "entry"]],
+    ["review_confirm", ["复核", "审核", "审批", "确认", "修正", "review", "approve", "confirm", "correct"]],
+    ["artifact_list", ["习题本", "错题本", "题本", "列表", "workbook", "notebook", "dashboard", "list"]],
+    ["artifact_detail", ["详情", "解析", "答案", "detail", "answer", "analysis"]],
+    ["learning_plan", ["提升计划", "学习计划", "方案", "课程", "看视频", "切片", "plan", "course", "lesson", "slice"]],
+    ["completion_summary", ["完成", "复盘", "成果", "汇总", "summary", "complete", "completion"]],
+    ["report", ["报告", "成长报告", "周报", "分享", "report", "share"]],
+    ["access_limit", ["额度", "权限", "拦截", "次数", "quota", "permission", "limit", "gate"]],
+    ["global_exception", ["全局", "异常", "空状态", "无数据", "exception", "global", "empty"]],
+    ["history_makeup", ["历史", "补做", "补学", "history", "makeup"]]
+  ],
+  "data_flow_phase_tie_priority": {
+    "review_confirm": 0,
+    "entry_capture": 1,
+    "artifact_list": 2,
+    "artifact_detail": 3,
+    "learning_plan": 4,
+    "completion_summary": 5,
+    "report": 6,
+    "access_limit": 7,
+    "global_exception": 8,
+    "history_makeup": 9
+  },
+  "flow_stage_definitions": [],
+  "cross_cutting_definitions": []
+}

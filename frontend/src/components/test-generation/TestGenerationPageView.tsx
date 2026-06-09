@@ -65,6 +65,10 @@ type TestGenerationPageViewProps = {
     judgeRejectedOrPendingCount: number | null;
     finalCount: number;
   };
+  errorInsight: {
+    title: string;
+    details: string[];
+  } | null;
   handleCopyCurrent: () => void;
   toastMsg: string | null;
   toastType: 'success' | 'error';
@@ -124,6 +128,7 @@ export function TestGenerationPageView({
   finalCaseCount,
   displayCaseCount,
   funnelMetrics,
+  errorInsight,
   handleCopyCurrent,
   toastMsg,
   toastType,
@@ -212,9 +217,17 @@ export function TestGenerationPageView({
       ) : null}
       {error ? (
         <div className="col-span-12 d-flex flex-column gap-2">
-          <InlineStatusBanner type="error" text={error} />
+          <InlineStatusBanner type="error" text={errorInsight?.title || error} />
           <Alert variant="danger" dismissible onClose={() => setError(null)} className="shadow-sm border-0 mb-0 py-2">
-            <FaExclamationCircle className="me-2" /> 你可以检查模型配置、网络与日志后重试。
+            <div className="d-flex align-items-start gap-2">
+              <FaExclamationCircle className="mt-1 flex-shrink-0" />
+              <div className="d-flex flex-column gap-1 small">
+                {errorInsight?.details?.length ? errorInsight.details.map((item) => (
+                  <div key={item}>{item}</div>
+                )) : <div>{error}</div>}
+                <div>你可以检查模型配置、网络与日志后重试。</div>
+              </div>
+            </div>
           </Alert>
         </div>
       ) : null}

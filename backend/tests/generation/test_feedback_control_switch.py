@@ -8,6 +8,7 @@ from modules.test_generation_components.control.feedback_control_state import (
     FeedbackControlState,
 )
 from modules.testing.priority_sample_pool_store import (
+    normalize_raw_priority_samples,
     normalize_priority_sample,
     normalize_priority_samples,
 )
@@ -112,11 +113,11 @@ def test_redundant_case_maps_registered_family_to_scenario_cap(monkeypatch) -> N
             "samples": [
                 {
                     "case_id": "TC-1",
-                    "title": "\u7b54\u975e\u6240\u95ee\u51c6\u786e\u60270\u5206\u91cd\u590d\u7528\u4f8b",
+                    "title": "答非所问准确性0分重复用例",
                     "reason_category": "redundant_case",
                     "expected_priority": "P2",
-                    "user_comment": "\u548c\u5df2\u6709\u7b54\u975e\u6240\u95ee\u51c6\u786e\u60270\u5206\u7528\u4f8b\u91cd\u590d",
-                    "pattern_summary": "\u7b54\u975e\u6240\u95ee\u65f6\u51c6\u786e\u6027\u5f970\u5206",
+                    "user_comment": "和已有答非所问准确性0分用例重复",
+                    "pattern_summary": "答非所问时准确性得0分",
                 }
             ],
         }
@@ -172,11 +173,11 @@ def test_positive_case_maps_registered_family_to_must_have_scenario(monkeypatch)
             "samples": [
                 {
                     "case_id": "TC-1",
-                    "title": "\u7b54\u975e\u6240\u95ee\u51c6\u786e\u60270\u5206\u4f18\u8d28\u7528\u4f8b",
+                    "title": "答非所问准确性0分优质用例",
                     "reason_category": "core_flow",
                     "expected_priority": "P1",
-                    "user_comment": "\u4fdd\u7559\u8fd9\u7c7b\u7b54\u975e\u6240\u95ee\u51c6\u786e\u60270\u5206\u7684\u8bc4\u5206\u89c4\u5219\u8986\u76d6",
-                    "pattern_summary": "\u7b54\u975e\u6240\u95ee\u65f6\u51c6\u786e\u6027\u5f970\u5206",
+                    "user_comment": "保留这类答非所问准确性0分的评分规则覆盖",
+                    "pattern_summary": "答非所问时准确性得0分",
                     "signal_type": "positive",
                 }
             ],
@@ -371,6 +372,119 @@ def test_priority_pool_requirement_retrieval_selects_topk(monkeypatch) -> None:
     assert "RULE-102" not in state.must_cover_rules
 
 
+def test_priority_pool_retrieval_uses_sample_id_when_index_order_is_stale(monkeypatch) -> None:
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 89,
+            "samples": [
+                {
+                    "sample_id": "sample-a",
+                    "case_id": "TC-A",
+                    "title": "RULE-A stale first sample",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P1",
+                    "signal_type": "positive",
+                    "pattern_summary": "stale first sample",
+                    "pattern_canonical": "stale first sample",
+                },
+                {
+                    "sample_id": "sample-b",
+                    "case_id": "TC-B",
+                    "title": "RULE-B selected by sample id",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P1",
+                    "signal_type": "positive",
+                    "pattern_summary": "selected by sample id",
+                    "pattern_canonical": "selected by sample id",
+                },
+            ],
+        }
+
+    def fake_retrieve_priority_sample_patterns(**_: object) -> list[dict[str, object]]:
+        return [
+            {
+                "sample_index": 0,
+                "sample_id": "sample-b",
+                "pattern_canonical": "selected by sample id",
+            }
+        ]
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+    monkeypatch.setattr(control_builder, "retrieve_priority_sample_patterns", fake_retrieve_priority_sample_patterns)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+        requirement_text="core flow",
+    )
+
+    assert "RULE-B" in state.must_cover_rules
+    assert "RULE-A" not in state.must_cover_rules
+    assert state.source_meta.get("retrieval_sample_id_hit_count") == 1
+
+
+def test_priority_pool_directly_includes_workflow_blueprints_outside_pattern_topk(monkeypatch) -> None:
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 90,
+            "samples": [
+                {
+                    "sample_id": "negative-ui",
+                    "case_id": "TC-N",
+                    "title": "avoid duplicate display-only card checks",
+                    "reason_category": "display_issue",
+                    "expected_priority": "P2",
+                    "signal_type": "negative",
+                    "pattern_usage": "avoid",
+                    "pattern_summary": "avoid display-only card checks",
+                },
+                {
+                    "sample_id": "workflow-main",
+                    "case_id": "WF-1",
+                    "title": "Workflow blueprint: save then verify",
+                    "reason_category": "main_smoke_flow",
+                    "pattern_category": "main_smoke_flow",
+                    "expected_priority": "P0",
+                    "signal_type": "positive",
+                    "pattern_usage": "prefer",
+                    "pattern_grain": "workflow_blueprint",
+                    "pattern_summary": "workflow_blueprint | main_smoke_flow | save then verify",
+                    "workflow_blueprint": {
+                        "id": "wf-save-verify",
+                        "name": "save then verify",
+                        "steps": [
+                            {"id": "save", "label": "Save plan", "stage_kind": "commit"},
+                            {
+                                "id": "visible",
+                                "label": "Student side plan visible",
+                                "stage_kind": "downstream_visibility",
+                            },
+                        ],
+                    },
+                },
+            ],
+        }
+
+    def fake_retrieve_priority_sample_patterns(**_: object) -> list[dict[str, object]]:
+        return [{"sample_index": 0, "sample_id": "negative-ui"}]
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+    monkeypatch.setattr(control_builder, "retrieve_priority_sample_patterns", fake_retrieve_priority_sample_patterns)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+        requirement_text="display card checks",
+    )
+
+    assert len(state.workflow_blueprints) == 1
+    assert state.workflow_blueprints[0]["id"] == "wf-save-verify"
+    assert state.source_meta.get("workflow_blueprint_direct_selected_count") == 1
+    assert state.source_meta.get("workflow_blueprint_count") == 1
+
+
 def test_priority_pool_requirement_domain_filter_blocks_unrelated_pool_samples(monkeypatch) -> None:
     def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
         return {
@@ -382,7 +496,7 @@ def test_priority_pool_requirement_domain_filter_blocks_unrelated_pool_samples(m
                     "reason_category": "core_flow",
                     "expected_priority": "P0",
                     "signal_type": "positive",
-                    "pattern_summary": "\u6392\u8bfe\u65b0\u589e\u8ba1\u5212\u4fdd\u5b58\u540e\u8df3\u8f6c\u8bfe\u7a0b\u7ba1\u7406",
+                    "pattern_summary": "排课新增计划保存后跳转课程管理",
                 },
                 {
                     "case_id": "TC-AI",
@@ -390,7 +504,7 @@ def test_priority_pool_requirement_domain_filter_blocks_unrelated_pool_samples(m
                     "reason_category": "core_flow",
                     "expected_priority": "P0",
                     "signal_type": "positive",
-                    "pattern_summary": "\u8bb2\u9519\u9898\u63d0\u4ea4\u8d85\u65f6\u540e\u53ef\u91cd\u8bd5\u5e76\u4fdd\u7559\u5bf9\u8bdd",
+                    "pattern_summary": "讲错题提交超时后可重试并保留对话",
                 },
             ],
         }
@@ -405,7 +519,7 @@ def test_priority_pool_requirement_domain_filter_blocks_unrelated_pool_samples(m
         db=object(),
         project_id=1,
         user_id=1,
-        requirement_text="\u8bb2\u9519\u9898\u63a5\u5165AI\uff1a\u8986\u76d6\u8ffd\u95ee\u3001\u8bc4\u5206\u548c\u5bf9\u8bdd\u6062\u590d",
+        requirement_text="讲错题接入AI：覆盖追问、评分和对话恢复",
     )
 
     assert state.source_meta.get("retrieval_domain_filter_applied") is True
@@ -424,12 +538,12 @@ def test_priority_pool_requirement_domain_no_match_disables_pool_signal(monkeypa
                 "reason_category": "core_flow",
                 "expected_priority": "P0",
                 "signal_type": "positive",
-                "pattern_summary": "\u8fd1\u671f\u8bfe\u7a0b\u6392\u8bfe\u4fdd\u5b58\u540e\u540c\u6b65\u672c\u5468\u4efb\u52a1",
+                "pattern_summary": "近期课程排课保存后同步本周任务",
             }
         ],
         project_id=1,
         user_id=1,
-        requirement_text="\u8bb2\u9519\u9898\u63a5\u5165AI\uff1a\u8986\u76d6\u8ffd\u95ee\u3001\u8bc4\u5206\u548c\u5bf9\u8bdd\u6062\u590d",
+        requirement_text="讲错题接入AI：覆盖追问、评分和对话恢复",
     )
 
     assert selected == []
@@ -447,12 +561,12 @@ def test_priority_pool_requirement_domain_filter_keeps_matching_schedule_samples
                 "reason_category": "core_flow",
                 "expected_priority": "P0",
                 "signal_type": "positive",
-                "pattern_summary": "\u8fd1\u671f\u8bfe\u7a0b\u6392\u8bfe\u4fdd\u5b58\u540e\u540c\u6b65\u672c\u5468\u4efb\u52a1",
+                "pattern_summary": "近期课程排课保存后同步本周任务",
             }
         ],
         project_id=1,
         user_id=1,
-        requirement_text="\u8fd1\u671f\u8bfe\u7a0b+\u6392\u8bfe\u56de\u5f52",
+        requirement_text="近期课程+排课回归",
     )
 
     assert len(selected) == 1
@@ -626,6 +740,71 @@ def test_normalize_priority_sample_biases_ui_weight_by_signal() -> None:
     assert float(negative.get("pattern_weight") or 0.0) > float(positive.get("pattern_weight") or 0.0)
 
 
+def test_priority_sample_weight_prefers_assertable_learning_exception_over_display() -> None:
+    learning = normalize_priority_sample(
+        {
+            "case_id": "TC-001",
+            "title": "学员端讲错题网络中断后恢复继续当前追问轮次",
+            "test_module": "学员端AI讲错题",
+            "expected_priority": "P0",
+            "reason_category": "exception_path",
+            "expected_result_quality": "contains_concrete_assertion",
+            "expected_result": "刷新后显示第二轮追问，回答后进入第三轮，不重复提问且保留输入",
+            "pattern_summary": "学员端讲错题网络中断恢复后继续当前追问轮次，不重复提问",
+            "signal_type": "positive",
+        }
+    )
+    display = normalize_priority_sample(
+        {
+            "case_id": "TC-002",
+            "title": "历史课程列表按钮展示和文案检查",
+            "test_module": "历史课程",
+            "expected_priority": "P2",
+            "reason_category": "display_issue",
+            "expected_result": "页面展示报告按钮和讲错题按钮",
+            "pattern_summary": "历史课程页面通用按钮展示和文案检查",
+            "signal_type": "positive",
+        }
+    )
+
+    assert float(learning.get("pattern_weight") or 0.0) > float(display.get("pattern_weight") or 0.0)
+    assert float(learning.get("pattern_quality_score") or 0.0) > float(display.get("pattern_quality_score") or 0.0)
+
+
+def test_normalize_raw_priority_samples_merges_same_intent_and_keeps_best_case() -> None:
+    samples = normalize_raw_priority_samples(
+        [
+            {
+                "sample_id": "low",
+                "case_id": "TC-101",
+                "title": "学员回答49字时完整性扣分",
+                "test_module": "评分规则-边界",
+                "expected_priority": "P2",
+                "reason_category": "boundary_condition",
+                "expected_result": "完整性扣分",
+                "pattern_summary": "49字回答扣分",
+                "signal_type": "positive",
+            },
+            {
+                "sample_id": "high",
+                "case_id": "TC-102",
+                "title": "学员回答接近50字（49字）时完整性扣50%验证",
+                "test_module": "评分规则-边界",
+                "expected_priority": "P0",
+                "reason_category": "boundary_condition",
+                "expected_result_quality": "contains_concrete_assertion",
+                "expected_result": "完整性原始分20分扣50%后为10分，清晰度也扣50%，准确性正常评分",
+                "pattern_summary": "49字回答触发完整性和清晰度扣50%，保留准确性正常评分",
+                "signal_type": "positive",
+            },
+        ]
+    )
+
+    assert len(samples) == 1
+    assert samples[0].get("sample_id") == "high"
+    assert samples[0].get("expected_priority") == "P0"
+
+
 def test_priority_pool_selection_skips_disabled_patterns(monkeypatch) -> None:
     def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
         return {
@@ -781,6 +960,68 @@ def test_priority_pool_source_meta_tracks_pattern_scope_and_grain(monkeypatch) -
     assert state.source_meta.get("pattern_scope_distribution") == {"project": 1}
     assert state.source_meta.get("pattern_grain_distribution") == {"pattern": 1}
     assert "state consistency pattern" in state.preferred_patterns
+
+
+def test_priority_pool_manual_profile_uses_full_verified_pool_not_selected_topk(monkeypatch) -> None:
+    samples = [
+        {
+            "case_id": f"TC-{index}",
+            "title": f"manual flow case {index}",
+            "source_case_module": module,
+            "source_case_expected_result": f"{module} assertion",
+            "reason_category": "core_flow",
+            "expected_priority": priority,
+            "pattern_summary": f"{module} reusable flow pattern",
+            "signal_type": "positive",
+            "pattern_usage": "prefer",
+            "pattern_cluster_key": f"p{index}",
+            "learning_status": "user_confirmed",
+            "manual_confirmed": True,
+        }
+        for index, module, priority in [
+            (1, "\u5165\u53e3", "P0"),
+            (2, "\u672c\u5468\u8bfe\u7a0b\u6a21\u5757", "P0"),
+            (3, "\u6392\u8bfe-\u5b66\u4e60\u8ba1\u5212-\u7b2c1\u6b65", "P1"),
+            (4, "\u6392\u8bfe-\u5b66\u4e60\u8ba1\u5212-\u7b2c2\u6b65", "P1"),
+        ]
+    ]
+    samples.append(
+        {
+            "case_id": "TC-CANDIDATE",
+            "title": "unconfirmed display candidate",
+            "source_case_module": "\u672a\u786e\u8ba4\u5c55\u793a\u6a21\u5757",
+            "reason_category": "display_issue",
+            "expected_priority": "P2",
+            "pattern_summary": "display-only candidate",
+            "signal_type": "negative",
+            "pattern_usage": "avoid",
+            "learning_status": "system_candidate",
+        }
+    )
+
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {"generation_id": 122, "samples": samples}
+
+    def fake_retrieve_priority_sample_patterns(**_: object) -> list[dict[str, object]]:
+        return [{"sample_index": 0}, {"sample_index": 1}]
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+    monkeypatch.setattr(control_builder, "retrieve_priority_sample_patterns", fake_retrieve_priority_sample_patterns)
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+        requirement_text="manual flow",
+    )
+
+    profile = state.source_meta.get("manual_quality_profile")
+    assert isinstance(profile, dict)
+    assert state.source_meta.get("priority_pool_selected_sample_count") == 2
+    assert profile["trusted_sample_count"] == 4
+    assert profile["priority_distribution"] == {"P0": 2, "P1": 2}
+    assert profile["high_priority_ratio"] == 1.0
+    assert "\u672a\u786e\u8ba4\u5c55\u793a\u6a21\u5757" not in profile["module_distribution_top"]
 
 
 def test_priority_pool_selection_enforces_positive_min_quota_when_available(monkeypatch) -> None:

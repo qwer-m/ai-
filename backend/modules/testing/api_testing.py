@@ -133,7 +133,7 @@ class APITestingModule:
         response = client.generate_response(prompt, system_prompt, db=db)
         try:
             return json.loads(extract_code_block(response, "json"))
-        except:
+        except Exception:
             return []
 
     def generate_chain_script(self, interfaces: list[dict], scenario_desc: str, db: Session = None, user_id: int = None) -> str:
@@ -332,7 +332,7 @@ class APITestingModule:
             if os.path.exists(report_path):
                 try:
                     os.remove(report_path)
-                except:
+                except Exception:
                     pass
 
 api_tester = APITestingModule()

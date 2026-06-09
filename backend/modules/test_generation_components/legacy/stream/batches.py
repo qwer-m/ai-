@@ -2,17 +2,17 @@ from typing import Any, Iterator
 import json
 
 from core.db.models import LogEntry
-from modules.testing.test_generation_components.coverage.coverage_analyzer import (
+from ...coverage.coverage_analyzer import (
     analyze_coverage,
 )
-from modules.testing.test_generation_components.prompting.prompt_orchestration import (
+from ...prompting.prompt_orchestration import (
     build_append_closed_loop_coverage_instruction,
     build_closed_loop_base_prompt,
 )
-from modules.testing.test_generation_components.prompting.structured_context import (
+from ...prompting.structured_context import (
     build_structured_prompt_context,
 )
-from modules.testing.test_generation_components.legacy.adapters import (
+from ..adapters import (
     clean_and_parse_json,
     count_unique_test_cases,
     infer_case_kind,

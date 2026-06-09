@@ -17,6 +17,7 @@ from modules.testing.sample_pool_shadow_store import (
     shadow_write_patterns as _shadow_patterns,
     shadow_write_samples as _shadow_samples,
 )
+from modules.testing.manual_quality_profile import build_manual_quality_profile
 from modules.testing_components.repositories.evaluation_artifact_repository import (
     EvaluationArtifactRepository,
 )
@@ -75,6 +76,7 @@ _VALID_SAMPLE_SOURCES = frozenset(
         "quality_evaluation_defect",
         "linked_final_case_pattern",
         "linked_final_case_business_extension",
+        "linked_final_case_workflow_blueprint",
         "manual_pool_input",
     }
 )
@@ -99,12 +101,120 @@ _UI_LOW_VALUE_PATTERN_TOKENS = (
     "placeholder",
     "ui ",
     "display",
+    "analytics",
+    "tracking",
+    "event tracking",
+    "buried point",
+    "pv",
+    "uv",
+    "埋点",
+    "上报",
+    "曝光",
+    "点击埋点",
+    "展示埋点",
     "文案",
     "样式",
     "布局",
     "展示",
     "列表排序",
     "字段展示",
+)
+
+_ASSERTABLE_PATTERN_TOKENS = (
+    "assert",
+    "assertion",
+    "concrete assertion",
+    "expected_result_quality",
+    "contains_concrete_assertion",
+    "0分",
+    "0 分",
+    "50%",
+    "12.5",
+    "10/20",
+    "不可用",
+    "保留",
+    "不重复",
+    "不丢失",
+    "状态为",
+    "显示为",
+    "跳转至",
+)
+_CORE_RULE_PATTERN_TOKENS = (
+    "core rule",
+    "core_flow",
+    "main flow",
+    "p0",
+    "核心规则",
+    "核心流程",
+    "主流程",
+    "阻断",
+    "权限",
+    "鉴权",
+    "评分规则",
+)
+_EXCEPTION_RECOVERY_PATTERN_TOKENS = (
+    "exception",
+    "error",
+    "fail",
+    "failure",
+    "timeout",
+    "retry",
+    "recover",
+    "resume",
+    "异常",
+    "失败",
+    "超时",
+    "重试",
+    "恢复",
+    "保留输入",
+    "网络中断",
+)
+_BOUNDARY_PATTERN_TOKENS = (
+    "boundary",
+    "limit",
+    "edge",
+    "max",
+    "min",
+    "49",
+    "50",
+    "3.9",
+    "7.5",
+    "边界",
+    "上限",
+    "下限",
+    "恰好",
+    "少于",
+    "大于",
+    "最多",
+    "最少",
+)
+_CORE_REQUIREMENT_DOMAIN_TOKENS = (
+    "讲错题",
+    "错题",
+    "ai讲错题",
+    "ai 讲错题",
+    "评分",
+    "追问",
+    "录音",
+    "语音",
+    "麦克风",
+)
+_WEAK_RELATED_DOMAIN_TOKENS = (
+    "排课",
+    "新增计划",
+    "已有计划",
+    "学习计划",
+    "课堂管理",
+    "防抄答案",
+    "历史课程",
+    "本周任务",
+    "本周进度",
+    "排行榜",
+    "埋点",
+    "上报",
+    "曝光",
+    "纯 ui",
+    "ui-only",
 )
 
 logger = logging.getLogger(__name__)
@@ -175,6 +285,90 @@ def _is_ui_low_value_pattern(*parts: Any) -> bool:
     return any(token in merged for token in _UI_LOW_VALUE_PATTERN_TOKENS)
 
 
+def _has_any_token(text: str, tokens: tuple[str, ...]) -> bool:
+    lowered = str(text or "").lower()
+    return any(token and token.lower() in lowered for token in tokens)
+
+
+def _sample_signal_profile(sample: dict[str, Any], summary: str = "") -> dict[str, bool]:
+    search_text = _sample_search_text(sample, summary)
+    reason = _sanitize_text(_sample_value(sample, "reason_category", "reasonCategory"), max_len=64).lower()
+    category = _normalize_pattern_category(_sample_value(sample, "pattern_category", "patternCategory"))
+    priority = _sanitize_text(_sample_value(sample, "expected_priority", "expectedPriority"), max_len=8).upper()
+    return {
+        "assertable": _has_any_token(search_text, _ASSERTABLE_PATTERN_TOKENS),
+        "core_rule": bool(
+            priority == "P0"
+            or reason in {"core_flow", "state_transition"}
+            or category in {"core_flow_closure", "critical_path_coverage", "high_value_assertion"}
+            or _has_any_token(search_text, _CORE_RULE_PATTERN_TOKENS)
+        ),
+        "exception_recovery": bool(
+            reason in {"exception_path", "state_transition"}
+            or _has_any_token(search_text, _EXCEPTION_RECOVERY_PATTERN_TOKENS)
+        ),
+        "boundary": bool(
+            reason == "boundary_condition"
+            or category == "boundary_effective_coverage"
+            or _has_any_token(search_text, _BOUNDARY_PATTERN_TOKENS)
+        ),
+        "core_requirement_domain": _has_any_token(search_text, _CORE_REQUIREMENT_DOMAIN_TOKENS),
+        "weak_related_domain": _has_any_token(search_text, _WEAK_RELATED_DOMAIN_TOKENS),
+        "ui_low_value": _is_ui_low_value_pattern(search_text),
+    }
+
+
+def _sample_intent_bucket(sample: dict[str, Any]) -> str:
+    text = _sample_search_text(sample, str(sample.get("pattern_summary") or ""))
+    if _has_any_token(text, ("麦克风", "microphone", "录音", "语音")) and _has_any_token(text, ("权限", "拒绝", "permission", "deny")):
+        return "microphone_permission"
+    if _has_any_token(text, ("网络", "中断", "恢复", "retry", "recover", "resume")):
+        return "network_recovery"
+    if _has_any_token(text, ("超时", "504", "timeout")):
+        return "timeout_retry"
+    if _has_any_token(text, ("500", "上传失败", "服务器错误")):
+        return "upload_server_error"
+    if _has_any_token(text, ("49", "50", "50%", "字数", "少于50", "恰好50")):
+        return "answer_length_boundary"
+    if _has_any_token(text, ("3.9", "7.5", "8.9", "鼓励语", "分段")):
+        return "score_band_boundary"
+    if _has_any_token(text, ("答非所问", "准确性", "完整性", "清晰度")):
+        return "scoring_dimensions"
+    if _has_any_token(text, ("追问", "轮次", "不重复")):
+        return "followup_turn_flow"
+    if _has_any_token(text, ("排课", "计划", "课程规划")):
+        return "schedule_plan"
+    if _has_any_token(text, ("埋点", "上报", "曝光", "tracking", "analytics")):
+        return "analytics_tracking"
+    if _has_any_token(text, ("展示", "按钮", "文案", "布局", "display", "ui")):
+        return "generic_display"
+    return ""
+
+
+def _sample_search_text(sample: dict[str, Any], summary: str = "") -> str:
+    return " ".join(
+        str(part or "")
+        for part in [
+            summary,
+            _sample_value(sample, "pattern_summary", "patternSummary"),
+            _sample_value(sample, "pattern_canonical", "patternCanonical"),
+            _sample_value(sample, "pattern_category", "patternCategory"),
+            _sample_value(sample, "reason_category", "reasonCategory"),
+            _sample_value(sample, "expected_priority", "expectedPriority"),
+            _sample_value(sample, "expected_result_quality", "expectedResultQuality"),
+            _sample_value(sample, "expected_result_quality_reason", "expectedResultQualityReason"),
+            _sample_value(sample, "title"),
+            _sample_value(sample, "source_case_title", "sourceCaseTitle"),
+            _sample_value(sample, "source_case_module", "sourceCaseModule", "test_module", "testModule"),
+            _sample_value(sample, "source_case_steps", "sourceCaseSteps", "steps"),
+            _sample_value(sample, "business_assertion", "businessAssertion"),
+            _sample_value(sample, "source_case_expected_result", "sourceCaseExpectedResult", "expected_result", "expectedResult"),
+            _sample_value(sample, "user_comment", "userComment"),
+        ]
+        if str(part or "").strip()
+    ).lower()
+
+
 def _canonicalize_pattern_text(raw: Any) -> str:
     text = _sanitize_text(raw, max_len=_MAX_PATTERN_CANONICAL_LEN).lower()
     if not text:
@@ -186,6 +380,49 @@ def _canonicalize_pattern_text(raw: Any) -> str:
     text = re.sub(r"[:;/|,_\-]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:_MAX_PATTERN_CANONICAL_LEN]
+
+
+def _canonicalize_intent_text(raw: Any) -> str:
+    text = _sanitize_text(raw, max_len=240).lower()
+    if not text:
+        return ""
+    text = re.sub(r"(tc|case|rule|req)[\-_ ]?\d+", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\d+(?:\.\d+)?", " ", text)
+    replacements = {
+        "ai讲错题": "讲错题",
+        "ai 讲错题": "讲错题",
+        "学员端": "学生端",
+        "督导端": "老师端",
+        "教师端": "老师端",
+        "管理员": "后台",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+    stop_words = (
+        "验证",
+        "检查",
+        "查看",
+        "观察",
+        "页面",
+        "模块",
+        "功能",
+        "场景",
+        "边界值",
+        "边界",
+        "异常",
+        "逻辑",
+        "显示",
+        "提示",
+        "按钮",
+        "点击",
+        "输入",
+        "提交",
+    )
+    for word in stop_words:
+        text = text.replace(word, " ")
+    text = re.sub(r"[`'\"“”‘’\[\]\(\)\{\}<>：:；;，,。.!！?？、/|_\-]+", " ", text)
+    tokens = [token for token in re.split(r"\s+", text) if token]
+    return " ".join(tokens[:16])[:_MAX_PATTERN_CANONICAL_LEN]
 
 
 _LEGACY_HARDCODED_COMMENT_MARKERS = (
@@ -261,7 +498,7 @@ def _category_label(sample: dict[str, Any], *, signal_type: str) -> str:
     return _REASON_CATEGORY_LABELS.get(reason, reason)
 
 
-def _pattern_quality_score(summary: str) -> float:
+def _pattern_quality_score(summary: str, sample: dict[str, Any] | None = None) -> float:
     text = _sanitize_text(summary, max_len=_MAX_PATTERN_SUMMARY_LEN)
     if not text:
         return 0.0
@@ -278,6 +515,22 @@ def _pattern_quality_score(summary: str) -> float:
     # Penalize over-specific UI wording.
     if any(token in lowered for token in ("按钮", "页面", "文案", "样式", "布局", "button", "page", "ui")):
         score -= 0.1
+    if isinstance(sample, dict):
+        profile = _sample_signal_profile(sample, summary)
+        if profile["assertable"]:
+            score += 0.1
+        if profile["core_rule"]:
+            score += 0.08
+        if profile["exception_recovery"]:
+            score += 0.08
+        if profile["boundary"]:
+            score += 0.08
+        if profile["core_requirement_domain"]:
+            score += 0.08
+        if profile["weak_related_domain"]:
+            score -= 0.12
+        if profile["ui_low_value"]:
+            score -= 0.08
     return round(max(0.0, min(1.0, score)), 4)
 
 
@@ -344,13 +597,8 @@ def _pattern_weight(sample: dict[str, Any], summary: str, quality: float, source
     )
     is_positive_signal = bool(signal_type == "positive" or pattern_usage == "prefer")
     is_negative_signal = not is_positive_signal
-    ui_low_value = _is_ui_low_value_pattern(
-        reason,
-        _sample_value(sample, "pattern_category", "patternCategory"),
-        summary,
-        _sample_value(sample, "title"),
-        _sample_value(sample, "user_comment", "userComment"),
-    )
+    profile = _sample_signal_profile(sample, summary)
+    ui_low_value = bool(profile["ui_low_value"])
     weight = 0.6 + (quality * 0.6)
     if source == "manual":
         weight += 0.15
@@ -360,19 +608,31 @@ def _pattern_weight(sample: dict[str, Any], summary: str, quality: float, source
         weight += 0.1
     if reason == "display_issue":
         weight -= 0.05
+    if profile["assertable"]:
+        weight += 0.18
+    if profile["core_rule"]:
+        weight += 0.16
+    if profile["exception_recovery"]:
+        weight += 0.16
+    if profile["boundary"]:
+        weight += 0.14
+    if profile["core_requirement_domain"]:
+        weight += 0.18
+    if profile["weak_related_domain"]:
+        weight -= 0.25
     if is_negative_signal and ui_low_value:
         # Keep UI-negative patterns retrievable so they can suppress low-value UI-only cases.
         weight += 0.08
     if is_positive_signal and ui_low_value:
         # Avoid over-amplifying UI-positive samples in preferred pattern retrieval.
-        weight -= 0.04
+        weight -= 0.18
     adjustment = _safe_float(
         _sample_value(sample, "pattern_weight_adjustment", "patternWeightAdjustment"),
         default=1.0,
     )
     adjustment = max(_MIN_PATTERN_WEIGHT_ADJUSTMENT, min(_MAX_PATTERN_WEIGHT_ADJUSTMENT, adjustment))
     weight *= adjustment
-    return round(max(0.3, min(1.8, weight)), 4)
+    return round(max(0.3, min(2.0, weight)), 4)
 
 
 def _default_pattern_summary(sample: dict[str, Any]) -> str:
@@ -423,7 +683,7 @@ def normalize_priority_sample(sample: dict[str, Any]) -> dict[str, Any]:
         summary = _default_pattern_summary(normalized)
     canonical = _canonicalize_pattern_text(summary)
     source = _pattern_source(normalized, summary)
-    quality = _pattern_quality_score(summary)
+    quality = _pattern_quality_score(summary, normalized)
     weight = _pattern_weight(normalized, summary, quality, source)
     cluster_key = _pattern_cluster_key(normalized, canonical, summary)
     signal_type = _normalize_signal_type(
@@ -637,7 +897,14 @@ def _aggregate_by_cluster(
         clusters[key].append(s)
     result: list[dict[str, Any]] = []
     for _key, items in clusters.items():
-        items.sort(key=lambda s: float(s.get("pattern_weight") or 0.0), reverse=True)
+        items.sort(
+            key=lambda s: (
+                float(s.get("pattern_weight") or 0.0),
+                float(s.get("pattern_quality_score") or 0.0),
+                int(_sample_signal_profile(s, str(s.get("pattern_summary") or "")).get("core_requirement_domain")),
+            ),
+            reverse=True,
+        )
         result.extend(items[:max(1, int(max_per_cluster))])
     return result
 
@@ -659,7 +926,13 @@ def _apply_source_limits(
     result: list[dict[str, Any]] = []
     for src, items in source_buckets.items():
         limit = int(effective_limits.get(src, 500))
-        items.sort(key=lambda s: float(s.get("pattern_weight") or 0.0), reverse=True)
+        items.sort(
+            key=lambda s: (
+                float(s.get("pattern_weight") or 0.0),
+                float(s.get("pattern_quality_score") or 0.0),
+            ),
+            reverse=True,
+        )
         result.extend(items[:max(1, limit)])
     return result
 
@@ -680,8 +953,20 @@ def _apply_signal_type_limits(
             positive.append(s)
         else:
             negative.append(s)
-    positive.sort(key=lambda s: float(s.get("pattern_weight") or 0.0), reverse=True)
-    negative.sort(key=lambda s: float(s.get("pattern_weight") or 0.0), reverse=True)
+    positive.sort(
+        key=lambda s: (
+            float(s.get("pattern_weight") or 0.0),
+            float(s.get("pattern_quality_score") or 0.0),
+        ),
+        reverse=True,
+    )
+    negative.sort(
+        key=lambda s: (
+            float(s.get("pattern_weight") or 0.0),
+            float(s.get("pattern_quality_score") or 0.0),
+        ),
+        reverse=True,
+    )
     pos_limit = max(1, int(effective_limits.get("positive", 2000)))
     neg_limit = max(1, int(effective_limits.get("negative", 3000)))
     return positive[:pos_limit] + negative[:neg_limit]
@@ -798,7 +1083,8 @@ def normalize_raw_priority_samples(samples: list[dict[str, Any]] | None, *, max_
     normalized: list[dict[str, Any]] = []
     seen_ids: dict[str, int] = {}
     seen_semantic: dict[str, int] = {}
-    for item in (samples if isinstance(samples, list) else []):
+    seen_family: dict[str, int] = {}
+    for input_index, item in enumerate((samples if isinstance(samples, list) else []), start=1):
         if not isinstance(item, dict):
             continue
         sample = normalize_priority_sample(item)
@@ -807,7 +1093,11 @@ def normalize_raw_priority_samples(samples: list[dict[str, Any]] | None, *, max_
             max_len=512,
         )
         if not sample_id:
-            sample_id = f"sample:{len(normalized) + 1}"
+            sample_id = f"sample:auto:{input_index}"
+            suffix = 1
+            while sample_id in seen_ids:
+                suffix += 1
+                sample_id = f"sample:auto:{input_index}:{suffix}"
             sample["sample_id"] = sample_id
             sample["sampleId"] = sample_id
         if sample_id in seen_ids:
@@ -825,11 +1115,99 @@ def normalize_raw_priority_samples(samples: list[dict[str, Any]] | None, *, max_
             if kept_id:
                 seen_ids[kept_id] = target_idx
             continue
+        family_key = _raw_sample_family_key(sample)
+        if family_key and family_key in seen_family:
+            target_idx = seen_family[family_key]
+            existing_has_detail = _sample_has_business_detail(normalized[target_idx])
+            incoming_has_detail = _sample_has_business_detail(sample)
+            if not (existing_has_detail and incoming_has_detail):
+                normalized[target_idx] = _choose_raw_sample_winner(normalized[target_idx], sample)
+                kept_id = _sanitize_text(
+                    _sample_value(normalized[target_idx], "sample_id", "sampleId"),
+                    max_len=512,
+                )
+                if kept_id:
+                    seen_ids[kept_id] = target_idx
+                if semantic_key:
+                    seen_semantic[semantic_key] = target_idx
+                continue
         seen_ids[sample_id] = len(normalized)
         if semantic_key:
             seen_semantic[semantic_key] = len(normalized)
+        if family_key:
+            current_family_idx = seen_family.get(family_key)
+            if current_family_idx is None or not _sample_has_business_detail(normalized[current_family_idx]):
+                seen_family[family_key] = len(normalized)
         normalized.append(sample)
     return normalized[: max(1, int(max_items))]
+
+
+def _sample_has_business_detail(sample: dict[str, Any]) -> bool:
+    if _sanitize_text(_sample_value(sample, "source_case_steps", "sourceCaseSteps", "steps"), max_len=240):
+        return True
+    if _sanitize_text(
+        _sample_value(
+            sample,
+            "source_case_expected_result",
+            "sourceCaseExpectedResult",
+            "business_assertion",
+            "businessAssertion",
+            "expected_result",
+            "expectedResult",
+        ),
+        max_len=240,
+    ):
+        return True
+    workflow_blueprint = _sample_value(sample, "workflow_blueprint", "workflowBlueprint")
+    return isinstance(workflow_blueprint, dict) and bool(workflow_blueprint.get("steps"))
+
+
+def _raw_sample_family_key(sample: dict[str, Any]) -> str:
+    signal_type = _normalize_signal_type(
+        _sample_value(sample, "signal_type", "signalType", "sample_kind", "sampleKind")
+    )
+    category = (
+        _normalize_pattern_category(_sample_value(sample, "pattern_category", "patternCategory"))
+        if signal_type == "positive"
+        else _sanitize_text(_sample_value(sample, "reason_category", "reasonCategory"), max_len=64).lower()
+    )
+    pattern_grain = _sanitize_text(
+        _sample_value(sample, "pattern_grain", "patternGrain"),
+        max_len=40,
+    ).lower()
+    if pattern_grain == "workflow_blueprint":
+        return _raw_sample_semantic_key(sample)
+    title_key = _canonicalize_pattern_text(
+        _sample_value(sample, "source_case_title", "sourceCaseTitle", "title")
+    )
+    module_key = _canonicalize_pattern_text(
+        _sample_value(sample, "source_case_module", "sourceCaseModule", "test_module", "testModule")
+    )
+    intent_key = _canonicalize_intent_text(
+        " ".join(
+            str(part or "")
+            for part in [
+                _sample_value(sample, "source_case_module", "sourceCaseModule", "test_module", "testModule"),
+                _sample_value(sample, "source_case_title", "sourceCaseTitle", "title"),
+            ]
+            if str(part or "").strip()
+        )
+    )
+    intent_bucket = _sample_intent_bucket(sample)
+    strong_intent_bucket = intent_bucket if intent_bucket not in {"generic_display", "schedule_plan", "analytics_tracking"} else ""
+    family_intent = strong_intent_bucket or intent_key or title_key
+    if not family_intent:
+        return ""
+    return "|".join(
+        part
+        for part in [
+            signal_type,
+            category,
+            module_key,
+            family_intent,
+        ]
+        if part
+    )
 
 
 def _raw_sample_semantic_key(sample: dict[str, Any]) -> str:
@@ -844,6 +1222,32 @@ def _raw_sample_semantic_key(sample: dict[str, Any]) -> str:
         if signal_type == "positive"
         else _sanitize_text(_sample_value(sample, "reason_category", "reasonCategory"), max_len=64).lower()
     )
+    pattern_grain = _sanitize_text(
+        _sample_value(sample, "pattern_grain", "patternGrain"),
+        max_len=40,
+    ).lower()
+    if pattern_grain == "workflow_blueprint":
+        workflow_blueprint = _sample_value(sample, "workflow_blueprint", "workflowBlueprint")
+        workflow_id = ""
+        workflow_name = ""
+        if isinstance(workflow_blueprint, dict):
+            workflow_id = _sanitize_text(workflow_blueprint.get("id"), max_len=120).lower()
+            workflow_name = _canonicalize_pattern_text(workflow_blueprint.get("name"))
+        workflow_key = (
+            workflow_id
+            or workflow_name
+            or _canonicalize_pattern_text(_sample_value(sample, "pattern_summary", "patternSummary"))
+        )
+        return "|".join(
+            part
+            for part in [
+                signal_type,
+                pattern_grain,
+                category,
+                workflow_key or "workflow_blueprint",
+            ]
+            if part
+        )
     expected = _sanitize_text(
         _sample_value(sample, "expected_priority", "expectedPriority"),
         max_len=8,
@@ -865,31 +1269,41 @@ def _raw_sample_semantic_key(sample: dict[str, Any]) -> str:
     steps_key = _canonicalize_pattern_text(
         _sample_value(sample, "source_case_steps", "sourceCaseSteps", "steps")
     )[:80]
+    intent_key = _canonicalize_intent_text(
+        " ".join(
+            str(part or "")
+            for part in [
+                _sample_value(sample, "source_case_module", "sourceCaseModule", "test_module", "testModule"),
+                _sample_value(sample, "source_case_title", "sourceCaseTitle", "title"),
+                _sample_value(sample, "business_assertion", "businessAssertion", "source_case_expected_result", "sourceCaseExpectedResult", "expected_result", "expectedResult"),
+            ]
+            if str(part or "").strip()
+        )
+    )
+    intent_bucket = _sample_intent_bucket(sample)
+    strong_intent_bucket = intent_bucket if intent_bucket not in {"generic_display", "schedule_plan", "analytics_tracking"} else ""
     if not title_key and not assertion_key:
         fallback = _sanitize_text(sample.get("pattern_canonical"), max_len=_MAX_PATTERN_CANONICAL_LEN)
         if not fallback:
             fallback = _canonicalize_pattern_text(sample.get("pattern_summary"))
         title_key = fallback
-    if not title_key and not assertion_key:
+    if not title_key and not assertion_key and not intent_key:
         return ""
     return "|".join(
         part
         for part in [
             signal_type,
-            source_type,
             category,
-            expected,
             module_key,
-            title_key,
-            assertion_key,
-            steps_key,
+            strong_intent_bucket or intent_key or title_key,
+            "" if strong_intent_bucket else assertion_key[:96],
         ]
         if part
     )
 
 
 def _choose_raw_sample_winner(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
-    def rank(sample: dict[str, Any]) -> tuple[float, int, float, float]:
+    def rank(sample: dict[str, Any]) -> tuple[float, int, int, int, float, float, int]:
         edited_score = 0
         if _clean_sample_user_comment(_sample_value(sample, "user_comment", "userComment")):
             edited_score += 4
@@ -901,10 +1315,48 @@ def _choose_raw_sample_winner(left: dict[str, Any], right: dict[str, Any]) -> di
             edited_score += 1
         if _sanitize_text(_sample_value(sample, "learning_status", "learningStatus"), max_len=24):
             edited_score += 2
+        fidelity_score = 0
+        if _sanitize_text(_sample_value(sample, "source_case_steps", "sourceCaseSteps", "steps"), max_len=240):
+            fidelity_score += 2
+        if _sanitize_text(
+            _sample_value(
+                sample,
+                "source_case_expected_result",
+                "sourceCaseExpectedResult",
+                "business_assertion",
+                "businessAssertion",
+                "expected_result",
+                "expectedResult",
+            ),
+            max_len=240,
+        ):
+            fidelity_score += 2
+        if _sanitize_text(
+            _sample_value(sample, "source_case_module", "sourceCaseModule", "test_module", "testModule"),
+            max_len=120,
+        ):
+            fidelity_score += 1
+        if _sanitize_text(_sample_value(sample, "source_case_title", "sourceCaseTitle", "title"), max_len=160):
+            fidelity_score += 1
+        workflow_blueprint = _sample_value(sample, "workflow_blueprint", "workflowBlueprint")
+        if isinstance(workflow_blueprint, dict) and isinstance(workflow_blueprint.get("steps"), list):
+            fidelity_score += min(4, len(workflow_blueprint.get("steps") or []))
         active_score = 1.0 if sample.get("status") != "deleted" else 0.0
         confidence = _safe_float(_sample_value(sample, "confidence", "pattern_confidence", "patternConfidence"), default=0.0)
         weight = _safe_float(_sample_value(sample, "pattern_weight", "patternWeight"), default=0.0)
-        return (active_score, edited_score, confidence, weight)
+        profile = _sample_signal_profile(sample, str(sample.get("pattern_summary") or ""))
+        signal_score = (
+            int(profile["assertable"]) * 3
+            + int(profile["core_rule"]) * 3
+            + int(profile["exception_recovery"]) * 2
+            + int(profile["boundary"]) * 2
+            + int(profile["core_requirement_domain"]) * 2
+            - int(profile["weak_related_domain"]) * 2
+            - int(profile["ui_low_value"])
+        )
+        priority = _sanitize_text(_sample_value(sample, "expected_priority", "expectedPriority"), max_len=8).upper()
+        priority_score = {"P0": 3, "P1": 2, "P2": 1}.get(priority, 0)
+        return (active_score, signal_score, edited_score, fidelity_score, weight, confidence, priority_score)
 
     return right if rank(right) > rank(left) else left
 
@@ -936,7 +1388,36 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
     summary = _sanitize_text(sample.get("pattern_summary"), max_len=_MAX_PATTERN_SUMMARY_LEN)
     if not summary:
         return None
+    sample_id = _sanitize_text(_sample_value(sample, "sample_id", "sampleId"), max_len=512)
     title = _sanitize_text(_sample_value(sample, "title"), max_len=120)
+    source_case_id = _sanitize_text(
+        _sample_value(sample, "source_case_id", "sourceCaseId", "case_id", "caseId"),
+        max_len=256,
+    )
+    source_case_title = _sanitize_text(
+        _sample_value(sample, "source_case_title", "sourceCaseTitle"),
+        max_len=160,
+    )
+    source_case_module = _sanitize_text(
+        _sample_value(sample, "source_case_module", "sourceCaseModule", "test_module", "testModule"),
+        max_len=120,
+    )
+    source_case_steps = _sanitize_text(
+        _sample_value(sample, "source_case_steps", "sourceCaseSteps", "steps"),
+        max_len=240,
+    )
+    source_case_expected = _sanitize_text(
+        _sample_value(
+            sample,
+            "source_case_expected_result",
+            "sourceCaseExpectedResult",
+            "business_assertion",
+            "businessAssertion",
+            "expected_result",
+            "expectedResult",
+        ),
+        max_len=240,
+    )
     comment = _sanitize_text(_sample_value(sample, "user_comment", "userComment"), max_len=160)
     reason = _sanitize_text(_sample_value(sample, "reason_category", "reasonCategory"), max_len=40)
     pattern_category = _normalize_pattern_category(
@@ -952,6 +1433,24 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
     pattern_source = _sanitize_text(sample.get("pattern_source"), max_len=20)
     pattern_scope = _sanitize_text(_sample_value(sample, "pattern_scope", "patternScope"), max_len=40).lower()
     pattern_grain = _sanitize_text(_sample_value(sample, "pattern_grain", "patternGrain"), max_len=40).lower()
+    workflow_blueprint_text = ""
+    workflow_blueprint = _sample_value(sample, "workflow_blueprint", "workflowBlueprint")
+    if isinstance(workflow_blueprint, dict):
+        step_texts: list[str] = []
+        for step in workflow_blueprint.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            label = _sanitize_text(
+                step.get("label") or step.get("action") or step.get("description"),
+                max_len=120,
+            )
+            state_in = _sanitize_text(step.get("state_in"), max_len=80)
+            state_out = _sanitize_text(step.get("state_out"), max_len=80)
+            actor = _sanitize_text(step.get("actor"), max_len=40)
+            step_text = " ".join(part for part in [actor, label, state_in, state_out] if part)
+            if step_text:
+                step_texts.append(step_text)
+        workflow_blueprint_text = " -> ".join(step_texts[:12])
     governance_status = _sanitize_text(sample.get("governance_status"), max_len=16).lower() or "active"
     signal_type = _normalize_signal_type(
         _sample_value(
@@ -993,9 +1492,15 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
             f"usage:{pattern_usage}",
             f"scope:{pattern_scope}" if pattern_scope else "",
             f"grain:{pattern_grain}" if pattern_grain else "",
+            f"workflow_blueprint:{workflow_blueprint_text}" if workflow_blueprint_text else "",
+            f"source_title:{source_case_title}" if source_case_title else "",
+            f"source_module:{source_case_module}" if source_case_module else "",
+            f"source_steps:{source_case_steps}" if source_case_steps else "",
+            f"source_assertion:{source_case_expected}" if source_case_expected else "",
             f"expected:{expected_priority}" if expected_priority else "",
             f"comment:{comment}" if comment else "",
-            f"case:{case_id}" if case_id else "",
+            f"case:{case_id or source_case_id}" if (case_id or source_case_id) else "",
+            f"sample:{sample_id}" if sample_id else "",
         ]
         if part
     )
@@ -1015,12 +1520,16 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
             "signal_type": signal_type,
             "pattern_usage": pattern_usage,
             "pattern_quality_score": round(max(0.0, min(1.0, pattern_quality_score)), 4),
-                "pattern_weight": round(max(0.3, min(1.8, pattern_weight)), 4),
-                "reason_category": reason,
-                "pattern_category": pattern_category,
-                "expected_priority": expected_priority,
-                "case_id": case_id,
-            },
+            "pattern_weight": round(max(0.3, min(1.8, pattern_weight)), 4),
+            "reason_category": reason,
+            "pattern_category": pattern_category,
+            "expected_priority": expected_priority,
+            "case_id": case_id,
+            "sample_id": sample_id,
+            "source_case_id": source_case_id,
+            "source_case_title": source_case_title,
+            "source_case_module": source_case_module,
+        },
     }
 
 
@@ -1036,7 +1545,10 @@ def _sync_priority_pool_pattern_index(
     safe_token = _sanitize_text(pattern_index_token, max_len=48) or datetime.utcnow().strftime("%Y%m%d%H%M%S")
     doc_id = f"{_build_priority_pattern_doc_id(project_id=project_id, user_id=user_id)}_{safe_token}"
     chunks: list[dict[str, Any]] = []
-    source_entries = signals if isinstance(signals, list) and signals else samples
+    # Keep vector metadata pointers aligned with the persisted raw sample list.
+    # Aggregated signals are sorted independently, so using their ordinal as
+    # sample_index can route retrieval hits back to the wrong raw sample.
+    source_entries = samples
     for idx, entry in enumerate(source_entries[:_MAX_INDEXED_PATTERN_SAMPLES]):
         chunk = _build_priority_pattern_chunk(entry, idx)
         if chunk:
@@ -1175,6 +1687,10 @@ def retrieve_priority_sample_patterns(
                 "pattern_category": _normalize_pattern_category(metadata.get("pattern_category")),
                 "expected_priority": _sanitize_text(metadata.get("expected_priority"), max_len=8),
                 "case_id": _sanitize_text(metadata.get("case_id"), max_len=40),
+                "sample_id": _sanitize_text(metadata.get("sample_id"), max_len=512),
+                "source_case_id": _sanitize_text(metadata.get("source_case_id"), max_len=256),
+                "source_case_title": _sanitize_text(metadata.get("source_case_title"), max_len=160),
+                "source_case_module": _sanitize_text(metadata.get("source_case_module"), max_len=120),
                 "document": _sanitize_text(docs[idx] if idx < len(docs) else "", max_len=220),
                 "distance": float(distances[idx]) if idx < len(distances) else None,
                 "retrieval_rank": int(idx + 1),
@@ -1242,6 +1758,12 @@ def upsert_priority_sample_pool(
     pattern_samples = select_priority_pattern_samples(raw_samples, max_items=_MAX_INDEXED_PATTERN_SAMPLES)
     patterns = derive_patterns_from_samples(pattern_samples)
     signals = derive_signals_from_patterns(patterns)
+    manual_quality_profile = build_manual_quality_profile(
+        raw_samples,
+        project_id=project_id,
+        user_id=user_id,
+        existing_profile=existing.get("manual_quality_profile") if existing else None,
+    )
 
     payload = {
         "project_id": int(project_id),
@@ -1249,6 +1771,7 @@ def upsert_priority_sample_pool(
         "samples": raw_samples,
         "patterns": patterns,
         "signals": signals,
+        "manual_quality_profile": manual_quality_profile,
         "learning_events": learning_events,
         "pattern_index_token": datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
         "updated_at": datetime.utcnow().isoformat(),
@@ -1730,6 +2253,12 @@ def load_priority_sample_pool(
             if not include_deleted:
                 normalized = [s for s in normalized if s.get("status") != "deleted"]
             payload["samples"] = normalized
+            payload["manual_quality_profile"] = build_manual_quality_profile(
+                normalized,
+                project_id=project_id,
+                user_id=user_id,
+                existing_profile=payload.get("manual_quality_profile"),
+            )
         payload["artifact_doc_id"] = doc.id
         payload["artifact_filename"] = doc.filename
         events = payload.get("learning_events")

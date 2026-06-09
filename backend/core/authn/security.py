@@ -47,7 +47,7 @@ def _read_keys_from_env_file(env_path: Path) -> list[str]:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, value = line.split("=", 1)
-            if key.strip().lstrip("\ufeff") != "CONFIG_ENCRYPTION_KEY":
+            if key.strip().lstrip("﻿") != "CONFIG_ENCRYPTION_KEY":
                 continue
             parsed = _strip_quotes(value)
             if parsed:

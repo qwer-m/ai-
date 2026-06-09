@@ -1,7 +1,7 @@
 import json
 from typing import Any, Callable
 
-from modules.test_generation_components.prompting.prompt_orchestration_split_helpers import (
+from .prompt_orchestration_split_helpers import (
     build_closed_loop_base_prompt,
 )
 

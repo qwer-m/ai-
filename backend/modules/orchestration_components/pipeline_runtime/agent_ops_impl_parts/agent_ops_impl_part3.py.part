@@ -1,6 +1,0 @@
-        "dependencies": STAGE_ORDER[: STAGE_ORDER.index(stage)],
-        "checklist": checklist_map[stage],
-        "artifact_keys": list(artifacts.keys()),
-        "timestamp": _now_iso(),
-        "requirement_len": len(str(payload.get("requirement") or "")),
-    }

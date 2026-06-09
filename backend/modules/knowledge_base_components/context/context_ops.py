@@ -1,4 +1,4 @@
-﻿"""Context retrieval orchestration for the knowledge base."""
+"""Context retrieval orchestration for the knowledge base."""
 
 from __future__ import annotations
 

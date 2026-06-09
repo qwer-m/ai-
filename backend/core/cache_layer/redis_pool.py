@@ -5,14 +5,36 @@ Redis 连接池配置模块 (Redis Pool Configuration)
 主要用于 Celery 任务队列和应用层的缓存操作。
 """
 
+import logging
 import os
 from redis import ConnectionPool
+
+
+logger = logging.getLogger(__name__)
+
+
+def _env_int(name: str, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        logger.warning("Invalid integer env %s=%r; using default=%s", name, raw, default)
+        return default
+    if minimum is not None and value < minimum:
+        logger.warning("Env %s=%r below minimum=%s; using minimum", name, raw, minimum)
+        return minimum
+    if maximum is not None and value > maximum:
+        logger.warning("Env %s=%r above maximum=%s; using maximum", name, raw, maximum)
+        return maximum
+    return value
 
 # Get Redis configuration from environment variables
 # (从环境变量获取 Redis 配置)
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+REDIS_PORT = _env_int("REDIS_PORT", 6379, minimum=1, maximum=65535)
+REDIS_DB = _env_int("REDIS_DB", 0, minimum=0)
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
 
 # Create a shared connection pool

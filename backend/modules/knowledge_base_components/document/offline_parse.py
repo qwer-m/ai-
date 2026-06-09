@@ -1,4 +1,4 @@
-﻿"""Knowledge-base offline parsing pipeline."""
+"""Knowledge-base offline parsing pipeline."""
 
 from __future__ import annotations
 

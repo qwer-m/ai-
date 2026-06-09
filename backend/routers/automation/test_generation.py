@@ -1,4 +1,4 @@
-﻿"""Test generation router entrypoint."""
+"""Test generation router entrypoint."""
 
 from fastapi import APIRouter
 

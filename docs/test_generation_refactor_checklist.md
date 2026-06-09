@@ -22,14 +22,14 @@ Reduce duplicate generation, remove hardcoded governance data, and route human p
 
 ## Next Work
 
-- [ ] Continue migrating older coverage scenario patterns into registry data in small verified batches.
-- [ ] Continue migrating older judge-only duplicate scenario patterns into registry data in small verified batches.
-- [ ] Add a controlled persistence path from recurring sample-pool signals into registry candidates.
-- [ ] Split mode strategy constants from generation logic into configuration data.
-- [ ] Split priority and P0 anchor rules from postprocess logic into configuration data.
-- [ ] Split expected-result quality rules from postprocess logic into configuration data.
-- [ ] Add diagnostics that explain which registry policy changed each generated batch.
-- [ ] Verify streaming output and normalized persisted output for one fresh full generation.
+- [x] Continue migrating older coverage scenario patterns into registry data in small verified batches.
+- [x] Continue migrating older judge-only duplicate scenario patterns into registry data in small verified batches.
+- [x] Add a controlled persistence path from recurring sample-pool signals into registry candidates.
+- [x] Split mode strategy constants from generation logic into configuration data.
+- [x] Split priority and P0 anchor rules from postprocess logic into configuration data.
+- [x] Split expected-result quality rules from postprocess logic into configuration data.
+- [x] Add diagnostics that explain which registry policy changed each generated batch.
+- [x] Verify streaming output and normalized persisted output for one fresh full generation.
 
 ## Verification Baseline
 

@@ -71,10 +71,14 @@ export type ReviewDecisionSummaryEvent = {
   flow_missing_stages?: string[];
   flow_missing_stage_count?: number;
   flow_misordered_count?: number;
+  final_flow_missing_stage_count?: number;
+  final_flow_misordered_count?: number;
   flow_governance_applied?: boolean;
   flow_reordered?: boolean;
   scenario_duplicate_cluster_count?: number;
   scenario_duplicate_case_count?: number;
+  final_scenario_duplicate_cluster_count?: number;
+  final_scenario_duplicate_case_count?: number;
   scenario_duplicate_pruned_count?: number;
   fact_profile_source?: string;
   fact_profile_confidence?: number;
@@ -164,6 +168,7 @@ export type GenerationQualityLedgerEvent = {
   judge?: Record<string, unknown>;
   context?: Record<string, unknown>;
   control?: Record<string, unknown>;
+  case_quality_gate?: CaseQualityGateEvent;
 };
 
 export type ReviewDecisionTableCompactEvent = {
@@ -195,6 +200,38 @@ export type StreamBatchTokenUsageEvent = {
   generation_mode?: string;
 };
 
+export type PersistenceGateEvent = {
+  kind: 'persistence_gate';
+  passed?: boolean;
+  gate_mode?: string;
+  blocked?: boolean;
+  failure_code?: string;
+  quality_would_block?: boolean;
+  execution_plan_would_block?: boolean;
+  execution_plan_validation?: {
+    passed?: boolean;
+    failure_code?: string;
+    failure_reasons?: string[];
+    generation_mode?: string;
+    metrics?: Record<string, unknown>;
+    state_conflicts?: Array<Record<string, unknown>>;
+  };
+  quality_gate?: Record<string, unknown>;
+  request_id?: string;
+  project_id?: number;
+};
+
+export type CaseQualityGateEvent = {
+  kind: 'case_quality_gate';
+  mode?: string;
+  passed?: boolean;
+  blocked?: boolean;
+  failure_reasons?: string[];
+  metrics?: Record<string, unknown>;
+  generation_id?: number;
+  request_id?: string;
+};
+
 export type GenDiagEvent =
   | GenerationModeEvent
   | GenerationStageEvent
@@ -212,7 +249,9 @@ export type GenDiagEvent =
   | GenerationQualityLedgerEvent
   | ReviewDecisionTableCompactEvent
   | MemoryFabricDiagEvent
-  | StreamBatchTokenUsageEvent;
+  | StreamBatchTokenUsageEvent
+  | PersistenceGateEvent
+  | CaseQualityGateEvent;
 
 const VALID_KINDS = new Set([
   'generation_mode',
@@ -232,6 +271,8 @@ const VALID_KINDS = new Set([
   'review_decision_table_compact',
   'memory_fabric_diag',
   'stream_batch_token_usage',
+  'persistence_gate',
+  'case_quality_gate',
 ]);
 
 export function parseGenDiagEvent(input: unknown): GenDiagEvent | null {

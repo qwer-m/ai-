@@ -67,11 +67,11 @@ function normalizePriorityValue(v: unknown): 'P0' | 'P1' | 'P2' {
 function buildPriorityRows(result: any): PriorityRow[] {
   if (!Array.isArray(result)) return [];
   return result.map((item, idx) => {
-    const priorityDebug = item?.priorityDebug ?? item?.meta?.priority_debug;
+    const priorityDebug = item?.priorityDebug ?? item?.priority_debug ?? item?.meta?.priority_debug;
     const hasPriorityDebug = Boolean(priorityDebug && typeof priorityDebug === 'object');
     const displayPriority = normalizePriorityValue(item?.displayPriority ?? item?.priority);
-    const rawPriority = normalizePriorityValue(item?.rawPriority ?? priorityDebug?.original_priority ?? item?.priority);
-    const finalPriority = normalizePriorityValue(item?.finalPriority ?? priorityDebug?.final_priority ?? displayPriority);
+    const rawPriority = normalizePriorityValue(item?.rawPriority ?? item?.raw_priority ?? priorityDebug?.original_priority ?? item?.priority);
+    const finalPriority = normalizePriorityValue(item?.finalPriority ?? item?.final_priority ?? item?.priority_final ?? priorityDebug?.final_priority ?? displayPriority);
     const caseId = String(item?.id || item?.case_id || `CASE-${idx + 1}`);
     return {
       id: caseId,

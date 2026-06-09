@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type {
   CoverageResult,
+  CaseQualityGateEvent,
   FeedbackControlStateEvent,
   GenDiagEvent,
   GenDiagSummaryEvent,
@@ -12,6 +13,7 @@ import type {
   JudgeDecisionTableEvent,
   JudgeSummaryEvent,
   MemoryFabricDiagEvent,
+  PersistenceGateEvent,
   ReviewDecisionSummaryEvent,
   ReviewDecisionTableCompactEvent,
   StreamBatchTokenUsageEvent,
@@ -64,6 +66,8 @@ export type DebugState = {
   generationQualityLedger?: GenerationQualityLedgerEvent;
   memoryFabricDiag?: MemoryFabricDiagEvent;
   streamBatchTokenUsageRows?: StreamBatchTokenUsageEvent[];
+  persistenceGate?: PersistenceGateEvent;
+  caseQualityGate?: CaseQualityGateEvent;
   resultState?: ResultDebugState;
   lastUpdatedAt?: number;
   ingestDiag: (event: unknown) => void;
@@ -92,6 +96,8 @@ const INITIAL_STATE = {
   generationQualityLedger: undefined as GenerationQualityLedgerEvent | undefined,
   memoryFabricDiag: undefined as MemoryFabricDiagEvent | undefined,
   streamBatchTokenUsageRows: undefined as StreamBatchTokenUsageEvent[] | undefined,
+  persistenceGate: undefined as PersistenceGateEvent | undefined,
+  caseQualityGate: undefined as CaseQualityGateEvent | undefined,
   resultState: undefined as ResultDebugState | undefined,
   lastUpdatedAt: undefined as number | undefined,
 };
@@ -265,6 +271,20 @@ function applyEvent(state: DebugState, event: GenDiagEvent): Partial<DebugState>
     };
   }
 
+  if (event.kind === 'persistence_gate') {
+    return {
+      persistenceGate: event,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'case_quality_gate') {
+    return {
+      caseQualityGate: event,
+      lastUpdatedAt: now,
+    };
+  }
+
   return {};
 }
 
@@ -321,6 +341,8 @@ export const useRagDebugStore = create<DebugState>()(
         generationQualityLedger: state.generationQualityLedger,
         memoryFabricDiag: state.memoryFabricDiag,
         streamBatchTokenUsageRows: state.streamBatchTokenUsageRows,
+        persistenceGate: state.persistenceGate,
+        caseQualityGate: state.caseQualityGate,
         resultState: state.resultState,
         lastUpdatedAt: state.lastUpdatedAt,
       }),

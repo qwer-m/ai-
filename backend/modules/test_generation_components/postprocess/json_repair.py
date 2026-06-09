@@ -1,4 +1,4 @@
-﻿"""JSON repair helpers for test generation postprocessing."""
+"""JSON repair helpers for test generation postprocessing."""
 
 from __future__ import annotations
 

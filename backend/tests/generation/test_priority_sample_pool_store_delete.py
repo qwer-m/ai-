@@ -431,6 +431,65 @@ def test_raw_sample_pool_normalization_cleans_legacy_hardcoded_comments() -> Non
     assert all(item.get("userComment") == "" for item in raw)
 
 
+def test_raw_sample_pool_generated_ids_do_not_overwrite_workflow_blueprints() -> None:
+    raw = normalize_raw_priority_samples(
+        [
+            {
+                "source": "linked_final_case_pattern",
+                "signal_type": "positive",
+                "pattern_category": "manual_final_business_coverage",
+                "source_case_title": "Create plan",
+                "source_case_module": "Plan",
+                "pattern_summary": "manual_final_business_coverage | create plan",
+            },
+            {
+                "source": "linked_final_case_workflow_blueprint",
+                "signal_type": "positive",
+                "pattern_usage": "prefer",
+                "pattern_category": "main_smoke_flow",
+                "reason_category": "main_smoke_flow",
+                "expected_priority": "P0",
+                "case_id": "workflow_blueprint_manual",
+                "title": "Workflow blueprint: create plan",
+                "pattern_summary": "workflow_blueprint | main_smoke_flow | create plan",
+                "pattern_grain": "workflow_blueprint",
+                "workflow_blueprint": {
+                    "id": "workflow_blueprint_manual",
+                    "name": "create plan",
+                    "steps": [
+                        {"id": "step_001", "label": "Create plan"},
+                        {"id": "step_002", "label": "Verify student side visibility"},
+                    ],
+                },
+            },
+            {
+                "source": "linked_final_case_pattern",
+                "signal_type": "positive",
+                "pattern_category": "manual_final_business_coverage",
+                "source_case_title": "Create plan",
+                "source_case_module": "Plan",
+                "source_case_steps": "open create plan",
+                "source_case_expected_result": "plan can be created",
+                "pattern_summary": "manual_final_business_coverage | create plan",
+            },
+        ]
+    )
+
+    workflow_items = [item for item in raw if item.get("pattern_grain") == "workflow_blueprint"]
+    plan_patterns = [
+        item
+        for item in raw
+        if item.get("pattern_grain") == "pattern"
+        and item.get("source_case_title") == "Create plan"
+    ]
+
+    assert len(workflow_items) == 1
+    assert workflow_items[0].get("source_type") == "linked_final_case_workflow_blueprint"
+    assert len((workflow_items[0].get("workflow_blueprint") or {}).get("steps") or []) == 2
+    assert len(plan_patterns) == 1
+    assert plan_patterns[0].get("source_case_steps") == "open create plan"
+
+
 def _make_sample(
     sample_id: str,
     cluster_key: str = "misc",

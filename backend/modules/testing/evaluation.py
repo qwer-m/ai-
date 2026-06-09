@@ -596,7 +596,7 @@ class EvaluationModule:
         try:
             from core.processing.utils import extract_code_block
             return json.loads(extract_code_block(response, "json"))
-        except:
+        except Exception:
             return {"category": "Unknown", "reason": "Failed to parse AI response"}
 
     def evaluate_api_test(self, api_script: str, execution_result: str, db: Session = None, project_id: int = None, user_id: int = None, openapi_spec: str = None) -> str:

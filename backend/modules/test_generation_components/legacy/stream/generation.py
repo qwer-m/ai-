@@ -4,13 +4,13 @@ import uuid
 from sqlalchemy.orm import Session
 
 from core.ai.ai_client import get_client_for_user
-from modules.testing.test_generation_components.legacy.stream.batches import (
+from .batches import (
     LegacyGenerationStreamBatchesMixin,
 )
-from modules.testing.test_generation_components.legacy.stream.persist import (
+from .persist import (
     LegacyGenerationStreamPersistMixin,
 )
-from modules.testing.test_generation_components.legacy.stream.prepare import (
+from .prepare import (
     LegacyGenerationStreamPrepareMixin,
 )
 

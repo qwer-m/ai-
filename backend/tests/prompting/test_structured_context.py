@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
@@ -222,6 +222,58 @@ def test_control_context_includes_preferred_patterns() -> None:
     assert int(output["control_summary"].get("preferred_patterns_count") or 0) == 1
     assert "### PREFERRED PATTERN QUOTA (AB)" in output["control_context"]
     assert output["control_summary"].get("preferred_quota_variant") == "B"
+
+
+def test_control_context_includes_manual_quality_profile() -> None:
+    output = build_structured_prompt_context(
+        requirement="recent course schedule regression",
+        feedback_control_state={
+            "source_meta": {
+                "manual_quality_profile": {
+                    "kind": "manual_quality_profile",
+                    "profile_source": "priority_sample_pool_manual_verified",
+                    "profile_version": "stable-1",
+                    "trusted_sample_count": 12,
+                    "priority_distribution": {"P0": 4, "P1": 6, "P2": 2},
+                    "module_distribution_top": {
+                        "\u672c\u5468\u8bfe\u7a0b\u6a21\u5757": 5,
+                        "\u6392\u8bfe-\u5b66\u4e60\u8ba1\u5212-\u7b2c1\u6b65": 4,
+                    },
+                    "execution_lifecycle_fields": ["ST", "release", "\u8865\u5145\u9879"],
+                    "high_priority_ratio": 0.83,
+                    "display_ratio_cap": 0.25,
+                }
+            }
+        },
+    )
+
+    context = output["control_context"]
+    assert "### MANUAL QUALITY PROFILE" in context
+    assert "target P0/P1 ratio: about 83%" in context
+    assert "display-only cap: <= 25%" in context
+    assert "\u672c\u5468\u8bfe\u7a0b\u6a21\u5757" in context
+
+
+def test_control_context_includes_workflow_blueprints() -> None:
+    output = build_structured_prompt_context(
+        requirement="REQ-904: checkout must close the paid order flow",
+        feedback_control_state={
+            "workflow_blueprints": [
+                {
+                    "id": "checkout_flow",
+                    "name": "checkout flow",
+                    "steps": [
+                        {"id": "submit", "label": "Submit order"},
+                        {"id": "verify", "label": "Verify paid status"},
+                    ],
+                }
+            ]
+        },
+    )
+
+    assert "### WORKFLOW BLUEPRINTS" in output["control_context"]
+    assert "checkout flow: Submit order -> Verify paid status" in output["control_context"]
+    assert int(output["control_summary"].get("workflow_blueprint_count") or 0) == 1
 
 
 def test_structured_context_builds_fact_and_project_profiles() -> None:

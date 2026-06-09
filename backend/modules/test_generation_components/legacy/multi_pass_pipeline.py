@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from modules.testing.test_generation_components.coverage.coverage_analyzer import analyze_coverage
-from modules.testing.test_generation_components.postprocess.result_postprocess import (
+from ..coverage.coverage_analyzer import analyze_coverage
+from ..postprocess.result_postprocess import (
     apply_priority_semantics_to_case,
 )
 
@@ -13,7 +13,7 @@ _VALID_GENERATION_MODES = {"single_pass", "multi_pass", "biz_key_multi_pass"}
 _MAX_ROUNDS = 6
 _MAX_EXISTING_CASES_IN_PROMPT = 80
 
-from modules.test_generation_components.legacy.multi_pass_pipeline_split_helpers import (
+from .multi_pass_pipeline_split_helpers import (
     _resolve_generation_mode,
     _to_case_list,
     _case_signature,

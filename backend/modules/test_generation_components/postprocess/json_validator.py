@@ -1,4 +1,4 @@
-﻿"""JSON validation and ordering helpers for test generation postprocessing."""
+"""JSON validation and ordering helpers for test generation postprocessing."""
 
 from __future__ import annotations
 

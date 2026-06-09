@@ -8,10 +8,10 @@ from modules.testing.test_generation_components.postprocess.json_repair import d
 def test_judge_repairer_does_not_append_untyped_batch_gap_cases() -> None:
     semantics = {
         "hard_flow_constraints": [
-            "\u4e8c\u8f6e\u590d\u4e60\u8bfe\u7a0b\u8be6\u60c5\u9875\u4ec5\u4fdd\u7559\u5b66\u0026\u7ec3\u6d41\u7a0b"
+            "二轮复习课程详情页仅保留学&练流程"
         ],
         "reuse_risks": [
-            "\u6253\u5370\u5f39\u7a97\u4fdd\u7559\u6559\u6750\u548c\u7b54\u6848\u53cc\u9009\u9879"
+            "打印弹窗保留教材和答案双选项"
         ],
     }
 
@@ -117,27 +117,27 @@ def test_judge_rejects_registered_registry_duplicate_scenarios_across_modules() 
     cases = [
         {
             "id": "TC-001",
-            "description": "\u9a8c\u8bc1\u5b66\u5458\u56de\u7b54\u7b54\u975e\u6240\u95ee\u65f6\uff0c\u51c6\u786e\u6027\u76f4\u63a5\u8bb0\u4e3a0\u5206",
-            "test_module": "\u5b66\u5458\u7aefAI\u8bc4\u5206",
+            "description": "验证学员回答答非所问时，准确性直接记为0分",
+            "test_module": "学员端AI评分",
             "steps": [
-                "1. AI\u63d0\u95ee\u5177\u4f53\u6570\u5b66\u9898",
-                "2. \u5b66\u5458\u8f93\u5165\u4e0e\u9898\u76ee\u65e0\u5173\u7684\u5185\u5bb9",
-                "3. \u67e5\u770b\u51c6\u786e\u6027\u5206\u6570",
+                "1. AI提问具体数学题",
+                "2. 学员输入与题目无关的内容",
+                "3. 查看准确性分数",
             ],
-            "test_input": "\u4eca\u5929\u5929\u6c14\u5f88\u597d",
-            "expected_result": "\u51c6\u786e\u6027\u5206\u6570\u4e3a0\u5206\uff0c\u5176\u4ed6\u7ef4\u5ea6\u6b63\u5e38\u8bc4\u5206",
+            "test_input": "今天天气很好",
+            "expected_result": "准确性分数为0分，其他维度正常评分",
             "priority": "P0",
         },
         {
             "id": "TC-002",
-            "description": "\u9a8c\u8bc1\u5b66\u5458\u7aef\u56de\u7b54\u7b54\u975e\u6240\u95ee\u65f6\u51c6\u786e\u6027\u81ea\u52a80\u5206\uff0c\u4e14\u603b\u5206\u6309\u89c4\u5219\u8ba1\u7b97",
-            "test_module": "\u5b66\u5458\u7aefAI\u8bb2\u9519\u9898\u8bc4\u5206",
+            "description": "验证学员端回答答非所问时准确性自动0分，且总分按规则计算",
+            "test_module": "学员端AI讲错题评分",
             "steps": [
-                "1. \u5728AI\u8ffd\u95ee\u540e\u8f93\u5165\u4e0e\u95ee\u9898\u65e0\u5173\u7684\u56de\u7b54",
-                "2. \u5b8c\u6210\u4ea4\u4e92\u540e\u67e5\u770b\u8bc4\u5206\u660e\u7ec6",
+                "1. 在AI追问后输入与问题无关的回答",
+                "2. 完成交互后查看评分明细",
             ],
-            "test_input": "\u4eca\u5929\u5929\u6c14\u4e0d\u9519",
-            "expected_result": "\u51c6\u786e\u6027\u7ef4\u5ea6\u5f970\u5206\uff0c\u7cfb\u7edf\u6807\u6ce8\u7b54\u975e\u6240\u95ee",
+            "test_input": "今天天气不错",
+            "expected_result": "准确性维度得0分，系统标注答非所问",
             "priority": "P1",
         },
     ]
@@ -149,6 +149,47 @@ def test_judge_rejects_registered_registry_duplicate_scenarios_across_modules() 
     assert duplicate.reject_reason == "semantic_duplicate:TC-001"
     assert duplicate.signals.is_semantic_duplicate is True
     assert duplicate.signals.duplicate_of_case_id == "TC-001"
+
+
+def test_judge_does_not_use_broad_schedule_registry_families_as_duplicate_rules() -> None:
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "首页本周进度-有课程时个人进度完整展示",
+            "test_module": "首页-本周进度模块",
+            "steps": ["进入学员首页", "查看本周进度模块个人进度区域"],
+            "test_input": "本周5节课，已完成3节",
+            "expected_result": "显示已学60%、已完成课程数3/5、文案为继续学习2节课完成本周任务",
+            "priority": "P1",
+        },
+        {
+            "id": "TC-002",
+            "description": "首页本周进度-学习时长排行榜Top5展示及称号图标",
+            "test_module": "首页-本周进度模块",
+            "steps": ["进入学员首页", "查看学习时长排行榜区域"],
+            "test_input": "门店本周8名学员有学习记录",
+            "expected_result": "仅展示Top5学员，第1名显示学习恒星图标，第2-3名显示勤勉彗星图标，第4-5名显示奋进新星图标",
+            "priority": "P1",
+        },
+        {
+            "id": "TC-003",
+            "description": "首页本周进度-无课程时空状态展示",
+            "test_module": "首页-本周进度模块",
+            "steps": ["进入学员首页", "查看本周进度模块"],
+            "test_input": "学员本周无任何课程",
+            "expected_result": "展示本周暂无学习计划空状态，不显示进度百分比和排行榜数据",
+            "priority": "P1",
+        },
+    ]
+
+    judged = judge_cases(cases, {})
+
+    assert judged.reject_count == 0
+    assert {item.case_id: item.status for item in judged.cases} == {
+        "TC-001": "PASS",
+        "TC-002": "PASS",
+        "TC-003": "PASS",
+    }
 
 
 def test_judge_rejects_popup_card_share_quota_and_refresh_duplicate_scenarios() -> None:
@@ -589,7 +630,7 @@ def test_judge_marks_vague_requirement_defined_copy_as_pending() -> None:
             "description": "Workbook pending copy follows actual product design",
             "test_module": "Workbook",
             "steps": ["Open workbook"],
-            "expected_result": "\u9875\u9762\u663e\u793a\u5982\"\u6682\u65e0\u5f85\u6279\u6539\u9898\u76ee\"\u6216\u9700\u6c42\u5b9a\u4e49\u7684\u6587\u6848",
+            "expected_result": "页面显示如\"暂无待批改题目\"或需求定义的文案",
             "priority": "P1",
         }
     ]
@@ -609,7 +650,7 @@ def test_judge_marks_optional_design_copy_as_pending() -> None:
             "description": "Calendar optionally supports week switching",
             "test_module": "Learning Plan",
             "steps": ["Open calendar"],
-            "expected_result": "\u5de6\u53f3\u6ed1\u52a8\u6216\u70b9\u51fb\u65e5\u5386\u67e5\u770b\u662f\u5426\u652f\u6301\u5207\u6362\u5468\uff08\u5982\u679c\u8bbe\u8ba1\u5982\u6b64\uff09\uff1b\u82e5\u65e0\u5468\u5207\u6362\u529f\u80fd\u5219\u4ec5\u663e\u793a\u672c\u5468",
+            "expected_result": "左右滑动或点击日历查看是否支持切换周（如果设计如此）；若无周切换功能则仅显示本周",
             "priority": "P1",
         }
     ]
@@ -688,50 +729,50 @@ def test_judge_rejects_student_essay_residual_duplicate_intents() -> None:
     cases = [
         {
             "id": "TC-001",
-            "description": "\u6295\u7a3f\u5931\u8d25\u540e\u5c55\u793a\u5931\u8d25\u539f\u56e0",
-            "test_module": "\u4f5c\u6587\u6279\u6539",
-            "steps": ["\u6253\u5f00\u6295\u7a3f\u8be6\u60c5", "\u67e5\u770b\u5ba1\u6838\u7ed3\u679c"],
-            "expected_result": "\u9875\u9762\u5c55\u793a\u672a\u901a\u8fc7\u7684\u5931\u8d25\u539f\u56e0",
+            "description": "投稿失败后展示失败原因",
+            "test_module": "作文批改",
+            "steps": ["打开投稿详情", "查看审核结果"],
+            "expected_result": "页面展示未通过的失败原因",
             "priority": "P1",
         },
         {
             "id": "TC-002",
-            "description": "\u4f5c\u54c1\u5ba1\u6838\u9a73\u56de\u65f6\u53ef\u67e5\u770b\u9a73\u56de\u539f\u56e0",
-            "test_module": "\u4f5c\u6587\u6279\u6539-\u6295\u7a3f",
-            "steps": ["\u8fdb\u5165\u6211\u7684\u4f5c\u6587", "\u70b9\u51fb\u672a\u901a\u8fc7\u4f5c\u54c1"],
-            "expected_result": "\u672a\u901a\u8fc7\u4f5c\u54c1\u663e\u793a\u5ba1\u6838\u5931\u8d25\u539f\u56e0",
+            "description": "作品审核驳回时可查看驳回原因",
+            "test_module": "作文批改-投稿",
+            "steps": ["进入我的作文", "点击未通过作品"],
+            "expected_result": "未通过作品显示审核失败原因",
             "priority": "P2",
         },
         {
             "id": "TC-003",
-            "description": "\u666e\u901a\u7528\u6237\u7b2c\u4e00\u8bfe\u53ef\u8bd5\u5b66",
-            "test_module": "\u8bfe\u7a0b\u5217\u8868",
-            "steps": ["\u666e\u901a\u7528\u6237\u8fdb\u5165\u8bfe\u7a0b\u5217\u8868", "\u70b9\u51fb\u7b2c\u4e00\u8bfe"],
-            "expected_result": "\u7b2c\u4e00\u8bfe\u53ef\u8fdb\u5165\uff0c\u4e0d\u8df3\u4f1a\u5458\u4e2d\u5fc3",
+            "description": "普通用户第一课可试学",
+            "test_module": "课程列表",
+            "steps": ["普通用户进入课程列表", "点击第一课"],
+            "expected_result": "第一课可进入，不跳会员中心",
             "priority": "P0",
         },
         {
             "id": "TC-004",
-            "description": "\u666e\u901a\u7528\u6237\u53ea\u6709\u7b2c\u4e00\u8bfe\u53ef\u514d\u8d39\u8fdb\u5165",
-            "test_module": "\u8bfe\u7a0b\u6743\u9650",
-            "steps": ["\u666e\u901a\u7528\u6237\u6253\u5f00\u8bfe\u7a0b", "\u5206\u522b\u70b9\u51fb\u7b2c\u4e00\u8bfe\u548c\u7b2c\u4e8c\u8bfe"],
-            "expected_result": "\u7b2c\u4e00\u8bfe\u8fdb\u5165\u8bd5\u5b66\uff0c\u5176\u4ed6\u8bfe\u7a0b\u8df3\u8f6c\u4f1a\u5458\u4e2d\u5fc3",
+            "description": "普通用户只有第一课可免费进入",
+            "test_module": "课程权限",
+            "steps": ["普通用户打开课程", "分别点击第一课和第二课"],
+            "expected_result": "第一课进入试学，其他课程跳转会员中心",
             "priority": "P0",
         },
         {
             "id": "TC-005",
-            "description": "\u4e0b\u8f7dPDF\u540e\u5185\u5bb9\u4e0e\u6279\u6539\u7ed3\u679c\u4e00\u81f4",
-            "test_module": "\u8d44\u6599\u4e0b\u8f7d",
-            "steps": ["\u70b9\u51fbPDF\u4e0b\u8f7d", "\u6253\u5f00\u6587\u4ef6\u68c0\u67e5\u5185\u5bb9"],
-            "expected_result": "PDF\u6587\u4ef6\u5305\u542b\u6279\u6539\u7ed3\u679c\u4e3b\u8981\u5185\u5bb9",
+            "description": "下载PDF后内容与批改结果一致",
+            "test_module": "资料下载",
+            "steps": ["点击PDF下载", "打开文件检查内容"],
+            "expected_result": "PDF文件包含批改结果主要内容",
             "priority": "P1",
         },
         {
             "id": "TC-006",
-            "description": "\u8d44\u6599PDF\u4e0b\u8f7d\u5185\u5bb9\u6821\u9a8c",
-            "test_module": "\u4e0b\u8f7d\u8d44\u6599",
-            "steps": ["\u5728\u6279\u6539\u7ed3\u679c\u9875\u4e0b\u8f7dPDF", "\u6838\u5bf9PDF\u5185\u5bb9"],
-            "expected_result": "\u4e0b\u8f7dPDF\u5185\u5bb9\u4e0e\u9875\u9762\u6279\u6539\u7ed3\u679c\u4fdd\u6301\u4e00\u81f4",
+            "description": "资料PDF下载内容校验",
+            "test_module": "下载资料",
+            "steps": ["在批改结果页下载PDF", "核对PDF内容"],
+            "expected_result": "下载PDF内容与页面批改结果保持一致",
             "priority": "P2",
         },
     ]

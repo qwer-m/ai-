@@ -1,4 +1,4 @@
-﻿"""
+"""
 检索稳定性辅助工具。
 该模块聚焦两类能力：
 1. 轻量重试判定（仅针对可恢复外部错误）；
@@ -14,19 +14,50 @@ from datetime import datetime
 from typing import Optional
 
 
+def _env_enabled(key: str, default: bool) -> bool:
+    raw = os.getenv(key)
+    if raw is None:
+        return bool(default)
+    return str(raw).strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _env_int(key: str, default: int, minimum: int, maximum: int | None = None) -> int:
+    raw = os.getenv(key)
+    try:
+        value = int(str(raw if raw is not None else default).strip())
+    except (TypeError, ValueError):
+        value = int(default)
+    value = max(int(minimum), value)
+    if maximum is not None:
+        value = min(int(maximum), value)
+    return value
+
+
+def _env_float(key: str, default: float, minimum: float, maximum: float | None = None) -> float:
+    raw = os.getenv(key)
+    try:
+        value = float(str(raw if raw is not None else default).strip())
+    except (TypeError, ValueError):
+        value = float(default)
+    value = max(float(minimum), value)
+    if maximum is not None:
+        value = min(float(maximum), value)
+    return value
+
+
 @dataclass(frozen=True)
 class RetrievalStabilityConfig:
     """检索稳定性参数集合，全部可通过环境变量覆盖。"""
 
-    max_retrieve_attempts: int = max(1, int(os.getenv("RAG_RETRIEVE_MAX_ATTEMPTS", "2")))
-    retry_backoff_ms: int = max(50, int(os.getenv("RAG_RETRY_BACKOFF_MS", "180")))
+    max_retrieve_attempts: int = _env_int("RAG_RETRIEVE_MAX_ATTEMPTS", 2, 1)
+    retry_backoff_ms: int = _env_int("RAG_RETRY_BACKOFF_MS", 180, 50)
     retryable_reasons: frozenset[str] = frozenset(
         {"network_error", "embedding_failed", "ssl_eof", "connect_timeout", "read_timeout"}
     )
-    low_rel_filter_enabled: bool = os.getenv("RAG_LOW_REL_FILTER_ENABLED", "1") != "0"
-    low_rel_top1_threshold: float = float(os.getenv("RAG_LOW_REL_TOP1_THRESHOLD", "0.85"))
-    low_rel_topk_avg_threshold: float = float(os.getenv("RAG_LOW_REL_TOPK_AVG_THRESHOLD", "0.68"))
-    low_rel_topk: int = max(1, int(os.getenv("RAG_LOW_REL_TOPK", "3")))
+    low_rel_filter_enabled: bool = _env_enabled("RAG_LOW_REL_FILTER_ENABLED", True)
+    low_rel_top1_threshold: float = _env_float("RAG_LOW_REL_TOP1_THRESHOLD", 0.85, 0.0, 1.0)
+    low_rel_topk_avg_threshold: float = _env_float("RAG_LOW_REL_TOPK_AVG_THRESHOLD", 0.68, 0.0, 1.0)
+    low_rel_topk: int = _env_int("RAG_LOW_REL_TOPK", 3, 1)
 
 
 STABILITY_CONFIG = RetrievalStabilityConfig()

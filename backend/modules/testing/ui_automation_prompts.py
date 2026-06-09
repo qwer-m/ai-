@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 
 def build_requirement_context_prompt(requirement_context: str | None) -> str:

@@ -1,16 +1,16 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import re
 from typing import Any, Callable, Iterator
 
 try:
-    from modules.testing.test_generation_components.prompting.structured_context import (
+    from ..prompting.structured_context import (
         _normalize_priority as _normalize_existing_priority,
     )
 except Exception:  # pragma: no cover
     try:
-        from modules.test_generation_components.prompting.structured_context import (
+        from ..prompting.structured_context import (
             _normalize_priority as _normalize_existing_priority,
         )
     except Exception:  # pragma: no cover

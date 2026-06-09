@@ -3,7 +3,7 @@ import re
 
 from core.ai.ai_client import get_client_for_user
 from modules.domain.knowledge_base import knowledge_base
-from modules.testing.test_generation_components.legacy.adapters import clean_and_parse_json
+from .adapters import clean_and_parse_json
 
 
 class LegacyGenerationEstimationMixin:

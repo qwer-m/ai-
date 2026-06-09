@@ -5,11 +5,11 @@ import re
 from copy import deepcopy
 from typing import Any
 
-from modules.test_generation_components.coverage.scenario_registry import (
+from ..coverage.scenario_registry import (
     cross_module_scenario_kinds,
+    judge_duplicate_scenario_kinds,
     judge_duplicate_thresholds,
     scenario_pattern_entries,
-    specific_scenario_kinds,
 )
 
 from .judge_types import (
@@ -49,40 +49,40 @@ _PENDING_HINTS = (
 )
 
 _VAGUE_UNCONFIRMED_HINTS = (
-    "\u6216\u9700\u6c42\u5b9a\u4e49",
-    "\u9700\u6c42\u5b9a\u4e49\u7684\u6587\u6848",
-    "\u6839\u636e\u5b9e\u9645",
-    "\u6839\u636e\u4ea7\u54c1",
-    "\u5b9e\u9645\u4ea7\u54c1\u8bbe\u8ba1",
-    "\u5b9e\u9645\u8bbe\u8ba1",
-    "\u9700\u786e\u8ba4",
-    "\u5f85\u786e\u8ba4",
-    "\u6682\u4e0d\u786e\u5b9a",
-    "\u6216\u7c7b\u4f3c\u6587\u6848",
-    "\u6216\u7c7b\u4f3c\u683c\u5f0f",
-    "\u7b26\u5408\u63cf\u8ff0\u683c\u5f0f",
-    "\u5bf9\u5e94\u7a7a\u72b6\u6001\u6587\u6848",
-    "\u6216\u5176\u4ed6\u5df2\u660e\u786e",
-    "\u5df2\u660e\u786e\u7684\u8bbe\u8ba1\u8272\u503c",
-    "\u6301\u5e73\u6216",
-    "\u4ee5\u5b9e\u9645",
-    "\u5982\u679c\u8bbe\u8ba1\u5982\u6b64",
-    "\u82e5\u65e0",
-    "\u53ef\u8bbe\u8ba1\u4e3a",
-    "\u53ef\u80fd",
-    "\u9700\u6c42\u672a\u7ec6\u8bf4",
-    "\u672a\u7ec6\u8bf4",
-    "\u65e0\u8865\u5145\u8bf4\u660e",
-    "\u6216\u5f53\u65e5",
-    "\u4e0d\u53d8\u6216\u589e\u52a0",
-    "\u5e94\u8df3\u8f6c\u5230\u76ee\u6807\u9875\u9762",
-    "\u9875\u9762\u8def\u5f84\u4e0e\u6807\u9898",
-    "\u54cd\u5e94\u72b6\u6001\u7801\u6b63\u786e",
-    "\u6388\u6743\u8303\u56f4\u5185\u9875\u9762\u6216\u6a21\u5757",
-    "\u5e94\u5b8c\u6574\u663e\u793a",
-    "\u5173\u952e\u5b57\u6bb5",
-    "\u5b57\u6bb5\u503c\u4e0e\u8f93\u5165",
-    "\u540e\u7aef\u6570\u636e\u4e00\u81f4",
+    "或需求定义",
+    "需求定义的文案",
+    "根据实际",
+    "根据产品",
+    "实际产品设计",
+    "实际设计",
+    "需确认",
+    "待确认",
+    "暂不确定",
+    "或类似文案",
+    "或类似格式",
+    "符合描述格式",
+    "对应空状态文案",
+    "或其他已明确",
+    "已明确的设计色值",
+    "持平或",
+    "以实际",
+    "如果设计如此",
+    "若无",
+    "可设计为",
+    "可能",
+    "需求未细说",
+    "未细说",
+    "无补充说明",
+    "或当日",
+    "不变或增加",
+    "应跳转到目标页面",
+    "页面路径与标题",
+    "响应状态码正确",
+    "授权范围内页面或模块",
+    "应完整显示",
+    "关键字段",
+    "字段值与输入",
+    "后端数据一致",
     "to be confirmed",
     "as designed",
     "depends on actual",
@@ -92,60 +92,10 @@ _VAGUE_UNCONFIRMED_HINTS = (
     "per actual design",
 )
 
-_DUPLICATE_SCENARIO_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("initial_popup", ("首次进入", "首次加载", "弹窗", "已智能完成全页批改", "批改完成弹窗", "popup", "dialog")),
-    ("title_format", ("标题", "格式", "title")),
-    ("statistics", ("统计", "总题数", "正确数", "错误数", "数量", "count", "statistics")),
-    ("filter_toggle", ("只看错题", "开关", "筛选", "隐藏正确题", "filter", "toggle")),
-    ("empty_state", ("空状态", "暂无", "无记录", "无数据", "未识别到有效题目", "无有效题目", "empty", "no data")),
-    ("card_element", ("题目卡片", "状态角标", "元信息", "查看详解", "卡片元素", "card")),
-    ("workbook_scope", ("习题本", "拍照搜题", "课内练习", "快问快答", "牛刀小试", "不包含", "只显示")),
-    ("bad_image_review", ("模糊", "全黑", "不完整", "允许上传", "待复核", "图片质量", "bad image")),
-    ("media_preview", ("图片", "预览", "缩略图", "滑动", "image", "preview")),
-    ("answer_analysis_placeholder", ("暂无正确答案", "暂无解析内容", "无解析", "无正确答案", "placeholder")),
-    ("source_consistency", ("来源", "标签", "配置", "知识点", "source", "tag")),
-    ("network_error", ("网络", "断网", "弱网", "network")),
-    ("permission", ("权限", "摄像头", "permission")),
-    ("save_delete", ("保存", "删除", "清空", "save", "delete", "clear")),
-    ("manual_mark_correct", ("判定正确", "改为正确", "变为正确", "修正为正确", "错题本移除", "被移除", "正确数", "mark correct")),
-    ("manual_mark_wrong", ("判定错误", "改为错误", "变为错误", "修正为错误", "错题本新增", "错误数", "mark wrong")),
-    ("manual_correction", ("手动", "修正", "更正", "历史误判", "上报模型优化", "manual", "correct")),
-    ("review_status_color", ("序号栏", "颜色", "绿色", "橙色", "红色", "需关注", "status color")),
-    ("review_warm_hint", ("温馨提示", "书写差异", "特殊题型", "人工复核", "重点核对", "warm hint")),
-    ("review_detail_content", ("单题详情", "模型判断", "学生答案", "参考答案", "判定按钮", "detail content")),
-    ("review_filter_tabs", ("筛选标签", "待复核", "需关注", "题量", "全部标签", "filter tabs")),
-    ("feedback", ("反馈", "12小时", "专用模型", "feedback")),
-    ("plan_step1_scope", ("第一步", "数据范围", "已完成", "精准学习题本", "牛刀", "当前教学周", "weakness scope")),
-    ("plan_step1_sorting", ("第一步", "错题率", "错题数", "降序", "前3", "目标知识点", "weakness sort")),
-    ("plan_second_step_navigation", ("第二步", "上一步", "开始学习", "专属学习方案", "目标知识点", "second step")),
-    ("plan_slice_auto_advance", ("第三步", "切片", "自动进入", "自动切换", "下一个切片", "auto advance")),
-    ("plan_slice_regeneration", ("第三步", "重新生成", "薄弱知识点", "课程切片", "左侧导航树", "同步更新", "slice regeneration")),
-    ("plan_fourth_summary", ("第四步", "学习完成啦", "周末提升成果", "本周练习汇总", "只读", "数据源", "fourth step")),
-    ("workflow_navigation", ("第一步", "第二步", "第三步", "第四步", "上一步", "下一步", "开始学习", "完成学习", "再次学习", "批改下一位学生", "回到首页", "跳转", "step")),
-    ("sorting_limit", ("排序", "降序", "取前", "最多", "sort", "limit")),
-    ("print_export", ("打印", "出门测", "教材", "print", "export")),
-    ("report_trigger", ("触发条件", "回到首页", "报告自动生成", "点击回到首页", "generate report")),
-    ("generation_trigger", ("生成", "自动生成", "触发", "generate", "trigger")),
-    ("share_friend", ("微信好友", "好友", "微信群", "H5链接", "二维码", "分享卡片", "friend share")),
-    ("share_moments", ("朋友圈", "长图", "信息长图", "moments share")),
-    ("share", ("分享", "H5", "二维码", "share", "link")),
-    ("report_comment_ai", ("督导评语", "AI初稿", "肯定", "表扬", "指出", "鼓励", "comment ai")),
-    ("report_comment_voice", ("督导评语", "语音输入", "转文字", "录音", "麦克风", "voice")),
-    ("report_comment_edit", ("督导评语", "编辑修改", "保存", "comment edit")),
-    ("report_overview_cards", ("本周学习概览", "四个数据卡", "数据卡", "来源标注", "观看视频数", "完成练习题数")),
-    ("report_wrong_analysis", ("本周错题分析", "高频", "重点错题", "错误答案", "正确答案", "wrong analysis")),
-    ("report_next_plan", ("下周学习计划", "未掌握", "薄弱点", "教学进度", "next plan")),
-    ("readonly", ("只读", "隐藏编辑", "不可编辑", "readonly")),
-    ("quota_exhaustion", ("额度", "耗尽", "拦截", "体验次数已用完", "无法生成", "学习入口", "quota exhausted")),
-    ("quota_consumption", ("额度", "初始", "50", "49", "扣减", "每题", "消耗", "quota consumption")),
-    ("quota_limit", ("额度", "次数", "耗尽", "拦截", "quota", "limit")),
-    ("silent_refresh", ("静默刷新", "无弹窗", "新增错题", "重新批改", "知识点掌握度", "silent", "refresh")),
-    ("history_makeup", ("历史", "补做", "补学", "history", "makeup")),
-)
+_DUPLICATE_SCENARIO_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = scenario_pattern_entries()
 
-_REGISTERED_SCENARIO_KINDS = specific_scenario_kinds()
+_REGISTERED_SCENARIO_KINDS = judge_duplicate_scenario_kinds()
 _REGISTERED_SCENARIO_THRESHOLDS = judge_duplicate_thresholds()
-_DUPLICATE_SCENARIO_PATTERNS = (*scenario_pattern_entries(), *_DUPLICATE_SCENARIO_PATTERNS)
 
 _DUPLICATE_SIMPLE_SCENARIOS = {
     "title_format",
@@ -194,10 +144,7 @@ _DUPLICATE_SIMPLE_SCENARIOS = {
 }
 _DUPLICATE_SIMPLE_SCENARIOS.update(_REGISTERED_SCENARIO_KINDS)
 
-_DUPLICATE_SCENARIO_THRESHOLDS: dict[str, tuple[float, int]] = {
-    "quota_consumption": (0.22, 8),
-}
-_DUPLICATE_SCENARIO_THRESHOLDS.update(_REGISTERED_SCENARIO_THRESHOLDS)
+_DUPLICATE_SCENARIO_THRESHOLDS: dict[str, tuple[float, int]] = judge_duplicate_thresholds()
 
 _CROSS_MODULE_DUPLICATE_SCENARIOS = set()
 _CROSS_MODULE_DUPLICATE_SCENARIOS.update(cross_module_scenario_kinds())
@@ -357,10 +304,11 @@ def _is_semantic_duplicate_case(candidate: dict[str, Any], existed: dict[str, An
         return False, 0.0
     if candidate_kind and candidate_kind == existed_kind:
         simple_score, simple_overlap = _DUPLICATE_SCENARIO_THRESHOLDS.get(candidate_kind, (0.30, 8))
-        if candidate_kind in _DUPLICATE_SIMPLE_SCENARIOS and score >= simple_score and overlap >= simple_overlap:
-            return True, score
-        if score >= 0.46 and overlap >= 12:
-            return True, score
+        if candidate_kind in _DUPLICATE_SIMPLE_SCENARIOS:
+            if score >= simple_score and overlap >= simple_overlap:
+                return True, score
+            if score >= 0.46 and overlap >= 12:
+                return True, score
     if score >= 0.90 and overlap >= 30:
         return True, score
     return False, score
@@ -1007,6 +955,8 @@ def judge_cases(
             f"pending_items={len(semantics.get('pending_items') or [])}",
             f"hard_flow_constraints={len(core_flow_patterns)}",
             f"reuse_risks={len(reuse_risk_patterns)}",
+            f"registry_duplicate_scenario_kinds={len(_CROSS_MODULE_DUPLICATE_SCENARIOS)}",
+            f"registry_threshold_entries={len(_DUPLICATE_SCENARIO_THRESHOLDS)}",
         ],
     )
     return result

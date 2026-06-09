@@ -1,22 +1,35 @@
-﻿from typing import Any, Iterator
+from typing import Any, Iterator
 import json
 
 from core.db.models import LogEntry, TestGeneration
+from core.settings.config import settings
 from modules.domain.stage25_switches import STAGE25_SWITCHES
-from modules.testing.test_generation_components.prompting.generation_diagnostics import (
+from ...coverage.core_flow_backfill_generation import (
+    summarize_case_quality_gate,
+)
+from ...postprocess.persistence_gate import (
+    build_persistence_gate_diagnostic,
+    evaluate_persistence_gate,
+    summarize_persistence_case_quality_gate,
+)
+from ...postprocess.case_contract import (
+    merge_contract_quality_gate,
+    project_persistable_cases,
+    summarize_persistable_case_contract,
+)
+from ...prompting.generation_diagnostics import (
     build_context_compression_diagnostics,
     build_coverage_diagnostics,
 )
-from modules.testing.test_generation_components.prompting.prompt_orchestration import (
+from ...prompting.prompt_orchestration import (
     build_supplement_closed_loop_instruction,
 )
-from modules.testing.test_generation_components.postprocess.result_postprocess import (
+from ...postprocess.result_postprocess import (
     merge_cases_for_append,
     normalize_final_case_priorities,
-    strip_case_meta_fields,
     stream_postprocess_cases,
 )
-from modules.testing.test_generation_components.legacy.adapters import (
+from ..adapters import (
     count_unique_test_cases,
     deduplicate_test_cases,
     infer_case_kind,
@@ -52,6 +65,123 @@ def _clamp_score(value: float) -> int:
     return int(round(max(0.0, min(100.0, float(value)))))
 
 
+def _manual_quality_profile_from_control(payload: dict[str, Any]) -> dict[str, Any]:
+    source_meta = payload.get("source_meta") if isinstance(payload.get("source_meta"), dict) else {}
+    profile = source_meta.get("manual_quality_profile") if isinstance(source_meta, dict) else None
+    if isinstance(profile, dict) and profile.get("kind") == "manual_quality_profile":
+        return dict(profile)
+    return {}
+
+
+def _ratio_map(raw: Any) -> dict[str, float]:
+    if not isinstance(raw, dict):
+        return {}
+    values: dict[str, float] = {}
+    total = 0.0
+    for key, value in raw.items():
+        text = str(key or "").strip()
+        if not text:
+            continue
+        amount = _to_float(value)
+        if amount <= 0:
+            continue
+        values[text] = amount
+        total += amount
+    if total <= 0:
+        return {}
+    return {key: round(float(value) / total, 6) for key, value in values.items()}
+
+
+def _distribution_drift(target: Any, actual: Any) -> float:
+    target_ratios = _ratio_map(target)
+    actual_ratios = _ratio_map(actual)
+    if not target_ratios or not actual_ratios:
+        return 0.0
+    keys = set(target_ratios) | set(actual_ratios)
+    return round(sum(abs(target_ratios.get(key, 0.0) - actual_ratios.get(key, 0.0)) for key in keys) / 2.0, 4)
+
+
+def _build_manual_delivery_metrics(
+    *,
+    feedback_control_debug_payload: dict[str, Any],
+    generation_summary_payload: dict[str, Any],
+) -> dict[str, Any]:
+    profile = _manual_quality_profile_from_control(feedback_control_debug_payload)
+    if not profile:
+        return {"applied": False}
+    final_count = _to_int(generation_summary_payload.get("final_count"))
+    has_final_distribution = bool(
+        generation_summary_payload.get("final_priority_breakdown")
+        or generation_summary_payload.get("final_module_breakdown_top")
+        or ("final_display_ratio" in generation_summary_payload)
+    )
+    if final_count <= 0 or not has_final_distribution:
+        return {
+            "applied": False,
+            "profile_version": str(profile.get("profile_version") or ""),
+            "profile_trusted_sample_count": int(profile.get("trusted_sample_count") or 0),
+            "reason": "missing_final_distribution",
+        }
+    target_high_priority_ratio = max(0.0, min(1.0, _to_float(profile.get("high_priority_ratio"))))
+    final_high_priority_ratio = max(
+        0.0,
+        min(1.0, _to_float(generation_summary_payload.get("final_high_priority_ratio"))),
+    )
+    target_display_cap = max(0.0, min(1.0, _to_float(profile.get("display_ratio_cap"))))
+    final_display_ratio = max(
+        0.0,
+        min(1.0, _to_float(generation_summary_payload.get("final_display_ratio"))),
+    )
+    priority_drift = _distribution_drift(
+        profile.get("priority_distribution"),
+        generation_summary_payload.get("final_priority_breakdown"),
+    )
+    module_drift = _distribution_drift(
+        profile.get("module_distribution_top"),
+        generation_summary_payload.get("final_module_breakdown_top"),
+    )
+    return {
+        "applied": True,
+        "profile_source": str(profile.get("profile_source") or ""),
+        "profile_version": str(profile.get("profile_version") or ""),
+        "profile_trusted_sample_count": int(profile.get("trusted_sample_count") or 0),
+        "target_high_priority_ratio": round(target_high_priority_ratio, 4),
+        "final_high_priority_ratio": round(final_high_priority_ratio, 4),
+        "high_priority_ratio_shortfall": round(max(0.0, target_high_priority_ratio - final_high_priority_ratio), 4),
+        "target_display_ratio_cap": round(target_display_cap, 4),
+        "final_display_ratio": round(final_display_ratio, 4),
+        "display_ratio_excess": round(max(0.0, final_display_ratio - target_display_cap), 4),
+        "priority_distribution_drift": priority_drift,
+        "module_distribution_drift": module_drift,
+    }
+
+
+def _normalize_missing_priority_final_cases(
+    cases: Any,
+    *,
+    requirement_text: str,
+) -> Any:
+    """Fill stripped priority_final fields without masking explicit invalid values."""
+    if not isinstance(cases, list):
+        return cases
+    if not any(isinstance(item, dict) and "priority_final" not in item for item in cases):
+        return cases
+
+    normalized = normalize_final_case_priorities(cases, requirement_text=requirement_text)
+    normalized_by_index = {
+        index: item
+        for index, item in enumerate(normalized if isinstance(normalized, list) else [])
+        if isinstance(item, dict)
+    }
+    resolved: list[Any] = []
+    for index, item in enumerate(cases):
+        if isinstance(item, dict) and "priority_final" not in item:
+            resolved.append(normalized_by_index.get(index, item))
+        else:
+            resolved.append(item)
+    return resolved
+
+
 def _build_initial_quality_score(
     *,
     coverage_payload: dict[str, Any],
@@ -82,10 +212,21 @@ def _build_initial_quality_score(
     candidate_total = _to_int(review_decision_summary_payload.get("candidate_total"))
     retained_total = _to_int(review_decision_summary_payload.get("retained_total"))
 
-    flow_missing_count = _to_int(review_decision_summary_payload.get("flow_missing_stage_count"))
-    flow_misordered_count = _to_int(review_decision_summary_payload.get("flow_misordered_count"))
-    scenario_duplicate_cluster_count = _to_int(review_decision_summary_payload.get("scenario_duplicate_cluster_count"))
-    scenario_duplicate_case_count = _to_int(review_decision_summary_payload.get("scenario_duplicate_case_count"))
+    def summary_metric(final_key: str, legacy_key: str) -> int:
+        if final_key in review_decision_summary_payload:
+            return _to_int(review_decision_summary_payload.get(final_key))
+        return _to_int(review_decision_summary_payload.get(legacy_key))
+
+    flow_missing_count = summary_metric("final_flow_missing_stage_count", "flow_missing_stage_count")
+    flow_misordered_count = summary_metric("final_flow_misordered_count", "flow_misordered_count")
+    scenario_duplicate_cluster_count = summary_metric(
+        "final_scenario_duplicate_cluster_count",
+        "scenario_duplicate_cluster_count",
+    )
+    scenario_duplicate_case_count = summary_metric(
+        "final_scenario_duplicate_case_count",
+        "scenario_duplicate_case_count",
+    )
     fact_forbidden_count = _to_int(review_decision_summary_payload.get("fact_profile_forbidden_count"))
     fact_pending_count = _to_int(review_decision_summary_payload.get("fact_profile_pending_count"))
 
@@ -107,6 +248,10 @@ def _build_initial_quality_score(
     realtime_rag_used = bool(context_debug.get("realtime_rag_used"))
     current_document_used = bool(context_debug.get("current_document_used"))
     control_state_applied = bool(feedback_control_debug_payload.get("control_state_applied"))
+    manual_delivery_metrics = _build_manual_delivery_metrics(
+        feedback_control_debug_payload=feedback_control_debug_payload,
+        generation_summary_payload=generation_summary_payload,
+    )
 
     deductions: list[dict[str, Any]] = []
 
@@ -136,6 +281,15 @@ def _build_initial_quality_score(
     add_deduction("fact_pending", "命中待确认事实", fact_pending_count, min(12, fact_pending_count * 1.5))
     add_deduction("low_quality_dropped", "低质量用例被过滤", low_quality_dropped_count, min(20, low_quality_dropped_count * 3))
     add_deduction("semantic_dedup", "语义去重压力", semantic_dedup_dropped_count or total_dedup_drop_count, min(10, max(semantic_dedup_dropped_count, total_dedup_drop_count) * 0.5))
+    if manual_delivery_metrics.get("applied"):
+        high_priority_shortfall = _to_float(manual_delivery_metrics.get("high_priority_ratio_shortfall"))
+        display_excess = _to_float(manual_delivery_metrics.get("display_ratio_excess"))
+        priority_drift = _to_float(manual_delivery_metrics.get("priority_distribution_drift"))
+        module_drift = _to_float(manual_delivery_metrics.get("module_distribution_drift"))
+        add_deduction("manual_high_priority_shortfall", "人工画像P0/P1偏低", high_priority_shortfall, min(12, high_priority_shortfall * 20))
+        add_deduction("manual_display_ratio_excess", "人工画像展示类过量", display_excess, min(10, display_excess * 25))
+        add_deduction("manual_priority_distribution_drift", "人工画像优先级分布偏移", priority_drift, min(10, priority_drift * 12))
+        add_deduction("manual_module_distribution_drift", "人工画像模块分布偏移", module_drift, min(8, module_drift * 8))
     if candidate_total > 0 and retained_total <= 0:
         add_deduction("empty_retained", "复核后无可用用例", 1, 40)
     if final_count <= 0:
@@ -147,6 +301,9 @@ def _build_initial_quality_score(
 
     total_deduction = sum(float(item["points"]) for item in deductions)
     score = _clamp_score(100 - total_deduction)
+    score_basis = "coverage+review+judge+funnel+context"
+    if manual_delivery_metrics.get("applied"):
+        score_basis = f"{score_basis}+manual_profile"
     if score >= 85:
         grade = "high"
     elif score >= 70:
@@ -155,30 +312,143 @@ def _build_initial_quality_score(
         grade = "low"
     else:
         grade = "critical"
+    quality_score_inputs = {
+        "coverage_rate": round(coverage_rate, 4),
+        "total_rules": total_rules,
+        "missing_rules_count": missing_rules_count,
+        "final_count": final_count,
+        "candidate_total": candidate_total,
+        "retained_total": retained_total,
+        "judge_total": judge_total,
+        "rejected_count": rejected_count,
+        "pending_count": pending_count,
+        "repairable_count": repairable_count,
+        "flow_missing_count": flow_missing_count,
+        "flow_misordered_count": flow_misordered_count,
+        "scenario_duplicate_cluster_count": scenario_duplicate_cluster_count,
+        "scenario_duplicate_case_count": scenario_duplicate_case_count,
+        "low_quality_dropped_count": low_quality_dropped_count,
+        "structure_metric_scope": (
+            "final_cases"
+            if "final_flow_misordered_count" in review_decision_summary_payload
+            else "review_candidates"
+        ),
+        "manual_quality_profile_applied": bool(manual_delivery_metrics.get("applied")),
+        "manual_quality_profile_version": str(manual_delivery_metrics.get("profile_version") or ""),
+    }
+    if manual_delivery_metrics.get("applied"):
+        quality_score_inputs.update(
+            {
+                "manual_high_priority_ratio_shortfall": _to_float(
+                    manual_delivery_metrics.get("high_priority_ratio_shortfall")
+                ),
+                "manual_display_ratio_excess": _to_float(manual_delivery_metrics.get("display_ratio_excess")),
+                "manual_priority_distribution_drift": _to_float(
+                    manual_delivery_metrics.get("priority_distribution_drift")
+                ),
+                "manual_module_distribution_drift": _to_float(
+                    manual_delivery_metrics.get("module_distribution_drift")
+                ),
+            }
+        )
     return {
         "initial_quality_score": score,
         "quality_score": score,
         "quality_score_grade": grade,
         "quality_score_source": "backend_diagnostic_v1",
-        "quality_score_basis": "coverage+review+judge+funnel+context",
+        "quality_score_basis": score_basis,
         "quality_score_confidence": "high" if total_rules > 0 and judge_total > 0 else "medium",
         "quality_score_deductions": deductions[:20],
-        "quality_score_inputs": {
-            "coverage_rate": round(coverage_rate, 4),
-            "total_rules": total_rules,
-            "missing_rules_count": missing_rules_count,
-            "final_count": final_count,
-            "candidate_total": candidate_total,
-            "retained_total": retained_total,
-            "judge_total": judge_total,
-            "rejected_count": rejected_count,
-            "pending_count": pending_count,
-            "repairable_count": repairable_count,
-            "flow_missing_count": flow_missing_count,
-            "flow_misordered_count": flow_misordered_count,
-            "scenario_duplicate_cluster_count": scenario_duplicate_cluster_count,
-            "scenario_duplicate_case_count": scenario_duplicate_case_count,
-            "low_quality_dropped_count": low_quality_dropped_count,
+        "quality_score_inputs": quality_score_inputs,
+        "manual_delivery": manual_delivery_metrics,
+    }
+
+
+def _cluster_judge_reject_reasons(rows: list[dict[str, Any]] | None) -> dict[str, Any]:
+    clusters: dict[str, int] = {}
+    rejected_total = 0
+    for row in rows or []:
+        if not isinstance(row, dict) or _judge_status_key(row) != "REJECT":
+            continue
+        rejected_total += 1
+        reason = str(row.get("reject_reason") or "").strip().lower()
+        signals = row.get("signals") if isinstance(row.get("signals"), dict) else {}
+        if reason.startswith("semantic_duplicate") or bool(signals.get("is_semantic_duplicate")):
+            key = "semantic_duplicate"
+        elif bool(signals.get("violates_confirmed_fact")) or "fact" in reason or "事实" in reason:
+            key = "fact_conflict"
+        elif "role" in reason or "角色" in reason or "session" in reason:
+            key = "role_mismatch"
+        elif "precondition" in reason or "前置" in reason:
+            key = "invalid_precondition"
+        elif "assert" in reason or "断言" in reason or "non_assertable" in reason:
+            key = "non_assertable"
+        elif "duplicate" in reason or "重复" in reason:
+            key = "duplicate_other"
+        elif reason:
+            key = reason.split(":", 1)[0][:80]
+        else:
+            key = "unspecified"
+        clusters[key] = int(clusters.get(key) or 0) + 1
+    ordered = dict(sorted(clusters.items(), key=lambda item: (-int(item[1]), item[0])))
+    return {
+        "rejected_total": int(rejected_total),
+        "reason_clusters": ordered,
+        "dominant_reason": next(iter(ordered), ""),
+    }
+
+
+def _build_case_quality_gate_payload(
+    *,
+    score_payload: dict[str, Any],
+    generation_summary_payload: dict[str, Any],
+    review_decision_summary_payload: dict[str, Any],
+    judge_summary_payload: dict[str, Any],
+    judge_reject_clusters: dict[str, Any],
+) -> dict[str, Any]:
+    final_count = _to_int(generation_summary_payload.get("final_count"))
+    min_acceptable_final = _to_int(generation_summary_payload.get("min_acceptable_final"))
+    quality_score = _to_int(score_payload.get("quality_score"))
+    grade = str(score_payload.get("quality_score_grade") or "").strip().lower()
+    rejected_count = _to_int(
+        judge_summary_payload.get("rejected_out_count")
+        or judge_summary_payload.get("reject_count")
+        or judge_reject_clusters.get("rejected_total")
+    )
+    final_duplicate_count = _to_int(review_decision_summary_payload.get("final_scenario_duplicate_case_count"))
+    final_misordered_count = _to_int(review_decision_summary_payload.get("final_flow_misordered_count"))
+    reasoning_leak_count = _to_int(review_decision_summary_payload.get("final_reasoning_leakage_case_count"))
+    role_mismatch_count = _to_int(
+        review_decision_summary_payload.get("final_role_mismatch_count")
+        or (judge_reject_clusters.get("reason_clusters") or {}).get("role_mismatch")
+    )
+    failures: list[str] = []
+    if min_acceptable_final > 0 and final_count < min_acceptable_final:
+        failures.append("final_count_below_min_acceptable")
+    if quality_score <= 0 or grade == "critical":
+        failures.append("quality_score_critical")
+    if rejected_count > 20:
+        failures.append("judge_rejected_above_threshold")
+    if reasoning_leak_count > 0:
+        failures.append("reasoning_leakage_detected")
+    if role_mismatch_count > 5:
+        failures.append("role_mismatch_above_threshold")
+    return {
+        "kind": "case_quality_gate",
+        "mode": "shadow",
+        "passed": not failures,
+        "blocked": False,
+        "failure_reasons": failures,
+        "metrics": {
+            "final_count": int(final_count),
+            "min_acceptable_final": int(min_acceptable_final),
+            "quality_score": int(quality_score),
+            "quality_score_grade": grade,
+            "final_scenario_duplicate_case_count": int(final_duplicate_count),
+            "final_flow_misordered_count": int(final_misordered_count),
+            "judge_rejected_count": int(rejected_count),
+            "reasoning_leak_count": int(reasoning_leak_count),
+            "role_mismatch_count": int(role_mismatch_count),
         },
     }
 
@@ -210,6 +480,7 @@ def _build_quality_ledger_payload(
     feedback_control_debug_payload: dict[str, Any],
     compression_diag_payload: dict[str, Any],
     context_result: dict[str, Any],
+    judge_decision_table_payload: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a compact evidence ledger for one generation run."""
     context_debug = dict((context_result or {}).get("context_debug") or {})
@@ -236,6 +507,14 @@ def _build_quality_ledger_payload(
         judge_summary_payload=judge_summary_payload,
         feedback_control_debug_payload=feedback_control_debug_payload,
         context_result=context_result,
+    )
+    judge_reject_clusters = _cluster_judge_reject_reasons(judge_decision_table_payload)
+    case_quality_gate_payload = _build_case_quality_gate_payload(
+        score_payload=score_payload,
+        generation_summary_payload=generation_summary_payload,
+        review_decision_summary_payload=review_decision_summary_payload,
+        judge_summary_payload=judge_summary_payload,
+        judge_reject_clusters=judge_reject_clusters,
     )
     return {
         "kind": "generation_quality_ledger",
@@ -287,11 +566,23 @@ def _build_quality_ledger_payload(
             ),
             "flow_missing_stage_count": int(review_decision_summary_payload.get("flow_missing_stage_count") or 0),
             "flow_misordered_count": int(review_decision_summary_payload.get("flow_misordered_count") or 0),
+            "final_flow_missing_stage_count": int(
+                review_decision_summary_payload.get("final_flow_missing_stage_count") or 0
+            ),
+            "final_flow_misordered_count": int(
+                review_decision_summary_payload.get("final_flow_misordered_count") or 0
+            ),
             "scenario_duplicate_cluster_count": int(
                 review_decision_summary_payload.get("scenario_duplicate_cluster_count") or 0
             ),
             "scenario_duplicate_case_count": int(
                 review_decision_summary_payload.get("scenario_duplicate_case_count") or 0
+            ),
+            "final_scenario_duplicate_cluster_count": int(
+                review_decision_summary_payload.get("final_scenario_duplicate_cluster_count") or 0
+            ),
+            "final_scenario_duplicate_case_count": int(
+                review_decision_summary_payload.get("final_scenario_duplicate_case_count") or 0
             ),
             "fact_profile_forbidden_count": int(
                 review_decision_summary_payload.get("fact_profile_forbidden_count") or 0
@@ -309,6 +600,7 @@ def _build_quality_ledger_payload(
             "repairable_count": int(
                 judge_summary_payload.get("repairable_count") or judge_summary_payload.get("repaired_pass_out_count") or 0
             ),
+            **judge_reject_clusters,
         },
         "context": {
             "snapshot_status": str(context_debug.get("snapshot_status") or ""),
@@ -325,6 +617,7 @@ def _build_quality_ledger_payload(
             "must_cover_rules_count": int(feedback_control_debug_payload.get("must_cover_rules_count") or 0),
             "quality_fix_hints_count": int(feedback_control_debug_payload.get("quality_fix_hints_count") or 0),
         },
+        "case_quality_gate": case_quality_gate_payload,
     }
 
 
@@ -499,6 +792,162 @@ def _fit_table_diag_payload_size(payload: dict[str, Any], *, max_bytes: int = _M
     return fallback
 
 
+def _with_run_context(
+    payload: dict[str, Any],
+    *,
+    request_id: str,
+    project_id: int,
+    multi_pass: bool,
+    generation_mode: str,
+) -> dict[str, Any]:
+    enriched = dict(payload or {})
+    if request_id:
+        enriched["request_id"] = request_id
+    enriched["project_id"] = int(project_id)
+    enriched["multi_pass"] = bool(multi_pass)
+    enriched["generation_mode"] = str(generation_mode or "")
+    return enriched
+
+
+def _build_pre_persistence_failure_diagnostics(
+    *,
+    generation_id: int | None,
+    request_id: str,
+    project_id: int,
+    mode: str,
+    multi_pass: bool,
+    expected_count: int,
+    stage_counts: dict[str, Any],
+    coverage_payload: dict[str, Any],
+    convergence_payload: dict[str, Any],
+    generation_summary_payload: dict[str, Any],
+    review_decision_summary_payload: dict[str, Any],
+    review_decision_table_payload: list[dict[str, Any]],
+    judge_summary_payload: dict[str, Any],
+    judge_decision_table_payload: list[dict[str, Any]],
+    feedback_control_debug_payload: dict[str, Any],
+    compression_diag_payload: dict[str, Any],
+    context_result: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Persist enough diagnostics to debug a run that is blocked before insertion."""
+    diagnostics: list[dict[str, Any]] = []
+    generation_id_int = int(generation_id or 0)
+
+    def add(payload: dict[str, Any]) -> None:
+        if not payload:
+            return
+        diagnostics.append(
+            _with_run_context(
+                payload,
+                request_id=request_id,
+                project_id=project_id,
+                multi_pass=multi_pass,
+                generation_mode=mode,
+            )
+        )
+
+    if generation_summary_payload:
+        add({"kind": "generation_summary", **generation_summary_payload})
+    if convergence_payload:
+        add(
+            {
+                "kind": "generation_convergence",
+                **convergence_payload,
+                "expected_count": int(expected_count or 0),
+            }
+        )
+    if review_decision_summary_payload:
+        add({"kind": "review_decision_summary", **review_decision_summary_payload})
+    if feedback_control_debug_payload:
+        add({"kind": "feedback_control_state", **feedback_control_debug_payload})
+    if judge_summary_payload:
+        add(
+            {
+                "kind": "judge_summary",
+                **judge_summary_payload,
+                "generation_id": generation_id_int,
+            }
+        )
+
+    if judge_summary_payload or judge_decision_table_payload:
+        normalized_rows = [
+            _normalize_judge_row(
+                item,
+                generation_id=generation_id_int,
+                request_id=request_id,
+            )
+            for item in judge_decision_table_payload
+            if isinstance(item, dict)
+        ]
+        reject_pending_rows = [
+            row
+            for row in normalized_rows
+            if str(row.get("judge_status") or "").upper() in {"REJECT", "PENDING"}
+        ]
+        rows_to_persist = reject_pending_rows or normalized_rows
+        judge_table_diag = {
+            "kind": "judge_decision_table",
+            "generation_id": generation_id_int,
+            "rows": rows_to_persist,
+            "row_count": int(len(rows_to_persist)),
+            "row_count_total": int(len(normalized_rows)),
+            "row_count_reject_pending": int(len(reject_pending_rows)),
+            "rows_scope": "reject_pending_only" if reject_pending_rows else "all_when_no_reject_pending",
+            "row_evidence_incomplete": bool(
+                int(judge_summary_payload.get("rejected_out_count") or 0)
+                + int(judge_summary_payload.get("pending_out_count") or 0) > 0
+                and len(reject_pending_rows) == 0
+            ),
+        }
+        add(_fit_table_diag_payload_size(judge_table_diag))
+
+    if review_decision_table_payload:
+        review_table_diag = {
+            "kind": "review_decision_table",
+            "generation_id": generation_id_int,
+            "rows": review_decision_table_payload,
+            "row_count": int(len(review_decision_table_payload)),
+        }
+        add(_fit_table_diag_payload_size(review_table_diag))
+        compact_rows = _normalize_review_compact_rows(
+            review_decision_table_payload,
+            generation_id=generation_id_int,
+            request_id=request_id,
+        )
+        if compact_rows:
+            compact_diag = {
+                "kind": "review_decision_table_compact",
+                "generation_id": generation_id_int,
+                "rows": compact_rows,
+                "row_count": int(len(compact_rows)),
+            }
+            add(_fit_table_diag_payload_size(compact_diag))
+
+    quality_ledger_payload = _build_quality_ledger_payload(
+        generation_id=generation_id,
+        request_id=request_id,
+        mode=mode,
+        stage_counts=stage_counts,
+        coverage_payload=coverage_payload,
+        convergence_payload=convergence_payload,
+        generation_summary_payload=generation_summary_payload,
+        review_decision_summary_payload=review_decision_summary_payload,
+        judge_summary_payload=judge_summary_payload,
+        feedback_control_debug_payload=feedback_control_debug_payload,
+        compression_diag_payload=compression_diag_payload,
+        context_result=context_result,
+        judge_decision_table_payload=judge_decision_table_payload,
+    )
+    add(quality_ledger_payload)
+    case_quality_gate_payload = dict(quality_ledger_payload.get("case_quality_gate") or {})
+    if case_quality_gate_payload:
+        case_quality_gate_payload["generation_id"] = generation_id_int
+        add(case_quality_gate_payload)
+    if coverage_payload:
+        add(dict(coverage_payload))
+    return diagnostics
+
+
 class LegacyGenerationStreamPersistMixin:
 
     def _stream_persist_phase(
@@ -595,12 +1044,125 @@ class LegacyGenerationStreamPersistMixin:
             else:
                 parsed_result = postprocess_result if isinstance(postprocess_result, list) else []
 
-            if len(parsed_result) == 0:
-                yield "\n@@STATUS@@:鐢熸垚澶辫触\n"
-                yield "Error: 妯″瀷杩斿洖绌虹粨鏋滄垨瑙ｆ瀽涓嶅埌鏈夋晥鐢ㄤ緥锛岃妫€鏌ユā鍨嬮厤缃?鎻愮ず璇?缃戠粶鍚庨噸璇昞n"
-
-            parsed_result = normalize_final_case_priorities(parsed_result, requirement_text=requirement)
-            parsed_result = strip_case_meta_fields(parsed_result)
+            parsed_result = _normalize_missing_priority_final_cases(parsed_result, requirement_text=requirement)
+            stream_quality_gate_result = summarize_case_quality_gate(parsed_result if isinstance(parsed_result, list) else [])
+            stream_quality_gate_result = merge_contract_quality_gate(
+                stream_quality_gate_result,
+                summarize_persistable_case_contract(parsed_result),
+            )
+            parsed_result = project_persistable_cases(parsed_result)
+            stream_quality_gate_result = summarize_persistence_case_quality_gate(
+                stream_quality_gate_result,
+                generation_summary=generation_summary_payload,
+                review_decision_summary=review_decision_summary_payload,
+                judge_summary=judge_summary_payload,
+                settings=settings,
+            )
+            persistence_preview = parsed_result
+            if append and existing_entry:
+                persistence_preview = merge_cases_for_append(
+                    existing_cases,
+                    parsed_result,
+                    deduplicate_test_cases_fn=deduplicate_test_cases,
+                    reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+                )
+            persistence_preview = project_persistable_cases(persistence_preview)
+            stream_quality_gate_result = merge_contract_quality_gate(
+                stream_quality_gate_result,
+                summarize_persistable_case_contract(persistence_preview),
+            )
+            workflow_blueprints = [
+                dict(item)
+                for item in (feedback_control_state.get("workflow_blueprints") or [])
+                if isinstance(item, dict)
+            ] if isinstance(feedback_control_state, dict) else []
+            execution_plan = dict(review_decision_summary_payload.get("execution_plan") or {})
+            persistence_gate_result = evaluate_persistence_gate(
+                persistence_preview,
+                workflow_blueprints=workflow_blueprints,
+                execution_plan=execution_plan,
+                generation_mode=generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                quality_gate=stream_quality_gate_result,
+                settings=settings,
+            )
+            persistence_gate_diag = build_persistence_gate_diagnostic(persistence_gate_result)
+            persistence_gate_diag["request_id"] = request_id
+            persistence_gate_diag["project_id"] = int(project_id)
+            if db:
+                db.add(
+                    LogEntry(
+                        project_id=project_id,
+                        log_type="system",
+                        message=f"GEN_DIAG:{json.dumps(persistence_gate_diag, ensure_ascii=False)}",
+                        user_id=user_id,
+                    )
+                )
+                db.commit()
+            yield f"GEN_DIAG:{json.dumps(persistence_gate_diag, ensure_ascii=False)}\n"
+            if not bool(persistence_gate_result.get("passed")):
+                compression_diag_payload = build_context_compression_diagnostics(
+                    context_result=context_result if isinstance(context_result, dict) else {},
+                )
+                pre_failure_diagnostics = _build_pre_persistence_failure_diagnostics(
+                    generation_id=None,
+                    request_id=request_id,
+                    project_id=int(project_id),
+                    mode=generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    multi_pass=bool(multi_pass),
+                    expected_count=int(expected_count or 0),
+                    stage_counts=stage_counts,
+                    coverage_payload=coverage_payload,
+                    convergence_payload=convergence_payload,
+                    generation_summary_payload=generation_summary_payload,
+                    review_decision_summary_payload=review_decision_summary_payload,
+                    review_decision_table_payload=review_decision_table_payload,
+                    judge_summary_payload=judge_summary_payload,
+                    judge_decision_table_payload=judge_decision_table_payload,
+                    feedback_control_debug_payload=feedback_control_debug_payload,
+                    compression_diag_payload=compression_diag_payload,
+                    context_result=context_result if isinstance(context_result, dict) else {},
+                )
+                for diag_payload in pre_failure_diagnostics:
+                    if db:
+                        db.add(
+                            LogEntry(
+                                project_id=project_id,
+                                log_type="system",
+                                message=f"GEN_DIAG:{json.dumps(diag_payload, ensure_ascii=False)}",
+                                user_id=user_id,
+                            )
+                        )
+                    yield f"GEN_DIAG:{json.dumps(diag_payload, ensure_ascii=False)}\n"
+                if db and pre_failure_diagnostics:
+                    db.commit()
+                failure_code = str(persistence_gate_result.get("failure_code") or "execution_plan_failed")
+                execution_plan_validation = persistence_gate_result.get("execution_plan_validation")
+                quality_gate = persistence_gate_result.get("quality_gate")
+                quality_failed_checks = (
+                    quality_gate.get("failed_checks")
+                    if isinstance(quality_gate, dict)
+                    else []
+                )
+                execution_failure_reasons = (
+                    execution_plan_validation.get("failure_reasons")
+                    if isinstance(execution_plan_validation, dict)
+                    else []
+                )
+                failure_reasons = (
+                    quality_failed_checks
+                    if failure_code == "LOW_QUALITY_GENERATED_CASES"
+                    else execution_failure_reasons
+                )
+                failure_reason_text = ",".join(
+                    str(item).strip()
+                    for item in (failure_reasons or [])
+                    if str(item).strip()
+                )
+                failure_detail = f": {failure_reason_text}" if failure_reason_text else ""
+                yield f"\n@@STATUS@@:生成结果未通过落库门禁{failure_detail}\n"
+                yield f"Error: {failure_code}{failure_detail}\n"
+                return
+            parsed_result = persistence_gate_result.get("cases") if isinstance(persistence_gate_result.get("cases"), list) else []
             cleaned_response = json.dumps(parsed_result, ensure_ascii=False)
             persisted_generation_id: int | None = None
 
@@ -632,13 +1194,7 @@ class LegacyGenerationStreamPersistMixin:
                         db.commit()
                         persisted_generation_id = int(new_entry.id or 0) or None
                 elif append and existing_entry:
-                    merged_result = merge_cases_for_append(
-                        existing_cases,
-                        parsed_result,
-                        deduplicate_test_cases_fn=deduplicate_test_cases,
-                        reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
-                    )
-                    existing_entry.generated_result = json.dumps(merged_result, ensure_ascii=False)
+                    existing_entry.generated_result = json.dumps(parsed_result, ensure_ascii=False)
                     db.commit()
                     persisted_generation_id = int(existing_entry.id or 0) or None
                 else:
@@ -709,7 +1265,7 @@ class LegacyGenerationStreamPersistMixin:
                     )
                     yield f"GEN_DIAG:{json.dumps(payload, ensure_ascii=False)}\n"
 
-                # GEN_DIAG 鎬昏
+                # GEN_DIAG summary
                 full_input = (system_prompt or "") + requirement
                 actual_model = client.select_model(full_input, task_type="generation")
                 compression_diag_payload = build_context_compression_diagnostics(
@@ -983,6 +1539,7 @@ class LegacyGenerationStreamPersistMixin:
                     feedback_control_debug_payload=feedback_control_debug_payload,
                     compression_diag_payload=compression_diag_payload,
                     context_result=context_result if isinstance(context_result, dict) else {},
+                    judge_decision_table_payload=judge_decision_table_payload,
                 )
                 db.add(
                     LogEntry(
@@ -993,6 +1550,21 @@ class LegacyGenerationStreamPersistMixin:
                     )
                 )
                 yield f"GEN_DIAG:{json.dumps(quality_ledger_payload, ensure_ascii=False)}\n"
+                case_quality_gate_payload = dict(quality_ledger_payload.get("case_quality_gate") or {})
+                if case_quality_gate_payload:
+                    if persisted_generation_id:
+                        case_quality_gate_payload["generation_id"] = int(persisted_generation_id)
+                    if request_id:
+                        case_quality_gate_payload["request_id"] = request_id
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(case_quality_gate_payload, ensure_ascii=False)}",
+                            user_id=user_id,
+                        )
+                    )
+                    yield f"GEN_DIAG:{json.dumps(case_quality_gate_payload, ensure_ascii=False)}\n"
 
                 # 中文注释：记录覆盖检查日志。
                 if coverage_payload:

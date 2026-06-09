@@ -104,7 +104,7 @@ def run_temp_script(
         if os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
-            except:
+            except Exception:
                 pass
 
 def log_to_db(db: Session, project_id: int, log_type: str, message: str, user_id: Optional[int] = None):

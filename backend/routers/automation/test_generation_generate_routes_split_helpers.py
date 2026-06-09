@@ -267,6 +267,24 @@ def generate_tests(
                 user_id=current_user.id,
             )
             raise HTTPException(status_code=502, detail=error_payload)
+        if error_code == "execution_plan_failed":
+            error_payload = {
+                "error_code": "execution_plan_failed",
+                "error_message": str(result.get("error_message") or "生成结果未通过执行计划门禁"),
+                "final_status": str(result.get("final_status") or "execution_plan_failed"),
+                "persistence_gate_failed": bool(result.get("persistence_gate_failed", True)),
+                "failure_reasons": list(result.get("failure_reasons") or []),
+                "metrics": dict(result.get("metrics") or {}),
+                "state_conflicts": list(result.get("state_conflicts") or []),
+            }
+            log_to_db(
+                db,
+                request.project_id,
+                "system",
+                f"GEN_DIAG:{json.dumps({'kind': 'generation_summary', **error_payload}, ensure_ascii=False)}",
+                user_id=current_user.id,
+            )
+            raise HTTPException(status_code=502, detail=error_payload)
     try:
         count = len(result) if isinstance(result, list) else 0
         log_to_db(db, request.project_id, "system", f"测试用例生成完成(批次{request.batch_index}): 数量={count}", user_id=current_user.id)

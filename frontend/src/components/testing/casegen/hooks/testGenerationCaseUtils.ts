@@ -136,10 +136,14 @@ export const normalizeStandardCases = (items: any[]) => items
     const rawPriority = pickField(item, ['priority', 'p', '优先级']) ?? item.priority;
     const normalizedPriority = normalizePriority(rawPriority);
     const meta = (item?.meta && typeof item.meta === 'object' && !Array.isArray(item.meta)) ? item.meta : undefined;
-    const priorityDebug = (meta?.priority_debug && typeof meta.priority_debug === 'object')
-      ? meta.priority_debug
-      : undefined;
-    const finalPriority = normalizePriority(priorityDebug?.final_priority ?? normalizedPriority);
+    const priorityDebug = (item?.priorityDebug && typeof item.priorityDebug === 'object')
+      ? item.priorityDebug
+      : (item?.priority_debug && typeof item.priority_debug === 'object')
+        ? item.priority_debug
+        : (meta?.priority_debug && typeof meta.priority_debug === 'object')
+          ? meta.priority_debug
+          : undefined;
+    const finalPriority = normalizePriority(item.finalPriority ?? item.final_priority ?? item.priority_final ?? priorityDebug?.final_priority ?? normalizedPriority);
     const normalizedFinalPriority = finalPriority || normalizedPriority;
 
     return {
@@ -152,6 +156,8 @@ export const normalizeStandardCases = (items: any[]) => items
       test_input: String(pickField(item, ['test_input', 'input', '输入', '测试输入']) ?? '').trim(),
       expected_result: String(pickField(item, ['expected_result', 'expected', 'expect', '预期', '预期结果']) ?? '').trim(),
       priority: normalizedFinalPriority,
+      priority_final: normalizedFinalPriority,
+      finalPriority: normalizedFinalPriority,
       priorityDebug,
       meta: meta ?? item?.meta,
     };

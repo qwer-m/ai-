@@ -27,6 +27,19 @@ function stageStatus(ok: boolean): string {
   return ok ? '已流通' : '未收到';
 }
 
+function gateStatus(passed?: boolean): string {
+  if (passed === true) return '已通过';
+  if (passed === false) return '已阻断';
+  return '未收到';
+}
+
+function qualityGateStatus(passed?: boolean, blocked?: boolean): string {
+  if (passed === true) return '已通过';
+  if (passed === false && blocked === true) return '未通过并阻断';
+  if (passed === false) return '未通过（观察模式）';
+  return '未收到';
+}
+
 function enumLabel(value: unknown, labels: Record<string, string>, emptyLabel = '-'): string {
   const key = String(value || '').trim();
   if (!key) return emptyLabel;
@@ -119,6 +132,8 @@ export function GenerationOverview() {
   const feedbackControlState = useRagDebugStore((s) => s.feedbackControlState);
   const generationQualityLedger = useRagDebugStore((s) => s.generationQualityLedger);
   const reviewDecisionTableCompactRows = useRagDebugStore((s) => s.reviewDecisionTableCompactRows);
+  const persistenceGate = useRagDebugStore((s) => s.persistenceGate);
+  const caseQualityGate = useRagDebugStore((s) => s.caseQualityGate);
 
   const reviewCandidateCount = Number(
     reviewDecisionSummary?.candidate_total ?? generationConvergence?.candidate_count_before_review
@@ -140,6 +155,15 @@ export function GenerationOverview() {
   const ledgerCoverage = generationQualityLedger?.coverage || {};
   const ledgerContext = generationQualityLedger?.context || {};
   const ledgerControl = generationQualityLedger?.control || {};
+  const executionPlanValidation = persistenceGate?.execution_plan_validation;
+  const executionPlanMetrics = executionPlanValidation?.metrics || {};
+  const persistenceGateFailureReasons = executionPlanValidation?.failure_reasons || [];
+  const effectiveCaseQualityGate = caseQualityGate || generationQualityLedger?.case_quality_gate;
+  const caseQualityMetrics = effectiveCaseQualityGate?.metrics || {};
+  const caseQualityFailureReasons = effectiveCaseQualityGate?.failure_reasons || [];
+  const judgeRejectClusters = ledgerJudge.reason_clusters && typeof ledgerJudge.reason_clusters === 'object'
+    ? ledgerJudge.reason_clusters as Record<string, unknown>
+    : {};
 
   return (
     <div className="rag-debug-card rounded-2xl shadow-md p-4 border bg-white dark:bg-slate-900">
@@ -239,7 +263,13 @@ export function GenerationOverview() {
                 流程缺失/顺序异常：{numberLabel(reviewDecisionSummary?.flow_missing_stage_count)} / {numberLabel(reviewDecisionSummary?.flow_misordered_count)}
               </div>
               <div className="small text-muted rag-debug-muted">
+                最终流程缺失/顺序异常：{numberLabel(reviewDecisionSummary?.final_flow_missing_stage_count)} / {numberLabel(reviewDecisionSummary?.final_flow_misordered_count)}
+              </div>
+              <div className="small text-muted rag-debug-muted">
                 场景重复簇：{numberLabel(reviewDecisionSummary?.scenario_duplicate_cluster_count)} 组
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                最终重复簇/用例：{numberLabel(reviewDecisionSummary?.final_scenario_duplicate_cluster_count)} / {numberLabel(reviewDecisionSummary?.final_scenario_duplicate_case_count)}
               </div>
               <div className="small text-muted rag-debug-muted">
                 已裁剪/已重排：{numberLabel(reviewDecisionSummary?.scenario_duplicate_pruned_count)} / {reviewDecisionSummary?.flow_reordered ? '是' : '否'}
@@ -270,6 +300,64 @@ export function GenerationOverview() {
               </div>
               <div className="small text-muted rag-debug-muted">
                 缺失/非阻断：{numberLabel(ledgerCoverage.missing_rules_count)} / {numberLabel(ledgerCoverage.non_blocking_rules_count)}
+              </div>
+            </div>
+          </div>
+          <div className="col-md-12">
+            <div className={`p-3 border rounded-2 h-100 ${persistenceGate?.passed === false ? 'border-danger' : ''}`}>
+              <div className="small text-muted rag-debug-muted mb-1">执行计划 / 落库门禁</div>
+              <div className={persistenceGate?.passed === false ? 'fw-semibold text-danger' : 'fw-semibold'}>
+                {gateStatus(persistenceGate?.passed)}
+              </div>
+              <div className="small text-muted rag-debug-muted mt-2">
+                模式：{persistenceGate?.gate_mode || '-'}
+                {' / '}
+                失败码：{persistenceGate?.failure_code || '-'}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                主链/P0：{numberLabel(executionPlanMetrics.main_smoke_count)} / {numberLabel(executionPlanMetrics.p0_count)}
+                {' / '}
+                状态字段覆盖率：{percentLabel(executionPlanMetrics.state_field_coverage)}
+                {' / '}
+                状态冲突：{numberLabel(executionPlanMetrics.state_conflict_count)}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                线性可执行：{boolLabel(executionPlanMetrics.linear_executable as boolean | undefined)}
+                {' / '}
+                可信蓝图数：{numberLabel(executionPlanMetrics.trusted_workflow_contract_count)}
+                {' / '}
+                蓝图来源：{String(executionPlanMetrics.workflow_blueprint_source || '-')}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                失败原因：{persistenceGateFailureReasons.length ? persistenceGateFailureReasons.join(', ') : '-'}
+              </div>
+            </div>
+          </div>
+          <div className="col-md-12">
+            <div className={`p-3 border rounded-2 h-100 ${effectiveCaseQualityGate?.passed === false ? 'border-warning' : ''}`}>
+              <div className="small text-muted rag-debug-muted mb-1">用例质量门禁</div>
+              <div className={effectiveCaseQualityGate?.passed === false ? 'fw-semibold text-warning' : 'fw-semibold'}>
+                {qualityGateStatus(effectiveCaseQualityGate?.passed, effectiveCaseQualityGate?.blocked)}
+              </div>
+              <div className="small text-muted rag-debug-muted mt-2">
+                模式：{effectiveCaseQualityGate?.mode || '-'}
+                {' / '}
+                最终数/最低数：{numberLabel(caseQualityMetrics.final_count)} / {numberLabel(caseQualityMetrics.min_acceptable_final)}
+                {' / '}
+                评分：{numberLabel(caseQualityMetrics.quality_score)} ({String(caseQualityMetrics.quality_score_grade || '-')})
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                最终重复/乱序：{numberLabel(caseQualityMetrics.final_scenario_duplicate_case_count)} / {numberLabel(caseQualityMetrics.final_flow_misordered_count)}
+                {' / '}
+                Judge 拒绝：{numberLabel(caseQualityMetrics.judge_rejected_count)}
+                {' / '}
+                泄漏/角色错配：{numberLabel(caseQualityMetrics.reasoning_leak_count)} / {numberLabel(caseQualityMetrics.role_mismatch_count)}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                拒绝聚类：{compactLabeledCounts(judgeRejectClusters, (value) => value)}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                失败原因：{caseQualityFailureReasons.length ? caseQualityFailureReasons.join(', ') : '-'}
               </div>
             </div>
           </div>

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import logging
 from collections import Counter
 from typing import Any
 
@@ -10,9 +11,13 @@ from modules.memory_fabric.contracts.memory_context import MemoryContext
 from modules.memory_fabric.contracts.memory_fabric import MemoryFabric
 from modules.memory_fabric.runtime.diagnostics import record_memory_read
 from modules.memory_fabric.runtime.factory import get_memory_fabric
-from modules.test_generation_components.control.feedback_control_state import FeedbackControlState
-from modules.test_generation_components.coverage.scenario_registry import (
+from .feedback_control_state import FeedbackControlState
+from .workflow_blueprint_repository import (
+    WorkflowBlueprintRepository,
+)
+from ..coverage.scenario_registry import (
     classify_registered_scenario_family,
+    infer_primary_domain_tag,
     infer_domain_tags,
 )
 from modules.testing.priority_sample_pool_store import (
@@ -20,6 +25,49 @@ from modules.testing.priority_sample_pool_store import (
     load_priority_sample_pool,
     retrieve_priority_sample_patterns,
 )
+from modules.testing.manual_quality_profile import (
+    build_manual_quality_profile,
+    manual_quality_profile_hints,
+)
+
+
+logger = logging.getLogger(__name__)
+
+
+def _env_int(name: str, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        logger.warning("Invalid integer env %s=%r; using default=%s", name, raw, default)
+        return default
+    if minimum is not None and value < minimum:
+        logger.warning("Env %s=%r below minimum=%s; using minimum", name, raw, minimum)
+        return minimum
+    if maximum is not None and value > maximum:
+        logger.warning("Env %s=%r above maximum=%s; using maximum", name, raw, maximum)
+        return maximum
+    return value
+
+
+def _env_float(name: str, default: float, *, minimum: float | None = None, maximum: float | None = None) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = float(raw.strip())
+    except ValueError:
+        logger.warning("Invalid float env %s=%r; using default=%s", name, raw, default)
+        return default
+    if minimum is not None and value < minimum:
+        logger.warning("Env %s=%r below minimum=%s; using minimum", name, raw, minimum)
+        return minimum
+    if maximum is not None and value > maximum:
+        logger.warning("Env %s=%r above maximum=%s; using maximum", name, raw, maximum)
+        return maximum
+    return value
 
 
 _RULE_PATTERN = re.compile(r"\b(?:RULE|REQ)[-_ ]?[A-Z0-9]+\b", re.IGNORECASE)
@@ -37,43 +85,39 @@ _MAX_PRIORITY_POOL_HINTS = 14
 _MAX_PRIORITY_POOL_FORBIDDEN_PATTERNS = 8
 _MAX_PRIORITY_POOL_SOFT_CONSTRAINTS = 14
 _MAX_PRIORITY_POOL_SCENARIOS = 8
-_MAX_PRIORITY_POOL_RETRIEVAL_TOP_K = max(
-    1,
-    min(
-        _MAX_PRIORITY_POOL_SAMPLES,
-        int(os.getenv("TESTGEN_PRIORITY_POOL_RETRIEVAL_TOP_K", "5")),
-    ),
+_MAX_WORKFLOW_BLUEPRINTS = 5
+_MAX_PRIORITY_POOL_RETRIEVAL_TOP_K = _env_int(
+    "TESTGEN_PRIORITY_POOL_RETRIEVAL_TOP_K",
+    5,
+    minimum=1,
+    maximum=_MAX_PRIORITY_POOL_SAMPLES,
 )
-_MAX_PRIORITY_POOL_CLUSTER_CAP = max(
-    1,
-    min(
-        _MAX_PRIORITY_POOL_RETRIEVAL_TOP_K,
-        int(os.getenv("TESTGEN_PRIORITY_POOL_CLUSTER_CAP", "2")),
-    ),
+_MAX_PRIORITY_POOL_CLUSTER_CAP = _env_int(
+    "TESTGEN_PRIORITY_POOL_CLUSTER_CAP",
+    2,
+    minimum=1,
+    maximum=_MAX_PRIORITY_POOL_RETRIEVAL_TOP_K,
 )
-_PRIORITY_POOL_MIN_POSITIVE_TOP_K = max(
-    0,
-    min(
-        _MAX_PRIORITY_POOL_RETRIEVAL_TOP_K,
-        int(os.getenv("TESTGEN_PRIORITY_POOL_MIN_POSITIVE_TOP_K", "2")),
-    ),
+_PRIORITY_POOL_MIN_POSITIVE_TOP_K = _env_int(
+    "TESTGEN_PRIORITY_POOL_MIN_POSITIVE_TOP_K",
+    2,
+    minimum=0,
+    maximum=_MAX_PRIORITY_POOL_RETRIEVAL_TOP_K,
 )
-_PRIORITY_POOL_MAX_NEGATIVE_TOP_K = max(
-    0,
-    min(
-        _MAX_PRIORITY_POOL_RETRIEVAL_TOP_K,
-        int(os.getenv("TESTGEN_PRIORITY_POOL_MAX_NEGATIVE_TOP_K", "3")),
-    ),
+_PRIORITY_POOL_MAX_NEGATIVE_TOP_K = _env_int(
+    "TESTGEN_PRIORITY_POOL_MAX_NEGATIVE_TOP_K",
+    3,
+    minimum=0,
+    maximum=_MAX_PRIORITY_POOL_RETRIEVAL_TOP_K,
 )
 _SYNC_PRIORITY_INDEX_ON_READ = str(
     os.getenv("TESTGEN_PRIORITY_POOL_INDEX_SYNC_ON_READ", "false")
 ).strip().lower() in {"1", "true", "yes", "on"}
-_MIN_PRIORITY_POOL_PATTERN_CONFIDENCE = max(
-    0.0,
-    min(
-        1.0,
-        float(os.getenv("TESTGEN_PRIORITY_POOL_MIN_PATTERN_CONFIDENCE", "0.6")),
-    ),
+_MIN_PRIORITY_POOL_PATTERN_CONFIDENCE = _env_float(
+    "TESTGEN_PRIORITY_POOL_MIN_PATTERN_CONFIDENCE",
+    0.6,
+    minimum=0.0,
+    maximum=1.0,
 )
 _ASCII_TOKEN_PATTERN = re.compile(r"[a-z0-9_]+", re.IGNORECASE)
 _CJK_CHAR_PATTERN = re.compile(r"[\u4e00-\u9fff]")
@@ -459,6 +503,16 @@ def _sample_text_for_retrieval(sample_like: dict[str, Any]) -> str:
     )
 
 
+def _sample_matches_primary_domain(sample_like: dict[str, Any], primary_domain: str) -> bool:
+    if not primary_domain:
+        return True
+    text = _sample_text_for_retrieval(sample_like)
+    sample_primary_domain = infer_primary_domain_tag(text)
+    if sample_primary_domain:
+        return sample_primary_domain == primary_domain
+    return primary_domain in infer_domain_tags(text)
+
+
 def _apply_signal_quota(
     candidates: list[dict[str, Any]],
     *,
@@ -574,6 +628,8 @@ def _select_priority_pool_samples_by_requirement(
         "retrieval_domain_matched_sample_count": 0,
         "retrieval_domain_skipped_sample_count": 0,
         "retrieval_domain_no_match": False,
+        "retrieval_sample_id_hit_count": 0,
+        "retrieval_index_mismatch_count": 0,
     }
     if not samples:
         return [], retrieval_meta
@@ -595,13 +651,15 @@ def _select_priority_pool_samples_by_requirement(
 
     query = str(requirement_text or "").strip()
     query_domains = infer_domain_tags(query)
+    primary_query_domain = infer_primary_domain_tag(query)
     retrieval_meta["retrieval_query_domain_tags"] = sorted(query_domains)
+    retrieval_meta["retrieval_query_primary_domain"] = primary_query_domain
     allowed_object_ids: set[int] = {id(item) for item in active_samples}
-    if query_domains:
+    if primary_query_domain:
         domain_matched_samples = [
             item
             for item in active_samples
-            if infer_domain_tags(_sample_text_for_retrieval(item)) & query_domains
+            if _sample_matches_primary_domain(item, primary_query_domain)
         ]
         retrieval_meta["retrieval_domain_matched_sample_count"] = int(len(domain_matched_samples))
         retrieval_meta["retrieval_domain_skipped_sample_count"] = int(
@@ -614,6 +672,12 @@ def _select_priority_pool_samples_by_requirement(
             return [], retrieval_meta
         active_samples = domain_matched_samples
         allowed_object_ids = {id(item) for item in active_samples}
+
+    sample_by_id: dict[str, dict[str, Any]] = {}
+    for item in active_samples:
+        sample_id = str(_sample_value(item, "sample_id", "sampleId") or "").strip()
+        if sample_id:
+            sample_by_id[sample_id] = item
 
     def _cluster_key(sample_like: dict[str, Any]) -> str:
         return str(
@@ -660,7 +724,8 @@ def _select_priority_pool_samples_by_requirement(
         sample_cjk = _cjk_chars(text)
         ascii_overlap = len(query_ascii & sample_ascii) if query_ascii else 0
         cjk_overlap = len(query_cjk & sample_cjk) if query_cjk else 0
-        domain_overlap = len(infer_domain_tags(text) & query_domains) if query_domains else 0
+        sample_primary_domain = infer_primary_domain_tag(text)
+        domain_overlap = 1 if primary_query_domain and sample_primary_domain == primary_query_domain else 0
         try:
             weight = float(_sample_value(sample_like, "pattern_weight") or 0.0)
         except Exception:
@@ -715,29 +780,64 @@ def _select_priority_pool_samples_by_requirement(
         retrieved = []
 
     retrieval_meta["retrieval_hit_count"] = int(len(retrieved))
-    index_seen: set[int] = set()
+    sample_ref_seen: set[int] = set()
     pattern_seen: set[str] = set()
     selected_raw: list[dict[str, Any]] = []
     for item in retrieved:
-        try:
-            sample_index = int((item or {}).get("sample_index"))
-        except Exception:
-            continue
-        if sample_index < 0 or sample_index >= len(samples):
-            continue
-        if sample_index in index_seen:
-            continue
         canonical = str((item or {}).get("pattern_canonical") or "").strip().lower()
+        retrieved_cluster = str((item or {}).get("pattern_cluster_key") or "").strip().lower()
+        sample_id = str((item or {}).get("sample_id") or "").strip()
+        picked: dict[str, Any] | None = None
+        if sample_id:
+            picked = sample_by_id.get(sample_id)
+            if picked is None:
+                retrieval_meta["retrieval_index_mismatch_count"] = int(
+                    retrieval_meta.get("retrieval_index_mismatch_count") or 0
+                ) + 1
+                continue
+            retrieval_meta["retrieval_sample_id_hit_count"] = int(
+                retrieval_meta.get("retrieval_sample_id_hit_count") or 0
+            ) + 1
+        else:
+            try:
+                sample_index = int((item or {}).get("sample_index"))
+            except Exception:
+                retrieval_meta["retrieval_index_mismatch_count"] = int(
+                    retrieval_meta.get("retrieval_index_mismatch_count") or 0
+                ) + 1
+                continue
+            if sample_index < 0 or sample_index >= len(samples):
+                retrieval_meta["retrieval_index_mismatch_count"] = int(
+                    retrieval_meta.get("retrieval_index_mismatch_count") or 0
+                ) + 1
+                continue
+            picked = samples[sample_index]
+
+        if id(picked) in sample_ref_seen:
+            continue
         if canonical and canonical in pattern_seen:
             continue
-        index_seen.add(sample_index)
-        picked = samples[sample_index]
         if not _is_pattern_active(picked):
             continue
         if id(picked) not in allowed_object_ids:
             continue
+        if not sample_id:
+            picked_canonical = str(
+                _sample_value(picked, "pattern_canonical", "patternCanonical") or ""
+            ).strip().lower()
+            picked_cluster = str(
+                _sample_value(picked, "pattern_cluster_key", "patternClusterKey") or ""
+            ).strip().lower()
+            canonical_mismatch = bool(canonical and picked_canonical and canonical != picked_canonical)
+            cluster_mismatch = bool(retrieved_cluster and picked_cluster and retrieved_cluster != picked_cluster)
+            if canonical_mismatch and cluster_mismatch:
+                retrieval_meta["retrieval_index_mismatch_count"] = int(
+                    retrieval_meta.get("retrieval_index_mismatch_count") or 0
+                ) + 1
+                continue
         if _pattern_confidence(picked) < float(_MIN_PRIORITY_POOL_PATTERN_CONFIDENCE):
             continue
+        sample_ref_seen.add(id(picked))
         if canonical:
             pattern_seen.add(canonical)
         retrieved_weight = float((item or {}).get("pattern_weight") or 0.0)
@@ -831,6 +931,104 @@ def _select_priority_pool_samples_by_requirement(
     return fallback, retrieval_meta
 
 
+def _workflow_blueprint_from_sample(sample: dict[str, Any]) -> dict[str, Any] | None:
+    grain = str(_sample_value(sample, "pattern_grain", "patternGrain") or "").strip().lower()
+    if grain != "workflow_blueprint":
+        return None
+    raw = _sample_value(sample, "workflow_blueprint", "workflowBlueprint")
+    blueprint = dict(raw) if isinstance(raw, dict) else {}
+    steps = blueprint.get("steps")
+    if not isinstance(steps, list) or len(steps) < 2:
+        source_steps = _sample_value(sample, "source_case_steps", "sourceCaseSteps", "steps")
+        if isinstance(source_steps, list):
+            step_texts = [str(item).strip() for item in source_steps if str(item).strip()]
+        else:
+            step_texts = [
+                str(item).strip()
+                for item in re.split(r"\n+|[；;]", str(source_steps or ""))
+                if str(item).strip()
+            ]
+        steps = [
+            {
+                "id": f"step_{index:03d}",
+                "label": text[:120],
+                "action": text[:160],
+                "match_keywords": [text[:80]],
+            }
+            for index, text in enumerate(step_texts[:12], start=1)
+        ]
+    normalized_steps: list[dict[str, Any]] = []
+    for index, step in enumerate(steps or [], start=1):
+        normalized_step = dict(step) if isinstance(step, dict) else {"label": str(step or "").strip()}
+        label = str(
+            normalized_step.get("label")
+            or normalized_step.get("action")
+            or normalized_step.get("description")
+            or ""
+        ).strip()
+        if not label:
+            continue
+        normalized_step["id"] = str(normalized_step.get("id") or f"step_{index:03d}").strip()
+        normalized_step["label"] = label[:160]
+        normalized_steps.append(normalized_step)
+    if len(normalized_steps) < 2:
+        return None
+    title = str(
+        blueprint.get("name")
+        or blueprint.get("title")
+        or _sample_value(sample, "pattern_summary", "patternSummary")
+        or "workflow_blueprint"
+    ).strip()
+    return {
+        **blueprint,
+        "id": str(blueprint.get("id") or _sample_value(sample, "case_id", "caseId") or "workflow_blueprint"),
+        "name": title[:160],
+        "steps": normalized_steps[:12],
+        "source": str(_sample_value(sample, "source", "source_type", "sourceType") or "priority_sample_pool"),
+    }
+
+
+def _priority_pool_sample_identity(sample: dict[str, Any]) -> str:
+    return str(
+        _sample_value(sample, "sample_id", "sampleId")
+        or _sample_value(sample, "case_id", "caseId")
+        or _sample_value(sample, "source_case_id", "sourceCaseId")
+        or id(sample)
+    ).strip()
+
+
+def _select_priority_pool_workflow_blueprint_samples(
+    *,
+    samples: list[dict[str, Any]],
+    requirement_text: str,
+) -> list[dict[str, Any]]:
+    query = str(requirement_text or "").strip()
+    primary_query_domain = infer_primary_domain_tag(query)
+    candidates: list[dict[str, Any]] = []
+    for sample in samples:
+        grain = str(_sample_value(sample, "pattern_grain", "patternGrain") or "").strip().lower()
+        if grain != "workflow_blueprint":
+            continue
+        if not _is_pattern_active(sample):
+            continue
+        if _pattern_confidence(sample) < float(_MIN_PRIORITY_POOL_PATTERN_CONFIDENCE):
+            continue
+        if primary_query_domain and not _sample_matches_primary_domain(sample, primary_query_domain):
+            continue
+        if _workflow_blueprint_from_sample(sample) is None:
+            continue
+        candidates.append(sample)
+    candidates.sort(
+        key=lambda item: (
+            float(_sample_value(item, "pattern_weight") or 0.0),
+            float(_sample_value(item, "pattern_quality_score") or 0.0),
+            _priority_pool_sample_identity(item),
+        ),
+        reverse=True,
+    )
+    return candidates[:_MAX_WORKFLOW_BLUEPRINTS]
+
+
 def _build_from_priority_sample_pool(
     *,
     db: Any,
@@ -859,6 +1057,27 @@ def _build_from_priority_sample_pool(
             samples.append(item)
     if not samples:
         return FeedbackControlState.empty()
+    manual_quality_profile = build_manual_quality_profile(
+        samples,
+        project_id=int(project_id),
+        user_id=int(user_id),
+        existing_profile=payload.get("manual_quality_profile"),
+    )
+    manual_profile_hints = manual_quality_profile_hints(manual_quality_profile)
+    manual_profile_meta: dict[str, Any] = {}
+    if manual_quality_profile:
+        manual_profile_meta = {
+            "manual_quality_profile": manual_quality_profile,
+            "manual_quality_profile_version": str(manual_quality_profile.get("profile_version") or ""),
+            "manual_quality_profile_trusted_count": int(manual_quality_profile.get("trusted_sample_count") or 0),
+            "manual_quality_profile_case_count": int(manual_quality_profile.get("profile_case_count") or 0),
+            "manual_quality_profile_high_priority_ratio": float(
+                manual_quality_profile.get("high_priority_ratio") or 0.0
+            ),
+            "manual_quality_profile_display_ratio_cap": float(
+                manual_quality_profile.get("display_ratio_cap") or 0.0
+            ),
+        }
     pool_total_positive_count, pool_total_negative_count = _count_signal_split(samples)
     if _SYNC_PRIORITY_INDEX_ON_READ:
         try:
@@ -879,13 +1098,35 @@ def _build_from_priority_sample_pool(
         pattern_index_token=str(payload.get("pattern_index_token") or "").strip(),
         requirement_text=str(requirement_text or ""),
     )
+    direct_workflow_samples = _select_priority_pool_workflow_blueprint_samples(
+        samples=samples,
+        requirement_text=str(requirement_text or ""),
+    )
+    direct_added = 0
+    if direct_workflow_samples:
+        selected_identities = {
+            _priority_pool_sample_identity(sample)
+            for sample in selected_samples
+        }
+        for sample in direct_workflow_samples:
+            identity = _priority_pool_sample_identity(sample)
+            if identity in selected_identities:
+                continue
+            selected_samples.append(sample)
+            selected_identities.add(identity)
+            direct_added += 1
+    retrieval_meta["workflow_blueprint_direct_candidate_count"] = int(len(direct_workflow_samples))
+    retrieval_meta["workflow_blueprint_direct_selected_count"] = int(direct_added)
     retrieval_meta["retrieval_index_resync_attempted"] = False
     retrieval_meta["retrieval_index_resync_success"] = False
     retrieval_meta["retrieval_index_resync_error"] = ""
     # 中文注释：当向量检索命中为 0 且落到 lexical fallback 时，说明样本池索引可能缺失/失效；
     # 这里按需重建一次 pattern index 并重试，避免长期停留在词法回退通道。
     if (
-        int(retrieval_meta.get("retrieval_hit_count") or 0) <= 0
+        (
+            int(retrieval_meta.get("retrieval_hit_count") or 0) <= 0
+            or int(retrieval_meta.get("retrieval_index_mismatch_count") or 0) > 0
+        )
         and str(retrieval_meta.get("retrieval_fallback") or "") == "lexical_fallback"
     ):
         retrieval_meta["retrieval_index_resync_attempted"] = True
@@ -916,6 +1157,17 @@ def _build_from_priority_sample_pool(
             retrieval_meta["retrieval_index_resync_success"] = False
             retrieval_meta["retrieval_index_resync_error"] = str(_resync_err)[:240]
     if not selected_samples:
+        if manual_quality_profile:
+            return FeedbackControlState(
+                quality_fix_hints=manual_profile_hints[:_MAX_PRIORITY_POOL_HINTS],
+                source_meta={
+                    "sources": ["priority_sample_pool_manual_profile"],
+                    "priority_pool_sample_count": int(len(samples)),
+                    **manual_profile_meta,
+                    "generation_id": payload.get("generation_id"),
+                    **retrieval_meta,
+                },
+            )
         return FeedbackControlState.empty()
 
     reason_counter: Counter[str] = Counter()
@@ -933,7 +1185,8 @@ def _build_from_priority_sample_pool(
     reuse_risks: list[str] = []
     reuse_risk_seen: set[str] = set()
     soft_constraints: list[str] = []
-    quality_hints: list[str] = []
+    quality_hints: list[str] = list(manual_profile_hints)
+    workflow_blueprints: list[dict[str, Any]] = []
     positive_scenario_counter: Counter[str] = Counter()
     redundant_scenario_cap_counter: Counter[str] = Counter()
     verified_count = 0
@@ -1030,6 +1283,9 @@ def _build_from_priority_sample_pool(
             pattern_counter[pattern_key[:120]] += 1
         if is_positive_signal:
             positive_selected_count += 1
+            workflow_blueprint = _workflow_blueprint_from_sample(sample)
+            if workflow_blueprint is not None:
+                workflow_blueprints.append(workflow_blueprint)
             preferred_pattern = str(
                 _sample_value(sample, "pattern_summary", "patternSummary")
                 or _sample_value(sample, "pattern_canonical", "patternCanonical")
@@ -1149,8 +1405,16 @@ def _build_from_priority_sample_pool(
         soft_constraints=soft_constraints[:_MAX_PRIORITY_POOL_SOFT_CONSTRAINTS],
         rule_quota=rule_quota,
         quality_fix_hints=quality_hints[:_MAX_PRIORITY_POOL_HINTS],
+        workflow_blueprints=workflow_blueprints[:_MAX_WORKFLOW_BLUEPRINTS],
         source_meta={
-            "sources": ["priority_sample_pool_manual_verified"],
+            "sources": [
+                "priority_sample_pool_manual_verified",
+                *(
+                    ["priority_sample_pool_manual_profile"]
+                    if manual_quality_profile
+                    else []
+                ),
+            ],
             "priority_pool_sample_count": int(len(samples)),
             "priority_pool_total_positive_count": int(pool_total_positive_count),
             "priority_pool_total_negative_count": int(pool_total_negative_count),
@@ -1158,6 +1422,7 @@ def _build_from_priority_sample_pool(
             "verified_sample_count": int(verified_count),
             "manual_comment_count": int(manual_comment_count),
             "preferred_pattern_count": int(len(preferred_patterns)),
+            "workflow_blueprint_count": int(len(workflow_blueprints)),
             "reuse_risk_count": int(len(reuse_risks)),
             "positive_selected_count": int(positive_selected_count),
             "negative_selected_count": int(negative_selected_count),
@@ -1182,7 +1447,38 @@ def _build_from_priority_sample_pool(
             "priority_pool_positive_scenario_family_count": int(len(positive_scenario_counter)),
             "pattern_hit_total": int(sum(pattern_counter.values())),
             "generation_id": payload.get("generation_id"),
+            **manual_profile_meta,
             **retrieval_meta,
+        },
+    )
+
+
+def _build_from_workflow_blueprint_repository(
+    *,
+    db: Any,
+    project_id: int,
+    user_id: int,
+    requirement_text: str = "",
+) -> FeedbackControlState:
+    if db is None or not project_id or not user_id:
+        return FeedbackControlState.empty()
+    try:
+        workflow_blueprints = WorkflowBlueprintRepository(db).list_matching_trusted_contracts(
+            project_id=int(project_id),
+            user_id=int(user_id),
+            requirement_text=str(requirement_text or ""),
+            limit=_MAX_WORKFLOW_BLUEPRINTS,
+        )
+    except Exception:
+        workflow_blueprints = []
+    if not workflow_blueprints:
+        return FeedbackControlState.empty()
+    return FeedbackControlState(
+        workflow_blueprints=workflow_blueprints,
+        source_meta={
+            "sources": ["workflow_blueprint_repository"],
+            "workflow_blueprint_repository_count": int(len(workflow_blueprints)),
+            "trusted_workflow_contract_count": int(len(workflow_blueprints)),
         },
     )
 
@@ -1497,6 +1793,7 @@ def _compact_state(state: FeedbackControlState) -> FeedbackControlState:
     normalized.reuse_risks = normalized.reuse_risks[:_MAX_PREFERRED_PATTERNS]
     normalized.soft_constraints = normalized.soft_constraints[:_MAX_SOFT_CONSTRAINTS]
     normalized.quality_fix_hints = normalized.quality_fix_hints[:_MAX_QUALITY_HINTS]
+    normalized.workflow_blueprints = normalized.workflow_blueprints[:_MAX_WORKFLOW_BLUEPRINTS]
     normalized.rule_quota = {
         rule: max(1, int(quota))
         for rule, quota in normalized.rule_quota.items()
@@ -1534,6 +1831,14 @@ def build_feedback_control_state(
         run_id="legacy-control-state",
         request_id="legacy-control-state",
     )
+
+    workflow_blueprint_state = _build_from_workflow_blueprint_repository(
+        db=db,
+        project_id=int(project_id or 0),
+        user_id=int(user_id or 0),
+        requirement_text=str(requirement_text or ""),
+    )
+    state = state.merge(workflow_blueprint_state)
 
     if enable_priority_sample_pool:
         priority_pool_state = _build_from_priority_sample_pool(

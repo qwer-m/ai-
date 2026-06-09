@@ -742,7 +742,7 @@ def test_score_case_priority_ui_like_excludes_state_guard_expected_result_case()
         "description": "button display check after resume",
         "test_module": "learning-flow",
         "steps": ["click card and open details"],
-        "expected_result": "\u4e0d\u4e22\u4e0a\u4e0b\u6587\uff0c\u4e0d\u4e32\u8bfe\u6587",
+        "expected_result": "不丢上下文，不串课文",
         "pattern_category": "ui_display",
         "priority": "P2",
     }
@@ -754,7 +754,7 @@ def test_score_case_priority_ui_like_excludes_step_guard_sequence_case() -> None
     case = {
         "description": "button visibility check for recover flow",
         "test_module": "learning-flow",
-        "steps": ["\u8fd4\u56de\u8bfe\u7a0b\u5217\u8868", "\u518d\u8fdb\u5165\u5f53\u524d\u8bfe\u7a0b\u5e76\u6821\u9a8c\u72b6\u6001"],
+        "steps": ["返回课程列表", "再进入当前课程并校验状态"],
         "expected_result": "display is correct",
         "pattern_category": "ui_display",
         "priority": "P2",

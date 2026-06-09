@@ -1,4 +1,4 @@
-﻿"""离线解析辅助函数。"""
+"""离线解析辅助函数。"""
 
 from __future__ import annotations
 

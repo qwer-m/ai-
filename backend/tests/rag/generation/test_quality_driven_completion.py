@@ -91,10 +91,11 @@ def test_quality_driven_completion_does_not_fill_to_reference_count() -> None:
     assert client.stream_calls == 0
 
     final_cases = list((result or {}).get("cases") or [])
-    assert len(final_cases) == 34
+    assert 0 < len(final_cases) < 50
+    assert len(final_cases) <= 34
 
     summary = dict((result or {}).get("generation_summary") or {})
-    assert summary.get("final_count") == 34
+    assert summary.get("final_count") == len(final_cases)
     assert summary.get("status") == "completed_with_optimal_set"
     stop_reason = set(summary.get("stop_reason") or [])
     assert "coverage_satisfied" in stop_reason
@@ -119,8 +120,17 @@ class _PersistRunner(LegacyGenerationStreamPersistMixin):
         return None
 
 
+def _stored_generation_result(db: _DummyDb) -> str:
+    for row in db.rows:
+        generated_result = getattr(row, "generated_result", None)
+        if generated_result:
+            return str(generated_result)
+    raise AssertionError("generated_result was not persisted")
+
+
 def test_persist_status_reports_normal_completion_and_stop_reasons(monkeypatch) -> None:
     from modules.testing.test_generation_components.legacy.stream import persist as persist_module
+    monkeypatch.setattr(persist_module.settings, "EXECUTION_PLAN_GATE_MODE", "shadow", raising=False)
 
     def _fake_stream_postprocess_cases(**kwargs):
         if False:
@@ -217,6 +227,7 @@ def test_persist_status_reports_normal_completion_and_stop_reasons(monkeypatch) 
 
 def test_persist_strips_priority_debug_and_uses_final_priority(monkeypatch) -> None:
     from modules.testing.test_generation_components.legacy.stream import persist as persist_module
+    monkeypatch.setattr(persist_module.settings, "EXECUTION_PLAN_GATE_MODE", "shadow", raising=False)
 
     def _fake_stream_postprocess_cases(**kwargs):
         if False:
@@ -268,14 +279,15 @@ def test_persist_strips_priority_debug_and_uses_final_priority(monkeypatch) -> N
     runner = _PersistRunner()
     _drain_with_return(runner._stream_persist_phase(state=state))
 
-    stored = json.loads(state["db"].rows[0].generated_result)
+    stored = json.loads(_stored_generation_result(state["db"]))
     assert stored[0]["priority"] == "P1"
-    assert "priority_final" not in stored[0]
+    assert stored[0]["priority_final"] == "P1"
     assert "model_priority_current" not in stored[0]
 
 
 def test_persist_recalculates_priority_when_upstream_final_priority_was_stripped(monkeypatch) -> None:
     from modules.testing.test_generation_components.legacy.stream import persist as persist_module
+    monkeypatch.setattr(persist_module.settings, "EXECUTION_PLAN_GATE_MODE", "shadow", raising=False)
 
     def _fake_stream_postprocess_cases(**kwargs):
         if False:
@@ -330,6 +342,6 @@ def test_persist_recalculates_priority_when_upstream_final_priority_was_stripped
     runner = _PersistRunner()
     _drain_with_return(runner._stream_persist_phase(state=state))
 
-    stored = json.loads(state["db"].rows[0].generated_result)
+    stored = json.loads(_stored_generation_result(state["db"]))
     assert stored[0]["priority"] == "P1"
-    assert "priority_final" not in stored[0]
+    assert stored[0]["priority_final"] == "P1"

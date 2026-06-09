@@ -11,51 +11,47 @@ from .result_postprocess_priority_rules import (
     _priority_case_signature,
 )
 
-from modules.test_generation_components.postprocess.result_postprocess_priority_semantics_split_helpers import (
+from .postprocess_priority_config import (
+    p0_keywords as _cfg_p0_keywords,
+    p1_keywords as _cfg_p1_keywords,
+    p2_keywords as _cfg_p2_keywords,
+    strong_p0_ai_scoring_tokens,
+    strong_p0_payment_gate_tokens,
+    strong_p0_submit_report_tokens,
+    strong_p0_week_boundary_tokens,
+    strong_p0_wrong_collection_tokens,
+    uncertain_requirement_signals,
+)
+from .result_postprocess_priority_semantics_split_helpers import (
     score_case_priority,
 )
 
 PRIORITY_SEMANTICS_REVISION = "2026-04-28-r7"
 
-_UNCERTAIN_REQUIREMENT_SIGNALS = (
-    "需教研确认",
-    "需要讨论",
-    "本期可以不做",
-    "本期可以不要",
-    "暂不支持",
-    "模型不支持",
-    "小学没定位模型",
-    "由教研提供",
-    "待确认",
-    "待讨论",
-    "to be confirmed",
-    "need discussion",
-    "optional this phase",
-    "model not supported",
-)
+_UNCERTAIN_REQUIREMENT_SIGNALS = uncertain_requirement_signals()
 
 
 def _contains_strong_p0_signal(case_text: str) -> bool:
     text = str(case_text or "").lower()
     payment_gate = _contains_any(
         text,
-        ("未付费", "付费拦截", "付费提示", "paywall", "payment gate", "payment blocked", "subscribe"),
+        strong_p0_payment_gate_tokens(),
     )
     ai_scoring = _contains_any(
         text,
-        ("ai判分", "智能判分", "ocr", "ai scoring", "auto score", "scoring"),
+        strong_p0_ai_scoring_tokens(),
     )
     wrong_collection = _contains_any(
         text,
-        ("错题归集", "错题本", "错题", "wrong question", "error collection"),
+        strong_p0_wrong_collection_tokens(),
     )
     week_boundary_or_makeup = _contains_any(
         text,
-        ("周次切换", "教学周", "周日24", "时间边界", "补做期", "历史周", "补做规则", "week switch", "history week"),
+        strong_p0_week_boundary_tokens(),
     )
     submit_report_closure = _contains_any(
         text,
-        ("提交全部", "查看学习报告", "学习报告", "submit all", "view report", "learning report"),
+        strong_p0_submit_report_tokens(),
     )
     return bool(
         payment_gate
@@ -122,54 +118,9 @@ def _resolve_priority_conflict_to_final(
                 "case_level_release_blocking",
             )
         )
-    p0_keywords = (
-        "paywall",
-        "payment gate",
-        "payment blocked",
-        "permission denied",
-        "unauthorized",
-        "access denied",
-        "data isolation",
-        "隔离",
-        "越权",
-        "未授权",
-        "权限",
-        "付费",
-        "阻断",
-        "主流程",
-        "闭环",
-        "报告生成失败",
-    )
-    p1_keywords = (
-        "掌握度",
-        "错题数",
-        "正确数",
-        "统计",
-        "计算",
-        "筛选",
-        "跳转",
-        "联动",
-        "更新",
-        "报告",
-        "习题本",
-        "state transition",
-        "cross page",
-    )
-    p2_keywords = (
-        "流畅",
-        "卡顿",
-        "性能",
-        "兼容",
-        "文案",
-        "提示",
-        "展示",
-        "缩放",
-        "滑动",
-        "ui",
-        "display",
-        "layout",
-        "performance",
-    )
+    p0_keywords = _cfg_p0_keywords()
+    p1_keywords = _cfg_p1_keywords()
+    p2_keywords = _cfg_p2_keywords()
     explicit_low_value = any(
         reason in reasons
         for reason in (

@@ -4,85 +4,46 @@ import re
 import unicodedata
 from typing import Any
 
-from modules.test_generation_components.coverage.scenario_registry import (
+from .scenario_registry import (
     default_scenario_caps,
+    diagnose_registry_impact,
+    infer_primary_domain_tag,
+    iter_scenario_family_policies,
     mode_scenario_caps,
     scenario_pattern_entries,
     scenario_registry_meta,
     specific_scenario_kinds,
     specific_scenario_precedence,
 )
-
-
-_STOPWORDS = {
-    "以及",
-    "或者",
-    "并且",
-    "如果",
-    "那么",
-    "需要",
-    "可以",
-    "必须",
-    "系统",
-    "模块",
-    "页面",
-    "用户",
-    "功能",
-    "流程",
-    "规则",
-}
-
-_BOUNDARY_HINTS = {"边界", "上限", "下限", "最大", "最小", "临界", "范围", "boundary", "max", "min"}
-_BOUNDARY_REQUIRED_HINTS = {
-    "边界",
-    "上限",
-    "下限",
-    "最大",
-    "最小",
-    "临界",
-    "超过",
-    "少于",
-    "至少",
-    "至多",
-    "最多",
-    "最少",
-    "boundary",
-    "max",
-    "min",
-}
-
-_EXCEPTION_HINTS = {"异常", "失败", "错误", "拒绝", "超时", "fail", "error", "exception", "invalid"}
-_RISK_HINTS = {"权限", "安全", "鉴权", "并发", "性能", "风控", "risk", "security", "permission", "performance"}
-
-_RULE_ACTION_HINTS = (
-    "新增",
-    "调整",
-    "插入",
-    "后移",
-    "保持",
-    "保留",
-    "隐藏",
-    "显示",
-    "展示",
-    "支持",
-    "点击",
-    "返回",
-    "切换",
-    "播放",
-    "打印",
-    "适配",
-    "不变",
-    "不做改动",
-    "只保留",
-    "增加入口",
-    "must",
-    "should",
-    "hide",
-    "show",
-    "display",
-    "keep",
-    "support",
+from .coverage_strategy import (
+    boundary_hints,
+    boundary_required_hints,
+    complexity_hints,
+    cross_cutting_definitions,
+    cross_cutting_hints,
+    data_flow_phase_tie_priority,
+    data_flow_phases,
+    exception_hints,
+    flow_stage_definitions,
+    generic_non_blocking_rules,
+    intent_action_keywords,
+    intent_outcome_keywords,
+    intent_stopwords,
+    risk_hints,
+    rule_action_hints,
+    stopwords,
 )
+
+
+_STOPWORDS = stopwords()
+
+_BOUNDARY_HINTS = boundary_hints()
+_BOUNDARY_REQUIRED_HINTS = boundary_required_hints()
+
+_EXCEPTION_HINTS = exception_hints()
+_RISK_HINTS = risk_hints()
+
+_RULE_ACTION_HINTS = rule_action_hints()
 
 _HEADING_PATTERNS = (
     r"^[一二三四五六七八九十]+[、.．]\s*[^：:]{1,24}$",
@@ -91,15 +52,7 @@ _HEADING_PATTERNS = (
     r".*调整说明$",
 )
 
-_GENERIC_NON_BLOCKING_RULES = {
-    "页面布局与展示",
-    "页面布局展示",
-    "页面展示",
-    "布局展示",
-    "页面布局",
-    "展示说明",
-    "交互说明",
-}
+_GENERIC_NON_BLOCKING_RULES = generic_non_blocking_rules()
 
 _OCR_CHAR_TRANSLATION = str.maketrans(
     {
@@ -135,7 +88,7 @@ def _normalize_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKC", str(text or ""))
     normalized = normalized.translate(_OCR_CHAR_TRANSLATION)
     normalized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", normalized)
-    normalized = normalized.replace("\u3000", " ")
+    normalized = normalized.replace("　", " ")
     return normalized
 
 
@@ -417,10 +370,10 @@ def _flatten_case_intent_text(case: dict[str, Any]) -> str:
     return _normalize_text("\n".join(parts))
 
 
-_FLOW_STAGE_DEFINITIONS: tuple[dict[str, Any], ...] = ()
+_FLOW_STAGE_DEFINITIONS: tuple[dict[str, Any], ...] = flow_stage_definitions()
 _FLOW_STAGE_ORDER = [str(item.get("key") or "") for item in _FLOW_STAGE_DEFINITIONS]
 
-_CROSS_CUTTING_DEFINITIONS: tuple[dict[str, Any], ...] = ()
+_CROSS_CUTTING_DEFINITIONS: tuple[dict[str, Any], ...] = cross_cutting_definitions()
 _CROSS_CUTTING_ORDER = [str(item.get("key") or "") for item in _CROSS_CUTTING_DEFINITIONS]
 
 _SCENARIO_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -447,16 +400,17 @@ _SCENARIO_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 _SCENARIO_PATTERNS += (
-    ("submission_success_state", ("\u6295\u7a3f\u6210\u529f", "\u5ba1\u6838\u4e2d", "\u5f39\u7a97", "submission success")),
-    ("community_empty_state", ("\u4f5c\u6587\u5708\u7a7a\u72b6\u6001", "\u4f5c\u6587\u5708\u6682\u65e0", "\u6682\u65e0\u4f5c\u6587", "\u65e0\u6570\u636e", "community empty")),
-    ("full_text_copy", ("\u590d\u5236\u5168\u6587", "\u5168\u6587\u590d\u5236", "\u590d\u5236\u6210\u529f", "copy full text")),
-    ("polish_original_compare", ("\u5168\u6587\u6da6\u8272", "\u539f\u6587\u5bf9\u6bd4", "\u5bf9\u6bd4\u663e\u793a", "polish original compare")),
-    ("technique_practice_answer", ("\u6280\u6cd5\u5de9\u56fa\u7b54\u9898", "\u7b54\u9898\u7ed3\u679c", "\u7b54\u6848\u72b6\u6001", "technique practice")),
-    ("category_sorting", ("\u8bed\u6587\u5206\u7c7b", "\u5206\u7c7b\u6392\u5e8f", "\u7c7b\u76ee\u6392\u5e8f", "category sorting")),
-    ("upload_image_management", ("\u4e0a\u4f20\u56fe\u7247", "\u5220\u9664\u56fe\u7247", "\u62d6\u52a8", "\u7f29\u7565\u56fe", "upload image management")),
-    ("essay_limit_20", ("\u6211\u7684\u4f5c\u658720\u6761", "20\u6761\u4e0a\u9650", "\u6700\u591a20", "essay limit 20")),
+    ("submission_success_state", ("投稿成功", "审核中", "弹窗", "submission success")),
+    ("community_empty_state", ("作文圈空状态", "作文圈暂无", "暂无作文", "无数据", "community empty")),
+    ("full_text_copy", ("复制全文", "全文复制", "复制成功", "copy full text")),
+    ("polish_original_compare", ("全文润色", "原文对比", "对比显示", "polish original compare")),
+    ("technique_practice_answer", ("技法巩固答题", "答题结果", "答案状态", "technique practice")),
+    ("category_sorting", ("语文分类", "分类排序", "类目排序", "category sorting")),
+    ("upload_image_management", ("上传图片", "删除图片", "拖动", "缩略图", "upload image management")),
+    ("essay_limit_20", ("我的作文20条", "20条上限", "最多20", "essay limit 20")),
 )
 _SCENARIO_PATTERNS += scenario_pattern_entries()
+_SCENARIO_POLICY_BY_KEY = {policy.key: policy for policy in iter_scenario_family_policies()}
 
 _SPECIFIC_SCENARIO_KINDS = {
     "submission_success_state",
@@ -573,84 +527,10 @@ _STAGE_TRAILING_NOISE_RE = re.compile(
     r"页面|页|模块|面板|区域|列表|详情|流程|验证)\s*$",
     re.IGNORECASE,
 )
-_INTENT_ACTION_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("submit", ("submit", "commit", "publish", "post", "提交", "投稿", "发布")),
-    ("open", ("open", "enter", "view", "click", "tap", "打开", "进入", "查看", "点击")),
-    ("switch", ("switch", "toggle", "filter", "select", "切换", "筛选", "选择")),
-    ("delete", ("delete", "remove", "clear", "删除", "移除", "清空")),
-    ("copy", ("copy", "复制")),
-    ("upload", ("upload", "attach", "上传", "选择图片", "选择文件")),
-    ("share", ("share", "link", "分享", "链接")),
-    ("download", ("download", "export", "pdf", "下载", "导出")),
-    ("sort", ("sort", "order", "rank", "排序")),
-    ("edit", ("edit", "input", "modify", "填写", "编辑", "修改", "输入")),
-)
-_INTENT_OUTCOME_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("toast", ("toast", "提示", "复制成功", "成功", "失败原因")),
-    ("navigate", ("navigate", "redirect", "jump", "跳转", "返回", "进入")),
-    ("dialog", ("dialog", "popup", "modal", "tips", "弹窗", "浮层", "蒙层")),
-    ("status", ("status", "badge", "state", "状态", "标识", "红点", "置灰", "锁")),
-    ("list", ("list", "empty", "列表", "缺省", "空状态")),
-    ("content", ("display", "show", "render", "显示", "展示", "内容")),
-    ("permission", ("permission", "auth", "member", "权限", "会员", "不可点击")),
-    ("count", ("count", "quota", "limit", "数量", "次数", "上限")),
-    ("sort", ("sort", "rank", "order", "排序", "权重")),
-)
-_INTENT_STOPWORDS = {
-    "test",
-    "case",
-    "verify",
-    "validation",
-    "page",
-    "module",
-    "status",
-    "button",
-    "user",
-    "system",
-    "click",
-    "view",
-    "validate",
-    "validation",
-    "shown",
-    "correctly",
-    "correct",
-    "recalculate",
-    "recalculated",
-    "after",
-    "before",
-    "current",
-    "follows",
-    "follow",
-    "display",
-    "displays",
-    "shown",
-    "show",
-    "opens",
-    "open",
-    "page",
-    "a",
-    "an",
-    "the",
-    "are",
-    "is",
-    "visible",
-    "filtering",
-}
-_COMPLEXITY_HINTS = (
-    "同时",
-    "分别",
-    "全部",
-    "所有",
-    "以及",
-    "并且",
-    "且",
-    "包含",
-    "both",
-    "all",
-    "respectively",
-    "and",
-    "as well as",
-)
+_INTENT_ACTION_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = intent_action_keywords()
+_INTENT_OUTCOME_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = intent_outcome_keywords()
+_INTENT_STOPWORDS = intent_stopwords()
+_COMPLEXITY_HINTS = complexity_hints()
 
 
 def _keyword_position(text: str, keywords: tuple[str, ...]) -> int | None:
@@ -755,54 +635,11 @@ def _specific_scenario_matches(scenario_key: str, text: str, keywords: tuple[str
     return _keyword_score(normalized, keywords) >= 4 or _keyword_hit_count(normalized, keywords) >= 2
 
 
-_CROSS_CUTTING_HINTS = (
-    "异常",
-    "例外",
-    "权限",
-    "额度",
-    "限制",
-    "历史",
-    "补做",
-    "补学",
-    "全局",
-    "规则",
-    "风险",
-    "exception",
-    "permission",
-    "quota",
-    "limit",
-    "history",
-    "global",
-    "rule",
-    "risk",
-)
+_CROSS_CUTTING_HINTS = cross_cutting_hints()
 
-_DATA_FLOW_PHASES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("entry_capture", ("拍照", "拍摄", "上传", "采集", "识别", "批改", "入口", "capture", "upload", "import", "entry")),
-    ("review_confirm", ("复核", "审核", "审批", "确认", "修正", "review", "approve", "confirm", "correct")),
-    ("artifact_list", ("习题本", "错题本", "题本", "列表", "workbook", "notebook", "dashboard", "list")),
-    ("artifact_detail", ("详情", "解析", "答案", "detail", "answer", "analysis")),
-    ("learning_plan", ("提升计划", "学习计划", "方案", "课程", "看视频", "切片", "plan", "course", "lesson", "slice")),
-    ("completion_summary", ("完成", "复盘", "成果", "汇总", "summary", "complete", "completion")),
-    ("report", ("报告", "成长报告", "周报", "分享", "report", "share")),
-    ("access_limit", ("额度", "权限", "拦截", "次数", "quota", "permission", "limit", "gate")),
-    ("global_exception", ("全局", "异常", "空状态", "无数据", "exception", "global", "empty")),
-    ("history_makeup", ("历史", "补做", "补学", "history", "makeup")),
-)
-
+_DATA_FLOW_PHASES: tuple[tuple[str, tuple[str, ...]], ...] = data_flow_phases()
 _DATA_FLOW_PHASE_RANK = {phase: index for index, (phase, _tokens) in enumerate(_DATA_FLOW_PHASES)}
-_DATA_FLOW_PHASE_TIE_PRIORITY = {
-    "review_confirm": 0,
-    "entry_capture": 1,
-    "artifact_list": 2,
-    "artifact_detail": 3,
-    "learning_plan": 4,
-    "completion_summary": 5,
-    "report": 6,
-    "access_limit": 7,
-    "global_exception": 8,
-    "history_makeup": 9,
-}
+_DATA_FLOW_PHASE_TIE_PRIORITY = data_flow_phase_tie_priority()
 _DATA_FLOW_CROSS_CUTTING_PHASES = {"access_limit", "global_exception", "history_makeup"}
 
 
@@ -1158,20 +995,45 @@ def _case_intent_parts(case: dict[str, Any]) -> tuple[str, str, str]:
     return action, compact_object, outcome
 
 
-def classify_case_scenario_key(case: dict[str, Any], flow_stage: str | None = None) -> str:
+def _scenario_policy_allowed_for_domain(scenario_key: str, primary_domain: str) -> bool:
+    if not primary_domain:
+        return True
+    policy = _SCENARIO_POLICY_BY_KEY.get(str(scenario_key or ""))
+    if policy is None:
+        return True
+    return str(policy.domain or "general") in {"general", str(primary_domain)}
+
+
+def _scenario_patterns_for_domain(primary_domain: str = "") -> tuple[tuple[str, tuple[str, ...]], ...]:
+    if not primary_domain:
+        return _SCENARIO_PATTERNS
+    return tuple(
+        (scenario_key, keywords)
+        for scenario_key, keywords in _SCENARIO_PATTERNS
+        if _scenario_policy_allowed_for_domain(scenario_key, primary_domain)
+    )
+
+
+def classify_case_scenario_key(
+    case: dict[str, Any],
+    flow_stage: str | None = None,
+    *,
+    primary_domain: str = "",
+) -> str:
     text = _flatten_case_text(case)
     intent_text = _flatten_case_intent_text(case)
     stage = str(flow_stage or "unknown")
     action, compact_object, outcome = _case_intent_parts(case)
+    scenario_patterns = _scenario_patterns_for_domain(primary_domain)
     specific_patterns = [
         (scenario_key, keywords)
-        for scenario_key, keywords in _SCENARIO_PATTERNS
+        for scenario_key, keywords in scenario_patterns
         if scenario_key in _SPECIFIC_SCENARIO_KINDS
     ]
     specific_patterns.sort(key=lambda item: (_SPECIFIC_SCENARIO_PRECEDENCE.get(item[0], 10), item[0]))
     generic_patterns = [
         (scenario_key, keywords)
-        for scenario_key, keywords in _SCENARIO_PATTERNS
+        for scenario_key, keywords in scenario_patterns
         if scenario_key not in _SPECIFIC_SCENARIO_KINDS
     ]
     for scenario_key, keywords in [*specific_patterns, *generic_patterns]:
@@ -1244,6 +1106,7 @@ def analyze_case_structure(
 ) -> dict[str, Any]:
     """Annotate candidate cases with flow-stage, scenario-cluster and ordering diagnostics."""
     normalized_cases = [item for item in (cases or []) if isinstance(item, dict)]
+    primary_domain = infer_primary_domain_tag(requirement_context)
     flow_outline = extract_flow_outline(requirement_context, normalized_cases, project_profile=project_profile)
     flow_order = [str(item) for item in (flow_outline.get("flow_order") or []) if str(item)]
     flow_labels = dict(flow_outline.get("flow_labels") or {})
@@ -1258,7 +1121,7 @@ def analyze_case_structure(
     for index, case in enumerate(normalized_cases, start=1):
         stage = classify_case_flow_stage(case, flow_outline)
         cross_cutting = classify_case_cross_cutting(case, flow_outline)
-        scenario_key = classify_case_scenario_key(case, stage)
+        scenario_key = classify_case_scenario_key(case, stage, primary_domain=primary_domain)
         intent_signature = classify_case_intent_signature(case, stage)
         duplicate_group_key = intent_signature if ":semantic:" in scenario_key and intent_signature else scenario_key
         complexity = case_complexity_profile(case)
@@ -1347,6 +1210,7 @@ def analyze_case_structure(
     missing_flow_stages = [stage for stage in flow_order if stage not in covered_flow_stages]
     return {
         "flow_outline": flow_outline,
+        "primary_domain": primary_domain,
         "rows": rows,
         "stage_breakdown": stage_breakdown,
         "missing_flow_stages": missing_flow_stages,
@@ -1390,9 +1254,9 @@ def _case_value_score(case: dict[str, Any], original_index: int) -> tuple[int, i
 def _legacy_compatibility_penalty(case: dict[str, Any]) -> int:
     text = _flatten_case_text(case)
     legacy_hits = (
-        "\u65e7\u7248\u672c",
-        "\u65e7\u7248",
-        "\u517c\u5bb9\u6a21\u5f0f",
+        "旧版本",
+        "旧版",
+        "兼容模式",
         "legacy",
         "compatibility mode",
     )
@@ -1442,6 +1306,55 @@ def _scenario_policy(project_profile: dict[str, Any] | None) -> dict[str, Any]:
     if isinstance(project_profile, dict) and isinstance(project_profile.get("scenario_cluster_policy"), dict):
         return dict(project_profile.get("scenario_cluster_policy") or {})
     return {}
+
+
+def summarize_duplicate_excess_by_policy(
+    structure: dict[str, Any],
+    *,
+    project_profile: dict[str, Any] | None = None,
+    default_max: int = 2,
+) -> dict[str, Any]:
+    """Count only duplicate clusters that exceed the active scenario cap policy."""
+    clusters = [
+        dict(item)
+        for item in (structure.get("duplicate_clusters") or [])
+        if isinstance(item, dict)
+    ] if isinstance(structure, dict) else []
+    scenario_policy = _scenario_policy(project_profile)
+    disable_category_pruning = bool(scenario_policy.get("disable_scenario_pruning"))
+    intent_duplicate_cap = max(1, int(scenario_policy.get("intent_duplicate_cap") or 1))
+    excess_clusters: list[dict[str, Any]] = []
+    excess_case_count = 0
+
+    for cluster in clusters:
+        scenario_key = str(cluster.get("scenario_key") or "")
+        group_type = str(cluster.get("group_type") or "scenario")
+        size = max(0, int(cluster.get("size") or 0))
+        if size <= 1:
+            continue
+        if disable_category_pruning:
+            continue
+        cap = intent_duplicate_cap if group_type == "intent" else _scenario_max_keep(
+            scenario_key,
+            default_max=default_max,
+            project_profile=project_profile,
+        )
+        excess = max(0, size - int(cap or 1))
+        if excess <= 0:
+            continue
+        item = dict(cluster)
+        item["allowed_cap"] = int(cap or 1)
+        item["excess_case_count"] = int(excess)
+        excess_clusters.append(item)
+        excess_case_count += int(excess)
+
+    return {
+        "duplicate_excess_cluster_count": int(len(excess_clusters)),
+        "duplicate_excess_case_count": int(excess_case_count),
+        "duplicate_excess_clusters": excess_clusters,
+        "raw_duplicate_cluster_count": int(structure.get("duplicate_cluster_count") or len(clusters)) if isinstance(structure, dict) else 0,
+        "raw_duplicate_case_count": int(structure.get("duplicate_case_count") or 0) if isinstance(structure, dict) else 0,
+    }
 
 
 def _renumber_cases(cases: list[dict[str, Any]], start_id: int) -> list[dict[str, Any]]:
@@ -1494,7 +1407,7 @@ def govern_cases_by_flow_structure(
             continue
         group_type = str(cluster.get("group_type") or "scenario")
         indices = [int(item) for item in (cluster.get("candidate_indices") or []) if int(item or 0) > 0]
-        if disable_category_pruning and group_type != "intent":
+        if disable_category_pruning:
             continue
         max_keep = intent_duplicate_cap if group_type == "intent" else _scenario_max_keep(
                 scenario_key,
@@ -1562,6 +1475,12 @@ def govern_cases_by_flow_structure(
         "scenario_duplicate_cluster_count": int(structure.get("duplicate_cluster_count") or 0),
         "flow_misordered_count_before": int(structure.get("misordered_count") or 0),
         "missing_flow_stage_count": int(structure.get("missing_flow_stage_count") or 0),
+        "registry_impact": diagnose_registry_impact(
+            normalized_cases,
+            scenario_keys=[str(row_by_index.get(i, {}).get("scenario_key") or "")
+                           for i in range(len(normalized_cases))],
+            mode=str(project_profile.get("generation_coverage_mode") or "").strip() if project_profile else "",
+        ),
     }
 
 

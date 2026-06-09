@@ -2,6 +2,31 @@ from __future__ import annotations
 
 from typing import Any
 
+from .postprocess_priority_config import (
+    behavior_depth_tokens,
+    blocking_tokens,
+    cross_page_flow_tokens,
+    focus_boundary_tokens,
+    focus_exception_tokens,
+    focus_state_tokens,
+    high_frequency_tokens,
+    important_content_limit_tokens,
+    important_detail_navigation_tokens,
+    important_non_blocking_tokens,
+    important_regression_tokens,
+    main_workflow_tokens,
+    preferred_pattern_categories,
+    preferred_pattern_text_tokens,
+    reuse_risk_tokens,
+    scoring_deltas,
+    severe_data_risk_tokens,
+    severe_security_risk_tokens,
+    state_guard_tokens,
+    state_transition_tokens,
+    ui_keywords,
+    ui_risk_words,
+    usability_degraded_tokens,
+)
 from .result_postprocess_priority_rules import (
     _build_priority_coverage_context,
     _contains_any,
@@ -30,153 +55,47 @@ def score_case_priority(
     def _focus_score(value: str) -> int:
         lowered = str(value or "").lower()
         points = 0
-        if _contains_any(lowered, ("边界", "最大", "最小", "临界", "boundary", "max", "min")):
+        if _contains_any(lowered, focus_boundary_tokens()):
             points += 2
-        if _contains_any(lowered, ("异常", "失败", "错误", "拒绝", "exception", "error", "invalid")):
+        if _contains_any(lowered, focus_exception_tokens()):
             points += 2
-        if _contains_any(lowered, ("状态", "流转", "state", "transition")):
+        if _contains_any(lowered, focus_state_tokens()):
             points += 1
         return points
 
     def _is_ui_like_case(value: str) -> bool:
         lowered = str(value or "").lower()
-        ui_keywords = (
-            "入口",
-            "图标",
-            "按钮",
-            "展示",
-            "布局",
-            "占位",
-            "置灰",
-            "文案",
-            "显示",
-            "隐藏",
-            "可点击",
-            "样式",
-            "icon",
-            "button",
-            "display",
-            "layout",
-            "placeholder",
-            "style",
-        )
-        ui_hit_count = sum(1 for token in ui_keywords if token in lowered)
+        _ui_keywords = ui_keywords()
+        ui_hit_count = sum(1 for token in _ui_keywords if token in lowered)
         if ui_hit_count <= 0:
             return False
-        risk_words = ("异常", "失败", "错误", "权限", "安全", "并发", "性能", "exception", "error", "security", "permission")
-        if _contains_any(lowered, risk_words):
+        _risk_words = ui_risk_words()
+        if _contains_any(lowered, _risk_words):
             return False
         return bool(ui_hit_count >= 2)
 
     main_workflow_hit = _contains_any(
         text,
-        (
-            "登录",
-            "下单",
-            "支付",
-            "提交",
-            "保存",
-            "发布",
-            "审批",
-            "核心查询",
-            "核心流程",
-            "checkout", "order", "payment", "submit", "save", "publish", "approve", "login",
-        ),
+        main_workflow_tokens(),
     )
     cross_page_flow_hit = _contains_any(
         text,
-        (
-            "cross-page",
-            "cross page",
-            "cross module",
-            "page jump",
-            "navigation chain",
-            "\u8de8\u9875",
-            "\u8de8\u9875\u9762",
-            "\u9875\u9762\u8df3\u8f6c",
-            "\u8de8\u6a21\u5757",
-            "\u8df3\u8f6c",
-        ),
+        cross_page_flow_tokens(),
     )
     state_transition_hit = _contains_any(
         text,
-        (
-            "state transition",
-            "state-transition",
-            "state flow",
-            "status change",
-            "\u72b6\u6001\u6d41\u8f6c",
-            "\u72b6\u6001\u8fc1\u79fb",
-            "\u72b6\u6001\u53d8\u66f4",
-            "\u4e2d\u65ad",
-            "\u6062\u590d",
-            "\u91cd\u8fdb",
-        ),
+        state_transition_tokens(),
     )
     pattern_category_raw = str(case.get("pattern_category") or case.get("patternCategory") or "").strip().lower()
-    preferred_pattern_categories = {
-        "core_flow_closure",
-        "cross_page_flow",
-        "multi_step_interaction",
-        "state_transition",
-        "key_path_coverage",
-        "complex_business_combination",
-        "high_value_assertion",
-        "boundary_effective_coverage",
-        "\u6838\u5fc3\u6d41\u7a0b\u95ed\u73af",
-        "\u8de8\u9875\u9762\u6d41\u7a0b",
-        "\u591a\u6b65\u9aa4\u4ea4\u4e92",
-        "\u72b6\u6001\u6d41\u8f6c",
-        "\u5173\u952e\u8def\u5f84\u8986\u76d6",
-        "\u590d\u6742\u4e1a\u52a1\u7ec4\u5408",
-        "\u9ad8\u4ef7\u503c\u65ad\u8a00",
-        "\u8fb9\u754c\u6709\u6548\u8986\u76d6",
-    }
-    preferred_pattern_hit = bool(pattern_category_raw in preferred_pattern_categories) or _contains_any(
+    _preferred_categories = preferred_pattern_categories()
+    preferred_pattern_hit = bool(pattern_category_raw in _preferred_categories) or _contains_any(
         text,
-        (
-            "preferred pattern",
-            "core flow closure",
-            "cross-page flow",
-            "multi-step interaction",
-            "key-path coverage",
-            "\u6838\u5fc3\u6d41\u7a0b\u95ed\u73af",
-            "\u8de8\u9875\u9762\u6d41\u7a0b",
-            "\u591a\u6b65\u9aa4\u4ea4\u4e92",
-            "\u72b6\u6001\u6d41\u8f6c",
-            "\u5173\u952e\u8def\u5f84\u8986\u76d6",
-        ),
+        preferred_pattern_text_tokens(),
     )
+
     reuse_risk_hit = _contains_any(
         text,
-        (
-            "\u590d\u7528",
-            "\u6cbf\u7528",
-            "\u539f\u6a21\u5757",
-            "\u539f\u9875\u9762",
-            "\u65e7\u6309\u94ae",
-            "\u65e7\u6587\u6848",
-            "\u65e7\u8df3\u8f6c",
-            "\u6b8b\u7559",
-            "\u8fd4\u56de\u9996\u9875",
-            "\u8fd4\u56de\u5217\u8868",
-            "\u56de\u9996\u9875",
-            "\u56de\u5217\u8868",
-            "\u8fd4\u56de\u76ee\u6807",
-            "\u4e0d\u4e32\u8bfe\u6587",
-            "\u4e0d\u4e32\u5355\u5143",
-            "\u4e32\u539f\u6a21\u5757",
-            "reuse",
-            "reused",
-            "legacy behavior",
-            "legacy button",
-            "wrong return target",
-            "return home",
-            "return list",
-            "shared page",
-            "shared flow",
-            "context leak",
-        ),
+        reuse_risk_tokens(),
     )
     if cross_page_flow_hit and "cross_page_flow_hit" not in reasons:
         reasons.append("cross_page_flow_hit")
@@ -189,166 +108,93 @@ def score_case_priority(
 
     blocking_hit = _contains_any(
         text,
-        (
-            "阻断",
-            "无法继续",
-            "不可继续",
-            "无法提交",
-            "无法保存",
-            "流程中断",
-            "系统不可用",
-            "阻塞",
-            "blocked", "blocker", "cannot continue", "service unavailable",
-        ),
+        blocking_tokens(),
     )
     severe_data_risk = _contains_any(
         text,
-        (
-            "数据丢失",
-            "数据错误",
-            "状态污染",
-            "脏数据",
-            "金额错误",
-            "重复扣款",
-            "错账",
-            "账务错误",
-            "data loss", "data corruption", "amount mismatch", "state corruption",
-        ),
+        severe_data_risk_tokens(),
     )
     severe_security_risk = _contains_any(
         text,
-        (
-            "越权",
-            "权限绕过",
-            "提权",
-            "敏感数据泄露",
-            "认证绕过",
-            "鉴权绕过",
-            "sql injection",
-            "xss",
-            "csrf", "auth bypass", "privilege escalation", "security breach",
-        ),
+        severe_security_risk_tokens(),
     )
     case_level_release_blocking = _contains_case_level_release_blocking(text)
 
     if main_workflow_hit:
-        _add("main_workflow_hit", 25)
+        _add("main_workflow_hit", scoring_deltas()["main_workflow_hit"])
     if blocking_hit:
-        _add("workflow_blocking", 25)
+        _add("workflow_blocking", scoring_deltas()["workflow_blocking"])
     if severe_data_risk:
-        _add("severe_data_risk", 20)
+        _add("severe_data_risk", scoring_deltas()["severe_data_risk"])
     if severe_security_risk:
-        _add("severe_security_risk", 20)
+        _add("severe_security_risk", scoring_deltas()["severe_security_risk"])
     if case_level_release_blocking:
-        _add("case_level_release_blocking", 20)
+        _add("case_level_release_blocking", scoring_deltas()["case_level_release_blocking"])
 
     important_non_blocking = (
-        _contains_any(text, ("重要", "关键功能", "重要流程", "核心功能", "important", "critical flow"))
+        _contains_any(text, important_non_blocking_tokens())
         and not blocking_hit
     )
     high_frequency_main_flow = _contains_any(
         text,
-        ("高频", "频繁", "常用", "daily", "high frequency", "frequent"),
+        high_frequency_tokens(),
     )
     important_detail_navigation = _contains_any(
         text,
-        (
-            "分句点评",
-            "划线句子",
-            "点评跳转",
-            "sentence comment",
-            "underlined sentence",
-            "comment jump",
-        ),
+        important_detail_navigation_tokens(),
     )
     important_personal_content_limit = _contains_any(
         text,
-        (
-            "我的作文最多20条",
-            "我的作文最多 20 条",
-            "作品最多20条",
-            "作品最多 20 条",
-            "my essays max 20",
-            "my compositions max 20",
-        ),
+        important_content_limit_tokens(),
     )
     usability_degraded = _contains_any(
         text,
-        ("体验劣化", "体验差", "功能异常但可用", "可继续", "degraded", "still usable", "usability"),
+        usability_degraded_tokens(),
     )
-    important_regression = _contains_any(text, ("重要回归", "关键回归", "regression", "回归验证", "历史缺陷复测"))
-
+    important_regression = _contains_any(
+        text,
+        important_regression_tokens(),
+    )
     if important_non_blocking:
-        _add("important_non_blocking_flow", 12)
+        _add("important_non_blocking_flow", scoring_deltas()["important_non_blocking_flow"])
     if high_frequency_main_flow:
-        _add("high_frequency_main_flow", 10)
+        _add("high_frequency_main_flow", scoring_deltas()["high_frequency_main_flow"])
     if important_detail_navigation:
-        _add("important_detail_navigation", 35)
+        _add("important_detail_navigation", scoring_deltas()["important_detail_navigation"])
     if important_personal_content_limit:
-        _add("important_personal_content_limit", 35)
+        _add("important_personal_content_limit", scoring_deltas()["important_personal_content_limit"])
     if usability_degraded:
-        _add("degraded_but_usable", 10)
+        _add("degraded_but_usable", scoring_deltas()["degraded_but_usable"])
     if important_regression:
-        _add("important_regression_validation", 8)
+        _add("important_regression_validation", scoring_deltas()["important_regression_validation"])
     if reuse_risk_hit:
-        _add("reuse_risk_hit", 8)
+        _add("reuse_risk_hit", scoring_deltas()["reuse_risk_hit"])
 
     focus_score = int(_focus_score(text))
     ui_like_case = bool(_is_ui_like_case(text))
     steps = case.get("steps")
     step_count = len([item for item in steps if str(item or "").strip()]) if isinstance(steps, list) else 0
     step_text = " ".join([str(item) for item in steps if str(item or "").strip()]).lower() if isinstance(steps, list) else ""
-    behavior_depth_tokens = (
-        "状态",
-        "恢复",
-        "重试",
-        "回滚",
-        "幂等",
-        "一致",
-        "不丢上下文",
-        "不串课文",
-        "不错跳",
-        "上下文保持",
-        "断言",
-        "assert",
-        "state transition",
-        "context",
-        "consistent",
-        "resume",
-        "rollback",
-        "idempotent",
-    )
-    has_behavior_depth = _contains_any(text, behavior_depth_tokens)
-    state_guard_tokens = (
-        "\u4e0d\u4e32\u8bfe\u6587",
-        "\u4e0d\u4e32\u5355\u5143",
-        "\u4e0d\u4e22\u4e0a\u4e0b\u6587",
-        "\u4e0d\u9519\u8bef\u63a8\u8fdb",
-        "\u4e0d\u6807\u8bb0\u5b8c\u6210",
-        "\u4fdd\u6301\u5f53\u524d\u8282\u70b9",
-        "context preserved",
-        "no wrong progression",
-        "keep current node",
-        "no cross-unit leak",
-        "no cross-lesson leak",
-    )
-    has_state_guard_signal = _contains_any(text, state_guard_tokens)
+    _behavior_depth_tokens = behavior_depth_tokens()
+    has_behavior_depth = _contains_any(text, _behavior_depth_tokens)
+    _state_guard_tokens = state_guard_tokens()
+    has_state_guard_signal = _contains_any(text, _state_guard_tokens)
     return_reenter = (
-        ("\u8fd4\u56de", "\u518d\u8fdb\u5165"),
+        ("返回", "再进入"),
         ("return", "re-enter"),
         ("return", "reenter"),
     )
     prev_next = (
-        ("\u4e0a\u4e00\u6b65", "\u4e0b\u4e00\u6b65"),
+        ("上一步", "下一步"),
         ("previous step", "next step"),
     )
     interrupt_resume = (
-        ("\u4e2d\u65ad", "\u6062\u590d"),
+        ("中断", "恢复"),
         ("interrupt", "resume"),
     )
     has_step_guard_sequence = any(all(token in step_text for token in pattern) for pattern in (return_reenter + prev_next + interrupt_resume))
-    failure_guard_tokens = ("\u5931\u8d25", "\u5f02\u5e38", "failure", "failed", "error")
-    current_hold_tokens = ("\u5f53\u524d\u9875", "\u5f53\u524d\u72b6\u6001", "current page", "current state")
+    failure_guard_tokens = ("失败", "异常", "failure", "failed", "error")
+    current_hold_tokens = ("当前页", "当前状态", "current page", "current state")
     has_failure_hold_sequence = _contains_any(step_text, failure_guard_tokens) and _contains_any(step_text, current_hold_tokens)
     if ui_like_case and (
         bool(cross_page_flow_hit)
@@ -380,12 +226,12 @@ def score_case_priority(
             "validation",
         ),
     ):
-        _add("boundary_or_low_risk_validation", -10)
+        _add("boundary_or_low_risk_validation", scoring_deltas()["boundary_or_low_risk_validation"])
     if _contains_any(
         text,
         ("长尾", "低频", "补充场景", "补充异常", "非常规", "long-tail", "rare", "supplemental"),
     ):
-        _add("long_tail_or_supplemental", -12)
+        _add("long_tail_or_supplemental", scoring_deltas()["long_tail_or_supplemental"])
     if _contains_any(
         text,
         (
@@ -399,12 +245,12 @@ def score_case_priority(
             "non-critical performance", "non-core compatibility",
         ),
     ):
-        _add("non_critical_perf_or_ui", -15)
+        _add("non_critical_perf_or_ui", scoring_deltas()["non_critical_perf_or_ui"])
     if _contains_any(
         text,
         ("仅补全", "完整性检查", "覆盖率补齐", "completeness-only", "for completeness"),
     ):
-        _add("completeness_only", -12)
+        _add("completeness_only", scoring_deltas()["completeness_only"])
 
     effective_coverage_context = (
         coverage_context
@@ -430,16 +276,16 @@ def score_case_priority(
     unique_coverage_hits = [rid for rid in dict.fromkeys(unique_coverage_hits) if rid in covered_set]
 
     if core_rule_hits:
-        _add("core_workflow_rule_hit", 8)
+        _add("core_workflow_rule_hit", scoring_deltas()["core_workflow_rule_hit"])
         coverage_gain_score += 8
 
     release_rule_hits = [rid for rid in covered_rule_ids if bool((rule_meta_map.get(rid) or {}).get("rule_is_release_blocking"))]
     if release_rule_hits:
         if case_level_release_blocking or blocking_hit:
-            _add("release_blocking_rule_hit", 12)
+            _add("release_blocking_rule_hit", scoring_deltas()["release_blocking_rule_hit"])
             coverage_gain_score += 12
         else:
-            _add("release_blocking_rule_hit_rule_only", 4)
+            _add("release_blocking_rule_hit_rule_only", scoring_deltas()["release_blocking_rule_hit_rule_only"])
             coverage_gain_score += 4
 
     security_or_data_hits = [
@@ -449,7 +295,7 @@ def score_case_priority(
         or bool((rule_meta_map.get(rid) or {}).get("rule_is_data_critical"))
     ]
     if security_or_data_hits:
-        _add("security_or_data_critical_rule_hit", 15)
+        _add("security_or_data_critical_rule_hit", scoring_deltas()["security_or_data_critical_rule_hit"])
         coverage_gain_score += 15
 
     missing_critical_hits = [
@@ -461,7 +307,7 @@ def score_case_priority(
         or bool((rule_meta_map.get(rid) or {}).get("rule_is_data_critical"))
     ]
     if missing_critical_hits:
-        _add("missing_critical_rule_hit", 10)
+        _add("missing_critical_rule_hit", scoring_deltas()["missing_critical_rule_hit"])
         coverage_gain_score += 10
 
     unique_critical_hits = [
@@ -473,7 +319,7 @@ def score_case_priority(
         or bool((rule_meta_map.get(rid) or {}).get("rule_is_data_critical"))
     ]
     if unique_critical_hits:
-        _add("unique_critical_rule_coverage", 5)
+        _add("unique_critical_rule_coverage", scoring_deltas()["unique_critical_rule_coverage"])
         coverage_gain_score += 5
 
     if covered_rule_ids:
@@ -483,7 +329,7 @@ def score_case_priority(
             for rid in covered_rule_ids
         )
         if all_covered_normal and not unique_coverage_hits:
-            _add("redundant_covered_normal_rules", -10)
+            _add("redundant_covered_normal_rules", scoring_deltas()["redundant_covered_normal_rules"])
             coverage_gain_score -= 10
 
         all_low_risk_supplemental = all(
@@ -491,7 +337,7 @@ def score_case_priority(
             for rid in covered_rule_ids
         ) and _contains_any(text, ("边界", "格式", "文案", "long-tail", "supplemental", "补充", "低风险"))
         if all_low_risk_supplemental:
-            _add("low_risk_supplemental_rule_only", -8)
+            _add("low_risk_supplemental_rule_only", scoring_deltas()["low_risk_supplemental_rule_only"])
             coverage_gain_score -= 8
 
     structural_p2_signals = _contains_any(
@@ -525,7 +371,7 @@ def score_case_priority(
         ),
     )
     if structural_p2_signals:
-        _add("structural_p2_low_value_signal", -10)
+        _add("structural_p2_low_value_signal", scoring_deltas()["structural_p2_low_value_signal"])
 
     has_coverage_signals = bool(covered_rule_ids or missing_rule_hits or core_rule_hits or unique_coverage_hits)
     # 覆盖增益判定放宽：核心规则命中 / 唯一覆盖命中也算信息增益，避免被误判为“无增益”。
@@ -537,7 +383,7 @@ def score_case_priority(
         or missing_critical_hits
     )
     if has_coverage_signals and not has_info_gain:
-        _add("no_coverage_information_gain", -10)
+        _add("no_coverage_information_gain", scoring_deltas()["no_coverage_information_gain"])
         coverage_gain_score -= 10
 
     low_risk_only_covered = bool(covered_rule_ids) and bool(not missing_rule_hits) and all(
@@ -569,19 +415,19 @@ def score_case_priority(
         if coverage_value_exempt:
             p2_cap_exempted = True
             p2_cap_exemption_reasons.append("exempt_non_positive_gain_due_to_coverage_value")
-            _add("coverage_gain_non_positive", -6)
+            _add("coverage_gain_non_positive", scoring_deltas()["coverage_gain_non_positive"])
         else:
-            _add("p2_cap_no_coverage_gain_without_hard_guard", -12)
+            _add("p2_cap_no_coverage_gain_without_hard_guard", scoring_deltas()["p2_cap_no_coverage_gain_without_hard_guard"])
             p2_cap = True
 
     if low_risk_only_covered and not missing_rule_hits:
         if coverage_value_exempt:
             p2_cap_exempted = True
             p2_cap_exemption_reasons.append("exempt_low_risk_only_due_to_coverage_value")
-            _add("low_risk_only_covered_rules_penalty", -8)
+            _add("low_risk_only_covered_rules_penalty", scoring_deltas()["low_risk_only_covered_rules_penalty"])
             coverage_gain_score -= 8
         else:
-            _add("p2_cap_low_risk_only_covered_rules", -12)
+            _add("p2_cap_low_risk_only_covered_rules", scoring_deltas()["p2_cap_low_risk_only_covered_rules"])
             coverage_gain_score -= 12
             p2_cap = True
 
@@ -589,9 +435,9 @@ def score_case_priority(
         if coverage_value_exempt:
             p2_cap_exempted = True
             p2_cap_exemption_reasons.append("exempt_structural_display_due_to_coverage_value")
-            _add("structural_display_mapping_penalty", -6)
+            _add("structural_display_mapping_penalty", scoring_deltas()["structural_display_mapping_penalty"])
         else:
-            _add("p2_cap_display_mapping_scenario", -10)
+            _add("p2_cap_display_mapping_scenario", scoring_deltas()["p2_cap_display_mapping_scenario"])
             p2_cap = True
 
     guards = {

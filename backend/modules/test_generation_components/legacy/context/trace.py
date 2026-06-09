@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from core.db.models import LogEntry
 from modules.domain.stage25_switches import STAGE25_SWITCHES
-from modules.testing.test_generation_components.prompting.generation_diagnostics import (
+from ...prompting.generation_diagnostics import (
     build_context_source_log,
     build_final_context_trace,
 )

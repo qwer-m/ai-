@@ -181,6 +181,10 @@ body.ui-overhaul-v4 .dashboard-shell .text-secondary {
   flex-shrink: 0;
 }
 
+.inline-status-text {
+  white-space: pre-wrap;
+}
+
 .inline-status-spin {
   animation: inline-spin 1s linear infinite;
 }

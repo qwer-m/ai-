@@ -8,16 +8,16 @@ from typing import Any
 from modules.memory_fabric.contracts.memory_context import MemoryContext
 from modules.memory_fabric.contracts.memory_fabric import MemoryFabric
 from modules.memory_fabric.runtime.diagnostics import record_memory_read
-from modules.test_generation_components.control.fact_profile_activation import (
+from ..control.fact_profile_activation import (
     build_fact_profile,
     merge_fact_profile_control_state,
 )
-from modules.test_generation_components.control.feedback_control_state import FeedbackControlState
-from modules.test_generation_components.control.project_profile_activation import (
+from ..control.feedback_control_state import FeedbackControlState
+from ..control.project_profile_activation import (
     build_project_profile,
     merge_project_profile_control_state,
 )
-from modules.test_generation_components.prompting.structured_context_split_helpers import (
+from .structured_context_split_helpers import (
     _biz_tag,
     _clip_text,
     _collect_biz_counts_from_chunks,
@@ -835,6 +835,7 @@ def _build_control_context(
     generation_profile = dict((state.source_meta or {}).get("generation_coverage_profile") or {})
     fact_profile = dict((state.source_meta or {}).get("fact_profile") or {})
     project_profile = dict((state.source_meta or {}).get("project_profile") or {})
+    manual_quality_profile = dict((state.source_meta or {}).get("manual_quality_profile") or {})
     project_flow_outline = dict(project_profile.get("flow_outline") or {})
     generation_coverage_mode = str(generation_profile.get("coverage_mode") or "").strip()
     summary = {
@@ -847,6 +848,7 @@ def _build_control_context(
         "soft_constraints_count": int(len(state.soft_constraints)),
         "rule_quota_keys": sorted(list((state.rule_quota or {}).keys())),
         "quality_fix_hints_count": int(len(state.quality_fix_hints)),
+        "workflow_blueprint_count": int(len(state.workflow_blueprints)),
         "soft_constraints_in_prompt": bool(include_soft_constraints_in_text),
         "quality_fix_hints_in_prompt": bool(include_quality_fix_hints_in_text),
         "preferred_quota_variant": "B" if preferred_quota_active else "A",
@@ -864,6 +866,11 @@ def _build_control_context(
         "project_profile_confidence": float(project_profile.get("confidence") or 0.0),
         "project_profile_flow_count": int(len(project_flow_outline.get("flow_order") or [])),
         "project_profile_cross_cutting_count": int(len(project_flow_outline.get("cross_cutting") or [])),
+        "manual_quality_profile_source": str(manual_quality_profile.get("profile_source") or "").strip(),
+        "manual_quality_profile_version": str(manual_quality_profile.get("profile_version") or "").strip(),
+        "manual_quality_profile_trusted_count": int(manual_quality_profile.get("trusted_sample_count") or 0),
+        "manual_quality_profile_high_priority_ratio": float(manual_quality_profile.get("high_priority_ratio") or 0.0),
+        "manual_quality_profile_display_ratio_cap": float(manual_quality_profile.get("display_ratio_cap") or 0.0),
         "source_meta": dict(state.source_meta or {}),
     }
 
@@ -874,9 +881,11 @@ def _build_control_context(
         or state.forbidden_patterns
         or state.preferred_patterns
         or state.reuse_risks
+        or state.workflow_blueprints
         or generation_coverage_mode
         or fact_profile
         or project_profile
+        or manual_quality_profile
         or (include_soft_constraints_in_text and state.soft_constraints)
         or (include_quality_fix_hints_in_text and state.quality_fix_hints)
     )
@@ -923,6 +932,24 @@ def _build_control_context(
     lines.append("### REUSE RISKS")
     if state.reuse_risks:
         lines.extend([f"* {item}" for item in state.reuse_risks])
+    else:
+        lines.append("* (none)")
+
+    lines.append("")
+    lines.append("### WORKFLOW BLUEPRINTS")
+    if state.workflow_blueprints:
+        for blueprint in state.workflow_blueprints[:5]:
+            if not isinstance(blueprint, dict):
+                continue
+            name = str(blueprint.get("name") or blueprint.get("id") or "workflow").strip()
+            steps = [step for step in (blueprint.get("steps") or []) if isinstance(step, dict)]
+            labels = [
+                str(step.get("label") or step.get("action") or step.get("id") or "").strip()
+                for step in steps[:12]
+                if str(step.get("label") or step.get("action") or step.get("id") or "").strip()
+            ]
+            if labels:
+                lines.append(f"* {name}: {' -> '.join(labels)}")
     else:
         lines.append("* (none)")
 
@@ -976,6 +1003,35 @@ def _build_control_context(
             lines.append(
                 f"* default max per scenario: {int(scenario_policy.get('default_max_per_scenario') or 2)}"
             )
+
+    if manual_quality_profile:
+        priority_distribution = dict(manual_quality_profile.get("priority_distribution") or {})
+        module_distribution = dict(manual_quality_profile.get("module_distribution_top") or {})
+        lifecycle_fields = [
+            str(item).strip()
+            for item in (manual_quality_profile.get("execution_lifecycle_fields") or [])
+            if str(item).strip()
+        ]
+        lines.append("")
+        lines.append("### MANUAL QUALITY PROFILE")
+        lines.append(f"* source: {str(manual_quality_profile.get('profile_source') or 'unknown')}")
+        lines.append(f"* version: {str(manual_quality_profile.get('profile_version') or '')}")
+        lines.append(f"* trusted samples: {int(manual_quality_profile.get('trusted_sample_count') or 0)}")
+        lines.append("* Use this as stable delivery-quality target; do not hard-code its business values.")
+        if priority_distribution:
+            parts = [f"{key}:{int(value)}" for key, value in priority_distribution.items()]
+            lines.append(f"* target priority mix: {', '.join(parts[:8])}")
+        high_ratio = float(manual_quality_profile.get("high_priority_ratio") or 0.0)
+        if high_ratio > 0:
+            lines.append(f"* target P0/P1 ratio: about {int(round(high_ratio * 100.0))}%")
+        display_cap = float(manual_quality_profile.get("display_ratio_cap") or 0.0)
+        if display_cap > 0:
+            lines.append(f"* display-only cap: <= {int(round(display_cap * 100.0))}%")
+        if module_distribution:
+            modules = [str(key) for key in module_distribution.keys()]
+            lines.append(f"* target module coverage: {', '.join(modules[:12])}")
+        if lifecycle_fields:
+            lines.append(f"* lifecycle fields to preserve: {', '.join(lifecycle_fields[:8])}")
 
     if generation_coverage_mode:
         target_range = dict(generation_profile.get("target_case_range") or {})

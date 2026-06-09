@@ -17,7 +17,7 @@ from modules.testing.priority_sample_pool_store import (
     upsert_priority_sample_pool,
 )
 from modules.testing.sample_pool_shadow_store import shadow_read_consistency_check
-from modules.test_generation_components.repositories.history_repository import (
+from ..repositories.history_repository import (
     TestGenerationHistoryRepository,
 )
 from routers.automation.test_generation_shared import (

@@ -1151,8 +1151,9 @@ def test_full_mode_shortfall_supplement_recovers_below_floor_result() -> None:
     assert review_summary["final_shortfall_supplement_attempted"] is True
     assert review_summary["final_shortfall_supplement_applied"] is True
     assert review_summary["final_shortfall_supplement_count"] > 0
+    assert review_summary["final_scenario_duplicate_case_count"] == 0
     assert summary["underfilled"] is False
-    assert any("SHORTFALL_SUPPLEMENT" in prompt for prompt in client.prompts)
+    assert any("Generate up to 26 additional" in prompt for prompt in client.prompts)
 
 
 def test_full_mode_marks_below_recommended_floor_underfilled_even_when_candidates_are_few() -> None:

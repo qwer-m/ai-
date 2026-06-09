@@ -9,6 +9,7 @@ from modules.test_generation_components.services.final_case_learning_service imp
     parse_test_cases_spreadsheet_bytes,
     parse_test_cases_payload,
 )
+from modules.test_generation_components.control.feedback_control_state import FeedbackControlState
 from routers.automation.test_generation_history_routes import FinalCaseLearningRequest
 
 
@@ -266,8 +267,221 @@ def test_final_case_learning_aggregates_final_cases_into_patterns() -> None:
     assert diagnostics["final_case_count"] == 7
     assert diagnostics["positive_candidate_count"] == 7
     assert diagnostics["positive_sample_count"] == 2
+    assert diagnostics["workflow_blueprint_sample_count"] == 0
     assert diagnostics["positive_aggregation_policy"].startswith("pattern_key")
     assert all(item["pattern_grain"] == "pattern" for item in result["positive_samples"])
+
+
+def test_final_case_learning_emits_ordered_workflow_blueprint_sample() -> None:
+    result = build_learning_samples_from_final_cases(
+        generated_cases=[],
+        final_cases=[
+            {
+                "id": "TC-H-001",
+                "description": "Open checkout and submit payment",
+                "test_module": "checkout",
+                "steps": ["open checkout", "submit payment"],
+                "expected_result": "payment is accepted and order is created",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-H-002",
+                "description": "Order detail shows paid status",
+                "test_module": "order detail",
+                "steps": ["open order detail"],
+                "expected_result": "order status is paid",
+                "priority": "P0",
+            },
+        ],
+        requirement_text="checkout payment flow",
+        generation_id=500,
+    )
+
+    blueprint_sample = result["positive_samples"][0]
+    assert blueprint_sample["pattern_grain"] == "workflow_blueprint"
+    assert blueprint_sample["pattern_category"] == "main_smoke_flow"
+    steps = blueprint_sample["workflow_blueprint"]["steps"]
+    assert [step["source_case_id"] for step in steps] == ["TC-H-001", "TC-H-002"]
+    assert steps[0]["state_in"] == "checkout_order_initial"
+    assert steps[1]["state_in"] == steps[0]["state_out"]
+    assert steps[0]["action"] == "submit_payment"
+    assert all(step["path_type"] == "positive" for step in steps)
+    assert all(step["can_advance_main_flow"] is True for step in steps)
+
+
+def test_final_case_learning_blueprint_excludes_non_advancing_cases_and_uses_semantic_states() -> None:
+    result = build_learning_samples_from_final_cases(
+        generated_cases=[],
+        final_cases=[
+            {
+                "id": "TC-H-001",
+                "description": "权限：非督导角色访问排课页面提示无权限",
+                "test_module": "排课",
+                "steps": ["使用学员账号访问排课页"],
+                "expected_result": "页面提示无权限",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-H-002",
+                "description": "排课新增计划第一步选择课程",
+                "test_module": "排课-新增计划",
+                "steps": ["督导进入新增计划", "选择课程", "点击下一步"],
+                "expected_result": "课程加入已选列表并进入时间设置步骤",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-H-003",
+                "description": "排课新增计划第二步设置上课日期和时间",
+                "test_module": "排课-新增计划",
+                "steps": ["设置上课日期和时间", "点击下一步"],
+                "expected_result": "时间配置保存到计划草稿并进入预览步骤",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-H-004",
+                "description": "排课新增计划第三步预览并保存",
+                "test_module": "排课-新增计划",
+                "steps": ["查看预览", "点击保存"],
+                "expected_result": "计划保存成功",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-H-005",
+                "description": "学生端首页本周任务展示新增课程",
+                "test_module": "首页本周任务",
+                "steps": ["打开学生端首页"],
+                "expected_result": "本周任务展示新增课程",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-H-006",
+                "description": "埋点：首页任务卡片点击上报",
+                "test_module": "埋点",
+                "steps": ["点击任务卡片"],
+                "expected_result": "点击事件成功上报",
+                "priority": "P1",
+            },
+        ],
+        requirement_text="督导新增排课计划，保存后学生首页展示本周任务",
+        generation_id=501,
+    )
+
+    blueprint = result["positive_samples"][0]["workflow_blueprint"]
+    steps = blueprint["steps"]
+    assert blueprint["state_machine_version"] == "workflow-blueprint-v2"
+    assert [step["source_case_id"] for step in steps] == [
+        "TC-H-002",
+        "TC-H-003",
+        "TC-H-004",
+        "TC-H-005",
+    ]
+    assert [step["state_out"] for step in steps] == [
+        "schedule_courses_selected",
+        "schedule_time_configured",
+        "schedule_plan_saved",
+        "student_home_weekly_task_visible",
+    ]
+    assert [step["state_in"] for step in steps[1:]] == [step["state_out"] for step in steps[:-1]]
+    assert all(step["workflow_id"] == "workflow_blueprint_501" for step in steps)
+
+
+def test_final_case_learning_blueprint_scans_past_early_downstream_display_cases() -> None:
+    early_display_cases = [
+        {
+            "id": f"TC-D-{index:03d}",
+            "description": f"Student dashboard weekly card visible {index}",
+            "test_module": "student home",
+            "steps": ["open student home"],
+            "expected_result": "weekly task card is visible",
+            "priority": "P0",
+        }
+        for index in range(1, 11)
+    ]
+    result = build_learning_samples_from_final_cases(
+        generated_cases=[],
+        final_cases=[
+            *early_display_cases,
+            {
+                "id": "TC-CFG-001",
+                "description": "Create lesson plan and select course",
+                "test_module": "lesson plan",
+                "steps": ["open create plan", "select course", "click next"],
+                "expected_result": "course is selected and time setup is available",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-PRE-001",
+                "description": "Preview lesson plan summary",
+                "test_module": "lesson plan",
+                "steps": ["review preview"],
+                "expected_result": "selected course and time are shown before saving",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-SAVE-001",
+                "description": "Save lesson plan",
+                "test_module": "lesson plan",
+                "steps": ["click save"],
+                "expected_result": "plan saved successfully",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-VIS-001",
+                "description": "Student side lesson plan visible after save",
+                "test_module": "student side",
+                "steps": ["open student side learning plan"],
+                "expected_result": "saved plan is visible and consistent with supervisor side",
+                "priority": "P0",
+            },
+        ],
+        requirement_text="create a lesson plan, save it, then verify student side visibility",
+        generation_id=601,
+    )
+
+    blueprint = result["positive_samples"][0]["workflow_blueprint"]
+    stage_kinds = [step["stage_kind"] for step in blueprint["steps"]]
+
+    assert "configure" in stage_kinds
+    assert "preview" in stage_kinds
+    assert "commit" in stage_kinds
+    assert "downstream_visibility" in stage_kinds
+    assert stage_kinds.index("commit") < stage_kinds.index("downstream_visibility")
+    assert any(step["source_case_id"] == "TC-VIS-001" for step in blueprint["steps"])
+
+
+def test_feedback_control_state_roundtrips_workflow_blueprints() -> None:
+    state = FeedbackControlState.from_dict(
+        {
+            "workflow_blueprints": [
+                {
+                    "id": "checkout_flow",
+                    "name": "checkout flow",
+                    "steps": [
+                        {"id": "submit", "label": "Submit order"},
+                        {"id": "verify", "label": "Verify paid status"},
+                    ],
+                }
+            ]
+        }
+    )
+    merged = state.merge(
+        FeedbackControlState(
+            workflow_blueprints=[
+                {
+                    "id": "checkout_flow",
+                    "steps": [
+                        {"id": "submit", "label": "Submit order"},
+                        {"id": "verify", "label": "Verify paid status"},
+                    ],
+                }
+            ]
+        )
+    )
+
+    assert merged.has_signals() is True
+    assert len(merged.workflow_blueprints) == 1
+    payload = merged.to_dict()
+    assert payload["workflow_blueprints"][0]["steps"][1]["label"] == "Verify paid status"
 
 
 def test_parse_csv_final_cases_with_chinese_headers() -> None:
@@ -368,19 +582,19 @@ def test_parse_test_cases_spreadsheet_bytes_reads_uploaded_xlsx_rows() -> None:
 
     workbook = openpyxl.Workbook()
     sheet = workbook.active
-    sheet.title = "\u529f\u80fd\u6d4b\u8bd5"
-    sheet.append(["\u76f8\u5173\u6587\u6863", "", "\u8fd1\u671f\u8bfe\u7a0b+\u6392\u8bfe"])
-    sheet.append(["\u7528\u4f8b\u6807\u9898", "\u6d4b\u8bd5\u6a21\u5757", "\u6267\u884c\u6b65\u9aa4", "\u9884\u671f\u7ed3\u679c", "\u7528\u4f8b\u7ea7\u522b"])
-    sheet.append(["\u6392\u8bfe\u5c55\u793a\u5165\u53e3", "\u5165\u53e3", "\u4e66\u623fapp-\u9996\u9875", "\u9876\u90e8\u5c55\u793a\u672c\u5468\u8fdb\u5ea6", "P0"])
-    sheet.append(["\u8bfe\u7a0b\u5361\u7247\u5c55\u793a", "\u672c\u5468\u8bfe\u7a0b\u6a21\u5757", "\u6253\u5f00\u9996\u9875", "\u5c55\u793a\u8bfe\u7a0b\u540d\u79f0", "P1"])
+    sheet.title = "功能测试"
+    sheet.append(["相关文档", "", "近期课程+排课"])
+    sheet.append(["用例标题", "测试模块", "执行步骤", "预期结果", "用例级别"])
+    sheet.append(["排课展示入口", "入口", "书房app-首页", "顶部展示本周进度", "P0"])
+    sheet.append(["课程卡片展示", "本周课程模块", "打开首页", "展示课程名称", "P1"])
     buffer = BytesIO()
     workbook.save(buffer)
 
-    cases = parse_test_cases_spreadsheet_bytes("\u8fd1\u671f\u8bfe\u7a0b+\u6392\u8bfe.xlsx", buffer.getvalue())
+    cases = parse_test_cases_spreadsheet_bytes("近期课程+排课.xlsx", buffer.getvalue())
 
     assert len(cases) == 2
-    assert cases[0]["description"] == "\u6392\u8bfe\u5c55\u793a\u5165\u53e3"
-    assert cases[0]["test_module"] == "\u5165\u53e3"
+    assert cases[0]["description"] == "排课展示入口"
+    assert cases[0]["test_module"] == "入口"
     assert cases[0]["priority"] == "P0"
 
 

@@ -6,7 +6,7 @@ import json
 from io import StringIO
 from typing import Any
 
-from modules.test_generation_components.control.feedback_control_state import FeedbackControlState
+from .feedback_control_state import FeedbackControlState
 
 
 def _parse_case_count(raw: Any) -> int:

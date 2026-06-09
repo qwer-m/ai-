@@ -25,7 +25,15 @@ export function getCopyContent(result: any, streamingContent: string) {
   return '';
 }
 
+export function extractTerminalStreamError(content: string): string | null {
+  const matches = Array.from(String(content || '').matchAll(/(?:^|\r?\n)Error:\s*([^\r\n]+)/g));
+  const message = matches[matches.length - 1]?.[1]?.trim();
+  return message || null;
+}
+
 export function parseMultipleJsonArrays(text: string): any[] {
+  if (extractTerminalStreamError(text)) return [];
+
   const clean = cleanStreamingContent(text).trim();
   if (!clean) return [];
 

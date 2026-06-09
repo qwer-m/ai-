@@ -9,20 +9,20 @@ from core.db.models import TestGeneration
 from modules.memory_fabric.contracts.memory_context import MemoryContext
 from modules.memory_fabric.runtime.diagnostics import init_memory_diag
 from modules.memory_fabric.runtime.factory import get_memory_fabric
-from modules.testing.test_generation_components.prompting.generation_diagnostics import build_gate_reason_chain
-from modules.testing.test_generation_components.control.build_feedback_control_state import (
+from ...prompting.generation_diagnostics import build_gate_reason_chain
+from ...control.build_feedback_control_state import (
     build_feedback_control_state,
 )
-from modules.testing.test_generation_components.control.generation_mode_activation import (
+from ...control.generation_mode_activation import (
     merge_generation_mode_control_state,
     resolve_linked_final_case_signal,
 )
-from modules.testing.test_generation_components.legacy.adapters import (
+from ..adapters import (
     count_unique_test_cases,
     deduplicate_test_cases,
     normalize_json_structure,
 )
-from modules.testing.test_generation_components.postprocess.result_postprocess import prepare_append_existing_cases
+from ...postprocess.result_postprocess import prepare_append_existing_cases
 
 
 class LegacyGenerationStreamPrepareMixin:

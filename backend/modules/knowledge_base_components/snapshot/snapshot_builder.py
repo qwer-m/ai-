@@ -26,35 +26,46 @@ def _env_bool(key: str, default: bool) -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
+def _env_int(key: str, default: int, minimum: int) -> int:
+    raw = os.getenv(key)
+    try:
+        value = int(str(raw if raw is not None else default).strip())
+    except (TypeError, ValueError):
+        value = int(default)
+    return max(int(minimum), value)
+
+
+def _env_float(key: str, default: float, minimum: float, maximum: float | None = None) -> float:
+    raw = os.getenv(key)
+    try:
+        value = float(str(raw if raw is not None else default).strip())
+    except (TypeError, ValueError):
+        value = float(default)
+    value = max(float(minimum), value)
+    if maximum is not None:
+        value = min(float(maximum), value)
+    return value
+
+
 @dataclass(frozen=True)
 class SnapshotBuildConfig:
     """快照构建阈值。"""
 
-    max_docs: int = max(1, int(os.getenv("RAG_SNAPSHOT_MAX_DOCS", "200")))
-    max_snapshot_chars: int = max(4000, int(os.getenv("RAG_SNAPSHOT_MAX_CHARS", "120000")))
-    incremental_doc_threshold: int = max(
-        1, int(os.getenv("RAG_SNAPSHOT_INCREMENTAL_DOC_THRESHOLD", "8"))
+    max_docs: int = _env_int("RAG_SNAPSHOT_MAX_DOCS", 200, 1)
+    max_snapshot_chars: int = _env_int("RAG_SNAPSHOT_MAX_CHARS", 120000, 4000)
+    incremental_doc_threshold: int = _env_int("RAG_SNAPSHOT_INCREMENTAL_DOC_THRESHOLD", 8, 1)
+    incremental_ratio_threshold: float = _env_float(
+        "RAG_SNAPSHOT_INCREMENTAL_RATIO_THRESHOLD", 0.30, 0.0, 1.0
     )
-    incremental_ratio_threshold: float = float(
-        os.getenv("RAG_SNAPSHOT_INCREMENTAL_RATIO_THRESHOLD", "0.30")
-    )
-    full_rebuild_hours: int = max(1, int(os.getenv("RAG_SNAPSHOT_FULL_REBUILD_HOURS", "24")))
-    max_incremental_merges: int = max(
-        1, int(os.getenv("RAG_SNAPSHOT_MAX_INCREMENTAL_MERGES", "4"))
-    )
+    full_rebuild_hours: int = _env_int("RAG_SNAPSHOT_FULL_REBUILD_HOURS", 24, 1)
+    max_incremental_merges: int = _env_int("RAG_SNAPSHOT_MAX_INCREMENTAL_MERGES", 4, 1)
     # 新增：输入保护与分段参数。
-    input_soft_limit: int = max(4000, int(os.getenv("RAG_SNAPSHOT_INPUT_SOFT_LIMIT", "25000")))
-    single_doc_max_chars: int = max(
-        800, int(os.getenv("RAG_SNAPSHOT_SINGLE_DOC_MAX_CHARS", "12000"))
-    )
-    batch_max_docs: int = max(1, int(os.getenv("RAG_SNAPSHOT_BATCH_MAX_DOCS", "12")))
-    final_merge_limit: int = max(
-        4000, int(os.getenv("RAG_SNAPSHOT_FINAL_MERGE_LIMIT", "24000"))
-    )
+    input_soft_limit: int = _env_int("RAG_SNAPSHOT_INPUT_SOFT_LIMIT", 25000, 4000)
+    single_doc_max_chars: int = _env_int("RAG_SNAPSHOT_SINGLE_DOC_MAX_CHARS", 12000, 800)
+    batch_max_docs: int = _env_int("RAG_SNAPSHOT_BATCH_MAX_DOCS", 12, 1)
+    final_merge_limit: int = _env_int("RAG_SNAPSHOT_FINAL_MERGE_LIMIT", 24000, 4000)
     async_prewarm_enabled: bool = _env_bool("RAG_SNAPSHOT_ASYNC_PREWARM", True)
-    enqueue_cooldown_seconds: int = max(
-        5, int(os.getenv("RAG_SNAPSHOT_ENQUEUE_COOLDOWN_SECONDS", "30"))
-    )
+    enqueue_cooldown_seconds: int = _env_int("RAG_SNAPSHOT_ENQUEUE_COOLDOWN_SECONDS", 30, 5)
 
 
 SNAPSHOT_CONFIG = SnapshotBuildConfig()

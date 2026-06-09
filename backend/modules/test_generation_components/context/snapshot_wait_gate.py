@@ -15,9 +15,10 @@ def _env_bool(key: str, default: bool) -> bool:
 
 def _env_int(key: str, default: int, minimum: int) -> int:
     """读取整数环境变量并做下限保护。"""
+    raw = os.getenv(key)
     try:
-        return max(minimum, int(os.getenv(key, str(default))))
-    except Exception:
+        return max(minimum, int(str(raw if raw is not None else default).strip()))
+    except (TypeError, ValueError):
         return max(minimum, int(default))
 
 

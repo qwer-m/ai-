@@ -1,4 +1,4 @@
-﻿"""JSON normalization helpers for test generation postprocessing."""
+"""JSON normalization helpers for test generation postprocessing."""
 
 from __future__ import annotations
 

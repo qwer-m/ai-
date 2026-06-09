@@ -4,6 +4,12 @@ import json
 import re
 from typing import Any, Callable, Iterator
 
+from .postprocess_priority_config import (
+    invalid_case_quality_markers,
+    quality_check_fields,
+    reasoning_leakage_signals,
+)
+from .priority_anchor_rules import p0_cross_domain_essay_case, p0_main_path_anchor
 from .result_postprocess_priority_semantics import (
     apply_priority_semantics_to_case,
     apply_priority_semantics_to_cases,
@@ -12,29 +18,12 @@ from .result_postprocess_priority_semantics import (
     score_case_priority,
 )
 
-_REASONING_LEAKAGE_SIGNALS = (
-    "可能",
-    "似乎",
-    "不合理",
-    "再读需求",
-    "我们按照",
-    "假设此处",
-    "需求说",
-    "按需求原文",
-    "怎么会有",
-    "此处假设",
-    "暂且认为",
-    "assume here",
-    "assuming here",
-    "maybe",
-    "seems",
-    "reread requirement",
-)
+_REASONING_LEAKAGE_SIGNALS = reasoning_leakage_signals()
 
 
 def _case_has_reasoning_leakage(case: dict[str, Any]) -> bool:
     parts: list[str] = []
-    for field in ("preconditions", "steps"):
+    for field in ("description", "preconditions", "steps", "test_input"):
         value = case.get(field)
         if isinstance(value, list):
             parts.extend(str(item) for item in value if str(item).strip())
@@ -53,8 +42,8 @@ def filter_invalid_final_cases(result: Any) -> Any:
     for item in result:
         if not isinstance(item, dict):
             continue
-        quality = str(item.get("case_quality") or item.get("expected_result_quality") or "").strip().lower()
-        if quality == "invalid_case" or _case_has_reasoning_leakage(item):
+        quality = str(item.get(quality_check_fields()[0]) or item.get(quality_check_fields()[1]) or "").strip().lower()
+        if quality in invalid_case_quality_markers() or _case_has_reasoning_leakage(item):
             continue
         filtered.append(item)
     return filtered
@@ -67,129 +56,39 @@ def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") 
     cases = [dict(item) for item in result if isinstance(item, dict)]
     if not cases:
         return []
-    requirement_text_lower = str(requirement_text or "").lower()
-    essay_domain_active = any(
-        token in requirement_text_lower
-        for token in ("\u4f5c\u6587", "\u6295\u7a3f", "\u4f5c\u6587\u5708", "\u5199\u4f5c")
-    ) or (
-        any(token in requirement_text_lower for token in ("\u6279\u6539", "ocr", "\u53bb\u6279\u6539"))
-        and not any(token in requirement_text_lower for token in ("\u6392\u8bfe", "\u8fd1\u671f\u8bfe\u7a0b", "\u5b66\u4e60\u8ba1\u5212", "\u672c\u5468\u8bfe\u7a0b"))
-    )
+    def _is_cross_domain_essay_case(case: dict[str, Any]) -> bool:
+        return p0_cross_domain_essay_case(case, requirement_text=str(requirement_text or ""))
 
     def _public_p0_main_path_anchor(case: dict[str, Any]) -> bool:
-        text = " ".join(
-            [
-                str(case.get("test_module") or ""),
-                str(case.get("description") or ""),
-                str(case.get("expected_result") or ""),
-                str(case.get("test_input") or ""),
-                " ".join(str(step) for step in (case.get("steps") or []) if str(step).strip())
-                if isinstance(case.get("steps"), list)
-                else "",
-            ]
-        ).lower()
-        critical_families = (
-            ("generation_result", ("上传", "去批改", "批改结果")),
-            ("result_display", ("批改反馈", "四部分")),
-            ("result_display", ("综合点评", "分句点评", "提升思路", "全文润色")),
-            ("submission", ("提交", "投稿成功", "审核中")),
-            ("submission", ("投稿页", "提交后", "审核中")),
-            ("approval", ("后台审核通过", "已发布")),
-            ("approval", ("审核通过", "作文圈", "可见")),
-            ("free_first_lesson", ("普通用户", "第一课", "试学")),
-            ("locked_member_courses", ("普通用户", "锁", "会员中心")),
-            ("locked_member_courses", ("其余课程", "锁", "会员中心")),
-            ("member_all_courses", ("会员用户", "所有课程", "可学习")),
-            ("member_all_courses", ("会员", "所有课程", "无锁")),
-            ("delete_restore", ("删除", "已发布", "恢复为未投稿")),
-            ("delete_restore", ("删除", "作文圈", "未投稿")),
-        )
-        if not essay_domain_active:
-            critical_families = tuple(
-                item
-                for item in critical_families
-                if item[0] in {"free_first_lesson", "locked_member_courses", "member_all_courses"}
-            )
-        has_critical_anchor = any(
-            all(token.lower() in text for token in tokens)
-            for _family, tokens in critical_families
-        )
-        core_tokens = (
-            "upload",
-            "submit",
-            "publish",
-            "generate",
-            "generated",
-            "result",
-            "approval",
-            "approved",
-            "review pass",
-            "permission",
-            "member",
-            "locked",
-            "paywall",
-            "first lesson",
-            "all courses",
-            "\u4e0a\u4f20",
-            "\u63d0\u4ea4",
-            "\u6295\u7a3f",
-            "\u53d1\u5e03",
-            "\u751f\u6210",
-            "\u6279\u6539\u7ed3\u679c",
-            "\u5ba1\u6838\u901a\u8fc7",
-            "\u6743\u9650",
-            "\u4f1a\u5458",
-            "\u9501\u5b9a",
-            "\u7b2c\u4e00\u8bfe",
-            "\u5168\u90e8\u8bfe\u7a0b",
-        )
-        low_value_tokens = (
-            "copy",
-            "toast",
-            "popup",
-            "modal",
-            "format",
-            "layout",
-            "sort",
-            "ranking",
-            "download",
-            "pdf",
-            "0 images",
-            "disabled button",
-            "star rating",
-            "countdown",
-            "\u590d\u5236",
-            "\u5f39\u7a97",
-            "\u683c\u5f0f",
-            "\u6837\u5f0f",
-            "\u6392\u5e8f",
-            "\u4e0b\u8f7d",
-            "\u6700\u591a20\u6761",
-            "0\u5f20",
-            "\u6309\u94ae\u4e0d\u53ef\u70b9",
-            "\u5269\u4f59\u6b21\u6570",
-            "\u661f\u661f\u8bc4\u5206",
-            "\u5012\u8ba1\u65f6",
-            "\u5206\u53e5\u70b9\u8bc4",
-        )
-        if not essay_domain_active and any(
-            token in text
-            for token in ("\u4f5c\u6587", "\u6295\u7a3f", "\u4f5c\u6587\u5708", "\u53bb\u6279\u6539")
-        ):
-            return False
-        if has_critical_anchor:
-            return True
-        return any(token in text for token in core_tokens) and not any(token in text for token in low_value_tokens)
+        return p0_main_path_anchor(case, requirement_text=str(requirement_text or ""))
 
     forced_priority_by_signature: dict[str, str] = {}
     for item in cases:
         source = str(item.get("priority_decision_source") or "").strip()
         final_priority = str(item.get("priority_final") or item.get("priority") or "").strip().upper()
-        if source in {
+        is_execution_main_smoke = str(item.get("execution_group") or "").strip() == "main_smoke"
+        if is_execution_main_smoke and final_priority in {"P0", "P1", "P2"}:
+            if final_priority == "P0" and _is_cross_domain_essay_case(item):
+                continue
+            signature = "|".join(
+                [
+                    str(item.get("test_module") or "").strip(),
+                    str(item.get("description") or "").strip(),
+                    str(item.get("expected_result") or "").strip(),
+                    str(item.get("test_input") or "").strip(),
+                ]
+            )
+            if signature:
+                forced_priority_by_signature[signature] = final_priority
+        elif source in {
             "main_path_anchor_floor",
             "main_path_anchor_demoted_non_blocking",
             "model_p0_guard_downgrade",
+            "execution_plan_final_priority",
+            "execution_plan_main_support_step_demoted",
         } and final_priority in {"P0", "P1", "P2"}:
+            if final_priority == "P0" and _is_cross_domain_essay_case(item):
+                continue
             signature = "|".join(
                 [
                     str(item.get("test_module") or "").strip(),
@@ -211,10 +110,7 @@ def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") 
             )
             if signature:
                 forced_priority_by_signature[signature] = "P0"
-    try:
-        from ..coverage.coverage_analyzer import analyze_coverage
-    except Exception:
-        from modules.testing.test_generation_components.coverage.coverage_analyzer import analyze_coverage
+    from ..coverage.coverage_analyzer import analyze_coverage
 
     coverage_context = analyze_coverage(str(requirement_text or ""), cases)
     normalized = apply_priority_semantics_to_cases(
@@ -237,11 +133,24 @@ def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") 
             ]
         )
         forced_priority = forced_priority_by_signature.get(signature) if forced_priority_by_signature else None
+        if _is_cross_domain_essay_case(updated) and str(updated.get("priority") or "").strip().upper() == "P0":
+            updated["priority"] = "P1"
+            updated["priority_final"] = "P1"
+            updated["priority_decision_state"] = "overridden"
+            updated["priority_decision_source"] = "domain_mismatch_p0_demoted"
+            restored.append(updated)
+            continue
         if forced_priority in {"P0", "P1", "P2"}:
+            if forced_priority == "P0" and _is_cross_domain_essay_case(updated):
+                forced_priority = "P1"
             updated["priority"] = forced_priority
             updated["priority_final"] = forced_priority
             updated["priority_decision_state"] = "overridden"
-            updated["priority_decision_source"] = "preserved_priority_override"
+            updated["priority_decision_source"] = (
+                "preserved_execution_plan_priority"
+                if str(updated.get("execution_group") or "").strip() == "main_smoke"
+                else "preserved_priority_override"
+            )
         restored.append(updated)
     if len(restored) >= 80:
         target_p0_count = min(12, max(8, int((len(restored) + 9) // 10)))
@@ -275,7 +184,6 @@ def strip_case_meta_fields(result: Any) -> Any:
         "model_priority_current",
         "model_priority",
         "legacy_priority",
-        "priority_final",
         "priority_decision_state",
         "priority_decision_source",
         "priority_confidence",
@@ -293,10 +201,71 @@ def strip_case_meta_fields(result: Any) -> Any:
         final_priority = str(case.get("priority_final") or "").strip().upper()
         if final_priority in {"P0", "P1", "P2"}:
             case["priority"] = final_priority
+            case["priority_final"] = final_priority
         for field in debug_fields:
             case.pop(field, None)
         cleaned.append(case)
     return cleaned
+
+
+def _semantic_merge_text(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    return re.sub(r"[^\w\u4e00-\u9fff]+", "", text)
+
+
+def _semantic_merge_tokens(case: dict[str, Any]) -> set[str]:
+    steps = case.get("steps")
+    steps_text = " ".join(str(item) for item in steps if str(item).strip()) if isinstance(steps, list) else str(steps or "")
+    text = " ".join(
+        [
+            str(case.get("test_module") or ""),
+            str(case.get("description") or ""),
+            str(case.get("test_input") or ""),
+            str(case.get("expected_result") or ""),
+            steps_text,
+        ]
+    )
+    normalized = _semantic_merge_text(text)
+    tokens = set(re.findall(r"[a-z0-9_]{2,}", normalized))
+    chinese_text = "".join(re.findall(r"[\u4e00-\u9fff]+", normalized))
+    for size in (2, 3):
+        for index in range(0, max(0, len(chinese_text) - size + 1)):
+            tokens.add(chinese_text[index : index + size])
+    return tokens
+
+
+def _semantic_merge_similarity(left: dict[str, Any], right: dict[str, Any]) -> float:
+    left_tokens = _semantic_merge_tokens(left)
+    right_tokens = _semantic_merge_tokens(right)
+    if not left_tokens or not right_tokens:
+        return 0.0
+    return len(left_tokens & right_tokens) / max(1, len(left_tokens | right_tokens))
+
+
+def _is_append_semantic_duplicate(candidate: dict[str, Any], kept: dict[str, Any]) -> bool:
+    left_module = _semantic_merge_text(candidate.get("test_module"))
+    right_module = _semantic_merge_text(kept.get("test_module"))
+    if left_module and right_module and left_module != right_module:
+        return False
+    left_desc = _semantic_merge_text(candidate.get("description"))
+    right_desc = _semantic_merge_text(kept.get("description"))
+    if left_desc and right_desc and (left_desc == right_desc or left_desc in right_desc or right_desc in left_desc):
+        return True
+    return _semantic_merge_similarity(candidate, kept) >= 0.58
+
+
+def _semantic_merge_cases(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    kept: list[dict[str, Any]] = []
+    for item in cases:
+        if not isinstance(item, dict):
+            continue
+        if any(_is_append_semantic_duplicate(item, existed) for existed in kept):
+            continue
+        kept.append(item)
+    return kept
+
 
 def prepare_append_existing_cases(
     existing_generated_result: str | None,
@@ -374,6 +343,7 @@ def merge_cases_for_append(
     merged_result.extend(new_cases)
     merged_result = filter_invalid_final_cases(merged_result)
     merged_result = deduplicate_test_cases_fn(merged_result)
+    merged_result = _semantic_merge_cases(merged_result)
     merged_result = reorder_cases_by_closed_loop_fn(
         merged_result,
         start_id=1,

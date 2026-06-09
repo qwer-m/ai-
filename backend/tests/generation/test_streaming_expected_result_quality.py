@@ -1,0 +1,41 @@
+from __future__ import annotations
+
+from modules.test_generation_components.postprocess.streaming_expected_result_quality import (
+    has_concrete_expected_assertion,
+    has_weak_ambiguous_expected_result,
+    is_ambiguous_expected_result,
+    is_non_assertable_expected_result,
+    looks_template_polluted_expected_result,
+    looks_truncated_text,
+)
+
+
+def test_expected_result_quality_detects_concrete_assertions() -> None:
+    assert has_concrete_expected_assertion("系统提示“课程保存成功”")
+    assert has_concrete_expected_assertion("剩余批改次数显示为 2/5")
+    assert has_concrete_expected_assertion("按钮置灰且不可点击")
+    assert not has_concrete_expected_assertion("结果符合预期")
+
+
+def test_expected_result_quality_marks_weak_or_placeholder_results_non_assertable() -> None:
+    assert is_non_assertable_expected_result("")
+    assert is_non_assertable_expected_result("result is as configured")
+    assert is_non_assertable_expected_result("或显示错误信息")
+    assert has_weak_ambiguous_expected_result("or show error")
+
+
+def test_expected_result_quality_allows_ambiguous_text_when_specific_assertion_exists() -> None:
+    text = "可能显示系统提示“课程保存成功”"
+
+    assert is_ambiguous_expected_result(text)
+    assert has_concrete_expected_assertion(text)
+    assert not has_weak_ambiguous_expected_result(text)
+    assert not is_non_assertable_expected_result(text)
+
+
+def test_expected_result_quality_detects_template_pollution_and_truncation() -> None:
+    assert looks_template_polluted_expected_result("应跳转到目标页面，页面路径与标题均与上传图片显隐原图一致")
+    assert is_non_assertable_expected_result("应跳转到目标页面，页面路径与标题均与上传图片显隐原图一致")
+    assert looks_truncated_text("操作后应正常展")
+    assert looks_truncated_text("操作后显示为。")
+    assert not looks_truncated_text("操作后显示为已排课")
