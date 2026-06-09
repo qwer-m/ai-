@@ -1,0 +1,14 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,学员信息表格-学习进度,P1,P0,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P0,suggested=P2",学员信息表格-学习进度：课后状态显示'报告'和'历史记录'按钮。,REJECT,semantic_duplicate:TC-006,False,False,False
+TC-002,学员信息表格-学习进度,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",学员信息表格-学习进度-未开始：文案显示“暂无学习记录”，按钮显示“学习计划”,REJECT,semantic_duplicate:TC-001,False,False,False
+TC-003,学员信息表格-学习进度,P2,P1,P2,P2,decided,p2_cap_guard,high,,学员信息表格-学习进度：课前状态显示'排课'按钮，携带学员和课程信息跳转。,REJECT,semantic_duplicate:TC-001,False,False,False
+TC-004,学员信息表格-学习进度,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,学员信息表格-学习进度-课后：显示“报告”和“历史记录”两个按钮,REJECT,semantic_duplicate:TC-001,False,False,False
+TC-007,学员信息表格-学习进度,P2,P2,P2,P2,decided,p2_cap_guard,high,,按钮展示逻辑-课前：学员信息表格中，无论课程状态（未开始/课前），'学习计划'按钮始终显示,REJECT,semantic_duplicate:TC-006,False,False,False
+TC-008,学员信息表格-学习进度,P2,P2,P2,P2,decided,p2_cap_guard,high,,学员信息表格-学习进度：课前状态下点击“排课”按钮，携带学员和课程信息跳转至排课页,REJECT,semantic_duplicate:TC-006,False,False,False
+TC-011,排课-新增计划,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,排课-新增计划第二步：课程设置过少无法在计划结束前完成时弹出提示。,REJECT,semantic_duplicate:TC-015,False,False,False
+TC-012,排课-新增计划,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,排课-新增计划-第一步：已选课程列表右侧显示，点击清空按钮清空所有已选课程,REJECT,semantic_duplicate:TC-035,False,False,False
+TC-020,排课-新增计划,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",排课-新增计划-第二步：上课时间设置为空（未选择任何星期）时，提示或禁止进入下一步,PENDING,contains_pending_logic,False,True,False
+TC-021,排课-新增计划,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",排课-新增计划：自动选课按钮点击后，所选课程与测评报告推荐课程一致,PENDING,contains_pending_logic,False,True,False
+TC-023,排课-新增计划,P2,P2,P2,P2,decided,model_semantic_consistent,high,,排课-新增计划第一步：版本、科目、最近测评成绩显示/隐藏，自动选课按钮，全部课程分类展示。,REJECT,semantic_duplicate:TC-018,False,False,False
+TC-026,排课-新增计划,P2,P2,P2,P2,decided,model_semantic_consistent,high,,排课-新增计划-最近测评成绩展示条件：近半年有测评显示文案及自动选课按钮，无则不显示,REJECT,semantic_duplicate:TC-018,False,False,False
+TC-029,排课-新增计划,P2,P2,P2,P2,decided,model_semantic_consistent,high,,排课-新增计划第一步：近半年有测评成绩时显示最近测评成绩文案和自动选课按钮，无测评时隐藏,REJECT,semantic_duplicate:TC-018,False,False,False

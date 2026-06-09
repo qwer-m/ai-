@@ -1,0 +1,6 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-033,学员信息表格-学习进度,P2,P2,P2,P2,decided,model_semantic_consistent,high,,学员信息表格-未开始状态展示暂无学习记录和学习计划按钮,REJECT,semantic_duplicate:TC-030,False,False,False
+TC-034,学员信息表格-学习进度,P2,P2,P2,P2,decided,model_semantic_consistent,high,,学员信息表格-课后状态展示报告和历史记录按钮,REJECT,semantic_duplicate:TC-035,False,False,False
+TC-039,按钮展示逻辑,P2,P2,P2,P2,decided,p2_cap_guard,high,,按钮展示逻辑-课前学习计划始终显示,REJECT,semantic_duplicate:TC-037,False,False,False
+TC-071,学习计划页面,P2,P2,P2,P2,decided,p2_cap_guard,high,,学习计划页面-待学课程卡片点击跳转学习,REJECT,semantic_duplicate:TC-072,False,False,False
+TC-074,学习计划页面,P2,P2,P2,P2,decided,p2_cap_guard,high,,学习计划页面-点击返回跳转至学习计划首页,REJECT,semantic_duplicate:TC-075,False,False,False
