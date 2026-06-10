@@ -64,6 +64,31 @@ class KnowledgeDocumentRepository:
             query = query.filter(KnowledgeDocument.id != exclude_doc_id)
         return query.first()
 
+    def find_latest_by_identity(
+        self,
+        *,
+        project_id: int,
+        user_id: int | None,
+        doc_type: str | None,
+        filename: str,
+        exclude_doc_id: int | None = None,
+    ) -> Optional[KnowledgeDocument]:
+        query = self.db.query(KnowledgeDocument).filter(
+            KnowledgeDocument.project_id == project_id,
+            KnowledgeDocument.filename == filename,
+        )
+        if user_id is None:
+            query = query.filter(KnowledgeDocument.user_id.is_(None))
+        else:
+            query = query.filter(KnowledgeDocument.user_id == user_id)
+        if doc_type is None:
+            query = query.filter(KnowledgeDocument.doc_type.is_(None))
+        else:
+            query = query.filter(KnowledgeDocument.doc_type == doc_type)
+        if exclude_doc_id is not None:
+            query = query.filter(KnowledgeDocument.id != exclude_doc_id)
+        return query.order_by(KnowledgeDocument.created_at.desc(), KnowledgeDocument.id.desc()).first()
+
     def find_by_hash(self, *, content_hash: str) -> Optional[KnowledgeDocument]:
         return (
             self.db.query(KnowledgeDocument)

@@ -241,9 +241,9 @@ def update_document_impl(
 def delete_document_impl(module, doc_id: int, db: Session):
     """Delete a document and clean linked indexes."""
     repo = KnowledgeDocumentRepository(db)
-    doc = repo.get_by_project_specific_id(doc_id)
+    doc = repo.get_by_id(doc_id)
     if not doc:
-        doc = repo.get_by_id(doc_id)
+        doc = repo.get_by_project_specific_id(doc_id)
     if not doc:
         return False
 

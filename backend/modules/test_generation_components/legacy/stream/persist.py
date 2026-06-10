@@ -10,6 +10,7 @@ from ...coverage.core_flow_backfill_generation import (
 from ...postprocess.persistence_gate import (
     build_persistence_gate_diagnostic,
     evaluate_persistence_gate,
+    is_candidate_insufficient_underfill,
     summarize_persistence_case_quality_gate,
 )
 from ...postprocess.case_contract import (
@@ -521,7 +522,8 @@ def _build_case_quality_gate_payload(
         or (judge_reject_clusters.get("reason_clusters") or {}).get("role_mismatch")
     )
     failures: list[str] = []
-    if min_acceptable_final > 0 and final_count < min_acceptable_final:
+    quantity_shortfall_advisory = is_candidate_insufficient_underfill(generation_summary_payload)
+    if min_acceptable_final > 0 and final_count < min_acceptable_final and not quantity_shortfall_advisory:
         failures.append("final_count_below_min_acceptable")
     if quality_score <= 0 or grade == "critical":
         failures.append("quality_score_critical")
@@ -540,6 +542,7 @@ def _build_case_quality_gate_payload(
         "metrics": {
             "final_count": int(final_count),
             "min_acceptable_final": int(min_acceptable_final),
+            "quantity_shortfall_advisory": bool(quantity_shortfall_advisory),
             "quality_score": int(quality_score),
             "quality_score_grade": grade,
             "final_scenario_duplicate_case_count": int(final_duplicate_count),

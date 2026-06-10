@@ -302,6 +302,45 @@ def test_quality_ledger_clusters_judge_reject_reasons_and_keeps_quality_gate_sha
     }.issubset(set(payload["case_quality_gate"]["failure_reasons"]))
 
 
+def test_quality_ledger_marks_candidate_insufficient_underfill_as_advisory() -> None:
+    payload = _build_quality_ledger_payload(
+        generation_id=476,
+        request_id="req-underfill-advisory",
+        mode="multi_pass",
+        stage_counts={},
+        coverage_payload={"coverage_rate": 1.0, "total_rules": 22, "missing_rules": [], "missing_types": {}},
+        convergence_payload={
+            "final_count": 60,
+            "candidate_count_before_review": 60,
+            "review_selected_count": 60,
+        },
+        generation_summary_payload={
+            "final_count": 60,
+            "min_acceptable_final": 85,
+            "quality_assessment": "medium",
+            "underfilled": True,
+            "underfill_reason": "valid_candidate_insufficient",
+            "underfill_root_cause": "candidate_insufficient",
+            "stop_reason": ["underfilled"],
+        },
+        review_decision_summary_payload={
+            "candidate_total": 60,
+            "retained_total": 60,
+            "final_flow_misordered_count": 0,
+            "final_scenario_duplicate_case_count": 0,
+        },
+        judge_summary_payload={"total": 61, "rejected_out_count": 4, "pending_out_count": 0},
+        feedback_control_debug_payload={"control_state_applied": True},
+        compression_diag_payload={},
+        context_result={"context_debug": {"current_document_used": True, "realtime_rag_used": True}},
+    )
+
+    gate = payload["case_quality_gate"]
+    assert gate["passed"] is True
+    assert gate["metrics"]["quantity_shortfall_advisory"] is True
+    assert "final_count_below_min_acceptable" not in set(gate["failure_reasons"])
+
+
 def test_quality_ledger_penalizes_manual_profile_delivery_drift() -> None:
     payload = _build_quality_ledger_payload(
         generation_id=466,

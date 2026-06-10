@@ -43,6 +43,18 @@ def _setting_int(settings: Any, name: str, default: int) -> int:
     return _to_int(getattr(settings, name, default), default)
 
 
+def is_candidate_insufficient_underfill(generation_summary: dict[str, Any] | None) -> bool:
+    """Treat source-model/candidate scarcity as an advisory quantity shortfall."""
+    generation = dict(generation_summary or {})
+    final_count = _to_int(generation.get("final_count") or generation.get("final_case_count_after_backfill"))
+    min_acceptable_final = _to_int(generation.get("min_acceptable_final"))
+    if final_count <= 0 or min_acceptable_final <= 0 or final_count >= min_acceptable_final:
+        return False
+    reason = str(generation.get("underfill_reason") or "").strip()
+    root_cause = str(generation.get("underfill_root_cause") or "").strip()
+    return reason == "valid_candidate_insufficient" or root_cause == "candidate_insufficient"
+
+
 def summarize_persistence_case_quality_gate(
     structure_quality_gate: dict[str, Any] | None = None,
     *,
@@ -83,7 +95,8 @@ def summarize_persistence_case_quality_gate(
         if name not in failed_checks:
             failed_checks.append(name)
 
-    if min_acceptable_final > 0 and final_count < min_acceptable_final:
+    quantity_shortfall_advisory = is_candidate_insufficient_underfill(generation)
+    if min_acceptable_final > 0 and final_count < min_acceptable_final and not quantity_shortfall_advisory:
         add_failure("final_count_below_min_acceptable")
     if rejected_count > max_judge_rejected:
         add_failure("judge_rejected_above_threshold")
@@ -101,6 +114,7 @@ def summarize_persistence_case_quality_gate(
         {
             "final_count": int(final_count),
             "min_acceptable_final": int(min_acceptable_final),
+            "quantity_shortfall_advisory": bool(quantity_shortfall_advisory),
             "judge_rejected_count": int(rejected_count),
             "final_scenario_duplicate_case_count": int(final_duplicate_count),
             "final_flow_misordered_count": int(final_misordered_count),
@@ -172,5 +186,6 @@ def build_persistence_gate_diagnostic(gate_result: dict[str, Any]) -> dict[str, 
 __all__ = [
     "build_persistence_gate_diagnostic",
     "evaluate_persistence_gate",
+    "is_candidate_insufficient_underfill",
     "summarize_persistence_case_quality_gate",
 ]

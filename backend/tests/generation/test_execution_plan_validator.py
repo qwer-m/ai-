@@ -11,6 +11,7 @@ from modules.testing.test_generation_components.postprocess.execution_plan_valid
     ExecutionPlanValidationPolicy,
     materialize_final_case_state_fields,
     validate_execution_plan,
+    validate_main_smoke_semantic_alignment,
 )
 from modules.testing.test_generation_components.postprocess.persistence_gate import (
     evaluate_persistence_gate,
@@ -168,6 +169,24 @@ def test_projected_contract_preserves_explicit_stage_kind_for_gate_validation() 
     assert projected[3]["main_chain_stage_kind"] == "commit"
     assert result["passed"] is True
     assert result["metrics"]["commit_downstream_completion_closed"] is True
+
+
+def test_validator_accepts_view_as_consume_action() -> None:
+    conflicts = validate_main_smoke_semantic_alignment(
+        [
+            {
+                "id": "TC-001",
+                "description": "Student views AI question prompt before answering",
+                "test_module": "AI question prompt",
+                "steps": ["View current AI question prompt"],
+                "expected_result": "question prompt is ready for student answer",
+                "execution_group": "main_smoke",
+                "main_chain_stage_kind": "consume",
+            }
+        ]
+    )
+
+    assert conflicts == []
 
 
 def test_validator_reports_disconnected_state_and_blocking_main_case() -> None:
@@ -357,6 +376,40 @@ def test_persistence_case_quality_gate_fails_batch_quality_metrics() -> None:
     }.issubset(set(quality["failed_checks"]))
     assert quality["metrics"]["final_count"] == 89
     assert quality["metrics"]["judge_rejected_count"] == 44
+
+
+def test_persistence_gate_treats_candidate_insufficient_underfill_as_advisory() -> None:
+    quality = summarize_persistence_case_quality_gate(
+        {"passed": True, "failed_checks": []},
+        generation_summary={
+            "final_count": 60,
+            "min_acceptable_final": 85,
+            "underfilled": True,
+            "underfill_reason": "valid_candidate_insufficient",
+            "underfill_root_cause": "candidate_insufficient",
+            "quality_assessment": "medium",
+        },
+        review_decision_summary={
+            "final_scenario_duplicate_case_count": 0,
+            "final_flow_misordered_count": 0,
+        },
+        judge_summary={"rejected_out_count": 4},
+    )
+
+    assert quality["passed"] is True
+    assert "final_count_below_min_acceptable" not in set(quality["failed_checks"])
+    assert quality["metrics"]["quantity_shortfall_advisory"] is True
+
+    gate = evaluate_persistence_gate(
+        _main_chain_cases(),
+        workflow_blueprints=[_trusted_blueprint()],
+        execution_plan={"workflow_blueprint_source": "feedback_control_state"},
+        quality_gate=quality,
+        settings=_settings("enforce"),
+    )
+
+    assert gate["passed"] is True
+    assert gate["failure_code"] == ""
 
 
 def test_final_case_strip_preserves_formal_priority_and_execution_fields() -> None:
@@ -580,6 +633,104 @@ def test_stream_persistence_blocks_case_quality_even_when_execution_plan_passes(
     assert any('"kind": "generation_quality_ledger"' in item for item in gate_entries)
     assert any('"dominant_reason": "semantic_duplicate"' in item for item in gate_entries)
     assert not [item for item in db.entries if hasattr(item, "generated_result")]
+
+
+def test_stream_persistence_allows_candidate_insufficient_underfill(monkeypatch) -> None:
+    main_cases = []
+    for case in _main_chain_cases():
+        item = dict(case)
+        item["preconditions"] = ["workflow data exists and user is logged in"]
+        item["steps"] = [str(item.get("description") or "run workflow step")]
+        item["test_input"] = "valid workflow input"
+        item["test_module"] = "main workflow"
+        item["priority_final"] = item.get("priority")
+        main_cases.append(item)
+    extra_cases = [
+        {
+            "id": f"TC-{index:03d}",
+            "description": f"independent functional coverage {index}",
+            "test_module": "independent module",
+            "preconditions": ["user is logged in"],
+            "steps": ["open feature", "run action"],
+            "test_input": f"input {index}",
+            "expected_result": f"result {index} is displayed with concrete state",
+            "priority": "P1",
+            "priority_final": "P1",
+            "execution_group": "independent_functional",
+        }
+        for index in range(7, 61)
+    ]
+    cases = main_cases + extra_cases
+
+    def _fake_stream_postprocess_cases(**kwargs):  # noqa: ANN003, ARG001
+        if False:
+            yield None
+        return {
+            "cases": cases,
+            "stage_counts": {"primary": 44, "review": 60},
+            "coverage": {"coverage_rate": 0.8, "total_rules": 10, "missing_rules": [], "missing_types": {}},
+            "convergence_debug": {
+                "final_count": 60,
+                "candidate_count_before_review": 60,
+                "review_selected_count": 60,
+                "judge_rejected_or_pending_count": 4,
+            },
+            "generation_summary": {
+                "final_count": 60,
+                "min_acceptable_final": 85,
+                "quality_assessment": "medium",
+                "underfilled": True,
+                "underfill_reason": "valid_candidate_insufficient",
+                "underfill_root_cause": "candidate_insufficient",
+            },
+            "review_decision_summary": {
+                "execution_plan": {"workflow_blueprint_source": "feedback_control_state"},
+                "candidate_total": 60,
+                "retained_total": 60,
+                "final_scenario_duplicate_case_count": 0,
+                "final_flow_misordered_count": 0,
+            },
+            "judge_summary": {"total": 61, "rejected_out_count": 4, "pending_out_count": 0},
+            "judge_decision_table": [
+                {
+                    "case_id": "TC-039",
+                    "status": "REJECT",
+                    "reject_reason": "semantic_duplicate:TC-038",
+                    "signals": {"is_semantic_duplicate": True},
+                }
+            ],
+        }
+
+    monkeypatch.setattr(stream_persist_mod, "stream_postprocess_cases", _fake_stream_postprocess_cases)
+    monkeypatch.setattr(stream_persist_mod.settings, "EXECUTION_PLAN_GATE_MODE", "enforce", raising=False)
+    db = _FakeDb()
+    state = {
+        "client": object(),
+        "requirement": "compact full regression workflow",
+        "project_id": 7,
+        "db": db,
+        "doc_type": "requirement",
+        "compress": False,
+        "expected_count": 100,
+        "overwrite": False,
+        "append": False,
+        "user_id": 9,
+        "original_requirement": "compact full regression workflow",
+        "feedback_control_state": {
+            "workflow_blueprints": [_trusted_blueprint()]
+        },
+        "generation_mode": "full_functional_regression",
+        "multi_pass": True,
+        "request_id": "req-stream-candidate-insufficient-underfill",
+    }
+
+    output = list(LegacyGenerationStreamPersistMixin()._stream_persist_phase(state=state))
+
+    assert not any("LOW_QUALITY_GENERATED_CASES" in item for item in output)
+    gate_entries = [str(getattr(item, "message", "")) for item in db.entries]
+    assert any('"quantity_shortfall_advisory": true' in item for item in gate_entries)
+    persisted = [item for item in db.entries if hasattr(item, "generated_result")]
+    assert persisted
 
 
 def test_stream_persistence_does_not_mask_explicit_invalid_priority_final(monkeypatch) -> None:

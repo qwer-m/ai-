@@ -1767,8 +1767,8 @@ def stream_postprocess_cases(
                     str(step_meta.get("label") or ""),
                     str(step_meta.get("action") or ""),
                     str(step_meta.get("assertion") or ""),
-                    str(step_meta.get("state_in") or ""),
                     str(step_meta.get("state_out") or ""),
+                    str(step_meta.get("state_out") or "").replace("_", " "),
                 ]
             )
             destructive = bool(_any(text, destructive_action_tokens))
@@ -1878,6 +1878,12 @@ def stream_postprocess_cases(
                     "\u8bc4\u5206\u7ed3\u679c",
                     "\u6253\u5206\u7ed3\u679c",
                     "\u7efc\u5408\u8bc4\u5206",
+                    "visible",
+                    "display",
+                    "displayed",
+                    "show",
+                    "shows",
+                    "shown",
                     "score result",
                     "scoring result",
                 ),
@@ -1949,6 +1955,7 @@ def stream_postprocess_cases(
                         str(meta.get("action") or ""),
                         str(meta.get("assertion") or ""),
                         str(meta.get("state_out") or ""),
+                        str(meta.get("state_out") or "").replace("_", " "),
                     ]
                 )
                 explicit_stage_kind = str(meta.get("stage_kind") or "").strip().lower()
@@ -1957,12 +1964,17 @@ def stream_postprocess_cases(
                 return False, "main_chain_too_short", stage_kinds
             has_commit = "commit" in stage_kinds
             has_downstream = any(kind in {"downstream_visibility", "consume", "completion_sync"} for kind in stage_kinds)
+            first_commit_index = stage_kinds.index("commit") if has_commit else -1
             has_configure = any(kind in {"entry", "configure", "preview"} for kind in stage_kinds)
+            has_pre_commit_consume = bool(
+                first_commit_index > 0
+                and any(kind == "consume" for kind in stage_kinds[:first_commit_index])
+            )
             if not has_commit:
                 return False, "missing_commit_success_step", stage_kinds
             if not has_downstream:
                 return False, "missing_downstream_visibility_or_consume_step", stage_kinds
-            if source == "current_generation_cases" and not has_configure:
+            if source == "current_generation_cases" and not (has_configure or has_pre_commit_consume):
                 return False, "missing_configure_or_entry_step", stage_kinds
             return True, "", stage_kinds
 
@@ -2036,7 +2048,10 @@ def stream_postprocess_cases(
                     "综合评分",
                     "sync",
                     "display",
+                    "displayed",
                     "show",
+                    "shows",
+                    "shown",
                     "effective",
                     "visible",
                     "reflect",
@@ -2082,7 +2097,7 @@ def stream_postprocess_cases(
                 ),
             ):
                 return 60
-            if _token_hit(lowered, ("同步", "展示", "显示", "刷新", "生效", "sync", "display", "show", "effective", "visible", "reflect", "reflects", "reflected", "downstream")):
+            if _token_hit(lowered, ("同步", "展示", "显示", "刷新", "生效", "sync", "display", "displayed", "show", "shows", "shown", "effective", "visible", "reflect", "reflects", "reflected", "downstream")):
                 return 70
             if _any(lowered, ("点击", "跳转", "学习", "查看", "click", "navigate", "learn", "view")):
                 return 80
@@ -2182,6 +2197,8 @@ def stream_postprocess_cases(
                 "sync",
                 "navigate",
                 "click",
+                "view",
+                "learn",
                 "open",
                 "entry",
                 "prepare",
@@ -2259,7 +2276,9 @@ def stream_postprocess_cases(
             )
             derived_workflow_debug["primary_candidate_count"] = int(len(primary_candidates))
             derived_workflow_debug["fallback_candidate_count"] = int(len(fallback_candidates))
-            scored = primary_candidates if len(primary_candidates) >= 2 else fallback_candidates
+            scored = list(primary_candidates if len(primary_candidates) >= 2 else fallback_candidates)
+            if primary_candidates and fallback_candidates:
+                scored.extend(fallback_candidates)
             if len(scored) < 2:
                 derived_workflow_debug["closure_reason"] = "insufficient_action_state_candidates"
                 return None
@@ -2328,56 +2347,8 @@ def stream_postprocess_cases(
                 if reason != "missing_configure_or_entry_step" or not (has_commit and has_downstream):
                     main_chain_incomplete_reason_holder["reason"] = reason
                     return None
-                first_item = selected[0][3] if selected else {}
-                bridge_out = "workflow_entry_ready"
-                bridge_step = {
-                    "id": "derived_entry_bridge",
-                    "label": "Enter workflow entry and prepare valid starting state",
-                    "module": str(first_item.get("test_module") or "workflow_setup")[:80],
-                    "actor": _infer_actor_from_text(_case_text(first_item)),
-                    "action": "Enter workflow entry and prepare valid starting state",
-                    "state_in": "initial",
-                    "state_out": bridge_out,
-                    "assertion": "workflow entry is ready for the next positive state transition",
-                    "test_steps": ["Enter the workflow entry with a valid account and prepare the starting data state"],
-                    "match_keywords": ["__generic_workflow_entry_bridge__"],
-                    "source_case_id": "",
-                    "main_path_step": True,
-                    "allow_bridge": True,
-                }
-                bridged_steps = [bridge_step]
-                previous_state = bridge_out
-                for step in steps:
-                    updated_step = dict(step)
-                    updated_step["state_in"] = previous_state
-                    previous_state = str(updated_step.get("state_out") or previous_state)
-                    bridged_steps.append(updated_step)
-                bridged_selected_for_closure = [
-                    (
-                        str(step.get("id") or ""),
-                        str(step.get("label") or ""),
-                        next(
-                            (
-                                item
-                                for _score, _phase, _index, item in selected
-                                if str(item.get("id") or "") == str(step.get("source_case_id") or "")
-                            ),
-                            {},
-                        ),
-                    )
-                    for step in bridged_steps
-                ]
-                bridge_ok, bridge_reason, _bridge_stage_kinds = _main_chain_closure_status(
-                    bridged_selected_for_closure,
-                    source="current_generation_cases",
-                )
-                if not bridge_ok:
-                    derived_workflow_debug["closure_reason"] = str(bridge_reason or reason or "")
-                    main_chain_incomplete_reason_holder["reason"] = bridge_reason or reason
-                    return None
-                steps = bridged_steps
-                main_chain_incomplete_reason_holder["reason"] = ""
-                derived_workflow_debug["closure_reason"] = "entry_bridge_added"
+                main_chain_incomplete_reason_holder["reason"] = reason
+                return None
             return {
                 "id": "derived_current_generation_workflow",
                 "name": "current generation derived workflow",
@@ -2441,6 +2412,8 @@ def stream_postprocess_cases(
                                 str(step_meta.get("label") or ""),
                                 str(step_meta.get("action") or ""),
                                 str(step_meta.get("assertion") or ""),
+                                str(step_meta.get("state_out") or ""),
+                                str(step_meta.get("state_out") or "").replace("_", " "),
                             ]
                         )
                     )
@@ -2532,7 +2505,7 @@ def stream_postprocess_cases(
         def _contract_materialized_expected_result(label: str, stage_kind: str) -> str:
             stage = str(stage_kind or "").strip().lower()
             if stage == "entry":
-                return f"{label}完成，目标入口页面可继续操作"
+                return f"{label}完成，目标入口页面可执行后续操作"
             if stage == "configure":
                 return f"{label}完成，已选配置在页面中保留并可进入下一步"
             if stage == "preview":
@@ -2583,13 +2556,15 @@ def stream_postprocess_cases(
             bridged_by_stage: list[tuple[str, str, dict[str, Any]]] = []
             current_selected = {stage_key for stage_key, _label, _item in selected_by_stage}
             selected_by_stage_map = {stage_key: (stage_label, item) for stage_key, stage_label, item in selected_by_stage}
-            allow_contract_materialization = bool(strict_blueprint_semantic_filter and selected_by_stage)
+            allow_contract_materialization = bool(strict_blueprint_semantic_filter and trusted_workflow_contracts)
             for stage_key, stage_label, _patterns in main_chain_stages:
                 existing = selected_by_stage_map.get(stage_key)
                 if existing:
                     current_selected.add(stage_key)
                     selected_stage_keys.add(stage_key)
                     bridged_by_stage.append((stage_key, existing[0], existing[1]))
+                    continue
+                if not strict_blueprint_semantic_filter:
                     continue
                 bridge = (
                     _contract_materialized_case(stage_key, available_stage_keys=current_selected)

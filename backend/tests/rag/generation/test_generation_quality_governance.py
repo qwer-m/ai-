@@ -1316,11 +1316,13 @@ def test_trusted_repository_contract_bridges_full_main_chain_when_candidates_do_
         if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
     ]
     assert [item.get("main_chain_stage") for item in main_cases] == [item[0] for item in states]
-    assert all(item.get("workflow_blueprint_bridge") is True for item in main_cases)
+    assert all(item.get("workflow_contract_materialized_case") is True for item in main_cases)
+    assert not any(bool(item.get("generated_bridge_case")) for item in main_cases)
     assert all(str(item.get("priority") or "") == "P0" for item in main_cases)
     plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
     assert plan.get("trusted_workflow_contract_count") == 1
-    assert plan.get("generated_bridge_case_count") == len(states)
+    assert plan.get("generated_bridge_case_count") == 0
+    assert plan.get("workflow_contract_materialized_case_count") == len(states)
     assert plan.get("main_chain_stage_kinds") == [item[5] for item in states]
     assert plan.get("linear_executable") is True
 
@@ -1736,6 +1738,109 @@ def test_current_generation_main_chain_excludes_conditional_visibility_and_resum
     assert "retained dialog history" not in main_descriptions
     assert "commit" in list(plan.get("main_chain_stage_kinds") or [])
     assert plan.get("linear_executable") is True
+
+
+def test_current_generation_main_chain_uses_real_precommit_consume_without_bridge_case() -> None:
+    result = _run_cases(
+        requirement=(
+            "AI tutoring flow: student enters the tutoring dialog, reads the AI question, "
+            "submits an answer, triggers scoring, and then sees the score result."
+        ),
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "Student clicks AI tutoring task before answering",
+                "test_module": "student dialog",
+                "steps": ["Click AI tutoring task"],
+                "expected_result": "answer area is ready for student response",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-002",
+                "description": "Student views AI question prompt before answering",
+                "test_module": "AI question prompt",
+                "steps": ["View current AI question prompt"],
+                "expected_result": "question prompt is ready for student answer",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-003",
+                "description": "Submit answer and trigger score calculation",
+                "test_module": "AI scoring",
+                "steps": ["Submit answer", "Trigger score calculation"],
+                "expected_result": "score calculation is generated successfully",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-004",
+                "description": "Display score result after scoring",
+                "test_module": "score result",
+                "steps": ["Open score result page"],
+                "expected_result": "score result is shown with pass or fail status",
+                "priority": "P1",
+            },
+        ],
+        expected_count=10,
+    )
+
+    main_cases = [
+        item for item in (result.get("cases") or [])
+        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
+    ]
+    plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
+
+    assert main_cases
+    assert not any(bool(item.get("generated_bridge_case")) for item in main_cases)
+    assert plan.get("generated_bridge_case_count") == 0
+    assert "commit" in list(plan.get("main_chain_stage_kinds") or [])
+    assert plan.get("linear_executable") is True
+
+
+def test_current_generation_main_chain_does_not_materialize_internal_entry_bridge() -> None:
+    result = _run_cases(
+        requirement=(
+            "AI tutoring flow: after the student submits an answer, the system triggers scoring "
+            "and displays the score result. No upstream entry or consume step is present."
+        ),
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "Submit answer and trigger score calculation",
+                "test_module": "AI scoring",
+                "steps": ["Submit answer", "Trigger score calculation"],
+                "expected_result": "score calculation is generated successfully",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-002",
+                "description": "Display score result after scoring",
+                "test_module": "score result",
+                "steps": ["Open score result page"],
+                "expected_result": "score result is shown with pass or fail status",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-003",
+                "description": "Show score result details on feedback page",
+                "test_module": "score feedback",
+                "steps": ["Open feedback page", "Display score result details"],
+                "expected_result": "score result details are visible to the student",
+                "priority": "P1",
+            },
+        ],
+        expected_count=10,
+    )
+
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    main_cases = [item for item in output_cases if str(item.get("execution_group") or "") == "main_smoke"]
+    plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
+
+    assert not main_cases
+    assert not any(bool(item.get("generated_bridge_case")) for item in output_cases)
+    assert plan.get("generated_bridge_case_count") == 0
+    assert plan.get("workflow_blueprint_source") == "none"
+    assert plan.get("main_chain_incomplete_reason") == "missing_configure_or_entry_step"
+    assert plan.get("linear_executable") is False
 
 
 def test_execution_plan_does_not_fake_current_main_smoke_when_commit_is_pruned() -> None:
