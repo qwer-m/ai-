@@ -24,13 +24,14 @@ def _run_python_with_backend_path(code: str, env_updates: dict[str, str]) -> sub
     env.update(env_updates)
     backend_path = str(Path.cwd() / "backend")
     env["PYTHONPATH"] = backend_path + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    timeout_seconds = float(env.get("DEPENDENCY_HYGIENE_SUBPROCESS_TIMEOUT", "30"))
     return subprocess.run(
         [sys.executable, "-c", code],
         cwd=Path.cwd(),
         env=env,
         capture_output=True,
         text=True,
-        timeout=15,
+        timeout=timeout_seconds,
     )
 
 

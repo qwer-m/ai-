@@ -699,6 +699,9 @@ def test_apply_priority_semantics_relaxes_workflow_uplift_threshold(monkeypatch)
     }
     output = priority_semantics_module.apply_priority_semantics_to_case(dict(case), attach_debug=True)
     debug = ((output.get("meta") or {}).get("priority_debug") or {})
+    assert output["priority"] == "P1"
+    assert output["priority_final"] == "P1"
+    assert output["priority_decision_source"] == "p1_uplift_signal"
     assert bool(debug.get("p1_uplifted")) is True
     assert str(debug.get("p1_uplift_reason") or "") == "workflow_focus_relaxed"
 

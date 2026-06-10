@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .feedback_control_state import FeedbackControlState
@@ -43,6 +44,27 @@ def _dedupe_texts(values: Any, *, limit: int = 80) -> list[str]:
     return output
 
 
+def _text_key(value: str) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _remove_cross_bucket_overlaps(values: list[str], protected_values: list[str]) -> list[str]:
+    protected_keys = {_text_key(item) for item in protected_values if _text_key(item)}
+    return [item for item in values if _text_key(item) and _text_key(item) not in protected_keys]
+
+
+def _negative_fact_tail_key(text: str) -> str:
+    lowered = str(text or "").strip().lower()
+    if not lowered:
+        return ""
+    pieces = re.split(
+        r"(must not|should not|do not|don't|forbid|forbidden|禁止|不得|不能|不可|不允许)",
+        lowered,
+    )
+    tail = pieces[-1] if pieces else ""
+    return _text_key(tail)
+
+
 def _merge_bucket_values(buckets: list[dict[str, Any]], key: str, *, limit: int = 80) -> list[str]:
     values: list[Any] = []
     for bucket in buckets:
@@ -65,12 +87,23 @@ def normalize_fact_profile(payload: Any) -> dict[str, Any]:
     pending = _dedupe_texts(payload.get("pending_items") or [])
     reuse_declarations = _dedupe_texts(payload.get("reuse_declarations") or [])
     reuse_risks = _dedupe_texts(payload.get("reuse_risks") or [])
-    forbidden = _dedupe_texts(
-        [
-            *(payload.get("forbidden_facts") or []),
-            *[item for item in [*confirmed, *scoped_rules] if _looks_negative(item)],
+    explicit_forbidden = _dedupe_texts(payload.get("forbidden_facts") or [])
+    confirmed_like = [*confirmed, *scoped_rules, *hard_flow]
+    forbidden = _remove_cross_bucket_overlaps(explicit_forbidden, confirmed_like)
+    confirmed_negative_tails = {
+        _negative_fact_tail_key(item)
+        for item in confirmed_like
+        if _looks_negative(item) and _negative_fact_tail_key(item)
+    }
+    if confirmed_negative_tails:
+        forbidden = [
+            item
+            for item in forbidden
+            if not (
+                _negative_fact_tail_key(item)
+                and _negative_fact_tail_key(item) in confirmed_negative_tails
+            )
         ]
-    )
     source_priority = payload.get("source_priority")
     if not isinstance(source_priority, list):
         source_priority = [

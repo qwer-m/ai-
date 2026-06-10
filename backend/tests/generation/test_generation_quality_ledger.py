@@ -214,6 +214,48 @@ def test_quality_ledger_scores_final_structure_instead_of_candidate_noise() -> N
     assert payload["case_quality_gate"]["passed"] is True
 
 
+def test_quality_ledger_does_not_penalize_profile_forbidden_or_dropped_repairable_noise() -> None:
+    payload = _build_quality_ledger_payload(
+        generation_id=469,
+        request_id="req-final-quality",
+        mode="multi_pass",
+        stage_counts={},
+        coverage_payload={"coverage_rate": 1.0, "total_rules": 22, "missing_rules": [], "missing_types": {}},
+        convergence_payload={"final_count": 87},
+        generation_summary_payload={"final_count": 87, "quality_assessment": "medium", "stop_reason": []},
+        review_decision_summary_payload={
+            "candidate_total": 112,
+            "retained_total": 87,
+            "final_flow_misordered_count": 0,
+            "final_scenario_duplicate_case_count": 0,
+            "fact_profile_forbidden_count": 1,
+            "fact_profile_pending_count": 0,
+        },
+        judge_summary_payload={
+            "total": 102,
+            "rejected_out_count": 0,
+            "pending_out_count": 0,
+            "raw_repairable_count": 1,
+            "remaining_repairable_count": 0,
+            "unrepaired_repairable_count": 1,
+            "fact_violation_count": 0,
+        },
+        feedback_control_debug_payload={"control_state_applied": True},
+        compression_diag_payload={},
+        context_result={"context_debug": {"current_document_used": True, "realtime_rag_used": True}},
+    )
+
+    deduction_keys = {item["key"] for item in payload["quality_score_deductions"]}
+    assert "fact_forbidden" not in deduction_keys
+    assert "judge_repairable" not in deduction_keys
+    assert payload["quality_score_inputs"]["fact_profile_forbidden_count"] == 1
+    assert payload["quality_score_inputs"]["fact_violation_count"] == 0
+    assert payload["quality_score_inputs"]["raw_repairable_count"] == 1
+    assert payload["quality_score_inputs"]["repairable_count"] == 0
+    assert payload["judge"]["raw_repairable_count"] == 1
+    assert payload["judge"]["repairable_count"] == 0
+
+
 def test_quality_ledger_clusters_judge_reject_reasons_and_keeps_quality_gate_shadow() -> None:
     rows = [
         {
@@ -310,3 +352,84 @@ def test_quality_ledger_penalizes_manual_profile_delivery_drift() -> None:
     assert "manual_display_ratio_excess" in deduction_keys
     assert payload["quality_score_inputs"]["manual_quality_profile_version"] == "stable-1"
     assert payload["quality_score_basis"].endswith("+manual_profile")
+
+
+def test_quality_ledger_calibrates_curated_profile_for_full_regression_suite_mix() -> None:
+    payload = _build_quality_ledger_payload(
+        generation_id=467,
+        request_id="req-8",
+        mode="multi_pass",
+        stage_counts={},
+        coverage_payload={"coverage_rate": 1.0, "total_rules": 22, "missing_rules": [], "missing_types": {}},
+        convergence_payload={"final_count": 100},
+        generation_summary_payload={
+            "generation_coverage_mode": "full_functional_regression",
+            "final_count": 100,
+            "quality_assessment": "medium",
+            "stop_reason": [],
+            "final_priority_breakdown": {"P0": 10, "P1": 40, "P2": 50},
+            "final_module_breakdown_top": {"core": 100},
+            "final_display_ratio": 0.2,
+            "final_high_priority_ratio": 0.5,
+        },
+        review_decision_summary_payload={
+            "final_flow_misordered_count": 0,
+            "final_scenario_duplicate_case_count": 0,
+        },
+        judge_summary_payload={"total": 100, "rejected_out_count": 0, "pending_out_count": 0},
+        feedback_control_debug_payload={
+            "control_state_applied": True,
+            "source_meta": {
+                "manual_quality_profile": {
+                    "kind": "manual_quality_profile",
+                    "profile_source": "priority_sample_pool_manual_verified",
+                    "profile_version": "curated-1",
+                    "trusted_sample_count": 30,
+                    "profile_case_count": 20,
+                    "priority_distribution": {"P0": 3, "P1": 17},
+                    "module_distribution_top": {"core": 20},
+                    "high_priority_ratio": 1.0,
+                    "display_ratio_cap": 0.45,
+                }
+            },
+        },
+        compression_diag_payload={},
+        context_result={"context_debug": {"current_document_used": True, "realtime_rag_used": True}},
+    )
+
+    manual = payload["manual_delivery"]
+    assert manual["raw_target_high_priority_ratio"] == 1.0
+    assert manual["target_high_priority_ratio"] == 0.6
+    assert manual["high_priority_target_calibrated"] is True
+    assert manual["high_priority_ratio_shortfall"] == 0.1
+    assert manual["effective_priority_distribution_target"]["P2"] == 0.4
+
+
+def test_quality_ledger_tolerates_successfully_pruned_semantic_duplicates() -> None:
+    payload = _build_quality_ledger_payload(
+        generation_id=468,
+        request_id="req-9",
+        mode="multi_pass",
+        stage_counts={},
+        coverage_payload={"coverage_rate": 1.0, "total_rules": 22, "missing_rules": [], "missing_types": {}},
+        convergence_payload={"final_count": 87, "semantic_dedup_dropped_count": 14},
+        generation_summary_payload={"final_count": 87, "quality_assessment": "medium", "stop_reason": []},
+        review_decision_summary_payload={
+            "candidate_total": 112,
+            "retained_total": 87,
+            "final_flow_misordered_count": 0,
+            "final_scenario_duplicate_cluster_count": 0,
+            "final_scenario_duplicate_case_count": 0,
+        },
+        judge_summary_payload={"total": 87, "rejected_out_count": 0, "pending_out_count": 0},
+        feedback_control_debug_payload={"control_state_applied": True},
+        compression_diag_payload={},
+        context_result={"context_debug": {"current_document_used": True, "realtime_rag_used": True}},
+    )
+
+    assert payload["quality_score_inputs"]["semantic_dedup_dropped_count"] == 14
+    assert payload["quality_score_inputs"]["semantic_dedup_penalty_count"] == 5
+    semantic_dedup = [
+        item for item in payload["quality_score_deductions"] if item["key"] == "semantic_dedup"
+    ]
+    assert semantic_dedup[0]["count"] == 5

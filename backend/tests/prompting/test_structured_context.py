@@ -304,13 +304,14 @@ def test_structured_context_builds_fact_and_project_profiles() -> None:
     )
 
     assert output["fact_profile"]["confirmed_facts"]
-    assert output["fact_profile"]["forbidden_facts"]
+    assert any("must not include archived records" in item.lower() for item in output["fact_profile"]["confirmed_facts"])
+    assert output["fact_profile"]["forbidden_facts"] == []
     assert output["project_profile"]["flow_outline"]["flow_order"]
     assert output["project_profile"]["flow_outline"]["data_flow_edges"]
     assert "### FACT PROFILE" in output["control_context"]
     assert "### PROJECT STRUCTURE PROFILE" in output["control_context"]
     assert "* data-flow edges:" in output["control_context"]
-    assert output["feedback_control_state"]["source_meta"]["fact_profile"]["forbidden_facts"]
+    assert output["feedback_control_state"]["source_meta"]["fact_profile"]["forbidden_facts"] == []
     assert output["feedback_control_state"]["source_meta"]["project_profile"]["flow_outline"]["flow_order"]
 
 

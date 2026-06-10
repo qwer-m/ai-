@@ -101,6 +101,56 @@ def _distribution_drift(target: Any, actual: Any) -> float:
     return round(sum(abs(target_ratios.get(key, 0.0) - actual_ratios.get(key, 0.0)) for key in keys) / 2.0, 4)
 
 
+def _calibrated_high_priority_target(
+    profile: dict[str, Any],
+    generation_summary_payload: dict[str, Any],
+) -> tuple[float, bool, str]:
+    raw_target = max(0.0, min(1.0, _to_float(profile.get("high_priority_ratio"))))
+    coverage_mode = str(generation_summary_payload.get("generation_coverage_mode") or "").strip().lower()
+    if coverage_mode != "full_functional_regression":
+        return raw_target, False, ""
+
+    profile_case_count = _to_int(profile.get("profile_case_count"))
+    final_count = _to_int(generation_summary_payload.get("final_count"))
+    if profile_case_count > 0 and final_count <= int(round(float(profile_case_count) * 1.25)):
+        return raw_target, False, ""
+
+    # Human sample pools are often curated high-value examples. Full regression suites
+    # must also carry P2 breadth, so cap the target used for scoring while keeping the
+    # raw profile target visible in diagnostics.
+    full_regression_cap = 0.60
+    calibrated = min(raw_target, full_regression_cap)
+    return calibrated, bool(calibrated < raw_target), "full_functional_regression_suite_mix_cap"
+
+
+def _calibrated_priority_distribution_target(
+    profile: dict[str, Any],
+    *,
+    effective_high_priority_ratio: float,
+) -> Any:
+    original = _ratio_map(profile.get("priority_distribution"))
+    if not original:
+        return profile.get("priority_distribution")
+    original_high = max(0.0, min(1.0, original.get("P0", 0.0) + original.get("P1", 0.0)))
+    target_high = max(0.0, min(1.0, float(effective_high_priority_ratio or 0.0)))
+    if original_high <= 0 or target_high >= original_high:
+        return profile.get("priority_distribution")
+
+    scale = target_high / original_high
+    calibrated: dict[str, float] = {}
+    calibrated["P0"] = round(float(original.get("P0", 0.0)) * scale, 6)
+    calibrated["P1"] = round(float(original.get("P1", 0.0)) * scale, 6)
+    remaining = max(0.0, 1.0 - calibrated["P0"] - calibrated["P1"])
+    low_keys = [key for key in original.keys() if key not in {"P0", "P1"}]
+    low_total = sum(float(original.get(key, 0.0)) for key in low_keys)
+    if low_keys and low_total > 0:
+        for key in low_keys:
+            calibrated[key] = round(remaining * (float(original.get(key, 0.0)) / low_total), 6)
+    else:
+        calibrated["P2"] = round(remaining, 6)
+    return {key: value for key, value in calibrated.items() if value > 0}
+
+
 def _build_manual_delivery_metrics(
     *,
     feedback_control_debug_payload: dict[str, Any],
@@ -122,7 +172,10 @@ def _build_manual_delivery_metrics(
             "profile_trusted_sample_count": int(profile.get("trusted_sample_count") or 0),
             "reason": "missing_final_distribution",
         }
-    target_high_priority_ratio = max(0.0, min(1.0, _to_float(profile.get("high_priority_ratio"))))
+    raw_target_high_priority_ratio = max(0.0, min(1.0, _to_float(profile.get("high_priority_ratio"))))
+    target_high_priority_ratio, high_target_calibrated, high_target_calibration_reason = (
+        _calibrated_high_priority_target(profile, generation_summary_payload)
+    )
     final_high_priority_ratio = max(
         0.0,
         min(1.0, _to_float(generation_summary_payload.get("final_high_priority_ratio"))),
@@ -132,8 +185,12 @@ def _build_manual_delivery_metrics(
         0.0,
         min(1.0, _to_float(generation_summary_payload.get("final_display_ratio"))),
     )
+    effective_priority_distribution_target = _calibrated_priority_distribution_target(
+        profile,
+        effective_high_priority_ratio=target_high_priority_ratio,
+    )
     priority_drift = _distribution_drift(
-        profile.get("priority_distribution"),
+        effective_priority_distribution_target,
         generation_summary_payload.get("final_priority_breakdown"),
     )
     module_drift = _distribution_drift(
@@ -145,9 +202,13 @@ def _build_manual_delivery_metrics(
         "profile_source": str(profile.get("profile_source") or ""),
         "profile_version": str(profile.get("profile_version") or ""),
         "profile_trusted_sample_count": int(profile.get("trusted_sample_count") or 0),
+        "raw_target_high_priority_ratio": round(raw_target_high_priority_ratio, 4),
         "target_high_priority_ratio": round(target_high_priority_ratio, 4),
+        "high_priority_target_calibrated": bool(high_target_calibrated),
+        "high_priority_target_calibration_reason": str(high_target_calibration_reason),
         "final_high_priority_ratio": round(final_high_priority_ratio, 4),
         "high_priority_ratio_shortfall": round(max(0.0, target_high_priority_ratio - final_high_priority_ratio), 4),
+        "effective_priority_distribution_target": effective_priority_distribution_target,
         "target_display_ratio_cap": round(target_display_cap, 4),
         "final_display_ratio": round(final_display_ratio, 4),
         "display_ratio_excess": round(max(0.0, final_display_ratio - target_display_cap), 4),
@@ -227,8 +288,23 @@ def _build_initial_quality_score(
         "final_scenario_duplicate_case_count",
         "scenario_duplicate_case_count",
     )
-    fact_forbidden_count = _to_int(review_decision_summary_payload.get("fact_profile_forbidden_count"))
+    fact_profile_forbidden_count = _to_int(review_decision_summary_payload.get("fact_profile_forbidden_count"))
+    fact_violation_count = _to_int(
+        judge_summary_payload.get("fact_violation_count")
+        or judge_summary_payload.get("fact_conflict_rejected_count")
+    )
     fact_pending_count = _to_int(review_decision_summary_payload.get("fact_profile_pending_count"))
+    semantic_pressure_count = max(semantic_dedup_dropped_count, total_dedup_drop_count)
+    semantic_penalty_count = semantic_pressure_count
+    if (
+        semantic_pressure_count > 0
+        and candidate_total > 0
+        and flow_misordered_count <= 0
+        and scenario_duplicate_case_count <= 0
+        and scenario_duplicate_cluster_count <= 0
+    ):
+        tolerated_semantic_prune = max(3, int(round(float(candidate_total) * 0.08)))
+        semantic_penalty_count = max(0, semantic_pressure_count - tolerated_semantic_prune)
 
     judge_total = _to_int(
         judge_summary_payload.get("total")
@@ -242,7 +318,21 @@ def _build_initial_quality_score(
     )
     rejected_count = _to_int(judge_summary_payload.get("reject_count") or judge_summary_payload.get("rejected_out_count"))
     pending_count = _to_int(judge_summary_payload.get("pending_count") or judge_summary_payload.get("pending_out_count"))
-    repairable_count = _to_int(judge_summary_payload.get("repairable_count") or judge_summary_payload.get("repaired_pass_out_count"))
+    raw_repairable_count = _to_int(
+        judge_summary_payload.get("raw_repairable_count")
+        if "raw_repairable_count" in judge_summary_payload
+        else (
+            judge_summary_payload.get("repairable_count")
+            or judge_summary_payload.get("repaired_pass_out_count")
+        )
+    )
+    repaired_pass_count = _to_int(judge_summary_payload.get("repaired_pass_out_count"))
+    unrepaired_repairable_count = _to_int(judge_summary_payload.get("unrepaired_repairable_count"))
+    repairable_count = (
+        _to_int(judge_summary_payload.get("remaining_repairable_count"))
+        if "remaining_repairable_count" in judge_summary_payload
+        else raw_repairable_count
+    )
 
     context_debug = dict((context_result or {}).get("context_debug") or {})
     realtime_rag_used = bool(context_debug.get("realtime_rag_used"))
@@ -276,11 +366,11 @@ def _build_initial_quality_score(
     add_deduction("scenario_duplicates", "重复意图", scenario_duplicate_case_count or scenario_duplicate_cluster_count, min(25, scenario_duplicate_case_count * 0.75 + scenario_duplicate_cluster_count * 1.5))
     add_deduction("judge_rejected", "判定拒绝", rejected_count, min(30, rejected_count * 3))
     add_deduction("judge_pending", "待确认逻辑", pending_count, min(15, pending_count * 1.5))
-    add_deduction("judge_repairable", "可修复问题", repairable_count, min(8, repairable_count * 1))
-    add_deduction("fact_forbidden", "违反已确认事实", fact_forbidden_count, min(30, fact_forbidden_count * 6))
+    add_deduction("judge_repairable", "最终残留可修复问题", repairable_count, min(8, repairable_count * 1))
+    add_deduction("fact_forbidden", "违反已确认事实", fact_violation_count, min(30, fact_violation_count * 6))
     add_deduction("fact_pending", "命中待确认事实", fact_pending_count, min(12, fact_pending_count * 1.5))
     add_deduction("low_quality_dropped", "低质量用例被过滤", low_quality_dropped_count, min(20, low_quality_dropped_count * 3))
-    add_deduction("semantic_dedup", "语义去重压力", semantic_dedup_dropped_count or total_dedup_drop_count, min(10, max(semantic_dedup_dropped_count, total_dedup_drop_count) * 0.5))
+    add_deduction("semantic_dedup", "语义去重压力", semantic_penalty_count, min(10, semantic_penalty_count * 0.5))
     if manual_delivery_metrics.get("applied"):
         high_priority_shortfall = _to_float(manual_delivery_metrics.get("high_priority_ratio_shortfall"))
         display_excess = _to_float(manual_delivery_metrics.get("display_ratio_excess"))
@@ -323,11 +413,19 @@ def _build_initial_quality_score(
         "rejected_count": rejected_count,
         "pending_count": pending_count,
         "repairable_count": repairable_count,
+        "raw_repairable_count": raw_repairable_count,
+        "repaired_pass_count": repaired_pass_count,
+        "unrepaired_repairable_count": unrepaired_repairable_count,
+        "fact_profile_forbidden_count": fact_profile_forbidden_count,
+        "fact_violation_count": fact_violation_count,
         "flow_missing_count": flow_missing_count,
         "flow_misordered_count": flow_misordered_count,
         "scenario_duplicate_cluster_count": scenario_duplicate_cluster_count,
         "scenario_duplicate_case_count": scenario_duplicate_case_count,
         "low_quality_dropped_count": low_quality_dropped_count,
+        "semantic_dedup_dropped_count": semantic_dedup_dropped_count,
+        "semantic_dedup_pressure_count": semantic_pressure_count,
+        "semantic_dedup_penalty_count": semantic_penalty_count,
         "structure_metric_scope": (
             "final_cases"
             if "final_flow_misordered_count" in review_decision_summary_payload
@@ -598,8 +696,22 @@ def _build_quality_ledger_payload(
                 judge_summary_payload.get("pending_out_count") or judge_summary_payload.get("pending_count") or 0
             ),
             "repairable_count": int(
-                judge_summary_payload.get("repairable_count") or judge_summary_payload.get("repaired_pass_out_count") or 0
+                judge_summary_payload.get("remaining_repairable_count")
+                if "remaining_repairable_count" in judge_summary_payload
+                else (
+                    judge_summary_payload.get("repairable_count")
+                    or judge_summary_payload.get("repaired_pass_out_count")
+                    or 0
+                )
             ),
+            "raw_repairable_count": int(
+                judge_summary_payload.get("raw_repairable_count")
+                if "raw_repairable_count" in judge_summary_payload
+                else (judge_summary_payload.get("repairable_count") or 0)
+            ),
+            "repaired_pass_out_count": int(judge_summary_payload.get("repaired_pass_out_count") or 0),
+            "unrepaired_repairable_count": int(judge_summary_payload.get("unrepaired_repairable_count") or 0),
+            "fact_violation_count": int(judge_summary_payload.get("fact_violation_count") or 0),
             **judge_reject_clusters,
         },
         "context": {

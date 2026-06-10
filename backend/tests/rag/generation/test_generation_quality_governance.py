@@ -1629,6 +1629,115 @@ def test_execution_plan_can_bridge_generic_main_flow_without_domain_template() -
     assert plan.get("main_chain_case_count") == len(main_cases)
 
 
+def test_execution_plan_treats_interaction_scoring_as_current_doc_commit() -> None:
+    result = _run_cases(
+        requirement="Interactive AI tutoring flow: enter page, complete dialog, trigger scoring, then show score result.",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "Enter AI tutoring page",
+                "test_module": "entry",
+                "steps": ["Open tutoring page"],
+                "expected_result": "workflow entry is ready for dialog",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-002",
+                "description": "Complete dialog and trigger score calculation",
+                "test_module": "AI scoring",
+                "steps": ["Complete the final dialog round", "Trigger score calculation"],
+                "expected_result": "score calculation is generated successfully",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-003",
+                "description": "Display score result after scoring",
+                "test_module": "score result",
+                "steps": ["Open score result page"],
+                "expected_result": "score result is shown with pass or fail status",
+                "priority": "P1",
+            },
+        ],
+        expected_count=10,
+    )
+
+    main_cases = [
+        item for item in (result.get("cases") or [])
+        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
+    ]
+    plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
+
+    assert len(main_cases) >= 2
+    assert "commit" in list(plan.get("main_chain_stage_kinds") or [])
+    assert plan.get("linear_executable") is True
+    assert plan.get("workflow_blueprint_source") == "current_generation_cases"
+
+
+def test_current_generation_main_chain_excludes_conditional_visibility_and_resume_checks() -> None:
+    result = _run_cases(
+        requirement=(
+            "Interactive AI tutoring flow: enter page, complete dialog, trigger scoring, "
+            "then show score result. Conditional button visibility and unfinished reentry "
+            "checks are regression cases, not main smoke chain steps."
+        ),
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "Enter AI tutoring page",
+                "test_module": "entry",
+                "steps": ["Open tutoring page"],
+                "expected_result": "workflow entry is ready for dialog",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-002",
+                "description": "Complete dialog and trigger score calculation",
+                "test_module": "AI scoring",
+                "steps": ["Complete the final dialog round", "Trigger score calculation"],
+                "expected_result": "score calculation is generated successfully",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-003",
+                "description": "Display score result after scoring",
+                "test_module": "score result",
+                "steps": ["Open score result page"],
+                "expected_result": "score result is shown with pass or fail status",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-004",
+                "description": "Only when quiz accuracy is greater than 50%, the review button is visible",
+                "test_module": "conditional visibility",
+                "steps": ["Open quiz feedback popup"],
+                "expected_result": "the review button is visible only for the threshold condition",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-005",
+                "description": "Re-enter unfinished tutoring flow and verify retained dialog history",
+                "test_module": "resume state",
+                "steps": ["Leave unfinished flow", "Re-enter tutoring page"],
+                "expected_result": "retained dialog history is displayed after reentry",
+                "priority": "P0",
+            },
+        ],
+        expected_count=10,
+    )
+
+    main_cases = [
+        item for item in (result.get("cases") or [])
+        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
+    ]
+    main_descriptions = " ".join(str(item.get("description") or "") for item in main_cases)
+    plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
+
+    assert "review button is visible" not in main_descriptions
+    assert "retained dialog history" not in main_descriptions
+    assert "commit" in list(plan.get("main_chain_stage_kinds") or [])
+    assert plan.get("linear_executable") is True
+
+
 def test_execution_plan_does_not_fake_current_main_smoke_when_commit_is_pruned() -> None:
     result = _run_cases(
         requirement="督导完成新增计划后，学生端首页展示本周任务并可点击学习。",
@@ -2555,6 +2664,7 @@ def test_json_persistence_enforce_mode_blocks_without_workflow_contract(monkeypa
         merged_preview_cases=[],
     )
     monkeypatch.setattr(settings, "EXECUTION_PLAN_GATE_MODE", "enforce", raising=False)
+    monkeypatch.setattr(settings, "EXECUTION_PLAN_ALLOW_CANDIDATE_BLUEPRINT_WITHOUT_CONTRACT", False, raising=False)
 
     module = TestGenerationModule()
     db = _FakeActiveSession()

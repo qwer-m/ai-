@@ -80,10 +80,47 @@ def test_record_low_quality_drop_appends_standard_detail() -> None:
     ]
 
 
-def test_final_quality_drop_reason_prefers_existing_expected_quality_marker() -> None:
+def test_final_quality_drop_reason_keeps_hard_invalid_expected_quality_marker() -> None:
     assert final_quality_drop_reason({"expected_result_quality": "invalid_case"}) == "expected_result_quality:invalid_case"
-    assert final_quality_drop_reason({"expected_result_quality": "non_assertable"}) == "expected_result_quality:non_assertable"
-    assert final_quality_drop_reason({"expected_result_quality": "truncated"}) == "expected_result_quality:truncated"
+
+
+def test_final_quality_drop_reason_does_not_trust_stale_expected_quality_marker() -> None:
+    assert (
+        final_quality_drop_reason(
+            {
+                "expected_result_quality": "non_assertable",
+                "expected_result": "默认每节2小时，一天最多只能设置5节，第6节无法添加或提示超出限制",
+            }
+        )
+        == ""
+    )
+    assert (
+        final_quality_drop_reason(
+            {
+                "expected_result_quality": "truncated",
+                "expected_result": "系统提示保存成功",
+            }
+        )
+        == ""
+    )
+    assert (
+        final_quality_drop_reason(
+            {
+                "expected_result_quality": "non_assertable",
+                "expected_result": "result is as configured",
+            }
+        )
+        == "expected_result_quality:non_assertable"
+    )
+    assert (
+        final_quality_drop_reason(
+            {
+                "expected_result_quality": "truncated",
+                "expected_result": "操作后应正常展",
+            }
+        )
+        == "expected_result_quality:truncated"
+    )
 
 
 def test_final_quality_drop_reason_detects_reasoning_truncation_and_non_assertable_text() -> None:

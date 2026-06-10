@@ -66,6 +66,122 @@ def _text_list(values: Any) -> list[str]:
     return output
 
 
+_GENERIC_MATCH_TERMS = {
+    "ai",
+    "app",
+    "web",
+    "page",
+    "button",
+    "status",
+    "state",
+    "student",
+    "teacher",
+    "supervisor",
+    "user",
+    "\u8bfe\u7a0b",
+    "\u9875\u9762",
+    "\u6309\u94ae",
+    "\u72b6\u6001",
+    "\u5b66\u751f",
+    "\u5b66\u5458",
+    "\u8001\u5e08",
+    "\u7528\u6237",
+    "\u663e\u793a",
+    "\u67e5\u770b",
+    "\u70b9\u51fb",
+}
+
+_CORE_WORKFLOW_STAGE_KINDS = {
+    "entry",
+    "configure",
+    "preview",
+    "commit",
+}
+
+
+def _normalize_match_term(value: Any) -> str:
+    term = re.sub(r"\s+", " ", _text(value).lower()).strip()
+    return term.strip(".,;:!?，。；：！？、()[]{}")
+
+
+def _is_generic_match_term(term: str) -> bool:
+    normalized = _normalize_match_term(term)
+    if not normalized:
+        return True
+    if normalized in _GENERIC_MATCH_TERMS:
+        return True
+    if normalized.isascii() and len(normalized) < 4:
+        return True
+    return len(normalized) < 2
+
+
+def _edge_is_core_workflow_stage(edge: dict[str, Any], *, index: int, total: int) -> bool:
+    stage_kind = _normalize_match_term(edge.get("stage_kind"))
+    if stage_kind:
+        return stage_kind in _CORE_WORKFLOW_STAGE_KINDS
+    return int(index) <= max(1, min(3, int(total)))
+
+
+def _workflow_contract_search_terms(contract: dict[str, Any]) -> tuple[dict[str, int], bool, set[str]]:
+    weighted: dict[str, int] = {}
+    core_terms: set[str] = set()
+    has_explicit_terms = False
+
+    def add(value: Any, *, weight: int, explicit: bool = False, core: bool = False) -> None:
+        nonlocal has_explicit_terms
+        term = _normalize_match_term(value)
+        if _is_generic_match_term(term):
+            return
+        if explicit:
+            has_explicit_terms = True
+        weighted[term] = max(int(weight), int(weighted.get(term, 0)))
+        if core:
+            core_terms.add(term)
+
+    for term in contract.get("match_terms") or []:
+        add(term, weight=2, explicit=True)
+    edges = [edge for edge in (contract.get("steps") or contract.get("edges") or []) if isinstance(edge, dict)]
+    total_edges = len(edges)
+    for index, edge in enumerate(edges, start=1):
+        if not isinstance(edge, dict):
+            continue
+        is_core = _edge_is_core_workflow_stage(edge, index=index, total=total_edges)
+        for term in edge.get("match_keywords") or edge.get("keywords") or []:
+            add(term, weight=1, core=is_core)
+        add(edge.get("label"), weight=1, core=is_core)
+        add(edge.get("action"), weight=1, core=is_core)
+    return weighted, has_explicit_terms, core_terms
+
+
+def _contract_requirement_match(
+    contract: dict[str, Any],
+    requirement_text: str,
+) -> tuple[int, int, bool, int, list[str]]:
+    requirement = _text(requirement_text).lower()
+    if not requirement:
+        return 0, 0, False, 0, []
+    weighted_terms, has_explicit_terms, core_terms = _workflow_contract_search_terms(contract)
+    hit_terms = [term for term in weighted_terms if term in requirement]
+    core_hit_count = sum(1 for term in hit_terms if term in core_terms)
+    score = sum(int(weighted_terms.get(term, 0)) for term in hit_terms)
+    return int(score), int(len(hit_terms)), bool(has_explicit_terms), int(core_hit_count), hit_terms
+
+
+def _contract_requirement_match_is_sufficient(
+    *,
+    score: int,
+    hit_count: int,
+    has_explicit_terms: bool,
+    core_hit_count: int = 0,
+    require_core_hit: bool = False,
+) -> bool:
+    if bool(require_core_hit) and int(core_hit_count) <= 0:
+        return False
+    if has_explicit_terms:
+        return int(score) >= 2
+    return int(score) >= 2 and int(hit_count) >= 2
+
+
 def _normalize_edge(raw: Any, *, index: int, workflow_id: str) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
@@ -260,19 +376,40 @@ class WorkflowBlueprintRepository:
         requirement_fingerprint = _content_fingerprint(requirement_text)
         selected: list[tuple[int, int, float, dict[str, Any]]] = []
         for contract in parsed_contracts:
-            match_terms = [item.lower() for item in contract.get("match_terms") or [] if _text(item)]
-            hit_count = sum(1 for term in match_terms if term in requirement)
+            match_score, hit_count, has_explicit_terms, core_hit_count, hit_terms = _contract_requirement_match(
+                contract,
+                requirement_text,
+            )
             source_doc_id = int(contract.get("source_doc_id") or 0)
             source_content_match = bool(
                 requirement_fingerprint
                 and source_content_fingerprints.get(source_doc_id) == requirement_fingerprint
             )
-            if requirement and match_terms and hit_count <= 0 and not source_content_match:
+            require_core_hit = bool(source_doc_id > 0 and not source_content_match)
+            if not source_content_match and not _contract_requirement_match_is_sufficient(
+                score=match_score,
+                hit_count=hit_count,
+                has_explicit_terms=has_explicit_terms,
+                core_hit_count=core_hit_count,
+                require_core_hit=require_core_hit,
+            ):
                 continue
+            contract = {
+                **contract,
+                "match_debug": {
+                    "source_content_match": bool(source_content_match),
+                    "hit_count": int(hit_count),
+                    "match_score": int(match_score),
+                    "core_hit_count": int(core_hit_count),
+                    "require_core_hit": bool(require_core_hit),
+                    "hit_terms": hit_terms[:12],
+                    "has_explicit_terms": bool(has_explicit_terms),
+                },
+            }
             selected.append(
                 (
                     int(source_content_match),
-                    int(hit_count),
+                    int(match_score),
                     float(contract.get("confidence") or 0.0),
                     contract,
                 )

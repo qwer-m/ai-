@@ -59,6 +59,18 @@ def test_expected_result_quality_allows_multiclause_business_assertions_with_opt
     assert gate["non_assertable_expected_result_count"] == 0
 
 
+def test_expected_result_quality_allows_boundary_state_and_conflict_assertions() -> None:
+    texts = [
+        "默认每节2小时，一天最多只能设置5节，第6节无法添加或提示超出限制",
+        "当前在学课程正常展示，下一节课读取最新计划中最近的一节课程",
+        "1.系统自动标记冲突课程并提示时间冲突；2.需手动微调时间解决冲突；3.手动调整后后续课程按规则自动顺延",
+    ]
+
+    for text in texts:
+        assert has_concrete_expected_assertion(text)
+        assert not is_non_assertable_expected_result(text)
+
+
 def test_expected_result_quality_detects_template_pollution_and_truncation() -> None:
     assert looks_template_polluted_expected_result("应跳转到目标页面，页面路径与标题均与上传图片显隐原图一致")
     assert is_non_assertable_expected_result("应跳转到目标页面，页面路径与标题均与上传图片显隐原图一致")

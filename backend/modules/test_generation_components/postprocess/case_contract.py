@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .postprocess_priority_config import reasoning_leakage_signals
+from .streaming_reasoning_quality import reasoning_leakage_hits
 
 
 VALID_PRIORITIES = {"P0", "P1", "P2"}
@@ -105,7 +105,26 @@ _STATE_FIELD_NAMES = (
     "state_transition_confidence",
 )
 
-_REASONING_LEAKAGE_SIGNALS = tuple(str(item).lower() for item in reasoning_leakage_signals() if str(item).strip())
+_PUBLIC_NOTE_REASONING_SIGNALS = (
+    "need product confirm",
+    "product confirm",
+    "requirement unclear",
+    "assume here",
+    "assuming here",
+    "reread requirement",
+    "not reasonable",
+    "\u9700\u6c42\u672a\u660e\u786e",
+    "\u518d\u8bfb\u9700\u6c42",
+    "\u6309\u9700\u6c42\u539f\u6587",
+    "\u9700\u6c42\u8bf4",
+    "\u8fd9\u91cc\u5e94\u8be5",
+    "\u5047\u8bbe\u6b64\u5904",
+    "\u6b64\u5904\u5047\u8bbe",
+    "\u6682\u4e14\u8ba4\u4e3a",
+    "\u6682\u6309",
+    "\u6682\u65f6\u6309",
+    "\u9700\u8003\u8651",
+)
 
 
 def _case_id(case: dict[str, Any], index: int) -> str:
@@ -153,15 +172,18 @@ def materialize_case_state_fields(cases: Any) -> Any:
 
 
 def case_has_reasoning_leakage(case: dict[str, Any]) -> bool:
+    if reasoning_leakage_hits(case):
+        return True
+
     parts: list[str] = []
-    for field in ("description", "preconditions", "steps", "test_input", "expected_result"):
+    for field in ("description", "test_input"):
         value = case.get(field)
         if isinstance(value, list):
             parts.extend(str(item) for item in value if str(item).strip())
         elif value is not None:
             parts.append(str(value))
     text = "\n".join(parts).lower()
-    return any(signal in text for signal in _REASONING_LEAKAGE_SIGNALS)
+    return any(signal in text for signal in _PUBLIC_NOTE_REASONING_SIGNALS)
 
 
 def project_persistable_cases(cases: Any) -> list[dict[str, Any]]:

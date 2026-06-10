@@ -33,6 +33,9 @@ def _policy(settings: Any = None) -> ExecutionPlanValidationPolicy:
         reject_untrusted_blueprint_source=bool(
             getattr(settings, "EXECUTION_PLAN_REJECT_CANDIDATE_DERIVED_BLUEPRINT", True)
         ),
+        allow_candidate_blueprint_without_contract=bool(
+            getattr(settings, "EXECUTION_PLAN_ALLOW_CANDIDATE_BLUEPRINT_WITHOUT_CONTRACT", True)
+        ),
     )
 
 

@@ -358,6 +358,7 @@ def normalize_requirement_semantics_context(requirement_semantics_context: dict[
     return {
         "confirmed_facts": _dedupe_texts(payload.get("confirmed_facts") if isinstance(payload, dict) else []),
         "scoped_rules": _dedupe_texts(payload.get("scoped_rules") if isinstance(payload, dict) else []),
+        "forbidden_facts": _dedupe_texts(payload.get("forbidden_facts") if isinstance(payload, dict) else []),
         "pending_items": _dedupe_texts(payload.get("pending_items") if isinstance(payload, dict) else []),
         "reuse_declarations": _dedupe_texts(payload.get("reuse_declarations") if isinstance(payload, dict) else []),
         "hard_flow_constraints": _dedupe_texts(payload.get("hard_flow_constraints") if isinstance(payload, dict) else []),
@@ -379,6 +380,7 @@ def _merge_fact_profile_semantics(
     mapping = {
         "confirmed_facts": "confirmed_facts",
         "scoped_rules": "scoped_rules",
+        "forbidden_facts": "forbidden_facts",
         "pending_items": "pending_items",
         "reuse_declarations": "reuse_declarations",
         "hard_flow_constraints": "hard_flow_constraints",
@@ -388,9 +390,21 @@ def _merge_fact_profile_semantics(
         values = profile.get(profile_key)
         if isinstance(values, list):
             merged[target_key] = _dedupe_texts([*merged.get(target_key, []), *values])
-    forbidden = profile.get("forbidden_facts")
-    if isinstance(forbidden, list):
-        merged["confirmed_facts"] = _dedupe_texts([*merged.get("confirmed_facts", []), *forbidden])
+    protected_fact_keys = {
+        _normalize_text(item)
+        for item in [
+            *merged.get("confirmed_facts", []),
+            *merged.get("scoped_rules", []),
+            *merged.get("hard_flow_constraints", []),
+        ]
+        if _normalize_text(item)
+    }
+    if protected_fact_keys:
+        merged["forbidden_facts"] = [
+            item
+            for item in (merged.get("forbidden_facts") or [])
+            if _normalize_text(item) and _normalize_text(item) not in protected_fact_keys
+        ]
     return merged
 
 
@@ -703,6 +717,16 @@ def _find_confirmed_fact_violations(
     return _dedupe_texts(hits), _dedupe_texts(violations)
 
 
+def _find_forbidden_fact_violations(case_text: str, forbidden_facts: list[str]) -> list[str]:
+    normalized_case = _normalize_text(case_text)
+    violations: list[str] = []
+    for fact in forbidden_facts:
+        marker = _normalize_text(fact)
+        if marker and len(marker) >= 4 and marker in normalized_case:
+            violations.append(fact)
+    return _dedupe_texts(violations)
+
+
 def _hits_any_pattern(case_text: str, patterns: list[str]) -> list[str]:
     normalized_case = _normalize_text(case_text)
     hits: list[str] = []
@@ -735,6 +759,13 @@ def judge_case(
         semantics.get("confirmed_facts") or [],
         semantics.get("scoped_rules") or [],
         semantics.get("hard_flow_constraints") or [],
+    )
+    forbidden_fact_violations = _find_forbidden_fact_violations(
+        case_text,
+        semantics.get("forbidden_facts") or [],
+    )
+    confirmed_fact_violations = _dedupe_texts(
+        [*confirmed_fact_violations, *forbidden_fact_violations]
     )
     reuse_risk_hits = _hits_any_pattern(case_text, semantics.get("reuse_risks") or [])
 

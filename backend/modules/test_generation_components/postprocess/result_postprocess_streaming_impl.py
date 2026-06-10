@@ -91,6 +91,154 @@ from .streaming_uncertain_requirement import (
 )
 from .streaming_ui_like import is_ui_like_case as _is_ui_like_case
 
+_FINAL_DISPLAY_SURFACE_TOKENS = (
+    "display",
+    "ui-only",
+    "static ui",
+    "copy",
+    "style",
+    "layout",
+    "analytics",
+    "tracking",
+    "button",
+    "icon",
+    "title",
+    "label",
+    "list",
+    "table",
+    "sort",
+    "filter",
+    "展示",
+    "文案",
+    "样式",
+    "布局",
+    "埋点",
+    "曝光",
+    "按钮",
+    "图标",
+    "标题",
+    "标签",
+    "列表",
+    "表格",
+    "排序",
+    "筛选",
+    "置灰",
+)
+_FINAL_DISPLAY_BUSINESS_ANCHOR_TOKENS = (
+    "save",
+    "submit",
+    "create",
+    "delete",
+    "archive",
+    "sync",
+    "update",
+    "effective",
+    "navigate",
+    "enter",
+    "open",
+    "auto",
+    "generate",
+    "retain",
+    "restore",
+    "rollback",
+    "retry",
+    "failed",
+    "error",
+    "permission",
+    "state",
+    "progress",
+    "complete",
+    "consistent",
+    "保存",
+    "提交",
+    "创建",
+    "新增",
+    "删除",
+    "归档",
+    "同步",
+    "更新",
+    "生效",
+    "跳转",
+    "进入",
+    "打开",
+    "自动",
+    "生成",
+    "顺延",
+    "保留",
+    "恢复",
+    "回滚",
+    "重试",
+    "失败",
+    "异常",
+    "权限",
+    "状态",
+    "进度",
+    "完成",
+    "一致",
+    "跨端",
+    "下游",
+    "不可删除",
+    "无法删除",
+    "不可点击",
+    "按规则",
+    "最近",
+    "最新",
+)
+_FINAL_DISPLAY_BUSINESS_REASON_KEYS = {
+    "main_workflow_hit",
+    "cross_page_flow_hit",
+    "state_transition_hit",
+    "reuse_risk_hit",
+    "preferred_pattern_hit",
+    "workflow_blocking",
+    "case_level_release_blocking",
+    "release_blocking_rule_hit",
+    "security_or_data_critical_rule_hit",
+}
+
+
+def _case_plain_text(case: dict[str, Any]) -> str:
+    parts: list[str] = [
+        str(case.get(key) or "")
+        for key in (
+            "execution_group",
+            "test_module",
+            "description",
+            "expected_result",
+            "test_input",
+        )
+    ]
+    steps = case.get("steps")
+    if isinstance(steps, list):
+        parts.extend(str(item or "") for item in steps)
+    return " ".join(parts).lower()
+
+
+def is_display_only_final_case(case: dict[str, Any]) -> bool:
+    """Return true for low-value display/UI checks, not business visibility/state assertions."""
+    if not isinstance(case, dict):
+        return False
+    group = str(case.get("execution_group") or "").strip().lower()
+    text = _case_plain_text(case)
+    score_profile = score_case_priority(case)
+    reasons = {str(item) for item in (score_profile.get("reasons") or []) if str(item).strip()}
+    has_surface_signal = bool(
+        group == "display"
+        or any(token.lower() in text for token in _FINAL_DISPLAY_SURFACE_TOKENS)
+        or _is_ui_like_case(case, score_profile)
+    )
+    if not has_surface_signal:
+        return False
+    has_business_anchor = bool(
+        reasons.intersection(_FINAL_DISPLAY_BUSINESS_REASON_KEYS)
+        or any(token.lower() in text for token in _FINAL_DISPLAY_BUSINESS_ANCHOR_TOKENS)
+    )
+    if not has_business_anchor:
+        return True
+    # A business case can still be display-only when its own UI-like classifier says
+    # it has no meaningful flow/state/risk depth.
+    return bool(_is_ui_like_case(case, score_profile))
+
 def stream_postprocess_cases(
     *,
     client: Any,
@@ -1689,12 +1837,86 @@ def stream_postprocess_cases(
             transition = _workflow_transition_for_case(item, stage_key=stage_key, stage_label=stage_label)
             if not bool(transition.get("can_advance_main_flow")):
                 return "non_advancing_transition"
+            semantic_probe = dict(item)
+            semantic_probe["execution_group"] = "main_smoke"
+            semantic_probe["main_chain_stage_kind"] = str(transition.get("stage_kind") or "").strip()
+            semantic_conflicts = validate_main_smoke_semantic_alignment([semantic_probe])
+            if semantic_conflicts:
+                return str(semantic_conflicts[0].get("reason") or "main_chain_semantic_conflict")
             return ""
 
         def _workflow_stage_kind_from_text(text: str) -> str:
             lowered = str(text or "").lower()
+            if _token_hit(lowered, ("\u4fdd\u5b58", "\u63d0\u4ea4", "\u786e\u8ba4", "\u53d1\u5e03")):
+                return "commit"
             if _token_hit(lowered, ("保存", "提交", "确认", "发布", "save", "submit", "commit", "confirm", "publish")):
                 return "commit"
+            if _token_hit(
+                lowered,
+                (
+                    "触发打分",
+                    "开始打分",
+                    "自动打分",
+                    "评分计算",
+                    "生成评分",
+                    "给出评分",
+                    "trigger score",
+                    "score calculation",
+                ),
+            ):
+                return "commit"
+            if _token_hit(
+                lowered,
+                (
+                    "\u540c\u6b65",
+                    "\u751f\u6548",
+                    "\u5c55\u793a",
+                    "\u663e\u793a",
+                    "\u51fa\u73b0",
+                    "\u53ef\u89c1",
+                    "\u6700\u65b0",
+                    "\u8bc4\u5206\u7ed3\u679c",
+                    "\u6253\u5206\u7ed3\u679c",
+                    "\u7efc\u5408\u8bc4\u5206",
+                    "score result",
+                    "scoring result",
+                ),
+            ):
+                return "downstream_visibility"
+            if _token_hit(lowered, ("\u5165\u53e3", "\u8fdb\u5165\u5165\u53e3")):
+                return "entry"
+            if _token_hit(
+                lowered,
+                (
+                    "\u70b9\u51fb",
+                    "\u8df3\u8f6c",
+                    "\u5b66\u4e60",
+                    "\u67e5\u770b",
+                    "\u6253\u5f00",
+                    "\u8fdb\u5165",
+                ),
+            ):
+                return "consume"
+            if _token_hit(lowered, ("\u9884\u89c8", "\u68c0\u67e5", "\u786e\u8ba4\u524d")):
+                return "preview"
+            if _token_hit(
+                lowered,
+                (
+                    "\u65b0\u589e",
+                    "\u521b\u5efa",
+                    "\u6dfb\u52a0",
+                    "\u9009\u62e9",
+                    "\u8bbe\u7f6e",
+                    "\u914d\u7f6e",
+                    "\u7f16\u8f91",
+                    "\u4fee\u6539",
+                ),
+            ):
+                return "configure"
+            if _token_hit(lowered, ("\u8fdb\u5165", "\u8bbf\u95ee", "\u6253\u5f00")):
+                return "entry"
+            if _token_hit(lowered, ("\u5b8c\u6210", "\u8fdb\u5ea6", "\u72b6\u6001")):
+                return "completion_sync"
             if _token_hit(lowered, ("同步", "生效", "展示", "显示", "刷新", "最新", "sync", "display", "show", "visible", "effective", "latest", "reflect", "reflects", "reflected", "downstream")):
                 return "downstream_visibility"
             if _token_hit(lowered, ("入口", "工作流入口", "进入入口", "entry", "workflow entry")):
@@ -1775,6 +1997,57 @@ def stream_postprocess_cases(
 
         def _workflow_phase(text: str) -> int:
             lowered = str(text or "").lower()
+            if _token_hit(
+                lowered,
+                (
+                    "保存",
+                    "提交",
+                    "确认",
+                    "发布",
+                    "下架",
+                    "删除",
+                    "save",
+                    "submit",
+                    "commit",
+                    "confirm",
+                    "publish",
+                    "delete",
+                    "触发打分",
+                    "开始打分",
+                    "自动打分",
+                    "评分计算",
+                    "生成评分",
+                    "给出评分",
+                    "trigger score",
+                    "score calculation",
+                ),
+            ):
+                return 60
+            if _token_hit(
+                lowered,
+                (
+                    "同步",
+                    "展示",
+                    "显示",
+                    "刷新",
+                    "生效",
+                    "评分结果",
+                    "打分结果",
+                    "综合评分",
+                    "sync",
+                    "display",
+                    "show",
+                    "effective",
+                    "visible",
+                    "reflect",
+                    "reflects",
+                    "reflected",
+                    "downstream",
+                    "score result",
+                    "scoring result",
+                ),
+            ):
+                return 70
             if _any(lowered, ("打开", "进入", "访问", "入口", "open", "enter", "entry")):
                 return 10
             if _any(lowered, ("新增", "创建", "添加", "选择", "选课", "设置", "配置", "准备", "create", "add", "select", "set", "prepare", "prepared", "ready")):
@@ -1783,7 +2056,31 @@ def stream_postprocess_cases(
                 return 30
             if _any(lowered, ("预览", "检查", "确认前", "preview", "review")):
                 return 50
-            if _token_hit(lowered, ("保存", "提交", "确认", "发布", "下架", "删除", "save", "submit", "commit", "confirm", "publish", "delete")):
+            if _token_hit(
+                lowered,
+                (
+                    "保存",
+                    "提交",
+                    "确认",
+                    "发布",
+                    "下架",
+                    "删除",
+                    "save",
+                    "submit",
+                    "commit",
+                    "confirm",
+                    "publish",
+                    "delete",
+                    "触发打分",
+                    "开始打分",
+                    "自动打分",
+                    "评分计算",
+                    "生成评分",
+                    "给出评分",
+                    "trigger score",
+                    "score calculation",
+                ),
+            ):
                 return 60
             if _token_hit(lowered, ("同步", "展示", "显示", "刷新", "生效", "sync", "display", "show", "effective", "visible", "reflect", "reflects", "reflected", "downstream")):
                 return 70
@@ -1892,6 +2189,14 @@ def stream_postprocess_cases(
                 "reflect",
                 "reflects",
                 "downstream",
+                "\u89e6\u53d1\u6253\u5206",
+                "\u5f00\u59cb\u6253\u5206",
+                "\u81ea\u52a8\u6253\u5206",
+                "\u8bc4\u5206\u8ba1\u7b97",
+                "\u751f\u6210\u8bc4\u5206",
+                "\u7ed9\u51fa\u8bc4\u5206",
+                "trigger score",
+                "score calculation",
             )
             state_tokens = (
                 "成功",
@@ -1922,6 +2227,11 @@ def stream_postprocess_cases(
                 "prepared",
                 "reflected",
                 "shown",
+                "\u8bc4\u5206\u7ed3\u679c",
+                "\u6253\u5206\u7ed3\u679c",
+                "\u7efc\u5408\u8bc4\u5206",
+                "score result",
+                "scoring result",
             )
             primary_candidates: list[tuple[int, int, int, dict[str, Any]]] = []
             fallback_candidates: list[tuple[int, int, int, dict[str, Any]]] = []
@@ -1965,6 +2275,7 @@ def stream_postprocess_cases(
                 step_texts = item.get("steps") if isinstance(item.get("steps"), list) else []
                 first_step = next((str(step).strip() for step in step_texts if str(step).strip()), "")
                 state_out = f"derived_state_{step_index:03d}"
+                stage_kind = _workflow_stage_kind_from_text(_case_text(item))
                 match_keywords = [
                     value[:120]
                     for value in (description, module, expected, first_step)
@@ -1979,6 +2290,7 @@ def stream_postprocess_cases(
                         "action": description[:160],
                         "state_in": previous_state,
                         "state_out": state_out,
+                        "stage_kind": stage_kind,
                         "assertion": expected[:240],
                         "test_steps": step_texts,
                         "match_keywords": list(dict.fromkeys(match_keywords))[:6],
@@ -2101,6 +2413,7 @@ def stream_postprocess_cases(
         selected_by_stage: list[tuple[str, str, dict[str, Any]]] = []
         selected_signatures: set[str] = set()
         strict_blueprint_semantic_filter = bool(workflow_blueprints)
+        semantic_filter_main_chain = bool(plan_workflow_blueprints)
         for stage_key, stage_label, patterns in main_chain_stages:
             ranked: list[tuple[int, int, dict[str, Any]]] = []
             for index, item in enumerate(candidate_cases):
@@ -2132,7 +2445,7 @@ def stream_postprocess_cases(
                         )
                     )
                 candidate_stage_kind = _workflow_stage_kind_from_text(text)
-                if strict_blueprint_semantic_filter:
+                if semantic_filter_main_chain:
                     semantic_probe = dict(item)
                     semantic_probe["execution_group"] = "main_smoke"
                     semantic_probe["main_chain_stage_kind"] = expected_stage_kind
@@ -4867,17 +5180,33 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             start_id=start_id,
             renumber_ids=True,
         )
+        raw_repairable_count = int(repaired.repairable_count or 0)
+        repaired_pass_out_count = int(len(repaired_pass_cases))
+        unrepaired_repairable_count = max(0, raw_repairable_count - repaired_pass_out_count)
+        fact_violation_count = int(
+            sum(
+                1
+                for item in (repaired.cases or [])
+                if str(getattr(getattr(item, "status", ""), "value", getattr(item, "status", ""))).upper()
+                == "REJECT"
+                and bool(getattr(getattr(item, "signals", None), "violates_confirmed_fact", False))
+            )
+        )
         judge_summary_payload = {
             "pass_count": int(repaired.pass_count or 0),
-            "repairable_count": int(repaired.repairable_count or 0),
+            "repairable_count": raw_repairable_count,
+            "raw_repairable_count": raw_repairable_count,
+            "remaining_repairable_count": 0,
+            "unrepaired_repairable_count": int(unrepaired_repairable_count),
             "reject_count": int(repaired.reject_count or 0),
             "pending_count": int(repaired.pending_count or 0),
             "repaired_case_count": int(repaired.repaired_case_count or 0),
             "appended_case_count": int(repaired.appended_case_count or 0),
             "confirmed_pass_out_count": int(len(confirmed_pass_cases)),
-            "repaired_pass_out_count": int(len(repaired_pass_cases)),
+            "repaired_pass_out_count": repaired_pass_out_count,
             "rejected_out_count": int(len(rejected_cases)),
             "pending_out_count": int(len(pending_cases)),
+            "fact_violation_count": fact_violation_count,
             "core_flow_covered": bool(repaired.core_flow_covered),
             "reuse_risk_covered": bool(repaired.reuse_risk_covered),
             "fact_profile_source": str(fact_profile.get("profile_source") or ""),
@@ -6454,20 +6783,6 @@ EXISTING_FINAL_CASES_TO_AVOID_DUPLICATING:
     final_execution_group_breakdown: dict[str, int] = {}
     final_module_breakdown: dict[str, int] = {}
     final_display_case_count = 0
-    final_display_tokens = (
-        "display",
-        "ui-only",
-        "copy",
-        "style",
-        "layout",
-        "analytics",
-        "tracking",
-        "\u5c55\u793a",
-        "\u6587\u6848",
-        "\u6837\u5f0f",
-        "\u5e03\u5c40",
-        "\u57cb\u70b9",
-    )
     for final_case in (parsed_result or []):
         if not isinstance(final_case, dict):
             continue
@@ -6485,11 +6800,7 @@ EXISTING_FINAL_CASES_TO_AVOID_DUPLICATING:
         module_key = str(final_case.get("test_module") or final_case.get("module") or "").strip()
         if module_key:
             final_module_breakdown[module_key] = int(final_module_breakdown.get(module_key, 0)) + 1
-        merged_case_text = " ".join(
-            str(final_case.get(key) or "")
-            for key in ("execution_group", "test_module", "description", "expected_result")
-        ).lower()
-        if group_key == "display" or any(token in merged_case_text for token in final_display_tokens):
+        if is_display_only_final_case(final_case):
             final_display_case_count += 1
     final_case_denominator = max(1, int(final_count or 0))
     final_high_priority_count = int(final_priority_breakdown.get("P0", 0)) + int(final_priority_breakdown.get("P1", 0))

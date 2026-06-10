@@ -77,6 +77,18 @@ _BUSINESS_ASSERTION_PREDICATES = (
     "过滤",
     "匹配",
     "一致",
+    "读取",
+    "标记",
+    "提示",
+    "调整",
+    "解决",
+    "顺延",
+    "最多",
+    "最少",
+    "只能",
+    "无法",
+    "不可",
+    "需",
     "contains",
     "shows",
     "displays",
@@ -112,6 +124,14 @@ _BUSINESS_ASSERTION_OBJECTS = (
     "计划",
     "课程",
     "课时",
+    "限制",
+    "冲突",
+    "规则",
+    "排名",
+    "称号",
+    "时长",
+    "最新计划",
+    "最近",
     "toast",
     "message",
     "status",
@@ -126,8 +146,43 @@ _BUSINESS_ASSERTION_OBJECTS = (
 _CONCRETE_VALUE_RE = re.compile(
     r"(?:\d+\s*[:：]\s*\d+(?:\s*[-~至到]\s*\d+\s*[:：]\s*\d+)?)"
     r"|(?:\d+\s*/\s*\d+)"
+    r"|(?:第\s*\d+\s*(?:节|次|条|个|页|名))"
     r"|(?:\d+(?:\.\d+)?\s*(?:%|px|ms|s|秒|分钟|小时|天|周|月|年|节|次|条|个|页|张|人|份))"
     r"|(?:[A-Z]{1,5}-\d{2,})"
+)
+
+_BUSINESS_STATE_ANCHOR_TOKENS = (
+    "当前",
+    "最新",
+    "最近",
+    "自动",
+    "默认",
+    "最多",
+    "最少",
+    "第",
+    "完成后",
+    "更新",
+    "同步",
+    "标记",
+    "冲突",
+    "限制",
+    "顺延",
+    "保留",
+    "保存",
+    "生成",
+    "仅",
+    "不",
+    "无法",
+    "不可",
+    "需",
+    "top",
+    "latest",
+    "current",
+    "default",
+    "limit",
+    "conflict",
+    "sync",
+    "updated",
 )
 
 
@@ -149,21 +204,37 @@ def _has_business_assertion_object(text: str) -> bool:
     return any(token.lower() in lowered for token in _BUSINESS_ASSERTION_OBJECTS)
 
 
+def _has_business_state_anchor(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(token.lower() in lowered for token in _BUSINESS_STATE_ANCHOR_TOKENS)
+
+
+def _is_concrete_business_assertion_clause(text: str) -> bool:
+    clause = str(text or "").strip()
+    if not clause:
+        return False
+    has_value = _has_concrete_value(clause)
+    has_anchor = _has_business_state_anchor(clause)
+    if _non_assertable_phrase_hit(clause) and not (has_value or has_anchor):
+        return False
+    if not _has_business_assertion_predicate(clause):
+        return False
+    if has_value:
+        return True
+    return bool(_has_business_assertion_object(clause) and has_anchor)
+
+
 def _business_assertion_clause_count(text: str) -> int:
     clauses = [
         part.strip()
-        for part in re.split(r"[；;。.!！\n]+", str(text or ""))
+        for part in re.split(r"[；;。.!！,\uFF0C\n]+", str(text or ""))
         if part.strip()
     ]
     if len(clauses) < 2:
         return 0
     concrete_count = 0
     for clause in clauses:
-        if _non_assertable_phrase_hit(clause):
-            continue
-        if not _has_business_assertion_predicate(clause):
-            continue
-        if _has_concrete_value(clause) or _has_business_assertion_object(clause):
+        if _is_concrete_business_assertion_clause(clause):
             concrete_count += 1
     return concrete_count
 

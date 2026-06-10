@@ -58,13 +58,19 @@ def record_low_quality_drop(
 def final_quality_drop_reason(case: dict[str, Any]) -> str:
     expected_text = str(case.get("expected_result") or "").strip()
     expected_quality = str(case.get("expected_result_quality") or "").strip().lower()
-    if expected_quality in {"invalid_case", "non_assertable", "truncated"}:
-        return f"expected_result_quality:{expected_quality}"
     if reasoning_leakage_hits(case):
         return "reasoning_leakage"
-    if looks_truncated_text(expected_text):
+    text_truncated = looks_truncated_text(expected_text)
+    text_non_assertable = is_non_assertable_expected_result(expected_text)
+    if expected_quality == "invalid_case":
+        return "expected_result_quality:invalid_case"
+    if expected_quality == "truncated" and text_truncated:
+        return "expected_result_quality:truncated"
+    if expected_quality == "non_assertable" and text_non_assertable:
+        return "expected_result_quality:non_assertable"
+    if text_truncated:
         return "truncated_text"
-    if is_non_assertable_expected_result(expected_text):
+    if text_non_assertable:
         return "non_assertable_expected_result"
     return ""
 

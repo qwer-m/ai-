@@ -8,6 +8,7 @@ from modules.testing.test_generation_components.legacy.stream.persist import (
     LegacyGenerationStreamPersistMixin,
 )
 from modules.testing.test_generation_components.postprocess.execution_plan_validator import (
+    ExecutionPlanValidationPolicy,
     materialize_final_case_state_fields,
     validate_execution_plan,
 )
@@ -240,16 +241,49 @@ def test_validator_rejects_management_report_case_as_student_completion_sync() -
     assert "report_history_case_not_completion_sync" in reasons
 
 
+def test_validator_rejects_conditional_visibility_and_resume_state_in_main_smoke() -> None:
+    cases = _main_chain_cases()
+    cases[4]["description"] = "Only when quiz accuracy is greater than 50%, the review button is visible"
+    cases[4]["expected_result"] = "the review button is visible only for the threshold condition"
+    cases[5]["description"] = "Re-enter unfinished flow and verify retained dialog history"
+    cases[5]["expected_result"] = "retained dialog history is displayed after reentry"
+
+    result = validate_execution_plan(
+        cases,
+        workflow_blueprints=[_trusted_blueprint()],
+        execution_plan={"workflow_blueprint_source": "feedback_control_state"},
+    )
+
+    reasons = {item["reason"] for item in result["semantic_conflicts"]}
+    assert result["passed"] is False
+    assert "main_smoke_semantic_conflict" in result["failure_reasons"]
+    assert "conditional_visibility_case_in_main_smoke" in reasons
+    assert "resume_state_case_in_main_smoke" in reasons
+
+
 def test_validator_rejects_candidate_derived_blueprint_as_strong_proof() -> None:
+    result = validate_execution_plan(
+        _main_chain_cases(),
+        workflow_blueprints=[],
+        execution_plan={"workflow_blueprint_source": "current_generation_cases"},
+        policy=ExecutionPlanValidationPolicy(allow_candidate_blueprint_without_contract=False),
+    )
+
+    assert result["passed"] is False
+    assert "workflow_contract_missing" in result["failure_reasons"]
+    assert "untrusted_candidate_derived_blueprint" in result["failure_reasons"]
+
+
+def test_validator_allows_candidate_blueprint_when_no_contract_is_available() -> None:
     result = validate_execution_plan(
         _main_chain_cases(),
         workflow_blueprints=[],
         execution_plan={"workflow_blueprint_source": "current_generation_cases"},
     )
 
-    assert result["passed"] is False
-    assert "workflow_contract_missing" in result["failure_reasons"]
-    assert "untrusted_candidate_derived_blueprint" in result["failure_reasons"]
+    assert result["passed"] is True
+    assert result["metrics"]["trusted_workflow_contract_count"] == 0
+    assert result["metrics"]["candidate_blueprint_without_contract_allowed"] is True
 
 
 def test_validator_rejects_priority_pool_blueprint_without_repository_trust() -> None:

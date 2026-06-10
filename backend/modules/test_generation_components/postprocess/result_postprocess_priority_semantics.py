@@ -473,6 +473,21 @@ def resolve_case_priority_decision(
             confidence="medium",
         )
 
+    if (
+        normalized_model == "P2"
+        and bool(score_result.get("p1_uplifted"))
+        and not p2_cap
+        and not low_risk_only_covered
+        and not structural_p2_signals
+    ):
+        return _build_priority_decision(
+            priority_final="P1",
+            decision_state="decided",
+            decision_source="p1_uplift_signal",
+            confidence="medium",
+            resolution_reason=str(score_result.get("p1_uplift_reason") or "workflow_or_coverage_uplift"),
+        )
+
     # Second calibration: near-threshold + coverage-value cases can move from P2 to P1.
     if (
         normalized_model == "P2"

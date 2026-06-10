@@ -4,6 +4,8 @@ import importlib
 
 from modules.test_generation_components.control.feedback_control_state import FeedbackControlState
 from modules.test_generation_components.control.workflow_blueprint_repository import (
+    _contract_requirement_match,
+    _contract_requirement_match_is_sufficient,
     is_trusted_workflow_contract,
     normalize_workflow_contract,
 )
@@ -69,6 +71,94 @@ def test_candidate_derived_contract_cannot_become_trusted() -> None:
     assert contract is not None
     assert contract["trusted"] is False
     assert is_trusted_workflow_contract(contract) is False
+
+
+def test_contract_requirement_match_rejects_unrelated_unlinked_contract() -> None:
+    contract = normalize_workflow_contract(
+        {
+            **_contract(),
+            "source_doc_id": None,
+            "match_terms": [],
+            "edges": [
+                {
+                    "state_in": "course_management_ready",
+                    "action": "click_schedule_button",
+                    "state_out": "schedule_create_started",
+                    "actor": "supervisor",
+                    "label": "进入排课创建",
+                    "match_keywords": ["排课", "创建排课", "课程管理"],
+                },
+                {
+                    "state_in": "schedule_create_started",
+                    "action": "select_courses",
+                    "state_out": "courses_selected",
+                    "actor": "supervisor",
+                    "label": "选择近期课程",
+                    "match_keywords": ["近期课程", "选择课程", "课程选择"],
+                },
+            ],
+        }
+    )
+
+    assert contract is not None
+    score, hit_count, has_explicit_terms, core_hit_count, hit_terms = _contract_requirement_match(
+        contract,
+        "讲错题接入AI后，学生在随堂测结果页进入讲错题流程，AI按错因追问并评分。",
+    )
+
+    assert hit_terms == []
+    assert _contract_requirement_match_is_sufficient(
+        score=score,
+        hit_count=hit_count,
+        has_explicit_terms=has_explicit_terms,
+        core_hit_count=core_hit_count,
+    ) is False
+
+
+def test_contract_requirement_match_keeps_related_unlinked_contract() -> None:
+    contract = normalize_workflow_contract(
+        {
+            **_contract(),
+            "source_doc_id": None,
+            "match_terms": [],
+            "edges": [
+                {
+                    "state_in": "course_management_ready",
+                    "action": "click_schedule_button",
+                    "state_out": "schedule_create_started",
+                    "actor": "supervisor",
+                    "stage_kind": "entry",
+                    "label": "进入排课创建",
+                    "match_keywords": ["排课", "创建排课", "课程管理"],
+                },
+                {
+                    "state_in": "schedule_create_started",
+                    "action": "select_courses",
+                    "state_out": "courses_selected",
+                    "actor": "supervisor",
+                    "stage_kind": "configure",
+                    "label": "选择近期课程",
+                    "match_keywords": ["近期课程", "选择课程", "课程选择"],
+                },
+            ],
+        }
+    )
+
+    assert contract is not None
+    score, hit_count, has_explicit_terms, core_hit_count, hit_terms = _contract_requirement_match(
+        contract,
+        "近期课程排课需求：从课程管理进入创建排课，选择近期课程并保存排课计划。",
+    )
+
+    assert {"排课", "近期课程"}.issubset(set(hit_terms))
+    assert core_hit_count >= 1
+    assert _contract_requirement_match_is_sufficient(
+        score=score,
+        hit_count=hit_count,
+        has_explicit_terms=has_explicit_terms,
+        core_hit_count=core_hit_count,
+        require_core_hit=True,
+    ) is True
 
 
 def test_feedback_control_state_reads_repository_when_sample_pool_disabled(monkeypatch) -> None:

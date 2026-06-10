@@ -85,6 +85,27 @@ def test_contract_summary_blocks_reasoning_leakage_in_test_input() -> None:
     assert "persistable_reasoning_leakage_count=1" in summary["failed_checks"]
 
 
+def test_contract_summary_keeps_business_terms_in_public_fields() -> None:
+    summary = summarize_persistable_case_contract(
+        [
+            {
+                "id": "TC-001",
+                "description": "AI模型针对错题生成可能的追问方向",
+                "test_module": "AI提问逻辑",
+                "preconditions": ["学生已进入讲错题页面"],
+                "steps": ["提交错题答案", "查看AI追问内容"],
+                "test_input": "题目内容或类似错因数据",
+                "expected_result": "AI展示追问内容，并包含与错因相关的知识点提示",
+                "priority": "P1",
+                "priority_final": "P1",
+            }
+        ]
+    )
+
+    assert summary["passed"] is True
+    assert summary["persistable_reasoning_leakage_case_ids"] == []
+
+
 def test_contract_summary_reports_missing_priority_final_before_projection() -> None:
     summary = summarize_persistable_case_contract(
         [

@@ -33,21 +33,34 @@ _COMMIT_ACTION_TOKENS = (
     "提交",
     "发布",
     "确认",
+    "\u89e6\u53d1\u6253\u5206",
+    "\u5f00\u59cb\u6253\u5206",
+    "\u81ea\u52a8\u6253\u5206",
+    "\u8bc4\u5206\u8ba1\u7b97",
+    "\u751f\u6210\u8bc4\u5206",
+    "\u7ed9\u51fa\u8bc4\u5206",
     "save",
     "submit",
     "publish",
     "commit",
     "confirm",
+    "trigger score",
+    "score calculation",
 )
 _DOWNSTREAM_VISIBILITY_TOKENS = (
     "同步",
     "生效",
     "展示",
     "显示",
+    "\u8bc4\u5206\u7ed3\u679c",
+    "\u6253\u5206\u7ed3\u679c",
+    "\u7efc\u5408\u8bc4\u5206",
     "visible",
     "display",
     "sync",
     "reflect",
+    "score result",
+    "scoring result",
 )
 _COMPLETION_SYNC_TOKENS = (
     "完成",
@@ -82,6 +95,7 @@ _CONFIGURE_TOKENS = (
 _RESET_OR_ABORT_TOKENS = (
     "\u9000\u51fa",
     "\u91cd\u65b0\u8fdb\u5165",
+    "\u91cd\u590d\u8fdb\u5165",
     "\u4e0d\u4fdd\u7559",
     "\u6e05\u7a7a",
     "\u7a7a\u767d",
@@ -91,6 +105,60 @@ _RESET_OR_ABORT_TOKENS = (
     "clear",
     "not retained",
     "not retain",
+)
+_RESUME_STATE_ONLY_TOKENS = (
+    "\u672a\u5b8c\u6210",
+    "\u7ee7\u7eed",
+    "\u7eed\u8fdb",
+    "\u4fdd\u7559\u5386\u53f2",
+    "\u4fdd\u7559\u5bf9\u8bdd",
+    "\u6062\u590d\u4e0a\u6b21",
+    "resume",
+    "resume state",
+    "re-enter",
+    "reentry",
+    "return later",
+    "retained history",
+    "retained dialog",
+)
+_CONDITIONAL_VISIBILITY_TOKENS = (
+    "\u4ec5\u5728",
+    "\u53ea\u6709",
+    "\u4ec5\u5f53",
+    "\u6761\u4ef6",
+    "\u9608\u503c",
+    "\u6b63\u786e\u7387",
+    "\u8d85\u8fc7",
+    "\u4e0d\u8db3",
+    "\u4f4e\u4e8e",
+    "\u9ad8\u4e8e",
+    "\u5927\u4e8e",
+    "\u5c0f\u4e8e",
+    "only when",
+    "only if",
+    "threshold",
+    "condition",
+    "greater than",
+    "less than",
+)
+_PASSIVE_VISIBILITY_SURFACE_TOKENS = (
+    "\u6309\u94ae",
+    "\u5165\u53e3",
+    "\u6807\u8bc6",
+    "\u72b6\u6001",
+    "\u663e\u793a",
+    "\u5c55\u793a",
+    "\u51fa\u73b0",
+    "\u53ef\u89c1",
+    "\u7f6e\u7070",
+    "button",
+    "entry",
+    "status",
+    "visible",
+    "display",
+    "appears",
+    "shown",
+    "disabled",
 )
 _CONFIGURE_ACTION_REQUIRED_TOKENS = (
     "\u9009\u62e9",
@@ -142,11 +210,19 @@ _COMMIT_REQUIRED_TOKENS = (
     "\u786e\u8ba4",
     "\u5b8c\u6210\u521b\u5efa",
     "\u521b\u5efa\u6210\u529f",
+    "\u89e6\u53d1\u6253\u5206",
+    "\u5f00\u59cb\u6253\u5206",
+    "\u81ea\u52a8\u6253\u5206",
+    "\u8bc4\u5206\u8ba1\u7b97",
+    "\u751f\u6210\u8bc4\u5206",
+    "\u7ed9\u51fa\u8bc4\u5206",
     "save",
     "submit",
     "commit",
     "confirm",
     "created",
+    "trigger score",
+    "score calculation",
 )
 _DOWNSTREAM_PROPAGATION_TOKENS = (
     "\u540c\u6b65",
@@ -159,6 +235,9 @@ _DOWNSTREAM_PROPAGATION_TOKENS = (
     "\u4e00\u81f4",
     "\u4e66\u623f\u7aef",
     "\u5b66\u751f\u7aef",
+    "\u8bc4\u5206\u7ed3\u679c",
+    "\u6253\u5206\u7ed3\u679c",
+    "\u7efc\u5408\u8bc4\u5206",
     "sync",
     "synced",
     "effective",
@@ -169,6 +248,8 @@ _DOWNSTREAM_PROPAGATION_TOKENS = (
     "consistent",
     "reflect",
     "reflected",
+    "score result",
+    "scoring result",
 )
 _CONSUME_REQUIRED_TOKENS = (
     "\u8df3\u8f6c",
@@ -234,6 +315,7 @@ class ExecutionPlanValidationPolicy:
     min_state_field_coverage: float = 0.8
     max_workflow_id_missing_rate: float = 0.2
     reject_untrusted_blueprint_source: bool = True
+    allow_candidate_blueprint_without_contract: bool = True
 
 
 def _text(value: Any) -> str:
@@ -509,6 +591,23 @@ def validate_main_smoke_semantic_alignment(cases: Any) -> list[dict[str, Any]]:
                 reason="reset_or_abort_case_in_main_smoke",
                 stage_kind=stage_kind,
             )
+        if _has_any_text(text, _RESUME_STATE_ONLY_TOKENS):
+            _add_semantic_conflict(
+                conflicts,
+                case=case,
+                reason="resume_state_case_in_main_smoke",
+                stage_kind=stage_kind,
+            )
+        if _has_any_text(text, _CONDITIONAL_VISIBILITY_TOKENS) and _has_any_text(
+            text,
+            _PASSIVE_VISIBILITY_SURFACE_TOKENS,
+        ):
+            _add_semantic_conflict(
+                conflicts,
+                case=case,
+                reason="conditional_visibility_case_in_main_smoke",
+                stage_kind=stage_kind,
+            )
 
         role = _text(case.get("role")).lower()
         if role == "student" and _has_any_text(text, _MANAGEMENT_SURFACE_TOKENS):
@@ -661,9 +760,19 @@ def validate_execution_plan(
         failure_reasons.append("main_smoke_semantic_conflict")
     if not bool(closure.get("commit_downstream_completion_closed")):
         failure_reasons.append("commit_downstream_completion_missing")
-    if trusted_workflow_contract_count <= 0:
+    candidate_blueprint_without_contract = bool(
+        trusted_workflow_contract_count <= 0
+        and blueprint_count <= 0
+        and blueprint_source == "current_generation_cases"
+        and resolved_policy.allow_candidate_blueprint_without_contract
+    )
+    if trusted_workflow_contract_count <= 0 and not candidate_blueprint_without_contract:
         failure_reasons.append("workflow_contract_missing")
-    if resolved_policy.reject_untrusted_blueprint_source and blueprint_source == "current_generation_cases":
+    if (
+        resolved_policy.reject_untrusted_blueprint_source
+        and blueprint_source == "current_generation_cases"
+        and not candidate_blueprint_without_contract
+    ):
         failure_reasons.append("untrusted_candidate_derived_blueprint")
 
     return {
@@ -697,6 +806,7 @@ def validate_execution_plan(
                 }
             ),
             "workflow_blueprint_source": blueprint_source or "none",
+            "candidate_blueprint_without_contract_allowed": bool(candidate_blueprint_without_contract),
             **closure,
         },
         "state_conflicts": state_conflicts[:100],
