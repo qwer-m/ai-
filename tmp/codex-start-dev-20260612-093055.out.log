@@ -1,0 +1,81 @@
+Successfully connected to MySQL database: ai_test_platform
+Redis connected: 127.0.0.1:6379
+Local L1 cache backend: memory
+ 
+ -------------- celery@DESKTOP-F86RMFU v5.6.2 (recovery)
+--- ***** ----- 
+-- ******* ---- Windows-10-10.0.26100-SP0 2026-06-12 09:31:30
+- *** --- * --- 
+- ** ---------- [config]
+- ** ---------- .> app:         ai_test_platform:0x19db1db8750
+- ** ---------- .> transport:   redis://127.0.0.1:6379/0
+- ** ---------- .> results:     redis://127.0.0.1:6379/0
+- *** --- * --- .> concurrency: 16 (solo)
+-- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
+--- ***** ----- 
+ -------------- [queues]
+                .> celery           exchange=celery(direct) key=celery
+                
+
+[tasks]
+  . modules.orchestration.tasks.archive_old_data_task
+  . modules.orchestration.tasks.audit_knowledge_index_consistency_task
+  . modules.orchestration.tasks.build_context_snapshot_task
+  . modules.orchestration.tasks.cleanup_logs_task
+  . modules.orchestration.tasks.generate_test_cases_task
+  . modules.orchestration.tasks.parse_knowledge_document_task
+
+Successfully connected to MySQL database: ai_test_platform
+Redis connected: 127.0.0.1:6379
+Local L1 cache backend: memory
+Application startup: Redis pool initialized (Ó¦ÓÃÆô¶¯: Redis Á¬½Ó³ØÒÑ³õÊ¼»¯)
+Loaded active AI config: openai / glm-5.1
+INFO:     127.0.0.1:58875 - "GET /api/health HTTP/1.1" 200 OK
+
+> frontend@0.0.0 dev
+> vite --host 0.0.0.0
+
+
+  [32m[1mVITE[22m v7.3.0[39m  [2mready in [0m[1m524[22m[2m[0m ms[22m
+
+  [32mâžœ[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
+  [32mâžœ[39m  [1mNetwork[22m: [36mhttp://198.18.0.1:[1m5173[22m/[39m
+  [32mâžœ[39m  [1mNetwork[22m: [36mhttp://192.168.71.133:[1m5173[22m/[39m
+  [32mâžœ[39m  [1mNetwork[22m: [36mhttp://172.23.112.1:[1m5173[22m/[39m
+INFO:     127.0.0.1:59213 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62813 - "GET /api/logs/8 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59888 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64286 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64585 - "GET /api/logs/8 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51552 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56627 - "GET /api/health HTTP/1.1" 200 OK
+ INFO:     127.0.0.1:55662 - "GET /api/logs/8 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54335 - "GET /api/health HTTP/1.1" 200 OK
+Starting AI Test Platform (Dev Mode)...
+Resolved backend dir: D:\Qoder\²âÊÔ¿ª·¢Æ½Ì¨\backend
+Resolved project root: D:\Qoder\²âÊÔ¿ª·¢Æ½Ì¨
+Resolved runtime home: C:\Users\Administrator
+[WARN] Redis not reachable at 127.0.0.1:6379. Trying WSL auto-repair...
+Redis auto-repaired via WSL: 172.23.114.181:6379
+Database schema checked via scripts.dev_tools.root_tools.migrations.init_db.
+Removed stale beat schedule files: celerybeat-schedule.bak, celerybeat-schedule.dat, celerybeat-schedule.dir
+Starting Celery Worker in D:\Qoder\²âÊÔ¿ª·¢Æ½Ì¨\backend...
+Starting Celery Beat in D:\Qoder\²âÊÔ¿ª·¢Æ½Ì¨\backend...
+Starting FastAPI Server in D:\Qoder\²âÊÔ¿ª·¢Æ½Ì¨\backend...
+Waiting for backend health check: http://127.0.0.1:8000/api/health
+Backend is ready.
+Starting Frontend in D:\Qoder\²âÊÔ¿ª·¢Æ½Ì¨\frontend...
+Using npm cache: C:\Users\Administrator\AppData\Local\npm-cache
+
+==================================================
+Service started successfully!
+Backend API: http://localhost:8000
+Swagger UI: http://localhost:8000/docs
+Frontend:    http://localhost:5173 (typical)
+Browser auto-open is disabled (AUTO_OPEN_BROWSER=0). Refresh your existing tab instead.
+==================================================
+
+
+Stopping services...
+Services stopped.
+Application shutdown: Cleaning up resources... (Ó¦ÓÃ¹Ø±Õ: ÕýÔÚÇåÀí×ÊÔ´...)

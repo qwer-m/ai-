@@ -284,13 +284,13 @@ class TestGenerationComparison(Base):
     project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)
     
     # 生成的测试用例
-    generated_test_case = Column(Text, nullable=False, comment="AI原始生成的用例")
+    generated_test_case = Column(LONGTEXT, nullable=False, comment="AI原始生成的用例")
     
     # 修改后的测试用例
-    modified_test_case = Column(Text, nullable=False, comment="用户修改后的用例")
+    modified_test_case = Column(LONGTEXT, nullable=False, comment="用户修改后的用例")
     
     # AI对比分析结果
-    comparison_result = Column(Text, nullable=True, comment="差异分析结果")
+    comparison_result = Column(LONGTEXT, nullable=True, comment="差异分析结果")
     
     # 创建时间
     created_at = Column(DateTime, server_default=func.now())

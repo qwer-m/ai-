@@ -7,6 +7,11 @@ from types import SimpleNamespace
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from routers.system import common
+from modules.knowledge_base_components.repositories.knowledge_document_repository import (
+    OPTIONAL_USER_VISIBLE_DOC_TYPES,
+    USER_MANAGED_DOC_TYPES,
+    KnowledgeDocumentRepository,
+)
 
 
 class _FakeQuery:
@@ -16,8 +21,10 @@ class _FakeQuery:
         self._offset = 0
         self._limit = None
         self.order_by_args = ()
+        self.filter_args = []
 
     def filter(self, *args, **kwargs):
+        self.filter_args.append(args)
         return self
 
     def count(self):
@@ -94,4 +101,43 @@ def test_list_knowledge_orders_by_display_order(monkeypatch):
     assert [item["global_id"] for item in result["documents"]] == [2, 1]
     assert query.order_by_args
     assert "display_order" in str(query.order_by_args[0])
+
+
+def _doc_type_in_values(query: _FakeQuery) -> tuple[str, ...]:
+    for args in query.filter_args:
+        for expr in args:
+            left = getattr(expr, "left", None)
+            right = getattr(expr, "right", None)
+            if getattr(left, "name", None) == "doc_type" and hasattr(right, "value"):
+                value = getattr(right, "value")
+                if isinstance(value, (list, tuple)):
+                    return tuple(str(item) for item in value)
+    return ()
+
+
+def test_paginated_knowledge_list_hides_internal_artifacts_by_default():
+    query = _FakeQuery([])
+    db = _FakeDB(query)
+
+    KnowledgeDocumentRepository(db).list_project_documents_paginated(
+        project_id=45,
+        page=1,
+        page_size=8,
+    )
+
+    assert set(_doc_type_in_values(query)) == set(USER_MANAGED_DOC_TYPES)
+
+
+def test_paginated_knowledge_list_can_include_user_visible_evaluation_reports():
+    query = _FakeQuery([])
+    db = _FakeDB(query)
+
+    KnowledgeDocumentRepository(db).list_project_documents_paginated(
+        project_id=45,
+        page=1,
+        page_size=8,
+        include_evaluation_reports=True,
+    )
+
+    assert set(_doc_type_in_values(query)) == set(USER_MANAGED_DOC_TYPES + OPTIONAL_USER_VISIBLE_DOC_TYPES)
 

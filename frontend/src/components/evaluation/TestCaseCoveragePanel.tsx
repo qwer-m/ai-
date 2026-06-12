@@ -3,6 +3,7 @@ import { Button, Col, Form, Row, Spinner } from 'react-bootstrap';
 import {
   learnFromEvaluationCasePairFileRequest,
   learnFromEvaluationCasePairRequest,
+  parseQualityReport,
 } from './state/evaluationService';
 import type { DefectAnalysis, LoadingType } from './state/types';
 import { TestCaseEvaluationReport } from './TestCaseEvaluationReport';
@@ -77,6 +78,14 @@ export function TestCaseCoveragePanel({
   const [casePairLearningApplied, setCasePairLearningApplied] = useState(false);
   const hasFinalCasesInput = Boolean(evalModified.trim() || compareFile);
   const hasEvaluationResult = Boolean(evalResult && String(evalResult).trim());
+  const currentReport = evalResult ? parseQualityReport(evalResult) : null;
+  const evaluationRunning = currentReport?.analysisStatus === 'running';
+  const compareDisabled = loading === 'eval' || evaluationRunning;
+  const compareLabel = loading === 'eval'
+    ? '提交评估中...'
+    : evaluationRunning
+      ? '模型后台评估中...'
+      : '开始评估质量（含召回率/精准率/缺陷分析）';
 
   useEffect(() => {
     setCasePairLearningApplied(false);
@@ -264,13 +273,13 @@ export function TestCaseCoveragePanel({
       </div>
 
       <div className="evaluation-testcase-action-row d-flex flex-column flex-md-row flex-wrap gap-2">
-        <Button className="btn-pro-primary flex-fill panel-card-primary-action" disabled={loading === 'eval'} onClick={onCompare}>
-          {loading === 'eval' ? '评估中...' : '开始评估质量（含召回率/精准率/缺陷分析）'}
+        <Button className="btn-pro-primary flex-fill panel-card-primary-action" disabled={compareDisabled} onClick={onCompare}>
+          {compareLabel}
         </Button>
         <Button
           variant={hasEvaluationResult ? 'outline-primary' : 'outline-secondary'}
           className="flex-fill"
-          disabled={casePairLearningApplied || learning || loading === 'eval' || !hasEvaluationResult || !evalGenerated.trim() || !hasFinalCasesInput}
+          disabled={casePairLearningApplied || learning || loading === 'eval' || evaluationRunning || !hasEvaluationResult || !evalGenerated.trim() || !hasFinalCasesInput}
           onClick={handleLearnFromEvaluation}
         >
           {learning ? (

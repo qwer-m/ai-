@@ -88,17 +88,52 @@ def _list_wsl_distros() -> list[str]:
         proc = subprocess.run(
             ["wsl", "-l", "-q"],
             capture_output=True,
-            text=True,
             timeout=10,
         )
         if proc.returncode != 0:
             return []
-        return [line.strip().lstrip("*").strip() for line in proc.stdout.splitlines() if line.strip()]
+        output = _decode_wsl_stdout(proc.stdout)
+        distros: list[str] = []
+        for line in output.splitlines():
+            name = _clean_wsl_distro_name(line)
+            if name and name not in distros:
+                distros.append(name)
+        return distros
     except Exception:
         return []
 
 
+def _decode_wsl_stdout(stdout: bytes) -> str:
+    if not stdout:
+        return ""
+
+    encodings: list[str] = []
+    if stdout.startswith((b"\xff\xfe", b"\xfe\xff")) or b"\x00" in stdout:
+        encodings.extend(["utf-16", "utf-16le"])
+    encodings.extend(["utf-8-sig", sys.getfilesystemencoding() or "utf-8"])
+
+    seen: set[str] = set()
+    for encoding in encodings:
+        if encoding in seen:
+            continue
+        seen.add(encoding)
+        try:
+            return stdout.decode(encoding).replace("\x00", "")
+        except UnicodeDecodeError:
+            continue
+
+    return stdout.decode("utf-8", errors="replace").replace("\x00", "")
+
+
+def _clean_wsl_distro_name(name: str) -> str:
+    return name.replace("\x00", "").strip().lstrip("*").strip()
+
+
 def _probe_wsl_ready(distro: str) -> bool:
+    distro = _clean_wsl_distro_name(distro)
+    if not distro:
+        return False
+
     last_error: Exception | None = None
     for timeout_seconds in (8, 20, 35):
         try:
@@ -120,6 +155,10 @@ def _probe_wsl_ready(distro: str) -> bool:
 
 def _get_wsl_ip(distro: str) -> str | None:
     """Get the current IPv4 address of the WSL distro."""
+    distro = _clean_wsl_distro_name(distro)
+    if not distro:
+        return None
+
     try:
         proc = subprocess.run(
             ["wsl", "-d", distro, "-e", "bash", "-lc", "hostname -I"],
@@ -140,6 +179,10 @@ def _get_wsl_ip(distro: str) -> str | None:
 
 def _ensure_wsl_redis_running(distro: str, port: int) -> bool:
     """Ensure redis-server is running inside WSL."""
+    distro = _clean_wsl_distro_name(distro)
+    if not distro:
+        return False
+
     bash_cmd = (
         f"if ! pgrep -f 'redis-server.*:{port}' >/dev/null 2>&1; then "
         f"nohup redis-server --bind 0.0.0.0 --port {port} >/tmp/redis-start.log 2>&1 & "
@@ -181,7 +224,7 @@ def ensure_redis_ready() -> bool:
             return True
 
     print(f"[WARN] Redis not reachable at {redis_host}:{redis_port}. Trying WSL auto-repair...")
-    configured_distro = os.environ.get("WSL_DISTRO_NAME", "Ubuntu").strip() or "Ubuntu"
+    configured_distro = _clean_wsl_distro_name(os.environ.get("WSL_DISTRO_NAME", "Ubuntu")) or "Ubuntu"
     installed_distros = _list_wsl_distros()
     distro = configured_distro
     if installed_distros and configured_distro not in installed_distros:

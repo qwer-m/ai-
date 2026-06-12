@@ -1,0 +1,20 @@
+INFO:     Will watch for changes in these directories: ['D:\\Qoder\\测试开发平台\\backend']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [22192] using WatchFiles
+D:\Qoder\测试开发平台\.venv\Lib\site-packages\pydantic\_internal\_config.py:383: UserWarning: Valid config keys have changed in V2:
+* 'orm_mode' has been renamed to 'from_attributes'
+  warnings.warn(message, UserWarning)
+[2026-06-12 09:34:09,366: INFO/MainProcess] beat: Starting...
+[2026-06-12 09:34:09,441: INFO/MainProcess] Connected to redis://127.0.0.1:6379/0
+[2026-06-12 09:34:09,449: INFO/MainProcess] mingle: searching for neighbors
+INFO:     Started server process [8232]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+[2026-06-12 09:34:10,484: INFO/MainProcess] mingle: all alone
+[2026-06-12 09:34:10,501: INFO/MainProcess] celery@DESKTOP-F86RMFU ready.
+[2026-06-12 10:00:00,112: INFO/MainProcess] Scheduler: Sending due task cleanup-logs-every-hour (modules.orchestration.tasks.cleanup_logs_task)
+[2026-06-12 10:00:00,377: INFO/MainProcess] Task modules.orchestration.tasks.cleanup_logs_task[1c1bb1b3-949a-428e-90c1-ef64cf5f8811] received
+[2026-06-12 10:00:00,831: INFO/MainProcess] Task modules.orchestration.tasks.cleanup_logs_task[1c1bb1b3-949a-428e-90c1-ef64cf5f8811] succeeded in 0.4530000000013388s: {'deleted_logs': 1}
+WARNING:  WatchFiles detected changes in 'modules\testing\evaluation.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for background tasks to complete. (CTRL+C to force quit)

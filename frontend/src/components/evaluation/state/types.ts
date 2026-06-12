@@ -91,10 +91,52 @@ export type RequirementBaseline = {
   };
 };
 
+export type EvaluationProgress = {
+  phase?: string;
+  completed_chunks?: number;
+  total_chunks?: number;
+  completed_units?: number;
+  total_units?: number;
+  failed_chunks?: number;
+  retrying_chunks?: Array<{
+    chunk_index?: string | number;
+    attempt?: number;
+    max_attempts?: number;
+    last_error?: string;
+  }>;
+  failed_chunk_details?: Array<{
+    chunk_index?: string | number;
+    chunk_unit_count?: number;
+    error?: string;
+  }>;
+  current_chunk?: string | number;
+  last_error?: string;
+};
+
+export type PartialChunkResult = {
+  chunk_index?: string | number;
+  chunk_unit_count?: number;
+  retry_attempts?: number;
+  summary?: string;
+  metrics?: QualityMetrics;
+  defect_analysis?: DefectAnalysis;
+  case_judgements?: Array<{
+    unit_id?: string;
+    verdict?: string;
+    reason?: string;
+  }>;
+};
+
 export type ParsedQualityReport = {
+  analysisStatus?: string;
+  analysisMode?: string;
+  isFinalEvaluation?: boolean;
+  comparisonId?: number;
   metrics: QualityMetrics;
   defectAnalysis: DefectAnalysis;
   requirementBaseline?: RequirementBaseline;
+  progress?: EvaluationProgress;
+  partialChunkResults?: PartialChunkResult[];
   summary: string;
 } | null;
 

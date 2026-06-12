@@ -1,0 +1,9 @@
+[2m17:00:14[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/logs/8[39m
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
+[2m17:00:34[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/logs/8[39m
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
+[2m17:00:38[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/health[39m
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)

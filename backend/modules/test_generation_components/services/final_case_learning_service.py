@@ -34,6 +34,7 @@ _MAX_EVALUATION_LEARNING_CANDIDATES = 80
 _MAX_EVALUATION_POSITIVE_CANDIDATES_PER_FIELD = 8
 _MAX_EVALUATION_FIX_CANDIDATES_PER_FIELD = 6
 _MAX_EVALUATION_NEGATIVE_CANDIDATES_PER_FIELD = 3
+_EVALUATION_LEARNING_CANDIDATE_QUALITY_POLICY = "evaluation_defect_reusable_pattern_v1"
 
 _CASE_FIELD_ALIASES = {
     "id": ("id", "case_id", "用例编号", "编号"),
@@ -355,6 +356,8 @@ def build_learning_candidates_from_evaluation_result(evaluation_result: Any) -> 
     metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
 
     candidates: list[dict[str, Any]] = []
+    raw_candidate_count = 0
+    rejected_candidates: list[dict[str, Any]] = []
 
     def add_candidate(
         *,
@@ -369,10 +372,29 @@ def build_learning_candidates_from_evaluation_result(evaluation_result: Any) -> 
         selected_by_default: bool,
         confidence: float,
     ) -> None:
+        nonlocal raw_candidate_count
+        raw_candidate_count += 1
         text = _text(item)
         if not text:
             return
         candidate_id = f"{source_field}-{index}"
+        gate = _evaluation_learning_candidate_quality_gate(
+            text=text,
+            source_field=source_field,
+            candidate_type=candidate_type,
+            signal_type=signal_type,
+        )
+        if gate["status"] == "rejected":
+            rejected_candidates.append(
+                {
+                    "id": candidate_id,
+                    "source_field": source_field,
+                    "reason": gate["reason"],
+                    "text": text[:160],
+                }
+            )
+            return
+        effective_selected = bool(selected_by_default and gate["status"] == "auto_select")
         sample = {
             "signal_type": signal_type,
             "pattern_usage": pattern_usage,
@@ -396,6 +418,9 @@ def build_learning_candidates_from_evaluation_result(evaluation_result: Any) -> 
             "pattern_scope": "project",
             "pattern_confidence": round(max(0.35, min(0.9, confidence)), 4),
             "evaluation_metrics": _compact_evaluation_metrics(metrics),
+            "quality_gate_status": gate["status"],
+            "quality_gate_reason": gate["reason"],
+            "quality_gate_policy": _EVALUATION_LEARNING_CANDIDATE_QUALITY_POLICY,
         }
         candidates.append(
             {
@@ -404,14 +429,18 @@ def build_learning_candidates_from_evaluation_result(evaluation_result: Any) -> 
                 "target": "priority_sample_pool",
                 "source_field": source_field,
                 "text": text,
-                "selected_by_default": bool(selected_by_default),
+                "selected_by_default": effective_selected,
                 "confidence": sample["pattern_confidence"],
+                "quality_gate_status": gate["status"],
+                "quality_gate_reason": gate["reason"],
                 "sample": sample,
             }
         )
 
     for idx, item in enumerate(_as_text_list(defect.get("missing_points")), start=1):
-        if _is_generated_only_evaluation_defect(item):
+        generated_only = _is_generated_only_evaluation_defect(item)
+        redundant_or_overgenerated = _is_redundant_or_overgenerated_evaluation_defect(item)
+        if generated_only or redundant_or_overgenerated:
             add_candidate(
                 source_field="missing_points",
                 item=item,
@@ -419,7 +448,11 @@ def build_learning_candidates_from_evaluation_result(evaluation_result: Any) -> 
                 signal_type="negative",
                 pattern_usage="avoid",
                 pattern_category="hallucination_or_redundant_case",
-                reason_category="generated_only_defect_misfiled_as_missing",
+                reason_category=(
+                    "generated_only_defect_misfiled_as_missing"
+                    if generated_only
+                    else "redundant_defect_misfiled_as_missing"
+                ),
                 candidate_type="negative_pattern",
                 selected_by_default=False,
                 confidence=_confidence_from_metrics(metrics, base=0.62, metric_name="precision", inverse=True),
@@ -438,7 +471,9 @@ def build_learning_candidates_from_evaluation_result(evaluation_result: Any) -> 
             confidence=_confidence_from_metrics(metrics, base=0.72, metric_name="recall", inverse=True),
         )
     for idx, item in enumerate(_as_text_list(defect.get("modifications")), start=1):
-        if _is_generated_only_evaluation_defect(item):
+        generated_only = _is_generated_only_evaluation_defect(item)
+        redundant_or_overgenerated = _is_redundant_or_overgenerated_evaluation_defect(item)
+        if generated_only or redundant_or_overgenerated:
             add_candidate(
                 source_field="modifications",
                 item=item,
@@ -446,7 +481,11 @@ def build_learning_candidates_from_evaluation_result(evaluation_result: Any) -> 
                 signal_type="negative",
                 pattern_usage="avoid",
                 pattern_category="hallucination_or_redundant_case",
-                reason_category="generated_only_defect_misfiled_as_modification",
+                reason_category=(
+                    "generated_only_defect_misfiled_as_modification"
+                    if generated_only
+                    else "redundant_defect_misfiled_as_modification"
+                ),
                 candidate_type="negative_pattern",
                 selected_by_default=False,
                 confidence=_confidence_from_metrics(metrics, base=0.62, metric_name="precision", inverse=True),
@@ -478,21 +517,26 @@ def build_learning_candidates_from_evaluation_result(evaluation_result: Any) -> 
             confidence=_confidence_from_metrics(metrics, base=0.6, metric_name="precision", inverse=True),
         )
 
-    raw_candidate_count = len(candidates)
     candidates = _aggregate_evaluation_learning_candidates(candidates)
     candidates = candidates[:_MAX_EVALUATION_LEARNING_CANDIDATES]
     return {
         "candidates": candidates,
         "diagnostics": {
             "raw_candidate_count": raw_candidate_count,
+            "quality_gate_rejected_count": len(rejected_candidates),
+            "quality_gate_review_required_count": sum(
+                1 for item in candidates if item.get("quality_gate_status") == "review_required"
+            ),
+            "quality_gate_rejected_examples": rejected_candidates[:8],
             "candidate_count": len(candidates),
             "selected_by_default_count": sum(1 for item in candidates if item.get("selected_by_default") is True),
             "missing_points_count": len(_as_text_list(defect.get("missing_points"))),
             "modifications_count": len(_as_text_list(defect.get("modifications"))),
             "hallucinations_count": len(_as_text_list(defect.get("hallucinations"))),
             "candidate_aggregation_policy": (
-                "defect_field_semantic_bucket_positive8_fix6_negative3_generated_only_guard"
+                "defect_field_semantic_bucket_positive8_fix6_negative3_generated_redundant_quality_gate"
             ),
+            "candidate_quality_policy": _EVALUATION_LEARNING_CANDIDATE_QUALITY_POLICY,
             "target": "priority_sample_pool",
             "write_policy": "user_confirmed_only",
         },
@@ -642,24 +686,47 @@ class FinalCaseLearningService:
 
         candidate_items = candidates if isinstance(candidates, list) else []
         samples: list[dict[str, Any]] = []
+        rejected_sample_count = 0
+        rejected_sample_examples: list[dict[str, Any]] = []
         for candidate in candidate_items:
             if not isinstance(candidate, dict):
                 continue
             sample = candidate.get("sample")
+            normalized_sample: dict[str, Any] | None = None
             if isinstance(sample, dict):
-                samples.append(sample)
+                normalized_sample = dict(sample)
             elif _candidate_has_sample_shape(candidate):
-                samples.append(candidate)
+                normalized_sample = dict(candidate)
+            if normalized_sample is None:
+                continue
+            gated_sample = _filter_quality_evaluation_sample_for_apply(normalized_sample)
+            if gated_sample is None:
+                rejected_sample_count += 1
+                rejected_sample_examples.append(
+                    {
+                        "id": normalized_sample.get("case_id") or normalized_sample.get("id"),
+                        "text": _text(
+                            normalized_sample.get("user_comment")
+                            or normalized_sample.get("title")
+                            or normalized_sample.get("pattern_summary")
+                        )[:160],
+                    }
+                )
+                continue
+            samples.append(gated_sample)
         samples = samples[:_MAX_EVALUATION_LEARNING_CANDIDATES]
         derived = {
             "samples": samples,
             "diagnostics": {
                 "candidate_count": len(candidate_items),
                 "sample_count": len(samples),
+                "rejected_sample_count": rejected_sample_count,
+                "rejected_sample_examples": rejected_sample_examples[:8],
                 "positive_sample_count": sum(1 for item in samples if str(item.get("signal_type") or "") == "positive"),
                 "negative_sample_count": sum(1 for item in samples if str(item.get("signal_type") or "") == "negative"),
                 "target": "priority_sample_pool",
                 "source": "quality_evaluation_defect",
+                "candidate_quality_policy": _EVALUATION_LEARNING_CANDIDATE_QUALITY_POLICY,
             },
         }
         if dry_run:
@@ -1079,6 +1146,206 @@ def _is_generated_only_evaluation_defect(raw: Any) -> bool:
     return any(token.lower() in lowered for token in final_absent_tokens + generated_excess_tokens)
 
 
+def _is_redundant_or_overgenerated_evaluation_defect(raw: Any) -> bool:
+    text = _text(raw)
+    if not text:
+        return False
+    lowered = text.lower()
+    generated_tokens = ("ai", "生成", "generated")
+    redundant_tokens = (
+        "duplicate_redundant",
+        "重复",
+        "冗余",
+        "合并",
+        "过多",
+        "大量",
+        "多个",
+        "未被人工采用",
+        "not adopted",
+        "redundant",
+        "duplicate",
+        "merged",
+    )
+    return any(token in lowered for token in generated_tokens) and any(
+        token in lowered for token in redundant_tokens
+    )
+
+
+def _evaluation_learning_candidate_quality_gate(
+    *,
+    text: str,
+    source_field: str,
+    candidate_type: str,
+    signal_type: str,
+) -> dict[str, str]:
+    normalized = _text(text)
+    if not normalized:
+        return {"status": "rejected", "reason": "empty_text"}
+
+    compact_len = len(re.sub(r"\s+", "", normalized))
+    has_case_id = _has_case_identifier(normalized)
+    if _is_case_identifier_only_learning_text(normalized):
+        return {"status": "rejected", "reason": "case_identifier_label_only"}
+    if _is_direct_case_rewrite_note(normalized):
+        return {"status": "rejected", "reason": "case_identifier_rewrite_note"}
+
+    context_score = _learning_candidate_context_score(normalized)
+    has_defect_or_compare_signal = _has_evaluation_defect_or_compare_signal(normalized)
+    has_final_side_anchor = _has_final_side_learning_anchor(normalized)
+    has_generated_side_anchor = _has_generated_side_learning_anchor(normalized)
+    is_negative = signal_type == "negative" or candidate_type == "negative_pattern" or source_field == "hallucinations"
+
+    if is_negative:
+        if has_case_id and context_score < 8:
+            return {"status": "rejected", "reason": "case_identifier_without_negative_context"}
+        if compact_len < 12 or (context_score < 6 and not has_defect_or_compare_signal):
+            return {"status": "rejected", "reason": "low_context_negative_pattern"}
+        return {"status": "review_required", "reason": "negative_patterns_require_confirmation"}
+
+    if _is_process_count_learning_note(normalized):
+        return {"status": "rejected", "reason": "process_count_note_not_reusable_pattern"}
+    if compact_len < 18 and not has_final_side_anchor:
+        return {"status": "rejected", "reason": "low_context_positive_pattern"}
+    if context_score < 8 and not has_final_side_anchor:
+        return {"status": "rejected", "reason": "not_enough_reusable_context"}
+    if not has_defect_or_compare_signal and compact_len < 24:
+        return {"status": "rejected", "reason": "missing_defect_or_comparison_signal"}
+    if _is_ai_to_human_process_note(normalized):
+        return {"status": "review_required", "reason": "ai_human_process_note_requires_review"}
+    if has_final_side_anchor and not has_generated_side_anchor and compact_len < 24:
+        return {"status": "review_required", "reason": "compact_final_side_pattern_requires_review"}
+    if not has_final_side_anchor and compact_len < 24:
+        return {"status": "review_required", "reason": "compact_positive_pattern_requires_review"}
+    return {"status": "auto_select", "reason": "reusable_evaluation_pattern"}
+
+
+def _has_case_identifier(text: str) -> bool:
+    return bool(re.search(r"(?:TC|CASE)[-\s]?\d+", text, flags=re.IGNORECASE))
+
+
+def _strip_case_identifiers(text: str) -> str:
+    return re.sub(r"(?:TC|CASE)[-\s]?\d+", "", text, flags=re.IGNORECASE)
+
+
+def _is_case_identifier_only_learning_text(text: str) -> bool:
+    without_ids = _strip_case_identifiers(text)
+    without_ids = re.sub(r"\bAI\b", "", without_ids, flags=re.IGNORECASE)
+    without_ids = re.sub(r"group\d+", "", without_ids, flags=re.IGNORECASE)
+    without_ids = re.sub(
+        r"(修正|修改|调整|对应|匹配|判断|逻辑|功能|验证|测试|题目|场景|页面|模块|用例|类问题聚合|代表例|合并|和|在|中|；|;|:|：|、|，|,|\s)+",
+        "",
+        without_ids,
+    )
+    return _has_case_identifier(text) and len(without_ids) < 8
+
+
+def _is_direct_case_rewrite_note(text: str) -> bool:
+    return bool(
+        re.match(
+            r"^\s*(?:TC|CASE)[-\s]?\d+\s*(?:修正|修改|调整为|对应|合并到?)\s*(?:TC|CASE)[-\s]?\d+\s*$",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _is_process_count_learning_note(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    return bool(
+        re.search(r"AI生成\d+个用例.*人工(?:修改|合并|拆分)为\d+个", compact, flags=re.IGNORECASE)
+        or re.search(r"人工将多个AI用例(?:合并|修改)为", compact, flags=re.IGNORECASE)
+    )
+
+
+def _is_ai_to_human_process_note(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    return bool(
+        re.search(r"AI(?:的|用例|生成)?.{0,16}人工(?:修改|补充|拆分|修正)", compact, flags=re.IGNORECASE)
+        or re.search(r"人工(?:修改|补充|拆分|修正).{0,16}AI", compact, flags=re.IGNORECASE)
+    )
+
+
+def _has_final_side_learning_anchor(text: str) -> bool:
+    lowered = text.lower()
+    tokens = (
+        "修改版",
+        "修改用例",
+        "人工版",
+        "人工用例",
+        "人工最终",
+        "最终用例",
+        "modified",
+        "human",
+        "final case",
+    )
+    return any(token in lowered for token in tokens)
+
+
+def _has_generated_side_learning_anchor(text: str) -> bool:
+    lowered = text.lower()
+    tokens = (
+        "生成版",
+        "生成用例",
+        "原生成",
+        "ai",
+        "generated",
+    )
+    return any(token in lowered for token in tokens)
+
+
+def _has_evaluation_defect_or_compare_signal(text: str) -> bool:
+    lowered = text.lower()
+    tokens = (
+        "缺失",
+        "缺少",
+        "遗漏",
+        "未包含",
+        "未覆盖",
+        "未涉及",
+        "未提及",
+        "无对应",
+        "不完全对应",
+        "无关",
+        "多余",
+        "冗余",
+        "重复",
+        "合并",
+        "修正",
+        "修改",
+        "补充",
+        "变更",
+        "改为",
+        "更具体",
+        "过于笼统",
+        "缺乏",
+        "missing",
+        "lacks",
+        "lack",
+        "should",
+        "assert",
+        "not generic",
+        "unrelated",
+        "redundant",
+        "duplicate",
+        "modified",
+        "generated",
+    )
+    return any(token in lowered for token in tokens)
+
+
+def _learning_candidate_context_score(text: str) -> int:
+    cleaned = _strip_case_identifiers(text)
+    cleaned = re.sub(r"\b(?:AI|TC|CASE|generated|modified|human|final|case|expected|result|should|assert)\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"(生成版|修改版|人工|生成|用例|测试|验证|缺失|缺少|遗漏|未包含|未覆盖|未涉及|未提及|无对应|修正|修改|补充|变更|改为|更具体|过于笼统|缺乏|功能|场景|逻辑|条件|具体|精确|页面|模块|类问题聚合|代表例|个|为|从)",
+        "",
+        cleaned,
+    )
+    chinese_chars = re.findall(r"[\u4e00-\u9fff]", cleaned)
+    english_words = re.findall(r"[A-Za-z]{3,}", cleaned)
+    return len(chinese_chars) + len(english_words) * 4
+
+
 def _aggregate_evaluation_learning_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
     buckets: dict[str, list[dict[str, Any]]] = {}
     for candidate in candidates:
@@ -1158,9 +1425,17 @@ def _merge_evaluation_candidate_bucket(bucket: list[dict[str, Any]]) -> dict[str
         return base
     texts = [_text(item.get("text")) for item in bucket if _text(item.get("text"))]
     summary = _summarize_candidate_texts(texts)
+    selected_by_default = any(item.get("selected_by_default") is True for item in bucket)
+    gate_statuses = {str(item.get("quality_gate_status") or "") for item in bucket}
+    gate_status = "auto_select" if selected_by_default else "review_required"
+    if "auto_select" not in gate_statuses and "review_required" in gate_statuses:
+        gate_status = "review_required"
     base["text"] = summary
     base["id"] = f"{base.get('source_field')}-{_semantic_bucket_for_learning_text(summary)}"
     base["confidence"] = round(max(float(item.get("confidence") or 0.0) for item in bucket), 4)
+    base["selected_by_default"] = selected_by_default
+    base["quality_gate_status"] = gate_status
+    base["quality_gate_reason"] = "aggregated_reusable_evidence" if selected_by_default else "aggregated_review_required"
     sample = dict(base.get("sample") or {})
     sample["case_id"] = str(base["id"])
     sample["title"] = summary[:120]
@@ -1173,6 +1448,9 @@ def _merge_evaluation_candidate_bucket(bucket: list[dict[str, Any]]) -> dict[str
     sample["pattern_confidence"] = base["confidence"]
     sample["aggregated_evidence_count"] = len(bucket)
     sample["aggregated_evidence_examples"] = texts[:5]
+    sample["quality_gate_status"] = gate_status
+    sample["quality_gate_reason"] = str(base["quality_gate_reason"])
+    sample["quality_gate_policy"] = _EVALUATION_LEARNING_CANDIDATE_QUALITY_POLICY
     base["sample"] = sample
     base["aggregated_count"] = len(bucket)
     return base
@@ -1187,6 +1465,36 @@ def _summarize_candidate_texts(texts: list[str]) -> str:
     bucket = _semantic_bucket_for_learning_text(first)
     examples = "；".join(text[:60] for text in texts[:3])
     return f"{bucket} 类问题聚合：{len(texts)} 条相似缺陷，代表例：{examples}"[:240]
+
+
+def _filter_quality_evaluation_sample_for_apply(sample: dict[str, Any]) -> dict[str, Any] | None:
+    source_type = str(sample.get("source_type") or sample.get("source") or "")
+    if source_type != "quality_evaluation_defect":
+        return sample
+    text = _text(sample.get("user_comment") or sample.get("title") or sample.get("pattern_summary"))
+    signal_type = str(sample.get("signal_type") or sample.get("sample_kind") or "")
+    pattern_category = str(sample.get("pattern_category") or "")
+    candidate_type = "negative_pattern" if signal_type == "negative" else "positive_pattern"
+    if pattern_category == "quality_fix_hint":
+        candidate_type = "quality_fix_hint"
+    source_field = str(sample.get("learning_signal_source") or "")
+    if "." in source_field:
+        source_field = source_field.rsplit(".", 1)[-1]
+    if not source_field:
+        source_field = "hallucinations" if signal_type == "negative" else "missing_points"
+    gate = _evaluation_learning_candidate_quality_gate(
+        text=text,
+        source_field=source_field,
+        candidate_type=candidate_type,
+        signal_type=signal_type,
+    )
+    if gate["status"] == "rejected":
+        return None
+    result = dict(sample)
+    result.setdefault("quality_gate_status", gate["status"])
+    result.setdefault("quality_gate_reason", gate["reason"])
+    result.setdefault("quality_gate_policy", _EVALUATION_LEARNING_CANDIDATE_QUALITY_POLICY)
+    return result
 
 
 def _candidate_has_sample_shape(candidate: dict[str, Any]) -> bool:

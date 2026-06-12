@@ -12,6 +12,16 @@ from sqlalchemy.orm import Session, aliased
 from core.db.models import KnowledgeDocument, Project
 
 
+USER_MANAGED_DOC_TYPES = (
+    "requirement",
+    "test_case",
+    "prototype",
+    "product_requirement",
+    "incomplete",
+)
+OPTIONAL_USER_VISIBLE_DOC_TYPES = ("evaluation_report",)
+
+
 class KnowledgeDocumentRepository:
     """Session-backed repository for KnowledgeDocument."""
 
@@ -295,10 +305,17 @@ class KnowledgeDocumentRepository:
         doc_type: str | None = None,
         include_linked_test_cases: bool = False,
         include_evaluation_reports: bool = False,
+        include_internal_artifacts: bool = False,
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> tuple[int, list[KnowledgeDocument]]:
         query = self.db.query(KnowledgeDocument).filter(KnowledgeDocument.project_id == project_id)
+
+        if not include_internal_artifacts:
+            visible_types = list(USER_MANAGED_DOC_TYPES)
+            if include_evaluation_reports:
+                visible_types.extend(OPTIONAL_USER_VISIBLE_DOC_TYPES)
+            query = query.filter(KnowledgeDocument.doc_type.in_(visible_types))
 
         if search:
             query = query.filter(KnowledgeDocument.filename.like(f"%{search}%"))

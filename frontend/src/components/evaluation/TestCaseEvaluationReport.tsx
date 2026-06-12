@@ -1,5 +1,5 @@
 ﻿import { useState, type ChangeEvent, type ClipboardEvent } from 'react';
-import { Button, Form, Modal, Spinner } from 'react-bootstrap';
+import { Button, Form, Modal, ProgressBar, Spinner } from 'react-bootstrap';
 import {
   CategoryScale,
   Chart as ChartJS,
@@ -66,7 +66,56 @@ export function TestCaseEvaluationReport({
     return <div className="evaluation-prewrap">{evalResult}</div>;
   }
 
-  const { metrics, defectAnalysis, requirementBaseline, summary } = report;
+  const {
+    metrics,
+    defectAnalysis,
+    requirementBaseline,
+    summary,
+    analysisStatus,
+    isFinalEvaluation,
+    comparisonId,
+    progress,
+    partialChunkResults = [],
+  } = report;
+  const isRunning = analysisStatus === 'running';
+  const isModelFailed = analysisStatus === 'model_failed';
+  const isPartialCompleted = analysisStatus === 'partial_completed';
+  const isIncomplete = isFinalEvaluation === false && !isRunning;
+  const canUseDefectLearning = isFinalEvaluation !== false && !isRunning && !isModelFailed;
+  const totalChunks = Number(progress?.total_chunks || 0);
+  const completedChunks = Number(progress?.completed_chunks || 0);
+  const failedChunkCount = Number(progress?.failed_chunks || 0);
+  const retryingChunks = Array.isArray(progress?.retrying_chunks) ? progress.retrying_chunks : [];
+  const progressPercent = totalChunks > 0
+    ? Math.min(100, Math.max(0, Math.round((completedChunks / totalChunks) * 100)))
+    : 0;
+  const partialPreview = partialChunkResults.slice(-5);
+  const phaseLabelMap: Record<string, string> = {
+    chunking: '分片评估中',
+    single_pass_evaluating: '全量平衡评估中',
+    retrying: '分片重试中',
+    splitting: '拆分重试中',
+    aggregating: '汇总评估中',
+    aggregate_retrying: '汇总重试中',
+    aggregate_failed: '汇总失败',
+    failed: '分片失败',
+    partial_completed: '部分完成',
+    chunk_failed_continuing: '分片失败，继续后续分片',
+    stopped_after_repeated_model_failures: '连续失败，已停止重试',
+  };
+  const phaseLabel = progress?.phase ? (phaseLabelMap[progress.phase] || progress.phase) : '';
+  const statusTitle = isRunning
+    ? '模型质量评估后台执行中'
+    : isPartialCompleted
+      ? '模型质量评估部分完成'
+      : isModelFailed || isIncomplete
+      ? '模型质量评估未完成'
+      : '模型质量评估已完成';
+  const statusClass = isRunning
+    ? 'bg-light'
+    : isModelFailed || isIncomplete
+      ? 'bg-warning-subtle'
+      : 'bg-white';
   const baselineHeuristic = requirementBaseline?.heuristic;
   const generatedCoverageRate = typeof requirementBaseline?.generated_coverage_rate === 'number'
     ? requirementBaseline.generated_coverage_rate
@@ -356,6 +405,64 @@ export function TestCaseEvaluationReport({
         </Modal.Footer>
       </Modal>
 
+      {analysisStatus ? (
+        <div className={`mb-3 p-2 border rounded ${statusClass} evaluation-report-status`}>
+          <div className="d-flex align-items-center gap-2">
+            {isRunning ? <Spinner animation="border" size="sm" /> : null}
+            <strong className="small">
+              {statusTitle}
+            </strong>
+            {comparisonId ? <span className="x-small text-muted">comparison_id={comparisonId}</span> : null}
+          </div>
+          <div className="small text-muted mt-1">
+            {isRunning ? '页面会自动刷新结果；当前不要重复点击开始评估。' : summary}
+          </div>
+          {progress ? (
+            <div className="mt-2">
+              {totalChunks > 0 ? (
+                <>
+                  <div className="d-flex align-items-center justify-content-between gap-2 x-small text-muted">
+                    <span>已加载完成分片 {completedChunks}/{totalChunks}</span>
+                    {phaseLabel ? <span>{phaseLabel}</span> : null}
+                  </div>
+                  <ProgressBar now={progressPercent} className="mt-1" style={{ height: 6 }} />
+                </>
+              ) : null}
+              {retryingChunks.length > 0 ? (
+                <div className="x-small text-warning mt-1">
+                  正在重试：{retryingChunks.map((item) => `${item.chunk_index || '-'}(${item.attempt || 0}/${item.max_attempts || 0})`).join('、')}
+                </div>
+              ) : null}
+              {failedChunkCount > 0 ? (
+                <div className="x-small text-danger mt-1">失败分片：{failedChunkCount} 个，已完成分片仍保留展示。</div>
+              ) : null}
+            </div>
+          ) : null}
+          {partialPreview.length > 0 ? (
+            <div className="mt-2 pt-2 border-top">
+              <div className="x-small text-muted mb-1">已完成分片预览（最近 {partialPreview.length} 个）</div>
+              <div className="d-flex flex-column gap-1">
+                {partialPreview.map((chunk, index) => {
+                  const defect = chunk.defect_analysis || {};
+                  const defectCount =
+                    Number(defect.missing_points?.length || 0)
+                    + Number(defect.hallucinations?.length || 0)
+                    + Number(defect.modifications?.length || 0);
+                  return (
+                    <div key={`${chunk.chunk_index ?? index}`} className="x-small text-secondary">
+                      <span className="fw-semibold">分片 {chunk.chunk_index ?? '-'}</span>
+                      <span className="ms-2">{chunk.summary || `已完成 ${chunk.chunk_unit_count || 0} 个对比单元`}</span>
+                      {defectCount > 0 ? <span className="ms-2 text-muted">缺陷项 {defectCount}</span> : null}
+                      {Number(chunk.retry_attempts || 0) > 0 ? <span className="ms-2 text-warning">已重试 {chunk.retry_attempts} 次</span> : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="mb-3 p-2 border rounded bg-white evaluation-report-learning-candidates">
         <div className="d-flex align-items-center justify-content-between gap-2 mb-2">
           <div>
@@ -363,11 +470,11 @@ export function TestCaseEvaluationReport({
             <div className="x-small text-muted">从本次质量评估的遗漏、幻觉、逻辑修正中提取，确认后写入现有样本池。</div>
           </div>
           <div className="d-flex gap-2">
-            <Button variant="outline-primary" size="sm" disabled={candidateLoading || !projectId} onClick={buildLearningCandidates}>
+            <Button variant="outline-primary" size="sm" disabled={candidateLoading || !projectId || !canUseDefectLearning} onClick={buildLearningCandidates}>
               {candidateLoading && learningCandidates.length === 0 ? <Spinner animation="border" size="sm" className="me-1" /> : null}
               生成候选
             </Button>
-            <Button variant="primary" size="sm" disabled={candidateLoading || selectedCandidates.length === 0} onClick={applySelectedCandidates}>
+            <Button variant="primary" size="sm" disabled={candidateLoading || selectedCandidates.length === 0 || !canUseDefectLearning} onClick={applySelectedCandidates}>
               {candidateLoading && learningCandidates.length > 0 ? <Spinner animation="border" size="sm" className="me-1" /> : null}
               写入选中
             </Button>
@@ -411,7 +518,9 @@ export function TestCaseEvaluationReport({
             })}
           </div>
         ) : null}
-        {candidateMessage ? <div className="small text-muted mt-2">{candidateMessage}</div> : null}
+        {!canUseDefectLearning ? (
+          <div className="small text-muted mt-2">正式质量评估完成后才能生成和写入学习候选。</div>
+        ) : candidateMessage ? <div className="small text-muted mt-2">{candidateMessage}</div> : null}
       </div>
 
       {requirementBaseline ? (

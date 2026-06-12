@@ -4,6 +4,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from modules.test_generation_components.services.final_case_learning_service import (
+    _filter_quality_evaluation_sample_for_apply,
     build_learning_candidates_from_evaluation_result,
     build_learning_samples_from_final_cases,
     parse_test_cases_spreadsheet_bytes,
@@ -619,6 +620,85 @@ def test_evaluation_defect_analysis_does_not_prefer_generated_only_missing_point
     assert candidate["sample"]["signal_type"] == "negative"
     assert candidate["sample"]["pattern_usage"] == "avoid"
     assert candidate["sample"]["reason_category"] == "generated_only_defect_misfiled_as_missing"
+
+
+def test_evaluation_defect_analysis_filters_low_context_learning_candidates() -> None:
+    report = {
+        "analysis_mode": "llm_chunked",
+        "metrics": {
+            "precision": 0.1309,
+            "recall": 0.1667,
+            "f1_score": 0.1439,
+            "semantic_similarity": 0.3798,
+        },
+        "defect_analysis": {
+            "missing_points": [
+                "AI未包含录音时长约束",
+                "CASE-14 ai提问题目判断",
+                "缺失讲错题录音按钮功能验证",
+            ],
+            "modifications": [
+                "TC-039修正CASE-49",
+                "AI用例侧重界面操作，人工修改为追问策略",
+                "duplicate_redundant 类问题聚合：2 条相似缺陷，代表例：TC-034和TC-039在group6中合并；人工将多个AI用例合并为一个追问用例",
+            ],
+            "hallucinations": [
+                "TC-001提问逻辑",
+                "AI生成了无关的左侧导航栏验证",
+            ],
+        },
+    }
+
+    result = build_learning_candidates_from_evaluation_result(report)
+
+    texts = {item["text"] for item in result["candidates"]}
+    assert "AI未包含录音时长约束" not in texts
+    assert "CASE-14 ai提问题目判断" not in texts
+    assert "缺失讲错题录音按钮功能验证" not in texts
+    assert "TC-039修正CASE-49" not in texts
+    assert "TC-001提问逻辑" not in texts
+    assert result["diagnostics"]["quality_gate_rejected_count"] >= 5
+    assert result["diagnostics"]["selected_by_default_count"] == 0
+
+    redundant = next(item for item in result["candidates"] if "duplicate_redundant" in item["text"])
+    assert redundant["candidate_type"] == "negative_pattern"
+    assert redundant["selected_by_default"] is False
+    assert redundant["sample"]["pattern_usage"] == "avoid"
+    assert redundant["sample"]["quality_gate_status"] == "review_required"
+
+
+def test_quality_evaluation_apply_filter_rejects_low_context_sample() -> None:
+    low_context_sample = {
+        "source": "quality_evaluation_defect",
+        "source_type": "quality_evaluation_defect",
+        "signal_type": "positive",
+        "pattern_usage": "prefer",
+        "pattern_category": "quality_fix_hint",
+        "learning_signal_source": "defect_analysis.modifications",
+        "case_id": "modifications-1",
+        "title": "TC-039修正CASE-49",
+        "user_comment": "TC-039修正CASE-49",
+        "pattern_summary": "prefer | quality_fix_hint | TC-039修正CASE-49",
+    }
+    reusable_sample = {
+        "source": "quality_evaluation_defect",
+        "source_type": "quality_evaluation_defect",
+        "signal_type": "positive",
+        "pattern_usage": "prefer",
+        "pattern_category": "quality_fix_hint",
+        "learning_signal_source": "defect_analysis.modifications",
+        "case_id": "modifications-2",
+        "title": "修改版课程卡片内容（科目-讲次-时间-知识点-时长-标识-按钮）与生成版TC-006/029/056/057对应但顺序有差异",
+        "user_comment": "修改版课程卡片内容（科目-讲次-时间-知识点-时长-标识-按钮）与生成版TC-006/029/056/057对应但顺序有差异",
+        "pattern_summary": "prefer | quality_fix_hint | 修改版课程卡片内容与生成版对应但顺序有差异",
+    }
+
+    assert _filter_quality_evaluation_sample_for_apply(low_context_sample) is None
+    filtered = _filter_quality_evaluation_sample_for_apply(reusable_sample)
+
+    assert filtered is not None
+    assert filtered["quality_gate_status"] == "auto_select"
+    assert filtered["quality_gate_policy"] == "evaluation_defect_reusable_pattern_v1"
 
 
 def test_evaluation_defect_analysis_aggregates_negative_candidates() -> None:

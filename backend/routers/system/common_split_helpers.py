@@ -50,6 +50,7 @@ def list_knowledge(
     end_date: Optional[str] = None,
     include_linked_test_cases: bool = False,
     include_evaluation_reports: bool = False,
+    include_internal_artifacts: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -72,6 +73,7 @@ def list_knowledge(
         doc_type=doc_type,
         include_linked_test_cases=include_linked_test_cases,
         include_evaluation_reports=include_evaluation_reports,
+        include_internal_artifacts=include_internal_artifacts,
         start_date=start_date,
         end_date=end_date,
     )

@@ -1,5 +1,6 @@
 import os
 import secrets
+import sys
 from sqlalchemy import create_engine, text
 from core.settings.config import settings
 from core.db.models import *
@@ -199,6 +200,32 @@ def init_db():
                         conn.execute(text(f"CREATE INDEX {idx_name} ON project_context_snapshots({idx_col})"))
                         conn.commit()
                         print(f"Index '{idx_name}' created.")
+
+                # 质量评估对比需要保存完整生成用例、终稿和模型评测结果。
+                # MySQL TEXT 只有 64KB，中文 JSON/CSV 很容易超限，这里统一升级为 LONGTEXT。
+                comparison_text_columns = [
+                    ("generated_test_case", "LONGTEXT NOT NULL", "AI原始生成的用例"),
+                    ("modified_test_case", "LONGTEXT NOT NULL", "用户修改后的用例"),
+                    ("comparison_result", "LONGTEXT NULL", "差异分析结果"),
+                ]
+                for col_name, col_type, col_comment in comparison_text_columns:
+                    check_comparison_col = text(
+                        f"SELECT DATA_TYPE FROM information_schema.COLUMNS "
+                        f"WHERE TABLE_SCHEMA = '{settings.DB_NAME}' "
+                        f"AND TABLE_NAME = 'test_generation_comparisons' "
+                        f"AND COLUMN_NAME = '{col_name}'"
+                    )
+                    data_type = conn.execute(check_comparison_col).scalar()
+                    if data_type and str(data_type).lower() != "longtext":
+                        print(f"Upgrading test_generation_comparisons.{col_name} to LONGTEXT...")
+                        conn.execute(
+                            text(
+                                "ALTER TABLE test_generation_comparisons "
+                                f"MODIFY COLUMN {col_name} {col_type} COMMENT '{col_comment}'"
+                            )
+                        )
+                        conn.commit()
+                        print(f"Column test_generation_comparisons.{col_name} upgraded.")
             except Exception as e:
                 print(f"Migration check failed (might be non-MySQL or other error): {e}")
 
@@ -257,5 +284,5 @@ def init_db():
     return True
 
 if __name__ == "__main__":
-    init_db()
+    sys.exit(0 if init_db() else 1)
 

@@ -166,8 +166,23 @@ class OpenAICompatibleProvider(BaseModelProvider):
 
         return "".join(pieces)
 
-    def _resolve_temperature(self) -> float:
-        raw = os.getenv("AI_TEMPERATURE", "").strip()
+    def _wants_json_response(self, messages: List[Dict[str, Any]]) -> bool:
+        text = " ".join(str(msg.get("content") or "") for msg in messages or [])
+        lowered = text.lower()
+        return (
+            "json" in lowered
+            or "严格 json" in text
+            or "只输出 json" in text
+            or "只返回 json" in text
+        )
+
+    def _resolve_temperature(self, *, json_response: bool = False) -> float:
+        if json_response:
+            raw = os.getenv("AI_JSON_TEMPERATURE", "").strip()
+            if raw == "":
+                return 0.0
+        else:
+            raw = os.getenv("AI_TEMPERATURE", "").strip()
         if raw == "":
             return 0.7
         try:
@@ -183,10 +198,12 @@ class OpenAICompatibleProvider(BaseModelProvider):
     def generate(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None) -> str:
         target_model = model or self.model
         resolved_max_tokens = self._normalize_max_tokens(max_tokens, target_model)
+        wants_json_response = self._wants_json_response(messages)  # type: ignore[arg-type]
         self.last_response_metadata = {
             "model": target_model,
             "wire_api": self.wire_api,
             "max_tokens": resolved_max_tokens,
+            "json_response": wants_json_response,
         }
 
         if self.wire_api == "responses":
@@ -194,7 +211,7 @@ class OpenAICompatibleProvider(BaseModelProvider):
             payload: Dict[str, Any] = {
                 "model": target_model,
                 "input": self._messages_to_input(messages),  # type: ignore[arg-type]
-                "temperature": self._resolve_temperature(),
+                "temperature": self._resolve_temperature(json_response=wants_json_response),
             }
             if resolved_max_tokens:
                 payload["max_output_tokens"] = resolved_max_tokens
@@ -203,10 +220,17 @@ class OpenAICompatibleProvider(BaseModelProvider):
             payload = {
                 "model": target_model,
                 "messages": messages,
-                "temperature": self._resolve_temperature(),
+                "temperature": self._resolve_temperature(json_response=wants_json_response),
             }
             if resolved_max_tokens:
                 payload["max_tokens"] = resolved_max_tokens
+            if wants_json_response:
+                response_format_type = os.getenv("OPENAI_COMPAT_JSON_RESPONSE_FORMAT", "json_object").strip()
+                if response_format_type:
+                    payload["response_format"] = {"type": response_format_type}
+                reasoning_effort = os.getenv("OPENAI_COMPAT_JSON_REASONING_EFFORT", "low").strip()
+                if reasoning_effort:
+                    payload["reasoning_effort"] = reasoning_effort
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -216,10 +240,21 @@ class OpenAICompatibleProvider(BaseModelProvider):
         try:
             with httpx.Client(timeout=self._http_timeout()) as client:
                 resp = client.post(url, headers=headers, json=payload)
+                json_compat_fields = ("reasoning_effort", "response_format")
+                if resp.status_code in {400, 422} and any(field in payload for field in json_compat_fields):
+                    fallback_payload = dict(payload)
+                    for field in json_compat_fields:
+                        fallback_payload.pop(field, None)
+                    fallback_resp = client.post(url, headers=headers, json=fallback_payload)
+                    self.last_response_metadata["json_compat_fallback"] = True
+                    self.last_response_metadata["reasoning_effort_rejected_status"] = resp.status_code
+                    resp = fallback_resp
                 self.last_response_metadata.update(
                     {
                         "http_status": resp.status_code,
                         "url_path": "/responses" if self.wire_api == "responses" else "/chat/completions",
+                        "reasoning_effort": payload.get("reasoning_effort"),
+                        "response_format": payload.get("response_format"),
                     }
                 )
                 if resp.status_code == 200:

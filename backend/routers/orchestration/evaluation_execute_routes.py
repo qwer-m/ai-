@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from core.authn.auth import get_current_user
-from core.db.database import get_db
-from core.db.models import User
+from core.db.database import SessionLocal, get_db
+from core.db.models import TestGenerationComparison, User
 from core.processing.file_processing import is_image_filename, parse_file_bytes, parse_image_bytes_with_fallback
 from core.processing.workflow import WorkflowKind, WorkflowStage, log_workflow_trace
 from modules.orchestration.context_orchestrator import context_orchestrator
@@ -22,8 +22,147 @@ from schemas.automation.ui_automation import UIAutoEvalRequest
 router = APIRouter()
 
 
+def _parse_compare_status(result: str) -> str:
+    try:
+        payload = json.loads(result or "{}")
+    except Exception:
+        return ""
+    return str(payload.get("analysis_status") or "")
+
+
+def _persist_compare_result(
+    *,
+    comparison_id: int,
+    project_id: int,
+    user_id: int,
+    result: str | dict[str, Any],
+) -> None:
+    result_text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, indent=2)
+    progress_db = SessionLocal()
+    try:
+        row = (
+            progress_db.query(TestGenerationComparison)
+            .filter(
+                TestGenerationComparison.id == comparison_id,
+                TestGenerationComparison.project_id == project_id,
+                TestGenerationComparison.user_id == user_id,
+            )
+            .first()
+        )
+        if row is not None:
+            row.comparison_result = result_text
+            progress_db.commit()
+    except Exception:
+        progress_db.rollback()
+    finally:
+        progress_db.close()
+
+
+def _run_compare_background(
+    *,
+    comparison_id: int,
+    generated_test_case: str,
+    modified_test_case: str,
+    project_id: int,
+    user_id: int,
+    generation_id: Optional[int],
+    requirement_text: str,
+    upload_persist: dict[str, Any],
+) -> None:
+    db = SessionLocal()
+    try:
+        def progress_callback(payload: dict[str, Any]) -> None:
+            _persist_compare_result(
+                comparison_id=comparison_id,
+                project_id=project_id,
+                user_id=user_id,
+                result=payload,
+            )
+
+        try:
+            context_bundle = context_orchestrator.assemble_context(
+                WorkflowKind.EVALUATION,
+                project_id,
+                db,
+                user_id=user_id,
+                requirement_text=generated_test_case,
+                include_knowledge=True,
+                include_logs=True,
+                knowledge_limit=3,
+                log_limit=8,
+            )
+            log_workflow_trace(
+                db,
+                project_id,
+                user_id,
+                WorkflowKind.EVALUATION,
+                WorkflowStage.CONTEXT,
+                {"action": "compare_test_cases_background", **context_bundle["diagnostics"]},
+            )
+        except Exception:
+            db.rollback()
+
+        try:
+            result = evaluator.compare_test_cases(
+                generated_test_case,
+                modified_test_case,
+                db=db,
+                project_id=project_id,
+                user_id=user_id,
+                requirement_text=requirement_text,
+                persist_result=False,
+                progress_callback=progress_callback,
+                comparison_id=comparison_id,
+            )
+        except Exception as e:
+            result = evaluator.build_background_exception_result(
+                generated_test_case=generated_test_case,
+                modified_test_case=modified_test_case,
+                requirement_text=requirement_text,
+                fallback_reason=f"后台模型评测异常：{e}",
+                comparison_id=comparison_id,
+            )
+
+        _persist_compare_result(
+            comparison_id=comparison_id,
+            project_id=project_id,
+            user_id=user_id,
+            result=result,
+        )
+
+        if generation_id is not None:
+            try:
+                artifact_payload: dict[str, Any] = {
+                    "project_id": project_id,
+                    "source_filename": upload_persist.get("filename", ""),
+                    "source_file_content_type": upload_persist.get("content_type", ""),
+                    "source_file_size": upload_persist.get("size", 0),
+                    "modified_test_case": modified_test_case,
+                    "requirement_text": requirement_text,
+                    "comparison_result": result,
+                    "ocr": {
+                        "source": upload_persist.get("ocr_source", "unknown"),
+                        "ok": bool(upload_persist.get("ocr_ok", False)),
+                        "cloud_fallback": bool(upload_persist.get("cloud_fallback", False)),
+                        "error": upload_persist.get("ocr_error", ""),
+                    },
+                }
+                upsert_compare_artifact(
+                    db=db,
+                    project_id=project_id,
+                    user_id=user_id,
+                    generation_id=generation_id,
+                    payload=artifact_payload,
+                )
+            except Exception:
+                db.rollback()
+    finally:
+        db.close()
+
+
 @router.post("/compare-test-cases")
 async def compare_test_cases(
+    background_tasks: BackgroundTasks,
     generated_test_case: str = Form(...),
     modified_test_case: str = Form(""),
     project_id: int = Form(...),
@@ -84,6 +223,56 @@ async def compare_test_cases(
             and generation.user_id == current_user.id
         ):
             requirement_text = generation.requirement_text or ""
+
+    if evaluator.should_run_compare_in_background(generated_test_case, final_modified):
+        db_entry = TestGenerationComparison(
+            project_id=project_id,
+            generated_test_case=generated_test_case,
+            modified_test_case=final_modified,
+            comparison_result="",
+            user_id=current_user.id,
+        )
+        db.add(db_entry)
+        db.commit()
+        db.refresh(db_entry)
+        running_result = evaluator.build_running_compare_result(
+            comparison_id=db_entry.id,
+            generated_test_case=generated_test_case,
+            modified_test_case=final_modified,
+        )
+        db_entry.comparison_result = running_result
+        db.commit()
+        background_tasks.add_task(
+            _run_compare_background,
+            comparison_id=db_entry.id,
+            generated_test_case=generated_test_case,
+            modified_test_case=final_modified,
+            project_id=project_id,
+            user_id=current_user.id,
+            generation_id=generation_id,
+            requirement_text=requirement_text,
+            upload_persist=dict(upload_persist),
+        )
+        return {
+            "result": running_result,
+            "comparison_id": db_entry.id,
+            "analysis_status": "running",
+            "context_diagnostics": {
+                "deferred": True,
+                "reason": "large_compare_background",
+                "generated_chars": len(generated_test_case or ""),
+                "modified_chars": len(final_modified or ""),
+            },
+            "persistence": {
+                "generation_id": generation_id,
+                "comparison_id": db_entry.id,
+                "artifact_saved": False,
+                "artifact_doc_id": None,
+                "source_filename": upload_persist["filename"],
+                "ocr_ok": upload_persist["ocr_ok"],
+                "ocr_source": upload_persist["ocr_source"],
+            },
+        }
 
     context_bundle = context_orchestrator.assemble_context(
         WorkflowKind.EVALUATION,
@@ -147,6 +336,7 @@ async def compare_test_cases(
 
     return {
         "result": result,
+        "analysis_status": _parse_compare_status(result),
         "context_diagnostics": context_bundle["diagnostics"],
         "persistence": {
             "generation_id": generation_id,
@@ -156,6 +346,32 @@ async def compare_test_cases(
             "ocr_ok": upload_persist["ocr_ok"],
             "ocr_source": upload_persist["ocr_source"],
         },
+    }
+
+
+@router.get("/compare-test-cases/{comparison_id}")
+def get_compare_test_case_result(
+    comparison_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    row = (
+        db.query(TestGenerationComparison)
+        .filter(
+            TestGenerationComparison.id == comparison_id,
+            TestGenerationComparison.user_id == current_user.id,
+        )
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Comparison not found")
+    get_owned_project(row.project_id, db, current_user.id)
+    return {
+        "comparison_id": row.id,
+        "result": row.comparison_result or "",
+        "analysis_status": _parse_compare_status(row.comparison_result or ""),
+        "updated_at": getattr(row, "updated_at", None),
+        "created_at": getattr(row, "created_at", None),
     }
 
 
