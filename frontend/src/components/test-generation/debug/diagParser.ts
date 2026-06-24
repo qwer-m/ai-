@@ -232,6 +232,36 @@ export type CaseQualityGateEvent = {
   request_id?: string;
 };
 
+export type RequirementParseBlock = {
+  role?: string;
+  filename?: string;
+  parse_strategy?: string;
+  is_image?: boolean;
+  size?: number;
+  text_length?: number;
+  ocr_source?: string;
+  cloud_fallback?: boolean;
+  ocr_error?: string;
+};
+
+export type RequirementParseAlignment = {
+  role?: string;
+  filename?: string;
+  score?: number;
+  requirement?: string;
+  evidence?: string;
+};
+
+export type RequirementParseEvent = {
+  kind: 'requirement_parse';
+  source?: string;
+  doc_type?: string;
+  project_id?: number;
+  blocks?: RequirementParseBlock[];
+  alignment_count?: number;
+  alignments?: RequirementParseAlignment[];
+};
+
 export type GenDiagEvent =
   | GenerationModeEvent
   | GenerationStageEvent
@@ -251,7 +281,8 @@ export type GenDiagEvent =
   | MemoryFabricDiagEvent
   | StreamBatchTokenUsageEvent
   | PersistenceGateEvent
-  | CaseQualityGateEvent;
+  | CaseQualityGateEvent
+  | RequirementParseEvent;
 
 const VALID_KINDS = new Set([
   'generation_mode',
@@ -273,6 +304,7 @@ const VALID_KINDS = new Set([
   'stream_batch_token_usage',
   'persistence_gate',
   'case_quality_gate',
+  'requirement_parse',
 ]);
 
 export function parseGenDiagEvent(input: unknown): GenDiagEvent | null {

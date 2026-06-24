@@ -253,6 +253,7 @@ def _build_initial_quality_score(
     judge_summary_payload: dict[str, Any],
     feedback_control_debug_payload: dict[str, Any],
     context_result: dict[str, Any],
+    judge_decision_table_payload: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Score the generated batch from persisted pipeline diagnostics.
 
@@ -289,6 +290,9 @@ def _build_initial_quality_score(
         "final_scenario_duplicate_case_count",
         "scenario_duplicate_case_count",
     )
+    final_reasoning_leakage_case_count = _to_int(
+        review_decision_summary_payload.get("final_reasoning_leakage_case_count")
+    )
     fact_profile_forbidden_count = _to_int(review_decision_summary_payload.get("fact_profile_forbidden_count"))
     fact_violation_count = _to_int(
         judge_summary_payload.get("fact_violation_count")
@@ -319,6 +323,30 @@ def _build_initial_quality_score(
     )
     rejected_count = _to_int(judge_summary_payload.get("reject_count") or judge_summary_payload.get("rejected_out_count"))
     pending_count = _to_int(judge_summary_payload.get("pending_count") or judge_summary_payload.get("pending_out_count"))
+    raw_rejected_count = int(rejected_count)
+    raw_pending_count = int(pending_count)
+    semantic_duplicate_rejected_count = 0
+    filtered_pending_candidate_count = 0
+    for row in judge_decision_table_payload or []:
+        if not isinstance(row, dict):
+            continue
+        status = _judge_status_key(row)
+        signals = row.get("signals") if isinstance(row.get("signals"), dict) else {}
+        reject_reason = str(row.get("reject_reason") or "").strip().lower()
+        if status == "REJECT" and (
+            reject_reason.startswith("semantic_duplicate")
+            or bool(signals.get("is_semantic_duplicate"))
+            or bool(row.get("is_semantic_duplicate"))
+        ):
+            semantic_duplicate_rejected_count += 1
+        elif status == "PENDING":
+            filtered_pending_candidate_count += 1
+    if (
+        final_reasoning_leakage_case_count <= 0
+        and fact_pending_count <= 0
+        and filtered_pending_candidate_count > 0
+    ):
+        pending_count = max(0, pending_count - filtered_pending_candidate_count)
     raw_repairable_count = _to_int(
         judge_summary_payload.get("raw_repairable_count")
         if "raw_repairable_count" in judge_summary_payload
@@ -412,7 +440,12 @@ def _build_initial_quality_score(
         "retained_total": retained_total,
         "judge_total": judge_total,
         "rejected_count": rejected_count,
+        "raw_rejected_count": raw_rejected_count,
         "pending_count": pending_count,
+        "raw_pending_count": raw_pending_count,
+        "semantic_duplicate_reject_count": semantic_duplicate_rejected_count,
+        "filtered_semantic_duplicate_reject_count": 0,
+        "filtered_pending_candidate_count": filtered_pending_candidate_count,
         "repairable_count": repairable_count,
         "raw_repairable_count": raw_repairable_count,
         "repaired_pass_count": repaired_pass_count,
@@ -521,6 +554,10 @@ def _build_case_quality_gate_payload(
         review_decision_summary_payload.get("final_role_mismatch_count")
         or (judge_reject_clusters.get("reason_clusters") or {}).get("role_mismatch")
     )
+    raw_rejected_count = int(rejected_count)
+    semantic_duplicate_rejected_count = _to_int(
+        (judge_reject_clusters.get("reason_clusters") or {}).get("semantic_duplicate")
+    )
     failures: list[str] = []
     quantity_shortfall_advisory = is_candidate_insufficient_underfill(generation_summary_payload)
     if min_acceptable_final > 0 and final_count < min_acceptable_final and not quantity_shortfall_advisory:
@@ -548,6 +585,9 @@ def _build_case_quality_gate_payload(
             "final_scenario_duplicate_case_count": int(final_duplicate_count),
             "final_flow_misordered_count": int(final_misordered_count),
             "judge_rejected_count": int(rejected_count),
+            "raw_judge_rejected_count": int(raw_rejected_count),
+            "semantic_duplicate_reject_count": int(semantic_duplicate_rejected_count),
+            "filtered_semantic_duplicate_reject_count": 0,
             "reasoning_leak_count": int(reasoning_leak_count),
             "role_mismatch_count": int(role_mismatch_count),
         },
@@ -608,6 +648,7 @@ def _build_quality_ledger_payload(
         judge_summary_payload=judge_summary_payload,
         feedback_control_debug_payload=feedback_control_debug_payload,
         context_result=context_result,
+        judge_decision_table_payload=judge_decision_table_payload,
     )
     judge_reject_clusters = _cluster_judge_reject_reasons(judge_decision_table_payload)
     case_quality_gate_payload = _build_case_quality_gate_payload(

@@ -1260,6 +1260,120 @@ def test_execution_plan_attaches_transition_contract_to_main_smoke() -> None:
     assert all(float(item.get("state_transition_confidence") or 0.0) >= 0.9 for item in main_cases)
 
 
+def test_execution_plan_excludes_candidate_when_action_text_does_not_support_stage() -> None:
+    state = {
+        "workflow_blueprints": [
+            {
+                "id": "assessment_flow",
+                "workflow_id": "assessment_flow",
+                "name": "assessment flow",
+                "source_type": "current_requirement_extracted",
+                "repository_source": "current_requirement_blueprint",
+                "steps": [
+                    {
+                        "id": "entry",
+                        "label": "Open activity entry",
+                        "action": "Open activity entry",
+                        "actor": "student",
+                        "state_in": "initial",
+                        "state_out": "entry_opened",
+                        "stage_kind": "entry",
+                        "allow_bridge": True,
+                        "match_keywords": ["open activity entry"],
+                    },
+                    {
+                        "id": "configure_assessment",
+                        "label": "Configure assessment",
+                        "action": "Choose grade and material version",
+                        "actor": "student",
+                        "state_in": "entry_opened",
+                        "state_out": "assessment_configured",
+                        "stage_kind": "configure",
+                        "allow_bridge": True,
+                        "match_keywords": ["choose grade"],
+                    },
+                    {
+                        "id": "commit_assessment",
+                        "label": "Submit assessment",
+                        "action": "Finish all assessment questions and submit assessment",
+                        "actor": "student",
+                        "state_in": "assessment_configured",
+                        "state_out": "assessment_submitted",
+                        "stage_kind": "commit",
+                        "allow_bridge": True,
+                        "match_keywords": ["assessment"],
+                    },
+                    {
+                        "id": "consume_course",
+                        "label": "Open review course",
+                        "action": "Open review course and start learning",
+                        "actor": "student",
+                        "state_in": "assessment_submitted",
+                        "state_out": "course_opened",
+                        "stage_kind": "consume",
+                        "allow_bridge": True,
+                        "match_keywords": ["open review course"],
+                    },
+                ],
+            }
+        ]
+    }
+    result = _run_cases(
+        requirement="Assessment flow should submit answers before opening review course.",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "Open activity entry from homepage",
+                "test_module": "entry",
+                "steps": ["Open activity entry"],
+                "expected_result": "activity entry page is opened",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-002",
+                "description": "Choose grade and material version before starting assessment",
+                "test_module": "assessment setup",
+                "steps": ["Choose grade", "Choose material version"],
+                "expected_result": "assessment questions are loaded",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-003",
+                "description": "Course list confirms grade version switch and retains old assessment records",
+                "test_module": "course list",
+                "steps": ["Open switch version dialog", "Confirm switching grade version"],
+                "expected_result": "old grade version records are retained and navigation follows target grade status",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-004",
+                "description": "Open review course after submitted assessment",
+                "test_module": "review course",
+                "steps": ["Open review course"],
+                "expected_result": "review course learning page is opened",
+                "priority": "P0",
+            },
+        ],
+        expected_count=6,
+        feedback_control_state=state,
+    )
+
+    main_cases = [
+        item for item in (result.get("cases") or [])
+        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
+    ]
+    commit_case = next(item for item in main_cases if item.get("main_chain_stage") == "commit_assessment")
+    assert "grade version switch" not in str(commit_case.get("description") or "").lower()
+    assert commit_case.get("workflow_contract_materialized_case") is True
+    assert commit_case.get("steps") == ["Finish all assessment questions and submit assessment"]
+    plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
+    excluded = [
+        item for item in (plan.get("main_chain_excluded_candidates") or [])
+        if item.get("case_id") == "TC-003" and item.get("stage_key") == "commit_assessment"
+    ]
+    assert excluded and excluded[0].get("reason") == "stage_action_not_supported_by_case_text"
+
+
 def test_trusted_repository_contract_bridges_full_main_chain_when_candidates_do_not_match() -> None:
     states = [
         ("start", "Ready", "open_workflow", "ready", "started", "entry"),

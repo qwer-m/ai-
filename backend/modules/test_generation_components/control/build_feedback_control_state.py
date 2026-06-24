@@ -1459,6 +1459,8 @@ def _build_from_workflow_blueprint_repository(
     project_id: int,
     user_id: int,
     requirement_text: str = "",
+    current_source_doc_ids: list[int] | tuple[int, ...] | None = None,
+    current_content_hash: str = "",
 ) -> FeedbackControlState:
     if db is None or not project_id or not user_id:
         return FeedbackControlState.empty()
@@ -1467,18 +1469,40 @@ def _build_from_workflow_blueprint_repository(
             project_id=int(project_id),
             user_id=int(user_id),
             requirement_text=str(requirement_text or ""),
+            current_source_doc_ids=current_source_doc_ids or [],
+            current_content_hash=str(current_content_hash or ""),
             limit=_MAX_WORKFLOW_BLUEPRINTS,
         )
     except Exception:
         workflow_blueprints = []
     if not workflow_blueprints:
-        return FeedbackControlState.empty()
+        return FeedbackControlState(
+            source_meta={
+                "sources": ["workflow_blueprint_repository"],
+                "workflow_blueprint_repository_count": 0,
+                "trusted_workflow_contract_count": 0,
+                "workflow_blueprint_current_source_doc_ids": [
+                    int(value)
+                    for value in (current_source_doc_ids or [])
+                    if str(value or "").strip().isdigit()
+                ],
+                "workflow_blueprint_same_source_count": 0,
+            }
+        )
     return FeedbackControlState(
         workflow_blueprints=workflow_blueprints,
         source_meta={
             "sources": ["workflow_blueprint_repository"],
             "workflow_blueprint_repository_count": int(len(workflow_blueprints)),
             "trusted_workflow_contract_count": int(len(workflow_blueprints)),
+            "workflow_blueprint_current_source_doc_ids": [
+                int(value)
+                for value in (current_source_doc_ids or [])
+                if str(value or "").strip().isdigit()
+            ],
+            "workflow_blueprint_same_source_count": int(
+                sum(1 for item in workflow_blueprints if (item.get("match_debug") or {}).get("same_source"))
+            ),
         },
     )
 
@@ -1808,6 +1832,8 @@ def build_feedback_control_state(
     project_id: int | None = None,
     user_id: int | None = None,
     requirement_text: str = "",
+    current_source_doc_ids: list[int] | tuple[int, ...] | None = None,
+    current_content_hash: str = "",
     enable_priority_sample_pool: bool = True,
     include_agent_learning: bool = True,
     memory_fabric: MemoryFabric | None = None,
@@ -1837,6 +1863,8 @@ def build_feedback_control_state(
         project_id=int(project_id or 0),
         user_id=int(user_id or 0),
         requirement_text=str(requirement_text or ""),
+        current_source_doc_ids=current_source_doc_ids or [],
+        current_content_hash=str(current_content_hash or ""),
     )
     state = state.merge(workflow_blueprint_state)
 

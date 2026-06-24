@@ -25,7 +25,7 @@ from modules.testing.test_generation_components.postprocess.result_postprocess i
     merge_cases_for_append,
     strip_case_meta_fields,
 )
-from routers.automation import test_generation_generate_routes_split_helpers as generate_routes
+from routers.automation import test_generation_generate_routes_impl as generate_routes
 from schemas.automation.test_generation import TestGenRequest as _TestGenRequest
 
 
@@ -234,6 +234,31 @@ def test_validator_rejects_stage_labels_that_do_not_match_case_text() -> None:
     assert "passive_list_status_case_used_as_configure" in reasons
     assert "generated_bridge_case_in_final_main_smoke" in reasons
     assert "internal_placeholder_text_in_final_main_smoke" in reasons
+
+
+def test_validator_rejects_workflow_action_not_supported_by_case_text() -> None:
+    cases = _main_chain_cases()
+    cases[3]["description"] = "Course list switches grade version and keeps the previous records"
+    cases[3]["test_module"] = "Course list"
+    cases[3]["steps"] = [
+        "Open the switch grade version dialog",
+        "Confirm switching to another grade version",
+    ]
+    cases[3]["expected_result"] = "The old grade version records are retained and navigation follows the target grade status"
+    cases[3]["workflow_transition"]["stage_kind"] = "commit"
+    cases[3]["workflow_transition"]["action"] = "Finish all assessment questions and submit the assessment"
+    cases[3]["main_chain_stage_label"] = "Submit assessment"
+
+    result = validate_execution_plan(
+        cases,
+        workflow_blueprints=[_trusted_blueprint()],
+        execution_plan={"workflow_blueprint_source": "feedback_control_state"},
+    )
+
+    reasons = {item["reason"] for item in result["semantic_conflicts"]}
+    assert result["passed"] is False
+    assert "main_smoke_semantic_conflict" in result["failure_reasons"]
+    assert "stage_action_not_supported_by_case_text" in reasons
 
 
 def test_validator_rejects_management_report_case_as_student_completion_sync() -> None:
@@ -817,3 +842,11 @@ def test_json_api_returns_execution_plan_failed_as_502(monkeypatch) -> None:
         assert detail["error_code"] == "execution_plan_failed"
         assert detail["failure_reasons"] == ["state_chain_conflict"]
         assert detail["metrics"]["state_conflict_count"] == 1
+
+
+def test_generate_tests_async_route_is_not_estimate_count_duplicate() -> None:
+    route_paths = [getattr(route, "path", "") for route in generate_routes.router.routes]
+
+    assert "/estimate-test-count" in route_paths
+    assert "/generate-tests/async" in route_paths
+    assert route_paths.count("/estimate-test-count") == 1

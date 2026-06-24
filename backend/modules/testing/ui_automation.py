@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -19,6 +20,65 @@ from modules.testing.ui_automation_prompts import (
     build_requirement_context_prompt,
     build_web_system_prompt,
 )
+
+
+def inject_ai_locate_function(base_script: str, ai_locate_function: str, automation_type: str = "web") -> str:
+    """Insert the AI locator helper without assuming an exact main() signature."""
+    script = (base_script or "").strip()
+    helper = (ai_locate_function or "").strip()
+    if not script:
+        raise ValueError("Generated UI automation script is empty.")
+    if not helper or "def ai_locate_element" in script:
+        return script
+
+    lines = script.splitlines()
+
+    try:
+        tree = ast.parse(script)
+        for node in tree.body:
+            is_supported_main = (
+                automation_type == "web"
+                and isinstance(node, ast.AsyncFunctionDef)
+                and node.name == "main"
+            ) or (
+                automation_type != "web"
+                and isinstance(node, ast.FunctionDef)
+                and node.name == "main"
+            )
+            if is_supported_main:
+                insert_at = max(0, node.lineno - 1)
+                return "\n".join(lines[:insert_at] + ["", helper, ""] + lines[insert_at:])
+    except SyntaxError:
+        pass
+
+    main_pattern = r"(?m)^(async\s+def\s+main\s*\(|def\s+main\s*\()"
+    main_match = re.search(main_pattern, script)
+    if main_match:
+        return f"{script[:main_match.start()].rstrip()}\n\n{helper}\n\n{script[main_match.start():].lstrip()}"
+
+    guard_match = re.search(r"(?m)^if\s+__name__\s*==\s*['\"]__main__['\"]\s*:", script)
+    if guard_match:
+        return f"{script[:guard_match.start()].rstrip()}\n\n{helper}\n\n{script[guard_match.start():].lstrip()}"
+
+    return f"{helper}\n\n{script}"
+
+
+def reject_model_error_script(script: str) -> str:
+    """Fail fast when the model client returned an error string instead of code."""
+    cleaned = (script or "").strip()
+    if not cleaned:
+        raise ValueError("Generated UI automation script is empty.")
+    first_line = cleaned.splitlines()[0].strip()
+    error_prefixes = (
+        "Error:",
+        "Exception:",
+        "Exception occurred:",
+        "Traceback ",
+        "Traceback:",
+    )
+    if first_line.startswith(error_prefixes) or "Exception occurred:" in cleaned[:300]:
+        raise ValueError(f"AI script generation failed: {first_line[:200]}")
+    return cleaned
 
 
 class UIAutomationModule:
@@ -78,7 +138,7 @@ class UIAutomationModule:
             prompt = f"Target App: {url}\nTask: {task_description}"
 
         response = client.generate_response(prompt, system_prompt)
-        return extract_code_block(response, "python")
+        return reject_model_error_script(extract_code_block(response, "python"))
 
     def execute_script(
         self,
@@ -90,6 +150,7 @@ class UIAutomationModule:
         project_id: int = None,
         user_id: int = None,
         test_case_id: int = None,
+        auth_token: str = None,
     ) -> dict:
         execution = UIExecution(
             project_id=project_id,
@@ -108,7 +169,12 @@ class UIAutomationModule:
             db.refresh(execution)
 
         try:
-            stdout, stderr, returncode = run_temp_script(script, timeout=300)
+            script_env = {
+                "UI_AUTOMATION_API_BASE": "http://localhost:8000",
+            }
+            if auth_token:
+                script_env["UI_AUTOMATION_TOKEN"] = auth_token
+            stdout, stderr, returncode = run_temp_script(script, timeout=300, env=script_env)
             status = "success" if returncode == 0 else "failed"
             if "TEST FAILED" in stdout or "TEST FAILED" in stderr:
                 status = "failed"
@@ -239,17 +305,7 @@ class UIAutomationModule:
         )
 
         ai_locate_function = build_ai_locate_function(token=token, image_model=image_model)
-
-        if automation_type == "web":
-            if "async def main()" in base_script:
-                parts = base_script.split("async def main()")
-                return f"{parts[0]}{ai_locate_function}\nasync def main(){parts[1]}"
-        else:
-            if "def main()" in base_script:
-                parts = base_script.split("def main()")
-                return f"{parts[0]}{ai_locate_function}\ndef main(){parts[1]}"
-
-        raise ValueError("Failed to inject AI location function into the generated script.")
+        return inject_ai_locate_function(base_script, ai_locate_function, automation_type=automation_type)
 
 
 ui_automator = UIAutomationModule()

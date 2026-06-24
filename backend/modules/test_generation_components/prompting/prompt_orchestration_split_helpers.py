@@ -99,8 +99,9 @@ Generate test cases in STRICT JSON format.
 SEMANTIC RULES (MANDATORY):
 1. Generate formal test cases only from Confirmed Facts, Reuse Declarations, and Hard Flow Constraints.
 2. Pending / Open Questions are NOT confirmed behavior.
-3. If a case depends on Pending / Open Questions, mark it with "[Pending Confirmation]" and do not treat it as a settled fact.
-4. Reuse Declarations must trigger reuse-adaptation checks, not only generic workflow checks.
+3. For ordinary requirement documents, do NOT output formal test cases that depend on Pending / Open Questions.
+4. Use "[Pending Confirmation]" only when the document type is explicitly incomplete and the incomplete-document rules below require inferred assumptions.
+5. Reuse Declarations must trigger reuse-adaptation checks, not only generic workflow checks.
 {control_block}
 
 【已有测试用例（Testcases - STYLE ONLY）】

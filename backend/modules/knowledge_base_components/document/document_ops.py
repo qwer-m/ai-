@@ -87,6 +87,15 @@ def add_document_impl(
     repo = KnowledgeDocumentRepository(db)
     content_hash = module.calculate_hash(content)
 
+    cover_doc = repo.find_latest_by_identity(
+        project_id=project_id,
+        user_id=user_id,
+        doc_type=doc_type,
+        filename=filename,
+    )
+    if cover_doc:
+        return update_document_impl(module, cover_doc.id, filename, content, doc_type, db)
+
     existing = repo.find_duplicate_by_hash(project_id=project_id, content_hash=content_hash)
 
     if existing:

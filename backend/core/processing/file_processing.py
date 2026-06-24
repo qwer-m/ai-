@@ -285,21 +285,46 @@ def parse_file_bytes(
     return text_content
 
 
-async def parse_file_content(
+async def parse_file_content_with_meta(
     file: UploadFile,
     image_prompt: str = "OCR: Extract all text from this image.",
     db: Optional[Session] = None,
     user_id: Optional[int] = None,
-) -> str:
-    """Parse FastAPI UploadFile content."""
+) -> tuple[str, dict[str, Any]]:
+    """Parse UploadFile and return lightweight source/OCR metadata."""
+    filename = file.filename or ""
     content_bytes = await file.read()
-    return parse_file_bytes(
-        file.filename or "",
+    meta: dict[str, Any] = {
+        "filename": filename,
+        "content_type": file.content_type or "",
+        "size": len(content_bytes),
+        "is_image": is_image_filename(filename),
+        "parse_strategy": "file_text",
+    }
+    if is_image_filename(filename):
+        text_content, ocr_meta = parse_image_bytes_with_fallback(
+            filename=filename,
+            content_bytes=content_bytes,
+            image_prompt=image_prompt,
+            db=db,
+            user_id=user_id,
+        )
+        meta.update(
+            {
+                "parse_strategy": "image_ocr",
+                "ocr": dict(ocr_meta or {}),
+            }
+        )
+        return text_content, meta
+
+    text_content = parse_file_bytes(
+        filename,
         content_bytes,
         image_prompt=image_prompt,
         db=db,
         user_id=user_id,
     )
+    return text_content, meta
 
 
 def parse_file_path(

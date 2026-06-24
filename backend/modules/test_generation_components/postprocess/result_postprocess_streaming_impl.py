@@ -4,9 +4,14 @@ import json
 import re
 from typing import Any, Callable, Iterator
 
+from ..control.actor_roles import (
+    normalize_actor_role as _normalize_actor_role_value,
+    session_key_for_role as _session_key_for_actor_role,
+)
 from ..control.workflow_blueprint_repository import is_trusted_workflow_contract
 from ..coverage.coverage_analyzer import case_complexity_profile
 from .execution_plan_validator import (
+    main_chain_action_support_conflict_reason,
     materialize_final_case_state_fields,
     validate_main_smoke_semantic_alignment,
     validate_main_smoke_state_chain,
@@ -302,6 +307,20 @@ def stream_postprocess_cases(
     ]
     trusted_workflow_contracts = [
         item for item in workflow_blueprints if is_trusted_workflow_contract(item)
+    ]
+    current_requirement_workflow_blueprints = [
+        item
+        for item in workflow_blueprints
+        if str(item.get("repository_source") or item.get("source") or "").strip() == "current_requirement_blueprint"
+        or str(item.get("source_type") or "").strip() == "current_requirement_extracted"
+    ]
+    authoritative_workflow_blueprints = [
+        *trusted_workflow_contracts,
+        *[
+            item
+            for item in current_requirement_workflow_blueprints
+            if item not in trusted_workflow_contracts
+        ],
     ]
 
     normalized_forbidden_patterns = normalize_match_patterns(forbidden_patterns)
@@ -1502,9 +1521,24 @@ def stream_postprocess_cases(
             priority = str(item.get("priority") or "").strip().upper()
             return {"P0": 30, "P1": 15, "P2": 0}.get(priority, 0)
 
+        def _normalize_actor_role(value: Any, *, fallback_text: str = "") -> str:
+            return _normalize_actor_role_value(value, fallback_text=fallback_text)
+
         workflow_stage_meta_by_key: dict[str, dict[str, Any]] = {}
         workflow_stage_output_state: dict[str, str] = {}
         plan_workflow_blueprints = list(workflow_blueprints)
+
+        def _workflow_blueprint_source_label() -> str:
+            if workflow_blueprints:
+                for blueprint in workflow_blueprints:
+                    repository_source = str(blueprint.get("repository_source") or blueprint.get("source") or "").strip()
+                    source_type = str(blueprint.get("source_type") or "").strip()
+                    if repository_source == "current_requirement_blueprint" or source_type == "current_requirement_extracted":
+                        return "current_requirement_blueprint"
+                return "feedback_control_state"
+            if plan_workflow_blueprints:
+                return "current_generation_cases"
+            return "none"
 
         def _stage_match_patterns(step: dict[str, Any]) -> tuple[tuple[str, ...], ...]:
             raw_keywords: list[str] = []
@@ -1542,8 +1576,19 @@ def stream_postprocess_cases(
                     patterns = _stage_match_patterns(step)
                     if not stage_key or not stage_label or not patterns:
                         continue
+                    stage_text = " ".join(
+                        str(step.get(key) or "")
+                        for key in ("label", "action", "description", "module", "assertion", "state_out")
+                    )
                     workflow_stage_meta_by_key[stage_key] = {
                         **step,
+                        "actor": _normalize_actor_role(
+                            step.get("actor") or step.get("role"),
+                            fallback_text=stage_text,
+                        ),
+                        "source_actor_role": str(
+                            step.get("source_actor_role") or step.get("actor") or step.get("role") or ""
+                        ).strip(),
                         "blueprint_id": str(blueprint.get("id") or f"blueprint_{blueprint_index}"),
                         "blueprint_name": str(blueprint.get("name") or blueprint.get("title") or "workflow_blueprint"),
                         "step_index": int(step_index),
@@ -1837,12 +1882,20 @@ def stream_postprocess_cases(
             transition = _workflow_transition_for_case(item, stage_key=stage_key, stage_label=stage_label)
             if not bool(transition.get("can_advance_main_flow")):
                 return "non_advancing_transition"
+            step_meta = workflow_stage_meta_by_key.get(stage_key) or {}
             semantic_probe = dict(item)
             semantic_probe["execution_group"] = "main_smoke"
             semantic_probe["main_chain_stage_kind"] = str(transition.get("stage_kind") or "").strip()
+            semantic_probe["main_chain_stage_label"] = str(
+                step_meta.get("label") or stage_label or ""
+            ).strip()
+            semantic_probe["action"] = str(transition.get("action") or "").strip()
             semantic_conflicts = validate_main_smoke_semantic_alignment([semantic_probe])
             if semantic_conflicts:
                 return str(semantic_conflicts[0].get("reason") or "main_chain_semantic_conflict")
+            action_support_reason = main_chain_action_support_conflict_reason(semantic_probe)
+            if action_support_reason:
+                return action_support_reason
             return ""
 
         def _workflow_stage_kind_from_text(text: str) -> str:
@@ -1963,8 +2016,14 @@ def stream_postprocess_cases(
             if len(stage_kinds) < 2:
                 return False, "main_chain_too_short", stage_kinds
             has_commit = "commit" in stage_kinds
-            has_downstream = any(kind in {"downstream_visibility", "consume", "completion_sync"} for kind in stage_kinds)
             first_commit_index = stage_kinds.index("commit") if has_commit else -1
+            has_post_commit_downstream = bool(
+                has_commit
+                and any(
+                    kind in {"downstream_visibility", "consume", "completion_sync"}
+                    for kind in stage_kinds[first_commit_index + 1:]
+                )
+            )
             has_configure = any(kind in {"entry", "configure", "preview"} for kind in stage_kinds)
             has_pre_commit_consume = bool(
                 first_commit_index > 0
@@ -1972,7 +2031,7 @@ def stream_postprocess_cases(
             )
             if not has_commit:
                 return False, "missing_commit_success_step", stage_kinds
-            if not has_downstream:
+            if not has_post_commit_downstream:
                 return False, "missing_downstream_visibility_or_consume_step", stage_kinds
             if source == "current_generation_cases" and not (has_configure or has_pre_commit_consume):
                 return False, "missing_configure_or_entry_step", stage_kinds
@@ -2104,54 +2163,7 @@ def stream_postprocess_cases(
             return 90
 
         def _infer_actor_from_text(text: str) -> str:
-            lowered = str(text or "").lower()
-            if _any(lowered, ("admin", "administrator", "后台", "管理员", "审核员", "运营")):
-                return "admin"
-            student_surface = _any(
-                lowered,
-                (
-                    "学生端",
-                    "学员端",
-                    "书房",
-                    "首页",
-                    "学习计划页",
-                    "学习按钮",
-                    "本周任务",
-                    "本周进度",
-                    "student",
-                ),
-            )
-            management_action = _any(
-                lowered,
-                (
-                    "supervisor",
-                    "teacher",
-                    "mentor",
-                    "督导",
-                    "老师",
-                    "教师",
-                    "教练",
-                    "辅导员",
-                    "管理",
-                    "配置",
-                    "新增",
-                    "编辑",
-                    "下架",
-                    "删除",
-                    "保存",
-                    "课堂管理",
-                    "课程管理",
-                    "学员信息",
-                    "排课",
-                ),
-            )
-            if management_action and not student_surface:
-                return "supervisor"
-            if _any(lowered, ("会员用户", "会员", "vip", "member")) and not _any(lowered, ("非会员", "普通用户")):
-                return "member"
-            if _any(lowered, ("普通用户", "非会员", "未订阅", "未付费")):
-                return "student_free"
-            return "student"
+            return _normalize_actor_role("", fallback_text=text)
 
         def _derive_workflow_blueprint_from_current_cases(cases_for_plan: list[dict[str, Any]]) -> dict[str, Any] | None:
             action_tokens = (
@@ -2343,8 +2355,15 @@ def stream_postprocess_cases(
             if not ok:
                 derived_workflow_debug["closure_reason"] = str(reason or "")
                 has_commit = "commit" in _stage_kinds
-                has_downstream = any(kind in {"downstream_visibility", "consume", "completion_sync"} for kind in _stage_kinds)
-                if reason != "missing_configure_or_entry_step" or not (has_commit and has_downstream):
+                first_commit_index = _stage_kinds.index("commit") if has_commit else -1
+                has_post_commit_downstream = bool(
+                    has_commit
+                    and any(
+                        kind in {"downstream_visibility", "consume", "completion_sync"}
+                        for kind in _stage_kinds[first_commit_index + 1:]
+                    )
+                )
+                if reason != "missing_configure_or_entry_step" or not (has_commit and has_post_commit_downstream):
                     main_chain_incomplete_reason_holder["reason"] = reason
                     return None
                 main_chain_incomplete_reason_holder["reason"] = reason
@@ -2422,13 +2441,24 @@ def stream_postprocess_cases(
                     semantic_probe = dict(item)
                     semantic_probe["execution_group"] = "main_smoke"
                     semantic_probe["main_chain_stage_kind"] = expected_stage_kind
-                    semantic_probe["role"] = str(
-                        step_meta.get("actor") or item.get("role") or _infer_actor_from_text(text)
+                    semantic_probe["main_chain_stage_label"] = str(
+                        step_meta.get("label") or stage_label or ""
                     ).strip()
+                    semantic_probe["action"] = str(
+                        step_meta.get("action") or stage_label or ""
+                    ).strip()
+                    semantic_probe["role"] = _normalize_actor_role(
+                        step_meta.get("actor") or item.get("role"),
+                        fallback_text=text,
+                    )
                     semantic_conflicts = validate_main_smoke_semantic_alignment([semantic_probe])
                     if semantic_conflicts:
                         first_reason = str(semantic_conflicts[0].get("reason") or "main_chain_semantic_conflict")
                         _record_main_chain_exclusion(item, first_reason, stage_key=stage_key)
+                        continue
+                    action_support_reason = main_chain_action_support_conflict_reason(semantic_probe)
+                    if action_support_reason:
+                        _record_main_chain_exclusion(item, action_support_reason, stage_key=stage_key)
                         continue
                 score = _priority_rank(item) + min(80, match_score)
                 if expected_stage_kind in {"commit", "downstream_visibility"}:
@@ -2480,7 +2510,7 @@ def stream_postprocess_cases(
                 "test_input": str(step_meta.get("input") or step_meta.get("state_in") or "workflow state"),
                 "expected_result": assertion or f"workflow state reaches {stage_key}",
                 "priority": "P0" if bool(step_meta.get("main_path_step", True)) else "P1",
-                "role": str(step_meta.get("actor") or "student"),
+                "role": _normalize_actor_role(step_meta.get("actor"), fallback_text=label),
                 "generated_bridge_case": True,
                 "workflow_blueprint_bridge": True,
             }
@@ -2532,6 +2562,17 @@ def stream_postprocess_cases(
             label = str(step_meta.get("label") or stage_key).strip()
             if not label or _is_internal_state_text(label):
                 return None
+            action = str(step_meta.get("action") or label).strip()
+            if not action or _is_internal_state_text(action):
+                action = label
+            test_steps = step_meta.get("test_steps") if isinstance(step_meta.get("test_steps"), list) else []
+            public_steps = [
+                str(step).strip()
+                for step in test_steps
+                if str(step).strip() and not _is_internal_state_text(str(step))
+            ]
+            if not public_steps:
+                public_steps = [action]
             stage_kind = str(step_meta.get("stage_kind") or "").strip().lower()
             assertion = str(step_meta.get("assertion") or step_meta.get("expected_result") or "").strip()
             expected_result = (
@@ -2544,19 +2585,19 @@ def stream_postprocess_cases(
                 "description": label,
                 "test_module": _public_contract_module_label(step_meta, label),
                 "preconditions": [f"已具备执行“{label}”的前置业务状态"],
-                "steps": [label],
-                "test_input": label,
+                "steps": public_steps,
+                "test_input": action,
                 "expected_result": expected_result,
                 "priority": "P0" if bool(step_meta.get("main_path_step", True)) else "P1",
-                "role": str(step_meta.get("actor") or "student"),
+                "role": _normalize_actor_role(step_meta.get("actor"), fallback_text=label),
                 "workflow_contract_materialized_case": True,
             }
 
-        if selected_by_stage or trusted_workflow_contracts:
+        if selected_by_stage or authoritative_workflow_blueprints:
             bridged_by_stage: list[tuple[str, str, dict[str, Any]]] = []
             current_selected = {stage_key for stage_key, _label, _item in selected_by_stage}
             selected_by_stage_map = {stage_key: (stage_label, item) for stage_key, stage_label, item in selected_by_stage}
-            allow_contract_materialization = bool(strict_blueprint_semantic_filter and trusted_workflow_contracts)
+            allow_contract_materialization = bool(strict_blueprint_semantic_filter and authoritative_workflow_blueprints)
             for stage_key, stage_label, _patterns in main_chain_stages:
                 existing = selected_by_stage_map.get(stage_key)
                 if existing:
@@ -2581,13 +2622,7 @@ def stream_postprocess_cases(
                     bridged_by_stage.append((stage_key, stage_label_by_key.get(stage_key, stage_label), bridge))
             selected_by_stage = bridged_by_stage
 
-        selected_by_stage_source = (
-            "feedback_control_state"
-            if workflow_blueprints
-            else "current_generation_cases"
-            if plan_workflow_blueprints
-            else "none"
-        )
+        selected_by_stage_source = _workflow_blueprint_source_label()
         main_chain_stage_kinds: list[str] = []
         selected_stage_state_conflicts: list[dict[str, Any]] = []
         if selected_by_stage and strict_blueprint_semantic_filter:
@@ -2629,10 +2664,7 @@ def stream_postprocess_cases(
                 selected_signatures.clear()
 
         def _infer_role(item: dict[str, Any]) -> str:
-            explicit_role = str(item.get("role") or "").strip().lower()
-            if explicit_role in {"admin", "supervisor", "teacher", "student", "member", "student_free"}:
-                return "supervisor" if explicit_role == "teacher" else explicit_role
-            return _infer_actor_from_text(_case_text(item))
+            return _normalize_actor_role(item.get("role"), fallback_text=_case_text(item))
 
         stage_output_state = dict(workflow_stage_output_state)
 
@@ -2698,15 +2730,7 @@ def stream_postprocess_cases(
             }
 
         def _session_key_for_role(role: str) -> str:
-            if role == "admin":
-                return "admin_review_session"
-            if role == "supervisor":
-                return "supervisor_session"
-            if role == "member":
-                return "member_student_session"
-            if role == "student_free":
-                return "free_student_session"
-            return "student_session"
+            return _session_key_for_actor_role(role)
 
         def _is_student_observation_projection(item: dict[str, Any]) -> bool:
             text = _case_text(item)
@@ -2926,6 +2950,24 @@ def stream_postprocess_cases(
             _signature(item): (stage_key, stage_label, index + 1)
             for index, (stage_key, stage_label, item) in enumerate(selected_by_stage)
         }
+        main_chain_state_override_by_signature: dict[str, tuple[str, str]] = {}
+        if selected_by_stage_source == "current_generation_cases":
+            previous_state = ""
+            for index, (stage_key, _stage_label, item) in enumerate(selected_by_stage, start=1):
+                signature = _signature(item)
+                if not signature:
+                    continue
+                step_meta = workflow_stage_meta_by_key.get(stage_key) or {}
+                source_state = str(step_meta.get("state_in") or "").strip()
+                target_state = str(step_meta.get("state_out") or "").strip()
+                if previous_state:
+                    source_state = previous_state
+                elif not source_state:
+                    source_state = "initial"
+                if not target_state or target_state == source_state:
+                    target_state = f"derived_selected_state_{index:03d}"
+                main_chain_state_override_by_signature[signature] = (source_state, target_state)
+                previous_state = target_state
         role_sequence: list[str] = []
         for offset, item in enumerate(ordered_cases):
             updated = dict(item)
@@ -2938,17 +2980,17 @@ def stream_postprocess_cases(
             group = _infer_group(updated, in_main_chain=in_main_chain)
             step_meta_for_role = workflow_stage_meta_by_key.get(stage_key) or {}
             role = (
-                str(step_meta_for_role.get("actor") or "").strip().lower()
+                _normalize_actor_role(step_meta_for_role.get("actor"), fallback_text=_case_text(updated))
                 if in_main_chain and str(step_meta_for_role.get("actor") or "").strip()
                 else _infer_role(updated)
             )
-            if role == "teacher":
-                role = "supervisor"
             student_observation_projection = _is_student_observation_projection(updated)
             if student_observation_projection:
                 updated["source_actor_role"] = role
                 role = "student"
                 updated["student_observation_projection"] = True
+            elif in_main_chain and str(step_meta_for_role.get("source_actor_role") or "").strip():
+                updated["source_actor_role"] = str(step_meta_for_role.get("source_actor_role") or "").strip()
             role_sequence.append(role)
             depends_on = [previous_main_id] if in_main_chain and previous_main_id else []
             data_state = _infer_data_state(updated, stage_key=stage_key)
@@ -3001,7 +3043,29 @@ def stream_postprocess_cases(
                     stage_key=str(stage_info[0]),
                     stage_label=str(stage_info[1]),
                 )
+                state_override = main_chain_state_override_by_signature.get(signature)
+                if state_override:
+                    transition = dict(transition)
+                    transition["source_state"] = state_override[0]
+                    transition["target_state"] = state_override[1]
+                    transition["state_transition_confidence"] = max(
+                        float(transition.get("state_transition_confidence") or 0.0),
+                        0.55,
+                    )
                 updated["workflow_transition"] = transition
+                for transition_field in (
+                    "workflow_id",
+                    "source_state",
+                    "action",
+                    "target_state",
+                    "path_type",
+                    "blocking",
+                    "destructive",
+                    "can_advance_main_flow",
+                    "state_transition_confidence",
+                ):
+                    if transition.get(transition_field) not in (None, ""):
+                        updated[transition_field] = transition[transition_field]
                 updated["main_chain_stage_kind"] = str(transition.get("stage_kind") or "").strip()
                 if bool(step_meta.get("main_path_step", True)) and not _is_low_value_main_chain_p0(updated):
                     updated["priority"] = "P0"
@@ -3104,14 +3168,9 @@ def stream_postprocess_cases(
             "coverage_mode": str(coverage_mode or ""),
             "workflow_blueprint_count": int(len(workflow_blueprints)),
             "trusted_workflow_contract_count": int(len(trusted_workflow_contracts)),
+            "current_requirement_blueprint_count": int(len(current_requirement_workflow_blueprints)),
             "plan_workflow_blueprint_count": int(len(plan_workflow_blueprints)),
-            "workflow_blueprint_source": (
-                "feedback_control_state"
-                if workflow_blueprints
-                else "current_generation_cases"
-                if plan_workflow_blueprints
-                else "none"
-            ),
+            "workflow_blueprint_source": _workflow_blueprint_source_label(),
             "linear_executable": bool(
                 main_chain_count >= 2
                 and broken_dependency_count == 0
@@ -4023,19 +4082,67 @@ def stream_postprocess_cases(
         "expanded_regression": 2,
         "full_functional_regression": 3,
     }
+    try:
+        expected_count_value = max(0, int(expected_count or 0))
+    except Exception:
+        expected_count_value = 0
+    full_regression_recommended_floor = 85
     effective_generation_coverage_mode = str(generation_coverage_mode or "")
+    effective_generation_coverage_mode_source = (
+        "feedback_control_state" if effective_generation_coverage_mode in mode_rank else ""
+    )
+    requested_generation_coverage_mode = str(generation_mode or "").strip().lower()
+    explicit_generation_mode_override = False
     expected_count_mode = ""
-    if int(expected_count or 0) >= 80:
+    if expected_count_value >= 80:
         expected_count_mode = "full_functional_regression"
-    elif int(expected_count or 0) >= 60:
+    elif expected_count_value >= 60:
         expected_count_mode = "expanded_regression"
-    elif int(expected_count or 0) > 0:
+    elif expected_count_value > 0:
         expected_count_mode = "standard_regression"
     if mode_rank.get(expected_count_mode, -1) > mode_rank.get(effective_generation_coverage_mode, -1):
         effective_generation_coverage_mode = expected_count_mode
+        effective_generation_coverage_mode_source = "expected_count"
+    if (
+        requested_generation_coverage_mode in mode_rank
+        and mode_rank.get(requested_generation_coverage_mode, -1)
+        > mode_rank.get(effective_generation_coverage_mode, -1)
+    ):
+        effective_generation_coverage_mode = requested_generation_coverage_mode
+        effective_generation_coverage_mode_source = "generation_mode"
+        explicit_generation_mode_override = True
     if effective_generation_coverage_mode not in mode_rank:
         effective_generation_coverage_mode = expected_count_mode or "standard_regression"
+        effective_generation_coverage_mode_source = "fallback"
     generation_coverage_mode = effective_generation_coverage_mode
+    explicit_expected_count_floor_preserved = bool(
+        expected_count_value > 0
+        and expected_count_value < int(full_regression_recommended_floor or 0)
+        and effective_generation_coverage_mode == "full_functional_regression"
+    )
+
+    def _resolve_full_regression_floor() -> int:
+        if explicit_expected_count_floor_preserved:
+            return int(expected_count_value or 0)
+        try:
+            profile_floor = int(generation_target_case_range.get("min") or 0)
+        except Exception:
+            profile_floor = 0
+        return max(int(full_regression_recommended_floor or 0), int(profile_floor or 0))
+
+    def _resolve_expected_min_floor_for_recovery(*, valid_candidate_count: int) -> int:
+        target_final_count = int(expected_count_value or 0)
+        if target_final_count <= 0:
+            return 0
+        soft_min_count = int(round(float(target_final_count) * 0.80))
+        hard_min_count = int(round(float(target_final_count) * 0.70))
+        if str(effective_generation_coverage_mode or "") == "full_functional_regression":
+            return max(int(hard_min_count or 0), int(_resolve_full_regression_floor() or 0))
+        candidate_count = max(0, int(valid_candidate_count or 0))
+        if candidate_count >= int(round(float(target_final_count) * 0.90)):
+            return int(soft_min_count or 0)
+        return min(candidate_count, int(hard_min_count or 0))
+
     review_shortfall_detected = False
     review_shortfall_before_count = 0
     review_shortfall_recovered_count = 0
@@ -5375,27 +5482,43 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             "flow_reordered": False,
         }
 
+    recovery_pool_seed = [
+        item
+        for item in [*review_candidate_cases, *review_selection_input, *candidate_cases]
+        if isinstance(item, dict)
+    ]
+    recovery_pool_unique_signature_count = int(
+        len({_signature(item) for item in recovery_pool_seed if isinstance(item, dict) and _signature(item)})
+    )
+    final_floor_candidate_count = max(
+        int(candidate_count_before_review or 0),
+        int(recovery_pool_unique_signature_count or 0),
+    )
+    expected_min_floor_count = _resolve_expected_min_floor_for_recovery(
+        valid_candidate_count=final_floor_candidate_count
+    )
+    if int(expected_min_floor_count or 0) > 0 and not append:
+        final_target_floor_count = max(
+            int(final_target_floor_count or 0),
+            int(expected_min_floor_count or 0),
+        )
     if (
         int(expected_count or 0) > 0
         and effective_generation_coverage_mode in {"expanded_regression", "full_functional_regression"}
         and not append
     ):
         floor_ratio = 0.80 if effective_generation_coverage_mode == "expanded_regression" else 0.70
-        final_target_floor_count = int(round(float(expected_count or 0) * floor_ratio))
+        final_target_floor_count = max(
+            int(final_target_floor_count or 0),
+            int(round(float(expected_count or 0) * floor_ratio)),
+        )
         if effective_generation_coverage_mode == "full_functional_regression":
-            try:
-                full_regression_floor = max(85, int(generation_target_case_range.get("min") or 0))
-            except Exception:
-                full_regression_floor = 85
+            full_regression_floor = _resolve_full_regression_floor()
             final_target_floor_count = max(int(full_regression_floor or 0), final_target_floor_count)
+    if int(final_target_floor_count or 0) > 0 and not append:
         current_final_count = len([x for x in parsed_result if isinstance(x, dict)])
         if current_final_count < final_target_floor_count:
             final_floor_recovery_attempted = True
-            recovery_pool_seed = [
-                item
-                for item in [*review_candidate_cases, *review_selection_input, *candidate_cases]
-                if isinstance(item, dict)
-            ]
             try:
                 recovery_structure = analyze_case_structure(
                     requirement,
@@ -5413,12 +5536,11 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                 )
             except Exception:
                 recovery_group_count = 0
-            allow_relaxed_full_recovery = bool(
-                effective_generation_coverage_mode == "full_functional_regression"
-                and len(recovery_pool_seed) >= final_target_floor_count
+            allow_relaxed_floor_recovery = bool(
+                final_floor_candidate_count >= int(final_target_floor_count or 0)
+                and int(expected_count_value or 0) > 0
             )
-            if recovery_group_count >= final_target_floor_count or allow_relaxed_full_recovery:
-                final_floor_recovery_applied = True
+            if recovery_group_count >= final_target_floor_count or allow_relaxed_floor_recovery:
                 final_signatures_before_recovery = {
                     _signature(item) for item in parsed_result if isinstance(item, dict)
                 }
@@ -5506,10 +5628,7 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                         max_per_scenario=2,
                         project_profile=flow_project_profile,
                     )
-                    if (
-                        effective_generation_coverage_mode == "full_functional_regression"
-                        and len([x for x in parsed_result if isinstance(x, dict)]) < final_target_floor_count
-                    ):
+                    if len([x for x in parsed_result if isinstance(x, dict)]) < final_target_floor_count:
                         relaxed_flow_profile = dict(flow_project_profile or {})
                         relaxed_policy = dict(relaxed_flow_profile.get("scenario_cluster_policy") or {})
                         relaxed_policy["coverage_mode"] = str(effective_generation_coverage_mode or "")
@@ -5533,15 +5652,24 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                         0,
                         len([x for x in parsed_result if isinstance(x, dict)]) - current_final_count,
                     )
-                    final_floor_recovery_reason = (
-                        "recovered_with_relaxed_scenario_caps"
-                        if bool(flow_governance_summary.get("relaxed_for_floor_backfill"))
-                        else "recovered_to_explicit_expected_floor"
-                    )
+                    if int(final_floor_recovered_count or 0) > 0:
+                        final_floor_recovery_applied = True
+                        final_floor_recovery_reason = (
+                            "recovered_with_relaxed_scenario_caps"
+                            if bool(flow_governance_summary.get("relaxed_for_floor_backfill"))
+                            else "recovered_to_explicit_expected_floor"
+                        )
+                    else:
+                        final_floor_recovery_reason = "recovery_candidates_rejected_or_pruned"
+                else:
+                    final_floor_recovery_reason = "no_recoverable_candidates_after_quality_filter"
             else:
                 final_floor_recovery_reason = "insufficient_diverse_candidate_groups"
     if (
-        effective_generation_coverage_mode == "full_functional_regression"
+        (
+            effective_generation_coverage_mode == "full_functional_regression"
+            or int(expected_count_value or 0) > 0
+        )
         and int(final_target_floor_count or 0) > 0
         and not append
         and len([x for x in parsed_result if isinstance(x, dict)]) < int(final_target_floor_count or 0)
@@ -5589,8 +5717,8 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
             module_key = str(item.get("test_module") or "").strip() or "unknown"
             existing_module_counts[module_key] = int(existing_module_counts.get(module_key) or 0) + 1
         supplement_prompt = f"""
-FULL_REGRESSION_SHORTFALL_SUPPLEMENT:
-- The current final set has {current_shortfall_count} cases, below the full-regression floor {int(final_target_floor_count or 0)}.
+FINAL_SHORTFALL_SUPPLEMENT:
+- The current final set has {current_shortfall_count} cases, below the final floor {int(final_target_floor_count or 0)}.
 - Generate up to {supplement_needed} additional high-value, non-duplicate test cases.
 - Focus only on the current requirement and the missing coverage evidence below.
 - Prefer under-covered business modules, independent functional paths, boundaries, exceptions, and cross-module state synchronization.
@@ -5612,7 +5740,7 @@ EXISTING_FINAL_CASES_TO_AVOID_DUPLICATING:
 {json.dumps(existing_case_brief, ensure_ascii=False)[:14000]}
 """
         try:
-            yield "@@STATUS@@:Full regression shortfall supplement started...\n"
+            yield "@@STATUS@@:Final shortfall supplement started...\n"
             supplement_raw = client.generate_response(
                 requirement,
                 supplement_prompt,
@@ -5699,9 +5827,13 @@ EXISTING_FINAL_CASES_TO_AVOID_DUPLICATING:
                             0,
                             len([x for x in parsed_result if isinstance(x, dict)]) - current_shortfall_count,
                         )
+                        final_floor_recovered_count = max(
+                            int(final_floor_recovered_count or 0),
+                            int(final_shortfall_supplement_count or 0),
+                        )
                         final_floor_recovery_applied = True
-                        final_floor_recovery_reason = "full_shortfall_supplement_generated"
-                        yield f"@@STATUS@@:Full regression shortfall supplement added {final_shortfall_supplement_count} cases.\n"
+                        final_floor_recovery_reason = "final_shortfall_supplement_generated"
+                        yield f"@@STATUS@@:Final shortfall supplement added {final_shortfall_supplement_count} cases.\n"
                     else:
                         final_shortfall_supplement_reason = "supplement_pruned_or_duplicate"
                 else:
@@ -6310,12 +6442,8 @@ EXISTING_FINAL_CASES_TO_AVOID_DUPLICATING:
         if isinstance(item, dict)
     ]
     final_duplicate_project_profile = flow_project_profile
-    if (
-        effective_generation_coverage_mode == "full_functional_regression"
-        and (
-            bool((flow_governance_summary or {}).get("relaxed_for_floor_backfill"))
-            or bool(final_shortfall_supplement_applied)
-        )
+    if bool((flow_governance_summary or {}).get("relaxed_for_floor_backfill")) or bool(
+        final_shortfall_supplement_applied
     ):
         final_duplicate_project_profile = dict(flow_project_profile or {})
         final_duplicate_policy = dict(final_duplicate_project_profile.get("scenario_cluster_policy") or {})
@@ -6427,6 +6555,10 @@ EXISTING_FINAL_CASES_TO_AVOID_DUPLICATING:
         "final_shortfall_supplement_applied": bool(final_shortfall_supplement_applied),
         "final_shortfall_supplement_count": int(final_shortfall_supplement_count or 0),
         "final_shortfall_supplement_reason": str(final_shortfall_supplement_reason or ""),
+        "requested_generation_mode": str(generation_mode or ""),
+        "effective_generation_coverage_mode_source": str(effective_generation_coverage_mode_source or ""),
+        "explicit_generation_mode_override": bool(explicit_generation_mode_override),
+        "explicit_expected_count_floor_preserved": bool(explicit_expected_count_floor_preserved),
         "review_fill_source": str(review_fill_source or "none"),
             "review_llm_selected_count": int(len(review_llm_selected_signatures)),
         "review_llm_runtime_debug": dict(review_llm_runtime_debug),
@@ -6636,10 +6768,7 @@ EXISTING_FINAL_CASES_TO_AVOID_DUPLICATING:
     soft_min_count = int(round(float(target_final_count or 0) * 0.80)) if target_final_count > 0 else 0
     hard_min_count = int(round(float(target_final_count or 0) * 0.70)) if target_final_count > 0 else 0
     if str(generation_coverage_mode or "") == "full_functional_regression":
-        try:
-            full_floor = max(85, int(target_min or 0))
-        except Exception:
-            full_floor = 85
+        full_floor = _resolve_full_regression_floor()
         hard_min_count = max(int(hard_min_count or 0), int(full_floor or 0))
     valid_unique_candidate_count = int(candidate_count_before_review or 0)
     postprocess_pruned_count = int(post_review_dedup_drop or 0) + int(final_description_dedup_drop or 0) + int(
@@ -6790,6 +6919,10 @@ EXISTING_FINAL_CASES_TO_AVOID_DUPLICATING:
     generation_summary = {
         "recommended_range": recommended_range,
         "generation_coverage_mode": str(generation_coverage_mode or "core_smoke"),
+        "requested_generation_mode": str(generation_mode or ""),
+        "effective_generation_coverage_mode_source": str(effective_generation_coverage_mode_source or ""),
+        "explicit_generation_mode_override": bool(explicit_generation_mode_override),
+        "explicit_expected_count_floor_preserved": bool(explicit_expected_count_floor_preserved),
         "expected_count": int(expected_count or 0),
         "expected_count_explicit": bool(expected_count_explicit),
         "recommended_min": int(target_min or 0) if target_min is not None else 0,
@@ -6865,6 +6998,11 @@ EXISTING_FINAL_CASES_TO_AVOID_DUPLICATING:
         "quality_rejected_count": int(quality_rejected_count or 0),
         "review_selector_pruned_count": int(review_selector_pruned_count or 0),
         "valid_unique_candidate_count": int(valid_unique_candidate_count or 0),
+        "generation_coverage_mode": str(generation_coverage_mode or "core_smoke"),
+        "requested_generation_mode": str(generation_mode or ""),
+        "effective_generation_coverage_mode_source": str(effective_generation_coverage_mode_source or ""),
+        "explicit_generation_mode_override": bool(explicit_generation_mode_override),
+        "explicit_expected_count_floor_preserved": bool(explicit_expected_count_floor_preserved),
         "expected_count": int(expected_count or 0),
         "expected_count_explicit": bool(expected_count_explicit),
         "recommended_min": int(target_min or 0) if target_min is not None else 0,

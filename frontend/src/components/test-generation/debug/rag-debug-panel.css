@@ -269,6 +269,12 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismat
   overflow: auto;
 }
 
+.rag-debug-panel-root .tg-priority-sample-scroll {
+  max-height: min(54vh, 540px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .rag-debug-panel-root .tg-priority-sample-table {
   table-layout: fixed;
   min-width: 1480px;

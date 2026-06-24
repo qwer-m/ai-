@@ -129,6 +129,69 @@ def test_update_document_skips_summary_index_when_same_as_content(monkeypatch):
     assert fake_chroma.add_calls[0]["metadata"]["is_summary"] is False
 
 
+def test_add_document_covers_same_identity_instead_of_creating_duplicate(monkeypatch):
+    existing = _build_doc()
+    existing.filename = "requirement.pdf"
+    db = _FakeDB(existing)
+    module = _FakeModule(summary_text="summary text for replacement content")
+    fake_chroma = _FakeChroma()
+
+    class _CoverRepo:
+        def __init__(self, db):
+            self.db = db
+            self.added = db.added
+
+        def find_latest_by_identity(self, **kwargs):
+            assert kwargs == {
+                "project_id": 7,
+                "user_id": 101,
+                "doc_type": "requirement",
+                "filename": "requirement.pdf",
+            }
+            return self.db._doc
+
+        def get_by_id(self, doc_id):
+            return self.db._doc if doc_id == self.db._doc.id else None
+
+        def get_by_project_specific_id(self, project_specific_id):
+            return None
+
+        def get_by_id_or_project_specific_id(self, doc_id):
+            return self.get_by_id(doc_id) or self.get_by_project_specific_id(doc_id)
+
+        def commit(self):
+            self.db.commit()
+
+        def refresh(self, doc):
+            self.db.refresh(doc)
+
+        def add(self, doc):
+            self.added.append(doc)
+
+    db.added = []
+    monkeypatch.setattr(document_ops, "KnowledgeDocumentRepository", _CoverRepo)
+    monkeypatch.setattr(document_ops, "chroma_client", fake_chroma)
+
+    result = document_ops.add_document_impl(
+        module=module,
+        filename="requirement.pdf",
+        content="replacement content",
+        doc_type="requirement",
+        project_id=7,
+        db=db,
+        user_id=101,
+    )
+
+    assert result is existing
+    assert db.added == []
+    assert existing.id == 12
+    assert existing.content == "replacement content"
+    assert existing.content_hash == "hash::replacement content"
+    assert fake_chroma.delete_calls == ["12", "12_summary"]
+    assert fake_chroma.add_calls[0]["metadata"]["filename"] == "requirement.pdf"
+    assert fake_chroma.add_calls[0]["metadata"]["doc_id"] == 12
+
+
 def test_delete_document_prefers_global_id_over_project_specific_id(monkeypatch):
     target = SimpleNamespace(
         id=11,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from modules.testing.test_generation_components.judge.test_case_judge import judge_cases
+from modules.testing.test_generation_components.judge.test_case_judge import judge_case, judge_cases
 from modules.testing.test_generation_components.judge.test_case_repairer import repair_cases
 from modules.testing.test_generation_components.postprocess.json_repair import deduplicate_test_cases
 
@@ -621,6 +621,72 @@ def test_judge_uses_fact_profile_from_control_state() -> None:
     assert judged.reject_count == 1
     assert judged.cases[0].reject_reason == "violates_confirmed_fact"
     assert judged.cases[0].signals.confirmed_fact_violations
+
+
+def test_judge_does_not_apply_temporal_shutdown_fact_as_global_enter_ban() -> None:
+    control_state = {
+        "source_meta": {
+            "fact_profile": {
+                "confirmed_facts": ["时间：6月19日-7月10日23:59，结束后入口关闭且课程不可进入"],
+                "hard_flow_constraints": ["时间：6月19日-7月10日23:59，结束后入口关闭且课程不可进入"],
+            }
+        }
+    }
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "提交后5秒进度条进入测评结果页",
+            "test_module": "测评提交",
+            "steps": ["完成测评并点击提交"],
+            "expected_result": "5秒后进度条完成并跳转至测评结果页",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-002",
+            "description": "会员用户点击课程可直接学习",
+            "test_module": "课程列表页",
+            "steps": ["会员用户点击课程卡片"],
+            "expected_result": "直接进入课程学习页面，不跳转至5天SVIP购买页",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-003",
+            "description": "活动结束后课程不可进入",
+            "test_module": "活动上下线",
+            "steps": ["将系统时间切到7月10日23:59后", "访问活动课程入口"],
+            "expected_result": "入口关闭，课程不可进入，用户无法访问原复习课程内容",
+            "priority": "P0",
+        },
+    ]
+
+    judged = judge_cases(cases, {}, control_state=control_state)
+
+    assert judged.reject_count == 0
+    assert all(not item.signals.confirmed_fact_violations for item in judged.cases)
+
+
+def test_judge_rejects_positive_access_inside_temporal_shutdown_scope() -> None:
+    control_state = {
+        "source_meta": {
+            "fact_profile": {
+                "confirmed_facts": ["时间：6月19日-7月10日23:59，结束后入口关闭且课程不可进入"],
+            }
+        }
+    }
+    case = {
+        "id": "TC-001",
+        "description": "活动结束后入口仍可点击进入课程",
+        "test_module": "活动上下线",
+        "steps": ["将系统时间切到7月10日23:59后", "点击活动入口"],
+        "expected_result": "活动结束后仍可进入课程学习页面",
+        "priority": "P0",
+    }
+
+    judged = judge_case(case, {}, control_state=control_state)
+
+    assert judged.status == "REJECT"
+    assert judged.reject_reason == "violates_confirmed_fact"
+    assert judged.signals.confirmed_fact_violations
 
 
 def test_judge_marks_vague_requirement_defined_copy_as_pending() -> None:

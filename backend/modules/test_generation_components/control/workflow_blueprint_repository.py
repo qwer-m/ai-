@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from core.db.models import KnowledgeDocument
 
+from .actor_roles import normalize_actor_role
 
 WORKFLOW_CONTRACT_DOC_TYPE = "test_generation_workflow_contract"
 WORKFLOW_BLUEPRINT_REPOSITORY_SOURCE = "workflow_blueprint_repository"
@@ -89,6 +90,7 @@ _GENERIC_MATCH_TERMS = {
     "\u663e\u793a",
     "\u67e5\u770b",
     "\u70b9\u51fb",
+    "\u4fdd\u5b58",
 }
 
 _CORE_WORKFLOW_STAGE_KINDS = {
@@ -191,7 +193,14 @@ def _normalize_edge(raw: Any, *, index: int, workflow_id: str) -> dict[str, Any]
     action = _text(edge.get("action") or edge.get("label") or edge.get("description"))
     if not state_in or not state_out or not action:
         return None
-    actor = _text(edge.get("actor") or edge.get("role") or "student").lower()
+    actor = normalize_actor_role(
+        edge.get("actor") or edge.get("role"),
+        fallback_text=" ".join(
+            _text(part)
+            for part in (edge.get("label"), edge.get("action"), edge.get("description"))
+            if _text(part)
+        ),
+    )
     edge_id = _text(edge.get("id")) or f"step_{index:03d}"
     label = _text(edge.get("label")) or action
     return {
@@ -332,6 +341,9 @@ class WorkflowBlueprintRepository:
         project_id: int,
         user_id: int,
         requirement_text: str,
+        current_source_doc_ids: list[int] | tuple[int, ...] | None = None,
+        current_content_hash: str = "",
+        allow_cross_document_keyword_match: bool = False,
         limit: int = 5,
     ) -> list[dict[str, Any]]:
         docs = (
@@ -345,7 +357,12 @@ class WorkflowBlueprintRepository:
             .order_by(desc(KnowledgeDocument.created_at), desc(KnowledgeDocument.id))
             .all()
         )
-        requirement = _text(requirement_text).lower()
+        current_source_ids = {
+            int(value)
+            for value in (current_source_doc_ids or [])
+            if str(value or "").strip().isdigit()
+        }
+        current_hash = _text(current_content_hash)
         source_doc_ids: list[int] = []
         parsed_contracts: list[dict[str, Any]] = []
         for doc in docs:
@@ -373,7 +390,7 @@ class WorkflowBlueprintRepository:
             int(doc.id): _content_fingerprint(doc.content)
             for doc in source_docs
         }
-        requirement_fingerprint = _content_fingerprint(requirement_text)
+        requirement_fingerprint = current_hash or _content_fingerprint(requirement_text)
         selected: list[tuple[int, int, float, dict[str, Any]]] = []
         for contract in parsed_contracts:
             match_score, hit_count, has_explicit_terms, core_hit_count, hit_terms = _contract_requirement_match(
@@ -381,12 +398,16 @@ class WorkflowBlueprintRepository:
                 requirement_text,
             )
             source_doc_id = int(contract.get("source_doc_id") or 0)
+            source_doc_bound = bool(source_doc_id > 0 and source_doc_id in current_source_ids)
             source_content_match = bool(
                 requirement_fingerprint
                 and source_content_fingerprints.get(source_doc_id) == requirement_fingerprint
             )
+            same_source = bool(source_doc_bound or source_content_match)
+            if not same_source and not bool(allow_cross_document_keyword_match):
+                continue
             require_core_hit = bool(source_doc_id > 0 and not source_content_match)
-            if not source_content_match and not _contract_requirement_match_is_sufficient(
+            if not same_source and not _contract_requirement_match_is_sufficient(
                 score=match_score,
                 hit_count=hit_count,
                 has_explicit_terms=has_explicit_terms,
@@ -398,6 +419,9 @@ class WorkflowBlueprintRepository:
                 **contract,
                 "match_debug": {
                     "source_content_match": bool(source_content_match),
+                    "source_doc_bound": bool(source_doc_bound),
+                    "same_source": bool(same_source),
+                    "cross_document_keyword_match_allowed": bool(allow_cross_document_keyword_match),
                     "hit_count": int(hit_count),
                     "match_score": int(match_score),
                     "core_hit_count": int(core_hit_count),

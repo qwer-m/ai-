@@ -41,6 +41,18 @@ class OpenAICompatibleProvider(BaseModelProvider):
         pool_timeout = min(15.0, total)
         return httpx.Timeout(total, connect=connect_timeout, write=write_timeout, pool=pool_timeout)
 
+    def _http_trust_env(self) -> bool:
+        raw = os.getenv("OPENAI_COMPAT_TRUST_ENV", os.getenv("AI_HTTP_TRUST_ENV", "true"))
+        return str(raw).strip().lower() not in {"0", "false", "no", "off"}
+
+    def _http_client_kwargs(self, *, timeout: httpx.Timeout | float | None = None) -> Dict[str, Any]:
+        kwargs: Dict[str, Any] = {
+            "trust_env": self._http_trust_env(),
+        }
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        return kwargs
+
     def _resolve_max_token_cap(self, target_model: str) -> Optional[int]:
         host = (urlparse(self.base_url).hostname or "").lower()
         model = str(target_model or "").strip().lower()
@@ -132,7 +144,7 @@ class OpenAICompatibleProvider(BaseModelProvider):
         }
         pieces: List[str] = []
 
-        with httpx.Client(timeout=self._http_timeout()) as client:
+        with httpx.Client(**self._http_client_kwargs(timeout=self._http_timeout())) as client:
             with client.stream("POST", f"{self.base_url}/responses", headers=headers, json=stream_payload) as resp:
                 if resp.status_code != 200:
                     return f"Error: HTTP {resp.status_code} - {resp.read().decode()}"
@@ -238,7 +250,7 @@ class OpenAICompatibleProvider(BaseModelProvider):
         }
 
         try:
-            with httpx.Client(timeout=self._http_timeout()) as client:
+            with httpx.Client(**self._http_client_kwargs(timeout=self._http_timeout())) as client:
                 resp = client.post(url, headers=headers, json=payload)
                 json_compat_fields = ("reasoning_effort", "response_format")
                 if resp.status_code in {400, 422} and any(field in payload for field in json_compat_fields):
@@ -327,7 +339,7 @@ class OpenAICompatibleProvider(BaseModelProvider):
         }
 
         try:
-            with httpx.Client(timeout=self._http_timeout()) as client:
+            with httpx.Client(**self._http_client_kwargs(timeout=self._http_timeout())) as client:
                 with client.stream("POST", url, headers=headers, json=payload) as resp:
                     if resp.status_code != 200:
                         yield f"Error: HTTP {resp.status_code} - {resp.read().decode()}"
@@ -443,7 +455,7 @@ class OpenAICompatibleProvider(BaseModelProvider):
         }
 
         try:
-            with httpx.Client(timeout=5.0) as client:
+            with httpx.Client(**self._http_client_kwargs(timeout=5.0)) as client:
                 for ep in endpoints:
                     target_url = f"{root}{ep}"
                     try:

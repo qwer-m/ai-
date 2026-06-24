@@ -45,6 +45,15 @@ type GenerationFunnelMetrics = {
   judgeRejectedOrPendingCount: number | null;
   finalCount: number;
 };
+type ExecutionSuiteResponse = {
+  case_count?: number;
+  suite_count?: number;
+  runnable_suite_count?: number;
+  linear_executable?: boolean;
+  execution_readiness?: string;
+  main_suite_id?: string;
+  warnings?: unknown[];
+};
 
 const QUALITY_GATE_REASON_LABELS: Record<string, string> = {
   final_count_below_min_acceptable: '最终保留数量低于最低可接受值',
@@ -86,6 +95,7 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   const debugStoreProjectId = useRagDebugStore((s) => s.projectId);
   const resetDebugStateForProject = useRagDebugStore((s) => s.resetForProject);
   const setResultDebugState = useRagDebugStore((s) => s.setResultState);
+  const setExecutionSuiteDebugState = useRagDebugStore((s) => s.setExecutionSuiteState);
   const genDiag = useRagDebugStore((s) => s.genDiag);
   const generationConvergence = useRagDebugStore((s) => s.generationConvergence);
   const reviewDecisionSummary = useRagDebugStore((s) => s.reviewDecisionSummary);
@@ -322,6 +332,51 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     finalCaseCount,
     displayCaseCount,
     setResultDebugState,
+  ]);
+
+  useEffect(() => {
+    if (!generationId || !isFinalResultLoaded) {
+      setExecutionSuiteDebugState({
+        generationId: generationId ?? null,
+        warnings: [],
+      });
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const suite = await api.get<ExecutionSuiteResponse>(`/api/test-generations/${generationId}/execution-suite`);
+        if (cancelled) return;
+        const warnings = Array.isArray(suite?.warnings)
+          ? suite.warnings.map((item: unknown) => String(item)).filter(Boolean)
+          : [];
+        setExecutionSuiteDebugState({
+          generationId,
+          caseCount: Number(suite?.case_count || 0),
+          suiteCount: Number(suite?.suite_count || 0),
+          runnableSuiteCount: Number(suite?.runnable_suite_count || 0),
+          linearExecutable: Boolean(suite?.linear_executable),
+          executionReadiness: String(suite?.execution_readiness || ''),
+          mainSuiteId: String(suite?.main_suite_id || ''),
+          warnings,
+        });
+      } catch (err) {
+        if (cancelled) return;
+        setExecutionSuiteDebugState({
+          generationId,
+          warnings: [`执行套件诊断加载失败：${err instanceof Error ? err.message : String(err)}`],
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    generationId,
+    isFinalResultLoaded,
+    setExecutionSuiteDebugState,
   ]);
 
   useEffect(() => {

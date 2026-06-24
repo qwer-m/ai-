@@ -5,12 +5,17 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from modules.test_generation_components.services.final_case_learning_service import (
     _filter_quality_evaluation_sample_for_apply,
+    _workflow_contract_candidates_from_derived,
     build_learning_candidates_from_evaluation_result,
     build_learning_samples_from_final_cases,
     parse_test_cases_spreadsheet_bytes,
     parse_test_cases_payload,
 )
 from modules.test_generation_components.control.feedback_control_state import FeedbackControlState
+from modules.test_generation_components.control.workflow_blueprint_repository import (
+    is_trusted_workflow_contract,
+    normalize_workflow_contract,
+)
 from routers.automation.test_generation_history_routes import FinalCaseLearningRequest
 
 
@@ -483,6 +488,56 @@ def test_feedback_control_state_roundtrips_workflow_blueprints() -> None:
     assert len(merged.workflow_blueprints) == 1
     payload = merged.to_dict()
     assert payload["workflow_blueprints"][0]["steps"][1]["label"] == "Verify paid status"
+
+
+def test_final_case_workflow_blueprint_builds_trusted_contract_candidate() -> None:
+    derived = build_learning_samples_from_final_cases(
+        generated_cases=[],
+        final_cases=[
+            {
+                "id": "TC-CFG-001",
+                "description": "Create lesson plan and select course",
+                "test_module": "lesson plan",
+                "steps": ["open create plan", "select course", "click next"],
+                "expected_result": "course is selected and time setup is available",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-PRE-001",
+                "description": "Preview lesson plan summary",
+                "test_module": "lesson plan",
+                "steps": ["review preview"],
+                "expected_result": "selected course and time are shown before saving",
+                "priority": "P1",
+            },
+            {
+                "id": "TC-SAVE-001",
+                "description": "Save lesson plan",
+                "test_module": "lesson plan",
+                "steps": ["click save"],
+                "expected_result": "plan saved successfully",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-VIS-001",
+                "description": "Student side lesson plan visible after save",
+                "test_module": "student side",
+                "steps": ["open student side learning plan"],
+                "expected_result": "saved plan is visible and consistent with supervisor side",
+                "priority": "P0",
+            },
+        ],
+        requirement_text="create a lesson plan, save it, then verify student side visibility",
+        generation_id=602,
+    )
+
+    contracts = _workflow_contract_candidates_from_derived(derived)
+    normalized = normalize_workflow_contract({**contracts[0], "project_id": 1})
+
+    assert len(contracts) == 1
+    assert contracts[0]["source_type"] == "manual_final_case_derived"
+    assert normalized is not None
+    assert is_trusted_workflow_contract(normalized) is True
 
 
 def test_parse_csv_final_cases_with_chinese_headers() -> None:

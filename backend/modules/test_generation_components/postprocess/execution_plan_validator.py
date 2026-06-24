@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from ..control.actor_roles import CANONICAL_ROLE_SESSION_KEYS
 from ..control.workflow_blueprint_repository import (
     is_trusted_workflow_contract,
 )
@@ -20,14 +21,7 @@ _STATE_FIELD_NAMES = (
     "can_advance_main_flow",
     "state_transition_confidence",
 )
-_ROLE_SESSION_KEYS = {
-    "admin": "admin_review_session",
-    "supervisor": "supervisor_session",
-    "teacher": "supervisor_session",
-    "member": "member_student_session",
-    "student_free": "free_student_session",
-    "student": "student_session",
-}
+_ROLE_SESSION_KEYS = dict(CANONICAL_ROLE_SESSION_KEYS)
 _COMMIT_ACTION_TOKENS = (
     "保存",
     "提交",
@@ -47,6 +41,17 @@ _COMMIT_ACTION_TOKENS = (
     "trigger score",
     "score calculation",
 )
+
+
+def _is_current_requirement_workflow_blueprint(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    repository_source = _text(payload.get("repository_source") or payload.get("source")).lower()
+    source_type = _text(payload.get("source_type")).lower()
+    return bool(
+        repository_source == "current_requirement_blueprint"
+        or source_type == "current_requirement_extracted"
+    )
 _DOWNSTREAM_VISIBILITY_TOKENS = (
     "同步",
     "生效",
@@ -112,8 +117,6 @@ _RESET_OR_ABORT_TOKENS = (
 )
 _RESUME_STATE_ONLY_TOKENS = (
     "\u672a\u5b8c\u6210",
-    "\u7ee7\u7eed",
-    "\u7eed\u8fdb",
     "\u4fdd\u7559\u5386\u53f2",
     "\u4fdd\u7559\u5bf9\u8bdd",
     "\u6062\u590d\u4e0a\u6b21",
@@ -428,6 +431,99 @@ def _case_semantic_text(case: dict[str, Any]) -> str:
     return " ".join(parts).lower()
 
 
+_ACTION_SUPPORT_SPLIT_RE = re.compile(r"[的了着和与及并或且在从到于后前时中上下里内为把将对、，。；：:（）()\[\]\s]+")
+_ACTION_SUPPORT_GENERIC_TOKENS = {
+    "button",
+    "click",
+    "current",
+    "page",
+    "user",
+    "view",
+    "页面",
+    "按钮",
+    "点击",
+    "操作",
+    "用户",
+    "当前",
+    "对应",
+    "进行",
+    "所有",
+}
+
+
+def _action_support_tokens(value: Any) -> list[str]:
+    text = _text(value).lower()
+    if not text:
+        return []
+    raw_tokens: list[str] = []
+    raw_tokens.extend(re.findall(r"[a-z0-9][a-z0-9_\-]{2,}", text))
+    for sequence in re.findall(r"[\u4e00-\u9fff]{2,}", text):
+        for piece in _ACTION_SUPPORT_SPLIT_RE.split(sequence):
+            if len(piece) < 2:
+                continue
+            if len(piece) <= 6:
+                raw_tokens.append(piece)
+            for index in range(len(piece) - 1):
+                raw_tokens.append(piece[index : index + 2])
+
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for token in raw_tokens:
+        normalized = token.strip().lower()
+        if len(normalized) < 2 or normalized in _ACTION_SUPPORT_GENERIC_TOKENS:
+            continue
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        tokens.append(normalized)
+    return tokens
+
+
+def _action_token_in_text(text: str, token: str) -> bool:
+    if token.isascii() and re.search(r"[a-z0-9]", token):
+        if re.search(rf"(?<![a-z0-9_]){re.escape(token)}(?![a-z0-9_])", text):
+            return True
+        words = re.findall(r"[a-z0-9][a-z0-9_\-]{2,}", text)
+        variants = {token}
+        if token.endswith("ed") and len(token) > 4:
+            variants.add(token[:-1])
+            variants.add(token[:-2])
+        if token.endswith("s") and len(token) > 4:
+            variants.add(token[:-1])
+        for word in words:
+            if word in variants:
+                return True
+            if len(word) >= 7 and len(token) >= 7 and (word.startswith(token[:5]) or token.startswith(word[:5])):
+                return True
+        return False
+    return token in text
+
+
+def main_chain_action_support_conflict_reason(case: dict[str, Any]) -> str:
+    """Return a conflict reason when workflow action metadata is not supported by public case text."""
+    action = _text(_state_value(case, "action"))
+    label = _text(case.get("main_chain_stage_label"))
+    action_tokens = _action_support_tokens(action)
+    label_tokens = _action_support_tokens(label)
+    if len(action_tokens) < 2 and len(label_tokens) < 2:
+        return ""
+
+    expected_tokens = list(dict.fromkeys([*action_tokens, *label_tokens]))
+    if len(expected_tokens) < 2:
+        return ""
+
+    text = _case_semantic_text(case)
+    matched = [token for token in expected_tokens if _action_token_in_text(text, token)]
+    required = 1
+    if len(expected_tokens) >= 5:
+        required = 3
+    elif len(expected_tokens) >= 3:
+        required = 2
+    if len(matched) < required or (len(matched) / max(1, len(expected_tokens))) < 0.3:
+        return "stage_action_not_supported_by_case_text"
+    return ""
+
+
 def _has_any_text(text: str, tokens: tuple[str, ...]) -> bool:
     return any(_text(token).lower() in text for token in tokens if _text(token))
 
@@ -631,6 +727,15 @@ def validate_main_smoke_semantic_alignment(cases: Any) -> list[dict[str, Any]]:
                 stage_kind=stage_kind,
             )
 
+        action_support_reason = main_chain_action_support_conflict_reason(case)
+        if action_support_reason:
+            _add_semantic_conflict(
+                conflicts,
+                case=case,
+                reason=action_support_reason,
+                stage_kind=stage_kind,
+            )
+
         if stage_kind == "configure":
             has_configure_action = _has_any_text(text, _CONFIGURE_ACTION_REQUIRED_TOKENS)
             if not has_configure_action:
@@ -753,8 +858,12 @@ def validate_execution_plan(
     trusted_workflow_contracts = [
         item for item in resolved_blueprints if is_trusted_workflow_contract(item)
     ]
+    current_requirement_blueprints = [
+        item for item in resolved_blueprints if _is_current_requirement_workflow_blueprint(item)
+    ]
     blueprint_count = len(resolved_blueprints)
     trusted_workflow_contract_count = len(trusted_workflow_contracts)
+    current_requirement_blueprint_count = len(current_requirement_blueprints)
     state_field_coverage = _ratio(populated_state_fields, state_field_slots)
     workflow_id_missing_rate = _ratio(workflow_id_missing_count, len(main_cases))
 
@@ -779,7 +888,15 @@ def validate_execution_plan(
         and blueprint_source == "current_generation_cases"
         and resolved_policy.allow_candidate_blueprint_without_contract
     )
-    if trusted_workflow_contract_count <= 0 and not candidate_blueprint_without_contract:
+    current_requirement_blueprint_allowed = bool(
+        current_requirement_blueprint_count > 0
+        and blueprint_source == "current_requirement_blueprint"
+    )
+    if (
+        trusted_workflow_contract_count <= 0
+        and not current_requirement_blueprint_allowed
+        and not candidate_blueprint_without_contract
+    ):
         failure_reasons.append("workflow_contract_missing")
     if (
         resolved_policy.reject_untrusted_blueprint_source
@@ -810,6 +927,7 @@ def validate_execution_plan(
             ),
             "workflow_blueprint_count": int(blueprint_count),
             "trusted_workflow_contract_count": int(trusted_workflow_contract_count),
+            "current_requirement_blueprint_count": int(current_requirement_blueprint_count),
             "untrusted_workflow_blueprint_count": int(blueprint_count - trusted_workflow_contract_count),
             "workflow_contract_source_types": sorted(
                 {
@@ -819,6 +937,7 @@ def validate_execution_plan(
                 }
             ),
             "workflow_blueprint_source": blueprint_source or "none",
+            "current_requirement_blueprint_allowed": bool(current_requirement_blueprint_allowed),
             "candidate_blueprint_without_contract_allowed": bool(candidate_blueprint_without_contract),
             **closure,
         },

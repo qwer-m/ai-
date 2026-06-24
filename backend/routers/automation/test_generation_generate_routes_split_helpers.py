@@ -21,7 +21,7 @@ from routers.test_generation_routes.support import (
     build_generation_qm,
     detect_duplicate_document,
     get_owned_project,
-    parse_requirement_content,
+    parse_requirement_for_generation,
 )
 from schemas.automation.test_generation import TestGenRequest
 
@@ -45,7 +45,16 @@ async def estimate_test_count(
     if not req_text:
         if not file:
             return {"count": 20}
-        req_text = await parse_requirement_content(file, doc_type, prototype_file)
+        req_text, parse_diag = await parse_requirement_for_generation(
+            file,
+            doc_type,
+            prototype_file,
+            db=db,
+            user_id=current_user.id,
+            project_id=project_id,
+            source="estimate_test_count",
+        )
+        log_to_db(db, project_id, "system", f"GEN_DIAG:{json.dumps(parse_diag, ensure_ascii=False)}", user_id=current_user.id)
 
     try:
         context_bundle = context_orchestrator.assemble_context(
@@ -111,11 +120,23 @@ async def generate_tests_stream(
 
     content = (requirement_text or "").strip()
     uploaded_filename: str | None = None
+    initial_diag_lines: list[str] = []
     if not content:
         if not file:
             return JSONResponse(status_code=400, content={"error": "Missing requirement_text or file"})
         uploaded_filename = file.filename
-        content = await parse_requirement_content(file, doc_type, prototype_file)
+        content, parse_diag = await parse_requirement_for_generation(
+            file,
+            doc_type,
+            prototype_file,
+            db=db,
+            user_id=current_user.id,
+            project_id=project_id,
+            source="generate_tests_stream",
+        )
+        parse_diag_line = f"GEN_DIAG:{json.dumps(parse_diag, ensure_ascii=False)}\n"
+        initial_diag_lines.append(parse_diag_line)
+        log_to_db(db, project_id, "system", parse_diag_line.strip(), user_id=current_user.id)
 
         payload = detect_duplicate_document(
             db,
@@ -129,6 +150,7 @@ async def generate_tests_stream(
         if payload and not append:
 
             def duplicate_stream():
+                yield from initial_diag_lines
                 yield "@@DUPLICATE@@" + json.dumps(payload, ensure_ascii=False)
 
             return StreamingResponse(duplicate_stream(), media_type="text/plain; charset=utf-8")
@@ -153,6 +175,7 @@ async def generate_tests_stream(
 
     def guarded_stream():
         try:
+            yield from initial_diag_lines
             yield from stream_iter
         except Exception as e:
             logger.exception("generate-tests-stream failed: %s", e)

@@ -685,7 +685,7 @@ export function PriorityDebugTable({
               onClick={() => setSamplePoolStatusFilter('all')}
             >全部</Button>
           </div>
-          <div className="table-responsive">
+          <div className="table-responsive tg-priority-sample-scroll">
             <table className="table table-sm align-middle mb-0 tg-priority-sample-table">
               <thead>
                 <tr>

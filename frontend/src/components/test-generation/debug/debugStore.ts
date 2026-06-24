@@ -14,6 +14,7 @@ import type {
   JudgeSummaryEvent,
   MemoryFabricDiagEvent,
   PersistenceGateEvent,
+  RequirementParseEvent,
   ReviewDecisionSummaryEvent,
   ReviewDecisionTableCompactEvent,
   StreamBatchTokenUsageEvent,
@@ -35,6 +36,18 @@ export type ResultDebugState = {
   previewCaseCount?: number;
   finalCaseCount?: number;
   displayCaseCount?: number;
+  ts: number;
+};
+
+export type ExecutionSuiteDebugState = {
+  generationId: number | null;
+  caseCount?: number;
+  suiteCount?: number;
+  runnableSuiteCount?: number;
+  linearExecutable?: boolean;
+  executionReadiness?: string;
+  mainSuiteId?: string;
+  warnings?: string[];
   ts: number;
 };
 
@@ -68,10 +81,13 @@ export type DebugState = {
   streamBatchTokenUsageRows?: StreamBatchTokenUsageEvent[];
   persistenceGate?: PersistenceGateEvent;
   caseQualityGate?: CaseQualityGateEvent;
+  requirementParse?: RequirementParseEvent;
   resultState?: ResultDebugState;
+  executionSuiteState?: ExecutionSuiteDebugState;
   lastUpdatedAt?: number;
   ingestDiag: (event: unknown) => void;
   setResultState: (payload: Omit<ResultDebugState, 'ts'>) => void;
+  setExecutionSuiteState: (payload: Omit<ExecutionSuiteDebugState, 'ts'>) => void;
   resetForProject: (projectId: number | null) => void;
   reset: () => void;
 };
@@ -98,7 +114,9 @@ const INITIAL_STATE = {
   streamBatchTokenUsageRows: undefined as StreamBatchTokenUsageEvent[] | undefined,
   persistenceGate: undefined as PersistenceGateEvent | undefined,
   caseQualityGate: undefined as CaseQualityGateEvent | undefined,
+  requirementParse: undefined as RequirementParseEvent | undefined,
   resultState: undefined as ResultDebugState | undefined,
+  executionSuiteState: undefined as ExecutionSuiteDebugState | undefined,
   lastUpdatedAt: undefined as number | undefined,
 };
 const DEBUG_STORE_STORAGE_KEY = 'tg_rag_debug_store_v1';
@@ -285,6 +303,13 @@ function applyEvent(state: DebugState, event: GenDiagEvent): Partial<DebugState>
     };
   }
 
+  if (event.kind === 'requirement_parse') {
+    return {
+      requirementParse: event,
+      lastUpdatedAt: now,
+    };
+  }
+
   return {};
 }
 
@@ -303,6 +328,17 @@ export const useRagDebugStore = create<DebugState>()(
         const now = Date.now();
         set({
           resultState: {
+            ...payload,
+            ts: now,
+          },
+          lastUpdatedAt: now,
+        });
+      },
+
+      setExecutionSuiteState: (payload) => {
+        const now = Date.now();
+        set({
+          executionSuiteState: {
             ...payload,
             ts: now,
           },
@@ -343,7 +379,9 @@ export const useRagDebugStore = create<DebugState>()(
         streamBatchTokenUsageRows: state.streamBatchTokenUsageRows,
         persistenceGate: state.persistenceGate,
         caseQualityGate: state.caseQualityGate,
+        requirementParse: state.requirementParse,
         resultState: state.resultState,
+        executionSuiteState: state.executionSuiteState,
         lastUpdatedAt: state.lastUpdatedAt,
       }),
     }

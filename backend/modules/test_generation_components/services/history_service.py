@@ -17,6 +17,7 @@ from modules.testing.priority_sample_pool_store import (
     upsert_priority_sample_pool,
 )
 from modules.testing.sample_pool_shadow_store import shadow_read_consistency_check
+from ..execution.execution_suite import build_execution_suite
 from ..repositories.history_repository import (
     TestGenerationHistoryRepository,
 )
@@ -100,6 +101,7 @@ class TestGenerationHistoryService:
                     getattr(matched, "generated_test_case", "") or "",
                 )
             )
+            execution_suite = build_execution_suite(row.generated_result or "")
             result.append(
                 {
                     "id": row.id,
@@ -109,6 +111,15 @@ class TestGenerationHistoryService:
                     "history_title": extract_history_title(row.requirement_text or ""),
                     "history_key": build_history_key(row.requirement_text or ""),
                     "has_comparison": has_reliable_matched_comparison or has_artifact_comparison,
+                    "execution_suite_summary": {
+                        "case_count": int(execution_suite.get("case_count") or 0),
+                        "suite_count": int(execution_suite.get("suite_count") or 0),
+                        "runnable_suite_count": int(execution_suite.get("runnable_suite_count") or 0),
+                        "linear_executable": bool(execution_suite.get("linear_executable")),
+                        "execution_readiness": str(execution_suite.get("execution_readiness") or ""),
+                        "warning_count": int(len(execution_suite.get("warnings") or [])),
+                        "main_suite_id": str(execution_suite.get("main_suite_id") or ""),
+                    },
                 }
             )
         return "ok", result
@@ -152,6 +163,7 @@ class TestGenerationHistoryService:
             return "not_found", None
 
         generated_result = entry.generated_result or ""
+        execution_suite = build_execution_suite(generated_result)
         matched = (
             find_matching_comparison(
                 project_id=entry.project_id or 0,
@@ -225,8 +237,15 @@ class TestGenerationHistoryService:
                 },
                 "comparison": comparison,
                 "comparison_status": "found" if has_comparison else "missing",
+                "execution_suite": execution_suite,
             },
         )
+
+    def get_execution_suite(self, *, generation_id: int, user_id: int) -> tuple[str, dict[str, Any] | None]:
+        status, payload = self.get_generation(generation_id=generation_id, user_id=user_id)
+        if status != "ok":
+            return status, None
+        return "ok", build_execution_suite(payload)
 
     def get_priority_sample_pool(self, *, project_id: int, user_id: int) -> tuple[str, dict[str, Any] | None]:
         if not self.repo.get_owned_project(project_id=project_id, user_id=user_id):

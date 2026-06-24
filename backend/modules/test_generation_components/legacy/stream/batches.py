@@ -12,6 +12,9 @@ from ...prompting.prompt_orchestration import (
 from ...prompting.structured_context import (
     build_structured_prompt_context,
 )
+from ...prompting.generation_diagnostics import (
+    build_prompt_context_intake_diagnostics,
+)
 from ..adapters import (
     clean_and_parse_json,
     count_unique_test_cases,
@@ -45,6 +48,7 @@ class LegacyGenerationStreamBatchesMixin:
         feedback_control_state = state.get("feedback_control_state") or {}
         only_current_biz = bool(state.get("only_current_biz") or False)
         current_biz_key = str(state.get("current_biz_key") or "").strip()
+        compress = bool(state.get("compress") or False)
         multi_pass = bool(state.get("multi_pass", True))
         generation_mode = str(state.get("generation_mode") or "").strip().lower()
         final_trace_emitted = False
@@ -134,6 +138,101 @@ class LegacyGenerationStreamBatchesMixin:
                 stream_batch_diags.append(f"GEN_DIAG:{payload_json}\n")
             except Exception:
                 pass
+
+        def _emit_prompt_context_intake_diag(
+            *,
+            prompt_context: dict[str, Any],
+            base_prompt_text: str,
+            system_prompt_text: str,
+            batch_index_value: int,
+            total_batches_value: int,
+            attempt_value: int,
+            requested_count: int,
+        ) -> None:
+            actual_model = ""
+            try:
+                actual_model = str(client.select_model(f"{system_prompt_text or ''}{requirement or ''}", task_type="generation"))
+            except Exception:
+                actual_model = str(getattr(client, "model", "") or "")
+            payload = build_prompt_context_intake_diagnostics(
+                prompt_context=prompt_context,
+                context_result=context_result if isinstance(context_result, dict) else {},
+                requirement=requirement or "",
+                kb_context=kb_context or "",
+                base_prompt=base_prompt_text or "",
+                system_prompt=system_prompt_text or "",
+                mode="stream",
+                doc_type=doc_type,
+                compress=compress,
+                project_id=project_id,
+                request_id=request_id,
+                batch_index=batch_index_value,
+                total_batches=total_batches_value,
+                attempt=attempt_value,
+                expected_count=requested_count,
+                multi_pass=bool(multi_pass),
+                generation_mode=generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                model=actual_model,
+                max_output_tokens=getattr(client, "max_tokens", None),
+            )
+            if self._is_active_db_session(db):
+                try:
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            user_id=user_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(payload, ensure_ascii=False)}",
+                        )
+                    )
+                    db.commit()
+                except Exception:
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
+            try:
+                stream_batch_diags.append(f"GEN_DIAG:{json.dumps(payload, ensure_ascii=False)}\n")
+            except Exception:
+                pass
+
+        def _is_retryable_provider_error(message: str) -> bool:
+            text = str(message or "").strip().lower()
+            if not text:
+                return False
+            fatal_markers = (
+                "[额度耗尽]",
+                "insufficient_quota",
+                "quota exceeded",
+                "billing",
+                "unauthorized",
+                "invalid api key",
+                "permission denied",
+                "content policy",
+                "safety",
+                "forbidden",
+            )
+            if any(marker in text for marker in fatal_markers):
+                return False
+            retryable_markers = (
+                "exception occurred:",
+                "incomplete chunked read",
+                "peer closed connection",
+                "read operation timed out",
+                "read timed out",
+                "timeout",
+                "connection reset",
+                "connection aborted",
+                "remote protocol error",
+                "temporarily unavailable",
+                "bad gateway",
+                "service unavailable",
+                "gateway timeout",
+                "502",
+                "503",
+                "504",
+            )
+            return any(marker in text for marker in retryable_markers)
 
         def _build_batch_token_usage(
             *,
@@ -493,6 +592,19 @@ class LegacyGenerationStreamBatchesMixin:
                     )
                     final_trace_emitted = True
 
+                if attempt == 1:
+                    _emit_prompt_context_intake_diag(
+                        prompt_context=prompt_context,
+                        base_prompt_text=base_prompt,
+                        system_prompt_text=system_prompt,
+                        batch_index_value=batch_index + 1,
+                        total_batches_value=total_batches,
+                        attempt_value=attempt,
+                        requested_count=need,
+                    )
+                    if stream_batch_diags:
+                        yield stream_batch_diags.pop()
+
                 stream = client.generate_response_stream(
                     requirement,
                     system_prompt,
@@ -532,6 +644,9 @@ class LegacyGenerationStreamBatchesMixin:
                     break
 
                 if provider_error:
+                    if attempt < 3 and _is_retryable_provider_error(provider_error):
+                        yield "\n@@STATUS@@:模型连接中断，正在重试当前批次...\n"
+                        continue
                     yield "\n@@STATUS@@:生成失败\n"
                     yield f"{provider_error}\n"
                     attempt = 3
@@ -544,6 +659,19 @@ class LegacyGenerationStreamBatchesMixin:
                     parsed_batch = normalize_json_structure(parsed_batch)
                     if isinstance(parsed_batch, list):
                         parsed_batch_cases = [case for case in parsed_batch if isinstance(case, dict)]
+                        if len(parsed_batch_cases) > int(need):
+                            overflow_count = int(len(parsed_batch_cases) - int(need))
+                            parsed_batch_cases = parsed_batch_cases[: int(need)]
+                            _emit_stream_batch_quality_diag(
+                                {
+                                    "batch_index": int(batch_index + 1),
+                                    "batch_overflow_trimmed": True,
+                                    "requested_count": int(need),
+                                    "overflow_count": int(overflow_count),
+                                }
+                            )
+                            if stream_batch_diags:
+                                yield stream_batch_diags.pop()
                         generated_in_batch = current_batch_count
                         if parsed_batch_cases:
                             full_content += json.dumps(parsed_batch_cases, ensure_ascii=False, indent=2)

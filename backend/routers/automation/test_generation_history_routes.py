@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,7 @@ from modules.test_generation_components.services.final_case_learning_service imp
     parse_test_cases_spreadsheet_bytes,
 )
 from modules.test_generation_components.services.history_service import TestGenerationHistoryService
+from modules.test_generation_components.execution.execution_suite import convert_execution_suite_to_excel
 
 router = APIRouter()
 
@@ -250,6 +251,41 @@ def get_test_generation_bundle(
     if status == "not_found":
         raise HTTPException(status_code=404, detail="Test generation not found")
     return payload
+
+
+@router.get("/test-generations/{generation_id}/execution-suite")
+def get_test_generation_execution_suite(
+    generation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    status, payload = TestGenerationHistoryService(db).get_execution_suite(
+        generation_id=generation_id,
+        user_id=current_user.id,
+    )
+    if status == "not_found":
+        raise HTTPException(status_code=404, detail="Test generation not found")
+    return payload
+
+
+@router.get("/test-generations/{generation_id}/execution-suite-excel")
+def export_test_generation_execution_suite_excel(
+    generation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    status, payload = TestGenerationHistoryService(db).get_execution_suite(
+        generation_id=generation_id,
+        user_id=current_user.id,
+    )
+    if status == "not_found":
+        raise HTTPException(status_code=404, detail="Test generation not found")
+    excel_bytes = convert_execution_suite_to_excel(payload or {})
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=execution_suite.xlsx"},
+    )
 
 
 @router.post("/test-generations/{generation_id}/learn-from-final-cases")

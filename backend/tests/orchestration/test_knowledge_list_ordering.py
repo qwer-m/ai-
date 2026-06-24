@@ -103,6 +103,44 @@ def test_list_knowledge_orders_by_display_order(monkeypatch):
     assert "display_order" in str(query.order_by_args[0])
 
 
+def test_list_knowledge_clamps_page_after_deletion(monkeypatch):
+    docs = [
+        SimpleNamespace(id=i, display_order=0.0, created_at=datetime(2026, 1, 1, 10, i, 0))
+        for i in range(1, 10)
+    ]
+    query = _FakeQuery(docs)
+    db = _FakeDB(query)
+    current_user = SimpleNamespace(id=1001)
+
+    monkeypatch.setattr(common, "_get_owned_project", lambda project_id, user_id, db: object())
+    monkeypatch.setattr(common, "build_knowledge_list_related_maps", lambda db, pid, documents: ({}, {}))
+    monkeypatch.setattr(
+        common,
+        "_serialize_doc",
+        lambda doc, source_name_map, linked_map: {"global_id": doc.id},
+    )
+    monkeypatch.setattr(
+        common,
+        "build_knowledge_list_response",
+        lambda serialized_docs, page, page_size, total, total_pages: {
+            "documents": serialized_docs,
+            "pagination": {"page": page, "page_size": page_size, "total": total, "total_pages": total_pages},
+        },
+    )
+
+    result = common.list_knowledge(
+        project_id=45,
+        page=3,
+        page_size=8,
+        db=db,
+        current_user=current_user,
+    )
+
+    assert result["pagination"]["page"] == 2
+    assert result["pagination"]["total_pages"] == 2
+    assert [item["global_id"] for item in result["documents"]] == [9]
+
+
 def _doc_type_in_values(query: _FakeQuery) -> tuple[str, ...]:
     for args in query.filter_args:
         for expr in args:

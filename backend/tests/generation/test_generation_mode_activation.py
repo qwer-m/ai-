@@ -1156,6 +1156,266 @@ def test_full_mode_shortfall_supplement_recovers_below_floor_result() -> None:
     assert any("Generate up to 26 additional" in prompt for prompt in client.prompts)
 
 
+def test_standard_expected_count_shortfall_supplement_recovers_below_floor_result() -> None:
+    state = build_generation_mode_control_state(
+        requirement_text="standard regression for activity entry, course visibility, assessment, reports, reward, and purchase flows",
+        expected_count=50,
+    )
+    focus_words = [
+        "entry",
+        "course",
+        "assessment",
+        "report",
+        "reward",
+        "purchase",
+        "visibility",
+        "progress",
+        "timer",
+        "member",
+        "nonmember",
+        "guest",
+        "svip",
+        "chapter",
+        "question",
+        "submit",
+        "result",
+        "download",
+        "popup",
+        "resume",
+        "reset",
+        "grade",
+        "score",
+        "comment",
+        "avatar",
+        "rank",
+        "boundary",
+        "exception",
+        "sync",
+        "cache",
+        "device",
+        "network",
+        "route",
+        "homepage",
+        "lesson",
+        "unlock",
+        "complete",
+        "history",
+        "confirm",
+        "cancel",
+        "toast",
+        "dialog",
+        "detail",
+        "status",
+        "plan",
+    ]
+    base_cases = []
+    for idx in range(1, 46):
+        word = focus_words[(idx - 1) % len(focus_words)]
+        weak_expected = idx > 37
+        base_cases.append(
+            {
+                "id": f"TC-{idx:03d}",
+                "description": f"Activity {word} standard regression checkpoint {idx}",
+                "test_module": f"Activity {word} Module",
+                "preconditions": ["User has entered the activity"],
+                "steps": [
+                    "Open the activity page",
+                    f"Execute {word} checkpoint {idx}",
+                    "Refresh and verify synchronized state",
+                ],
+                "test_input": f"{word} standard data {idx}",
+                "expected_result": (
+                    "功能正常，符合预期"
+                    if weak_expected
+                    else f"The {word} checkpoint {idx} completes and the synchronized business state is visible."
+                ),
+                "expected_result_quality": "non_assertable" if weak_expected else "assertable",
+                "priority": "P1" if idx % 2 else "P2",
+            }
+        )
+    supplement_cases = [
+        {
+            "id": f"S-{idx:03d}",
+            "description": f"Supplement unique standard path {idx}",
+            "test_module": f"Supplement Unique Module {idx}",
+            "preconditions": ["Activity data is available"],
+            "steps": ["Open the under-covered path", "Complete the operation", "Verify the final synchronized state"],
+            "test_input": f"supplement standard data {idx}",
+            "expected_result": f"Supplement path {idx} completes and the final state is retained after refresh.",
+            "priority": "P1",
+        }
+        for idx in range(1, 8)
+    ]
+    client = _SupplementClient(supplement_cases)
+
+    result = _drain_with_return(
+        stream_postprocess_cases(
+            client=client,
+            requirement="Standard regression must cover activity entry, assessment, course visibility, report, reward, and purchase paths.",
+            base_prompt="BASE",
+            kb_context="",
+            full_content=__import__("json").dumps(base_cases, ensure_ascii=False),
+            expected_count=50,
+            append=False,
+            existing_cases=[],
+            existing_unique_count=0,
+            start_id=1,
+            db=None,
+            clean_and_parse_json_fn=clean_and_parse_json,
+            normalize_json_structure_fn=normalize_json_structure,
+            deduplicate_test_cases_fn=deduplicate_test_cases,
+            reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+            count_unique_test_cases_fn=count_unique_test_cases,
+            infer_case_kind_fn=infer_case_kind,
+            build_supplement_closed_loop_instruction_fn=lambda **_: "",
+            multi_pass=False,
+            generation_mode="single_pass",
+            feedback_control_state=state.to_dict(),
+        )
+    )
+
+    summary = dict(result.get("generation_summary") or {})
+    review_summary = dict(result.get("review_decision_summary") or {})
+    assert len(result.get("cases") or []) >= 40
+    assert review_summary["final_target_floor_count"] == 40
+    assert review_summary["final_shortfall_supplement_attempted"] is True
+    assert review_summary["final_shortfall_supplement_applied"] is True
+    assert review_summary["final_floor_recovered_count"] > 0
+    assert summary["underfilled"] is False
+    assert any("FINAL_SHORTFALL_SUPPLEMENT" in prompt for prompt in client.prompts)
+
+
+def test_standard_expected_count_exposes_matching_final_floor() -> None:
+    state = build_generation_mode_control_state(
+        requirement_text="Activity operation regression covers entry configuration state permission audit export and failure paths.",
+        expected_count=50,
+    )
+    focus_words = [
+        "entry",
+        "configure",
+        "publish",
+        "enroll",
+        "sync",
+        "archive",
+        "restore",
+        "audit",
+        "export",
+        "import",
+        "retry",
+        "permission",
+        "schedule",
+        "cancel",
+        "notify",
+        "lock",
+        "unlock",
+        "preview",
+        "submit",
+        "approve",
+        "reject",
+        "rollback",
+        "reopen",
+        "close",
+        "copy",
+        "validate",
+        "search",
+        "filter",
+        "sort",
+        "download",
+        "upload",
+        "assign",
+        "unassign",
+        "refresh",
+        "timeout",
+        "offline",
+        "quota",
+        "limit",
+        "draft",
+        "history",
+        "detail",
+        "summary",
+        "report",
+        "calendar",
+        "batch",
+        "single",
+        "mobile",
+        "web",
+        "teacher",
+        "student",
+        "admin",
+        "cache",
+        "conflict",
+        "duplicate",
+        "expired",
+        "pending",
+        "success",
+        "failure",
+        "empty",
+        "overflow",
+        "underflow",
+        "boundary",
+        "state",
+        "record",
+        "result",
+        "message",
+        "panel",
+        "tab",
+        "dialog",
+        "form",
+    ]
+    cases = [
+        {
+            "id": f"TC-{idx:03d}",
+            "description": f"Validate activity {word} business path {idx}",
+            "test_module": f"Activity {word} module {idx}",
+            "preconditions": ["User has valid project permission", f"Activity dataset {idx} exists"],
+            "steps": [
+                f"Open activity {word} area",
+                f"Execute {word} operation with case dataset {idx}",
+                "Refresh page and reopen the record",
+            ],
+            "test_input": f"{word}-payload-{idx}",
+            "expected_result": (
+                f"The {word} operation for dataset {idx} completes with persisted business status "
+                "and visible synchronized result."
+            ),
+            "priority": "P1" if idx % 3 else "P2",
+        }
+        for idx, word in enumerate(focus_words, start=1)
+    ]
+
+    result = _drain_with_return(
+        stream_postprocess_cases(
+            client=_NoopClient(),
+            requirement="Activity operation regression covers entry configuration state permission audit export and failure paths.",
+            base_prompt="BASE",
+            kb_context="",
+            full_content=__import__("json").dumps(cases, ensure_ascii=False),
+            expected_count=50,
+            append=False,
+            existing_cases=[],
+            existing_unique_count=0,
+            start_id=1,
+            db=None,
+            clean_and_parse_json_fn=clean_and_parse_json,
+            normalize_json_structure_fn=normalize_json_structure,
+            deduplicate_test_cases_fn=deduplicate_test_cases,
+            reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+            count_unique_test_cases_fn=count_unique_test_cases,
+            infer_case_kind_fn=infer_case_kind,
+            build_supplement_closed_loop_instruction_fn=lambda **_: "",
+            multi_pass=False,
+            generation_mode="single_pass",
+            feedback_control_state=state.to_dict(),
+        )
+    )
+
+    summary = dict(result.get("generation_summary") or {})
+    review_summary = dict(result.get("review_decision_summary") or {})
+    assert summary["min_acceptable_final"] == 40
+    assert review_summary["final_target_floor_count"] == 40
+    assert summary["underfilled"] is False
+
+
 def test_full_mode_marks_below_recommended_floor_underfilled_even_when_candidates_are_few() -> None:
     state = build_generation_mode_control_state(
         requirement_text="full functional regression for a compact candidate set",
@@ -1674,3 +1934,378 @@ def test_external_workflow_blueprint_materializes_missing_trusted_middle_step() 
     )
     assert "workflow_blueprint" not in public_text
     assert "course_schedule_flow" not in public_text
+
+
+def test_current_requirement_blueprint_normalizes_freeform_actor_sessions() -> None:
+    blueprint = {
+        "id": "activity_flow",
+        "workflow_id": "activity_flow",
+        "source_type": "current_requirement_extracted",
+        "repository_source": "current_requirement_blueprint",
+        "trusted": False,
+        "steps": [
+            {
+                "id": "entry",
+                "label": "Admin opens activity setup entry",
+                "action": "open activity setup entry",
+                "state_in": "initial",
+                "state_out": "entry_opened",
+                "stage_kind": "entry",
+                "actor": "\u540e\u53f0\u8fd0\u8425",
+                "allow_bridge": True,
+                "match_keywords": ["Admin opens activity setup entry"],
+            },
+            {
+                "id": "configure",
+                "label": "Teacher configures activity rules",
+                "action": "configure activity rules",
+                "state_in": "entry_opened",
+                "state_out": "rules_configured",
+                "stage_kind": "configure",
+                "actor": "\u8001\u5e08\u7aef\u7528\u6237",
+                "allow_bridge": True,
+                "match_keywords": ["Teacher configures activity rules"],
+            },
+            {
+                "id": "preview",
+                "label": "Teacher previews activity content",
+                "action": "preview activity content",
+                "state_in": "rules_configured",
+                "state_out": "preview_ready",
+                "stage_kind": "preview",
+                "actor": "\u6559\u5e08\u7528\u6237",
+                "allow_bridge": True,
+                "match_keywords": ["Teacher previews activity content"],
+            },
+            {
+                "id": "commit",
+                "label": "Teacher saves activity plan",
+                "action": "save activity plan",
+                "state_in": "preview_ready",
+                "state_out": "plan_saved",
+                "stage_kind": "commit",
+                "actor": "\u8001\u5e08\u7aef\u7528\u6237",
+                "allow_bridge": True,
+                "match_keywords": ["Teacher saves activity plan"],
+            },
+            {
+                "id": "free_visible",
+                "label": "Non-member user sees saved activity visible",
+                "action": "display saved activity to non-member user",
+                "state_in": "plan_saved",
+                "state_out": "free_user_visible",
+                "stage_kind": "downstream_visibility",
+                "actor": "\u975e\u4f1a\u5458\u7528\u6237",
+                "allow_bridge": True,
+                "match_keywords": ["Non-member user sees saved activity visible"],
+            },
+            {
+                "id": "member_complete",
+                "label": "Member user opens activity and progress becomes complete",
+                "action": "open activity and complete progress",
+                "state_in": "free_user_visible",
+                "state_out": "member_progress_complete",
+                "stage_kind": "completion_sync",
+                "actor": "\u4f1a\u5458\u7528\u6237",
+                "allow_bridge": True,
+                "match_keywords": ["Member user opens activity and progress becomes complete"],
+            },
+        ],
+    }
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "Admin opens activity setup entry",
+            "test_module": "Activity Setup",
+            "preconditions": ["Admin is logged in"],
+            "steps": ["Open activity setup entry"],
+            "test_input": "activity setup",
+            "expected_result": "Activity setup entry page is opened successfully.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-002",
+            "description": "Teacher configures activity rules",
+            "test_module": "Activity Rules",
+            "preconditions": ["Activity setup entry is opened"],
+            "steps": ["Configure activity rules"],
+            "test_input": "activity rule set",
+            "expected_result": "Activity rules are configured and retained.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-003",
+            "description": "Teacher previews activity content",
+            "test_module": "Activity Preview",
+            "preconditions": ["Activity rules are configured"],
+            "steps": ["Preview activity content"],
+            "test_input": "configured activity",
+            "expected_result": "Activity preview displays the configured content.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-004",
+            "description": "Teacher saves activity plan",
+            "test_module": "Activity Save",
+            "preconditions": ["Activity preview is ready"],
+            "steps": ["Save activity plan"],
+            "test_input": "previewed activity",
+            "expected_result": "Activity plan is saved and success status is shown.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-005",
+            "description": "Non-member user sees saved activity visible",
+            "test_module": "Activity Visibility",
+            "preconditions": ["Activity plan is saved"],
+            "steps": ["Open non-member activity page"],
+            "test_input": "saved activity",
+            "expected_result": "Saved activity is visible and displayed to the non-member user.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-006",
+            "description": "Member user opens activity and progress becomes complete",
+            "test_module": "Activity Progress",
+            "preconditions": ["Saved activity is visible"],
+            "steps": ["Open activity", "Complete activity progress"],
+            "test_input": "member activity access",
+            "expected_result": "Member progress status becomes complete after opening the activity.",
+            "priority": "P0",
+        },
+    ]
+
+    result = _drain_with_return(
+        stream_postprocess_cases(
+            client=_NoopClient(),
+            requirement="Activity workflow from setup to member completion.",
+            base_prompt="BASE",
+            kb_context="",
+            full_content=__import__("json").dumps(cases, ensure_ascii=False),
+            expected_count=6,
+            append=False,
+            existing_cases=[],
+            existing_unique_count=0,
+            start_id=1,
+            db=None,
+            clean_and_parse_json_fn=clean_and_parse_json,
+            normalize_json_structure_fn=normalize_json_structure,
+            deduplicate_test_cases_fn=deduplicate_test_cases,
+            reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+            count_unique_test_cases_fn=count_unique_test_cases,
+            infer_case_kind_fn=infer_case_kind,
+            build_supplement_closed_loop_instruction_fn=lambda **_: "",
+            multi_pass=False,
+            generation_mode="single_pass",
+            feedback_control_state={"workflow_blueprints": [blueprint]},
+        )
+    )
+
+    summary = dict(result.get("review_decision_summary") or {})
+    execution_plan = dict(summary.get("execution_plan") or {})
+    assert execution_plan["workflow_blueprint_source"] == "current_requirement_blueprint"
+    assert execution_plan["linear_executable"] is True
+    assert execution_plan["state_conflict_count"] == 0
+
+    main_cases = [
+        item
+        for item in (result.get("cases") or [])
+        if str(item.get("execution_group") or "") == "main_smoke"
+    ]
+    assert [item.get("role") for item in main_cases] == [
+        "admin",
+        "supervisor",
+        "supervisor",
+        "supervisor",
+        "student_free",
+        "member",
+    ]
+    assert [item.get("session_key") for item in main_cases] == [
+        "admin_review_session",
+        "supervisor_session",
+        "supervisor_session",
+        "supervisor_session",
+        "free_student_session",
+        "member_student_session",
+    ]
+
+
+def test_current_requirement_blueprint_keeps_generic_business_user_for_non_education_flow() -> None:
+    blueprint = {
+        "id": "order_fulfillment_flow",
+        "workflow_id": "order_fulfillment_flow",
+        "source_type": "current_requirement_extracted",
+        "repository_source": "current_requirement_blueprint",
+        "trusted": False,
+        "steps": [
+            {
+                "id": "entry",
+                "label": "Customer opens order checkout entry",
+                "action": "open order checkout entry",
+                "state_in": "initial",
+                "state_out": "checkout_opened",
+                "stage_kind": "entry",
+                "actor": "用户",
+                "allow_bridge": True,
+                "match_keywords": ["Customer opens order checkout entry"],
+            },
+            {
+                "id": "configure",
+                "label": "Customer configures order items and delivery address",
+                "action": "configure order items and delivery address",
+                "state_in": "checkout_opened",
+                "state_out": "order_configured",
+                "stage_kind": "configure",
+                "actor": "用户",
+                "allow_bridge": True,
+                "match_keywords": ["Customer configures order items and delivery address"],
+            },
+            {
+                "id": "preview",
+                "label": "Customer reviews order confirmation preview",
+                "action": "review order confirmation preview",
+                "state_in": "order_configured",
+                "state_out": "order_preview_ready",
+                "stage_kind": "preview",
+                "actor": "用户",
+                "allow_bridge": True,
+                "match_keywords": ["Customer reviews order confirmation preview"],
+            },
+            {
+                "id": "commit",
+                "label": "Customer submits order",
+                "action": "submit order",
+                "state_in": "order_preview_ready",
+                "state_out": "order_submitted",
+                "stage_kind": "commit",
+                "actor": "用户",
+                "allow_bridge": True,
+                "match_keywords": ["Customer submits order"],
+            },
+            {
+                "id": "visible",
+                "label": "Order center displays latest saved order status",
+                "action": "display latest saved order status",
+                "state_in": "order_submitted",
+                "state_out": "order_status_visible",
+                "stage_kind": "downstream_visibility",
+                "actor": "用户",
+                "allow_bridge": True,
+                "match_keywords": ["Order center displays latest saved order status"],
+            },
+            {
+                "id": "complete",
+                "label": "Fulfillment status sync completes after payment",
+                "action": "sync fulfillment status after payment completes",
+                "state_in": "order_status_visible",
+                "state_out": "fulfillment_status_synced",
+                "stage_kind": "completion_sync",
+                "actor": "用户",
+                "allow_bridge": True,
+                "match_keywords": ["Fulfillment status sync completes after payment"],
+            },
+        ],
+    }
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "Customer opens order checkout entry",
+            "test_module": "Order Checkout",
+            "preconditions": ["Customer has items in cart"],
+            "steps": ["Open order checkout entry"],
+            "test_input": "cart with purchasable items",
+            "expected_result": "Order checkout entry page is opened successfully.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-002",
+            "description": "Customer configures order items and delivery address",
+            "test_module": "Order Configuration",
+            "preconditions": ["Checkout entry is opened"],
+            "steps": ["Configure item quantity", "Configure delivery address"],
+            "test_input": "order item and delivery address",
+            "expected_result": "Order items and delivery address are configured and retained.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-003",
+            "description": "Customer reviews order confirmation preview",
+            "test_module": "Order Preview",
+            "preconditions": ["Order information is configured"],
+            "steps": ["Review order confirmation preview"],
+            "test_input": "configured order",
+            "expected_result": "Order confirmation preview displays the current order information.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-004",
+            "description": "Customer submits order",
+            "test_module": "Order Submit",
+            "preconditions": ["Order preview is ready"],
+            "steps": ["Submit order"],
+            "test_input": "previewed order",
+            "expected_result": "Order is submitted and saved with success status.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-005",
+            "description": "Order center displays latest saved order status",
+            "test_module": "Order Center",
+            "preconditions": ["Order has been submitted"],
+            "steps": ["Open order center"],
+            "test_input": "submitted order",
+            "expected_result": "Order center displays the latest saved order status.",
+            "priority": "P0",
+        },
+        {
+            "id": "TC-006",
+            "description": "Fulfillment status sync completes after payment",
+            "test_module": "Fulfillment Sync",
+            "preconditions": ["Submitted order is visible"],
+            "steps": ["Complete payment", "Refresh fulfillment status"],
+            "test_input": "paid submitted order",
+            "expected_result": "Fulfillment status sync completes and status is updated.",
+            "priority": "P0",
+        },
+    ]
+
+    result = _drain_with_return(
+        stream_postprocess_cases(
+            client=_NoopClient(),
+            requirement="Order workflow from checkout to fulfillment status sync.",
+            base_prompt="BASE",
+            kb_context="",
+            full_content=__import__("json").dumps(cases, ensure_ascii=False),
+            expected_count=6,
+            append=False,
+            existing_cases=[],
+            existing_unique_count=0,
+            start_id=1,
+            db=None,
+            clean_and_parse_json_fn=clean_and_parse_json,
+            normalize_json_structure_fn=normalize_json_structure,
+            deduplicate_test_cases_fn=deduplicate_test_cases,
+            reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+            count_unique_test_cases_fn=count_unique_test_cases,
+            infer_case_kind_fn=infer_case_kind,
+            build_supplement_closed_loop_instruction_fn=lambda **_: "",
+            multi_pass=False,
+            generation_mode="single_pass",
+            feedback_control_state={"workflow_blueprints": [blueprint]},
+        )
+    )
+
+    summary = dict(result.get("review_decision_summary") or {})
+    execution_plan = dict(summary.get("execution_plan") or {})
+    assert execution_plan["workflow_blueprint_source"] == "current_requirement_blueprint"
+    assert execution_plan["linear_executable"] is True
+
+    main_cases = [
+        item
+        for item in (result.get("cases") or [])
+        if str(item.get("execution_group") or "") == "main_smoke"
+    ]
+    assert [item.get("role") for item in main_cases] == ["business_user"] * 6
+    assert [item.get("session_key") for item in main_cases] == ["business_user_session"] * 6
+    assert all(item.get("source_actor_role") == "用户" for item in main_cases)
+    assert "student" not in {str(item.get("role") or "") for item in main_cases}

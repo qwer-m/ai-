@@ -113,6 +113,83 @@ def _has_rule_action_signal(line: str) -> bool:
     return any(hint.lower() in normalized for hint in _RULE_ACTION_HINTS)
 
 
+def _ambiguous_fragment_reason(line: str) -> str:
+    normalized = _normalize_text(line).strip()
+    if not normalized or _extract_rule_id(normalized):
+        return ""
+    lowered = normalized.lower()
+    chinese_chars = re.findall(r"[\u4e00-\u9fff]", normalized)
+    strong_directive_tokens = (
+        "必须",
+        "禁止",
+        "不可",
+        "不能",
+        "不允许",
+        "不展示",
+        "隐藏",
+        "固定",
+        "支持",
+        "保存",
+        "读取",
+        "跳转",
+        "点击",
+        "弹出",
+        "置灰",
+        "禁用",
+        "must",
+        "required",
+        "forbid",
+        "hide",
+        "show",
+        "display",
+        "support",
+    )
+    question_tokens = (
+        "是否",
+        "吗",
+        "什么",
+        "怎么",
+        "如何",
+        "哪个",
+        "哪里",
+        "待确认",
+        "待定",
+        "可能",
+        "的话",
+        "?",
+    )
+    has_question_signal = any(token in normalized for token in question_tokens) or any(
+        token in lowered for token in ("pending confirmation", "to be confirmed", "tbd")
+    )
+    if has_question_signal and not normalized.startswith("已确认"):
+        return "unconfirmed_question"
+    motivational_copy_tokens = (
+        "slogan",
+        "tagline",
+        "愿景",
+        "使命",
+        "口号",
+        "品牌语",
+        "宣传语",
+        "相信",
+        "迈向",
+        "新高度",
+        "赋能",
+        "成长",
+    )
+    has_directive = any(token in normalized for token in strong_directive_tokens)
+    motivational_hits = sum(1 for token in motivational_copy_tokens if token in normalized or token in lowered)
+    if not has_directive and (motivational_hits >= 2 or any(token in lowered for token in ("slogan", "tagline"))):
+        return "motivational_copy_fragment"
+    if len(chinese_chars) <= 8 and not any(token in normalized for token in strong_directive_tokens):
+        return "short_fragment"
+    if len(chinese_chars) <= 16 and normalized.endswith(("的", "为", "或", "和", "及", "与", "模")):
+        return "truncated_fragment"
+    if len(chinese_chars) <= 18 and normalized[:1] in {"以", "并", "则", "且", "或"}:
+        return "truncated_fragment"
+    return ""
+
+
 def _is_low_confidence_requirement_discussion(line: str) -> bool:
     normalized = _normalize_text(line).strip()
     if not normalized:
@@ -246,6 +323,15 @@ def _classify_requirement_rule(rule_text: str) -> dict[str, Any]:
             "source_type": "short_fragment",
             "blocking": False,
             "non_blocking_reason": "short_fragment",
+        }
+    ambiguous_reason = _ambiguous_fragment_reason(normalized)
+    if ambiguous_reason:
+        return {
+            "rule_level": "soft",
+            "confidence": "low",
+            "source_type": "ambiguous_fragment",
+            "blocking": False,
+            "non_blocking_reason": ambiguous_reason,
         }
     if "原型" in normalized and not any(token in lowered for token in ("必须", "需要", "固定", "禁止", "支持")):
         return {

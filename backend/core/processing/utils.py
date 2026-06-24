@@ -61,7 +61,8 @@ def run_temp_script(
     script_content: str, 
     suffix: str = ".py", 
     command: list[str] = None, 
-    timeout: int = 30
+    timeout: int = 30,
+    env: Optional[dict[str, str]] = None,
 ) -> Tuple[str, str, int]:
     """
     执行临时脚本 (Run Temp Script)
@@ -93,7 +94,8 @@ def run_temp_script(
             full_command,
             capture_output=True,
             text=True,
-            timeout=timeout
+            timeout=timeout,
+            env={**os.environ, **(env or {})},
         )
         return result.stdout, result.stderr, result.returncode
     except subprocess.TimeoutExpired:

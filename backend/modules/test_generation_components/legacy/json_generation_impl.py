@@ -14,6 +14,7 @@ from ..prompting.generation_diagnostics import (
     build_context_compression_diagnostics,
     build_coverage_diagnostics,
     build_gate_reason_chain,
+    build_prompt_context_intake_diagnostics,
 )
 from ..coverage.coverage_analyzer import (
     analyze_coverage,
@@ -28,6 +29,9 @@ from ..prompting.structured_context import (
 )
 from ..control.build_feedback_control_state import (
     build_feedback_control_state,
+)
+from ..control.current_requirement_blueprint import (
+    merge_current_requirement_blueprint_control_state,
 )
 from ..control.generation_mode_activation import (
     merge_generation_mode_control_state,
@@ -97,6 +101,15 @@ def _normalize_missing_priority_final_cases(
         else:
             resolved.append(item)
     return resolved
+
+
+def _drain_generator_return(iterator: Any) -> Any:
+    """Exhaust a generator and return its StopIteration value."""
+    while True:
+        try:
+            next(iterator)
+        except StopIteration as stop:
+            return stop.value
 
 
 class LegacyGenerationJsonMixin:
@@ -260,6 +273,7 @@ class LegacyGenerationJsonMixin:
                     project_id=project_id,
                     user_id=user_id,
                     requirement_text=original_requirement,
+                    current_source_doc_ids=linked_final_case_signal.get("source_doc_ids") or [],
                     enable_priority_sample_pool=bool(enable_sample_pool_feedback),
                     include_agent_learning=True,
                     memory_fabric=memory_fabric,
@@ -320,6 +334,15 @@ class LegacyGenerationJsonMixin:
                     compressed_chars=len(kb_context or ""),
                 )
                 return error_payload
+
+            feedback_control_state = merge_current_requirement_blueprint_control_state(
+                feedback_control_state,
+                client=client,
+                requirement_text=original_requirement,
+                db=db,
+                project_id=project_id,
+                user_id=user_id,
+            ).to_dict()
 
             if compress:
                 # Compress the requirement before model generation when requested.
@@ -423,6 +446,7 @@ class LegacyGenerationJsonMixin:
         empty_result_stage = ""
         core_flow_backfill_apply_summary_payload: dict[str, Any] = {}
         core_flow_backfill_generation_result: dict[str, Any] = {}
+        json_stream_postprocess_applied = False
 
         system_prompt = f"""
 {base_prompt}
@@ -447,6 +471,48 @@ Return ONLY the JSON array.
             compressed_chars=len(kb_context or ""),
         )
         normalized_generation_mode = str(generation_mode or "").strip().lower()
+        if self._is_active_db_session(db):
+            try:
+                intake_model = str(client.select_model(f"{system_prompt or ''}{requirement or ''}", task_type="generation"))
+            except Exception:
+                intake_model = str(getattr(client, "model", "") or "")
+            try:
+                intake_diag_payload = build_prompt_context_intake_diagnostics(
+                    prompt_context=prompt_context,
+                    context_result=context_result if isinstance(context_result, dict) else {},
+                    requirement=requirement or "",
+                    kb_context=kb_context or "",
+                    base_prompt=base_prompt or "",
+                    system_prompt=system_prompt or "",
+                    mode="json",
+                    doc_type=doc_type,
+                    compress=bool(compress),
+                    project_id=project_id,
+                    request_id=request_id,
+                    batch_index=batch_index + 1,
+                    total_batches=None,
+                    attempt=1,
+                    expected_count=int(expected_count or 0),
+                    multi_pass=bool(multi_pass),
+                    generation_mode=normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    model=intake_model,
+                    max_output_tokens=getattr(client, "max_tokens", None),
+                )
+                db.add(
+                    LogEntry(
+                        project_id=project_id,
+                        user_id=user_id,
+                        log_type="system",
+                        message=f"GEN_DIAG:{json.dumps(intake_diag_payload, ensure_ascii=False)}",
+                    )
+                )
+                db.commit()
+            except Exception as e:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                print(f"Failed to emit prompt context intake log(json): {e}")
         use_pipeline = bool(multi_pass) or normalized_generation_mode in {
             "single_pass",
             "multi_pass",
@@ -514,7 +580,68 @@ Return ONLY the JSON array.
                     **analyze_coverage(prompt_context.get("requirement_context") or requirement, result),
                 }
 
-        if isinstance(result, list):
+        if isinstance(result, list) and isinstance(db, Session):
+            try:
+                postprocess_result = _drain_generator_return(
+                    stream_postprocess_cases(
+                        client=client,
+                        requirement=requirement,
+                        base_prompt=base_prompt,
+                        kb_context=kb_context,
+                        full_content=json.dumps(result, ensure_ascii=False),
+                        expected_count=expected_count,
+                        append=False,
+                        existing_cases=[],
+                        existing_unique_count=0,
+                        start_id=start_id,
+                        db=db,
+                        clean_and_parse_json_fn=clean_and_parse_json,
+                        normalize_json_structure_fn=normalize_json_structure,
+                        deduplicate_test_cases_fn=deduplicate_test_cases,
+                        reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+                        count_unique_test_cases_fn=count_unique_test_cases,
+                        infer_case_kind_fn=infer_case_kind,
+                        build_supplement_closed_loop_instruction_fn=build_supplement_closed_loop_instruction,
+                        current_biz_key=resolved_current_biz,
+                        multi_pass=multi_pass,
+                        generation_mode=generation_mode,
+                        feedback_control_state=feedback_control_state if isinstance(feedback_control_state, dict) else {},
+                        requirement_semantics_context={
+                            "confirmed_facts": [str(item).strip() for item in (prompt_context.get("confirmed_facts") or []) if str(item).strip()],
+                            "scoped_rules": [str(item).strip() for item in (prompt_context.get("scoped_rules") or []) if str(item).strip()],
+                            "pending_items": [str(item).strip() for item in (prompt_context.get("pending_items") or []) if str(item).strip()],
+                            "reuse_declarations": [str(item).strip() for item in (prompt_context.get("reuse_declarations") or []) if str(item).strip()],
+                            "hard_flow_constraints": [str(item).strip() for item in (prompt_context.get("hard_flow_constraints") or []) if str(item).strip()],
+                            "reuse_risks": [str(item).strip() for item in (prompt_context.get("reuse_risks") or []) if str(item).strip()],
+                        },
+                    )
+                )
+                if isinstance(postprocess_result, dict) and isinstance(postprocess_result.get("cases"), list):
+                    result = [item for item in (postprocess_result.get("cases") or []) if isinstance(item, dict)]
+                    stage_counts = dict(postprocess_result.get("stage_counts") or stage_counts or {})
+                    coverage_check_payload = dict(postprocess_result.get("coverage") or coverage_check_payload or {})
+                    convergence_payload = dict(postprocess_result.get("convergence_debug") or {})
+                    generation_summary_payload = dict(postprocess_result.get("generation_summary") or {})
+                    review_decision_summary_payload = dict(postprocess_result.get("review_decision_summary") or {})
+                    review_decision_table_payload = [
+                        dict(item) for item in (postprocess_result.get("review_decision_table") or []) if isinstance(item, dict)
+                    ]
+                    judge_summary_payload = dict(postprocess_result.get("judge_summary") or {})
+                    judge_decision_table_payload = [
+                        dict(item) for item in (postprocess_result.get("judge_decision_table") or []) if isinstance(item, dict)
+                    ]
+                    final_cases_after_judge = [item for item in result if isinstance(item, dict)]
+                    final_case_count = int(len(final_cases_after_judge))
+                    candidate_total_before_judge = int(
+                        convergence_payload.get("candidate_count_before_review")
+                        or review_decision_summary_payload.get("candidate_total")
+                        or final_case_count
+                    )
+                    json_stream_postprocess_applied = True
+            except Exception as exc:
+                print(f"JSON stream postprocess fallback: {type(exc).__name__}: {exc}")
+
+        if isinstance(result, list) and not json_stream_postprocess_applied:
             candidate_cases_before_judge = [item for item in result if isinstance(item, dict)]
             candidate_total_before_judge = int(len(candidate_cases_before_judge))
             requirement_semantics_payload = {
@@ -1308,11 +1435,20 @@ Return ONLY the JSON array.
                     for item in (feedback_control_state.get("workflow_blueprints") or [])
                     if isinstance(item, dict)
                 ] if isinstance(feedback_control_state, dict) else []
+                execution_plan_payload = dict(review_decision_summary_payload.get("execution_plan") or {})
+                if not execution_plan_payload:
+                    if workflow_blueprints:
+                        execution_plan_payload = {"workflow_blueprint_source": "feedback_control_state"}
+                    elif any(
+                        isinstance(item, dict) and str(item.get("execution_group") or "").strip() == "main_smoke"
+                        for item in (result if isinstance(result, list) else [])
+                    ):
+                        execution_plan_payload = {"workflow_blueprint_source": "current_generation_cases"}
                 persistence_cases = project_persistable_cases(result)
                 persistence_gate_result = evaluate_persistence_gate(
                     persistence_cases,
                     workflow_blueprints=workflow_blueprints,
-                    execution_plan={},
+                    execution_plan=execution_plan_payload,
                     generation_mode=normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
                     quality_gate=quality_gate_result,
                     settings=settings,
@@ -1850,10 +1986,13 @@ Return ONLY the JSON array.
         
         return self.convert_json_to_excel(json_result)
 
-    def convert_json_to_excel(self, json_data: list | dict) -> bytes:
+    def convert_json_to_excel(self, json_data: list | dict, *, include_internal_fields: bool = False) -> bytes:
         """Convert generated JSON cases into an Excel workbook payload.
 
         The adapter preserves the structured case contract and delegates the
         workbook layout to the export implementation.
         """
-        return _convert_json_to_excel_adapter(json_data)
+        return _convert_json_to_excel_adapter(
+            json_data,
+            include_internal_fields=include_internal_fields,
+        )

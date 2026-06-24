@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
@@ -21,7 +21,7 @@ from routers.test_generation_routes.support import (
     build_generation_qm,
     detect_duplicate_document,
     get_owned_project,
-    parse_requirement_content,
+    parse_requirement_for_generation,
 )
 from schemas.automation.test_generation import TestGenRequest
 
@@ -44,7 +44,16 @@ async def estimate_test_count(
     if not req_text:
         if not file:
             return {"count": 20}
-        req_text = await parse_requirement_content(file, doc_type, prototype_file)
+        req_text, parse_diag = await parse_requirement_for_generation(
+            file,
+            doc_type,
+            prototype_file,
+            db=db,
+            user_id=current_user.id,
+            project_id=project_id,
+            source="estimate_test_count",
+        )
+        log_to_db(db, project_id, "system", f"GEN_DIAG:{json.dumps(parse_diag, ensure_ascii=False)}", user_id=current_user.id)
 
     try:
         context_bundle = context_orchestrator.assemble_context(
@@ -109,11 +118,23 @@ async def generate_tests_stream(
 
     content = (requirement_text or "").strip()
     uploaded_filename: str | None = None
+    initial_diag_lines: list[str] = []
     if not content:
         if not file:
             return JSONResponse(status_code=400, content={"error": "Missing requirement_text or file"})
         uploaded_filename = file.filename
-        content = await parse_requirement_content(file, doc_type, prototype_file)
+        content, parse_diag = await parse_requirement_for_generation(
+            file,
+            doc_type,
+            prototype_file,
+            db=db,
+            user_id=current_user.id,
+            project_id=project_id,
+            source="generate_tests_stream",
+        )
+        parse_diag_line = f"GEN_DIAG:{json.dumps(parse_diag, ensure_ascii=False)}\n"
+        initial_diag_lines.append(parse_diag_line)
+        log_to_db(db, project_id, "system", parse_diag_line.strip(), user_id=current_user.id)
 
         payload = detect_duplicate_document(
             db,
@@ -127,6 +148,7 @@ async def generate_tests_stream(
         if payload and not append:
 
             def duplicate_stream():
+                yield from initial_diag_lines
                 yield "@@DUPLICATE@@" + json.dumps(payload, ensure_ascii=False)
 
             return StreamingResponse(duplicate_stream(), media_type="text/plain; charset=utf-8")
@@ -151,6 +173,7 @@ async def generate_tests_stream(
 
     def guarded_stream():
         try:
+            yield from initial_diag_lines
             yield from stream_iter
         except Exception as e:
             logger.exception("generate-tests-stream failed: %s", e)
@@ -215,6 +238,29 @@ def generate_tests(
         generation_mode=request.generation_mode,
         enable_sample_pool_feedback=request.enable_sample_pool_feedback,
     )
+    if isinstance(result, dict):
+        error_code = str(result.get("error_code") or result.get("error") or "").strip()
+        if error_code in {"EMPTY_GENERATED_RESULT", "LOW_QUALITY_GENERATED_CASES", "execution_plan_failed"}:
+            error_payload = {
+                "error_code": error_code,
+                "error_message": str(result.get("error_message") or result.get("message") or ""),
+                "final_status": str(result.get("final_status") or "failed"),
+                "persistence_gate_failed": bool(
+                    result.get("persistence_gate_failed")
+                    or error_code in {"LOW_QUALITY_GENERATED_CASES", "execution_plan_failed"}
+                ),
+                "failure_reasons": list(result.get("failure_reasons") or result.get("failed_checks") or []),
+                "metrics": dict(result.get("metrics") or {}),
+                "state_conflicts": list(result.get("state_conflicts") or []),
+            }
+            log_to_db(
+                db,
+                request.project_id,
+                "system",
+                f"GEN_DIAG:{json.dumps({'kind': 'generation_summary', **error_payload}, ensure_ascii=False)}",
+                user_id=current_user.id,
+            )
+            raise HTTPException(status_code=502, detail=error_payload)
     try:
         count = len(result) if isinstance(result, list) else 0
         log_to_db(db, request.project_id, "system", f"测试用例生成完成(批次{request.batch_index}): 数量={count}", user_id=current_user.id)
@@ -244,7 +290,7 @@ def generate_tests(
         log_to_db(db, request.project_id, "system", "测试用例生成完成", user_id=current_user.id)
     return result
 
-@router.post("/estimate-test-count")
+@router.post("/generate-tests/async")
 
 async def generate_tests_async(
     request: TestGenRequest,
@@ -294,7 +340,16 @@ async def generate_tests_from_file(
     get_owned_project(project_id, db, current_user.id)
 
     try:
-        content = await parse_requirement_content(file, doc_type, prototype_file)
+        content, parse_diag = await parse_requirement_for_generation(
+            file,
+            doc_type,
+            prototype_file,
+            db=db,
+            user_id=current_user.id,
+            project_id=project_id,
+            source="generate_tests_from_file",
+        )
+        log_to_db(db, project_id, "system", f"GEN_DIAG:{json.dumps(parse_diag, ensure_ascii=False)}", user_id=current_user.id)
 
         duplicate_payload = detect_duplicate_document(
             db,
@@ -383,7 +438,16 @@ async def generate_tests_from_file_async(
     get_owned_project(project_id, db, current_user.id)
 
     try:
-        content = await parse_requirement_content(file, doc_type, prototype_file)
+        content, parse_diag = await parse_requirement_for_generation(
+            file,
+            doc_type,
+            prototype_file,
+            db=db,
+            user_id=current_user.id,
+            project_id=project_id,
+            source="generate_tests_from_file_async",
+        )
+        log_to_db(db, project_id, "system", f"GEN_DIAG:{json.dumps(parse_diag, ensure_ascii=False)}", user_id=current_user.id)
 
         duplicate_payload = detect_duplicate_document(
             db,
@@ -458,7 +522,16 @@ async def generate_tests_from_file_excel(
     get_owned_project(project_id, db, current_user.id)
 
     try:
-        content = await parse_requirement_content(file, doc_type, prototype_file)
+        content, parse_diag = await parse_requirement_for_generation(
+            file,
+            doc_type,
+            prototype_file,
+            db=db,
+            user_id=current_user.id,
+            project_id=project_id,
+            source="generate_tests_from_file_excel",
+        )
+        log_to_db(db, project_id, "system", f"GEN_DIAG:{json.dumps(parse_diag, ensure_ascii=False)}", user_id=current_user.id)
         log_to_db(
             db,
             project_id,

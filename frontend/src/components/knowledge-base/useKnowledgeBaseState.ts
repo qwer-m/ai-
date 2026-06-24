@@ -104,16 +104,24 @@ export function useKnowledgeBaseState({
         end,
       });
 
+      const pagination = data?.pagination ?? {};
+      const resolvedTotalPages = Math.max(1, Number(pagination.total_pages || 1));
+      const resolvedPage = Math.max(1, Number(pagination.page || p));
+      if (resolvedPage > resolvedTotalPages) {
+        return await doFetchList(pid, resolvedTotalPages, search, type, start, end);
+      }
+
       if (Array.isArray(data.documents)) {
         const normalizedDocs = data.documents.map(normalizeDoc);
         setDocs(normalizedDocs);
-        setPage(data.pagination.page);
-        setTotalPages(data.pagination.total_pages);
-        setTotalItems(data.pagination.total || normalizedDocs.length);
-        sessionStorage.setItem(sessionKey(pid, "page"), String(data.pagination.page));
+        setPage(resolvedPage);
+        setTotalPages(resolvedTotalPages);
+        setTotalItems(Number(pagination.total || normalizedDocs.length));
+        sessionStorage.setItem(sessionKey(pid, "page"), String(resolvedPage));
       } else {
         setDocs([]);
         setTotalItems(0);
+        setTotalPages(resolvedTotalPages);
       }
       return data;
     } catch (e) {

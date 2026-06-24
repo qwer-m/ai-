@@ -938,18 +938,38 @@ def _build_control_context(
     lines.append("")
     lines.append("### WORKFLOW BLUEPRINTS")
     if state.workflow_blueprints:
+        lines.append("* Treat workflow blueprints as execution-order contracts, not as reusable RAG examples.")
         for blueprint in state.workflow_blueprints[:5]:
             if not isinstance(blueprint, dict):
                 continue
             name = str(blueprint.get("name") or blueprint.get("id") or "workflow").strip()
+            source = str(
+                blueprint.get("repository_source")
+                or blueprint.get("source")
+                or blueprint.get("source_type")
+                or "unknown"
+            ).strip()
             steps = [step for step in (blueprint.get("steps") or []) if isinstance(step, dict)]
             labels = [
-                str(step.get("label") or step.get("action") or step.get("id") or "").strip()
+                " / ".join(
+                    item
+                    for item in (
+                        str(step.get("stage_kind") or "").strip(),
+                        str(step.get("label") or step.get("action") or step.get("id") or "").strip(),
+                        (
+                            f"{step.get('state_in')}->{step.get('state_out')}"
+                            if str(step.get("state_in") or "").strip()
+                            and str(step.get("state_out") or "").strip()
+                            else ""
+                        ),
+                    )
+                    if item
+                )
                 for step in steps[:12]
                 if str(step.get("label") or step.get("action") or step.get("id") or "").strip()
             ]
             if labels:
-                lines.append(f"* {name}: {' -> '.join(labels)}")
+                lines.append(f"* {name} [source={source}]: {' -> '.join(labels)}")
     else:
         lines.append("* (none)")
 

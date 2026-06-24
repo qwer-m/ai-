@@ -50,8 +50,7 @@ def build_app_system_prompt(req_context_prompt: str) -> str:
 
 
 def build_ai_locate_function(token: str | None, image_model: str | None) -> str:
-    auth_header = f"'Authorization': 'Bearer {token}'" if token else ""
-    headers_dict = f"headers = {{{auth_header}}}" if token else "headers = {}"
+    _ = token
     model_field = f"'image_model': '{image_model}'" if image_model else ""
     data_dict = (
         f"data = {{'element_description': element_description, {model_field}}}"
@@ -66,14 +65,18 @@ def ai_locate_element(screenshot_path, element_description):
     import os
 
     try:
-        url = "http://localhost:8000/api/ai-locate-element"
+        api_base = os.environ.get("UI_AUTOMATION_API_BASE", "http://localhost:8000").rstrip("/")
+        url = f"{{api_base}}/api/ui-automation/ai-locate-element"
         if not os.path.exists(screenshot_path):
              print(f"Error: Screenshot file not found: {{screenshot_path}}")
              return (0, 0)
 
         files = {{'image': open(screenshot_path, 'rb')}}
         {data_dict}
-        {headers_dict}
+        headers = {{}}
+        auth_token = os.environ.get("UI_AUTOMATION_TOKEN", "")
+        if auth_token:
+            headers["Authorization"] = f"Bearer {{auth_token}}"
 
         response = requests.post(url, files=files, data=data, headers=headers)
         response.raise_for_status()

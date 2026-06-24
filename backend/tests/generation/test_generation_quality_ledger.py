@@ -293,13 +293,19 @@ def test_quality_ledger_clusters_judge_reject_reasons_and_keeps_quality_gate_sha
 
     assert payload["judge"]["reason_clusters"] == {"semantic_duplicate": 22}
     assert payload["judge"]["dominant_reason"] == "semantic_duplicate"
+    assert payload["quality_score_inputs"]["raw_rejected_count"] == 22
+    assert payload["quality_score_inputs"]["rejected_count"] == 22
+    assert payload["quality_score_inputs"]["semantic_duplicate_reject_count"] == 22
+    assert payload["quality_score_inputs"]["filtered_semantic_duplicate_reject_count"] == 0
+    assert payload["case_quality_gate"]["metrics"]["raw_judge_rejected_count"] == 22
+    assert payload["case_quality_gate"]["metrics"]["judge_rejected_count"] == 22
+    assert payload["case_quality_gate"]["metrics"]["semantic_duplicate_reject_count"] == 22
+    assert payload["case_quality_gate"]["metrics"]["filtered_semantic_duplicate_reject_count"] == 0
     assert payload["case_quality_gate"]["mode"] == "shadow"
     assert payload["case_quality_gate"]["blocked"] is False
     assert payload["case_quality_gate"]["passed"] is False
-    assert {
-        "final_count_below_min_acceptable",
-        "judge_rejected_above_threshold",
-    }.issubset(set(payload["case_quality_gate"]["failure_reasons"]))
+    assert "final_count_below_min_acceptable" in set(payload["case_quality_gate"]["failure_reasons"])
+    assert "judge_rejected_above_threshold" in set(payload["case_quality_gate"]["failure_reasons"])
 
 
 def test_quality_ledger_marks_candidate_insufficient_underfill_as_advisory() -> None:

@@ -58,5 +58,8 @@ def reorder_cases_by_closed_loop(
     )
 
 
-def convert_json_to_excel(json_data: list | dict) -> bytes:
-    return _convert_json_to_excel_impl(json_data)
+def convert_json_to_excel(json_data: list | dict, *, include_internal_fields: bool = False) -> bytes:
+    return _convert_json_to_excel_impl(
+        json_data,
+        include_internal_fields=include_internal_fields,
+    )

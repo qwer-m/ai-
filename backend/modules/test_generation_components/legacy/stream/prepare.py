@@ -13,6 +13,9 @@ from ...prompting.generation_diagnostics import build_gate_reason_chain
 from ...control.build_feedback_control_state import (
     build_feedback_control_state,
 )
+from ...control.current_requirement_blueprint import (
+    merge_current_requirement_blueprint_control_state,
+)
 from ...control.generation_mode_activation import (
     merge_generation_mode_control_state,
     resolve_linked_final_case_signal,
@@ -209,6 +212,7 @@ class LegacyGenerationStreamPrepareMixin:
                     project_id=project_id,
                     user_id=user_id,
                     requirement_text=original_requirement,
+                    current_source_doc_ids=linked_final_case_signal.get("source_doc_ids") or [],
                     enable_priority_sample_pool=bool(enable_sample_pool_feedback),
                     include_agent_learning=True,
                     memory_fabric=memory_fabric,
@@ -294,6 +298,26 @@ class LegacyGenerationStreamPrepareMixin:
                     compressed_chars=len(kb_context or ""),
                 )
                 return {"abort": True}
+
+            feedback_control_state = merge_current_requirement_blueprint_control_state(
+                feedback_control_state,
+                client=client,
+                requirement_text=original_requirement,
+                db=db,
+                project_id=project_id,
+                user_id=user_id,
+            ).to_dict()
+            current_blueprint_meta = dict((feedback_control_state or {}).get("source_meta") or {})
+            current_blueprint_status = str(
+                current_blueprint_meta.get("current_requirement_blueprint_status") or ""
+            )
+            if current_blueprint_status:
+                yield (
+                    "@@STATUS@@:current requirement blueprint "
+                    f"{current_blueprint_status} "
+                    f"(count={current_blueprint_meta.get('current_requirement_blueprint_count', 0)},"
+                    f"steps={current_blueprint_meta.get('current_requirement_blueprint_step_count', 0)})\n"
+                )
 
             if compress:
                 try:

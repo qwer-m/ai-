@@ -40,6 +40,15 @@ function qualityGateStatus(passed?: boolean, blocked?: boolean): string {
   return '未收到';
 }
 
+function executionReadinessLabel(value?: string): string {
+  return enumLabel(value, {
+    ready: '已就绪',
+    partial: '部分可执行',
+    legacy_manual: '历史手工顺序',
+    empty: '无用例',
+  });
+}
+
 function enumLabel(value: unknown, labels: Record<string, string>, emptyLabel = '-'): string {
   const key = String(value || '').trim();
   if (!key) return emptyLabel;
@@ -102,6 +111,31 @@ function sourceLabel(value: unknown): string {
   });
 }
 
+function docTypeLabel(value: unknown): string {
+  return enumLabel(value, {
+    requirement: '需求文档',
+    product_requirement: '产品需求',
+    incomplete: '不完整需求',
+  });
+}
+
+function parseBlockRoleLabel(value: unknown): string {
+  return enumLabel(value, {
+    main_requirement: '主需求',
+    prototype: '原型图',
+  });
+}
+
+function ocrSourceLabel(value: unknown): string {
+  return enumLabel(value, {
+    local: '本地 OCR',
+    cloud: '云端 OCR',
+    offline_fallback: '离线占位',
+    failed: '识别失败',
+    unknown: '未识别',
+  });
+}
+
 function patternGrainLabel(value: string): string {
   return enumLabel(value, {
     pattern: '模式',
@@ -119,6 +153,13 @@ function compactLabeledCounts(value: unknown, labeler: (value: string) => string
   return entries.slice(0, 4).map(([key, val]) => `${labeler(key)}:${String(val)}`).join(' / ');
 }
 
+function compactText(value: unknown, limit = 72): string {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '-';
+  if (text.length <= limit) return text;
+  return `${text.slice(0, Math.max(0, limit - 3)).trim()}...`;
+}
+
 export function GenerationOverview() {
   const generationMode = useRagDebugStore((s) => s.generationMode);
   const currentBizKey = useRagDebugStore((s) => s.currentBizKey);
@@ -134,6 +175,8 @@ export function GenerationOverview() {
   const reviewDecisionTableCompactRows = useRagDebugStore((s) => s.reviewDecisionTableCompactRows);
   const persistenceGate = useRagDebugStore((s) => s.persistenceGate);
   const caseQualityGate = useRagDebugStore((s) => s.caseQualityGate);
+  const requirementParse = useRagDebugStore((s) => s.requirementParse);
+  const executionSuiteState = useRagDebugStore((s) => s.executionSuiteState);
 
   const reviewCandidateCount = Number(
     reviewDecisionSummary?.candidate_total ?? generationConvergence?.candidate_count_before_review
@@ -164,6 +207,10 @@ export function GenerationOverview() {
   const judgeRejectClusters = ledgerJudge.reason_clusters && typeof ledgerJudge.reason_clusters === 'object'
     ? ledgerJudge.reason_clusters as Record<string, unknown>
     : {};
+  const parseBlocks = Array.isArray(requirementParse?.blocks) ? requirementParse.blocks : [];
+  const parseImageBlocks = parseBlocks.filter((block) => Boolean(block?.is_image));
+  const parseAlignments = Array.isArray(requirementParse?.alignments) ? requirementParse.alignments : [];
+  const executionSuiteWarnings = Array.isArray(executionSuiteState?.warnings) ? executionSuiteState.warnings : [];
 
   return (
     <div className="rag-debug-card rounded-2xl shadow-md p-4 border bg-white dark:bg-slate-900">
@@ -208,6 +255,87 @@ export function GenerationOverview() {
             {resultState?.previewCaseCount ?? '-'} {' → '} {Number.isFinite(reviewCandidateCount) ? reviewCandidateCount : '-'} {' → '} {Number.isFinite(reviewSelectedCount) ? reviewSelectedCount : '-'} {' → '} {Number.isFinite(judgeInputCount) ? judgeInputCount : '-'} {' → '} {Number.isFinite(judgeRejectedOrPending) ? judgeRejectedOrPending : '-'} {' → '} {Number.isFinite(finalCount) ? finalCount : '-'}
           </div>
         </div>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <h6 className="mb-3 fw-bold">需求解析 / OCR</h6>
+        <div className="row g-3">
+          <div className="col-md-3">
+            <div className="p-3 border rounded-2 h-100">
+              <div className="small text-muted rag-debug-muted mb-1">解析事件</div>
+              <div className="fw-semibold">{stageStatus(Boolean(requirementParse))}</div>
+              <div className="small text-muted rag-debug-muted mt-2">
+                来源：{requirementParse?.source || '-'}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                文档类型：{docTypeLabel(requirementParse?.doc_type)}
+              </div>
+            </div>
+          </div>
+          <div className="col-md-3">
+            <div className="p-3 border rounded-2 h-100">
+              <div className="small text-muted rag-debug-muted mb-1">解析块</div>
+              <div className="fw-semibold">{numberLabel(parseBlocks.length)}</div>
+              <div className="small text-muted rag-debug-muted mt-2">
+                图片块：{numberLabel(parseImageBlocks.length)}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                总字符：{numberLabel(parseBlocks.reduce((sum, block) => sum + Number(block.text_length || 0), 0))}
+              </div>
+            </div>
+          </div>
+          <div className="col-md-3">
+            <div className="p-3 border rounded-2 h-100">
+              <div className="small text-muted rag-debug-muted mb-1">图片 OCR</div>
+              <div className="fw-semibold">
+                {parseImageBlocks.length ? parseImageBlocks.map((block) => ocrSourceLabel(block.ocr_source)).join(' / ') : '-'}
+              </div>
+              <div className="small text-muted rag-debug-muted mt-2">
+                云端兜底：{boolLabel(parseImageBlocks.some((block) => Boolean(block.cloud_fallback)))}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                错误：{compactText(parseImageBlocks.find((block) => block.ocr_error)?.ocr_error, 58)}
+              </div>
+            </div>
+          </div>
+          <div className="col-md-3">
+            <div className="p-3 border rounded-2 h-100">
+              <div className="small text-muted rag-debug-muted mb-1">图文对齐</div>
+              <div className="fw-semibold">{numberLabel(requirementParse?.alignment_count ?? parseAlignments.length)}</div>
+              <div className="small text-muted rag-debug-muted mt-2">
+                最高分：{parseAlignments.length ? numberLabel(parseAlignments[0]?.score) : '-'}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                样例：{compactText(parseAlignments[0]?.evidence, 58)}
+              </div>
+            </div>
+          </div>
+          {parseBlocks.length > 0 && (
+            <div className="col-md-12">
+              <div className="p-3 border rounded-2 h-100">
+                <div className="small text-muted rag-debug-muted mb-2">解析块明细</div>
+                <div className="row g-2">
+                  {parseBlocks.slice(0, 4).map((block, index) => (
+                    <div className="col-md-6" key={`${block.filename || 'block'}-${index}`}>
+                      <div className="small">
+                        <span className="fw-semibold">{parseBlockRoleLabel(block.role)}</span>
+                        {' / '}
+                        {compactText(block.filename, 42)}
+                      </div>
+                      <div className="small text-muted rag-debug-muted">
+                        策略：{block.parse_strategy || '-'}
+                        {' / '}
+                        字符：{numberLabel(block.text_length)}
+                        {' / '}
+                        图片：{boolLabel(block.is_image)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -327,6 +455,16 @@ export function GenerationOverview() {
                 可信蓝图数：{numberLabel(executionPlanMetrics.trusted_workflow_contract_count)}
                 {' / '}
                 蓝图来源：{String(executionPlanMetrics.workflow_blueprint_source || '-')}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                套件状态：{executionReadinessLabel(executionSuiteState?.executionReadiness)}
+                {' / '}
+                可执行套件：{numberLabel(executionSuiteState?.runnableSuiteCount)} / {numberLabel(executionSuiteState?.suiteCount)}
+                {' / '}
+                主套件：{executionSuiteState?.mainSuiteId || '-'}
+              </div>
+              <div className="small text-muted rag-debug-muted">
+                套件诊断：{executionSuiteWarnings.length ? compactText(executionSuiteWarnings.join('；'), 120) : '-'}
               </div>
               <div className="small text-muted rag-debug-muted">
                 失败原因：{persistenceGateFailureReasons.length ? persistenceGateFailureReasons.join(', ') : '-'}
