@@ -33,6 +33,7 @@ from .coverage_strategy import (
     rule_action_hints,
     stopwords,
 )
+from ..postprocess.case_access import case_flat_text, case_id, case_priority, case_steps, case_text_field, case_value
 
 
 _STOPWORDS = stopwords()
@@ -428,32 +429,18 @@ def _extract_requirement_rules(requirement_context: str) -> list[dict[str, Any]]
 
 
 def _flatten_case_text(case: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for key in ("id", "description", "test_module", "test_input", "expected_result"):
-        value = case.get(key)
-        if value:
-            parts.append(str(value))
-    for key in ("steps", "preconditions"):
-        value = case.get(key)
-        if isinstance(value, list):
-            parts.extend(str(item) for item in value if item)
-        elif isinstance(value, str):
-            parts.append(value)
-    return _normalize_text("\n".join(parts))
+    return _normalize_text(
+        case_flat_text(
+            case,
+            fields=("id", "description", "test_module", "test_input", "expected_result", "steps", "preconditions"),
+        )
+    )
 
 
 def _flatten_case_intent_text(case: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for key in ("description", "test_module", "test_input", "expected_result"):
-        value = case.get(key)
-        if value:
-            parts.append(str(value))
-    steps = case.get("steps")
-    if isinstance(steps, list):
-        parts.extend(str(item) for item in steps if item)
-    elif isinstance(steps, str):
-        parts.append(steps)
-    return _normalize_text("\n".join(parts))
+    return _normalize_text(
+        case_flat_text(case, fields=("description", "test_module", "test_input", "expected_result", "steps"))
+    )
 
 
 _FLOW_STAGE_DEFINITIONS: tuple[dict[str, Any], ...] = flow_stage_definitions()
@@ -881,7 +868,7 @@ def _extract_case_module_stages(requirement_context: str, cases: list[dict[str, 
     for case in cases or []:
         if not isinstance(case, dict):
             continue
-        module = _canonical_stage_label(str(case.get("test_module") or ""))
+        module = _canonical_stage_label(case_text_field(case, "test_module"))
         if len(module) < 2:
             continue
         key = module.lower()
@@ -1008,7 +995,7 @@ def extract_flow_outline(
 
 def classify_case_flow_stage(case: dict[str, Any], flow_outline: dict[str, Any] | None = None) -> str:
     text = _flatten_case_text(case)
-    case_module_stage = _canonical_stage_label(str(case.get("test_module") or ""))
+    case_module_stage = _canonical_stage_label(case_text_field(case, "test_module"))
     if isinstance(flow_outline, dict):
         candidates: list[tuple[int, int, str]] = []
         labels = dict(flow_outline.get("flow_labels") or {})
@@ -1063,10 +1050,10 @@ def _first_keyword_label(text: str, patterns: tuple[tuple[str, tuple[str, ...]],
 
 
 def _case_intent_parts(case: dict[str, Any]) -> tuple[str, str, str]:
-    description = str(case.get("description") or "")
-    module = _canonical_stage_label(str(case.get("test_module") or ""))
-    expected = str(case.get("expected_result") or "")
-    steps = " ".join(str(item) for item in (case.get("steps") or []) if str(item).strip()) if isinstance(case.get("steps"), list) else ""
+    description = case_text_field(case, "description")
+    module = _canonical_stage_label(case_text_field(case, "test_module"))
+    expected = case_text_field(case, "expected_result")
+    steps = " ".join(case_steps(case))
     intent_text = "\n".join([module, description, steps, expected])
     action = _first_keyword_label(intent_text, _INTENT_ACTION_KEYWORDS, "observe")
     outcome = _first_keyword_label(expected or intent_text, _INTENT_OUTCOME_KEYWORDS, "content")
@@ -1132,16 +1119,7 @@ def classify_case_scenario_key(
             continue
         if _keyword_score(text, keywords) > 0:
             return f"{stage}:{scenario_key}:obj:{compact_object}"
-    tokens = _tokenize(
-        "\n".join(
-            [
-                str(case.get("test_module") or ""),
-                str(case.get("description") or ""),
-                str(case.get("expected_result") or ""),
-            ]
-        ),
-        limit=8,
-    )
+    tokens = _tokenize(case_flat_text(case, fields=("test_module", "description", "expected_result")), limit=8)
     token_key = "_".join(token.lower() for token in tokens[:6])
     return f"{stage}:semantic:{token_key or 'unknown'}"
 
@@ -1154,10 +1132,9 @@ def classify_case_intent_signature(case: dict[str, Any], flow_stage: str | None 
 
 
 def case_complexity_profile(case: dict[str, Any]) -> dict[str, Any]:
-    steps = case.get("steps")
-    step_count = len([item for item in steps if str(item).strip()]) if isinstance(steps, list) else 0
-    expected = _normalize_text(str(case.get("expected_result") or ""))
-    description = _normalize_text(str(case.get("description") or ""))
+    step_count = len(case_steps(case))
+    expected = _normalize_text(case_text_field(case, "expected_result"))
+    description = _normalize_text(case_text_field(case, "description"))
     punctuation_parts = len([part for part in re.split(r"[;；。.!?？]|(?:\s+and\s+)", expected) if part.strip()])
     comma_parts = len([part for part in re.split(r"[，,、]", expected) if part.strip()])
     hint_hits = [hint for hint in _COMPLEXITY_HINTS if hint and hint.lower() in f"{description}\n{expected}".lower()]
@@ -1226,7 +1203,7 @@ def analyze_case_structure(
         rows.append(
             {
                 "candidate_index": int(index),
-                "case_id": str(case.get("id") or ""),
+                "case_id": case_id(case),
                 "flow_stage": stage,
                 "flow_stage_label": str(flow_labels.get(stage) or stage),
                 "flow_rank": int(rank) if rank is not None else None,
@@ -1320,14 +1297,13 @@ def _priority_score(value: Any) -> int:
 
 
 def _case_value_score(case: dict[str, Any], original_index: int) -> tuple[int, int, int, int, int, int, int]:
-    steps = case.get("steps")
-    step_count = len([item for item in steps if str(item).strip()]) if isinstance(steps, list) else 0
-    text_len = len(str(case.get("description") or "")) + len(str(case.get("expected_result") or ""))
-    preconditions = case.get("preconditions")
+    step_count = len(case_steps(case))
+    text_len = len(case_text_field(case, "description")) + len(case_text_field(case, "expected_result"))
+    preconditions = case_value(case, "preconditions", [])
     precondition_count = len([item for item in preconditions if str(item).strip()]) if isinstance(preconditions, list) else 0
     complexity_score = int(case_complexity_profile(case).get("complexity_score") or 0)
     return (
-        _priority_score(case.get("priority_final") or case.get("priority")),
+        _priority_score(case_priority(case, prefer_final=True)),
         -_legacy_compatibility_penalty(case),
         -min(complexity_score, 8),
         min(step_count, 8),
@@ -1524,7 +1500,7 @@ def govern_cases_by_flow_structure(
         row = row_by_index.get(index) or {}
         stage = str(row.get("flow_stage") or "unknown")
         crosses = [str(item) for item in (row.get("cross_cutting") or []) if str(item)]
-        module = str(case.get("test_module") or "")
+        module = case_text_field(case, "test_module")
         primary_cross = ""
         for cross in crosses:
             label = str((flow_outline.get("cross_cutting_labels") or {}).get(cross) or "")

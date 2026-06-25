@@ -63,6 +63,38 @@ def test_project_persistable_cases_preserves_priority_and_execution_fields() -> 
     assert "workflow_transition" not in result[0]
 
 
+def test_project_persistable_cases_materializes_alias_public_fields() -> None:
+    result = project_persistable_cases(
+        [
+            {
+                "caseId": "TC-ALIAS",
+                "title": "create plan",
+                "testModule": "plan",
+                "prerequisites": ["logged in"],
+                "testSteps": ["open page"],
+                "testInput": "valid plan",
+                "expectedResult": "plan is saved",
+                "Priority": "P1",
+                "priorityFinal": "P0",
+                "execution_group": "main_smoke",
+            }
+        ]
+    )
+
+    assert result[0]["id"] == "TC-ALIAS"
+    assert result[0]["description"] == "create plan"
+    assert result[0]["test_module"] == "plan"
+    assert result[0]["preconditions"] == ["logged in"]
+    assert result[0]["steps"] == ["open page"]
+    assert result[0]["test_input"] == "valid plan"
+    assert result[0]["expected_result"] == "plan is saved"
+    assert result[0]["priority"] == "P0"
+    assert result[0]["priority_final"] == "P0"
+    assert result[0]["execution_group"] == "main_smoke"
+    assert "caseId" not in result[0]
+    assert "testModule" not in result[0]
+
+
 def test_contract_summary_blocks_reasoning_leakage_in_test_input() -> None:
     summary = summarize_persistable_case_contract(
         [
@@ -83,6 +115,27 @@ def test_contract_summary_blocks_reasoning_leakage_in_test_input() -> None:
     assert summary["passed"] is False
     assert summary["persistable_reasoning_leakage_case_ids"] == ["TC-001"]
     assert "persistable_reasoning_leakage_count=1" in summary["failed_checks"]
+
+
+def test_contract_summary_still_requires_canonical_public_fields() -> None:
+    summary = summarize_persistable_case_contract(
+        [
+            {
+                "caseId": "TC-ALIAS",
+                "title": "create plan",
+                "testModule": "plan",
+                "testSteps": ["open page"],
+                "testInput": "valid plan",
+                "expectedResult": "plan is saved",
+                "Priority": "P1",
+                "priorityFinal": "P1",
+            }
+        ]
+    )
+
+    assert summary["passed"] is False
+    assert summary["persistable_required_field_missing_case_ids"] == ["TC-ALIAS"]
+    assert "persistable_required_field_missing_count=1" in summary["failed_checks"]
 
 
 def test_contract_summary_keeps_business_terms_in_public_fields() -> None:

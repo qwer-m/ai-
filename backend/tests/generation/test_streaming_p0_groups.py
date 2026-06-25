@@ -42,6 +42,26 @@ def test_covered_p0_groups_uses_priority_or_final_decision_state() -> None:
     assert covered_p0_groups(cases) == {"payment_gate", "ai_scoring"}
 
 
+def test_covered_p0_groups_accepts_alias_fields() -> None:
+    cases = [
+        {
+            "Priority": "P0",
+            "testModule": "Payment",
+            "title": "paywall blocks unpaid users",
+            "expectedResult": "payment gate is shown",
+        },
+        {
+            "Priority": "P2",
+            "priorityFinal": "P0",
+            "priority_decision_state": "decided",
+            "title": "auto score result is generated",
+            "expectedResult": "ai scoring result is visible",
+        },
+    ]
+
+    assert covered_p0_groups(cases) == {"payment_gate", "ai_scoring"}
+
+
 def test_p0_group_tokens_remain_available_for_priority_rebuild() -> None:
     assert "payment_gate" in P0_GROUP_TOKENS
     assert "paywall" in P0_GROUP_TOKENS["payment_gate"]

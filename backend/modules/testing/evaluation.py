@@ -23,6 +23,11 @@ from sqlalchemy.orm import Session
 from core.ai.ai_client import get_client_for_user
 from core.db.models import Evaluation, TestGenerationComparison
 from modules.test_generation_components.coverage.coverage_analyzer import analyze_coverage
+from modules.test_generation_components.postprocess.case_access import (
+    case_field_aliases,
+    case_id as case_access_id,
+    case_value,
+)
 
 
 _MISSING_SIGNAL_PATTERNS = (
@@ -58,74 +63,45 @@ _DEFAULT_LLM_COMPARE_PARTIAL_RESULT_LIMIT = 120
 _LOCAL_COMPARE_MATCH_THRESHOLD = 0.62
 _LOCAL_COMPARE_MODIFIED_THRESHOLD = 0.92
 
-_CASE_ID_ALIASES = (
+_CASE_ID_ALIASES = case_field_aliases(
     "id",
-    "case_id",
     "caseid",
-    "test_case_id",
-    "testcase_id",
     "tcid",
     "case no",
     "case_no",
     "用例id",
     "用例ID",
-    "用例编号",
     "测试用例编号",
-    "编号",
 )
-_CASE_DESC_ALIASES = (
+_CASE_DESC_ALIASES = case_field_aliases(
     "description",
-    "desc",
-    "title",
-    "name",
     "case_name",
     "test_case",
     "testcase",
     "summary",
     "scenario",
-    "测试点",
-    "用例标题",
-    "用例名称",
-    "用例描述",
-    "测试用例",
     "测试场景",
     "场景",
     "功能点",
 )
-_CASE_MODULE_ALIASES = (
+_CASE_MODULE_ALIASES = case_field_aliases(
     "test_module",
-    "module",
     "feature",
     "component",
     "test module",
-    "功能模块",
-    "测试模块",
-    "模块",
-    "所属模块",
     "一级模块",
     "二级模块",
 )
-_CASE_STEPS_ALIASES = (
+_CASE_STEPS_ALIASES = case_field_aliases(
     "steps",
-    "test_steps",
-    "step",
     "actions",
     "procedure",
-    "测试步骤",
-    "操作步骤",
-    "执行步骤",
-    "步骤",
 )
-_CASE_EXPECTED_ALIASES = (
+_CASE_EXPECTED_ALIASES = case_field_aliases(
     "expected_result",
-    "expected",
     "expect",
-    "assertion",
-    "预期结果",
-    "期望结果",
     "预期",
     "预期输出",
-    "断言",
 )
 
 _CJK_STOP_CHARS = set("的一是在和与及或但并对为以于中后前能可应需要时将按个项条")
@@ -212,6 +188,10 @@ def _case_value_to_text(value: object) -> str:
             if _case_value_to_text(val)
         )
     return str(value).strip()
+
+
+def _case_field_text(case: dict[str, object], field: str) -> str:
+    return _case_value_to_text(case_value(case, field, ""))
 
 
 def _get_case_field(item: dict[str, object], aliases: tuple[str, ...]) -> object:
@@ -441,10 +421,10 @@ def _case_text(case: dict[str, object]) -> str:
     return " ".join(
         part
         for part in (
-            _case_value_to_text(case.get("test_module")),
-            _case_value_to_text(case.get("description")),
-            _case_value_to_text(case.get("steps")),
-            _case_value_to_text(case.get("expected_result")),
+            _case_field_text(case, "test_module"),
+            _case_field_text(case, "description"),
+            _case_field_text(case, "steps"),
+            _case_field_text(case, "expected_result"),
         )
         if part
     )
@@ -486,16 +466,16 @@ def _case_similarity(left: dict[str, object], right: dict[str, object]) -> float
 
 
 def _is_meaningful_case_id(case: dict[str, object]) -> bool:
-    case_id = _case_value_to_text(case.get("id"))
+    case_id = case_access_id(case)
     if not case_id or bool(case.get("_auto_id")):
         return False
     return bool(re.search(r"[A-Za-z0-9\u4e00-\u9fff]", case_id))
 
 
 def _format_case_point(case: dict[str, object]) -> str:
-    case_id = _case_value_to_text(case.get("id"))
-    module = _case_value_to_text(case.get("test_module"))
-    description = _case_value_to_text(case.get("description")) or _case_text(case)
+    case_id = case_access_id(case)
+    module = _case_field_text(case, "test_module")
+    description = _case_field_text(case, "description") or _case_text(case)
     prefix_parts = [part for part in (case_id if _is_meaningful_case_id(case) else "", module) if part]
     prefix = " / ".join(prefix_parts)
     text = f"{prefix} - {description}" if prefix else description
@@ -508,7 +488,9 @@ def _is_case_modified(left: dict[str, object], right: dict[str, object], score: 
         return True
     comparable_fields = ("description", "test_module", "steps", "expected_result")
     for field in comparable_fields:
-        if _normalize_match_text(left.get(field)) != _normalize_match_text(right.get(field)):
+        left_text = _normalize_match_text(_case_field_text(left, field))
+        right_text = _normalize_match_text(_case_field_text(right, field))
+        if left_text != right_text:
             return True
     return False
 
@@ -607,22 +589,22 @@ def _compact_case_for_llm(case: dict[str, object]) -> dict[str, object]:
             break
         compact_extra[str(key)[:60]] = _truncate_compare_field(value, 140)
     return {
-        "id": _case_value_to_text(case.get("id")),
-        "module": _truncate_compare_field(case.get("test_module"), 120),
-        "description": _truncate_compare_field(case.get("description"), 320),
-        "steps": _truncate_compare_field(case.get("steps"), 450),
-        "expected_result": _truncate_compare_field(case.get("expected_result"), 320),
+        "id": case_access_id(case),
+        "module": _truncate_compare_field(_case_field_text(case, "test_module"), 120),
+        "description": _truncate_compare_field(_case_field_text(case, "description"), 320),
+        "steps": _truncate_compare_field(_case_field_text(case, "steps"), 450),
+        "expected_result": _truncate_compare_field(_case_field_text(case, "expected_result"), 320),
         "extra_fields": compact_extra,
     }
 
 
 def _compact_case_brief_for_llm(case: dict[str, object], max_chars: int) -> str:
     parts = [
-        _case_value_to_text(case.get("id")),
-        _case_value_to_text(case.get("module") or case.get("test_module")),
-        _case_value_to_text(case.get("description")),
-        _case_value_to_text(case.get("steps")),
-        _case_value_to_text(case.get("expected_result") or case.get("expected")),
+        case_access_id(case),
+        _case_field_text(case, "test_module"),
+        _case_field_text(case, "description"),
+        _case_field_text(case, "steps"),
+        _case_field_text(case, "expected_result"),
     ]
     brief = " | ".join(part for part in parts if part)
     brief = re.sub(r"\s+", " ", brief).strip()

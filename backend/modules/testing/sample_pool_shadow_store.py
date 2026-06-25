@@ -22,6 +22,11 @@ from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from core.db.models import Base, LearnedPattern, QualityFeedbackEvent, SamplePoolItem
+from modules.testing.sample_case_access import (
+    sample_case_id as _sample_case_id,
+    sample_case_text as _sample_case_text,
+    sample_value as _sample_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +83,8 @@ def _sample_to_row(
         "reason_category", "reasonCategory",
         "pattern_category", "patternCategory",
         "pattern_summary", "patternSummary",
-        "pattern_canonical",
-        "pattern_cluster_key", "pattern_cluster_key",
+        "pattern_canonical", "patternCanonical",
+        "pattern_cluster_key", "patternClusterKey",
         "confidence", "pattern_confidence", "patternConfidence",
         "pattern_weight", "patternWeight",
         "pattern_quality_score", "patternQualityScore",
@@ -106,33 +111,37 @@ def _sample_to_row(
         except (ValueError, TypeError):
             return None
 
+    source_id_raw = _sample_value(sample, "source_id", "sourceId")
+    pattern_quality_score_raw = _sample_value(sample, "pattern_quality_score", "patternQualityScore")
+    learning_confirmed_by_raw = _sample_value(sample, "learning_confirmed_by", "learningConfirmedBy")
+
     return SamplePoolItem(
         project_id=int(project_id),
         user_id=int(user_id) if user_id is not None else None,
-        sample_id=str(sample.get("sample_id") or sample.get("sampleId") or ""),
-        source_type=str(sample.get("source_type") or sample.get("source") or "manual_pool_input"),
-        source_id=int(sample.get("source_id") or sample.get("sourceId") or 0) if (sample.get("source_id") or sample.get("sourceId")) is not None else None,
-        source_case_id=str(sample.get("source_case_id") or sample.get("sourceCaseId") or "") or None,
-        sample_kind=str(sample.get("sample_kind") or sample.get("signal_type") or "negative"),
-        pattern_usage=str(sample.get("pattern_usage") or sample.get("patternUsage") or "") or None,
-        case_id=str(sample.get("case_id") or sample.get("caseId") or "") or None,
-        title=str(sample.get("title") or "")[:256] or None,
-        user_comment=str(sample.get("user_comment") or sample.get("userComment") or "") or None,
-        expected_priority=str(sample.get("expected_priority") or sample.get("expectedPriority") or "") or None,
-        reason_category=str(sample.get("reason_category") or sample.get("reasonCategory") or "") or None,
-        pattern_category=str(sample.get("pattern_category") or sample.get("patternCategory") or "") or None,
-        pattern_summary=str(sample.get("pattern_summary") or sample.get("patternSummary") or "")[:256] or None,
-        pattern_canonical=str(sample.get("pattern_canonical") or "")[:256] or None,
-        pattern_cluster_key=str(sample.get("pattern_cluster_key") or "")[:128] or None,
-        confidence=float(sample.get("confidence") or sample.get("pattern_confidence") or 0.5),
-        pattern_weight=float(sample.get("pattern_weight") or 0.6),
-        pattern_quality_score=float(sample.get("pattern_quality_score") or 0.0) if sample.get("pattern_quality_score") is not None else None,
-        status=str(sample.get("status") or "active"),
-        deleted_at=_dt(sample.get("deleted_at") or sample.get("deletedAt")),
-        delete_reason=str(sample.get("delete_reason") or sample.get("deleteReason") or "") or None,
-        learning_status=str(sample.get("learning_status") or sample.get("learningStatus") or "") or None,
-        learning_confirmed_at=_dt(sample.get("learning_confirmed_at") or sample.get("learningConfirmedAt")),
-        learning_confirmed_by=int(sample.get("learning_confirmed_by") or sample.get("learningConfirmedBy") or 0) if (sample.get("learning_confirmed_by") or sample.get("learningConfirmedBy")) is not None else None,
+        sample_id=str(_sample_value(sample, "sample_id", "sampleId") or ""),
+        source_type=str(_sample_value(sample, "source_type", "sourceType", "source") or "manual_pool_input"),
+        source_id=int(source_id_raw) if source_id_raw is not None else None,
+        source_case_id=_sample_case_id(sample, "source_case_id", "sourceCaseId") or None,
+        sample_kind=str(_sample_value(sample, "sample_kind", "sampleKind", "signal_type", "signalType") or "negative"),
+        pattern_usage=str(_sample_value(sample, "pattern_usage", "patternUsage") or "") or None,
+        case_id=_sample_case_id(sample) or None,
+        title=_sample_case_text(sample, "description", "source_case_title", "sourceCaseTitle")[:256] or None,
+        user_comment=str(_sample_value(sample, "user_comment", "userComment") or "") or None,
+        expected_priority=str(_sample_value(sample, "expected_priority", "expectedPriority") or "") or None,
+        reason_category=str(_sample_value(sample, "reason_category", "reasonCategory") or "") or None,
+        pattern_category=str(_sample_value(sample, "pattern_category", "patternCategory") or "") or None,
+        pattern_summary=str(_sample_value(sample, "pattern_summary", "patternSummary") or "")[:256] or None,
+        pattern_canonical=str(_sample_value(sample, "pattern_canonical", "patternCanonical") or "")[:256] or None,
+        pattern_cluster_key=str(_sample_value(sample, "pattern_cluster_key", "patternClusterKey") or "")[:128] or None,
+        confidence=float(_sample_value(sample, "confidence", "pattern_confidence", "patternConfidence") or 0.5),
+        pattern_weight=float(_sample_value(sample, "pattern_weight", "patternWeight") or 0.6),
+        pattern_quality_score=float(pattern_quality_score_raw) if pattern_quality_score_raw is not None else None,
+        status=str(_sample_value(sample, "status") or "active"),
+        deleted_at=_dt(_sample_value(sample, "deleted_at", "deletedAt")),
+        delete_reason=str(_sample_value(sample, "delete_reason", "deleteReason") or "") or None,
+        learning_status=str(_sample_value(sample, "learning_status", "learningStatus") or "") or None,
+        learning_confirmed_at=_dt(_sample_value(sample, "learning_confirmed_at", "learningConfirmedAt")),
+        learning_confirmed_by=int(learning_confirmed_by_raw) if learning_confirmed_by_raw is not None else None,
         tags_json=tags_json,
         extra_json=extra_json,
     )

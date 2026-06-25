@@ -4,6 +4,8 @@ import json
 import re
 from typing import Any, Callable, Iterator
 
+from .case_access import case_flat_text, case_signature_text
+
 try:
     from ..prompting.structured_context import (
         _normalize_priority as _normalize_existing_priority,
@@ -20,32 +22,27 @@ except Exception:  # pragma: no cover
 
 
 def _extract_case_text(case: dict[str, Any]) -> str:
-    chunks: list[str] = []
-    scalar_fields = (
-        "title",
-        "module",
-        "test_module",
-        "description",
-        "test_input",
-        "expected_result",
-        "expected_results",
-        "risk",
-        "case_type",
-        "case_kind",
-        "validation_kind",
+    return case_flat_text(
+        case,
+        fields=(
+            "title",
+            "module",
+            "test_module",
+            "description",
+            "test_input",
+            "expected_result",
+            "expected_results",
+            "risk",
+            "case_type",
+            "case_kind",
+            "validation_kind",
+            "preconditions",
+            "steps",
+            "tags",
+        ),
+        separator=" ",
+        lower=True,
     )
-    for field in scalar_fields:
-        value = case.get(field)
-        if value is None:
-            continue
-        chunks.append(str(value))
-    for field in ("preconditions", "steps", "tags"):
-        value = case.get(field)
-        if isinstance(value, list):
-            chunks.extend([str(item) for item in value if str(item).strip()])
-        elif value is not None:
-            chunks.append(str(value))
-    return " ".join(chunks).lower()
 
 
 def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
@@ -72,11 +69,7 @@ def _contains_case_level_release_blocking(text: str) -> bool:
 
 
 def _priority_case_signature(case: dict[str, Any]) -> str:
-    module = str(case.get("test_module") or case.get("module") or "").strip().lower()
-    desc = str(case.get("description") or case.get("title") or "").strip().lower()
-    expected = str(case.get("expected_result") or case.get("expected_results") or "").strip().lower()
-    test_input = str(case.get("test_input") or "").strip().lower()
-    return f"{module}|{desc}|{expected}|{test_input}"
+    return case_signature_text(case)
 
 
 def _rule_hit_by_light_match(rule: dict[str, Any], case_text: str) -> bool:

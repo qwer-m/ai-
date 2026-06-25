@@ -52,6 +52,12 @@ from .streaming_case_keys import (
     final_description_dedup_key as _final_description_dedup_key,
     review_case_id as _review_case_id,
 )
+from .case_access import (
+    case_flat_text as _case_flat_text,
+    case_priority as _case_priority,
+    case_step_lines as _case_step_lines,
+    case_text_field as _case_text_field,
+)
 from .streaming_expected_result_builder import build_expected_result_from_case as _build_expected_result_from_case
 from .streaming_expected_result_quality import (
     has_concrete_expected_assertion as _has_concrete_expected_assertion,
@@ -204,7 +210,7 @@ _FINAL_DISPLAY_BUSINESS_REASON_KEYS = {
 
 def _case_plain_text(case: dict[str, Any]) -> str:
     parts: list[str] = [
-        str(case.get(key) or "")
+        _case_text_field(case, key)
         for key in (
             "execution_group",
             "test_module",
@@ -213,10 +219,12 @@ def _case_plain_text(case: dict[str, Any]) -> str:
             "test_input",
         )
     ]
-    steps = case.get("steps")
-    if isinstance(steps, list):
-        parts.extend(str(item or "") for item in steps)
+    parts.extend(_case_step_lines(case))
     return " ".join(parts).lower()
+
+
+def _case_match_text(case: dict[str, Any], fields: tuple[str, ...]) -> str:
+    return _normalize_match_text(_case_flat_text(case, fields=fields, separator=" "))
 
 
 def is_display_only_final_case(case: dict[str, Any]) -> bool:
@@ -393,7 +401,7 @@ def stream_postprocess_cases(
         scenario_counts: dict[str, int] = {}
         domain_counts: dict[str, int] = {}
         for case in candidate_cases:
-            priority = str(case.get("priority") or "").strip().upper()
+            priority = _case_priority(case)
             if priority in {"P0", "P1", "P2"}:
                 priority_counts[priority] = int(priority_counts.get(priority, 0)) + 1
             scenario = _review_scenario(case)
@@ -555,9 +563,7 @@ def stream_postprocess_cases(
             return candidates[0]
 
         def _selected_priority_count(priority: str) -> int:
-            return int(
-                sum(1 for item in selected if str(item.get("priority") or "").strip().upper() == str(priority).upper())
-            )
+            return int(sum(1 for item in selected if _case_priority(item) == str(priority).upper()))
 
         def _selected_scenario_count(scenario: str) -> int:
             return int(sum(1 for item in selected if _review_scenario(item) == str(scenario).strip().lower()))
@@ -570,7 +576,7 @@ def stream_postprocess_cases(
             required = max(0, int(min_count or 0))
             while _selected_priority_count(priority) < required:
                 best = _select_best(
-                    lambda item, p=priority: str(item.get("priority") or "").strip().upper() == str(p).upper()
+                    lambda item, p=priority: _case_priority(item) == str(p).upper()
                 )
                 if best is None:
                     break
@@ -612,13 +618,11 @@ def stream_postprocess_cases(
             domain_min = {str(key).strip().lower(): max(0, int(value or 0)) for key, value in dict(constraints.get("domain_min") or {}).items()}
 
             def _can_remove(case: dict[str, Any], current: list[dict[str, Any]]) -> bool:
-                priority = str(case.get("priority") or "").strip().upper()
+                priority = _case_priority(case)
                 scenario = _review_scenario(case)
                 domain = _review_domain(case)
                 if priority in priority_min:
-                    count = sum(
-                        1 for item in current if str(item.get("priority") or "").strip().upper() == priority
-                    )
+                    count = sum(1 for item in current if _case_priority(item) == priority)
                     if count <= int(priority_min.get(priority) or 0):
                         return False
                 if scenario in scenario_min:
@@ -699,33 +703,13 @@ def stream_postprocess_cases(
     def _violates_forbidden_pattern(case: dict[str, Any]) -> bool:
         if not normalized_forbidden_patterns:
             return False
-        text = _normalize_match_text(
-            " ".join(
-                [
-                    str(case.get("description") or ""),
-                    str(case.get("test_module") or ""),
-                    str(case.get("expected_result") or ""),
-                    str(case.get("test_input") or ""),
-                    " ".join([str(x) for x in (case.get("steps") or []) if str(x).strip()]) if isinstance(case.get("steps"), list) else "",
-                ]
-            )
-        )
+        text = _case_match_text(case, ("description", "test_module", "expected_result", "test_input", "steps"))
         return any(pattern and pattern in text for pattern in normalized_forbidden_patterns)
 
     def _hits_soft_constraint(case: dict[str, Any]) -> bool:
         if not normalized_soft_constraints:
             return False
-        text = _normalize_match_text(
-            " ".join(
-                [
-                    str(case.get("description") or ""),
-                    str(case.get("test_module") or ""),
-                    str(case.get("expected_result") or ""),
-                    str(case.get("test_input") or ""),
-                    " ".join([str(x) for x in (case.get("steps") or []) if str(x).strip()]) if isinstance(case.get("steps"), list) else "",
-                ]
-            )
-        )
+        text = _case_match_text(case, ("description", "test_module", "expected_result", "test_input", "steps"))
         return any(pattern and pattern in text for pattern in normalized_soft_constraints)
 
     def _hits_reuse_risk(case: dict[str, Any], score_profile: dict[str, Any] | None = None) -> bool:
@@ -733,39 +717,20 @@ def stream_postprocess_cases(
             return True
         if not normalized_reuse_risks:
             return False
-        text = _normalize_match_text(
-            " ".join(
-                [
-                    str(case.get("description") or ""),
-                    str(case.get("test_module") or ""),
-                    str(case.get("expected_result") or ""),
-                    str(case.get("test_input") or ""),
-                    " ".join([str(x) for x in (case.get("steps") or []) if str(x).strip()]) if isinstance(case.get("steps"), list) else "",
-                ]
-            )
-        )
+        text = _case_match_text(case, ("description", "test_module", "expected_result", "test_input", "steps"))
         return any(pattern and pattern in text for pattern in normalized_reuse_risks)
 
     def _satisfies_quality_hint(case: dict[str, Any]) -> bool:
         if not quality_hint_keywords:
             return False
-        text = _normalize_match_text(
-            " ".join(
-                [
-                    str(case.get("description") or ""),
-                    str(case.get("expected_result") or ""),
-                    str(case.get("test_input") or ""),
-                    " ".join([str(x) for x in (case.get("steps") or []) if str(x).strip()]) if isinstance(case.get("steps"), list) else "",
-                ]
-            )
-        )
+        text = _case_match_text(case, ("description", "expected_result", "test_input", "steps"))
         return any(keyword in text for keyword in quality_hint_keywords)
 
     def _review_must_keep_reasons(case: dict[str, Any], score_profile: dict[str, Any] | None = None) -> list[str]:
         profile = dict(score_profile or {})
         reasons: list[str] = []
 
-        priority = str(case.get("priority") or "").strip().upper()
+        priority = _case_priority(case)
         if priority == "P0":
             reasons.append("priority_p0")
 
@@ -785,19 +750,7 @@ def stream_postprocess_cases(
         if _hit_must_cover_rule(_extract_rule_keys(case), profile):
             reasons.append("must_cover_rule_hit")
 
-        text = _normalize_match_text(
-            " ".join(
-                [
-                    str(case.get("description") or ""),
-                    str(case.get("test_module") or ""),
-                    str(case.get("expected_result") or ""),
-                    str(case.get("test_input") or ""),
-                    " ".join([str(x) for x in (case.get("steps") or []) if str(x).strip()])
-                    if isinstance(case.get("steps"), list)
-                    else "",
-                ]
-            )
-        )
+        text = _case_match_text(case, ("description", "test_module", "expected_result", "test_input", "steps"))
         permission_tokens = (
             "permission", "auth", "authorize", "authorization", "role", "accesscontrol",
             "权限", "鉴权", "授权", "角色", "访问控制", "全局控制",
@@ -933,7 +886,7 @@ def stream_postprocess_cases(
         candidate_cases = [dict(item) for item in cases if isinstance(item, dict)]
         if str(coverage_mode or "") not in {"expanded_regression", "full_functional_regression"}:
             return candidate_cases
-        if any(_normalize_priority_value(str(item.get("priority") or "")) == "P0" for item in candidate_cases):
+        if any(_normalize_priority_value(_case_priority(item)) == "P0" for item in candidate_cases):
             return candidate_cases
 
         strong_tokens = (
@@ -978,21 +931,16 @@ def stream_postprocess_cases(
 
         ranked: list[tuple[int, int, dict[str, Any]]] = []
         for index, item in enumerate(candidate_cases):
-            text = " ".join(
-                [
-                    str(item.get("test_module") or ""),
-                    str(item.get("description") or ""),
-                    str(item.get("expected_result") or ""),
-                    str(item.get("test_input") or ""),
-                    " ".join(str(step) for step in (item.get("steps") or []) if str(step).strip())
-                    if isinstance(item.get("steps"), list)
-                    else "",
-                ]
-            ).lower()
+            text = _case_flat_text(
+                item,
+                ("test_module", "description", "expected_result", "test_input", "steps"),
+                separator=" ",
+                lower=True,
+            )
             score = 0
             score += 10 * sum(1 for token in strong_tokens if token and token.lower() in text)
             score -= 8 * sum(1 for token in low_value_tokens if token and token.lower() in text)
-            if _normalize_priority_value(str(item.get("priority") or "")) == "P1":
+            if _normalize_priority_value(_case_priority(item)) == "P1":
                 score += 6
             if str(item.get("priority_decision_state") or "").strip().lower() in {"optional", "invalid"}:
                 score -= 20
@@ -1343,7 +1291,7 @@ def stream_postprocess_cases(
             return any(token and token.lower() in text for token in generation_terms + submit_terms + approval_terms + permission_terms)
 
         for item in candidate_cases:
-            if _normalize_priority_value(str(item.get("priority") or "")) != "P0":
+            if _normalize_priority_value(_case_priority(item)) != "P0":
                 continue
             if p0_cross_domain_essay_case(item, requirement_text=str(requirement_text or "")):
                 item["priority"] = "P1"
@@ -1363,7 +1311,7 @@ def stream_postprocess_cases(
         existing_p0_signatures = {
             _signature(item)
             for item in candidate_cases
-            if _normalize_priority_value(str(item.get("priority") or "")) == "P0"
+            if _normalize_priority_value(_case_priority(item)) == "P0"
         }
         if len(existing_p0_signatures) >= target_count:
             return candidate_cases
@@ -1378,7 +1326,7 @@ def stream_postprocess_cases(
             score = 0
             score += 10 * sum(1 for token in strong_tokens if token and token.lower() in text)
             score -= 12 * sum(1 for token in low_value_tokens if token and token.lower() in text)
-            if _normalize_priority_value(str(item.get("priority") or "")) == "P1":
+            if _normalize_priority_value(_case_priority(item)) == "P1":
                 score += 6
             critical_family = _critical_anchor_family(text)
             if critical_family:
@@ -1412,7 +1360,7 @@ def stream_postprocess_cases(
                     continue
                 if mode == "full_functional_regression" and not (_has_strong_anchor(text) or critical_family):
                     continue
-                normalized_priority = _normalize_priority_value(str(item.get("priority") or ""))
+                normalized_priority = _normalize_priority_value(_case_priority(item))
                 priority_bonus = 8 if normalized_priority == "P1" else 3 if normalized_priority == "P2" else 0
                 try:
                     complexity_penalty = 4 * int((case_complexity_profile(item) or {}).get("complexity_score") or 0)
@@ -1483,17 +1431,12 @@ def stream_postprocess_cases(
             }
 
         def _case_text(item: dict[str, Any]) -> str:
-            return " ".join(
-                [
-                    str(item.get("test_module") or ""),
-                    str(item.get("description") or ""),
-                    str(item.get("expected_result") or ""),
-                    str(item.get("test_input") or ""),
-                    " ".join(str(step) for step in (item.get("steps") or []) if str(step).strip())
-                    if isinstance(item.get("steps"), list)
-                    else "",
-                ]
-            ).lower()
+            return _case_flat_text(
+                item,
+                ("test_module", "description", "expected_result", "test_input", "steps"),
+                separator=" ",
+                lower=True,
+            )
 
         def _all(text: str, tokens: tuple[str, ...]) -> bool:
             return all(token and token.lower() in text for token in tokens)
@@ -1518,7 +1461,7 @@ def stream_postprocess_cases(
             return False
 
         def _priority_rank(item: dict[str, Any]) -> int:
-            priority = str(item.get("priority") or "").strip().upper()
+            priority = _case_priority(item)
             return {"P0": 30, "P1": 15, "P2": 0}.get(priority, 0)
 
         def _normalize_actor_role(value: Any, *, fallback_text: str = "") -> str:
@@ -1756,8 +1699,8 @@ def stream_postprocess_cases(
                 return
             main_chain_excluded_candidates.append(
                 {
-                    "case_id": str(item.get("id") or "")[:40],
-                    "description": str(item.get("description") or "")[:160],
+                    "case_id": _review_case_id(item)[:40],
+                    "description": _case_text_field(item, "description")[:160],
                     "stage_key": str(stage_key or "")[:80],
                     "reason": str(reason),
                     "signature": signature,
@@ -2048,7 +1991,7 @@ def stream_postprocess_cases(
                 step_meta = workflow_stage_meta_by_key.get(stage_key) or {}
                 source_state = str(step_meta.get("state_in") or "").strip()
                 target_state = str(step_meta.get("state_out") or "").strip()
-                case_id = str(item.get("id") or "").strip()
+                case_id = _review_case_id(item)
                 if previous_target_state and source_state and previous_target_state != source_state:
                     conflicts.append(
                         {
@@ -2300,11 +2243,15 @@ def stream_postprocess_cases(
             steps: list[dict[str, Any]] = []
             previous_state = "initial"
             for step_index, (_score, _phase, _index, item) in enumerate(selected, start=1):
-                description = str(item.get("description") or item.get("test_module") or f"workflow step {step_index}").strip()
-                module = str(item.get("test_module") or "").strip()
-                expected = str(item.get("expected_result") or "").strip()
-                step_texts = item.get("steps") if isinstance(item.get("steps"), list) else []
-                first_step = next((str(step).strip() for step in step_texts if str(step).strip()), "")
+                description = (
+                    _case_text_field(item, "description")
+                    or _case_text_field(item, "test_module")
+                    or f"workflow step {step_index}"
+                )
+                module = _case_text_field(item, "test_module")
+                expected = _case_text_field(item, "expected_result")
+                step_texts = _case_step_lines(item)
+                first_step = next((step for step in step_texts if step), "")
                 state_out = f"derived_state_{step_index:03d}"
                 stage_kind = _workflow_stage_kind_from_text(_case_text(item))
                 match_keywords = [
@@ -2325,7 +2272,7 @@ def stream_postprocess_cases(
                         "assertion": expected[:240],
                         "test_steps": step_texts,
                         "match_keywords": list(dict.fromkeys(match_keywords))[:6],
-                        "source_case_id": str(item.get("id") or "").strip(),
+                        "source_case_id": _review_case_id(item),
                         "main_path_step": True,
                         "allow_bridge": False,
                     }
@@ -2341,7 +2288,7 @@ def stream_postprocess_cases(
                         (
                             item
                             for _score, _phase, _index, item in selected
-                            if str(item.get("id") or "") == str(step.get("source_case_id") or "")
+                            if _review_case_id(item) == str(step.get("source_case_id") or "")
                         ),
                         {},
                     ),
@@ -2935,9 +2882,9 @@ def stream_postprocess_cases(
         remaining_cases.sort(
             key=lambda item: (
                 group_rank.get(_infer_group(item, in_main_chain=False), 9),
-                {"P0": 0, "P1": 1, "P2": 2}.get(str(item.get("priority") or "").upper(), 2),
-                str(item.get("test_module") or ""),
-                str(item.get("description") or ""),
+                {"P0": 0, "P1": 1, "P2": 2}.get(_case_priority(item), 2),
+                _case_text_field(item, "test_module"),
+                _case_text_field(item, "description"),
             )
         )
         ordered_cases = [*main_chain_cases, *remaining_cases]
@@ -3375,14 +3322,7 @@ def stream_postprocess_cases(
             complexity_score = int(case_complexity_profile(item).get("complexity_score") or 0)
             semantic_sig = _semantic_signature(item, list(_extract_rule_keys(item)))
             semantic_tokens = _semantic_tokenize(
-                " ".join(
-                    [
-                        str(item.get("description") or ""),
-                        str(item.get("expected_result") or ""),
-                        str(item.get("test_input") or ""),
-                        " ".join([str(x) for x in item.get("steps", [])]) if isinstance(item.get("steps"), list) else "",
-                    ]
-                )
+                _case_flat_text(item, ("description", "expected_result", "test_input", "steps"), separator=" ")
             )
             entry = {
                 "item": item,
@@ -3603,7 +3543,7 @@ def stream_postprocess_cases(
                 selected_semantic_by_group.setdefault(semantic_group_key, []).append(
                     {
                         "signature": signature,
-                        "case_id": str(item.get("id") or ""),
+                        "case_id": _review_case_id(item),
                         "semantic_signature": semantic_signature,
                         "semantic_tokens": semantic_tokens,
                     }
@@ -3795,16 +3735,7 @@ def stream_postprocess_cases(
                 "bucket": _coverage_bucket(item),
                 "semantic_signature": _semantic_signature(item, rule_keys),
                 "semantic_tokens": _semantic_tokenize(
-                    " ".join(
-                        [
-                            str(item.get("description") or ""),
-                            str(item.get("expected_result") or ""),
-                            str(item.get("test_input") or ""),
-                            " ".join([str(x) for x in item.get("steps", [])])
-                            if isinstance(item.get("steps"), list)
-                            else "",
-                        ]
-                    )
+                    _case_flat_text(item, ("description", "expected_result", "test_input", "steps"), separator=" ")
                 ),
                 "rank_tuple": tuple(int(x) for x in selected_rank),
             }
@@ -3835,7 +3766,7 @@ def stream_postprocess_cases(
             has_high_signal = bool(high_signal_seed or reuse_risk_hit)
             focus_score = int(_focus_score(item))
             bucket = _coverage_bucket(item)
-            priority = str(item.get("priority") or "").strip().upper()
+            priority = _case_priority(item)
             moderate_signal = bool(priority in {"P0", "P1"} or focus_score >= 1 or coverage_gain_score > 0)
             bucket_selected = [entry for entry in (selected_by_bucket.get(bucket) or []) if isinstance(entry, dict)]
 
@@ -4536,10 +4467,10 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                         compact_cases.append(
                             {
                                 "id": case_id,
-                                "module": _clip(item.get("test_module"), 80),
-                                "description": _clip(item.get("description"), 180),
-                                "expected_result": _clip(item.get("expected_result"), 180),
-                                "priority": _clip(item.get("priority_final") or item.get("priority"), 12),
+                                "module": _clip(_case_text_field(item, "test_module"), 80),
+                                "description": _clip(_case_text_field(item, "description"), 180),
+                                "expected_result": _clip(_case_text_field(item, "expected_result"), 180),
+                                "priority": _clip(_case_priority(item, prefer_final=True), 12),
                             }
                         )
                     candidate_ids = [str(item.get("id") or "") for item in compact_cases if item.get("id")]
@@ -4848,10 +4779,10 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                     repair_candidates.append(
                         {
                             "id": case_id,
-                            "module": _reason_repair_clip(item.get("test_module"), 80),
-                            "description": _reason_repair_clip(item.get("description"), 180),
-                            "expected_result": _reason_repair_clip(item.get("expected_result"), 180),
-                            "priority": _reason_repair_clip(item.get("priority_final") or item.get("priority"), 12),
+                            "module": _reason_repair_clip(_case_text_field(item, "test_module"), 80),
+                            "description": _reason_repair_clip(_case_text_field(item, "description"), 180),
+                            "expected_result": _reason_repair_clip(_case_text_field(item, "expected_result"), 180),
+                            "priority": _reason_repair_clip(_case_priority(item, prefer_final=True), 12),
                         }
                     )
                 if repair_candidates:
@@ -5330,8 +5261,8 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                     "repaired_pass": bool(judged_item.repaired_pass),
                     "has_before_case": bool(before_case),
                     "has_after_case": bool(after_case),
-                    "before_case_id": str(before_case.get("id") or ""),
-                    "after_case_id": str(after_case.get("id") or ""),
+                    "before_case_id": _review_case_id(before_case),
+                    "after_case_id": _review_case_id(after_case),
                     "signals": signals_payload,
                     "violates_confirmed_fact": bool(signals_payload.get("violates_confirmed_fact")),
                     "contains_pending_logic": bool(signals_payload.get("contains_pending_logic")),
@@ -5551,7 +5482,7 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
                     if not sig or sig in recovery_seen_signatures:
                         continue
                     recovery_seen_signatures.add(sig)
-                    expected_text = str(source_case.get("expected_result") or "").strip()
+                    expected_text = _case_text_field(source_case, "expected_result")
                     expected_quality = str(source_case.get("expected_result_quality") or "").strip().lower()
                     if (
                         expected_quality in {"invalid_case", "non_assertable", "truncated"}
@@ -5686,10 +5617,10 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         final_shortfall_supplement_attempted = True
         existing_case_brief = [
             {
-                "id": str(item.get("id") or ""),
-                "description": str(item.get("description") or ""),
-                "test_module": str(item.get("test_module") or ""),
-                "priority": str(item.get("priority") or ""),
+                "id": _review_case_id(item),
+                "description": _case_text_field(item, "description"),
+                "test_module": _case_text_field(item, "test_module"),
+                "priority": _case_priority(item),
             }
             for item in [x for x in parsed_result if isinstance(x, dict)][:140]
         ]
@@ -5714,7 +5645,7 @@ APPEND_POLICY: only append if new cases add coverage gain; otherwise return [].
         }
         existing_module_counts: dict[str, int] = {}
         for item in [x for x in parsed_result if isinstance(x, dict)]:
-            module_key = str(item.get("test_module") or "").strip() or "unknown"
+            module_key = _case_text_field(item, "test_module") or "unknown"
             existing_module_counts[module_key] = int(existing_module_counts.get(module_key) or 0) + 1
         supplement_prompt = f"""
 FINAL_SHORTFALL_SUPPLEMENT:
@@ -6089,7 +6020,7 @@ EXISTING_FINAL_CASES_TO_AVOID_DUPLICATING:
     dedup_drop_signatures = set(str(item) for item in (review_gate_trace.get("dedup_dropped_signatures") or []))
     final_signatures = {_signature(item) for item in parsed_result if isinstance(item, dict)}
     final_priority_by_signature = {
-        _signature(item): str(item.get("priority") or item.get("priority_final") or "").strip().upper()
+        _signature(item): _case_priority(item)
         for item in parsed_result
         if isinstance(item, dict)
     }
@@ -6238,10 +6169,10 @@ EXISTING_FINAL_CASES_TO_AVOID_DUPLICATING:
         row = {
             "candidate_index": int(index),
             "signature": signature,
-            "case_id": str(case.get("id") or ""),
-            "description": str(case.get("description") or ""),
-            "test_module": str(case.get("test_module") or ""),
-            "expected_result": str(case.get("expected_result") or ""),
+            "case_id": _review_case_id(case),
+            "description": _case_text_field(case, "description"),
+            "test_module": _case_text_field(case, "test_module"),
+            "expected_result": _case_text_field(case, "expected_result"),
             "flow_stage": str(structure_row.get("flow_stage") or "unknown"),
             "flow_stage_label": str(structure_row.get("flow_stage_label") or structure_row.get("flow_stage") or "unknown"),
             "flow_rank": structure_row.get("flow_rank"),
@@ -6901,7 +6832,7 @@ EXISTING_FINAL_CASES_TO_AVOID_DUPLICATING:
         final_priority_breakdown[priority_key] = int(final_priority_breakdown.get(priority_key, 0)) + 1
         group_key = str(final_case.get("execution_group") or "unknown").strip() or "unknown"
         final_execution_group_breakdown[group_key] = int(final_execution_group_breakdown.get(group_key, 0)) + 1
-        module_key = str(final_case.get("test_module") or final_case.get("module") or "").strip()
+        module_key = _case_text_field(final_case, "test_module")
         if module_key:
             final_module_breakdown[module_key] = int(final_module_breakdown.get(module_key, 0)) + 1
         if is_display_only_final_case(final_case):

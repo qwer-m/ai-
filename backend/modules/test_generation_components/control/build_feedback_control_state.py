@@ -29,6 +29,11 @@ from modules.testing.manual_quality_profile import (
     build_manual_quality_profile,
     manual_quality_profile_hints,
 )
+from modules.testing.sample_case_access import (
+    sample_case_id as _shared_sample_case_id,
+    sample_case_steps as _sample_case_steps,
+    sample_case_text as _sample_case_text,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -163,10 +168,7 @@ def _safe_float(raw: Any, default: float = 0.0) -> float:
         return float(default)
 
 
-def _sample_value(sample: Any, key: str, default: Any = None) -> Any:
-    if isinstance(sample, dict):
-        return sample.get(key, default)
-    return getattr(sample, key, default)
+_MISSING_SAMPLE_VALUE = object()
 
 
 def _doc_value(doc: Any, key: str, default: Any = None) -> Any:
@@ -183,11 +185,25 @@ def _extract_rule_ids(text: str) -> list[str]:
     return [_normalize_rule_id(item) for item in _RULE_PATTERN.findall(str(text or ""))]
 
 
-def _sample_value(sample: dict[str, Any], *keys: str) -> Any:
+def _sample_value(sample: Any, *keys: Any, default: Any = None) -> Any:
+    if keys and (not isinstance(keys[-1], str) or keys[-1] == ""):
+        default = keys[-1]
+        keys = keys[:-1]
     for key in keys:
-        if key in sample:
-            return sample.get(key)
-    return None
+        if not isinstance(key, str) or not key:
+            continue
+        if isinstance(sample, dict):
+            if key in sample:
+                return sample.get(key)
+            continue
+        value = getattr(sample, key, _MISSING_SAMPLE_VALUE)
+        if value is not _MISSING_SAMPLE_VALUE:
+            return value
+    return default
+
+
+def _sample_case_id(sample: dict[str, Any]) -> str:
+    return _shared_sample_case_id(sample, include_plain_id=False)
 
 
 def _normalize_reason_category(raw: Any) -> str:
@@ -487,17 +503,19 @@ def _sample_text_for_retrieval(sample_like: dict[str, Any]) -> str:
             _sample_value(sample_like, "pattern_summary", "patternSummary"),
             _sample_value(sample_like, "pattern_canonical", "patternCanonical"),
             _sample_value(sample_like, "title"),
-            _sample_value(sample_like, "source_case_title", "sourceCaseTitle"),
-            _sample_value(sample_like, "source_case_module", "sourceCaseModule"),
-            _sample_value(sample_like, "source_case_steps", "sourceCaseSteps"),
-            _sample_value(sample_like, "source_case_expected_result", "sourceCaseExpectedResult"),
+            _sample_case_text(sample_like, "description", "source_case_title", "sourceCaseTitle"),
+            _sample_case_text(sample_like, "test_module", "source_case_module", "sourceCaseModule"),
+            _sample_case_text(sample_like, "steps", "source_case_steps", "sourceCaseSteps"),
+            _sample_case_text(
+                sample_like,
+                "expected_result",
+                "source_case_expected_result",
+                "sourceCaseExpectedResult",
+            ),
             _sample_value(sample_like, "business_assertion", "businessAssertion"),
             _sample_value(sample_like, "user_comment", "userComment"),
             _sample_value(sample_like, "reason_category", "reasonCategory"),
             _sample_value(sample_like, "pattern_category", "patternCategory"),
-            _sample_value(sample_like, "test_module", "testModule"),
-            _sample_value(sample_like, "description"),
-            _sample_value(sample_like, "expected_result", "expectedResult"),
         ]
         if str(part or "").strip()
     )
@@ -685,7 +703,7 @@ def _select_priority_pool_samples_by_requirement(
             or _sample_value(sample_like, "pattern_canonical", "patternCanonical")
             or _sample_value(sample_like, "pattern_summary", "patternSummary")
             or _sample_value(sample_like, "title")
-            or _sample_value(sample_like, "case_id", "caseId")
+            or _sample_case_id(sample_like)
             or ""
         ).strip().lower()[:120]
 
@@ -939,13 +957,11 @@ def _workflow_blueprint_from_sample(sample: dict[str, Any]) -> dict[str, Any] | 
     blueprint = dict(raw) if isinstance(raw, dict) else {}
     steps = blueprint.get("steps")
     if not isinstance(steps, list) or len(steps) < 2:
-        source_steps = _sample_value(sample, "source_case_steps", "sourceCaseSteps", "steps")
-        if isinstance(source_steps, list):
-            step_texts = [str(item).strip() for item in source_steps if str(item).strip()]
-        else:
+        step_texts = _sample_case_steps(sample, "source_case_steps", "sourceCaseSteps")
+        if len(step_texts) <= 1:
             step_texts = [
                 str(item).strip()
-                for item in re.split(r"\n+|[；;]", str(source_steps or ""))
+                for item in re.split(r"\n+|[；;]", str(step_texts[0] if step_texts else ""))
                 if str(item).strip()
             ]
         steps = [
@@ -981,7 +997,7 @@ def _workflow_blueprint_from_sample(sample: dict[str, Any]) -> dict[str, Any] | 
     ).strip()
     return {
         **blueprint,
-        "id": str(blueprint.get("id") or _sample_value(sample, "case_id", "caseId") or "workflow_blueprint"),
+        "id": str(blueprint.get("id") or _sample_case_id(sample) or "workflow_blueprint"),
         "name": title[:160],
         "steps": normalized_steps[:12],
         "source": str(_sample_value(sample, "source", "source_type", "sourceType") or "priority_sample_pool"),
@@ -991,7 +1007,7 @@ def _workflow_blueprint_from_sample(sample: dict[str, Any]) -> dict[str, Any] | 
 def _priority_pool_sample_identity(sample: dict[str, Any]) -> str:
     return str(
         _sample_value(sample, "sample_id", "sampleId")
-        or _sample_value(sample, "case_id", "caseId")
+        or _sample_case_id(sample)
         or _sample_value(sample, "source_case_id", "sourceCaseId")
         or id(sample)
     ).strip()
@@ -1271,7 +1287,7 @@ def _build_from_priority_sample_pool(
         if reason_hint:
             quality_hints.append(reason_hint)
 
-        case_id = str(_sample_value(sample, "case_id", "caseId") or "").strip()
+        case_id = _sample_case_id(sample)
         title = str(_sample_value(sample, "title") or "").strip()
         pattern_key = str(
             _sample_value(sample, "pattern_canonical", "patternCanonical")

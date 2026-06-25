@@ -17,6 +17,7 @@ from ..control.project_profile_activation import (
     build_project_profile,
     merge_project_profile_control_state,
 )
+from ..postprocess.case_access import case_text_field
 from .structured_context_split_helpers import (
     _biz_tag,
     _clip_text,
@@ -576,10 +577,11 @@ def _extract_reference_module_order(
     for case in existing_cases or []:
         if not isinstance(case, dict):
             continue
-        biz_key = _safe_str(case.get("biz_key"), "unknown")
+        metadata = case.get("metadata") if isinstance(case.get("metadata"), dict) else {}
+        biz_key = _safe_str(case.get("biz_key") or metadata.get("biz_key"), "unknown")
         if effective_only_current and biz_key != current_biz_key:
             continue
-        module = _safe_str(case.get("test_module") or case.get("module"), "")
+        module = _safe_str(case_text_field(case, "test_module"), "")
         if module:
             grouped[biz_key].append(module)
     return {biz_key: _dedupe_ordered_texts(items) for biz_key, items in grouped.items() if items}
@@ -949,6 +951,7 @@ def _build_control_context(
                 or blueprint.get("source_type")
                 or "unknown"
             ).strip()
+            source_suffix = f" [source={source}]" if source and source.lower() != "unknown" else ""
             steps = [step for step in (blueprint.get("steps") or []) if isinstance(step, dict)]
             labels = [
                 " / ".join(
@@ -969,7 +972,7 @@ def _build_control_context(
                 if str(step.get("label") or step.get("action") or step.get("id") or "").strip()
             ]
             if labels:
-                lines.append(f"* {name} [source={source}]: {' -> '.join(labels)}")
+                lines.append(f"* {name}{source_suffix}: {' -> '.join(labels)}")
     else:
         lines.append("* (none)")
 

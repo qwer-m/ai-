@@ -94,6 +94,23 @@ def test_paid_gate_correctly_hits():
     )
 
 
+def test_alias_case_fields_are_used_by_audit():
+    case = {
+        "caseId": "TC-ALIAS",
+        "title": "未付费用户触发付费拦截 paywall",
+        "module": "学习入口",
+        "testSteps": ["打开学习入口", "点击学习内容"],
+        "expectedResult": "显示付费拦截弹窗",
+    }
+
+    result = audit_core_flow_coverage([case])
+    paid_gate = result["coverage_detail"]["paid_gate"]
+
+    assert "paid_gate" in map_case_to_core_flows(case)
+    assert paid_gate["matched_case_ids"] == ["TC-ALIAS"]
+    assert paid_gate["evidence"][0]["description"] == "未付费用户触发付费拦截 paywall"
+
+
 def test_weekend_classification_correctly_hits():
     """周末提升第一步分类应正确命中 weekend_classification"""
     case = {

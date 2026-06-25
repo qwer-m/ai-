@@ -7,6 +7,12 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from modules.testing import evaluation as evaluation_module
 from modules.testing.evaluation import (
     EvaluationModule,
+    _case_text,
+    _compact_case_brief_for_llm,
+    _compact_case_for_llm,
+    _format_case_point,
+    _is_case_modified,
+    _is_meaningful_case_id,
     _normalize_compare_result_json,
     _parse_test_cases_payload,
 )
@@ -675,6 +681,69 @@ def test_parser_handles_partial_json_and_metadata_prefixed_csv() -> None:
     assert len(modified_cases) == 2
     assert modified_cases[0]["description"] == "讲错题内容展示"
     assert modified_cases[0]["test_module"] == "入口"
+
+
+def test_parser_uses_shared_case_alias_registry_for_json_cases() -> None:
+    cases = _parse_test_cases_payload(
+        [
+            {
+                "caseId": "TC-ALIAS",
+                "testModule": "Learning plan",
+                "testSteps": ["Open plan page", "Save plan"],
+                "expectedResult": "Plan is saved",
+                "用例名称": "Create learning plan",
+            }
+        ]
+    )
+
+    assert cases == [
+        {
+            "id": "TC-ALIAS",
+            "description": "Create learning plan",
+            "test_module": "Learning plan",
+            "steps": ["Open plan page", "Save plan"],
+            "expected_result": "Plan is saved",
+            "extra_fields": {},
+            "_auto_id": False,
+            "_source_index": 0,
+        }
+    ]
+
+
+def test_case_compare_helpers_use_shared_case_alias_registry() -> None:
+    alias_case = {
+        "caseId": "TC-ALIAS",
+        "testModule": "Learning plan",
+        "testSteps": ["Open plan page", "Save plan"],
+        "expectedResult": "Plan is saved",
+        "title": "Create learning plan",
+    }
+    canonical_case = {
+        "id": "TC-ALIAS",
+        "test_module": "Learning plan",
+        "steps": ["Open plan page", "Save plan"],
+        "expected_result": "Plan is saved",
+        "description": "Create learning plan",
+    }
+
+    assert _is_meaningful_case_id(alias_case)
+    assert _format_case_point(alias_case).startswith("TC-ALIAS / Learning plan - Create learning plan")
+    assert not _is_case_modified(alias_case, canonical_case, score=1.0)
+
+    text = _case_text(alias_case)
+    for expected in ("Learning plan", "Create learning plan", "Open plan page", "Plan is saved"):
+        assert expected in text
+
+    compact = _compact_case_for_llm(alias_case)
+    assert compact["id"] == "TC-ALIAS"
+    assert compact["module"] == "Learning plan"
+    assert compact["description"] == "Create learning plan"
+    assert "Save plan" in str(compact["steps"])
+    assert compact["expected_result"] == "Plan is saved"
+
+    brief = _compact_case_brief_for_llm(alias_case, max_chars=240)
+    for expected in ("TC-ALIAS", "Learning plan", "Create learning plan", "Plan is saved"):
+        assert expected in brief
 
 
 def test_parser_handles_html_table_from_excel_preview() -> None:

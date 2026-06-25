@@ -555,6 +555,38 @@ def test_parse_csv_final_cases_with_chinese_headers() -> None:
     assert cases[0]["priority"] == "P1"
 
 
+def test_parse_test_cases_payload_uses_shared_case_alias_registry() -> None:
+    cases = parse_test_cases_payload(
+        [
+            {
+                "\u7f16\u53f7": "TC-ALIAS",
+                "\u6d4b\u8bd5\u70b9": "course publish rollback",
+                "\u6d4b\u8bd5\u6a21\u5757": "course publishing",
+                "\u524d\u63d0\u6761\u4ef6": "course exists",
+                "\u6267\u884c\u6b65\u9aa4": ["publish course", "rollback publish"],
+                "\u6d4b\u8bd5\u6570\u636e": "course id",
+                "\u671f\u671b\u7ed3\u679c": "course is hidden after rollback",
+                "\u7528\u4f8b\u7ea7\u522b": "P0",
+                "owner": "qa",
+            }
+        ]
+    )
+
+    assert cases == [
+        {
+            "id": "TC-ALIAS",
+            "description": "course publish rollback",
+            "test_module": "course publishing",
+            "preconditions": "course exists",
+            "steps": ["publish course", "rollback publish"],
+            "test_input": "course id",
+            "expected_result": "course is hidden after rollback",
+            "priority": "P0",
+            "owner": "qa",
+        }
+    ]
+
+
 def test_final_case_learning_request_defaults_to_dry_run() -> None:
     req = FinalCaseLearningRequest()
 

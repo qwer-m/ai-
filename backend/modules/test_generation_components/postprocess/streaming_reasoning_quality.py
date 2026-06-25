@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .case_access import case_text_parts
+
 
 STREAMING_REASONING_LEAKAGE_SIGNALS = (
     "可能",
@@ -48,18 +50,7 @@ def reasoning_leakage_hits(
     *,
     signals: tuple[str, ...] = STREAMING_REASONING_LEAKAGE_SIGNALS,
 ) -> list[str]:
-    parts: list[str] = []
-    preconditions = case.get("preconditions")
-    if isinstance(preconditions, list):
-        parts.extend(str(item) for item in preconditions if str(item).strip())
-    elif preconditions is not None:
-        parts.append(str(preconditions))
-    steps = case.get("steps")
-    if isinstance(steps, list):
-        parts.extend(str(item) for item in steps if str(item).strip())
-    elif steps is not None:
-        parts.append(str(steps))
-    parts.append(str(case.get("expected_result") or ""))
+    parts = case_text_parts(case, ("preconditions", "steps", "expected_result"))
     text = "\n".join(parts).lower()
     hits: list[str] = []
     for signal in signals:

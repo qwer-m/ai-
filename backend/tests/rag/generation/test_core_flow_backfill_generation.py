@@ -6,6 +6,7 @@ import json
 from modules.test_generation_components.coverage.core_flow_backfill import plan_core_flow_backfill
 from modules.test_generation_components.coverage.core_flow_backfill_generation import (
     generate_core_flow_backfill_candidates,
+    select_merged_preview_cases,
 )
 import modules.test_generation_components.coverage.core_flow_backfill_generation as generation_mod
 
@@ -76,6 +77,96 @@ def _build_backfill_plan(existing_cases: list[dict], max_backfill_cases: int = 1
         existing_cases=existing_cases,
         max_backfill_cases=max_backfill_cases,
     )
+
+
+def test_backfill_prompt_snapshot_accepts_alias_existing_case_fields() -> None:
+    fake_client = FakeLLMClient([])
+
+    generate_core_flow_backfill_candidates(
+        requirement_context="alias snapshot",
+        existing_cases=[
+            {
+                "caseId": "TC-ALIAS",
+                "title": "Alias existing case",
+                "module": "Alias Module",
+                "expectedResult": "Alias result",
+            }
+        ],
+        backfill_plan={
+            "backfill_plan": [
+                {
+                    "flow_key": "paid_gate",
+                    "flow_name": "Paid Gate",
+                    "required_focus": "paid gate",
+                    "suggested_priority": "P0",
+                    "must_include_assertions": ["paywall blocks access"],
+                }
+            ]
+        },
+        llm_client=fake_client,
+        max_candidates=1,
+    )
+
+    prompt = fake_client.calls[0]["prompt"]
+
+    assert '"id": "TC-ALIAS"' in prompt
+    assert '"description": "Alias existing case"' in prompt
+    assert '"test_module": "Alias Module"' in prompt
+    assert '"expected_result": "Alias result"' in prompt
+
+
+def test_backfill_candidate_normalization_accepts_alias_fields() -> None:
+    existing = _existing_cases()
+    plan = _build_backfill_plan(existing)
+    canonical = _valid_paid_gate_candidate()
+    alias_candidate = {
+        "caseId": canonical["case_id"],
+        "title": canonical["description"],
+        "module": canonical["test_module"],
+        "preconditions": canonical["preconditions"],
+        "testSteps": canonical["steps"],
+        "testInput": canonical["test_input"],
+        "expectedResult": canonical["expected_result"],
+        "priority": canonical["priority"],
+        "model_priority": canonical["model_priority"],
+        "source_flow_key": canonical["source_flow_key"],
+        "source_flow_name": canonical["source_flow_name"],
+        "backfill_generated": True,
+    }
+
+    result = generate_core_flow_backfill_candidates(
+        requirement_context="alias candidate normalization",
+        existing_cases=existing,
+        backfill_plan=plan,
+        llm_client=FakeLLMClient([alias_candidate]),
+        max_candidates=12,
+    )
+
+    assert result["generation_errors"] == []
+    assert result["rejected_backfill_cases"] == []
+    accepted = result["accepted_backfill_cases"]
+    assert len(accepted) == 1
+    assert accepted[0]["description"] == canonical["description"]
+    assert accepted[0]["test_module"] == canonical["test_module"]
+    assert accepted[0]["expected_result"] == canonical["expected_result"]
+    assert accepted[0]["priority"] == canonical["priority"]
+
+
+def test_select_merged_preview_cases_counts_alias_primary_ids() -> None:
+    result = select_merged_preview_cases(
+        existing_cases=[
+            {"caseId": "TC-A", "title": "first"},
+            {"caseId": "TC-B", "title": "second"},
+        ],
+        accepted_backfill_cases=[],
+        required_flow_keys=[],
+        max_cases=1,
+        min_cases=1,
+    )
+
+    assert result["primary_retained_count"] == 1
+    assert result["primary_trimmed_count"] == 1
+    assert result["trimmed_primary_case_ids"] == ["TC-B"]
 
 
 def _valid_paid_gate_candidate() -> dict:

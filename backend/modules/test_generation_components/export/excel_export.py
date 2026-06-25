@@ -16,6 +16,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from ..execution.execution_suite import append_execution_suite_worksheets, build_execution_suite
+from ..postprocess.case_access import case_priority, case_text_list_value, case_text_value, case_value
 
 # 中文注释：内部契约列仍保留给调试/回归使用，默认导出不直接暴露这些字段。
 INTERNAL_EXPORT_COLUMNS = [
@@ -46,6 +47,18 @@ INTERNAL_EXPORT_COLUMNS = [
     "teardown_hint",
 ]
 EXPORT_COLUMNS = INTERNAL_EXPORT_COLUMNS
+
+CANONICAL_CASE_EXPORT_FIELDS = (
+    "id",
+    "description",
+    "test_module",
+    "preconditions",
+    "steps",
+    "test_input",
+    "expected_result",
+    "priority",
+    "priority_final",
+)
 
 PUBLIC_EXPORT_COLUMNS = [
     ("用例ID", "id"),
@@ -82,8 +95,21 @@ def _sanitize_excel_text(value: Any) -> str:
     return _ILLEGAL_XML_RE.sub("", text)
 
 
+def _has_export_value(value: Any) -> bool:
+    return value not in (None, "", [])
+
+
+def _fill_case_alias_fields(row: dict[str, Any]) -> None:
+    for field in CANONICAL_CASE_EXPORT_FIELDS:
+        if _has_export_value(row.get(field)):
+            continue
+        value = case_value(row, field, None)
+        if _has_export_value(value):
+            row[field] = value
+
+
 def _format_steps_for_export(values: list[Any]) -> str:
-    step_list = [str(s).strip() for s in values if str(s).strip()]
+    step_list = case_text_list_value(values)
     return "\n".join(
         step if _STEP_NUMBER_RE.match(step) else f"{i}. {step}"
         for i, step in enumerate(step_list, 1)
@@ -108,17 +134,16 @@ def _normalize_rows(json_data: list | dict) -> list[dict[str, Any]]:
             continue
 
         row = item.copy()
+        _fill_case_alias_fields(row)
 
         pre = row.get("preconditions")
         if isinstance(pre, list):
-            pre_list = [str(p).strip() for p in pre if str(p).strip()]
-            row["preconditions"] = "\n".join(pre_list)
+            row["preconditions"] = "\n".join(case_text_list_value(pre))
         elif isinstance(pre, str) and pre.strip().startswith("[") and pre.strip().endswith("]"):
             try:
                 val = ast.literal_eval(pre)
                 if isinstance(val, list):
-                    pre_list = [str(p).strip() for p in val if str(p).strip()]
-                    row["preconditions"] = "\n".join(pre_list)
+                    row["preconditions"] = "\n".join(case_text_list_value(val))
             except Exception:
                 pass
 
@@ -135,7 +160,7 @@ def _normalize_rows(json_data: list | dict) -> list[dict[str, Any]]:
 
         depends_on = row.get("depends_on")
         if isinstance(depends_on, list):
-            row["depends_on"] = "\n".join(str(item).strip() for item in depends_on if str(item).strip())
+            row["depends_on"] = "\n".join(case_text_list_value(depends_on))
 
         rows.append(row)
     return rows
@@ -154,7 +179,7 @@ def _project_public_rows(rows: list[dict[str, Any]]) -> tuple[list[str], list[di
         for header, field in PUBLIC_EXPORT_COLUMNS:
             value = row.get(field, "")
             if field == "priority":
-                value = row.get("priority_final") or row.get("priority") or ""
+                value = case_priority(row, prefer_final=True)
             item[header] = value
         projected.append(item)
     return headers, projected

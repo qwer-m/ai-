@@ -9,6 +9,15 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from ..postprocess.case_access import (
+    case_id as case_access_id,
+    case_priority,
+    case_step_lines,
+    case_text_field,
+    case_text_list_field,
+    case_text_list_value,
+)
+
 
 _GROUP_NAMES = {
     "main_smoke": "主链路冒烟",
@@ -42,16 +51,6 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(default)
 
 
-def _as_text_list(value: Any) -> list[str]:
-    if isinstance(value, list):
-        return [_text(item) for item in value if _text(item)]
-    if isinstance(value, str):
-        return [item.strip() for item in value.splitlines() if item.strip()]
-    if value in (None, ""):
-        return []
-    return [_text(value)]
-
-
 def _excel_text(value: Any) -> str:
     if isinstance(value, list):
         value = "\n".join(_text(item) for item in value if _text(item))
@@ -59,7 +58,7 @@ def _excel_text(value: Any) -> str:
 
 
 def _case_id(case: dict[str, Any], index: int) -> str:
-    return _text(case.get("id") or case.get("case_id") or f"TC-{index:03d}")
+    return case_access_id(case) or f"TC-{index:03d}"
 
 
 def _execution_group(case: dict[str, Any]) -> str:
@@ -128,29 +127,30 @@ def parse_generated_cases_payload(payload: Any) -> list[dict[str, Any]]:
 
 def _build_case_ref(case: dict[str, Any], *, fallback_index: int, suite_order: int) -> dict[str, Any]:
     case_id = _case_id(case, fallback_index)
-    depends_on = _as_text_list(case.get("depends_on"))
-    steps = _as_text_list(case.get("steps"))
+    depends_on = case_text_list_value(case.get("depends_on"), split_lines=True)
+    steps = case_step_lines(case)
+    expected_result = case_text_field(case, "expected_result")
     return {
         "case_id": case_id,
         "suite_order": int(suite_order),
         "execution_sequence": _safe_int(case.get("execution_sequence"), suite_order),
-        "description": _text(case.get("description")),
-        "test_module": _text(case.get("test_module")),
-        "priority": _text(case.get("priority_final") or case.get("priority")),
+        "description": case_text_field(case, "description"),
+        "test_module": case_text_field(case, "test_module"),
+        "priority": case_priority(case, prefer_final=True),
         "role": _text(case.get("role")),
         "session_key": _text(case.get("session_key")),
         "depends_on": depends_on,
         "fixture_key": _text(case.get("fixture_key")),
         "setup_hint": _text(case.get("setup_hint")),
         "teardown_hint": _text(case.get("teardown_hint")),
-        "preconditions": _as_text_list(case.get("preconditions")),
+        "preconditions": case_text_list_field(case, "preconditions", split_lines=True),
         "steps": steps,
-        "test_input": _text(case.get("test_input")),
-        "expected_result": _text(case.get("expected_result")),
+        "test_input": case_text_field(case, "test_input"),
+        "expected_result": expected_result,
         "source_state": _text(case.get("source_state")),
         "target_state": _text(case.get("target_state")),
         "action": _text(case.get("action")),
-        "runnable": bool(case_id and steps and _text(case.get("expected_result"))),
+        "runnable": bool(case_id and steps and expected_result),
     }
 
 

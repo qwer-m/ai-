@@ -267,6 +267,24 @@ def test_backfill_plan_avoid_overlap():
         )
 
 
+def test_backfill_plan_avoid_overlap_accepts_alias_case_ids():
+    plan = plan_core_flow_backfill(
+        requirement_context="test",
+        existing_cases=[
+            {
+                "caseId": "TC-ALIAS",
+                "title": "普通展示用例",
+                "module": "通用模块",
+            }
+        ],
+        max_backfill_cases=2,
+    )
+
+    assert plan["backfill_plan"]
+    for item in plan["backfill_plan"]:
+        assert "TC-ALIAS" in set(item.get("avoid_overlap_with_case_ids") or [])
+
+
 def test_all_12_p0_p1_p2_distribution_reasonable():
     """12 个 backfill spec 的 P0/P1/P2 分布合理"""
     plan = plan_core_flow_backfill(

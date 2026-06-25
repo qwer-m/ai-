@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from ..postprocess.case_access import case_flat_text
+
 _PRIMARY_DOMAIN_DOMINANCE_RATIO = 0.67
 
 
@@ -484,12 +486,7 @@ def diagnose_registry_impact(
 
 
 def _flatten_case_text(case: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for key in ("test_module", "module", "description", "title", "expected_result", "expected"):
-        value = case.get(key)
-        if value:
-            parts.append(str(value))
-    steps = case.get("steps")
-    if isinstance(steps, list):
-        parts.extend(str(step) for step in steps if str(step or "").strip())
-    return "\n".join(parts)
+    return case_flat_text(
+        case,
+        fields=("test_module", "module", "description", "title", "expected_result", "expected", "steps"),
+    )

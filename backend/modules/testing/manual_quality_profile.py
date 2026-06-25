@@ -6,6 +6,11 @@ import re
 from collections import Counter
 from typing import Any
 
+from modules.testing.sample_case_access import (
+    sample_case_text as _sample_case_text,
+    sample_value as _sample_value,
+)
+
 
 _VALID_PRIORITIES = {"P0", "P1", "P2", "P3"}
 _TRUSTED_SOURCE_TYPES = {
@@ -45,13 +50,6 @@ _DISPLAY_TOKENS = (
     "\u57cb\u70b9",
     "\u66dd\u5149",
 )
-
-
-def _sample_value(sample: dict[str, Any], *keys: str) -> Any:
-    for key in keys:
-        if key in sample:
-            return sample.get(key)
-    return None
 
 
 def _text(value: Any, *, max_len: int = 240) -> str:
@@ -129,8 +127,18 @@ def _is_display_sample(sample: dict[str, Any]) -> bool:
             reason,
             category,
             _text(_sample_value(sample, "pattern_summary", "patternSummary"), max_len=180).lower(),
-            _text(_sample_value(sample, "source_case_title", "sourceCaseTitle", "title"), max_len=160).lower(),
-            _text(_sample_value(sample, "source_case_expected_result", "business_assertion"), max_len=240).lower(),
+            _text(_sample_case_text(sample, "description", "source_case_title", "sourceCaseTitle"), max_len=160).lower(),
+            _text(
+                _sample_case_text(
+                    sample,
+                    "expected_result",
+                    "source_case_expected_result",
+                    "sourceCaseExpectedResult",
+                    "business_assertion",
+                    "businessAssertion",
+                ),
+                max_len=240,
+            ).lower(),
         ]
     )
     return reason == "display_issue" or any(token in merged for token in _DISPLAY_TOKENS)
@@ -138,13 +146,11 @@ def _is_display_sample(sample: dict[str, Any]) -> bool:
 
 def _module_name(sample: dict[str, Any]) -> str:
     return _text(
-        _sample_value(
+        _sample_case_text(
             sample,
+            "test_module",
             "source_case_module",
             "sourceCaseModule",
-            "test_module",
-            "testModule",
-            "module",
         ),
         max_len=120,
     )
@@ -184,16 +190,15 @@ def _stable_sample_identity(sample: dict[str, Any]) -> dict[str, Any]:
         "source_type": _source_type(sample),
         "expected_priority": _priority(_sample_value(sample, "expected_priority", "expectedPriority")),
         "module": _module_name(sample),
-        "title": _text(_sample_value(sample, "source_case_title", "sourceCaseTitle", "title"), max_len=160),
+        "title": _text(_sample_case_text(sample, "description", "source_case_title", "sourceCaseTitle"), max_len=160),
         "assertion": _text(
-            _sample_value(
+            _sample_case_text(
                 sample,
+                "expected_result",
                 "source_case_expected_result",
                 "sourceCaseExpectedResult",
                 "business_assertion",
                 "businessAssertion",
-                "expected_result",
-                "expectedResult",
             ),
             max_len=240,
         ),

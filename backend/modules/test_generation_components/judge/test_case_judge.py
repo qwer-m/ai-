@@ -11,6 +11,13 @@ from ..coverage.scenario_registry import (
     judge_duplicate_thresholds,
     scenario_pattern_entries,
 )
+from ..postprocess.case_access import (
+    case_flat_text,
+    case_id as case_access_id,
+    case_priority,
+    case_steps,
+    case_text_field,
+)
 
 from .judge_types import (
     JudgeBatchResult,
@@ -193,17 +200,14 @@ def _module_family(value: Any) -> str:
 
 
 def _semantic_similarity_text(case: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for field in ("description", "test_module", "test_input", "expected_result"):
-        value = case.get(field)
-        if value is not None:
-            parts.append(str(value))
-    steps = case.get("steps")
-    if isinstance(steps, list):
-        parts.extend(str(item) for item in steps[:3] if str(item).strip())
-    elif steps is not None:
-        parts.append(str(steps))
-    return " ".join(parts)
+    parts = [
+        case_text_field(case, "description"),
+        case_text_field(case, "test_module"),
+        case_text_field(case, "test_input"),
+        case_text_field(case, "expected_result"),
+        *case_steps(case)[:3],
+    ]
+    return " ".join(part for part in parts if part)
 
 
 def _semantic_tokens(value: Any) -> set[str]:
@@ -276,16 +280,16 @@ def _scenario_kind(case: dict[str, Any]) -> str:
 
 
 def _same_module_family(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    left_module = _module_family(left.get("test_module"))
-    right_module = _module_family(right.get("test_module"))
+    left_module = _module_family(case_text_field(left, "test_module"))
+    right_module = _module_family(case_text_field(right, "test_module"))
     if not left_module or not right_module:
         return True
     return left_module == right_module or left_module in right_module or right_module in left_module
 
 
 def _is_semantic_duplicate_case(candidate: dict[str, Any], existed: dict[str, Any]) -> tuple[bool, float]:
-    candidate_desc = _normalize_text(candidate.get("description"))
-    existed_desc = _normalize_text(existed.get("description"))
+    candidate_desc = _normalize_text(case_text_field(candidate, "description"))
+    existed_desc = _normalize_text(case_text_field(existed, "description"))
     if candidate_desc and existed_desc and candidate_desc == existed_desc:
         return True, 1.0
     score = _semantic_similarity(candidate, existed)
@@ -315,11 +319,12 @@ def _is_semantic_duplicate_case(candidate: dict[str, Any], existed: dict[str, An
 
 
 def _case_quality_key(case: dict[str, Any], original_index: int) -> tuple[int, int, int, int]:
-    steps = case.get("steps")
-    step_count = len([item for item in steps if str(item).strip()]) if isinstance(steps, list) else 0
-    concrete_text_len = len(_normalize_text(case.get("expected_result"))) + len(_normalize_text(case.get("description")))
+    step_count = len(case_steps(case))
+    concrete_text_len = len(_normalize_text(case_text_field(case, "expected_result"))) + len(
+        _normalize_text(case_text_field(case, "description"))
+    )
     return (
-        _priority_rank(case.get("priority") or case.get("priority_final")),
+        _priority_rank(case_priority(case)),
         min(step_count, 6),
         min(concrete_text_len, 240),
         -int(original_index),
@@ -409,18 +414,11 @@ def _merge_fact_profile_semantics(
 
 
 def _collect_case_text(case: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for field in ("id", "description", "test_module", "test_input", "expected_result"):
-        value = case.get(field)
-        if value is not None:
-            parts.append(str(value))
-    for field in ("preconditions", "steps", "tags"):
-        value = case.get(field)
-        if isinstance(value, list):
-            parts.extend([str(item) for item in value if str(item).strip()])
-        elif value is not None:
-            parts.append(str(value))
-    return " ".join(parts)
+    return case_flat_text(
+        case,
+        fields=("id", "description", "test_module", "test_input", "expected_result", "preconditions", "steps", "tags"),
+        separator=" ",
+    )
 
 
 def _contains_pending_logic(case_text: str, pending_items: list[str]) -> tuple[bool, list[str]]:
@@ -438,12 +436,7 @@ def _contains_pending_logic(case_text: str, pending_items: list[str]) -> tuple[b
 
 
 def _contains_vague_unconfirmed_logic(case: dict[str, Any]) -> tuple[bool, list[str]]:
-    parts: list[str] = []
-    for field in ("description", "test_input", "expected_result"):
-        value = case.get(field)
-        if value is not None:
-            parts.append(str(value))
-    targeted_text = " ".join(parts)
+    targeted_text = case_flat_text(case, fields=("description", "test_input", "expected_result"), separator=" ")
     normalized_case = _normalize_text(targeted_text)
     hits: list[str] = []
     for hint in _VAGUE_UNCONFIRMED_HINTS:
@@ -884,7 +877,7 @@ def judge_case(
         control_state=control_state,
     )
     before = deepcopy(case) if isinstance(case, dict) else {}
-    case_id = str(before.get("id") or before.get("case_id") or "").strip() or "UNKNOWN"
+    case_id = case_access_id(before) or "UNKNOWN"
     case_text = _collect_case_text(before)
 
     contains_pending_logic, pending_hits = _contains_pending_logic(case_text, semantics.get("pending_items") or [])
@@ -990,7 +983,7 @@ def judge_cases(
             continue
         judged = judge_case(case, semantics, control_state=control_state)
         if not judged.case_id or judged.case_id == "UNKNOWN":
-            judged.case_id = str(case.get("id") or f"CASE-{index:03d}")
+            judged.case_id = case_access_id(case) or f"CASE-{index:03d}"
         judged_cases.append(judged)
 
     kept_passes: list[tuple[int, JudgeResult, dict[str, Any]]] = []

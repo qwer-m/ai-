@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .case_access import case_steps, case_text_field
+
 _SEMANTIC_STOP_TOKENS = {
     "case",
     "default",
@@ -29,15 +31,11 @@ def _normalize_for_dedup(text: Any) -> str:
 
 def _case_dedup_key(case: dict[str, Any]) -> str:
     """Build a deduplication key that does not depend on ``id``."""
-    module = _normalize_for_dedup(case.get("test_module"))
-    desc = _normalize_for_dedup(case.get("description"))
-    test_input = _normalize_for_dedup(case.get("test_input"))
-    expected = _normalize_for_dedup(case.get("expected_result"))
-    steps = case.get("steps") or []
-    if isinstance(steps, list):
-        steps_text = " | ".join(_normalize_for_dedup(s) for s in steps)
-    else:
-        steps_text = _normalize_for_dedup(steps)
+    module = _normalize_for_dedup(case_text_field(case, "test_module"))
+    desc = _normalize_for_dedup(case_text_field(case, "description"))
+    test_input = _normalize_for_dedup(case_text_field(case, "test_input"))
+    expected = _normalize_for_dedup(case_text_field(case, "expected_result"))
+    steps_text = " | ".join(_normalize_for_dedup(step) for step in case_steps(case))
     return f"{module}||{desc}||{test_input}||{expected}||{steps_text}"
 
 
@@ -57,17 +55,14 @@ def _module_family(value: Any) -> str:
 
 
 def _semantic_similarity_text(case: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for field in ("description", "test_module", "test_input", "expected_result"):
-        value = case.get(field)
-        if value is not None:
-            parts.append(str(value))
-    steps = case.get("steps")
-    if isinstance(steps, list):
-        parts.extend(str(item) for item in steps[:3] if str(item).strip())
-    elif steps is not None:
-        parts.append(str(steps))
-    return " ".join(parts)
+    parts = [
+        case_text_field(case, "description"),
+        case_text_field(case, "test_module"),
+        case_text_field(case, "test_input"),
+        case_text_field(case, "expected_result"),
+        *case_steps(case)[:3],
+    ]
+    return " ".join(part for part in parts if part)
 
 
 def _semantic_tokens(value: Any) -> set[str]:
@@ -115,8 +110,8 @@ def _semantic_overlap_size(left: dict[str, Any], right: dict[str, Any]) -> int:
 
 
 def _same_module_family(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    left_module = _module_family(left.get("test_module"))
-    right_module = _module_family(right.get("test_module"))
+    left_module = _module_family(case_text_field(left, "test_module"))
+    right_module = _module_family(case_text_field(right, "test_module"))
     if not left_module or not right_module:
         return True
     return left_module == right_module or left_module in right_module or right_module in left_module
@@ -125,8 +120,8 @@ def _same_module_family(left: dict[str, Any], right: dict[str, Any]) -> bool:
 def _is_semantic_duplicate(candidate: dict[str, Any], existed: dict[str, Any]) -> bool:
     if not _same_module_family(candidate, existed):
         return False
-    candidate_desc = _compact_text(candidate.get("description"))
-    existed_desc = _compact_text(existed.get("description"))
+    candidate_desc = _compact_text(case_text_field(candidate, "description"))
+    existed_desc = _compact_text(case_text_field(existed, "description"))
     if candidate_desc and existed_desc and candidate_desc == existed_desc:
         return True
     return _semantic_similarity(candidate, existed) >= 0.58 and _semantic_overlap_size(candidate, existed) >= 8

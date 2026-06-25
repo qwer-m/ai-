@@ -16,6 +16,13 @@ from .core_flow_coverage_contract import (
 from ..postprocess.result_postprocess_priority_semantics import (
     apply_priority_semantics_to_cases,
 )
+from ..postprocess.case_access import (
+    case_id as case_access_id,
+    case_priority,
+    case_steps,
+    case_text_field,
+    case_value,
+)
 from ..postprocess.streaming_expected_result_quality import (
     is_non_assertable_expected_result as _is_non_assertable_expected_result_shared,
 )
@@ -53,7 +60,7 @@ _PRIORITY_RANK = {"P0": 0, "P1": 1, "P2": 2}
 
 
 def _case_id(case: dict[str, Any]) -> str:
-    return str(case.get("case_id") or case.get("id") or "").strip()
+    return case_access_id(case)
 
 
 def _matched_flows(case: dict[str, Any]) -> set[str]:
@@ -65,7 +72,7 @@ def _matched_flows(case: dict[str, Any]) -> set[str]:
 
 def _coverage_priority_sort_key(case: dict[str, Any], flow_order: dict[str, int]) -> tuple[int, int, str]:
     source_flow = str(case.get("source_flow_key") or "")
-    priority = str(case.get("priority_final") or case.get("priority") or "P2").strip().upper()
+    priority = case_priority(case, prefer_final=True, default="P2")
     return (
         int(flow_order.get(source_flow, 9999)),
         int(_PRIORITY_RANK.get(priority, 9)),
@@ -115,13 +122,13 @@ def _is_non_assertable_expected_result(text: str) -> bool:
 
 
 def _case_exact_signature(case: dict[str, Any]) -> str:
-    steps = "\n".join(_normalize_steps(case.get("steps")))
+    steps = "\n".join(_normalize_steps(case_steps(case)))
     payload = {
-        "description": str(case.get("description") or "").strip(),
-        "test_module": str(case.get("test_module") or "").strip(),
+        "description": case_text_field(case, "description"),
+        "test_module": case_text_field(case, "test_module"),
         "steps": steps,
-        "test_input": str(case.get("test_input") or "").strip(),
-        "expected_result": str(case.get("expected_result") or "").strip(),
+        "test_input": case_text_field(case, "test_input"),
+        "expected_result": case_text_field(case, "expected_result"),
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
@@ -163,10 +170,10 @@ def _safe_json_array(raw_text: str) -> list[dict[str, Any]] | None:
 
 def _normalize_case_structure_light(case: dict[str, Any], index: int) -> dict[str, Any] | None:
     normalized = dict(case or {})
-    description = str(normalized.get("description") or "").strip()
-    module = str(normalized.get("test_module") or "").strip()
-    steps = _normalize_steps(normalized.get("steps"))
-    expected_result = str(normalized.get("expected_result") or "").strip()
+    description = case_text_field(normalized, "description")
+    module = case_text_field(normalized, "test_module")
+    steps = _normalize_steps(case_steps(normalized))
+    expected_result = case_text_field(normalized, "expected_result")
 
     if not description or not module or not steps:
         return None
@@ -174,7 +181,7 @@ def _normalize_case_structure_light(case: dict[str, Any], index: int) -> dict[st
     source_flow_key = str(normalized.get("source_flow_key") or "").strip()
     source_flow_name = str(normalized.get("source_flow_name") or "").strip()
 
-    model_priority = str(normalized.get("model_priority") or normalized.get("priority") or "").strip().upper()
+    model_priority = str(normalized.get("model_priority") or case_text_field(normalized, "priority") or "").strip().upper()
     if model_priority not in {"P0", "P1", "P2"}:
         model_priority = str(normalized.get("suggested_priority") or "").strip().upper()
     if model_priority not in {"P0", "P1", "P2"}:
@@ -186,8 +193,8 @@ def _normalize_case_structure_light(case: dict[str, Any], index: int) -> dict[st
     normalized["description"] = description
     normalized["test_module"] = module
     normalized["steps"] = steps
-    normalized["preconditions"] = _normalize_preconditions(normalized.get("preconditions"), module)
-    normalized["test_input"] = str(normalized.get("test_input") or "").strip() or description[:80]
+    normalized["preconditions"] = _normalize_preconditions(case_value(normalized, "preconditions", []), module)
+    normalized["test_input"] = case_text_field(normalized, "test_input") or description[:80]
     normalized["expected_result"] = expected_result
     normalized["priority"] = model_priority
     normalized["model_priority"] = model_priority
@@ -236,10 +243,10 @@ def _build_prompt(
     for case in existing_cases[:24]:
         existing_snapshot.append(
             {
-                "id": str(case.get("id") or case.get("case_id") or ""),
-                "description": str(case.get("description") or "")[:120],
-                "test_module": str(case.get("test_module") or "")[:80],
-                "expected_result": str(case.get("expected_result") or "")[:160],
+                "id": case_access_id(case),
+                "description": case_text_field(case, "description")[:120],
+                "test_module": case_text_field(case, "test_module")[:80],
+                "expected_result": case_text_field(case, "expected_result")[:160],
             }
         )
 
@@ -290,9 +297,9 @@ def _build_prompt(
 def _priority_and_flow_sort_key(case: dict[str, Any], flow_order: dict[str, int]) -> tuple[int, int, str]:
     flow_key = str(case.get("source_flow_key") or "")
     flow_idx = int(flow_order.get(flow_key, 9999))
-    priority = str(case.get("priority_final") or case.get("priority") or "P2").strip().upper()
+    priority = case_priority(case, prefer_final=True, default="P2")
     priority_rank = int(_PRIORITY_RANK.get(priority, 9))
-    case_id = str(case.get("case_id") or case.get("id") or "")
+    case_id = case_access_id(case)
     return (flow_idx, priority_rank, case_id)
 
 
@@ -432,12 +439,12 @@ def summarize_case_quality_gate(cases: list[dict[str, Any]]) -> dict[str, Any]:
 
     for index, case_item in enumerate(case_items, start=1):
         case_id = _case_id(case_item) or f"ROW-{int(index):03d}"
-        priority_final_value = str(case_item.get("priority_final") or "").strip().upper()
+        priority_final_value = case_text_field(case_item, "priority_final").upper()
         if priority_final_value not in {"P0", "P1", "P2"}:
             priority_final_null_count += 1
             priority_final_invalid_case_ids.append(case_id)
 
-        expected_result_text = str(case_item.get("expected_result") or "").strip()
+        expected_result_text = case_text_field(case_item, "expected_result")
         expected_result_quality = str(case_item.get("expected_result_quality") or "").strip().lower()
         quality_reason = str(case_item.get("expected_result_quality_reason") or "").strip().lower()
         truncated_flag = bool(case_item.get("truncated_text_detected"))

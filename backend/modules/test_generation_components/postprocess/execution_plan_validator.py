@@ -8,6 +8,11 @@ from ..control.actor_roles import CANONICAL_ROLE_SESSION_KEYS
 from ..control.workflow_blueprint_repository import (
     is_trusted_workflow_contract,
 )
+from .case_access import (
+    case_flat_text,
+    case_id as case_access_id,
+    case_text_field,
+)
 
 
 _STATE_FIELD_NAMES = (
@@ -391,12 +396,12 @@ def _stage_kind(case: dict[str, Any]) -> str:
         return explicit
     action_text = _text(_state_value(case, "action")).lower()
     target_state_text = _text(_state_value(case, "target_state")).lower()
-    description_text = _text(case.get("description")).lower()
+    description_text = case_text_field(case, "description").lower()
     text = " ".join(
         [
             action_text,
             description_text,
-            _text(case.get("expected_result")),
+            case_text_field(case, "expected_result"),
             target_state_text,
         ]
     ).lower()
@@ -415,20 +420,12 @@ def _stage_kind(case: dict[str, Any]) -> str:
 
 
 def _case_semantic_text(case: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for field in ("test_module", "description", "test_input", "expected_result"):
-        value = _text(case.get(field))
-        if value:
-            parts.append(value)
-    for field in ("preconditions", "steps"):
-        raw = case.get(field)
-        if isinstance(raw, list):
-            parts.extend(_text(item) for item in raw if _text(item))
-        else:
-            value = _text(raw)
-            if value:
-                parts.append(value)
-    return " ".join(parts).lower()
+    return case_flat_text(
+        case,
+        fields=("test_module", "description", "test_input", "expected_result", "preconditions", "steps"),
+        separator=" ",
+        lower=True,
+    )
 
 
 _ACTION_SUPPORT_SPLIT_RE = re.compile(r"[的了着和与及并或且在从到于后前时中上下里内为把将对、，。；：:（）()\[\]\s]+")
@@ -537,10 +534,10 @@ def _add_semantic_conflict(
 ) -> None:
     conflicts.append(
         {
-            "case_id": _text(case.get("id")) or "main-smoke-case",
+            "case_id": case_access_id(case) or "main-smoke-case",
             "reason": reason,
             "stage_kind": stage_kind,
-            "description": _text(case.get("description"))[:160],
+            "description": case_text_field(case, "description")[:160],
         }
     )
 
@@ -586,7 +583,7 @@ def validate_main_smoke_state_chain(cases: Any) -> list[dict[str, Any]]:
     conflicts: list[dict[str, Any]] = []
 
     for index, case in enumerate(main_cases):
-        case_id = _text(case.get("id")) or f"main-smoke-{index + 1}"
+        case_id = case_access_id(case) or f"main-smoke-{index + 1}"
         source_state = _text(_state_value(case, "source_state"))
         target_state = _text(_state_value(case, "target_state"))
         if not source_state or not target_state:

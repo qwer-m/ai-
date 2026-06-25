@@ -27,6 +27,7 @@ from .postprocess_priority_config import (
     ui_risk_words,
     usability_degraded_tokens,
 )
+from .case_access import case_steps
 from .result_postprocess_priority_rules import (
     _build_priority_coverage_context,
     _contains_any,
@@ -172,9 +173,9 @@ def score_case_priority(
 
     focus_score = int(_focus_score(text))
     ui_like_case = bool(_is_ui_like_case(text))
-    steps = case.get("steps")
-    step_count = len([item for item in steps if str(item or "").strip()]) if isinstance(steps, list) else 0
-    step_text = " ".join([str(item) for item in steps if str(item or "").strip()]).lower() if isinstance(steps, list) else ""
+    steps = case_steps(case)
+    step_count = len(steps)
+    step_text = " ".join(steps).lower()
     _behavior_depth_tokens = behavior_depth_tokens()
     has_behavior_depth = _contains_any(text, _behavior_depth_tokens)
     _state_guard_tokens = state_guard_tokens()

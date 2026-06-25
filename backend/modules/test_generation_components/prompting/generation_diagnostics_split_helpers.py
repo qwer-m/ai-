@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from modules.domain.stage25_switches import STAGE25_SWITCHES
+from ..postprocess.case_access import case_flat_text, case_text_field, case_value
 
 
 _STOPWORDS = {
@@ -41,24 +42,16 @@ def _extract_keywords(text: str, limit: int = 30) -> list[str]:
 
 
 def _flatten_case_text(case: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for key in ("description", "test_module", "test_input", "expected_result"):
-        value = case.get(key)
-        if value:
-            parts.append(str(value))
-    for key in ("preconditions", "steps"):
-        value = case.get(key)
-        if isinstance(value, list):
-            parts.extend(str(x) for x in value if x)
-        elif isinstance(value, str):
-            parts.append(value)
-    return "\n".join(parts)
+    return case_flat_text(
+        case,
+        fields=("description", "test_module", "test_input", "expected_result", "preconditions", "steps"),
+    )
 
 
 def _priority_distribution(cases: list[dict[str, Any]]) -> dict[str, int]:
     dist = {"P0": 0, "P1": 0, "P2": 0, "other": 0}
     for case in cases:
-        priority = str(case.get("priority") or "").strip().upper()
+        priority = case_text_field(case, "priority").upper()
         if priority in dist:
             dist[priority] += 1
         else:
@@ -67,7 +60,7 @@ def _priority_distribution(cases: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def _steps_count(case: dict[str, Any]) -> int:
-    steps = case.get("steps")
+    steps = case_value(case, "steps", [])
     if isinstance(steps, list):
         return len([x for x in steps if str(x).strip()])
     if isinstance(steps, str):

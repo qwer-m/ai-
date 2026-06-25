@@ -2,17 +2,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from .case_access import case_id, case_priority, case_text_field, case_value
 from .streaming_expected_result_quality import is_non_assertable_expected_result, looks_truncated_text
 from .streaming_reasoning_quality import reasoning_leakage_hits
 
 
 def low_quality_reason(case: dict[str, Any]) -> str:
-    desc = str(case.get("description") or "").strip()
-    module = str(case.get("test_module") or "").strip()
-    expected_result = str(case.get("expected_result") or "").strip()
-    priority = str(case.get("priority") or "").strip().upper()
-    steps = case.get("steps")
-    preconditions = case.get("preconditions")
+    desc = case_text_field(case, "description")
+    module = case_text_field(case, "test_module")
+    expected_result = case_text_field(case, "expected_result")
+    priority = case_priority(case)
+    steps = case_value(case, "steps", [])
+    preconditions = case_value(case, "preconditions", [])
 
     if len(desc) < 4:
         return "description_too_short"
@@ -37,11 +38,11 @@ def quality_drop_detail(case: dict[str, Any], *, reason: str, stage: str) -> dic
     return {
         "stage": str(stage or ""),
         "reason": str(reason or ""),
-        "case_id": str(case.get("id") or ""),
-        "test_module": str(case.get("test_module") or ""),
-        "priority": str(case.get("priority") or case.get("priority_final") or ""),
-        "description": str(case.get("description") or "")[:240],
-        "expected_result": str(case.get("expected_result") or "")[:240],
+        "case_id": case_id(case),
+        "test_module": case_text_field(case, "test_module"),
+        "priority": case_priority(case),
+        "description": case_text_field(case, "description")[:240],
+        "expected_result": case_text_field(case, "expected_result")[:240],
     }
 
 
@@ -56,7 +57,7 @@ def record_low_quality_drop(
 
 
 def final_quality_drop_reason(case: dict[str, Any]) -> str:
-    expected_text = str(case.get("expected_result") or "").strip()
+    expected_text = case_text_field(case, "expected_result")
     expected_quality = str(case.get("expected_result_quality") or "").strip().lower()
     if reasoning_leakage_hits(case):
         return "reasoning_leakage"
@@ -98,7 +99,7 @@ def strip_case_meta_list(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         case = dict(item)
-        final_priority = str(case.get("priority_final") or "").strip().upper()
+        final_priority = case_priority(case, prefer_final=True)
         if final_priority in {"P0", "P1", "P2"}:
             case["priority"] = final_priority
             case["priority_final"] = final_priority

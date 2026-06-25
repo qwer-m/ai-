@@ -96,6 +96,60 @@ def test_excel_export_defaults_to_user_facing_chinese_columns():
     assert row["优先级"] == "P0"
 
 
+def test_excel_export_accepts_alias_case_fields():
+    rows = [
+        {
+            "caseId": "TC-ALIAS",
+            "title": "create plan from alias",
+            "testModule": "schedule",
+            "precondition": ["logged in"],
+            "testSteps": [
+                {"action": "open planner", "expect": "form visible"},
+                {"action": "save", "expect": "toast visible"},
+            ],
+            "testInput": "valid alias plan",
+            "expectedResult": "plan is saved",
+            "Priority": "P2",
+            "finalPriority": "P0",
+        }
+    ]
+
+    headers, public_row = _read_sheet(rows)
+    assert public_row[headers[0]] == "TC-ALIAS"
+    assert public_row[headers[1]] == "create plan from alias"
+    assert public_row[headers[2]] == "schedule"
+    assert public_row[headers[3]] == "logged in"
+    assert public_row[headers[4]] == "1. open planner form visible\n2. save toast visible"
+    assert public_row[headers[5]] == "valid alias plan"
+    assert public_row[headers[6]] == "plan is saved"
+    assert public_row[headers[7]] == "P0"
+
+    _headers, internal_row = _read_sheet(rows, include_internal_fields=True)
+    assert internal_row["id"] == "TC-ALIAS"
+    assert internal_row["description"] == "create plan from alias"
+    assert internal_row["test_module"] == "schedule"
+    assert internal_row["priority"] == "P2"
+    assert internal_row["priority_final"] == "P0"
+
+
+def test_excel_export_keeps_literal_list_preconditions_compatibility():
+    rows = [
+        {
+            "id": "TC-LITERAL",
+            "description": "literal preconditions",
+            "test_module": "schedule",
+            "preconditions": "['logged in', {'state': 'seeded'}]",
+            "steps": ["open planner"],
+            "expected_result": "planner opens",
+            "priority": "P1",
+        }
+    ]
+
+    headers, public_row = _read_sheet(rows)
+
+    assert public_row[headers[3]] == "logged in\nseeded"
+
+
 def test_excel_export_internal_mode_includes_persistable_execution_fields():
     headers, row = _read_sheet(
         [

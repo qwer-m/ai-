@@ -22,6 +22,7 @@ from .core_flow_coverage_contract import (
     audit_core_flow_coverage,
     map_case_to_core_flows,
 )
+from ..postprocess.case_access import case_id as case_access_id
 
 BACKFILL_SPECS: dict[str, dict[str, Any]] = {
     "paid_gate": {
@@ -209,7 +210,7 @@ def plan_core_flow_backfill(
     case_items = [c for c in (existing_cases or []) if isinstance(c, dict)]
     primary_count = len(case_items)
 
-    existing_ids = [str(c.get("id") or c.get("case_id") or "") for c in case_items]
+    existing_ids = [case_id for case_id in (case_access_id(c) for c in case_items) if case_id]
 
     if coverage_audit is None:
         coverage_audit = audit_core_flow_coverage(case_items)

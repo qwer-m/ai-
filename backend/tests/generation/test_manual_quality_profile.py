@@ -74,3 +74,28 @@ def test_manual_quality_profile_version_changes_when_confirmed_sample_changes() 
     assert second["trusted_sample_count"] == 2
     assert second["priority_distribution"] == {"P0": 1, "P1": 1}
     assert second["high_priority_ratio"] == 1.0
+
+
+def test_manual_quality_profile_reads_shared_case_aliases() -> None:
+    sample = {
+        "caseId": "TC-ALIAS",
+        "description": "Create learning plan",
+        "testModule": "Learning plan",
+        "expectedResult": {"status": "saved", "message": ["success visible"]},
+        "expected_priority": "P1",
+        "signal_type": "positive",
+        "pattern_usage": "prefer",
+        "source_type": "manual_pool_input",
+        "learning_status": "user_confirmed",
+        "manual_confirmed": True,
+    }
+    profile = build_manual_quality_profile([sample], project_id=1, user_id=2)
+
+    changed_assertion = dict(sample)
+    changed_assertion["expectedResult"] = {"status": "failed", "message": ["error visible"]}
+    changed_profile = build_manual_quality_profile([changed_assertion], project_id=1, user_id=2)
+
+    assert profile["trusted_sample_count"] == 1
+    assert profile["module_distribution_top"] == {"Learning plan": 1}
+    assert profile["priority_distribution"] == {"P1": 1}
+    assert profile["sample_set_hash"] != changed_profile["sample_set_hash"]

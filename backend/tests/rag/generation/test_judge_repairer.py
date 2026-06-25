@@ -74,6 +74,39 @@ def test_judge_rejects_exact_duplicate_cases_at_batch_level() -> None:
     assert duplicate.signals.duplicate_of_case_id == "TC-001"
 
 
+def test_judge_rejects_duplicate_case_when_fields_use_aliases() -> None:
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "错题推荐列表按知识点筛选后展示推荐题",
+            "test_module": "错题推荐",
+            "steps": ["进入错题推荐页", "选择知识点筛选条件", "查看推荐题列表"],
+            "test_input": "学生存在同一知识点下的错题记录",
+            "expected_result": "列表只展示该知识点关联的推荐题，题目数量与推荐结果一致",
+            "priority": "P0",
+        },
+        {
+            "caseId": "TC-002",
+            "title": "错题推荐列表按知识点筛选后展示推荐题",
+            "testModule": "错题推荐",
+            "testSteps": ["打开错题推荐页面", "按知识点执行筛选", "检查推荐题列表"],
+            "testInput": "学生存在同一知识点下的错题记录",
+            "expectedResult": "列表只展示该知识点关联的推荐题，题目数量与推荐结果一致",
+            "priority": "P0",
+        },
+    ]
+
+    judged = judge_cases(cases, {})
+    statuses = {item.case_id: item.status for item in judged.cases}
+    duplicate = next(item for item in judged.cases if item.case_id == "TC-002")
+
+    assert statuses["TC-001"] == "PASS"
+    assert statuses["TC-002"] == "REJECT"
+    assert duplicate.reject_reason == "semantic_duplicate:TC-001"
+    assert duplicate.signals.is_semantic_duplicate is True
+    assert duplicate.signals.duplicate_of_case_id == "TC-001"
+
+
 def test_judge_rejects_near_duplicate_same_scenario_cases_at_batch_level() -> None:
     cases = [
         {
@@ -955,3 +988,28 @@ def test_postprocess_deduplicate_removes_near_duplicate_validation_targets() -> 
     deduped = deduplicate_test_cases(cases)
 
     assert [item["id"] for item in deduped] == ["TC-001", "TC-002", "TC-003"]
+
+
+def test_postprocess_deduplicate_accepts_alias_fields_for_structural_key() -> None:
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "Course schedule save flow",
+            "test_module": "Schedule",
+            "steps": ["open schedule page", "save plan"],
+            "test_input": "valid course and time",
+            "expected_result": "plan is saved",
+        },
+        {
+            "caseId": "TC-002",
+            "title": "Course schedule save flow",
+            "testModule": "Schedule",
+            "testSteps": ["open schedule page", "save plan"],
+            "testInput": "valid course and time",
+            "expectedResult": "plan is saved",
+        },
+    ]
+
+    deduped = deduplicate_test_cases(cases)
+
+    assert [item.get("id") or item.get("caseId") for item in deduped] == ["TC-001"]

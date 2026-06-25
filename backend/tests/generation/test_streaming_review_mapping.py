@@ -87,6 +87,19 @@ def test_map_review_selection_with_reasons_normalizes_unknown_reason_origin_to_l
     assert origin_map == {case_signature(first): "llm"}
 
 
+def test_map_review_selection_with_reasons_accepts_alias_dropped_id() -> None:
+    case = _case("TC-ALIAS", "drop alias")
+
+    _, _, reason_map, origin_map = map_review_selection_with_reasons(
+        [case],
+        {"dropped": [{"caseId": "TC-ALIAS", "reason": "duplicate"}]},
+        reason_origin="fallback_llm",
+    )
+
+    assert reason_map == {case_signature(case): "duplicate"}
+    assert origin_map == {case_signature(case): "fallback_llm"}
+
+
 def test_normalize_review_llm_reason_maps_common_reason_variants() -> None:
     assert "duplicate" in CANONICAL_REVIEW_DROP_REASONS
     assert normalize_review_llm_reason("coverage redundant") == "coverage_redundant"

@@ -4,6 +4,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from modules.test_generation_components.prompting.prompt_orchestration import (
+    build_append_closed_loop_coverage_instruction,
     build_closed_loop_base_prompt,
     build_gap_fill_prompt,
     build_review_select_prompt,
@@ -100,3 +101,40 @@ def test_review_select_prompt_uses_compact_candidate_payload() -> None:
     assert "priority_decision_source" not in prompt
     assert "review_llm_drop_reason_evidence" not in prompt
     assert len(prompt) < 20000
+
+
+def test_review_select_prompt_accepts_alias_case_fields() -> None:
+    prompt = build_review_select_prompt(
+        requirement_context="REQ close org",
+        candidate_cases=[
+            {
+                "caseId": "TC-ALIAS",
+                "title": "verify alias close path",
+                "module": "org-close",
+                "testSteps": ["submit close request"],
+                "testData": "org=A",
+                "expectedResult": "org is closed",
+                "finalPriority": "P0",
+            }
+        ],
+        target_count=1,
+    )
+
+    assert '"id": "TC-ALIAS"' in prompt
+    assert '"description": "verify alias close path"' in prompt
+    assert '"test_module": "org-close"' in prompt
+    assert '"priority": "P0"' in prompt
+    assert '"test_input": "org=A"' in prompt
+    assert '"expected_result": "org is closed"' in prompt
+    assert '"TC-ALIAS"' in prompt
+
+
+def test_closed_loop_snapshot_accepts_alias_module_field() -> None:
+    prompt = build_append_closed_loop_coverage_instruction(
+        existing_cases=[{"caseId": "TC-001", "module": "org-close"}],
+        requirement="plain requirement",
+        expected_count=1,
+        infer_case_kind_fn=lambda _case: "happy_path",
+    )
+
+    assert "org-close: total=1" in prompt

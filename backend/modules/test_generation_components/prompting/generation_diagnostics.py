@@ -8,6 +8,7 @@ from typing import Any
 
 from modules.domain.stage25_switches import STAGE25_SWITCHES
 
+from ..postprocess.case_access import case_text_field
 
 _STOPWORDS = {
     "以及",
@@ -376,11 +377,7 @@ def build_coverage_diagnostics(
         else:
             miss_keywords.append(keyword)
 
-    module_set = {
-        str(case.get("test_module") or "").strip()
-        for case in cases
-        if str(case.get("test_module") or "").strip()
-    }
+    module_set = {module for module in (case_text_field(case, "test_module") for case in cases) if module}
 
     final_chunks = fusion_debug.get("final_chunks") or []
     anchor_terms: set[str] = set()

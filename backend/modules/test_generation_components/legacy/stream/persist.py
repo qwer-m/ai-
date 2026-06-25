@@ -8,6 +8,8 @@ from ...coverage.core_flow_backfill_generation import (
     summarize_case_quality_gate,
 )
 from ...postprocess.persistence_gate import (
+    build_case_quality_failures,
+    build_case_quality_metrics,
     build_persistence_gate_diagnostic,
     evaluate_persistence_gate,
     is_candidate_insufficient_underfill,
@@ -558,39 +560,41 @@ def _build_case_quality_gate_payload(
     semantic_duplicate_rejected_count = _to_int(
         (judge_reject_clusters.get("reason_clusters") or {}).get("semantic_duplicate")
     )
-    failures: list[str] = []
     quantity_shortfall_advisory = is_candidate_insufficient_underfill(generation_summary_payload)
-    if min_acceptable_final > 0 and final_count < min_acceptable_final and not quantity_shortfall_advisory:
-        failures.append("final_count_below_min_acceptable")
-    if quality_score <= 0 or grade == "critical":
-        failures.append("quality_score_critical")
-    if rejected_count > 20:
-        failures.append("judge_rejected_above_threshold")
-    if reasoning_leak_count > 0:
-        failures.append("reasoning_leakage_detected")
-    if role_mismatch_count > 5:
-        failures.append("role_mismatch_above_threshold")
+    failures = build_case_quality_failures(
+        final_count=final_count,
+        min_acceptable_final=min_acceptable_final,
+        judge_rejected_count=rejected_count,
+        final_duplicate_count=final_duplicate_count,
+        final_misordered_count=final_misordered_count,
+        reasoning_leak_count=reasoning_leak_count,
+        role_mismatch_count=role_mismatch_count,
+        quantity_shortfall_advisory=quantity_shortfall_advisory,
+        quality_score=quality_score,
+        quality_score_grade=grade,
+    )
+    metrics = build_case_quality_metrics(
+        final_count=final_count,
+        min_acceptable_final=min_acceptable_final,
+        judge_rejected_count=rejected_count,
+        final_duplicate_count=final_duplicate_count,
+        final_misordered_count=final_misordered_count,
+        reasoning_leak_count=reasoning_leak_count,
+        role_mismatch_count=role_mismatch_count,
+        quantity_shortfall_advisory=quantity_shortfall_advisory,
+        quality_score=quality_score,
+        quality_score_grade=grade,
+        raw_judge_rejected_count=raw_rejected_count,
+        semantic_duplicate_reject_count=semantic_duplicate_rejected_count,
+        filtered_semantic_duplicate_reject_count=0,
+    )
     return {
         "kind": "case_quality_gate",
         "mode": "shadow",
         "passed": not failures,
         "blocked": False,
         "failure_reasons": failures,
-        "metrics": {
-            "final_count": int(final_count),
-            "min_acceptable_final": int(min_acceptable_final),
-            "quantity_shortfall_advisory": bool(quantity_shortfall_advisory),
-            "quality_score": int(quality_score),
-            "quality_score_grade": grade,
-            "final_scenario_duplicate_case_count": int(final_duplicate_count),
-            "final_flow_misordered_count": int(final_misordered_count),
-            "judge_rejected_count": int(rejected_count),
-            "raw_judge_rejected_count": int(raw_rejected_count),
-            "semantic_duplicate_reject_count": int(semantic_duplicate_rejected_count),
-            "filtered_semantic_duplicate_reject_count": 0,
-            "reasoning_leak_count": int(reasoning_leak_count),
-            "role_mismatch_count": int(role_mismatch_count),
-        },
+        "metrics": metrics,
     }
 
 

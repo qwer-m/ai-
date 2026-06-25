@@ -32,3 +32,15 @@ def test_reasoning_leakage_hits_keeps_streaming_field_scope() -> None:
 
 def test_reasoning_leakage_hits_accepts_custom_signal_set() -> None:
     assert reasoning_leakage_hits({"expected_result": "custom signal"}, signals=("custom",)) == ["custom"]
+
+
+def test_reasoning_leakage_hits_uses_alias_fields() -> None:
+    hits = reasoning_leakage_hits(
+        {
+            "testSteps": ["1. maybe retry with assumed condition"],
+            "expectedResult": "need product confirm before final assertion",
+        }
+    )
+
+    assert "maybe" in hits
+    assert "need product confirm" in hits

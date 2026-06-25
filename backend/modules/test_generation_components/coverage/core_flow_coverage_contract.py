@@ -11,6 +11,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..postprocess.case_access import (
+    case_flat_text,
+    case_id as case_access_id,
+    case_text_field,
+)
+
 CORE_FLOWS: list[dict[str, Any]] = [
     {
         "flow_id": "paid_gate",
@@ -101,17 +107,7 @@ CORE_FLOWS: list[dict[str, Any]] = [
 
 def _combined_text(case: dict[str, Any]) -> str:
     """合并用例全部文本供匹配"""
-    parts: list[str] = [
-        str(case.get("description") or ""),
-        str(case.get("test_module") or ""),
-    ]
-    steps = case.get("steps")
-    if isinstance(steps, list):
-        parts.append(" ".join(str(s) for s in steps))
-    elif isinstance(steps, str):
-        parts.append(steps)
-    parts.append(str(case.get("expected_result") or ""))
-    return " ".join(parts)
+    return case_flat_text(case, fields=("description", "test_module", "steps", "expected_result"), separator=" ")
 
 
 def map_case_to_core_flows(case: dict[str, Any]) -> dict[str, str]:
@@ -181,7 +177,7 @@ def audit_core_flow_coverage(
         }
 
     for idx, case in enumerate(case_items):
-        case_id = str(case.get("id") or case.get("case_id") or f"ROW-{idx + 1:03d}")
+        case_id = case_access_id(case) or f"ROW-{idx + 1:03d}"
         hits = map_case_to_core_flows(case)
         for flow_id, evidence in hits.items():
             fd = coverage_detail.get(flow_id)
@@ -192,7 +188,7 @@ def audit_core_flow_coverage(
             fd["evidence"].append(
                 {
                     "case_id": case_id,
-                    "description": str(case.get("description") or "")[:80],
+                    "description": case_text_field(case, "description")[:80],
                     "evidence": evidence,
                 }
             )
@@ -213,7 +209,7 @@ def audit_core_flow_coverage(
             f"用例总数({case_total}) < 核心闭环数({required_count})，"
             f"理论最大覆盖={case_total}/{required_count}"
         )
-    single_module_cases = len({str(c.get("test_module") or "") for c in case_items})
+    single_module_cases = len({case_text_field(c, "test_module") for c in case_items})
     if single_module_cases <= 1 and case_total > 0:
         false_positive_guard_notes.append(
             f"所有{case_total}条用例集中在仅{single_module_cases}个模块，覆盖广度严重不足"

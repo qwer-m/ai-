@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .case_access import case_flat_text
 from .postprocess_priority_config import (
     p0_core_tokens,
     p0_critical_families,
@@ -23,21 +24,12 @@ _COURSE_PERMISSION_FAMILIES = {
 def p0_case_anchor_text(case: dict[str, Any] | Any) -> str:
     if not isinstance(case, dict):
         return str(case or "").lower()
-    steps = case.get("steps")
-    steps_text = (
-        " ".join(str(step) for step in steps if str(step).strip())
-        if isinstance(steps, list)
-        else str(steps or "")
+    return case_flat_text(
+        case,
+        fields=("test_module", "description", "expected_result", "test_input", "steps"),
+        separator=" ",
+        lower=True,
     )
-    return " ".join(
-        [
-            str(case.get("test_module") or ""),
-            str(case.get("description") or ""),
-            str(case.get("expected_result") or ""),
-            str(case.get("test_input") or ""),
-            steps_text,
-        ]
-    ).lower()
 
 
 def p0_essay_domain_active(requirement_text: str = "") -> bool:

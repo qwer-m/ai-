@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .case_access import case_id as case_access_id, case_text_field, case_text_parts, case_value
 from .streaming_reasoning_quality import reasoning_leakage_hits
 
 
@@ -128,7 +129,7 @@ _PUBLIC_NOTE_REASONING_SIGNALS = (
 
 
 def _case_id(case: dict[str, Any], index: int) -> str:
-    return str(case.get("id") or f"ROW-{index:03d}").strip()
+    return case_access_id(case) or f"ROW-{index:03d}"
 
 
 def _priority(value: Any) -> str:
@@ -175,15 +176,22 @@ def case_has_reasoning_leakage(case: dict[str, Any]) -> bool:
     if reasoning_leakage_hits(case):
         return True
 
-    parts: list[str] = []
-    for field in ("description", "test_input"):
-        value = case.get(field)
-        if isinstance(value, list):
-            parts.extend(str(item) for item in value if str(item).strip())
-        elif value is not None:
-            parts.append(str(value))
+    parts = case_text_parts(case, ("description", "test_input"))
     text = "\n".join(parts).lower()
     return any(signal in text for signal in _PUBLIC_NOTE_REASONING_SIGNALS)
+
+
+def _materialize_public_alias_fields(source: dict[str, Any]) -> None:
+    for field in ("id", "description", "test_module", "test_input", "expected_result", "priority", "priority_final"):
+        if not _has_value(source.get(field)):
+            value = case_text_field(source, field)
+            if value:
+                source[field] = value
+    for field in ("preconditions", "steps"):
+        if not _has_value(source.get(field)):
+            value = case_value(source, field, [])
+            if _has_value(value):
+                source[field] = value
 
 
 def project_persistable_cases(cases: Any) -> list[dict[str, Any]]:
@@ -197,6 +205,7 @@ def project_persistable_cases(cases: Any) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         source = dict(item)
+        _materialize_public_alias_fields(source)
         final_priority = _priority(source.get("priority_final")) or _priority(source.get("priority"))
         if final_priority:
             source["priority"] = final_priority

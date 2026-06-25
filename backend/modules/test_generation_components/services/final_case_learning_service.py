@@ -24,6 +24,14 @@ from ..control.workflow_blueprint_repository import WorkflowBlueprintRepository
 from ..repositories.history_repository import (
     TestGenerationHistoryRepository,
 )
+from ..postprocess.case_access import (
+    case_field_alias_key_set,
+    case_fields,
+    case_priority,
+    case_text_list_value,
+    case_text_parts,
+    case_value,
+)
 
 _MAX_DERIVED_POSITIVE_SAMPLES = 120
 _MAX_DERIVED_POSITIVE_PATTERNS = 40
@@ -37,16 +45,8 @@ _MAX_EVALUATION_FIX_CANDIDATES_PER_FIELD = 6
 _MAX_EVALUATION_NEGATIVE_CANDIDATES_PER_FIELD = 3
 _EVALUATION_LEARNING_CANDIDATE_QUALITY_POLICY = "evaluation_defect_reusable_pattern_v1"
 
-_CASE_FIELD_ALIASES = {
-    "id": ("id", "case_id", "用例编号", "编号"),
-    "description": ("description", "title", "用例标题", "用例名称", "测试点", "测试用例"),
-    "test_module": ("test_module", "module", "模块", "所属模块", "功能模块"),
-    "preconditions": ("preconditions", "前置条件"),
-    "steps": ("steps", "测试步骤", "操作步骤", "步骤"),
-    "test_input": ("test_input", "输入", "测试数据", "数据"),
-    "expected_result": ("expected_result", "expected", "预期结果", "期望结果"),
-    "priority": ("priority", "优先级"),
-}
+_CASE_FIELDS = case_fields()
+_CASE_FIELD_ALIAS_KEYS = case_field_alias_key_set()
 
 _NON_ASSERTABLE_EXPECTED_PATTERNS = (
     "正常展示",
@@ -1188,12 +1188,7 @@ def _parse_case_table_rows(rows: list[list[Any]], *, header_markers: set[str] | 
 
 
 def _as_text_list(raw: Any) -> list[str]:
-    if raw is None:
-        return []
-    if isinstance(raw, list):
-        return [item for item in (_text(item) for item in raw) if item]
-    text = _text(raw)
-    return [text] if text else []
+    return [text for text in (_text(item) for item in case_text_list_value(raw)) if text]
 
 
 def _compact_evaluation_metrics(metrics: dict[str, Any] | None) -> dict[str, float]:
@@ -1638,30 +1633,12 @@ def _candidate_has_sample_shape(candidate: dict[str, Any]) -> bool:
 
 def _normalize_case_dict(item: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {}
-    explicit_aliases = {
-        "id": ("用例编号", "编号"),
-        "description": ("用例标题", "用例名称", "测试点", "测试用例"),
-        "test_module": ("模块", "所属模块", "功能模块", "测试模块"),
-        "preconditions": ("前置条件",),
-        "steps": ("测试步骤", "操作步骤", "执行步骤", "步骤"),
-        "test_input": ("输入", "测试数据", "数据", "测试输入"),
-        "expected_result": ("预期结果", "期望结果"),
-        "priority": ("优先级", "用例级别"),
-    }
-    for canonical, aliases in explicit_aliases.items():
-        for alias in aliases:
-            if alias in item and item.get(alias) not in (None, ""):
-                result[canonical] = item.get(alias)
-                break
-    for canonical, aliases in _CASE_FIELD_ALIASES.items():
-        if canonical in result:
-            continue
-        for alias in aliases:
-            if alias in item and item.get(alias) not in (None, ""):
-                result[canonical] = item.get(alias)
-                break
+    for canonical in _CASE_FIELDS:
+        value = case_value(item, canonical, None)
+        if value not in (None, ""):
+            result[canonical] = value
     for key, value in item.items():
-        if key not in result and key not in {alias for aliases in _CASE_FIELD_ALIASES.values() for alias in aliases}:
+        if key not in result and key not in _CASE_FIELD_ALIAS_KEYS:
             result[key] = value
     return result
 
@@ -1676,9 +1653,11 @@ def _text(raw: Any) -> str:
 
 def _case_text(case: dict[str, Any]) -> str:
     return " ".join(
-        _text(case.get(key))
-        for key in ("description", "test_module", "preconditions", "steps", "test_input", "expected_result")
-        if case.get(key) is not None
+        case_text_parts(
+            case,
+            ("description", "test_module", "preconditions", "steps", "test_input", "expected_result"),
+            dedupe=False,
+        )
     ).strip()
 
 
@@ -1825,7 +1804,7 @@ def _infer_pattern_category(case: dict[str, Any]) -> str:
 
 
 def _priority(case: dict[str, Any]) -> str:
-    value = str(case.get("priority") or case.get("priority_final") or case.get("model_priority") or "P2").upper()
+    value = case_priority(case) or str(case.get("model_priority") or "P2").strip().upper()
     return value if value in {"P0", "P1", "P2"} else "P2"
 
 

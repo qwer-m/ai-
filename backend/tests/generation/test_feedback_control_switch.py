@@ -29,6 +29,56 @@ def _state_with_rule(rule: str, source: str) -> FeedbackControlState:
     )
 
 
+def test_sample_value_supports_aliases_attrs_and_default_values() -> None:
+    sample = {"caseId": "TC-001"}
+    row = type("SampleRow", (), {"dataset_id": 7})()
+
+    assert control_builder._sample_value(sample, "case_id", "caseId") == "TC-001"
+    assert control_builder._sample_value(row, "dataset_id") == 7
+    assert control_builder._sample_value(sample, "answer_points", []) == []
+    assert control_builder._sample_value(sample, "query", "") == ""
+
+
+def test_priority_pool_retrieval_text_uses_shared_case_aliases() -> None:
+    sample = {
+        "caseId": "TC-ALIAS",
+        "description": "Create learning plan",
+        "testModule": "Learning plan",
+        "testSteps": ["Open plan page", {"action": "Save plan"}],
+        "expectedResult": {"status": "saved", "message": ["success visible"]},
+    }
+
+    text = control_builder._sample_text_for_retrieval(sample)
+
+    assert "Create learning plan" in text
+    assert "Learning plan" in text
+    assert "Open plan page Save plan" in text
+    assert "saved success visible" in text
+
+
+def test_priority_pool_case_identity_uses_case_id_aliases_without_plain_id() -> None:
+    assert control_builder._sample_case_id({"id": "row-1", "test_case_id": "TC-002"}) == "TC-002"
+    assert control_builder._sample_case_id({"id": "row-1", "用例编号": "TC-003"}) == "TC-003"
+    assert control_builder._sample_case_id({"id": "row-1"}) == ""
+    assert control_builder._priority_pool_sample_identity({"id": "row-1", "sourceCaseId": "SRC-1"}) == "SRC-1"
+
+
+def test_workflow_blueprint_sample_builds_steps_from_shared_step_aliases() -> None:
+    blueprint = control_builder._workflow_blueprint_from_sample(
+        {
+            "pattern_grain": "workflow_blueprint",
+            "id": "row-1",
+            "test_case_id": "TC-ALIAS",
+            "pattern_summary": "Create plan flow",
+            "testSteps": ["Open plan page", "Save plan"],
+        }
+    )
+
+    assert blueprint is not None
+    assert blueprint["id"] == "TC-ALIAS"
+    assert [step["label"] for step in blueprint["steps"]] == ["Open plan page", "Save plan"]
+
+
 def test_priority_pool_feedback_disabled_skips_priority_source(monkeypatch) -> None:
     calls = {"priority": 0}
 

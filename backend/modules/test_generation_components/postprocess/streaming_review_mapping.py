@@ -162,7 +162,7 @@ def map_review_selection_with_reasons(
         for item in dropped_payload:
             if not isinstance(item, dict):
                 continue
-            case_id = str(item.get("case_id") or item.get("id") or "").strip()
+            case_id = review_case_id(item)
             reason = str(item.get("reason") or "").strip()
             if not case_id or not reason:
                 continue

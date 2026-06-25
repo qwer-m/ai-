@@ -119,6 +119,18 @@ def test_scenario_registry_loads_judge_duplicate_policy_fields() -> None:
     assert scenarios[0].cross_module is False
 
 
+def test_scenario_classification_accepts_alias_fields() -> None:
+    case = {
+        "caseId": "TC-ALIAS",
+        "testModule": "Network recovery",
+        "title": "retry after network interruption",
+        "expectedResult": "network error message is displayed and retry succeeds",
+        "testSteps": ["disconnect network", "click retry"],
+    }
+
+    assert classify_case_scenario_key(case, "stage:recovery") == "stage:recovery:network_error:obj:network_recovery_retry"
+
+
 def test_scenario_registry_rejects_duplicate_active_keys() -> None:
     payload = {
         "domains": [

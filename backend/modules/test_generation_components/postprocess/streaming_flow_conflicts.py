@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .case_access import case_flat_text
+
 
 def filter_cases_conflicting_with_confirmed_flow_facts(
     cases: list[dict[str, Any]],
@@ -138,16 +140,12 @@ def filter_cases_conflicting_with_confirmed_flow_facts(
         case_text_pairs.append(
             (
                 item,
-                " ".join(
-                    [
-                        str(item.get("test_module") or ""),
-                        str(item.get("description") or ""),
-                        str(item.get("expected_result") or ""),
-                        " ".join(str(step) for step in (item.get("steps") or []) if str(step).strip())
-                        if isinstance(item.get("steps"), list)
-                        else "",
-                    ]
-                ).lower(),
+                case_flat_text(
+                    item,
+                    fields=("test_module", "description", "expected_result", "steps"),
+                    separator=" ",
+                    lower=True,
+                ),
             )
         )
     has_nonlinear_context = any(token in context_text for token in nonlinear_fact_tokens)

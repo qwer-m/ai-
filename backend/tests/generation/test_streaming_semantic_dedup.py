@@ -37,6 +37,25 @@ def test_is_semantic_duplicate_case_uses_similarity_threshold() -> None:
     assert not is_semantic_duplicate_case(candidate=candidate, existed=existed, threshold=1.1)
 
 
+def test_is_semantic_duplicate_case_accepts_alias_fields() -> None:
+    candidate = {
+        "testModule": "Course",
+        "title": "Save plan",
+        "expectedResult": "Saved",
+        "testInput": "Data",
+        "testSteps": ["Open page", "Click save"],
+    }
+    existed = {
+        "test_module": "Course",
+        "description": "Save plan",
+        "expected_result": "Saved",
+        "test_input": "Data",
+        "steps": ["Open page", "Click save"],
+    }
+
+    assert is_semantic_duplicate_case(candidate=candidate, existed=existed)
+
+
 def test_semantic_deduplicate_cases_keeps_higher_priority_duplicate_first() -> None:
     duplicate_low = {
         "id": "low",

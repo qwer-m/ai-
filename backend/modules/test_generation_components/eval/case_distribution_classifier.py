@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import re
 from typing import Any
+
+from ..postprocess.case_access import case_flat_text, case_id, case_step_lines
 
 CASE_TYPE_FLOW = "FLOW"
 CASE_TYPE_STATE = "STATE"
@@ -156,24 +157,13 @@ _UI_TOKENS = (
 )
 
 
-def _normalize_steps(value: Any) -> list[str]:
-    if isinstance(value, list):
-        return [str(item or "").strip() for item in value if str(item or "").strip()]
-    if isinstance(value, str):
-        return [item.strip() for item in re.split(r"[\n;；。]", value) if item.strip()]
-    return []
-
-
 def _flatten_case_text(case: dict[str, Any]) -> str:
-    steps = _normalize_steps(case.get("steps"))
-    text_parts = [
-        str(case.get("description") or ""),
-        str(case.get("test_module") or case.get("module") or ""),
-        " ".join(steps),
-        str(case.get("expected_result") or ""),
-        str(case.get("test_input") or ""),
-    ]
-    return " ".join(part for part in text_parts if part).lower()
+    return case_flat_text(
+        case,
+        fields=("description", "test_module", "steps", "expected_result", "test_input"),
+        separator=" ",
+        lower=True,
+    )
 
 
 def _contains_any(text: str, tokens: tuple[str, ...]) -> bool:
@@ -185,7 +175,7 @@ def _count_step_tokens(text: str, patterns: tuple[tuple[str, str], ...]) -> bool
 
 
 def classify_case_distribution(case: dict[str, Any]) -> str:
-    steps = _normalize_steps(case.get("steps"))
+    steps = case_step_lines(case)
     step_count = len(steps)
     step_text = " ".join(steps).lower()
     text = _flatten_case_text(case)
@@ -225,10 +215,8 @@ def classify_case_distributions(cases: list[dict[str, Any]]) -> dict[str, str]:
     for index, case in enumerate(cases):
         if not isinstance(case, dict):
             continue
-        case_id = str(case.get("id") or case.get("case_id") or case.get("caseId") or "").strip()
-        if not case_id:
-            case_id = f"__index_{index}"
-        mapping[case_id] = classify_case_distribution(case)
+        resolved_case_id = case_id(case) or f"__index_{index}"
+        mapping[resolved_case_id] = classify_case_distribution(case)
     return mapping
 
 
@@ -250,7 +238,7 @@ def summarize_case_structure_signals(cases: list[dict[str, Any]]) -> dict[str, i
     for case in cases:
         if not isinstance(case, dict):
             continue
-        steps = _normalize_steps(case.get("steps"))
+        steps = case_step_lines(case)
         text = _flatten_case_text(case)
         if len(steps) >= 3:
             multi_step += 1

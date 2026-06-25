@@ -3,29 +3,20 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .case_access import case_focus_text, case_id, case_priority, case_signature_text, case_text_field
+
 
 def case_signature(case: dict[str, Any]) -> str:
-    module = str(case.get("test_module") or "").strip().lower()
-    desc = str(case.get("description") or "").strip().lower()
-    expected = str(case.get("expected_result") or "").strip().lower()
-    test_input = str(case.get("test_input") or "").strip().lower()
-    return f"{module}|{desc}|{expected}|{test_input}"
+    return case_signature_text(case)
 
 
 def case_priority_score(case: dict[str, Any]) -> int:
-    value = str(case.get("priority") or "").strip().upper()
+    value = case_priority(case)
     return 3 if value == "P0" else 2 if value == "P1" else 1 if value == "P2" else 0
 
 
 def _case_focus_text(case: dict[str, Any]) -> str:
-    return " ".join(
-        [
-            str(case.get("description") or ""),
-            str(case.get("expected_result") or ""),
-            str(case.get("test_input") or ""),
-            " ".join([str(x) for x in case.get("steps", [])]) if isinstance(case.get("steps"), list) else "",
-        ]
-    ).lower()
+    return case_focus_text(case, lower=True)
 
 
 def case_focus_score(case: dict[str, Any]) -> int:
@@ -41,7 +32,7 @@ def case_focus_score(case: dict[str, Any]) -> int:
 
 
 def case_coverage_bucket(case: dict[str, Any]) -> str:
-    module = str(case.get("test_module") or "").strip().lower() or "general"
+    module = case_text_field(case, "test_module").lower() or "general"
     text = _case_focus_text(case)
     if any(k in text for k in ["异常", "失败", "错误", "拒绝", "exception", "error", "invalid"]):
         kind = "exception"
@@ -57,11 +48,11 @@ def case_coverage_bucket(case: dict[str, Any]) -> str:
 
 
 def review_case_id(case: dict[str, Any]) -> str:
-    return str(case.get("id") or case.get("case_id") or "").strip()
+    return case_id(case)
 
 
 def final_description_dedup_key(case: dict[str, Any]) -> str:
-    return re.sub(r"\s+", " ", str(case.get("description") or "").strip()).lower()
+    return re.sub(r"\s+", " ", case_text_field(case, "description")).lower()
 
 
 def dedupe_by_final_description(cases: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], set[str]]:

@@ -102,6 +102,94 @@ def test_execution_suite_groups_cases_into_runnable_suites() -> None:
     assert permission_suite["runnable"] is True
 
 
+def test_execution_suite_uses_alias_fields_for_case_payload() -> None:
+    cases = [
+        {
+            "caseId": "TC-ALIAS",
+            "title": "save schedule plan",
+            "testModule": "schedule",
+            "precondition": ["teacher logged in"],
+            "testSteps": ["open scheduler", "save plan"],
+            "testInput": "valid course and time",
+            "expectedResult": "plan is saved",
+            "priorityFinal": "P0",
+            "execution_group": "main_smoke",
+            "execution_sequence": 1,
+            "role": "teacher",
+            "session_key": "teacher_session",
+        }
+    ]
+
+    suite = build_execution_suite(cases)
+    case_ref = suite["suites"][0]["cases"][0]
+
+    assert case_ref["case_id"] == "TC-ALIAS"
+    assert case_ref["description"] == "save schedule plan"
+    assert case_ref["test_module"] == "schedule"
+    assert case_ref["preconditions"] == ["teacher logged in"]
+    assert case_ref["steps"] == ["open scheduler", "save plan"]
+    assert case_ref["test_input"] == "valid course and time"
+    assert case_ref["expected_result"] == "plan is saved"
+    assert case_ref["priority"] == "P0"
+    assert case_ref["runnable"] is True
+
+
+def test_execution_suite_splits_text_steps_with_shared_accessor() -> None:
+    cases = [
+        {
+            "caseId": "TC-TEXT-STEPS",
+            "title": "save schedule plan",
+            "testModule": "schedule",
+            "testSteps": "open scheduler;save plan\uff1bverify toast",
+            "expectedResult": "plan is saved",
+            "execution_group": "main_smoke",
+            "execution_sequence": 1,
+            "role": "teacher",
+            "session_key": "teacher_session",
+        }
+    ]
+
+    suite = build_execution_suite(cases)
+    case_ref = suite["suites"][0]["cases"][0]
+
+    assert case_ref["steps"] == ["open scheduler", "save plan", "verify toast"]
+    assert case_ref["runnable"] is True
+
+
+def test_execution_suite_splits_text_preconditions_and_dependencies() -> None:
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "seed schedule plan",
+            "steps": ["seed plan"],
+            "expected_result": "plan exists",
+            "execution_group": "main_smoke",
+            "execution_sequence": 1,
+            "role": "teacher",
+            "session_key": "teacher_session",
+        },
+        {
+            "id": "TC-002",
+            "description": "save schedule plan",
+            "precondition": "teacher logged in\nplan draft exists",
+            "steps": ["save plan"],
+            "expected_result": "plan is saved",
+            "execution_group": "main_smoke",
+            "execution_sequence": 2,
+            "role": "teacher",
+            "session_key": "teacher_session",
+            "depends_on": "TC-001\n",
+        },
+    ]
+
+    suite = build_execution_suite(cases)
+    case_ref = suite["suites"][0]["cases"][1]
+
+    assert case_ref["preconditions"] == ["teacher logged in", "plan draft exists"]
+    assert case_ref["depends_on"] == ["TC-001"]
+    assert suite["linear_executable"] is True
+
+
 def test_execution_suite_marks_missing_dependencies() -> None:
     cases = _sample_cases()
     cases[1]["depends_on"] = ["TC-404"]

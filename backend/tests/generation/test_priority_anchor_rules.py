@@ -57,3 +57,15 @@ def test_course_permission_anchor_survives_non_essay_requirement() -> None:
 
     assert p0_configured_anchor_family(case, requirement_text="course permission regression") == "permission"
     assert p0_main_path_anchor(case, requirement_text="course permission regression") is True
+
+
+def test_course_permission_anchor_accepts_alias_fields() -> None:
+    case = {
+        "title": "Normal user first lesson is available and other lessons are locked",
+        "testModule": "Permission",
+        "expectedResult": "The first lesson is available and other lessons are locked by the paywall.",
+        "testSteps": ["open course list", "open locked lesson"],
+    }
+
+    assert p0_configured_anchor_family(case, requirement_text="course permission regression") == "permission"
+    assert p0_main_path_anchor(case, requirement_text="course permission regression") is True

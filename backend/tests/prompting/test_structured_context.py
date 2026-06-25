@@ -142,6 +142,31 @@ def test_testcase_context_preserves_reference_module_order() -> None:
     assert text.index("#### test_module: 作业拍照批改") < text.index("#### test_module: 习题本")
 
 
+def test_testcase_context_accepts_alias_case_fields() -> None:
+    output = build_structured_prompt_context(
+        requirement="REQ-ALIAS: close org",
+        existing_cases=[
+            {
+                "caseId": "TC-ALIAS",
+                "metadata": {"biz_key": "org_close_rule"},
+                "module": "org-close",
+                "Priority": "P0",
+                "title": "verify alias close path",
+            }
+        ],
+        current_biz_key="org_close_rule",
+        only_current_biz=True,
+    )
+
+    text = output["testcase_context"]
+
+    assert "### biz_key: org_close_rule" in text
+    assert "#### test_module: org-close" in text
+    assert "* TC-ALIAS: verify alias close path" in text
+    assert output["module_order_hint"] == ["org-close"]
+    assert output["context_by_biz"]["org_close_rule"]["module_order_hint"] == ["org-close"]
+
+
 def test_module_order_hint_prefers_requirement_document_order_over_reference_cases() -> None:
     output = build_structured_prompt_context(
         requirement="按需求文档流程生成",

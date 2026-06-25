@@ -2,15 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..postprocess.case_access import case_signature_text
 from .judge_types import JudgeBatchResult, JudgeStatus
 
 
 def _case_signature(case: dict[str, Any]) -> str:
-    module = str(case.get("test_module") or "").strip().lower()
-    desc = str(case.get("description") or "").strip().lower()
-    expected = str(case.get("expected_result") or "").strip().lower()
-    test_input = str(case.get("test_input") or "").strip().lower()
-    return f"{module}|{desc}|{expected}|{test_input}"
+    return case_signature_text(case)
 
 
 def _dedupe_cases(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:

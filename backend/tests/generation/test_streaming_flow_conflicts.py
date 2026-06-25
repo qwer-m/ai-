@@ -96,3 +96,32 @@ def test_flow_conflict_filter_can_trigger_from_case_level_nonlinear_signal() -> 
 
     assert dropped == 1
     assert [case["id"] for case in kept] == ["positive"]
+
+
+def test_flow_conflict_filter_accepts_alias_case_fields() -> None:
+    cases = [
+        {
+            "caseId": "positive",
+            "module": "lesson stage",
+            "title": "any stage enterable with no prerequisite",
+            "expectedResult": "student can enter any stage",
+            "testSteps": ["open any lesson stage"],
+        },
+        {
+            "caseId": "obsolete",
+            "module": "lesson stage",
+            "title": "only first stage is available",
+            "expectedResult": "previous stage must be completed",
+            "testSteps": ["open locked lesson stage"],
+        },
+    ]
+
+    kept, dropped = filter_cases_conflicting_with_confirmed_flow_facts(
+        cases,
+        requirement="",
+        kb_context="",
+        fact_profile={},
+    )
+
+    assert dropped == 1
+    assert [case["caseId"] for case in kept] == ["positive"]

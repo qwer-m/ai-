@@ -2,19 +2,19 @@ from __future__ import annotations
 
 from typing import Any
 
+from .case_access import case_flat_text, case_steps
+
 
 def is_ui_like_case(case: dict[str, Any], score_profile: dict[str, Any]) -> bool:
-    steps = case.get("steps", [])
-    step_count = len([x for x in steps if str(x or "").strip()]) if isinstance(steps, list) else 0
-    step_text = " ".join([str(x) for x in steps if str(x or "").strip()]).lower() if isinstance(steps, list) else ""
-    text = " ".join(
-        [
-            str(case.get("description") or ""),
-            str(case.get("expected_result") or ""),
-            str(case.get("test_input") or ""),
-            " ".join([str(x) for x in steps]) if isinstance(steps, list) else "",
-        ]
-    ).lower()
+    steps = case_steps(case)
+    step_count = len(steps)
+    step_text = " ".join(steps).lower()
+    text = case_flat_text(
+        case,
+        fields=("description", "expected_result", "test_input", "steps"),
+        separator=" ",
+        lower=True,
+    )
     ui_keywords = (
         "入口",
         "图标",

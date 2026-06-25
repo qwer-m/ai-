@@ -22,4 +22,5 @@ def test_review_domain_detects_permission_report_and_general_text() -> None:
 
 def test_review_domain_uses_steps_and_input_text() -> None:
     assert review_domain({"steps": ["admin authorize request"]}) == "permission"
+    assert review_domain({"testSteps": ["admin authorize request"]}) == "permission"
     assert review_domain({"test_input": "报表日期范围"}) == "report"

@@ -209,6 +209,37 @@ def test_validator_reports_disconnected_state_and_blocking_main_case() -> None:
     assert "non_advancing_case_in_main_smoke" in reasons
 
 
+def test_semantic_alignment_uses_alias_case_text_fields() -> None:
+    cases = [
+        {
+            "caseId": "TC-ALIAS",
+            "module": "Schedule Commit",
+            "title": "save plan and confirm creation",
+            "testSteps": ["save plan"],
+            "testInput": "configured plan",
+            "expectedResult": "state reaches committed",
+            "execution_group": "main_smoke",
+            "main_chain_step": 1,
+            "role": "student",
+            "session_key": "student_session",
+            "workflow_transition": {
+                "workflow_id": "schedule_flow",
+                "source_state": "preview_ready",
+                "action": "save plan",
+                "target_state": "committed",
+                "path_type": "positive",
+                "blocking": False,
+                "destructive": False,
+                "can_advance_main_flow": True,
+                "state_transition_confidence": 0.9,
+                "stage_kind": "commit",
+            },
+        }
+    ]
+
+    assert validate_main_smoke_semantic_alignment(cases) == []
+
+
 def test_validator_rejects_stage_labels_that_do_not_match_case_text() -> None:
     cases = _main_chain_cases()
     cases[1]["description"] = "existing plan list is sorted by course time and status labels"
@@ -483,6 +514,23 @@ def test_final_filter_blocks_reasoning_leakage_in_test_input() -> None:
     assert result == []
 
 
+def test_final_filter_blocks_reasoning_leakage_in_alias_fields() -> None:
+    result = filter_invalid_final_cases(
+        [
+            {
+                "caseId": "TC-ALIAS",
+                "title": "valid case",
+                "testSteps": ["open page"],
+                "testInput": "need product confirm before assuming here",
+                "expectedResult": "shows saved plan",
+                "Priority": "P1",
+            }
+        ]
+    )
+
+    assert result == []
+
+
 def test_append_merge_semantically_deduplicates_new_cases() -> None:
     existing = [
         {
@@ -533,6 +581,58 @@ def test_append_merge_semantically_deduplicates_new_cases() -> None:
     )
 
     assert [item["id"] for item in merged] == ["TC-001", "TC-003"]
+
+
+def test_append_merge_semantically_deduplicates_alias_cases() -> None:
+    existing = [
+        {
+            "id": "TC-001",
+            "test_module": "learning-plan",
+            "description": "view all learning plans",
+            "steps": ["click view all learning plans"],
+            "test_input": "existing plans",
+            "expected_result": "opens learning plan list",
+            "priority": "P1",
+            "priority_final": "P1",
+        }
+    ]
+    new_cases = [
+        {
+            "caseId": "TC-002",
+            "testModule": "learning-plan",
+            "title": "click view all learning plans and open list",
+            "testSteps": ["click view all learning plans"],
+            "testInput": "existing plans",
+            "expectedResult": "opens learning plan list",
+            "Priority": "P1",
+            "priorityFinal": "P1",
+        },
+        {
+            "caseId": "TC-003",
+            "testModule": "learning-progress",
+            "title": "complete lesson updates progress",
+            "testSteps": ["complete one lesson"],
+            "testInput": "available lesson",
+            "expectedResult": "progress increases",
+            "Priority": "P0",
+            "priorityFinal": "P0",
+        },
+    ]
+
+    def _dedupe(cases):  # noqa: ANN001, ANN202
+        return [dict(item) for item in cases]
+
+    def _reorder(cases, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        return [dict(item) for item in cases]
+
+    merged = merge_cases_for_append(
+        existing,
+        new_cases,
+        deduplicate_test_cases_fn=_dedupe,
+        reorder_cases_by_closed_loop_fn=_reorder,
+    )
+
+    assert [item.get("id") or item.get("caseId") for item in merged] == ["TC-001", "TC-003"]
 
 
 class _FakeDb:

@@ -54,6 +54,7 @@ from ..postprocess.case_contract import (
     project_persistable_cases,
     summarize_persistable_case_contract,
 )
+from ..postprocess.case_access import case_id as case_access_id, case_steps, case_text_field
 from .multi_pass_pipeline import (
     run_multi_pass_generation,
 )
@@ -787,12 +788,12 @@ Return ONLY the JSON array.
                     priority_state = "undetermined"
                 review_decision_summary_payload["priority_decision_state_breakdown"][priority_state] += 1
 
-                priority_final = str(case_item.get("priority_final") or "").strip().upper()
+                priority_final = case_text_field(case_item, "priority_final").upper()
                 if priority_final not in {"P0", "P1", "P2"}:
                     priority_final = "null"
                 review_decision_summary_payload["priority_final_breakdown"][priority_final] += 1
 
-                legacy_priority = str(case_item.get("legacy_priority") or case_item.get("priority") or "").strip().upper()
+                legacy_priority = str(case_item.get("legacy_priority") or case_text_field(case_item, "priority") or "").strip().upper()
                 if legacy_priority not in {"P0", "P1", "P2"}:
                     legacy_priority = "UNKNOWN"
                 review_decision_summary_payload["legacy_priority_breakdown"][legacy_priority] += 1
@@ -911,11 +912,11 @@ Return ONLY the JSON array.
                     return ""
                 return "||".join(
                     [
-                        _normalize_case_text(case_payload.get("test_module")),
-                        _normalize_case_text(case_payload.get("description")),
-                        _normalize_case_steps(case_payload.get("steps")),
-                        _normalize_case_text(case_payload.get("test_input")),
-                        _normalize_case_text(case_payload.get("expected_result")),
+                        _normalize_case_text(case_text_field(case_payload, "test_module")),
+                        _normalize_case_text(case_text_field(case_payload, "description")),
+                        _normalize_case_steps(case_steps(case_payload)),
+                        _normalize_case_text(case_text_field(case_payload, "test_input")),
+                        _normalize_case_text(case_text_field(case_payload, "expected_result")),
                     ]
                 )
 
@@ -957,18 +958,18 @@ Return ONLY the JSON array.
                     retained_final = True
                     final_signature_counts[candidate_signature] = int(final_signature_counts.get(candidate_signature) or 0) - 1
 
-                case_id = str(case_item.get("id") or case_item.get("case_id") or "").strip() or f"ROW-{candidate_index:03d}"
+                case_id = case_access_id(case_item) or f"ROW-{candidate_index:03d}"
                 model_priority = str(
                     case_item.get("model_priority_current")
                     or case_item.get("model_priority")
-                    or case_item.get("priority")
+                    or case_text_field(case_item, "priority")
                     or ""
                 ).strip().upper()
-                legacy_priority = str(case_item.get("legacy_priority") or case_item.get("priority") or "").strip().upper()
+                legacy_priority = str(case_item.get("legacy_priority") or case_text_field(case_item, "priority") or "").strip().upper()
                 priority_state = str(case_item.get("priority_decision_state") or "undetermined").strip().lower()
                 if priority_state not in {"decided", "conflict", "undetermined", "optional", "invalid"}:
                     priority_state = "undetermined"
-                priority_final = str(case_item.get("priority_final") or "").strip().upper()
+                priority_final = case_text_field(case_item, "priority_final").upper()
                 if priority_final not in {"P0", "P1", "P2"}:
                     priority_final = ""
 
@@ -1001,8 +1002,8 @@ Return ONLY the JSON array.
                     {
                         "candidate_index": int(candidate_index),
                         "case_id": case_id,
-                        "description": str(case_item.get("description") or "").strip(),
-                        "test_module": str(case_item.get("test_module") or "").strip(),
+                        "description": case_text_field(case_item, "description"),
+                        "test_module": case_text_field(case_item, "test_module"),
                         "model_priority": model_priority,
                         "model_priority_current": model_priority,
                         "legacy_priority": legacy_priority if legacy_priority in {"P0", "P1", "P2"} else "UNKNOWN",

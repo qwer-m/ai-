@@ -24,8 +24,22 @@ def test_case_signature_and_review_id_are_stable() -> None:
     assert review_case_id(case) == "TC-001"
 
 
+def test_case_signature_and_review_id_accept_alias_fields() -> None:
+    case = {
+        "caseId": " TC-002 ",
+        "testModule": " Course ",
+        "title": " Save plan ",
+        "expectedResult": " Saved ",
+        "testInput": " Data ",
+    }
+
+    assert case_signature(case) == "course|save plan|saved|data"
+    assert review_case_id(case) == "TC-002"
+
+
 def test_case_priority_and_focus_scores() -> None:
     assert case_priority_score({"priority": "P0"}) == 3
+    assert case_priority_score({"priorityFinal": "P0"}) == 3
     assert case_priority_score({"priority": "P2"}) == 1
     assert case_priority_score({"priority": "unknown"}) == 0
 
@@ -43,6 +57,10 @@ def test_case_coverage_bucket_prioritizes_exception_boundary_state_risk() -> Non
     assert case_coverage_bucket({"test_module": "M", "description": "状态流转"}) == "m|state"
     assert case_coverage_bucket({"test_module": "M", "description": "权限校验"}) == "m|risk"
     assert case_coverage_bucket({"description": "normal path"}) == "general|happy"
+
+
+def test_case_coverage_bucket_accepts_alias_module_field() -> None:
+    assert case_coverage_bucket({"module": "Alias Module", "description": "normal path"}) == "alias module|happy"
 
 
 def test_dedupe_by_final_description_keeps_first_and_returns_dropped_signatures() -> None:

@@ -13,6 +13,16 @@ def test_is_ui_like_case_detects_display_only_cases() -> None:
     assert is_ui_like_case(case, {}) is True
 
 
+def test_is_ui_like_case_uses_alias_fields() -> None:
+    case = {
+        "title": "Button icon and copy display",
+        "expectedResult": "button title and icon display correctly",
+        "testSteps": ["1. open settings"],
+    }
+
+    assert is_ui_like_case(case, {}) is True
+
+
 def test_is_ui_like_case_allows_short_pseudo_flow_without_behavior_depth() -> None:
     case = {
         "description": "点击按钮展示文案",

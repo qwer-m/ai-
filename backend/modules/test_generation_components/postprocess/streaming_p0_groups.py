@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .case_access import case_flat_text, case_text_field
 from .streaming_case_normalization import normalize_priority_value
 
 
@@ -102,22 +103,20 @@ def covered_p0_groups(cases: list[dict[str, Any]]) -> set[str]:
         if not isinstance(case, dict):
             continue
         decision_state = str(case.get("priority_decision_state") or "").strip().lower()
-        decision_final = str(case.get("priority_final") or "").strip().upper()
+        decision_final = case_text_field(case, "priority_final").upper()
         if decision_state:
             if decision_final != "P0":
                 continue
             if decision_state not in {"decided", "conflict_resolved", "overridden"}:
                 continue
-        elif normalize_priority_value(str(case.get("priority") or "")) != "P0":
+        elif normalize_priority_value(case_text_field(case, "priority")) != "P0":
             continue
-        text = " ".join(
-            [
-                str(case.get("test_module") or ""),
-                str(case.get("description") or ""),
-                str(case.get("expected_result") or ""),
-                str(case.get("test_input") or ""),
-            ]
-        ).lower()
+        text = case_flat_text(
+            case,
+            fields=("test_module", "description", "expected_result", "test_input", "steps"),
+            separator=" ",
+            lower=True,
+        )
         for group, tokens in P0_GROUP_TOKENS.items():
             if any(token in text for token in tokens):
                 covered_groups.add(group)

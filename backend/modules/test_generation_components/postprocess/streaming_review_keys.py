@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .case_access import case_flat_text
 from .streaming_case_keys import case_coverage_bucket
 from .streaming_text_match import normalize_match_text
 
@@ -18,16 +19,10 @@ def review_scenario(case: dict[str, Any]) -> str:
 
 def review_domain(case: dict[str, Any]) -> str:
     text = normalize_match_text(
-        " ".join(
-            [
-                str(case.get("test_module") or ""),
-                str(case.get("description") or ""),
-                str(case.get("expected_result") or ""),
-                str(case.get("test_input") or ""),
-                " ".join([str(x) for x in (case.get("steps") or []) if str(x).strip()])
-                if isinstance(case.get("steps"), list)
-                else "",
-            ]
+        case_flat_text(
+            case,
+            fields=("test_module", "description", "expected_result", "test_input", "steps"),
+            separator=" ",
         )
     )
     permission_tokens = (

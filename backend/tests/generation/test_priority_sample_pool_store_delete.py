@@ -631,6 +631,44 @@ class TestDataContractNormalization:
         sample = store.normalize_priority_sample({"case_id": "TC-001"})
         assert sample.get("source_case_id") == "TC-001"
 
+    def test_source_case_fields_from_shared_case_aliases(self):
+        sample = store.normalize_priority_sample(
+            {
+                "caseId": "TC-ALIAS",
+                "description": "Create learning plan",
+                "testModule": "Learning plan",
+                "testSteps": ["Open plan page", {"action": "Save plan"}],
+                "expectedResult": {"status": "saved", "message": ["success visible"]},
+            }
+        )
+
+        assert sample.get("source_case_id") == "TC-ALIAS"
+        assert sample.get("source_case_title") == "Create learning plan"
+        assert sample.get("source_case_module") == "Learning plan"
+        assert sample.get("source_case_steps") == "Open plan page Save plan"
+        assert sample.get("source_case_expected_result") == "saved success visible"
+        assert sample.get("business_assertion") == "saved success visible"
+
+    def test_source_case_fields_keep_sample_specific_values_before_case_aliases(self):
+        sample = store.normalize_priority_sample(
+            {
+                "caseId": "TC-ALIAS",
+                "source_case_id": "SRC-001",
+                "description": "Generated title",
+                "source_case_title": "Curated title",
+                "testModule": "Generated module",
+                "source_case_module": "Curated module",
+                "expectedResult": "Generated assertion",
+                "source_case_expected_result": "Curated assertion",
+            }
+        )
+
+        assert sample.get("source_case_id") == "SRC-001"
+        assert sample.get("source_case_title") == "Curated title"
+        assert sample.get("source_case_module") == "Curated module"
+        assert sample.get("source_case_expected_result") == "Curated assertion"
+        assert sample.get("business_assertion") == "Curated assertion"
+
     def test_sample_kind_matches_signal_type(self):
         sample = store.normalize_priority_sample({"signal_type": "positive"})
         assert sample.get("sample_kind") == "positive"

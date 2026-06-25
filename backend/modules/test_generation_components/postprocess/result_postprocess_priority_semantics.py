@@ -10,6 +10,7 @@ from .result_postprocess_priority_rules import (
     _normalize_existing_priority,
     _priority_case_signature,
 )
+from .case_access import case_flat_text, case_text_field
 
 from .postprocess_priority_config import (
     p0_keywords as _cfg_p0_keywords,
@@ -93,17 +94,12 @@ def _resolve_priority_conflict_to_final(
     suggested_priority = _normalize_existing_priority(suggested_priority)
     pair = {normalized_model, suggested_priority}
 
-    case_text = " ".join(
-        [
-            str(case.get("description") or ""),
-            str(case.get("test_module") or ""),
-            str(case.get("expected_result") or ""),
-            str(case.get("test_input") or ""),
-            " ".join(str(x) for x in (case.get("steps") or []) if str(x).strip())
-            if isinstance(case.get("steps"), list)
-            else "",
-        ]
-    ).lower()
+    case_text = case_flat_text(
+        case,
+        fields=("description", "test_module", "expected_result", "test_input", "steps"),
+        separator=" ",
+        lower=True,
+    )
     reasons = [str(item) for item in (score_result.get("reasons") or [])]
     guards = dict(score_result.get("guards") or {})
     case_level_hard_guard = bool(score_result.get("case_level_hard_guard"))
@@ -601,7 +597,7 @@ def apply_priority_semantics_to_case(
     coverage_context: dict[str, Any] | None = None,
     rule_diagnostics: dict[str, Any] | list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    input_priority = str(case.get("priority") or "").strip()
+    input_priority = case_text_field(case, "priority")
     model_priority = str(
         case.get("model_priority_current")
         or case.get("model_priority")

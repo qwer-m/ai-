@@ -17,6 +17,11 @@ from modules.testing.sample_pool_shadow_store import (
     shadow_write_patterns as _shadow_patterns,
     shadow_write_samples as _shadow_samples,
 )
+from modules.testing.sample_case_access import (
+    sample_case_id as _sample_case_id,
+    sample_case_text as _sample_case_text,
+    sample_value as _sample_value,
+)
 from modules.testing.manual_quality_profile import build_manual_quality_profile
 from modules.testing_components.repositories.evaluation_artifact_repository import (
     EvaluationArtifactRepository,
@@ -224,13 +229,6 @@ def build_priority_sample_pool_filename(project_id: int) -> str:
     return f"priority_sample_pool_project_{project_id}.json"
 
 
-def _sample_value(sample: dict[str, Any], *keys: str) -> Any:
-    for key in keys:
-        if key in sample:
-            return sample.get(key)
-    return None
-
-
 def _sanitize_text(raw: Any, *, max_len: int) -> str:
     text = re.sub(r"\s+", " ", str(raw or "").strip())
     if not text:
@@ -358,11 +356,16 @@ def _sample_search_text(sample: dict[str, Any], summary: str = "") -> str:
             _sample_value(sample, "expected_result_quality", "expectedResultQuality"),
             _sample_value(sample, "expected_result_quality_reason", "expectedResultQualityReason"),
             _sample_value(sample, "title"),
-            _sample_value(sample, "source_case_title", "sourceCaseTitle"),
-            _sample_value(sample, "source_case_module", "sourceCaseModule", "test_module", "testModule"),
-            _sample_value(sample, "source_case_steps", "sourceCaseSteps", "steps"),
+            _sample_case_text(sample, "description", "source_case_title", "sourceCaseTitle"),
+            _sample_case_text(sample, "test_module", "source_case_module", "sourceCaseModule"),
+            _sample_case_text(sample, "steps", "source_case_steps", "sourceCaseSteps"),
             _sample_value(sample, "business_assertion", "businessAssertion"),
-            _sample_value(sample, "source_case_expected_result", "sourceCaseExpectedResult", "expected_result", "expectedResult"),
+            _sample_case_text(
+                sample,
+                "expected_result",
+                "source_case_expected_result",
+                "sourceCaseExpectedResult",
+            ),
             _sample_value(sample, "user_comment", "userComment"),
         ]
         if str(part or "").strip()
@@ -640,13 +643,23 @@ def _default_pattern_summary(sample: dict[str, Any]) -> str:
     pattern_category = _normalize_pattern_category(
         _sample_value(sample, "pattern_category", "patternCategory")
     )
-    title = _sanitize_text(_sample_value(sample, "title"), max_len=100)
+    title = _sanitize_text(
+        _sample_case_text(sample, "description", "source_case_title", "sourceCaseTitle"),
+        max_len=100,
+    )
     assertion = _sanitize_text(
-        _sample_value(sample, "business_assertion", "businessAssertion", "source_case_expected_result", "sourceCaseExpectedResult", "expected_result", "expectedResult"),
+        _sample_case_text(
+            sample,
+            "expected_result",
+            "business_assertion",
+            "businessAssertion",
+            "source_case_expected_result",
+            "sourceCaseExpectedResult",
+        ),
         max_len=120,
     )
     comment = _sanitize_text(_sample_value(sample, "user_comment", "userComment"), max_len=120)
-    case_id = _sanitize_text(_sample_value(sample, "case_id", "caseId"), max_len=40)
+    case_id = _sanitize_text(_sample_case_id(sample), max_len=40)
     parts = [part for part in [pattern_category, reason, title, assertion, comment, case_id] if part]
     if not parts:
         return ""
@@ -783,32 +796,31 @@ def normalize_priority_sample(sample: dict[str, Any]) -> dict[str, Any]:
         normalized["source_id"] = None
     # source_case_id: the originating case identifier
     source_case_id = _sanitize_text(
-        _sample_value(
+        _sample_case_id(
             normalized,
             "source_case_id", "sourceCaseId",
-            "case_id", "caseId",
         ),
         max_len=256,
     )
     normalized["source_case_id"] = source_case_id or None
     normalized["source_case_title"] = _sanitize_text(
-        _sample_value(normalized, "source_case_title", "sourceCaseTitle", "title"),
+        _sample_case_text(normalized, "description", "source_case_title", "sourceCaseTitle"),
         max_len=160,
     ) or None
     normalized["source_case_module"] = _sanitize_text(
-        _sample_value(normalized, "source_case_module", "sourceCaseModule", "test_module", "testModule"),
+        _sample_case_text(normalized, "test_module", "source_case_module", "sourceCaseModule"),
         max_len=120,
     ) or None
     normalized["source_case_steps"] = _sanitize_text(
-        _sample_value(normalized, "source_case_steps", "sourceCaseSteps", "steps"),
+        _sample_case_text(normalized, "steps", "source_case_steps", "sourceCaseSteps"),
         max_len=240,
     ) or None
     business_assertion = _sanitize_text(
-        _sample_value(
+        _sample_case_text(
             normalized,
+            "expected_result",
             "business_assertion", "businessAssertion",
             "source_case_expected_result", "sourceCaseExpectedResult",
-            "expected_result", "expectedResult",
         ),
         max_len=240,
     )
@@ -1143,17 +1155,19 @@ def normalize_raw_priority_samples(samples: list[dict[str, Any]] | None, *, max_
 
 
 def _sample_has_business_detail(sample: dict[str, Any]) -> bool:
-    if _sanitize_text(_sample_value(sample, "source_case_steps", "sourceCaseSteps", "steps"), max_len=240):
+    if _sanitize_text(
+        _sample_case_text(sample, "steps", "source_case_steps", "sourceCaseSteps"),
+        max_len=240,
+    ):
         return True
     if _sanitize_text(
-        _sample_value(
+        _sample_case_text(
             sample,
+            "expected_result",
             "source_case_expected_result",
             "sourceCaseExpectedResult",
             "business_assertion",
             "businessAssertion",
-            "expected_result",
-            "expectedResult",
         ),
         max_len=240,
     ):
@@ -1178,17 +1192,17 @@ def _raw_sample_family_key(sample: dict[str, Any]) -> str:
     if pattern_grain == "workflow_blueprint":
         return _raw_sample_semantic_key(sample)
     title_key = _canonicalize_pattern_text(
-        _sample_value(sample, "source_case_title", "sourceCaseTitle", "title")
+        _sample_case_text(sample, "description", "source_case_title", "sourceCaseTitle")
     )
     module_key = _canonicalize_pattern_text(
-        _sample_value(sample, "source_case_module", "sourceCaseModule", "test_module", "testModule")
+        _sample_case_text(sample, "test_module", "source_case_module", "sourceCaseModule")
     )
     intent_key = _canonicalize_intent_text(
         " ".join(
             str(part or "")
             for part in [
-                _sample_value(sample, "source_case_module", "sourceCaseModule", "test_module", "testModule"),
-                _sample_value(sample, "source_case_title", "sourceCaseTitle", "title"),
+                _sample_case_text(sample, "test_module", "source_case_module", "sourceCaseModule"),
+                _sample_case_text(sample, "description", "source_case_title", "sourceCaseTitle"),
             ]
             if str(part or "").strip()
         )
@@ -1253,29 +1267,33 @@ def _raw_sample_semantic_key(sample: dict[str, Any]) -> str:
         max_len=8,
     ).upper()
     title_key = _canonicalize_pattern_text(
-        _sample_value(sample, "source_case_title", "sourceCaseTitle", "title")
+        _sample_case_text(sample, "description", "source_case_title", "sourceCaseTitle")
     )
     module_key = _canonicalize_pattern_text(
-        _sample_value(sample, "source_case_module", "sourceCaseModule", "test_module", "testModule")
+        _sample_case_text(sample, "test_module", "source_case_module", "sourceCaseModule")
     )
     assertion_key = _canonicalize_pattern_text(
-        _sample_value(
+        _sample_case_text(
             sample,
+            "expected_result",
             "business_assertion", "businessAssertion",
             "source_case_expected_result", "sourceCaseExpectedResult",
-            "expected_result", "expectedResult",
         )
     )
-    steps_key = _canonicalize_pattern_text(
-        _sample_value(sample, "source_case_steps", "sourceCaseSteps", "steps")
-    )[:80]
     intent_key = _canonicalize_intent_text(
         " ".join(
             str(part or "")
             for part in [
-                _sample_value(sample, "source_case_module", "sourceCaseModule", "test_module", "testModule"),
-                _sample_value(sample, "source_case_title", "sourceCaseTitle", "title"),
-                _sample_value(sample, "business_assertion", "businessAssertion", "source_case_expected_result", "sourceCaseExpectedResult", "expected_result", "expectedResult"),
+                _sample_case_text(sample, "test_module", "source_case_module", "sourceCaseModule"),
+                _sample_case_text(sample, "description", "source_case_title", "sourceCaseTitle"),
+                _sample_case_text(
+                    sample,
+                    "expected_result",
+                    "business_assertion",
+                    "businessAssertion",
+                    "source_case_expected_result",
+                    "sourceCaseExpectedResult",
+                ),
             ]
             if str(part or "").strip()
         )
@@ -1316,27 +1334,32 @@ def _choose_raw_sample_winner(left: dict[str, Any], right: dict[str, Any]) -> di
         if _sanitize_text(_sample_value(sample, "learning_status", "learningStatus"), max_len=24):
             edited_score += 2
         fidelity_score = 0
-        if _sanitize_text(_sample_value(sample, "source_case_steps", "sourceCaseSteps", "steps"), max_len=240):
+        if _sanitize_text(
+            _sample_case_text(sample, "steps", "source_case_steps", "sourceCaseSteps"),
+            max_len=240,
+        ):
             fidelity_score += 2
         if _sanitize_text(
-            _sample_value(
+            _sample_case_text(
                 sample,
+                "expected_result",
                 "source_case_expected_result",
                 "sourceCaseExpectedResult",
                 "business_assertion",
                 "businessAssertion",
-                "expected_result",
-                "expectedResult",
             ),
             max_len=240,
         ):
             fidelity_score += 2
         if _sanitize_text(
-            _sample_value(sample, "source_case_module", "sourceCaseModule", "test_module", "testModule"),
+            _sample_case_text(sample, "test_module", "source_case_module", "sourceCaseModule"),
             max_len=120,
         ):
             fidelity_score += 1
-        if _sanitize_text(_sample_value(sample, "source_case_title", "sourceCaseTitle", "title"), max_len=160):
+        if _sanitize_text(
+            _sample_case_text(sample, "description", "source_case_title", "sourceCaseTitle"),
+            max_len=160,
+        ):
             fidelity_score += 1
         workflow_blueprint = _sample_value(sample, "workflow_blueprint", "workflowBlueprint")
         if isinstance(workflow_blueprint, dict) and isinstance(workflow_blueprint.get("steps"), list):
@@ -1391,30 +1414,29 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
     sample_id = _sanitize_text(_sample_value(sample, "sample_id", "sampleId"), max_len=512)
     title = _sanitize_text(_sample_value(sample, "title"), max_len=120)
     source_case_id = _sanitize_text(
-        _sample_value(sample, "source_case_id", "sourceCaseId", "case_id", "caseId"),
+        _sample_case_id(sample, "source_case_id", "sourceCaseId"),
         max_len=256,
     )
     source_case_title = _sanitize_text(
-        _sample_value(sample, "source_case_title", "sourceCaseTitle"),
+        _sample_case_text(sample, "description", "source_case_title", "sourceCaseTitle"),
         max_len=160,
     )
     source_case_module = _sanitize_text(
-        _sample_value(sample, "source_case_module", "sourceCaseModule", "test_module", "testModule"),
+        _sample_case_text(sample, "test_module", "source_case_module", "sourceCaseModule"),
         max_len=120,
     )
     source_case_steps = _sanitize_text(
-        _sample_value(sample, "source_case_steps", "sourceCaseSteps", "steps"),
+        _sample_case_text(sample, "steps", "source_case_steps", "sourceCaseSteps"),
         max_len=240,
     )
     source_case_expected = _sanitize_text(
-        _sample_value(
+        _sample_case_text(
             sample,
+            "expected_result",
             "source_case_expected_result",
             "sourceCaseExpectedResult",
             "business_assertion",
             "businessAssertion",
-            "expected_result",
-            "expectedResult",
         ),
         max_len=240,
     )
@@ -1427,7 +1449,7 @@ def _build_priority_pattern_chunk(sample: dict[str, Any], sample_index: int) -> 
         _sample_value(sample, "expected_priority", "expectedPriority"),
         max_len=8,
     )
-    case_id = _sanitize_text(_sample_value(sample, "case_id", "caseId"), max_len=40)
+    case_id = _sanitize_text(_sample_case_id(sample), max_len=40)
     pattern_canonical = _sanitize_text(sample.get("pattern_canonical"), max_len=_MAX_PATTERN_CANONICAL_LEN)
     pattern_cluster_key = _sanitize_text(sample.get("pattern_cluster_key"), max_len=_MAX_PATTERN_CLUSTER_LEN)
     pattern_source = _sanitize_text(sample.get("pattern_source"), max_len=20)

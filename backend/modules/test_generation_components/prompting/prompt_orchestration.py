@@ -1,6 +1,12 @@
 import json
 from typing import Any, Callable
 
+from ..postprocess.case_access import (
+    case_id as case_access_id,
+    case_priority,
+    case_step_lines,
+    case_text_field,
+)
 from .prompt_orchestration_split_helpers import (
     build_closed_loop_base_prompt,
 )
@@ -29,7 +35,7 @@ def _build_closed_loop_snapshot(
     for case in cases:
         if not isinstance(case, dict):
             continue
-        module = str(case.get("test_module") or "").strip() or "General"
+        module = case_text_field(case, "test_module") or "General"
         if module not in module_stats:
             module_order.append(module)
             module_stats[module] = {
@@ -170,21 +176,16 @@ def _compact_case_for_review_prompt(case: dict[str, Any]) -> dict[str, Any]:
             return text
         return text[:limit].rstrip() + "..."
 
-    steps_raw = case.get("steps")
-    steps: list[str] = []
-    if isinstance(steps_raw, list):
-        steps = [_clip(item, 120) for item in steps_raw[:5] if str(item or "").strip()]
-    elif str(steps_raw or "").strip():
-        steps = [_clip(steps_raw, 240)]
+    steps = [_clip(item, 120) for item in case_step_lines(case)[:5]]
 
     return {
-        "id": str(case.get("id") or case.get("case_id") or "").strip(),
-        "description": _clip(case.get("description"), 180),
-        "test_module": _clip(case.get("test_module"), 80),
-        "priority": str(case.get("priority_final") or case.get("priority") or "").strip().upper(),
+        "id": case_access_id(case),
+        "description": _clip(case_text_field(case, "description"), 180),
+        "test_module": _clip(case_text_field(case, "test_module"), 80),
+        "priority": case_priority(case, prefer_final=True),
         "steps": steps,
-        "test_input": _clip(case.get("test_input"), 120),
-        "expected_result": _clip(case.get("expected_result"), 220),
+        "test_input": _clip(case_text_field(case, "test_input"), 120),
+        "expected_result": _clip(case_text_field(case, "expected_result"), 220),
     }
 
 
@@ -304,11 +305,13 @@ def build_review_select_prompt(
     target_min_count = max(1, int(target_min_count or target_count))
     target_max_count = max(target_min_count, int(target_max_count or target_count))
     candidate_text = _dump_review_cases_for_prompt(candidate_cases, max_items=120)
-    candidate_ids = [
-        str(item.get("id") or item.get("case_id") or "").strip()
-        for item in candidate_cases
-        if isinstance(item, dict) and str(item.get("id") or item.get("case_id") or "").strip()
-    ]
+    candidate_ids: list[str] = []
+    for item in candidate_cases:
+        if not isinstance(item, dict):
+            continue
+        candidate_id = case_access_id(item)
+        if candidate_id:
+            candidate_ids.append(candidate_id)
     candidate_ids = candidate_ids[:200]
     candidate_ids_text = json.dumps(candidate_ids, ensure_ascii=False)
     constraints = dict(coverage_constraints or {})

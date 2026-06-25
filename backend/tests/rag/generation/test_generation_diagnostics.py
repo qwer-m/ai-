@@ -67,6 +67,31 @@ def test_build_coverage_diagnostics_contains_required_metrics():
     assert 0.0 <= diag["requirement_keyword_coverage"] <= 1.0
 
 
+def test_build_coverage_diagnostics_counts_alias_modules():
+    diag = build_coverage_diagnostics(
+        requirement="save and preview",
+        generated_cases=[
+            {
+                "caseId": "TC-001",
+                "module": "Save",
+                "title": "save plan",
+                "expectedResult": "saved",
+            },
+            {
+                "caseId": "TC-002",
+                "testModule": "Preview",
+                "title": "preview plan",
+                "expectedResult": "previewed",
+            },
+        ],
+        kb_context="",
+        expected_count=2,
+    )
+
+    assert diag["module_count"] == 2
+    assert diag["modules_preview"] == ["Preview", "Save"]
+
+
 def test_build_context_source_log_has_snapshot_and_rag_sections():
     payload = build_context_source_log(
         context_result={

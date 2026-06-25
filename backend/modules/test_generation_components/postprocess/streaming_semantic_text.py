@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .case_access import case_steps, case_text_field
+
 
 def semantic_normalize_text(text: str) -> str:
     """
@@ -49,13 +51,10 @@ def semantic_tokenize(text: str, limit: int = 16) -> set[str]:
 
 
 def semantic_signature(case: dict[str, Any], rule_keys: list[str]) -> str:
-    module = str(case.get("test_module") or "").strip().lower() or "general"
-    desc = semantic_normalize_text(str(case.get("description") or ""))
-    expected = semantic_normalize_text(str(case.get("expected_result") or ""))
-    steps = case.get("steps")
-    steps_text = ""
-    if isinstance(steps, list):
-        steps_text = semantic_normalize_text(" ".join(str(x) for x in steps if str(x).strip()))
+    module = case_text_field(case, "test_module").lower() or "general"
+    desc = semantic_normalize_text(case_text_field(case, "description"))
+    expected = semantic_normalize_text(case_text_field(case, "expected_result"))
+    steps_text = semantic_normalize_text(" ".join(case_steps(case)))
     core_text = (desc + "|" + expected + "|" + steps_text)[:120]
     rule_key = "|".join(sorted(rule_keys)) if rule_keys else "NO_RULE"
     return f"{module}|{rule_key}|{core_text}"

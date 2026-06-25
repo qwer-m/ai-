@@ -475,6 +475,42 @@ def test_resolve_case_priority_decision_marks_conflict_for_model_p0_vs_semantic_
     assert decision.get("priority_decision_source") == "conflict_resolved_by_high_risk_business_rule"
 
 
+def test_resolve_case_priority_decision_uses_alias_fields_for_p1_conflict_keywords() -> None:
+    case = {
+        "title": "workflow state wording exists but semantic suggestion is low",
+        "testModule": "module-conflict",
+        "testSteps": ["submit"],
+        "expectedResult": "state stays usable",
+        "Priority": "P1",
+    }
+    score_result = {
+        "priority_score": 20,
+        "suggested_priority": "P2",
+        "guards": {
+            "main_workflow_blocking": False,
+            "workflow_blocking": False,
+            "severe_data_risk": False,
+            "severe_security_risk": False,
+            "case_level_release_blocking": False,
+        },
+        "reasons": [],
+        "p2_cap": False,
+        "coverage_value_exempt": False,
+        "missing_rule_hits": [],
+        "core_rule_hits": [],
+        "unique_coverage_hits": [],
+        "coverage_gain_score": 0,
+        "low_risk_only_covered": False,
+        "structural_p2_signals": False,
+        "case_level_hard_guard": False,
+    }
+
+    decision = resolve_case_priority_decision("P1", score_result, case)
+
+    assert decision.get("priority_final") == "P1"
+    assert decision.get("priority_decision_source") == "conflict_resolved_by_core_business_rule"
+
+
 def test_resolve_case_priority_decision_marks_undetermined_for_model_p1_without_positive_evidence() -> None:
     case = {
         "description": "普通展示校验",
@@ -748,6 +784,19 @@ def test_score_case_priority_ui_like_excludes_state_guard_expected_result_case()
         "expected_result": "不丢上下文，不串课文",
         "pattern_category": "ui_display",
         "priority": "P2",
+    }
+    score_result = score_case_priority(case)
+    assert bool(score_result.get("ui_like_case")) is False
+
+
+def test_score_case_priority_ui_like_excludes_alias_step_guard_sequence_case() -> None:
+    case = {
+        "title": "button visibility check for recover flow",
+        "testModule": "learning-flow",
+        "testSteps": ["return to course list", "re-enter current course and verify state"],
+        "expectedResult": "display is correct",
+        "patternCategory": "ui_display",
+        "Priority": "P2",
     }
     score_result = score_case_priority(case)
     assert bool(score_result.get("ui_like_case")) is False

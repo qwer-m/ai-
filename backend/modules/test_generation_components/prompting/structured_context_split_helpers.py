@@ -4,6 +4,11 @@ import re
 from collections import defaultdict
 from typing import Any
 
+from ..postprocess.case_access import (
+    case_id as case_access_id,
+    case_text_field,
+)
+
 
 _VALID_PRIORITIES = {"P0", "P1", "P2"}
 _PRIORITY_ORDER = ("P0", "P1", "P2")
@@ -127,9 +132,9 @@ def _normalize_case(case: dict[str, Any], index: int) -> dict[str, str]:
     """中文注释：统一 testcase 字段并兜底缺省值。"""
     metadata = case.get("metadata") if isinstance(case.get("metadata"), dict) else {}
     return {
-        "id": _safe_str(case.get("id"), f"TC-AUTO-{index:03d}"),
-        "description": _clip_text(_safe_str(case.get("description"), ""), 160),
+        "id": _safe_str(case_access_id(case), f"TC-AUTO-{index:03d}"),
+        "description": _clip_text(_safe_str(case_text_field(case, "description"), ""), 160),
         "biz_key": _safe_str(case.get("biz_key") or metadata.get("biz_key"), "unknown"),
-        "test_module": _safe_str(case.get("test_module"), "未分类模块"),
-        "priority": _normalize_priority(case.get("priority")),
+        "test_module": _safe_str(case_text_field(case, "test_module"), "未分类模块"),
+        "priority": _normalize_priority(case_text_field(case, "priority")),
     }
