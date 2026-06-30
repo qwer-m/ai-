@@ -261,10 +261,10 @@ def test_control_context_includes_manual_quality_profile() -> None:
                     "trusted_sample_count": 12,
                     "priority_distribution": {"P0": 4, "P1": 6, "P2": 2},
                     "module_distribution_top": {
-                        "\u672c\u5468\u8bfe\u7a0b\u6a21\u5757": 5,
-                        "\u6392\u8bfe-\u5b66\u4e60\u8ba1\u5212-\u7b2c1\u6b65": 4,
+                        "本周课程模块": 5,
+                        "排课-学习计划-第1步": 4,
                     },
-                    "execution_lifecycle_fields": ["ST", "release", "\u8865\u5145\u9879"],
+                    "execution_lifecycle_fields": ["ST", "release", "补充项"],
                     "high_priority_ratio": 0.83,
                     "display_ratio_cap": 0.25,
                 }
@@ -276,7 +276,7 @@ def test_control_context_includes_manual_quality_profile() -> None:
     assert "### MANUAL QUALITY PROFILE" in context
     assert "target P0/P1 ratio: about 83%" in context
     assert "display-only cap: <= 25%" in context
-    assert "\u672c\u5468\u8bfe\u7a0b\u6a21\u5757" in context
+    assert "本周课程模块" in context
 
 
 def test_control_context_includes_workflow_blueprints() -> None:
@@ -298,7 +298,21 @@ def test_control_context_includes_workflow_blueprints() -> None:
 
     assert "### WORKFLOW BLUEPRINTS" in output["control_context"]
     assert "checkout flow: Submit order -> Verify paid status" in output["control_context"]
+    assert "### GENERATION EXECUTION PLAN" in output["control_context"]
+    assert "* Generate main-chain cases first" in output["control_context"]
+    assert "  1. submit / Submit order" in output["control_context"]
+    assert "  2. verify / Verify paid status" in output["control_context"]
+    assert "permission/security -> exception/recovery -> boundary/state rollback" in output["control_context"]
     assert int(output["control_summary"].get("workflow_blueprint_count") or 0) == 1
+    assert int(output["control_summary"].get("generation_execution_plan_blueprint_count") or 0) == 1
+    assert int(output["control_summary"].get("generation_execution_plan_step_count") or 0) == 2
+    assert output["control_summary"].get("generation_execution_independent_suite_order") == [
+        "permission/security",
+        "exception/recovery",
+        "boundary/state rollback",
+        "independent functional",
+        "UI/display",
+    ]
 
 
 def test_structured_context_builds_fact_and_project_profiles() -> None:

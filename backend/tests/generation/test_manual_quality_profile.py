@@ -25,7 +25,7 @@ def _sample(
         "learning_status": "system_candidate" if candidate else "user_confirmed",
         "ST": "PASS",
         "release": "PASS",
-        "\u8865\u5145\u9879": "manual note",
+        "补充项": "manual note",
     }
     if confirmed:
         sample["manual_confirmed"] = True
@@ -33,10 +33,10 @@ def _sample(
 
 
 def test_manual_quality_profile_ignores_unconfirmed_candidate_drift() -> None:
-    trusted = _sample(case_id="TC-1", module="\u672c\u5468\u8bfe\u7a0b\u6a21\u5757", priority="P0")
+    trusted = _sample(case_id="TC-1", module="本周课程模块", priority="P0")
     candidate = _sample(
         case_id="TC-2",
-        module="\u6309\u94ae\u5c55\u793a\u903b\u8f91",
+        module="按钮展示逻辑",
         priority="P2",
         confirmed=False,
         candidate=True,
@@ -44,26 +44,26 @@ def test_manual_quality_profile_ignores_unconfirmed_candidate_drift() -> None:
 
     first = build_manual_quality_profile([trusted, candidate], project_id=1, user_id=2)
     changed_candidate = dict(candidate)
-    changed_candidate["source_case_module"] = "\u53e6\u4e00\u4e2a\u672a\u786e\u8ba4\u6a21\u5757"
+    changed_candidate["source_case_module"] = "另一个未确认模块"
     second = build_manual_quality_profile([trusted, changed_candidate], project_id=1, user_id=2)
 
     assert first["sample_set_hash"] == second["sample_set_hash"]
     assert first["trusted_sample_count"] == 1
     assert first["priority_distribution"] == {"P0": 1}
-    assert first["module_distribution_top"] == {"\u672c\u5468\u8bfe\u7a0b\u6a21\u5757": 1}
-    assert {"ST", "release", "\u8865\u5145\u9879"}.issubset(set(first["execution_lifecycle_fields"]))
+    assert first["module_distribution_top"] == {"本周课程模块": 1}
+    assert {"ST", "release", "补充项"}.issubset(set(first["execution_lifecycle_fields"]))
 
 
 def test_manual_quality_profile_version_changes_when_confirmed_sample_changes() -> None:
     first = build_manual_quality_profile(
-        [_sample(case_id="TC-1", module="\u5165\u53e3", priority="P0")],
+        [_sample(case_id="TC-1", module="入口", priority="P0")],
         project_id=1,
         user_id=2,
     )
     second = build_manual_quality_profile(
         [
-            _sample(case_id="TC-1", module="\u5165\u53e3", priority="P0"),
-            _sample(case_id="TC-2", module="\u6392\u8bfe-\u5b66\u4e60\u8ba1\u5212-\u7b2c1\u6b65", priority="P1"),
+            _sample(case_id="TC-1", module="入口", priority="P0"),
+            _sample(case_id="TC-2", module="排课-学习计划-第1步", priority="P1"),
         ],
         project_id=1,
         user_id=2,

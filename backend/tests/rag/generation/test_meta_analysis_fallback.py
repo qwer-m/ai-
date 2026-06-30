@@ -166,5 +166,8 @@ def test_stream_batches_injects_coverage_plan_lite() -> None:
     assert client.stream_prompts
     prompt = client.stream_prompts[-1]
     assert "COVERAGE PLAN-LITE" in prompt
+    assert "VERY FIRST" not in prompt
+    assert "UI/display independent suite" in prompt
+    assert "permission/security -> exception/recovery -> boundary/state rollback" in prompt
     assert "新增二轮复习模块" in prompt
     assert "打印功能保留教材和答案双选项" in prompt

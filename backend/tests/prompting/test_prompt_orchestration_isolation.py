@@ -34,6 +34,21 @@ def test_business_isolation_rule_contains_current_biz_key() -> None:
     assert "do NOT generate that case" in prompt
 
 
+def test_base_prompt_declares_execution_order_contract() -> None:
+    prompt = build_closed_loop_base_prompt(
+        strategy_plan={"system_type": "Web", "impact_scope": "module", "suggested_ratios": {}},
+        requirement_context="REQ context",
+        control_context="### WORKFLOW BLUEPRINTS\n* entry / open / initial->opened\n* commit / save / opened->saved",
+        current_biz_key="workflow_order",
+    )
+
+    assert "EXECUTION ORDER CONTRACT (MANDATORY)" in prompt
+    assert "JSON 数组顺序就是执行计划顺序" in prompt
+    assert "exact blueprint step order" in prompt
+    assert "permission/security -> exception/recovery -> boundary/state rollback" in prompt
+    assert "Do not interleave UI/display" in prompt
+
+
 def test_gap_fill_prompt_consumes_coverage_result() -> None:
     prompt = build_gap_fill_prompt(
         requirement_context="REQ-023 close org only when balance is zero",

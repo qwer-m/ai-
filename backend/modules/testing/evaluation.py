@@ -159,7 +159,7 @@ def _safe_compare_int_env(name: str, default: int) -> int:
 
 
 def _normalize_header(value: object) -> str:
-    text = str(value or "").strip().lstrip("\ufeff")
+    text = str(value or "").strip().lstrip(chr(0xFEFF))
     return re.sub(r"[\s_：:()（）\-]+", "", text).lower()
 
 

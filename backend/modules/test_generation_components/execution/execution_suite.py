@@ -17,6 +17,7 @@ from ..postprocess.case_access import (
     case_text_list_field,
     case_text_list_value,
 )
+from ..postprocess.streaming_execution_plan_ordering import execution_group_order_rank
 
 
 _GROUP_NAMES = {
@@ -25,17 +26,9 @@ _GROUP_NAMES = {
     "exception": "异常与失败路径",
     "boundary": "边界数据",
     "independent_functional": "独立功能",
+    "independent": "独立功能",
     "display": "展示与查询",
     "unknown": "手工执行顺序",
-}
-_GROUP_RANK = {
-    "main_smoke": 0,
-    "permission": 10,
-    "exception": 20,
-    "boundary": 30,
-    "independent_functional": 40,
-    "display": 50,
-    "unknown": 90,
 }
 _ILLEGAL_XML_RE = re.compile(r"[\x00-\x08\x0B-\x0C\x0E-\x1F]")
 
@@ -222,7 +215,7 @@ def build_execution_suite(cases_payload: Any) -> dict[str, Any]:
 
     suites.sort(
         key=lambda suite: (
-            _GROUP_RANK.get(_text(suite.get("execution_group")).lower(), 99),
+            execution_group_order_rank(_text(suite.get("execution_group")).lower()),
             _safe_int((suite.get("cases") or [{}])[0].get("execution_sequence"), 0),
             _text(suite.get("suite_id")),
         )

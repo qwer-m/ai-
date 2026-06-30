@@ -559,14 +559,14 @@ def test_parse_test_cases_payload_uses_shared_case_alias_registry() -> None:
     cases = parse_test_cases_payload(
         [
             {
-                "\u7f16\u53f7": "TC-ALIAS",
-                "\u6d4b\u8bd5\u70b9": "course publish rollback",
-                "\u6d4b\u8bd5\u6a21\u5757": "course publishing",
-                "\u524d\u63d0\u6761\u4ef6": "course exists",
-                "\u6267\u884c\u6b65\u9aa4": ["publish course", "rollback publish"],
-                "\u6d4b\u8bd5\u6570\u636e": "course id",
-                "\u671f\u671b\u7ed3\u679c": "course is hidden after rollback",
-                "\u7528\u4f8b\u7ea7\u522b": "P0",
+                "编号": "TC-ALIAS",
+                "测试点": "course publish rollback",
+                "测试模块": "course publishing",
+                "前提条件": "course exists",
+                "执行步骤": ["publish course", "rollback publish"],
+                "测试数据": "course id",
+                "期望结果": "course is hidden after rollback",
+                "用例级别": "P0",
                 "owner": "qa",
             }
         ]

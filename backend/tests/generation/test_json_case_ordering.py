@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from modules.test_generation_components.postprocess import json_normalizer, json_processing, json_validator
+from modules.test_generation_components.postprocess.result_postprocess import finalize_generated_cases
 
 
 def test_json_normalizer_reuses_validator_ordering_helpers() -> None:
@@ -14,14 +15,14 @@ def test_normalize_json_structure_uses_shared_case_alias_registry() -> None:
     normalized = json_normalizer.normalize_json_structure(
         [
             {
-                "\u7528\u4f8b\u7f16\u53f7": "7",
-                "\u6807\u9898": "create plan",
-                "\u6240\u5c5e\u6a21\u5757": "schedule",
-                "\u524d\u7f6e\u6761\u4ef6": ["logged in"],
-                "\u64cd\u4f5c\u6b65\u9aa4": ["open planner", "save"],
-                "\u6d4b\u8bd5\u8f93\u5165": "valid plan",
-                "\u9884\u671f\u7ed3\u679c": "plan saved",
-                "\u4f18\u5148\u7ea7": "HIGH",
+                "用例编号": "7",
+                "标题": "create plan",
+                "所属模块": "schedule",
+                "前置条件": ["logged in"],
+                "操作步骤": ["open planner", "save"],
+                "测试输入": "valid plan",
+                "预期结果": "plan saved",
+                "优先级": "HIGH",
             }
         ]
     )
@@ -76,3 +77,57 @@ def test_json_case_order_helpers_accept_alias_fields() -> None:
 
 def test_json_processing_keeps_safe_text_join_compatibility() -> None:
     assert json_processing._safe_text_join({"outer": ["A", {"inner": "B"}]}) == "A B"
+
+
+def test_finalize_generated_cases_reapplies_execution_group_order_after_legacy_sort() -> None:
+    cases = [
+        {
+            "id": "raw-display",
+            "description": "display final result",
+            "test_module": "A",
+            "steps": ["open detail"],
+            "expected_result": "detail displayed",
+            "priority": "P1",
+            "priority_final": "P1",
+            "execution_group": "display",
+            "execution_sequence": 3,
+        },
+        {
+            "id": "raw-main",
+            "description": "submit success",
+            "test_module": "Z",
+            "steps": ["submit"],
+            "expected_result": "submitted",
+            "priority": "P0",
+            "priority_final": "P0",
+            "execution_group": "main_smoke",
+            "execution_sequence": 1,
+        },
+        {
+            "id": "raw-permission",
+            "description": "permission denied",
+            "test_module": "B",
+            "steps": ["open without permission"],
+            "expected_result": "access denied",
+            "priority": "P1",
+            "priority_final": "P1",
+            "execution_group": "permission",
+            "execution_sequence": 2,
+        },
+    ]
+
+    def legacy_sort(candidate_cases: list[dict], **_kwargs: object) -> list[dict]:
+        return sorted((dict(item) for item in candidate_cases), key=lambda item: str(item["test_module"]))
+
+    result = finalize_generated_cases(
+        cases,
+        start_id=5,
+        clean_and_parse_json_fn=lambda raw: raw,
+        normalize_json_structure_fn=lambda raw: raw,
+        deduplicate_test_cases_fn=lambda raw: raw,
+        reorder_cases_by_closed_loop_fn=legacy_sort,
+    )
+
+    assert [item["execution_group"] for item in result] == ["main_smoke", "permission", "display"]
+    assert [item["id"] for item in result] == ["TC-005", "TC-006", "TC-007"]
+    assert [item["execution_sequence"] for item in result] == [1, 2, 3]

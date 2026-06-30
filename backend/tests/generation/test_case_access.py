@@ -54,9 +54,9 @@ def test_case_access_reads_known_aliases() -> None:
 
 
 def test_case_step_lines_splits_text_steps_without_changing_case_steps() -> None:
-    case = {"testSteps": "open page\nclick save;check toast\uff1bcleanup\u3001done"}
+    case = {"testSteps": "open page\nclick save;check toast；cleanup、done"}
 
-    assert case_steps(case) == ["open page\nclick save;check toast\uff1bcleanup\u3001done"]
+    assert case_steps(case) == ["open page\nclick save;check toast；cleanup、done"]
     assert case_step_lines(case) == ["open page", "click save", "check toast", "cleanup", "done"]
 
 
@@ -80,14 +80,14 @@ def test_case_text_list_helpers_preserve_list_and_split_line_modes() -> None:
 
 def test_case_access_reads_chinese_aliases() -> None:
     case = {
-        "\u7528\u4f8b\u7f16\u53f7": " TC-009 ",
-        "\u6807\u9898": " Save course ",
-        "\u6240\u5c5e\u6a21\u5757": " Course ",
-        "\u524d\u7f6e\u6761\u4ef6": [" logged in "],
-        "\u64cd\u4f5c\u6b65\u9aa4": [" open ", " save "],
-        "\u6d4b\u8bd5\u8f93\u5165": " valid data ",
-        "\u9884\u671f\u7ed3\u679c": " saved ",
-        "\u4f18\u5148\u7ea7": " P1 ",
+        "用例编号": " TC-009 ",
+        "标题": " Save course ",
+        "所属模块": " Course ",
+        "前置条件": [" logged in "],
+        "操作步骤": [" open ", " save "],
+        "测试输入": " valid data ",
+        "预期结果": " saved ",
+        "优先级": " P1 ",
     }
 
     assert case_id(case) == "TC-009"

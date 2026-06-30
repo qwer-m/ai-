@@ -22,8 +22,14 @@ def test_project_persistable_cases_preserves_priority_and_execution_fields() -> 
                 "priority_final": "P0",
                 "priority_decision_source": "execution_plan_final_priority",
                 "execution_group": "main_smoke",
+                "execution_sequence": 2,
+                "depends_on": ["TC-000"],
                 "role": "student",
                 "session_key": "student_session",
+                "fixture_key": "workflow_seed",
+                "group_setup": "seed_workflow_dataset()",
+                "group_teardown": "cleanup_workflow_dataset()",
+                "cleanup_policy": "case_isolated",
                 "workflow_transition": {
                     "workflow_id": "schedule_flow",
                     "source_state": "draft",
@@ -56,9 +62,15 @@ def test_project_persistable_cases_preserves_priority_and_execution_fields() -> 
     assert result[0]["source_state"] == "draft"
     assert result[0]["target_state"] == "saved"
     assert result[0]["execution_group"] == "main_smoke"
+    assert result[0]["execution_sequence"] == 2
+    assert result[0]["depends_on"] == ["TC-000"]
     assert result[0]["main_chain_stage_kind"] == "commit"
     assert result[0]["role"] == "student"
     assert result[0]["session_key"] == "student_session"
+    assert result[0]["fixture_key"] == "workflow_seed"
+    assert result[0]["group_setup"] == "seed_workflow_dataset()"
+    assert result[0]["group_teardown"] == "cleanup_workflow_dataset()"
+    assert result[0]["cleanup_policy"] == "case_isolated"
     assert "priority_decision_source" not in result[0]
     assert "workflow_transition" not in result[0]
 

@@ -15,6 +15,7 @@ from ...prompting.structured_context import (
 from ...prompting.generation_diagnostics import (
     build_prompt_context_intake_diagnostics,
 )
+from ...postprocess.streaming_execution_plan_ordering import execution_side_suite_order_text
 from ..adapters import (
     clean_and_parse_json,
     count_unique_test_cases,
@@ -528,6 +529,7 @@ class LegacyGenerationStreamBatchesMixin:
                         expected_count=expected_count,
                         infer_case_kind_fn=infer_case_kind,
                     )
+                side_suite_order = execution_side_suite_order_text()
 
                 system_prompt = f"""
                 {base_prompt}
@@ -552,7 +554,9 @@ class LegacyGenerationStreamBatchesMixin:
 
                 # --- VISUAL/LAYOUT TESTING RULE ---
                 If the Requirement mentions UI layout, styles, or specific visual elements:
-                - You MUST generate a "UI Verification" test case as the VERY FIRST case for that module.
+                - Generate UI/display verification only after the main workflow and state-transition cases for that module.
+                - Treat visual/layout checks as the UI/display independent suite, not as the first main-chain case.
+                - Keep independent suites in this order: {side_suite_order}.
                 - Verify the visual appearance matches the description/image.
                 - Do NOT skip visual details just because they are not "functional actions".
 

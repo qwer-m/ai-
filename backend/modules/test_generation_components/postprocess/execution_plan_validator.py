@@ -13,6 +13,7 @@ from .case_access import (
     case_id as case_access_id,
     case_text_field,
 )
+from .streaming_execution_plan_ordering import execution_group_order_rank
 
 
 _STATE_FIELD_NAMES = (
@@ -32,12 +33,12 @@ _COMMIT_ACTION_TOKENS = (
     "提交",
     "发布",
     "确认",
-    "\u89e6\u53d1\u6253\u5206",
-    "\u5f00\u59cb\u6253\u5206",
-    "\u81ea\u52a8\u6253\u5206",
-    "\u8bc4\u5206\u8ba1\u7b97",
-    "\u751f\u6210\u8bc4\u5206",
-    "\u7ed9\u51fa\u8bc4\u5206",
+    "触发打分",
+    "开始打分",
+    "自动打分",
+    "评分计算",
+    "生成评分",
+    "给出评分",
     "save",
     "submit",
     "publish",
@@ -62,9 +63,9 @@ _DOWNSTREAM_VISIBILITY_TOKENS = (
     "生效",
     "展示",
     "显示",
-    "\u8bc4\u5206\u7ed3\u679c",
-    "\u6253\u5206\u7ed3\u679c",
-    "\u7efc\u5408\u8bc4\u5206",
+    "评分结果",
+    "打分结果",
+    "综合评分",
     "visible",
     "display",
     "displayed",
@@ -107,13 +108,13 @@ _CONFIGURE_TOKENS = (
     "edit",
 )
 _RESET_OR_ABORT_TOKENS = (
-    "\u9000\u51fa",
-    "\u91cd\u65b0\u8fdb\u5165",
-    "\u91cd\u590d\u8fdb\u5165",
-    "\u4e0d\u4fdd\u7559",
-    "\u6e05\u7a7a",
-    "\u7a7a\u767d",
-    "\u521d\u59cb\u72b6\u6001",
+    "退出",
+    "重新进入",
+    "重复进入",
+    "不保留",
+    "清空",
+    "空白",
+    "初始状态",
     "exit",
     "reset",
     "clear",
@@ -121,10 +122,10 @@ _RESET_OR_ABORT_TOKENS = (
     "not retain",
 )
 _RESUME_STATE_ONLY_TOKENS = (
-    "\u672a\u5b8c\u6210",
-    "\u4fdd\u7559\u5386\u53f2",
-    "\u4fdd\u7559\u5bf9\u8bdd",
-    "\u6062\u590d\u4e0a\u6b21",
+    "未完成",
+    "保留历史",
+    "保留对话",
+    "恢复上次",
     "resume",
     "resume state",
     "re-enter",
@@ -134,18 +135,18 @@ _RESUME_STATE_ONLY_TOKENS = (
     "retained dialog",
 )
 _CONDITIONAL_VISIBILITY_TOKENS = (
-    "\u4ec5\u5728",
-    "\u53ea\u6709",
-    "\u4ec5\u5f53",
-    "\u6761\u4ef6",
-    "\u9608\u503c",
-    "\u6b63\u786e\u7387",
-    "\u8d85\u8fc7",
-    "\u4e0d\u8db3",
-    "\u4f4e\u4e8e",
-    "\u9ad8\u4e8e",
-    "\u5927\u4e8e",
-    "\u5c0f\u4e8e",
+    "仅在",
+    "只有",
+    "仅当",
+    "条件",
+    "阈值",
+    "正确率",
+    "超过",
+    "不足",
+    "低于",
+    "高于",
+    "大于",
+    "小于",
     "only when",
     "only if",
     "threshold",
@@ -154,15 +155,15 @@ _CONDITIONAL_VISIBILITY_TOKENS = (
     "less than",
 )
 _PASSIVE_VISIBILITY_SURFACE_TOKENS = (
-    "\u6309\u94ae",
-    "\u5165\u53e3",
-    "\u6807\u8bc6",
-    "\u72b6\u6001",
-    "\u663e\u793a",
-    "\u5c55\u793a",
-    "\u51fa\u73b0",
-    "\u53ef\u89c1",
-    "\u7f6e\u7070",
+    "按钮",
+    "入口",
+    "标识",
+    "状态",
+    "显示",
+    "展示",
+    "出现",
+    "可见",
+    "置灰",
     "button",
     "entry",
     "status",
@@ -173,16 +174,16 @@ _PASSIVE_VISIBILITY_SURFACE_TOKENS = (
     "disabled",
 )
 _CONFIGURE_ACTION_REQUIRED_TOKENS = (
-    "\u9009\u62e9",
-    "\u8bbe\u7f6e",
-    "\u914d\u7f6e",
-    "\u7f16\u8f91",
-    "\u4fee\u6539",
-    "\u65b0\u589e",
-    "\u6dfb\u52a0",
-    "\u9009\u8bfe",
-    "\u9009\u65f6\u95f4",
-    "\u4e0b\u4e00\u6b65",
+    "选择",
+    "设置",
+    "配置",
+    "编辑",
+    "修改",
+    "新增",
+    "添加",
+    "选课",
+    "选时间",
+    "下一步",
     "select",
     "set",
     "configure",
@@ -193,15 +194,15 @@ _CONFIGURE_ACTION_REQUIRED_TOKENS = (
     "next",
 )
 _PASSIVE_LIST_STATUS_TOKENS = (
-    "\u5df2\u6709\u8ba1\u5212",
-    "\u5217\u8868",
-    "\u6392\u5e8f",
-    "\u5347\u5e8f",
-    "\u964d\u5e8f",
-    "\u6807\u8bb0",
-    "\u72b6\u6001\u6807\u8bb0",
-    "\u5df2\u5b8c\u6210",
-    "\u8fdb\u884c\u4e2d",
+    "已有计划",
+    "列表",
+    "排序",
+    "升序",
+    "降序",
+    "标记",
+    "状态标记",
+    "已完成",
+    "进行中",
     "existing plan",
     "list",
     "sort",
@@ -209,25 +210,25 @@ _PASSIVE_LIST_STATUS_TOKENS = (
     "status label",
 )
 _PREVIEW_REQUIRED_TOKENS = (
-    "\u9884\u89c8",
-    "\u9884\u89c8\u786e\u8ba4",
-    "\u786e\u8ba4\u9875",
-    "\u68c0\u67e5",
+    "预览",
+    "预览确认",
+    "确认页",
+    "检查",
     "preview",
     "review",
 )
 _COMMIT_REQUIRED_TOKENS = (
-    "\u4fdd\u5b58",
-    "\u63d0\u4ea4",
-    "\u786e\u8ba4",
-    "\u5b8c\u6210\u521b\u5efa",
-    "\u521b\u5efa\u6210\u529f",
-    "\u89e6\u53d1\u6253\u5206",
-    "\u5f00\u59cb\u6253\u5206",
-    "\u81ea\u52a8\u6253\u5206",
-    "\u8bc4\u5206\u8ba1\u7b97",
-    "\u751f\u6210\u8bc4\u5206",
-    "\u7ed9\u51fa\u8bc4\u5206",
+    "保存",
+    "提交",
+    "确认",
+    "完成创建",
+    "创建成功",
+    "触发打分",
+    "开始打分",
+    "自动打分",
+    "评分计算",
+    "生成评分",
+    "给出评分",
     "save",
     "submit",
     "commit",
@@ -237,19 +238,19 @@ _COMMIT_REQUIRED_TOKENS = (
     "score calculation",
 )
 _DOWNSTREAM_PROPAGATION_TOKENS = (
-    "\u540c\u6b65",
-    "\u751f\u6548",
-    "\u6700\u65b0",
-    "\u65b0\u8ba1\u5212",
-    "\u65b0\u589e",
-    "\u521b\u5efa",
-    "\u4fdd\u5b58",
-    "\u4e00\u81f4",
-    "\u4e66\u623f\u7aef",
-    "\u5b66\u751f\u7aef",
-    "\u8bc4\u5206\u7ed3\u679c",
-    "\u6253\u5206\u7ed3\u679c",
-    "\u7efc\u5408\u8bc4\u5206",
+    "同步",
+    "生效",
+    "最新",
+    "新计划",
+    "新增",
+    "创建",
+    "保存",
+    "一致",
+    "书房端",
+    "学生端",
+    "评分结果",
+    "打分结果",
+    "综合评分",
     "sync",
     "synced",
     "effective",
@@ -270,12 +271,12 @@ _DOWNSTREAM_PROPAGATION_TOKENS = (
     "scoring result",
 )
 _CONSUME_REQUIRED_TOKENS = (
-    "\u8df3\u8f6c",
-    "\u8fdb\u5165",
-    "\u6253\u5f00",
-    "\u5b66\u4e60",
-    "\u70b9\u51fb",
-    "\u67e5\u770b",
+    "跳转",
+    "进入",
+    "打开",
+    "学习",
+    "点击",
+    "查看",
     "navigate",
     "enter",
     "open",
@@ -285,11 +286,11 @@ _CONSUME_REQUIRED_TOKENS = (
     "consume",
 )
 _COMPLETION_REQUIRED_TOKENS = (
-    "\u5b8c\u6210",
-    "\u8fdb\u5ea6",
-    "\u72b6\u6001\u540c\u6b65",
-    "\u8fdb\u5ea6\u66f4\u65b0",
-    "\u66f4\u65b0",
+    "完成",
+    "进度",
+    "状态同步",
+    "进度更新",
+    "更新",
     "complete",
     "completion",
     "progress",
@@ -297,30 +298,30 @@ _COMPLETION_REQUIRED_TOKENS = (
     "updated",
 )
 _COMPLETION_STRONG_TOKENS = (
-    "\u72b6\u6001\u540c\u6b65",
-    "\u8fdb\u5ea6\u66f4\u65b0",
-    "\u5b8c\u6210\u540e",
-    "\u540c\u6b65",
-    "\u66f4\u65b0",
+    "状态同步",
+    "进度更新",
+    "完成后",
+    "同步",
+    "更新",
     "completion sync",
     "progress updated",
     "synced",
     "updated",
 )
 _REPORT_HISTORY_ONLY_TOKENS = (
-    "\u62a5\u544a",
-    "\u5386\u53f2\u8bb0\u5f55",
-    "\u5386\u53f2\u8bfe\u7a0b",
+    "报告",
+    "历史记录",
+    "历史课程",
     "report",
     "history",
 )
 _MANAGEMENT_SURFACE_TOKENS = (
-    "\u7763\u5bfc",
-    "\u8001\u5e08",
-    "\u6559\u5e08",
-    "\u5b66\u5458\u4fe1\u606f\u8868\u683c",
-    "\u8bfe\u7a0b\u7ba1\u7406",
-    "\u8bfe\u5802\u7ba1\u7406",
+    "督导",
+    "老师",
+    "教师",
+    "学员信息表格",
+    "课程管理",
+    "课堂管理",
     "supervisor",
     "teacher",
     "student info table",
@@ -573,6 +574,68 @@ def _main_smoke_cases(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
             key=lambda row: _case_order(row[1], row[0]),
         )
     ]
+
+
+def validate_execution_group_order(cases: Any) -> list[dict[str, Any]]:
+    """Validate that the final JSON array itself follows execution-plan order."""
+    normalized = materialize_final_case_state_fields(cases)
+    final_cases = [dict(item) for item in normalized if isinstance(item, dict)] if isinstance(normalized, list) else []
+    conflicts: list[dict[str, Any]] = []
+    seen_side_suite = False
+    previous_side_rank = -1
+    previous_side_group = ""
+
+    for index, case in enumerate(final_cases, start=1):
+        group = _text(case.get("execution_group")).strip().lower()
+        if not group:
+            continue
+        case_id = case_access_id(case) or f"case-{index}"
+        sequence_raw = case.get("execution_sequence")
+        if sequence_raw not in (None, ""):
+            try:
+                sequence_value = int(sequence_raw)
+            except Exception:
+                sequence_value = 0
+            if sequence_value != index:
+                conflicts.append(
+                    {
+                        "case_id": case_id,
+                        "index": int(index),
+                        "execution_sequence": int(sequence_value),
+                        "execution_group": group,
+                        "reason": "execution_sequence_mismatch",
+                    }
+                )
+        if group == "main_smoke":
+            if seen_side_suite:
+                conflicts.append(
+                    {
+                        "case_id": case_id,
+                        "index": int(index),
+                        "execution_group": group,
+                        "reason": "main_smoke_after_independent_suite",
+                    }
+                )
+            continue
+
+        seen_side_suite = True
+        rank = execution_group_order_rank(group)
+        if previous_side_rank >= 0 and rank < previous_side_rank:
+            conflicts.append(
+                {
+                    "case_id": case_id,
+                    "index": int(index),
+                    "execution_group": group,
+                    "previous_execution_group": previous_side_group,
+                    "rank": int(rank),
+                    "previous_rank": int(previous_side_rank),
+                    "reason": "side_suite_rank_decreased",
+                }
+            )
+        previous_side_rank = rank
+        previous_side_group = group
+
+    return conflicts
 
 
 def validate_main_smoke_state_chain(cases: Any) -> list[dict[str, Any]]:
@@ -848,6 +911,7 @@ def validate_execution_plan(
     workflow_id_missing_count = sum(1 for item in main_cases if not _text(_state_value(item, "workflow_id")))
     state_conflicts = validate_main_smoke_state_chain(cases)
     semantic_conflicts = validate_main_smoke_semantic_alignment(cases)
+    order_conflicts = validate_execution_group_order(cases)
     closure = _closure_metrics(main_cases)
     resolved_execution_plan = dict(execution_plan or {})
     blueprint_source = _text(resolved_execution_plan.get("workflow_blueprint_source")).lower()
@@ -877,6 +941,8 @@ def validate_execution_plan(
         failure_reasons.append("state_chain_conflict")
     if semantic_conflicts:
         failure_reasons.append("main_smoke_semantic_conflict")
+    if order_conflicts:
+        failure_reasons.append("execution_group_order_conflict")
     if not bool(closure.get("commit_downstream_completion_closed")):
         failure_reasons.append("commit_downstream_completion_missing")
     candidate_blueprint_without_contract = bool(
@@ -916,10 +982,12 @@ def validate_execution_plan(
             "workflow_id_missing_rate": float(workflow_id_missing_rate),
             "state_conflict_count": int(len(state_conflicts)),
             "semantic_conflict_count": int(len(semantic_conflicts)),
+            "execution_group_order_conflict_count": int(len(order_conflicts)),
             "linear_executable": bool(
                 len(main_cases) >= int(resolved_policy.min_main_smoke_count)
                 and not state_conflicts
                 and not semantic_conflicts
+                and not order_conflicts
                 and closure.get("commit_downstream_completion_closed")
             ),
             "workflow_blueprint_count": int(blueprint_count),
@@ -940,6 +1008,7 @@ def validate_execution_plan(
         },
         "state_conflicts": state_conflicts[:100],
         "semantic_conflicts": semantic_conflicts[:100],
+        "execution_group_order_conflicts": order_conflicts[:100],
         "cases": cases,
     }
 
@@ -948,6 +1017,7 @@ __all__ = [
     "ExecutionPlanValidationPolicy",
     "materialize_final_case_state_fields",
     "validate_execution_plan",
+    "validate_execution_group_order",
     "validate_main_smoke_state_chain",
     "validate_main_smoke_semantic_alignment",
 ]

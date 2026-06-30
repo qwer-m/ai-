@@ -140,7 +140,7 @@ def test_execution_suite_splits_text_steps_with_shared_accessor() -> None:
             "caseId": "TC-TEXT-STEPS",
             "title": "save schedule plan",
             "testModule": "schedule",
-            "testSteps": "open scheduler;save plan\uff1bverify toast",
+            "testSteps": "open scheduler;save plan；verify toast",
             "expectedResult": "plan is saved",
             "execution_group": "main_smoke",
             "execution_sequence": 1,
@@ -248,6 +248,54 @@ def test_execution_suite_without_main_smoke_reports_partial_readiness() -> None:
     assert suite["execution_readiness"] == "partial"
     assert "缺少 main_smoke 主链" in suite["warnings"][0]
     assert suite["main_suite_id"] == ""
+
+
+def test_execution_suite_orders_side_suites_with_shared_execution_rank() -> None:
+    cases = [
+        {
+            "id": "TC-display",
+            "description": "display order status",
+            "steps": ["open order detail"],
+            "expected_result": "status is displayed",
+            "execution_group": "display",
+            "execution_sequence": 6,
+            "role": "viewer",
+            "session_key": "viewer_session",
+        },
+        {
+            "id": "TC-independent",
+            "description": "recalculate coupon",
+            "steps": ["apply coupon"],
+            "expected_result": "total is recalculated",
+            "execution_group": "independent",
+            "execution_sequence": 5,
+            "role": "student",
+            "session_key": "student_session",
+        },
+        {
+            "id": "TC-permission",
+            "description": "block readonly submit",
+            "steps": ["submit as readonly"],
+            "expected_result": "permission denied",
+            "execution_group": "permission",
+            "execution_sequence": 3,
+            "role": "readonly",
+            "session_key": "readonly_session",
+        },
+    ]
+
+    suite = build_execution_suite(cases)
+
+    assert [item["execution_group"] for item in suite["suites"]] == [
+        "permission",
+        "independent",
+        "display",
+    ]
+    assert [item["case_id"] for item in suite["flat_run_order"]] == [
+        "TC-permission",
+        "TC-independent",
+        "TC-display",
+    ]
 
 
 def test_parse_generated_cases_payload_accepts_persisted_shapes() -> None:

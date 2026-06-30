@@ -1,5 +1,7 @@
 from typing import Any, Callable
 
+from ..postprocess.streaming_execution_plan_ordering import execution_side_suite_order_text
+
 def build_closed_loop_base_prompt(
     strategy_plan: dict[str, Any] | None,
     *,
@@ -21,6 +23,7 @@ def build_closed_loop_base_prompt(
     supplement_context = (supplement_context or "").strip() or "(empty)"
     control_context = (control_context or "").strip()
     current_biz_key = (current_biz_key or "").strip() or "unknown"
+    side_suite_order = execution_side_suite_order_text()
     control_block = ""
     if control_context and control_context.lower() != "(empty)":
         control_block = f"""
@@ -145,6 +148,15 @@ S0 - Workflow / Closed-loop (HIGHEST PRIORITY):
    - Exception / Error Handling
    - 至少一个关键风险（权限 / 安全 / 性能）
 4. 必须先模块内闭环，再考虑全局
+5. JSON 数组顺序就是执行计划顺序，不是普通列表排序。
+
+EXECUTION ORDER CONTRACT (MANDATORY):
+1. If WORKFLOW BLUEPRINTS are present in the control context, generate the first main-chain cases in the exact blueprint step order.
+2. Main-chain cases must appear before independent suites and must preserve state transition order: source_state -> target_state.
+3. After the main chain, output independent suites in this order:
+   {side_suite_order}.
+4. Do not interleave UI/display, boundary, or exception cases into the main chain unless they advance the confirmed workflow state.
+5. When a case belongs to an independent suite, keep it after the main workflow and write preconditions that prepare its own state.
 
 --------------------------------
 

@@ -55,6 +55,7 @@ from ..postprocess.case_contract import (
     summarize_persistable_case_contract,
 )
 from ..postprocess.case_access import case_id as case_access_id, case_steps, case_text_field
+from ..postprocess.streaming_execution_plan_ordering import apply_existing_execution_group_ordering
 from .multi_pass_pipeline import (
     run_multi_pass_generation,
 )
@@ -667,6 +668,11 @@ Return ONLY the JSON array.
             confirmed_pass_cases, repaired_pass_cases, rejected_cases, pending_cases = training_gate(repaired)
             result = deduplicate_test_cases([*confirmed_pass_cases, *repaired_pass_cases])
             result = reorder_cases_by_closed_loop(
+                result,
+                start_id=start_id,
+                renumber_ids=True,
+            )
+            result = apply_existing_execution_group_ordering(
                 result,
                 start_id=start_id,
                 renumber_ids=True,
@@ -1538,6 +1544,10 @@ Return ONLY the JSON array.
                         "failure_reasons": list(execution_validation.get("failure_reasons") or []),
                         "metrics": dict(execution_validation.get("metrics") or {}),
                         "state_conflicts": list(execution_validation.get("state_conflicts") or []),
+                        "semantic_conflicts": list(execution_validation.get("semantic_conflicts") or []),
+                        "execution_group_order_conflicts": list(
+                            execution_validation.get("execution_group_order_conflicts") or []
+                        ),
                     }
                 result = project_persistable_cases(
                     persistence_gate_result.get("cases") if isinstance(persistence_gate_result.get("cases"), list) else []

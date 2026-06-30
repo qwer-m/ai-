@@ -22,7 +22,9 @@ from modules.testing.test_generation_components.postprocess.result_postprocess i
     normalize_final_case_priorities,
     stream_postprocess_cases,
 )
-from modules.testing.test_generation_components.postprocess import result_postprocess_streaming_impl
+from modules.testing.test_generation_components.postprocess.streaming_execution_plan_ordering import (
+    execution_group_order_rank,
+)
 from routers.automation import test_generation_generate_routes_split_helpers as generate_routes
 from schemas.automation.test_generation import TestGenRequest
 
@@ -801,59 +803,44 @@ def test_expected_result_non_placeholder_not_overwritten_when_tokens_do_not_over
     assert bool(row.get("expected_result_alignment_warning")) is True
 
 
-def test_quality_governance_marks_priority_review_when_required_p0_is_conflict(monkeypatch) -> None:
-    origin = result_postprocess_streaming_impl.apply_priority_semantics_to_cases
-
-    def _force_conflict(cases, attach_debug=False, coverage_context=None, rule_diagnostics=None):  # noqa: ANN001, ARG001
-        output = []
-        for case in cases or []:
-            if not isinstance(case, dict):
-                continue
-            item = dict(case)
-            model_priority = str(item.get("model_priority_current") or item.get("priority") or "P0").strip().upper() or "P0"
-            item["model_priority_current"] = model_priority
-            item["model_priority"] = model_priority
-            item["priority"] = "P1"
-            item["legacy_priority"] = "P1"
-            item["priority_final"] = None
-            item["priority_decision_state"] = "conflict"
-            item["priority_decision_source"] = "model_semantic_conflict"
-            item["priority_confidence"] = "low"
-            item["priority_conflict_reason"] = "model=P0,suggested=P2"
-            output.append(item)
-        return output
-
-    monkeypatch.setattr(result_postprocess_streaming_impl, "apply_priority_semantics_to_cases", _force_conflict)
-    try:
-        result = _run_cases(
-            requirement="week flow + paywall must be covered",
-            cases=[
-                {
-                    "id": "TC-300",
-                    "description": "validate paywall blocks access when quota is exhausted",
-                    "test_module": "flow-module",
-                    "preconditions": ["user logged in"],
-                    "steps": ["1. open protected learning page", "2. verify paywall banner"],
-                    "test_input": "default input",
-                    "expected_result": "The protected content stays hidden and the paywall banner remains visible.",
-                    "priority": "P0",
-                }
-            ],
-        )
-    finally:
-        monkeypatch.setattr(result_postprocess_streaming_impl, "apply_priority_semantics_to_cases", origin)
+def test_quality_governance_resolves_required_p0_priority_conflict_without_review() -> None:
+    result = _run_cases(
+        requirement="week flow + paywall must be covered",
+        cases=[
+            {
+                "id": "TC-300",
+                "description": "validate paywall blocks access when quota is exhausted",
+                "test_module": "flow-module",
+                "preconditions": ["user logged in"],
+                "steps": ["1. open protected learning page", "2. verify paywall banner"],
+                "test_input": "default input",
+                "expected_result": "The protected content stays hidden and the paywall banner remains visible.",
+                "priority": "P0",
+            }
+        ],
+    )
 
     output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
     assert len(output_cases) == 1
 
     review_summary = dict((result.get("review_decision_summary") or {}))
-    assert review_summary.get("needs_priority_review") is True
-    assert int(review_summary.get("priority_invalid_count") or 0) >= 1
-    assert bool(review_summary.get("priority_quality_gate_failed")) is True
+    assert review_summary.get("needs_priority_review") is False
+    assert int(review_summary.get("priority_invalid_count") or 0) == 0
+    assert bool(review_summary.get("priority_quality_gate_failed")) is False
+    assert int(review_summary.get("priority_conflict_count") or 0) == 0
     assert int(review_summary.get("priority_undetermined_count") or 0) == 0
 
+    table = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
+    assert len(table) == 1
+    row = table[0]
+    assert row.get("priority_decision_state") == "decided"
+    assert row.get("priority_decision_source") == "conflict_resolved_by_high_risk_business_rule"
+    assert row.get("priority_conflict_reason") == "model=P0,suggested=P2"
+    assert row.get("priority_resolution_reason") == "high_risk_guard_or_keyword"
+    assert row.get("priority_final") == "P0"
+
     generation_summary = dict((result.get("generation_summary") or {}))
-    assert generation_summary.get("needs_priority_review") is True
+    assert generation_summary.get("needs_priority_review") is False
 
 
 def test_quality_governance_keeps_final_priority_but_hides_debug_fields_from_final_cases() -> None:
@@ -1187,6 +1174,125 @@ def test_execution_plan_uses_workflow_blueprint_without_domain_template() -> Non
     plan = dict(summary.get("execution_plan") or {})
     assert plan.get("workflow_blueprint_count") == 1
     assert plan.get("linear_executable") is True
+
+
+def test_execution_plan_final_output_orders_mixed_side_suites_by_execution_plan() -> None:
+    state = {
+        "workflow_blueprints": [
+            {
+                "id": "checkout_flow",
+                "name": "checkout flow",
+                "steps": [
+                    {
+                        "id": "submit_order",
+                        "label": "Submit order",
+                        "actor": "student",
+                        "state_in": "cart_ready",
+                        "state_out": "order_created",
+                        "match_keywords": ["submit order"],
+                        "assertion": "order is created",
+                    },
+                    {
+                        "id": "verify_paid",
+                        "label": "Verify paid status",
+                        "actor": "supervisor",
+                        "state_in": "order_created",
+                        "state_out": "paid_status_visible",
+                        "match_keywords": ["paid status"],
+                        "assertion": "paid status is visible",
+                    },
+                ],
+            }
+        ]
+    }
+    result = _run_cases(
+        requirement="Checkout execution order regression",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "Order detail color tag is displayed consistently",
+                "test_module": "order detail",
+                "steps": ["Open order detail", "Inspect status tag style"],
+                "expected_result": "Paid status tag color and copy are displayed consistently",
+                "priority": "P2",
+                "execution_group": "display",
+            },
+            {
+                "id": "TC-002",
+                "description": "Submit order creates an order record",
+                "test_module": "checkout",
+                "steps": ["Open checkout", "Submit order"],
+                "expected_result": "Order record is created and order id is returned",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-003",
+                "description": "Unauthorized user cannot submit order",
+                "test_module": "checkout permission",
+                "steps": ["Use readonly user", "Submit order"],
+                "expected_result": "System blocks submission and shows permission denied message",
+                "priority": "P1",
+                "execution_group": "permission",
+            },
+            {
+                "id": "TC-004",
+                "description": "Order detail shows paid status",
+                "test_module": "order detail",
+                "steps": ["Open created order detail", "Refresh payment status"],
+                "expected_result": "Paid status is visible on order detail",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-005",
+                "description": "Network timeout during submit shows retry action",
+                "test_module": "checkout exception",
+                "steps": ["Submit order while payment service times out"],
+                "expected_result": "Retry action is shown and original cart remains unchanged",
+                "priority": "P1",
+                "execution_group": "exception",
+            },
+            {
+                "id": "TC-006",
+                "description": "Order quantity upper boundary is enforced",
+                "test_module": "checkout boundary",
+                "steps": ["Set quantity above maximum", "Submit order"],
+                "expected_result": "System rejects quantity above maximum and keeps order unsubmitted",
+                "priority": "P1",
+                "execution_group": "boundary",
+            },
+            {
+                "id": "TC-007",
+                "description": "Coupon recalculation updates order total",
+                "test_module": "checkout functional",
+                "steps": ["Apply valid coupon", "Recalculate order total"],
+                "expected_result": "Order total is recalculated with coupon discount",
+                "priority": "P1",
+                "execution_group": "independent_functional",
+            },
+        ],
+        expected_count=12,
+        feedback_control_state=state,
+    )
+
+    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
+    groups = [str(item.get("execution_group") or "") for item in output_cases]
+    assert groups[:2] == ["main_smoke", "main_smoke"]
+    assert groups == sorted(
+        groups,
+        key=execution_group_order_rank,
+    )
+    assert [int(item.get("execution_sequence") or 0) for item in output_cases] == list(
+        range(1, len(output_cases) + 1)
+    )
+    summary = dict(result.get("review_decision_summary") or {})
+    assert summary.get("final_execution_group_order") == [
+        "main_smoke",
+        "permission",
+        "exception",
+        "boundary",
+        "independent_functional",
+        "display",
+    ]
 
 
 def test_execution_plan_attaches_transition_contract_to_main_smoke() -> None:
@@ -2617,8 +2723,12 @@ def test_json_persistence_projects_final_case_contract(monkeypatch) -> None:
             },
             "execution_group": "schedule-main",
             "execution_sequence": 1,
+            "depends_on": ["TC-000"],
             "role": "teacher",
             "session_key": "teacher_session",
+            "fixture_key": "schedule_seed",
+            "group_setup": "seed_schedule_dataset()",
+            "group_teardown": "cleanup_schedule_dataset()",
             "model_priority_current": "P1",
             "priority_decision_state": "decided",
             "priority_debug": {"reason": "debug-only"},
@@ -2661,8 +2771,13 @@ def test_json_persistence_projects_final_case_contract(monkeypatch) -> None:
     assert stored[0]["source_state"] == "course_selected"
     assert stored[0]["target_state"] == "time_configured"
     assert stored[0]["execution_group"] == "schedule-main"
+    assert stored[0]["execution_sequence"] == 1
+    assert stored[0]["depends_on"] == ["TC-000"]
     assert stored[0]["role"] == "teacher"
     assert stored[0]["session_key"] == "teacher_session"
+    assert stored[0]["fixture_key"] == "schedule_seed"
+    assert stored[0]["group_setup"] == "seed_schedule_dataset()"
+    assert stored[0]["group_teardown"] == "cleanup_schedule_dataset()"
     assert "model_priority_current" not in stored[0]
     assert "priority_decision_state" not in stored[0]
     assert "priority_debug" not in stored[0]
@@ -2900,6 +3015,8 @@ def test_json_persistence_enforce_mode_blocks_without_workflow_contract(monkeypa
     assert isinstance(result, dict)
     assert result["error_code"] == "execution_plan_failed"
     assert "workflow_contract_missing" in list(result.get("failure_reasons") or [])
+    assert result.get("semantic_conflicts") == []
+    assert result.get("execution_group_order_conflicts") == []
     assert db.generations == []
     persistence_gate = _extract_gen_diag(db, "persistence_gate")
     assert persistence_gate["blocked"] is True

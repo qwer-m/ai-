@@ -58,9 +58,9 @@ def extract_code_block(text: str, language: Optional[str] = None) -> str:
     return text.strip()
 
 def run_temp_script(
-    script_content: str, 
-    suffix: str = ".py", 
-    command: list[str] = None, 
+    script_content: str,
+    suffix: str = ".py",
+    command: list[str] = None,
     timeout: int = 30,
     env: Optional[dict[str, str]] = None,
 ) -> Tuple[str, str, int]:

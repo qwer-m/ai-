@@ -10,6 +10,7 @@ from modules.testing.test_generation_components.legacy.stream.persist import (
 from modules.testing.test_generation_components.postprocess.execution_plan_validator import (
     ExecutionPlanValidationPolicy,
     materialize_final_case_state_fields,
+    validate_execution_group_order,
     validate_execution_plan,
     validate_main_smoke_semantic_alignment,
 )
@@ -107,6 +108,75 @@ def test_validator_accepts_connected_main_smoke_and_materializes_final_fields() 
     assert result["cases"][0]["workflow_id"] == "schedule_flow"
     assert result["cases"][0]["source_state"] == "ready"
     assert result["cases"][0]["target_state"] == "started"
+
+
+def test_validate_execution_group_order_rejects_main_smoke_after_side_suite() -> None:
+    cases = [
+        {"id": "TC-001", "execution_group": "main_smoke"},
+        {"id": "TC-002", "execution_group": "permission"},
+        {"id": "TC-003", "execution_group": "main_smoke"},
+    ]
+
+    conflicts = validate_execution_group_order(cases)
+
+    assert conflicts == [
+        {
+            "case_id": "TC-003",
+            "index": 3,
+            "execution_group": "main_smoke",
+            "reason": "main_smoke_after_independent_suite",
+        }
+    ]
+
+
+def test_validate_execution_group_order_rejects_execution_sequence_mismatch() -> None:
+    cases = [
+        {"id": "TC-001", "execution_group": "main_smoke", "execution_sequence": 1},
+        {"id": "TC-002", "execution_group": "permission", "execution_sequence": 4},
+    ]
+
+    conflicts = validate_execution_group_order(cases)
+
+    assert conflicts == [
+        {
+            "case_id": "TC-002",
+            "index": 2,
+            "execution_sequence": 4,
+            "execution_group": "permission",
+            "reason": "execution_sequence_mismatch",
+        }
+    ]
+
+
+def test_validator_rejects_final_json_array_execution_group_order_conflict() -> None:
+    cases = [
+        *_main_chain_cases(),
+        {
+            "id": "TC-display",
+            "description": "display saved plan detail",
+            "priority": "P2",
+            "execution_group": "display",
+        },
+        {
+            "id": "TC-permission",
+            "description": "permission check for saving plan",
+            "priority": "P2",
+            "execution_group": "permission",
+        },
+    ]
+
+    result = validate_execution_plan(
+        cases,
+        workflow_blueprints=[_trusted_blueprint()],
+        execution_plan={"workflow_blueprint_source": "feedback_control_state"},
+        generation_mode="stream",
+    )
+
+    assert result["passed"] is False
+    assert "execution_group_order_conflict" in result["failure_reasons"]
+    assert result["metrics"]["execution_group_order_conflict_count"] == 1
+    assert result["execution_group_order_conflicts"][0]["reason"] == "side_suite_rank_decreased"
+    assert result["execution_group_order_conflicts"][0]["previous_execution_group"] == "display"
 
 
 def test_validator_treats_save_and_display_case_as_commit_not_downstream() -> None:

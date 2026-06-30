@@ -83,26 +83,26 @@ def _context_noise_flags(text: str) -> list[str]:
         flags.append("label_fragment")
 
     dev_keywords = (
-        "\u5f00\u53d1\u9002\u914d\u70b9",
-        "\u6280\u672f\u65b9\u6848",
-        "\u63a5\u53e3\u8bf4\u660e",
-        "\u6570\u636e\u5e93\u8868",
+        "开发适配点",
+        "技术方案",
+        "接口说明",
+        "数据库表",
     )
     ui_keywords = (
-        "\u754c\u9762",
-        "\u5c55\u793a",
-        "\u6837\u5f0f",
-        "\u5e03\u5c40",
-        "\u989c\u8272",
-        "\u6587\u6848",
+        "界面",
+        "展示",
+        "样式",
+        "布局",
+        "颜色",
+        "文案",
     )
     workflow_keywords = (
-        "\u70b9\u51fb",
-        "\u8df3\u8f6c",
-        "\u8fdb\u5165",
-        "\u63d0\u4ea4",
-        "\u4fdd\u5b58",
-        "\u5b8c\u6210",
+        "点击",
+        "跳转",
+        "进入",
+        "提交",
+        "保存",
+        "完成",
     )
     if any(keyword in value for keyword in dev_keywords):
         flags.append("dev_adaptation_fragment")
@@ -231,6 +231,15 @@ def build_prompt_context_intake_diagnostics(
     feedback_state = dict(prompt_context.get("feedback_control_state") or {})
     source_meta = dict(feedback_state.get("source_meta") or {})
     fact_profile = dict(prompt_context.get("fact_profile") or source_meta.get("fact_profile") or {})
+    execution_suite_order = control_summary.get("generation_execution_independent_suite_order")
+    if not isinstance(execution_suite_order, list):
+        execution_suite_order = []
+    generation_execution_plan_blueprint_count = _safe_int(
+        control_summary.get("generation_execution_plan_blueprint_count") or 0
+    )
+    generation_execution_plan_step_count = _safe_int(
+        control_summary.get("generation_execution_plan_step_count") or 0
+    )
 
     section_texts = {
         "requirement_user": str(requirement or ""),
@@ -257,6 +266,7 @@ def build_prompt_context_intake_diagnostics(
     workflow_blueprints = feedback_state.get("workflow_blueprints") or []
     if not isinstance(workflow_blueprints, list):
         workflow_blueprints = []
+    generation_execution_plan_in_context = "### GENERATION EXECUTION PLAN" in section_texts["control_context"]
 
     risk_flags: list[str] = []
     if section_sizes["requirement_context"]["chars"] < 50:
@@ -271,6 +281,10 @@ def build_prompt_context_intake_diagnostics(
         risk_flags.append("rag_used_without_source_chunks")
     if len(workflow_blueprints) <= 0:
         risk_flags.append("workflow_blueprint_missing")
+    elif generation_execution_plan_step_count <= 0 and not generation_execution_plan_in_context:
+        risk_flags.append("generation_execution_plan_missing")
+    elif generation_execution_plan_step_count > 0 and not generation_execution_plan_in_context:
+        risk_flags.append("generation_execution_plan_not_in_control_context")
     if int(len(fact_profile.get("confirmed_facts") or [])) <= 0 and int(len(fact_profile.get("pending_items") or [])) <= 0:
         risk_flags.append("fact_profile_sparse")
     if section_sizes["full_input"]["approx_tokens"] > 20000:
@@ -313,6 +327,12 @@ def build_prompt_context_intake_diagnostics(
         "rag_sources": rag_sources,
         "control": {
             "workflow_blueprint_count": int(len(workflow_blueprints)),
+            "generation_execution_plan_blueprint_count": int(generation_execution_plan_blueprint_count),
+            "generation_execution_plan_step_count": int(generation_execution_plan_step_count),
+            "generation_execution_plan_in_context": bool(generation_execution_plan_in_context),
+            "generation_execution_independent_suite_order": [
+                str(item) for item in execution_suite_order[:10] if str(item or "").strip()
+            ],
             "must_cover_rules_count": _safe_int(control_summary.get("must_cover_rules_count") or 0),
             "quality_fix_hints_count": _safe_int(control_summary.get("quality_fix_hints_count") or 0),
             "fact_profile_source": str(fact_profile.get("profile_source") or ""),

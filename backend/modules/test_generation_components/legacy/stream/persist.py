@@ -1740,7 +1740,7 @@ class LegacyGenerationStreamPersistMixin:
                     )
                     yield f"GEN_DIAG:{json.dumps(coverage_payload, ensure_ascii=False)}\n"
 
-                # 淇濈暀鏃㈡湁瑕嗙洊璇婃柇
+                # 保留既有覆盖诊断
                 if STAGE25_SWITCHES.coverage_diagnostics_enabled:
                     coverage_diag = build_coverage_diagnostics(
                         requirement=requirement,

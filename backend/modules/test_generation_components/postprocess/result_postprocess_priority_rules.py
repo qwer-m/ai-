@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import json
 import re
-from typing import Any, Callable, Iterator
+from typing import Any
 
 from .case_access import case_flat_text, case_signature_text
 
@@ -11,14 +10,9 @@ try:
         _normalize_priority as _normalize_existing_priority,
     )
 except Exception:  # pragma: no cover
-    try:
-        from ..prompting.structured_context import (
-            _normalize_priority as _normalize_existing_priority,
-        )
-    except Exception:  # pragma: no cover
-        def _normalize_existing_priority(value: Any) -> str:
-            priority = str(value or "P2").strip().upper()
-            return priority if priority in {"P0", "P1", "P2"} else "P2"
+    def _normalize_existing_priority(value: Any) -> str:
+        priority = str(value or "P2").strip().upper()
+        return priority if priority in {"P0", "P1", "P2"} else "P2"
 
 
 def _extract_case_text(case: dict[str, Any]) -> str:

@@ -37,7 +37,7 @@ def test_classify_case_distribution_splits_text_steps_with_shared_accessor() -> 
     case = {
         "caseId": "TC-TEXT-STEPS",
         "title": "finish the practice journey",
-        "testSteps": "enter course;do exercise\uff1bsubmit answer",
+        "testSteps": "enter course;do exercise；submit answer",
         "expectedResult": "user completes the learning flow",
     }
 

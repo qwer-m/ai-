@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Callable, Iterator
+from typing import Any, Callable
 
 from .postprocess_priority_config import (
     invalid_case_quality_markers,
     quality_check_fields,
     reasoning_leakage_signals,
 )
-from .priority_anchor_rules import p0_cross_domain_essay_case, p0_main_path_anchor
+from .priority_anchor_rules import apply_priority_override, p0_cross_domain_essay_case, p0_main_path_anchor
 from .case_access import case_flat_text, case_priority, case_text_field, case_text_parts
 from .result_postprocess_priority_semantics import (
     apply_priority_semantics_to_case,
@@ -18,6 +18,7 @@ from .result_postprocess_priority_semantics import (
     resolve_case_priority,
     score_case_priority,
 )
+from .streaming_execution_plan_ordering import apply_existing_execution_group_ordering
 
 _REASONING_LEAKAGE_SIGNALS = reasoning_leakage_signals()
 
@@ -111,22 +112,24 @@ def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") 
         signature = _public_priority_signature(updated)
         forced_priority = forced_priority_by_signature.get(signature) if forced_priority_by_signature else None
         if _is_cross_domain_essay_case(updated) and case_priority(updated) == "P0":
-            updated["priority"] = "P1"
-            updated["priority_final"] = "P1"
-            updated["priority_decision_state"] = "overridden"
-            updated["priority_decision_source"] = "domain_mismatch_p0_demoted"
+            apply_priority_override(
+                updated,
+                priority="P1",
+                source="domain_mismatch_p0_demoted",
+            )
             restored.append(updated)
             continue
         if forced_priority in {"P0", "P1", "P2"}:
             if forced_priority == "P0" and _is_cross_domain_essay_case(updated):
                 forced_priority = "P1"
-            updated["priority"] = forced_priority
-            updated["priority_final"] = forced_priority
-            updated["priority_decision_state"] = "overridden"
-            updated["priority_decision_source"] = (
-                "preserved_execution_plan_priority"
-                if str(updated.get("execution_group") or "").strip() == "main_smoke"
-                else "preserved_priority_override"
+            apply_priority_override(
+                updated,
+                priority=forced_priority,
+                source=(
+                    "preserved_execution_plan_priority"
+                    if str(updated.get("execution_group") or "").strip() == "main_smoke"
+                    else "preserved_priority_override"
+                ),
             )
         restored.append(updated)
     if len(restored) >= 80:
@@ -141,10 +144,11 @@ def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") 
                     continue
                 if not _public_p0_main_path_anchor(item):
                     continue
-                item["priority"] = "P0"
-                item["priority_final"] = "P0"
-                item["priority_decision_state"] = "overridden"
-                item["priority_decision_source"] = "public_main_path_anchor_floor"
+                apply_priority_override(
+                    item,
+                    priority="P0",
+                    source="public_main_path_anchor_floor",
+                )
                 promoted += 1
     return restored
 
@@ -293,6 +297,11 @@ def finalize_generated_cases(
             start_id=start_id,
             renumber_ids=True,
         )
+        result = apply_existing_execution_group_ordering(
+            result,
+            start_id=start_id,
+            renumber_ids=True,
+        )
         result = strip_case_meta_fields(result)
     return result
 
@@ -316,6 +325,11 @@ def merge_cases_for_append(
     merged_result = deduplicate_test_cases_fn(merged_result)
     merged_result = _semantic_merge_cases(merged_result)
     merged_result = reorder_cases_by_closed_loop_fn(
+        merged_result,
+        start_id=1,
+        renumber_ids=True,
+    )
+    merged_result = apply_existing_execution_group_ordering(
         merged_result,
         start_id=1,
         renumber_ids=True,

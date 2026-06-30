@@ -164,10 +164,28 @@ def test_build_prompt_context_intake_diagnostics_reports_sections_and_sources():
             "requirement_semantics_context": "confirmed save -> preview flow",
             "testcase_context": "(empty)",
             "supplement_context": "reference examples",
-            "control_context": "control rules",
+            "control_context": (
+                "control rules\n"
+                "### GENERATION EXECUTION PLAN\n"
+                "* Generate main-chain cases first.\n"
+                "  1. save / Save result\n"
+                "  2. preview / Preview committed result"
+            ),
             "current_biz_key": "lesson_review",
             "only_current_biz": True,
-            "control_summary": {"must_cover_rules_count": 2, "quality_fix_hints_count": 3},
+            "control_summary": {
+                "must_cover_rules_count": 2,
+                "quality_fix_hints_count": 3,
+                "generation_execution_plan_blueprint_count": 1,
+                "generation_execution_plan_step_count": 2,
+                "generation_execution_independent_suite_order": [
+                    "permission/security",
+                    "exception/recovery",
+                    "boundary/state rollback",
+                    "independent functional",
+                    "UI/display",
+                ],
+            },
             "feedback_control_state": {
                 "workflow_blueprints": [{"name": "main_smoke"}],
                 "source_meta": {
@@ -216,14 +234,14 @@ def test_build_prompt_context_intake_diagnostics_reports_sections_and_sources():
                             "chunk_id": "chunk-1",
                             "filename": "requirement.md",
                             "final_score": 0.91,
-                            "chunk_text": "\u5f00\u53d1\u9002\u914d\u70b9: \u6570\u636e\u5e93\u8868\u4ec5\u4f5c\u6280\u672f\u8bf4\u660e",
+                            "chunk_text": "开发适配点: 数据库表仅作技术说明",
                         },
                         {
                             "doc_id": "doc-2",
                             "chunk_id": "chunk-2",
                             "filename": "flow.md",
                             "final_score": 0.86,
-                            "chunk_text": "\u70b9\u51fb\u4fdd\u5b58\u540e\u8fdb\u5165\u9884\u89c8\u9875",
+                            "chunk_text": "点击保存后进入预览页",
                         },
                     ],
                 }
@@ -256,9 +274,51 @@ def test_build_prompt_context_intake_diagnostics_reports_sections_and_sources():
     assert payload["rag_sources"][0]["doc_id"] == "doc-1"
     assert "dev_adaptation_fragment" in payload["rag_sources"][0]["noise_flags"]
     assert payload["control"]["workflow_blueprint_count"] == 1
+    assert payload["control"]["generation_execution_plan_blueprint_count"] == 1
+    assert payload["control"]["generation_execution_plan_step_count"] == 2
+    assert payload["control"]["generation_execution_plan_in_context"] is True
+    assert payload["control"]["generation_execution_independent_suite_order"][:2] == [
+        "permission/security",
+        "exception/recovery",
+    ]
     assert payload["control"]["fact_profile_confirmed_count"] == 1
     assert payload["business_scope"]["requirement_semantics_by_biz"][0]["pending_items_count"] == 1
     assert "workflow_blueprint_missing" not in payload["risk_flags"]
+    assert "generation_execution_plan_missing" not in payload["risk_flags"]
+
+
+def test_build_prompt_context_intake_diagnostics_flags_missing_generation_execution_plan():
+    payload = build_prompt_context_intake_diagnostics(
+        prompt_context={
+            "requirement_context": "User must complete save before previewing the result.",
+            "control_context": "### WORKFLOW BLUEPRINTS\n* save flow: Save result -> Preview result",
+            "feedback_control_state": {
+                "workflow_blueprints": [
+                    {
+                        "name": "save flow",
+                        "steps": [
+                            {"id": "save", "label": "Save result"},
+                            {"id": "preview", "label": "Preview result"},
+                        ],
+                    }
+                ],
+                "source_meta": {
+                    "fact_profile": {
+                        "confirmed_facts": ["save before preview"],
+                        "pending_items": [],
+                    }
+                },
+            },
+        },
+        context_result={},
+        requirement="User saves and previews result.",
+    )
+
+    assert payload["control"]["workflow_blueprint_count"] == 1
+    assert payload["control"]["generation_execution_plan_step_count"] == 0
+    assert payload["control"]["generation_execution_plan_in_context"] is False
+    assert "workflow_blueprint_missing" not in payload["risk_flags"]
+    assert "generation_execution_plan_missing" in payload["risk_flags"]
 
 
 def test_build_final_context_trace_rag_only_success():

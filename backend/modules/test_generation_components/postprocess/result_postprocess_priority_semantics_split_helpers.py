@@ -33,7 +33,6 @@ from .result_postprocess_priority_rules import (
     _contains_any,
     _contains_case_level_release_blocking,
     _extract_case_text,
-    _normalize_existing_priority,
     _priority_case_signature,
 )
 

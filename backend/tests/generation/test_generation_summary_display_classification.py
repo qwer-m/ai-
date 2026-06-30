@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from modules.test_generation_components.postprocess.result_postprocess_streaming_impl import (
+from modules.test_generation_components.postprocess.streaming_ui_like import (
     is_display_only_final_case,
 )
 

@@ -3,9 +3,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .case_access import case_priority, case_text_field
 from .streaming_case_keys import case_signature, review_case_id
 
-CANONICAL_REVIEW_DROP_REASONS = {
+REVIEW_DROP_REASONS = (
     "coverage_redundant",
     "duplicate",
     "low_value",
@@ -13,7 +14,47 @@ CANONICAL_REVIEW_DROP_REASONS = {
     "high_signal_omitted",
     "selection_tradeoff_omitted",
     "fallback_unspecified",
-}
+)
+REASON_REPAIR_DROP_REASONS = (
+    "coverage_redundant",
+    "duplicate",
+    "low_value",
+    "selection_tradeoff_omitted",
+)
+CANONICAL_REVIEW_DROP_REASONS = set(REVIEW_DROP_REASONS)
+
+
+def _clip_text(value: Any, limit: int, *, strip: bool = False) -> str:
+    text = str(value or "")
+    if strip:
+        text = text.strip()
+    return text[: max(0, int(limit))]
+
+
+def case_review_brief(
+    case: dict[str, Any],
+    *,
+    id_key: str = "case_id",
+    module_key: str = "test_module",
+    include_expected_result: bool = False,
+    include_priority: bool = True,
+    prefer_final_priority: bool = False,
+    require_id: bool = True,
+) -> dict[str, str]:
+    case_id = review_case_id(case)
+    if require_id and not case_id:
+        return {}
+
+    brief: dict[str, str] = {
+        id_key: str(case_id or "").strip(),
+        module_key: _clip_text(case_text_field(case, "test_module"), 80, strip=True),
+        "description": _clip_text(case_text_field(case, "description"), 180, strip=True),
+    }
+    if include_expected_result:
+        brief["expected_result"] = _clip_text(case_text_field(case, "expected_result"), 180, strip=True)
+    if include_priority:
+        brief["priority"] = _clip_text(case_priority(case, prefer_final=prefer_final_priority), 12, strip=True)
+    return brief
 
 
 def normalize_review_llm_reason(reason_text: str) -> str:

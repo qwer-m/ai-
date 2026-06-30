@@ -1029,17 +1029,17 @@ def test_priority_pool_manual_profile_uses_full_verified_pool_not_selected_topk(
             "manual_confirmed": True,
         }
         for index, module, priority in [
-            (1, "\u5165\u53e3", "P0"),
-            (2, "\u672c\u5468\u8bfe\u7a0b\u6a21\u5757", "P0"),
-            (3, "\u6392\u8bfe-\u5b66\u4e60\u8ba1\u5212-\u7b2c1\u6b65", "P1"),
-            (4, "\u6392\u8bfe-\u5b66\u4e60\u8ba1\u5212-\u7b2c2\u6b65", "P1"),
+            (1, "入口", "P0"),
+            (2, "本周课程模块", "P0"),
+            (3, "排课-学习计划-第1步", "P1"),
+            (4, "排课-学习计划-第2步", "P1"),
         ]
     ]
     samples.append(
         {
             "case_id": "TC-CANDIDATE",
             "title": "unconfirmed display candidate",
-            "source_case_module": "\u672a\u786e\u8ba4\u5c55\u793a\u6a21\u5757",
+            "source_case_module": "未确认展示模块",
             "reason_category": "display_issue",
             "expected_priority": "P2",
             "pattern_summary": "display-only candidate",
@@ -1071,7 +1071,7 @@ def test_priority_pool_manual_profile_uses_full_verified_pool_not_selected_topk(
     assert profile["trusted_sample_count"] == 4
     assert profile["priority_distribution"] == {"P0": 2, "P1": 2}
     assert profile["high_priority_ratio"] == 1.0
-    assert "\u672a\u786e\u8ba4\u5c55\u793a\u6a21\u5757" not in profile["module_distribution_top"]
+    assert "未确认展示模块" not in profile["module_distribution_top"]
 
 
 def test_priority_pool_selection_enforces_positive_min_quota_when_available(monkeypatch) -> None:

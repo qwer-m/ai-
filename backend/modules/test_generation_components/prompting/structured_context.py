@@ -18,6 +18,7 @@ from ..control.project_profile_activation import (
     merge_project_profile_control_state,
 )
 from ..postprocess.case_access import case_text_field
+from ..postprocess.streaming_execution_plan_ordering import execution_side_suite_order_labels
 from .structured_context_split_helpers import (
     _biz_tag,
     _clip_text,
@@ -810,6 +811,74 @@ def _build_biz_key_isolation_log(
     }
 
 
+def _workflow_step_execution_label(step: dict[str, Any], *, index: int) -> str:
+    step_id = str(step.get("id") or f"step_{index:03d}").strip()
+    stage_kind = str(step.get("stage_kind") or "").strip()
+    label = str(
+        step.get("label")
+        or step.get("action")
+        or step.get("description")
+        or step_id
+    ).strip()
+    state_in = str(step.get("state_in") or step.get("source_state") or "").strip()
+    state_out = str(step.get("state_out") or step.get("target_state") or "").strip()
+    state_transition = f"{state_in}->{state_out}" if state_in and state_out else ""
+    parts = [part for part in (step_id, stage_kind, label, state_transition) if part]
+    return " / ".join(parts)
+
+
+def _build_generation_execution_plan_from_blueprints(
+    workflow_blueprints: list[dict[str, Any]],
+) -> dict[str, Any]:
+    independent_suite_order = execution_side_suite_order_labels()
+    plan_lines: list[str] = [
+        "### GENERATION EXECUTION PLAN",
+        "* Generate main-chain cases first, in the exact workflow blueprint step order.",
+        "* Do not interleave independent suites into the main chain unless a case advances the confirmed workflow state.",
+    ]
+    blueprint_count = 0
+    step_count = 0
+    for blueprint in workflow_blueprints[:5]:
+        if not isinstance(blueprint, dict):
+            continue
+        steps = [step for step in (blueprint.get("steps") or []) if isinstance(step, dict)]
+        step_labels = [
+            _workflow_step_execution_label(step, index=index)
+            for index, step in enumerate(steps[:12], start=1)
+        ]
+        step_labels = [label for label in step_labels if label.strip()]
+        if not step_labels:
+            continue
+        blueprint_count += 1
+        step_count += len(step_labels)
+        name = str(blueprint.get("name") or blueprint.get("id") or "workflow").strip()
+        plan_lines.append(f"* {name}:")
+        plan_lines.extend(
+            f"  {index}. {label}"
+            for index, label in enumerate(step_labels, start=1)
+        )
+
+    if not blueprint_count:
+        return {
+            "lines": [],
+            "blueprint_count": 0,
+            "step_count": 0,
+            "independent_suite_order": list(independent_suite_order),
+        }
+
+    plan_lines.append(
+        "* Then generate independent suites in order: "
+        + " -> ".join(independent_suite_order)
+        + "."
+    )
+    return {
+        "lines": plan_lines,
+        "blueprint_count": int(blueprint_count),
+        "step_count": int(step_count),
+        "independent_suite_order": list(independent_suite_order),
+    }
+
+
 def _build_control_context(
     *,
     control_state: FeedbackControlState | dict[str, Any] | None,
@@ -839,6 +908,7 @@ def _build_control_context(
     project_profile = dict((state.source_meta or {}).get("project_profile") or {})
     manual_quality_profile = dict((state.source_meta or {}).get("manual_quality_profile") or {})
     project_flow_outline = dict(project_profile.get("flow_outline") or {})
+    generation_execution_plan = _build_generation_execution_plan_from_blueprints(state.workflow_blueprints)
     generation_coverage_mode = str(generation_profile.get("coverage_mode") or "").strip()
     summary = {
         "control_state_applied": bool(state.has_signals()),
@@ -851,6 +921,11 @@ def _build_control_context(
         "rule_quota_keys": sorted(list((state.rule_quota or {}).keys())),
         "quality_fix_hints_count": int(len(state.quality_fix_hints)),
         "workflow_blueprint_count": int(len(state.workflow_blueprints)),
+        "generation_execution_plan_blueprint_count": int(generation_execution_plan.get("blueprint_count") or 0),
+        "generation_execution_plan_step_count": int(generation_execution_plan.get("step_count") or 0),
+        "generation_execution_independent_suite_order": list(
+            generation_execution_plan.get("independent_suite_order") or []
+        ),
         "soft_constraints_in_prompt": bool(include_soft_constraints_in_text),
         "quality_fix_hints_in_prompt": bool(include_quality_fix_hints_in_text),
         "preferred_quota_variant": "B" if preferred_quota_active else "A",
@@ -975,6 +1050,10 @@ def _build_control_context(
                 lines.append(f"* {name}{source_suffix}: {' -> '.join(labels)}")
     else:
         lines.append("* (none)")
+
+    if generation_execution_plan.get("lines"):
+        lines.append("")
+        lines.extend(list(generation_execution_plan.get("lines") or []))
 
     if fact_profile:
         lines.append("")

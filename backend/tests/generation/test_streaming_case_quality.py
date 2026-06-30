@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from modules.test_generation_components.coverage.coverage_analyzer import analyze_coverage
 from modules.test_generation_components.postprocess.streaming_case_quality import (
     final_quality_drop_reason,
+    filter_final_quality_cases,
+    filter_low_quality_cases_with_stats,
     is_low_quality,
     low_quality_reason,
+    normalize_case_structure,
     quality_drop_detail,
     record_low_quality_drop,
     strip_case_meta_list,
@@ -212,3 +216,124 @@ def test_strip_case_meta_list_promotes_final_priority_alias() -> None:
             "description": "Save course scheduling",
         }
     ]
+
+
+def _real_quality_case(case_id: str, description: str = "Save course schedule") -> dict[str, object]:
+    return {
+        "id": case_id,
+        "test_module": "Course scheduling",
+        "description": description,
+        "expected_result": 'System shows "Save success" toast and record status is saved',
+        "priority": "P1",
+        "steps": ["Open course scheduling form", "Save course schedule"],
+        "preconditions": ["Teacher has logged in"],
+    }
+
+
+def test_filter_final_quality_cases_ignores_non_dict_and_records_final_drop_detail() -> None:
+    low_quality_drop_details: list[dict[str, object]] = []
+    valid_case = _real_quality_case("TC-FINAL-KEEP")
+    non_assertable_case = {
+        **_real_quality_case("TC-FINAL-DROP"),
+        "expected_result": "result is as configured",
+    }
+
+    filtered, drop_total = filter_final_quality_cases(
+        [valid_case, "not-a-case", non_assertable_case],
+        low_quality_drop_details,
+        stage="final_quality_gate",
+    )
+
+    assert filtered == [valid_case]
+    assert drop_total == 1
+    assert low_quality_drop_details == [
+        {
+            "stage": "final_quality_gate",
+            "reason": "non_assertable_expected_result",
+            "case_id": "TC-FINAL-DROP",
+            "test_module": "Course scheduling",
+            "priority": "P1",
+            "description": "Save course schedule",
+            "expected_result": "result is as configured",
+        }
+    ]
+
+
+def test_normalize_case_structure_fills_required_fields_and_normalizes_priority() -> None:
+    normalized = normalize_case_structure(
+        {
+            "id": "TC-NORMALIZE",
+            "test_module": "Course scheduling",
+            "description": "Save course schedule",
+            "priority": "urgent",
+            "steps": ["1) Fill course name", "2) Save schedule"],
+        }
+    )
+
+    assert normalized is not None
+    assert normalized["steps"] == ["1. Fill course name", "2. Save schedule"]
+    assert normalized["preconditions"] == [
+        "User has logged in and can access module Course scheduling"
+    ]
+    assert normalized["test_input"] == "Fill course name"
+    assert str(normalized["expected_result"]).strip()
+    assert normalized["priority"] == "P2"
+
+
+def test_filter_low_quality_cases_with_stats_counts_structure_and_weak_drops() -> None:
+    weak_case = {
+        "id": "TC-WEAK",
+        "test_module": "Report",
+        "description": "Review report columns",
+        "priority": "P1",
+        "steps": ["Inspect report columns"],
+    }
+
+    filtered, stats = filter_low_quality_cases_with_stats(
+        [
+            "not-a-case",
+            {"id": "TC-NORMALIZE-FAILED", "test_module": "Report", "description": "bad"},
+            weak_case,
+            _real_quality_case("TC-KEEP"),
+        ],
+        requirement_text="",
+        analyze_coverage_fn=analyze_coverage,
+    )
+
+    assert [case["id"] for case in filtered] == ["TC-KEEP"]
+    assert stats["invalid_structure_dropped"] == 2
+    assert stats["weak_case_dropped"] == 1
+    assert stats["semantic_dedup_dropped"] == 0
+    assert stats["total_dropped"] == 3
+    assert [detail["reason"] for detail in stats["dropped_details"]] == [
+        "non_dict_case",
+        "normalize_failed",
+        "missing_expected_result",
+    ]
+    assert [detail["stage"] for detail in stats["dropped_details"]] == [
+        "initial_structure_filter",
+        "initial_structure_filter",
+        "initial_quality_filter",
+    ]
+
+
+def test_filter_low_quality_cases_with_stats_counts_semantic_dedup_in_total() -> None:
+    duplicate_a = _real_quality_case("TC-DEDUP-A", "Save course schedule")
+    duplicate_b = _real_quality_case("TC-DEDUP-B", "Save course schedule")
+    unique_case = _real_quality_case("TC-UNIQUE", "Delete course schedule")
+    unique_case["expected_result"] = 'System shows "Delete success" toast and record is removed'
+    unique_case["steps"] = ["Open course scheduling list", "Delete course schedule"]
+
+    filtered, stats = filter_low_quality_cases_with_stats(
+        [duplicate_a, duplicate_b, unique_case],
+        requirement_text="",
+        analyze_coverage_fn=analyze_coverage,
+    )
+
+    assert len(filtered) == 2
+    assert {case["id"] for case in filtered} == {"TC-DEDUP-A", "TC-UNIQUE"}
+    assert stats["invalid_structure_dropped"] == 0
+    assert stats["weak_case_dropped"] == 0
+    assert stats["semantic_dedup_dropped"] == 1
+    assert stats["total_dropped"] == 1
+    assert stats["dropped_details"] == []

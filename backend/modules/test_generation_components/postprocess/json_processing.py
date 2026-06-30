@@ -7,13 +7,10 @@ from typing import Any
 from .json_normalizer import normalize_json_structure as _normalize_json_structure
 from .json_parser import clean_and_parse_json as _clean_and_parse_json
 from .json_repair import (
-    _case_dedup_key,
-    _normalize_for_dedup,
     count_unique_test_cases as _count_unique_test_cases,
     deduplicate_test_cases as _deduplicate_test_cases,
 )
 from .json_validator import (
-    _CASE_KIND_ORDER,
     _safe_text_join,
     extract_module_order_from_cases as _extract_module_order_from_cases,
     infer_case_kind as _infer_case_kind,

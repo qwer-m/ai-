@@ -238,6 +238,13 @@ def test_persist_strips_priority_debug_and_uses_final_priority(monkeypatch) -> N
                     **_build_case(1),
                     "priority": "P0",
                     "priority_final": "P1",
+                    "execution_group": "main_smoke",
+                    "execution_sequence": 1,
+                    "depends_on": [],
+                    "fixture_key": "workflow_seed",
+                    "group_setup": "seed_workflow_dataset()",
+                    "group_teardown": "cleanup_workflow_dataset()",
+                    "main_chain_stage_kind": "commit",
                     "model_priority_current": "P0",
                     "priority_decision_source": "conflict_resolved_by_core_business_rule",
                 }
@@ -282,7 +289,15 @@ def test_persist_strips_priority_debug_and_uses_final_priority(monkeypatch) -> N
     stored = json.loads(_stored_generation_result(state["db"]))
     assert stored[0]["priority"] == "P1"
     assert stored[0]["priority_final"] == "P1"
+    assert stored[0]["execution_group"] == "main_smoke"
+    assert stored[0]["execution_sequence"] == 1
+    assert stored[0]["depends_on"] == []
+    assert stored[0]["fixture_key"] == "workflow_seed"
+    assert stored[0]["group_setup"] == "seed_workflow_dataset()"
+    assert stored[0]["group_teardown"] == "cleanup_workflow_dataset()"
+    assert stored[0]["main_chain_stage_kind"] == "commit"
     assert "model_priority_current" not in stored[0]
+    assert "priority_decision_source" not in stored[0]
 
 
 def test_persist_recalculates_priority_when_upstream_final_priority_was_stripped(monkeypatch) -> None:

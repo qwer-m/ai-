@@ -183,7 +183,7 @@ def _evidence_tokens(text: str) -> set[str]:
     lowered = str(text or "").lower()
     tokens = set(re.findall(r"[a-z0-9_]{2,}", lowered))
     compact = re.sub(r"\s+", "", lowered)
-    cjk_chars = [ch for ch in compact if "\u4e00" <= ch <= "\u9fff"]
+    cjk_chars = [ch for ch in compact if chr(0x4E00) <= ch <= chr(0x9FFF)]
     for index in range(0, max(0, len(cjk_chars) - 1)):
         tokens.add("".join(cjk_chars[index : index + 2]))
     return {item for item in tokens if len(item) >= 2}
