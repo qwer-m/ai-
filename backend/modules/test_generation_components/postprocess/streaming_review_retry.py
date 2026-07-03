@@ -40,6 +40,12 @@ def default_review_llm_runtime_debug() -> dict[str, Any]:
         "invoked": False,
         "pool_non_empty": False,
         "pool_size": 0,
+        "deterministic_noop_skip_eligible": False,
+        "deterministic_noop_preflight_selected_count": 0,
+        "deterministic_noop_preflight_within_target_window": False,
+        "deterministic_noop_preflight_signature_unchanged": False,
+        "deterministic_noop_preflight_dropped_by_max": False,
+        "skip_reason": "",
         "primary_model": "",
         "primary_invalid_reason": "",
         "primary_reason_incomplete": False,
@@ -88,6 +94,37 @@ def default_review_llm_runtime_debug() -> dict[str, Any]:
         "fallback_reason_incomplete": False,
         "final_reason_incomplete": False,
         "final_reason_coverage_ratio": 0.0,
+    }
+
+
+def build_review_llm_preflight_debug_fields(
+    *,
+    llm_pool_count: int,
+    append_target_count: int,
+    append_final_cap_count: int,
+    skip_review_llm_by_noop: bool,
+    noop_preflight_selected_count: int,
+    noop_preflight_within_target_window: bool,
+    noop_preflight_signature_unchanged: bool,
+    noop_preflight_dropped_by_max: bool,
+) -> dict[str, Any]:
+    return {
+        "pool_size": int(llm_pool_count or 0),
+        "pool_non_empty": bool(llm_pool_count),
+        "prompt_chars": 0,
+        "prompt_est_tokens": 0,
+        "candidate_count": int(llm_pool_count or 0),
+        "append_target_count": int(append_target_count or 0),
+        "append_final_cap_count": int(append_final_cap_count or 0),
+        "deterministic_noop_skip_eligible": bool(skip_review_llm_by_noop),
+        "deterministic_noop_preflight_selected_count": int(noop_preflight_selected_count or 0),
+        "deterministic_noop_preflight_within_target_window": bool(
+            noop_preflight_within_target_window
+        ),
+        "deterministic_noop_preflight_signature_unchanged": bool(
+            noop_preflight_signature_unchanged
+        ),
+        "deterministic_noop_preflight_dropped_by_max": bool(noop_preflight_dropped_by_max),
     }
 
 
@@ -146,6 +183,71 @@ def normalize_review_payload_invalid_reason(
 
 def review_retry_payload_debug_counts(result: dict[str, Any] | None) -> dict[str, int]:
     return _review_payload_debug_counts(result)
+
+
+def resolve_review_fallback_models(
+    *,
+    client: Any,
+    primary_model_name: str,
+) -> list[str]:
+    fallback_models: list[str] = []
+    primary_model = str(primary_model_name or "").strip()
+    primary_key = primary_model.lower()
+    if "deepseek" in primary_key and primary_key != "deepseek-chat":
+        fallback_models.append("deepseek-chat")
+    for candidate in (
+        str(getattr(client, "model", "") or "").strip(),
+        str(getattr(client, "turbo_model", "") or "").strip(),
+    ):
+        if candidate:
+            fallback_models.append(candidate)
+
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for model in fallback_models:
+        model_key = str(model or "").strip()
+        if not model_key or model_key in seen:
+            continue
+        seen.add(model_key)
+        resolved.append(model_key)
+    return resolved
+
+
+def build_review_protocol_repair_prompt(
+    *,
+    review_prompt: str,
+    candidate_cases: list[dict[str, Any]],
+    drop_reasons: Iterable[str] = REVIEW_DROP_REASONS,
+    max_candidates: int = 200,
+) -> str:
+    candidate_limit = max(0, int(max_candidates or 0))
+    candidate_ids = [
+        review_case_id(item)
+        for item in _dict_case_items(candidate_cases)
+        if review_case_id(item)
+    ]
+    candidate_ids = candidate_ids[:candidate_limit]
+    allowed_reasons = [
+        str(reason or "").strip()
+        for reason in drop_reasons
+        if str(reason or "").strip()
+    ]
+    return (
+        f"{review_prompt}\n\n"
+        "PROTOCOL FIX (MANDATORY):\n"
+        "- Previous output was invalid for downstream selection mapping.\n"
+        "- Return STRICT JSON only; no prose, no markdown, no code fences.\n"
+        "- Schema MUST be:\n"
+        "{\n"
+        '  "kept_case_ids": ["<case_id>"],\n'
+        '  "dropped": [{"case_id": "<case_id>", "reason": "<reason>"}]\n'
+        "}\n"
+        "- `kept_case_ids` and `dropped[*].case_id` must come from this candidate id list only:\n"
+        f"{_json_for_prompt(candidate_ids)}\n"
+        "- Do not invent or rewrite case ids.\n"
+        "- `dropped[*].reason` must be ONE canonical key from:\n"
+        f"  {_json_for_prompt(allowed_reasons, compact=True)}\n"
+    )
 
 
 def analyze_review_retry_payload(

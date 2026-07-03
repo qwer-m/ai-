@@ -11,19 +11,32 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 from celery.exceptions import SoftTimeLimitExceeded
 
 from celery_config import celery_app
-from core.db.database import SessionLocal
-from core.db.models import LogEntry
-from modules.domain.knowledge_base import knowledge_base
-from modules.knowledge_base_components.document.index_audit import run_index_consistency_audit
-from modules.knowledge_base_components.document.offline_parse import cleanup_offline_file
-from modules.domain.stage25_switches import STAGE25_SWITCHES
-from modules.testing.test_generation import test_generator
+from modules.orchestration.task_names import TaskName
 
 logger = logging.getLogger(__name__)
+
+
+def _session_local():
+    from core.db.database import SessionLocal
+
+    return SessionLocal
+
+
+def _knowledge_base() -> Any:
+    from modules.domain.knowledge_base import knowledge_base
+
+    return knowledge_base
+
+
+def _test_generator() -> Any:
+    from modules.testing.test_generation import test_generator
+
+    return test_generator
 
 def _is_retryable_snapshot_error(err: Exception) -> bool:
     """判断快照构建异常是否适合重试（网络/超时类）。"""
@@ -40,7 +53,7 @@ def _is_retryable_snapshot_error(err: Exception) -> bool:
     return any(k in text for k in retry_keywords)
 
 
-@celery_app.task(bind=True, name="modules.orchestration.tasks.generate_test_cases_task")
+@celery_app.task(bind=True, name=TaskName.GENERATE_TEST_CASES.value)
 def generate_test_cases_task(
     self,
     requirement: str,
@@ -58,10 +71,10 @@ def generate_test_cases_task(
     enable_sample_pool_feedback: bool = True,
 ):
     """异步生成测试用例。"""
-    db = SessionLocal()
+    db = _session_local()()
     try:
         self.update_state(state="STARTED", meta={"status": "Generating test cases..."})
-        result = test_generator.generate_test_cases_json(
+        result = _test_generator().generate_test_cases_json(
             requirement=requirement,
             project_id=project_id,
             db=db,
@@ -88,7 +101,7 @@ def generate_test_cases_task(
 
 @celery_app.task(
     bind=True,
-    name="modules.orchestration.tasks.build_context_snapshot_task",
+    name=TaskName.BUILD_CONTEXT_SNAPSHOT.value,
     max_retries=1,
     default_retry_delay=5,
     soft_time_limit=240,
@@ -107,7 +120,7 @@ def build_context_snapshot_task(
     1. 只负责后台预热，不阻塞在线生成链路。
     2. 网络抖动类异常允许有限重试，业务类失败直接落库可见。
     """
-    db = SessionLocal()
+    db = _session_local()()
     retry_count = int(getattr(self.request, "retries", 0) or 0)
     task_id = getattr(self.request, "id", None)
     max_retries = int(getattr(self, "max_retries", 0) or 0)
@@ -125,7 +138,7 @@ def build_context_snapshot_task(
             state="STARTED",
             meta={"status": "项目上下文快照构建中", "project_id": project_id},
         )
-        result = knowledge_base.get_or_build_context_snapshot(
+        result = _knowledge_base().get_or_build_context_snapshot(
             project_id=project_id,
             db=db,
             user_id=user_id,

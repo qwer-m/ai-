@@ -24,6 +24,7 @@ from modules.knowledge_base_components.snapshot.snapshot_builder import (
     SNAPSHOT_CONFIG,
     build_corpus_hash,
     build_snapshot_text,
+    collect_project_doc_fingerprints,
     collect_project_docs,
     decide_rebuild_mode,
     doc_content_hash,
@@ -51,7 +52,16 @@ def get_or_build_context_snapshot_impl(
     """获取或构建快照；失败由调用方 fallback 到 RAG。"""
     build_started_ts = time.perf_counter()
     snapshot_repo = ContextSnapshotRepository(db)
-    corpus = collect_project_docs(module, db, project_id, user_id)
+    fingerprint_only = bool(
+        prefer_async_rebuild
+        and not force_rebuild
+        and SNAPSHOT_CONFIG.async_prewarm_enabled
+    )
+    corpus = (
+        collect_project_doc_fingerprints(db, project_id, user_id)
+        if fingerprint_only
+        else collect_project_docs(module, db, project_id, user_id)
+    )
     if not corpus:
         snapshot, schema_compatible = _query_snapshot_row(db, project_id)
         if not schema_compatible:
@@ -72,6 +82,7 @@ def get_or_build_context_snapshot_impl(
             "snapshot_fingerprint": "",
             "build_latency_ms": 0.0,
             "prewarm_task_id": None,
+            "fingerprint_only": bool(fingerprint_only),
         }
 
     source_breakdown = _build_source_breakdown(corpus, request_user_id=user_id)
@@ -87,6 +98,7 @@ def get_or_build_context_snapshot_impl(
             "snapshot_fingerprint": "",
             "build_latency_ms": 0.0,
             "prewarm_task_id": None,
+            "fingerprint_only": bool(fingerprint_only),
             **evaluate_snapshot_readiness(
                 snapshot=None,
                 current_corpus_hash=corpus_hash,
@@ -128,6 +140,7 @@ def get_or_build_context_snapshot_impl(
             "build_latency_ms": float(snapshot.last_build_latency_ms or 0.0),
             **readiness,
             "prewarm_task_id": None,
+            "fingerprint_only": bool(fingerprint_only),
         }
 
     # 在线链路优先异步预热，当前请求继续走 RAG fallback。
@@ -150,6 +163,7 @@ def get_or_build_context_snapshot_impl(
             "build_latency_ms": float(snapshot.last_build_latency_ms or 0.0),
             **readiness,
             "prewarm_task_id": queue_result.get("task_id"),
+            "fingerprint_only": bool(fingerprint_only),
         }
 
     from core.ai.ai_client import get_client_for_user

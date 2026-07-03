@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './components/auth-pages/Login';
 import Register from './components/auth-pages/Register';
+import ForgotPassword from './components/auth-pages/ForgotPassword';
 import { Dashboard } from './components/pages/Dashboard';
 import { Spinner } from 'react-bootstrap';
 import { GlobalFeedbackCenter } from './components/shared/GlobalFeedbackCenter';
@@ -41,6 +42,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route
             path="/"
             element={

@@ -9,7 +9,7 @@
 
 from typing import Any
 
-from core.ai.ai_client import get_client_for_user  # 中文注释：兼容历史 monkeypatch 入口。
+from .legacy.runtime import call_component
 from .legacy.adapters import (
     clean_and_parse_json as _clean_and_parse_json,
 )
@@ -37,9 +37,17 @@ from .legacy.estimation import (
 from .legacy.json_generation import (
     LegacyGenerationJsonMixin,
 )
+from .legacy.json_generation_excel import (
+    LegacyGenerationExcelMixin,
+)
 from .legacy.stream import (
     LegacyGenerationStreamMixin,
 )
+
+
+def get_client_for_user(*args: Any, **kwargs: Any) -> Any:
+    """Compatibility hook for historical monkeypatch targets."""
+    return call_component("core.ai.ai_client", "get_client_for_user", *args, **kwargs)
 
 
 def clean_and_parse_json(response_text: str) -> Any:
@@ -87,6 +95,7 @@ class TestGenerationModule(
     LegacyGenerationEstimationMixin,
     LegacyGenerationContextMixin,
     LegacyGenerationJsonMixin,
+    LegacyGenerationExcelMixin,
     LegacyGenerationStreamMixin,
 ):
     __test__ = False

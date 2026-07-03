@@ -27,6 +27,7 @@ from modules.testing.test_generation_components.postprocess.result_postprocess i
     strip_case_meta_fields,
 )
 from routers.automation import test_generation_generate_routes_impl as generate_routes
+from routers.automation import test_generation_generate_routes_json as generate_json_routes
 from schemas.automation.test_generation import TestGenRequest as _TestGenRequest
 
 
@@ -978,16 +979,16 @@ def test_stream_persistence_does_not_mask_explicit_invalid_priority_final(monkey
 
 
 def test_json_api_returns_execution_plan_failed_as_502(monkeypatch) -> None:
-    monkeypatch.setattr(generate_routes, "get_owned_project", lambda *args, **kwargs: None)
+    monkeypatch.setattr(generate_json_routes, "get_owned_project", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        generate_routes.context_orchestrator,
+        generate_json_routes.context_orchestrator,
         "assemble_context",
         lambda *args, **kwargs: {"diagnostics": {}},
     )
-    monkeypatch.setattr(generate_routes, "log_workflow_trace", lambda *args, **kwargs: None)
-    monkeypatch.setattr(generate_routes, "log_to_db", lambda *args, **kwargs: None)
+    monkeypatch.setattr(generate_json_routes, "log_workflow_trace", lambda *args, **kwargs: None)
+    monkeypatch.setattr(generate_json_routes, "log_to_db", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        generate_routes.test_generator,
+        generate_json_routes.test_generator,
         "generate_test_cases_json",
         lambda *args, **kwargs: {
             "error_code": "execution_plan_failed",
@@ -1004,7 +1005,7 @@ def test_json_api_returns_execution_plan_failed_as_502(monkeypatch) -> None:
     current_user = type("User", (), {"id": 1})()
 
     try:
-        generate_routes.generate_tests(request=request, db=object(), current_user=current_user)
+        generate_json_routes.generate_tests(request=request, db=object(), current_user=current_user)
         assert False, "expected HTTPException"
     except HTTPException as exc:
         assert int(exc.status_code) == 502

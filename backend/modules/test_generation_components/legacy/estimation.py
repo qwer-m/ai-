@@ -1,9 +1,15 @@
 from sqlalchemy.orm import Session
 import re
 
-from core.ai.ai_client import get_client_for_user
-from modules.domain.knowledge_base import knowledge_base
 from .adapters import clean_and_parse_json
+from .runtime import LazyAttrProxy, call_component
+
+
+knowledge_base = LazyAttrProxy("modules.domain.knowledge_base", "knowledge_base")
+
+
+def get_client_for_user(*args, **kwargs):
+    return call_component("core.ai.ai_client", "get_client_for_user", *args, **kwargs)
 
 
 class LegacyGenerationEstimationMixin:

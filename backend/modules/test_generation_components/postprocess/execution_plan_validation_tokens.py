@@ -1,0 +1,329 @@
+from __future__ import annotations
+
+import re
+
+from ..control.actor_roles import CANONICAL_ROLE_SESSION_KEYS
+
+
+_STATE_FIELD_NAMES = (
+    "workflow_id",
+    "source_state",
+    "action",
+    "target_state",
+    "path_type",
+    "blocking",
+    "destructive",
+    "can_advance_main_flow",
+    "state_transition_confidence",
+)
+
+_ROLE_SESSION_KEYS = dict(CANONICAL_ROLE_SESSION_KEYS)
+
+_COMMIT_ACTION_TOKENS = (
+    "保存",
+    "提交",
+    "发布",
+    "确认",
+    "触发打分",
+    "开始打分",
+    "自动打分",
+    "评分计算",
+    "生成评分",
+    "给出评分",
+    "save",
+    "submit",
+    "publish",
+    "commit",
+    "confirm",
+    "trigger score",
+    "score calculation",
+)
+
+_DOWNSTREAM_VISIBILITY_TOKENS = (
+    "同步",
+    "生效",
+    "展示",
+    "显示",
+    "评分结果",
+    "打分结果",
+    "综合评分",
+    "visible",
+    "display",
+    "displayed",
+    "sync",
+    "show",
+    "shows",
+    "shown",
+    "reflect",
+    "score result",
+    "scoring result",
+)
+
+_COMPLETION_SYNC_TOKENS = (
+    "完成",
+    "进度",
+    "状态",
+    "complete",
+    "completion",
+    "progress",
+    "status",
+)
+
+_CONSUME_TOKENS = (
+    "进入",
+    "打开",
+    "查看",
+    "学习",
+    "enter",
+    "open",
+    "view",
+    "learn",
+    "consume",
+)
+
+_CONFIGURE_TOKENS = (
+    "配置",
+    "设置",
+    "选择",
+    "编辑",
+    "configure",
+    "set",
+    "select",
+    "edit",
+)
+
+_RESET_OR_ABORT_TOKENS = (
+    "退出",
+    "重新进入",
+    "重复进入",
+    "不保留",
+    "清空",
+    "空白",
+    "初始状态",
+    "exit",
+    "reset",
+    "clear",
+    "not retained",
+    "not retain",
+)
+
+_RESUME_STATE_ONLY_TOKENS = (
+    "未完成",
+    "保留历史",
+    "保留对话",
+    "恢复上次",
+    "resume",
+    "resume state",
+    "re-enter",
+    "reentry",
+    "return later",
+    "retained history",
+    "retained dialog",
+)
+
+_CONDITIONAL_VISIBILITY_TOKENS = (
+    "仅在",
+    "只有",
+    "仅当",
+    "条件",
+    "阈值",
+    "正确率",
+    "超过",
+    "不足",
+    "低于",
+    "高于",
+    "大于",
+    "小于",
+    "only when",
+    "only if",
+    "threshold",
+    "condition",
+    "greater than",
+    "less than",
+)
+
+_PASSIVE_VISIBILITY_SURFACE_TOKENS = (
+    "按钮",
+    "入口",
+    "标识",
+    "状态",
+    "显示",
+    "展示",
+    "出现",
+    "可见",
+    "置灰",
+    "button",
+    "entry",
+    "status",
+    "visible",
+    "display",
+    "appears",
+    "shown",
+    "disabled",
+)
+
+_CONFIGURE_ACTION_REQUIRED_TOKENS = (
+    "选择",
+    "设置",
+    "配置",
+    "编辑",
+    "修改",
+    "新增",
+    "添加",
+    "选课",
+    "选时间",
+    "下一步",
+    "select",
+    "set",
+    "configure",
+    "edit",
+    "modify",
+    "add",
+    "choose",
+    "next",
+)
+
+_PASSIVE_LIST_STATUS_TOKENS = (
+    "已有计划",
+    "列表",
+    "排序",
+    "升序",
+    "降序",
+    "标记",
+    "状态标记",
+    "已完成",
+    "进行中",
+    "existing plan",
+    "list",
+    "sort",
+    "sorted",
+    "status label",
+)
+
+_PREVIEW_REQUIRED_TOKENS = (
+    "预览",
+    "预览确认",
+    "确认页",
+    "检查",
+    "preview",
+    "review",
+)
+
+_COMMIT_REQUIRED_TOKENS = (
+    "保存",
+    "提交",
+    "确认",
+    "完成创建",
+    "创建成功",
+    "触发打分",
+    "开始打分",
+    "自动打分",
+    "评分计算",
+    "生成评分",
+    "给出评分",
+    "save",
+    "submit",
+    "commit",
+    "confirm",
+    "created",
+    "trigger score",
+    "score calculation",
+)
+
+_DOWNSTREAM_PROPAGATION_TOKENS = (
+    "同步",
+    "生效",
+    "最新",
+    "新计划",
+    "新增",
+    "创建",
+    "保存",
+    "一致",
+    "书房端",
+    "学生端",
+    "评分结果",
+    "打分结果",
+    "综合评分",
+    "sync",
+    "synced",
+    "effective",
+    "latest",
+    "new plan",
+    "created",
+    "saved",
+    "consistent",
+    "visible",
+    "display",
+    "displayed",
+    "show",
+    "shows",
+    "shown",
+    "reflect",
+    "reflected",
+    "score result",
+    "scoring result",
+)
+
+_CONSUME_REQUIRED_TOKENS = (
+    "跳转",
+    "进入",
+    "打开",
+    "学习",
+    "点击",
+    "查看",
+    "navigate",
+    "enter",
+    "open",
+    "learn",
+    "click",
+    "view",
+    "consume",
+)
+
+_COMPLETION_REQUIRED_TOKENS = (
+    "完成",
+    "进度",
+    "状态同步",
+    "进度更新",
+    "更新",
+    "complete",
+    "completion",
+    "progress",
+    "status sync",
+    "updated",
+)
+
+_COMPLETION_STRONG_TOKENS = (
+    "状态同步",
+    "进度更新",
+    "完成后",
+    "同步",
+    "更新",
+    "completion sync",
+    "progress updated",
+    "synced",
+    "updated",
+)
+
+_REPORT_HISTORY_ONLY_TOKENS = (
+    "报告",
+    "历史记录",
+    "历史课程",
+    "report",
+    "history",
+)
+
+_MANAGEMENT_SURFACE_TOKENS = (
+    "督导",
+    "老师",
+    "教师",
+    "学员信息表格",
+    "课程管理",
+    "课堂管理",
+    "supervisor",
+    "teacher",
+    "student info table",
+    "course management",
+)
+
+_INTERNAL_PLACEHOLDER_PATTERN = re.compile(r"\b[a-z]+(?:_[a-z0-9]+){2,}\b")

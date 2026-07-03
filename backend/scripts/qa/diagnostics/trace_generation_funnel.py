@@ -564,6 +564,7 @@ def main() -> int:
     generation_summary = _pick_latest_payload(payloads, "generation_summary")
     review_table_payload = _pick_latest_payload(payloads, "review_decision_table")
     quality_ledger = _pick_latest_payload(payloads, "generation_quality_ledger")
+    timing_ledger = _pick_latest_payload(payloads, "generation_timing_ledger")
 
     rows = [item for item in (review_table_payload.get("rows") or []) if isinstance(item, dict)]
     review_export_meta = _build_detail_export_meta(
@@ -662,6 +663,7 @@ def main() -> int:
         "judge_summary": judge_summary,
         "generation_summary": generation_summary,
         "generation_quality_ledger": quality_ledger,
+        "generation_timing_ledger": timing_ledger,
         "review_detail_export_meta": review_export_meta,
         "funnel": funnel,
         "dropped_breakdown": {
@@ -729,6 +731,31 @@ def main() -> int:
         "source_detail_available",
     ):
         print(f"    {key}: {review_export_meta.get(key)}")
+    if timing_ledger:
+        print("  generation_timing_ledger:")
+        durations = timing_ledger.get("duration_by_stage_ms") if isinstance(timing_ledger, dict) else {}
+        if isinstance(durations, dict):
+            for key in (
+                "prepare_total",
+                "client_resolution",
+                "linked_final_case_signal",
+                "append_existing_lookup",
+                "snapshot_gate",
+                "hybrid_context",
+                "feedback_control_state",
+                "current_requirement_blueprint",
+                "requirement_compress",
+                "kb_context_compress",
+                "meta_analysis",
+                "primary",
+                "stream_generation_phase",
+                "gap",
+                "review",
+                "final_shortfall",
+                "postprocess_total",
+            ):
+                print(f"    {key}_ms: {durations.get(key)}")
+        print(f"    event_count: {timing_ledger.get('event_count')}")
     print("  judge_breakdown:")
     print(f"    total: {judge_row_count_total}")
     print(f"    exported_row_count: {len(judge_rows)}")

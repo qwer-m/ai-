@@ -10,9 +10,11 @@ from modules.test_generation_components.postprocess.streaming_case_keys import c
 from modules.test_generation_components.postprocess.streaming_review_retry import (
     analyze_review_retry_payload,
     build_compact_review_retry_prompt,
+    build_review_protocol_repair_prompt,
     count_review_dropped_reason_payload,
     default_review_llm_runtime_debug,
     normalize_review_payload_invalid_reason,
+    resolve_review_fallback_models,
     review_payload_has_selection_signal,
     review_retry_payload_debug_counts,
 )
@@ -86,6 +88,36 @@ def test_analyze_review_retry_payload_maps_selection_and_counts_alias_drop_ids()
     assert count_review_dropped_reason_payload(result["payload"]) == 2
     assert review_payload_has_selection_signal(result["payload"]) is True
     assert review_retry_payload_debug_counts(result)["mapped_count"] == 1
+
+
+def test_resolve_review_fallback_models_deduplicates_deepseek_chain() -> None:
+    class _Client:
+        model = "deepseek-reasoner"
+        turbo_model = "deepseek-chat"
+
+    assert resolve_review_fallback_models(
+        client=_Client(),
+        primary_model_name="deepseek-reasoner",
+    ) == ["deepseek-chat", "deepseek-reasoner"]
+
+
+def test_build_review_protocol_repair_prompt_limits_candidate_ids_and_reasons() -> None:
+    prompt = build_review_protocol_repair_prompt(
+        review_prompt="ORIGINAL REVIEW PROMPT",
+        candidate_cases=[
+            _case("TC-001", "create a course"),
+            _case("TC-002", "delete a course"),
+        ],
+        drop_reasons=("duplicate", "coverage_redundant"),
+        max_candidates=1,
+    )
+
+    assert "ORIGINAL REVIEW PROMPT" in prompt
+    assert "PROTOCOL FIX (MANDATORY)" in prompt
+    assert '"kept_case_ids"' in prompt
+    assert '"TC-001"' in prompt
+    assert '"TC-002"' not in prompt
+    assert '"duplicate","coverage_redundant"' in prompt
 
 
 def test_analyze_review_retry_payload_keeps_scalar_id_list_mappable() -> None:

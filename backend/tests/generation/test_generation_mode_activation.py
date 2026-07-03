@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+
 from modules.test_generation_components.control.generation_mode_activation import (
     build_generation_mode_control_state,
     infer_generation_coverage_profile,
+    resolve_linked_final_case_signal,
+)
+from modules.test_generation_components.control.current_requirement_blueprint import (
+    extract_current_requirement_blueprints,
 )
 from modules.testing.test_generation_components.legacy.adapters import (
     clean_and_parse_json,
@@ -38,12 +45,175 @@ class _SupplementClient(_NoopClient):
         return __import__("json").dumps(self.cases, ensure_ascii=False)
 
 
+class _BlueprintExtractionClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def generate_response(self, requirement: str, prompt: str, db=None, **kwargs):  # noqa: ANN001, ARG002
+        self.calls.append(
+            {
+                "requirement": requirement,
+                "prompt": prompt,
+                "kwargs": dict(kwargs),
+            }
+        )
+        return json.dumps(
+            {
+                "workflow_blueprints": [
+                    {
+                        "workflow_id": "forum_publish_flow",
+                        "name": "Forum publish flow",
+                        "confidence": 0.8,
+                        "steps": [
+                            {
+                                "id": "entry",
+                                "label": "Open forum editor",
+                                "action": "open forum editor",
+                                "stage_kind": "entry",
+                            },
+                            {
+                                "id": "commit",
+                                "label": "Publish post",
+                                "action": "publish post",
+                                "stage_kind": "commit",
+                            },
+                            {
+                                "id": "detail",
+                                "label": "View post detail",
+                                "action": "view post detail",
+                                "stage_kind": "downstream_visibility",
+                            },
+                        ],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+
+
+class _LinkedSignalQuery:
+    def __init__(self, db):
+        self.db = db
+        self.filters: list[str] = []
+
+    def filter(self, *criteria):
+        text = " ".join(str(item) for item in criteria)
+        self.filters.append(text)
+        if "content_hash" in text:
+            self.db.hash_filter_count += 1
+        elif "knowledge_documents.content =" in text:
+            self.db.content_eq_filter_count += 1
+        elif " LIKE " in text:
+            self.db.content_like_filter_count += 1
+        return self
+
+    def order_by(self, *args):  # noqa: ANN002, ARG002
+        return self
+
+    def limit(self, value):  # noqa: ANN001, ARG002
+        return self
+
+    def all(self):
+        if self.db.hash_filter_count > 0:
+            return [SimpleNamespace(id=11)]
+        return []
+
+
+class _LinkedSignalDb:
+    def __init__(self) -> None:
+        self.hash_filter_count = 0
+        self.content_eq_filter_count = 0
+        self.content_like_filter_count = 0
+
+    def query(self, model):  # noqa: ANN001, ARG002
+        return _LinkedSignalQuery(self)
+
+
+class _LinkedSignalRepo:
+    def __init__(self, db):  # noqa: ANN001
+        self.db = db
+
+    def list_linked_test_cases_for_sources(self, *, project_id: int, source_doc_ids):  # noqa: ANN001, ARG002
+        self.db.linked_source_doc_ids = [int(value) for value in source_doc_ids]
+        return [
+            SimpleNamespace(
+                id=21,
+                content=json.dumps([{"id": "TC-001"}, {"id": "TC-002"}], ensure_ascii=False),
+            )
+        ]
+
+
 def _drain_with_return(gen):
     while True:
         try:
             next(gen)
         except StopIteration as stop:
             return stop.value
+
+
+def test_linked_final_case_signal_prefers_content_hash_lookup(monkeypatch) -> None:
+    import modules.knowledge_base_components.repositories.knowledge_document_repository as repo_mod
+
+    db = _LinkedSignalDb()
+    monkeypatch.setattr(repo_mod, "KnowledgeDocumentRepository", _LinkedSignalRepo)
+
+    result = resolve_linked_final_case_signal(
+        db=db,
+        project_id=2,
+        user_id=9,
+        requirement_text="论坛发布成功后进入详情页",
+    )
+
+    assert result["source_doc_ids"] == [11]
+    assert result["linked_final_case_doc_ids"] == [21]
+    assert result["linked_final_case_count"] == 2
+    assert db.hash_filter_count == 1
+    assert db.content_eq_filter_count == 0
+    assert db.content_like_filter_count == 0
+    assert db.linked_source_doc_ids == [11]
+
+
+def test_current_requirement_blueprint_extraction_uses_default_token_budget(monkeypatch) -> None:
+    monkeypatch.delenv("GENERATION_CURRENT_REQUIREMENT_BLUEPRINT_MAX_TOKENS", raising=False)
+    client = _BlueprintExtractionClient()
+
+    blueprints, diagnostics = extract_current_requirement_blueprints(
+        client=client,
+        requirement_text="论坛帖子发布后进入详情页。",
+        project_id=2,
+        user_id=9,
+    )
+
+    assert len(blueprints) == 1
+    assert client.calls[0]["kwargs"]["max_tokens"] == 1600
+    assert diagnostics["current_requirement_blueprint_max_tokens"] == 1600
+    assert diagnostics["current_requirement_blueprint_status"] == "applied"
+
+
+def test_current_requirement_blueprint_extraction_allows_env_token_budget(monkeypatch) -> None:
+    monkeypatch.setenv("GENERATION_CURRENT_REQUIREMENT_BLUEPRINT_MAX_TOKENS", "1200")
+    client = _BlueprintExtractionClient()
+
+    _, diagnostics = extract_current_requirement_blueprints(
+        client=client,
+        requirement_text="论坛帖子发布后进入详情页。",
+    )
+
+    assert client.calls[0]["kwargs"]["max_tokens"] == 1200
+    assert diagnostics["current_requirement_blueprint_max_tokens"] == 1200
+
+
+def test_current_requirement_blueprint_extraction_clamps_too_small_budget(monkeypatch) -> None:
+    monkeypatch.setenv("GENERATION_CURRENT_REQUIREMENT_BLUEPRINT_MAX_TOKENS", "100")
+    client = _BlueprintExtractionClient()
+
+    _, diagnostics = extract_current_requirement_blueprints(
+        client=client,
+        requirement_text="论坛帖子发布后进入详情页。",
+    )
+
+    assert client.calls[0]["kwargs"]["max_tokens"] == 600
+    assert diagnostics["current_requirement_blueprint_max_tokens"] == 600
 
 
 def test_full_functional_regression_profile_activates_from_expected_count() -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Callable
 
-from ..coverage.coverage_analyzer import case_complexity_profile
+from ..coverage.coverage_case_complexity import case_complexity_profile
 from .case_access import case_flat_text
 from .result_postprocess_priority_semantics import score_case_priority
 from .streaming_case_keys import (

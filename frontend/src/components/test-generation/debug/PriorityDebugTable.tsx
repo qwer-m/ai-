@@ -10,9 +10,7 @@ import {
   parseSamplePool,
   buildRows,
   compareRows,
-  matchPriority,
   buildTransitions,
-  buildSummaryLine,
   sourceTypeLabel,
   categoryDisplayLabel,
   sourceTypeBadgeVariant,
@@ -21,70 +19,27 @@ import {
   getSampleTagCounts,
   getSampleDirectionTop,
   buildCsvFromRows,
-  toExportRows,
   downloadCsv,
-  buildCopyText,
-  copyTextToClipboard,
-  mergeSamples,
-  toSample,
   toSamplePoolExportRows,
   toEvalDataset,
   downloadJson,
-  buildRecommendationText,
-  buildRecommendationDraft,
-  buildOptimizationInputPackage,
   sampleTagLabel,
-  sampleUsageLabel,
   resultSourceLabel,
   sampleKindLabel as sampleKindDisplayLabel,
   directionLabel,
-  priorityDebugSourceLabel,
   normalizePriority,
   normalizeReasonCategory,
   normalizePatternCategory,
-  classifySampleTags,
   buildWeakLinkCaseKey,
   normalizeWeakLinkGenerationId,
 } from './PriorityDebugTable.helpers';
-import type { Props, PriorityRow, PrioritySample, SampleKind, SampleTag, SampleUsage, ViewFilter } from './PriorityDebugTable.helpers';
+import type { Props, PriorityRow, PrioritySample } from './PriorityDebugTable.helpers';
 import {
-  addPrioritySamplePoolItems,
   deletePrioritySamplePoolItem,
-  fetchPrioritySamplePoolConsistency,
   fetchPrioritySamplePool,
-  savePrioritySamplePool,
 } from './debugService';
 
 type SamplePoolFilter = 'all' | 'anomaly' | 'positive';
-
-const PRIORITY_DEBUG_KEY_LABELS: Record<string, string> = {
-  priority_debug_priority: '调试优先级',
-  priority_debug_source: '调试来源',
-  final_priority: '最终优先级',
-  final_priority_source: '最终优先级来源',
-  manual_feedback: '人工反馈',
-  case_id: '用例编号',
-  sample_kind: '样本类型',
-  tags: '标签',
-  usage: '用途',
-  expected_priority: '期望优先级',
-  reason_category: '原因分类',
-  pattern_category: '模式分类',
-  user_comment: '人工备注',
-  weak_link_case_key: '弱关联用例键',
-  weak_link_generation_id: '关联生成记录',
-  original_priority: '原始优先级',
-  model_priority: '模型优先级',
-  raw_priority: '原始优先级',
-  source_priority: '来源优先级',
-  resolved_priority: '解析后优先级',
-  priority_after_rules: '规则后优先级',
-  adjusted_priority: '调整后优先级',
-  target_priority: '目标优先级',
-  priority: '优先级',
-  confidence: '置信度',
-  source: '来源',
-};
 
 export function PriorityDebugTable({
   result,
@@ -96,18 +51,12 @@ export function PriorityDebugTable({
 }: Props) {
   const [samplePoolFilter, setSamplePoolFilter] = useState<SamplePoolFilter>('all');
   const [samplePoolStatusFilter, setSamplePoolStatusFilter] = useState<'active' | 'deleted' | 'all'>('active');
-  const [viewFilter, setViewFilter] = useState<ViewFilter>('all');
-  const [rawFilter, setRawFilter] = useState<string>('all');
-  const [debugFilter, setDebugFilter] = useState<string>('all');
   const [actionMessage, setActionMessage] = useState<string>('');
-  const [recommendationText, setRecommendationText] = useState<string>('');
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [lastCloudSavedAt, setLastCloudSavedAt] = useState<number | null>(null);
   const [isCloudSyncing, setIsCloudSyncing] = useState<boolean>(false);
   const [cloudSyncError, setCloudSyncError] = useState<string>('');
-  const skipNextRemoteSaveRef = useRef<boolean>(false);
   const hasHydratedRemoteRef = useRef<boolean>(false);
-  const remoteSaveTimerRef = useRef<number | null>(null);
   const samplePoolStorageKey = projectId ? `${SAMPLE_POOL_STORAGE_KEY}_${projectId}` : SAMPLE_POOL_STORAGE_KEY;
   const [samplePool, setSamplePool] = useState<PrioritySample[]>(() => {
     if (typeof window === 'undefined') return [];
@@ -130,7 +79,6 @@ export function PriorityDebugTable({
       setCloudSyncError('');
       if (typeof window !== 'undefined') {
         const localRaw = window.localStorage.getItem(SAMPLE_POOL_STORAGE_KEY);
-        skipNextRemoteSaveRef.current = true;
         setSamplePool(parseSamplePool(localRaw));
       }
       return;
@@ -143,17 +91,12 @@ export function PriorityDebugTable({
       try {
         const localRaw = typeof window !== 'undefined' ? window.localStorage.getItem(samplePoolStorageKey) : null;
         const localSamples = parseSamplePool(localRaw);
-        skipNextRemoteSaveRef.current = true;
         setSamplePool(localSamples);
         const payload = await fetchPrioritySamplePool(projectId);
         if (cancelled) return;
         const remoteSamples = parseSamplePool(JSON.stringify(payload?.samples || []));
         // 只要云端读取成功，就以当前项目云端数据为准（包括空数组），确保项目隔离不被本地旧缓存污染。
-        skipNextRemoteSaveRef.current = true;
         setSamplePool(remoteSamples);
-        window.setTimeout(() => {
-          if (!cancelled) skipNextRemoteSaveRef.current = false;
-        }, 0);
         const cloudTs = Date.parse(String(payload?.updated_at || ''));
         setLastCloudSavedAt(Number.isFinite(cloudTs) ? cloudTs : null);
       } catch {
@@ -170,13 +113,6 @@ export function PriorityDebugTable({
       cancelled = true;
     };
   }, [projectId, samplePoolStorageKey]);
-
-  useEffect(() => () => {
-    if (typeof window !== 'undefined' && remoteSaveTimerRef.current !== null) {
-      window.clearTimeout(remoteSaveTimerRef.current);
-      remoteSaveTimerRef.current = null;
-    }
-  }, []);
 
   const rows = useMemo(() => buildRows(result, resultSource), [result, resultSource]);
   const sortedRows = useMemo(() => [...rows].sort(compareRows), [rows]);
@@ -242,27 +178,10 @@ export function PriorityDebugTable({
     [sortedRows, samplePoolByWeakLink, generationId]
   );
 
-  const filteredRowViews = useMemo(
-    () => evaluatedRows.filter(({ rowForDisplay }) => {
-      if (!matchPriority(rowForDisplay.rawPriority, rawFilter)) return false;
-      if (!matchPriority(rowForDisplay.finalPriority, debugFilter)) return false;
-      if (viewFilter === 'corrected') return rowForDisplay.corrected;
-      if (viewFilter === 'unchanged') return !rowForDisplay.corrected;
-      if (viewFilter === 'raw_mismatch') return rowForDisplay.rawFinalMismatch;
-      if (viewFilter === 'display_mismatch') return rowForDisplay.displayFinalMismatch;
-      return true;
-    }),
-    [evaluatedRows, rawFilter, debugFilter, viewFilter]
-  );
-
-  const filteredRows = useMemo(() => filteredRowViews.map((item) => item.rowForDisplay), [filteredRowViews]);
   const correctedCount = useMemo(() => evaluatedRows.filter((item) => item.rowForDisplay.corrected).length, [evaluatedRows]);
   const unchangedCount = useMemo(() => evaluatedRows.filter((item) => !item.rowForDisplay.corrected).length, [evaluatedRows]);
   const displayMismatchCount = useMemo(() => evaluatedRows.filter((item) => item.rowForDisplay.displayFinalMismatch).length, [evaluatedRows]);
   const transitions = useMemo(() => buildTransitions(evaluatedRows.map((item) => item.rowForDisplay)), [evaluatedRows]);
-  const displayMismatchRows = useMemo(() => evaluatedRows.filter((item) => item.rowForDisplay.displayFinalMismatch).map((item) => item.rowForDisplay), [evaluatedRows]);
-  const anomalyRows = useMemo(() => evaluatedRows.filter((item) => item.rowForDisplay.displayFinalMismatch || item.rowForDisplay.rawFinalMismatch).map((item) => item.rowForDisplay), [evaluatedRows]);
-  const summaryLine = useMemo(() => buildSummaryLine(displayMismatchCount, correctedCount, unchangedCount), [displayMismatchCount, correctedCount, unchangedCount]);
   const filteredSamplePool = useMemo(
     () => samplePool.filter((sample) => {
       if (samplePoolFilter !== 'all') {
@@ -276,156 +195,6 @@ export function PriorityDebugTable({
     [samplePool, samplePoolFilter, samplePoolStatusFilter]
   );
 
-  const buildPriorityDebugDisplay = (row: PriorityRow, linkedSample: PrioritySample | undefined, priorityDebugPriority: ReturnType<typeof normalizePriority>): Record<string, unknown> | null => {
-    if (!linkedSample && !row.priorityDebug) return null;
-    const base = row.priorityDebug && typeof row.priorityDebug === 'object' ? row.priorityDebug : {};
-    const sampleExpectedPriority = normalizePriority(linkedSample?.expectedPriority ?? '');
-    const priorityDebugSource = sampleExpectedPriority
-      ? 'sample_pool_expected_priority'
-      : (row.priorityDebug ? 'priority_debug' : 'original_list');
-    return {
-      ...base,
-      priority_debug_priority: priorityDebugPriority || '',
-      priority_debug_source: priorityDebugSource,
-      final_priority: priorityDebugPriority || '',
-      final_priority_source: priorityDebugSource,
-      ...(linkedSample
-        ? {
-          manual_feedback: {
-            case_id: linkedSample.caseId,
-            sample_kind: linkedSample.sampleKind,
-            tags: linkedSample.tags,
-            usage: linkedSample.usage,
-            expected_priority: linkedSample.expectedPriority || '',
-            reason_category: linkedSample.reasonCategory || '',
-            pattern_category: linkedSample.patternCategory || '',
-            user_comment: linkedSample.userComment || '',
-            weak_link_case_key: linkedSample.weakLinkCaseKey || '',
-            weak_link_generation_id: normalizeWeakLinkGenerationId(linkedSample.weakLinkGenerationId ?? null),
-          },
-        }
-        : {}),
-    };
-  };
-
-  const translatePriorityDebugValue = (key: string, value: unknown): unknown => {
-    if (key === 'priority_debug_source' || key === 'final_priority_source' || key === 'source') {
-      return priorityDebugSourceLabel(String(value || ''));
-    }
-    if (key === 'sample_kind') return sampleKindDisplayLabel(String(value || ''));
-    if (key === 'usage') return sampleUsageLabel(String(value || '') as SampleUsage);
-    if (key === 'tags' && Array.isArray(value)) return value.map((tag) => sampleTagLabel(String(tag) as SampleTag));
-    if (key === 'reason_category') {
-      return categoryDisplayLabel(value, 'anomaly') || value;
-    }
-    if (key === 'pattern_category') {
-      return categoryDisplayLabel(value, 'positive') || value;
-    }
-    if (key === 'manual_confirmed') return value ? '是' : '否';
-    return value;
-  };
-
-  const translatePriorityDebugDisplay = (input: Record<string, unknown>): Record<string, unknown> => (
-    Object.fromEntries(
-      Object.entries(input).map(([key, value]) => {
-        const label = PRIORITY_DEBUG_KEY_LABELS[key] || key;
-        if (value && typeof value === 'object' && !Array.isArray(value)) {
-          return [label, translatePriorityDebugDisplay(value as Record<string, unknown>)];
-        }
-        return [label, translatePriorityDebugValue(key, value)];
-      })
-    )
-  );
-
-  const resolveCategoryDisplayBadge = (
-    rowForDisplay: PriorityRow,
-    linkedSample: PrioritySample | undefined
-  ): { text: string; bg: 'primary' | 'danger' } | null => {
-    if (linkedSample) {
-      if (linkedSample.sampleKind === 'positive') {
-        const patternLabel = linkedSample.categoryLabel || categoryDisplayLabel(linkedSample.patternCategory, 'positive');
-        if (patternLabel && linkedSample.patternCategory) return { text: patternLabel, bg: 'primary' };
-        const reasonLabel = linkedSample.categoryLabel || categoryDisplayLabel(linkedSample.reasonCategory, 'anomaly');
-        if (reasonLabel && linkedSample.reasonCategory) return { text: reasonLabel, bg: 'primary' };
-        return { text: '正向', bg: 'primary' };
-      }
-      const reasonLabel = linkedSample.categoryLabel || categoryDisplayLabel(linkedSample.reasonCategory, 'anomaly');
-      if (reasonLabel && linkedSample.reasonCategory) return { text: reasonLabel, bg: 'danger' };
-      const patternLabel = linkedSample.categoryLabel || categoryDisplayLabel(linkedSample.patternCategory, 'positive');
-      if (patternLabel && linkedSample.patternCategory) return { text: patternLabel, bg: 'danger' };
-      return { text: '异常', bg: 'danger' };
-    }
-    if (rowForDisplay.displayFinalMismatch) return { text: '展示异常', bg: 'danger' };
-    return null;
-  };
-
-  const handleExportCurrent = () => {
-    if (!filteredRows.length) { setActionMessage('当前无可导出数据'); return; }
-    const csvText = buildCsvFromRows(toExportRows(filteredRows));
-    downloadCsv(csvText, `priority-debug-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`);
-    setActionMessage(`已导出当前筛选结果（${filteredRows.length} 条）`);
-  };
-  const handleCopyCurrent = async () => {
-    if (!filteredRows.length) { setActionMessage('当前无可复制数据'); return; }
-    try { await copyTextToClipboard(buildCopyText(filteredRows, summaryLine, '当前筛选结果')); setActionMessage(`已复制当前筛选结果（${filteredRows.length} 条）`); } catch { setActionMessage('复制失败，请重试'); }
-  };
-  const handleCopyDisplayMismatch = async () => {
-    if (!displayMismatchRows.length) { setActionMessage('当前无展示异常数据'); return; }
-    try { await copyTextToClipboard(buildCopyText(displayMismatchRows, summaryLine, '展示异常列表')); setActionMessage(`已复制展示异常列表（${displayMismatchRows.length} 条）`); } catch { setActionMessage('复制失败，请重试'); }
-  };
-  const handleAddAnomalySamples = async () => {
-    if (!anomalyRows.length) { setActionMessage('当前无可加入异常样本池的数据'); return; }
-    const incoming = anomalyRows.map((row) => toSample(row, { generationId, sampleKind: 'anomaly' }));
-    const next = mergeSamples(samplePool, incoming);
-    if (projectId && hasHydratedRemoteRef.current) skipNextRemoteSaveRef.current = true;
-    setSamplePool(next);
-    setActionMessage(`已加入异常样本池（样本池共 ${next.length} 条）`);
-    if (!projectId || !hasHydratedRemoteRef.current) return;
-    setIsCloudSyncing(true);
-    try {
-      const payload = await addPrioritySamplePoolItems(projectId, {
-        generation_id: generationId ?? null,
-        samples: incoming as unknown as any[],
-      });
-      const remoteSamples = parseSamplePool(JSON.stringify(payload?.samples || []));
-      skipNextRemoteSaveRef.current = true;
-      setSamplePool(remoteSamples);
-      const cloudTs = Date.parse(String(payload?.updated_at || ''));
-      if (Number.isFinite(cloudTs)) setLastCloudSavedAt(cloudTs);
-      setCloudSyncError('');
-      setActionMessage(`已通过增量接口加入异常样本池（${incoming.length} 条）`);
-    } catch {
-      setCloudSyncError('云端增量加入失败，数据仍保留在本地浏览器');
-    } finally {
-      setIsCloudSyncing(false);
-    }
-  };
-  const handleAddCurrentRowToPool = async (row: PriorityRow, sampleKind: SampleKind = 'anomaly') => {
-    const incoming = [toSample(row, { generationId, sampleKind })];
-    const next = mergeSamples(samplePool, incoming);
-    if (projectId && hasHydratedRemoteRef.current) skipNextRemoteSaveRef.current = true;
-    setSamplePool(next);
-    setActionMessage(`已加入${sampleKindDisplayLabel(sampleKind)}样本池：${row.caseId}`);
-    if (!projectId || !hasHydratedRemoteRef.current) return;
-    setIsCloudSyncing(true);
-    try {
-      const payload = await addPrioritySamplePoolItems(projectId, {
-        generation_id: generationId ?? null,
-        samples: incoming as unknown as any[],
-      });
-      const remoteSamples = parseSamplePool(JSON.stringify(payload?.samples || []));
-      skipNextRemoteSaveRef.current = true;
-      setSamplePool(remoteSamples);
-      const cloudTs = Date.parse(String(payload?.updated_at || ''));
-      if (Number.isFinite(cloudTs)) setLastCloudSavedAt(cloudTs);
-      setCloudSyncError('');
-      setActionMessage(`已通过增量接口加入${sampleKindDisplayLabel(sampleKind)}样本池：${row.caseId}`);
-    } catch {
-      setCloudSyncError('云端增量加入失败，数据仍保留在本地浏览器');
-    } finally {
-      setIsCloudSyncing(false);
-    }
-  };
   const handleUpdateSample = (sampleId: string, patch: Partial<Pick<PrioritySample, 'userComment' | 'expectedPriority' | 'reasonCategory' | 'patternCategory'>>) => {
     setSamplePool((prev) => prev.map((sample) => (sample.sampleId === sampleId ? { ...sample, ...patch } : sample)));
   };
@@ -433,7 +202,6 @@ export function PriorityDebugTable({
     const targetSample = samplePool.find((sample) => sample.sampleId === sampleId);
     const persistedSampleId = String(targetSample?.persistedSampleId || sampleId);
     const nextSamples = samplePool.filter((sample) => sample.sampleId !== sampleId);
-    if (projectId && hasHydratedRemoteRef.current) skipNextRemoteSaveRef.current = true;
     setSamplePool(nextSamples);
     setActionMessage(`已从样本池删除：${caseId}`);
     if (!projectId || !hasHydratedRemoteRef.current) return;
@@ -444,7 +212,6 @@ export function PriorityDebugTable({
         sample_id: persistedSampleId,
       });
       const remoteSamples = parseSamplePool(JSON.stringify(payload?.samples || []));
-      skipNextRemoteSaveRef.current = true;
       setSamplePool(remoteSamples);
       const cloudTs = Date.parse(String(payload?.updated_at || ''));
       if (Number.isFinite(cloudTs)) setLastCloudSavedAt(cloudTs);
@@ -472,75 +239,9 @@ export function PriorityDebugTable({
     downloadJson(`${JSON.stringify(toEvalDataset(samplePool), null, 2)}\n`, `priority-eval-dataset-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
     setActionMessage(`已导出评估数据集（${samplePool.length} 条）`);
   };
-  const handleGenerateRuleSuggestions = () => {
-    if (!samplePool.length) { setActionMessage('样本池为空，无法生成规则建议'); return; }
-    setRecommendationText(buildRecommendationText(buildRecommendationDraft(samplePool, sampleTagCounts, sampleDirectionTop)));
-    setActionMessage('已基于当前样本池生成规则建议');
-  };
-  const handleCopyRuleSuggestions = async () => {
-    if (!recommendationText.trim()) { setActionMessage('请先生成规则建议'); return; }
-    try { await copyTextToClipboard(recommendationText); setActionMessage('已复制规则建议文本'); } catch { setActionMessage('复制失败，请重试'); }
-  };
-  const handleExportOptimizationInputPackage = () => {
-    if (!samplePool.length) { setActionMessage('样本池为空，暂无可导出输入包'); return; }
-    const payload = buildOptimizationInputPackage(samplePool, sampleTagCounts, sampleDirectionTop);
-    downloadJson(`${JSON.stringify(payload, null, 2)}\n`, `priority-optimization-input-package-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
-    setActionMessage(`已导出优化建议输入包（${samplePool.length} 条样本）`);
-  };
   const handleClearSamplePool = () => {
     setSamplePool([]);
-    setRecommendationText('');
     setActionMessage('样本池已清空');
-  };
-  const handleSaveSamplePool = async () => {
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage.setItem(samplePoolStorageKey, JSON.stringify(samplePool));
-      setLastSavedAt(Date.now());
-      if (projectId) {
-        setIsCloudSyncing(true);
-        const payload = await savePrioritySamplePool(projectId, {
-          generation_id: generationId ?? null,
-          samples: samplePool as unknown as any[],
-        });
-        const cloudTs = Date.parse(String(payload?.updated_at || ''));
-        if (Number.isFinite(cloudTs)) setLastCloudSavedAt(cloudTs);
-        setCloudSyncError('');
-        setActionMessage('已保存到云端（并同步本地）');
-      } else {
-        setActionMessage('已保存到本地浏览器');
-      }
-    } catch {
-      setCloudSyncError('云端保存失败，数据仍保留在本地浏览器');
-      setActionMessage('保存失败，请检查网络或浏览器存储权限');
-    } finally {
-      setIsCloudSyncing(false);
-    }
-  };
-  const handleCheckSamplePoolConsistency = async () => {
-    if (!projectId) {
-      setActionMessage('未选择项目，无法检查影子表一致性');
-      return;
-    }
-    setIsCloudSyncing(true);
-    try {
-      const payload = await fetchPrioritySamplePoolConsistency(projectId);
-      const consistency = payload?.consistency || {};
-      const sampleCheck = consistency.sample_pool_items as { json_count?: number; table_count?: number; ok?: boolean } | undefined;
-      const patternCheck = consistency.learned_patterns as { json_count?: number; table_count?: number; ok?: boolean } | undefined;
-      const ready = consistency.tables_ready === true ? '表已就绪' : '表未就绪';
-      const sampleStatus = sampleCheck?.ok ? '一致' : '不一致';
-      const patternStatus = patternCheck?.ok ? '一致' : '不一致';
-      setActionMessage(
-        `影子表一致性：${ready}；样本池 存档/表=${sampleCheck?.json_count ?? '-'} / ${sampleCheck?.table_count ?? '-'} ${sampleStatus}；模式 存档/表=${patternCheck?.json_count ?? '-'} / ${patternCheck?.table_count ?? '-'} ${patternStatus}`,
-      );
-      setCloudSyncError('');
-    } catch {
-      setCloudSyncError('影子表一致性检查失败');
-      setActionMessage('影子表一致性检查失败，请查看后端日志');
-    } finally {
-      setIsCloudSyncing(false);
-    }
   };
   const handleToggleSamplePoolFeedback = () => {
     const next = !enableSamplePoolFeedback;
@@ -571,21 +272,8 @@ export function PriorityDebugTable({
         <Button size="sm" variant={samplePoolFilter === 'anomaly' ? 'primary' : 'outline-primary'} className={`tg-priority-sample-filter-btn ${samplePoolFilter === 'anomaly' ? 'is-active' : ''}`} onClick={() => setSamplePoolFilter('anomaly')}>异常</Button>
         <Button size="sm" variant={samplePoolFilter === 'positive' ? 'primary' : 'outline-primary'} className={`tg-priority-sample-filter-btn ${samplePoolFilter === 'positive' ? 'is-active' : ''}`} onClick={() => setSamplePoolFilter('positive')}>正常</Button>
         <Button size="sm" variant={samplePoolFilter === 'all' ? 'primary' : 'outline-primary'} className={`tg-priority-sample-filter-btn ${samplePoolFilter === 'all' ? 'is-active' : ''}`} onClick={() => setSamplePoolFilter('all')}>查看全部</Button>
-        <Button size="sm" variant="outline-secondary" onClick={handleExportCurrent} disabled={!filteredRows.length}>导出当前结果</Button>
-        <Button size="sm" variant="outline-secondary" onClick={() => void handleCopyCurrent()} disabled={!filteredRows.length}>复制当前结果</Button>
-        <Button size="sm" variant="outline-secondary" onClick={() => void handleCopyDisplayMismatch()} disabled={!displayMismatchRows.length}>复制展示异常</Button>
-        <Button size="sm" variant="outline-secondary" onClick={handleAddAnomalySamples} disabled={!anomalyRows.length}>加入异常样本池</Button>
         <Button size="sm" variant="outline-secondary" onClick={handleExportSamplePool} disabled={!samplePool.length}>导出样本池表格</Button>
         <Button size="sm" variant="outline-secondary" onClick={handleExportEvalDatasetJson} disabled={!samplePool.length}>导出评估数据集</Button>
-        <Button size="sm" variant="outline-secondary" onClick={handleGenerateRuleSuggestions} disabled={!samplePool.length}>生成规则建议</Button>
-        <Button size="sm" variant="outline-secondary" onClick={() => void handleCopyRuleSuggestions()} disabled={!recommendationText.trim()}>复制规则建议</Button>
-        <Button size="sm" variant="outline-secondary" onClick={handleExportOptimizationInputPackage} disabled={!samplePool.length}>导出优化建议输入包</Button>
-        <Button size="sm" variant="outline-secondary" onClick={() => void handleSaveSamplePool()} disabled={!samplePool.length || isCloudSyncing}>
-          {projectId ? (isCloudSyncing ? '同步中...' : '保存到云端') : '保存到本地'}
-        </Button>
-        <Button size="sm" variant="outline-secondary" onClick={() => void handleCheckSamplePoolConsistency()} disabled={!projectId || isCloudSyncing}>
-          影子表一致性
-        </Button>
         <Button size="sm" variant="outline-danger" onClick={handleClearSamplePool} disabled={!samplePool.length}>清空样本池</Button>
         <Button
           size="sm"
@@ -655,14 +343,6 @@ export function PriorityDebugTable({
             : '未选择项目，当前仅本地保存'}
         </div>
       </div>
-
-      {recommendationText ? (
-        <div className="mb-3 p-2 border rounded-2">
-          <div className="fw-semibold mb-2">规则建议草稿</div>
-          <Form.Control as="textarea" rows={10} value={recommendationText} readOnly className="mb-2" />
-          <div className="small text-muted rag-debug-muted">该建议由本地样本统计与人工解释拼装生成，可直接复制用于后续模型总结或评审。</div>
-        </div>
-      ) : null}
 
       {samplePool.length > 0 ? (
         <div className="mb-3 p-2 border rounded-2">
@@ -836,90 +516,6 @@ export function PriorityDebugTable({
           </div>
         </div>
       ) : null}
-
-      <div className="d-flex flex-wrap align-items-end gap-2 mb-3">
-        <div><div className="small text-muted rag-debug-muted mb-1">视图</div><Form.Select size="sm" value={viewFilter} onChange={(e) => setViewFilter(e.target.value as ViewFilter)} style={{ width: 180 }}><option value="all">全部</option><option value="corrected">已修正</option><option value="unchanged">未变化</option><option value="raw_mismatch">原始 != 调试</option><option value="display_mismatch">展示 != 调试</option></Form.Select></div>
-        <div><div className="small text-muted rag-debug-muted mb-1">原始优先级</div><Form.Select size="sm" value={rawFilter} onChange={(e) => setRawFilter(e.target.value)} style={{ width: 120 }}><option value="all">全部</option><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option></Form.Select></div>
-        <div><div className="small text-muted rag-debug-muted mb-1">优先级调试</div><Form.Select size="sm" value={debugFilter} onChange={(e) => setDebugFilter(e.target.value)} style={{ width: 120 }}><option value="all">全部</option><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option></Form.Select></div>
-      </div>
-
-      <div className="table-responsive tg-priority-result-scroll">
-        <table className="table table-sm align-middle mb-0 tg-priority-result-table">
-          <thead>
-            <tr>
-              <th className="tg-priority-index-col">用例标号</th>
-              <th className="tg-priority-case-col">用例</th>
-              <th className="tg-priority-raw-col">原始优先级</th>
-              <th className="tg-priority-source-col">结果来源</th>
-              <th className="tg-priority-tag-col">标签</th>
-              <th className="tg-priority-debug-col">优先级调试</th>
-              <th className="tg-priority-action-col">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {!filteredRows.length ? (<tr><td colSpan={7} className="text-center text-muted py-4">暂无符合筛选条件的数据</td></tr>) : null}
-            {filteredRowViews.map(({ rowForDisplay, linkedSample, priorityDebugPriority }) => {
-              const tags = linkedSample?.tags?.length ? linkedSample.tags : classifySampleTags(rowForDisplay);
-              const priorityDebugDisplay = buildPriorityDebugDisplay(rowForDisplay, linkedSample, priorityDebugPriority);
-              const categoryBadge = resolveCategoryDisplayBadge(rowForDisplay, linkedSample);
-              return (
-                <tr key={`${rowForDisplay.caseId}-${rowForDisplay.index}`} className={rowForDisplay.displayFinalMismatch ? 'tg-priority-display-mismatch-row' : undefined}>
-                  <td className="tg-priority-index-col"><div className="fw-semibold">{rowForDisplay.caseId || '-'}</div>{categoryBadge ? <Badge bg={categoryBadge.bg} className="mt-1">{categoryBadge.text}</Badge> : null}</td>
-                  <td className="tg-priority-case-col">
-                    <div className="small text-muted rag-debug-muted tg-priority-case-title">{rowForDisplay.title || '-'}</div>
-                  </td>
-                  <td className="tg-priority-raw-col">{rowForDisplay.rawPriority || '-'}</td>
-                  <td className="tg-priority-source-col">{resultSourceLabel(rowForDisplay.resultSource)}</td>
-                  <td className="tg-priority-tag-col">
-                    <div className="d-flex flex-wrap gap-1 tg-priority-tags-wrap">
-                      {tags.map((tag) => {
-                        const label = sampleTagLabel(tag);
-                        if (!label) return null;
-                        return <Badge key={`${rowForDisplay.caseId}-${tag}`} bg="light" text="dark">{label}</Badge>;
-                      })}
-                    </div>
-                  </td>
-                  <td className="tg-priority-debug-col">
-                    {priorityDebugDisplay
-                      ? (<details><summary>查看</summary><pre className="rag-priority-debug-pre">{JSON.stringify(translatePriorityDebugDisplay(priorityDebugDisplay), null, 2)}</pre></details>)
-                      : (<span className="text-muted">-</span>)}
-                  </td>
-                  <td className="tg-priority-action-col">
-                    <span className="tg-priority-row-action-switch">
-                      <Button
-                        size="sm"
-                        variant="outline-secondary"
-                        className="tg-priority-row-action-btn tg-priority-row-action-default"
-                        onClick={() => handleAddCurrentRowToPool(rowForDisplay, 'anomaly')}
-                      >
-                        加入样本池
-                      </Button>
-                      <span className="tg-priority-row-action-options">
-                        <Button
-                          size="sm"
-                          variant="outline-primary"
-                          className="tg-priority-row-action-btn tg-priority-row-action-positive"
-                          onClick={() => handleAddCurrentRowToPool(rowForDisplay, 'positive')}
-                        >
-                          正向
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline-danger"
-                          className="tg-priority-row-action-btn tg-priority-row-action-anomaly"
-                          onClick={() => handleAddCurrentRowToPool(rowForDisplay, 'anomaly')}
-                        >
-                          异常
-                        </Button>
-                      </span>
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }

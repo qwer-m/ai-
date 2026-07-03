@@ -3,12 +3,19 @@ import json
 
 from sqlalchemy.orm import Session
 
-from core.db.models import LogEntry
-from modules.domain.stage25_switches import STAGE25_SWITCHES
-from ...prompting.generation_diagnostics import (
-    build_context_source_log,
-    build_final_context_trace,
-)
+from ..runtime import LazyAttrProxy, call_component
+
+
+LogEntry = LazyAttrProxy("core.db.models", "LogEntry")
+STAGE25_SWITCHES = LazyAttrProxy("modules.domain.stage25_switches", "STAGE25_SWITCHES")
+
+
+def build_context_source_log(*args: Any, **kwargs: Any) -> Any:
+    return call_component("..prompting.generation_diagnostics", "build_context_source_log", *args, **kwargs)
+
+
+def build_final_context_trace(*args: Any, **kwargs: Any) -> Any:
+    return call_component("..prompting.generation_diagnostics", "build_final_context_trace", *args, **kwargs)
 
 
 class LegacyGenerationContextTraceMixin:

@@ -21,12 +21,22 @@ from ..execution.execution_suite import build_execution_suite
 from ..repositories.history_repository import (
     TestGenerationHistoryRepository,
 )
+from .history_response_helpers import (
+    build_generation_bundle_payload,
+    build_history_comparison,
+    build_history_list_item,
+    build_priority_sample_pool_consistency_response,
+    build_priority_sample_pool_mutation_response,
+    build_priority_sample_pool_response,
+    cap_priority_sample_pool_samples,
+    has_history_comparison,
+    load_priority_sample_pool_payload,
+    priority_sample_pool_collections,
+    learning_events_from_priority_sample_pool,
+)
 from routers.automation.test_generation_shared import (
     build_history_key,
-    extract_history_title,
     find_matching_comparison,
-    infer_compare_filename,
-    normalize_case_text,
 )
 
 
@@ -38,25 +48,6 @@ class TestGenerationHistoryService:
     def __init__(self, db):
         self.repo = TestGenerationHistoryRepository(db)
         self._db = db
-
-    @staticmethod
-    def _is_reliable_matched_comparison(generated_result: str, matched_generated_result: str) -> bool:
-        """Guard fuzzy matching results to avoid loading unrelated historical comparison content."""
-        left = normalize_case_text(generated_result or "")
-        right = normalize_case_text(matched_generated_result or "")
-        if not left or not right:
-            return False
-        if left == right:
-            return True
-
-        left_compact = "".join((left or "").split())
-        right_compact = "".join((right or "").split())
-        if not left_compact or not right_compact:
-            return False
-
-        shorter = left_compact if len(left_compact) <= len(right_compact) else right_compact
-        longer = right_compact if len(left_compact) <= len(right_compact) else left_compact
-        return len(shorter) >= 1000 and shorter in longer
 
     def list_generations(self, *, project_id: int, user_id: int) -> tuple[str, list[dict[str, Any]]]:
         if not self.repo.get_owned_project(project_id=project_id, user_id=user_id):
@@ -91,36 +82,17 @@ class TestGenerationHistoryService:
                     user_id=user_id,
                     generation_id=row.id,
                 )
-            has_artifact_comparison = bool(
-                (artifact or {}).get("comparison_result") or (artifact or {}).get("modified_test_case")
-            )
-            has_reliable_matched_comparison = bool(
-                matched
-                and self._is_reliable_matched_comparison(
-                    row.generated_result or "",
-                    getattr(matched, "generated_test_case", "") or "",
-                )
-            )
             execution_suite = build_execution_suite(row.generated_result or "")
             result.append(
-                {
-                    "id": row.id,
-                    "project_id": row.project_id,
-                    "requirement_text": row.requirement_text or "",
-                    "created_at": row.created_at,
-                    "history_title": extract_history_title(row.requirement_text or ""),
-                    "history_key": build_history_key(row.requirement_text or ""),
-                    "has_comparison": has_reliable_matched_comparison or has_artifact_comparison,
-                    "execution_suite_summary": {
-                        "case_count": int(execution_suite.get("case_count") or 0),
-                        "suite_count": int(execution_suite.get("suite_count") or 0),
-                        "runnable_suite_count": int(execution_suite.get("runnable_suite_count") or 0),
-                        "linear_executable": bool(execution_suite.get("linear_executable")),
-                        "execution_readiness": str(execution_suite.get("execution_readiness") or ""),
-                        "warning_count": int(len(execution_suite.get("warnings") or [])),
-                        "main_suite_id": str(execution_suite.get("main_suite_id") or ""),
-                    },
-                }
+                build_history_list_item(
+                    row=row,
+                    execution_suite=execution_suite,
+                    has_comparison=has_history_comparison(
+                        generated_result=row.generated_result or "",
+                        matched=matched,
+                        artifact=artifact,
+                    ),
+                )
             )
         return "ok", result
 
@@ -186,59 +158,19 @@ class TestGenerationHistoryService:
             else None
         )
 
-        comparison = None
-        artifact_modified = (artifact or {}).get("modified_test_case") or ""
-        artifact_result = (artifact or {}).get("comparison_result") or ""
-        has_artifact_comparison = bool(artifact_modified or artifact_result)
-        has_reliable_matched_comparison = bool(
-            matched
-            and self._is_reliable_matched_comparison(
-                generated_result,
-                getattr(matched, "generated_test_case", "") or "",
-            )
+        comparison = build_history_comparison(
+            generated_result=generated_result,
+            matched=matched,
+            artifact=artifact,
         )
-        if has_artifact_comparison:
-            comparison = {
-                "id": None,
-                "modified_test_case": artifact_modified,
-                "comparison_result": artifact_result,
-                "source_filename": (artifact or {}).get("source_filename") or infer_compare_filename(artifact_modified),
-                "created_at": (artifact or {}).get("updated_at"),
-                "artifact_doc_id": (artifact or {}).get("artifact_doc_id"),
-                "source_file_content_type": (artifact or {}).get("source_file_content_type"),
-                "source_file_size": (artifact or {}).get("source_file_size"),
-                "ocr": (artifact or {}).get("ocr"),
-            }
-        elif has_reliable_matched_comparison and matched:
-            merged_modified = matched.modified_test_case or ""
-            comparison = {
-                "id": matched.id,
-                "modified_test_case": merged_modified,
-                "comparison_result": matched.comparison_result or "",
-                "source_filename": getattr(matched, "source_filename", None) or infer_compare_filename(merged_modified),
-                "created_at": matched.created_at,
-                "artifact_doc_id": (artifact or {}).get("artifact_doc_id"),
-                "source_file_content_type": (artifact or {}).get("source_file_content_type"),
-                "source_file_size": (artifact or {}).get("source_file_size"),
-                "ocr": (artifact or {}).get("ocr"),
-            }
-        has_comparison = bool(comparison and (comparison.get("comparison_result") or comparison.get("modified_test_case")))
         return (
             "ok",
-            {
-                "generation": {
-                    "id": entry.id,
-                    "project_id": entry.project_id,
-                    "requirement_text": entry.requirement_text or "",
-                    "generated_result": generated_result,
-                    "created_at": entry.created_at,
-                    "history_title": extract_history_title(entry.requirement_text or ""),
-                    "history_key": build_history_key(entry.requirement_text or ""),
-                },
-                "comparison": comparison,
-                "comparison_status": "found" if has_comparison else "missing",
-                "execution_suite": execution_suite,
-            },
+            build_generation_bundle_payload(
+                entry=entry,
+                generated_result=generated_result,
+                comparison=comparison,
+                execution_suite=execution_suite,
+            ),
         )
 
     def get_execution_suite(self, *, generation_id: int, user_id: int) -> tuple[str, dict[str, Any] | None]:
@@ -255,37 +187,7 @@ class TestGenerationHistoryService:
             project_id=project_id,
             user_id=user_id,
         )
-        if not payload:
-            return (
-                "ok",
-                {
-                    "project_id": project_id,
-                    "generation_id": None,
-                    "samples": [],
-                    "patterns": [],
-                    "signals": [],
-                    "learning_events": [],
-                    "updated_at": None,
-                    "artifact_doc_id": None,
-                },
-            )
-        samples = payload.get("samples")
-        learning_events = payload.get("learning_events")
-        patterns = payload.get("patterns")
-        signals_data = payload.get("signals")
-        return (
-            "ok",
-            {
-                "project_id": project_id,
-                "generation_id": payload.get("generation_id"),
-                "samples": samples if isinstance(samples, list) else [],
-                "patterns": patterns if isinstance(patterns, list) else [],
-                "signals": signals_data if isinstance(signals_data, list) else [],
-                "learning_events": learning_events if isinstance(learning_events, list) else [],
-                "updated_at": payload.get("updated_at"),
-                "artifact_doc_id": payload.get("artifact_doc_id"),
-            },
-        )
+        return "ok", build_priority_sample_pool_response(project_id=project_id, payload=payload)
 
     def save_priority_sample_pool(
         self,
@@ -297,10 +199,7 @@ class TestGenerationHistoryService:
     ) -> tuple[str, dict[str, Any] | None]:
         if not self.repo.get_owned_project(project_id=project_id, user_id=user_id):
             return "project_not_found", None
-        safe_samples = samples if isinstance(samples, list) else []
-        # Avoid accidentally writing unbounded payloads.
-        if len(safe_samples) > 5000:
-            safe_samples = safe_samples[:5000]
+        safe_samples = cap_priority_sample_pool_samples(samples)
 
         doc = upsert_priority_sample_pool(
             db=self._db,
@@ -309,20 +208,19 @@ class TestGenerationHistoryService:
             generation_id=generation_id,
             samples=safe_samples,
         )
-        payload = load_priority_sample_pool(
+        payload = load_priority_sample_pool_payload(
             db=self._db,
             project_id=project_id,
             user_id=user_id,
-        ) or {}
+            loader=load_priority_sample_pool,
+        )
         return (
             "ok",
-            {
-                "project_id": project_id,
-                "generation_id": payload.get("generation_id"),
-                "samples": payload.get("samples") if isinstance(payload.get("samples"), list) else [],
-                "updated_at": payload.get("updated_at"),
-                "artifact_doc_id": doc.id,
-            },
+            build_priority_sample_pool_mutation_response(
+                project_id=project_id,
+                payload=payload,
+                doc=doc,
+            ),
         )
 
     def delete_priority_sample_pool_item(
@@ -346,20 +244,19 @@ class TestGenerationHistoryService:
         )
         if not doc:
             return "sample_not_found", None
-        payload = load_priority_sample_pool(
+        payload = load_priority_sample_pool_payload(
             db=self._db,
             project_id=project_id,
             user_id=user_id,
-        ) or {}
+            loader=load_priority_sample_pool,
+        )
         return (
             "ok",
-            {
-                "project_id": project_id,
-                "generation_id": payload.get("generation_id"),
-                "samples": payload.get("samples") if isinstance(payload.get("samples"), list) else [],
-                "updated_at": payload.get("updated_at"),
-                "artifact_doc_id": doc.id,
-            },
+            build_priority_sample_pool_mutation_response(
+                project_id=project_id,
+                payload=payload,
+                doc=doc,
+            ),
         )
 
     def add_priority_sample_pool_items(
@@ -384,20 +281,19 @@ class TestGenerationHistoryService:
         )
         if not doc:
             return "store_error", None
-        payload = load_priority_sample_pool(
+        payload = load_priority_sample_pool_payload(
             db=self._db,
             project_id=project_id,
             user_id=user_id,
-        ) or {}
+            loader=load_priority_sample_pool,
+        )
         return (
             "ok",
-            {
-                "project_id": project_id,
-                "generation_id": payload.get("generation_id"),
-                "samples": payload.get("samples") if isinstance(payload.get("samples"), list) else [],
-                "updated_at": payload.get("updated_at"),
-                "artifact_doc_id": doc.id,
-            },
+            build_priority_sample_pool_mutation_response(
+                project_id=project_id,
+                payload=payload,
+                doc=doc,
+            ),
         )
 
     def update_priority_sample_pool_item(
@@ -421,20 +317,19 @@ class TestGenerationHistoryService:
         )
         if not doc:
             return "sample_not_found", None
-        payload = load_priority_sample_pool(
+        payload = load_priority_sample_pool_payload(
             db=self._db,
             project_id=project_id,
             user_id=user_id,
-        ) or {}
+            loader=load_priority_sample_pool,
+        )
         return (
             "ok",
-            {
-                "project_id": project_id,
-                "generation_id": payload.get("generation_id"),
-                "samples": payload.get("samples") if isinstance(payload.get("samples"), list) else [],
-                "updated_at": payload.get("updated_at"),
-                "artifact_doc_id": doc.id,
-            },
+            build_priority_sample_pool_mutation_response(
+                project_id=project_id,
+                payload=payload,
+                doc=doc,
+            ),
         )
 
     def confirm_priority_sample_pool_item(
@@ -458,20 +353,19 @@ class TestGenerationHistoryService:
         )
         if not doc:
             return "sample_not_found", None
-        payload = load_priority_sample_pool(
+        payload = load_priority_sample_pool_payload(
             db=self._db,
             project_id=project_id,
             user_id=user_id,
-        ) or {}
+            loader=load_priority_sample_pool,
+        )
         return (
             "ok",
-            {
-                "project_id": project_id,
-                "generation_id": payload.get("generation_id"),
-                "samples": payload.get("samples") if isinstance(payload.get("samples"), list) else [],
-                "updated_at": payload.get("updated_at"),
-                "artifact_doc_id": doc.id,
-            },
+            build_priority_sample_pool_mutation_response(
+                project_id=project_id,
+                payload=payload,
+                doc=doc,
+            ),
         )
 
     def get_priority_sample_pool_consistency(
@@ -482,14 +376,13 @@ class TestGenerationHistoryService:
     ) -> tuple[str, dict[str, Any] | None]:
         if not self.repo.get_owned_project(project_id=project_id, user_id=user_id):
             return "project_not_found", None
-        payload = load_priority_sample_pool(
+        payload = load_priority_sample_pool_payload(
             db=self._db,
             project_id=project_id,
             user_id=user_id,
-        ) or {}
-        samples = payload.get("samples") if isinstance(payload.get("samples"), list) else []
-        patterns = payload.get("patterns") if isinstance(payload.get("patterns"), list) else []
-        learning_events = payload.get("learning_events") if isinstance(payload.get("learning_events"), list) else []
+            loader=load_priority_sample_pool,
+        )
+        samples, patterns, learning_events = priority_sample_pool_collections(payload)
         consistency = shadow_read_consistency_check(
             db=self._db,
             project_id=project_id,
@@ -499,16 +392,11 @@ class TestGenerationHistoryService:
         )
         return (
             "ok",
-            {
-                "project_id": project_id,
-                "generation_id": payload.get("generation_id"),
-                "json_sample_count": len(samples),
-                "json_pattern_count": len(patterns),
-                "json_event_count": len(learning_events),
-                "consistency": consistency,
-                "updated_at": payload.get("updated_at"),
-                "artifact_doc_id": payload.get("artifact_doc_id"),
-            },
+            build_priority_sample_pool_consistency_response(
+                project_id=project_id,
+                payload=payload,
+                consistency=consistency,
+            ),
         )
 
     def bulk_archive_priority_sample_pool_items(
@@ -532,20 +420,19 @@ class TestGenerationHistoryService:
         )
         if not doc:
             return "no_samples_archived", None
-        payload = load_priority_sample_pool(
+        payload = load_priority_sample_pool_payload(
             db=self._db,
             project_id=project_id,
             user_id=user_id,
-        ) or {}
+            loader=load_priority_sample_pool,
+        )
         return (
             "ok",
-            {
-                "project_id": project_id,
-                "generation_id": payload.get("generation_id"),
-                "samples": payload.get("samples") if isinstance(payload.get("samples"), list) else [],
-                "updated_at": payload.get("updated_at"),
-                "artifact_doc_id": doc.id,
-            },
+            build_priority_sample_pool_mutation_response(
+                project_id=project_id,
+                payload=payload,
+                doc=doc,
+            ),
         )
 
     def get_learning_selection_history(
@@ -556,14 +443,10 @@ class TestGenerationHistoryService:
     ) -> tuple[str, list[dict[str, Any]]]:
         if not self.repo.get_owned_project(project_id=project_id, user_id=user_id):
             return "project_not_found", []
-        payload = load_priority_sample_pool(
+        payload = load_priority_sample_pool_payload(
             db=self._db,
             project_id=project_id,
             user_id=user_id,
+            loader=load_priority_sample_pool,
         )
-        if not payload:
-            return "ok", []
-        events = payload.get("learning_events")
-        if isinstance(events, list):
-            return "ok", events
-        return "ok", []
+        return "ok", learning_events_from_priority_sample_pool(payload)

@@ -3,11 +3,9 @@ import logging
 import re
 from typing import Any, Optional
 
-from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from celery_config import celery_app
 from core.authn.auth import get_current_user
 from core.db.database import get_db
 from core.db.models import User

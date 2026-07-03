@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Optional
-from types import SimpleNamespace
+from typing import TYPE_CHECKING, Optional
 
-from modules.orchestration.task_runtime import get_task_runtime
+from modules.orchestration.background_task_governance import (
+    BackgroundTaskKind,
+    submit_background_task,
+)
+
+if TYPE_CHECKING:
+    from modules.orchestration.task_dispatcher import TaskDispatchResult
 
 
 def enqueue_parse_document_task(
@@ -14,15 +19,15 @@ def enqueue_parse_document_task(
     file_path: str,
     force: bool = False,
     user_id: Optional[int] = None,
-):
+) -> TaskDispatchResult:
     """Dispatch parse task without exposing Celery details to callers."""
-    task_id = get_task_runtime().dispatch(
-        task_name="modules.orchestration.tasks.parse_knowledge_document_task",
+    return submit_background_task(
+        BackgroundTaskKind.KNOWLEDGE_DOCUMENT_PARSE,
         kwargs={
             "document_id": doc_id,
             "file_path": file_path,
             "force": force,
             "user_id": user_id,
         },
+        business_id=doc_id,
     )
-    return SimpleNamespace(id=task_id)

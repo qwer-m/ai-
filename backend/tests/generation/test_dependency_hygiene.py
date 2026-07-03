@@ -71,7 +71,7 @@ def test_test_generation_request_is_not_collected_as_pytest_test_class() -> None
             Path("backend/routers/system/config_routes_runtime_impl_parts"),
         ),
         (
-            Path("backend/tests/rag/generation/test_hybrid_empty_guard_impl.py"),
+            Path("backend/tests/rag/generation/test_hybrid_empty_guard.py"),
             Path("backend/tests/rag/generation/test_hybrid_empty_guard_impl_parts"),
         ),
         (
@@ -123,6 +123,213 @@ def test_backend_python_files_do_not_use_utf8_bom() -> None:
     assert bom_files == []
 
 
+def test_testing_test_generation_facade_import_is_lightweight() -> None:
+    result = _run_python_with_backend_path(
+        """
+import importlib
+import json
+import sys
+
+importlib.import_module("modules.testing.test_generation")
+
+forbidden = [
+    "core.ai.ai_client",
+    "core.db.database",
+    "core.db.models",
+    "core.cache_layer.cache",
+    "modules.domain.knowledge_base",
+    "modules.memory_fabric.contracts.memory_context",
+    "modules.orchestration.context_orchestrator",
+    "modules.testing.test_generation_components.legacy_generation_impl",
+    "modules.test_generation_components.legacy_generation_impl",
+    "modules.test_generation_components.legacy.json_generation_impl",
+    "modules.test_generation_components.legacy.stream.generation",
+    "modules.test_generation_components.legacy.stream.prepare",
+    "modules.test_generation_components.legacy.stream.batches",
+    "modules.test_generation_components.legacy.stream.persist",
+]
+print(json.dumps({"loaded": [name for name in forbidden if name in sys.modules]}))
+""",
+        {},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Successfully connected to MySQL" not in result.stdout + result.stderr
+    assert "Redis connected:" not in result.stdout + result.stderr
+    payload = _loads_last_stdout_json(result)
+    assert payload["loaded"] == []
+
+
+def test_legacy_json_generation_impl_import_is_lightweight() -> None:
+    result = _run_python_with_backend_path(
+        """
+import importlib
+import json
+import sys
+
+importlib.import_module("modules.test_generation_components.legacy.json_generation_impl")
+
+forbidden = [
+    "core.ai.ai_client",
+    "core.db.models",
+    "core.db.database",
+    "core.cache_layer.cache",
+    "modules.domain.stage25_switches",
+    "modules.domain.knowledge_base",
+    "modules.memory_fabric.contracts.memory_context",
+    "modules.memory_fabric.runtime.diagnostics",
+    "modules.memory_fabric.runtime.factory",
+    "modules.test_generation_components.control.build_feedback_control_state",
+    "modules.test_generation_components.prompting.structured_context",
+    "modules.test_generation_components.legacy.stream.generation",
+    "modules.test_generation_components.legacy.stream.prepare",
+    "modules.test_generation_components.legacy.stream.batches",
+    "modules.test_generation_components.legacy.stream.persist",
+]
+print(json.dumps({"loaded": [name for name in forbidden if name in sys.modules]}))
+""",
+        {},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Successfully connected to MySQL" not in result.stdout + result.stderr
+    assert "Redis connected:" not in result.stdout + result.stderr
+    payload = _loads_last_stdout_json(result)
+    assert payload["loaded"] == []
+
+
+def test_legacy_stream_generation_imports_are_lightweight() -> None:
+    result = _run_python_with_backend_path(
+        """
+import importlib
+import json
+import sys
+
+modules = [
+    "modules.test_generation_components.legacy.stream.generation",
+    "modules.test_generation_components.legacy.stream.prepare",
+    "modules.test_generation_components.legacy.stream.batches",
+    "modules.test_generation_components.legacy.stream.persist",
+    "modules.testing.test_generation_components.legacy.stream.generation",
+    "modules.testing.test_generation_components.legacy.stream.prepare",
+    "modules.testing.test_generation_components.legacy.stream.batches",
+    "modules.testing.test_generation_components.legacy.stream.persist",
+]
+for module in modules:
+    importlib.import_module(module)
+
+forbidden = [
+    "core.ai.ai_client",
+    "core.db.models",
+    "core.db.database",
+    "core.cache_layer.cache",
+    "modules.domain.stage25_switches",
+    "modules.domain.knowledge_base",
+    "modules.memory_fabric.contracts.memory_context",
+    "modules.memory_fabric.runtime.diagnostics",
+    "modules.memory_fabric.runtime.factory",
+    "modules.test_generation_components.control.build_feedback_control_state",
+    "modules.test_generation_components.prompting.structured_context",
+    "modules.test_generation_components.postprocess.result_postprocess",
+    "modules.test_generation_components.coverage.core_flow_backfill_generation",
+]
+print(json.dumps({"loaded": [name for name in forbidden if name in sys.modules]}))
+""",
+        {},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Successfully connected to MySQL" not in result.stdout + result.stderr
+    assert "Redis connected:" not in result.stdout + result.stderr
+    payload = _loads_last_stdout_json(result)
+    assert payload["loaded"] == []
+
+
+def test_legacy_generation_impl_import_is_lightweight() -> None:
+    result = _run_python_with_backend_path(
+        """
+import importlib
+import json
+import sys
+
+modules = [
+    "modules.test_generation_components.legacy_generation_impl",
+    "modules.testing.test_generation_components.legacy_generation_impl",
+]
+for module in modules:
+    importlib.import_module(module)
+
+forbidden = [
+    "core.ai.ai_client",
+    "core.db.models",
+    "core.db.database",
+    "core.cache_layer.cache",
+    "modules.domain.knowledge_base",
+    "modules.domain.stage25_switches",
+    "modules.memory_fabric.contracts.memory_context",
+    "modules.memory_fabric.runtime.factory",
+]
+print(json.dumps({"loaded": [name for name in forbidden if name in sys.modules]}))
+""",
+        {},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Successfully connected to MySQL" not in result.stdout + result.stderr
+    assert "Redis connected:" not in result.stdout + result.stderr
+    payload = _loads_last_stdout_json(result)
+    assert payload["loaded"] == []
+
+
+def test_stream_quality_gate_summary_does_not_load_backfill_generation_runtime() -> None:
+    result = _run_python_with_backend_path(
+        """
+import importlib
+import json
+import sys
+
+persist = importlib.import_module("modules.test_generation_components.legacy.stream.persist")
+summary = persist.summarize_case_quality_gate([
+    {
+        "id": "TC-001",
+        "priority_final": "P0",
+        "expected_result": "Save succeeds and status becomes active",
+    }
+])
+
+forbidden = [
+    "core.ai.ai_client",
+    "core.db.models",
+    "core.db.database",
+    "core.cache_layer.cache",
+    "modules.test_generation_components.coverage.core_flow_backfill_generation",
+]
+print(json.dumps({
+    "passed": summary.get("passed"),
+    "loaded": [name for name in forbidden if name in sys.modules],
+}))
+""",
+        {},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Successfully connected to MySQL" not in result.stdout + result.stderr
+    assert "Redis connected:" not in result.stdout + result.stderr
+    payload = _loads_last_stdout_json(result)
+    assert payload["passed"] is True
+    assert payload["loaded"] == []
+
+
+def test_rag_generation_tests_do_not_use_star_import_wrappers() -> None:
+    wrappers = sorted(
+        str(path)
+        for path in Path("backend/tests/rag/generation").glob("test_*.py")
+        if " import *" in path.read_text(encoding="utf-8")
+    )
+
+    assert wrappers == []
+
+
 def test_runtime_source_tree_has_no_exec_compile_loaders() -> None:
     current_file = Path(__file__).resolve()
     offenders: list[str] = []
@@ -140,12 +347,7 @@ def test_runtime_source_tree_has_no_exec_compile_loaders() -> None:
 
 def test_test_generation_components_use_relative_internal_imports() -> None:
     root = Path("backend/modules/test_generation_components")
-    allowed = {
-        # This legacy facade can be imported through modules.testing.test_generation_components.
-        # Its backfill hooks intentionally target the canonical modules.test_generation_components path
-        # so existing monkeypatches and runtime extension points resolve the same module object.
-        Path("backend/modules/test_generation_components/legacy/json_generation_impl.py"),
-    }
+    allowed: set[Path] = set()
     offenders: list[str] = []
     needles = (
         "from modules.test_generation_components",
@@ -227,6 +429,18 @@ import importlib
 import json
 
 pairs = [
+    (
+        "modules.test_generation_components.legacy.stream.generation",
+        "modules.testing.test_generation_components.legacy.stream.generation",
+    ),
+    (
+        "modules.test_generation_components.legacy.stream.prepare",
+        "modules.testing.test_generation_components.legacy.stream.prepare",
+    ),
+    (
+        "modules.test_generation_components.legacy.stream.batches",
+        "modules.testing.test_generation_components.legacy.stream.batches",
+    ),
     (
         "modules.test_generation_components.legacy.stream.persist",
         "modules.testing.test_generation_components.legacy.stream.persist",

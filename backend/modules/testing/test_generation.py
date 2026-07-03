@@ -1,40 +1,67 @@
 """
 测试生成模块门面层。
 
-说明：
-1. 该文件保留历史导入路径与对外符号，避免影响路由与其他模块。
-2. 具体实现迁移到 `test_generation_components/legacy_generation_impl.py`，
-   以降低主文件体积并将复杂流程与门面职责分离。
+该文件保留历史导入路径，实际生成实现延迟到调用时加载，避免路由、
+任务注册和架构测试在 import 阶段拉起数据库、缓存和完整生成链路。
 """
 
+from __future__ import annotations
+
+from importlib import import_module
 from typing import Any
 
-from modules.testing.test_generation_components.legacy_generation_impl import (
-    TestGenerationModule as _LegacyTestGenerationModule,
-    clean_and_parse_json as _legacy_clean_and_parse_json,
-    normalize_json_structure as _legacy_normalize_json_structure,
-)
+
+def _legacy_module():
+    return import_module("modules.testing.test_generation_components.legacy_generation_impl")
+
+
+def _json_processing_module():
+    return import_module("modules.test_generation_components.postprocess.json_processing")
 
 
 def clean_and_parse_json(response_text: str) -> Any:
-    """兼容历史函数导出，委托给实现层。"""
-    return _legacy_clean_and_parse_json(response_text)
+    return _json_processing_module().clean_and_parse_json(response_text)
 
 
 def normalize_json_structure(data: Any) -> Any:
-    """兼容历史函数导出，委托给实现层。"""
-    return _legacy_normalize_json_structure(data)
+    return _json_processing_module().normalize_json_structure(data)
 
 
-class TestGenerationModule(_LegacyTestGenerationModule):
-    """
-    兼容类名保留。
+class LazyTestGenerator:
+    def __init__(self) -> None:
+        object.__setattr__(self, "_target", None)
 
-    通过继承实现层类，确保现有方法签名、行为和外部调用方式保持不变。
-    """
+    def _resolve(self) -> Any:
+        target = object.__getattribute__(self, "_target")
+        if target is None:
+            target = _legacy_module().TestGenerationModule()
+            object.__setattr__(self, "_target", target)
+        return target
 
-    pass
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._resolve(), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "_target":
+            object.__setattr__(self, name, value)
+            return
+        setattr(self._resolve(), name, value)
 
 
-test_generator = TestGenerationModule()
+class TestGenerationModule:
+    __test__ = False
 
+    def __new__(cls, *args: Any, **kwargs: Any) -> Any:
+        return _legacy_module().TestGenerationModule(*args, **kwargs)
+
+
+test_generator = LazyTestGenerator()
+
+
+__all__ = [
+    "LazyTestGenerator",
+    "TestGenerationModule",
+    "clean_and_parse_json",
+    "normalize_json_structure",
+    "test_generator",
+]

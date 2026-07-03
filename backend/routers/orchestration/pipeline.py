@@ -13,8 +13,8 @@ from modules.orchestration_components.pipeline_runtime.schemas import (
     StageKey,
 )
 from modules.orchestration_components.pipeline_runtime.support import _serialize_run
+from modules.orchestration_components.pipeline_runtime.dispatcher import start_pipeline_worker
 from modules.orchestration_components.services.pipeline_run_service import PipelineRunService
-from routers.orchestration.pipeline_runtime import _start_worker
 
 router = APIRouter(prefix="/pipeline", tags=["Pipeline"])
 
@@ -25,7 +25,7 @@ def create_pipeline_run(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    run = PipelineRunService(db, _start_worker).create_run(
+    run = PipelineRunService(db, start_pipeline_worker).create_run(
         payload=req.model_dump(),
         project_id=req.project_id,
         user_id=current_user.id,
@@ -42,7 +42,7 @@ def list_pipeline_runs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    rows = PipelineRunService(db, _start_worker).list_runs(
+    rows = PipelineRunService(db, start_pipeline_worker).list_runs(
         project_id=project_id,
         user_id=current_user.id,
         limit=limit,
@@ -58,7 +58,7 @@ def get_pipeline_run(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    run = PipelineRunService(db, _start_worker).get_run(run_id=run_id, user_id=current_user.id)
+    run = PipelineRunService(db, start_pipeline_worker).get_run(run_id=run_id, user_id=current_user.id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     return {"run": _serialize_run(run)}
@@ -70,7 +70,7 @@ def resume_pipeline_run(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    run, status = PipelineRunService(db, _start_worker).resume_run(
+    run, status = PipelineRunService(db, start_pipeline_worker).resume_run(
         run_id=run_id,
         user_id=current_user.id,
     )
@@ -96,7 +96,7 @@ def retry_pipeline_run(
     if start_stage not in STAGE_ORDER:
         raise HTTPException(status_code=400, detail="Invalid retry stage")
 
-    run, status = PipelineRunService(db, _start_worker).retry_run(
+    run, status = PipelineRunService(db, start_pipeline_worker).retry_run(
         run_id=run_id,
         user_id=current_user.id,
         start_stage=start_stage,
@@ -115,7 +115,7 @@ def get_pipeline_run_traces(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    items = PipelineRunService(db, _start_worker).list_run_traces(
+    items = PipelineRunService(db, start_pipeline_worker).list_run_traces(
         run_id=run_id,
         user_id=current_user.id,
         limit=limit,

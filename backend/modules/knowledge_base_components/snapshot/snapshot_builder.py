@@ -114,6 +114,50 @@ def collect_project_docs(module, db: Session, project_id: int, user_id: Optional
     return corpus
 
 
+def collect_project_doc_fingerprints(db: Session, project_id: int, user_id: Optional[int]) -> list[dict]:
+    """Collect snapshot corpus fingerprints without generating document summaries."""
+    _ = user_id
+    repo = KnowledgeDocumentRepository(db)
+    rows = repo.list_project_doc_snapshot_fingerprints(
+        project_id=project_id,
+        max_docs=SNAPSHOT_CONFIG.max_docs,
+    )
+    missing_hash_ids: list[int] = []
+    for row in rows:
+        summary_length = int(getattr(row, "summary_length", 0) or 0)
+        content_length = int(getattr(row, "content_length", 0) or 0)
+        has_text = bool(summary_length > 0 or content_length > 0)
+        if has_text and not str(getattr(row, "content_hash", "") or "").strip():
+            missing_hash_ids.append(int(getattr(row, "id")))
+
+    fallback_hashes: dict[int, str] = {}
+    for row in repo.list_project_doc_contents_by_ids(project_id=project_id, doc_ids=missing_hash_ids):
+        content = str(getattr(row, "content", "") or "")
+        fallback_hashes[int(getattr(row, "id"))] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    corpus: list[dict] = []
+    for row in rows:
+        doc_id = int(getattr(row, "id"))
+        summary_length = int(getattr(row, "summary_length", 0) or 0)
+        content_length = int(getattr(row, "content_length", 0) or 0)
+        if summary_length <= 0 and content_length <= 0:
+            continue
+        fingerprint = str(getattr(row, "content_hash", "") or "").strip() or fallback_hashes.get(doc_id, "")
+        if not fingerprint:
+            continue
+        corpus.append(
+            {
+                "doc_id": doc_id,
+                "filename": getattr(row, "filename", None) or f"doc_{doc_id}",
+                "text": "",
+                "fingerprint": fingerprint,
+                "doc_type": str(getattr(row, "doc_type", None) or "unknown"),
+                "owner_user_id": getattr(row, "user_id", None),
+            }
+        )
+    return corpus
+
+
 def build_corpus_hash(corpus: list[dict]) -> tuple[str, dict[str, str]]:
     """构建语料哈希 + 指纹映射。"""
     fingerprints = {str(item["doc_id"]): str(item["fingerprint"]) for item in corpus}

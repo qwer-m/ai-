@@ -14,6 +14,10 @@ type TokenResponse = {
   token_type: string;
 };
 
+type GoogleLoginResponse = {
+  login_url: string;
+};
+
 type FocusTarget = 'email' | 'password' | null;
 type ButtonState = 'idle' | 'hover' | 'press';
 
@@ -27,6 +31,7 @@ const Login = () => {
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [focusTarget, setFocusTarget] = useState<FocusTarget>(null);
   const [introPhase, setIntroPhase] = useState<IntroPhase>('intro');
   const [buttonState, setButtonState] = useState<ButtonState>('idle');
@@ -103,6 +108,25 @@ const Login = () => {
     setButtonState(isHovering ? 'hover' : 'idle');
   };
 
+  const handleForgotPassword = () => {
+    navigate('/forgot-password');
+  };
+
+  const handleGoogleLogin = async () => {
+    setError('');
+    setGoogleLoading(true);
+    try {
+      const data = await api.get<GoogleLoginResponse>('/api/auth/google/login');
+      if (!data.login_url) {
+        throw new Error('Google login is not available');
+      }
+      window.location.href = data.login_url;
+    } catch (err: any) {
+      setError(err.message || 'Google login failed');
+      setGoogleLoading(false);
+    }
+  };
+
   return (
     <div className="login-page">
       <IntroAnimation phase={introPhase} />
@@ -124,11 +148,14 @@ const Login = () => {
               remember={remember}
               error={error}
               loading={loading}
+              googleLoading={googleLoading}
               buttonState={buttonState}
               onUsernameChange={setUsername}
               onPasswordChange={setPassword}
               onRememberChange={setRemember}
               onSubmit={handleSubmit}
+              onForgotPassword={handleForgotPassword}
+              onGoogleLogin={handleGoogleLogin}
               onEmailFocus={() => setFocusTarget('email')}
               onPasswordFocus={() => setFocusTarget('password')}
               onFieldBlur={() => setFocusTarget(null)}

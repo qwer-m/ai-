@@ -105,25 +105,6 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-ratio-fill {
   background: #3f5f84;
 }
 
-.rag-debug-panel-root .rag-priority-debug-pre {
-  max-width: 420px;
-  max-height: 200px;
-  overflow: auto;
-  margin: 0.5rem 0 0;
-  padding: 0.5rem;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  border-radius: 0.5rem;
-  background: #f8fafc;
-  font-size: 12px;
-}
-
-body.theme-dark .rag-debug-panel-root .rag-priority-debug-pre,
-body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .rag-priority-debug-pre {
-  background: #0f172a;
-  border-color: rgba(71, 85, 105, 0.55);
-  color: #e2e8f0;
-}
-
 .rag-debug-panel-root .tg-overview-main {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -171,25 +152,6 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-initial-quality-issue {
   .rag-debug-panel-root .tg-initial-quality-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-}
-
-.rag-debug-panel-root .tg-priority-display-mismatch-row > td {
-  background: rgba(220, 53, 69, 0.14);
-}
-
-.rag-debug-panel-root .tg-priority-display-mismatch-cell {
-  font-weight: 700;
-  color: #b02a37;
-}
-
-body.theme-dark .rag-debug-panel-root .tg-priority-display-mismatch-row > td,
-body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismatch-row > td {
-  background: rgba(248, 113, 113, 0.18);
-}
-
-body.theme-dark .rag-debug-panel-root .tg-priority-display-mismatch-cell,
-body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismatch-cell {
-  color: #fecaca;
 }
 
 .rag-debug-panel-root .tg-priority-actions .btn {
@@ -262,11 +224,6 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismat
   cursor: default;
   opacity: 0.78;
   pointer-events: none;
-}
-
-.rag-debug-panel-root .tg-priority-result-scroll {
-  max-height: 560px;
-  overflow: auto;
 }
 
 .rag-debug-panel-root .tg-priority-sample-scroll {
@@ -500,81 +457,6 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismat
   display: block;
 }
 
-.rag-debug-panel-root .tg-priority-result-table {
-  table-layout: fixed;
-  width: 100%;
-  min-width: 1120px;
-}
-
-.rag-debug-panel-root .tg-priority-result-table > :not(caption) > * > * {
-  padding: 0.46rem 0.58rem;
-}
-
-.rag-debug-panel-root .tg-priority-index-col {
-  width: 11%;
-  min-width: 7.4rem;
-  max-width: 8.2rem;
-  padding-left: 0.32rem !important;
-  padding-right: 0.52rem !important;
-  text-align: left;
-}
-
-.rag-debug-panel-root .tg-priority-result-scroll thead th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: #f1f5f9;
-}
-
-.rag-debug-panel-root .tg-priority-case-col {
-  width: 40%;
-  min-width: 20rem;
-  padding-right: 0.72rem !important;
-}
-
-.rag-debug-panel-root .tg-priority-case-title {
-  white-space: normal;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  max-height: calc(1.4em * 3);
-}
-
-.rag-debug-panel-root .tg-priority-raw-col {
-  width: 9%;
-  min-width: 6.1rem;
-  text-align: center;
-}
-
-.rag-debug-panel-root .tg-priority-source-col {
-  width: 12%;
-  min-width: 9.2rem;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.rag-debug-panel-root .tg-priority-tag-col {
-  width: 12%;
-  min-width: 9rem;
-}
-
-.rag-debug-panel-root .tg-priority-debug-col {
-  width: 8%;
-  min-width: 7.2rem;
-  text-align: center;
-}
-
-.rag-debug-panel-root .tg-priority-action-col {
-  width: 8%;
-  min-width: 7.8rem;
-  text-align: center;
-  white-space: nowrap;
-}
-
 .rag-debug-panel-root .tg-priority-tags-wrap {
   justify-content: flex-start;
 }
@@ -589,53 +471,11 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-display-mismat
   white-space: nowrap;
 }
 
-.rag-debug-panel-root .tg-priority-tag-col .tg-priority-tags-wrap {
-  max-height: 3.1rem;
-  overflow: auto;
-}
-
 .rag-debug-panel-root .tg-priority-row-action-btn.btn.btn-sm {
   min-width: 6.4rem;
   white-space: nowrap;
   padding-left: 0.4rem;
   padding-right: 0.4rem;
-}
-
-.rag-debug-panel-root .tg-priority-row-action-switch {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 6.4rem;
-  min-height: 1.9rem;
-}
-
-.rag-debug-panel-root .tg-priority-row-action-default {
-  transition: opacity 0.14s ease;
-}
-
-.rag-debug-panel-root .tg-priority-row-action-options {
-  position: absolute;
-  inset: 0;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  gap: 0.25rem;
-}
-
-.rag-debug-panel-root .tg-priority-row-action-options .tg-priority-row-action-btn.btn.btn-sm {
-  min-width: 3.05rem;
-}
-
-.rag-debug-panel-root .tg-priority-row-action-switch:hover .tg-priority-row-action-options,
-.rag-debug-panel-root .tg-priority-row-action-switch:focus-within .tg-priority-row-action-options {
-  display: inline-flex;
-}
-
-.rag-debug-panel-root .tg-priority-row-action-switch:hover .tg-priority-row-action-default,
-.rag-debug-panel-root .tg-priority-row-action-switch:focus-within .tg-priority-row-action-default {
-  opacity: 0;
-  pointer-events: none;
 }
 
 .rag-debug-panel-root .tg-priority-actions .btn-outline-primary:hover,
@@ -671,11 +511,6 @@ body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-o
 body.theme-dark .rag-debug-panel-root .tg-priority-sample-filter-btn.is-active,
 body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-sample-filter-btn.is-active {
   box-shadow: 0 0 0 0.2rem rgba(125, 140, 255, 0.2);
-}
-
-body.theme-dark .rag-debug-panel-root .tg-priority-result-scroll thead th,
-body.ui-overhaul-v4.theme-dark .rag-debug-panel-root .tg-priority-result-scroll thead th {
-  background: #0f172a;
 }
 
 body.theme-dark .rag-debug-panel-root .tg-priority-sample-table thead th,

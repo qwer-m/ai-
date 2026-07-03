@@ -507,8 +507,6 @@ body.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-secondar
   box-shadow: none !important;
 }
 
-body.theme-dark.ui-overhaul-v4 .rag-debug-panel-root .tg-priority-result-scroll thead th,
-body.theme-dark .rag-debug-panel-root .tg-priority-result-scroll thead th,
 body.theme-dark.ui-overhaul-v4 .rag-debug-panel-root .table thead th,
 body.theme-dark .rag-debug-panel-root .table thead th {
   background: #151b23 !important;

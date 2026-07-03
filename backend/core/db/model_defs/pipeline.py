@@ -13,6 +13,10 @@ class PipelineRun(Base):
 
     status = Column(String(20), nullable=False, default="pending", index=True, comment="pending/running/success/failed")
     current_stage = Column(String(50), nullable=True, comment="current stage key")
+    task_id = Column(String(100), nullable=True, index=True, comment="celery task id for current queued worker")
+    claim_token = Column(String(100), nullable=True, index=True, comment="worker claim token for the active lease")
+    heartbeat_at = Column(DateTime, nullable=True, comment="last worker heartbeat time")
+    lease_expires_at = Column(DateTime, nullable=True, index=True, comment="time when a running claim can be recovered")
 
     request_payload = Column(JSON, nullable=True, comment="pipeline input payload")
     stage_states = Column(JSON, nullable=True, comment="per-stage status details")

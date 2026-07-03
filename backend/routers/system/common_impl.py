@@ -14,7 +14,14 @@ from modules.knowledge_base_components.document.index_audit import run_index_con
 from modules.knowledge_base_components.repositories.knowledge_document_repository import (
     KnowledgeDocumentRepository,
 )
-from modules.orchestration.task_runtime import get_task_runtime
+from modules.orchestration.background_task_governance import (
+    BackgroundTaskKind,
+    submit_background_task,
+)
+from modules.orchestration.task_status import (
+    get_runtime_task_status,
+    task_state_from_status,
+)
 from schemas.base.common import ErrorTranslateRequest
 from routers.system.common_responses import (
     build_knowledge_detail_response,
@@ -162,13 +169,19 @@ def get_knowledge_parse_status(
         raise HTTPException(status_code=404, detail="Knowledge document not found")
 
     task_state: Optional[str] = None
+    task_status: Optional[dict[str, Any]] = None
     if doc.task_id:
         try:
-            task_state = str(
-                get_task_runtime().get_status(task_id=str(doc.task_id)).get("status") or "UNKNOWN"
-            )
+            task_status = get_runtime_task_status(task_id=str(doc.task_id))
+            task_state = task_state_from_status(task_status)
         except Exception as e:
             task_state = "UNKNOWN"
+            task_status = {
+                "task_id": str(doc.task_id),
+                "status": "UNKNOWN",
+                "result": None,
+                "error": str(e),
+            }
             logger.warning("读取 Celery 任务状态失败 task_id=%s err=%s", doc.task_id, e)
 
         if doc.parse_status == "parsing" and task_state in ("FAILURE", "REVOKED"):
@@ -195,7 +208,7 @@ def get_knowledge_parse_status(
             )
             db.refresh(doc)
 
-    return build_parse_status_response(doc, task_state)
+    return build_parse_status_response(doc, task_state, task_status=task_status)
 
 @router.post("/knowledge/index-consistency/audit")
 def trigger_index_consistency_audit(
@@ -215,19 +228,21 @@ def trigger_index_consistency_audit(
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
-    task_id = get_task_runtime().dispatch(
-        task_name="modules.orchestration.tasks.audit_knowledge_index_consistency_task",
+    queue_result = submit_background_task(
+        BackgroundTaskKind.KNOWLEDGE_INDEX_AUDIT,
         kwargs={
             "project_id": project_id,
             "user_id": current_user.id,
             "limit": 5000,
         },
+        business_id=project_id,
     )
     return {
         "success": True,
-        "task_id": task_id,
+        "task_id": queue_result.id,
         "project_id": project_id,
         "message": "Index consistency audit task queued",
+        "queue_result": queue_result.to_dict(),
     }
 
 @router.get("/knowledge/index-consistency/report")

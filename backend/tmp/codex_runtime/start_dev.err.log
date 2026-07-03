@@ -1,0 +1,67 @@
+INFO:     Will watch for changes in these directories: ['D:\\Qoder\\测试开发平台\\backend']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [40524] using WatchFiles
+D:\Qoder\测试开发平台\.venv\Lib\site-packages\pydantic\_internal\_config.py:383: UserWarning: Valid config keys have changed in V2:
+* 'orm_mode' has been renamed to 'from_attributes'
+  warnings.warn(message, UserWarning)
+[2026-06-30 10:33:18,267: INFO/MainProcess] Connected to redis://127.0.0.1:6379/0
+[2026-06-30 10:33:18,267: INFO/MainProcess] beat: Starting...
+[2026-06-30 10:33:18,270: INFO/MainProcess] mingle: searching for neighbors
+INFO:     Started server process [28680]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+[2026-06-30 10:33:19,300: INFO/MainProcess] mingle: all alone
+[2026-06-30 10:33:19,325: INFO/MainProcess] celery@DESKTOP-F86RMFU ready.
+[2026-06-30 10:58:23,089: INFO/MainProcess] Task modules.orchestration.tasks.build_context_snapshot_task[68a3b8bd-7399-4824-bd33-e9298772726e] received
+[2026-06-30 10:58:23,090: INFO/MainProcess] 快照构建任务启动 project_id=2 task_id=68a3b8bd-7399-4824-bd33-e9298772726e retry=0 force=False
+[2026-06-30 10:59:10,252: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-06-30 10:59:10,265: WARNING/MainProcess] Cache write failed: (pymysql.err.IntegrityError) (1062, "Duplicate entry '0b1d427558af229d362c3c5e2ff52c61f0412927bca8eb63b89912662cbcd4bf' for key 'cache_entries.ix_cache_entries_key_hash'")
+[SQL: INSERT INTO cache_entries (key_hash, cache_level, value, metadata_info) VALUES (%(key_hash)s, %(cache_level)s, %(value)s, %(metadata_info)s)]
+[parameters: {'key_hash': '0b1d427558af229d362c3c5e2ff52c61f0412927bca8eb63b89912662cbcd4bf', 'cache_level': 'L4', 'value': '项目ID: 2 | 主题: 天天练-期末冲刺营活动测试规范\n\n【核心业务流程 - 非会员转化主路径(P0)】\n1. 游客身份进入→查看期末冲刺营活动可见性\n2. 首次使用用户点击入口→跳转测评开始页(需选择年级+教材)→进入测评答题页(题目数≤10)\n3. 测评中退出机制:\n   -  ... (1346 characters truncated) ... n- 测评报告页: 顶部展示姓名/年级/教材版本，综合得分(四舍五入)，排名区间，知识点掌握进度条(≥70%绿，50-70%黄，<50%红)\n- 活动弹窗: 仅弹出一次(新手引导后触发)，再次进入APP不再弹出但站内信可查看\n- 测评答题页: 左上角计时器随答题时间增长，验证10分钟无卡顿闪退', 'metadata_info': '{"model": "kimi-k2.5"}'}]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+[2026-06-30 11:00:00,016: INFO/MainProcess] Scheduler: Sending due task cleanup-logs-every-hour (modules.orchestration.tasks.cleanup_logs_task)
+[2026-06-30 11:01:17,367: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-06-30 11:02:12,575: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-06-30 11:02:12,651: INFO/MainProcess] snapshot build success project_id=2 mode=full_rebuild stats={"source_total_chars": 89764, "source_total_chars_raw": 89764, "source_effective_doc_count": 19, "build_mode": "batched", "batch_count": 4, "truncated_doc_count": 0, "batch_fail_count": 0, "final_merge_mode": "merge_compress", "input_soft_limit": 25000, "single_doc_limit": 12000, "source_doc_type_counts": {"requirement": 17, "test_generation_priority_sample_pool": 1, "test_generation_workflow_contract": 1}, "source_owner_user_counts": {"1": 19}, "source_requirement_like_doc_count": 17, "source_non_requirement_doc_count": 2, "source_non_requirement_examples": ["234:priority_sample_pool_project_2.json:test_generation_priority_sample_pool", "235:workflow_contract_project_2_workflow_blueprint_manual.json:test_generation_workflow_contract"], "source_request_user_id": 1, "source_request_user_owned_doc_count": 19, "source_request_user_non_owned_doc_count": 0}
+[2026-06-30 11:02:12,651: INFO/MainProcess] 快照构建任务完成 project_id=2 task_id=68a3b8bd-7399-4824-bd33-e9298772726e
+[2026-06-30 11:02:12,656: INFO/MainProcess] Task modules.orchestration.tasks.build_context_snapshot_task[68a3b8bd-7399-4824-bd33-e9298772726e] succeeded in 229.5779999999795s: {'success': True, 'cache_hit': False, 'rebuild_reason': 'full_rebuild', 'snapshot_text': '项目级上下文快照
+
+一、会员体系与权益规则
+1. 商品类型与优先级
+   - 商品类型：畅学SVIP（含VIP+素养权益）、学段VIP（小学/初中/高中）、素养权益（学年卡/合集/单课）、教辅材料（实物）、自动续费包月/包年
+   - 权益优先级：SVIP > VIP = 素养权益 > 单个素养课程权益 = 单个VIP课程
+   - VIP状态展示：有效期、过期提示（到期前10天显示"VIP即将过期"）、多权益展示优先级（SVIP>VIP>素养>畅学）
+
+2. 有效期计算与叠加
+   - 购买SVIP时，所有已有课程有效期+1年
+   - 已购SVIP再购VIP，VIP时长 = SVIP时长+1年
+   - 多学段VIP可同时生效，有效期累加
+   - 权益到期时间按顺延规则叠加
+   - 精品课购买后不区分学段，多学段同课程合并有效期
+
+3. 课程权限与消耗
+   - 会员到期无法打开VIP视频时跳转至关卡列表页
+   - 迁移规则：迁移时取原课程有效期和已有学段VIP有效期最长的时间
+   - 去买方案权益：普通用户/VIP/付费用户差异化解锁（方案一至四规则）
+
+二、支付与续费机制
+1. 自动续费
+   - 安卓支持条件：支付宝月订单>300 或 微信月均流水300W；iOS无限制
+   - 新增商品：连续包月（31天88元）、连续包年（365天568元）
+   - 规则：到期前5日发送站内信提醒；解约不退（安卓）/退剩余天数（苹果）差异处理
+
+2. 支付流程
+   - iOS：取消支付弹出二次确认框；支付失败/取消后弹窗增加支付宝/微信/扫码/联系客服选项
+   - 安卓：支付弹窗（支付宝/微信/扫码/联系客服），默认支付宝（未安装则默认微信）；未安装toast提示；平板或未安装微信支付宝自动进扫码；支付取消/失败后自动弹出支付选择弹窗
+
+3. 续费与升级策略
+   - 未付费首购：9.9元体验券→7天SVIP，触发条件累计星星>0回首页弹窗（优先级高于活动），游客可触发但跳转登录
+   - 付费续购：针对即将过期/已过期用户，取历史最长档位
+     -...', 'corpus_hash': '6869346320b3e7a9...', ...}
+[2026-06-30 11:02:12,663: INFO/MainProcess] Task modules.orchestration.tasks.cleanup_logs_task[35dd25fe-7f9b-482d-9aa5-8e4c7a99aa4c] received
+[2026-06-30 11:02:12,667: INFO/MainProcess] Task modules.orchestration.tasks.cleanup_logs_task[35dd25fe-7f9b-482d-9aa5-8e4c7a99aa4c] succeeded in 0.0s: {'deleted_logs': 0}
+WARNING:  WatchFiles detected changes in 'modules\test_generation_components\legacy\stream\batches.py'. Reloading...
+^CINFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [28680]

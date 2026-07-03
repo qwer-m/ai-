@@ -162,7 +162,11 @@ class KnowledgeBaseModule:
             )
             bind_parse_task_impl(doc.id, task.id, db)
             db.refresh(doc)
-            return {"document": doc, "task_id": task.id}
+            return {
+                "document": doc,
+                "task_id": task.id,
+                "queue_result": task.to_dict(),
+            }
         except Exception as e:
             cleanup_offline_file(file_path)
             self.mark_document_parse_failed(

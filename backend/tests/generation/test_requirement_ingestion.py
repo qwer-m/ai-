@@ -13,6 +13,26 @@ from core.processing import file_processing
 from routers.test_generation_routes import support
 
 
+GENERATION_ROUTE_FILES = (
+    Path("backend/routers/automation/test_generation_generate_routes_estimate.py"),
+    Path("backend/routers/automation/test_generation_generate_routes_stream.py"),
+    Path("backend/routers/automation/test_generation_generate_routes_json.py"),
+    Path("backend/routers/automation/test_generation_generate_routes_file.py"),
+    Path("backend/routers/automation/test_generation_generate_routes_excel.py"),
+)
+
+GENERATION_REQUIREMENT_PARSE_ROUTE_FILES = (
+    Path("backend/routers/automation/test_generation_generate_routes_estimate.py"),
+    Path("backend/routers/automation/test_generation_generate_routes_stream.py"),
+    Path("backend/routers/automation/test_generation_generate_routes_file.py"),
+    Path("backend/routers/automation/test_generation_generate_routes_excel.py"),
+)
+
+GENERATION_STREAM_ROUTE_FILES = (
+    Path("backend/routers/automation/test_generation_generate_routes_stream.py"),
+)
+
+
 class _DbSession:
     pass
 
@@ -151,13 +171,9 @@ def test_parse_requirement_for_generation_returns_observable_diag(monkeypatch) -
 
 
 def test_generation_routes_pass_context_to_observable_requirement_parser() -> None:
-    route_files = (
-        Path("backend/routers/automation/test_generation_generate_routes_impl.py"),
-        Path("backend/routers/automation/test_generation_generate_routes_split_helpers.py"),
-    )
     offenders: list[str] = []
 
-    for route_file in route_files:
+    for route_file in GENERATION_REQUIREMENT_PARSE_ROUTE_FILES:
         tree = ast.parse(route_file.read_text(encoding="utf-8"), filename=str(route_file))
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -172,13 +188,9 @@ def test_generation_routes_pass_context_to_observable_requirement_parser() -> No
 
 
 def test_generation_routes_use_observable_requirement_parser() -> None:
-    route_files = (
-        Path("backend/routers/automation/test_generation_generate_routes_impl.py"),
-        Path("backend/routers/automation/test_generation_generate_routes_split_helpers.py"),
-    )
     offenders: list[str] = []
 
-    for route_file in route_files:
+    for route_file in GENERATION_ROUTE_FILES:
         tree = ast.parse(route_file.read_text(encoding="utf-8"), filename=str(route_file))
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -190,13 +202,9 @@ def test_generation_routes_use_observable_requirement_parser() -> None:
 
 
 def test_stream_routes_emit_requirement_parse_diag_to_client() -> None:
-    route_files = (
-        Path("backend/routers/automation/test_generation_generate_routes_impl.py"),
-        Path("backend/routers/automation/test_generation_generate_routes_split_helpers.py"),
-    )
     offenders: list[str] = []
 
-    for route_file in route_files:
+    for route_file in GENERATION_STREAM_ROUTE_FILES:
         source = route_file.read_text(encoding="utf-8")
         if "initial_diag_lines: list[str] = []" not in source:
             offenders.append(f"{route_file}:missing_initial_diag_buffer")

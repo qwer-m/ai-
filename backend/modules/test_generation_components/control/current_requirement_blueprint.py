@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from typing import Any
 
@@ -18,6 +19,9 @@ _MAX_REQUIREMENT_CHARS = 24000
 _MAX_BLUEPRINTS = 1
 _MAX_STEPS = 10
 _MAX_KEYWORDS_PER_STEP = 8
+_DEFAULT_BLUEPRINT_MAX_TOKENS = 1600
+_MIN_BLUEPRINT_MAX_TOKENS = 600
+_BLUEPRINT_MAX_TOKENS_ENV = "GENERATION_CURRENT_REQUIREMENT_BLUEPRINT_MAX_TOKENS"
 
 _ALLOWED_STAGE_KINDS = {
     "entry",
@@ -51,6 +55,25 @@ _STAGE_KIND_ALIASES = {
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
+    raw = os.getenv(name)
+    if raw is None or str(raw).strip() == "":
+        return int(default)
+    try:
+        value = int(str(raw).strip())
+    except ValueError:
+        return int(default)
+    return max(int(minimum), int(value))
+
+
+def current_requirement_blueprint_max_tokens() -> int:
+    return _env_int(
+        _BLUEPRINT_MAX_TOKENS_ENV,
+        _DEFAULT_BLUEPRINT_MAX_TOKENS,
+        minimum=_MIN_BLUEPRINT_MAX_TOKENS,
+    )
 
 
 def _slug(value: Any, *, fallback: str = "workflow") -> str:
@@ -307,6 +330,8 @@ def extract_current_requirement_blueprints(
         "current_requirement_blueprint_step_count": 0,
         "current_requirement_blueprint_source": CURRENT_REQUIREMENT_BLUEPRINT_REPOSITORY_SOURCE,
     }
+    max_tokens = current_requirement_blueprint_max_tokens()
+    diagnostics["current_requirement_blueprint_max_tokens"] = int(max_tokens)
     if not requirement:
         return [], diagnostics
     if client is None or not hasattr(client, "generate_response"):
@@ -317,7 +342,7 @@ def extract_current_requirement_blueprints(
             _compact_requirement(requirement),
             _build_blueprint_prompt(),
             db=db,
-            max_tokens=3500,
+            max_tokens=max_tokens,
             task_type="generation",
         )
     except Exception as exc:

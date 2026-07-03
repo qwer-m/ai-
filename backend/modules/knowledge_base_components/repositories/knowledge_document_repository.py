@@ -215,6 +215,46 @@ class KnowledgeDocumentRepository:
             .all()
         )
 
+    def list_project_doc_snapshot_fingerprints(
+        self,
+        *,
+        project_id: int,
+        max_docs: int,
+    ) -> list:
+        return (
+            self.db.query(
+                KnowledgeDocument.id,
+                KnowledgeDocument.filename,
+                KnowledgeDocument.content_hash,
+                KnowledgeDocument.doc_type,
+                KnowledgeDocument.user_id,
+                func.length(KnowledgeDocument.summary).label("summary_length"),
+                func.length(KnowledgeDocument.content).label("content_length"),
+            )
+            .filter(KnowledgeDocument.project_id == project_id)
+            .order_by(KnowledgeDocument.created_at.asc(), KnowledgeDocument.id.asc())
+            .limit(max(1, int(max_docs)))
+            .all()
+        )
+
+    def list_project_doc_contents_by_ids(
+        self,
+        *,
+        project_id: int,
+        doc_ids: Iterable[int],
+    ) -> list:
+        cleaned_doc_ids = [int(value) for value in doc_ids if value is not None]
+        if not cleaned_doc_ids:
+            return []
+        return (
+            self.db.query(KnowledgeDocument.id, KnowledgeDocument.content)
+            .filter(
+                KnowledgeDocument.project_id == project_id,
+                KnowledgeDocument.id.in_(cleaned_doc_ids),
+            )
+            .all()
+        )
+
     def list_project_docs_ordered_by_id(self, *, project_id: int) -> list[KnowledgeDocument]:
         return (
             self.db.query(KnowledgeDocument)

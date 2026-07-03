@@ -98,7 +98,12 @@ def enqueue_context_snapshot_rebuild_impl(
             snapshot.rebuild_reason,
             task_result.id,
         )
-        return {"queued": True, "task_id": task_result.id, "reason": "queued"}
+        return {
+            "queued": True,
+            "task_id": task_result.id,
+            "reason": "queued",
+            "queue_result": task_result.to_dict(),
+        }
     except Exception as e:
         mark_snapshot_failed(snapshot, f"enqueue_failed:{e}", snapshot.rebuild_reason or "manual", db)
         logger.warning(

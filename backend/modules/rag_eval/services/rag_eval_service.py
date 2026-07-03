@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import threading
 import time
 from datetime import datetime
 from typing import Any
@@ -10,15 +9,15 @@ from sqlalchemy.orm import Session
 from core.ai.ai_client import get_client_for_user
 from core.db.database import SessionLocal
 from core.db.models import RagDataset, RagDatasetSample, RagEvalRun, RagEvalSampleResult
+from modules.orchestration.background_task_governance import (
+    BackgroundTaskKind,
+    submit_background_task,
+)
 from modules.rag_eval.metrics.metrics_retrieval import context_precision, context_recall, first_hit_rank, hit_at_k, mrr, recall_at_k
 from modules.rag_eval.services.aggregation.rag_eval_aggregator import aggregate_run_metrics, estimate_tokens
 from modules.rag_eval.analysis.rag_failure_analyzer import analyze_failure_reason
 from modules.rag_eval.services.rag_judge_service import judge_answer
 from modules.rag_eval.services.rag_retrieval_service import run_retrieval_debug
-
-_RUN_THREADS: dict[int, threading.Thread] = {}
-_RUN_LOCK = threading.Lock()
-
 
 def start_eval_run(*, db: Session, user_id: int, project_id: int, dataset_id: int, config: dict[str, Any], run_name: str | None) -> RagEvalRun:
     """创建评测运行并异步执行。"""
@@ -36,7 +35,7 @@ def start_eval_run(*, db: Session, user_id: int, project_id: int, dataset_id: in
     db.add(run)
     db.commit()
     db.refresh(run)
-    _spawn_run_thread(run.id, user_id)
+    _enqueue_eval_run_task(db=db, run=run, user_id=user_id)
     return run
 
 
@@ -65,29 +64,67 @@ def resume_eval_run(*, db: Session, user_id: int, run_id: int) -> RagEvalRun:
     run.finished_at = None
     db.commit()
     db.refresh(run)
-    _spawn_run_thread(run.id, user_id)
+    _enqueue_eval_run_task(db=db, run=run, user_id=user_id)
     return run
 
+def _enqueue_eval_run_task(*, db: Session, run: RagEvalRun, user_id: int) -> None:
+    try:
+        submit_background_task(
+            BackgroundTaskKind.RAG_EVAL_RUN,
+            kwargs={"run_id": run.id, "user_id": user_id},
+            business_id=run.id,
+        )
+    except Exception as exc:
+        run.status = "failed"
+        run.finished_at = datetime.now()
+        run.metrics_json = {"error": f"failed_to_queue_rag_eval_run:{exc}"}
+        db.commit()
+        db.refresh(run)
+        raise ValueError("Failed to queue RAG eval run") from exc
 
-def _spawn_run_thread(run_id: int, user_id: int) -> None:
-    """启动后台评测线程。"""
-    t = threading.Thread(target=_execute_run, args=(run_id, user_id), daemon=True, name=f"rag-eval-run-{run_id}")
-    with _RUN_LOCK:
-        _RUN_THREADS[run_id] = t
-    t.start()
+
+def _claim_pending_run(db: Session, *, run_id: int, user_id: int) -> RagEvalRun | None:
+    run = db.query(RagEvalRun).filter(RagEvalRun.id == run_id, RagEvalRun.user_id == user_id).first()
+    if not run:
+        return None
+    if run.stop_requested or run.status == "stopping":
+        run.status = "stopped"
+        run.finished_at = datetime.now()
+        db.commit()
+        return None
+    if run.status != "pending":
+        return None
+
+    started_at = run.started_at or datetime.now()
+    claimed = (
+        db.query(RagEvalRun)
+        .filter(
+            RagEvalRun.id == run_id,
+            RagEvalRun.user_id == user_id,
+            RagEvalRun.status == "pending",
+            RagEvalRun.stop_requested.is_(False),
+        )
+        .update(
+            {
+                "status": "running",
+                "started_at": started_at,
+            },
+            synchronize_session=False,
+        )
+    )
+    db.commit()
+    if claimed != 1:
+        return None
+    return db.query(RagEvalRun).filter(RagEvalRun.id == run_id, RagEvalRun.user_id == user_id).first()
 
 
-def _execute_run(run_id: int, user_id: int) -> None:
+def execute_eval_run(run_id: int, user_id: int) -> None:
     """后台执行 run，支持停止与断点续跑。"""
     db = SessionLocal()
     try:
-        run = db.query(RagEvalRun).filter(RagEvalRun.id == run_id, RagEvalRun.user_id == user_id).first()
+        run = _claim_pending_run(db, run_id=run_id, user_id=user_id)
         if not run:
             return
-        run.status = "running"
-        if not run.started_at:
-            run.started_at = datetime.now()
-        db.commit()
 
         config = dict(run.config_json or {})
         samples = _load_samples(db, run.dataset_id, config)
@@ -125,8 +162,6 @@ def _execute_run(run_id: int, user_id: int) -> None:
             run.metrics_json = {"error": str(e)}
             db.commit()
     finally:
-        with _RUN_LOCK:
-            _RUN_THREADS.pop(run_id, None)
         db.close()
 
 

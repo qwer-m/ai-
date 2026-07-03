@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+
+def build_priority_retrieval_meta(
+    *,
+    requirement_text: str,
+    max_retrieval_top_k: int,
+    max_cluster_cap: int,
+    min_positive_top_k: int,
+    max_negative_top_k: int,
+    min_pattern_confidence: float,
+) -> dict[str, object]:
+    return {
+        "retrieval_query_used": bool(str(requirement_text or "").strip()),
+        "retrieval_top_k": int(max_retrieval_top_k),
+        "retrieval_hit_count": 0,
+        "retrieval_selected_count": 0,
+        "retrieval_fallback": "none",
+        "retrieval_selected_weight_avg": 0.0,
+        "retrieval_selected_quality_avg": 0.0,
+        "retrieval_diversity_cluster_cap": int(max_cluster_cap),
+        "retrieval_diversity_skipped_count": 0,
+        "retrieval_lexical_fallback_used": False,
+        "retrieval_active_sample_count": 0,
+        "retrieval_disabled_sample_count": 0,
+        "retrieval_low_confidence_sample_count": 0,
+        "retrieval_min_pattern_confidence": float(min_pattern_confidence),
+        "retrieval_signal_quota_applied": False,
+        "retrieval_signal_quota_relaxed": False,
+        "retrieval_positive_min_quota": int(min_positive_top_k),
+        "retrieval_negative_max_quota": int(max_negative_top_k),
+        "retrieval_selected_positive_count": 0,
+        "retrieval_selected_negative_count": 0,
+        "retrieval_pool_positive_count": 0,
+        "retrieval_pool_negative_count": 0,
+        "retrieval_raw_positive_count": 0,
+        "retrieval_raw_negative_count": 0,
+        "retrieval_after_diversity_positive_count": 0,
+        "retrieval_after_diversity_negative_count": 0,
+        "retrieval_after_quota_merge_positive_count": 0,
+        "retrieval_after_quota_merge_negative_count": 0,
+        "retrieval_final_selected_positive_count": 0,
+        "retrieval_final_selected_negative_count": 0,
+        "retrieval_query_domain_tags": [],
+        "retrieval_domain_filter_applied": False,
+        "retrieval_domain_matched_sample_count": 0,
+        "retrieval_domain_skipped_sample_count": 0,
+        "retrieval_domain_no_match": False,
+        "retrieval_sample_id_hit_count": 0,
+        "retrieval_index_mismatch_count": 0,
+    }
+
+
+__all__ = ["build_priority_retrieval_meta"]

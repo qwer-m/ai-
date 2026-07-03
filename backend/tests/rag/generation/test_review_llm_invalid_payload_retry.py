@@ -94,12 +94,14 @@ class _ReplayClient:
         self.reason_repair_response = str(reason_repair_response or "")
         self.model = "deepseek-reasoner"
         self.turbo_model = "deepseek-chat"
+        self.review_calls = 0
 
     def select_model(self, full_input: str, task_type: str = "generation") -> str:  # noqa: ARG002
         return "deepseek-reasoner"
 
     def generate_response(self, requirement: str, prompt: str, db: Any = None, **kwargs) -> str:  # noqa: ARG002
         if str(prompt or "").strip().startswith("You are a QA Auditor."):
+            self.review_calls += 1
             if "REVIEW REASON REPAIR ONLY" in str(requirement or "") and self.reason_repair_response:
                 return self.reason_repair_response
             if str(kwargs.get("model") or "").strip():
@@ -161,6 +163,28 @@ def test_retry_on_invalid_payload_without_selection_signal() -> None:
     assert int(summary.get("drop_by_review_llm_count") or 0) > 0
 
 
+def test_review_llm_skips_when_deterministic_selection_is_noop() -> None:
+    client = _ReplayClient(
+        primary_review_response="NOT_JSON_PAYLOAD",
+        retry_review_response=_valid_retry_payload(keep_count=4, total_count=8),
+    )
+    result = _run_review_replay(client, case_count=8)
+    summary = dict((result or {}).get("review_decision_summary") or {})
+    runtime = dict(summary.get("review_llm_runtime_debug") or {})
+    timing_events = [item for item in (result or {}).get("timing_events") or [] if isinstance(item, dict)]
+    review_timing = next(item for item in timing_events if item.get("stage") == "review_selection")
+
+    assert client.review_calls == 0
+    assert summary.get("review_llm_filter_applied") is False
+    assert runtime.get("invoked") is False
+    assert runtime.get("final_source") == "review_selector"
+    assert runtime.get("applied_reason") == "skipped_deterministic_noop"
+    assert runtime.get("skip_reason") == "llm_pool_within_constraint_window"
+    assert runtime.get("deterministic_noop_skip_eligible") is True
+    assert review_timing.get("llm_invoked") is False
+    assert review_timing.get("llm_skip_reason") == "llm_pool_within_constraint_window"
+
+
 def test_retry_on_invalid_payload_with_unmapped_case_ids() -> None:
     client = _ReplayClient(
         primary_review_response=json.dumps(
@@ -170,9 +194,9 @@ def test_retry_on_invalid_payload_with_unmapped_case_ids() -> None:
             },
             ensure_ascii=False,
         ),
-        retry_review_response=_valid_retry_payload(keep_count=5, total_count=9),
+        retry_review_response=_valid_retry_payload(keep_count=5, total_count=18),
     )
-    result = _run_review_replay(client, case_count=9)
+    result = _run_review_replay(client, case_count=18)
     summary = dict((result or {}).get("review_decision_summary") or {})
     runtime = dict(summary.get("review_llm_runtime_debug") or {})
 
@@ -234,7 +258,7 @@ def test_retry_valid_selection_but_without_dropped_reasons_marks_incomplete() ->
         primary_review_response="NOT_JSON_PAYLOAD",
         retry_review_response=_retry_payload_only_kept(keep_count=4),
     )
-    result = _run_review_replay(client, case_count=12)
+    result = _run_review_replay(client, case_count=14)
     summary = dict((result or {}).get("review_decision_summary") or {})
     runtime = dict(summary.get("review_llm_runtime_debug") or {})
 
@@ -254,7 +278,7 @@ def test_retry_partial_unmapped_dropped_reasons_keeps_mapped_part() -> None:
         primary_review_response="NOT_JSON_PAYLOAD",
         retry_review_response=_retry_payload_with_partial_unmapped_dropped(),
     )
-    result = _run_review_replay(client, case_count=12)
+    result = _run_review_replay(client, case_count=14)
     summary = dict((result or {}).get("review_decision_summary") or {})
     runtime = dict(summary.get("review_llm_runtime_debug") or {})
 

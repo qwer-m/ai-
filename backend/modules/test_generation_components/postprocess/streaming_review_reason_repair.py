@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Callable, Iterable
 
 from .streaming_case_keys import case_signature, review_case_id
 from .streaming_postprocess_utils import (
+    _client_response_metadata,
     _dict_case_items,
     _json_for_prompt,
     _parsed_response_error_reason,
+    _select_review_model,
 )
 from .streaming_review_mapping import REASON_REPAIR_DROP_REASONS, case_review_brief
 
@@ -196,3 +199,98 @@ def reason_repair_payload_debug_counts(result: dict[str, Any] | None) -> dict[st
         "unknown_case_id_count": int(payload.get("unknown_case_id_count") or 0),
         "skipped_existing_count": int(payload.get("skipped_existing_count") or 0),
     }
+
+
+def apply_reason_repair_for_dropped_cases(
+    *,
+    client: Any,
+    db: Any,
+    llm_pool_cases: list[dict[str, Any]],
+    selected_from_llm_pool: list[dict[str, Any]],
+    review_llm_applied: bool,
+    review_llm_drop_reason_raw_map: dict[str, str],
+    review_llm_drop_reason_raw_origin_map: dict[str, str],
+    review_llm_runtime_debug: dict[str, Any],
+    parse_json_fn: ReasonRepairPayloadParser,
+    max_candidates: int = 80,
+) -> tuple[dict[str, str], dict[str, str], dict[str, Any]]:
+    raw_map = dict(review_llm_drop_reason_raw_map or {})
+    origin_map = dict(review_llm_drop_reason_raw_origin_map or {})
+    runtime_debug = dict(review_llm_runtime_debug or {})
+    if not review_llm_applied or not llm_pool_cases:
+        return raw_map, origin_map, runtime_debug
+
+    selected_signature_after_constraints = {
+        case_signature(item)
+        for item in _dict_case_items(selected_from_llm_pool)
+        if case_signature(item)
+    }
+    pool_by_signature = {
+        case_signature(item): item
+        for item in _dict_case_items(llm_pool_cases)
+        if case_signature(item)
+    }
+    dropped_after_constraints = [
+        item
+        for signature, item in pool_by_signature.items()
+        if signature and signature not in selected_signature_after_constraints
+    ]
+    missing_reason_cases = [
+        item
+        for item in dropped_after_constraints
+        if case_signature(item) and case_signature(item) not in raw_map
+    ]
+    if not missing_reason_cases:
+        return raw_map, origin_map, runtime_debug
+
+    repair_candidates = build_reason_repair_candidates(
+        missing_reason_cases,
+        max_candidates=max_candidates,
+    )
+    if not repair_candidates:
+        return raw_map, origin_map, runtime_debug
+
+    repair_prompt = build_compact_reason_repair_prompt(
+        missing_reason_cases,
+        drop_reasons=REASON_REPAIR_DROP_REASONS,
+        max_candidates=max_candidates,
+    )
+    runtime_debug["reason_repair_invoked"] = True
+    runtime_debug["reason_repair_candidate_count"] = int(len(repair_candidates))
+    runtime_debug["reason_repair_model"] = _select_review_model(client, repair_prompt)
+    reason_repair_started = time.perf_counter()
+    repair_response_text = str(
+        client.generate_response(
+            repair_prompt,
+            "You are a QA Auditor. Return strict JSON only.",
+            db=db,
+            task_type="review",
+            max_tokens=2048,
+        )
+        or ""
+    )
+    runtime_debug["reason_repair_duration_ms"] = max(
+        0,
+        int(round((time.perf_counter() - reason_repair_started) * 1000)),
+    )
+    runtime_debug["reason_repair_response_len"] = int(len(repair_response_text))
+    runtime_debug["reason_repair_response_metadata"] = _client_response_metadata(client)
+    repair_result = analyze_reason_repair_payload(
+        repair_response_text,
+        missing_reason_cases=missing_reason_cases,
+        parse_json_fn=parse_json_fn,
+        allowed_reasons=REASON_REPAIR_DROP_REASONS,
+        reason_origin="llm",
+        existing_drop_reason_map=raw_map,
+    )
+    mapped_reason_count = int(repair_result.get("mapped_count") or 0)
+    repair_invalid_reason = str(repair_result.get("invalid_reason") or "")
+    raw_map.update(dict(repair_result.get("dropped_reason_map") or {}))
+    origin_map.update(dict(repair_result.get("dropped_reason_origin_map") or {}))
+    runtime_debug["reason_repair_mapped_count"] = int(mapped_reason_count)
+    runtime_debug["reason_repair_invalid_reason"] = str(repair_invalid_reason)
+    if mapped_reason_count > 0:
+        runtime_debug["final_dropped_reason_count"] = int(len(raw_map))
+        runtime_debug["final_dropped_reason_payload_count"] = int(len(raw_map))
+        runtime_debug["final_dropped_reason_unmapped_count"] = 0
+    return raw_map, origin_map, runtime_debug

@@ -6,12 +6,6 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from modules.domain.knowledge_base import knowledge_base
-from modules.domain.stage25_switches import STAGE25_SWITCHES
-from modules.memory_fabric.contracts.memory_context import MemoryContext
-from modules.memory_fabric.contracts.memory_fabric import MemoryFabric
-from modules.memory_fabric.runtime.diagnostics import record_memory_read
-from modules.memory_fabric.runtime.factory import get_memory_fabric
 from ...context.hybrid_context_builder import (
     HYBRID_CONFIG,
     build_hybrid_context,
@@ -22,6 +16,21 @@ from ...context.hybrid_guard import (
     detect_hybrid_empty_context,
     parse_snapshot_queue_info,
 )
+from ..runtime import LazyAttrProxy, call_component
+
+
+knowledge_base = LazyAttrProxy("modules.domain.knowledge_base", "knowledge_base")
+STAGE25_SWITCHES = LazyAttrProxy("modules.domain.stage25_switches", "STAGE25_SWITCHES")
+MemoryContext = LazyAttrProxy("modules.memory_fabric.contracts.memory_context", "MemoryContext")
+MemoryFabric = LazyAttrProxy("modules.memory_fabric.contracts.memory_fabric", "MemoryFabric")
+
+
+def record_memory_read(*args: Any, **kwargs: Any) -> Any:
+    return call_component("modules.memory_fabric.runtime.diagnostics", "record_memory_read", *args, **kwargs)
+
+
+def get_memory_fabric(*args: Any, **kwargs: Any) -> Any:
+    return call_component("modules.memory_fabric.runtime.factory", "get_memory_fabric", *args, **kwargs)
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +287,7 @@ class LegacyGenerationContextHybridMixin:
                 "snapshot_readiness_reason": snapshot_readiness_reason,
                 "snapshot_version": int(snapshot_result.get("snapshot_version") or 0),
                 "snapshot_fingerprint": str(snapshot_result.get("snapshot_fingerprint") or ""),
+                "snapshot_fingerprint_only": bool(snapshot_result.get("fingerprint_only")),
                 "snapshot_build_reason": snapshot_result.get("rebuild_reason"),
                 "snapshot_build_latency_ms": float(snapshot_result.get("build_latency_ms") or 0.0),
                 "needs_rebuild": snapshot_needs_rebuild,

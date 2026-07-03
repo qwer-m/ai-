@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import csv
 import json
@@ -56,15 +57,21 @@ def resolve_linked_final_case_signal(
             KnowledgeDocumentRepository,
         )
 
+        requirement_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
         query = db.query(KnowledgeDocument).filter(
             KnowledgeDocument.project_id == int(project_id),
             KnowledgeDocument.user_id == int(user_id),
             KnowledgeDocument.doc_type.in_(["requirement", "incomplete"]),
         )
-        source_docs = query.filter(KnowledgeDocument.content == text).order_by(
+        source_docs = query.filter(KnowledgeDocument.content_hash == requirement_hash).order_by(
             KnowledgeDocument.created_at.desc(),
             KnowledgeDocument.id.desc(),
         ).limit(5).all()
+        if not source_docs:
+            source_docs = query.filter(KnowledgeDocument.content == text).order_by(
+                KnowledgeDocument.created_at.desc(),
+                KnowledgeDocument.id.desc(),
+            ).limit(5).all()
         if not source_docs and len(text) > 4000:
             source_docs = query.filter(KnowledgeDocument.content.like(f"{text[:4000]}%")).order_by(
                 KnowledgeDocument.created_at.desc(),

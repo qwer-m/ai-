@@ -1,15 +1,28 @@
 from __future__ import annotations
 
 import json
+from importlib import import_module
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from modules.testing.api_testing import api_tester
-from modules.testing.evaluation import evaluator
-from modules.testing.test_generation import test_generator
-from modules.testing.ui_automation import ui_automator
 from .schemas import StageKey
+
+
+def _test_generator():
+    return import_module("modules.testing.test_generation").test_generator
+
+
+def _ui_automator():
+    return import_module("modules.testing.ui_automation").ui_automator
+
+
+def _api_tester():
+    return import_module("modules.testing.api_testing").api_tester
+
+
+def _evaluator():
+    return import_module("modules.testing.evaluation").evaluator
 
 
 def _execute_stage_once(
@@ -38,7 +51,7 @@ def _execute_stage_once(
             expected_count = int(payload.get("expected_count") or 20)
             compress = bool(payload.get("compress") or False)
 
-            test_cases = test_generator.generate_test_cases_json(
+            test_cases = _test_generator().generate_test_cases_json(
                 requirement=requirement,
                 project_id=project_id,
                 db=db,
@@ -71,6 +84,7 @@ def _execute_stage_once(
             target = str(ui_cfg.get("target") or "http://localhost:5173")
             automation_type = str(ui_cfg.get("automation_type") or "web")
 
+            ui_automator = _ui_automator()
             script = ui_automator.generate_ai_image_recognition_script(
                 task_description=task,
                 url=target,
@@ -122,6 +136,7 @@ def _execute_stage_once(
             mode = str(api_cfg.get("mode") or "structured")
             test_types = list(api_cfg.get("test_types") or ["Functional"])
 
+            api_tester = _api_tester()
             script = api_tester.generate_api_test_script(
                 requirement=api_requirement,
                 base_url=base_url,
@@ -177,6 +192,7 @@ def _execute_stage_once(
         if run_testcase_eval:
             generated_cases = str((stage_artifacts.get("test_generation") or {}).get("generated_cases") or "")
             if generated_cases.strip() and baseline.strip():
+                evaluator = _evaluator()
                 result = evaluator.compare_test_cases(
                     generated_test_case=generated_cases,
                     modified_test_case=baseline,
@@ -193,6 +209,7 @@ def _execute_stage_once(
             script = str(ui_art.get("script") or "")
             execution_result = str(ui_art.get("execution_result") or "")
             if script.strip() and execution_result.strip():
+                evaluator = _evaluator()
                 result = evaluator.evaluate_ui_automation(
                     ui_script=script,
                     execution_result=execution_result,
@@ -210,6 +227,7 @@ def _execute_stage_once(
             script = str(api_art.get("script") or "")
             execution_result = str(api_art.get("execution_result") or "")
             if script.strip() and execution_result.strip():
+                evaluator = _evaluator()
                 result = evaluator.evaluate_api_test(
                     api_script=script,
                     execution_result=execution_result,

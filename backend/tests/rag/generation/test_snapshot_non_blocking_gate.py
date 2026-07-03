@@ -16,6 +16,28 @@ class _Cfg:
         return self.timeout_strategy
 
 
+def test_gate_disabled_does_not_query_snapshot_status(monkeypatch):
+    monkeypatch.setattr(gate_mod, "SNAPSHOT_WAIT_GATE_CONFIG", _Cfg(require_snapshot_ready=False))
+
+    def _forbidden_status():
+        raise AssertionError("status should not be queried when snapshot gate is disabled")
+
+    def _forbidden_enqueue():
+        raise AssertionError("rebuild should not be enqueued when snapshot gate is disabled")
+
+    result = gate_mod.wait_snapshot_ready_gate(
+        get_status_fn=_forbidden_status,
+        enqueue_rebuild_fn=_forbidden_enqueue,
+        status_messages=[],
+    )
+
+    assert result["proceed"] is True
+    assert result["error_code"] == ""
+    assert result["gate_debug"]["snapshot_wait_result"] == "gate_disabled_proceed"
+    assert result["gate_debug"]["snapshot_status_before_generation"] == "not_checked_gate_disabled"
+    assert result["gate_debug"]["snapshot_wait_queue_reason"] == "gate_disabled"
+
+
 def test_gate_ready_direct_proceed(monkeypatch):
     """场景1：snapshot ready，直接使用快照并继续。"""
     monkeypatch.setattr(gate_mod, "SNAPSHOT_WAIT_GATE_CONFIG", _Cfg())

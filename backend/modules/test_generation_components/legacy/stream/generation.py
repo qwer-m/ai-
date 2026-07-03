@@ -3,7 +3,6 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from core.ai.ai_client import get_client_for_user
 from .batches import (
     LegacyGenerationStreamBatchesMixin,
 )
@@ -13,6 +12,11 @@ from .persist import (
 from .prepare import (
     LegacyGenerationStreamPrepareMixin,
 )
+from .runtime import call_component
+
+
+def get_client_for_user(*args, **kwargs):
+    return call_component("core.ai.ai_client", "get_client_for_user", *args, **kwargs)
 
 
 class LegacyGenerationStreamGenerationMixin(

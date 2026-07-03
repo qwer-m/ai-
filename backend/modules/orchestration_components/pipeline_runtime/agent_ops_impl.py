@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Literal
 
 from sqlalchemy.orm import Session
@@ -8,6 +7,7 @@ from sqlalchemy.orm import Session
 from core.ai.ai_client import get_client_for_user
 from core.db.models import PipelineRun
 from modules.domain.knowledge_base import knowledge_base
+from modules.orchestration.background_task_governance import run_governed_threadpool_map
 from .agent_decision import _aggregate_reviewer_decision
 from .schemas import STAGE_ORDER, StageKey
 from .support import _now_iso, _truncate_text
@@ -125,23 +125,27 @@ def _run_stage_executor_agent(
 
     if parallel and len(tasks) > 1:
         indexed: dict[str, int] = {task["id"]: idx for idx, task in enumerate(tasks)}
-        futures = {}
-        with ThreadPoolExecutor(max_workers=max(1, workers), thread_name_prefix=f"executor-{stage}") as pool:
-            for task in tasks:
-                future = pool.submit(_evaluate_executor_task, stage, task, payload, artifacts)
-                futures[future] = task["id"]
-            for future in as_completed(futures):
-                task_id = futures[future]
-                try:
-                    result = future.result()
-                except Exception as e:
-                    result = {
-                        "id": task_id,
-                        "title": next((t["title"] for t in tasks if t["id"] == task_id), task_id),
-                        "status": "warning",
-                        "note": f"executor task failed: {type(e).__name__}: {e}",
-                    }
-                task_results.append(result)
+        results = run_governed_threadpool_map(
+            profile_key="pipeline_agent_executor_threadpool",
+            items=tasks,
+            worker=lambda task: _evaluate_executor_task(stage, task, payload, artifacts),
+            max_workers=max(1, workers),
+            thread_name_prefix=f"executor-{stage}",
+            business_id=stage,
+        )
+        for item in results:
+            task = dict(item.item or {})
+            task_id = str(task.get("id") or "")
+            if item.exception is not None:
+                result = {
+                    "id": task_id,
+                    "title": task.get("title") or task_id,
+                    "status": "warning",
+                    "note": f"executor task failed: {type(item.exception).__name__}: {item.exception}",
+                }
+            else:
+                result = item.result
+            task_results.append(result)
         task_results.sort(key=lambda item: indexed.get(str(item.get("id") or ""), 999))
     else:
         for task in tasks:

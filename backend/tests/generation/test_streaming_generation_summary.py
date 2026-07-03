@@ -15,6 +15,10 @@ from modules.test_generation_components.postprocess.streaming_generation_summary
     resolve_generation_target_satisfaction,
     resolve_underfill_diagnostics,
 )
+from modules.test_generation_components.postprocess.streaming_generation_report import (
+    FinalGenerationReportInputs,
+    build_final_generation_report,
+)
 
 
 def test_derive_final_coverage_inputs_marks_quality_converged_before_reference_count() -> None:
@@ -29,6 +33,71 @@ def test_derive_final_coverage_inputs_marks_quality_converged_before_reference_c
     assert state["missing_rules_final"] == []
     assert state["missing_types_final"] is False
     assert state["reasons"] == ["quality_converged_before_reference_count"]
+
+
+def test_build_final_generation_report_returns_summary_and_debug_payloads() -> None:
+    report = build_final_generation_report(
+        FinalGenerationReportInputs(
+            parsed_result=[
+                {
+                    "id": "TC-001",
+                    "test_module": "课程排课",
+                    "description": "保存课程排课成功",
+                    "expected_result": "系统保存排课并展示成功提示",
+                    "priority": "P0",
+                    "execution_group": "main_smoke",
+                },
+                {
+                    "id": "TC-002",
+                    "test_module": "课程排课",
+                    "description": "保存课程排课失败",
+                    "expected_result": "系统阻止保存并展示失败原因",
+                    "priority": "P1",
+                    "execution_group": "negative",
+                },
+            ],
+            pre_priority_coverage={"missing_rules": [], "rule_diagnostics": []},
+            reference_count_effective=5,
+            final_count=2,
+            gap_remaining_after_attempts=0,
+            gap_attempts=0,
+            gap_stopped_by_provider_error=False,
+            post_review_dedup_drop=1,
+            final_description_dedup_drop_signatures={"dup-signature"},
+            low_quality_drop_details=[{"case_id": "TC-LOW", "reason": "non_assertable_expected_result"}],
+            low_quality_dropped_total=0,
+            semantic_dedup_dropped_total=1,
+            governance_hard_drop_total=0,
+            postprocess_filter_drop_total=0,
+            append_cap_drop_total=0,
+            flow_governance_summary={},
+            review_selected_count=4,
+            review_decision_summary={"priority_conflict_count": 1},
+            generation_target_case_range={},
+            expected_count=5,
+            generation_coverage_mode="core_smoke",
+            resolved_full_regression_floor=0,
+            candidate_count_before_review=5,
+            judge_summary_payload={},
+            drop_by_review_llm_count=1,
+            stage_counts={"primary_count": 5},
+            append_target_count=0,
+            append_final_cap_count=0,
+            generation_mode="",
+            effective_generation_coverage_mode_source="default",
+            explicit_generation_mode_override=False,
+            explicit_expected_count_floor_preserved=True,
+        )
+    )
+
+    assert report.coverage["kind"] == "coverage_check"
+    assert report.generation_summary["final_count"] == 2
+    assert report.generation_summary["underfilled"] is True
+    assert report.generation_summary["needs_priority_review"] is True
+    assert report.generation_summary["final_priority_breakdown"] == {"P0": 1, "P1": 1}
+    assert report.convergence_debug["final_count"] == 2
+    assert report.convergence_debug["quality_rejected_count"] == 1
+    assert report.convergence_debug["duplicate_pruned_count"] == 3
 
 
 def test_derive_final_coverage_inputs_collects_gap_provider_and_missing_reasons() -> None:
@@ -1082,6 +1151,7 @@ def test_build_stream_postprocess_result_payload_preserves_payload_and_injects_f
     review_decision_table = [{"case_id": "TC-001", "decision": "keep"}]
     judge_summary = {"pass_count": 1}
     judge_decision_table = [{"case_id": "TC-001", "judge_decision": "pass"}]
+    timing_events = [{"stage": "review_selection", "duration_ms": 123}]
     control_state = {"current_round": 2}
     generation_target_case_range = {"min": 1, "max": 3}
     fact_profile = {"roles": ["student", "teacher"]}
@@ -1104,6 +1174,7 @@ def test_build_stream_postprocess_result_payload_preserves_payload_and_injects_f
         review_decision_table=review_decision_table,
         judge_summary=judge_summary,
         judge_decision_table=judge_decision_table,
+        timing_events=timing_events,
         feedback_control_debug_builder_fn=build_feedback_debug,
         control_state=control_state,
         generation_coverage_mode=None,
@@ -1123,11 +1194,13 @@ def test_build_stream_postprocess_result_payload_preserves_payload_and_injects_f
         "review_decision_table",
         "judge_summary",
         "judge_decision_table",
+        "timing_events",
         "feedback_control_debug",
     ]
     assert payload["cases"] is cases
     assert payload["review_decision_table"] is review_decision_table
     assert payload["judge_decision_table"] is judge_decision_table
+    assert payload["timing_events"] is timing_events
     assert payload["feedback_control_debug"] is feedback_debug
     assert feedback_builder_calls == [
         {

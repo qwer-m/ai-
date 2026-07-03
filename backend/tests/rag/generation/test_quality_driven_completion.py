@@ -120,6 +120,22 @@ class _PersistRunner(LegacyGenerationStreamPersistMixin):
         return None
 
 
+class _FailingPersistDb(_DummyDb):
+    def __init__(self) -> None:
+        super().__init__()
+        self.failed_once = False
+
+    def commit(self) -> None:
+        has_generation_row = any(getattr(row, "generated_result", None) for row in self.rows)
+        if has_generation_row and not self.failed_once:
+            self.failed_once = True
+            raise RuntimeError("simulated generation insert failure")
+        return None
+
+    def rollback(self) -> None:
+        self.rows.clear()
+
+
 def _stored_generation_result(db: _DummyDb) -> str:
     for row in db.rows:
         generated_result = getattr(row, "generated_result", None)
@@ -223,6 +239,158 @@ def test_persist_status_reports_normal_completion_and_stop_reasons(monkeypatch) 
     assert review_summary_payload.get("candidate_total") == 1
     assert isinstance(review_table_payload, dict)
     assert int(review_table_payload.get("row_count") or 0) == 1
+
+
+def test_persist_emits_generation_timing_ledger_from_state_and_postprocess_events(monkeypatch) -> None:
+    from modules.testing.test_generation_components.legacy.stream import persist as persist_module
+
+    monkeypatch.setattr(persist_module.settings, "EXECUTION_PLAN_GATE_MODE", "shadow", raising=False)
+
+    def _fake_stream_postprocess_cases(**kwargs):
+        if False:
+            yield ""
+        return {
+            "cases": [_build_case(1)],
+            "stage_counts": {"primary": 1, "gap": 0, "review": 1},
+            "coverage": {"kind": "coverage_check", "missing_rules": [], "rule_diagnostics": []},
+            "generation_summary": {"final_count": 1, "status": "completed"},
+            "timing_events": [
+                {"stage": "gap_supplement", "duration_ms": 7},
+                {"stage": "review_selection", "duration_ms": 11},
+                {"stage": "final_shortfall_supplement", "duration_ms": 13},
+                {"stage": "postprocess_total", "duration_ms": 31},
+            ],
+        }
+
+    monkeypatch.setattr(persist_module, "stream_postprocess_cases", _fake_stream_postprocess_cases)
+
+    db = _DummyDb()
+    state = {
+        "client": _NoBackfillClient(),
+        "requirement": "REQ",
+        "project_id": 1,
+        "db": db,
+        "doc_type": "requirement",
+        "compress": False,
+        "expected_count": 20,
+        "overwrite": False,
+        "append": False,
+        "user_id": 1001,
+        "original_requirement": "REQ",
+        "kb_context": "",
+        "start_id": 1,
+        "existing_cases": [],
+        "existing_entry": None,
+        "context_result": {},
+        "gate_debug": {},
+        "base_prompt": "BASE",
+        "full_content": "[]",
+        "existing_unique_count": 0,
+        "system_prompt": "",
+        "current_biz_key": "default",
+        "multi_pass": True,
+        "generation_mode": "multi_pass",
+        "generation_timing_events": [
+            {"stage": "prepare_total", "duration_ms": 101},
+            {"stage": "snapshot_gate", "duration_ms": 2},
+            {"stage": "hybrid_context", "duration_ms": 17},
+            {"stage": "feedback_control_state", "duration_ms": 5},
+            {"stage": "current_requirement_blueprint", "duration_ms": 19},
+            {"stage": "requirement_compress", "duration_ms": 23},
+            {"stage": "long_requirement_compress", "duration_ms": 29},
+            {"stage": "kb_context_compress", "duration_ms": 31},
+            {"stage": "meta_analysis", "duration_ms": 3},
+            {"stage": "primary_batches", "duration_ms": 37},
+            {"stage": "stream_generation_phase", "duration_ms": 43},
+        ],
+    }
+
+    runner = _PersistRunner()
+    chunks, _ = _drain_with_return(runner._stream_persist_phase(state=state))
+
+    timing_payload = None
+    for chunk in chunks:
+        if not chunk.startswith("GEN_DIAG:"):
+            continue
+        payload = json.loads(chunk.removeprefix("GEN_DIAG:").removesuffix("\n").strip())
+        if payload.get("kind") == "generation_timing_ledger":
+            timing_payload = payload
+            break
+
+    assert isinstance(timing_payload, dict)
+    durations = timing_payload.get("duration_by_stage_ms")
+    assert durations == {
+        "prepare_total": 101,
+        "client_resolution": 0,
+        "linked_final_case_signal": 0,
+        "append_existing_lookup": 0,
+        "snapshot_gate": 2,
+        "hybrid_context": 17,
+        "feedback_control_state": 5,
+        "current_requirement_blueprint": 19,
+        "requirement_compress": 52,
+        "kb_context_compress": 31,
+        "meta_analysis": 3,
+        "primary": 37,
+        "stream_generation_phase": 43,
+        "gap": 7,
+        "review": 11,
+        "final_shortfall": 13,
+        "postprocess_total": 31,
+    }
+    assert timing_payload.get("event_count") == 15
+
+
+def test_persist_exception_emits_diagnostic_instead_of_silent_completion(monkeypatch) -> None:
+    from modules.testing.test_generation_components.legacy.stream import persist as persist_module
+
+    monkeypatch.setattr(persist_module.settings, "EXECUTION_PLAN_GATE_MODE", "shadow", raising=False)
+
+    def _fake_stream_postprocess_cases(**kwargs):
+        if False:
+            yield ""
+        return {
+            "cases": [_build_case(1)],
+            "stage_counts": {"primary": 1, "gap": 0, "review": 1},
+            "coverage": {"kind": "coverage_check", "missing_rules": [], "rule_diagnostics": []},
+            "generation_summary": {"final_count": 1, "status": "completed"},
+        }
+
+    monkeypatch.setattr(persist_module, "stream_postprocess_cases", _fake_stream_postprocess_cases)
+
+    db = _FailingPersistDb()
+    state = {
+        "client": _NoBackfillClient(),
+        "requirement": "REQ",
+        "project_id": 1,
+        "db": db,
+        "doc_type": "requirement",
+        "compress": False,
+        "expected_count": 20,
+        "overwrite": False,
+        "append": False,
+        "user_id": 1001,
+        "original_requirement": "REQ",
+        "kb_context": "",
+        "start_id": 1,
+        "existing_cases": [],
+        "existing_entry": None,
+        "context_result": {},
+        "gate_debug": {},
+        "base_prompt": "BASE",
+        "full_content": "[]",
+        "existing_unique_count": 0,
+        "system_prompt": "",
+        "current_biz_key": "default",
+        "multi_pass": True,
+        "generation_mode": "multi_pass",
+    }
+
+    chunks, _ = _drain_with_return(_PersistRunner()._stream_persist_phase(state=state))
+
+    assert any("stream_persist_exception" in chunk for chunk in chunks)
+    assert any("STREAM_PERSISTENCE_FAILED" in chunk for chunk in chunks)
+    assert any("生成结果落库失败" in chunk for chunk in chunks)
 
 
 def test_persist_strips_priority_debug_and_uses_final_priority(monkeypatch) -> None:

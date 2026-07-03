@@ -22,12 +22,86 @@ class _SinglePassClient:
         yield "[]"
 
 
+class _NoGainGapClient:
+    def __init__(self) -> None:
+        self.stream_calls = 0
+        self.review_calls = 0
+
+    def generate_response(self, requirement: str, prompt: str, db=None, **kwargs):  # noqa: ANN001
+        self.review_calls += 1
+        return '{"kept_case_ids":["TC-001"],"dropped":[]}'
+
+    def generate_response_stream(self, requirement: str, prompt: str, **kwargs):  # noqa: ANN001
+        self.stream_calls += 1
+        yield "[]"
+
+
 def _drain_with_return(gen):
     while True:
         try:
             next(gen)
         except StopIteration as stop:
             return stop.value
+
+
+def _drain_with_chunks(gen):
+    chunks = []
+    while True:
+        try:
+            chunks.append(next(gen))
+        except StopIteration as stop:
+            return chunks, stop.value
+
+
+def test_gap_supplement_stops_after_two_no_gain_attempts() -> None:
+    client = _NoGainGapClient()
+    full_content = """
+    [
+      {"id":"TC-001","description":"unrelated account page opens","test_module":"account","preconditions":[],"steps":["open account"],"test_input":"account","expected_result":"account page is visible","priority":"P2"}
+    ]
+    """
+    requirement = """
+    REQ-001 用户提交论坛帖子后必须显示发布成功并进入帖子详情。
+    REQ-002 帖子详情必须支持作者删除并出现二次确认。
+    REQ-003 回帖失败时必须展示错误提示。
+    """
+
+    chunks, result = _drain_with_chunks(
+        stream_postprocess_cases(
+            client=client,
+            requirement=requirement,
+            base_prompt="BASE",
+            kb_context="",
+            full_content=full_content,
+            expected_count=5,
+            append=False,
+            existing_cases=[],
+            existing_unique_count=0,
+            start_id=1,
+            db=None,
+            clean_and_parse_json_fn=clean_and_parse_json,
+            normalize_json_structure_fn=normalize_json_structure,
+            deduplicate_test_cases_fn=deduplicate_test_cases,
+            reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+            count_unique_test_cases_fn=count_unique_test_cases,
+            infer_case_kind_fn=infer_case_kind,
+            build_supplement_closed_loop_instruction_fn=lambda **_: "",
+            multi_pass=True,
+            generation_mode="multi_pass",
+        )
+    )
+
+    assert client.stream_calls == 2
+    assert any("Gap supplement stopped after 2 no-gain attempts" in str(chunk) for chunk in chunks)
+    timing_events = [item for item in (result or {}).get("timing_events") or [] if isinstance(item, dict)]
+    gap_summary = next(item for item in timing_events if item.get("stage") == "gap_supplement")
+    assert gap_summary["attempt_count"] == 2
+    assert gap_summary["added_count"] == 0
+    assert gap_summary["stopped_by_no_gain"] is True
+    assert gap_summary["stop_reason"] == "no_gain_streak"
+    gap_attempts = [item for item in timing_events if item.get("stage") == "gap_supplement_attempt"]
+    assert gap_attempts[-1]["effective_added_count"] == 0
+    assert gap_attempts[-1]["stop_reason"] == "no_gain_streak"
 
 
 def test_stream_postprocess_exposes_convergence_debug_when_under_reference_count() -> None:
