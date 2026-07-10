@@ -1,0 +1,3 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-002,课程列表页,P1,P0,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P0,suggested=P2",会员用户点击课程直接进入学习无需购买跳转,REJECT,semantic_duplicate:TC-004,False,False,False
+TC-038,入口规则,P2,P1,P2,P2,decided,p2_cap_guard,high,,已完成测评用户点击活动入口跳转课程列表页,REJECT,semantic_duplicate:TC-037,True,False,False

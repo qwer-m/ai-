@@ -1,0 +1,14 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-005,学习报告-入口,P2,P1,P2,P2,decided,p2_cap_guard,high,,本学科本周期内无任何学习报告时，报告列表页展示缺省状态,REJECT,semantic_duplicate:TC-006,False,False,False
+TC-006,学习报告-入口,P2,P1,P2,P2,decided,p2_cap_guard,high,,报告列表页竖版布局验证：横版改竖版后页面展示方向与内容完整性,REJECT,semantic_duplicate:TC-007,False,False,False
+TC-007,学习报告-入口,P0,P1,P0,P0,decided,hard_guard_promotion,high,,当前周期无任何报告时，报告列表页展示缺省状态而非空白,REJECT,semantic_duplicate:TC-013,False,False,False
+TC-010,学习报告-入口,P2,P1,P2,P2,decided,p2_cap_guard,high,,当前周期报告数量较多时，报告列表页加载性能与展示完整性,PENDING,contains_pending_logic,False,True,False
+TC-011,学习报告-入口,P0,P1,P0,P0,decided,hard_guard_promotion,high,,学习报告入口红点提醒与消除：新报告生成时入口红点，进入列表页消除标记和红点,REJECT,semantic_duplicate:TC-015,False,False,False
+TC-012,学习报告-入口,P2,P1,P2,P2,decided,p2_cap_guard,high,,学习报告列表页布局由横版改为竖版展示验证,REJECT,semantic_duplicate:TC-007,False,False,False
+TC-014,学习报告-入口,P0,P1,P0,P0,decided,hard_guard_promotion,high,,无新报告生成时入口无红点提醒，列表页最新报告无【新】标记,REJECT,semantic_duplicate:TC-011,False,False,False
+TC-016,作文区-帖子详情,P2,P0,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P0,suggested=P2",作文论坛详情不展示图片时只显示作文标题,REJECT,semantic_duplicate:TC-021,False,False,False
+TC-018,作文区-帖子详情,P1,P0,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P0,suggested=P2",作文详情页图片加载异常：缩略图加载失败时的展示与交互,PENDING,contains_pending_logic,False,True,False
+TC-032,作文区-论坛详情,P2,P2,P2,P2,decided,model_semantic_consistent,high,,作文论坛详情：展示作文示意图与好词好句波浪线，编辑后字数改动删除波浪线,REJECT,semantic_duplicate:TC-021,False,False,False
+TC-038,回帖页,P2,P2,P2,P2,decided,p2_cap_guard,high,,回复留言中的留言（三级回复）：提示词为'回复[用户昵称]'且不可添加图片,REJECT,semantic_duplicate:TC-039,False,False,False
+TC-039,回帖页,P2,P2,P2,P2,decided,p2_cap_guard,high,,回帖页提示词区分：回复帖子显示'我说两句'，回复留言显示'回复[用户昵称]',REJECT,semantic_duplicate:TC-068,False,False,False
+TC-043,帖子详情-回复内容,P2,P2,P2,P2,decided,p2_cap_guard,high,,回复的回复展开逻辑：默认3条，展开N条回复，每次展开5条，剩余显示'展开更多回复',REJECT,semantic_duplicate:TC-070,False,False,False

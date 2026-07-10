@@ -1,0 +1,7 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-003,帖子详情-回复交互,P2,P2,P2,P2,decided,model_semantic_consistent,high,,回复项-点击图片查看详情验证,REJECT,semantic_duplicate:TC-021,False,False,False
+TC-006,作文区-详情展示,P2,P0,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P0,suggested=P2",投稿勾选不展示原文图片-仅显示标题验证,REJECT,semantic_duplicate:TC-007,False,False,False
+TC-007,作文区-详情展示,P2,P0,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P0,suggested=P2",投稿勾选展示原文图片-缩略图及点击放大验证,REJECT,semantic_duplicate:TC-059,False,False,False
+TC-032,论坛首页-帖子信息展示,P2,P2,P2,P2,decided,model_semantic_consistent,high,,用户帖地域/学校信息获取不到时不展示,PENDING,contains_pending_logic,False,True,False
+TC-051,作文区-额外入口,P2,P2,P2,P2,decided,p2_cap_guard,high,,额外入口-精选作文列表恰好20条时全部展示验证,REJECT,semantic_duplicate:TC-053,False,False,False
+TC-052,作文区-额外入口,P2,P2,P2,P2,decided,p2_cap_guard,high,,额外入口-精选作文列表最多20条限制验证,REJECT,semantic_duplicate:TC-051,False,False,False

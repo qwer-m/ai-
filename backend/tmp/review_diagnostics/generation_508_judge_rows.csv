@@ -1,0 +1,5 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-008,作文区-论坛详情,P2,P0,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P0,suggested=P2",作文论坛详情-投稿时选择不展示图片只显示作文标题,PENDING,contains_pending_logic,False,True,False
+TC-019,论坛首页-内容列表,P2,P2,P2,P2,decided,model_semantic_consistent,high,,用户帖信息-地域和学校信息获取不到时不展示,PENDING,contains_pending_logic,False,True,False
+TC-052,发帖限制,P2,P2,P2,P2,decided,p2_cap_guard,high,,发帖限制-学习时长只统计端内时长不算论坛时长,REJECT,semantic_duplicate:TC-050,False,False,False
+TC-067,边界与异常,P2,P2,P2,P2,decided,p2_cap_guard,high,,发帖限制-当天次数完全耗尽无法发帖,REJECT,semantic_duplicate:TC-068,False,False,False

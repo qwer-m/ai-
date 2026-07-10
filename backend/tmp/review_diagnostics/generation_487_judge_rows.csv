@@ -1,0 +1,9 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-004,学习报告,P2,P1,P2,P2,decided,p2_cap_guard,high,,学习报告入口点击-从横版改竖版进入报告列表页,REJECT,semantic_duplicate:TC-010,False,False,False
+TC-006,学习报告,P2,P1,P2,P2,decided,p2_cap_guard,high,,学习报告入口小红点与列表数据不一致-红点显示但列表无新报告,PENDING,contains_pending_logic,False,True,False
+TC-018,论坛首页-入口与导航,P2,P2,P2,P2,decided,p2_cap_guard,high,,反馈区外部跳转入口-从视频等模块点击反馈按钮默认进入反馈区,REJECT,semantic_duplicate:TC-015,False,False,False
+TC-023,列表TAB排序,P2,P2,P2,P2,decided,p2_cap_guard,high,,热门排序T值边界-帖子发布恰好72小时时T=0,REJECT,semantic_duplicate:TC-024,False,False,False
+TC-024,列表TAB排序,P2,P2,P2,P2,decided,p2_cap_guard,high,,热门排序除零边界-排序池内所有帖子点赞数和回复数均为0时权重计算,REJECT,semantic_duplicate:TC-027,False,False,False
+TC-049,论坛首页-用户信息展示,P2,P2,P2,P2,decided,p2_cap_guard,high,,地域和学校信息获取不到时不展示,PENDING,contains_pending_logic,False,True,False
+TC-051,作文区,P2,P2,P2,P2,decided,model_semantic_consistent,high,,作文论坛详情-不展示原图图片时仅显示标题,REJECT,semantic_duplicate:TC-031,False,False,False
+TC-052,作文区,P2,P2,P2,P2,decided,p2_cap_guard,high,,作文论坛首页精选列表排序规则验证,REJECT,semantic_duplicate:TC-025,False,False,False

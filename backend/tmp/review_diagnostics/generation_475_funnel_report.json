@@ -1,0 +1,2423 @@
+{
+  "generation_id": 475,
+  "project_id": 8,
+  "request_id": "cc620e25ff6b46b6a1c6636a616583fd",
+  "diagnostic_source": "gen_diag",
+  "diagnostic_depth": "full",
+  "persisted_log_id": 20024,
+  "next_persisted_log_id": null,
+  "stage_counts": {
+    "primary": 125,
+    "gap": 13,
+    "review": 125
+  },
+  "gen_diag": {
+    "kind": "gen_diag",
+    "mode": "stream",
+    "doc_type": "requirement",
+    "compress": false,
+    "expected_count": 100,
+    "generated_count": 85,
+    "content_length": 11258,
+    "kb_length": 9257,
+    "model": "glm-5.1",
+    "max_tokens": 10000,
+    "multi_pass": true,
+    "generation_mode": "full_functional_regression",
+    "context_compression_ratio": 0.2839,
+    "context_retained_chunk_count": 1,
+    "context_relevance_distribution": {
+      "sample_size": 1,
+      "high_count": 1,
+      "medium_count": 0,
+      "low_count": 0,
+      "high_ratio": 1.0,
+      "medium_ratio": 0.0,
+      "low_ratio": 0.0,
+      "mean_score": 0.935,
+      "min_score": 0.935,
+      "max_score": 0.935
+    }
+  },
+  "generation_convergence": {
+    "kind": "generation_convergence",
+    "suggested_count": 100,
+    "final_count": 85,
+    "reference_gap": 15,
+    "converged": false,
+    "duplication_rate_estimate": 0.32,
+    "primary_count": 125,
+    "gap_count": 13,
+    "review_count": 125,
+    "candidate_count_before_review": 138,
+    "review_selected_count": 125,
+    "post_review_dedup_drop": 40,
+    "judge_reject_count": 3,
+    "judge_pending_count": 2,
+    "judge_pass_count": 120,
+    "final_input_count": 120,
+    "final_output_count": 85,
+    "final_non_judge_drop_count": 35,
+    "scenario_duplicate_pruned_count": 0,
+    "post_review_dedup_reorder_drop_count": 35,
+    "final_description_dedup_drop_count": 0,
+    "total_dedup_drop_count": 40,
+    "gap_attempts": 3,
+    "gap_remaining_after_attempts": 6,
+    "missing_rules_count": 5,
+    "missing_types_exists": true,
+    "low_quality_dropped_count": 4,
+    "low_quality_dropped_examples": [
+      {
+        "stage": "post_judge_quality_filter",
+        "reason": "non_assertable_expected_result",
+        "case_id": "TC-050",
+        "test_module": "界面展示与导航",
+        "priority": "P2",
+        "description": "验证打印按钮点击后弹窗选择打印内容",
+        "expected_result": "弹出打印内容选择弹窗，提供可选择的打印内容选项"
+      },
+      {
+        "stage": "post_judge_quality_filter",
+        "reason": "non_assertable_expected_result",
+        "case_id": "TC-061",
+        "test_module": "界面展示",
+        "priority": "P2",
+        "description": "验证点击打印按钮弹出打印内容选择弹窗",
+        "expected_result": "弹出打印内容选择弹窗，提供可选择的打印范围或项目选项，非直接触发打印"
+      },
+      {
+        "stage": "post_judge_quality_filter",
+        "reason": "non_assertable_expected_result",
+        "case_id": "TC-099",
+        "test_module": "督导端数据展示",
+        "priority": "P2",
+        "description": "验证督导端学员列表课程列正确展示标准化、同步体系课等类型",
+        "expected_result": "课程列准确显示学员当前学习的课程类型标签（如标准化、同步体系课），与后台分配的课程数据一致"
+      },
+      {
+        "stage": "post_judge_quality_filter",
+        "reason": "non_assertable_expected_result",
+        "case_id": "TC-100",
+        "test_module": "督导端数据展示",
+        "priority": "P2",
+        "description": "验证督导端学员未定教材时近期学习计划列不展示内容",
+        "expected_result": "该学员的近期学习计划列为空白，不展示任何课程章节内容或提示文字"
+      }
+    ],
+    "postprocess_filter_drop_total": 4,
+    "semantic_dedup_dropped_count": 0,
+    "governance_hard_drop_count": 0,
+    "duplicate_pruned_count": 40,
+    "invalid_pruned_count": 4,
+    "quality_rejected_count": 7,
+    "review_selector_pruned_count": 0,
+    "valid_unique_candidate_count": 138,
+    "expected_count": 100,
+    "expected_count_explicit": true,
+    "recommended_min": 80,
+    "recommended_max": 120,
+    "target_final_count": 100,
+    "soft_min_count": 80,
+    "hard_min_count": 85,
+    "min_acceptable_final": 85,
+    "target_satisfaction_ratio": 0.85,
+    "underfilled": false,
+    "underfill_level": "",
+    "underfill_reason": "",
+    "underfill_root_cause": "",
+    "append_target_count": 0,
+    "append_final_cap_count": 0,
+    "append_cap_drop_count": 0,
+    "flow_governance": {
+      "applied": true,
+      "reason": "",
+      "scenario_policy_registry_version": 1,
+      "scenario_policy_registered_count": 93,
+      "scenario_policy_candidate_count": 0,
+      "scenario_policy_pending_candidate_count": 0,
+      "domain_policy_registered_count": 4,
+      "scenario_policy_domains": {
+        "ai_wrong_question_teaching": 10,
+        "recent_course_scheduling": 7,
+        "essay_writing": 23,
+        "course_access": 2,
+        "general": 51
+      },
+      "scenario_policy_sources": {
+        "manual_seed": 1,
+        "registry": 16,
+        "legacy_duplicate_policy": 19,
+        "legacy_coverage_pattern": 28,
+        "legacy_judge_duplicate_policy": 29
+      },
+      "scenario_policy_documents": [
+        "讲错题接入AI.pdf"
+      ],
+      "flow_reordered": false,
+      "flow_order": [
+        "stage:讲错题",
+        "stage:界面展示",
+        "stage:交互",
+        "stage:评分",
+        "stage:核心",
+        "stage:督导端",
+        "stage:费曼学习法",
+        "stage:使用引导",
+        "stage:入口与导航",
+        "stage:ai提问逻辑",
+        "stage:评分结果展示",
+        "stage:交互操作",
+        "stage:界面展示与导航",
+        "stage:ai提问展示",
+        "stage:督导端交互",
+        "stage:督导端界面",
+        "stage:督导端数据",
+        "stage:状态流转"
+      ],
+      "cross_cutting_order": [
+        "stage:评分特殊规则",
+        "stage:费曼学习法交互规则"
+      ],
+      "scenario_duplicate_pruned_count": 0,
+      "scenario_duplicate_pruned_indices": [],
+      "scenario_cap_policy": {},
+      "scenario_duplicate_cluster_count": 20,
+      "flow_misordered_count_before": 4,
+      "missing_flow_stage_count": 0,
+      "registry_impact": {
+        "registry_version": 1,
+        "total_policies_available": 93,
+        "candidate_policies_active": 0,
+        "candidate_policies_pending": 0,
+        "scenario_kinds_seen": {
+          "": 1,
+          "ai_answer_irrelevant_score_zero": 1,
+          "feedback": 4,
+          "ai_supervisor_detail_button_state": 17,
+          "quiz_result_action_navigation": 4,
+          "workflow_navigation": 6,
+          "generation_trigger": 1,
+          "statistics": 3,
+          "title_format": 5,
+          "sorting_limit": 4,
+          "manual_correction": 1,
+          "semantic": 11,
+          "ai_completed_reentry_readonly": 11,
+          "ai_score_popup_threshold": 3,
+          "ai_teacher_score_conversion": 2,
+          "filter_toggle": 2,
+          "initial_popup": 1,
+          "ai_recording_input_state": 2,
+          "source_consistency": 4,
+          "plan_step1_sorting": 2
+        },
+        "policies_matched": [
+          {
+            "key": "ai_answer_irrelevant_score_zero",
+            "domain": "ai_wrong_question_teaching",
+            "source": "manual_seed",
+            "specific": true,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": true,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "feedback",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "ai_supervisor_detail_button_state",
+            "domain": "ai_wrong_question_teaching",
+            "source": "registry",
+            "specific": true,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": true,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "quiz_result_action_navigation",
+            "domain": "ai_wrong_question_teaching",
+            "source": "registry",
+            "specific": true,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": true,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "workflow_navigation",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "generation_trigger",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "statistics",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "title_format",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "sorting_limit",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "manual_correction",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "ai_completed_reentry_readonly",
+            "domain": "ai_wrong_question_teaching",
+            "source": "registry",
+            "specific": true,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": true,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "ai_score_popup_threshold",
+            "domain": "ai_wrong_question_teaching",
+            "source": "registry",
+            "specific": true,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": true,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "ai_teacher_score_conversion",
+            "domain": "ai_wrong_question_teaching",
+            "source": "registry",
+            "specific": true,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": true,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "filter_toggle",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "initial_popup",
+            "domain": "general",
+            "source": "legacy_judge_duplicate_policy",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "ai_recording_input_state",
+            "domain": "ai_wrong_question_teaching",
+            "source": "registry",
+            "specific": true,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": true,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "source_consistency",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "plan_step1_sorting",
+            "domain": "general",
+            "source": "legacy_judge_duplicate_policy",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          }
+        ],
+        "caps_applied": {
+          "ai_answer_irrelevant_score_zero": 1,
+          "feedback": 1,
+          "ai_supervisor_detail_button_state": 1,
+          "quiz_result_action_navigation": 2,
+          "workflow_navigation": 2,
+          "generation_trigger": 1,
+          "statistics": 2,
+          "title_format": 1,
+          "sorting_limit": 1,
+          "manual_correction": 2,
+          "ai_completed_reentry_readonly": 1,
+          "ai_score_popup_threshold": 2,
+          "ai_teacher_score_conversion": 2,
+          "filter_toggle": 1,
+          "initial_popup": 1,
+          "ai_recording_input_state": 2,
+          "source_consistency": 1,
+          "plan_step1_sorting": 1
+        },
+        "judge_thresholds_used": {},
+        "cross_module_policies_in_effect": [
+          "ai_answer_irrelevant_score_zero",
+          "ai_completed_reentry_readonly",
+          "ai_direct_answer_guard",
+          "ai_print_dialog",
+          "ai_recording_input_state",
+          "ai_score_popup_threshold",
+          "ai_short_answer_score_boundary",
+          "ai_supervisor_detail_button_state",
+          "ai_teacher_score_conversion",
+          "delete_restore_unsubmitted",
+          "essay_empty_state",
+          "essay_submission_success_state",
+          "featured_sorting",
+          "free_first_lesson",
+          "my_essay_limit",
+          "nonlinear_course_unlock",
+          "pdf_download_content",
+          "quiz_result_action_navigation",
+          "schedule_analytics_event",
+          "schedule_auto_course_selection",
+          "schedule_fast_forward_answer_control",
+          "schedule_lesson_time_shift",
+          "schedule_plan_edit_lifecycle",
+          "schedule_task_card_display",
+          "schedule_week_progress_empty",
+          "secret_overlay"
+        ]
+      },
+      "relaxed_for_floor_backfill": true
+    },
+    "needs_priority_review": false,
+    "priority_conflict_count": 0,
+    "priority_undetermined_count": 0,
+    "priority_optional_count": 0,
+    "reasons": [
+      "coverage_gap_still_exists",
+      "gap_attempt_limit_reached",
+      "coverage_missing_rules",
+      "coverage_missing_types",
+      "dedup_reduced_count_stop",
+      "no_backfill_after_dedup",
+      "low_quality_filtered"
+    ],
+    "generation_coverage_mode": "full_functional_regression",
+    "generation_target_case_range": {
+      "min": 80,
+      "max": 120
+    },
+    "multi_pass": true,
+    "generation_mode": "full_functional_regression"
+  },
+  "review_decision_summary": {
+    "kind": "review_decision_summary",
+    "candidate_total": 138,
+    "retained_total": 85,
+    "dropped_total": 53,
+    "flow_order": [
+      "stage:入口与导航",
+      "stage:督导端详情展示",
+      "stage:讲错题",
+      "stage:界面展示",
+      "stage:交互",
+      "stage:评分",
+      "stage:核心",
+      "stage:督导端",
+      "stage:费曼学习法",
+      "stage:使用引导",
+      "stage:评分结果展示",
+      "stage:评分计算",
+      "stage:评分维度边界",
+      "stage:评分阈值",
+      "stage:状态流转",
+      "stage:ai提问逻辑",
+      "stage:交互操作",
+      "stage:督导端数据",
+      "stage:界面展示与导航",
+      "stage:ai提问展示",
+      "stage:督导端数据展示",
+      "stage:督导端交互",
+      "stage:督导端界面"
+    ],
+    "flow_labels": {
+      "stage:讲错题": "讲错题",
+      "stage:界面展示": "界面展示",
+      "stage:交互": "交互",
+      "stage:评分": "评分",
+      "stage:核心": "核心",
+      "stage:督导端": "督导端",
+      "stage:费曼学习法": "费曼学习法",
+      "stage:使用引导": "使用引导",
+      "stage:评分结果展示": "评分结果展示",
+      "stage:评分计算": "评分计算",
+      "stage:评分维度边界": "评分维度边界",
+      "stage:评分阈值": "评分阈值",
+      "stage:状态流转": "状态流转",
+      "stage:ai提问逻辑": "AI提问逻辑",
+      "stage:交互操作": "交互操作",
+      "stage:督导端详情展示": "督导端详情展示",
+      "stage:督导端数据": "督导端数据",
+      "stage:界面展示与导航": "界面展示与导航",
+      "stage:入口与导航": "入口与导航",
+      "stage:ai提问展示": "AI提问展示",
+      "stage:督导端数据展示": "督导端数据展示",
+      "stage:督导端交互": "督导端交互",
+      "stage:督导端界面": "督导端界面"
+    },
+    "flow_stage_breakdown": {
+      "stage:督导端": 34,
+      "stage:讲错题": 17,
+      "stage:费曼学习法": 15,
+      "stage:评分结果展示": 4,
+      "stage:评分计算": 2,
+      "stage:交互": 8,
+      "stage:评分": 15,
+      "stage:评分维度边界": 3,
+      "stage:评分阈值": 2,
+      "stage:核心": 1,
+      "stage:状态流转": 2,
+      "stage:ai提问逻辑": 11,
+      "stage:使用引导": 2,
+      "stage:交互操作": 2,
+      "stage:督导端详情展示": 1,
+      "stage:督导端数据": 1,
+      "stage:界面展示与导航": 6,
+      "stage:界面展示": 4,
+      "stage:入口与导航": 2,
+      "stage:ai提问展示": 1,
+      "stage:督导端数据展示": 2,
+      "stage:督导端交互": 2,
+      "stage:督导端界面": 1
+    },
+    "flow_missing_stages": [],
+    "flow_missing_stage_count": 0,
+    "flow_misordered_count": 104,
+    "scenario_duplicate_cluster_count": 39,
+    "scenario_duplicate_case_count": 130,
+    "scenario_duplicate_clusters": [
+      {
+        "cluster_id": "SC-001",
+        "scenario_key": "global:ai_completed_reentry_readonly",
+        "group_type": "scenario",
+        "size": 11,
+        "first_case_id": "TC-128",
+        "candidate_indices": [
+          1,
+          2,
+          5,
+          8,
+          13,
+          25,
+          51,
+          62,
+          71,
+          84,
+          96
+        ]
+      },
+      {
+        "cluster_id": "SC-002",
+        "scenario_key": "stage:督导端:intent:open:督导端_验证_证学:status",
+        "group_type": "intent",
+        "size": 4,
+        "first_case_id": "TC-128",
+        "candidate_indices": [
+          1,
+          6,
+          8,
+          13
+        ]
+      },
+      {
+        "cluster_id": "SC-003",
+        "scenario_key": "stage:督导端:intent:open:督导端_验证_证学:dialog",
+        "group_type": "intent",
+        "size": 3,
+        "first_case_id": "TC-126",
+        "candidate_indices": [
+          2,
+          7,
+          9
+        ]
+      },
+      {
+        "cluster_id": "SC-004",
+        "scenario_key": "global:ai_supervisor_detail_button_state",
+        "group_type": "scenario",
+        "size": 29,
+        "first_case_id": "TC-127",
+        "candidate_indices": [
+          3,
+          4,
+          6,
+          7,
+          9,
+          12,
+          15,
+          16,
+          23,
+          39,
+          43,
+          47,
+          48,
+          50,
+          61,
+          68,
+          69,
+          73,
+          74,
+          75,
+          81,
+          87,
+          94,
+          100,
+          102,
+          106,
+          113,
+          116,
+          119
+        ]
+      },
+      {
+        "cluster_id": "SC-005",
+        "scenario_key": "stage:督导端:intent:open:督导端_验证_证督:dialog",
+        "group_type": "intent",
+        "size": 5,
+        "first_case_id": "TC-120",
+        "candidate_indices": [
+          5,
+          12,
+          15,
+          16,
+          48
+        ]
+      },
+      {
+        "cluster_id": "SC-006",
+        "scenario_key": "global:ai_answer_irrelevant_score_zero",
+        "group_type": "scenario",
+        "size": 6,
+        "first_case_id": "TC-107",
+        "candidate_indices": [
+          11,
+          14,
+          20,
+          27,
+          29,
+          38
+        ]
+      },
+      {
+        "cluster_id": "SC-007",
+        "scenario_key": "stage:讲错题:intent:open:讲错题_验证_证学:content",
+        "group_type": "intent",
+        "size": 3,
+        "first_case_id": "TC-107",
+        "candidate_indices": [
+          11,
+          14,
+          72
+        ]
+      },
+      {
+        "cluster_id": "SC-008",
+        "scenario_key": "stage:费曼学习法:intent:open:费曼_曼学_学习:content",
+        "group_type": "intent",
+        "size": 9,
+        "first_case_id": "TC-064",
+        "candidate_indices": [
+          17,
+          22,
+          56,
+          85,
+          86,
+          91,
+          92,
+          101,
+          105
+        ]
+      },
+      {
+        "cluster_id": "SC-009",
+        "scenario_key": "global:ai_score_popup_threshold",
+        "group_type": "scenario",
+        "size": 6,
+        "first_case_id": "TC-072",
+        "candidate_indices": [
+          18,
+          19,
+          28,
+          32,
+          34,
+          35
+        ]
+      },
+      {
+        "cluster_id": "SC-010",
+        "scenario_key": "stage:评分结果展示:intent:open:评分_分结_结果:content",
+        "group_type": "intent",
+        "size": 3,
+        "first_case_id": "TC-072",
+        "candidate_indices": [
+          18,
+          44,
+          49
+        ]
+      },
+      {
+        "cluster_id": "SC-011",
+        "scenario_key": "global:ai_teacher_score_conversion",
+        "group_type": "scenario",
+        "size": 3,
+        "first_case_id": "TC-066",
+        "candidate_indices": [
+          22,
+          26,
+          40
+        ]
+      },
+      {
+        "cluster_id": "SC-012",
+        "scenario_key": "stage:费曼学习法:intent:open:费曼_曼学_学习:toast",
+        "group_type": "intent",
+        "size": 2,
+        "first_case_id": "TC-065",
+        "candidate_indices": [
+          24,
+          128
+        ]
+      },
+      {
+        "cluster_id": "SC-013",
+        "scenario_key": "stage:评分:intent:observe:评分_验证_证综:content",
+        "group_type": "intent",
+        "size": 4,
+        "first_case_id": "TC-021",
+        "candidate_indices": [
+          28,
+          42,
+          45,
+          46
+        ]
+      },
+      {
+        "cluster_id": "SC-014",
+        "scenario_key": "stage:评分维度边界:intent:open:评分_分维_维度:content",
+        "group_type": "intent",
+        "size": 3,
+        "first_case_id": "TC-055",
+        "candidate_indices": [
+          29,
+          30,
+          31
+        ]
+      },
+      {
+        "cluster_id": "SC-015",
+        "scenario_key": "stage:评分维度边界:workflow_navigation:obj:评分_分维_维度",
+        "group_type": "scenario",
+        "size": 2,
+        "first_case_id": "TC-056",
+        "candidate_indices": [
+          30,
+          31
+        ]
+      },
+      {
+        "cluster_id": "SC-016",
+        "scenario_key": "stage:评分:intent:open:评分_验证_证学:content",
+        "group_type": "intent",
+        "size": 2,
+        "first_case_id": "TC-034",
+        "candidate_indices": [
+          33,
+          38
+        ]
+      },
+      {
+        "cluster_id": "SC-017",
+        "scenario_key": "stage:评分阈值:intent:open:评分阈值_验证_证综:toast",
+        "group_type": "intent",
+        "size": 2,
+        "first_case_id": "TC-052",
+        "candidate_indices": [
+          34,
+          35
+        ]
+      },
+      {
+        "cluster_id": "SC-018",
+        "scenario_key": "stage:评分:workflow_navigation:obj:评分_验证_证综",
+        "group_type": "scenario",
+        "size": 3,
+        "first_case_id": "TC-089",
+        "candidate_indices": [
+          42,
+          45,
+          46
+        ]
+      },
+      {
+        "cluster_id": "SC-019",
+        "scenario_key": "stage:评分结果展示:workflow_navigation:obj:评分_分结_结果",
+        "group_type": "scenario",
+        "size": 2,
+        "first_case_id": "TC-058",
+        "candidate_indices": [
+          44,
+          49
+        ]
+      },
+      {
+        "cluster_id": "SC-020",
+        "scenario_key": "stage:督导端:intent:open:督导端_验证_证督:status",
+        "group_type": "intent",
+        "size": 6,
+        "first_case_id": "TC-029",
+        "candidate_indices": [
+          47,
+          71,
+          75,
+          96,
+          112,
+          113
+        ]
+      }
+    ],
+    "final_flow_stage_breakdown": {
+      "stage:讲错题": 7,
+      "stage:界面展示": 1,
+      "stage:交互": 6,
+      "stage:评分": 6,
+      "stage:核心": 1,
+      "stage:督导端": 23,
+      "stage:费曼学习法": 6,
+      "stage:使用引导": 2,
+      "stage:ai提问逻辑": 10,
+      "stage:状态流转": 2,
+      "stage:督导端数据": 1,
+      "stage:督导端界面": 1,
+      "stage:ai提问展示": 1,
+      "stage:交互操作": 1,
+      "stage:界面展示与导航": 4,
+      "stage:评分结果展示": 1,
+      "stage:入口与导航": 1,
+      "stage:督导端交互": 1
+    },
+    "final_flow_missing_stages": [],
+    "final_flow_missing_stage_count": 0,
+    "final_flow_misordered_count": 0,
+    "final_scenario_duplicate_cluster_count": 0,
+    "final_scenario_duplicate_case_count": 0,
+    "final_scenario_duplicate_clusters": [],
+    "final_scenario_duplicate_raw_cluster_count": 20,
+    "final_scenario_duplicate_raw_case_count": 55,
+    "final_reasoning_leakage_case_count": 0,
+    "final_order_flow_governance": {
+      "applied": true,
+      "reason": "",
+      "scenario_policy_registry_version": 1,
+      "scenario_policy_registered_count": 93,
+      "scenario_policy_candidate_count": 0,
+      "scenario_policy_pending_candidate_count": 0,
+      "domain_policy_registered_count": 4,
+      "scenario_policy_domains": {
+        "ai_wrong_question_teaching": 10,
+        "recent_course_scheduling": 7,
+        "essay_writing": 23,
+        "course_access": 2,
+        "general": 51
+      },
+      "scenario_policy_sources": {
+        "manual_seed": 1,
+        "registry": 16,
+        "legacy_duplicate_policy": 19,
+        "legacy_coverage_pattern": 28,
+        "legacy_judge_duplicate_policy": 29
+      },
+      "scenario_policy_documents": [
+        "讲错题接入AI.pdf"
+      ],
+      "flow_reordered": true,
+      "flow_order": [
+        "stage:讲错题",
+        "stage:界面展示",
+        "stage:交互",
+        "stage:评分",
+        "stage:核心",
+        "stage:督导端",
+        "stage:费曼学习法",
+        "stage:使用引导",
+        "stage:ai提问逻辑",
+        "stage:状态流转",
+        "stage:督导端数据",
+        "stage:督导端界面",
+        "stage:ai提问展示",
+        "stage:交互操作",
+        "stage:界面展示与导航",
+        "stage:评分结果展示",
+        "stage:入口与导航",
+        "stage:督导端交互"
+      ],
+      "cross_cutting_order": [
+        "stage:评分特殊规则",
+        "stage:费曼学习法交互规则"
+      ],
+      "scenario_duplicate_pruned_count": 0,
+      "scenario_duplicate_pruned_indices": [],
+      "scenario_cap_policy": {},
+      "scenario_duplicate_cluster_count": 16,
+      "flow_misordered_count_before": 0,
+      "missing_flow_stage_count": 0,
+      "registry_impact": {
+        "registry_version": 1,
+        "total_policies_available": 93,
+        "candidate_policies_active": 0,
+        "candidate_policies_pending": 0,
+        "scenario_kinds_seen": {
+          "": 1,
+          "feedback": 4,
+          "ai_supervisor_detail_button_state": 15,
+          "workflow_navigation": 6,
+          "semantic": 9,
+          "title_format": 3,
+          "plan_step1_sorting": 2,
+          "ai_completed_reentry_readonly": 11,
+          "ai_teacher_score_conversion": 2,
+          "sorting_limit": 4,
+          "source_consistency": 5,
+          "statistics": 3,
+          "generation_trigger": 1,
+          "quiz_result_action_navigation": 2,
+          "ai_recording_input_state": 2,
+          "manual_correction": 1,
+          "initial_popup": 1,
+          "ai_score_popup_threshold": 2,
+          "filter_toggle": 1
+        },
+        "policies_matched": [
+          {
+            "key": "feedback",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "ai_supervisor_detail_button_state",
+            "domain": "ai_wrong_question_teaching",
+            "source": "registry",
+            "specific": true,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": true,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "workflow_navigation",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "title_format",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "plan_step1_sorting",
+            "domain": "general",
+            "source": "legacy_judge_duplicate_policy",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "ai_completed_reentry_readonly",
+            "domain": "ai_wrong_question_teaching",
+            "source": "registry",
+            "specific": true,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": true,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "ai_teacher_score_conversion",
+            "domain": "ai_wrong_question_teaching",
+            "source": "registry",
+            "specific": true,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": true,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "sorting_limit",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "source_consistency",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "statistics",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "generation_trigger",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "quiz_result_action_navigation",
+            "domain": "ai_wrong_question_teaching",
+            "source": "registry",
+            "specific": true,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": true,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "ai_recording_input_state",
+            "domain": "ai_wrong_question_teaching",
+            "source": "registry",
+            "specific": true,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": true,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "manual_correction",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "initial_popup",
+            "domain": "general",
+            "source": "legacy_judge_duplicate_policy",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "ai_score_popup_threshold",
+            "domain": "ai_wrong_question_teaching",
+            "source": "registry",
+            "specific": true,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": true,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          },
+          {
+            "key": "filter_toggle",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active"
+          }
+        ],
+        "caps_applied": {
+          "feedback": 1,
+          "ai_supervisor_detail_button_state": 1,
+          "workflow_navigation": 2,
+          "title_format": 1,
+          "plan_step1_sorting": 1,
+          "ai_completed_reentry_readonly": 1,
+          "ai_teacher_score_conversion": 2,
+          "sorting_limit": 1,
+          "source_consistency": 1,
+          "statistics": 2,
+          "generation_trigger": 1,
+          "quiz_result_action_navigation": 2,
+          "ai_recording_input_state": 2,
+          "manual_correction": 2,
+          "initial_popup": 1,
+          "ai_score_popup_threshold": 2,
+          "filter_toggle": 1
+        },
+        "judge_thresholds_used": {},
+        "cross_module_policies_in_effect": [
+          "ai_answer_irrelevant_score_zero",
+          "ai_completed_reentry_readonly",
+          "ai_direct_answer_guard",
+          "ai_print_dialog",
+          "ai_recording_input_state",
+          "ai_score_popup_threshold",
+          "ai_short_answer_score_boundary",
+          "ai_supervisor_detail_button_state",
+          "ai_teacher_score_conversion",
+          "delete_restore_unsubmitted",
+          "essay_empty_state",
+          "essay_submission_success_state",
+          "featured_sorting",
+          "free_first_lesson",
+          "my_essay_limit",
+          "nonlinear_course_unlock",
+          "pdf_download_content",
+          "quiz_result_action_navigation",
+          "schedule_analytics_event",
+          "schedule_auto_course_selection",
+          "schedule_fast_forward_answer_control",
+          "schedule_lesson_time_shift",
+          "schedule_plan_edit_lifecycle",
+          "schedule_task_card_display",
+          "schedule_week_progress_empty",
+          "secret_overlay"
+        ]
+      }
+    },
+    "fact_profile_source": "requirement_semantics",
+    "fact_profile_confidence": 0.0,
+    "fact_profile_confirmed_count": 8,
+    "fact_profile_forbidden_count": 0,
+    "fact_profile_pending_count": 0,
+    "project_profile_source": "document_extracted",
+    "project_profile_confidence": 0.0,
+    "flow_governance_applied": true,
+    "flow_reordered": false,
+    "flow_governance_reason": "",
+    "scenario_duplicate_pruned_count": 0,
+    "scenario_duplicate_pruned_indices": [],
+    "execution_plan": {
+      "applied": true,
+      "coverage_mode": "full_functional_regression",
+      "workflow_blueprint_count": 0,
+      "trusted_workflow_contract_count": 0,
+      "plan_workflow_blueprint_count": 1,
+      "workflow_blueprint_source": "current_generation_cases",
+      "linear_executable": true,
+      "linear_scope": "main_smoke_chain_only",
+      "main_chain_case_count": 10,
+      "main_chain_stage_order": [
+        "derived_step_001",
+        "derived_step_002",
+        "derived_step_003",
+        "derived_step_004",
+        "derived_step_005",
+        "derived_step_006",
+        "derived_step_007",
+        "derived_step_008",
+        "derived_step_009",
+        "derived_step_010"
+      ],
+      "main_chain_stage_kinds": [
+        "entry",
+        "commit",
+        "commit",
+        "commit",
+        "downstream_visibility",
+        "downstream_visibility",
+        "downstream_visibility",
+        "downstream_visibility",
+        "downstream_visibility",
+        "downstream_visibility"
+      ],
+      "main_chain_incomplete_reason": "",
+      "derived_workflow_debug": {
+        "candidate_total": 85,
+        "action_state_candidate_count": 20,
+        "primary_candidate_count": 19,
+        "fallback_candidate_count": 1,
+        "selected_candidate_count": 10,
+        "closure_reason": ""
+      },
+      "main_chain_excluded_candidates": [
+        {
+          "case_id": "TC-002",
+          "description": "验证4轮交互后学员仍未理解时系统简化至单个核心对比问题确保5轮闭环",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-003",
+          "description": "验证学员重复提出已澄清疑问时系统识别重复并引导至未理清逻辑链",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-004",
+          "description": "验证学员提问缺少个人判断理由时系统触发二次引导要求补充理由",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-006",
+          "description": "验证引导流程进行中左侧导航栏始终高亮第五步讲知识错题",
+          "stage_key": "",
+          "reason": "resume_state_case_in_main_smoke"
+        },
+        {
+          "case_id": "TC-007",
+          "description": "验证点击'好的，接受挑战'按钮后引导对话框切换为题目互动规则说明",
+          "stage_key": "",
+          "reason": "stage_text_lacks_downstream_propagation"
+        },
+        {
+          "case_id": "TC-008",
+          "description": "验证AI追问确认错误表象时提问包含错误结果与正确答案差异的具体定位",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-009",
+          "description": "验证学员做了全对时AI随机抽取任意两道题目进行追问",
+          "stage_key": "",
+          "reason": "stage_text_lacks_downstream_propagation"
+        },
+        {
+          "case_id": "TC-012",
+          "description": "验证题目标记清晰标识当前正在讲解的具体题目编号和内容",
+          "stage_key": "",
+          "reason": "stage_text_lacks_downstream_propagation"
+        },
+        {
+          "case_id": "TC-014",
+          "description": "验证学员进入页面后AI自动展示一道问题",
+          "stage_key": "",
+          "reason": "stage_text_lacks_downstream_propagation"
+        },
+        {
+          "case_id": "TC-017",
+          "description": "验证已完成评分时不可重复打分",
+          "stage_key": "",
+          "reason": "reset_or_abort_case_in_main_smoke"
+        },
+        {
+          "case_id": "TC-018",
+          "description": "验证重复进入页面保留对话内容，未完成可继续",
+          "stage_key": "",
+          "reason": "reset_or_abort_case_in_main_smoke"
+        },
+        {
+          "case_id": "TC-022",
+          "description": "验证综合评分8分以下时页面提示太遗憾了并显示联系督导和去日清按钮",
+          "stage_key": "",
+          "reason": "conditional_visibility_case_in_main_smoke"
+        },
+        {
+          "case_id": "TC-025",
+          "description": "验证AI评分中纠错有效性扣分：学员后续提问中因教师解释不清再次出现概念错误时每次扣5分",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-027",
+          "description": "验证点击重新讲按钮后重新出题且题目与上次不同",
+          "stage_key": "",
+          "reason": "stage_text_lacks_downstream_propagation"
+        },
+        {
+          "case_id": "TC-028",
+          "description": "验证督导端查看讲错题按钮在学员未完成讲错题环节时置灰不可点击",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-029",
+          "description": "验证学员讲错题综合评分未通过（低于8分）时查看讲错题讲知识点按钮仍为可点击状态而非置灰",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-030",
+          "description": "验证学生在督导查看列表期间完成讲错题评分后按钮状态实时从置灰变为可点击",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-031",
+          "description": "验证督导端学员已完成讲错题环节时操作列展示可点击的查看讲错题讲知识点按钮",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-032",
+          "description": "验证同一学员不同课程讲错题状态下按钮仅反映当前展示课程的讲错题完成状态",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-033",
+          "description": "验证学员在督导查看列表期间完成讲错题时按钮状态实时从置灰更新为可点击",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-034",
+          "description": "验证学生点击重新讲按钮后督导端按钮状态从可点击变回置灰",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-035",
+          "description": "验证查看讲错题讲知识点按钮状态不影响操作列中编辑课后报告按钮的可用性",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-036",
+          "description": "验证AI评分过程异常中断（未给出最终评分）时查看讲错题讲知识点按钮保持置灰不可点击状态",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-037",
+          "description": "验证学生讲错题数据异常（评分已保存但对话记录缺失）时督导端按钮状态及点击行为",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-038",
+          "description": "验证督导端科目筛选切换后学员列表中各学员按钮状态正确渲染",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-039",
+          "description": "验证学员已完成上一节课讲错题但当前节课未完成讲错题时按钮显示为置灰状态",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-040",
+          "description": "验证学员上一节课已完成讲错题但本节课未完成时查看讲错题讲知识点按钮以当前节课状态为准置灰不可点击",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-041",
+          "description": "验证督导端科目筛选下拉菜单可选择现有全部科目筛选对应学员列表",
+          "stage_key": "",
+          "reason": "stage_text_lacks_downstream_propagation"
+        },
+        {
+          "case_id": "TC-042",
+          "description": "验证督导端学员列表中查看讲错题讲知识点按钮的三种状态",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-043",
+          "description": "验证督导端学员状态分为完成和未完成，完成标记为学员点击了完成",
+          "stage_key": "",
+          "reason": "display_only"
+        },
+        {
+          "case_id": "TC-044",
+          "description": "验证督导端学员信息列表展示学员姓名、学习进度、状态、最近学习时间等列",
+          "stage_key": "",
+          "reason": "stage_text_lacks_downstream_propagation"
+        },
+        {
+          "case_id": "TC-047",
+          "description": "验证督导端讲错题通过提醒点击后自动消失",
+          "stage_key": "",
+          "reason": "stage_text_lacks_downstream_propagation"
+        },
+        {
+          "case_id": "TC-048",
+          "description": "验证督导端讲错题未通过提醒点击后自动消失",
+          "stage_key": "",
+          "reason": "stage_text_lacks_downstream_propagation"
+        },
+        {
+          "case_id": "TC-049",
+          "description": "验证督导查看讲错题详情时正确显示通过/未通过标识",
+          "stage_key": "",
+          "reason": "display_only"
+        },
+        {
+          "case_id": "TC-050",
+          "description": "验证督导端查看讲错题详情弹窗右上角有关闭按钮",
+          "stage_key": "",
+          "reason": "display_only"
+        },
+        {
+          "case_id": "TC-051",
+          "description": "验证AI提问内容不出现公式、LaTeX格式和Markdown格式",
+          "stage_key": "",
+          "reason": "stage_text_lacks_downstream_propagation"
+        },
+        {
+          "case_id": "TC-052",
+          "description": "验证4轮后学员仍未理解时简化交互至1个核心对比确保5轮内完成",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-053",
+          "description": "验证学员提问无个人理由时系统进行二次引导",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-054",
+          "description": "验证使用引导步骤1：费曼学习法互动启动引导弹窗展示",
+          "stage_key": "",
+          "reason": "stage_text_lacks_downstream_propagation"
+        },
+        {
+          "case_id": "TC-055",
+          "description": "验证使用引导步骤2-4依次展示并点击知道了进入下一步",
+          "stage_key": "",
+          "reason": "resume_state_case_in_main_smoke"
+        },
+        {
+          "case_id": "TC-058",
+          "description": "验证学员一道题都没做时页面展示淡白色文案提示",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-059",
+          "description": "验证本讲无错题时AI抽取回答正确的题目进行提问",
+          "stage_key": "",
+          "reason": "stage_text_lacks_downstream_propagation"
+        },
+        {
+          "case_id": "TC-060",
+          "description": "验证AI提问内容关联学员日常可感知的具象事物避免纯理论表述",
+          "stage_key": "",
+          "reason": "non_advancing_transition"
+        },
+        {
+          "case_id": "TC-061",
+          "description": "验证本讲仅有1道错题时AI仅抽取该1道错题进行提问",
+          "stage_key": "",
+          "reason": "stage_text_lacks_downstream_propagation"
+        },
+        {
+          "case_id": "TC-062",
+          "description": "验证一道题没做时给出淡白色文案提示",
+          "stage_key": "",
+          "reason": "stage_text_lacks_downstream_propagation"
+        },
+        {
+          "case_id": "TC-064",
+          "description": "验证AI提问题目优先从本讲错题中抽取",
+          "stage_key": "",
+          "reason": "reset_or_abort_case_in_main_smoke"
+        },
+        {
+          "case_id": "TC-067",
+          "description": "验证AI追问遵循确认错误表象、拆解知识链条、暴露思维路径等追问方向",
+          "stage_key": "",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-068",
+          "description": "验证综合评分9.0-10.0分时显示太厉害啦鼓励文案",
+          "stage_key": "",
+          "reason": "display_only"
+        },
+        {
+          "case_id": "TC-070",
+          "description": "验证学员录音回答后点击完成按钮结束当前回答并触发AI下一轮交互",
+          "stage_key": "",
+          "reason": "resume_state_case_in_main_smoke"
+        },
+        {
+          "case_id": "TC-072",
+          "description": "验证返回按钮能正确返回上一级页面（从哪来回哪去）",
+          "stage_key": "",
+          "reason": "stage_text_lacks_downstream_propagation"
+        }
+      ],
+      "independent_case_count": 75,
+      "isolation_case_count": 75,
+      "role_switch_count": 0,
+      "broken_dependency_count": 0,
+      "state_conflict_count": 0,
+      "state_conflicts": [],
+      "selected_stage_state_conflicts": [],
+      "semantic_conflict_count": 0,
+      "semantic_conflicts": [],
+      "execution_group_breakdown": {
+        "boundary": 1,
+        "display": 40,
+        "exception": 7,
+        "independent_functional": 27,
+        "main_smoke": 10
+      },
+      "generated_bridge_case_count": 0,
+      "workflow_contract_materialized_case_count": 0,
+      "group_setup": {
+        "boundary": "seed_boundary_dataset()",
+        "display": "seed_display_ready_dataset()",
+        "exception": "enable_fault_injection_for_case()",
+        "independent_functional": "seed_functional_dataset()",
+        "main_smoke": "seed_workflow_blueprint_dataset()"
+      },
+      "group_teardown": {
+        "boundary": "delete_boundary_dataset()",
+        "display": "delete_display_ready_dataset()",
+        "exception": "disable_fault_injection()",
+        "independent_functional": "cleanup_functional_dataset()",
+        "main_smoke": "cleanup_workflow_blueprint_dataset()"
+      },
+      "fixture_keys": [
+        "boundary_dataset",
+        "display_ready_dataset",
+        "fault_injection_case",
+        "independent_functional_dataset",
+        "workflow_blueprint_chain_seed"
+      ]
+    },
+    "linear_executable": true,
+    "linear_scope": "main_smoke_chain_only",
+    "main_chain_case_count": 10,
+    "independent_case_count": 75,
+    "isolation_case_count": 75,
+    "broken_dependency_count": 0,
+    "state_conflict_count": 0,
+    "role_switch_count": 0,
+    "priority_decision_state_breakdown": {
+      "decided": 138,
+      "conflict": 0,
+      "undetermined": 0,
+      "optional": 0,
+      "invalid": 0
+    },
+    "priority_final_breakdown": {
+      "P0": 14,
+      "P1": 89,
+      "P2": 35,
+      "null": 0
+    },
+    "legacy_priority_breakdown": {
+      "P0": 112,
+      "P1": 16,
+      "P2": 10,
+      "UNKNOWN": 0
+    },
+    "priority_conflict_count": 0,
+    "priority_undetermined_count": 0,
+    "priority_optional_count": 0,
+    "priority_invalid_count": 0,
+    "priority_quality_gate_failed": false,
+    "invalid_case_count": 0,
+    "reasoning_leakage_case_count": 0,
+    "needs_priority_review": false,
+    "review_llm_filter_applied": false,
+    "review_input_size": 125,
+    "review_output_size": 125,
+    "review_target_min_count": 87,
+    "review_target_max_count": 121,
+    "review_shortfall_detected": false,
+    "review_shortfall_before_count": 125,
+    "review_shortfall_recovered_count": 0,
+    "review_post_rerank_floor_count": 35,
+    "review_post_rerank_recovered_count": 0,
+    "final_target_floor_count": 85,
+    "final_floor_recovery_attempted": true,
+    "final_floor_recovery_applied": true,
+    "final_floor_recovered_count": 37,
+    "final_floor_recovery_reason": "recovered_after_confirmed_conflict_filter",
+    "final_confirmed_conflict_drop_count": 0,
+    "final_shortfall_supplement_attempted": true,
+    "final_shortfall_supplement_applied": false,
+    "final_shortfall_supplement_count": 0,
+    "final_shortfall_supplement_reason": "supplement_empty_response",
+    "review_fill_source": "none",
+    "review_llm_selected_count": 0,
+    "review_llm_runtime_debug": {
+      "invoked": true,
+      "pool_non_empty": true,
+      "pool_size": 134,
+      "primary_model": "glm-5.1",
+      "primary_invalid_reason": "error_response",
+      "primary_reason_incomplete": false,
+      "primary_dropped_reason_count": 0,
+      "primary_dropped_reason_payload_count": 0,
+      "primary_reason_coverage_ratio": 0.0,
+      "response_len": 177,
+      "response_preview": "Error: HTTP 504 - <html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><center>stgw</center>\r\n</body>\r\n</html>\r\n",
+      "primary_response_metadata": {
+        "model": "glm-5.1",
+        "wire_api": "chat_completions",
+        "max_tokens": 10000,
+        "http_status": 504,
+        "url_path": "/chat/completions",
+        "error_preview": "<html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><center>stgw</center>\r\n</body>\r\n</html>\r\n",
+        "input_tokens_estimated": 14917,
+        "output_tokens_estimated": 44,
+        "token_estimate_method": "chars_div_4"
+      },
+      "primary_compact_retry_invoked": false,
+      "primary_compact_retry_model": "",
+      "primary_compact_retry_invalid_reason": "",
+      "primary_compact_retry_response_len": 0,
+      "primary_compact_retry_response_metadata": {},
+      "retry_invoked": true,
+      "retry_reason": "error_response",
+      "retry_model": "",
+      "retry_attempts": [
+        {
+          "model": "glm-5.1",
+          "response_len": 177,
+          "is_error": true,
+          "invalid_reason": "error_response",
+          "parsed_type": "dict",
+          "mapped_count": 0,
+          "dropped_reason_count": 0,
+          "dropped_reason_payload_count": 0,
+          "dropped_reason_unmapped_count": 0,
+          "payload_has_selection_signal": false
+        },
+        {
+          "model": "kimi-k2.5",
+          "response_len": 177,
+          "is_error": true,
+          "invalid_reason": "error_response",
+          "parsed_type": "dict",
+          "mapped_count": 0,
+          "dropped_reason_count": 0,
+          "dropped_reason_payload_count": 0,
+          "dropped_reason_unmapped_count": 0,
+          "payload_has_selection_signal": false
+        }
+      ],
+      "retry_response_len": 177,
+      "retry_parse_success": false,
+      "retry_mapped_count": 0,
+      "retry_payload_has_selection_signal": false,
+      "parsed_type": "dict",
+      "parsed_len": 2,
+      "mapped_count": 0,
+      "mapped_signature_count": 0,
+      "dropped_reason_count": 0,
+      "dropped_reason_payload_count": 0,
+      "dropped_reason_unmapped_count": 0,
+      "payload_has_selection_signal": false,
+      "final_selected_and_dropped_overlap_count": 0,
+      "final_selected_and_dropped_overlap_case_ids": [],
+      "final_payload_consistent": true,
+      "reason_repair_invoked": false,
+      "reason_repair_model": "",
+      "reason_repair_candidate_count": 0,
+      "reason_repair_response_len": 0,
+      "reason_repair_mapped_count": 0,
+      "reason_repair_invalid_reason": "",
+      "reason_repair_response_metadata": {},
+      "final_source": "review_selector",
+      "applied": false,
+      "applied_reason": "error_response",
+      "exception": "",
+      "forced_reset_by_fallback": false,
+      "fallback_reason_incomplete": false,
+      "final_reason_incomplete": false,
+      "final_reason_coverage_ratio": 1.0,
+      "prompt_chars": 51450,
+      "prompt_est_tokens": 12862,
+      "candidate_count": 134,
+      "append_target_count": 0,
+      "append_final_cap_count": 0,
+      "retry_dropped_reason_count": 0,
+      "retry_dropped_reason_payload_count": 0,
+      "retry_dropped_reason_unmapped_count": 0
+    },
+    "review_constraint_selected_count": 0,
+    "review_llm_drop_reason_breakdown": {},
+    "review_llm_drop_reason_raw_breakdown": {},
+    "review_llm_drop_reason_source_breakdown": {},
+    "fallback_reason_incomplete": false,
+    "final_reason_incomplete": false,
+    "final_reason_coverage_ratio": 1.0,
+    "fallback_dropped_reason_count": 0,
+    "fallback_dropped_reason_mapped_count": 0,
+    "fallback_dropped_reason_unmapped_count": 0,
+    "fallback_reason_coverage_ratio": 0.0,
+    "llm_reason_coverage_ratio": 0.0,
+    "deterministic_backfill_ratio": 0.0,
+    "reason_source_breakdown": {
+      "primary": 0,
+      "fallback": 0,
+      "backfill": 0
+    },
+    "primary_reason_incomplete": false,
+    "primary_dropped_reason_count": 0,
+    "primary_dropped_reason_payload_count": 0,
+    "primary_reason_coverage_ratio": 0.0,
+    "fallback_with_positive_evidence_count": 0,
+    "fallback_without_positive_evidence_count": 0,
+    "review_llm_pool_count": 134,
+    "candidate_by_pass": {
+      "primary": 125,
+      "gap": 13
+    },
+    "must_keep_candidate_count": 4,
+    "must_keep_retained_count": 4,
+    "must_keep_dropped_count": 0,
+    "drop_by_review_llm_count": 0,
+    "drop_by_review_selector_count": 13,
+    "drop_by_review_gate_count": 0,
+    "drop_by_pre_gate_dedup_count": 0,
+    "drop_by_post_review_dedup_count": 40,
+    "drop_no_new_signal_count": 0,
+    "drop_rule_cap_count": 0,
+    "drop_ui_like_redundant_count": 0,
+    "drop_ui_like_ratio_cap_count": 0,
+    "drop_outside_target_window_count": 13,
+    "drop_by_rerank_low_signal_count": 0,
+    "dropped_model_priority_p0_p1_count": 46,
+    "dropped_core_rule_hit_count": 0,
+    "dropped_missing_rule_hit_count": 0,
+    "dropped_high_signal_count": 38,
+    "dropped_has_coverage_value_count": 29,
+    "retained_due_to_coverage_value_count": 55,
+    "must_cover_rule_hit_count": 0,
+    "forbidden_pattern_violation_count": 0,
+    "soft_constraint_hit_count": 0,
+    "quality_hint_satisfied_count": 0,
+    "drop_ui_like_ratio_postprocess_count": 0,
+    "drop_final_description_duplicate_count": 0,
+    "multi_pass": true,
+    "generation_mode": "full_functional_regression",
+    "request_id": "cc620e25ff6b46b6a1c6636a616583fd"
+  },
+  "judge_summary": {
+    "kind": "judge_summary",
+    "pass_count": 120,
+    "repairable_count": 1,
+    "raw_repairable_count": 1,
+    "remaining_repairable_count": 0,
+    "unrepaired_repairable_count": 1,
+    "reject_count": 3,
+    "pending_count": 2,
+    "repaired_case_count": 0,
+    "appended_case_count": 0,
+    "confirmed_pass_out_count": 120,
+    "repaired_pass_out_count": 0,
+    "rejected_out_count": 3,
+    "pending_out_count": 2,
+    "fact_violation_count": 0,
+    "core_flow_covered": false,
+    "reuse_risk_covered": true,
+    "fact_profile_source": "requirement_semantics",
+    "fact_profile_confidence": 0.0,
+    "fact_profile_confirmed_count": 8,
+    "fact_profile_forbidden_count": 0,
+    "fact_profile_pending_count": 0,
+    "generation_id": 475,
+    "request_id": "cc620e25ff6b46b6a1c6636a616583fd"
+  },
+  "generation_summary": {
+    "kind": "generation_summary",
+    "recommended_range": "80-120",
+    "generation_coverage_mode": "full_functional_regression",
+    "expected_count": 100,
+    "expected_count_explicit": true,
+    "recommended_min": 80,
+    "recommended_max": 120,
+    "target_final_count": 100,
+    "soft_min_count": 80,
+    "hard_min_count": 85,
+    "min_acceptable_final": 85,
+    "target_satisfaction_ratio": 0.85,
+    "underfilled": false,
+    "underfill_level": "",
+    "underfill_reason": "",
+    "underfill_root_cause": "",
+    "final_count": 85,
+    "status": "completed_with_quality_stop",
+    "stop_reason": [
+      "stopped_due_to_diminishing_returns"
+    ],
+    "quality_assessment": "low",
+    "needs_priority_review": false,
+    "priority_conflict_count": 0,
+    "priority_undetermined_count": 0,
+    "priority_optional_count": 0,
+    "final_priority_breakdown": {
+      "P0": 14,
+      "P1": 62,
+      "P2": 9
+    },
+    "final_execution_group_breakdown": {
+      "main_smoke": 10,
+      "exception": 7,
+      "independent_functional": 27,
+      "display": 40,
+      "boundary": 1
+    },
+    "final_module_breakdown_top": {
+      "督导端-操作按钮状态": 13,
+      "界面展示与导航": 5,
+      "评分-评分结果展示": 5,
+      "AI提问逻辑": 4,
+      "AI提问逻辑-题目来源": 3,
+      "界面展示": 3,
+      "督导端-学员信息列表": 3,
+      "督导端-提醒通知": 3,
+      "讲错题-异常场景处理": 3,
+      "讲错题-引导流程": 3,
+      "费曼学习法交互规则": 3,
+      "AI提问逻辑-追问逻辑": 2,
+      "交互流程-回答提交": 2,
+      "交互流程-重复进入": 2,
+      "使用引导": 2,
+      "入口与导航": 2,
+      "状态流转": 2,
+      "督导端-讲错题详情查看": 2,
+      "评分结果展示": 2,
+      "费曼学习法-异常场景": 2
+    },
+    "final_display_case_count": 5,
+    "final_display_ratio": 0.0588,
+    "final_high_priority_ratio": 0.8941,
+    "multi_pass": true,
+    "generation_mode": "full_functional_regression"
+  },
+  "generation_quality_ledger": {
+    "kind": "generation_quality_ledger",
+    "generation_id": 475,
+    "request_id": "cc620e25ff6b46b6a1c6636a616583fd",
+    "generation_mode": "full_functional_regression",
+    "final_count": 85,
+    "quality_assessment": "low",
+    "initial_quality_score": 29,
+    "quality_score": 29,
+    "quality_score_grade": "critical",
+    "quality_score_source": "backend_diagnostic_v1",
+    "quality_score_basis": "coverage+review+judge+funnel+context+manual_profile",
+    "quality_score_confidence": "high",
+    "quality_score_deductions": [
+      {
+        "key": "coverage_gap",
+        "label": "规则覆盖缺口",
+        "count": 0.1087,
+        "points": 3.8
+      },
+      {
+        "key": "missing_rules",
+        "label": "未覆盖阻断规则",
+        "count": 5,
+        "points": 30.0
+      },
+      {
+        "key": "judge_rejected",
+        "label": "判定拒绝",
+        "count": 3,
+        "points": 9.0
+      },
+      {
+        "key": "judge_pending",
+        "label": "待确认逻辑",
+        "count": 2,
+        "points": 3.0
+      },
+      {
+        "key": "low_quality_dropped",
+        "label": "低质量用例被过滤",
+        "count": 4,
+        "points": 12.0
+      },
+      {
+        "key": "semantic_dedup",
+        "label": "语义去重压力",
+        "count": 29,
+        "points": 10.0
+      },
+      {
+        "key": "manual_priority_distribution_drift",
+        "label": "人工画像优先级分布偏移",
+        "count": 0.2941,
+        "points": 3.53
+      }
+    ],
+    "quality_score_inputs": {
+      "coverage_rate": 0.8913,
+      "total_rules": 46,
+      "missing_rules_count": 5,
+      "final_count": 85,
+      "candidate_total": 138,
+      "retained_total": 85,
+      "judge_total": 126,
+      "rejected_count": 3,
+      "pending_count": 2,
+      "repairable_count": 0,
+      "raw_repairable_count": 1,
+      "repaired_pass_count": 0,
+      "unrepaired_repairable_count": 1,
+      "fact_profile_forbidden_count": 0,
+      "fact_violation_count": 0,
+      "flow_missing_count": 0,
+      "flow_misordered_count": 0,
+      "scenario_duplicate_cluster_count": 0,
+      "scenario_duplicate_case_count": 0,
+      "low_quality_dropped_count": 4,
+      "semantic_dedup_dropped_count": 0,
+      "semantic_dedup_pressure_count": 40,
+      "semantic_dedup_penalty_count": 29,
+      "structure_metric_scope": "final_cases",
+      "manual_quality_profile_applied": true,
+      "manual_quality_profile_version": "d7ad8a659c760415",
+      "manual_high_priority_ratio_shortfall": 0.0,
+      "manual_display_ratio_excess": 0.0,
+      "manual_priority_distribution_drift": 0.2941,
+      "manual_module_distribution_drift": 0.0
+    },
+    "manual_delivery": {
+      "applied": true,
+      "profile_source": "priority_sample_pool_manual_verified",
+      "profile_version": "d7ad8a659c760415",
+      "profile_trusted_sample_count": 51,
+      "raw_target_high_priority_ratio": 0.9375,
+      "target_high_priority_ratio": 0.6,
+      "high_priority_target_calibrated": true,
+      "high_priority_target_calibration_reason": "full_functional_regression_suite_mix_cap",
+      "final_high_priority_ratio": 0.8941,
+      "high_priority_ratio_shortfall": 0.0,
+      "effective_priority_distribution_target": {
+        "P0": 0.04,
+        "P1": 0.56,
+        "P2": 0.4
+      },
+      "target_display_ratio_cap": 0.45,
+      "final_display_ratio": 0.0588,
+      "display_ratio_excess": 0.0,
+      "priority_distribution_drift": 0.2941,
+      "module_distribution_drift": 0.0
+    },
+    "stop_reason": [
+      "stopped_due_to_diminishing_returns"
+    ],
+    "coverage": {
+      "coverage_rate": 0.8913,
+      "total_rules": 46,
+      "total_extracted_rules": 54,
+      "missing_rules_count": 5,
+      "missing_boundary_count": 0,
+      "missing_exception_count": 0,
+      "non_blocking_rules_count": 8
+    },
+    "funnel": {
+      "primary_count": 125,
+      "gap_count": 13,
+      "review_count": 125,
+      "candidate_count_before_review": 138,
+      "review_selected_count": 125,
+      "post_review_dedup_drop": 40,
+      "final_description_dedup_drop_count": 0,
+      "total_dedup_drop_count": 40,
+      "low_quality_dropped_count": 4,
+      "low_quality_dropped_examples": [
+        {
+          "stage": "post_judge_quality_filter",
+          "reason": "non_assertable_expected_result",
+          "case_id": "TC-050",
+          "test_module": "界面展示与导航",
+          "priority": "P2",
+          "description": "验证打印按钮点击后弹窗选择打印内容",
+          "expected_result": "弹出打印内容选择弹窗，提供可选择的打印内容选项"
+        },
+        {
+          "stage": "post_judge_quality_filter",
+          "reason": "non_assertable_expected_result",
+          "case_id": "TC-061",
+          "test_module": "界面展示",
+          "priority": "P2",
+          "description": "验证点击打印按钮弹出打印内容选择弹窗",
+          "expected_result": "弹出打印内容选择弹窗，提供可选择的打印范围或项目选项，非直接触发打印"
+        },
+        {
+          "stage": "post_judge_quality_filter",
+          "reason": "non_assertable_expected_result",
+          "case_id": "TC-099",
+          "test_module": "督导端数据展示",
+          "priority": "P2",
+          "description": "验证督导端学员列表课程列正确展示标准化、同步体系课等类型",
+          "expected_result": "课程列准确显示学员当前学习的课程类型标签（如标准化、同步体系课），与后台分配的课程数据一致"
+        },
+        {
+          "stage": "post_judge_quality_filter",
+          "reason": "non_assertable_expected_result",
+          "case_id": "TC-100",
+          "test_module": "督导端数据展示",
+          "priority": "P2",
+          "description": "验证督导端学员未定教材时近期学习计划列不展示内容",
+          "expected_result": "该学员的近期学习计划列为空白，不展示任何课程章节内容或提示文字"
+        }
+      ],
+      "semantic_dedup_dropped_count": 0
+    },
+    "review": {
+      "candidate_total": 138,
+      "retained_total": 85,
+      "drop_by_review_llm_count": 0,
+      "drop_by_review_gate_count": 0,
+      "drop_by_post_review_dedup_count": 40,
+      "drop_final_description_duplicate_count": 0,
+      "flow_missing_stage_count": 0,
+      "flow_misordered_count": 104,
+      "final_flow_missing_stage_count": 0,
+      "final_flow_misordered_count": 0,
+      "scenario_duplicate_cluster_count": 39,
+      "scenario_duplicate_case_count": 130,
+      "final_scenario_duplicate_cluster_count": 0,
+      "final_scenario_duplicate_case_count": 0,
+      "fact_profile_forbidden_count": 0,
+      "fact_profile_pending_count": 0
+    },
+    "judge": {
+      "total": 126,
+      "rejected_out_count": 3,
+      "pending_out_count": 2,
+      "repairable_count": 0,
+      "raw_repairable_count": 1,
+      "repaired_pass_out_count": 0,
+      "unrepaired_repairable_count": 1,
+      "fact_violation_count": 0,
+      "rejected_total": 3,
+      "reason_clusters": {
+        "semantic_duplicate": 3
+      },
+      "dominant_reason": "semantic_duplicate"
+    },
+    "context": {
+      "snapshot_status": "success",
+      "snapshot_used": true,
+      "realtime_rag_used": true,
+      "current_document_used": true,
+      "fusion_mode": "snapshot+rag",
+      "compression_ratio": 0.2839,
+      "retained_chunk_count": 1
+    },
+    "control": {
+      "control_state_applied": true,
+      "generation_coverage_mode": "full_functional_regression",
+      "must_cover_rules_count": 0,
+      "quality_fix_hints_count": 14
+    },
+    "case_quality_gate": {
+      "kind": "case_quality_gate",
+      "mode": "shadow",
+      "passed": false,
+      "blocked": false,
+      "failure_reasons": [
+        "quality_score_critical"
+      ],
+      "metrics": {
+        "final_count": 85,
+        "min_acceptable_final": 85,
+        "quality_score": 29,
+        "quality_score_grade": "critical",
+        "final_scenario_duplicate_case_count": 0,
+        "final_flow_misordered_count": 0,
+        "judge_rejected_count": 3,
+        "reasoning_leak_count": 0,
+        "role_mismatch_count": 0
+      }
+    }
+  },
+  "review_detail_export_meta": {
+    "candidate_total": 138,
+    "exported_row_count": 17,
+    "is_truncated": true,
+    "truncation_reason": "detail_limit",
+    "source_summary_available": true,
+    "source_detail_available": true,
+    "detail_row_count_total": 138,
+    "detail_rows_scope": "sampled_due_to_size"
+  },
+  "funnel": {
+    "candidate_total": 138,
+    "review_selected_count": 125,
+    "drop_by_review_llm_count": 0,
+    "drop_by_review_gate_count": 0,
+    "drop_by_pre_gate_dedup_count": 0,
+    "drop_by_post_review_dedup_count": 40,
+    "judge_rejected_or_pending_count": 5,
+    "post_review_non_judge_drop_count": 35,
+    "final_count": 85,
+    "judge_pass_out_count": 120,
+    "judge_repaired_pass_out_count": 0
+  },
+  "dropped_breakdown": {
+    "total": 53,
+    "exported_row_count": 4,
+    "is_truncated": true,
+    "truncation_reason": "detail_limit",
+    "source_summary_available": true,
+    "source_detail_available": true,
+    "by_stage": {
+      "post_review_dedup_or_reorder": 4
+    },
+    "by_reason": {
+      "drop_post_review_dedup_or_reorder": 4
+    },
+    "by_priority_final": {
+      "P2": 1,
+      "P1": 3
+    },
+    "by_priority_decision_state": {
+      "decided": 4
+    },
+    "by_priority_legacy": {
+      "P0": 4
+    },
+    "by_priority": {
+      "P0": 4
+    },
+    "by_module_top10": [
+      [
+        "督导端-讲错题详情弹窗",
+        2
+      ],
+      [
+        "讲错题-评分规则",
+        1
+      ],
+      [
+        "费曼学习法交互规则",
+        1
+      ]
+    ],
+    "dropped_case_ids": [
+      "TC-108",
+      "TC-122",
+      "TC-121",
+      "TC-064"
+    ]
+  },
+  "judge_breakdown": {
+    "total": 126,
+    "exported_row_count": 5,
+    "rows_scope": "reject_pending_only",
+    "rejected_or_pending_total": 5,
+    "by_status": {
+      "REJECT": 3,
+      "PENDING": 2
+    },
+    "by_reason": {
+      "semantic_duplicate:TC-011": 1,
+      "contains_pending_logic": 2,
+      "semantic_duplicate:TC-084": 1,
+      "semantic_duplicate:TC-097": 1
+    },
+    "by_priority": {
+      "P2": 4,
+      "P0": 1
+    },
+    "by_priority_final": {
+      "P2": 4,
+      "P0": 1
+    },
+    "by_priority_decision_state": {
+      "decided": 5
+    },
+    "by_module_top10": [
+      [
+        "讲错题-评分规则",
+        1
+      ],
+      [
+        "督导端-操作按钮状态",
+        1
+      ],
+      [
+        "交互操作流程",
+        1
+      ],
+      [
+        "督导端-提醒通知",
+        1
+      ],
+      [
+        "评分-评分结果展示",
+        1
+      ]
+    ],
+    "rejected_or_pending_case_ids": [
+      "TC-007",
+      "TC-031",
+      "TC-043",
+      "TC-085",
+      "TC-096"
+    ]
+  }
+}

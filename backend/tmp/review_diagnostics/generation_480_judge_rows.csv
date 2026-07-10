@@ -1,0 +1,8 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-004,课程页与会员流转,P0,P0,P0,P0,undetermined,conflict_resolved_by_high_risk_business_rule,medium,"model=P0,suggested=P2",验证测评得分数据异常或缺失时进入课程列表页的兜底逻辑,PENDING,contains_pending_logic,False,True,False
+TC-019,课程页,P2,P2,P2,P2,decided,p2_cap_guard,high,,验证课程页剩余时间恰好为24小时的边界显示逻辑,PENDING,contains_pending_logic,False,True,False
+TC-020,课程页,P2,P2,P2,P2,decided,p2_cap_guard,high,,验证课程页剩余时间显示逻辑（大于24小时）,REJECT,semantic_duplicate:TC-021,False,False,False
+TC-024,课程页,P2,P2,P2,P2,decided,p2_cap_guard,high,,验证课程数据配置缺失时的异常兜底展示逻辑,PENDING,contains_pending_logic,False,True,False
+TC-027,课程页,P0,P1,P0,P0,decided,hard_guard_promotion,high,,验证已购买过任意体验卡的非会员用户点击课程跳转逻辑,REJECT,semantic_duplicate:TC-005,False,False,False
+TC-029,课程页,P2,P2,P2,P2,decided,model_semantic_consistent,high,,验证会员与非会员用户课程章节标题展示差异,PENDING,contains_pending_logic,False,True,False
+TC-030,课程页,P2,P2,P2,P2,decided,p2_cap_guard,high,,验证课程页切换至无测评记录的年级版本流程,REJECT,semantic_duplicate:TC-002,False,False,False

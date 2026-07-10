@@ -1,0 +1,8 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-016,作文区,P2,P0,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P0,suggested=P2",作文区详情-不展示图片时只显示作文标题,REJECT,semantic_duplicate:TC-022,False,False,False
+TC-021,作文区,P2,P2,P2,P2,decided,model_semantic_consistent,high,,作文区-写作素材页精选排序规则验证,REJECT,semantic_duplicate:TC-030,False,False,False
+TC-030,论坛首页-列表排序,P2,P2,P2,P2,decided,p2_cap_guard,high,,论坛首页-热门排序权重公式S=0.3L+0.2R+0.5T验证,REJECT,semantic_duplicate:TC-091,False,False,False
+TC-045,消息功能,P2,P2,P2,P2,decided,p2_cap_guard,high,,消息系统-审核不通过消息点击弹出toast提示,REJECT,semantic_duplicate:TC-037,False,False,False
+TC-049,论坛首页-内容分区,P2,P2,P2,P2,decided,p2_cap_guard,high,,官方区权限-非官方账户无法发帖验证,REJECT,semantic_duplicate:TC-050,False,False,False
+TC-057,发帖页,P2,P2,P2,P2,decided,model_semantic_consistent,high,,发帖页-系统表情支持Unicode标准编码显示系统自带表情符号,PENDING,contains_pending_logic,False,True,False
+TC-082,帖子详情页-图片交互,P2,P2,P2,P2,decided,p2_cap_guard,high,,帖子详情页-图片双击放大至原图大小,REJECT,semantic_duplicate:TC-078,False,False,False

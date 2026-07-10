@@ -1,0 +1,80 @@
+{
+  "generation_id": 506,
+  "project_id": 2,
+  "request_id": "",
+  "diagnostic_source": "generated_result_fallback",
+  "diagnostic_depth": "limited",
+  "stage_counts": {
+    "primary": 77,
+    "gap": 0,
+    "review": 77
+  },
+  "gen_diag": {},
+  "generation_convergence": {
+    "candidate_count_before_review": 77,
+    "final_count": 77,
+    "review_selected_count": 77
+  },
+  "review_decision_summary": {
+    "candidate_total": 77,
+    "retained_total": 77,
+    "dropped_total": 0,
+    "review_decision_summary_available": false,
+    "review_skipped_reason": "gen_diag_missing_generated_result_fallback"
+  },
+  "judge_summary": {},
+  "generation_summary": {
+    "status": "completed_fallback_limited",
+    "final_count": 77
+  },
+  "review_detail_export_meta": {
+    "candidate_total": 77,
+    "exported_row_count": 77,
+    "is_truncated": false,
+    "truncation_reason": "",
+    "source_summary_available": false,
+    "source_detail_available": true,
+    "detail_row_count_total": 77,
+    "detail_rows_scope": "generated_result_fallback"
+  },
+  "funnel": {
+    "candidate_total": 77,
+    "review_selected_count": 77,
+    "drop_by_review_llm_count": 0,
+    "drop_by_review_gate_count": 0,
+    "drop_by_pre_gate_dedup_count": 0,
+    "drop_by_post_review_dedup_count": 0,
+    "judge_rejected_or_pending_count": 0,
+    "post_review_non_judge_drop_count": 0,
+    "final_count": 77,
+    "judge_pass_out_count": 0,
+    "judge_repaired_pass_out_count": 0
+  },
+  "dropped_breakdown": {
+    "total": 0,
+    "exported_row_count": 0,
+    "is_truncated": false,
+    "truncation_reason": "",
+    "source_summary_available": false,
+    "source_detail_available": true,
+    "by_stage": {},
+    "by_reason": {},
+    "by_priority_final": {},
+    "by_priority_decision_state": {},
+    "by_priority_legacy": {},
+    "by_priority": {},
+    "by_module_top10": [],
+    "dropped_case_ids": []
+  },
+  "judge_breakdown": {
+    "total": 0,
+    "rejected_or_pending_total": 0,
+    "by_status": {},
+    "by_reason": {},
+    "by_priority": {},
+    "by_priority_final": {},
+    "by_priority_decision_state": {},
+    "by_module_top10": [],
+    "rejected_or_pending_case_ids": []
+  }
+}

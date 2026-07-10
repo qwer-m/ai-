@@ -1,0 +1,8 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-013,交互流程,P1,P0,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P0,suggested=P2",验证AI追问在原反馈内容下方以新对话框形式展示,REJECT,semantic_duplicate:TC-012,False,False,False
+TC-014,交互流程,P2,P2,P2,P2,decided,p2_cap_guard,high,,验证点击对话按钮开始录音,REJECT,semantic_duplicate:TC-056,False,False,False
+TC-025,AI评分逻辑,P0,P1,P0,P0,decided,hard_guard_promotion,high,,新版评分各维度最低分0.0-学员完全错误回答时三个维度均得0.0分综合评分0.0,REJECT,semantic_duplicate:TC-026,False,False,False
+TC-036,AI评分逻辑-新版评分计算,P2,P2,P2,P2,decided,model_semantic_consistent,high,,新版评分三维度之和恰好为8.0分时通过判定-阈值边界计算,REJECT,semantic_duplicate:TC-026,False,False,False
+TC-038,AI评分逻辑-新版评分计算,P0,P2,P0,P0,decided,strong_p0_signal_guard,medium,,新版评分三个维度均为0.0时综合评分为0.0分-最低边界,REJECT,semantic_duplicate:TC-026,False,False,False
+TC-072,AI评分逻辑-特殊情况,P0,P1,P0,P0,decided,hard_guard_promotion,high,,新版评分下答非所问时思路准确性维度直接计0.0分,REJECT,semantic_duplicate:TC-026,False,False,False
+TC-073,AI评分逻辑-特殊情况,P0,P1,P0,P0,decided,hard_guard_promotion,high,,评分特殊处理-答非所问时准确性维度直接计0分,REJECT,semantic_duplicate:TC-026,False,False,False

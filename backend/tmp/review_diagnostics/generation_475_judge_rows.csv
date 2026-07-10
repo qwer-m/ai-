@@ -1,0 +1,6 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-007,讲错题-评分规则,P2,P2,P2,P2,decided,model_semantic_consistent,high,,验证学员回答内容与问题完全无关时准确性维度直接计0分,REJECT,semantic_duplicate:TC-011,False,False,False
+TC-031,督导端-操作按钮状态,P2,P1,P2,P2,decided,p2_cap_guard,high,,验证督导端学员讲错题状态数据获取异常时按钮不展示避免误导操作,PENDING,contains_pending_logic,False,True,False
+TC-043,交互操作流程,P2,P1,P2,P2,decided,p2_cap_guard,high,,验证学员录音回答后点击继续录音按钮可补充内容而不结束当前轮次,PENDING,contains_pending_logic,False,True,False
+TC-085,督导端-提醒通知,P2,P1,P2,P2,decided,p2_cap_guard,high,,验证督导端讲错题通过提醒点击后自动消失,REJECT,semantic_duplicate:TC-084,False,False,False
+TC-096,评分-评分结果展示,P0,P1,P0,P0,decided,hard_guard_promotion,high,,验证评分8分以上点击去日清按钮跳转至日清页面,REJECT,semantic_duplicate:TC-097,False,False,False
