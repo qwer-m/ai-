@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { cleanStreamingContent } from '../../../test-generation/streamContent';
 import { useRagDebugStore } from '../../../test-generation/debug/debugStore';
 import { api } from '../../../../utils/api';
-import { extractFirstJsonArray, getUniqueCaseCount } from './testGenerationCaseUtils';
+import { extractFirstJsonArray, getErrorText, getUniqueCaseCount, translateError } from './testGenerationCaseUtils';
 import { normalizeHistoryCases } from './useTestGenerationGeneration.helpers';
 import { useTestGenerationFileHandlers } from './useTestGenerationFileHandlers';
 import { useTestGenerationGeneration } from './useTestGenerationGeneration';
@@ -54,6 +54,18 @@ type ExecutionSuiteResponse = {
   main_suite_id?: string;
   warnings?: unknown[];
 };
+type GenerationOptimizeResponse = {
+  status?: string;
+  message?: string;
+  generation_id?: number;
+  source_generation_id?: number;
+  cases?: any[];
+  generated_result?: any;
+  diagnostics?: unknown[];
+  case_quality_gate?: Record<string, unknown>;
+  persistence_gate?: Record<string, unknown>;
+  optimization_summary?: Record<string, unknown>;
+};
 
 const QUALITY_GATE_REASON_LABELS: Record<string, string> = {
   final_count_below_min_acceptable: '最终保留数量低于最低可接受值',
@@ -64,6 +76,7 @@ const QUALITY_GATE_REASON_LABELS: Record<string, string> = {
   reasoning_leakage_detected: '结果中混入了推理痕迹',
   role_mismatch_above_threshold: '角色错配过多',
 };
+const SOFT_QUALITY_GATE_REASONS = new Set(['final_count_below_min_acceptable']);
 
 function safeNumber(value: unknown): number | null {
   const num = Number(value);
@@ -86,6 +99,57 @@ function summarizeRejectClusters(input: unknown): string | null {
   return entries.map((item) => `${item.key}×${item.count}`).join('，');
 }
 
+function normalizeFailureReasons(input: unknown): string[] {
+  return Array.isArray(input)
+    ? input.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+}
+
+function hasFailedQualityGate(input: unknown): boolean {
+  if (!input || typeof input !== 'object') return false;
+  const gate = input as Record<string, unknown>;
+  const failureReasons = normalizeFailureReasons(gate.failure_reasons ?? gate.failed_checks);
+  const hardFailureReasons = failureReasons.filter((reason) => !SOFT_QUALITY_GATE_REASONS.has(reason));
+  if (gate.passed === false && gate.blocked !== true) return hardFailureReasons.length > 0;
+  return hardFailureReasons.includes('quality_score_critical') || hardFailureReasons.length > 0;
+}
+
+function hasLowQualityLedger(input: unknown): boolean {
+  if (!input || typeof input !== 'object') return false;
+  const ledger = input as Record<string, unknown>;
+  if (hasFailedQualityGate(ledger.case_quality_gate)) return true;
+  const grade = String(ledger.quality_score_grade || '').trim().toLowerCase();
+  if (grade === 'critical' || grade === 'low') return true;
+  const score = Number(ledger.quality_score);
+  return Number.isFinite(score) && score <= 60;
+}
+
+function hasFailedPersistenceGate(input: unknown): boolean {
+  if (!input || typeof input !== 'object') return false;
+  const gate = input as Record<string, unknown>;
+  if (gate.passed === false || gate.blocked === true) return true;
+  if (String(gate.failure_code || '').trim()) return true;
+  const execution = gate.execution_plan_validation;
+  if (execution && typeof execution === 'object' && (execution as Record<string, unknown>).passed === false) {
+    return true;
+  }
+  return false;
+}
+
+function shouldOpenConfigForError(...messages: unknown[]): boolean {
+  const text = messages.map((item) => String(item || '')).join(' ');
+  return [
+    '401',
+    'Invalid API-key',
+    'Invalid API key',
+    'QUOTA',
+    'quota',
+    'API Key not set',
+    'api key not set',
+    'Unauthorized',
+  ].some((token) => text.includes(token));
+}
+
 export function useTestGenerationController({ projectId, isActive = true, onLog, onGenerated, onGenerationComplete, onError }: TestGenerationProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const protoInputRef = useRef<HTMLInputElement>(null);
@@ -103,6 +167,10 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   const generationSummary = useRagDebugStore((s) => s.generationSummary);
   const generationQualityLedger = useRagDebugStore((s) => s.generationQualityLedger);
   const caseQualityGate = useRagDebugStore((s) => s.caseQualityGate);
+  const persistenceGate = useRagDebugStore((s) => s.persistenceGate);
+  const judgeDecisionTableRows = useRagDebugStore((s) => s.judgeDecisionTableRows);
+  const judgeDecisionTableMeta = useRagDebugStore((s) => s.judgeDecisionTableMeta);
+  const reviewDecisionTableCompactRows = useRagDebugStore((s) => s.reviewDecisionTableCompactRows);
 
   const initialTextResult = readStoredJSON(getProjectKey(projectId, 'tg_text_result'), null);
   const initialFileResult = readStoredJSON(getProjectKey(projectId, 'tg_file_result'), null);
@@ -141,6 +209,7 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
   const [showHint, setShowHint] = useState(true);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [toastType, setToastType] = useState<'success' | 'error'>('error');
+  const [optimizingGeneration, setOptimizingGeneration] = useState(false);
 
   const result = mode === 'text'
     ? (textFinalResult ?? textStreamingParsedResult ?? textResult)
@@ -290,6 +359,32 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     judgeSummary?.rejected_out_count,
     judgeSummary?.reject_count,
     reviewDecisionSummary?.final_scenario_duplicate_case_count,
+  ]);
+  const canOptimizeGeneration = useMemo(() => {
+    if (loading || optimizingGeneration) return false;
+    const hasSignal = Boolean(
+      errorInsight
+      || hasFailedQualityGate(caseQualityGate)
+      || hasLowQualityLedger(generationQualityLedger)
+      || hasFailedPersistenceGate(persistenceGate)
+      || (error && String(error).includes('execution_plan_failed'))
+    );
+    if (!hasSignal) return false;
+    if (generationId && resultSource === 'final_persisted' && isFinalResultLoaded) return true;
+    return resultSource === 'streaming_preview' && hasJsonInResultBox && displayCaseCount > 0;
+  }, [
+    generationId,
+    loading,
+    optimizingGeneration,
+    resultSource,
+    isFinalResultLoaded,
+    errorInsight,
+    caseQualityGate,
+    generationQualityLedger,
+    persistenceGate,
+    error,
+    hasJsonInResultBox,
+    displayCaseCount,
   ]);
 
   useEffect(() => {
@@ -557,6 +652,125 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     }
   };
 
+  const handleOptimizeGeneration = async () => {
+    if (optimizingGeneration) {
+      onLog?.('Optimization already running; waiting for current request to finish.');
+      return;
+    }
+    if (loading) {
+      onLog?.('Optimization skipped because generation is still running.');
+      return;
+    }
+    const hasPersistedSource = Boolean(generationId && resultSource === 'final_persisted' && isFinalResultLoaded);
+    const previewCases = hasPersistedSource ? [] : normalizeHistoryCases({ generated_result: result });
+    if (!hasPersistedSource && !projectId) {
+      setToastType('error');
+      setToastMsg('优化生成失败：请先选择项目');
+      return;
+    }
+    if (!hasPersistedSource && !previewCases.length) {
+      setToastType('error');
+      setToastMsg('优化生成失败：当前预览结果没有可优化的用例');
+      return;
+    }
+    setOptimizingGeneration(true);
+    const optimizeTargetCount = hasPersistedSource ? displayCaseCount : previewCases.length;
+    setPollStatus(`正在分批优化 ${optimizeTargetCount || displayCaseCount} 条用例，当前结果会保留到优化成功后再替换...`);
+    onLog?.(`Optimization started for ${hasPersistedSource ? `generation_id=${generationId}` : 'streaming preview'}.`);
+
+    try {
+      const payload = hasPersistedSource
+        ? await api.post<GenerationOptimizeResponse>(`/api/test-generations/${generationId}/optimize`, {
+          apply: true,
+        })
+        : await api.post<GenerationOptimizeResponse>('/api/test-generations/optimize-preview', {
+          project_id: projectId,
+          requirement_text: requirement || savedFileName || '',
+          cases: previewCases,
+          diagnostics: {
+            generationQualityLedger,
+            caseQualityGate,
+            persistenceGate,
+            generationSummary,
+            reviewDecisionSummary,
+            judgeSummary,
+            judgeDecisionTableRows,
+            judgeDecisionTableMeta,
+            reviewDecisionTableCompactRows,
+            error,
+          },
+          apply: true,
+          max_new_cases: 24,
+        });
+      const optimizedCases = Array.isArray(payload?.cases)
+        ? normalizeHistoryCases({ generated_result: payload.cases })
+        : normalizeHistoryCases(payload);
+      if (!optimizedCases.length) {
+        throw new Error(payload?.message || '优化接口未返回可展示的用例');
+      }
+
+      const nextGenerationId = Number(payload?.generation_id || (hasPersistedSource ? generationId : 0));
+      if (!Number.isFinite(nextGenerationId) || nextGenerationId <= 0) {
+        throw new Error('优化结果未返回落库 ID');
+      }
+      if (mode === 'text') {
+        setTextResult(optimizedCases);
+        setTextStreamingParsedResult(null);
+        setTextFinalResult(optimizedCases);
+        setTextResultSource('final_persisted');
+        setTextIsFinalResultLoaded(true);
+        setTextGenerationId(nextGenerationId);
+        setTextStreamingContent(JSON.stringify(optimizedCases, null, 2));
+      } else {
+        setFileResult(optimizedCases);
+        setFileStreamingParsedResult(null);
+        setFileFinalResult(optimizedCases);
+        setFileResultSource('final_persisted');
+        setFileIsFinalResultLoaded(true);
+        setFileGenerationId(nextGenerationId);
+        setFileStreamingContent(JSON.stringify(optimizedCases, null, 2));
+      }
+
+      const diagnostics = Array.isArray(payload?.diagnostics) ? payload.diagnostics : [];
+      for (const event of diagnostics) {
+        ingestDebugEvent(event);
+      }
+      if (payload?.case_quality_gate) {
+        ingestDebugEvent({ kind: 'case_quality_gate', ...payload.case_quality_gate });
+      }
+      if (payload?.persistence_gate) {
+        ingestDebugEvent({ kind: 'persistence_gate', ...payload.persistence_gate });
+      }
+
+      setError(null);
+      setToastType('success');
+      setToastMsg(`优化生成完成，已生成 ${optimizedCases.length} 条用例`);
+      setPollStatus('优化生成完成');
+      onGenerated(optimizedCases);
+      onGenerationComplete?.();
+      onLog?.(`Optimization completed (source_generation_id=${payload?.source_generation_id ?? generationId ?? 'preview'}, generation_id=${nextGenerationId}, cases=${optimizedCases.length}).`);
+    } catch (err) {
+      const raw = getErrorText(err);
+      const friendly = await translateError(err);
+      const isTimeout = /optimization_model_timeout|timed out|timeout/i.test(`${raw} ${friendly}`);
+      const message = isTimeout
+        ? '优化生成调用模型超时，已保留当前结果；请稍后重试，系统会使用更小的诊断上下文。'
+        : (raw || friendly || '优化生成失败');
+      setToastType('error');
+      setToastMsg(`优化生成失败：${message}`);
+      setPollStatus(isTimeout ? '优化生成超时，已保留原结果' : '优化生成失败，已保留原结果');
+      onLog?.(`Optimization failed: ${message}`);
+      if (raw && raw !== friendly) {
+        onLog?.(`Optimization failed(raw): ${raw}`);
+      }
+      if (shouldOpenConfigForError(raw, friendly, message)) {
+        onError?.(friendly || message);
+      }
+    } finally {
+      setOptimizingGeneration(false);
+    }
+  };
+
   return {
     fileInputRef,
     protoInputRef,
@@ -599,6 +813,9 @@ export function useTestGenerationController({ projectId, isActive = true, onLog,
     displayCaseCount,
     funnelMetrics,
     errorInsight,
+    canOptimizeGeneration,
+    optimizingGeneration,
+    handleOptimizeGeneration,
     error,
     setError,
     toastMsg,

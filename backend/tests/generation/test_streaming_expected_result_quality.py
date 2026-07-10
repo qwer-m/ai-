@@ -71,6 +71,20 @@ def test_expected_result_quality_allows_boundary_state_and_conflict_assertions()
         assert not is_non_assertable_expected_result(text)
 
 
+def test_expected_result_quality_allows_common_ui_visibility_and_formula_assertions() -> None:
+    texts = [
+        "未编辑的好词好句波浪线正常展示，波浪线标注完整显示，与原文一致",
+        "字数有改动的波浪线被删除不展示，未改动的波浪线正常展示",
+        "不展示VIP/SVIP图标，不展示地域和学校信息，头像和昵称正常展示",
+        "跳转到对应帖子的详情页，帖子内容正常展示",
+        "T=MAX(1-72/72,0)=0，该帖子权重仅由L和R决定，排序位置符合公式计算结果",
+    ]
+
+    for text in texts:
+        assert has_concrete_expected_assertion(text)
+        assert not is_non_assertable_expected_result(text)
+
+
 def test_expected_result_quality_detects_template_pollution_and_truncation() -> None:
     assert looks_template_polluted_expected_result("应跳转到目标页面，页面路径与标题均与上传图片显隐原图一致")
     assert is_non_assertable_expected_result("应跳转到目标页面，页面路径与标题均与上传图片显隐原图一致")

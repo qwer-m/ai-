@@ -8,12 +8,8 @@ from ..postprocess.streaming_expected_result_quality import (
 )
 
 TRUNCATED_TEXT_ENDINGS = (
-    "鎴栨樉",
-    "瀵瑰簲鍐?",
-    "鍙牎",
-    "姝ｅ父灞?",
-    "璺宠浆鑷?",
-    "鏄剧ず涓?",
+    '...',
+    '…',
 )
 
 
@@ -55,7 +51,7 @@ def summarize_case_quality_gate(cases: list[dict[str, Any]]) -> dict[str, Any]:
             non_assertable_expected_result_count += 1
             non_assertable_case_ids.append(case_id)
 
-        expected_result_trimmed = expected_result_text.rstrip("銆傦紒锛?!? ")
+        expected_result_trimmed = expected_result_text.rstrip(" ?!.")
         truncated_suffix_hit = any(expected_result_trimmed.endswith(suffix) for suffix in TRUNCATED_TEXT_ENDINGS)
         truncated_hit = bool(
             expected_result_quality == "truncated"

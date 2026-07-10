@@ -40,8 +40,8 @@ class _SupplementClient(_NoopClient):
         self.cases = cases
         self.prompts: list[str] = []
 
-    def generate_response(self, requirement: str, prompt: str, db=None, **kwargs):  # noqa: ANN001, ARG002
-        self.prompts.append(prompt)
+    def generate_response(self, user_input: str, system_prompt: str = "", db=None, **kwargs):  # noqa: ANN001, ARG002
+        self.prompts.append(user_input)
         return __import__("json").dumps(self.cases, ensure_ascii=False)
 
 
@@ -391,7 +391,7 @@ def test_expanded_regression_mode_keeps_broad_case_set_after_review_gate() -> No
     assert summary["underfilled"] is False
 
 
-def test_explicit_expected_count_marks_underfilled_when_final_is_over_pruned() -> None:
+def test_explicit_expected_count_accepts_recovered_soft_floor_after_pruning() -> None:
     state = build_generation_mode_control_state(
         requirement_text="expanded regression for a writing workflow",
         expected_count=70,
@@ -447,15 +447,10 @@ def test_explicit_expected_count_marks_underfilled_when_final_is_over_pruned() -
     debug = dict(result.get("convergence_debug") or {})
     assert summary["generation_coverage_mode"] == "expanded_regression"
     assert summary["target_final_count"] == 70
-    assert summary["underfilled"] is True
-    assert summary["status"] == "completed_underfilled"
-    assert summary["underfill_reason"] in {
-        "duplicate_pruned_under_target",
-        "quality_rejected_under_target",
-        "review_selector_over_pruned",
-    }
+    assert summary["underfilled"] is False
+    assert summary["status"] != "completed_underfilled"
     assert debug["valid_unique_candidate_count"] >= 63
-    assert debug["target_satisfaction_ratio"] < 0.8
+    assert debug["target_satisfaction_ratio"] >= 0.8
 
 
 def test_full_mode_uses_mode_aware_final_duplicate_caps_for_generic_scenarios() -> None:
@@ -1274,18 +1269,50 @@ def test_full_mode_shortfall_supplement_recovers_below_floor_result() -> None:
         }
         for idx in range(1, 65)
     ]
+    supplement_topics = [
+        "upload validation",
+        "audit rejection",
+        "permission denied",
+        "download retry",
+        "notification sync",
+        "result export",
+        "network timeout",
+        "file size boundary",
+        "format validation",
+        "state rollback",
+        "approval reminder",
+        "cache refresh",
+        "history query",
+        "detail navigation",
+        "batch operation",
+        "role switch",
+        "quota limit",
+        "manual retry",
+        "status recovery",
+        "cross device sync",
+        "archive export",
+        "receipt download",
+        "community moderation",
+        "appeal submit",
+    ]
     supplement_cases = [
         {
             "id": f"S-{idx:03d}",
-            "description": f"Supplement high value failure or audit path {idx}",
-            "test_module": f"Supplement Module {idx}",
-            "preconditions": ["A valid business record exists"],
-            "steps": ["Trigger the failure or audit path", "Retry or verify synchronized state"],
-            "test_input": f"supplement data {idx}",
-            "expected_result": f"The failure or audit path {idx} is handled and the final state remains consistent.",
+            "description": f"Supplement {topic} path {idx}",
+            "test_module": f"{topic.title()} Module",
+            "preconditions": [f"{topic} data is available"],
+            "steps": [
+                f"Open {topic} area",
+                f"Execute {topic} operation",
+                "Verify synchronized final state",
+            ],
+            "test_input": f"{topic} data {idx}",
+            "expected_result": (
+                f"The {topic} path {idx} completes and the final state remains consistent after refresh."
+            ),
             "priority": "P1",
         }
-        for idx in range(1, 23)
+        for idx, topic in enumerate(supplement_topics, start=1)
     ]
     client = _SupplementClient(supplement_cases)
 
@@ -1323,7 +1350,7 @@ def test_full_mode_shortfall_supplement_recovers_below_floor_result() -> None:
     assert review_summary["final_shortfall_supplement_count"] > 0
     assert review_summary["final_scenario_duplicate_case_count"] == 0
     assert summary["underfilled"] is False
-    assert any("Generate up to 26 additional" in prompt for prompt in client.prompts)
+    assert any("FINAL_SHORTFALL_SUPPLEMENT" in prompt and "final floor 80" in prompt for prompt in client.prompts)
 
 
 def test_standard_expected_count_shortfall_supplement_recovers_below_floor_result() -> None:

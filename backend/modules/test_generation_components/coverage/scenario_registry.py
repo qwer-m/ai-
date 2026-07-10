@@ -311,11 +311,38 @@ def _policy_keyword_hit_count(text: str, keywords: tuple[str, ...]) -> int:
     return count
 
 
-def classify_registered_scenario_family(text: str) -> str:
+def _policy_allowed_for_runtime_domain(
+    policy: ScenarioFamilyPolicy,
+    *,
+    primary_domain: str = "",
+    include_domain_specific: bool = False,
+) -> bool:
+    domain = str(policy.domain or "general").strip() or "general"
+    if domain == "general":
+        return True
+    if include_domain_specific:
+        return True
+    if primary_domain:
+        return domain == str(primary_domain)
+    return False
+
+
+def classify_registered_scenario_family(
+    text: str,
+    *,
+    primary_domain: str = "",
+    include_domain_specific: bool = False,
+) -> str:
     if not str(text or "").strip():
         return ""
     candidates: list[tuple[int, int, str]] = []
     for policy in _merged_scenario_policies():
+        if not _policy_allowed_for_runtime_domain(
+            policy,
+            primary_domain=primary_domain,
+            include_domain_specific=include_domain_specific,
+        ):
+            continue
         hits = _policy_keyword_hit_count(text, policy.keywords)
         if hits <= 0:
             continue
@@ -328,16 +355,41 @@ def classify_registered_scenario_family(text: str) -> str:
     return candidates[0][2]
 
 
-def scenario_pattern_entries() -> tuple[tuple[str, tuple[str, ...]], ...]:
-    return tuple((policy.key, policy.keywords) for policy in _merged_scenario_policies())
+def scenario_pattern_entries(
+    *,
+    primary_domain: str = "",
+    include_domain_specific: bool = False,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    return tuple(
+        (policy.key, policy.keywords)
+        for policy in _merged_scenario_policies()
+        if _policy_allowed_for_runtime_domain(
+            policy,
+            primary_domain=primary_domain,
+            include_domain_specific=include_domain_specific,
+        )
+    )
 
 
 def specific_scenario_kinds() -> set[str]:
     return {policy.key for policy in _merged_scenario_policies() if policy.specific}
 
 
-def judge_duplicate_scenario_kinds() -> set[str]:
-    return {policy.key for policy in _merged_scenario_policies() if policy.judge_duplicate}
+def judge_duplicate_scenario_kinds(
+    *,
+    primary_domain: str = "",
+    include_domain_specific: bool = False,
+) -> set[str]:
+    return {
+        policy.key
+        for policy in _merged_scenario_policies()
+        if policy.judge_duplicate
+        and _policy_allowed_for_runtime_domain(
+            policy,
+            primary_domain=primary_domain,
+            include_domain_specific=include_domain_specific,
+        )
+    }
 
 
 def specific_scenario_precedence() -> dict[str, int]:
@@ -348,18 +400,41 @@ def specific_scenario_precedence() -> dict[str, int]:
     }
 
 
-def judge_duplicate_thresholds() -> dict[str, tuple[float, int]]:
+def judge_duplicate_thresholds(
+    *,
+    primary_domain: str = "",
+    include_domain_specific: bool = False,
+) -> dict[str, tuple[float, int]]:
     return {
         policy.key: (
             max(0.0, min(1.0, float(policy.judge_score_threshold))),
             max(1, int(policy.judge_overlap_threshold)),
         )
         for policy in _merged_scenario_policies()
+        if _policy_allowed_for_runtime_domain(
+            policy,
+            primary_domain=primary_domain,
+            include_domain_specific=include_domain_specific,
+        )
     }
 
 
-def cross_module_scenario_kinds() -> set[str]:
-    return {policy.key for policy in _merged_scenario_policies() if policy.judge_duplicate and policy.cross_module}
+def cross_module_scenario_kinds(
+    *,
+    primary_domain: str = "",
+    include_domain_specific: bool = False,
+) -> set[str]:
+    return {
+        policy.key
+        for policy in _merged_scenario_policies()
+        if policy.judge_duplicate
+        and policy.cross_module
+        and _policy_allowed_for_runtime_domain(
+            policy,
+            primary_domain=primary_domain,
+            include_domain_specific=include_domain_specific,
+        )
+    }
 
 
 def default_scenario_caps() -> dict[str, int]:
@@ -415,6 +490,7 @@ def diagnose_registry_impact(
     *,
     scenario_keys: list[str] | None = None,
     judge_kinds: list[str] | None = None,
+    primary_domain: str = "",
     mode: str = "",
 ) -> dict[str, object]:
     """Return diagnostics explaining which registry policies affected a batch.
@@ -426,8 +502,12 @@ def diagnose_registry_impact(
     - Cross-module policies that could affect dedup
     - Sources of matched policies (static registry vs candidate)
     """
+    primary_domain = str(primary_domain or "").strip()
     if scenario_keys is None:
-        scenario_keys = [classify_registered_scenario_family(_flatten_case_text(case)) for case in cases]
+        scenario_keys = [
+            classify_registered_scenario_family(_flatten_case_text(case), primary_domain=primary_domain)
+            for case in cases
+        ]
 
     kinds_seen: dict[str, int] = {}
     caps_used: dict[str, int] = {}
@@ -458,13 +538,14 @@ def diagnose_registry_impact(
                 "overlap": policy.judge_overlap_threshold,
             },
             "status": policy.status,
+            "documents": list(policy.documents),
         })
         caps_used[kind] = max(1, int(mode_cap if mode_cap is not None else policy.default_cap))
 
     # Collect judge thresholds for scenarios seen
     judge_thresholds_used: dict[str, dict[str, float | int]] = {}
     if judge_kinds:
-        thresholds = judge_duplicate_thresholds()
+        thresholds = judge_duplicate_thresholds(primary_domain=primary_domain)
         for k in judge_kinds:
             if k in thresholds:
                 score, overlap = thresholds[k]
@@ -475,12 +556,23 @@ def diagnose_registry_impact(
         "total_policies_available": len(_merged_scenario_policies()),
         "candidate_policies_active": len(_CANDIDATE_POLICIES),
         "candidate_policies_pending": _PENDING_CANDIDATE_COUNT,
+        "primary_domain": primary_domain,
         "scenario_kinds_seen": kinds_seen,
         "policies_matched": policies_matched,
+        "matched_documents": sorted(
+            {
+                str(document)
+                for policy in policies_matched
+                for document in (policy.get("documents") or [])
+                if str(document).strip()
+            }
+        ),
         "caps_applied": caps_used,
         "judge_thresholds_used": judge_thresholds_used,
         "cross_module_policies_in_effect": sorted(
-            p.key for p in _merged_scenario_policies() if p.cross_module
+            str(policy.get("key") or "")
+            for policy in policies_matched
+            if bool(policy.get("cross_module")) and str(policy.get("key") or "").strip()
         )[:50],
     }
 

@@ -242,7 +242,10 @@ def propose_from_recurring_signals(
             continue
 
         # Check if this pattern already matches a registered scenario family
-        registry_match = classify_registered_scenario_family(pattern_canonical)
+        registry_match = classify_registered_scenario_family(
+            pattern_canonical,
+            include_domain_specific=True,
+        )
         if registry_match:
             continue
 

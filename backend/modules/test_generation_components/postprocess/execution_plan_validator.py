@@ -18,6 +18,7 @@ from .execution_plan_case_state import (
 )
 from .execution_plan_semantic_alignment import (
     _closure_metrics,
+    main_chain_blueprint_semantic_conflict_reason,
     validate_main_smoke_semantic_alignment,
 )
 from .execution_plan_validation_tokens import (
@@ -324,6 +325,7 @@ def validate_execution_plan(
 __all__ = [
     "ExecutionPlanValidationPolicy",
     "main_chain_action_support_conflict_reason",
+    "main_chain_blueprint_semantic_conflict_reason",
     "materialize_final_case_state_fields",
     "validate_execution_plan",
     "validate_execution_group_order",

@@ -36,17 +36,26 @@ REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = _env_int("REDIS_PORT", 6379, minimum=1, maximum=65535)
 REDIS_DB = _env_int("REDIS_DB", 0, minimum=0)
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
+REDIS_URL = os.getenv("REDIS_URL", "").strip()
 
 # Create a shared connection pool
 # (创建共享连接池)
 # max_connections=100 ensures we don't exhaust Redis connections (防止耗尽连接)
 # health_check_interval=30 ensures we don't use dead connections (定期健康检查)
-redis_pool = ConnectionPool(
-    host=REDIS_HOST,
-    port=REDIS_PORT,
-    db=REDIS_DB,
-    password=REDIS_PASSWORD,
-    decode_responses=True,
-    max_connections=100,
-    health_check_interval=30
-)
+if REDIS_URL:
+    redis_pool = ConnectionPool.from_url(
+        REDIS_URL,
+        decode_responses=True,
+        max_connections=100,
+        health_check_interval=30,
+    )
+else:
+    redis_pool = ConnectionPool(
+        host=REDIS_HOST,
+        port=REDIS_PORT,
+        db=REDIS_DB,
+        password=REDIS_PASSWORD,
+        decode_responses=True,
+        max_connections=100,
+        health_check_interval=30
+    )

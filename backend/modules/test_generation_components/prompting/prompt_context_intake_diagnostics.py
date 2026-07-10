@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from typing import Any
 
@@ -166,6 +167,36 @@ def _summarize_semantics_by_biz(value: Any) -> list[dict[str, Any]]:
     return rows
 
 
+def _extract_requirement_understanding_stats(requirement: str) -> dict[str, Any]:
+    marker = "[Requirement Understanding]"
+    text = str(requirement or "")
+    marker_index = text.find(marker)
+    if marker_index < 0:
+        return {
+            "present": False,
+            "visual_fact_count": 0,
+            "invalid_visual_block_count": 0,
+            "aligned_evidence_count": 0,
+        }
+    section = text[marker_index + len(marker) :].strip()
+    next_section = section.find("\n\n[")
+    if next_section >= 0:
+        section = section[:next_section].strip()
+    payload: dict[str, Any] = {}
+    try:
+        parsed = json.loads(section)
+        if isinstance(parsed, dict):
+            payload = parsed
+    except Exception:
+        payload = {}
+    return {
+        "present": True,
+        "visual_fact_count": _safe_int(payload.get("visual_fact_count") or 0),
+        "invalid_visual_block_count": _safe_int(payload.get("invalid_visual_block_count") or 0),
+        "aligned_evidence_count": int(len(payload.get("aligned_evidence") or [])) if isinstance(payload, dict) else 0,
+    }
+
+
 def build_prompt_context_intake_diagnostics(
     *,
     prompt_context: dict[str, Any] | None,
@@ -209,6 +240,7 @@ def build_prompt_context_intake_diagnostics(
     generation_execution_plan_step_count = _safe_int(
         control_summary.get("generation_execution_plan_step_count") or 0
     )
+    requirement_understanding = _extract_requirement_understanding_stats(requirement)
 
     section_texts = {
         "requirement_user": str(requirement or ""),
@@ -313,6 +345,7 @@ def build_prompt_context_intake_diagnostics(
             "hard_flow_constraints_count": int(len(prompt_context.get("hard_flow_constraints") or [])),
             "reuse_risks_count": int(len(prompt_context.get("reuse_risks") or [])),
         },
+        "requirement_understanding": requirement_understanding,
         "business_scope": {
             "biz_key_order": list(prompt_context.get("biz_key_order") or [])[:20],
             "module_order_hint": list(prompt_context.get("module_order_hint") or [])[:20],

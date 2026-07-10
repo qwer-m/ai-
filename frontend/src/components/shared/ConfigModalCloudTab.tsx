@@ -15,6 +15,7 @@ type Props = {
   reviewApiKey: string;
   vlProvider: string;
   vlApiKey: string;
+  vlBaseUrl: string;
   onProviderChange: (value: string) => void;
   onApiKeyChange: (value: string) => void;
   onBaseUrlChange: (value: string) => void;
@@ -28,6 +29,7 @@ type Props = {
   onReviewApiKeyChange: (value: string) => void;
   onVlProviderChange: (value: string) => void;
   onVlApiKeyChange: (value: string) => void;
+  onVlBaseUrlChange: (value: string) => void;
   onDirty: () => void;
 };
 
@@ -45,6 +47,7 @@ export function CloudTab({
   reviewApiKey,
   vlProvider,
   vlApiKey,
+  vlBaseUrl,
   onProviderChange,
   onApiKeyChange,
   onBaseUrlChange,
@@ -58,6 +61,7 @@ export function CloudTab({
   onReviewApiKeyChange,
   onVlProviderChange,
   onVlApiKeyChange,
+  onVlBaseUrlChange,
   onDirty,
 }: Props) {
   const turboFollowMain = turboProvider === 'follow_main';
@@ -233,6 +237,8 @@ export function CloudTab({
                 placeholder={
                   vlFollowMain
                     ? '跟随主模型，无需单独填写'
+                    : vlProvider === provider
+                      ? '留空沿用主模型 API Key'
                     : vlApiKey === '******'
                       ? '已加密存储'
                       : 'sk-...'
@@ -241,13 +247,25 @@ export function CloudTab({
               />
             </InputGroup>
           </Form.Group>
+          {!vlFollowMain && vlProvider === 'openai' && (
+            <Form.Group className="config-field">
+              <Form.Label>API Base URL</Form.Label>
+              <Form.Control
+                type="text"
+                value={vlBaseUrl}
+                onChange={(e) => onVlBaseUrlChange(e.target.value)}
+                placeholder={provider === 'openai' ? '留空沿用主模型 Base URL' : 'https://api.openai.com/v1'}
+              />
+              <Form.Text>同一网关仅切换视觉模型时，可沿用主模型 Base URL。</Form.Text>
+            </Form.Group>
+          )}
           <Form.Group className="config-field config-field--model">
             <Form.Label>模型名称</Form.Label>
             <Form.Control
               type="text"
               value={vlModel}
               onChange={(e) => onVlModelChange(e.target.value)}
-              placeholder="e.g. qwen-vl-plus"
+              placeholder="e.g. doubao-seed-2-0-pro-260215"
               list="vl-models"
             />
             <datalist id="vl-models" />

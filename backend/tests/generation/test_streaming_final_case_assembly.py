@@ -67,3 +67,39 @@ def test_assemble_final_cases_strips_meta_and_reports_final_count() -> None:
     assert result.final_case_structure["rows"]
     assert all("meta" not in item for item in result.cases)
     assert all("priority_conflict_reason" not in item for item in result.cases)
+
+
+def test_assemble_final_cases_backfills_review_candidate_source_order_after_renumber() -> None:
+    review_candidate = _case("TC-RAW-009", "schedule save success creates record")
+    parsed_case = dict(review_candidate)
+    parsed_case["id"] = "TC-TEMP"
+
+    result = assemble_final_cases(
+        parsed_result=[parsed_case],
+        requirement="course schedule must support save success validation",
+        start_id=20,
+        effective_generation_coverage_mode="standard_regression",
+        generation_coverage_mode="standard_regression",
+        review_candidate_cases=[review_candidate],
+        review_selected_count=1,
+        workflow_blueprints=[],
+        trusted_workflow_contracts=[],
+        current_requirement_workflow_blueprints=[],
+        authoritative_workflow_blueprints=[],
+        flow_project_profile={},
+        project_profile={},
+        reorder_cases_by_closed_loop_fn=_reorder,
+        govern_cases_by_flow_structure_fn=lambda _requirement, cases, **_kwargs: (
+            list(cases),
+            {"applied": True, "flow_reordered": False},
+        ),
+        analyze_case_structure_fn=lambda _requirement, cases, **_kwargs: {
+            "rows": [{"case_id": item.get("id")} for item in cases if isinstance(item, dict)]
+        },
+    )
+
+    assert result.cases[0]["id"] == "TC-020"
+    assert result.cases[0]["candidate_index"] == 1
+    assert result.cases[0]["origin_candidate_index"] == 1
+    assert result.cases[0]["origin_case_id"] == "TC-RAW-009"
+    assert result.cases[0]["origin_source_stage"] == "review_candidate"

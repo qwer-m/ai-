@@ -6,6 +6,13 @@ from modules.test_generation_components.legacy.stream.batch_diagnostics import (
     is_non_assertable_expected_result,
     is_retryable_provider_error,
 )
+from modules.test_generation_components.legacy.stream.batch_parallel_shards import (
+    build_coverage_shard_plan,
+    build_parallel_shard_instruction,
+    merge_parallel_shard_cases,
+    parallel_shard_config_from_env,
+    should_use_parallel_shards,
+)
 from modules.test_generation_components.legacy.stream.batch_prompt_runtime import (
     append_history_to_testcase_context,
     build_recent_history_context,
@@ -172,3 +179,135 @@ def test_build_stream_batch_system_prompt_keeps_quality_first_contract() -> None
     assert "Reference count: about 4 cases. This is NOT a quota." in prompt
     assert "Keep closed-loop continuity in current module first" in prompt
     assert "main, visual" in prompt
+
+
+def test_parallel_shard_config_and_gate_default_to_serial() -> None:
+    config = parallel_shard_config_from_env({})
+
+    allowed, reason = should_use_parallel_shards(
+        expected_count=100,
+        append=False,
+        multi_pass=True,
+        total_batches=4,
+        coverage_rule_count=10,
+        config=config,
+    )
+
+    assert config.enabled is False
+    assert allowed is False
+    assert reason == "disabled_by_flag"
+
+
+def test_parallel_shard_gate_requires_parallel_worthwhile_shape() -> None:
+    config = parallel_shard_config_from_env(
+        {
+            "GENERATION_STREAM_COVERAGE_SHARDS_ENABLED": "true",
+            "GENERATION_STREAM_COVERAGE_SHARD_MAX_WORKERS": "2",
+            "GENERATION_STREAM_COVERAGE_SHARD_MIN_EXPECTED_COUNT": "60",
+            "GENERATION_STREAM_COVERAGE_SHARD_MIN_RULES": "8",
+        }
+    )
+
+    assert should_use_parallel_shards(
+        expected_count=80,
+        append=True,
+        multi_pass=True,
+        total_batches=4,
+        coverage_rule_count=8,
+        config=config,
+    ) == (False, "append_mode")
+    assert should_use_parallel_shards(
+        expected_count=30,
+        append=False,
+        multi_pass=True,
+        total_batches=2,
+        coverage_rule_count=8,
+        config=config,
+    ) == (False, "expected_count_below_min")
+    assert should_use_parallel_shards(
+        expected_count=80,
+        append=False,
+        multi_pass=True,
+        total_batches=4,
+        coverage_rule_count=3,
+        config=config,
+    ) == (False, "insufficient_coverage_rules")
+
+
+def test_build_coverage_shard_plan_splits_rules_in_stable_order() -> None:
+    rules = [{"rule_id": f"RULE-{index:03d}", "rule_text": f"rule text {index}"} for index in range(1, 9)]
+
+    shards = build_coverage_shard_plan(rules, expected_count=80, max_workers=2, max_cases_per_worker=25)
+    instruction = build_parallel_shard_instruction(shards[0])
+
+    assert [shard["shard_id"] for shard in shards] == ["SHARD-01", "SHARD-02"]
+    assert shards[0]["target_count"] == 40
+    assert shards[1]["target_count"] == 40
+    assert shards[0]["rule_ids"] == ["RULE-001", "RULE-002", "RULE-003", "RULE-004"]
+    assert shards[1]["rule_ids"] == ["RULE-005", "RULE-006", "RULE-007", "RULE-008"]
+    assert "PARALLEL COVERAGE SHARD" in instruction
+    assert "Generate validation goals only for the assigned rules" in instruction
+    assert "RULE-005" in instruction
+
+
+def test_merge_parallel_shard_cases_deduplicates_and_renumbers_dependencies() -> None:
+    shard_results = [
+        {
+            "shard": {"shard_id": "SHARD-01", "merge_order": 1},
+            "cases": [
+                {
+                    "id": "S1-001",
+                    "test_module": "Forum",
+                    "description": "create post",
+                    "steps": ["open", "submit"],
+                    "test_input": "valid title",
+                    "expected_result": "post is visible",
+                    "depends_on": [],
+                },
+                {
+                    "id": "S1-002",
+                    "test_module": "Forum",
+                    "description": "reply post",
+                    "steps": ["open", "reply"],
+                    "test_input": "valid reply",
+                    "expected_result": "reply is visible",
+                    "depends_on": ["S1-001"],
+                },
+            ],
+        },
+        {
+            "shard": {"shard_id": "SHARD-02", "merge_order": 2},
+            "cases": [
+                {
+                    "id": "S2-001",
+                    "test_module": "Forum",
+                    "description": "create post",
+                    "steps": ["open", "submit"],
+                    "test_input": "valid title",
+                    "expected_result": "post is visible",
+                },
+                {
+                    "id": "S2-002",
+                    "test_module": "Forum",
+                    "description": "delete post",
+                    "steps": ["open", "delete"],
+                    "test_input": "own post",
+                    "expected_result": "post is removed",
+                },
+            ],
+        },
+    ]
+
+    merged = merge_parallel_shard_cases(
+        shard_results,
+        build_case_signature_fn=build_case_signature,
+        start_id=7,
+        expected_count=10,
+    )
+
+    cases = merged["cases"]
+    assert [case["id"] for case in cases] == ["TC-007", "TC-008", "TC-009"]
+    assert cases[1]["depends_on"] == ["TC-007"]
+    assert merged["input_case_count"] == 4
+    assert merged["unique_case_count"] == 3
+    assert merged["duplicate_count"] == 1

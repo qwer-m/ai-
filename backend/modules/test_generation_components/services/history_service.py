@@ -6,6 +6,8 @@ import json
 from datetime import datetime
 from typing import Any
 
+from core.db.models import LogEntry
+from sqlalchemy import or_
 from modules.testing.evaluation_artifact_store import load_compare_artifact_payload
 from modules.testing.priority_sample_pool_store import (
     add_samples_to_pool,
@@ -17,7 +19,9 @@ from modules.testing.priority_sample_pool_store import (
     upsert_priority_sample_pool,
 )
 from modules.testing.sample_pool_shadow_store import shadow_read_consistency_check
-from ..execution.execution_suite import build_execution_suite
+from ..execution.execution_suite import build_execution_suite, parse_generated_cases_payload
+from ..postprocess.case_access import case_id as case_access_id
+from ..postprocess.case_contract import project_persistable_cases
 from ..repositories.history_repository import (
     TestGenerationHistoryRepository,
 )
@@ -34,6 +38,158 @@ from .history_response_helpers import (
     priority_sample_pool_collections,
     learning_events_from_priority_sample_pool,
 )
+
+
+def _public_generation_payload(generated_result: str) -> Any:
+    try:
+        payload = json.loads(generated_result or "[]")
+    except Exception:
+        return None
+    if isinstance(payload, list):
+        return project_persistable_cases(payload)
+    if isinstance(payload, dict):
+        projected = dict(payload)
+        for key in ("cases", "test_cases", "generated_result", "final_cases", "items", "data"):
+            value = projected.get(key)
+            if isinstance(value, list):
+                projected[key] = project_persistable_cases(value)
+                break
+        return projected
+    return payload
+
+
+def _public_generation_result_text(generated_result: str) -> str:
+    payload = _public_generation_payload(generated_result)
+    if payload is None:
+        return generated_result or ""
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _case_lookup_key(case: dict[str, Any], index: int) -> str:
+    return str(case_access_id(case) or case.get("case_id") or case.get("id") or f"TC-{index:03d}").strip()
+
+
+def _compact_suite_metadata_by_case_id(suite_hint: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if not isinstance(suite_hint, dict):
+        return {}
+    metadata_by_case_id: dict[str, dict[str, Any]] = {}
+    for suite in suite_hint.get("suites") or []:
+        if not isinstance(suite, dict):
+            continue
+        suite_meta = {
+            "execution_group": suite.get("execution_group"),
+            "chain_id": suite.get("suite_id"),
+            "group_setup": suite.get("group_setup"),
+            "group_teardown": suite.get("group_teardown"),
+        }
+        for case_ref in suite.get("cases") or []:
+            if not isinstance(case_ref, dict):
+                continue
+            case_id = str(case_ref.get("case_id") or "").strip()
+            if not case_id:
+                continue
+            metadata: dict[str, Any] = {
+                key: value
+                for key, value in suite_meta.items()
+                if value not in (None, "", [])
+            }
+            for key in (
+                "execution_sequence",
+                "depends_on",
+                "role",
+                "session_key",
+                "fixture_key",
+                "setup_hint",
+                "teardown_hint",
+                "source_state",
+                "target_state",
+                "action",
+            ):
+                value = case_ref.get(key)
+                if value not in (None, "", []):
+                    metadata[key] = value
+            if "execution_sequence" not in metadata and case_ref.get("suite_order") not in (None, "", []):
+                metadata["execution_sequence"] = case_ref.get("suite_order")
+            metadata_by_case_id[case_id] = metadata
+    return metadata_by_case_id
+
+
+def _build_execution_suite_from_generated_result(
+    generated_result: str,
+    *,
+    suite_hint: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    cases = parse_generated_cases_payload(generated_result or "")
+    metadata_by_case_id = _compact_suite_metadata_by_case_id(suite_hint)
+    if metadata_by_case_id and cases:
+        hydrated_cases: list[dict[str, Any]] = []
+        for index, case in enumerate(cases, start=1):
+            hydrated = dict(case)
+            metadata = metadata_by_case_id.get(_case_lookup_key(hydrated, index))
+            if metadata:
+                hydrated.update(metadata)
+            hydrated_cases.append(hydrated)
+        return build_execution_suite(hydrated_cases)
+    if cases:
+        return build_execution_suite(cases)
+    if isinstance(suite_hint, dict):
+        return suite_hint
+    return build_execution_suite(generated_result or "")
+
+
+def _parse_gen_diag_message(message: str) -> dict[str, Any] | None:
+    text = str(message or "")
+    if not text.startswith("GEN_DIAG:"):
+        return None
+    try:
+        payload = json.loads(text.split(":", 1)[1])
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _load_execution_suite_diagnostic(db: Any, entry: Any) -> dict[str, Any] | None:
+    generation_id = getattr(entry, "id", None)
+    if not generation_id or not hasattr(db, "query"):
+        return None
+    try:
+        query = db.query(LogEntry).filter(
+            LogEntry.message.like('GEN_DIAG:%"kind": "generation_execution_suite"%'),
+            or_(
+                LogEntry.message.like(f'%"generation_id": {int(generation_id)}%'),
+                LogEntry.message.like(f'%"generation_id":{int(generation_id)}%'),
+            ),
+        )
+        project_id = getattr(entry, "project_id", None)
+        user_id = getattr(entry, "user_id", None)
+        if project_id is not None:
+            query = query.filter(LogEntry.project_id == project_id)
+        if user_id is not None:
+            query = query.filter(LogEntry.user_id == user_id)
+        rows = query.order_by(LogEntry.id.desc()).limit(5).all()
+    except Exception:
+        return None
+
+    for row in rows:
+        payload = _parse_gen_diag_message(getattr(row, "message", "") or "")
+        if not payload or payload.get("kind") != "generation_execution_suite":
+            continue
+        try:
+            payload_generation_id = int(payload.get("generation_id") or 0)
+        except Exception:
+            payload_generation_id = 0
+        if payload_generation_id != int(generation_id):
+            continue
+        suite = payload.get("execution_suite")
+        if isinstance(suite, dict) and not bool(suite.get("omitted_due_to_size")):
+            return suite
+        suite_compact = payload.get("execution_suite_compact")
+        if isinstance(suite_compact, dict):
+            return _build_execution_suite_from_generated_result(
+                getattr(entry, "generated_result", "") or "",
+                suite_hint=suite_compact,
+            )
+    return None
 from routers.automation.test_generation_shared import (
     build_history_key,
     find_matching_comparison,
@@ -82,7 +238,9 @@ class TestGenerationHistoryService:
                     user_id=user_id,
                     generation_id=row.id,
                 )
-            execution_suite = build_execution_suite(row.generated_result or "")
+            execution_suite = _load_execution_suite_diagnostic(self._db, row) or _build_execution_suite_from_generated_result(
+                row.generated_result or ""
+            )
             result.append(
                 build_history_list_item(
                     row=row,
@@ -108,10 +266,9 @@ class TestGenerationHistoryService:
             return "not_found", None
 
         if entry.generated_result:
-            try:
-                return "ok", json.loads(entry.generated_result)
-            except Exception:
-                pass
+            public_payload = _public_generation_payload(entry.generated_result)
+            if public_payload is not None:
+                return "ok", public_payload
         return (
             "ok",
             {
@@ -134,13 +291,16 @@ class TestGenerationHistoryService:
         elif entry.user_id != user_id:
             return "not_found", None
 
-        generated_result = entry.generated_result or ""
-        execution_suite = build_execution_suite(generated_result)
+        raw_generated_result = entry.generated_result or ""
+        generated_result = _public_generation_result_text(raw_generated_result)
+        execution_suite = _load_execution_suite_diagnostic(self._db, entry) or _build_execution_suite_from_generated_result(
+            raw_generated_result
+        )
         matched = (
             find_matching_comparison(
                 project_id=entry.project_id or 0,
                 user_id=user_id,
-                generated_result=generated_result,
+                generated_result=raw_generated_result,
                 generation_created_at=entry.created_at,
                 db=self._db,
             )
@@ -159,7 +319,7 @@ class TestGenerationHistoryService:
         )
 
         comparison = build_history_comparison(
-            generated_result=generated_result,
+            generated_result=raw_generated_result,
             matched=matched,
             artifact=artifact,
         )
@@ -174,10 +334,19 @@ class TestGenerationHistoryService:
         )
 
     def get_execution_suite(self, *, generation_id: int, user_id: int) -> tuple[str, dict[str, Any] | None]:
-        status, payload = self.get_generation(generation_id=generation_id, user_id=user_id)
-        if status != "ok":
-            return status, None
-        return "ok", build_execution_suite(payload)
+        entry = self.repo.get_generation(generation_id=generation_id)
+        if not entry:
+            return "not_found", None
+
+        if entry.project_id is not None:
+            if not self.repo.get_owned_project(project_id=entry.project_id, user_id=user_id):
+                return "not_found", None
+        elif entry.user_id != user_id:
+            return "not_found", None
+
+        return "ok", _load_execution_suite_diagnostic(self._db, entry) or _build_execution_suite_from_generated_result(
+            entry.generated_result or ""
+        )
 
     def get_priority_sample_pool(self, *, project_id: int, user_id: int) -> tuple[str, dict[str, Any] | None]:
         if not self.repo.get_owned_project(project_id=project_id, user_id=user_id):

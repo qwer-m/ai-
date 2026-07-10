@@ -13,6 +13,29 @@ class _MemoryContext:
         return {"ctx": dict(kwargs)}
 
 
+class _EmptyQuery:
+    def filter(self, *args, **kwargs):
+        return self
+
+    def order_by(self, *args, **kwargs):
+        return self
+
+    def first(self):
+        return None
+
+
+class _RejectLazyModelDb:
+    def __init__(self) -> None:
+        self.query_model = None
+
+    def query(self, model):
+        from modules.test_generation_components.legacy.stream.runtime import LazyAttrProxy
+
+        assert not isinstance(model, LazyAttrProxy)
+        self.query_model = model
+        return _EmptyQuery()
+
+
 def test_resolve_stream_prepare_runtime_records_core_prepare_events() -> None:
     events: list[dict[str, object]] = []
     client = object()
@@ -83,6 +106,36 @@ def test_resolve_append_existing_state_noops_without_append() -> None:
     assert state.existing_entry is None
     assert state.existing_unique_count == 0
     assert events == []
+
+
+def test_resolve_append_existing_state_resolves_lazy_model_before_query() -> None:
+    from modules.test_generation_components.legacy.stream.runtime import LazyAttrProxy
+
+    events: list[dict[str, object]] = []
+    db = _RejectLazyModelDb()
+
+    state = resolve_append_existing_state(
+        db=db,
+        append=True,
+        project_id=1,
+        user_id=2,
+        original_requirement="REQ",
+        test_generation_model=LazyAttrProxy("core.db.models", "TestGeneration"),
+        prepare_append_existing_cases_fn=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("append helper should not run without existing entry")
+        ),
+        normalize_json_structure_fn=lambda value: value,
+        deduplicate_test_cases_fn=lambda value: value,
+        count_unique_test_cases_fn=lambda value: len(value),
+        record_timing_event_fn=lambda stage, started_at, **fields: events.append(
+            {"stage": stage, **fields}
+        )
+        or events[-1],
+    )
+
+    assert getattr(db.query_model, "__name__", "") == "TestGeneration"
+    assert state.existing_entry is None
+    assert events and events[0]["stage"] == "append_existing_lookup"
 
 
 def test_record_prepare_timing_event_appends_non_null_fields() -> None:

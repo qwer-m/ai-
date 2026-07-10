@@ -1,0 +1,275 @@
+{
+  "kind": "generation_quality_ledger",
+  "generation_id": 0,
+  "request_id": "4ebf39b9908c47599165b79643222c6f",
+  "generation_mode": "multi_pass",
+  "final_count": 91,
+  "quality_assessment": "medium",
+  "initial_quality_score": 70,
+  "quality_score": 70,
+  "quality_score_grade": "medium",
+  "quality_score_source": "backend_diagnostic_v1",
+  "quality_score_basis": "coverage+review+judge+funnel+context",
+  "quality_score_confidence": "high",
+  "quality_score_deductions": [
+    {
+      "key": "coverage_gap",
+      "label": "规则覆盖缺口",
+      "count": 0.0156,
+      "points": 0.55
+    },
+    {
+      "key": "missing_rules",
+      "label": "未覆盖阻断规则",
+      "count": 1,
+      "points": 6.0
+    },
+    {
+      "key": "flow_missing",
+      "label": "流程缺失",
+      "count": 2,
+      "points": 10.0
+    },
+    {
+      "key": "judge_rejected",
+      "label": "判定拒绝",
+      "count": 3,
+      "points": 9.0
+    },
+    {
+      "key": "fact_pending",
+      "label": "命中待确认事实",
+      "count": 1,
+      "points": 1.5
+    },
+    {
+      "key": "low_quality_dropped",
+      "label": "低质量用例被过滤",
+      "count": 1,
+      "points": 3.0
+    }
+  ],
+  "quality_score_inputs": {
+    "coverage_rate": 0.9844,
+    "total_rules": 64,
+    "missing_rules_count": 1,
+    "final_count": 91,
+    "candidate_total": 71,
+    "retained_total": 56,
+    "judge_total": 66,
+    "rejected_count": 3,
+    "raw_rejected_count": 3,
+    "pending_count": 0,
+    "raw_pending_count": 0,
+    "semantic_duplicate_reject_count": 3,
+    "filtered_semantic_duplicate_reject_count": 0,
+    "filtered_pending_candidate_count": 0,
+    "repairable_count": 0,
+    "raw_repairable_count": 2,
+    "repaired_pass_count": 0,
+    "unrepaired_repairable_count": 2,
+    "fact_profile_forbidden_count": 0,
+    "fact_violation_count": 0,
+    "flow_missing_count": 2,
+    "flow_misordered_count": 0,
+    "scenario_duplicate_cluster_count": 0,
+    "scenario_duplicate_case_count": 0,
+    "low_quality_dropped_count": 1,
+    "semantic_dedup_dropped_count": 0,
+    "semantic_dedup_pressure_count": 0,
+    "semantic_dedup_penalty_count": 0,
+    "structure_metric_scope": "final_cases",
+    "manual_quality_profile_applied": false,
+    "manual_quality_profile_version": ""
+  },
+  "manual_delivery": {
+    "applied": false
+  },
+  "stop_reason": [
+    "stopped_due_to_diminishing_returns"
+  ],
+  "coverage": {
+    "coverage_rate": 0.9844,
+    "total_rules": 64,
+    "total_extracted_rules": 71,
+    "missing_rules_count": 1,
+    "missing_boundary_count": 0,
+    "missing_exception_count": 0,
+    "non_blocking_rules_count": 7
+  },
+  "funnel": {
+    "primary_count": 71,
+    "gap_count": 0,
+    "review_count": 64,
+    "candidate_count_before_review": 71,
+    "review_selected_count": 64,
+    "post_review_dedup_drop": 0,
+    "final_description_dedup_drop_count": 0,
+    "total_dedup_drop_count": 0,
+    "low_quality_dropped_count": 1,
+    "low_quality_dropped_examples": [
+      {
+        "stage": "post_recovery_quality_filter",
+        "reason": "expected_result_quality:non_assertable",
+        "case_id": "TC-019",
+        "test_module": "论坛首页-列表TAB排序",
+        "priority": "P2",
+        "description": "热门排序权重公式S=0.3L+0.2R+0.5T计算验证",
+        "expected_result": "按公式计算S值，S值大的排在前面"
+      }
+    ],
+    "semantic_dedup_dropped_count": 0
+  },
+  "review": {
+    "candidate_total": 71,
+    "retained_total": 56,
+    "drop_by_review_llm_count": 7,
+    "drop_by_review_gate_count": 0,
+    "drop_by_post_review_dedup_count": 8,
+    "drop_final_description_duplicate_count": 0,
+    "flow_missing_stage_count": 4,
+    "flow_misordered_count": 67,
+    "final_flow_missing_stage_count": 2,
+    "final_flow_misordered_count": 0,
+    "scenario_duplicate_cluster_count": 5,
+    "scenario_duplicate_case_count": 10,
+    "final_scenario_duplicate_cluster_count": 0,
+    "final_scenario_duplicate_case_count": 0,
+    "fact_profile_forbidden_count": 0,
+    "fact_profile_pending_count": 1
+  },
+  "judge": {
+    "total": 66,
+    "rejected_out_count": 3,
+    "pending_out_count": 0,
+    "repairable_count": 0,
+    "raw_repairable_count": 2,
+    "repaired_pass_out_count": 0,
+    "unrepaired_repairable_count": 2,
+    "fact_violation_count": 0,
+    "rejected_total": 3,
+    "reason_clusters": {
+      "semantic_duplicate": 3
+    },
+    "dominant_reason": "semantic_duplicate"
+  },
+  "context": {
+    "snapshot_status": "success",
+    "snapshot_used": true,
+    "realtime_rag_used": true,
+    "current_document_used": true,
+    "fusion_mode": "snapshot+rag",
+    "compression_ratio": 0.1746,
+    "retained_chunk_count": 1
+  },
+  "control": {
+    "control_state_applied": true,
+    "generation_coverage_mode": "full_functional_regression",
+    "must_cover_rules_count": 0,
+    "quality_fix_hints_count": 9
+  },
+  "quality_remediation": {
+    "kind": "quality_remediation",
+    "quality_score": 70,
+    "quality_score_grade": "medium",
+    "action_count": 4,
+    "primary_action": "cover_missing_rules",
+    "actions": [
+      {
+        "action_id": "cover_missing_rules",
+        "priority": "P0",
+        "reason": "blocking_coverage_gap",
+        "target_stage": "gap_or_final_quality_supplement",
+        "evidence": {
+          "missing_rules": [
+            "RULE-012"
+          ],
+          "missing_boundary": [],
+          "missing_exception": [],
+          "coverage_rate": 0.9844
+        }
+      },
+      {
+        "action_id": "repair_final_flow_structure",
+        "priority": "P0",
+        "reason": "final_flow_structure_invalid",
+        "target_stage": "final_case_assembly",
+        "evidence": {
+          "final_flow_misordered_count": 0,
+          "final_flow_missing_stage_count": 2
+        }
+      },
+      {
+        "action_id": "reduce_semantic_duplicates",
+        "priority": "P1",
+        "reason": "judge_rejected_or_pending_candidates",
+        "target_stage": "primary_generation_and_review_selection",
+        "evidence": {
+          "rejected_count": 3,
+          "pending_count": 0,
+          "semantic_duplicate_reject_count": 3,
+          "filtered_semantic_duplicate_reject_count": 0,
+          "unresolved_semantic_duplicate_reject_count": 3,
+          "dominant_reason": "semantic_duplicate",
+          "reason_clusters": {
+            "semantic_duplicate": 3
+          }
+        }
+      },
+      {
+        "action_id": "tighten_expected_results",
+        "priority": "P1",
+        "reason": "low_quality_cases_filtered",
+        "target_stage": "primary_generation_prompt_and_postprocess",
+        "evidence": {
+          "low_quality_dropped_count": 1,
+          "examples": [
+            {
+              "stage": "post_recovery_quality_filter",
+              "reason": "expected_result_quality:non_assertable",
+              "case_id": "TC-019",
+              "test_module": "论坛首页-列表TAB排序",
+              "priority": "P2",
+              "description": "热门排序权重公式S=0.3L+0.2R+0.5T计算验证",
+              "expected_result": "按公式计算S值，S值大的排在前面"
+            }
+          ]
+        }
+      }
+    ],
+    "next_run_controls": {
+      "target_missing_rules": [
+        "RULE-012"
+      ],
+      "avoid_judge_reject_reasons": {
+        "semantic_duplicate": 3
+      },
+      "low_quality_dropped_count": 1,
+      "semantic_dedup_penalty_count": 0
+    }
+  },
+  "case_quality_gate": {
+    "kind": "case_quality_gate",
+    "mode": "shadow",
+    "passed": true,
+    "blocked": false,
+    "failure_reasons": [],
+    "metrics": {
+      "final_count": 91,
+      "min_acceptable_final": 80,
+      "judge_rejected_count": 3,
+      "final_scenario_duplicate_case_count": 0,
+      "final_flow_misordered_count": 0,
+      "reasoning_leak_count": 0,
+      "role_mismatch_count": 0,
+      "quality_score": 70,
+      "quality_score_grade": "medium",
+      "raw_judge_rejected_count": 3,
+      "semantic_duplicate_reject_count": 3,
+      "filtered_semantic_duplicate_reject_count": 0
+    }
+  },
+  "project_id": 2,
+  "multi_pass": true,
+  "_log_id": 22600
+}

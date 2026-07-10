@@ -168,7 +168,22 @@ export type GenerationQualityLedgerEvent = {
   judge?: Record<string, unknown>;
   context?: Record<string, unknown>;
   control?: Record<string, unknown>;
+  quality_remediation?: Record<string, unknown>;
   case_quality_gate?: CaseQualityGateEvent;
+};
+
+export type GenerationOptimizationEvent = {
+  kind: 'generation_optimization';
+  generation_id?: number;
+  source_generation_id?: number;
+  status?: string;
+  action_ids?: string[];
+  before_count?: number;
+  after_count?: number;
+  added_count?: number;
+  replaced_count?: number;
+  dropped_count?: number;
+  persisted?: boolean;
 };
 
 export type ReviewDecisionTableCompactEvent = {
@@ -242,6 +257,9 @@ export type RequirementParseBlock = {
   ocr_source?: string;
   cloud_fallback?: boolean;
   ocr_error?: string;
+  ocr_warning?: string;
+  ocr_status?: string;
+  ocr_blocking?: boolean;
 };
 
 export type RequirementParseAlignment = {
@@ -277,6 +295,7 @@ export type GenDiagEvent =
   | GenerationContextCompressionEvent
   | FeedbackControlStateEvent
   | GenerationQualityLedgerEvent
+  | GenerationOptimizationEvent
   | ReviewDecisionTableCompactEvent
   | MemoryFabricDiagEvent
   | StreamBatchTokenUsageEvent
@@ -299,6 +318,7 @@ const VALID_KINDS = new Set([
   'generation_context_compression',
   'feedback_control_state',
   'generation_quality_ledger',
+  'generation_optimization',
   'review_decision_table_compact',
   'memory_fabric_diag',
   'stream_batch_token_usage',

@@ -13,6 +13,7 @@ from .batch_diagnostics import (
 from .batch_diagnostic_emitters import (
     emit_biz_key_diag as _emit_biz_key_diag_payload,
     emit_prompt_context_intake_diag as _emit_prompt_context_intake_diag_payload,
+    emit_stream_gen_diag as _emit_stream_gen_diag_payload,
     emit_stream_batch_quality_diag as _emit_stream_batch_quality_diag_payload,
     emit_stream_batch_token_usage_diag as _emit_stream_batch_token_usage_diag_payload,
 )
@@ -20,6 +21,14 @@ from .batch_flow_control import (
     build_existing_case_history,
     build_stream_batch_quality_metric,
     resolve_stream_batch_plan,
+)
+from .batch_parallel_shards import (
+    build_coverage_shard_plan,
+    build_parallel_shard_instruction,
+    execute_parallel_shard_requests,
+    merge_parallel_shard_cases,
+    parallel_shard_config_from_settings,
+    should_use_parallel_shards,
 )
 from .batch_prompt_runtime import (
     append_history_to_testcase_context,
@@ -30,6 +39,7 @@ from .runtime import LazyAttrProxy, call_component
 
 
 LogEntry = LazyAttrProxy("core.db.models", "LogEntry")
+settings = LazyAttrProxy("core.settings.config", "settings")
 
 
 def analyze_coverage(*args: Any, **kwargs: Any) -> Any:
@@ -73,6 +83,10 @@ def execution_side_suite_order_text(*args: Any, **kwargs: Any) -> Any:
 
 def clean_and_parse_json(*args: Any, **kwargs: Any) -> Any:
     return call_component("..adapters", "clean_and_parse_json", *args, **kwargs)
+
+
+def get_client_for_user(*args: Any, **kwargs: Any) -> Any:
+    return call_component("core.ai.ai_client", "get_client_for_user", *args, **kwargs)
 
 
 def count_unique_test_cases(*args: Any, **kwargs: Any) -> Any:
@@ -207,6 +221,17 @@ class LegacyGenerationStreamBatchesMixin:
                 stream_batch_diags=stream_batch_diags,
             )
 
+        def _emit_stream_gen_diag(payload: dict[str, Any]) -> None:
+            _emit_stream_gen_diag_payload(
+                db=db,
+                is_active_db_session=self._is_active_db_session(db),
+                log_entry_model=LogEntry,
+                project_id=project_id,
+                user_id=user_id,
+                payload=payload,
+                stream_batch_diags=stream_batch_diags,
+            )
+
         # --- STEP 1: META-ANALYSIS ---
         if multi_pass:
             yield "@@STATUS@@:[multi-pass] 阶段1/3 主生成开始...\n"
@@ -274,6 +299,7 @@ class LegacyGenerationStreamBatchesMixin:
             )
         expected_count = int(batch_plan["expected_count"])
         total_batches = int(batch_plan["total_batches"])
+        planned_total_batches = int(total_batches)
         current_id = start_id
 
         history_summaries, seen_case_signatures = build_existing_case_history(
@@ -286,9 +312,286 @@ class LegacyGenerationStreamBatchesMixin:
         early_stop_triggered = False
         early_stop_reason = ""
         stream_batch_diags: list[str] = []
+        parallel_result_summary: dict[str, Any] = {}
 
         primary_batches_started = time.perf_counter()
         completed_batches = 0
+        parallel_completed = False
+        parallel_config = parallel_shard_config_from_settings(settings)
+        parallel_allowed, parallel_gate_reason = should_use_parallel_shards(
+            expected_count=int(expected_count or 0),
+            append=bool(append),
+            multi_pass=bool(multi_pass),
+            total_batches=int(total_batches),
+            coverage_rule_count=int(len(coverage_plan_rules)),
+            config=parallel_config,
+        )
+        if bool(parallel_config.enabled):
+            _emit_stream_gen_diag(
+                {
+                    "kind": "parallel_coverage_shard_gate",
+                    "project_id": int(project_id),
+                    "request_id": str(request_id or ""),
+                    "enabled": bool(parallel_config.enabled),
+                    "allowed": bool(parallel_allowed),
+                    "gate_reason": str(parallel_gate_reason or ""),
+                    "expected_count": int(expected_count or 0),
+                    "total_batches": int(total_batches),
+                    "coverage_rule_count": int(len(coverage_plan_rules)),
+                    "max_workers": int(parallel_config.max_workers),
+                    "min_expected_count": int(parallel_config.min_expected_count),
+                    "min_coverage_rules": int(parallel_config.min_coverage_rules),
+                }
+            )
+            if stream_batch_diags:
+                yield stream_batch_diags.pop()
+
+        if parallel_allowed:
+            parallel_started = time.perf_counter()
+            parallel_fallback_reason = ""
+            shard_plan = build_coverage_shard_plan(
+                coverage_plan_rules,
+                expected_count=int(expected_count or 0),
+                max_workers=int(parallel_config.max_workers),
+                max_cases_per_worker=int(batch_size or 25),
+            )
+            if len(shard_plan) < 2:
+                parallel_fallback_reason = "shard_plan_too_small"
+            else:
+                yield (
+                    "@@STATUS@@:并发覆盖分片生成已启用"
+                    f"（{len(shard_plan)} 个分片，并发度 {parallel_config.max_workers}）...\n"
+                )
+                _emit_stream_gen_diag(
+                    {
+                        "kind": "parallel_coverage_shard_plan",
+                        "project_id": int(project_id),
+                        "request_id": str(request_id or ""),
+                        "shard_count": int(len(shard_plan)),
+                        "expected_count": int(expected_count or 0),
+                        "max_workers": int(parallel_config.max_workers),
+                        "shards": [
+                            {
+                                "shard_id": str(shard.get("shard_id") or ""),
+                                "target_count": int(shard.get("target_count") or 0),
+                                "rule_ids": list(shard.get("rule_ids") or [])[:20],
+                            }
+                            for shard in shard_plan
+                            if isinstance(shard, dict)
+                        ],
+                    }
+                )
+                if stream_batch_diags:
+                    yield stream_batch_diags.pop()
+
+                history_context_str = build_recent_history_context(history_summaries)
+                side_suite_order = execution_side_suite_order_text()
+                shard_requests: list[dict[str, Any]] = []
+                client_factory = state.get("parallel_shard_client_factory")
+                previous_target_count = 0
+                for shard in shard_plan:
+                    shard_client = None
+                    if callable(client_factory):
+                        shard_client = client_factory(dict(shard))
+                    elif self._is_active_db_session(db):
+                        shard_client = get_client_for_user(user_id, db)
+                    if shard_client is None:
+                        parallel_fallback_reason = "parallel_client_unavailable"
+                        break
+                    shard_instruction = build_parallel_shard_instruction(shard)
+                    shard_need = max(1, int(shard.get("target_count") or 1))
+                    shard_system_prompt = build_stream_batch_system_prompt(
+                        base_prompt=base_prompt,
+                        coverage_instruction="",
+                        history_context=history_context_str,
+                        coverage_plan_lite=coverage_plan_lite,
+                        side_suite_order=side_suite_order,
+                        batch_index=max(0, int(shard.get("shard_index") or 1) - 1),
+                        total_batches=int(len(shard_plan)),
+                        current_id=int(start_id + previous_target_count),
+                        generated_in_batch=0,
+                        need=int(shard_need),
+                        shard_instruction=shard_instruction,
+                    )
+                    _emit_prompt_context_intake_diag(
+                        prompt_context=prompt_context,
+                        base_prompt_text=base_prompt,
+                        system_prompt_text=shard_system_prompt,
+                        batch_index_value=int(shard.get("shard_index") or 1),
+                        total_batches_value=int(len(shard_plan)),
+                        attempt_value=1,
+                        requested_count=int(shard_need),
+                    )
+                    if stream_batch_diags:
+                        yield stream_batch_diags.pop()
+                    shard_requests.append(
+                        {
+                            "request_id": str(request_id or ""),
+                            "shard": dict(shard),
+                            "client": shard_client,
+                            "system_prompt": shard_system_prompt,
+                        }
+                    )
+                    system_prompt = shard_system_prompt
+                    previous_target_count += shard_need
+
+                if not parallel_fallback_reason and not final_trace_emitted:
+                    self._emit_final_context_trace(
+                        db=db,
+                        project_id=project_id,
+                        user_id=user_id,
+                        request_id=request_id,
+                        context_result=context_result,
+                        gate_debug=gate_debug,
+                        fallback_reason=(context_result or {}).get("fallback_reason") if isinstance(context_result, dict) else "",
+                        abort_code="",
+                        compressed_chars=len(kb_context or ""),
+                    )
+                    final_trace_emitted = True
+
+                shard_results: list[dict[str, Any]] = []
+                if not parallel_fallback_reason:
+                    try:
+                        shard_results = execute_parallel_shard_requests(
+                            requests=shard_requests,
+                            requirement=requirement,
+                            clean_and_parse_json_fn=clean_and_parse_json,
+                            normalize_json_structure_fn=normalize_json_structure,
+                            max_workers=int(parallel_config.max_workers),
+                        )
+                    except Exception as exc:
+                        parallel_fallback_reason = f"parallel_executor_exception:{str(exc)[:120]}"
+
+                if not parallel_fallback_reason:
+                    failed_results = [
+                        result
+                        for result in shard_results
+                        if str(result.get("status") or "") not in {"parsed"}
+                    ]
+                    for result in shard_results:
+                        shard = result.get("shard") if isinstance(result.get("shard"), dict) else {}
+                        _record_timing_event(
+                            "parallel_shard_attempt",
+                            parallel_started,
+                            shard_id=str(shard.get("shard_id") or ""),
+                            shard_index=int(shard.get("shard_index") or 0),
+                            requested_count=int(shard.get("target_count") or 0),
+                            response_case_count=int(result.get("response_case_count") or 0),
+                            duration_ms=int(result.get("duration_ms") or 0),
+                            attempt_status=str(result.get("status") or ""),
+                            provider_error=str(result.get("error") or "")[:200],
+                        )
+                    if failed_results:
+                        parallel_fallback_reason = "shard_failed"
+
+                merge_result: dict[str, Any] = {}
+                if not parallel_fallback_reason:
+                    merge_result = merge_parallel_shard_cases(
+                        shard_results,
+                        build_case_signature_fn=_build_case_signature,
+                        start_id=int(start_id or 1),
+                        expected_count=int(expected_count or 0),
+                    )
+                    unique_case_count = int(merge_result.get("unique_case_count") or 0)
+                    input_case_count = int(merge_result.get("input_case_count") or 0)
+                    duplicate_rate = float(merge_result.get("duplicate_rate") or 0.0)
+                    unique_ratio = float(unique_case_count) / float(expected_count or 1)
+                    if input_case_count <= 0:
+                        parallel_fallback_reason = "empty_parallel_result"
+                    elif duplicate_rate > float(parallel_config.duplicate_rate_abort):
+                        parallel_fallback_reason = "duplicate_rate_above_threshold"
+                    elif unique_ratio < float(parallel_config.min_unique_ratio):
+                        parallel_fallback_reason = "unique_ratio_below_threshold"
+
+                parallel_result_summary = {
+                    "kind": "parallel_coverage_shard_result",
+                    "project_id": int(project_id),
+                    "request_id": str(request_id or ""),
+                    "status": "fallback" if parallel_fallback_reason else "accepted",
+                    "fallback_reason": str(parallel_fallback_reason or ""),
+                    "shard_count": int(len(shard_plan)),
+                    "input_case_count": int(merge_result.get("input_case_count") or 0),
+                    "unique_case_count": int(merge_result.get("unique_case_count") or 0),
+                    "duplicate_count": int(merge_result.get("duplicate_count") or 0),
+                    "duplicate_rate": float(merge_result.get("duplicate_rate") or 0.0),
+                    "min_unique_ratio": float(parallel_config.min_unique_ratio),
+                    "duplicate_rate_abort": float(parallel_config.duplicate_rate_abort),
+                    "per_shard_counts": list(merge_result.get("per_shard_counts") or [])[:10],
+                    "shard_results": [
+                        {
+                            "shard_id": str((result.get("shard") or {}).get("shard_id") or ""),
+                            "status": str(result.get("status") or ""),
+                            "duration_ms": int(result.get("duration_ms") or 0),
+                            "response_case_count": int(result.get("response_case_count") or 0),
+                            "model": str((result.get("metadata") or {}).get("model") or ""),
+                            "input_tokens": (result.get("metadata") or {}).get("input_tokens"),
+                            "output_tokens": (result.get("metadata") or {}).get("output_tokens"),
+                        }
+                        for result in shard_results
+                        if isinstance(result, dict)
+                    ][:10],
+                }
+                _emit_stream_gen_diag(parallel_result_summary)
+                if stream_batch_diags:
+                    yield stream_batch_diags.pop()
+
+                _record_timing_event(
+                    "parallel_shard_generation",
+                    parallel_started,
+                    shard_count=int(len(shard_plan)),
+                    max_workers=int(parallel_config.max_workers),
+                    accepted=not bool(parallel_fallback_reason),
+                    fallback_reason=str(parallel_fallback_reason or ""),
+                    input_case_count=int(merge_result.get("input_case_count") or 0),
+                    unique_case_count=int(merge_result.get("unique_case_count") or 0),
+                    duplicate_rate=float(merge_result.get("duplicate_rate") or 0.0),
+                )
+
+                if parallel_fallback_reason:
+                    yield (
+                        "@@STATUS@@:并发覆盖分片未通过质量门禁"
+                        f"（{parallel_fallback_reason}），回退串行批次生成...\n"
+                    )
+                else:
+                    parsed_batch_cases = [
+                        case for case in (merge_result.get("cases") or []) if isinstance(case, dict)
+                    ]
+                    if parsed_batch_cases:
+                        full_content += json.dumps(parsed_batch_cases, ensure_ascii=False, indent=2)
+                        full_content += "\n"
+                        yield json.dumps(parsed_batch_cases, ensure_ascii=False, indent=2)
+                        yield "\n"
+                        for case in parsed_batch_cases:
+                            history_summaries.append(f"{case.get('id', '')}: {case.get('description', '')}")
+                        batch_metric, low_gain_streak = build_stream_batch_quality_metric(
+                            parsed_batch_cases=parsed_batch_cases,
+                            seen_case_signatures=seen_case_signatures,
+                            batch_index=1,
+                            build_case_signature_fn=_build_case_signature,
+                            is_non_assertable_expected_result_fn=_is_non_assertable_expected_result,
+                            previous_low_gain_streak=0,
+                        )
+                        batch_metric.update(
+                            {
+                                "parallel_shards_used": True,
+                                "parallel_shard_count": int(len(shard_plan)),
+                                "parallel_input_case_count": int(merge_result.get("input_case_count") or 0),
+                                "parallel_duplicate_count": int(merge_result.get("duplicate_count") or 0),
+                            }
+                        )
+                        batch_quality_metrics.append(batch_metric)
+                        _emit_stream_batch_quality_diag(batch_quality_metrics[-1])
+                        if stream_batch_diags:
+                            yield stream_batch_diags.pop()
+                    else:
+                        full_content += "[]\n"
+                    completed_batches = int(len(shard_plan))
+                    current_id = int(start_id or 1) + int(len(parsed_batch_cases))
+                    parallel_completed = True
+
+        if parallel_completed:
+            total_batches = 0
+
         for batch_index in range(total_batches):
             remaining = expected_count - (current_id - start_id)
             current_batch_count = min(batch_size, remaining)
@@ -532,7 +835,7 @@ class LegacyGenerationStreamBatchesMixin:
                     )
                     if stream_batch_diags:
                         yield stream_batch_diags.pop()
-                    yield "@@STATUS@@:\u68c0\u6d4b\u5230\u8fde\u7eed2\u6279\u4f4e\u4fe1\u606f\u589e\u76ca\uff0c\u63d0\u524d\u505c\u6b62\u540e\u7eed\u6279\u6b21\u751f\u6210\u3002\n"
+                    yield "@@STATUS@@:检测到连续2批低信息增益，提前停止后续批次生成。\n"
             else:
                 low_gain_streak = 0
 
@@ -544,7 +847,7 @@ class LegacyGenerationStreamBatchesMixin:
         _record_timing_event(
             "primary_batches",
             primary_batches_started,
-            total_batches=int(total_batches),
+            total_batches=int(planned_total_batches),
             completed_batches=int(completed_batches),
             batch_size=int(batch_size),
             expected_count=int(expected_count or 0),
@@ -554,7 +857,7 @@ class LegacyGenerationStreamBatchesMixin:
         _record_timing_event(
             "stream_generation_phase",
             phase_started,
-            total_batches=int(total_batches),
+            total_batches=int(planned_total_batches),
             completed_batches=int(completed_batches),
         )
 
@@ -583,6 +886,10 @@ class LegacyGenerationStreamBatchesMixin:
                 "stream_batch_quality_metrics": batch_quality_metrics,
                 "stream_early_stop_triggered": bool(early_stop_triggered),
                 "stream_early_stop_reason": str(early_stop_reason or ""),
+                "stream_parallel_shards_enabled": bool(parallel_config.enabled),
+                "stream_parallel_shards_used": bool(parallel_completed),
+                "stream_parallel_shard_gate_reason": str(parallel_gate_reason or ""),
+                "stream_parallel_shard_result": parallel_result_summary if isinstance(parallel_result_summary, dict) else {},
                 "generation_timing_events": timing_events,
             }
         )

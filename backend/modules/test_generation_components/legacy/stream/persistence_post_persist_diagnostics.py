@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 from .persistence_diagnostics import (
+    _MAX_GEN_DIAG_MESSAGE_BYTES,
     _fit_table_diag_payload_size,
     _normalize_judge_row,
     _normalize_review_compact_rows,
@@ -16,6 +17,257 @@ class StreamPostPersistDiagnosticPayloads:
     before_generation_summary: list[dict[str, Any]]
     generation_summary: dict[str, Any] | None
     after_generation_summary: list[dict[str, Any]]
+
+
+_CORE_DIAG_KEYS = (
+    "kind",
+    "generation_id",
+    "project_id",
+    "request_id",
+    "source",
+    "case_count",
+    "execution_readiness",
+    "row_count",
+    "row_count_total",
+    "final_count",
+    "quality_score",
+    "quality_score_grade",
+)
+
+_EXECUTION_SUITE_TOP_KEYS = (
+    "kind",
+    "version",
+    "case_count",
+    "suite_count",
+    "runnable_suite_count",
+    "linear_executable",
+    "execution_readiness",
+    "main_suite_id",
+    "metadata_quality",
+    "warnings",
+)
+
+_EXECUTION_SUITE_KEYS = (
+    "suite_id",
+    "suite_name",
+    "execution_group",
+    "run_mode",
+    "group_setup",
+    "group_teardown",
+    "case_count",
+    "roles",
+    "fixture_keys",
+    "missing_dependencies",
+    "runnable",
+    "warnings",
+)
+
+_EXECUTION_CASE_REF_KEYS = (
+    "case_id",
+    "suite_order",
+    "execution_sequence",
+    "depends_on",
+    "role",
+    "session_key",
+    "fixture_key",
+    "setup_hint",
+    "teardown_hint",
+    "source_state",
+    "target_state",
+    "action",
+    "runnable",
+)
+
+
+def _message_size_bytes(prefix: str, payload_text: str) -> int:
+    return len(f"{prefix}:{payload_text}".encode("utf-8"))
+
+
+def _is_scalar(value: Any) -> bool:
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
+def _has_compact_value(value: Any) -> bool:
+    return value not in (None, "", [])
+
+
+def _truncate_text_by_bytes(value: Any, *, max_bytes: int = 2000) -> str:
+    text = str(value or "")
+    if len(text.encode("utf-8")) <= max_bytes:
+        return text
+    encoded = text.encode("utf-8")[: max(0, max_bytes - 3)]
+    return encoded.decode("utf-8", errors="ignore").rstrip() + "..."
+
+
+def _compact_list(value: Any, *, max_items: int = 100) -> list[Any]:
+    if not isinstance(value, list):
+        return []
+    compact: list[Any] = []
+    for item in value[:max_items]:
+        if _is_scalar(item) and _has_compact_value(item):
+            compact.append(item)
+        elif isinstance(item, list):
+            compact.append([child for child in item if _is_scalar(child) and _has_compact_value(child)][:20])
+        elif isinstance(item, dict):
+            compact.append(
+                {
+                    key: child
+                    for key, child in item.items()
+                    if _is_scalar(child) and _has_compact_value(child)
+                }
+            )
+    return compact
+
+
+def _compact_execution_case_ref(case_ref: Any) -> dict[str, Any]:
+    if not isinstance(case_ref, dict):
+        return {}
+    compact: dict[str, Any] = {}
+    for key in _EXECUTION_CASE_REF_KEYS:
+        value = case_ref.get(key)
+        if _is_scalar(value) and _has_compact_value(value):
+            compact[key] = value
+        elif isinstance(value, list):
+            compact[key] = _compact_list(value, max_items=20)
+    return compact
+
+
+def _compact_execution_suite_for_log(suite: Any) -> dict[str, Any] | None:
+    if not isinstance(suite, dict) or not isinstance(suite.get("suites"), list):
+        return None
+
+    compact: dict[str, Any] = {
+        "compaction": "execution_case_refs",
+    }
+    for key in _EXECUTION_SUITE_TOP_KEYS:
+        value = suite.get(key)
+        if _is_scalar(value) and _has_compact_value(value):
+            compact[key] = value
+        elif isinstance(value, list):
+            compact[key] = _compact_list(value, max_items=30)
+        elif isinstance(value, dict):
+            compact[key] = {
+                child_key: child
+                for child_key, child in value.items()
+                if _is_scalar(child) and _has_compact_value(child)
+            }
+
+    compact_suites: list[dict[str, Any]] = []
+    for suite_item in suite.get("suites") or []:
+        if not isinstance(suite_item, dict):
+            continue
+        compact_suite: dict[str, Any] = {}
+        for key in _EXECUTION_SUITE_KEYS:
+            value = suite_item.get(key)
+            if _is_scalar(value) and _has_compact_value(value):
+                compact_suite[key] = value
+            elif isinstance(value, list):
+                compact_suite[key] = _compact_list(value, max_items=50)
+        compact_cases = [
+            case
+            for case in (_compact_execution_case_ref(item) for item in (suite_item.get("cases") or []))
+            if case
+        ]
+        compact_suite["cases"] = compact_cases
+        compact_suite["case_count"] = int(suite_item.get("case_count") or len(compact_cases))
+        compact_suites.append(compact_suite)
+
+    compact["suites"] = compact_suites
+    compact["suite_count"] = int(suite.get("suite_count") or len(compact_suites))
+    return compact
+
+
+def _summarize_large_value(value: Any) -> dict[str, Any] | list[Any] | str:
+    if isinstance(value, dict):
+        summary: dict[str, Any] = {
+            "omitted_due_to_size": True,
+            "value_type": "dict",
+            "key_count": len(value),
+        }
+        for key in _CORE_DIAG_KEYS:
+            child = value.get(key)
+            if _is_scalar(child):
+                summary[key] = child
+        suites = value.get("suites")
+        if isinstance(suites, list):
+            summary["suite_count"] = len(suites)
+        cases = value.get("cases")
+        if isinstance(cases, list):
+            summary["case_count"] = len(cases)
+        return summary
+    if isinstance(value, list):
+        return {
+            "omitted_due_to_size": True,
+            "value_type": "list",
+            "item_count": len(value),
+        }
+    if isinstance(value, str):
+        return _truncate_text_by_bytes(value)
+    return str(value)
+
+
+def _compact_payload_for_log(payload: dict[str, Any], *, original_size_bytes: int) -> dict[str, Any]:
+    compact: dict[str, Any] = {
+        "payload_omitted_due_to_size": True,
+        "original_payload_size_bytes": int(original_size_bytes),
+    }
+    for key in _CORE_DIAG_KEYS:
+        value = payload.get(key)
+        if _is_scalar(value):
+            compact[key] = value
+
+    omitted_keys: list[str] = []
+    for key, value in payload.items():
+        if key in compact:
+            continue
+        if key == "execution_suite" and isinstance(value, dict):
+            compact["execution_suite_omitted_due_to_size"] = True
+            compact["execution_suite_summary"] = _summarize_large_value(value)
+            execution_suite_compact = _compact_execution_suite_for_log(value)
+            if execution_suite_compact:
+                compact["execution_suite_compact"] = execution_suite_compact
+            omitted_keys.append(key)
+            continue
+        if _is_scalar(value):
+            compact[key] = value
+            continue
+        compact[key] = _summarize_large_value(value)
+        omitted_keys.append(key)
+    if omitted_keys:
+        compact["omitted_keys"] = omitted_keys
+    return compact
+
+
+def _fit_diagnostic_payload_for_log(
+    payload: dict[str, Any],
+    *,
+    prefix: str,
+    max_bytes: int = _MAX_GEN_DIAG_MESSAGE_BYTES,
+) -> tuple[dict[str, Any], str]:
+    payload_text = json.dumps(payload, ensure_ascii=False)
+    message_size = _message_size_bytes(prefix, payload_text)
+    if message_size <= max_bytes:
+        return payload, payload_text
+
+    compact = _compact_payload_for_log(payload, original_size_bytes=message_size)
+    compact_text = json.dumps(compact, ensure_ascii=False)
+    if _message_size_bytes(prefix, compact_text) <= max_bytes:
+        return compact, compact_text
+
+    fallback = {
+        key: compact.get(key)
+        for key in _CORE_DIAG_KEYS
+        if key in compact
+    }
+    fallback.update(
+        {
+            "payload_omitted_due_to_size": True,
+            "original_payload_size_bytes": int(message_size),
+            "fallback_summary_only": True,
+        }
+    )
+    fallback_text = json.dumps(fallback, ensure_ascii=False)
+    return fallback, fallback_text
 
 
 def stream_generation_mode(generation_mode: str, multi_pass: bool) -> str:
@@ -31,7 +283,7 @@ def add_diagnostic_log(
     payload: dict[str, Any],
     prefix: str = "GEN_DIAG",
 ) -> str:
-    payload_text = json.dumps(payload, ensure_ascii=False)
+    _, payload_text = _fit_diagnostic_payload_for_log(payload, prefix=prefix)
     if db:
         db.add(
             log_entry_type(

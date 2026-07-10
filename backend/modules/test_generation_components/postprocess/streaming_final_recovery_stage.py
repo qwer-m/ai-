@@ -5,6 +5,10 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
 from .streaming_case_quality import filter_final_quality_cases
+from .streaming_case_source_metadata import (
+    annotate_case_source_metadata,
+    apply_case_source_metadata,
+)
 from .streaming_flow_conflicts import filter_cases_conflicting_with_confirmed_flow_facts
 from .streaming_final_floor_recovery import (
     recover_final_floor_after_conflict_filter,
@@ -13,7 +17,6 @@ from .streaming_final_floor_recovery import (
 from .streaming_postprocess_utils import _clip_text, _dict_case_count, _dict_case_items
 from .streaming_review_selection import rank_review_case_for_fill
 from .streaming_shortfall_supplement import (
-    build_final_shortfall_supplement_prompt,
     resolve_final_shortfall_supplement_size,
     run_final_shortfall_supplement,
     should_attempt_final_shortfall_supplement,
@@ -34,6 +37,7 @@ class FinalRecoveryStageResult:
     final_shortfall_supplement_applied: bool
     final_shortfall_supplement_count: int
     final_shortfall_supplement_reason: str
+    final_shortfall_supplement_debug: dict[str, Any]
     shortfall_filter_stats: dict[str, Any]
     final_quality_drop_total: int
 
@@ -73,12 +77,34 @@ def run_final_recovery_stage(
     record_timing_event_fn: Callable[..., dict[str, Any]],
 ) -> Iterator[str]:
     result_cases = _dict_case_items(parsed_result)
+    review_candidate_cases = annotate_case_source_metadata(
+        review_candidate_cases,
+        source_stage="review_candidate",
+        set_candidate_index=True,
+    )
+    candidate_cases = annotate_case_source_metadata(
+        apply_case_source_metadata(
+            candidate_cases,
+            source_cases=review_candidate_cases,
+        ),
+        source_stage="review_candidate",
+        set_candidate_index=True,
+    )
+    review_selection_input = apply_case_source_metadata(
+        review_selection_input,
+        source_cases=[*review_candidate_cases, *candidate_cases],
+    )
+    result_cases = apply_case_source_metadata(
+        result_cases,
+        source_cases=[*review_candidate_cases, *review_selection_input, *candidate_cases],
+    )
     result_flow_summary = dict(flow_governance_summary or {})
     final_confirmed_conflict_drop_count = 0
     final_shortfall_supplement_attempted = False
     final_shortfall_supplement_applied = False
     final_shortfall_supplement_count = 0
     final_shortfall_supplement_reason = ""
+    final_shortfall_supplement_debug: dict[str, Any] = {}
     shortfall_filter_stats: dict[str, Any] = {}
 
     final_floor_recovery = recover_final_floor_from_candidate_pool(
@@ -127,14 +153,6 @@ def run_final_recovery_stage(
             target_floor_count=final_target_floor_count,
         )
         final_shortfall_supplement_attempted = True
-        supplement_prompt = build_final_shortfall_supplement_prompt(
-            requirement=requirement,
-            final_cases=result_cases,
-            current_count=current_shortfall_count,
-            target_floor_count=final_target_floor_count,
-            supplement_needed=supplement_size["needed"],
-            analyze_coverage_fn=analyze_coverage_fn,
-        )
         final_shortfall_started = time.perf_counter()
         try:
             yield "@@STATUS@@:Final shortfall supplement started...\n"
@@ -142,8 +160,10 @@ def run_final_recovery_stage(
                 client=client,
                 db=db,
                 requirement=requirement,
-                supplement_prompt=supplement_prompt,
+                supplement_prompt="",
                 current_shortfall_count=current_shortfall_count,
+                target_floor_count=final_target_floor_count,
+                supplement_needed=supplement_size["needed"],
                 parsed_result=_dict_case_items(result_cases),
                 kb_context=kb_context,
                 fact_profile=fact_profile,
@@ -157,6 +177,7 @@ def run_final_recovery_stage(
                 analyze_coverage_fn=analyze_coverage_fn,
                 govern_cases_by_flow_structure_fn=govern_cases_by_flow_structure_fn,
             )
+            final_shortfall_supplement_debug = dict(shortfall_result.debug or {})
             shortfall_filter_stats = dict(shortfall_result.filter_stats or {})
             final_confirmed_conflict_drop_count += int(shortfall_result.conflict_drop_count or 0)
             if shortfall_result.applied:
@@ -179,6 +200,7 @@ def run_final_recovery_stage(
             applied=bool(final_shortfall_supplement_applied),
             added_count=int(final_shortfall_supplement_count or 0),
             reason=str(final_shortfall_supplement_reason or ""),
+            debug=final_shortfall_supplement_debug,
         )
 
     result_cases, final_filter_conflict_drop_count = filter_cases_conflicting_with_confirmed_flow_facts(
@@ -211,6 +233,8 @@ def run_final_recovery_stage(
             fact_profile=fact_profile,
             flow_project_profile=flow_project_profile,
             start_id=start_id,
+            feedback_control_state=feedback_control_state if isinstance(feedback_control_state, dict) else {},
+            requirement_semantics_context=requirement_semantics_context or {},
             analyze_coverage_fn=analyze_coverage_fn,
             filter_conflicting_cases_fn=filter_cases_conflicting_with_confirmed_flow_facts,
             govern_cases_by_flow_structure_fn=govern_cases_by_flow_structure_fn,
@@ -253,6 +277,7 @@ def run_final_recovery_stage(
         final_shortfall_supplement_applied=bool(final_shortfall_supplement_applied),
         final_shortfall_supplement_count=int(final_shortfall_supplement_count or 0),
         final_shortfall_supplement_reason=str(final_shortfall_supplement_reason or ""),
+        final_shortfall_supplement_debug=dict(final_shortfall_supplement_debug or {}),
         shortfall_filter_stats=shortfall_filter_stats,
         final_quality_drop_total=int(final_invalid_quality_drop_total or 0),
     )

@@ -101,7 +101,7 @@ def run_compare_background_job(
                 generated_test_case=generated_test_case,
                 modified_test_case=modified_test_case,
                 requirement_text=requirement_text,
-                fallback_reason=f"\u540e\u53f0\u6a21\u578b\u8bc4\u6d4b\u5f02\u5e38\uff1a{exc}",
+                fallback_reason=f"后台模型评测异常：{exc}",
                 comparison_id=comparison_id,
             )
 

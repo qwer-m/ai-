@@ -148,6 +148,17 @@ def run_review_llm_selection(
                 )
 
             if retry_reason:
+                fallback_skip_reason = _review_fallback_skip_reason(
+                    retry_reason=retry_reason,
+                    review_llm_runtime_debug=review_llm_runtime_debug,
+                )
+            else:
+                fallback_skip_reason = ""
+
+            if fallback_skip_reason:
+                review_llm_runtime_debug["fallback_skipped_reason"] = fallback_skip_reason
+                review_llm_runtime_debug["retry_response_len"] = int(len(review_response_text))
+            elif retry_reason:
                 final_source, final_result, review_response_text = _run_fallback_retries(
                     client=client,
                     db=db,
@@ -280,6 +291,21 @@ def _run_compact_retry_if_available(
     if compact_retry_invalid_reason:
         return retry_reason, final_source, final_result, review_response_text
     return "", "primary_compact_retry", compact_retry_result, compact_retry_text
+
+
+def _review_fallback_skip_reason(
+    *,
+    retry_reason: str,
+    review_llm_runtime_debug: dict[str, Any],
+) -> str:
+    if retry_reason not in _RETRYABLE_RESPONSE_ERROR_REASONS:
+        return ""
+    if not bool(review_llm_runtime_debug.get("primary_compact_retry_invoked")):
+        return ""
+    compact_invalid_reason = str(review_llm_runtime_debug.get("primary_compact_retry_invalid_reason") or "")
+    if compact_invalid_reason not in _RETRYABLE_RESPONSE_ERROR_REASONS:
+        return ""
+    return "empty_response_after_compact_retry"
 
 
 def _run_fallback_retries(

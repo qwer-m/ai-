@@ -80,22 +80,15 @@ def resolve_generation_target_satisfaction(
 
     if expected_count_explicit and target_final_count > 0:
         if str(generation_coverage_mode or "") == "full_functional_regression":
-            min_acceptable_final = hard_min_count
+            min_acceptable_final = int(resolved_full_regression_floor or hard_min_count or 0)
         elif valid_unique_candidate_count >= int(round(float(target_final_count) * 0.90)):
             min_acceptable_final = soft_min_count
         else:
             min_acceptable_final = min(valid_unique_candidate_count, hard_min_count)
-        if recommended_floor_underfilled:
-            min_acceptable_final = max(int(min_acceptable_final or 0), int(target_min_count or 0))
     else:
         min_acceptable_final = 0
 
     target_satisfaction_denominator = int(target_final_count or 0)
-    if recommended_floor_underfilled and target_max_count > 0:
-        target_satisfaction_denominator = max(
-            int(target_satisfaction_denominator or 0),
-            int(target_max_count or 0),
-        )
     target_satisfaction_ratio = (
         round(
             float(final_count or 0) / float(target_satisfaction_denominator or 1),

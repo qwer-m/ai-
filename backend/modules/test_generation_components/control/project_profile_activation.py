@@ -20,6 +20,7 @@ _DATA_FLOW_PHASES: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 _CROSS_CUTTING_PHASES = {"access_limit", "global_exception", "history_makeup"}
+_MIN_PROJECT_PROFILE_CONFIDENCE = 0.2
 
 
 def _dedupe_texts(values: Any, *, limit: int = 80) -> list[str]:
@@ -150,10 +151,18 @@ def normalize_project_profile(payload: Any) -> dict[str, Any]:
         ),
     }
     has_structure = bool(flow_order or cross_cutting)
+    raw_confidence = payload.get("confidence")
+    if raw_confidence is None:
+        confidence = 0.7 if has_structure else 0.0
+    else:
+        try:
+            confidence = float(raw_confidence)
+        except Exception:
+            confidence = 0.0
     return {
         "profile_version": str(payload.get("profile_version") or "project-profile-v1"),
         "profile_source": str(payload.get("profile_source") or ("document_extracted" if has_structure else "fallback")),
-        "confidence": float(payload.get("confidence") or (0.7 if has_structure else 0.0)),
+        "confidence": float(confidence),
         "flow_outline": normalized_outline,
         "ordering_policy": str(payload.get("ordering_policy") or "flow_first_then_cross_cutting"),
         "scenario_cluster_policy": dict(
@@ -200,6 +209,24 @@ def merge_project_profile_control_state(base_state: Any, project_profile: dict[s
     outline = dict(profile.get("flow_outline") or {})
     if not profile or not (outline.get("flow_order") or outline.get("cross_cutting")):
         return normalized_base
+    try:
+        confidence = float(profile.get("confidence") or 0.0)
+    except Exception:
+        confidence = 0.0
+    if confidence < _MIN_PROJECT_PROFILE_CONFIDENCE:
+        return normalized_base.merge(
+            {
+                "source_meta": {
+                    "sources": ["project_profile_domain_gate"],
+                    "project_profile_gate": {
+                        "allowed": False,
+                        "reason": "low_project_profile_confidence",
+                        "confidence": float(confidence),
+                        "min_confidence": float(_MIN_PROJECT_PROFILE_CONFIDENCE),
+                    },
+                }
+            }
+        )
     return normalized_base.merge(
         {
             "source_meta": {

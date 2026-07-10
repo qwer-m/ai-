@@ -136,6 +136,33 @@ class _FailingPersistDb(_DummyDb):
         self.rows.clear()
 
 
+class _EmptyQuery:
+    def filter(self, *args: Any, **kwargs: Any) -> "_EmptyQuery":
+        return self
+
+    def order_by(self, *args: Any, **kwargs: Any) -> "_EmptyQuery":
+        return self
+
+    def first(self) -> None:
+        return None
+
+
+class _RejectLazyModelDb(_DummyDb):
+    def __init__(self) -> None:
+        super().__init__()
+        self.query_model: Any = None
+
+    def query(self, model: Any) -> _EmptyQuery:
+        from modules.testing.test_generation_components.legacy.stream.runtime import LazyAttrProxy
+
+        assert not isinstance(model, LazyAttrProxy)
+        self.query_model = model
+        return _EmptyQuery()
+
+    def rollback(self) -> None:
+        return None
+
+
 def _stored_generation_result(db: _DummyDb) -> str:
     for row in db.rows:
         generated_result = getattr(row, "generated_result", None)
@@ -391,6 +418,58 @@ def test_persist_exception_emits_diagnostic_instead_of_silent_completion(monkeyp
     assert any("stream_persist_exception" in chunk for chunk in chunks)
     assert any("STREAM_PERSISTENCE_FAILED" in chunk for chunk in chunks)
     assert any("生成结果落库失败" in chunk for chunk in chunks)
+
+
+def test_persist_overwrite_resolves_lazy_model_before_query(monkeypatch) -> None:
+    from modules.testing.test_generation_components.legacy.stream import persist as persist_module
+
+    monkeypatch.setattr(persist_module.settings, "EXECUTION_PLAN_GATE_MODE", "shadow", raising=False)
+
+    def _fake_stream_postprocess_cases(**kwargs):
+        if False:
+            yield ""
+        return {
+            "cases": [_build_case(1)],
+            "stage_counts": {"primary": 1, "gap": 0, "review": 1},
+            "coverage": {"kind": "coverage_check", "missing_rules": [], "rule_diagnostics": []},
+            "generation_summary": {"final_count": 1, "status": "completed"},
+        }
+
+    monkeypatch.setattr(persist_module, "stream_postprocess_cases", _fake_stream_postprocess_cases)
+
+    db = _RejectLazyModelDb()
+    state = {
+        "client": _NoBackfillClient(),
+        "requirement": "REQ",
+        "project_id": 1,
+        "db": db,
+        "doc_type": "requirement",
+        "compress": False,
+        "expected_count": 20,
+        "overwrite": True,
+        "append": False,
+        "user_id": 1001,
+        "original_requirement": "REQ",
+        "kb_context": "",
+        "start_id": 1,
+        "existing_cases": [],
+        "existing_entry": None,
+        "context_result": {},
+        "gate_debug": {},
+        "base_prompt": "BASE",
+        "full_content": "[]",
+        "existing_unique_count": 0,
+        "system_prompt": "",
+        "current_biz_key": "default",
+        "multi_pass": True,
+        "generation_mode": "multi_pass",
+    }
+
+    chunks, _ = _drain_with_return(_PersistRunner()._stream_persist_phase(state=state))
+
+    assert getattr(db.query_model, "__name__", "") == "TestGeneration"
+    assert "TC-001" in _stored_generation_result(db)
+    assert not any("STREAM_PERSISTENCE_FAILED" in chunk for chunk in chunks)
 
 
 def test_persist_strips_priority_debug_and_uses_final_priority(monkeypatch) -> None:

@@ -494,6 +494,16 @@ def _compact_quality_ledger(payload: dict[str, Any] | None) -> dict[str, Any]:
     review = payload.get("review") if isinstance(payload.get("review"), dict) else {}
     judge = payload.get("judge") if isinstance(payload.get("judge"), dict) else {}
     context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
+    remediation = (
+        payload.get("quality_remediation")
+        if isinstance(payload.get("quality_remediation"), dict)
+        else {}
+    )
+    remediation_actions = [
+        str(item.get("action_id") or "")
+        for item in (remediation.get("actions") or [])
+        if isinstance(item, dict) and str(item.get("action_id") or "").strip()
+    ]
     return {
         "generation_id": int(payload.get("generation_id") or 0),
         "quality_assessment": str(payload.get("quality_assessment") or ""),
@@ -509,6 +519,8 @@ def _compact_quality_ledger(payload: dict[str, Any] | None) -> dict[str, Any]:
         "judge_pending_out_count": int(judge.get("pending_out_count") or 0),
         "snapshot_used": bool(context.get("snapshot_used")),
         "fusion_mode": str(context.get("fusion_mode") or ""),
+        "quality_primary_action": str(remediation.get("primary_action") or ""),
+        "quality_action_ids": remediation_actions[:8],
     }
 
 

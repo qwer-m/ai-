@@ -107,7 +107,7 @@ def normalize_comment_hint(comment: str) -> str:
 
 def extract_forbidden_pattern_from_sample(*, title: str, comment: str) -> str:
     candidate = str(title or "").strip() or str(comment or "").strip()
-    candidate = re.sub(r"^[\-*鈥d\.\s]+", "", candidate)
+    candidate = re.sub(r"^[\-*\d\.\s]+", "", candidate)
     candidate = re.sub(r"\s+", " ", candidate).strip()
     if len(candidate) < 4:
         return ""

@@ -5,9 +5,14 @@ from typing import Any
 
 from ..coverage.scenario_registry import (
     cross_module_scenario_kinds,
+    iter_scenario_family_policies,
     judge_duplicate_scenario_kinds,
     judge_duplicate_thresholds,
     scenario_pattern_entries,
+)
+from ..coverage.coverage_case_classifier import (
+    classify_case_flow_stage,
+    classify_case_intent_signature,
 )
 from ..postprocess.case_access import case_priority, case_steps, case_text_field
 
@@ -15,6 +20,10 @@ from .judge_text_utils import _normalize_text
 
 
 _DUPLICATE_SCENARIO_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = scenario_pattern_entries()
+_SCENARIO_POLICY_BY_KEY = {
+    policy.key: policy
+    for policy in iter_scenario_family_policies()
+}
 
 _REGISTERED_SCENARIO_KINDS = judge_duplicate_scenario_kinds()
 _REGISTERED_SCENARIO_THRESHOLDS = judge_duplicate_thresholds()
@@ -70,6 +79,16 @@ _DUPLICATE_SCENARIO_THRESHOLDS: dict[str, tuple[float, int]] = judge_duplicate_t
 
 _CROSS_MODULE_DUPLICATE_SCENARIOS = set()
 _CROSS_MODULE_DUPLICATE_SCENARIOS.update(cross_module_scenario_kinds())
+
+_BROAD_GENERAL_DUPLICATE_MIN_SCORE = 0.62
+_BROAD_GENERAL_DUPLICATE_MIN_OVERLAP = 12
+_DIMENSIONAL_GENERAL_SCENARIO_KINDS = {
+    "quota_limit",
+    "quota_exhaustion",
+    "quota_consumption",
+    "sorting_limit",
+    "media_preview",
+}
 
 _SEMANTIC_STOP_TOKENS = {
     "case",
@@ -164,12 +183,89 @@ def _semantic_overlap_size(left: dict[str, Any], right: dict[str, Any]) -> int:
     return len(left_tokens & right_tokens)
 
 
-def _scenario_kind(case: dict[str, Any]) -> str:
+def _scenario_patterns_for_runtime(
+    *,
+    primary_domain: str = "",
+    include_domain_specific: bool = False,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    primary = str(primary_domain or "").strip()
+    return scenario_pattern_entries(
+        primary_domain=primary,
+        include_domain_specific=bool(include_domain_specific),
+    )
+
+
+def _simple_scenarios_for_runtime(
+    *,
+    primary_domain: str = "",
+    include_domain_specific: bool = False,
+) -> set[str]:
+    registered = judge_duplicate_scenario_kinds(
+        primary_domain=str(primary_domain or "").strip(),
+        include_domain_specific=bool(include_domain_specific),
+    )
+    return set(_DUPLICATE_SIMPLE_SCENARIOS) | set(registered)
+
+
+def _thresholds_for_runtime(
+    *,
+    primary_domain: str = "",
+    include_domain_specific: bool = False,
+) -> dict[str, tuple[float, int]]:
+    return judge_duplicate_thresholds(
+        primary_domain=str(primary_domain or "").strip(),
+        include_domain_specific=bool(include_domain_specific),
+    )
+
+
+def _cross_module_scenarios_for_runtime(
+    *,
+    primary_domain: str = "",
+    include_domain_specific: bool = False,
+) -> set[str]:
+    return set(
+        cross_module_scenario_kinds(
+            primary_domain=str(primary_domain or "").strip(),
+            include_domain_specific=bool(include_domain_specific),
+        )
+    )
+
+
+def _is_broad_general_scenario_kind(kind: str) -> bool:
+    scenario_kind = str(kind or "")
+    if scenario_kind not in _DIMENSIONAL_GENERAL_SCENARIO_KINDS:
+        return False
+    policy = _SCENARIO_POLICY_BY_KEY.get(str(kind or ""))
+    if policy is None:
+        return False
+    return (
+        str(policy.domain or "general").strip() == "general"
+        and not bool(policy.specific)
+    )
+
+
+def _intent_signature(case: dict[str, Any]) -> str:
+    try:
+        stage = classify_case_flow_stage(case, {})
+        return str(classify_case_intent_signature(case, stage) or "").strip()
+    except Exception:
+        return ""
+
+
+def _scenario_kind(
+    case: dict[str, Any],
+    *,
+    primary_domain: str = "",
+    include_domain_specific: bool = False,
+) -> str:
     text = _semantic_similarity_text(case).lower()
     compact = _normalize_text(text)
     best_kind = ""
     best_score = 0
-    for kind, patterns in _DUPLICATE_SCENARIO_PATTERNS:
+    for kind, patterns in _scenario_patterns_for_runtime(
+        primary_domain=primary_domain,
+        include_domain_specific=include_domain_specific,
+    ):
         matched: list[str] = []
         for pattern in patterns:
             marker = _normalize_text(pattern)
@@ -197,31 +293,73 @@ def _same_module_family(left: dict[str, Any], right: dict[str, Any]) -> bool:
     return left_module == right_module or left_module in right_module or right_module in left_module
 
 
-def _is_semantic_duplicate_case(candidate: dict[str, Any], existed: dict[str, Any]) -> tuple[bool, float]:
+def _is_semantic_duplicate_case(
+    candidate: dict[str, Any],
+    existed: dict[str, Any],
+    *,
+    primary_domain: str = "",
+    include_domain_specific: bool = False,
+) -> tuple[bool, float]:
     candidate_desc = _normalize_text(case_text_field(candidate, "description"))
     existed_desc = _normalize_text(case_text_field(existed, "description"))
     if candidate_desc and existed_desc and candidate_desc == existed_desc:
         return True, 1.0
     score = _semantic_similarity(candidate, existed)
     overlap = _semantic_overlap_size(candidate, existed)
-    candidate_kind = _scenario_kind(candidate)
-    existed_kind = _scenario_kind(existed)
+    candidate_kind = _scenario_kind(
+        candidate,
+        primary_domain=primary_domain,
+        include_domain_specific=include_domain_specific,
+    )
+    existed_kind = _scenario_kind(
+        existed,
+        primary_domain=primary_domain,
+        include_domain_specific=include_domain_specific,
+    )
+    broad_general_kind = bool(
+        candidate_kind
+        and candidate_kind == existed_kind
+        and _is_broad_general_scenario_kind(candidate_kind)
+    )
+    runtime_thresholds = _thresholds_for_runtime(
+        primary_domain=primary_domain,
+        include_domain_specific=include_domain_specific,
+    )
+    runtime_simple_scenarios = _simple_scenarios_for_runtime(
+        primary_domain=primary_domain,
+        include_domain_specific=include_domain_specific,
+    )
+    runtime_cross_module_scenarios = _cross_module_scenarios_for_runtime(
+        primary_domain=primary_domain,
+        include_domain_specific=include_domain_specific,
+    )
     if not _same_module_family(candidate, existed):
         if (
             candidate_kind
             and candidate_kind == existed_kind
-            and candidate_kind in _CROSS_MODULE_DUPLICATE_SCENARIOS
+            and candidate_kind in runtime_cross_module_scenarios
         ):
-            simple_score, simple_overlap = _DUPLICATE_SCENARIO_THRESHOLDS.get(candidate_kind, (0.30, 8))
+            simple_score, simple_overlap = runtime_thresholds.get(candidate_kind, (0.30, 8))
             if score >= simple_score and overlap >= simple_overlap:
                 return True, score
         return False, 0.0
     if candidate_kind and candidate_kind == existed_kind:
-        simple_score, simple_overlap = _DUPLICATE_SCENARIO_THRESHOLDS.get(candidate_kind, (0.30, 8))
-        if candidate_kind in _DUPLICATE_SIMPLE_SCENARIOS:
+        simple_score, simple_overlap = runtime_thresholds.get(candidate_kind, (0.30, 8))
+        if broad_general_kind:
+            candidate_intent = _intent_signature(candidate)
+            existed_intent = _intent_signature(existed)
+            same_intent = bool(candidate_intent and candidate_intent == existed_intent)
+            if not same_intent:
+                simple_score = max(float(simple_score), _BROAD_GENERAL_DUPLICATE_MIN_SCORE)
+                simple_overlap = max(int(simple_overlap), _BROAD_GENERAL_DUPLICATE_MIN_OVERLAP)
+        if candidate_kind in runtime_simple_scenarios:
             if score >= simple_score and overlap >= simple_overlap:
                 return True, score
-            if score >= 0.46 and overlap >= 12:
+            if (
+                not broad_general_kind
+                and score >= 0.46
+                and overlap >= 12
+            ):
                 return True, score
     if score >= 0.90 and overlap >= 30:
         return True, score

@@ -36,7 +36,7 @@ function gateStatus(passed?: boolean): string {
 function qualityGateStatus(passed?: boolean, blocked?: boolean): string {
   if (passed === true) return '已通过';
   if (passed === false && blocked === true) return '未通过并阻断';
-  if (passed === false) return '未通过（观察模式）';
+  if (passed === false) return '观察未通过（不阻断）';
   return '未收到';
 }
 
@@ -160,6 +160,11 @@ function compactText(value: unknown, limit = 72): string {
   return `${text.slice(0, Math.max(0, limit - 3)).trim()}...`;
 }
 
+function readableText(value: unknown, emptyLabel = '-'): string {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text || emptyLabel;
+}
+
 export function GenerationOverview() {
   const generationMode = useRagDebugStore((s) => s.generationMode);
   const currentBizKey = useRagDebugStore((s) => s.currentBizKey);
@@ -201,16 +206,86 @@ export function GenerationOverview() {
   const executionPlanValidation = persistenceGate?.execution_plan_validation;
   const executionPlanMetrics = executionPlanValidation?.metrics || {};
   const persistenceGateFailureReasons = executionPlanValidation?.failure_reasons || [];
-  const effectiveCaseQualityGate = caseQualityGate || generationQualityLedger?.case_quality_gate;
-  const caseQualityMetrics = effectiveCaseQualityGate?.metrics || {};
-  const caseQualityFailureReasons = effectiveCaseQualityGate?.failure_reasons || [];
+  const persistenceQualityGate = persistenceGate?.quality_gate && typeof persistenceGate.quality_gate === 'object'
+    ? persistenceGate.quality_gate as Record<string, unknown>
+    : undefined;
+  const observedCaseQualityGate = caseQualityGate || generationQualityLedger?.case_quality_gate;
+  const effectiveCaseQualityGate = (
+    caseQualityGate?.passed === false && caseQualityGate?.blocked === true
+      ? caseQualityGate
+      : persistenceQualityGate
+  ) || observedCaseQualityGate;
+  const effectiveQualityPassed = typeof (effectiveCaseQualityGate as any)?.passed === 'boolean'
+    ? Boolean((effectiveCaseQualityGate as any).passed)
+    : undefined;
+  const effectiveQualityBlocked = (effectiveCaseQualityGate as any)?.blocked === true;
+  const effectiveQualityMode = String((effectiveCaseQualityGate as any)?.mode || persistenceGate?.gate_mode || '').trim();
+  const caseQualityMetrics = (effectiveCaseQualityGate as any)?.metrics && typeof (effectiveCaseQualityGate as any).metrics === 'object'
+    ? (effectiveCaseQualityGate as any).metrics as Record<string, unknown>
+    : {};
+  const caseQualityFailureReasons = Array.isArray((effectiveCaseQualityGate as any)?.failure_reasons)
+    ? (effectiveCaseQualityGate as any).failure_reasons.map((item: unknown) => String(item).trim()).filter(Boolean)
+    : [];
+  const observedQualityPassed = typeof (observedCaseQualityGate as any)?.passed === 'boolean'
+    ? Boolean((observedCaseQualityGate as any).passed)
+    : undefined;
+  const observedQualityBlocked = (observedCaseQualityGate as any)?.blocked === true;
+  const observedCaseQualityMetrics = (observedCaseQualityGate as any)?.metrics && typeof (observedCaseQualityGate as any).metrics === 'object'
+    ? (observedCaseQualityGate as any).metrics as Record<string, unknown>
+    : {};
+  const observedCaseQualityFailureReasons = Array.isArray((observedCaseQualityGate as any)?.failure_reasons)
+    ? (observedCaseQualityGate as any).failure_reasons.map((item: unknown) => String(item).trim()).filter(Boolean)
+    : [];
+  const hasNonBlockingQualityObservation = Boolean(
+    observedCaseQualityGate?.passed === false
+    && observedCaseQualityGate?.blocked !== true
+    && effectiveCaseQualityGate !== observedCaseQualityGate
+  );
   const judgeRejectClusters = ledgerJudge.reason_clusters && typeof ledgerJudge.reason_clusters === 'object'
     ? ledgerJudge.reason_clusters as Record<string, unknown>
     : {};
   const parseBlocks = Array.isArray(requirementParse?.blocks) ? requirementParse.blocks : [];
   const parseImageBlocks = parseBlocks.filter((block) => Boolean(block?.is_image));
+  const hasImageBlocks = parseImageBlocks.length > 0;
   const parseAlignments = Array.isArray(requirementParse?.alignments) ? requirementParse.alignments : [];
+  const imageOcrSuccessCount = parseImageBlocks.filter((block) => ['local', 'cloud'].includes(String(block.ocr_source || ''))).length;
+  const imageOcrFailedBlocks = parseImageBlocks.filter((block) => String(block.ocr_source || '') === 'failed');
+  const imageOcrWarningBlocks = parseImageBlocks.filter((block) => Boolean(block.ocr_warning));
+  const imageOcrBlockingFailedCount = imageOcrFailedBlocks.filter((block) => Boolean(block.ocr_blocking)).length;
+  const imageOcrFailureText = readableText(imageOcrFailedBlocks.find((block) => block.ocr_error)?.ocr_error, '无详细错误');
+  const imageOcrWarningText = readableText(imageOcrWarningBlocks.find((block) => block.ocr_warning)?.ocr_warning, '无详细警告');
+  const imageOcrStatus = hasImageBlocks
+    ? (
+      imageOcrFailedBlocks.length > 0
+        ? (
+          imageOcrBlockingFailedCount > 0
+            ? `识别失败 ${imageOcrFailedBlocks.length}/${parseImageBlocks.length}`
+            : `部分降级 ${imageOcrSuccessCount}/${parseImageBlocks.length} 成功（非阻断）`
+        )
+        : (
+          imageOcrWarningBlocks.length > 0
+            ? `已识别 ${imageOcrSuccessCount}/${parseImageBlocks.length}（本地降级）`
+            : parseImageBlocks.map((block) => ocrSourceLabel(block.ocr_source)).join(' / ')
+        )
+    )
+    : (requirementParse ? '无图片块（文本解析）' : '-');
+  const imageOcrFallbackText = hasImageBlocks
+    ? boolLabel(parseImageBlocks.some((block) => Boolean(block.cloud_fallback)))
+    : (requirementParse ? '不适用' : '-');
+  const imageOcrErrorText = hasImageBlocks
+    ? (
+      imageOcrFailedBlocks.length > 0
+        ? `${imageOcrBlockingFailedCount > 0 ? '阻断' : '非阻断'}：${imageOcrFailureText}`
+        : (imageOcrWarningBlocks.length > 0 ? `警告：${imageOcrWarningText}` : '无')
+    )
+    : (requirementParse ? '无' : '-');
+  const alignmentCountText = hasImageBlocks || parseAlignments.length > 0
+    ? numberLabel(requirementParse?.alignment_count ?? parseAlignments.length)
+    : (requirementParse ? '不适用' : '-');
+  const alignmentScoreText = parseAlignments.length ? numberLabel(parseAlignments[0]?.score) : (requirementParse ? '不适用' : '-');
+  const alignmentEvidenceText = parseAlignments.length ? readableText(parseAlignments[0]?.evidence, '无') : (requirementParse ? '无' : '-');
   const executionSuiteWarnings = Array.isArray(executionSuiteState?.warnings) ? executionSuiteState.warnings : [];
+  const diagnosticTextStyle = { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } as const;
 
   return (
     <div className="rag-debug-card rounded-2xl shadow-md p-4 border bg-white dark:bg-slate-900">
@@ -236,6 +311,10 @@ export function GenerationOverview() {
         <div className="col-md-6">
           <div className="small text-muted rag-debug-muted mb-1">当前展示数</div>
           <div className="fw-semibold">{resultState?.displayCaseCount ?? '-'}</div>
+        </div>
+        <div className="col-md-6">
+          <div className="small text-muted rag-debug-muted mb-1">后端最终数</div>
+          <div className="fw-semibold">{Number.isFinite(finalCount) && finalCount > 0 ? finalCount : '-'}</div>
         </div>
         <div className="col-md-6">
           <div className="small text-muted rag-debug-muted mb-1">结果来源</div>
@@ -289,25 +368,33 @@ export function GenerationOverview() {
             <div className="p-3 border rounded-2 h-100">
               <div className="small text-muted rag-debug-muted mb-1">图片 OCR</div>
               <div className="fw-semibold">
-                {parseImageBlocks.length ? parseImageBlocks.map((block) => ocrSourceLabel(block.ocr_source)).join(' / ') : '-'}
+                {imageOcrStatus}
               </div>
               <div className="small text-muted rag-debug-muted mt-2">
-                云端兜底：{boolLabel(parseImageBlocks.some((block) => Boolean(block.cloud_fallback)))}
+                云端兜底：{imageOcrFallbackText}
               </div>
-              <div className="small text-muted rag-debug-muted">
-                错误：{compactText(parseImageBlocks.find((block) => block.ocr_error)?.ocr_error, 58)}
+              <div
+                className="small text-muted rag-debug-muted"
+                style={diagnosticTextStyle}
+                title={imageOcrErrorText}
+              >
+                诊断：{imageOcrErrorText}
               </div>
             </div>
           </div>
           <div className="col-md-3">
             <div className="p-3 border rounded-2 h-100">
               <div className="small text-muted rag-debug-muted mb-1">图文对齐</div>
-              <div className="fw-semibold">{numberLabel(requirementParse?.alignment_count ?? parseAlignments.length)}</div>
+              <div className="fw-semibold">{alignmentCountText}</div>
               <div className="small text-muted rag-debug-muted mt-2">
-                最高分：{parseAlignments.length ? numberLabel(parseAlignments[0]?.score) : '-'}
+                最高分：{alignmentScoreText}
               </div>
-              <div className="small text-muted rag-debug-muted">
-                样例：{compactText(parseAlignments[0]?.evidence, 58)}
+              <div
+                className="small text-muted rag-debug-muted"
+                style={diagnosticTextStyle}
+                title={alignmentEvidenceText}
+              >
+                样例：{alignmentEvidenceText}
               </div>
             </div>
           </div>
@@ -330,6 +417,23 @@ export function GenerationOverview() {
                         {' / '}
                         图片：{boolLabel(block.is_image)}
                       </div>
+                      {block.is_image && (
+                        <div
+                          className="small text-muted rag-debug-muted"
+                          style={diagnosticTextStyle}
+                          title={readableText(block.ocr_error || block.ocr_warning || block.ocr_source)}
+                        >
+                          OCR：{ocrSourceLabel(block.ocr_source)}
+                          {' / '}
+                          兜底：{boolLabel(block.cloud_fallback)}
+                          {(block.ocr_error || block.ocr_warning) && (
+                            <>
+                              {' / '}
+                              诊断：{readableText(block.ocr_error || block.ocr_warning)}
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -472,18 +576,27 @@ export function GenerationOverview() {
             </div>
           </div>
           <div className="col-md-12">
-            <div className={`p-3 border rounded-2 h-100 ${effectiveCaseQualityGate?.passed === false ? 'border-warning' : ''}`}>
+            <div className={`p-3 border rounded-2 h-100 ${effectiveQualityPassed === false && effectiveQualityBlocked ? 'border-danger' : ''}`}>
               <div className="small text-muted rag-debug-muted mb-1">用例质量门禁</div>
-              <div className={effectiveCaseQualityGate?.passed === false ? 'fw-semibold text-warning' : 'fw-semibold'}>
-                {qualityGateStatus(effectiveCaseQualityGate?.passed, effectiveCaseQualityGate?.blocked)}
+              <div className={effectiveQualityPassed === false && effectiveQualityBlocked ? 'fw-semibold text-danger' : 'fw-semibold'}>
+                {qualityGateStatus(effectiveQualityPassed, effectiveQualityBlocked)}
               </div>
               <div className="small text-muted rag-debug-muted mt-2">
-                模式：{effectiveCaseQualityGate?.mode || '-'}
+                模式：{effectiveQualityMode || '-'}
                 {' / '}
                 最终数/最低数：{numberLabel(caseQualityMetrics.final_count)} / {numberLabel(caseQualityMetrics.min_acceptable_final)}
                 {' / '}
                 评分：{numberLabel(caseQualityMetrics.quality_score)} ({String(caseQualityMetrics.quality_score_grade || '-')})
               </div>
+              {hasNonBlockingQualityObservation ? (
+                <div className="small text-muted rag-debug-muted">
+                  质量观察：{qualityGateStatus(observedQualityPassed, observedQualityBlocked)}
+                  {' / '}
+                  评分：{numberLabel(observedCaseQualityMetrics.quality_score)} ({String(observedCaseQualityMetrics.quality_score_grade || '-')})
+                  {' / '}
+                  原因：{observedCaseQualityFailureReasons.length ? observedCaseQualityFailureReasons.join(', ') : '-'}
+                </div>
+              ) : null}
               <div className="small text-muted rag-debug-muted">
                 最终重复/乱序：{numberLabel(caseQualityMetrics.final_scenario_duplicate_case_count)} / {numberLabel(caseQualityMetrics.final_flow_misordered_count)}
                 {' / '}

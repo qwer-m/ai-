@@ -38,7 +38,7 @@
     "同时", "分别", "全部", "所有", "以及", "并且", "且", "包含",
     "both", "all", "respectively", "and", "as well as"
   ],
-  "boundary_hints": ["边界", "上限", "下限", "最大", "最小", "临界", "范围", "boundary", "max", "min"],
+  "boundary_hints": ["边界", "上限", "下限", "最大", "最小", "临界", "范围", "超过", "少于", "至少", "至多", "最多", "最少", "boundary", "max", "min"],
   "boundary_required_hints": [
     "边界", "上限", "下限", "最大", "最小", "临界", "超过", "少于",
     "至少", "至多", "最多", "最少", "boundary", "max", "min"

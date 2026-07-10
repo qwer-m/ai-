@@ -872,6 +872,135 @@ def test_current_generation_main_chain_excludes_conditional_visibility_and_resum
     assert plan.get("linear_executable") is True
 
 
+def test_authoritative_blueprint_rejects_static_display_and_return_button_main_chain_candidates() -> None:
+    state = {
+        "workflow_blueprints": [
+            {
+                "id": "forum_post",
+                "repository_source": "current_requirement_blueprint",
+                "source_type": "current_requirement_extracted",
+                "steps": [
+                    {
+                        "id": "entry",
+                        "label": "Enter forum home",
+                        "action": "Open forum home",
+                        "assertion": "forum home is ready",
+                        "stage_kind": "entry",
+                        "state_in": "initial",
+                        "state_out": "forum_home",
+                        "match_keywords": ["forum home"],
+                        "allow_bridge": True,
+                    },
+                    {
+                        "id": "configure",
+                        "label": "Select forum zone",
+                        "action": "Select forum zone",
+                        "assertion": "zone is selected",
+                        "stage_kind": "configure",
+                        "state_in": "forum_home",
+                        "state_out": "zone_selected",
+                        "match_keywords": ["select forum zone"],
+                        "allow_bridge": True,
+                    },
+                    {
+                        "id": "preview",
+                        "label": "Open post detail",
+                        "action": "Open post detail",
+                        "assertion": "post detail is visible",
+                        "stage_kind": "preview",
+                        "state_in": "zone_selected",
+                        "state_out": "post_detail",
+                        "match_keywords": ["post detail"],
+                        "allow_bridge": True,
+                    },
+                    {
+                        "id": "commit",
+                        "label": "Submit reply",
+                        "action": "Submit reply",
+                        "assertion": "reply is submitted",
+                        "stage_kind": "commit",
+                        "state_in": "post_detail",
+                        "state_out": "reply_committed",
+                        "match_keywords": ["submit reply"],
+                        "allow_bridge": True,
+                    },
+                    {
+                        "id": "downstream",
+                        "label": "View reply message",
+                        "action": "View reply message",
+                        "assertion": "reply message is visible",
+                        "stage_kind": "downstream_visibility",
+                        "state_in": "reply_committed",
+                        "state_out": "reply_message_visible",
+                        "match_keywords": ["reply message"],
+                        "allow_bridge": True,
+                    },
+                ],
+            }
+        ]
+    }
+    result = _run_cases(
+        requirement="Forum flow: enter forum home, select a zone, open post detail, submit reply, then view reply message.",
+        cases=[
+            {
+                "id": "TC-001",
+                "description": "Pinned post displays official icon, title and time",
+                "test_module": "Forum Home content list",
+                "steps": ["Open forum home", "View pinned post"],
+                "expected_result": "Official icon, title and time are visible",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-002",
+                "description": "Select forum zone",
+                "test_module": "Forum posting",
+                "steps": ["Open forum home", "Select forum zone"],
+                "expected_result": "zone is selected",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-003",
+                "description": "Post detail return button navigates back to forum home",
+                "test_module": "Post detail navigation",
+                "steps": ["Open post detail", "Click return button"],
+                "expected_result": "The return button navigates back",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-004",
+                "description": "Submit reply",
+                "test_module": "Forum reply",
+                "steps": ["Input reply", "Submit reply"],
+                "expected_result": "reply is submitted",
+                "priority": "P0",
+            },
+            {
+                "id": "TC-005",
+                "description": "View reply message",
+                "test_module": "Messages",
+                "steps": ["Open message tab", "View reply message"],
+                "expected_result": "reply message is visible",
+                "priority": "P0",
+            },
+        ],
+        expected_count=10,
+        feedback_control_state=state,
+    )
+
+    main_cases = [
+        item for item in (result.get("cases") or [])
+        if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
+    ]
+    main_descriptions = " ".join(str(item.get("description") or "") for item in main_cases)
+    plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
+
+    assert "Pinned post displays" not in main_descriptions
+    assert "return button" not in main_descriptions
+    assert any(bool(item.get("workflow_contract_materialized_case")) for item in main_cases)
+    assert plan.get("workflow_blueprint_source") == "current_requirement_blueprint"
+    assert plan.get("linear_executable") is True
+
+
 def test_current_generation_main_chain_uses_real_precommit_consume_without_bridge_case() -> None:
     result = _run_cases(
         requirement=(

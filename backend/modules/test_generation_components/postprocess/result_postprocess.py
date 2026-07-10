@@ -18,7 +18,10 @@ from .result_postprocess_priority_semantics import (
     resolve_case_priority,
     score_case_priority,
 )
-from .streaming_execution_plan_ordering import apply_existing_execution_group_ordering
+from .streaming_execution_plan_ordering import (
+    apply_existing_execution_group_ordering,
+    assign_presentation_order,
+)
 
 _REASONING_LEAKAGE_SIGNALS = reasoning_leakage_signals()
 
@@ -297,6 +300,10 @@ def finalize_generated_cases(
             start_id=start_id,
             renumber_ids=True,
         )
+        result = assign_presentation_order(
+            result,
+            presentation_ordered_cases=result,
+        )
         result = apply_existing_execution_group_ordering(
             result,
             start_id=start_id,
@@ -328,6 +335,10 @@ def merge_cases_for_append(
         merged_result,
         start_id=1,
         renumber_ids=True,
+    )
+    merged_result = assign_presentation_order(
+        merged_result,
+        presentation_ordered_cases=merged_result,
     )
     merged_result = apply_existing_execution_group_ordering(
         merged_result,

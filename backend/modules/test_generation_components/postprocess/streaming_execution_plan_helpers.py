@@ -22,6 +22,7 @@ from .streaming_execution_plan_stage_inference import (
     contains_any_token,
     infer_workflow_phase,
     infer_workflow_stage_kind,
+    stage_kind_compatible,
     token_hit,
 )
 from .streaming_execution_plan_derived_workflow import (
@@ -225,6 +226,14 @@ _DEFAULT_MAIN_CHAIN_EXCLUSION_TOKEN_TUPLES: dict[str, tuple[str, ...]] = {
         "cannot",
         "not allowed",
         "not saved",
+        "返回按钮",
+        "返回上一级",
+        "放弃编辑",
+        "放弃",
+        "back button",
+        "return button",
+        "discard",
+        "abort",
     ),
     "boundary_capacity_tokens": (
         "边界",
@@ -263,6 +272,23 @@ _DEFAULT_MAIN_CHAIN_EXCLUSION_TOKEN_TUPLES: dict[str, tuple[str, ...]] = {
         "list",
         "card",
         "popup",
+        "图标",
+        "时间",
+        "头像",
+        "昵称",
+        "标识",
+        "标签",
+        "按钮",
+        "字段",
+        "icon",
+        "time",
+        "avatar",
+        "nickname",
+        "badge",
+        "label",
+        "tag",
+        "button",
+        "field",
     ),
     "downstream_visibility_tokens": (
         "新增",
@@ -289,6 +315,31 @@ def default_main_chain_exclusion_token_sets() -> dict[str, set[str]]:
         name: set(tokens)
         for name, tokens in _DEFAULT_MAIN_CHAIN_EXCLUSION_TOKEN_TUPLES.items()
     }
+
+
+def main_chain_goal_text(item: dict[str, Any]) -> str:
+    return " ".join(
+        str(item.get(field) or "")
+        for field in (
+            "test_module",
+            "description",
+            "test_input",
+            "expected_result",
+        )
+        if str(item.get(field) or "").strip()
+    )
+
+
+def main_chain_goal_action_text(item: dict[str, Any]) -> str:
+    return " ".join(
+        str(item.get(field) or "")
+        for field in (
+            "test_module",
+            "description",
+            "test_input",
+        )
+        if str(item.get(field) or "").strip()
+    )
 
 
 def workflow_transition_for_case(
@@ -395,13 +446,55 @@ def main_chain_exclusion_reason(
         return "boundary_capacity"
     if contains_any_token(text, blocking_negative_tokens):
         return "blocking_negative"
+    meta = dict(step_meta or {})
+
+    def _display_only_overridden_by_supported_stage_action() -> bool:
+        expected_stage_kind = str(meta.get("stage_kind") or "").strip().lower()
+        if not expected_stage_kind or action_support_conflict_fn is None:
+            return False
+        semantic_probe = dict(item)
+        semantic_probe["execution_group"] = "main_smoke"
+        semantic_probe["main_chain_stage_kind"] = expected_stage_kind
+        semantic_probe["main_chain_stage_label"] = str(meta.get("label") or stage_label or "").strip()
+        semantic_probe["action"] = str(meta.get("action") or stage_label or "").strip()
+        semantic_probe["main_chain_stage_module"] = str(meta.get("module") or "").strip()
+        semantic_probe["main_chain_stage_assertion"] = str(meta.get("assertion") or "").strip()
+        semantic_probe["main_chain_stage_description"] = str(meta.get("description") or "").strip()
+        semantic_probe["main_chain_stage_state_in"] = str(meta.get("state_in") or "").strip()
+        semantic_probe["main_chain_stage_state_out"] = str(meta.get("state_out") or "").strip()
+        semantic_probe["main_chain_stage_keywords"] = [
+            str(keyword).strip()
+            for keyword in (meta.get("match_keywords") or meta.get("keywords") or meta.get("aliases") or [])
+            if str(keyword).strip()
+        ]
+        semantic_probe["main_chain_stage_evidence"] = [
+            str(evidence).strip()
+            for evidence in (meta.get("evidence") or [])
+            if str(evidence).strip()
+        ]
+        return not bool(action_support_conflict_fn(semantic_probe))
+
+    goal_text = main_chain_goal_text(item)
+    goal_downstream_tokens = {
+        token
+        for token in downstream_visibility_tokens
+        if str(token).strip().lower()
+        not in {"visible", "visibility", "display", "displayed", "show", "shown"}
+    }
+    if goal_text and is_display_only_workflow_text(
+        goal_text,
+        display_only_tokens=display_only_tokens,
+        downstream_visibility_tokens=goal_downstream_tokens,
+    ):
+        if not _display_only_overridden_by_supported_stage_action():
+            return "display_only"
     if is_display_only_workflow_text(
         text,
         display_only_tokens=display_only_tokens,
         downstream_visibility_tokens=downstream_visibility_tokens,
     ):
-        return "display_only"
-    meta = dict(step_meta or {})
+        if not _display_only_overridden_by_supported_stage_action():
+            return "display_only"
     transition = workflow_transition_for_case(
         item,
         step_meta=meta,
@@ -414,19 +507,44 @@ def main_chain_exclusion_reason(
     )
     if not bool(transition.get("can_advance_main_flow")):
         return "non_advancing_transition"
+    expected_stage_kind = str(transition.get("stage_kind") or "").strip().lower()
+    goal_action_text = main_chain_goal_action_text(item)
+    goal_stage_kind = infer_workflow_stage_kind(goal_action_text or goal_text) if goal_text else "unknown"
+    goal_stage_kind_mismatch = bool(
+        workflow_blueprints_present and not stage_kind_compatible(expected_stage_kind, goal_stage_kind)
+    )
     semantic_probe = dict(item)
     semantic_probe["execution_group"] = "main_smoke"
-    semantic_probe["main_chain_stage_kind"] = str(transition.get("stage_kind") or "").strip()
+    semantic_probe["main_chain_stage_kind"] = expected_stage_kind
     semantic_probe["main_chain_stage_label"] = str(meta.get("label") or stage_label or "").strip()
     semantic_probe["action"] = str(transition.get("action") or "").strip()
+    semantic_probe["main_chain_stage_module"] = str(meta.get("module") or "").strip()
+    semantic_probe["main_chain_stage_assertion"] = str(meta.get("assertion") or "").strip()
+    semantic_probe["main_chain_stage_description"] = str(meta.get("description") or "").strip()
+    semantic_probe["main_chain_stage_state_in"] = str(meta.get("state_in") or "").strip()
+    semantic_probe["main_chain_stage_state_out"] = str(meta.get("state_out") or "").strip()
+    semantic_probe["main_chain_stage_keywords"] = [
+        str(keyword).strip()
+        for keyword in (meta.get("match_keywords") or meta.get("keywords") or meta.get("aliases") or [])
+        if str(keyword).strip()
+    ]
+    semantic_probe["main_chain_stage_evidence"] = [
+        str(evidence).strip()
+        for evidence in (meta.get("evidence") or [])
+        if str(evidence).strip()
+    ]
     if semantic_alignment_fn is not None:
         semantic_conflicts = semantic_alignment_fn([semantic_probe])
         if semantic_conflicts:
             return str(semantic_conflicts[0].get("reason") or "main_chain_semantic_conflict")
+    stage_action_supported = False
     if action_support_conflict_fn is not None:
         action_support_reason = action_support_conflict_fn(semantic_probe)
         if action_support_reason:
             return action_support_reason
+        stage_action_supported = True
+    if goal_stage_kind_mismatch and not stage_action_supported:
+        return "goal_stage_kind_not_compatible_with_blueprint"
     return ""
 
 

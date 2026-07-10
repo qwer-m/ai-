@@ -18,6 +18,10 @@ class _DummyProvider:
         self.last_stream_model = str(model or "")
         yield "[]"
 
+    def multimodal_generate(self, messages, model):
+        self.last_multimodal_model = str(model or "")
+        return "OCR OK"
+
 
 class _EmptyProvider(_DummyProvider):
     def generate(self, messages, model, max_tokens):
@@ -101,3 +105,15 @@ def test_compression_falls_back_to_main_provider_when_turbo_provider_fails():
     assert result == "[]"
     assert turbo_provider.last_generate_model == "kimi-k2.5"
     assert main_provider.last_generate_model == "deepseek-v4-flash"
+
+
+def test_image_analysis_uses_vl_model_on_main_provider():
+    provider = _DummyProvider()
+    client = AIClient(provider=provider)
+    client.model = "glm-5.1"
+    client.vl_model = "doubao-seed-2-0-pro-260215"
+
+    result = client.analyze_image("file://probe.png", prompt="OCR", db=None)
+
+    assert result == "OCR OK"
+    assert provider.last_multimodal_model == "doubao-seed-2-0-pro-260215"

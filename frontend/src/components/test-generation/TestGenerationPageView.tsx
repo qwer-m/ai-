@@ -69,6 +69,9 @@ type TestGenerationPageViewProps = {
     title: string;
     details: string[];
   } | null;
+  canOptimizeGeneration: boolean;
+  optimizingGeneration: boolean;
+  handleOptimizeGeneration: () => void | Promise<void>;
   handleCopyCurrent: () => void;
   toastMsg: string | null;
   toastType: 'success' | 'error';
@@ -129,6 +132,9 @@ export function TestGenerationPageView({
   displayCaseCount,
   funnelMetrics,
   errorInsight,
+  canOptimizeGeneration,
+  optimizingGeneration,
+  handleOptimizeGeneration,
   handleCopyCurrent,
   toastMsg,
   toastType,
@@ -245,6 +251,9 @@ export function TestGenerationPageView({
         finalCaseCount={finalCaseCount}
         displayCaseCount={displayCaseCount}
         funnelMetrics={funnelMetrics}
+        canOptimize={canOptimizeGeneration}
+        optimizing={optimizingGeneration}
+        onOptimize={handleOptimizeGeneration}
         onCopy={handleCopyCurrent}
         highlightRuleId={activeRuleFocus?.ruleId ?? null}
         highlightRuleText={activeRuleFocus?.ruleText ?? ''}

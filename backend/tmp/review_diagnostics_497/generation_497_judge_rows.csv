@@ -1,0 +1,9 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,帖子详情-图片查看,P2,P2,P2,P2,decided,p2_cap_guard,high,,全屏图片左右滑动切换不同图片及下载功能,REJECT,semantic_duplicate:TC-073,False,False,False
+TC-006,作文区-论坛详情,P2,P0,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P0,suggested=P2",作文论坛详情-不展示图片时只显示作文标题,REJECT,semantic_duplicate:TC-008,False,False,False
+TC-013,发帖限制-边界,P2,P2,P2,P2,decided,model_semantic_consistent,high,,发帖限制-论坛内停留时长不计入学习时长,REJECT,semantic_duplicate:TC-012,False,False,False
+TC-024,论坛首页-列表TAB排序,P2,P2,P2,P2,decided,p2_cap_guard,high,,热门排序时间衰减因子T-发布超过72小时后T=0验证,REJECT,semantic_duplicate:TC-025,False,False,False
+TC-041,发帖限制-学习奖励,P2,P2,P2,P2,decided,p2_cap_guard,high,,当天学习超过15分钟额外获得一次发帖回帖机会,REJECT,semantic_duplicate:TC-012,False,False,False
+TC-042,发帖限制-次数管控,P2,P2,P2,P2,decided,model_semantic_consistent,high,,每日发帖回帖基础5次限制-第6次操作被拦截,REJECT,semantic_duplicate:TC-012,False,False,False
+TC-057,帖子详情-回复内容,P2,P2,P2,P2,decided,p2_cap_guard,high,,回复排序热门-按点赞数与子回复点赞数之和倒序排列,PENDING,contains_pending_logic,False,True,False
+TC-067,论坛首页-内容列表,P2,P2,P2,P2,decided,model_semantic_consistent,high,,用户帖地域信息和学校信息获取不到时不展示,PENDING,contains_pending_logic,False,True,False

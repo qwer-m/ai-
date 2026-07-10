@@ -1157,6 +1157,7 @@ def test_build_review_decision_summary_payload_preserves_summary_counts_and_merg
         final_shortfall_supplement_applied=True,
         final_shortfall_supplement_count=3,
         final_shortfall_supplement_reason="expected_count_floor",
+        final_shortfall_supplement_debug={"batches": [{"response_chars": 100}]},
         generation_mode="standard_regression",
         effective_generation_coverage_mode_source="explicit",
         explicit_generation_mode_override=True,
@@ -1189,6 +1190,7 @@ def test_build_review_decision_summary_payload_preserves_summary_counts_and_merg
     assert summary["final_target_floor_count"] == 0
     assert summary["final_floor_recovery_reason"] == ""
     assert summary["final_confirmed_conflict_drop_count"] == 0
+    assert summary["final_shortfall_supplement_debug"] == {"batches": [{"response_chars": 100}]}
     assert summary["review_fill_source"] == "none"
     assert summary["candidate_by_pass"] == {"primary": 6, "gap": 2}
     assert summary["drop_by_review_gate_count"] == 1
@@ -1228,6 +1230,7 @@ def test_build_review_decision_summary_payload_preserves_explicit_target_max_and
         final_shortfall_supplement_applied=False,
         final_shortfall_supplement_count=0,
         final_shortfall_supplement_reason="",
+        final_shortfall_supplement_debug={},
         generation_mode=None,
         effective_generation_coverage_mode_source=None,
         explicit_generation_mode_override=False,

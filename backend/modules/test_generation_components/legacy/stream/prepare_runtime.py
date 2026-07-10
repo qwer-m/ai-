@@ -5,6 +5,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from .runtime import resolve_lazy_attr
+
 
 @dataclass(frozen=True)
 class PrepareRuntimeState:
@@ -156,13 +158,14 @@ def resolve_append_existing_state(
     append_lookup_started = time.perf_counter()
     from sqlalchemy import desc
 
-    query = db.query(test_generation_model).filter(
-        test_generation_model.project_id == project_id,
-        test_generation_model.requirement_text == original_requirement,
+    resolved_model = resolve_lazy_attr(test_generation_model)
+    query = db.query(resolved_model).filter(
+        resolved_model.project_id == project_id,
+        resolved_model.requirement_text == original_requirement,
     )
     if user_id:
-        query = query.filter(test_generation_model.user_id == user_id)
-    existing_entry = query.order_by(desc(test_generation_model.created_at)).first()
+        query = query.filter(resolved_model.user_id == user_id)
+    existing_entry = query.order_by(desc(resolved_model.created_at)).first()
 
     if existing_entry and existing_entry.generated_result:
         existing_cases, existing_unique_count, start_id = prepare_append_existing_cases_fn(

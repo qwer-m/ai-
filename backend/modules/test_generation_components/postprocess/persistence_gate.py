@@ -10,6 +10,7 @@ from .execution_plan_validator import (
 
 
 _VALID_GATE_MODES = {"shadow", "enforce"}
+_SOFT_QUALITY_FAILURES = {"final_count_below_min_acceptable"}
 
 
 def _to_int(value: Any, default: int = 0) -> int:
@@ -103,7 +104,16 @@ def build_case_quality_metrics(
     if filtered_semantic_duplicate_reject_count is not None:
         metrics["filtered_semantic_duplicate_reject_count"] = int(filtered_semantic_duplicate_reject_count)
     set_truthy_diagnostic_flag(metrics, "quantity_shortfall_advisory", quantity_shortfall_advisory)
+    set_truthy_diagnostic_flag(
+        metrics,
+        "quantity_shortfall_warning",
+        bool(min_acceptable_final > 0 and final_count < min_acceptable_final),
+    )
     return metrics
+
+
+def _enforce_min_acceptable_final(settings: Any = None) -> bool:
+    return bool(getattr(settings, "CASE_QUALITY_ENFORCE_MIN_ACCEPTABLE_FINAL", False))
 
 
 def build_case_quality_failures(
@@ -123,6 +133,7 @@ def build_case_quality_failures(
     max_final_duplicates: int | None = None,
     max_final_misordered: int | None = None,
     max_role_mismatch: int = 5,
+    enforce_min_acceptable_final: bool = False,
 ) -> list[str]:
     failures = [str(item).strip() for item in (existing_failures or []) if str(item).strip()]
 
@@ -130,7 +141,12 @@ def build_case_quality_failures(
         if name not in failures:
             failures.append(name)
 
-    if min_acceptable_final > 0 and final_count < min_acceptable_final and not quantity_shortfall_advisory:
+    if (
+        enforce_min_acceptable_final
+        and min_acceptable_final > 0
+        and final_count < min_acceptable_final
+        and not quantity_shortfall_advisory
+    ):
         add("final_count_below_min_acceptable")
     if quality_score is not None:
         grade = str(quality_score_grade or "").strip().lower()
@@ -184,6 +200,7 @@ def summarize_persistence_case_quality_gate(
     max_final_duplicates = _setting_int(settings, "CASE_QUALITY_MAX_FINAL_SCENARIO_DUPLICATES", 0)
     max_final_misordered = _setting_int(settings, "CASE_QUALITY_MAX_FINAL_FLOW_MISORDERED", 0)
     max_role_mismatch = _setting_int(settings, "CASE_QUALITY_MAX_ROLE_MISMATCH", 5)
+    enforce_min_acceptable_final = _enforce_min_acceptable_final(settings)
 
     quantity_shortfall_advisory = is_candidate_insufficient_underfill(generation)
     failed_checks = build_case_quality_failures(
@@ -200,6 +217,7 @@ def summarize_persistence_case_quality_gate(
         max_final_duplicates=max_final_duplicates,
         max_final_misordered=max_final_misordered,
         max_role_mismatch=max_role_mismatch,
+        enforce_min_acceptable_final=enforce_min_acceptable_final,
     )
 
     metrics = build_case_quality_metrics(
@@ -239,15 +257,18 @@ def evaluate_persistence_gate(
     )
     quality = dict(quality_gate or {})
     quality_failures = [str(item) for item in (quality.get("failed_checks") or []) if str(item).strip()]
+    soft_quality_failures = [item for item in quality_failures if item in _SOFT_QUALITY_FAILURES]
+    hard_quality_failures = [item for item in quality_failures if item not in _SOFT_QUALITY_FAILURES]
     empty_result = not bool(cases)
     gate_mode = _gate_mode(settings)
     execution_would_block = not bool(execution_validation.get("passed"))
-    quality_would_block = bool(quality_failures or empty_result)
+    quality_would_warn = bool(soft_quality_failures)
+    quality_would_block = bool(hard_quality_failures or empty_result)
     blocked = bool(quality_would_block or (gate_mode == "enforce" and execution_would_block))
     failure_code = ""
     if empty_result:
         failure_code = "EMPTY_GENERATED_RESULT"
-    elif quality_failures:
+    elif hard_quality_failures:
         failure_code = "LOW_QUALITY_GENERATED_CASES"
     elif blocked:
         failure_code = "execution_plan_failed"
@@ -258,6 +279,9 @@ def evaluate_persistence_gate(
         "blocked": blocked,
         "failure_code": failure_code,
         "quality_would_block": quality_would_block,
+        "quality_would_warn": quality_would_warn,
+        "quality_soft_failures": soft_quality_failures,
+        "quality_hard_failures": hard_quality_failures,
         "execution_plan_would_block": execution_would_block,
         "quality_gate": quality,
         "execution_plan_validation": execution_validation,

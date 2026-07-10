@@ -16,7 +16,7 @@ from .persistence_quality_ledger import (
 from .persistence_status_text import render_stop_reason_text as _render_stop_reason_text
 from .persistence_timing_events import sanitize_timing_events as _sanitize_timing_events
 from .persistence_timing_ledger import build_stream_timing_ledger
-from .runtime import LazyAttrProxy, call_component
+from .runtime import LazyAttrProxy, call_component, resolve_lazy_attr
 
 
 LogEntry = LazyAttrProxy("core.db.models", "LogEntry")
@@ -69,8 +69,16 @@ def build_context_compression_diagnostics(*args: Any, **kwargs: Any) -> Any:
     return call_component("...prompting.generation_diagnostics", "build_context_compression_diagnostics", *args, **kwargs)
 
 
+def build_context_source_log(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...prompting.generation_diagnostics", "build_context_source_log", *args, **kwargs)
+
+
 def build_coverage_diagnostics(*args: Any, **kwargs: Any) -> Any:
     return call_component("...prompting.generation_diagnostics", "build_coverage_diagnostics", *args, **kwargs)
+
+
+def build_execution_suite(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...execution.execution_suite", "build_execution_suite", *args, **kwargs)
 
 
 def build_supplement_closed_loop_instruction(*args: Any, **kwargs: Any) -> Any:
@@ -192,6 +200,44 @@ def _build_quality_ledger_payload(
     )
 
 
+def _emit_stream_context_source_log(
+    *,
+    db: Any,
+    project_id: int,
+    user_id: int | None,
+    context_result: dict[str, Any] | None,
+    gate_debug: dict[str, Any] | None,
+    doc_type: str,
+    compress: bool,
+    requirement_length: int,
+) -> None:
+    if not db or not STAGE25_SWITCHES.final_context_source_log_enabled:
+        return
+    try:
+        payload = build_context_source_log(
+            context_result=context_result,
+            gate_debug=gate_debug,
+            doc_type=doc_type,
+            compress=compress,
+            requirement_length=requirement_length,
+        )
+        db.add(
+            LogEntry(
+                project_id=project_id,
+                user_id=user_id,
+                log_type="system",
+                message=f"GEN_CONTEXT_SOURCE:{json.dumps(payload, ensure_ascii=False)}",
+            )
+        )
+        db.commit()
+    except Exception as exc:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print(f"Failed to emit stream context source log: {exc}")
+
+
 class LegacyGenerationStreamPersistMixin:
 
     def _stream_persist_phase(
@@ -275,12 +321,12 @@ class LegacyGenerationStreamPersistMixin:
             generation_timing_events = postprocess_payload.generation_timing_events
 
             parsed_result = _normalize_missing_priority_final_cases(parsed_result, requirement_text=requirement)
-            stream_quality_gate_result = summarize_case_quality_gate(parsed_result if isinstance(parsed_result, list) else [])
+            gate_candidate_cases = parsed_result if isinstance(parsed_result, list) else []
+            stream_quality_gate_result = summarize_case_quality_gate(gate_candidate_cases)
             stream_quality_gate_result = merge_contract_quality_gate(
                 stream_quality_gate_result,
-                summarize_persistable_case_contract(parsed_result),
+                summarize_persistable_case_contract(gate_candidate_cases),
             )
-            parsed_result = project_persistable_cases(parsed_result)
             stream_quality_gate_result = summarize_persistence_case_quality_gate(
                 stream_quality_gate_result,
                 generation_summary=generation_summary_payload,
@@ -288,15 +334,14 @@ class LegacyGenerationStreamPersistMixin:
                 judge_summary=judge_summary_payload,
                 settings=settings,
             )
-            persistence_preview = parsed_result
+            persistence_preview = gate_candidate_cases
             if append and existing_entry:
                 persistence_preview = merge_cases_for_append(
                     existing_cases,
-                    parsed_result,
+                    gate_candidate_cases,
                     deduplicate_test_cases_fn=deduplicate_test_cases,
                     reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
                 )
-            persistence_preview = project_persistable_cases(persistence_preview)
             stream_quality_gate_result = merge_contract_quality_gate(
                 stream_quality_gate_result,
                 summarize_persistable_case_contract(persistence_preview),
@@ -388,25 +433,31 @@ class LegacyGenerationStreamPersistMixin:
                 yield f"\n@@STATUS@@:生成结果未通过落库门禁{failure_detail}\n"
                 yield f"Error: {failure_code}{failure_detail}\n"
                 return
-            parsed_result = persistence_gate_result.get("cases") if isinstance(persistence_gate_result.get("cases"), list) else []
+            gate_passed_cases = (
+                persistence_gate_result.get("cases")
+                if isinstance(persistence_gate_result.get("cases"), list)
+                else []
+            )
+            parsed_result = project_persistable_cases(gate_passed_cases)
             cleaned_response = json.dumps(parsed_result, ensure_ascii=False)
             if db:
+                test_generation_model = resolve_lazy_attr(TestGeneration)
                 if overwrite:
                     from sqlalchemy import desc
 
-                    query = db.query(TestGeneration).filter(
-                        TestGeneration.project_id == project_id,
-                        TestGeneration.requirement_text == original_requirement,
+                    query = db.query(test_generation_model).filter(
+                        test_generation_model.project_id == project_id,
+                        test_generation_model.requirement_text == original_requirement,
                     )
                     if user_id:
-                        query = query.filter(TestGeneration.user_id == user_id)
-                    existing_entry_overwrite = query.order_by(desc(TestGeneration.created_at)).first()
+                        query = query.filter(test_generation_model.user_id == user_id)
+                    existing_entry_overwrite = query.order_by(desc(test_generation_model.created_at)).first()
                     if existing_entry_overwrite:
                         existing_entry_overwrite.generated_result = cleaned_response
                         db.commit()
                         persisted_generation_id = int(existing_entry_overwrite.id or 0) or None
                     else:
-                        new_entry = TestGeneration(
+                        new_entry = test_generation_model(
                             requirement_text=original_requirement,
                             generated_result=cleaned_response,
                             project_id=project_id,
@@ -422,7 +473,7 @@ class LegacyGenerationStreamPersistMixin:
                     db.commit()
                     persisted_generation_id = int(existing_entry.id or 0) or None
                 else:
-                    new_entry = TestGeneration(
+                    new_entry = test_generation_model(
                         requirement_text=original_requirement,
                         generated_result=cleaned_response,
                         project_id=project_id,
@@ -447,6 +498,29 @@ class LegacyGenerationStreamPersistMixin:
 
                 full_input = (system_prompt or "") + requirement
                 actual_model = _select_generation_model(client, full_input)
+                execution_suite_payload = build_execution_suite(gate_passed_cases)
+                yield add_diagnostic_log(
+                    db=db,
+                    log_entry_type=LogEntry,
+                    project_id=project_id,
+                    user_id=user_id,
+                    payload={
+                        "kind": "generation_execution_suite",
+                        "generation_id": persisted_generation_id,
+                        "project_id": project_id,
+                        "request_id": request_id,
+                        "source": "persistence_gate_pre_projection",
+                        "case_count": int(execution_suite_payload.get("case_count") or 0)
+                        if isinstance(execution_suite_payload, dict)
+                        else 0,
+                        "execution_readiness": str(execution_suite_payload.get("execution_readiness") or "")
+                        if isinstance(execution_suite_payload, dict)
+                        else "",
+                        "execution_suite": execution_suite_payload
+                        if isinstance(execution_suite_payload, dict)
+                        else {},
+                    },
+                )
                 compression_diag_payload = build_context_compression_diagnostics(
                     context_result=context_result if isinstance(context_result, dict) else {},
                 )
@@ -554,7 +628,7 @@ class LegacyGenerationStreamPersistMixin:
 
                 db.commit()
 
-                self._emit_context_source_log(
+                _emit_stream_context_source_log(
                     db=db,
                     project_id=project_id,
                     user_id=user_id,

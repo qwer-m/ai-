@@ -493,6 +493,49 @@ def test_apply_final_independent_case_ordering_applies_suite_order_after_governa
     assert summary["execution_orchestration_plan"]["side_suites"][0]["case_ids"] == ["TC-permission"]
 
 
+def test_apply_final_independent_case_ordering_preserves_presentation_order_separately() -> None:
+    def govern(_requirement: str, cases: list[dict], **_kwargs: object) -> tuple[list[dict], dict]:
+        return [dict(item) for item in reversed(cases)], {"applied": True, "flow_reordered": True}
+
+    main_case = _case("TC-main")
+    main_case["execution_group"] = "main_smoke"
+    display_case = _case("TC-display")
+    display_case["execution_group"] = "display"
+    display_case["candidate_index"] = 7
+    display_case["origin_case_id"] = "RAW-display"
+    permission_case = _case("TC-permission")
+    permission_case["execution_group"] = "permission"
+    exception_case = _case("TC-exception")
+    exception_case["execution_group"] = "exception"
+
+    ordered, summary = apply_final_independent_case_ordering(
+        [display_case, main_case, permission_case, exception_case],
+        requirement="真实需求",
+        start_id=1,
+        flow_project_profile={},
+        flow_profile_with_scenario_policy_fn=_flow_profile,
+        govern_cases_by_flow_structure_fn=govern,
+    )
+
+    assert [item["id"] for item in ordered] == [
+        "TC-main",
+        "TC-permission",
+        "TC-exception",
+        "TC-display",
+    ]
+    assert [item["execution_sequence"] for item in ordered] == [1, 2, 3, 4]
+    assert {item["id"]: item["presentation_order"] for item in ordered} == {
+        "TC-main": 1,
+        "TC-exception": 2,
+        "TC-permission": 3,
+        "TC-display": 4,
+    }
+    display_result = next(item for item in ordered if item["id"] == "TC-display")
+    assert display_result["candidate_index"] == 7
+    assert display_result["origin_case_id"] == "RAW-display"
+    assert summary["execution_group_order"] == ["main_smoke", "permission", "exception", "display"]
+
+
 def test_apply_final_independent_case_ordering_does_not_mutate_inputs_and_filters_non_dicts() -> None:
     def govern(_requirement: str, cases: list[dict], **_kwargs: object) -> tuple[list[dict], dict]:
         cases[0]["description"] = "governance-mutated-copy"

@@ -14,6 +14,9 @@ from modules.test_generation_components.services.final_case_learning_service imp
     FinalCaseLearningService,
     parse_test_cases_spreadsheet_bytes,
 )
+from modules.test_generation_components.services.generation_optimization_service import (
+    GenerationOptimizationService,
+)
 from modules.test_generation_components.services.history_service import TestGenerationHistoryService
 from modules.test_generation_components.execution.execution_suite import convert_execution_suite_to_excel
 
@@ -81,6 +84,20 @@ class ApplyEvaluationLearningCandidatesRequest(BaseModel):
     project_id: int
     candidates: list[dict[str, Any]] = Field(default_factory=list)
     dry_run: bool = Field(default=True)
+
+
+class TestGenerationOptimizeRequest(BaseModel):
+    apply: bool = Field(default=True)
+    max_new_cases: int = Field(default=30, ge=1, le=60)
+
+
+class TestGenerationPreviewOptimizeRequest(BaseModel):
+    project_id: int
+    requirement_text: str = Field(default="")
+    cases: list[dict[str, Any]] = Field(default_factory=list)
+    diagnostics: Any = Field(default_factory=dict)
+    apply: bool = Field(default=True)
+    max_new_cases: int = Field(default=30, ge=1, le=60)
 
 
 @router.get("/test-generations")
@@ -286,6 +303,68 @@ def export_test_generation_execution_suite_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=execution_suite.xlsx"},
     )
+
+
+@router.post("/test-generations/{generation_id}/optimize")
+def optimize_test_generation(
+    generation_id: int,
+    req: TestGenerationOptimizeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    status, payload = GenerationOptimizationService(db).optimize_generation(
+        generation_id=generation_id,
+        user_id=current_user.id,
+        apply=bool(req.apply),
+        max_new_cases=int(req.max_new_cases),
+    )
+    if status == "not_found":
+        raise HTTPException(status_code=404, detail="Test generation not found")
+    if status == "invalid_source":
+        raise HTTPException(status_code=400, detail=payload or {"message": "Invalid source generation"})
+    if status in {"patch_invalid", "drop_ratio_exceeded"}:
+        raise HTTPException(status_code=400, detail=payload or {"message": status})
+    if status == "model_error":
+        raise HTTPException(status_code=502, detail=payload or {"message": "Model call failed"})
+    if status == "model_timeout":
+        raise HTTPException(status_code=504, detail=payload or {"message": "Optimization model timed out"})
+    if status == "quality_gate_failed":
+        raise HTTPException(status_code=409, detail=payload or {"message": "Optimized result failed quality gate"})
+    if status == "persistence_failed":
+        raise HTTPException(status_code=500, detail=payload or {"message": "Optimized result persistence failed"})
+    return payload
+
+
+@router.post("/test-generations/optimize-preview")
+def optimize_preview_test_generation(
+    req: TestGenerationPreviewOptimizeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    status, payload = GenerationOptimizationService(db).optimize_preview_generation(
+        project_id=int(req.project_id),
+        user_id=current_user.id,
+        requirement_text=req.requirement_text or "",
+        cases=req.cases or [],
+        diagnostics=req.diagnostics,
+        apply=bool(req.apply),
+        max_new_cases=int(req.max_new_cases),
+    )
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail="Project not found")
+    if status == "invalid_source":
+        raise HTTPException(status_code=400, detail=payload or {"message": "Invalid preview generation"})
+    if status in {"patch_invalid", "drop_ratio_exceeded"}:
+        raise HTTPException(status_code=400, detail=payload or {"message": status})
+    if status == "model_error":
+        raise HTTPException(status_code=502, detail=payload or {"message": "Model call failed"})
+    if status == "model_timeout":
+        raise HTTPException(status_code=504, detail=payload or {"message": "Optimization model timed out"})
+    if status == "quality_gate_failed":
+        raise HTTPException(status_code=409, detail=payload or {"message": "Optimized result failed quality gate"})
+    if status == "persistence_failed":
+        raise HTTPException(status_code=500, detail=payload or {"message": "Optimized result persistence failed"})
+    return payload
 
 
 @router.post("/test-generations/{generation_id}/learn-from-final-cases")

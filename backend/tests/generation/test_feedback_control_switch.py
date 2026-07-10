@@ -624,6 +624,65 @@ def test_priority_pool_requirement_domain_filter_keeps_matching_schedule_samples
     assert meta.get("retrieval_domain_matched_sample_count") == 1
 
 
+def test_priority_pool_ambiguous_registered_domain_blocks_historical_profile(monkeypatch) -> None:
+    def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
+        return {
+            "generation_id": 496,
+            "samples": [
+                {
+                    "case_id": "TC-COURSE",
+                    "title": "RULE-201 course member access",
+                    "reason_category": "core_flow",
+                    "expected_priority": "P1",
+                    "signal_type": "positive",
+                    "pattern_usage": "prefer",
+                    "pattern_summary": "course member permission unlock",
+                    "user_comment": "keep this profile",
+                },
+                {
+                    "case_id": "TC-WF",
+                    "title": "workflow blueprint course access",
+                    "reason_category": "main_smoke_flow",
+                    "pattern_category": "main_smoke_flow",
+                    "expected_priority": "P0",
+                    "signal_type": "positive",
+                    "pattern_usage": "prefer",
+                    "pattern_grain": "workflow_blueprint",
+                    "pattern_summary": "workflow blueprint main smoke flow course member access",
+                    "workflow_blueprint": {
+                        "id": "course-access",
+                        "steps": [
+                            {"id": "entry", "label": "Open course"},
+                            {"id": "unlock", "label": "Unlock member course"},
+                        ],
+                    },
+                },
+            ],
+        }
+
+    monkeypatch.setattr(control_builder, "load_priority_sample_pool", fake_load_priority_sample_pool)
+    monkeypatch.setattr(
+        control_builder,
+        "retrieve_priority_sample_patterns",
+        lambda **_: [{"sample_index": 0, "sample_id": ""}],
+    )
+
+    state = control_builder._build_from_priority_sample_pool(
+        db=object(),
+        project_id=1,
+        user_id=1,
+        requirement_text="forum optimization with essay writing and course member permission signals",
+    )
+
+    assert state.must_cover_rules == []
+    assert state.quality_fix_hints == []
+    assert state.workflow_blueprints == []
+    assert state.source_meta.get("retrieval_fallback") == "domain_unstable"
+    assert state.source_meta.get("retrieval_domain_gate_blocked") is True
+    assert state.source_meta.get("retrieval_domain_gate_status") == "ambiguous_registered_domain"
+    assert "manual_quality_profile" not in state.source_meta
+
+
 def test_normalize_priority_sample_generates_pattern_summary() -> None:
     normalized = normalize_priority_sample(
         {

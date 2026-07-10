@@ -64,6 +64,7 @@ def default_review_llm_runtime_debug() -> dict[str, Any]:
         "retry_reason": "",
         "retry_model": "",
         "retry_attempts": [],
+        "fallback_skipped_reason": "",
         "retry_response_len": 0,
         "retry_parse_success": False,
         "retry_mapped_count": 0,

@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 
 from core.authn.auth import create_access_token, get_password_hash, verify_password
 from core.settings.config import settings
-from core.settings.config_manager import config_manager
 from modules.system_components.repositories.user_repository import UserRepository
 
 logger = logging.getLogger(__name__)
@@ -50,19 +49,6 @@ class AuthService:
             hashed_password=get_password_hash(password),
         )
 
-        try:
-            config_manager.create_config(
-                self.db,
-                provider="dashscope",
-                model_name="",
-                vl_model_name="",
-                turbo_model_name="",
-                api_key="",
-                activate=True,
-                user_id=user.id,
-            )
-        except Exception as exc:
-            logger.warning("Failed to init config for user %s: %s", user.id, exc)
         return user
 
     def login(self, *, username: str, password: str) -> dict[str, str]:

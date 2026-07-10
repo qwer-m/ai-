@@ -249,7 +249,7 @@ def build_gap_fill_prompt(
     current_biz_key = str(current_biz_key or "").strip() or "unknown"
     missing_rules = [str(item).strip() for item in (missing_rules or []) if str(item).strip()]
     missing_text = _build_coverage_gap_text(coverage_result=coverage_result, missing_rules=missing_rules)
-    existing_cases_text = _dump_cases_for_prompt(existing_cases, max_items=80)
+    existing_cases_text = _dump_cases_for_prompt(existing_cases, max_items=40)
 
     prompt = f"""
 You are the QA Architect Agent.
@@ -267,13 +267,15 @@ You are the QA Architect Agent.
 {missing_text}
 
 强约束（必须遵守）：
-1. 只允许生成“新增补齐用例”，不能重写已有用例。
-2. 只补上述 coverage 缺口，不要新增无关规则。
-3. 不允许生成与已有用例验证目标相同的重复项。
-4. 不允许跨 biz_key 引入其他业务逻辑。
-5. 若信息不足，使用“待确认”，不要自行杜撰。
-6. 缺口优先级：exception/risk > boundary > happy。
-7. 若继续生成无法带来新的覆盖增益（规则/类型/风险），直接返回空数组。
+1. 对【待补缺口】中每一条 rule_id/missing_types，至少生成 1 条能直接命中 rule 文本的新增用例。
+2. 新用例的 description、steps、expected_result 必须包含该缺口的关键业务对象、动作和可断言结果，不能只写泛化描述。
+3. 只允许生成“新增补齐用例”，不能重写已有用例。
+4. 只补上述 coverage 缺口，不要新增无关规则。
+5. 不允许生成与已有用例验证目标相同的重复项。
+6. 不允许跨 biz_key 引入其他业务逻辑。
+7. 若信息不足，使用“待确认”，不要自行杜撰。
+8. 缺口优先级：exception/risk > boundary > happy。
+9. 若继续生成无法带来新的覆盖增益（规则/类型/风险），直接返回空数组。
 
 输出要求：
 - 只返回 JSON 数组，不要输出任何解释。

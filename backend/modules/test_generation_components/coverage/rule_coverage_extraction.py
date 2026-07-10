@@ -20,6 +20,141 @@ _HEADING_PATTERNS = (
 
 _GENERIC_NON_BLOCKING_RULES = generic_non_blocking_rules()
 
+_NON_REQUIREMENT_SECTION_HEADERS = {
+    "[parsed requirement evidence]",
+    "[multimodal evidence alignment]",
+    "[requirement understanding]",
+}
+
+_LIST_ITEM_PREFIX_RE = re.compile(
+    r"^\s*(?:[-*•]\s+|\d+[\.\)、]\s*|[a-zA-Z]{1,6}[\.\)]\s*|[一二三四五六七八九十]+[、\.\)]\s*)"
+)
+
+
+def _is_bracket_section_header(line: str) -> bool:
+    normalized = _normalize_text(line).strip()
+    return bool(normalized.startswith("[") and normalized.endswith("]") and len(normalized) <= 120)
+
+
+def _is_non_requirement_section_header(line: str) -> bool:
+    return _normalize_text(line).strip().lower() in _NON_REQUIREMENT_SECTION_HEADERS
+
+
+def _looks_like_parse_diagnostic_line(line: str) -> bool:
+    normalized = _normalize_text(line).strip()
+    lowered = normalized.lower()
+    if not normalized:
+        return False
+    if lowered.startswith(("visual_fact:", "aligned_evidence:", "invalid_visual_sources:")):
+        return True
+    if lowered.startswith(("{", "}", '"version"', '"visual_facts"', '"aligned_evidence"')):
+        return True
+    if " -> requirement score=" in lowered:
+        return True
+    if re.match(r"^-\s*\w+:\s*filename=.*\bstrategy=", normalized, flags=re.IGNORECASE):
+        return True
+    if re.match(r"^-?\s*(pdf_visual|prototype|attachment):", normalized, flags=re.IGNORECASE) and (
+        "ocr_source=" in lowered or "cloud_fallback=" in lowered
+    ):
+        return True
+    return False
+
+
+def _strip_non_requirement_sections(text: str) -> str:
+    lines: list[str] = []
+    skipping = False
+    for raw_line in str(text or "").splitlines():
+        line = _normalize_text(raw_line).strip()
+        if _is_non_requirement_section_header(line):
+            skipping = True
+            continue
+        if _is_bracket_section_header(line):
+            skipping = False
+        if skipping or _looks_like_parse_diagnostic_line(line):
+            continue
+        lines.append(raw_line)
+    return "\n".join(lines)
+
+
+def _starts_new_logical_line(line: str) -> bool:
+    normalized = _normalize_text(line).strip()
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    return bool(
+        normalized.startswith("#")
+        or normalized.startswith("[")
+        or lowered.startswith(("biz_key:", "test_module:", "priority:"))
+        or _LIST_ITEM_PREFIX_RE.match(normalized)
+    )
+
+
+def _join_line_fragment(left: str, right: str) -> str:
+    left = _normalize_text(left).strip()
+    right = _normalize_text(right).strip()
+    if not left:
+        return right
+    if not right:
+        return left
+    if left.endswith(("。", "；", ";", "！", "!", "？", "?")):
+        return f"{left}\n{right}"
+    left_tail = left[-1:]
+    right_head = right[:1]
+    separator = " " if left_tail.isascii() and right_head.isascii() and left_tail.isalnum() and right_head.isalnum() else ""
+    return f"{left}{separator}{right}"
+
+
+def _looks_like_continuation_fragment(line: str) -> bool:
+    normalized = _normalize_text(line).strip()
+    if not normalized:
+        return False
+    if _starts_new_logical_line(normalized):
+        return False
+    chinese_chars = re.findall(r"[\u4e00-\u9fff]", normalized)
+    if len(chinese_chars) <= 4:
+        return True
+    return bool(normalized.startswith(("则", "若", "且", "并", "或", "和", "与", "及", "、", "，", "。", "：", ":")))
+
+
+def _should_merge_logical_line(current: str, line: str) -> bool:
+    current = _normalize_text(current).strip()
+    line = _normalize_text(line).strip()
+    if not current or not line:
+        return False
+    if current.endswith(("。", "；", ";", "！", "!", "？", "?")):
+        return False
+    if current in _GENERIC_NON_BLOCKING_RULES:
+        return False
+    if _LIST_ITEM_PREFIX_RE.match(current):
+        return True
+    return _looks_like_continuation_fragment(line)
+
+
+def _iter_logical_requirement_lines(text: str) -> list[str]:
+    logical_lines: list[str] = []
+    current = ""
+    for raw_line in str(text or "").splitlines():
+        line = _normalize_text(raw_line).strip()
+        if not line:
+            if current:
+                logical_lines.append(current)
+                current = ""
+            continue
+        if current and not _starts_new_logical_line(line) and _should_merge_logical_line(current, line):
+            merged = _join_line_fragment(current, line)
+            if "\n" in merged:
+                logical_lines.append(current)
+                current = line
+            else:
+                current = merged
+            continue
+        if current:
+            logical_lines.append(current)
+        current = line
+    if current:
+        logical_lines.append(current)
+    return logical_lines
+
 def _looks_like_heading_or_fragment(line: str) -> bool:
     normalized = _normalize_text(line).strip()
     if not normalized:
@@ -246,7 +381,7 @@ def _classify_requirement_rule(rule_text: str) -> dict[str, Any]:
 
 def _extract_requirement_rules(requirement_context: str) -> list[dict[str, Any]]:
     """中文注释：解析 requirement_context，提取规则级条目（支持按 biz_key 分组文本）。"""
-    text = _normalize_text(requirement_context).strip()
+    text = _normalize_text(_strip_non_requirement_sections(requirement_context)).strip()
     if not text:
         return []
 
@@ -254,7 +389,7 @@ def _extract_requirement_rules(requirement_context: str) -> list[dict[str, Any]]
     seen: set[tuple[str, str, str]] = set()
     current_biz_key = "unknown"
 
-    for raw_line in text.splitlines():
+    for raw_line in _iter_logical_requirement_lines(text):
         line = _normalize_text(raw_line).strip()
         if not line:
             continue
@@ -301,6 +436,13 @@ def _extract_requirement_rules(requirement_context: str) -> list[dict[str, Any]]
         for sentence in re.split(r"[\n。；;]+", text):
             normalized = str(sentence or "").strip()
             if len(normalized) < 6:
+                continue
+            normalized = re.sub(r"^\s*[-*•]\s*", "", normalized).strip()
+            if _looks_like_heading_or_fragment(normalized):
+                continue
+            if _is_low_confidence_requirement_discussion(normalized):
+                continue
+            if not _has_rule_action_signal(normalized) and not _extract_rule_id(normalized):
                 continue
             rule_id = _extract_rule_id(normalized) or f"RULE-{len(rules) + 1:03d}"
             key = (rule_id, normalized, "unknown")

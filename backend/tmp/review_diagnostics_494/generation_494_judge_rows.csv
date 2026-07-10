@@ -1,0 +1,10 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-002,作文区-详情页,P2,P0,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P0,suggested=P2",作文论坛详情页不展示图片时只显示作文标题,REJECT,semantic_duplicate:TC-005,False,False,False
+TC-005,作文区-详情页,P2,P2,P2,P2,decided,model_semantic_consistent,high,,作文详情页图片最大数量边界验证（与原论坛上传限制一致）,REJECT,semantic_duplicate:TC-009,False,False,False
+TC-006,作文区-详情页,P1,P0,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P0,suggested=P2",作文详情页图片缩略图加载失败时展示占位图或错误状态,PENDING,contains_pending_logic,False,True,False
+TC-008,作文区-详情页,P2,P2,P2,P2,decided,model_semantic_consistent,high,,作文论坛详情页展示图片时点击缩略图可放大查看并左右滑动,REJECT,semantic_duplicate:TC-005,False,False,False
+TC-030,权限与安全-发帖权限,P2,P2,P2,P2,decided,p2_cap_guard,high,,官方区仅官方账户有发帖权限，普通用户无法发帖,REJECT,semantic_duplicate:TC-060,False,False,False
+TC-043,发帖页-输入,P2,P2,P2,P2,decided,model_semantic_consistent,high,,发帖页支持Unicode标准编码系统表情显示,PENDING,contains_pending_logic,False,True,False
+TC-069,论坛首页-最新排序,P2,P2,P2,P2,decided,p2_cap_guard,high,,最新排序按发帖或回帖时间倒序，回帖刷新帖子更新时间,REJECT,semantic_duplicate:TC-076,False,False,False
+TC-074,帖子详情-回复内容,P2,P2,P2,P2,decided,p2_cap_guard,high,,回复内容中点击图片可查看详情（新增功能）,REJECT,semantic_duplicate:TC-028,False,False,False
+TC-077,论坛首页-列表排序,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",热门排序T值边界：帖子发布超过72小时时T=0验证,REJECT,semantic_duplicate:TC-076,False,False,False

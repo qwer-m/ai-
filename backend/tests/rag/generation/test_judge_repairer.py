@@ -5,6 +5,84 @@ from modules.testing.test_generation_components.judge.test_case_repairer import 
 from modules.testing.test_generation_components.postprocess.json_repair import deduplicate_test_cases
 
 
+def test_judge_keeps_distinct_general_quota_limit_subflows() -> None:
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "Post quota - extra posting chance after learning more than 15 minutes",
+            "test_module": "Post quota",
+            "steps": [
+                "Use all daily base quota",
+                "Learn in app more than 15 minutes",
+                "Tap create post",
+            ],
+            "expected_result": "User can enter editor and publish by consuming the extra posting chance",
+            "priority": "P2",
+        },
+        {
+            "id": "TC-002",
+            "description": "Post quota - daily base quota exhausted shows toast when creating post or reply",
+            "test_module": "Post quota",
+            "steps": [
+                "Use all 5 daily post and reply chances",
+                "Tap create post",
+                "Tap reply",
+            ],
+            "expected_result": "System shows quota exhausted toast and blocks editor entry",
+            "priority": "P2",
+        },
+        {
+            "id": "TC-003",
+            "description": "Post quota - forum browsing time does not count as learning time",
+            "test_module": "Post quota",
+            "steps": [
+                "Use all daily quota",
+                "Browse forum more than 15 minutes",
+                "Tap create post",
+            ],
+            "expected_result": "Forum browsing time is not counted as learning time and quota exhausted toast still appears",
+            "priority": "P2",
+        },
+    ]
+
+    judged = judge_cases(cases, {})
+
+    assert judged.reject_count == 0
+    assert {item.case_id: item.status for item in judged.cases} == {
+        "TC-001": "PASS",
+        "TC-002": "PASS",
+        "TC-003": "PASS",
+    }
+
+
+def test_judge_still_rejects_exact_general_quota_duplicate() -> None:
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "Post quota - daily base quota exhausted shows toast when creating post or reply",
+            "test_module": "Post quota",
+            "steps": ["Use all daily quota", "Tap create post"],
+            "expected_result": "System shows quota exhausted toast and blocks editor entry",
+            "priority": "P2",
+        },
+        {
+            "id": "TC-002",
+            "description": "Post quota - daily base quota exhausted shows toast when creating post or reply",
+            "test_module": "Post quota",
+            "steps": ["Use all daily quota", "Tap create post"],
+            "expected_result": "System shows quota exhausted toast and blocks editor entry",
+            "priority": "P2",
+        },
+    ]
+
+    judged = judge_cases(cases, {})
+
+    duplicate = next(item for item in judged.cases if item.case_id == "TC-002")
+    assert judged.reject_count == 1
+    assert duplicate.reject_reason == "semantic_duplicate:TC-001"
+    assert duplicate.signals.is_semantic_duplicate is True
+
+
 def test_judge_repairer_does_not_append_untyped_batch_gap_cases() -> None:
     semantics = {
         "hard_flow_constraints": [

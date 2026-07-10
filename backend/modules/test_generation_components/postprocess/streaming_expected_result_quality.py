@@ -77,6 +77,8 @@ _BUSINESS_ASSERTION_PREDICATES = (
     "过滤",
     "匹配",
     "一致",
+    "符合",
+    "决定",
     "读取",
     "标记",
     "提示",
@@ -103,10 +105,18 @@ _BUSINESS_ASSERTION_PREDICATES = (
 
 _BUSINESS_ASSERTION_OBJECTS = (
     "页面",
+    "详情页",
     "列表",
     "按钮",
     "弹窗",
     "文案",
+    "内容",
+    "信息",
+    "图标",
+    "头像",
+    "昵称",
+    "学校",
+    "地域",
     "状态",
     "时间",
     "日期",
@@ -125,8 +135,17 @@ _BUSINESS_ASSERTION_OBJECTS = (
     "课程",
     "课时",
     "限制",
+    "位置",
+    "权重",
+    "公式",
+    "计算结果",
+    "排序位置",
     "冲突",
     "规则",
+    "波浪线",
+    "标注",
+    "原文",
+    "帖子",
     "排名",
     "称号",
     "时长",
@@ -153,6 +172,7 @@ _CONCRETE_VALUE_RE = re.compile(
 
 _BUSINESS_STATE_ANCHOR_TOKENS = (
     "当前",
+    "对应",
     "最新",
     "最近",
     "自动",
@@ -170,6 +190,13 @@ _BUSINESS_STATE_ANCHOR_TOKENS = (
     "保留",
     "保存",
     "生成",
+    "正常",
+    "完整",
+    "未编辑",
+    "未改动",
+    "有改动",
+    "被删除",
+    "仅由",
     "仅",
     "不",
     "无法",
@@ -239,6 +266,27 @@ def _business_assertion_clause_count(text: str) -> int:
     return concrete_count
 
 
+def _has_formula_or_algorithm_assertion(text: str) -> bool:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    formula_signal = (
+        bool(re.search(r"\b[a-z]\w*\s*=", lowered))
+        or bool(re.search(r"\b(?:max|min|sum|avg)\s*\(", lowered))
+        or "公式" in normalized
+        or "计算结果" in normalized
+    )
+    if not formula_signal:
+        return False
+    numeric_signal = _has_concrete_value(normalized) or bool(re.search(r"=\s*-?\d", normalized))
+    result_signal = any(
+        token in normalized
+        for token in ("符合", "一致", "决定", "权重", "排序", "排序位置", "计算结果", "公式")
+    )
+    return bool(numeric_signal and result_signal)
+
+
 def has_concrete_expected_assertion(text: str) -> bool:
     normalized = str(text or "").strip()
     if not normalized:
@@ -284,6 +332,8 @@ def has_concrete_expected_assertion(text: str) -> bool:
         "removed",
     )
     if any(token in normalized for token in concrete_tokens):
+        return True
+    if _has_formula_or_algorithm_assertion(normalized):
         return True
     if _business_assertion_clause_count(normalized) >= 2:
         return True

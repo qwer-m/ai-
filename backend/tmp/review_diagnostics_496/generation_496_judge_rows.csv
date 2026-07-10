@@ -1,0 +1,4 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-005,论坛首页-用户信息展示,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",论坛首页用户帖信息：地域/学校信息获取不到时不展示,PENDING,contains_pending_logic,False,True,False
+TC-014,发帖/回帖限制,P2,P2,P2,P2,decided,model_semantic_consistent,high,,每日发帖/回帖次数用完时toast提示验证,REJECT,semantic_duplicate:TC-039,False,False,False
+TC-026,帖子详情-回复内容,P2,P2,P2,P2,decided,p2_cap_guard,high,,回复内容中图片点击查看详情功能,REJECT,semantic_duplicate:TC-053,False,False,False

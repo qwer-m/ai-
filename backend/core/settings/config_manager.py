@@ -53,30 +53,41 @@ class ConfigManager:
         Returns:
             SystemConfig: 创建的配置对象。
         """
-        # Encrypt API Key
-        encrypted_key = config_encryption.encrypt(api_key) if api_key else None
-        
-        new_config = SystemConfig(
-            provider=provider,
-            model_name=model_name,
-            vl_model_name=vl_model_name,
-            turbo_model_name=turbo_model_name,
-            api_key=encrypted_key,
-            base_url=base_url,
-            metadata_info=metadata_info,
-            is_active=0, # Will be set by activate_config if needed
-            version=1, # Initial version
-            user_id=user_id
-        )
-        db.add(new_config)
-        db.commit()
-        db.refresh(new_config)
-        
-        if activate:
-            self.activate_config(db, new_config.id, user_id)
-            db.refresh(new_config)
-            
-        return new_config
+        with self._lock:
+            try:
+                encrypted_key = config_encryption.encrypt(api_key) if api_key else None
+                previous_configs = (
+                    db.query(SystemConfig)
+                    .filter(SystemConfig.user_id == user_id)
+                    .order_by(SystemConfig.version.desc(), SystemConfig.id.desc())
+                    .all()
+                )
+                next_version = max(
+                    [int(getattr(item, "version", 0) or 0) for item in previous_configs] or [0]
+                ) + 1
+                for item in previous_configs:
+                    db.delete(item)
+
+                new_config = SystemConfig(
+                    provider=provider,
+                    model_name=model_name,
+                    vl_model_name=vl_model_name,
+                    turbo_model_name=turbo_model_name,
+                    api_key=encrypted_key,
+                    base_url=base_url,
+                    metadata_info=metadata_info,
+                    is_active=1 if activate else 0,
+                    version=next_version,
+                    user_id=user_id,
+                    updated_at=datetime.now(),
+                )
+                db.add(new_config)
+                db.commit()
+                db.refresh(new_config)
+                return new_config
+            except Exception:
+                db.rollback()
+                raise
 
     def get_active_config(self, db: Session, user_id: int = None) -> SystemConfig:
         """Get the currently active configuration for the user"""
@@ -97,14 +108,7 @@ class ConfigManager:
             .order_by(SystemConfig.updated_at.desc(), SystemConfig.id.desc())
             .first()
         )
-        if config:
-            return config
-
-        return (
-            active_query.filter(SystemConfig.user_id.is_(None))
-            .order_by(SystemConfig.updated_at.desc(), SystemConfig.id.desc())
-            .first()
-        )
+        return config
 
     def activate_config(self, db: Session, config_id: int, user_id: int = None):
         """

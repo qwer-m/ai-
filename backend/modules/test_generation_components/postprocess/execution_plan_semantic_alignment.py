@@ -38,6 +38,95 @@ from .execution_plan_validation_tokens import (
     _RESUME_STATE_ONLY_TOKENS,
 )
 
+_EDIT_REQUIRED_TOKENS = (
+    "编辑",
+    "修改",
+    "填写",
+    "文案",
+    "正文",
+    "图片",
+    "上传",
+    "草稿",
+    "编辑内容",
+    "填写内容",
+    "输入内容",
+    "输入文字",
+    "edit",
+    "modify",
+    "compose",
+    "write",
+    "fill",
+    "upload",
+    "content input",
+    "input content",
+)
+
+_BLUEPRINT_STAGE_SPLIT_RE = re.compile(r"[\s,，。；;：:/\\|｜、（）()\[\]【】{}<>《》\-—_]+")
+
+_BLUEPRINT_STAGE_GENERIC_TOKENS = {
+    "button",
+    "case",
+    "check",
+    "click",
+    "content",
+    "current",
+    "detail",
+    "display",
+    "entry",
+    "form",
+    "home",
+    "input",
+    "item",
+    "list",
+    "module",
+    "open",
+    "page",
+    "preview",
+    "result",
+    "select",
+    "show",
+    "status",
+    "submit",
+    "tab",
+    "user",
+    "view",
+    "页面",
+    "按钮",
+    "点击",
+    "进入",
+    "打开",
+    "查看",
+    "检查",
+    "选择",
+    "设置",
+    "配置",
+    "编辑",
+    "填写",
+    "输入",
+    "提交",
+    "发布",
+    "确认",
+    "保存",
+    "显示",
+    "展示",
+    "可见",
+    "出现",
+    "预览",
+    "操作",
+    "用户",
+    "当前",
+    "对应",
+    "进行",
+    "功能",
+    "模块",
+    "页面",
+    "详情",
+    "列表",
+    "内容",
+    "状态",
+    "结果",
+}
+
 
 def _token_hit(text: str, tokens: tuple[str, ...]) -> bool:
     haystack = _text(text).lower()
@@ -87,6 +176,98 @@ def _stage_kind(case: dict[str, Any]) -> str:
 
 def _has_any_text(text: str, tokens: tuple[str, ...]) -> bool:
     return any(_text(token).lower() in text for token in tokens if _text(token))
+
+
+def _flatten_semantic_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        return " ".join(
+            part for part in (_flatten_semantic_value(item) for item in value.values()) if part
+        ).strip()
+    if isinstance(value, (list, tuple, set)):
+        return " ".join(part for part in (_flatten_semantic_value(item) for item in value) if part).strip()
+    return _text(value)
+
+
+def _semantic_anchor_tokens(value: Any, *, cjk_only: bool = False) -> set[str]:
+    text = _flatten_semantic_value(value).lower()
+    if not text:
+        return set()
+    raw_tokens: list[str] = []
+    if not cjk_only:
+        for ascii_token in re.findall(r"[a-z0-9][a-z0-9_\-]{2,}", text):
+            raw_tokens.extend(part for part in re.split(r"[_\-]+", ascii_token) if len(part) >= 3)
+    for sequence in re.findall(r"[\u4e00-\u9fff]{2,}", text):
+        for piece in _BLUEPRINT_STAGE_SPLIT_RE.split(sequence):
+            if len(piece) < 2:
+                continue
+            if len(piece) <= 8:
+                raw_tokens.append(piece)
+            if len(piece) >= 3:
+                for size in (2, 3, 4):
+                    if len(piece) < size:
+                        continue
+                    raw_tokens.extend(piece[index : index + size] for index in range(len(piece) - size + 1))
+    tokens: set[str] = set()
+    for token in raw_tokens:
+        normalized = token.strip().lower()
+        if len(normalized) < 2:
+            continue
+        if normalized in _BLUEPRINT_STAGE_GENERIC_TOKENS:
+            continue
+        tokens.add(normalized)
+    return tokens
+
+
+def _blueprint_stage_text(case: dict[str, Any]) -> str:
+    parts: list[Any] = [
+        case.get("main_chain_stage_label"),
+        _state_value(case, "action"),
+        case.get("main_chain_stage_module"),
+        case.get("main_chain_stage_assertion"),
+        case.get("main_chain_stage_description"),
+        case.get("main_chain_stage_state_in"),
+        case.get("main_chain_stage_state_out"),
+        case.get("main_chain_stage_keywords"),
+        case.get("main_chain_stage_evidence"),
+    ]
+    return " ".join(part for part in (_flatten_semantic_value(value) for value in parts) if part)
+
+
+def _blueprint_stage_module_text(case: dict[str, Any]) -> str:
+    return _flatten_semantic_value(case.get("main_chain_stage_module"))
+
+
+def main_chain_blueprint_semantic_conflict_reason(case: dict[str, Any]) -> str:
+    """Return a conflict when the public case object drifts away from blueprint stage anchors."""
+    stage_text = _blueprint_stage_text(case)
+    if not stage_text:
+        return ""
+    stage_tokens = _semantic_anchor_tokens(stage_text, cjk_only=True)
+    if not stage_tokens:
+        return ""
+
+    case_tokens = _semantic_anchor_tokens(_case_semantic_text(case), cjk_only=True)
+    if not case_tokens:
+        return "stage_object_not_supported_by_case_text"
+    if not (stage_tokens & case_tokens):
+        return "stage_object_not_supported_by_case_text"
+
+    stage_kind = _stage_kind(case)
+    if stage_kind not in {"entry", "preview"}:
+        return ""
+
+    blueprint_module_tokens = _semantic_anchor_tokens(
+        _blueprint_stage_module_text(case),
+        cjk_only=True,
+    )
+    if not blueprint_module_tokens:
+        return ""
+    module_tokens = _semantic_anchor_tokens(case_text_field(case, "test_module"), cjk_only=True)
+    if module_tokens and not (module_tokens & blueprint_module_tokens):
+        return "stage_module_not_aligned_with_blueprint"
+    return ""
 
 
 def _add_semantic_conflict(
@@ -184,6 +365,14 @@ def validate_main_smoke_semantic_alignment(cases: Any) -> list[dict[str, Any]]:
                 reason=action_support_reason,
                 stage_kind=stage_kind,
             )
+        blueprint_semantic_reason = main_chain_blueprint_semantic_conflict_reason(case)
+        if blueprint_semantic_reason:
+            _add_semantic_conflict(
+                conflicts,
+                case=case,
+                reason=blueprint_semantic_reason,
+                stage_kind=stage_kind,
+            )
 
         if stage_kind == "configure":
             has_configure_action = _has_any_text(text, _CONFIGURE_ACTION_REQUIRED_TOKENS)
@@ -199,6 +388,14 @@ def validate_main_smoke_semantic_alignment(cases: Any) -> list[dict[str, Any]]:
                     conflicts,
                     case=case,
                     reason="passive_list_status_case_used_as_configure",
+                    stage_kind=stage_kind,
+                )
+        elif stage_kind == "edit":
+            if not _has_any_text(text, _EDIT_REQUIRED_TOKENS):
+                _add_semantic_conflict(
+                    conflicts,
+                    case=case,
+                    reason="stage_text_lacks_edit_action",
                     stage_kind=stage_kind,
                 )
         elif stage_kind == "preview":

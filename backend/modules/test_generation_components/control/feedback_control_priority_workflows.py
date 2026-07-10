@@ -21,6 +21,7 @@ from .feedback_control_sample_access import (
     sample_case_id as _sample_case_id,
     sample_value as _sample_value,
 )
+from ..coverage.domain_gate import current_domain_gate
 from ..coverage.scenario_registry import infer_primary_domain_tag
 
 
@@ -125,6 +126,8 @@ def _select_priority_pool_workflow_blueprint_samples(
     sample_matches_primary_domain = sample_matches_primary_domain_fn or _sample_matches_primary_domain
 
     query = str(requirement_text or "").strip()
+    if not bool(current_domain_gate(query).get("allows_historical_profile")):
+        return []
     primary_query_domain = infer_primary_domain_tag(query)
     candidates: list[dict[str, Any]] = []
     for sample in samples:

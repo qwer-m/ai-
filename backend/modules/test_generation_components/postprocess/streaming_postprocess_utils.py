@@ -282,7 +282,7 @@ def resolve_generation_coverage_profile(
     expected_count: Any,
     generation_mode: str,
     generation_coverage_mode: str,
-    full_regression_recommended_floor: int = 85,
+    full_regression_recommended_floor: int = 80,
 ) -> dict[str, Any]:
     mode_rank = {
         "core_smoke": 0,
@@ -358,7 +358,7 @@ def resolve_generation_coverage_state(
     generation_mode: str,
     generation_coverage_mode: str,
     generation_target_case_range: dict[str, Any] | None,
-    full_regression_recommended_floor: int = 85,
+    full_regression_recommended_floor: int = 80,
 ) -> dict[str, Any]:
     coverage_profile = resolve_generation_coverage_profile(
         expected_count=expected_count,
@@ -414,7 +414,7 @@ def _resolve_expected_min_floor_for_recovery(
     soft_min_count = int(round(float(target_final_count) * 0.80))
     hard_min_count = int(round(float(target_final_count) * 0.70))
     if str(effective_generation_coverage_mode or "") == "full_functional_regression":
-        return max(int(hard_min_count or 0), int(full_regression_floor or 0))
+        return int(full_regression_floor or hard_min_count or 0)
     candidate_count = max(0, int(valid_candidate_count or 0))
     if candidate_count >= int(round(float(target_final_count) * 0.90)):
         return int(soft_min_count or 0)

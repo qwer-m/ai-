@@ -108,6 +108,41 @@ def _run(client: _StreamClient, *, initial_cases: list[dict[str, Any]]):
     return chunks, result, events
 
 
+def _run_with_keyword_coverage(client: _StreamClient):
+    events: list[dict[str, Any]] = []
+
+    def analyze(_requirement: str, cases: list[dict[str, Any]]) -> dict[str, Any]:
+        covered = any("Unicode" in str(case.get("expected_result") or "") for case in cases)
+        return {
+            "gap_count": 0 if covered else 1,
+            "missing_rules": [] if covered else ["RULE-EMOJI"],
+            "has_missing_types": False,
+        }
+
+    chunks, result = _drain(
+        run_gap_supplement_attempts(
+            client=client,
+            requirement="系统表情支持 Unicode 标准编码",
+            append=False,
+            existing_cases=[],
+            parsed_result=[],
+            coverage_primary=analyze("", []),
+            coverage_gap_state=_gap_state(analyze("", [])),
+            current_biz_key="forum",
+            infer_case_kind_fn=lambda _case: "functional",
+            build_supplement_closed_loop_instruction_fn=lambda **_kwargs: "avoid duplicates",
+            build_gap_fill_prompt_fn=lambda **_kwargs: "fill missing emoji coverage",
+            clean_and_parse_json_fn=clean_and_parse_json,
+            normalize_json_structure_fn=normalize_json_structure,
+            deduplicate_test_cases_fn=_dedupe,
+            analyze_coverage_fn=analyze,
+            resolve_coverage_gap_state_fn=_gap_state,
+            record_timing_event_fn=_record(events),
+        )
+    )
+    return chunks, result, events
+
+
 def test_run_gap_supplement_attempts_stops_when_coverage_converges() -> None:
     client = _StreamClient([json.dumps([_case("TC-002")], ensure_ascii=False)])
 
@@ -123,6 +158,32 @@ def test_run_gap_supplement_attempts_stops_when_coverage_converges() -> None:
     assert len(result.filter_stats) == 1
     assert events[-1]["stage"] == "gap_supplement"
     assert events[-1]["added_count"] == 1
+
+
+def test_run_gap_supplement_attempts_keeps_only_cases_with_coverage_gain() -> None:
+    unrelated = _case("TC-UNRELATED")
+    related = {
+        **_case("TC-UNICODE"),
+        "description": "系统表情支持 Unicode 标准编码",
+        "expected_result": "回复输入框可输入 Unicode 系统表情，发布后系统自带表情符号正常显示",
+    }
+    client = _StreamClient(
+        [
+            json.dumps([unrelated], ensure_ascii=False),
+            json.dumps([related], ensure_ascii=False),
+        ]
+    )
+
+    _chunks, result, _events = _run_with_keyword_coverage(client)
+
+    assert client.stream_calls == 2
+    assert len(result.cases) == 1
+    assert "Unicode" in str(result.cases[0].get("expected_result") or "")
+    assert result.added_count == 1
+    assert result.remaining_gap_count == 0
+    assert result.filter_stats[0]["coverage_gain_kept_count"] == 0
+    assert result.filter_stats[0]["coverage_gain_dropped_count"] == 1
+    assert result.filter_stats[1]["coverage_gain_kept_count"] == 1
 
 
 def test_run_gap_supplement_attempts_stops_after_two_no_gain_attempts() -> None:

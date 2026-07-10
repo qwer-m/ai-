@@ -6,6 +6,8 @@ import re
 import shutil
 import subprocess
 import time
+import base64
+import io
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -98,12 +100,15 @@ def resolve_target_credentials(
         api_key = submitted
     elif saved.get("provider") == provider and saved.get("api_key"):
         api_key = str(saved.get("api_key"))
+    elif provider == main_provider:
+        api_key = main_api_key
     else:
         api_key = ""
 
     base_url = (
         (submitted_base_url or "").strip()
         or (str(saved.get("base_url") or "").strip() if saved.get("provider") == provider else "")
+        or (main_base_url if provider == main_provider else "")
         or default_base_url(provider)
     )
     return provider, api_key, base_url or None, False
@@ -245,6 +250,25 @@ def validate_text_model(
         }
 
 
+def _build_vision_probe_data_uri() -> str:
+    try:
+        from PIL import Image, ImageDraw
+
+        image = Image.new("RGB", (260, 96), "white")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((8, 8, 252, 88), outline="black", width=2)
+        draw.text((24, 34), "OCR OK", fill="black")
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        payload = base64.b64encode(buffer.getvalue()).decode("ascii")
+    except Exception:
+        payload = (
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
+            "/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        )
+    return f"data:image/png;base64,{payload}"
+
+
 def validate_vision_model(
     provider: str,
     api_key: str,
@@ -255,34 +279,18 @@ def validate_vision_model(
     started = time.time()
     try:
         client = build_provider(provider, api_key, base_url, model_name)
-        if isinstance(client, DashScopeProvider):
-            probe_messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "image": "https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20241022/emyrja/dog_and_girl.jpeg",
-                        },
-                        {"text": "图中描绘的是什么景象?"},
-                    ],
-                }
-            ]
-            result = client.multimodal_generate(probe_messages, model_name)
-            success = not is_failure_text(result)
-            error = None if success else (result or "Vision model validation failed")
-            return {
-                "type": "vision",
-                "label": label,
-                "model": model_name,
-                "success": success,
-                "latency": round((time.time() - started) * 1000, 2),
-                "error": error,
-                "sample_response": (result or "")[:200],
-                "mode": "dashscope_multimodal",
+        probe_messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"image": _build_vision_probe_data_uri()},
+                    {"text": "Read the text in this image. Reply with only the visible text."},
+                ],
             }
-        details = client.test_connection()
-        success = bool(details.get("success"))
-        error = None if success else extract_error_message(details)
+        ]
+        result = client.multimodal_generate(probe_messages, model_name)
+        success = not is_failure_text(result)
+        error = None if success else (result or "Vision model validation failed")
         return {
             "type": "vision",
             "label": label,
@@ -290,8 +298,8 @@ def validate_vision_model(
             "success": success,
             "latency": round((time.time() - started) * 1000, 2),
             "error": error,
-            "sample_response": str(details.get("sample_response") or "")[:200],
-            "mode": "lightweight",
+            "sample_response": (result or "")[:200],
+            "mode": "multimodal_image_probe",
         }
     except Exception as e:
         return {
@@ -340,7 +348,7 @@ async def probe_single_service(url: str) -> Dict[str, Any]:
 
 def save_and_update_ai_client(db: Session, config) -> dict[str, Any]:
     new_client = ai_client.from_config(config)
-    ai_client.update_provider(new_client.provider, new_client.model)
+    ai_client.replace_runtime_from(new_client)
     return {"provider": new_client.provider, "model": new_client.model}
 
 

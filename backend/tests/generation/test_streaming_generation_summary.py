@@ -100,6 +100,65 @@ def test_build_final_generation_report_returns_summary_and_debug_payloads() -> N
     assert report.convergence_debug["duplicate_pruned_count"] == 3
 
 
+def test_build_final_generation_report_prefers_final_coverage_over_pre_priority_snapshot() -> None:
+    report = build_final_generation_report(
+        FinalGenerationReportInputs(
+            parsed_result=[
+                {
+                    "id": "TC-001",
+                    "test_module": "forum ui",
+                    "description": "cover final shortfall rule",
+                    "expected_result": "style rule is covered",
+                    "priority": "P1",
+                }
+            ],
+            pre_priority_coverage={
+                "missing_rules": ["RULE-019"],
+                "rule_diagnostics": [{"rule_id": "RULE-019", "missing_types": ["happy"]}],
+            },
+            final_coverage={
+                "missing_rules": [],
+                "rule_diagnostics": [{"rule_id": "RULE-019", "covered": True, "missing_types": []}],
+                "coverage_rate": 1.0,
+            },
+            reference_count_effective=1,
+            final_count=1,
+            gap_remaining_after_attempts=0,
+            gap_attempts=0,
+            gap_stopped_by_provider_error=False,
+            post_review_dedup_drop=0,
+            final_description_dedup_drop_signatures=set(),
+            low_quality_drop_details=[],
+            low_quality_dropped_total=0,
+            semantic_dedup_dropped_total=0,
+            governance_hard_drop_total=0,
+            postprocess_filter_drop_total=0,
+            append_cap_drop_total=0,
+            flow_governance_summary={},
+            review_selected_count=1,
+            review_decision_summary={},
+            generation_target_case_range={},
+            expected_count=1,
+            generation_coverage_mode="full_functional_regression",
+            resolved_full_regression_floor=1,
+            candidate_count_before_review=1,
+            judge_summary_payload={},
+            drop_by_review_llm_count=0,
+            stage_counts={"primary": 1},
+            append_target_count=0,
+            append_final_cap_count=0,
+            generation_mode="multi_pass",
+            effective_generation_coverage_mode_source="feedback_control_state",
+            explicit_generation_mode_override=False,
+            explicit_expected_count_floor_preserved=True,
+        )
+    )
+
+    assert report.coverage["missing_rules"] == []
+    assert report.convergence_debug["missing_rules_count"] == 0
+    assert "coverage_missing_rules" not in report.convergence_debug["reasons"]
+
+
 def test_derive_final_coverage_inputs_collects_gap_provider_and_missing_reasons() -> None:
     state = derive_final_coverage_convergence_inputs(
         pre_priority_coverage={
@@ -389,11 +448,11 @@ def test_resolve_generation_target_satisfaction_flags_recommended_floor_underfil
     assert state["recommended_floor_underfilled"] is True
     assert state["soft_min_count"] == 36
     assert state["hard_min_count"] == 31
-    assert state["min_acceptable_final"] == 40
-    assert state["target_satisfaction_denominator"] == 60
-    assert state["target_satisfaction_ratio"] == 0.6333
+    assert state["min_acceptable_final"] == 36
+    assert state["target_satisfaction_denominator"] == 45
+    assert state["target_satisfaction_ratio"] == 0.8444
     assert state["target_warning"] is False
-    assert state["underfilled"] is True
+    assert state["underfilled"] is False
 
 
 def test_resolve_generation_target_satisfaction_defaults_range_without_target_range() -> None:

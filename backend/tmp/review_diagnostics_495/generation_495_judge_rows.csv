@@ -1,0 +1,6 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,论坛首页-内容列表,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证用户帖信息展示规则：头像框支持显示、等级信息展示、地域和学校信息获取不到时不展示,PENDING,contains_pending_logic,False,True,False
+TC-014,论坛首页-列表排序,P2,P2,P2,P2,decided,p2_cap_guard,high,,验证热门排序权重公式S=0.3L+0.2R+0.5T计算正确，帖子按权重值从大到小排列,REJECT,semantic_duplicate:TC-015,False,False,False
+TC-019,发帖限制,P2,P2,P2,P2,decided,p2_cap_guard,high,,验证发帖/回帖次数边界：第5次成功，第6次弹出toast限制提示,REJECT,semantic_duplicate:TC-021,False,False,False
+TC-047,帖子详情-回复内容,P2,P2,P2,P2,decided,p2_cap_guard,high,,验证回复内容中的图片点击可查看全屏详情,REJECT,semantic_duplicate:TC-035,False,False,False
+TC-066,论坛首页-热门排序边界,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2","验证T=MAX(1-内容发布至今的小时数/72,0)边界：发布72小时后T=0，帖子仍可参与排序",REJECT,semantic_duplicate:TC-015,False,False,False

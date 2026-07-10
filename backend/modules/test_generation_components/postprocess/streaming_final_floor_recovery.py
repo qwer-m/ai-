@@ -175,14 +175,16 @@ def recover_final_floor_from_candidate_pool(
         and effective_generation_coverage_mode in {"expanded_regression", "full_functional_regression"}
         and not append
     ):
-        floor_ratio = 0.80 if effective_generation_coverage_mode == "expanded_regression" else 0.70
-        final_target_floor_count = max(
-            int(final_target_floor_count or 0),
-            int(round(float(expected_count or 0) * floor_ratio)),
-        )
-        if effective_generation_coverage_mode == "full_functional_regression":
-            full_regression_floor = resolved_full_regression_floor
-            final_target_floor_count = max(int(full_regression_floor or 0), final_target_floor_count)
+        if effective_generation_coverage_mode == "expanded_regression":
+            final_target_floor_count = max(
+                int(final_target_floor_count or 0),
+                int(round(float(expected_count or 0) * 0.80)),
+            )
+        else:
+            final_target_floor_count = max(
+                int(final_target_floor_count or 0),
+                int(resolved_full_regression_floor or 0),
+            )
 
     if int(final_target_floor_count or 0) <= 0 or append:
         return FinalFloorRecoveryResult(
@@ -292,7 +294,15 @@ def recover_final_floor_from_candidate_pool(
         )
         merged_for_recovery = [*recovery_confirmed, *recovery_repaired_pass]
     except Exception:
-        pass
+        return FinalFloorRecoveryResult(
+            cases=result_cases,
+            flow_governance_summary=result_flow_summary,
+            final_target_floor_count=final_target_floor_count,
+            attempted=attempted,
+            applied=False,
+            recovered_count=0,
+            reason="recovery_judge_failed",
+        )
 
     result_cases, result_flow_summary = govern_cases_by_flow_structure_fn(
         requirement,
@@ -360,6 +370,8 @@ def recover_final_floor_after_conflict_filter(
     fact_profile: dict[str, Any],
     flow_project_profile: dict[str, Any],
     start_id: int,
+    feedback_control_state: dict[str, Any] | None = None,
+    requirement_semantics_context: dict[str, Any] | None = None,
     analyze_coverage_fn: Callable[[str, list[dict[str, Any]]], dict[str, Any]],
     filter_conflicting_cases_fn: Callable[..., tuple[list[dict[str, Any]], int]],
     govern_cases_by_flow_structure_fn: Callable[..., tuple[list[dict[str, Any]], dict[str, Any]]],
@@ -429,6 +441,42 @@ def recover_final_floor_after_conflict_filter(
         merged_after_conflict,
         analyze_coverage_fn=analyze_coverage_fn,
     )
+    try:
+        from ..judge.test_case_judge import judge_cases as recovery_judge_cases
+        from ..judge.test_case_repairer import repair_cases as recovery_repair_cases
+        from ..judge.training_gate import training_gate as recovery_training_gate
+
+        recovery_judged = recovery_judge_cases(
+            cases=_dict_case_items(merged_after_conflict),
+            requirement_semantics_context=requirement_semantics_context or {},
+            control_state=feedback_control_state if isinstance(feedback_control_state, dict) else {},
+        )
+        recovery_repaired = recovery_repair_cases(
+            judged=recovery_judged,
+            requirement_semantics_context=requirement_semantics_context or {},
+            control_state=feedback_control_state if isinstance(feedback_control_state, dict) else {},
+            strategy="rule_first_llm_fallback",
+        )
+        recovery_confirmed, recovery_repaired_pass, _recovery_rejected, _recovery_pending = recovery_training_gate(
+            recovery_repaired
+        )
+        merged_after_conflict = [*recovery_confirmed, *recovery_repaired_pass]
+    except Exception:
+        return PostConflictFloorRecoveryResult(
+            cases=result_cases,
+            flow_governance_summary=result_flow_summary,
+            applied=False,
+            recovered_count=int(final_floor_recovered_count or 0),
+            reason="post_conflict_recovery_judge_failed",
+        )
+    if _dict_case_count(merged_after_conflict) <= current_after_conflict:
+        return PostConflictFloorRecoveryResult(
+            cases=result_cases,
+            flow_governance_summary=result_flow_summary,
+            applied=False,
+            recovered_count=int(final_floor_recovered_count or 0),
+            reason="post_conflict_recovery_rejected_by_judge",
+        )
     if effective_generation_coverage_mode == "full_functional_regression":
         relaxed_flow_profile = _flow_profile_with_scenario_policy(
             flow_project_profile,

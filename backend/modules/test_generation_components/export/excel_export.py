@@ -116,6 +116,32 @@ def _format_steps_for_export(values: list[Any]) -> str:
     )
 
 
+def _presentation_order(row: dict[str, Any], fallback: int) -> int:
+    for key in ("presentation_order", "presentationOrder", "display_order", "displayOrder"):
+        try:
+            value = int(row.get(key) or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value > 0:
+            return int(value)
+    return int(fallback)
+
+
+def _sort_rows_for_public_presentation(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not any(_presentation_order(row, 0) > 0 for row in rows if isinstance(row, dict)):
+        return rows
+    return [
+        row
+        for _order, _index, row in sorted(
+            (
+                (_presentation_order(row, 1_000_000 + index), index, row)
+                for index, row in enumerate(rows, start=1)
+            ),
+            key=lambda item: (item[0], item[1]),
+        )
+    ]
+
+
 def _normalize_rows(json_data: list | dict) -> list[dict[str, Any]]:
     """把输入数据统一成可导出的字典列表，并处理 steps/preconditions 格式。"""
     data: Any = json_data
@@ -163,7 +189,7 @@ def _normalize_rows(json_data: list | dict) -> list[dict[str, Any]]:
             row["depends_on"] = "\n".join(case_text_list_value(depends_on))
 
         rows.append(row)
-    return rows
+    return _sort_rows_for_public_presentation(rows)
 
 
 def _project_public_rows(rows: list[dict[str, Any]]) -> tuple[list[str], list[dict[str, Any]]]:

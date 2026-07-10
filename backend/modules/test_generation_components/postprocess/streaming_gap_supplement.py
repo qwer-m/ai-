@@ -36,6 +36,50 @@ class GapSupplementRunResult:
     filter_stats: list[dict[str, Any]]
 
 
+def _gap_count_from_state(state: dict[str, Any]) -> int:
+    if "gap_count" in state:
+        return int(state.get("gap_count") or 0)
+    missing_rules = list(state.get("missing_rules") or [])
+    has_missing_types = bool(state.get("has_missing_types"))
+    return int(len(missing_rules) + (1 if has_missing_types else 0))
+
+
+def _filter_coverage_gain_cases(
+    *,
+    requirement: str,
+    base_cases: list[dict[str, Any]],
+    candidate_cases: list[dict[str, Any]],
+    analyze_coverage_fn: Callable[[str, list[dict[str, Any]]], dict[str, Any]],
+    resolve_coverage_gap_state_fn: Callable[[dict[str, Any]], dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    working_cases = _dict_case_items(base_cases)
+    current_coverage = analyze_coverage_fn(requirement, working_cases)
+    current_state = resolve_coverage_gap_state_fn(current_coverage)
+    current_gap_count = _gap_count_from_state(current_state)
+
+    for case in _dict_case_items(candidate_cases):
+        candidate_coverage = analyze_coverage_fn(requirement, [*working_cases, case])
+        candidate_state = resolve_coverage_gap_state_fn(candidate_coverage)
+        candidate_gap_count = _gap_count_from_state(candidate_state)
+        if candidate_gap_count >= current_gap_count:
+            continue
+        selected.append(case)
+        working_cases.append(case)
+        current_coverage = candidate_coverage
+        current_state = candidate_state
+        current_gap_count = candidate_gap_count
+        if current_gap_count <= 0:
+            break
+
+    return selected, {
+        "coverage_gain_candidate_count": int(len(_dict_case_items(candidate_cases))),
+        "coverage_gain_kept_count": int(len(selected)),
+        "coverage_gain_dropped_count": max(0, int(len(_dict_case_items(candidate_cases))) - int(len(selected))),
+        "coverage_gain_remaining_gap_count": int(current_gap_count),
+    }
+
+
 def build_gap_supplement_request(
     *,
     requirement: str,
@@ -210,8 +254,15 @@ def run_gap_supplement_attempts(
             )
             if gap_parse_result is not None:
                 parsed_extra_count = int(gap_parse_result.parsed_case_count)
-                filter_stats.append(dict(gap_parse_result.filter_stats or {}))
-                parsed_result.extend(_dict_case_items(gap_parse_result.cases))
+                coverage_gain_cases, coverage_gain_stats = _filter_coverage_gain_cases(
+                    requirement=requirement,
+                    base_cases=parsed_result,
+                    candidate_cases=gap_parse_result.cases,
+                    analyze_coverage_fn=analyze_coverage_fn,
+                    resolve_coverage_gap_state_fn=resolve_coverage_gap_state_fn,
+                )
+                filter_stats.append({**dict(gap_parse_result.filter_stats or {}), **coverage_gain_stats})
+                parsed_result.extend(_dict_case_items(coverage_gain_cases))
                 parsed_result = normalize_json_structure_fn(parsed_result)
                 parsed_result = deduplicate_test_cases_fn(parsed_result)
         except Exception:

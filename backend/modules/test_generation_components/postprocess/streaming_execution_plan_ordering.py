@@ -249,6 +249,31 @@ def _renumber_execution_sequence(cases: list[dict[str, Any]]) -> list[dict[str, 
     return output
 
 
+def assign_presentation_order(
+    execution_ordered_cases: list[dict[str, Any]],
+    *,
+    presentation_ordered_cases: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    order_by_id: dict[str, int] = {}
+    for index, item in enumerate(_dict_case_copies(presentation_ordered_cases), start=1):
+        case_id = _case_id(item)
+        if not case_id or case_id in order_by_id:
+            continue
+        order_by_id[case_id] = int(index)
+
+    output: list[dict[str, Any]] = []
+    fallback_start = len(order_by_id) + 1
+    for fallback_index, item in enumerate(_dict_case_copies(execution_ordered_cases), start=fallback_start):
+        updated = dict(item)
+        case_id = _case_id(updated)
+        updated["presentation_order"] = int(order_by_id.get(case_id) or fallback_index)
+        output.append(updated)
+    return output
+
+
+_assign_presentation_order = assign_presentation_order
+
+
 def apply_final_independent_case_ordering(
     parsed_result: list[Any],
     *,
@@ -295,7 +320,12 @@ def apply_final_independent_case_ordering(
                 ordered_independent_cases,
                 case_execution_group_fn=execution_group,
             )
+            presentation_ordered_cases = [*main_chain_cases, *ordered_independent_cases]
             ordered_cases = _renumber_execution_sequence([*main_chain_cases, *planned_independent_cases])
+            ordered_cases = _assign_presentation_order(
+                ordered_cases,
+                presentation_ordered_cases=presentation_ordered_cases,
+            )
             summary = dict(final_order_flow_governance_summary or {})
             summary["execution_orchestration_plan"] = build_execution_orchestration_plan(
                 ordered_cases,

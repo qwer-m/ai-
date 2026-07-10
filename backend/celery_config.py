@@ -15,6 +15,7 @@ Celery 配置模块 (Celery Config)
 """
 
 import os
+from urllib.parse import quote
 from celery import Celery
 from core.cache_layer.redis_pool import redis_pool
 from modules.orchestration.task_names import TaskName
@@ -29,10 +30,22 @@ CELERY_VISIBILITY_TIMEOUT_SECONDS = int(
     os.getenv("CELERY_VISIBILITY_TIMEOUT", str(DEFAULT_VISIBILITY_TIMEOUT_SECONDS))
 )
 
+
+def _redis_url() -> str:
+    configured = os.getenv("REDIS_URL", "").strip()
+    if configured:
+        return configured
+    host = os.getenv("REDIS_HOST", "localhost")
+    port = os.getenv("REDIS_PORT", "6379")
+    db = os.getenv("REDIS_DB", "0")
+    password = os.getenv("REDIS_PASSWORD", "")
+    auth = f":{quote(password, safe='')}@" if password else ""
+    return f"redis://{auth}{host}:{port}/{db}"
+
 # Update configuration using the shared Redis pool
 celery_app.conf.update(
-    broker_url=f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}/0",
-    result_backend=f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}/0",
+    broker_url=_redis_url(),
+    result_backend=_redis_url(),
     
     # Use shared connection pool
     broker_connection_pool=redis_pool,

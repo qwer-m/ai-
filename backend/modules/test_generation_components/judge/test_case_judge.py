@@ -185,6 +185,25 @@ def _all_patterns_covered(cases: list[dict[str, Any]], patterns: list[str]) -> t
     return len(missing) == 0, missing
 
 
+def _duplicate_domain_context(
+    control_state: dict[str, Any] | None,
+    semantics: dict[str, Any] | None,
+) -> tuple[str, bool]:
+    state = control_state if isinstance(control_state, dict) else {}
+    if not state:
+        return "", True
+    source_meta = state.get("source_meta") if isinstance(state.get("source_meta"), dict) else {}
+    candidates = (
+        source_meta.get("current_domain_gate_primary_domain"),
+        source_meta.get("retrieval_query_primary_domain"),
+        source_meta.get("primary_domain"),
+        state.get("primary_domain"),
+        (semantics or {}).get("primary_domain") if isinstance(semantics, dict) else "",
+    )
+    primary_domain = next((str(item).strip() for item in candidates if str(item or "").strip()), "")
+    return primary_domain, False
+
+
 def judge_cases(
     cases: list[dict[str, Any]],
     requirement_semantics_context: dict[str, Any] | str | None,
@@ -193,6 +212,10 @@ def judge_cases(
     semantics = _merge_fact_profile_semantics(
         normalize_requirement_semantics_context(requirement_semantics_context),
         control_state=control_state,
+    )
+    duplicate_primary_domain, duplicate_include_domain_specific = _duplicate_domain_context(
+        control_state,
+        semantics,
     )
     judged_cases: list[JudgeResult] = []
     for index, case in enumerate(cases or [], start=1):
@@ -213,7 +236,12 @@ def judge_cases(
 
         duplicate_match: tuple[int, JudgeResult, dict[str, Any], float] | None = None
         for kept_index, kept_item, kept_case in kept_passes:
-            is_duplicate, similarity = _is_semantic_duplicate_case(candidate_case, kept_case)
+            is_duplicate, similarity = _is_semantic_duplicate_case(
+                candidate_case,
+                kept_case,
+                primary_domain=duplicate_primary_domain,
+                include_domain_specific=duplicate_include_domain_specific,
+            )
             if not is_duplicate:
                 continue
             if duplicate_match is None or similarity > duplicate_match[3]:
@@ -335,6 +363,7 @@ def judge_cases(
             f"reuse_risks={len(reuse_risk_patterns)}",
             f"registry_duplicate_scenario_kinds={len(_CROSS_MODULE_DUPLICATE_SCENARIOS)}",
             f"registry_threshold_entries={len(_DUPLICATE_SCENARIO_THRESHOLDS)}",
+            f"duplicate_primary_domain={duplicate_primary_domain or 'general'}",
         ],
     )
     return result

@@ -21,6 +21,13 @@ def _read_sheet(rows, *, include_internal_fields=False):
     return headers, dict(zip(headers, values))
 
 
+def _read_first_column_values(rows):
+    excel_bytes = convert_json_to_excel(rows)
+    workbook = load_workbook(filename=__import__("io").BytesIO(excel_bytes))
+    sheet = workbook.active
+    return [sheet.cell(row=row_index, column=1).value for row_index in range(2, sheet.max_row + 1)]
+
+
 def test_excel_export_does_not_duplicate_existing_step_numbers():
     value = _read_first_steps_cell(
         [
@@ -47,6 +54,18 @@ def test_excel_export_adds_numbers_for_plain_steps():
     )
 
     assert value == "1. open workbook\n2. check list"
+
+
+def test_excel_export_uses_presentation_order_when_available():
+    ids = _read_first_column_values(
+        [
+            {"id": "TC-002", "description": "execution second", "steps": ["b"], "presentation_order": 2},
+            {"id": "TC-001", "description": "read first", "steps": ["a"], "presentation_order": 1},
+            {"id": "TC-003", "description": "fallback", "steps": ["c"]},
+        ]
+    )
+
+    assert ids == ["TC-001", "TC-002", "TC-003"]
 
 
 def test_excel_export_defaults_to_user_facing_chinese_columns():

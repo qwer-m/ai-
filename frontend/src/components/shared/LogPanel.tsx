@@ -85,6 +85,27 @@ function formatGenDiagMessage(message: string): string | null {
   if (!payload) return null;
 
   const kind = String(payload.kind || '').trim();
+  if (kind === 'requirement_parse') {
+    const blocks = Array.isArray(payload.blocks) ? payload.blocks : [];
+    const blockItems = blocks.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item));
+    const imageBlocks = blockItems.filter((item) => item.is_image === true);
+    const successCount = imageBlocks.filter((item) => ['local', 'cloud'].includes(String(item.ocr_source || ''))).length;
+    const failedBlocks = imageBlocks.filter((item) => String(item.ocr_source || '') === 'failed');
+    const blockingFailedCount = failedBlocks.filter((item) => item.ocr_blocking === true).length;
+    const warningCount = imageBlocks.filter((item) => Boolean(String(item.ocr_warning || '').trim())).length;
+    const mainTextChars = blockItems
+      .filter((item) => item.role === 'main_requirement')
+      .reduce((sum, item) => sum + Number(item.text_length || 0), 0);
+    const ocrSummary = imageBlocks.length === 0
+      ? '无图片块'
+      : (
+        failedBlocks.length > 0
+          ? `${blockingFailedCount > 0 ? 'OCR阻断失败' : 'OCR部分降级'} ${successCount}/${imageBlocks.length} 成功`
+          : `OCR已识别 ${successCount}/${imageBlocks.length}${warningCount > 0 ? '（本地降级）' : ''}`
+      );
+    return `需求解析：块 ${numberText(blockItems.length)}，主文本 ${numberText(mainTextChars)} 字，图片 ${numberText(imageBlocks.length)}；${ocrSummary}`;
+  }
+
   if (kind === 'generation_quality_ledger') {
     const coverage = (payload.coverage && typeof payload.coverage === 'object') ? payload.coverage as Record<string, unknown> : {};
     const review = (payload.review && typeof payload.review === 'object') ? payload.review as Record<string, unknown> : {};
@@ -148,6 +169,62 @@ function formatLogMessage(message: string): string {
   return formatGenDiagMessage(message) || message;
 }
 
+function isBlockingGenDiag(payload: Record<string, unknown>): boolean {
+  const kind = String(payload.kind || '').trim();
+  if (kind === 'persistence_gate') {
+    return payload.blocked === true || (payload.passed === false && String(payload.gate_mode || '') === 'enforce');
+  }
+  if (kind === 'case_quality_gate') {
+    return payload.blocked === true;
+  }
+  if (kind === 'requirement_parse') {
+    const blocks = Array.isArray(payload.blocks) ? payload.blocks : [];
+    return blocks.some((block) => {
+      if (!block || typeof block !== 'object') return false;
+      const item = block as Record<string, unknown>;
+      return item.ocr_blocking === true && Boolean(String(item.ocr_error || '').trim());
+    });
+  }
+  if (kind === 'generation_summary') {
+    const status = String(payload.status || '').toLowerCase();
+    return ['failed', 'error'].includes(status);
+  }
+  return false;
+}
+
+function isWarningGenDiag(payload: Record<string, unknown>): boolean {
+  const kind = String(payload.kind || '').trim();
+  if (kind === 'case_quality_gate') {
+    return payload.passed === false && payload.blocked !== true;
+  }
+  if (kind === 'requirement_parse') {
+    const blocks = Array.isArray(payload.blocks) ? payload.blocks : [];
+    return blocks.some((block) => {
+      if (!block || typeof block !== 'object') return false;
+      const item = block as Record<string, unknown>;
+      return (Boolean(String(item.ocr_error || '').trim()) || Boolean(String(item.ocr_warning || '').trim()))
+        && item.ocr_blocking !== true;
+    });
+  }
+  return false;
+}
+
+function isErrorMessage(msg: string): boolean {
+  const payload = parsePrefixedJson(msg, 'GEN_DIAG:');
+  if (payload) return isBlockingGenDiag(payload);
+  return /error|失败|异常/i.test(msg);
+}
+
+function isWarningMessage(msg: string): boolean {
+  const payload = parsePrefixedJson(msg, 'GEN_DIAG:');
+  if (payload) return isWarningGenDiag(payload);
+  return /警告|warning/i.test(msg);
+}
+
+function isSuccessMessage(msg: string): boolean {
+  return /成功|完成|success/i.test(msg);
+}
+
 export function LogPanel({ userLogs, systemLogs, loading, error, onClear }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<'user' | 'system'>('user');
@@ -175,10 +252,6 @@ export function LogPanel({ userLogs, systemLogs, loading, error, onClear }: Prop
     const maxHeight = Math.max(MIN_PANEL_HEIGHT, Math.round(viewportHeight * MAX_PANEL_HEIGHT_RATIO));
     return Math.max(MIN_PANEL_HEIGHT, Math.min(maxHeight, Math.round(height)));
   }, []);
-
-  const isErrorMessage = (msg: string) => /error|失败|异常/i.test(msg);
-  const isSuccessMessage = (msg: string) => /成功|完成|success/i.test(msg);
-  const isWarningMessage = (msg: string) => /警告|warning/i.test(msg);
 
   useEffect(() => {
     if (!expanded) return;
@@ -241,15 +314,6 @@ export function LogPanel({ userLogs, systemLogs, loading, error, onClear }: Prop
     if (!target) return;
     followBottomRef.current[activeTab] = isNearBottom(target);
   };
-
-  useEffect(() => {
-    if (systemLogs.length > 0) {
-      const lastLog = systemLogs[systemLogs.length - 1];
-      if (isErrorMessage(lastLog.message || '') && !expanded) {
-        setExpanded(true);
-      }
-    }
-  }, [systemLogs.length]);
 
   const formatTime = (iso: string) => {
     if (!iso) return '';

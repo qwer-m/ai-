@@ -126,8 +126,8 @@ _REASON_HINTS = {
 
 def _manual_priority_hint(label: str, expected_priority: str) -> str:
     return (
-        f"{label} \u671f\u671b\u4f18\u5148\u7ea7 {expected_priority}"
-        "\uff08\u4eba\u5de5\u6807\u6ce8\uff09\u3002"
+        f"{label} 期望优先级 {expected_priority}"
+        "（人工标注）。"
     )
 
 def _is_ui_low_value_pattern(*parts: Any) -> bool:

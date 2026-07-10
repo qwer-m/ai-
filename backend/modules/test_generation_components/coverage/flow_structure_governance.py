@@ -236,10 +236,21 @@ def govern_cases_by_flow_structure(
 
     original_order = [int(index) for index, _case in kept_pairs]
     new_order = [int(index) for index, _case in ordered_pairs]
+    registry_impact = diagnose_registry_impact_fn(
+        normalized_cases,
+        scenario_keys=[
+            str(row_by_index.get(i, {}).get("scenario_key") or "")
+            for i in range(1, len(normalized_cases) + 1)
+        ],
+        primary_domain=str(structure.get("primary_domain") or ""),
+        mode=str(project_profile.get("generation_coverage_mode") or "").strip() if project_profile else "",
+    )
+    registry_meta = dict(scenario_registry_meta_fn())
+    registry_meta["scenario_policy_documents"] = list(registry_impact.get("matched_documents") or [])
     return ordered_cases, {
         "applied": bool(flow_order or cross_order or drop_indices),
         "reason": "" if (flow_order or cross_order or drop_indices) else "no_flow_outline",
-        **scenario_registry_meta_fn(),
+        **registry_meta,
         "flow_reordered": bool(original_order != new_order),
         "flow_order": flow_order,
         "cross_cutting_order": cross_order,
@@ -249,12 +260,5 @@ def govern_cases_by_flow_structure(
         "scenario_duplicate_cluster_count": int(structure.get("duplicate_cluster_count") or 0),
         "flow_misordered_count_before": int(structure.get("misordered_count") or 0),
         "missing_flow_stage_count": int(structure.get("missing_flow_stage_count") or 0),
-        "registry_impact": diagnose_registry_impact_fn(
-            normalized_cases,
-            scenario_keys=[
-                str(row_by_index.get(i, {}).get("scenario_key") or "")
-                for i in range(len(normalized_cases))
-            ],
-            mode=str(project_profile.get("generation_coverage_mode") or "").strip() if project_profile else "",
-        ),
+        "registry_impact": registry_impact,
     }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import modules.testing.test_generation_components.legacy.stream.persist as stream_persist_mod
@@ -224,20 +225,23 @@ def test_validator_treats_save_and_display_case_as_commit_not_downstream() -> No
     assert result["metrics"]["commit_downstream_completion_closed"] is True
 
 
-def test_projected_contract_preserves_explicit_stage_kind_for_gate_validation() -> None:
+def test_gate_validation_uses_internal_stage_kind_before_public_projection() -> None:
     cases = _main_chain_cases()
     cases[3]["workflow_transition"]["action"] = "show saved plan confirmation"
     cases[3]["workflow_transition"]["stage_kind"] = "commit"
 
-    projected = project_persistable_cases(cases)
+    gate_cases = materialize_final_case_state_fields(cases)
     result = validate_execution_plan(
-        projected,
+        gate_cases,
         workflow_blueprints=[_trusted_blueprint()],
         execution_plan={"workflow_blueprint_source": "feedback_control_state"},
         generation_mode="stream",
     )
+    projected = project_persistable_cases(cases)
 
-    assert projected[3]["main_chain_stage_kind"] == "commit"
+    assert gate_cases[3]["workflow_id"] == "schedule_flow"
+    assert "workflow_id" not in projected[3]
+    assert "main_chain_stage_kind" not in projected[3]
     assert result["passed"] is True
     assert result["metrics"]["commit_downstream_completion_closed"] is True
 
@@ -258,6 +262,113 @@ def test_validator_accepts_view_as_consume_action() -> None:
     )
 
     assert conflicts == []
+
+
+def test_validator_accepts_chinese_preview_and_downstream_terms() -> None:
+    conflicts = validate_main_smoke_semantic_alignment(
+        [
+            {
+                "id": "TC-001",
+                "description": "帖子详情页-预览并查看图片展示",
+                "test_module": "论坛详情",
+                "steps": ["进入帖子详情页", "查看预览区域和图片展示"],
+                "expected_result": "帖子详情内容可查看，图片展示正确",
+                "execution_group": "main_smoke",
+                "main_chain_stage_kind": "preview",
+                "action": "preview_post_detail",
+            },
+            {
+                "id": "TC-002",
+                "description": "发帖提交后消息小红点显示且帖子列表可见",
+                "test_module": "论坛消息",
+                "steps": ["提交帖子后进入消息页", "查看消息小红点和帖子列表"],
+                "expected_result": "消息通知显示，小红点出现，帖子在列表可见",
+                "execution_group": "main_smoke",
+                "main_chain_stage_kind": "downstream_visibility",
+                "action": "display_message_notification",
+            },
+        ]
+    )
+
+    assert conflicts == []
+
+
+def test_validator_rejects_generation_490_weak_token_main_chain_mismatches() -> None:
+    cases = [
+        {
+            "id": "TC-003",
+            "description": "审核后台支持按用户发帖/回帖内容模糊搜索",
+            "test_module": "审核后台",
+            "steps": [
+                "1. 在搜索框输入帖子内容关键词",
+                "2. 点击搜索",
+                "3. 验证搜索结果包含匹配内容",
+                "4. 输入回帖内容关键词搜索",
+                "5. 验证搜索结果匹配",
+            ],
+            "expected_result": "搜索结果返回包含关键词的帖子或回帖内容，支持模糊匹配；无全文检索功能",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "edit",
+            "main_chain_stage_label": "编辑发帖内容",
+            "action": "输入帖子文案与图片",
+        },
+        {
+            "id": "TC-004",
+            "description": "置顶帖展示官方图标、帖子标题与发帖时间",
+            "test_module": "论坛首页-内容列表",
+            "steps": [
+                "1. 进入论坛首页官方区",
+                "2. 查看置顶帖的展示内容",
+                "3. 确认是否包含官方图标、帖子标题和发帖时间",
+                "4. 确认置顶帖固定在列表顶部位置",
+            ],
+            "expected_result": "置顶帖在列表顶部展示，包含官方图标标识、帖子标题文本和发帖时间；置顶帖位置固定，不会被普通帖子覆盖",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "preview",
+            "main_chain_stage_label": "预览发帖内容",
+            "action": "确认帖子内容与图片",
+        },
+        {
+            "id": "TC-005",
+            "description": "帖子详情页回复帖子完整闭环",
+            "test_module": "帖子详情页-回复流程",
+            "steps": [
+                "1. 点击页面右下角悬浮回帖按钮",
+                "2. 在回复弹窗输入回复内容",
+                "3. 点击发送按钮",
+                "4. 检查回复是否出现在回复列表中",
+                "5. 检查回复楼层号和时间显示",
+            ],
+            "expected_result": "1.点击回帖按钮后弹出回复弹窗，提示词为'我说两句'；2.输入内容后点击发送成功提交；3.回复出现在回复列表中，内容与输入一致；4.回复显示楼层号（如第N楼）；5.回复时间显示为'刚刚'",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "commit",
+            "main_chain_stage_label": "提交发布帖子",
+            "action": "点击发布按钮提交帖子",
+        },
+        {
+            "id": "TC-006",
+            "description": "审核通过消息点击跳转至帖子详情页",
+            "test_module": "功能-审核通过消息跳转",
+            "steps": ["1. 进入消息分区", "2. 切换到系统消息TAB", "3. 找到审核通过的消息", "4. 点击该消息"],
+            "expected_result": "点击后跳转至对应帖子的详情页，帖子内容完整展示",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "downstream_visibility",
+            "main_chain_stage_label": "查看帖子详情",
+            "action": "点击帖子进入详情页查看",
+        },
+    ]
+
+    conflicts = validate_main_smoke_semantic_alignment(cases)
+    reasons_by_case: dict[str, set[str]] = {}
+    for conflict in conflicts:
+        reasons_by_case.setdefault(conflict["case_id"], set()).add(conflict["reason"])
+
+    assert {"TC-003", "TC-004", "TC-005", "TC-006"}.issubset(reasons_by_case)
+    assert "stage_text_lacks_edit_action" in reasons_by_case["TC-003"]
+    assert all(
+        "stage_action_not_supported_by_case_text" in reasons_by_case[case_id]
+        for case_id in {"TC-003", "TC-004", "TC-005", "TC-006"}
+    )
 
 
 def test_validator_reports_disconnected_state_and_blocking_main_case() -> None:
@@ -309,6 +420,45 @@ def test_semantic_alignment_uses_alias_case_text_fields() -> None:
     ]
 
     assert validate_main_smoke_semantic_alignment(cases) == []
+
+
+def test_semantic_alignment_does_not_treat_stage_action_as_module_anchor() -> None:
+    cases = [
+        {
+            "id": "TC-004",
+            "test_module": "论坛浏览发帖主流程",
+            "description": "预览帖子内容",
+            "steps": ["预览待提交帖子内容"],
+            "expected_result": "标题、正文和图片显示正确",
+            "execution_group": "main_smoke",
+            "main_chain_step": 4,
+            "main_chain_stage_label": "预览帖子内容",
+            "role": "student",
+            "session_key": "student_session",
+            "workflow_transition": {
+                "workflow_id": "forum_post_flow",
+                "source_state": "editing_post",
+                "action": "预览帖子内容",
+                "target_state": "post_ready",
+                "path_type": "positive",
+                "blocking": False,
+                "destructive": False,
+                "can_advance_main_flow": True,
+                "state_transition_confidence": 0.9,
+                "stage_kind": "preview",
+            },
+        }
+    ]
+
+    assert validate_main_smoke_semantic_alignment(cases) == []
+
+    cases[0]["main_chain_stage_module"] = "评论区"
+    reasons = {
+        item["reason"]
+        for item in validate_main_smoke_semantic_alignment(cases)
+    }
+
+    assert "stage_module_not_aligned_with_blueprint" in reasons
 
 
 def test_validator_rejects_stage_labels_that_do_not_match_case_text() -> None:
@@ -497,12 +647,12 @@ def test_persistence_case_quality_gate_fails_batch_quality_metrics() -> None:
 
     assert quality["passed"] is False
     assert {
-        "final_count_below_min_acceptable",
         "judge_rejected_above_threshold",
         "final_scenario_duplicates_above_threshold",
     }.issubset(set(quality["failed_checks"]))
     assert quality["metrics"]["final_count"] == 89
     assert quality["metrics"]["judge_rejected_count"] == 44
+    assert quality["metrics"]["quantity_shortfall_warning"] is True
 
 
 def test_persistence_gate_treats_candidate_insufficient_underfill_as_advisory() -> None:
@@ -537,6 +687,28 @@ def test_persistence_gate_treats_candidate_insufficient_underfill_as_advisory() 
 
     assert gate["passed"] is True
     assert gate["failure_code"] == ""
+
+
+def test_persistence_gate_treats_count_shortfall_as_soft_warning() -> None:
+    quality = {
+        "passed": False,
+        "failed_checks": ["final_count_below_min_acceptable"],
+        "metrics": {"final_count": 74, "min_acceptable_final": 85},
+    }
+
+    gate = evaluate_persistence_gate(
+        _main_chain_cases(),
+        workflow_blueprints=[_trusted_blueprint()],
+        execution_plan={"workflow_blueprint_source": "feedback_control_state"},
+        quality_gate=quality,
+        settings=_settings("enforce"),
+    )
+
+    assert gate["passed"] is True
+    assert gate["failure_code"] == ""
+    assert gate["quality_would_block"] is False
+    assert gate["quality_would_warn"] is True
+    assert gate["quality_soft_failures"] == ["final_count_below_min_acceptable"]
 
 
 def test_final_case_strip_preserves_formal_priority_and_execution_fields() -> None:
@@ -709,8 +881,12 @@ def test_append_merge_semantically_deduplicates_alias_cases() -> None:
 class _FakeDb:
     def __init__(self) -> None:
         self.entries: list[object] = []
+        self._next_generation_id = 9001
 
     def add(self, item: object) -> None:
+        if hasattr(item, "generated_result") and not getattr(item, "id", None):
+            setattr(item, "id", self._next_generation_id)
+            self._next_generation_id += 1
         self.entries.append(item)
 
     def commit(self) -> None:
@@ -821,7 +997,7 @@ def test_stream_persistence_blocks_case_quality_even_when_execution_plan_passes(
 
     assert any("LOW_QUALITY_GENERATED_CASES" in item for item in output)
     gate_entries = [str(getattr(item, "message", "")) for item in db.entries]
-    assert any("final_count_below_min_acceptable" in item for item in gate_entries)
+    assert any("quantity_shortfall_warning" in item for item in gate_entries)
     assert any("judge_rejected_above_threshold" in item for item in gate_entries)
     assert any('"kind": "generation_summary"' in item for item in gate_entries)
     assert any('"kind": "judge_summary"' in item for item in gate_entries)
@@ -925,8 +1101,24 @@ def test_stream_persistence_allows_candidate_insufficient_underfill(monkeypatch)
     assert not any("LOW_QUALITY_GENERATED_CASES" in item for item in output)
     gate_entries = [str(getattr(item, "message", "")) for item in db.entries]
     assert any('"quantity_shortfall_advisory": true' in item for item in gate_entries)
+    execution_suite_entries = [
+        json.loads(item.removeprefix("GEN_DIAG:"))
+        for item in output
+        if isinstance(item, str) and '"kind": "generation_execution_suite"' in item
+    ]
+    assert execution_suite_entries
+    assert execution_suite_entries[0]["generation_id"] == 9001
+    assert execution_suite_entries[0]["source"] == "persistence_gate_pre_projection"
+    assert execution_suite_entries[0]["execution_suite"]["execution_readiness"] == "partial"
+    assert any(
+        suite["execution_group"] == "main_smoke"
+        for suite in execution_suite_entries[0]["execution_suite"]["suites"]
+    )
     persisted = [item for item in db.entries if hasattr(item, "generated_result")]
     assert persisted
+    persisted_cases = json.loads(persisted[0].generated_result)
+    assert "execution_group" not in persisted_cases[0]
+    assert "workflow_id" not in persisted_cases[0]
 
 
 def test_stream_persistence_does_not_mask_explicit_invalid_priority_final(monkeypatch) -> None:

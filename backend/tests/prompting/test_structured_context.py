@@ -354,6 +354,29 @@ def test_structured_context_builds_fact_and_project_profiles() -> None:
     assert output["feedback_control_state"]["source_meta"]["project_profile"]["flow_outline"]["flow_order"]
 
 
+def test_structured_context_excludes_requirement_parse_diagnostics_from_fact_profile() -> None:
+    output = build_structured_prompt_context(
+        requirement="""
+论坛详情页必须展示评论入口，并支持用户发表回复。
+
+[Requirement Understanding]
+{"version":"requirement-understanding-v1","visual_facts":[{"source":"pdf_visual:X46.jpg","text":"版主回复标签仅版主内容展示，信息被隐藏"}]}
+
+[Parsed Requirement Evidence]
+- pdf_visual: filename=X46.jpg, strategy=pdf_image_ocr, chars=917, ocr_source=cloud, cloud_fallback=true
+
+[Multimodal Evidence Alignment]
+- pdf_visual:X46.jpg -> requirement score=1.00; requirement="论坛"; evidence="版主回复标签仅版主内容展示"
+""",
+    )
+
+    merged = "\n".join(output["fact_profile"].get("confirmed_facts") or [])
+    merged += "\n".join(output["fact_profile"].get("hard_flow_constraints") or [])
+    assert "评论入口" in merged
+    assert "pdf_visual" not in merged
+    assert "信息被隐藏" not in merged
+
+
 def test_control_context_applies_preferred_quota_ab_variant(monkeypatch) -> None:
     monkeypatch.setenv("TESTGEN_ENABLE_STRONG_PREFERRED_QUOTA_AB", "true")
     monkeypatch.setenv("TESTGEN_PREFERRED_FLOW_CASE_QUOTA", "2")

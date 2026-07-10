@@ -38,38 +38,6 @@ PERSISTABLE_CASE_FIELDS = (
     "expected_result",
     "priority",
     "priority_final",
-    "workflow_id",
-    "source_state",
-    "action",
-    "target_state",
-    "path_type",
-    "blocking",
-    "destructive",
-    "can_advance_main_flow",
-    "state_transition_confidence",
-    "execution_group",
-    "execution_sequence",
-    "chain_id",
-    "depends_on",
-    "role",
-    "session_key",
-    "source_actor_role",
-    "student_observation_projection",
-    "role_switch_strategy",
-    "data_state",
-    "isolation_required",
-    "fixture_key",
-    "fixture_builder",
-    "cleanup_policy",
-    "group_setup",
-    "group_teardown",
-    "setup_hint",
-    "teardown_hint",
-    "main_chain_stage",
-    "main_chain_stage_label",
-    "main_chain_step",
-    "main_chain_stage_kind",
-    "generated_bridge_case",
 )
 
 REQUIRED_PUBLIC_FIELDS = (
@@ -195,7 +163,7 @@ def _materialize_public_alias_fields(source: dict[str, Any]) -> None:
 
 
 def project_persistable_cases(cases: Any) -> list[dict[str, Any]]:
-    """Return the only case shape allowed to be stored as the final asset."""
+    """Return the public case shape allowed to be stored as the final asset."""
     materialized = materialize_case_state_fields(cases)
     if not isinstance(materialized, list):
         return []

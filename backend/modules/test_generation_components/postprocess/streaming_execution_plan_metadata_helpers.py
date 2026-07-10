@@ -153,6 +153,10 @@ def annotate_execution_plan_cases(
                     float(transition.get("state_transition_confidence") or 0.0),
                     0.55,
                 )
+            expected_stage_kind = str(step_meta.get("stage_kind") or "").strip().lower()
+            if expected_stage_kind:
+                transition = dict(transition)
+                transition["stage_kind"] = expected_stage_kind
             updated["workflow_transition"] = transition
             for transition_field in (
                 "workflow_id",

@@ -13,6 +13,11 @@ from .structured_context_split_helpers import (
 
 _MAX_REQUIREMENT_SEMANTIC_ITEMS_PER_BUCKET = 8
 _MAX_REQUIREMENT_SEMANTIC_SOURCE_CHUNKS = 96
+_NON_SEMANTIC_SECTION_HEADERS = {
+    "[parsed requirement evidence]",
+    "[multimodal evidence alignment]",
+    "[requirement understanding]",
+}
 
 _PENDING_REQUIREMENT_MARKERS = (
     "待确认",
@@ -165,8 +170,36 @@ _REUSE_RISK_DESCRIPTIONS = {
 }
 
 
+def _is_bracket_section_header(line: str) -> bool:
+    stripped = str(line or "").strip()
+    return bool(stripped.startswith("[") and stripped.endswith("]") and len(stripped) <= 120)
+
+
+def _strip_non_semantic_sections(text: str) -> str:
+    lines: list[str] = []
+    skipping = False
+    for raw_line in str(text or "").splitlines():
+        line = re.sub(r"\s+", " ", str(raw_line or "").strip())
+        lowered = line.lower()
+        if lowered in _NON_SEMANTIC_SECTION_HEADERS:
+            skipping = True
+            continue
+        if _is_bracket_section_header(line):
+            skipping = False
+        if skipping:
+            continue
+        if " -> requirement score=" in lowered:
+            continue
+        if re.match(r"^-\s*\w+:\s*filename=.*\bstrategy=", line, flags=re.IGNORECASE):
+            continue
+        if lowered.startswith(("{", "}", '"version"', '"visual_facts"', '"aligned_evidence"')):
+            continue
+        lines.append(raw_line)
+    return "\n".join(lines)
+
+
 def _extract_requirement_semantic_fragments(text: str, limit: int = 32) -> list[str]:
-    src = str(text or "").strip()
+    src = _strip_non_semantic_sections(str(text or "")).strip()
     if not src:
         return []
 

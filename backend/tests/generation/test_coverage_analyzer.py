@@ -111,3 +111,56 @@ def test_generic_display_headings_are_diagnostic_not_blocking_rules() -> None:
     assert generic_rows
     assert generic_rows[0].get("blocking") is False
     assert generic_rows[0].get("non_blocking_reason") == "generic_display_heading"
+
+
+def test_limit_words_count_as_boundary_case_coverage() -> None:
+    requirement = "RULE-001: 他人作文列表展示精选的作文，最多展示20条"
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "他人作文列表最多展示20条边界验证",
+            "test_module": "作文区-列表",
+            "preconditions": ["用户已登录"],
+            "steps": ["进入他人作文列表", "查看精选作文展示数量"],
+            "test_input": "精选作文数量超过20条",
+            "expected_result": "列表最多展示20条精选作文，第21条不展示",
+            "priority": "P1",
+        }
+    ]
+
+    result = analyze_coverage(requirement, cases)
+    row = next(item for item in result["rule_diagnostics"] if item["rule_id"] == "RULE-001")
+
+    assert "RULE-001" in result["covered_rules"]
+    assert "boundary" in row["coverage_types"]
+    assert "boundary" not in row["missing_types"]
+
+
+def test_wrapped_requirement_fragments_are_covered_as_one_rule() -> None:
+    requirement = """
+iii. 每次展开5
+条，若还有
+信息被隐藏
+则显示按
+钮：展开更多
+回复
+"""
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "回复的回复默认展示3条，超过3条显示展开按钮并每次展开5条",
+            "test_module": "帖子详情-二级评论展开",
+            "preconditions": ["一级评论下有8条二级回复"],
+            "steps": ["进入帖子详情", "点击展开N条回复", "继续点击展开更多回复"],
+            "test_input": "8条二级回复",
+            "expected_result": "点击后展示8条，无剩余隐藏则不再显示展开按钮；若超过8条则显示'展开更多回复'",
+            "priority": "P1",
+        }
+    ]
+
+    result = analyze_coverage(requirement, cases)
+    rule_texts = [str(item.get("rule_text") or "") for item in result["rule_diagnostics"]]
+
+    assert result["missing_rules"] == []
+    assert not any(text == "信息被隐藏" for text in rule_texts)
+    assert any("每次展开5条" in text and "展开更多回复" in text for text in rule_texts)

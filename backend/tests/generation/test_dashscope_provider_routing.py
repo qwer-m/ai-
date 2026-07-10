@@ -154,3 +154,30 @@ def test_text_then_multimodal_detection_fallback(monkeypatch):
     assert details.get("model_info", {}).get("mode") == "multimodal_text"
     assert calls["gen"] == 1
     assert calls["multi"] == 1
+
+
+def test_dashscope_validation_requires_explicit_model(monkeypatch):
+    provider = DashScopeProvider(api_key="sk-test")
+    calls = {"multi": 0, "gen": 0}
+
+    def _fake_generation(**kwargs):
+        calls["gen"] += 1
+        return _generation_ok("unexpected")
+
+    def _fake_multi(*, model, messages):
+        calls["multi"] += 1
+        return _multimodal_ok("unexpected")
+
+    monkeypatch.setattr("core.ai.providers.dashscope_provider.settings.MODEL_NAME", "")
+    monkeypatch.setattr("core.ai.providers.dashscope_provider.settings.TURBO_MODEL_NAME", "")
+    monkeypatch.setattr("core.ai.providers.dashscope_provider.dashscope.Generation.call", _fake_generation)
+    monkeypatch.setattr("core.ai.providers.dashscope_provider.dashscope.MultiModalConversation.call", _fake_multi)
+
+    details = provider.test_connection(model="")
+    text_details = provider.test_connection_text_then_multimodal("")
+
+    assert details.get("success") is False
+    assert text_details.get("success") is False
+    assert details.get("error", {}).get("message") == "model_name is required"
+    assert text_details.get("error", {}).get("message") == "model_name is required"
+    assert calls == {"multi": 0, "gen": 0}

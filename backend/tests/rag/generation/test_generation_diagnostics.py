@@ -158,6 +158,12 @@ def test_build_context_compression_diagnostics_reports_core_metrics():
 def test_build_prompt_context_intake_diagnostics_reports_sections_and_sources():
     system_prompt = "system prompt with generation rules"
     base_prompt = "base prompt"
+    requirement = (
+        "User clicks save and previews result.\n\n"
+        "[Requirement Understanding]\n"
+        '{"version":"requirement-understanding-v1","visual_fact_count":2,'
+        '"invalid_visual_block_count":1,"aligned_evidence":[{"source":"pdf_visual:X46.jpg"}]}'
+    )
     payload = build_prompt_context_intake_diagnostics(
         prompt_context={
             "requirement_context": "User must click save and then preview the committed result.",
@@ -247,7 +253,7 @@ def test_build_prompt_context_intake_diagnostics_reports_sections_and_sources():
                 }
             },
         },
-        requirement="User clicks save and previews result.",
+        requirement=requirement,
         kb_context="snapshot plus rag context",
         base_prompt=base_prompt,
         system_prompt=system_prompt,
@@ -269,7 +275,7 @@ def test_build_prompt_context_intake_diagnostics_reports_sections_and_sources():
     assert payload["kind"] == "prompt_context_intake"
     assert payload["max_tokens_semantics"] == "output_tokens"
     assert payload["section_sizes"]["system_prompt"]["chars"] == len(system_prompt)
-    assert payload["section_sizes"]["full_input"]["chars"] == len(system_prompt + "User clicks save and previews result.")
+    assert payload["section_sizes"]["full_input"]["chars"] == len(system_prompt + requirement)
     assert payload["source_lanes"]["rag"]["chunk_count"] == 2
     assert payload["rag_sources"][0]["doc_id"] == "doc-1"
     assert "dev_adaptation_fragment" in payload["rag_sources"][0]["noise_flags"]
@@ -282,6 +288,10 @@ def test_build_prompt_context_intake_diagnostics_reports_sections_and_sources():
         "exception/recovery",
     ]
     assert payload["control"]["fact_profile_confirmed_count"] == 1
+    assert payload["requirement_understanding"]["present"] is True
+    assert payload["requirement_understanding"]["visual_fact_count"] == 2
+    assert payload["requirement_understanding"]["invalid_visual_block_count"] == 1
+    assert payload["requirement_understanding"]["aligned_evidence_count"] == 1
     assert payload["business_scope"]["requirement_semantics_by_biz"][0]["pending_items_count"] == 1
     assert "workflow_blueprint_missing" not in payload["risk_flags"]
     assert "generation_execution_plan_missing" not in payload["risk_flags"]

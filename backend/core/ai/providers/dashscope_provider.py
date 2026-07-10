@@ -155,7 +155,14 @@ class DashScopeProvider(BaseModelProvider):
         first try text API, and only if that fails, try multimodal API with text-only content.
         """
         start_time = time.time()
-        target_model = (model or "").strip() or settings.MODEL_NAME or "qwen-plus"
+        target_model = (model or "").strip() or settings.MODEL_NAME
+        if not target_model:
+            latency = (time.time() - start_time) * 1000
+            return {
+                "success": False,
+                "error": {"message": "model_name is required"},
+                "latency": round(latency, 2),
+            }
 
         try:
             response = dashscope.Generation.call(
@@ -359,7 +366,14 @@ class DashScopeProvider(BaseModelProvider):
 
     def test_connection(self, model: Optional[str] = None) -> Dict[str, Any]:
         start_time = time.time()
-        test_model = (model or "").strip() or settings.TURBO_MODEL_NAME or settings.MODEL_NAME or "qwen-plus"
+        test_model = (model or "").strip() or settings.TURBO_MODEL_NAME or settings.MODEL_NAME
+        if not test_model:
+            latency = (time.time() - start_time) * 1000
+            return {
+                "success": False,
+                "error": {"message": "model_name is required"},
+                "latency": round(latency, 2),
+            }
         if self._is_multimodal_model(test_model):
             result = self._multimodal_call(
                 [{"role": "user", "content": [{"text": "hi"}]}],

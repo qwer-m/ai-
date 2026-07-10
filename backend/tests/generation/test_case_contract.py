@@ -7,7 +7,7 @@ from modules.testing.test_generation_components.postprocess.case_contract import
 )
 
 
-def test_project_persistable_cases_preserves_priority_and_execution_fields() -> None:
+def test_project_persistable_cases_keeps_only_public_case_fields() -> None:
     result = project_persistable_cases(
         [
             {
@@ -58,21 +58,17 @@ def test_project_persistable_cases_preserves_priority_and_execution_fields() -> 
         "priority",
         "priority_final",
     ]
-    assert result[0]["workflow_id"] == "schedule_flow"
-    assert result[0]["source_state"] == "draft"
-    assert result[0]["target_state"] == "saved"
-    assert result[0]["execution_group"] == "main_smoke"
-    assert result[0]["execution_sequence"] == 2
-    assert result[0]["depends_on"] == ["TC-000"]
-    assert result[0]["main_chain_stage_kind"] == "commit"
-    assert result[0]["role"] == "student"
-    assert result[0]["session_key"] == "student_session"
-    assert result[0]["fixture_key"] == "workflow_seed"
-    assert result[0]["group_setup"] == "seed_workflow_dataset()"
-    assert result[0]["group_teardown"] == "cleanup_workflow_dataset()"
-    assert result[0]["cleanup_policy"] == "case_isolated"
-    assert "priority_decision_source" not in result[0]
-    assert "workflow_transition" not in result[0]
+    assert set(result[0]) == {
+        "id",
+        "description",
+        "test_module",
+        "preconditions",
+        "steps",
+        "test_input",
+        "expected_result",
+        "priority",
+        "priority_final",
+    }
 
 
 def test_project_persistable_cases_materializes_alias_public_fields() -> None:
@@ -102,9 +98,44 @@ def test_project_persistable_cases_materializes_alias_public_fields() -> None:
     assert result[0]["expected_result"] == "plan is saved"
     assert result[0]["priority"] == "P0"
     assert result[0]["priority_final"] == "P0"
-    assert result[0]["execution_group"] == "main_smoke"
+    assert "execution_group" not in result[0]
     assert "caseId" not in result[0]
     assert "testModule" not in result[0]
+
+
+def test_project_persistable_cases_removes_ordering_and_origin_metadata() -> None:
+    result = project_persistable_cases(
+        [
+            {
+                "id": "TC-ORDER",
+                "description": "verify ordered presentation",
+                "test_module": "plan",
+                "preconditions": ["logged in"],
+                "steps": ["open page"],
+                "test_input": "valid plan",
+                "expected_result": "plan is visible",
+                "priority": "P1",
+                "priority_final": "P1",
+                "presentation_order": 3,
+                "presentation_order_reason": "main chain sort",
+                "candidate_index": 9,
+                "origin_candidate_index": 9,
+                "origin_case_id": "TC-025",
+                "origin_batch_index": 2,
+                "origin_batch_case_index": 4,
+                "origin_source_stage": "review_candidate",
+            }
+        ]
+    )
+
+    assert "presentation_order" not in result[0]
+    assert "candidate_index" not in result[0]
+    assert "origin_candidate_index" not in result[0]
+    assert "origin_case_id" not in result[0]
+    assert "origin_batch_index" not in result[0]
+    assert "origin_batch_case_index" not in result[0]
+    assert "origin_source_stage" not in result[0]
+    assert "presentation_order_reason" not in result[0]
 
 
 def test_contract_summary_blocks_reasoning_leakage_in_test_input() -> None:

@@ -20,7 +20,7 @@ from core.ai.ai_providers import (
 )
 class AIClient:
     """Facade over configured model providers, cache, and target-model routing."""
-    def __init__(self, provider: BaseModelProvider = None):
+    def __init__(self, provider: BaseModelProvider = None, *, init_from_settings: bool = True):
         self._provider = provider
         self.model = settings.MODEL_NAME
         self.turbo_model = settings.TURBO_MODEL_NAME
@@ -31,8 +31,13 @@ class AIClient:
         self.review_provider: BaseModelProvider | None = None
         self.last_response_metadata: dict[str, Any] = {}
         self.max_tokens = getattr(settings, "MAX_TOKENS", 2000)
-        if not self._provider:
+        if init_from_settings and not self._provider:
             self._init_from_settings()
+
+    @classmethod
+    def unconfigured(cls) -> "AIClient":
+        """Build a client that exposes missing persisted configuration instead of using defaults."""
+        return cls(provider=None, init_from_settings=False)
     def _init_from_settings(self):
         """Initialize the default provider from global settings."""
         if settings.DASHSCOPE_API_KEY:
@@ -111,19 +116,15 @@ class AIClient:
             )
         client = cls(provider)
         client.model = config.model_name
-        if config.turbo_model_name:
-            client.turbo_model = config.turbo_model_name
-        if config.vl_model_name:
-            client.vl_model = config.vl_model_name
+        client.turbo_model = config.turbo_model_name or ""
+        client.vl_model = config.vl_model_name or ""
+        client.review_model = ""
         review_meta = cls._read_target_meta(config, "review")
         if isinstance(review_meta, dict):
+            review_follow_main = bool(review_meta.get("follow_main", True))
             review_model_name = str(review_meta.get("model_name") or "").strip()
-            if review_model_name:
+            if not review_follow_main and review_model_name:
                 client.review_model = review_model_name
-            if (
-                not bool(review_meta.get("follow_main", True))
-                and client.review_model
-            ):
                 review_provider_name = str(review_meta.get("provider") or "").strip().lower()
                 review_api_key = cls._decrypt_metadata_key(review_meta.get("api_key"))
                 review_base_url = str(review_meta.get("base_url") or "").strip() or None
@@ -175,6 +176,17 @@ class AIClient:
         self._provider = provider
         if model_name:
             self.model = model_name
+
+    def replace_runtime_from(self, other: "AIClient") -> None:
+        """Replace all runtime model routes from another configured client."""
+        self._provider = other.provider
+        self.model = other.model
+        self.turbo_model = other.turbo_model
+        self.vl_model = other.vl_model
+        self.review_model = other.review_model
+        self.turbo_provider = other.turbo_provider
+        self.vl_provider = other.vl_provider
+        self.review_provider = other.review_provider
     def select_model(self, input_text: str, task_type: str = "general") -> str:
         """Choose the target model for the requested task type."""
         if not self._provider:
@@ -302,7 +314,7 @@ class AIClient:
             target_model = self.vl_model
             target_provider = self.vl_provider
         else:
-            target_model = self.vl_model if isinstance(self.provider, DashScopeProvider) else self.model
+            target_model = self.vl_model or self.model
         if not target_provider:
             return "Error: AI Provider not configured."
         response = target_provider.multimodal_generate(messages, target_model)
@@ -391,13 +403,13 @@ class AIClient:
         )
 ai_client = AIClient()
 def get_client_for_user(user_id: int, db: Session) -> AIClient:
-    """Return the user-specific AI client, falling back to the global client."""
+    """Return the user-specific AI client; do not substitute global defaults for users."""
     if not user_id or not db:
         return ai_client
     user_config = config_manager.get_active_config(db, user_id)
     if user_config:
         return AIClient.from_config(user_config)
-    return ai_client
+    return AIClient.unconfigured()
 __all__ = [
     "BaseModelProvider",
     "DashScopeProvider",

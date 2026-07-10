@@ -253,6 +253,26 @@ def test_empty_primary_response_retries_same_review_model_with_compact_prompt() 
     assert int(runtime.get("retry_mapped_count") or 0) > 0
 
 
+def test_empty_primary_and_compact_retry_skip_expensive_fallback_models() -> None:
+    client = _ReplayClient(
+        primary_review_response="Error: Empty response from model deepseek-reasoner",
+        retry_review_response="Error: Empty response from model deepseek-reasoner",
+    )
+    result = _run_review_replay(client, case_count=18)
+    summary = dict((result or {}).get("review_decision_summary") or {})
+    runtime = dict(summary.get("review_llm_runtime_debug") or {})
+
+    assert client.review_calls == 2
+    assert summary.get("review_llm_filter_applied") is False
+    assert runtime.get("primary_invalid_reason") == "error_response"
+    assert runtime.get("primary_compact_retry_invoked") is True
+    assert runtime.get("primary_compact_retry_invalid_reason") == "error_response"
+    assert runtime.get("fallback_skipped_reason") == "empty_response_after_compact_retry"
+    assert runtime.get("retry_attempts") == []
+    assert runtime.get("final_source") == "review_selector"
+    assert runtime.get("applied_reason") == "error_response"
+
+
 def test_retry_valid_selection_but_without_dropped_reasons_marks_incomplete() -> None:
     client = _ReplayClient(
         primary_review_response="NOT_JSON_PAYLOAD",

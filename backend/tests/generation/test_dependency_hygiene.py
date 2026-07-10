@@ -561,6 +561,71 @@ print(json.dumps({
     assert payload == {"port": 6379, "db": 0}
 
 
+def test_redis_configuration_preserves_remote_db_and_password_for_celery() -> None:
+    result = _run_python_with_backend_path(
+        """
+import json
+import celery_config
+from core.cache_layer import redis_pool
+print(json.dumps({
+    "broker_url": celery_config.celery_app.conf.broker_url,
+    "result_backend": celery_config.celery_app.conf.result_backend,
+    "pool_host": redis_pool.REDIS_HOST,
+    "pool_port": redis_pool.REDIS_PORT,
+    "pool_db": redis_pool.REDIS_DB,
+    "pool_password_set": bool(redis_pool.REDIS_PASSWORD),
+}))
+""",
+        {
+            "REDIS_HOST": "redis.example.test",
+            "REDIS_PORT": "6380",
+            "REDIS_DB": "2",
+            "REDIS_PASSWORD": "pa ss/word",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = _loads_last_stdout_json(result)
+    assert payload == {
+        "broker_url": "redis://:pa%20ss%2Fword@redis.example.test:6380/2",
+        "result_backend": "redis://:pa%20ss%2Fword@redis.example.test:6380/2",
+        "pool_host": "redis.example.test",
+        "pool_port": 6380,
+        "pool_db": 2,
+        "pool_password_set": True,
+    }
+
+
+def test_redis_url_overrides_split_redis_configuration() -> None:
+    redis_url = "redis://:secret@example.redis.test:6381/3"
+    result = _run_python_with_backend_path(
+        """
+import json
+import celery_config
+from core.cache_layer import redis_pool
+print(json.dumps({
+    "broker_url": celery_config.celery_app.conf.broker_url,
+    "result_backend": celery_config.celery_app.conf.result_backend,
+    "redis_url": redis_pool.REDIS_URL,
+}))
+""",
+        {
+            "REDIS_URL": redis_url,
+            "REDIS_HOST": "127.0.0.1",
+            "REDIS_PORT": "6379",
+            "REDIS_DB": "0",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = _loads_last_stdout_json(result)
+    assert payload == {
+        "broker_url": redis_url,
+        "result_backend": redis_url,
+        "redis_url": redis_url,
+    }
+
+
 def test_feedback_control_import_tolerates_invalid_priority_pool_env_values() -> None:
     result = _run_python_with_backend_path(
         """

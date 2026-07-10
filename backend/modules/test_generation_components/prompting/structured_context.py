@@ -28,7 +28,10 @@ from .structured_context_split_helpers import (
     _resolve_current_biz_key,
     _safe_str,
 )
-from .structured_context_requirement_semantics import _build_requirement_semantics_context
+from .structured_context_requirement_semantics import (
+    _build_requirement_semantics_context,
+    _strip_non_semantic_sections,
+)
 from .structured_context_scope import (
     _build_biz_key_isolation_log,
     _build_supplement_context,
@@ -52,7 +55,7 @@ _MAX_REQUIREMENTS_PER_BIZ = 8
 
 
 def _extract_requirement_lines(text: str, limit: int) -> list[str]:
-    src = str(text or "").strip()
+    src = _strip_non_semantic_sections(str(text or "")).strip()
     if not src:
         return []
 

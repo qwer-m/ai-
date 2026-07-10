@@ -341,6 +341,90 @@ def test_schedule_requirement_does_not_use_ai_supervisor_duplicate_family() -> N
     assert [case["id"] for case in governed] == ["TC-001", "TC-002"]
 
 
+def test_forum_requirement_does_not_leak_ai_wrong_question_policy() -> None:
+    requirement = (
+        "论坛优化：本期优化论坛内部体验，包含帖子详情、回复、发帖、作文区和消息。"
+        "专项计划学习报告只作为论坛内关联入口，点击学习报告按钮进入报告列表页。"
+        "会员权限、详情页按钮、完成和未完成状态都属于当前论坛需求描述。"
+    )
+    cases = [
+        {
+            "id": "TC-001",
+            "test_module": "帖子详情",
+            "description": "帖子详情页回复按钮完成二级回复展示",
+            "steps": ["进入帖子详情", "点击回复按钮", "提交回复"],
+            "expected_result": "回复内容展示在对应评论下方",
+            "priority": "P1",
+        },
+        {
+            "id": "TC-002",
+            "test_module": "专项计划学习报告",
+            "description": "点击学习报告按钮进入专项计划报告列表页",
+            "steps": ["进入论坛", "点击学习报告按钮"],
+            "expected_result": "进入本学科本周期报告列表页",
+            "priority": "P1",
+        },
+        {
+            "id": "TC-003",
+            "test_module": "论坛首页",
+            "description": "非会员用户帖子不展示会员标签",
+            "steps": ["进入论坛首页", "查看非会员用户帖子"],
+            "expected_result": "会员标签不展示，其他用户信息正常展示",
+            "priority": "P2",
+        },
+    ]
+
+    structure = analyze_case_structure(requirement, cases)
+    scenario_keys = [str(row.get("scenario_key") or "") for row in structure["rows"]]
+    governed, summary = govern_cases_by_flow_structure(requirement, cases, renumber_ids=False)
+
+    assert "course_access" in set(structure["domain_tags"])
+    assert not any("ai_supervisor_detail_button_state" in key for key in scenario_keys)
+    assert not any("essay_critique_button_availability" in key for key in scenario_keys)
+    assert not any("original_image_toggle" in key for key in scenario_keys)
+    assert not any("featured_sorting" in key for key in scenario_keys)
+    assert "ai_supervisor_detail_button_state" not in summary["scenario_cap_policy"]
+    assert "essay_critique_button_availability" not in summary["scenario_cap_policy"]
+    assert "original_image_toggle" not in summary["scenario_cap_policy"]
+    assert "featured_sorting" not in summary["scenario_cap_policy"]
+    assert "讲错题接入AI.pdf" not in summary["scenario_policy_documents"]
+    matched_domains = {
+        str(item.get("domain") or "")
+        for item in summary["registry_impact"]["policies_matched"]
+    }
+    assert matched_domains <= {"general"}
+    assert not any(
+        item.get("key") == "ai_supervisor_detail_button_state"
+        for item in summary["registry_impact"]["policies_matched"]
+    )
+    assert "ai_supervisor_detail_button_state" not in summary["registry_impact"][
+        "cross_module_policies_in_effect"
+    ]
+    assert [case["id"] for case in governed] == ["TC-001", "TC-002", "TC-003"]
+
+
+def test_runtime_registry_exports_domain_specific_policies_only_for_primary_domain() -> None:
+    domain_key = "ai_answer_irrelevant_score_zero"
+
+    assert domain_key not in dict(scenario_registry.scenario_pattern_entries())
+    assert domain_key not in scenario_registry.judge_duplicate_scenario_kinds()
+    assert domain_key not in scenario_registry.judge_duplicate_thresholds()
+    assert domain_key not in scenario_registry.cross_module_scenario_kinds()
+
+    assert domain_key in dict(
+        scenario_registry.scenario_pattern_entries(primary_domain="ai_wrong_question_teaching")
+    )
+    assert domain_key in scenario_registry.judge_duplicate_scenario_kinds(
+        primary_domain="ai_wrong_question_teaching"
+    )
+    assert domain_key in scenario_registry.judge_duplicate_thresholds(
+        primary_domain="ai_wrong_question_teaching"
+    )
+    assert domain_key in scenario_registry.cross_module_scenario_kinds(
+        primary_domain="ai_wrong_question_teaching"
+    )
+
+
 def test_duplicate_excess_counts_only_cases_over_scenario_cap() -> None:
     requirement = "近期课程排课：已有计划、编辑计划、下架和二次确认。"
     cases = [

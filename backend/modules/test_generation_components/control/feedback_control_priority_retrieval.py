@@ -31,6 +31,7 @@ from .feedback_control_sample_access import (
     sample_case_id as _sample_case_id,
     sample_value as _sample_value,
 )
+from ..coverage.domain_gate import current_domain_gate
 from ..coverage.scenario_registry import infer_domain_tags, infer_primary_domain_tag
 
 
@@ -105,8 +106,23 @@ def _select_priority_pool_samples_by_requirement(
     query = str(requirement_text or "").strip()
     query_domains = infer_domain_tags(query)
     primary_query_domain = infer_primary_domain_tag(query)
+    domain_gate = current_domain_gate(query)
     retrieval_meta["retrieval_query_domain_tags"] = sorted(query_domains)
     retrieval_meta["retrieval_query_primary_domain"] = primary_query_domain
+    retrieval_meta["retrieval_domain_scores"] = dict(domain_gate.get("domain_scores") or {})
+    retrieval_meta["retrieval_domain_gate_status"] = str(domain_gate.get("status") or "")
+    retrieval_meta["retrieval_domain_gate_reason"] = str(domain_gate.get("reason") or "")
+    retrieval_meta["retrieval_domain_gate_allows_historical_profile"] = bool(
+        domain_gate.get("allows_historical_profile")
+    )
+    if not bool(domain_gate.get("allows_historical_profile")):
+        retrieval_meta["retrieval_domain_filter_applied"] = True
+        retrieval_meta["retrieval_domain_no_match"] = True
+        retrieval_meta["retrieval_domain_gate_blocked"] = True
+        retrieval_meta["retrieval_domain_matched_sample_count"] = 0
+        retrieval_meta["retrieval_domain_skipped_sample_count"] = int(len(active_samples))
+        retrieval_meta["retrieval_fallback"] = "domain_unstable"
+        return [], retrieval_meta
     allowed_object_ids: set[int] = {id(item) for item in active_samples}
     if primary_query_domain:
         domain_matched_samples = [

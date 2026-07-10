@@ -169,8 +169,8 @@ def test_resolve_generation_coverage_state_uses_expected_count_80_full_regressio
     assert state["effective_generation_coverage_mode_source"] == "expected_count"
     assert state["generation_coverage_mode"] == "full_functional_regression"
     assert state["explicit_generation_mode_override"] is False
-    assert state["explicit_expected_count_floor_preserved"] is True
-    assert state["full_regression_recommended_floor"] == 85
+    assert state["explicit_expected_count_floor_preserved"] is False
+    assert state["full_regression_recommended_floor"] == 80
     assert state["resolved_full_regression_floor"] == 80
 
 
@@ -203,7 +203,7 @@ def test_resolve_generation_coverage_state_falls_back_when_mode_is_unknown() -> 
     assert state["generation_coverage_mode"] == "standard_regression"
     assert state["explicit_generation_mode_override"] is False
     assert state["explicit_expected_count_floor_preserved"] is False
-    assert state["resolved_full_regression_floor"] == 85
+    assert state["resolved_full_regression_floor"] == 80
 
 
 def test_resolve_generation_coverage_state_raises_floor_from_generation_target_range() -> None:
@@ -215,7 +215,7 @@ def test_resolve_generation_coverage_state_raises_floor_from_generation_target_r
     )
 
     assert state["effective_generation_coverage_mode"] == "full_functional_regression"
-    assert state["full_regression_recommended_floor"] == 85
+    assert state["full_regression_recommended_floor"] == 80
     assert state["explicit_expected_count_floor_preserved"] is False
     assert state["resolved_full_regression_floor"] == 96
 

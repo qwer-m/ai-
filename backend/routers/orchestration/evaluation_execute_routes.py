@@ -146,7 +146,7 @@ async def compare_test_cases(
                 generated_test_case=generated_test_case,
                 modified_test_case=final_modified,
                 requirement_text=requirement_text,
-                fallback_reason=f"\u6bd4\u8f83\u4efb\u52a1\u5165\u961f\u5931\u8d25\uff1a{exc}",
+                fallback_reason=f"比较任务入队失败：{exc}",
                 comparison_id=db_entry.id,
             )
             db_entry.comparison_result = failed_result

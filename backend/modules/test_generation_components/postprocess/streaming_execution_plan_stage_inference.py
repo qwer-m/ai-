@@ -4,8 +4,29 @@ import re
 from typing import Collection
 
 
+_STAGE_KIND_COMPATIBILITY: dict[str, set[str]] = {
+    "entry": {"entry", "consume", "unknown"},
+    "configure": {"configure", "unknown"},
+    "edit": {"configure", "unknown"},
+    "preview": {"preview", "consume", "unknown"},
+    "commit": {"commit"},
+    "downstream_visibility": {"downstream_visibility"},
+    "completion_sync": {"completion_sync", "downstream_visibility", "unknown"},
+    "consume": {"consume", "preview", "entry", "unknown"},
+}
+
+
 def contains_any_token(text: str, tokens: Collection[str]) -> bool:
-    return any(token and token.lower() in text for token in tokens)
+    haystack = str(text or "").lower()
+    return any(token and str(token).lower() in haystack for token in tokens)
+
+
+def stage_kind_compatible(expected: str, candidate: str) -> bool:
+    expected_kind = str(expected or "").strip().lower()
+    candidate_kind = str(candidate or "").strip().lower() or "unknown"
+    if not expected_kind or expected_kind == "unknown":
+        return True
+    return candidate_kind in _STAGE_KIND_COMPATIBILITY.get(expected_kind, {expected_kind, "unknown"})
 
 
 def token_hit(text: str, tokens: tuple[str, ...]) -> bool:

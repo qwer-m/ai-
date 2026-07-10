@@ -113,6 +113,14 @@ def test_default_main_chain_exclusion_token_sets_matches_streaming_config() -> N
         "cannot",
         "not allowed",
         "not saved",
+        "返回按钮",
+        "返回上一级",
+        "放弃编辑",
+        "放弃",
+        "back button",
+        "return button",
+        "discard",
+        "abort",
     }
     assert token_sets["boundary_capacity_tokens"] == {
         "边界",
@@ -151,6 +159,23 @@ def test_default_main_chain_exclusion_token_sets_matches_streaming_config() -> N
         "list",
         "card",
         "popup",
+        "图标",
+        "时间",
+        "头像",
+        "昵称",
+        "标识",
+        "标签",
+        "按钮",
+        "字段",
+        "icon",
+        "time",
+        "avatar",
+        "nickname",
+        "badge",
+        "label",
+        "tag",
+        "button",
+        "field",
     }
     assert token_sets["downstream_visibility_tokens"] == {
         "新增",
@@ -185,6 +210,43 @@ def test_default_main_chain_exclusion_token_sets_returns_independent_sets() -> N
     assert "mutated" not in fresh["analytics_tokens"]
     assert "文案" in second["display_only_tokens"]
     assert "文案" in fresh["display_only_tokens"]
+
+
+def _main_chain_exclusion_kwargs() -> dict:
+    token_sets = default_main_chain_exclusion_token_sets()
+    return {
+        "workflow_blueprints_present": True,
+        "analytics_tokens": token_sets["analytics_tokens"],
+        "destructive_action_tokens": token_sets["destructive_action_tokens"],
+        "boundary_capacity_tokens": token_sets["boundary_capacity_tokens"],
+        "blocking_negative_tokens": token_sets["blocking_negative_tokens"],
+        "display_only_tokens": token_sets["display_only_tokens"],
+        "downstream_visibility_tokens": token_sets["downstream_visibility_tokens"],
+    }
+
+
+def test_main_chain_excludes_static_display_goal_even_when_steps_enter_page() -> None:
+    case = {
+        "id": "TC-001",
+        "test_module": "Forum Home content list",
+        "description": "Pinned post displays official icon, title and time",
+        "steps": ["Open forum home", "View the pinned post"],
+        "expected_result": "Official icon, title and time are visible",
+    }
+
+    assert main_chain_exclusion_reason(case, **_main_chain_exclusion_kwargs()) == "display_only"
+
+
+def test_main_chain_excludes_return_button_goal() -> None:
+    case = {
+        "id": "TC-002",
+        "test_module": "Post detail navigation",
+        "description": "Post detail return button navigates back to forum home",
+        "steps": ["Open post detail", "Click return button"],
+        "expected_result": "The back button returns to the previous page",
+    }
+
+    assert main_chain_exclusion_reason(case, **_main_chain_exclusion_kwargs()) == "blocking_negative"
 
 
 def test_main_chain_state_overrides_for_current_generation_links_selected_states() -> None:

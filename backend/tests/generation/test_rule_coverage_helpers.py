@@ -40,6 +40,28 @@ def test_rule_extraction_helper_marks_confirmed_rule_as_blocking() -> None:
     assert rules[0]["blocking"] is True
 
 
+def test_rule_extraction_ignores_requirement_parse_diagnostics() -> None:
+    rules = _extract_requirement_rules(
+        """
+论坛详情页必须展示评论入口，并支持用户发表回复。
+
+[Requirement Understanding]
+{"version":"requirement-understanding-v1","visual_facts":[{"source":"pdf_visual:X46.jpg","text":"版主回复标签仅版主内容展示，信息被隐藏"}]}
+
+[Parsed Requirement Evidence]
+- pdf_visual: filename=X46.jpg, strategy=pdf_image_ocr, chars=917, ocr_source=cloud, cloud_fallback=true
+
+[Multimodal Evidence Alignment]
+- pdf_visual:X46.jpg -> requirement score=1.00; requirement="论坛"; evidence="版主回复标签仅版主内容展示"
+"""
+    )
+
+    rule_texts = [rule["rule_text"] for rule in rules]
+    assert any("评论入口" in text for text in rule_texts)
+    assert all("pdf_visual" not in text for text in rule_texts)
+    assert all("信息被隐藏" not in text for text in rule_texts)
+
+
 def test_rule_coverage_facade_preserves_private_helper_imports() -> None:
     assert rule_coverage._extract_rule_id("REQ-103 should display result") == "REQ-103"
     assert rule_coverage._tokenize("must display result", limit=2)

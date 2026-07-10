@@ -35,6 +35,7 @@ def build_stream_batch_system_prompt(
     current_id: int,
     generated_in_batch: int,
     need: int,
+    shard_instruction: str = "",
 ) -> str:
     next_case_id = int(current_id) + int(generated_in_batch)
     return f"""
@@ -45,6 +46,8 @@ def build_stream_batch_system_prompt(
                 {history_context}
 
                 {coverage_plan_lite}
+
+                {shard_instruction}
 
                 # --- GENERATION STRATEGY ---
                 1. ANALYZE the User's Requirement (provided in the next message) step-by-step.

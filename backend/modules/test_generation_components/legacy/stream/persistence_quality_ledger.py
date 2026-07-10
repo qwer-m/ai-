@@ -26,6 +26,42 @@ def _clamp_score(value: float) -> int:
     return int(round(max(0.0, min(100.0, float(value)))))
 
 
+def _quality_assessment_from_score_grade(grade: Any) -> str:
+    normalized = str(grade or "").strip().lower()
+    if normalized in {"high", "medium", "low"}:
+        return normalized
+    if normalized == "critical":
+        return "low"
+    return ""
+
+
+def _execution_plan_closes_required_flow(summary: dict[str, Any]) -> bool:
+    execution_plan = summary.get("execution_plan") if isinstance(summary.get("execution_plan"), dict) else {}
+    final_plan = (
+        summary.get("final_execution_orchestration_plan")
+        if isinstance(summary.get("final_execution_orchestration_plan"), dict)
+        else {}
+    )
+    linear_executable = bool(summary.get("linear_executable") or execution_plan.get("linear_executable"))
+    main_chain_case_count = _to_int(
+        summary.get("main_chain_case_count")
+        or execution_plan.get("main_chain_case_count")
+        or final_plan.get("main_chain_case_count")
+    )
+    broken_dependency_count = _to_int(
+        summary.get("broken_dependency_count") or execution_plan.get("broken_dependency_count")
+    )
+    state_conflict_count = _to_int(summary.get("state_conflict_count") or execution_plan.get("state_conflict_count"))
+    incomplete_reason = str(execution_plan.get("main_chain_incomplete_reason") or "").strip()
+    return bool(
+        linear_executable
+        and main_chain_case_count > 0
+        and broken_dependency_count <= 0
+        and state_conflict_count <= 0
+        and not incomplete_reason
+    )
+
+
 def _build_initial_quality_score(
     *,
     coverage_payload: dict[str, Any],
@@ -62,7 +98,12 @@ def _build_initial_quality_score(
             return _to_int(review_decision_summary_payload.get(final_key))
         return _to_int(review_decision_summary_payload.get(legacy_key))
 
-    flow_missing_count = summary_metric("final_flow_missing_stage_count", "flow_missing_stage_count")
+    raw_flow_missing_count = summary_metric("final_flow_missing_stage_count", "flow_missing_stage_count")
+    flow_missing_advisory_count = 0
+    flow_missing_count = raw_flow_missing_count
+    if raw_flow_missing_count > 0 and _execution_plan_closes_required_flow(review_decision_summary_payload):
+        flow_missing_advisory_count = raw_flow_missing_count
+        flow_missing_count = 0
     flow_misordered_count = summary_metric("final_flow_misordered_count", "flow_misordered_count")
     scenario_duplicate_cluster_count = summary_metric(
         "final_scenario_duplicate_cluster_count",
@@ -108,6 +149,7 @@ def _build_initial_quality_score(
     raw_rejected_count = int(rejected_count)
     raw_pending_count = int(pending_count)
     semantic_duplicate_rejected_count = 0
+    filtered_semantic_duplicate_reject_count = 0
     filtered_pending_candidate_count = 0
     for row in judge_decision_table_payload or []:
         if not isinstance(row, dict):
@@ -129,6 +171,22 @@ def _build_initial_quality_score(
         and filtered_pending_candidate_count > 0
     ):
         pending_count = max(0, pending_count - filtered_pending_candidate_count)
+    min_acceptable_final = _to_int(generation_summary_payload.get("min_acceptable_final"))
+    final_count_sufficient = min_acceptable_final <= 0 or final_count >= min_acceptable_final
+    final_structure_clean = (
+        final_count_sufficient
+        and flow_missing_count <= 0
+        and flow_misordered_count <= 0
+        and scenario_duplicate_case_count <= 0
+        and scenario_duplicate_cluster_count <= 0
+        and final_reasoning_leakage_case_count <= 0
+    )
+    if final_structure_clean and semantic_duplicate_rejected_count > 0:
+        filtered_semantic_duplicate_reject_count = min(
+            int(rejected_count),
+            int(semantic_duplicate_rejected_count),
+        )
+        rejected_count = max(0, int(rejected_count) - filtered_semantic_duplicate_reject_count)
     raw_repairable_count = _to_int(
         judge_summary_payload.get("raw_repairable_count")
         if "raw_repairable_count" in judge_summary_payload
@@ -183,14 +241,7 @@ def _build_initial_quality_score(
     add_deduction("low_quality_dropped", "低质量用例被过滤", low_quality_dropped_count, min(20, low_quality_dropped_count * 3))
     add_deduction("semantic_dedup", "语义去重压力", semantic_penalty_count, min(10, semantic_penalty_count * 0.5))
     if manual_delivery_metrics.get("applied"):
-        high_priority_shortfall = _to_float(manual_delivery_metrics.get("high_priority_ratio_shortfall"))
-        display_excess = _to_float(manual_delivery_metrics.get("display_ratio_excess"))
-        priority_drift = _to_float(manual_delivery_metrics.get("priority_distribution_drift"))
-        module_drift = _to_float(manual_delivery_metrics.get("module_distribution_drift"))
-        add_deduction("manual_high_priority_shortfall", "人工画像P0/P1偏低", high_priority_shortfall, min(12, high_priority_shortfall * 20))
-        add_deduction("manual_display_ratio_excess", "人工画像展示类过量", display_excess, min(10, display_excess * 25))
-        add_deduction("manual_priority_distribution_drift", "人工画像优先级分布偏移", priority_drift, min(10, priority_drift * 12))
-        add_deduction("manual_module_distribution_drift", "人工画像模块分布偏移", module_drift, min(8, module_drift * 8))
+        manual_delivery_metrics["scoring_mode"] = "advisory"
     if candidate_total > 0 and retained_total <= 0:
         add_deduction("empty_retained", "复核后无可用用例", 1, 40)
     if final_count <= 0:
@@ -204,7 +255,7 @@ def _build_initial_quality_score(
     score = _clamp_score(100 - total_deduction)
     score_basis = "coverage+review+judge+funnel+context"
     if manual_delivery_metrics.get("applied"):
-        score_basis = f"{score_basis}+manual_profile"
+        score_basis = f"{score_basis}+manual_profile_advisory"
     if score >= 85:
         grade = "high"
     elif score >= 70:
@@ -226,7 +277,7 @@ def _build_initial_quality_score(
         "pending_count": pending_count,
         "raw_pending_count": raw_pending_count,
         "semantic_duplicate_reject_count": semantic_duplicate_rejected_count,
-        "filtered_semantic_duplicate_reject_count": 0,
+        "filtered_semantic_duplicate_reject_count": filtered_semantic_duplicate_reject_count,
         "filtered_pending_candidate_count": filtered_pending_candidate_count,
         "repairable_count": repairable_count,
         "raw_repairable_count": raw_repairable_count,
@@ -234,6 +285,8 @@ def _build_initial_quality_score(
         "unrepaired_repairable_count": unrepaired_repairable_count,
         "fact_profile_forbidden_count": fact_profile_forbidden_count,
         "fact_violation_count": fact_violation_count,
+        "raw_flow_missing_count": raw_flow_missing_count,
+        "flow_missing_advisory_count": flow_missing_advisory_count,
         "flow_missing_count": flow_missing_count,
         "flow_misordered_count": flow_misordered_count,
         "scenario_duplicate_cluster_count": scenario_duplicate_cluster_count,
@@ -293,11 +346,13 @@ def _build_case_quality_gate_payload(
     min_acceptable_final = _to_int(generation_summary_payload.get("min_acceptable_final"))
     quality_score = _to_int(score_payload.get("quality_score"))
     grade = str(score_payload.get("quality_score_grade") or "").strip().lower()
-    rejected_count = _to_int(
+    score_inputs = score_payload.get("quality_score_inputs") if isinstance(score_payload.get("quality_score_inputs"), dict) else {}
+    raw_rejected_count = _to_int(
         judge_summary_payload.get("rejected_out_count")
         or judge_summary_payload.get("reject_count")
         or judge_reject_clusters.get("rejected_total")
     )
+    rejected_count = _to_int(score_inputs.get("rejected_count"), raw_rejected_count)
     final_duplicate_count = _to_int(review_decision_summary_payload.get("final_scenario_duplicate_case_count"))
     final_misordered_count = _to_int(review_decision_summary_payload.get("final_flow_misordered_count"))
     reasoning_leak_count = _to_int(review_decision_summary_payload.get("final_reasoning_leakage_case_count"))
@@ -305,9 +360,12 @@ def _build_case_quality_gate_payload(
         review_decision_summary_payload.get("final_role_mismatch_count")
         or (judge_reject_clusters.get("reason_clusters") or {}).get("role_mismatch")
     )
-    raw_rejected_count = int(rejected_count)
     semantic_duplicate_rejected_count = _to_int(
-        (judge_reject_clusters.get("reason_clusters") or {}).get("semantic_duplicate")
+        score_inputs.get("semantic_duplicate_reject_count"),
+        _to_int((judge_reject_clusters.get("reason_clusters") or {}).get("semantic_duplicate")),
+    )
+    filtered_semantic_duplicate_reject_count = _to_int(
+        score_inputs.get("filtered_semantic_duplicate_reject_count")
     )
     quantity_shortfall_advisory = is_candidate_insufficient_underfill_fn(generation_summary_payload)
     failures = build_case_quality_failures_fn(
@@ -335,7 +393,7 @@ def _build_case_quality_gate_payload(
         quality_score_grade=grade,
         raw_judge_rejected_count=raw_rejected_count,
         semantic_duplicate_reject_count=semantic_duplicate_rejected_count,
-        filtered_semantic_duplicate_reject_count=0,
+        filtered_semantic_duplicate_reject_count=filtered_semantic_duplicate_reject_count,
     )
     return {
         "kind": "case_quality_gate",
@@ -344,6 +402,170 @@ def _build_case_quality_gate_payload(
         "blocked": False,
         "failure_reasons": failures,
         "metrics": metrics,
+    }
+
+
+def _limited_strings(values: Any, limit: int = 20) -> list[str]:
+    return [str(item).strip() for item in (values or []) if str(item).strip()][:limit]
+
+
+def _build_quality_remediation_payload(
+    *,
+    score_payload: dict[str, Any],
+    coverage_payload: dict[str, Any],
+    convergence_payload: dict[str, Any],
+    review_decision_summary_payload: dict[str, Any],
+    judge_reject_clusters: dict[str, Any],
+) -> dict[str, Any]:
+    score_inputs = dict(score_payload.get("quality_score_inputs") or {})
+    deductions = [
+        dict(item)
+        for item in (score_payload.get("quality_score_deductions") or [])
+        if isinstance(item, dict)
+    ]
+    deduction_keys = {str(item.get("key") or "") for item in deductions}
+    missing_types = coverage_payload.get("missing_types") if isinstance(coverage_payload.get("missing_types"), dict) else {}
+    reason_clusters = (
+        judge_reject_clusters.get("reason_clusters")
+        if isinstance(judge_reject_clusters.get("reason_clusters"), dict)
+        else {}
+    )
+    actions: list[dict[str, Any]] = []
+
+    def add_action(
+        action_id: str,
+        *,
+        priority: str,
+        reason: str,
+        target_stage: str,
+        evidence: dict[str, Any],
+    ) -> None:
+        if any(item.get("action_id") == action_id for item in actions):
+            return
+        actions.append(
+            {
+                "action_id": action_id,
+                "priority": priority,
+                "reason": reason,
+                "target_stage": target_stage,
+                "evidence": evidence,
+            }
+        )
+
+    missing_rules = _limited_strings(coverage_payload.get("missing_rules"), limit=30)
+    missing_boundary = _limited_strings(missing_types.get("boundary"), limit=20)
+    missing_exception = _limited_strings(missing_types.get("exception"), limit=20)
+    if missing_rules or missing_boundary or missing_exception:
+        add_action(
+            "cover_missing_rules",
+            priority="P0",
+            reason="blocking_coverage_gap",
+            target_stage="gap_or_final_quality_supplement",
+            evidence={
+                "missing_rules": missing_rules,
+                "missing_boundary": missing_boundary,
+                "missing_exception": missing_exception,
+                "coverage_rate": score_inputs.get("coverage_rate"),
+            },
+        )
+
+    rejected_count = _to_int(score_inputs.get("rejected_count"))
+    pending_count = _to_int(score_inputs.get("pending_count"))
+    semantic_duplicate_reject_count = _to_int(score_inputs.get("semantic_duplicate_reject_count"))
+    filtered_semantic_duplicate_reject_count = _to_int(score_inputs.get("filtered_semantic_duplicate_reject_count"))
+    unresolved_semantic_duplicate_reject_count = max(
+        0,
+        semantic_duplicate_reject_count - filtered_semantic_duplicate_reject_count,
+    )
+    effective_reason_clusters = dict(reason_clusters)
+    if unresolved_semantic_duplicate_reject_count <= 0 and filtered_semantic_duplicate_reject_count > 0:
+        effective_reason_clusters.pop("semantic_duplicate", None)
+    if rejected_count > 0 or pending_count > 0:
+        action_id = (
+            "reduce_semantic_duplicates"
+            if unresolved_semantic_duplicate_reject_count > 0
+            else "reduce_judge_rejections"
+        )
+        add_action(
+            action_id,
+            priority="P0" if rejected_count >= 5 else "P1",
+            reason="judge_rejected_or_pending_candidates",
+            target_stage="primary_generation_and_review_selection",
+            evidence={
+                "rejected_count": rejected_count,
+                "pending_count": pending_count,
+                "semantic_duplicate_reject_count": semantic_duplicate_reject_count,
+                "filtered_semantic_duplicate_reject_count": filtered_semantic_duplicate_reject_count,
+                "unresolved_semantic_duplicate_reject_count": unresolved_semantic_duplicate_reject_count,
+                "dominant_reason": str(judge_reject_clusters.get("dominant_reason") or ""),
+                "reason_clusters": effective_reason_clusters,
+            },
+        )
+
+    low_quality_count = _to_int(score_inputs.get("low_quality_dropped_count"))
+    if low_quality_count > 0:
+        add_action(
+            "tighten_expected_results",
+            priority="P1",
+            reason="low_quality_cases_filtered",
+            target_stage="primary_generation_prompt_and_postprocess",
+            evidence={
+                "low_quality_dropped_count": low_quality_count,
+                "examples": [
+                    dict(item)
+                    for item in (convergence_payload.get("low_quality_dropped_examples") or [])[:5]
+                    if isinstance(item, dict)
+                ],
+            },
+        )
+
+    semantic_penalty_count = _to_int(score_inputs.get("semantic_dedup_penalty_count"))
+    if semantic_penalty_count > 0 and "reduce_semantic_duplicates" not in {item.get("action_id") for item in actions}:
+        add_action(
+            "reduce_semantic_duplicates",
+            priority="P1",
+            reason="semantic_dedup_pressure",
+            target_stage="primary_generation_sharding_or_review_selection",
+            evidence={
+                "semantic_dedup_dropped_count": _to_int(score_inputs.get("semantic_dedup_dropped_count")),
+                "semantic_dedup_penalty_count": semantic_penalty_count,
+                "candidate_total": _to_int(score_inputs.get("candidate_total")),
+            },
+        )
+
+    final_flow_misordered = _to_int(score_inputs.get("flow_misordered_count"))
+    final_flow_missing = _to_int(score_inputs.get("flow_missing_count"))
+    if final_flow_misordered > 0 or final_flow_missing > 0:
+        add_action(
+            "repair_final_flow_structure",
+            priority="P0",
+            reason="final_flow_structure_invalid",
+            target_stage="final_case_assembly",
+            evidence={
+                "final_flow_misordered_count": final_flow_misordered,
+                "final_flow_missing_stage_count": final_flow_missing,
+                "raw_final_flow_missing_stage_count": _to_int(
+                    score_inputs.get("raw_flow_missing_count")
+                    or review_decision_summary_payload.get("final_flow_missing_stage_count")
+                ),
+            },
+        )
+
+    priority_rank = {"P0": 0, "P1": 1, "P2": 2}
+    actions.sort(key=lambda item: (priority_rank.get(str(item.get("priority") or "P2"), 2), str(item.get("action_id") or "")))
+    return {
+        "kind": "quality_remediation",
+        "quality_score": _to_int(score_payload.get("quality_score")),
+        "quality_score_grade": str(score_payload.get("quality_score_grade") or ""),
+        "action_count": len(actions),
+        "primary_action": str(actions[0].get("action_id") or "") if actions else "",
+        "actions": actions[:8],
+        "next_run_controls": {
+            "target_missing_rules": missing_rules[:20],
+            "avoid_judge_reject_reasons": effective_reason_clusters,
+            "low_quality_dropped_count": low_quality_count,
+            "semantic_dedup_penalty_count": semantic_penalty_count,
+        },
     }
 
 
@@ -404,13 +626,21 @@ def _build_quality_ledger_payload(
         build_case_quality_metrics_fn=build_case_quality_metrics_fn,
         is_candidate_insufficient_underfill_fn=is_candidate_insufficient_underfill_fn,
     )
+    quality_remediation_payload = _build_quality_remediation_payload(
+        score_payload=score_payload,
+        coverage_payload=coverage_payload,
+        convergence_payload=convergence_payload,
+        review_decision_summary_payload=review_decision_summary_payload,
+        judge_reject_clusters=judge_reject_clusters,
+    )
+    quality_assessment = _quality_assessment_from_score_grade(score_payload.get("quality_score_grade"))
     return {
         "kind": "generation_quality_ledger",
         "generation_id": int(generation_id or 0),
         "request_id": str(request_id or ""),
         "generation_mode": str(mode or ""),
         "final_count": int(generation_summary_payload.get("final_count") or convergence_payload.get("final_count") or 0),
-        "quality_assessment": str(generation_summary_payload.get("quality_assessment") or ""),
+        "quality_assessment": quality_assessment,
         **score_payload,
         "stop_reason": list(generation_summary_payload.get("stop_reason") or []),
         "coverage": {
@@ -519,5 +749,6 @@ def _build_quality_ledger_payload(
             "must_cover_rules_count": int(feedback_control_debug_payload.get("must_cover_rules_count") or 0),
             "quality_fix_hints_count": int(feedback_control_debug_payload.get("quality_fix_hints_count") or 0),
         },
+        "quality_remediation": quality_remediation_payload,
         "case_quality_gate": case_quality_gate_payload,
     }

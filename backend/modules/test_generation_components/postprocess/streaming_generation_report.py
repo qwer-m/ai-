@@ -58,6 +58,7 @@ class FinalGenerationReportInputs:
     effective_generation_coverage_mode_source: str
     explicit_generation_mode_override: bool
     explicit_expected_count_floor_preserved: bool
+    final_coverage: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -68,8 +69,9 @@ class FinalGenerationReport:
 
 
 def build_final_generation_report(inputs: FinalGenerationReportInputs) -> FinalGenerationReport:
+    coverage_source = inputs.final_coverage if inputs.final_coverage is not None else inputs.pre_priority_coverage
     final_coverage_convergence_inputs = _derive_final_coverage_convergence_inputs(
-        pre_priority_coverage=inputs.pre_priority_coverage,
+        pre_priority_coverage=coverage_source,
         reference_count_effective=inputs.reference_count_effective,
         final_count=inputs.final_count,
         gap_remaining_after_attempts=inputs.gap_remaining_after_attempts,

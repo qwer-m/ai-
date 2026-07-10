@@ -131,3 +131,4 @@ def test_finalize_generated_cases_reapplies_execution_group_order_after_legacy_s
     assert [item["execution_group"] for item in result] == ["main_smoke", "permission", "display"]
     assert [item["id"] for item in result] == ["TC-005", "TC-006", "TC-007"]
     assert [item["execution_sequence"] for item in result] == [1, 2, 3]
+    assert [item["presentation_order"] for item in result] == [3, 2, 1]

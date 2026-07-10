@@ -26,6 +26,8 @@ from .streaming_execution_plan_helpers import (
     execution_case_text as _case_text,
     infer_group as _infer_group,
     infer_workflow_stage_kind as _workflow_stage_kind_from_text,
+    main_chain_goal_action_text as _main_chain_goal_action_text,
+    main_chain_goal_text as _main_chain_goal_text,
     MainChainExclusionRecorder,
     main_chain_closure_status as _main_chain_closure_status_helper,
     main_chain_exclusion_reason as _main_chain_exclusion_reason_helper,
@@ -35,6 +37,7 @@ from .streaming_execution_plan_helpers import (
     pattern_match_score as _pattern_match_score,
     priority_rank as _priority_rank,
     selected_stage_state_conflicts as _selected_stage_state_conflicts_helper,
+    workflow_transition_for_case as _workflow_transition_for_case,
     workflow_blueprint_source_label as _workflow_blueprint_source_label,
     workflow_bridge_case as _workflow_bridge_case,
 )
@@ -204,18 +207,69 @@ def apply_execution_plan_metadata(
                             str(step_meta.get("state_out") or "").replace("_", " "),
                         ]
                     )
-                )
-            candidate_stage_kind = _workflow_stage_kind_from_text(text)
+            )
+            candidate_stage_kind = _workflow_stage_kind_from_text(
+                _main_chain_goal_action_text(item) or _main_chain_goal_text(item) or text
+            )
             if semantic_filter_main_chain:
                 semantic_probe = dict(item)
                 semantic_probe["execution_group"] = "main_smoke"
-                semantic_probe["main_chain_stage_kind"] = expected_stage_kind
+                if workflow_blueprint_source == "current_requirement_blueprint":
+                    transition_probe = _workflow_transition_for_case(
+                        item,
+                        step_meta=step_meta,
+                        stage_label=str(step_meta.get("label") or stage_label or "").strip(),
+                        workflow_blueprints_present=bool(workflow_blueprints),
+                        destructive_action_tokens=destructive_action_tokens,
+                        blocking_negative_tokens=blocking_negative_tokens,
+                        boundary_capacity_tokens=boundary_capacity_tokens,
+                        analytics_tokens=analytics_tokens,
+                    )
+                    semantic_probe["workflow_transition"] = dict(transition_probe)
+                    semantic_probe["main_chain_stage_kind"] = str(
+                        transition_probe.get("stage_kind") or expected_stage_kind
+                    ).strip()
+                    for transition_field in (
+                        "workflow_id",
+                        "source_state",
+                        "action",
+                        "target_state",
+                        "path_type",
+                        "blocking",
+                        "destructive",
+                        "can_advance_main_flow",
+                        "state_transition_confidence",
+                    ):
+                        if transition_probe.get(transition_field) not in (None, ""):
+                            semantic_probe[transition_field] = transition_probe[transition_field]
+                else:
+                    semantic_probe["main_chain_stage_kind"] = expected_stage_kind
+                    semantic_probe["action"] = str(
+                        step_meta.get("action") or stage_label or ""
+                    ).strip()
                 semantic_probe["main_chain_stage_label"] = str(
                     step_meta.get("label") or stage_label or ""
                 ).strip()
-                semantic_probe["action"] = str(
-                    step_meta.get("action") or stage_label or ""
-                ).strip()
+                semantic_probe["main_chain_stage_module"] = str(step_meta.get("module") or "").strip()
+                semantic_probe["main_chain_stage_assertion"] = str(step_meta.get("assertion") or "").strip()
+                semantic_probe["main_chain_stage_description"] = str(step_meta.get("description") or "").strip()
+                semantic_probe["main_chain_stage_state_in"] = str(step_meta.get("state_in") or "").strip()
+                semantic_probe["main_chain_stage_state_out"] = str(step_meta.get("state_out") or "").strip()
+                semantic_probe["main_chain_stage_keywords"] = [
+                    str(keyword).strip()
+                    for keyword in (
+                        step_meta.get("match_keywords")
+                        or step_meta.get("keywords")
+                        or step_meta.get("aliases")
+                        or []
+                    )
+                    if str(keyword).strip()
+                ]
+                semantic_probe["main_chain_stage_evidence"] = [
+                    str(evidence).strip()
+                    for evidence in (step_meta.get("evidence") or [])
+                    if str(evidence).strip()
+                ]
                 semantic_probe["role"] = _normalize_actor_role(
                     step_meta.get("actor") or item.get("role"),
                     fallback_text=text,

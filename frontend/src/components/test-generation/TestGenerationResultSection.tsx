@@ -1,7 +1,7 @@
 import classNames from 'classnames';
 import { useMemo } from 'react';
 import { Badge, Button } from 'react-bootstrap';
-import { FaCheckCircle, FaCopy, FaFileCode } from 'react-icons/fa';
+import { FaCheckCircle, FaCopy, FaFileCode, FaMagic } from 'react-icons/fa';
 import type { TestGenerationMode } from './types';
 
 type ResultSource = 'none' | 'streaming_preview' | 'final_persisted';
@@ -26,6 +26,9 @@ type TestGenerationResultSectionProps = {
     judgeRejectedOrPendingCount: number | null;
     finalCount: number;
   };
+  canOptimize?: boolean;
+  optimizing?: boolean;
+  onOptimize?: () => void | Promise<void>;
   onCopy: () => void;
   highlightRuleId?: string | null;
   highlightRuleText?: string;
@@ -109,6 +112,9 @@ export function TestGenerationResultSection({
   finalCaseCount,
   displayCaseCount,
   funnelMetrics,
+  canOptimize = false,
+  optimizing = false,
+  onOptimize,
   onCopy,
   highlightRuleId,
   highlightRuleText,
@@ -161,6 +167,18 @@ export function TestGenerationResultSection({
               ID {generationId}
             </Badge>
           ) : null}
+          {canOptimize ? (
+            <Button
+              variant="outline-primary"
+              size="sm"
+              className="d-flex align-items-center gap-1"
+              onClick={onOptimize}
+              disabled={loading || optimizing || !onOptimize}
+              title="将质量观察中未达标的问题反馈给模型，并基于本次结果生成优化版"
+            >
+              <FaMagic /> {optimizing ? '分批优化中...' : '优化生成'}
+            </Button>
+          ) : null}
           {streamingContent ? (
             <Button
               variant="link"
@@ -174,6 +192,12 @@ export function TestGenerationResultSection({
           ) : null}
         </div>
       </div>
+
+      {optimizing ? (
+        <div className="px-4 py-2 border-bottom bg-info-subtle small text-info-emphasis">
+          正在分批提交质量问题和当前用例进行二次优化，优化成功前会继续保留当前结果。
+        </div>
+      ) : null}
 
       {isPreview ? (
         <div className="px-4 py-2 border-bottom bg-warning-subtle small text-muted">

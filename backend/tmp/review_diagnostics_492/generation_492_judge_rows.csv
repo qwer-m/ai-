@@ -1,0 +1,10 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-003,专项计划学习报告,P2,P1,P2,P2,decided,p2_cap_guard,high,,专项计划学习报告-报告列表页竖版布局下滚动和加载性能,REJECT,semantic_duplicate:TC-010,False,False,False
+TC-004,专项计划学习报告,P0,P1,P0,P0,decided,hard_guard_promotion,high,,专项计划学习报告-新报告生成后红点和新标记的时序准确性,REJECT,semantic_duplicate:TC-009,False,False,False
+TC-005,专项计划学习报告,P2,P1,P2,P2,decided,p2_cap_guard,high,,上个周期的报告不出现在当前周期的报告列表中-周期隔离验证,REJECT,semantic_duplicate:TC-011,False,False,False
+TC-006,专项计划学习报告,P2,P1,P2,P2,decided,p2_cap_guard,high,,专项计划学习报告-不同周期报告不混合展示,REJECT,semantic_duplicate:TC-005,False,False,False
+TC-020,论坛首页-内容分区与排序,P2,P2,P2,P2,decided,p2_cap_guard,high,,作文区精选排序规则-只展示后台审核时官方添加了精选标签的作品,REJECT,semantic_duplicate:TC-019,False,False,False
+TC-031,作文区-论坛详情,P2,P0,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P0,suggested=P2",作文投稿不展示原文图片-只显示作文标题,REJECT,semantic_duplicate:TC-033,False,False,False
+TC-045,回帖页-回复帖子,P2,P2,P2,P2,decided,p2_cap_guard,high,,回帖-帖子下留言提示词为'我说两句'且可添加图片,REJECT,semantic_duplicate:TC-046,False,False,False
+TC-064,论坛-发帖限制,P2,P2,P2,P2,decided,p2_cap_guard,high,,发帖/回帖次数合并计算-每天共5次,REJECT,semantic_duplicate:TC-063,False,False,False
+TC-076,论坛首页-列表排序,P2,P2,P2,P2,decided,p2_cap_guard,high,,最新排序-回帖后帖子更新时间刷新，帖子排序位置调整,REJECT,semantic_duplicate:TC-022,False,False,False

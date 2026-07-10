@@ -62,7 +62,7 @@ from .feedback_control_sample_access import (
     sample_value as _sample_value,
 )
 from .feedback_control_state import FeedbackControlState
-from ..coverage.scenario_registry import classify_registered_scenario_family
+from ..coverage.scenario_registry import classify_registered_scenario_family, infer_primary_domain_tag
 
 
 LoadPrioritySamplePoolFn = Callable[..., Any]
@@ -252,13 +252,28 @@ def build_from_priority_sample_pool(
             retrieval_meta["retrieval_index_resync_error"] = str(resync_err)[:240]
 
     if not selected_samples:
-        if manual_quality_profile:
+        domain_gate_blocked = bool(
+            retrieval_meta.get("retrieval_domain_gate_blocked")
+            or retrieval_meta.get("retrieval_domain_no_match")
+        )
+        if manual_quality_profile and not domain_gate_blocked:
             return FeedbackControlState(
                 quality_fix_hints=manual_profile_hints[:max(1, int(max_priority_pool_hints))],
                 source_meta={
                     "sources": ["priority_sample_pool_manual_profile"],
                     "priority_pool_sample_count": int(len(samples)),
                     **manual_profile_meta,
+                    "generation_id": payload.get("generation_id"),
+                    **retrieval_meta,
+                },
+            )
+        if domain_gate_blocked:
+            return FeedbackControlState(
+                source_meta={
+                    "sources": ["priority_sample_pool_domain_gate"],
+                    "priority_pool_sample_count": int(len(samples)),
+                    "priority_pool_total_positive_count": int(pool_total_positive_count),
+                    "priority_pool_total_negative_count": int(pool_total_negative_count),
                     "generation_id": payload.get("generation_id"),
                     **retrieval_meta,
                 },
@@ -360,6 +375,8 @@ def build_from_priority_sample_pool(
 
         case_id = _sample_case_id(sample)
         title = str(_sample_value(sample, "title") or "").strip()
+        sample_domain_text = "\n".join([_sample_text_for_retrieval(sample), title, comment])
+        sample_primary_domain = infer_primary_domain_tag(sample_domain_text)
         pattern_key = str(
             _sample_value(sample, "pattern_canonical", "patternCanonical")
             or _sample_value(sample, "pattern_summary", "patternSummary")
@@ -390,7 +407,9 @@ def build_from_priority_sample_pool(
                         title,
                         comment,
                     ]
-                )
+                ),
+                primary_domain=sample_primary_domain,
+                include_domain_specific=not bool(sample_primary_domain),
             )
             if scenario_family:
                 positive_scenario_counter[scenario_family] += 1
@@ -451,7 +470,9 @@ def build_from_priority_sample_pool(
                         title,
                         comment,
                     ]
-                )
+                ),
+                primary_domain=sample_primary_domain,
+                include_domain_specific=not bool(sample_primary_domain),
             )
             if scenario_family:
                 redundant_scenario_cap_counter[scenario_family] += 1

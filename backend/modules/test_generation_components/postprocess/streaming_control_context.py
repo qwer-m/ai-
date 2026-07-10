@@ -46,6 +46,17 @@ def _is_current_requirement_workflow_blueprint(item: dict[str, Any]) -> bool:
     return source == "current_requirement_blueprint" or source_type == "current_requirement_extracted"
 
 
+def _is_fallback_current_requirement_workflow_blueprint(item: dict[str, Any]) -> bool:
+    if not _is_current_requirement_workflow_blueprint(item):
+        return False
+    workflow_id = str(item.get("workflow_id") or item.get("id") or "").strip()
+    return bool(
+        item.get("fallback") is True
+        or item.get("allow_final_materialization") is False
+        or workflow_id == "current_requirement_fallback_main_flow"
+    )
+
+
 def resolve_streaming_control_context(feedback_control_state: Any) -> StreamingControlContext:
     control_state = FeedbackControlState.from_any(feedback_control_state)
     source_meta = _dict_or_empty(control_state.source_meta)
@@ -66,17 +77,20 @@ def resolve_streaming_control_context(feedback_control_state: Any) -> StreamingC
     reuse_risks = _text_list(control_state.reuse_risks)
     soft_constraints = _text_list(control_state.soft_constraints)
     quality_fix_hints = _text_list(control_state.quality_fix_hints)
-    workflow_blueprints = [
+    raw_workflow_blueprints = [
         dict(item)
         for item in (control_state.workflow_blueprints or [])
         if isinstance(item, dict) and isinstance(item.get("steps"), list)
+    ]
+    workflow_blueprints = [
+        item for item in raw_workflow_blueprints if not _is_fallback_current_requirement_workflow_blueprint(item)
     ]
     trusted_workflow_contracts = [
         item for item in workflow_blueprints if is_trusted_workflow_contract(item)
     ]
     current_requirement_workflow_blueprints = [
         item
-        for item in workflow_blueprints
+        for item in raw_workflow_blueprints
         if _is_current_requirement_workflow_blueprint(item)
     ]
     authoritative_workflow_blueprints = [
@@ -85,6 +99,7 @@ def resolve_streaming_control_context(feedback_control_state: Any) -> StreamingC
             item
             for item in current_requirement_workflow_blueprints
             if item not in trusted_workflow_contracts
+            and not _is_fallback_current_requirement_workflow_blueprint(item)
         ],
     ]
     return StreamingControlContext(

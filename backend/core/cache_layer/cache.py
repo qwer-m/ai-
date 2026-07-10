@@ -86,14 +86,28 @@ class CacheService:
         # 初始化 Redis（主 L1）
         self.redis_client = None
         try:
-            self.redis_client = redis.Redis(
-                host=settings.REDIS_HOST,
-                port=settings.REDIS_PORT,
-                decode_responses=True,
-                socket_connect_timeout=1,
-            )
+            redis_url = str(getattr(settings, "REDIS_URL", "") or "").strip()
+            if redis_url:
+                self.redis_client = redis.Redis.from_url(
+                    redis_url,
+                    decode_responses=True,
+                    socket_connect_timeout=1,
+                    socket_timeout=2,
+                )
+                redis_label = redis_url.split("@", 1)[-1]
+            else:
+                self.redis_client = redis.Redis(
+                    host=settings.REDIS_HOST,
+                    port=settings.REDIS_PORT,
+                    db=getattr(settings, "REDIS_DB", 0),
+                    password=getattr(settings, "REDIS_PASSWORD", None),
+                    decode_responses=True,
+                    socket_connect_timeout=1,
+                    socket_timeout=2,
+                )
+                redis_label = f"{settings.REDIS_HOST}:{settings.REDIS_PORT}/{getattr(settings, 'REDIS_DB', 0)}"
             self.redis_client.ping()
-            print(f"Redis connected: {settings.REDIS_HOST}:{settings.REDIS_PORT}")
+            print(f"Redis connected: {redis_label}")
         except Exception as e:
             print(f"Redis connection failed, fallback to local L1 only: {e}")
             self.redis_client = None

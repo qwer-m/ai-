@@ -305,6 +305,16 @@ BACKGROUND_TASK_PROFILES: dict[str, BackgroundTaskProfile] = _profiles_by_key(
             notes="Used to keep a request responsive; no standalone lifecycle.",
         ),
         _profile(
+            key="test_generation_coverage_shard_threadpool",
+            category=BackgroundTaskCategory.IN_REQUEST_PARALLEL,
+            owner="test_generation",
+            user_visible=False,
+            durable=False,
+            status_source="request",
+            recommended_runtime="threadpool",
+            notes="Bounded coverage-shard model calls inside a streaming generation request.",
+        ),
+        _profile(
             key="pipeline_agent_executor_threadpool",
             category=BackgroundTaskCategory.IN_REQUEST_PARALLEL,
             owner="orchestration_pipeline",

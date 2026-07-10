@@ -71,7 +71,7 @@ _SCENARIO_PATTERNS += (
     ("upload_image_management", ("上传图片", "删除图片", "拖动", "缩略图", "upload image management")),
     ("essay_limit_20", ("我的作文20条", "20条上限", "最多20", "essay limit 20")),
 )
-_SCENARIO_PATTERNS += scenario_pattern_entries()
+_SCENARIO_PATTERNS += scenario_pattern_entries(include_domain_specific=True)
 _SCENARIO_POLICY_BY_KEY = {policy.key: policy for policy in iter_scenario_family_policies()}
 
 _SPECIFIC_SCENARIO_KINDS = {
@@ -104,44 +104,75 @@ _INTENT_OUTCOME_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = intent_outco
 _INTENT_STOPWORDS = intent_stopwords()
 
 
+def _coverage_match_text(value: Any) -> str:
+    return (
+        str(value or "")
+        .replace("⻔", "门")
+        .replace("戶", "户")
+        .replace("户", "户")
+    )
+
+
+def _stage_label_aliases(label: str, key: str) -> tuple[str, ...]:
+    aliases: list[str] = []
+    for value in (
+        label,
+        _canonical_stage_label(label),
+        str(key).split(":", 1)[-1].replace("_", " "),
+    ):
+        normalized = _coverage_match_text(value).strip()
+        if normalized:
+            aliases.append(normalized)
+    for token in _tokenize(_coverage_match_text(label), limit=10):
+        normalized = _coverage_match_text(token).strip()
+        if len(normalized) < 2:
+            continue
+        if normalized.lower() in _INTENT_STOPWORDS:
+            continue
+        aliases.append(normalized)
+    return tuple(dict.fromkeys(aliases))
+
+
 def _keyword_score(text: str, keywords: tuple[str, ...]) -> int:
     score = 0
-    normalized = str(text or "")
+    normalized = _coverage_match_text(text)
     for keyword in keywords:
         if not keyword:
             continue
-        if re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_\s-]*", str(keyword)):
-            hit = bool(re.search(rf"(?<![A-Za-z0-9_]){re.escape(str(keyword))}(?![A-Za-z0-9_])", normalized, flags=re.IGNORECASE))
+        candidate = _coverage_match_text(keyword)
+        if re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_\s-]*", candidate):
+            hit = bool(re.search(rf"(?<![A-Za-z0-9_]){re.escape(candidate)}(?![A-Za-z0-9_])", normalized, flags=re.IGNORECASE))
         else:
-            hit = str(keyword) in normalized
+            hit = candidate in normalized
         if hit:
-            score += max(1, min(4, len(keyword) // 2))
+            score += max(1, min(4, len(candidate) // 2))
     return score
 
 
 def _keyword_hit_count(text: str, keywords: tuple[str, ...]) -> int:
-    normalized = str(text or "")
+    normalized = _coverage_match_text(text)
     count = 0
     for keyword in keywords:
         if not keyword:
             continue
-        if re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_\s-]*", str(keyword)):
-            hit = bool(re.search(rf"(?<![A-Za-z0-9_]){re.escape(str(keyword))}(?![A-Za-z0-9_])", normalized, flags=re.IGNORECASE))
+        candidate = _coverage_match_text(keyword)
+        if re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_\s-]*", candidate):
+            hit = bool(re.search(rf"(?<![A-Za-z0-9_]){re.escape(candidate)}(?![A-Za-z0-9_])", normalized, flags=re.IGNORECASE))
         else:
-            hit = str(keyword) in normalized
+            hit = candidate in normalized
         if hit:
             count += 1
     return count
 
 
 def _has_any(text: str, keywords: tuple[str, ...]) -> bool:
-    normalized = str(text or "")
-    return any(keyword and str(keyword) in normalized for keyword in keywords)
+    normalized = _coverage_match_text(text)
+    return any(keyword and _coverage_match_text(keyword) in normalized for keyword in keywords)
 
 
 def _has_all(text: str, keywords: tuple[str, ...]) -> bool:
-    normalized = str(text or "")
-    return all(keyword and str(keyword) in normalized for keyword in keywords)
+    normalized = _coverage_match_text(text)
+    return all(keyword and _coverage_match_text(keyword) in normalized for keyword in keywords)
 
 
 def _specific_scenario_matches(scenario_key: str, text: str, keywords: tuple[str, ...]) -> bool:
@@ -209,11 +240,7 @@ def classify_case_flow_stage(case: dict[str, Any], flow_outline: dict[str, Any] 
         labels = dict(flow_outline.get("flow_labels") or {})
         for index, key in enumerate(flow_outline.get("flow_order") or []):
             label = str(labels.get(key) or "")
-            aliases = tuple(
-                item
-                for item in {label, _canonical_stage_label(label), str(key).split(":", 1)[-1].replace("_", " ")}
-                if item
-            )
+            aliases = _stage_label_aliases(label, str(key))
             score = _keyword_score(text, aliases) if aliases else 0
             if case_module_stage and case_module_stage == _canonical_stage_label(label):
                 score += 8
@@ -276,22 +303,40 @@ def _case_intent_parts(case: dict[str, Any]) -> tuple[str, str, str]:
     return action, compact_object, outcome
 
 
-def _scenario_policy_allowed_for_domain(scenario_key: str, primary_domain: str) -> bool:
-    if not primary_domain:
-        return True
+def _scenario_policy_allowed_for_domains(
+    scenario_key: str,
+    *,
+    primary_domain: str = "",
+    domain_tags: set[str] | None = None,
+) -> bool:
     policy = _SCENARIO_POLICY_BY_KEY.get(str(scenario_key or ""))
     if policy is None:
         return True
-    return str(policy.domain or "general") in {"general", str(primary_domain)}
+    policy_domain = str(policy.domain or "general").strip() or "general"
+    if policy_domain == "general":
+        return True
+    if primary_domain:
+        return policy_domain == str(primary_domain)
+    if domain_tags is None:
+        return True
+    if len(domain_tags) == 1:
+        return policy_domain in domain_tags
+    return False
 
 
-def _scenario_patterns_for_domain(primary_domain: str = "") -> tuple[tuple[str, tuple[str, ...]], ...]:
-    if not primary_domain:
-        return _SCENARIO_PATTERNS
+def _scenario_patterns_for_domain(
+    primary_domain: str = "",
+    *,
+    domain_tags: set[str] | None = None,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
     return tuple(
         (scenario_key, keywords)
         for scenario_key, keywords in _SCENARIO_PATTERNS
-        if _scenario_policy_allowed_for_domain(scenario_key, primary_domain)
+        if _scenario_policy_allowed_for_domains(
+            scenario_key,
+            primary_domain=primary_domain,
+            domain_tags=domain_tags,
+        )
     )
 
 
@@ -300,12 +345,13 @@ def classify_case_scenario_key(
     flow_stage: str | None = None,
     *,
     primary_domain: str = "",
+    domain_tags: set[str] | None = None,
 ) -> str:
     text = _flatten_case_text(case)
     intent_text = _flatten_case_intent_text(case)
     stage = str(flow_stage or "unknown")
     action, compact_object, outcome = _case_intent_parts(case)
-    scenario_patterns = _scenario_patterns_for_domain(primary_domain)
+    scenario_patterns = _scenario_patterns_for_domain(primary_domain, domain_tags=domain_tags)
     specific_patterns = [
         (scenario_key, keywords)
         for scenario_key, keywords in scenario_patterns

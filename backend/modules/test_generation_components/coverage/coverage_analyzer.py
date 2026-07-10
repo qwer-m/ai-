@@ -5,6 +5,7 @@ from typing import Any
 from .scenario_registry import (
     default_scenario_caps,
     diagnose_registry_impact,
+    infer_domain_tags,
     infer_primary_domain_tag,
     mode_scenario_caps,
     scenario_registry_meta,
@@ -17,6 +18,7 @@ from .coverage_case_classifier import (
     classify_case_scenario_key,
 )
 from .coverage_case_complexity import case_complexity_profile
+from .domain_gate import current_domain_gate
 from .flow_outline import extract_flow_outline
 from .flow_structure_governance import (
     govern_cases_by_flow_structure as _govern_cases_by_flow_structure_impl,
@@ -120,7 +122,39 @@ def analyze_case_structure(
 ) -> dict[str, Any]:
     """Annotate candidate cases with flow-stage, scenario-cluster and ordering diagnostics."""
     normalized_cases = [item for item in (cases or []) if isinstance(item, dict)]
-    primary_domain = infer_primary_domain_tag(requirement_context)
+    requirement_text = str(requirement_context or "").strip()
+    requirement_domain_gate = current_domain_gate(requirement_text)
+    domain_signal_text = requirement_text
+    if not domain_signal_text:
+        domain_signal_text = "\n".join(_flatten_case_text(item) for item in normalized_cases[:20])
+    primary_domain = (
+        str(requirement_domain_gate.get("primary_domain") or "")
+        if bool(requirement_domain_gate.get("allows_historical_profile"))
+        else ""
+    )
+    if not primary_domain and not requirement_text:
+        primary_domain = infer_primary_domain_tag(domain_signal_text)
+    if (
+        not primary_domain
+        and bool(requirement_domain_gate.get("allows_historical_profile"))
+        and len(domain_signal_text) < 240
+    ):
+        flow_outline_hint = {}
+        if isinstance(project_profile, dict):
+            flow_outline_hint = dict(project_profile.get("flow_outline") or {})
+        flow_labels_hint = dict(flow_outline_hint.get("flow_labels") or {})
+        profile_hint_text = "\n".join(str(item) for item in flow_labels_hint.values() if str(item).strip())
+        augmented_domain_signal = "\n".join(
+            item
+            for item in (
+                domain_signal_text,
+                profile_hint_text,
+                "\n".join(_flatten_case_text(item) for item in normalized_cases[:8]),
+            )
+            if item
+        )
+        primary_domain = infer_primary_domain_tag(augmented_domain_signal)
+    domain_tags = infer_domain_tags(domain_signal_text)
     flow_outline = extract_flow_outline(requirement_context, normalized_cases, project_profile=project_profile)
     flow_order = [str(item) for item in (flow_outline.get("flow_order") or []) if str(item)]
     flow_labels = dict(flow_outline.get("flow_labels") or {})
@@ -135,7 +169,12 @@ def analyze_case_structure(
     for index, case in enumerate(normalized_cases, start=1):
         stage = classify_case_flow_stage(case, flow_outline)
         cross_cutting = classify_case_cross_cutting(case, flow_outline)
-        scenario_key = classify_case_scenario_key(case, stage, primary_domain=primary_domain)
+        scenario_key = classify_case_scenario_key(
+            case,
+            stage,
+            primary_domain=primary_domain,
+            domain_tags=domain_tags,
+        )
         intent_signature = classify_case_intent_signature(case, stage)
         duplicate_group_key = intent_signature if ":semantic:" in scenario_key and intent_signature else scenario_key
         complexity = case_complexity_profile(case)
@@ -225,6 +264,12 @@ def analyze_case_structure(
     return {
         "flow_outline": flow_outline,
         "primary_domain": primary_domain,
+        "domain_tags": sorted(domain_tags),
+        "domain_gate_status": str(requirement_domain_gate.get("status") or ""),
+        "domain_gate_reason": str(requirement_domain_gate.get("reason") or ""),
+        "domain_gate_allows_historical_profile": bool(
+            requirement_domain_gate.get("allows_historical_profile")
+        ),
         "rows": rows,
         "stage_breakdown": stage_breakdown,
         "missing_flow_stages": missing_flow_stages,

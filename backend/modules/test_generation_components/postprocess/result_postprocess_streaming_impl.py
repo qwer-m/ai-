@@ -467,6 +467,7 @@ def stream_postprocess_cases(
         final_shortfall_supplement_attempted=final_recovery.final_shortfall_supplement_attempted,
         final_shortfall_supplement_count=final_recovery.final_shortfall_supplement_count,
         final_shortfall_supplement_reason=final_recovery.final_shortfall_supplement_reason,
+        final_shortfall_supplement_debug=final_recovery.final_shortfall_supplement_debug,
         generation_mode=generation_mode,
         effective_generation_coverage_mode_source=effective_generation_coverage_mode_source,
         explicit_generation_mode_override=explicit_generation_mode_override,
@@ -493,10 +494,12 @@ def stream_postprocess_cases(
     drop_by_review_selector_count = review_summary_state.drop_by_review_selector_count
     review_decision_summary = review_summary_state.review_decision_summary
 
+    final_coverage = analyze_coverage(requirement, _dict_case_items(parsed_result))
     final_generation_report = _build_final_generation_report(
         FinalGenerationReportInputs(
             parsed_result=_dict_case_items(parsed_result),
             pre_priority_coverage=pre_priority_coverage,
+            final_coverage=final_coverage,
             reference_count_effective=reference_count_effective,
             final_count=final_count,
             gap_remaining_after_attempts=gap_remaining_after_attempts,

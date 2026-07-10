@@ -20,6 +20,13 @@ def call_component(module_name: str, attr_name: str, *args: Any, **kwargs: Any) 
     return component_attr(module_name, attr_name)(*args, **kwargs)
 
 
+def resolve_lazy_attr(value: Any) -> Any:
+    target = getattr(value, "_target", None)
+    if callable(target):
+        return target()
+    return value
+
+
 class LazyAttrProxy:
     def __init__(self, module_name: str, attr_name: str):
         object.__setattr__(self, "_module_name", module_name)

@@ -9,7 +9,10 @@ from modules.test_generation_components.coverage.coverage_analyzer import (
     extract_flow_outline,
     govern_cases_by_flow_structure,
 )
-from modules.test_generation_components.control.project_profile_activation import build_project_profile
+from modules.test_generation_components.control.project_profile_activation import (
+    build_project_profile,
+    merge_project_profile_control_state,
+)
 
 
 def test_extract_flow_outline_applies_data_flow_over_incidental_overview_mentions() -> None:
@@ -36,6 +39,22 @@ def test_extract_flow_outline_applies_data_flow_over_incidental_overview_mention
         "Report Center",
     ]
     assert all(not key.startswith(("photo_", "workbook", "weekend")) for key in outline["flow_order"])
+
+
+def test_flow_stage_matching_normalizes_pdf_user_glyph_variants() -> None:
+    requirement = "1. 用戶详情弹窗:"
+    cases = [
+        {
+            "id": "TC-001",
+            "test_module": "用户详情弹窗",
+            "description": "查看用户详情",
+            "expected_result": "用户详情弹窗展示",
+        }
+    ]
+
+    structure = analyze_case_structure(requirement, cases)
+
+    assert structure["missing_flow_stage_count"] == 0
 
 
 def test_analyze_case_structure_flags_scenario_duplicates_and_flow_inversion() -> None:
@@ -128,19 +147,19 @@ def test_govern_cases_by_flow_structure_reorders_and_prunes_pattern_duplicates()
     assert [case["id"] for case in governed] == ["TC-001", "TC-002", "TC-003"]
 
 
-def test_project_profile_overrides_document_section_order_for_governance() -> None:
+def test_current_requirement_order_preempts_project_profile_for_governance() -> None:
     requirement = """
-    Report Center is described first in this document.
-    Upload Center is described later.
+    Topic Detail is described first in this document.
+    Forum Home is described later.
     """
     project_profile = {
         "confidence": 0.9,
         "profile_source": "project_config",
         "flow_outline": {
-            "flow_order": ["upload_center", "report_center"],
+            "flow_order": ["forum_home", "topic_detail"],
             "flow_labels": {
-                "upload_center": "Upload Center",
-                "report_center": "Report Center",
+                "forum_home": "Forum Home",
+                "topic_detail": "Topic Detail",
             },
             "cross_cutting": [],
             "cross_cutting_labels": {},
@@ -149,22 +168,23 @@ def test_project_profile_overrides_document_section_order_for_governance() -> No
     cases = [
         {
             "id": "TC-001",
-            "description": "Report Center share link works",
-            "test_module": "Report Center",
-            "steps": ["Open report"],
-            "expected_result": "Share link is created",
+            "description": "Topic Detail shows the post content",
+            "test_module": "Topic Detail",
+            "steps": ["Open topic detail"],
+            "expected_result": "Post content is visible",
             "priority": "P0",
         },
         {
             "id": "TC-002",
-            "description": "Upload Center accepts valid files",
-            "test_module": "Upload Center",
-            "steps": ["Open upload"],
-            "expected_result": "File import starts",
+            "description": "Forum Home lists active topics",
+            "test_module": "Forum Home",
+            "steps": ["Open forum home"],
+            "expected_result": "Topic list is visible",
             "priority": "P0",
         },
     ]
 
+    structure = analyze_case_structure(requirement, cases, project_profile=project_profile)
     governed, summary = govern_cases_by_flow_structure(
         requirement,
         cases,
@@ -173,11 +193,12 @@ def test_project_profile_overrides_document_section_order_for_governance() -> No
         renumber_ids=True,
     )
 
-    assert summary["flow_reordered"] is True
-    assert [case["test_module"] for case in governed] == ["Upload Center", "Report Center"]
+    assert structure["flow_outline"]["source"] != "project_config"
+    assert summary["flow_reordered"] is False
+    assert [case["test_module"] for case in governed] == ["Topic Detail", "Forum Home"]
 
 
-def test_project_profile_data_flow_order_overrides_section_order() -> None:
+def test_project_profile_data_flow_order_supplements_when_current_flow_missing() -> None:
     project_profile = build_project_profile(
         requirement_text="",
         module_order_hint=["Learning Report", "Capture Upload", "Review Queue", "Workbook"],
@@ -187,28 +208,24 @@ def test_project_profile_data_flow_order_overrides_section_order() -> None:
         {
             "id": "TC-001",
             "description": "Learning Report share link works",
-            "test_module": "Learning Report",
             "expected_result": "Share link is created",
             "priority": "P0",
         },
         {
             "id": "TC-002",
             "description": "Capture Upload accepts images",
-            "test_module": "Capture Upload",
             "expected_result": "Images upload successfully",
             "priority": "P0",
         },
         {
             "id": "TC-003",
             "description": "Review Queue manual correction works",
-            "test_module": "Review Queue",
             "expected_result": "Record is corrected",
             "priority": "P0",
         },
         {
             "id": "TC-004",
             "description": "Workbook title format is correct",
-            "test_module": "Workbook",
             "expected_result": "Title is correct",
             "priority": "P0",
         },
@@ -224,12 +241,33 @@ def test_project_profile_data_flow_order_overrides_section_order() -> None:
 
     assert summary["flow_reordered"] is True
     assert project_profile["flow_outline"]["data_flow_edges"]
-    assert [case["test_module"] for case in governed] == [
-        "Capture Upload",
-        "Review Queue",
-        "Workbook",
-        "Learning Report",
+    assert [case["description"] for case in governed] == [
+        "Capture Upload accepts images",
+        "Review Queue manual correction works",
+        "Workbook title format is correct",
+        "Learning Report share link works",
     ]
+
+
+def test_low_confidence_project_profile_does_not_merge_flow_profile() -> None:
+    state = merge_project_profile_control_state(
+        {},
+        {
+            "confidence": 0.0,
+            "profile_source": "document_extracted",
+            "flow_outline": {
+                "flow_order": ["admin_console", "forum_home"],
+                "flow_labels": {
+                    "admin_console": "Admin Console",
+                    "forum_home": "Forum Home",
+                },
+            },
+        },
+    )
+
+    assert "project_profile" not in state.source_meta
+    assert state.source_meta["project_profile_gate"]["allowed"] is False
+    assert state.source_meta["project_profile_gate"]["reason"] == "low_project_profile_confidence"
 
 
 def test_govern_cases_by_flow_structure_uses_scenario_specific_caps() -> None:

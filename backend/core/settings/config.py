@@ -83,9 +83,9 @@ class Config:
     EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "").strip()
     EMBEDDING_API_KEY_ENV = os.getenv("EMBEDDING_API_KEY_ENV", "").strip()
     EMBEDDING_TIMEOUT_SECONDS = _env_float("EMBEDDING_TIMEOUT_SECONDS", 30.0, minimum=1.0)
-    MODEL_NAME = "qwen-plus"  # 主模型名称
-    VL_MODEL_NAME = "qwen3-vl-plus-2025-12-19"  # 视觉语言模型，用于OCR等图像处理
-    TURBO_MODEL_NAME = "qwen-plus"  # 轻量模型（原qwen-turbo已下线，暂用plus替代），用于上下文压缩和摘要生成
+    MODEL_NAME = os.getenv("MODEL_NAME", "").strip()
+    VL_MODEL_NAME = os.getenv("VL_MODEL_NAME", "").strip()
+    TURBO_MODEL_NAME = os.getenv("TURBO_MODEL_NAME", "").strip()
     MAX_TOKENS = _env_int("MAX_TOKENS", 10000, minimum=1)  # 最大输出token数
     
     # ===========================
@@ -119,8 +119,11 @@ class Config:
     # ===========================
     # Redis配置（用于健康检查）
     # ===========================
+    REDIS_URL = os.getenv("REDIS_URL", "").strip()
     REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
     REDIS_PORT = _env_int("REDIS_PORT", 6379, minimum=1, maximum=65535)
+    REDIS_DB = _env_int("REDIS_DB", 0, minimum=0)
+    REDIS_PASSWORD = os.getenv("REDIS_PASSWORD") or None
 
     # ===========================
     # 安全配置
@@ -149,6 +152,41 @@ class Config:
     )
 
     # ===========================
+    # Stream generation coverage shard flags
+    # ===========================
+    GENERATION_STREAM_COVERAGE_SHARDS_ENABLED = _env_flag("GENERATION_STREAM_COVERAGE_SHARDS_ENABLED", False)
+    GENERATION_STREAM_COVERAGE_SHARD_MAX_WORKERS = _env_int(
+        "GENERATION_STREAM_COVERAGE_SHARD_MAX_WORKERS",
+        2,
+        minimum=1,
+        maximum=4,
+    )
+    GENERATION_STREAM_COVERAGE_SHARD_MIN_EXPECTED_COUNT = _env_int(
+        "GENERATION_STREAM_COVERAGE_SHARD_MIN_EXPECTED_COUNT",
+        60,
+        minimum=1,
+        maximum=500,
+    )
+    GENERATION_STREAM_COVERAGE_SHARD_MIN_RULES = _env_int(
+        "GENERATION_STREAM_COVERAGE_SHARD_MIN_RULES",
+        8,
+        minimum=1,
+        maximum=100,
+    )
+    GENERATION_STREAM_COVERAGE_SHARD_DUPLICATE_RATE_ABORT = _env_float(
+        "GENERATION_STREAM_COVERAGE_SHARD_DUPLICATE_RATE_ABORT",
+        0.25,
+        minimum=0.0,
+        maximum=1.0,
+    )
+    GENERATION_STREAM_COVERAGE_SHARD_MIN_UNIQUE_RATIO = _env_float(
+        "GENERATION_STREAM_COVERAGE_SHARD_MIN_UNIQUE_RATIO",
+        0.45,
+        minimum=0.0,
+        maximum=1.0,
+    )
+
+    # ===========================
     # Execution plan persistence gate
     # ===========================
     EXECUTION_PLAN_GATE_MODE = os.getenv("EXECUTION_PLAN_GATE_MODE", "enforce").strip().lower()
@@ -169,6 +207,10 @@ class Config:
     EXECUTION_PLAN_REJECT_CANDIDATE_DERIVED_BLUEPRINT = _env_flag(
         "EXECUTION_PLAN_REJECT_CANDIDATE_DERIVED_BLUEPRINT",
         True,
+    )
+    CASE_QUALITY_ENFORCE_MIN_ACCEPTABLE_FINAL = _env_flag(
+        "CASE_QUALITY_ENFORCE_MIN_ACCEPTABLE_FINAL",
+        False,
     )
 
 
