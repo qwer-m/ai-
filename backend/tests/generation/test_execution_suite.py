@@ -131,7 +131,75 @@ def test_execution_suite_uses_alias_fields_for_case_payload() -> None:
     assert case_ref["test_input"] == "valid course and time"
     assert case_ref["expected_result"] == "plan is saved"
     assert case_ref["priority"] == "P0"
+    assert case_ref["action"] == "open scheduler"
     assert case_ref["runnable"] is True
+
+
+def test_execution_suite_projects_public_step_as_display_action() -> None:
+    cases = [
+        {
+            "id": "TC-ACTION",
+            "description": "submit order",
+            "steps": ["click submit", "verify success"],
+            "expected_result": "order is submitted",
+            "action": "submit order from checkout",
+            "execution_group": "main_smoke",
+            "execution_sequence": 1,
+            "role": "buyer",
+            "session_key": "buyer_session",
+        }
+    ]
+
+    suite = build_execution_suite(cases)
+    case_ref = suite["suites"][0]["cases"][0]
+
+    assert case_ref["action"] == "click submit"
+    assert case_ref["transition_action"] == "submit order from checkout"
+
+
+def test_execution_suite_falls_back_to_explicit_action_without_steps() -> None:
+    cases = [
+        {
+            "id": "TC-ACTION",
+            "description": "submit order",
+            "expected_result": "order is submitted",
+            "action": "submit order from checkout",
+            "execution_group": "main_smoke",
+            "execution_sequence": 1,
+            "role": "buyer",
+            "session_key": "buyer_session",
+        }
+    ]
+
+    suite = build_execution_suite(cases)
+    case_ref = suite["suites"][0]["cases"][0]
+
+    assert case_ref["action"] == "submit order from checkout"
+    assert case_ref["transition_action"] == "submit order from checkout"
+    assert case_ref["runnable"] is False
+
+
+def test_execution_suite_preserves_transition_action_when_present() -> None:
+    cases = [
+        {
+            "id": "TC-ACTION",
+            "description": "submit order",
+            "steps": ["click submit", "verify success"],
+            "expected_result": "order is submitted",
+            "action": "click submit",
+            "transition_action": "submit order from checkout",
+            "execution_group": "main_smoke",
+            "execution_sequence": 1,
+            "role": "buyer",
+            "session_key": "buyer_session",
+        }
+    ]
+
+    suite = build_execution_suite(cases)
+    case_ref = suite["suites"][0]["cases"][0]
+
+    assert case_ref["action"] == "click submit"
+    assert case_ref["transition_action"] == "submit order from checkout"
 
 
 def test_execution_suite_splits_text_steps_with_shared_accessor() -> None:

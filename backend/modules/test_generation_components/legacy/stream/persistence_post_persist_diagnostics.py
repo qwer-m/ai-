@@ -75,6 +75,7 @@ _EXECUTION_CASE_REF_KEYS = (
     "source_state",
     "target_state",
     "action",
+    "transition_action",
     "runnable",
 )
 

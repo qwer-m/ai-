@@ -81,6 +81,17 @@ def _case_sort_key(case: dict[str, Any], fallback_index: int) -> tuple[int, str]
     return sequence, _case_id(case, fallback_index)
 
 
+def _case_action(case: dict[str, Any], steps: list[str]) -> str:
+    step_action = _text(steps[0]) if steps else ""
+    if step_action:
+        return step_action
+    return _text(case.get("action"))
+
+
+def _case_transition_action(case: dict[str, Any]) -> str:
+    return _text(case.get("transition_action")) or _text(case.get("action"))
+
+
 def _run_mode(group: str) -> str:
     if group == "main_smoke":
         return "sequential"
@@ -142,7 +153,8 @@ def _build_case_ref(case: dict[str, Any], *, fallback_index: int, suite_order: i
         "expected_result": expected_result,
         "source_state": _text(case.get("source_state")),
         "target_state": _text(case.get("target_state")),
-        "action": _text(case.get("action")),
+        "action": _case_action(case, steps),
+        "transition_action": _case_transition_action(case),
         "runnable": bool(case_id and steps and expected_result),
     }
 

@@ -160,6 +160,44 @@ print(json.dumps({"loaded": [name for name in forbidden if name in sys.modules]}
     assert payload["loaded"] == []
 
 
+def test_testing_test_generation_facade_resolves_legacy_from_canonical_package(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import importlib
+
+    facade = importlib.import_module("modules.testing.test_generation")
+    canonical_target = "modules.test_generation_components.legacy_generation_impl"
+    calls: list[str] = []
+
+    class _FakeTestGenerationModule:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.args = args
+            self.kwargs = kwargs
+            self.status = "ready"
+
+    class _FakeLegacyModule:
+        TestGenerationModule = _FakeTestGenerationModule
+
+    def _fake_import_module(name: str):
+        calls.append(name)
+        if name == canonical_target:
+            return _FakeLegacyModule
+        raise AssertionError(f"unexpected import target: {name}")
+
+    monkeypatch.setattr(facade, "import_module", _fake_import_module)
+
+    module = facade.TestGenerationModule("req", project_id=1)
+    assert isinstance(module, _FakeTestGenerationModule)
+    assert module.args == ("req",)
+    assert module.kwargs == {"project_id": 1}
+
+    lazy = facade.LazyTestGenerator()
+    assert lazy.status == "ready"
+    lazy.extra = "ok"
+    assert lazy.extra == "ok"
+    assert calls == [canonical_target, canonical_target]
+
+
 def test_legacy_json_generation_impl_import_is_lightweight() -> None:
     result = _run_python_with_backend_path(
         """

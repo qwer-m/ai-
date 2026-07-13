@@ -247,6 +247,8 @@ def test_history_rehydrates_execution_suite_from_compact_diagnostic() -> None:
                         "execution_sequence": 1,
                         "role": "teacher",
                         "session_key": "teacher_session",
+                        "action": "display action from compact",
+                        "transition_action": "transition action from compact",
                     },
                     {
                         "case_id": "TC-002",
@@ -269,6 +271,8 @@ def test_history_rehydrates_execution_suite_from_compact_diagnostic() -> None:
     assert suite["linear_executable"] is True
     assert suite["suites"][0]["suite_id"] == "main_smoke_chain"
     assert suite["suites"][0]["cases"][0]["steps"] == ["open schedule", "save plan"]
+    assert suite["suites"][0]["cases"][0]["action"] == "open schedule"
+    assert suite["suites"][0]["cases"][0]["transition_action"] == "transition action from compact"
     assert suite["suites"][0]["cases"][1]["depends_on"] == ["TC-001"]
 
 

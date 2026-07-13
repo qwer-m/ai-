@@ -44,6 +44,7 @@ def _contains_strong_p0_signal(case_text: str) -> bool:
     return bool(
         payment_gate
         or ai_scoring
+        or wrong_collection
         or week_boundary_or_makeup
         or submit_report_closure
     )

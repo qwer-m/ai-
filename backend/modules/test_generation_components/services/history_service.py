@@ -104,6 +104,7 @@ def _compact_suite_metadata_by_case_id(suite_hint: dict[str, Any] | None) -> dic
                 "source_state",
                 "target_state",
                 "action",
+                "transition_action",
             ):
                 value = case_ref.get(key)
                 if value not in (None, "", []):

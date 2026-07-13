@@ -64,6 +64,26 @@ def test_resolve_case_priority_promotes_model_p2_when_no_hard_guard_and_high_beh
     assert final_priority == "P1"
 
 
+def test_wrong_collection_strong_signal_promotes_model_p2_to_p0() -> None:
+    case = {
+        "description": "Verify wrong question collection is generated after wrong answers.",
+        "test_module": "learning-error-book",
+        "preconditions": ["student has submitted answers"],
+        "steps": ["submit wrong answers", "open wrong question collection"],
+        "test_input": "wrong answer set",
+        "expected_result": "wrong question collection contains the generated item",
+        "priority": "P2",
+    }
+
+    output = apply_priority_semantics_to_case(dict(case), attach_debug=True)
+    debug = ((output.get("meta") or {}).get("priority_debug") or {})
+
+    assert output["priority"] == "P0"
+    assert output["priority_final"] == "P0"
+    assert output["priority_decision_source"] == "strong_p0_signal_guard"
+    assert debug.get("priority_decision_source") == "strong_p0_signal_guard"
+
+
 def test_apply_priority_semantics_attaches_debug_meta() -> None:
     case = {
         "description": "High-frequency core query shows an error but remains usable.",

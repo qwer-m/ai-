@@ -12,7 +12,7 @@ from typing import Any
 
 
 def _legacy_module():
-    return import_module("modules.testing.test_generation_components.legacy_generation_impl")
+    return import_module("modules.test_generation_components.legacy_generation_impl")
 
 
 def _json_processing_module():
