@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from core.db.models import PipelineRun
 from .schemas import RunStatus, STAGE_ORDER, StageKey
 
+_UNSET = object()
+
 
 def _now_iso() -> str:
     return datetime.utcnow().isoformat()
@@ -28,6 +30,9 @@ def _serialize_run(run: PipelineRun) -> dict[str, Any]:
         "user_id": run.user_id,
         "status": run.status,
         "current_stage": run.current_stage,
+        "task_id": getattr(run, "task_id", None),
+        "heartbeat_at": getattr(run, "heartbeat_at", None),
+        "lease_expires_at": getattr(run, "lease_expires_at", None),
         "request_payload": run.request_payload or {},
         "stage_states": run.stage_states or _default_stage_states(),
         "artifacts": run.artifacts or {},
@@ -44,28 +49,40 @@ def _persist_run(
     db: Session,
     run: PipelineRun,
     *,
-    status: Optional[RunStatus] = None,
-    current_stage: Optional[str] = None,
-    stage_states: Optional[dict[str, Any]] = None,
-    artifacts: Optional[dict[str, Any]] = None,
-    error_message: Optional[str] = None,
-    started_at: Optional[datetime] = None,
-    finished_at: Optional[datetime] = None,
+    status: RunStatus | object = _UNSET,
+    current_stage: str | None | object = _UNSET,
+    stage_states: dict[str, Any] | object = _UNSET,
+    artifacts: dict[str, Any] | object = _UNSET,
+    error_message: str | object = _UNSET,
+    started_at: datetime | None | object = _UNSET,
+    finished_at: datetime | None | object = _UNSET,
+    task_id: str | None | object = _UNSET,
+    claim_token: str | None | object = _UNSET,
+    heartbeat_at: datetime | None | object = _UNSET,
+    lease_expires_at: datetime | None | object = _UNSET,
 ) -> None:
-    if status is not None:
+    if status is not _UNSET:
         run.status = status
-    if current_stage is not None:
+    if current_stage is not _UNSET:
         run.current_stage = current_stage
-    if stage_states is not None:
+    if stage_states is not _UNSET:
         run.stage_states = stage_states
-    if artifacts is not None:
+    if artifacts is not _UNSET:
         run.artifacts = artifacts
-    if error_message is not None:
+    if error_message is not _UNSET:
         run.error_message = error_message
-    if started_at is not None:
+    if started_at is not _UNSET:
         run.started_at = started_at
-    if finished_at is not None:
+    if finished_at is not _UNSET:
         run.finished_at = finished_at
+    if task_id is not _UNSET:
+        run.task_id = task_id
+    if claim_token is not _UNSET:
+        run.claim_token = claim_token
+    if heartbeat_at is not _UNSET:
+        run.heartbeat_at = heartbeat_at
+    if lease_expires_at is not _UNSET:
+        run.lease_expires_at = lease_expires_at
     db.add(run)
     db.commit()
     db.refresh(run)

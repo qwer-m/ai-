@@ -35,6 +35,55 @@ def _normalize_rule_quota(raw_quota: dict[Any, Any] | None) -> dict[str, int]:
     return quota
 
 
+def _normalize_workflow_blueprints(values: Any) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    if not isinstance(values, list):
+        return output
+    for raw in values:
+        if not isinstance(raw, dict):
+            continue
+        blueprint = dict(raw)
+        steps = blueprint.get("steps")
+        if not isinstance(steps, list) or not steps:
+            continue
+        normalized_steps: list[dict[str, Any]] = []
+        for index, step in enumerate(steps, start=1):
+            if isinstance(step, dict):
+                normalized_step = dict(step)
+            else:
+                normalized_step = {"label": str(step or "").strip()}
+            label = str(
+                normalized_step.get("label")
+                or normalized_step.get("action")
+                or normalized_step.get("description")
+                or ""
+            ).strip()
+            if not label:
+                continue
+            normalized_step["id"] = str(normalized_step.get("id") or f"step_{index:03d}").strip()
+            normalized_step["label"] = label
+            normalized_steps.append(normalized_step)
+        if len(normalized_steps) < 2:
+            continue
+        blueprint["steps"] = normalized_steps[:12]
+        blueprint_id = str(
+            blueprint.get("id")
+            or blueprint.get("workflow_id")
+            or blueprint.get("name")
+            or "workflow_blueprint"
+        ).strip()
+        key = f"{blueprint_id}|{'|'.join(str(step.get('label') or '') for step in normalized_steps)}".lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        blueprint["id"] = blueprint_id
+        output.append(blueprint)
+        if len(output) >= 5:
+            break
+    return output
+
+
 def _merge_meta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
     merged: dict[str, Any] = dict(left or {})
     for key, value in dict(right or {}).items():
@@ -81,6 +130,7 @@ class FeedbackControlState:
     soft_constraints: list[str] = field(default_factory=list)
     rule_quota: dict[str, int] = field(default_factory=dict)
     quality_fix_hints: list[str] = field(default_factory=list)
+    workflow_blueprints: list[dict[str, Any]] = field(default_factory=list)
     source_meta: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -101,6 +151,7 @@ class FeedbackControlState:
             soft_constraints=_normalize_text_list(data.get("soft_constraints") or data.get("negative_bias") or []),
             rule_quota=_normalize_rule_quota(data.get("rule_quota") or {}),
             quality_fix_hints=_normalize_text_list(data.get("quality_fix_hints") or []),
+            workflow_blueprints=_normalize_workflow_blueprints(data.get("workflow_blueprints") or []),
             source_meta=dict(data.get("source_meta") or {}),
         )
 
@@ -122,6 +173,7 @@ class FeedbackControlState:
             "soft_constraints": _normalize_text_list(self.soft_constraints),
             "rule_quota": _normalize_rule_quota(self.rule_quota),
             "quality_fix_hints": _normalize_text_list(self.quality_fix_hints),
+            "workflow_blueprints": _normalize_workflow_blueprints(self.workflow_blueprints),
             "source_meta": dict(self.source_meta or {}),
         }
 
@@ -139,6 +191,9 @@ class FeedbackControlState:
             soft_constraints=_normalize_text_list([*self.soft_constraints, *target.soft_constraints]),
             rule_quota=merged_quota,
             quality_fix_hints=_normalize_text_list([*self.quality_fix_hints, *target.quality_fix_hints]),
+            workflow_blueprints=_normalize_workflow_blueprints(
+                [*self.workflow_blueprints, *target.workflow_blueprints]
+            ),
             source_meta=_merge_meta(dict(self.source_meta or {}), dict(target.source_meta or {})),
         )
 
@@ -152,4 +207,5 @@ class FeedbackControlState:
             or self.soft_constraints
             or self.rule_quota
             or self.quality_fix_hints
+            or self.workflow_blueprints
         )

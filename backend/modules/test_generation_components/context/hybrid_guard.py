@@ -20,6 +20,11 @@ def _safe_int(value: Any, default: int) -> int:
         return int(default)
 
 
+def _env_int(key: str, default: int, minimum: int) -> int:
+    raw = os.getenv(key)
+    return max(int(minimum), _safe_int(raw if raw is not None else default, default))
+
+
 @dataclass(frozen=True)
 class HybridEmptyGuardConfig:
     """空上下文兜底策略配置。"""
@@ -29,10 +34,7 @@ class HybridEmptyGuardConfig:
         "requirement_only_fallback",
     ).strip().lower()
     sync_snapshot_retry_enabled: bool = _env_bool("RAG_SYNC_SNAPSHOT_RETRY_ENABLED", True)
-    sync_snapshot_retry_timeout_sec: int = max(
-        2,
-        _safe_int(os.getenv("RAG_SYNC_SNAPSHOT_RETRY_TIMEOUT_SEC", "8"), 8),
-    )
+    sync_snapshot_retry_timeout_sec: int = _env_int("RAG_SYNC_SNAPSHOT_RETRY_TIMEOUT_SEC", 8, 2)
 
     def normalized_strategy(self) -> str:
         """标准化策略值，默认采用“仅用当前文档继续生成”的非阻塞分支。"""

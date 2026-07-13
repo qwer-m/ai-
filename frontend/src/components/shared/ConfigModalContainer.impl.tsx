@@ -39,11 +39,15 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
   const [modelName, setModelName] = useState('');
   const [vlModelName, setVlModelName] = useState('');
   const [turboModelName, setTurboModelName] = useState('');
+  const [reviewModelName, setReviewModelName] = useState('');
 
   const [turboProvider, setTurboProvider] = useState('follow_main');
   const [turboApiKey, setTurboApiKey] = useState('');
+  const [reviewProvider, setReviewProvider] = useState('follow_main');
+  const [reviewApiKey, setReviewApiKey] = useState('');
   const [vlProvider, setVlProvider] = useState('follow_main');
   const [vlApiKey, setVlApiKey] = useState('');
+  const [vlBaseUrl, setVlBaseUrl] = useState('');
 
   const [tesseractPath, setTesseractPath] = useState('');
   const [tesseractManualOverride, setTesseractManualOverride] = useState(false);
@@ -71,7 +75,13 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
       setStreamOutput('');
       setStreamState('idle');
     }
-  }, [tab, provider, modelName, turboProvider, vlProvider, cloudBaseUrl, localBaseUrl, localModelName, tesseractPath, tesseractManualOverride]);
+  }, [tab, provider, modelName, turboProvider, reviewProvider, vlProvider, vlBaseUrl, cloudBaseUrl, localBaseUrl, localModelName, tesseractPath, tesseractManualOverride]);
+
+
+  useEffect(() => {
+    document.body.classList.toggle('config-modal-open', show);
+    return () => document.body.classList.remove('config-modal-open');
+  }, [show]);
 
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
@@ -105,6 +115,7 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
           setModelName(res.model_name);
           setVlModelName(res.vl_model_name || '');
           setTurboModelName(res.turbo_model_name || '');
+          setReviewModelName(res.review_model_name || '');
           setApiKey(res.has_api_key ? '******' : '');
           const resolvedBaseUrl = resolveCloudBaseUrl(res.provider, res.base_url || '');
           setCloudBaseUrl(resolvedBaseUrl);
@@ -114,8 +125,11 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
 
           setTurboProvider(res.turbo_follow_main ? 'follow_main' : res.turbo_provider || 'follow_main');
           setTurboApiKey(res.has_turbo_api_key ? '******' : '');
+          setReviewProvider(res.review_follow_main ? 'follow_main' : res.review_provider || 'follow_main');
+          setReviewApiKey(res.has_review_api_key ? '******' : '');
           setVlProvider(res.vl_follow_main ? 'follow_main' : res.vl_provider || 'follow_main');
           setVlApiKey(res.has_vl_api_key ? '******' : '');
+          setVlBaseUrl(res.vl_base_url || '');
         } else {
           setTab('local');
           setLocalBaseUrl(res.base_url || '');
@@ -177,6 +191,25 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
       setCloudBaseUrl(resolveCloudBaseUrl(next, cloudBaseUrl));
     }
     markDirty();
+  };
+
+  const handleVlProviderChange = (value: string) => {
+    const next = String(value || '').trim();
+    setVlProvider(next);
+    if (next === 'openai' && !String(vlBaseUrl || '').trim()) {
+      setVlBaseUrl(effectiveCloudBaseUrl || lastOpenaiBaseUrl || DEFAULT_OPENAI_BASE_URL);
+    }
+    markDirty();
+  };
+
+  const targetApiKeyMissing = (targetProvider: string, targetApiKey: string): boolean => {
+    if (targetProvider === 'follow_main') {
+      return false;
+    }
+    if (targetProvider === provider && (apiKey || '').trim()) {
+      return false;
+    }
+    return !(targetApiKey || '').trim();
   };
 
   const detectLocalServices = async () => {
@@ -289,7 +322,12 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
         setPending(false);
         return;
       }
-      if (vlProvider !== 'follow_main' && (vlModelName || '').trim() && !(vlApiKey || '').trim()) {
+      if (reviewProvider !== 'follow_main' && (reviewModelName || '').trim() && !(reviewApiKey || '').trim()) {
+        setMessage({ type: 'danger', text: '审查模型已配置独立服务商，请填写审查模型 API Key。' });
+        setPending(false);
+        return;
+      }
+      if ((vlModelName || '').trim() && targetApiKeyMissing(vlProvider, vlApiKey)) {
         setMessage({ type: 'danger', text: '图像模型已配置独立服务商，请填写图像模型 API Key。' });
         setPending(false);
         return;
@@ -305,11 +343,16 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
             model_name: modelName,
             vl_model_name: vlModelName,
             turbo_model_name: turboModelName,
+            review_model_name: reviewModelName,
             turbo_provider: turboProvider === 'follow_main' ? provider : turboProvider,
             turbo_api_key: turboProvider === 'follow_main' || turboApiKey === '******' ? undefined : turboApiKey,
             turbo_follow_main: turboProvider === 'follow_main',
+            review_provider: reviewProvider === 'follow_main' ? provider : reviewProvider,
+            review_api_key: reviewProvider === 'follow_main' || reviewApiKey === '******' ? undefined : reviewApiKey,
+            review_follow_main: reviewProvider === 'follow_main',
             vl_provider: vlProvider === 'follow_main' ? provider : vlProvider,
             vl_api_key: vlProvider === 'follow_main' || vlApiKey === '******' ? undefined : vlApiKey,
+            vl_base_url: vlProvider === 'follow_main' ? undefined : vlBaseUrl.trim(),
             vl_follow_main: vlProvider === 'follow_main',
             tesseract_path: tesseractPath.trim(),
             tesseract_manual_override: tesseractManualOverride,
@@ -372,7 +415,12 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
         setPending(false);
         return;
       }
-      if (vlProvider !== 'follow_main' && (vlModelName || '').trim() && !(vlApiKey || '').trim()) {
+      if (reviewProvider !== 'follow_main' && (reviewModelName || '').trim() && !(reviewApiKey || '').trim()) {
+        setMessage({ type: 'danger', text: '审查模型已配置独立服务商，请填写审查模型 API Key。' });
+        setPending(false);
+        return;
+      }
+      if ((vlModelName || '').trim() && targetApiKeyMissing(vlProvider, vlApiKey)) {
         setMessage({ type: 'danger', text: '图像模型已配置独立服务商，请填写图像模型 API Key。' });
         setPending(false);
         return;
@@ -389,11 +437,16 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
               model_name: modelName,
               vl_model_name: vlModelName,
               turbo_model_name: turboModelName,
+              review_model_name: reviewModelName,
               turbo_provider: turboProvider === 'follow_main' ? provider : turboProvider,
               turbo_api_key: turboProvider === 'follow_main' || turboApiKey === '******' ? undefined : turboApiKey,
               turbo_follow_main: turboProvider === 'follow_main',
+              review_provider: reviewProvider === 'follow_main' ? provider : reviewProvider,
+              review_api_key: reviewProvider === 'follow_main' || reviewApiKey === '******' ? undefined : reviewApiKey,
+              review_follow_main: reviewProvider === 'follow_main',
               vl_provider: vlProvider === 'follow_main' ? provider : vlProvider,
               vl_api_key: vlProvider === 'follow_main' || vlApiKey === '******' ? undefined : vlApiKey,
+              vl_base_url: vlProvider === 'follow_main' ? undefined : vlBaseUrl.trim(),
               vl_follow_main: vlProvider === 'follow_main',
               tesseract_path: tesseractPath.trim(),
               tesseract_manual_override: tesseractManualOverride,
@@ -461,20 +514,28 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
               model={modelName}
               vlModel={vlModelName}
               turboModel={turboModelName}
+              reviewModel={reviewModelName}
               turboProvider={turboProvider}
               turboApiKey={turboApiKey}
+              reviewProvider={reviewProvider}
+              reviewApiKey={reviewApiKey}
               vlProvider={vlProvider}
               vlApiKey={vlApiKey}
+              vlBaseUrl={vlBaseUrl}
               onProviderChange={handleCloudProviderChange}
               onApiKeyChange={setApiKey}
               onBaseUrlChange={handleCloudBaseUrlChange}
               onModelChange={setModelName}
               onVlModelChange={setVlModelName}
               onTurboModelChange={setTurboModelName}
+              onReviewModelChange={setReviewModelName}
               onTurboProviderChange={setTurboProvider}
               onTurboApiKeyChange={setTurboApiKey}
-              onVlProviderChange={setVlProvider}
+              onReviewProviderChange={setReviewProvider}
+              onReviewApiKeyChange={setReviewApiKey}
+              onVlProviderChange={handleVlProviderChange}
               onVlApiKeyChange={setVlApiKey}
+              onVlBaseUrlChange={setVlBaseUrl}
               onDirty={markDirty}
             />
           </Tab>

@@ -3,16 +3,17 @@ import { Button, Tab, Tabs } from 'react-bootstrap';
 import { BizKeyTimeline } from './BizKeyTimeline';
 import { CoverageTable } from './CoverageTable';
 import { GenerationOverview } from './GenerationOverview';
+import { InitialQualityReview } from './InitialQualityReview';
 import { JudgeDecisionTable } from './JudgeDecisionTable';
 import { PriorityDebugTable } from './PriorityDebugTable';
 import { useRagDebugStore } from './debugStore';
 import './rag-debug-panel.css';
 
 type ResultSource = 'none' | 'streaming_preview' | 'final_persisted';
-type DebugTabKey = 'overview' | 'timeline' | 'coverage' | 'judge' | 'priority';
+type DebugTabKey = 'overview' | 'timeline' | 'quality' | 'coverage' | 'judge' | 'priority';
 
 const ACTIVE_TAB_STORAGE_KEY = 'tg_debug_panel_active_tab';
-const TAB_KEYS: DebugTabKey[] = ['overview', 'timeline', 'coverage', 'judge', 'priority'];
+const TAB_KEYS: DebugTabKey[] = ['overview', 'timeline', 'quality', 'coverage', 'judge', 'priority'];
 
 function readStoredActiveTab(): DebugTabKey {
   if (typeof window === 'undefined') return 'overview';
@@ -22,7 +23,7 @@ function readStoredActiveTab(): DebugTabKey {
 
 type Props = {
   className?: string;
-  onRuleClick?: (ruleId: string) => void;
+  onRuleClick?: (ruleId: string, ruleText?: string) => void;
   activeRuleId?: string | null;
   result?: any;
   resultSource?: ResultSource;
@@ -79,10 +80,13 @@ export function RagDebugPanel({
           <Tab eventKey="timeline" title="执行时间线">
             <BizKeyTimeline />
           </Tab>
+          <Tab eventKey="quality" title="质量初评">
+            <InitialQualityReview result={result} resultSource={resultSource} />
+          </Tab>
           <Tab eventKey="coverage" title="覆盖诊断">
             <CoverageTable onRuleClick={onRuleClick} activeRuleId={activeRuleId} />
           </Tab>
-          <Tab eventKey="judge" title="Judge 明细">
+          <Tab eventKey="judge" title="判定明细">
             <JudgeDecisionTable />
           </Tab>
           <Tab eventKey="priority" title="优先级诊断">

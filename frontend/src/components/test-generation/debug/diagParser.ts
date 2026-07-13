@@ -65,6 +65,28 @@ export type ReviewDecisionSummaryEvent = {
   candidate_total?: number;
   retained_total?: number;
   dropped_total?: number;
+  flow_order?: string[];
+  flow_labels?: Record<string, string>;
+  flow_stage_breakdown?: Record<string, number>;
+  flow_missing_stages?: string[];
+  flow_missing_stage_count?: number;
+  flow_misordered_count?: number;
+  final_flow_missing_stage_count?: number;
+  final_flow_misordered_count?: number;
+  flow_governance_applied?: boolean;
+  flow_reordered?: boolean;
+  scenario_duplicate_cluster_count?: number;
+  scenario_duplicate_case_count?: number;
+  final_scenario_duplicate_cluster_count?: number;
+  final_scenario_duplicate_case_count?: number;
+  scenario_duplicate_pruned_count?: number;
+  fact_profile_source?: string;
+  fact_profile_confidence?: number;
+  fact_profile_confirmed_count?: number;
+  fact_profile_forbidden_count?: number;
+  fact_profile_pending_count?: number;
+  project_profile_source?: string;
+  project_profile_confidence?: number;
   drop_by_review_llm_count?: number;
   drop_by_review_gate_count?: number;
   drop_by_pre_gate_dedup_count?: number;
@@ -79,18 +101,183 @@ export type JudgeSummaryEvent = {
   pending_out_count?: number;
   confirmed_pass_out_count?: number;
   repaired_pass_out_count?: number;
+  pass_count?: number;
+  repairable_count?: number;
 };
 
 export type JudgeDecisionTableEvent = {
   kind: 'judge_decision_table';
   rows?: Array<Record<string, unknown>>;
   row_count?: number;
+  row_count_total?: number;
+  row_count_reject_pending?: number;
+  rows_scope?: string;
+  row_evidence_incomplete?: boolean;
 };
 
 export type GenerationSummaryEvent = {
   kind: 'generation_summary';
   final_count?: number;
   status?: string;
+};
+
+export type GenerationContextCompressionEvent = {
+  kind: 'generation_context_compression';
+  compression_ratio?: number;
+  retained_chunk_count?: number;
+  relevance_distribution?: Record<string, unknown>;
+};
+
+export type FeedbackControlStateEvent = {
+  kind: 'feedback_control_state';
+  control_state_applied?: boolean;
+  generation_coverage_mode?: string;
+  fact_profile_source?: string;
+  fact_profile_confidence?: number;
+  fact_profile_confirmed_count?: number;
+  fact_profile_pending_count?: number;
+  fact_profile_forbidden_count?: number;
+  project_profile_source?: string;
+  project_profile_confidence?: number;
+  project_profile_flow_count?: number;
+  must_cover_rules_count?: number;
+  quality_fix_hints_count?: number;
+  preferred_patterns_count?: number;
+  forbidden_patterns_count?: number;
+  source_meta?: Record<string, unknown>;
+};
+
+export type GenerationQualityLedgerEvent = {
+  kind: 'generation_quality_ledger';
+  generation_id?: number;
+  generation_mode?: string;
+  final_count?: number;
+  quality_assessment?: string;
+  initial_quality_score?: number;
+  quality_score?: number;
+  quality_score_grade?: string;
+  quality_score_source?: string;
+  quality_score_basis?: string;
+  quality_score_confidence?: string;
+  quality_score_deductions?: Array<Record<string, unknown>>;
+  quality_score_inputs?: Record<string, unknown>;
+  stop_reason?: string[];
+  coverage?: Record<string, unknown>;
+  funnel?: Record<string, unknown>;
+  review?: Record<string, unknown>;
+  judge?: Record<string, unknown>;
+  context?: Record<string, unknown>;
+  control?: Record<string, unknown>;
+  quality_remediation?: Record<string, unknown>;
+  case_quality_gate?: CaseQualityGateEvent;
+};
+
+export type GenerationOptimizationEvent = {
+  kind: 'generation_optimization';
+  generation_id?: number;
+  source_generation_id?: number;
+  status?: string;
+  action_ids?: string[];
+  before_count?: number;
+  after_count?: number;
+  added_count?: number;
+  replaced_count?: number;
+  dropped_count?: number;
+  persisted?: boolean;
+};
+
+export type ReviewDecisionTableCompactEvent = {
+  kind: 'review_decision_table_compact';
+  rows?: Array<Record<string, unknown>>;
+  row_count?: number;
+};
+
+export type MemoryFabricDiagEvent = {
+  kind: 'memory_fabric_diag';
+  [key: string]: unknown;
+};
+
+export type StreamBatchTokenUsageEvent = {
+  kind: 'stream_batch_token_usage';
+  batch_index?: number;
+  total_batches?: number;
+  attempt?: number;
+  requested_count?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  token_source?: string;
+  estimate_method?: string;
+  model?: string;
+  current_biz_key?: string;
+  request_id?: string;
+  multi_pass?: boolean;
+  generation_mode?: string;
+};
+
+export type PersistenceGateEvent = {
+  kind: 'persistence_gate';
+  passed?: boolean;
+  gate_mode?: string;
+  blocked?: boolean;
+  failure_code?: string;
+  quality_would_block?: boolean;
+  execution_plan_would_block?: boolean;
+  execution_plan_validation?: {
+    passed?: boolean;
+    failure_code?: string;
+    failure_reasons?: string[];
+    generation_mode?: string;
+    metrics?: Record<string, unknown>;
+    state_conflicts?: Array<Record<string, unknown>>;
+  };
+  quality_gate?: Record<string, unknown>;
+  request_id?: string;
+  project_id?: number;
+};
+
+export type CaseQualityGateEvent = {
+  kind: 'case_quality_gate';
+  mode?: string;
+  passed?: boolean;
+  blocked?: boolean;
+  failure_reasons?: string[];
+  metrics?: Record<string, unknown>;
+  generation_id?: number;
+  request_id?: string;
+};
+
+export type RequirementParseBlock = {
+  role?: string;
+  filename?: string;
+  parse_strategy?: string;
+  is_image?: boolean;
+  size?: number;
+  text_length?: number;
+  ocr_source?: string;
+  cloud_fallback?: boolean;
+  ocr_error?: string;
+  ocr_warning?: string;
+  ocr_status?: string;
+  ocr_blocking?: boolean;
+};
+
+export type RequirementParseAlignment = {
+  role?: string;
+  filename?: string;
+  score?: number;
+  requirement?: string;
+  evidence?: string;
+};
+
+export type RequirementParseEvent = {
+  kind: 'requirement_parse';
+  source?: string;
+  doc_type?: string;
+  project_id?: number;
+  blocks?: RequirementParseBlock[];
+  alignment_count?: number;
+  alignments?: RequirementParseAlignment[];
 };
 
 export type GenDiagEvent =
@@ -104,7 +291,17 @@ export type GenDiagEvent =
   | ReviewDecisionSummaryEvent
   | JudgeSummaryEvent
   | JudgeDecisionTableEvent
-  | GenerationSummaryEvent;
+  | GenerationSummaryEvent
+  | GenerationContextCompressionEvent
+  | FeedbackControlStateEvent
+  | GenerationQualityLedgerEvent
+  | GenerationOptimizationEvent
+  | ReviewDecisionTableCompactEvent
+  | MemoryFabricDiagEvent
+  | StreamBatchTokenUsageEvent
+  | PersistenceGateEvent
+  | CaseQualityGateEvent
+  | RequirementParseEvent;
 
 const VALID_KINDS = new Set([
   'generation_mode',
@@ -118,6 +315,16 @@ const VALID_KINDS = new Set([
   'judge_summary',
   'judge_decision_table',
   'generation_summary',
+  'generation_context_compression',
+  'feedback_control_state',
+  'generation_quality_ledger',
+  'generation_optimization',
+  'review_decision_table_compact',
+  'memory_fabric_diag',
+  'stream_batch_token_usage',
+  'persistence_gate',
+  'case_quality_gate',
+  'requirement_parse',
 ]);
 
 export function parseGenDiagEvent(input: unknown): GenDiagEvent | null {

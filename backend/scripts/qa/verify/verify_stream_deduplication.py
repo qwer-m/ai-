@@ -1,23 +1,30 @@
 
 import sys
-import os
 import json
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
 from datetime import datetime
+from pathlib import Path
 
-# Add path
-sys.path.append(os.path.join(os.getcwd(), "ai_test_platform"))
+# Add backend root before importing app modules.
+BACKEND_ROOT = Path(__file__).resolve().parents[3]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from scripts.qa.verify._db_isolation import cleanup_project_test_data, require_explicit_db_write_opt_in
+
+require_explicit_db_write_opt_in("verify_stream_deduplication.py")
+
+from fastapi.testclient import TestClient
 
 from main import app
-from core.db.database import SessionLocal, engine
-from core.db.models import Project, TestGeneration, KnowledgeDocument
+from core.db.database import SessionLocal
+from core.db.models import Project, TestGeneration
 
 client = TestClient(app)
 
 def verify_stream_dedup():
     print("--- Verifying Stream Deduplication ---")
     db = SessionLocal()
+    project_id = None
     try:
         # 1. Setup Data
         project_name = "StreamTest_" + datetime.now().strftime("%Y%m%d%H%M%S")
@@ -31,17 +38,7 @@ def verify_stream_dedup():
         content = "Stream Requirement Content"
         filename = "stream_req.txt"
         
-        # Add Knowledge Document
-        doc = KnowledgeDocument(
-            project_id=project_id,
-            filename=filename,
-            content=content,
-            doc_type="requirement",
-            content_hash="hash_placeholder" # logic computes hash, but we insert manually for speed or use API?
-            # Better to use API to ensure hash is computed correctly if we rely on it.
-            # But here we rely on requirement_text match in TestGeneration.
-        )
-        # Actually, let's use the helper to add document to ensure consistent hashing
+        # Add through the domain helper so content hashing stays consistent.
         from modules.domain.knowledge_base import knowledge_base
         doc_entry = knowledge_base.add_document(filename, content, "requirement", project_id, db)
         print(f"Added document: {doc_entry}")
@@ -128,6 +125,9 @@ def verify_stream_dedup():
         import traceback
         traceback.print_exc()
     finally:
+        if project_id is not None:
+            cleanup_project_test_data(db, project_id)
+            print(f"Cleaned verification data for project {project_id}")
         db.close()
 
 if __name__ == "__main__":

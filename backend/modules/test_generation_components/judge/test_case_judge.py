@@ -1,10 +1,67 @@
 from __future__ import annotations
 
-import json
-import re
 from copy import deepcopy
 from typing import Any
 
+from ..postprocess.case_access import (
+    case_flat_text,
+    case_id as case_access_id,
+)
+
+from .judge_duplicate_rules import (
+    _CROSS_MODULE_DUPLICATE_SCENARIOS as _CROSS_MODULE_DUPLICATE_SCENARIOS,
+    _DUPLICATE_SCENARIO_PATTERNS as _DUPLICATE_SCENARIO_PATTERNS,
+    _DUPLICATE_SCENARIO_THRESHOLDS as _DUPLICATE_SCENARIO_THRESHOLDS,
+    _DUPLICATE_SIMPLE_SCENARIOS as _DUPLICATE_SIMPLE_SCENARIOS,
+    _REGISTERED_SCENARIO_KINDS as _REGISTERED_SCENARIO_KINDS,
+    _REGISTERED_SCENARIO_THRESHOLDS as _REGISTERED_SCENARIO_THRESHOLDS,
+    _SEMANTIC_STOP_TOKENS as _SEMANTIC_STOP_TOKENS,
+    _case_quality_key as _case_quality_key,
+    _is_semantic_duplicate_case as _is_semantic_duplicate_case,
+    _module_family as _module_family,
+    _priority_rank as _priority_rank,
+    _same_module_family as _same_module_family,
+    _scenario_kind as _scenario_kind,
+    _semantic_overlap_size as _semantic_overlap_size,
+    _semantic_similarity as _semantic_similarity,
+    _semantic_similarity_text as _semantic_similarity_text,
+    _semantic_tokens as _semantic_tokens,
+)
+from .judge_fact_rules import (
+    _NEGATIVE_MARKERS as _NEGATIVE_MARKERS,
+    _PENDING_HINTS as _PENDING_HINTS,
+    _VAGUE_UNCONFIRMED_HINTS as _VAGUE_UNCONFIRMED_HINTS,
+    normalize_requirement_semantics_context as normalize_requirement_semantics_context,
+    _merge_fact_profile_semantics as _merge_fact_profile_semantics,
+    _contains_pending_logic as _contains_pending_logic,
+    _contains_vague_unconfirmed_logic as _contains_vague_unconfirmed_logic,
+    _extract_sequence_candidates as _extract_sequence_candidates,
+    _MIN_NEGATIVE_FACT_TAIL_CHARS as _MIN_NEGATIVE_FACT_TAIL_CHARS,
+    _TEMPORAL_SHUTDOWN_SCOPE_MARKERS as _TEMPORAL_SHUTDOWN_SCOPE_MARKERS,
+    _TEMPORAL_SHUTDOWN_BLOCK_MARKERS as _TEMPORAL_SHUTDOWN_BLOCK_MARKERS,
+    _TEMPORAL_SHUTDOWN_POSITIVE_MARKERS as _TEMPORAL_SHUTDOWN_POSITIVE_MARKERS,
+    _NEGATED_TAIL_CONTEXT_MARKERS as _NEGATED_TAIL_CONTEXT_MARKERS,
+    _contains_raw_marker as _contains_raw_marker,
+    _negative_fact_marker_pattern as _negative_fact_marker_pattern,
+    _split_negative_fact_tail as _split_negative_fact_tail,
+    _is_temporal_shutdown_fact as _is_temporal_shutdown_fact,
+    _case_negates_tail as _case_negates_tail,
+    _violates_temporal_shutdown_fact as _violates_temporal_shutdown_fact,
+    _violates_negative_fact as _violates_negative_fact,
+    _violates_flow_order as _violates_flow_order,
+    _is_time_window_scope_rule as _is_time_window_scope_rule,
+    _matches_time_window_scope as _matches_time_window_scope,
+    _is_before_deadline_context as _is_before_deadline_context,
+    _violates_time_window_scope_rule as _violates_time_window_scope_rule,
+    _rule_applies_to_case as _rule_applies_to_case,
+    _find_confirmed_fact_violations as _find_confirmed_fact_violations,
+    _find_forbidden_fact_violations as _find_forbidden_fact_violations,
+    _hits_any_pattern as _hits_any_pattern,
+)
+from .judge_text_utils import (
+    _dedupe_texts as _dedupe_texts,
+    _normalize_text as _normalize_text,
+)
 from .judge_types import (
     JudgeBatchResult,
     JudgeResult,
@@ -15,378 +72,16 @@ from .judge_types import (
 )
 
 
-_NEGATIVE_MARKERS = (
-    "must not",
-    "should not",
-    "do not",
-    "don't",
-    "forbid",
-    "forbidden",
-    "禁止",
-    "不得",
-    "不能",
-    "不可",
-    "不允许",
-)
-
-_PENDING_HINTS = (
-    "pending",
-    "tbd",
-    "todo",
-    "to be confirmed",
-    "待确认",
-    "待澄清",
-    "待定",
-    "未确认",
-    "暂未确定",
-)
-
-
-def _normalize_text(value: Any) -> str:
-    lowered = str(value or "").strip().lower()
-    return re.sub(r"[^\w\u4e00-\u9fff]+", "", lowered)
-
-
-def _dedupe_texts(values: list[Any] | None) -> list[str]:
-    output: list[str] = []
-    seen: set[str] = set()
-    for raw in values or []:
-        text = str(raw or "").strip()
-        if not text:
-            continue
-        key = _normalize_text(text)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        output.append(text)
-    return output
-
-
-def normalize_requirement_semantics_context(requirement_semantics_context: dict[str, Any] | str | None) -> dict[str, list[str]]:
-    payload: dict[str, Any] = {}
-    if isinstance(requirement_semantics_context, dict):
-        payload = dict(requirement_semantics_context)
-    elif isinstance(requirement_semantics_context, str):
-        text = requirement_semantics_context.strip()
-        if text.startswith("{") and text.endswith("}"):
-            try:
-                decoded = json.loads(text)
-                if isinstance(decoded, dict):
-                    payload = decoded
-            except Exception:
-                payload = {}
-
-    return {
-        "confirmed_facts": _dedupe_texts(payload.get("confirmed_facts") if isinstance(payload, dict) else []),
-        "scoped_rules": _dedupe_texts(payload.get("scoped_rules") if isinstance(payload, dict) else []),
-        "pending_items": _dedupe_texts(payload.get("pending_items") if isinstance(payload, dict) else []),
-        "reuse_declarations": _dedupe_texts(payload.get("reuse_declarations") if isinstance(payload, dict) else []),
-        "hard_flow_constraints": _dedupe_texts(payload.get("hard_flow_constraints") if isinstance(payload, dict) else []),
-        "reuse_risks": _dedupe_texts(payload.get("reuse_risks") if isinstance(payload, dict) else []),
-    }
 
 
 def _collect_case_text(case: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for field in ("id", "description", "test_module", "test_input", "expected_result"):
-        value = case.get(field)
-        if value is not None:
-            parts.append(str(value))
-    for field in ("preconditions", "steps", "tags"):
-        value = case.get(field)
-        if isinstance(value, list):
-            parts.extend([str(item) for item in value if str(item).strip()])
-        elif value is not None:
-            parts.append(str(value))
-    return " ".join(parts)
-
-
-def _contains_pending_logic(case_text: str, pending_items: list[str]) -> tuple[bool, list[str]]:
-    normalized_case = _normalize_text(case_text)
-    hits: list[str] = []
-    for hint in _PENDING_HINTS:
-        if _normalize_text(hint) and _normalize_text(hint) in normalized_case:
-            hits.append(hint)
-    for item in pending_items:
-        marker = _normalize_text(item)
-        if marker and marker in normalized_case:
-            hits.append(item)
-    deduped = _dedupe_texts(hits)
-    return bool(deduped), deduped
-
-
-def _extract_sequence_candidates(value: str) -> list[str]:
-    text = str(value or "").strip()
-    if not text:
-        return []
-    if "->" in text:
-        candidates = [segment.strip() for segment in text.split("->")]
-    elif "→" in text:
-        candidates = [segment.strip() for segment in text.split("→")]
-    elif "=>" in text:
-        candidates = [segment.strip() for segment in text.split("=>")]
-    else:
-        candidates = []
-    tokens = [token for token in candidates if len(_normalize_text(token)) >= 2]
-    return tokens
-
-
-def _violates_negative_fact(case_text: str, fact: str) -> bool:
-    lowered_fact = str(fact or "").strip().lower()
-    if not lowered_fact:
-        return False
-    if not any(marker in lowered_fact for marker in _NEGATIVE_MARKERS):
-        return False
-
-    normalized_case = _normalize_text(case_text)
-    pieces = re.split(r"(must not|should not|do not|don't|forbid|forbidden|禁止|不得|不能|不可|不允许)", lowered_fact)
-    tail = pieces[-1] if pieces else ""
-    tail_normalized = _normalize_text(tail)
-    if len(tail_normalized) < 2:
-        return False
-    return tail_normalized in normalized_case
-
-
-def _violates_flow_order(case_text: str, flow_constraint: str) -> bool:
-    ordered_tokens = _extract_sequence_candidates(flow_constraint)
-    if len(ordered_tokens) < 2:
-        return False
-    lowered_case = str(case_text or "").lower()
-    positions: list[int] = []
-    for token in ordered_tokens:
-        idx = lowered_case.find(str(token).lower())
-        if idx < 0:
-            return False
-        positions.append(idx)
-    return positions != sorted(positions)
-
-
-def _is_time_window_scope_rule(rule_text: str) -> bool:
-    lowered = str(rule_text or "").strip().lower()
-    if not lowered:
-        return False
-    time_markers = (
-        "周日24:00",
-        "周日 24:00",
-        "24:00后",
-        "24:00 后",
-        "24点后",
-        "24 点后",
-        "sunday 24:00",
-        "after sunday 24:00",
-    )
-    view_only_markers = (
-        "仅可查看",
-        "只可查看",
-        "仅查看",
-        "不可操作",
-        "不能操作",
-        "禁止操作",
-        "view only",
-        "read only",
-        "read-only",
-        "readonly",
-    )
-    return bool(
-        any(marker in lowered for marker in time_markers)
-        and any(marker in lowered for marker in view_only_markers)
+    return case_flat_text(
+        case,
+        fields=("id", "description", "test_module", "test_input", "expected_result", "preconditions", "steps", "tags"),
+        separator=" ",
     )
 
 
-def _matches_time_window_scope(case_text: str) -> bool:
-    lowered = str(case_text or "").strip().lower()
-    if not lowered:
-        return False
-    scope_markers = (
-        "历史周",
-        "补做",
-        "补学",
-        "历史任务",
-        "历史周任务",
-        "历史周补学",
-        "周末任务",
-        "补做期",
-    )
-    time_markers = (
-        "周日24:00",
-        "周日 24:00",
-        "周日24点",
-        "周日 24点",
-        "24:00后",
-        "24:00 后",
-        "24点后",
-        "24 点后",
-        "截止后",
-        "过期后",
-        "sunday 24:00",
-        "after sunday",
-        "after deadline",
-    )
-    return bool(
-        any(marker in lowered for marker in scope_markers)
-        and any(marker in lowered for marker in time_markers)
-    )
-
-
-def _is_before_deadline_context(case_text: str) -> bool:
-    lowered = str(case_text or "").strip().lower()
-    if not lowered:
-        return False
-    before_markers = (
-        "周日24:00前",
-        "周日 24:00前",
-        "周日24点前",
-        "周日 24点前",
-        "24:00前",
-        "24:00 前",
-        "24点前",
-        "24 点前",
-        "截止前",
-        "过期前",
-        "未过期",
-        "before sunday 24:00",
-        "before deadline",
-    )
-    after_markers = (
-        "周日24:00后",
-        "周日 24:00后",
-        "周日24点后",
-        "周日 24点后",
-        "24:00后",
-        "24:00 后",
-        "24点后",
-        "24 点后",
-        "截止后",
-        "过期后",
-        "after sunday 24:00",
-        "after deadline",
-    )
-    has_before = any(marker in lowered for marker in before_markers)
-    has_after = any(marker in lowered for marker in after_markers)
-    return bool(has_before and (not has_after))
-
-
-def _violates_time_window_scope_rule(case_text: str) -> bool:
-    lowered = str(case_text or "").strip().lower()
-    if not lowered:
-        return False
-    if _is_before_deadline_context(lowered):
-        return False
-    positive_operation_markers = (
-        "可以操作",
-        "允许操作",
-        "可以提交",
-        "允许提交",
-        "提交成功",
-        "操作成功",
-        "可以编辑",
-        "允许编辑",
-        "可以修改",
-        "允许修改",
-        "can operate",
-        "can submit",
-        "allowed to operate",
-        "allowed to submit",
-        "allowed to edit",
-    )
-    nonnegated_tokens = (
-        "可操作",
-        "可提交",
-        "可编辑",
-        "可修改",
-    )
-    read_only_markers = (
-        "仅可查看",
-        "只可查看",
-        "仅查看",
-        "不可操作",
-        "不能操作",
-        "禁止操作",
-        "只读",
-        "read only",
-        "read-only",
-        "readonly",
-    )
-    has_positive_operation = any(marker in lowered for marker in positive_operation_markers)
-    if not has_positive_operation:
-        for token in nonnegated_tokens:
-            start = 0
-            while True:
-                idx = lowered.find(token, start)
-                if idx < 0:
-                    break
-                prefix = lowered[max(0, idx - 2):idx]
-                if all(neg not in prefix for neg in ("不", "禁")):
-                    has_positive_operation = True
-                    break
-                start = idx + len(token)
-            if has_positive_operation:
-                break
-    has_read_only_guard = any(marker in lowered for marker in read_only_markers)
-    if has_positive_operation:
-        return True
-    if has_read_only_guard:
-        return False
-    return False
-
-
-def _rule_applies_to_case(case_text: str, rule_text: str) -> bool:
-    if _is_time_window_scope_rule(rule_text):
-        return _matches_time_window_scope(case_text)
-    rule_marker = _normalize_text(rule_text)
-    case_marker = _normalize_text(case_text)
-    return bool(rule_marker and case_marker and rule_marker in case_marker)
-
-
-def _find_confirmed_fact_violations(
-    case_text: str,
-    confirmed_facts: list[str],
-    scoped_rules: list[str],
-    hard_flow_constraints: list[str],
-) -> tuple[list[str], list[str]]:
-    hits: list[str] = []
-    violations: list[str] = []
-    normalized_case = _normalize_text(case_text)
-
-    for fact in confirmed_facts:
-        marker = _normalize_text(fact)
-        if marker and marker in normalized_case:
-            hits.append(fact)
-        if _violates_negative_fact(case_text, fact):
-            violations.append(fact)
-            continue
-        if _violates_flow_order(case_text, fact):
-            violations.append(fact)
-
-    for flow in hard_flow_constraints:
-        if _violates_flow_order(case_text, flow):
-            violations.append(flow)
-
-    for scoped_rule in scoped_rules:
-        if not _rule_applies_to_case(case_text, scoped_rule):
-            continue
-        hits.append(scoped_rule)
-        if _is_time_window_scope_rule(scoped_rule):
-            if _violates_time_window_scope_rule(case_text):
-                violations.append(scoped_rule)
-            continue
-        if _violates_negative_fact(case_text, scoped_rule):
-            violations.append(scoped_rule)
-            continue
-        if _violates_flow_order(case_text, scoped_rule):
-            violations.append(scoped_rule)
-
-    return _dedupe_texts(hits), _dedupe_texts(violations)
-
-
-def _hits_any_pattern(case_text: str, patterns: list[str]) -> list[str]:
-    normalized_case = _normalize_text(case_text)
-    hits: list[str] = []
-    for pattern in patterns:
-        marker = _normalize_text(pattern)
-        if marker and marker in normalized_case:
-            hits.append(pattern)
-    return _dedupe_texts(hits)
 
 
 def judge_case(
@@ -394,18 +89,30 @@ def judge_case(
     requirement_semantics_context: dict[str, Any] | str | None,
     control_state: dict[str, Any] | None = None,
 ) -> JudgeResult:
-    _ = control_state
-    semantics = normalize_requirement_semantics_context(requirement_semantics_context)
+    semantics = _merge_fact_profile_semantics(
+        normalize_requirement_semantics_context(requirement_semantics_context),
+        control_state=control_state,
+    )
     before = deepcopy(case) if isinstance(case, dict) else {}
-    case_id = str(before.get("id") or before.get("case_id") or "").strip() or "UNKNOWN"
+    case_id = case_access_id(before) or "UNKNOWN"
     case_text = _collect_case_text(before)
 
     contains_pending_logic, pending_hits = _contains_pending_logic(case_text, semantics.get("pending_items") or [])
+    contains_vague_unconfirmed, vague_or_unconfirmed_hits = _contains_vague_unconfirmed_logic(before)
+    contains_pending_logic = bool(contains_pending_logic or contains_vague_unconfirmed)
+    pending_hits = _dedupe_texts([*pending_hits, *vague_or_unconfirmed_hits])
     confirmed_fact_hits, confirmed_fact_violations = _find_confirmed_fact_violations(
         case_text,
         semantics.get("confirmed_facts") or [],
         semantics.get("scoped_rules") or [],
         semantics.get("hard_flow_constraints") or [],
+    )
+    forbidden_fact_violations = _find_forbidden_fact_violations(
+        case_text,
+        semantics.get("forbidden_facts") or [],
+    )
+    confirmed_fact_violations = _dedupe_texts(
+        [*confirmed_fact_violations, *forbidden_fact_violations]
     )
     reuse_risk_hits = _hits_any_pattern(case_text, semantics.get("reuse_risks") or [])
 
@@ -416,6 +123,7 @@ def judge_case(
         confirmed_fact_violations=confirmed_fact_violations,
         reuse_risk_hits=reuse_risk_hits,
         pending_hits=pending_hits,
+        vague_or_unconfirmed_hits=vague_or_unconfirmed_hits,
     )
 
     if signals.contains_pending_logic:
@@ -477,20 +185,115 @@ def _all_patterns_covered(cases: list[dict[str, Any]], patterns: list[str]) -> t
     return len(missing) == 0, missing
 
 
+def _duplicate_domain_context(
+    control_state: dict[str, Any] | None,
+    semantics: dict[str, Any] | None,
+) -> tuple[str, bool]:
+    state = control_state if isinstance(control_state, dict) else {}
+    if not state:
+        return "", True
+    source_meta = state.get("source_meta") if isinstance(state.get("source_meta"), dict) else {}
+    candidates = (
+        source_meta.get("current_domain_gate_primary_domain"),
+        source_meta.get("retrieval_query_primary_domain"),
+        source_meta.get("primary_domain"),
+        state.get("primary_domain"),
+        (semantics or {}).get("primary_domain") if isinstance(semantics, dict) else "",
+    )
+    primary_domain = next((str(item).strip() for item in candidates if str(item or "").strip()), "")
+    return primary_domain, False
+
+
 def judge_cases(
     cases: list[dict[str, Any]],
     requirement_semantics_context: dict[str, Any] | str | None,
     control_state: dict[str, Any] | None = None,
 ) -> JudgeBatchResult:
-    semantics = normalize_requirement_semantics_context(requirement_semantics_context)
+    semantics = _merge_fact_profile_semantics(
+        normalize_requirement_semantics_context(requirement_semantics_context),
+        control_state=control_state,
+    )
+    duplicate_primary_domain, duplicate_include_domain_specific = _duplicate_domain_context(
+        control_state,
+        semantics,
+    )
     judged_cases: list[JudgeResult] = []
     for index, case in enumerate(cases or [], start=1):
         if not isinstance(case, dict):
             continue
         judged = judge_case(case, semantics, control_state=control_state)
         if not judged.case_id or judged.case_id == "UNKNOWN":
-            judged.case_id = str(case.get("id") or f"CASE-{index:03d}")
+            judged.case_id = case_access_id(case) or f"CASE-{index:03d}"
         judged_cases.append(judged)
+
+    kept_passes: list[tuple[int, JudgeResult, dict[str, Any]]] = []
+    for index, item in enumerate(judged_cases):
+        if item.status != JudgeStatus.PASS:
+            continue
+        candidate_case = item.after_case if item.after_case else item.before_case
+        if not isinstance(candidate_case, dict):
+            continue
+
+        duplicate_match: tuple[int, JudgeResult, dict[str, Any], float] | None = None
+        for kept_index, kept_item, kept_case in kept_passes:
+            is_duplicate, similarity = _is_semantic_duplicate_case(
+                candidate_case,
+                kept_case,
+                primary_domain=duplicate_primary_domain,
+                include_domain_specific=duplicate_include_domain_specific,
+            )
+            if not is_duplicate:
+                continue
+            if duplicate_match is None or similarity > duplicate_match[3]:
+                duplicate_match = (kept_index, kept_item, kept_case, similarity)
+
+        if duplicate_match is None:
+            kept_passes.append((index, item, candidate_case))
+            continue
+
+        kept_index, kept_item, kept_case, similarity = duplicate_match
+        candidate_quality = _case_quality_key(candidate_case, index)
+        kept_quality = _case_quality_key(kept_case, kept_index)
+
+        if candidate_quality > kept_quality:
+            kept_item.status = JudgeStatus.REJECT
+            kept_item.reject_reason = f"semantic_duplicate:{item.case_id}"
+            kept_item.signals.is_semantic_duplicate = True
+            kept_item.signals.duplicate_of_case_id = item.case_id
+            kept_item.signals.duplicate_similarity = round(float(similarity), 4)
+            kept_item.signals.notes = _dedupe_texts([*kept_item.signals.notes, "batch_semantic_duplicate"])
+            kept_item.suggested_actions = [
+                RepairAction(
+                    action_type=RepairActionType.DROP_CASE,
+                    reason="Case is semantically duplicated by a stronger candidate.",
+                    target_case_id=kept_item.case_id,
+                    payload={"duplicate_of_case_id": item.case_id, "similarity": round(float(similarity), 4)},
+                )
+            ]
+            kept_passes = [
+                (
+                    index if existing_index == kept_index else existing_index,
+                    item if existing_index == kept_index else existing_item,
+                    candidate_case if existing_index == kept_index else existing_case,
+                )
+                for existing_index, existing_item, existing_case in kept_passes
+            ]
+            continue
+
+        item.status = JudgeStatus.REJECT
+        item.reject_reason = f"semantic_duplicate:{kept_item.case_id}"
+        item.signals.is_semantic_duplicate = True
+        item.signals.duplicate_of_case_id = kept_item.case_id
+        item.signals.duplicate_similarity = round(float(similarity), 4)
+        item.signals.notes = _dedupe_texts([*item.signals.notes, "batch_semantic_duplicate"])
+        item.suggested_actions = [
+            RepairAction(
+                action_type=RepairActionType.DROP_CASE,
+                reason="Case is semantically duplicated by an already accepted candidate.",
+                target_case_id=item.case_id,
+                payload={"duplicate_of_case_id": kept_item.case_id, "similarity": round(float(similarity), 4)},
+            )
+        ]
 
     pass_cases = [
         item.after_case if item.after_case else item.before_case
@@ -558,6 +361,9 @@ def judge_cases(
             f"pending_items={len(semantics.get('pending_items') or [])}",
             f"hard_flow_constraints={len(core_flow_patterns)}",
             f"reuse_risks={len(reuse_risk_patterns)}",
+            f"registry_duplicate_scenario_kinds={len(_CROSS_MODULE_DUPLICATE_SCENARIOS)}",
+            f"registry_threshold_entries={len(_DUPLICATE_SCENARIO_THRESHOLDS)}",
+            f"duplicate_primary_domain={duplicate_primary_domain or 'general'}",
         ],
     )
     return result

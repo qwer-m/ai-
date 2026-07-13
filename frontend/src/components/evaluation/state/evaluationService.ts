@@ -84,8 +84,15 @@ export function parseQualityReport(rawText: string): ParsedQualityReport {
   if (!payload) return null;
 
   return {
+    analysisStatus: payload.analysis_status || undefined,
+    analysisMode: payload.analysis_mode || undefined,
+    isFinalEvaluation: payload.is_final_evaluation,
+    comparisonId: payload.comparison_id,
     metrics: payload.metrics || {},
     defectAnalysis: payload.defect_analysis || {},
+    requirementBaseline: payload.requirement_baseline || payload.requirementBaseline || undefined,
+    progress: payload.progress || undefined,
+    partialChunkResults: Array.isArray(payload.partial_chunk_results) ? payload.partial_chunk_results : undefined,
     summary: payload.summary || '',
   };
 }
@@ -128,6 +135,40 @@ export async function fetchGenerationBundle(id: number) {
 
 export async function compareTestCasesRequest(formData: FormData) {
   return api.upload<any>('/api/compare-test-cases', formData);
+}
+
+export async function fetchCompareTestCaseResult(comparisonId: number) {
+  return api.get<any>(`/api/compare-test-cases/${comparisonId}`);
+}
+
+export async function learnFromEvaluationCasePairRequest(payload: {
+  project_id: number;
+  generated_cases: unknown;
+  final_cases: unknown;
+  generation_id?: number | null;
+  include_negative_samples?: boolean;
+  dry_run?: boolean;
+}) {
+  return api.post<any>('/api/test-generations/learn-from-evaluation', payload);
+}
+
+export async function learnFromEvaluationCasePairFileRequest(formData: FormData) {
+  return api.upload<any>('/api/test-generations/learn-from-evaluation-file', formData);
+}
+
+export async function buildLearningCandidatesFromEvaluationRequest(payload: {
+  project_id: number;
+  evaluation_result: unknown;
+}) {
+  return api.post<any>('/api/test-generations/learning-candidates/from-evaluation', payload);
+}
+
+export async function applyLearningCandidatesRequest(payload: {
+  project_id: number;
+  candidates: any[];
+  dry_run?: boolean;
+}) {
+  return api.post<any>('/api/test-generations/learning-candidates/apply', payload);
 }
 
 export async function evaluateUiRequest(payload: Record<string, unknown>) {

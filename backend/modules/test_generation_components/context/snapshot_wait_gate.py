@@ -15,9 +15,10 @@ def _env_bool(key: str, default: bool) -> bool:
 
 def _env_int(key: str, default: int, minimum: int) -> int:
     """读取整数环境变量并做下限保护。"""
+    raw = os.getenv(key)
     try:
-        return max(minimum, int(os.getenv(key, str(default))))
-    except Exception:
+        return max(minimum, int(str(raw if raw is not None else default).strip()))
+    except (TypeError, ValueError):
         return max(minimum, int(default))
 
 
@@ -73,6 +74,30 @@ def wait_snapshot_ready_gate(
     strategy = cfg.normalized_timeout_strategy()
     started = time.monotonic()
 
+    if not cfg.require_snapshot_ready:
+        return {
+            "proceed": True,
+            "error_code": "",
+            "error_message": "",
+            "gate_debug": {
+                "snapshot_gate_enabled": False,
+                "snapshot_ready_before_generation": False,
+                "snapshot_wait_attempted": False,
+                "snapshot_wait_triggered_rebuild": False,
+                "snapshot_wait_trigger_rebuild_reason": "",
+                "snapshot_wait_poll_count": 0,
+                "snapshot_wait_elapsed_ms": 0,
+                "snapshot_wait_timeout": False,
+                "snapshot_wait_result": "gate_disabled_proceed",
+                "snapshot_status_before_generation": "not_checked_gate_disabled",
+                "snapshot_status_after_wait": "not_checked_gate_disabled",
+                "snapshot_wait_timeout_strategy": strategy,
+                "snapshot_wait_queue_status": "none",
+                "snapshot_wait_queue_reason": "gate_disabled",
+                "snapshot_wait_queue_error": "",
+            },
+        }
+
     first_status = get_status_fn() or {}
     first_snapshot_status = str(first_status.get("snapshot_status") or "unknown")
     gate_debug = {
@@ -92,10 +117,6 @@ def wait_snapshot_ready_gate(
         "snapshot_wait_queue_reason": "none",
         "snapshot_wait_queue_error": "",
     }
-
-    if not cfg.require_snapshot_ready:
-        gate_debug["snapshot_wait_result"] = "gate_disabled_proceed"
-        return {"proceed": True, "error_code": "", "error_message": "", "gate_debug": gate_debug}
 
     if is_snapshot_ready_for_generation(first_status):
         gate_debug["snapshot_wait_result"] = "already_ready_proceed"

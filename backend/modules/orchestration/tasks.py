@@ -11,17 +11,12 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 from celery.exceptions import SoftTimeLimitExceeded
 
 from celery_config import celery_app
-from core.db.database import SessionLocal
-from core.db.models import LogEntry
-from modules.domain.knowledge_base import knowledge_base
-from modules.knowledge_base_components.document.index_audit import run_index_consistency_audit
-from modules.knowledge_base_components.document.offline_parse import cleanup_offline_file
-from modules.domain.stage25_switches import STAGE25_SWITCHES
-from modules.testing.test_generation import test_generator
+from modules.orchestration.task_names import TaskName
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +26,71 @@ from modules.orchestration.tasks_split_helpers import (
     build_context_snapshot_task,
 )
 
+
+def _session_local():
+    from core.db.database import SessionLocal
+
+    return SessionLocal
+
+
+def _knowledge_base() -> Any:
+    from modules.domain.knowledge_base import knowledge_base
+
+    return knowledge_base
+
+
+def _log_entry_model():
+    from core.db.models import LogEntry
+
+    return LogEntry
+
+
+def _stage25_switches():
+    from modules.domain.stage25_switches import STAGE25_SWITCHES
+
+    return STAGE25_SWITCHES
+
+
+def _run_index_consistency_audit(*args: Any, **kwargs: Any) -> Any:
+    from modules.knowledge_base_components.document.index_audit import run_index_consistency_audit
+
+    return run_index_consistency_audit(*args, **kwargs)
+
+
+def _cleanup_offline_file(*args: Any, **kwargs: Any) -> Any:
+    from modules.knowledge_base_components.document.offline_parse import cleanup_offline_file
+
+    return cleanup_offline_file(*args, **kwargs)
+
+
+def run_compare_background_job(*args: Any, **kwargs: Any) -> Any:
+    from modules.testing.evaluation_compare_background import run_compare_background_job as real_run_compare_background_job
+
+    return real_run_compare_background_job(*args, **kwargs)
+
+
+def execute_eval_run(*args: Any, **kwargs: Any) -> Any:
+    from modules.rag_eval.services.rag_eval_service import execute_eval_run as real_execute_eval_run
+
+    return real_execute_eval_run(*args, **kwargs)
+
+
+def run_pipeline_worker(*args: Any, **kwargs: Any) -> Any:
+    from modules.orchestration_components.pipeline_runtime.runner import run_pipeline_worker as real_run_pipeline_worker
+
+    return real_run_pipeline_worker(*args, **kwargs)
+
+
+def recover_expired_pipeline_runs(*args: Any, **kwargs: Any) -> Any:
+    from modules.orchestration_components.pipeline_runtime.recovery import (
+        recover_expired_pipeline_runs as real_recover_expired_pipeline_runs,
+    )
+
+    return real_recover_expired_pipeline_runs(*args, **kwargs)
+
 @celery_app.task(
     bind=True,
-    name="modules.orchestration.tasks.parse_knowledge_document_task",
+    name=TaskName.PARSE_KNOWLEDGE_DOCUMENT.value,
     max_retries=2,
     default_retry_delay=8,
     soft_time_limit=180,
@@ -54,9 +111,10 @@ def parse_knowledge_document_task(
                         -> failed（最终失败）
                         -> pending（重试前回退）
     """
-    db = SessionLocal()
+    db = _session_local()()
     retry_count = int(getattr(self.request, "retries", 0) or 0)
     task_id = getattr(self.request, "id", None)
+    knowledge_base = None
 
     logger.info(
         "离线解析任务启动 doc_id=%s task_id=%s retry=%s file=%s",
@@ -67,6 +125,7 @@ def parse_knowledge_document_task(
     )
 
     try:
+        knowledge_base = _knowledge_base()
         self.update_state(
             state="STARTED",
             meta={"status": "知识库文档离线解析中", "document_id": document_id},
@@ -105,7 +164,8 @@ def parse_knowledge_document_task(
         if retry_count < max_retries:
             # 重试前把状态回退为 pending；若文档已被并发任务成功，内部会跳过覆盖。
             try:
-                knowledge_base.mark_document_parse_retry(
+                kb = knowledge_base or _knowledge_base()
+                kb.mark_document_parse_retry(
                     doc_id=document_id,
                     retry_count=retry_count + 1,
                     error=e,
@@ -123,7 +183,8 @@ def parse_knowledge_document_task(
 
         # 达到最大重试次数后，标记最终失败。
         try:
-            knowledge_base.mark_document_parse_failed(
+            kb = knowledge_base or _knowledge_base()
+            kb.mark_document_parse_failed(
                 doc_id=document_id,
                 error=e,
                 db=db,
@@ -138,14 +199,14 @@ def parse_knowledge_document_task(
                 mark_error,
             )
 
-        cleanup_offline_file(file_path)
+        _cleanup_offline_file(file_path)
         # 让 Celery 统一记录 FAILURE 元信息，避免手工 update_state 写入不完整异常结构。
         raise e
     finally:
         db.close()
 
 
-@celery_app.task(bind=True, name="modules.orchestration.tasks.audit_knowledge_index_consistency_task")
+@celery_app.task(bind=True, name=TaskName.AUDIT_KNOWLEDGE_INDEX_CONSISTENCY.value)
 def audit_knowledge_index_consistency_task(
     self,
     project_id: int | None = None,
@@ -157,16 +218,16 @@ def audit_knowledge_index_consistency_task(
 
     默认作为定时任务运行，也支持手动触发（可限定 project_id）。
     """
-    db = SessionLocal()
+    db = _session_local()()
     try:
-        if not STAGE25_SWITCHES.index_audit_enabled:
+        if not _stage25_switches().index_audit_enabled:
             return {"enabled": False, "message": "index_audit_disabled"}
 
         self.update_state(
             state="STARTED",
             meta={"status": "知识库索引一致性巡检中", "project_id": project_id},
         )
-        report = run_index_consistency_audit(
+        report = _run_index_consistency_audit(
             db=db,
             project_id=project_id,
             user_id=user_id,
@@ -174,7 +235,7 @@ def audit_knowledge_index_consistency_task(
         )
         try:
             db.add(
-                LogEntry(
+                _log_entry_model()(
                     project_id=project_id,
                     user_id=user_id,
                     log_type="system",
@@ -189,14 +250,97 @@ def audit_knowledge_index_consistency_task(
         db.close()
 
 
-@celery_app.task(bind=True, name="modules.orchestration.tasks.cleanup_logs_task")
+@celery_app.task(
+    bind=True,
+    name=TaskName.COMPARE_TEST_CASES.value,
+    soft_time_limit=900,
+    time_limit=960,
+)
+def compare_test_cases_task(
+    self,
+    comparison_id: int,
+    generated_test_case: str,
+    modified_test_case: str,
+    project_id: int,
+    user_id: int,
+    generation_id: int | None = None,
+    requirement_text: str = "",
+    upload_persist: dict | None = None,
+):
+    """Run a persisted test-case comparison job through Celery."""
+    self.update_state(
+        state="STARTED",
+        meta={"status": "test_case_compare_running", "comparison_id": comparison_id},
+    )
+    run_compare_background_job(
+        comparison_id=comparison_id,
+        generated_test_case=generated_test_case,
+        modified_test_case=modified_test_case,
+        project_id=project_id,
+        user_id=user_id,
+        generation_id=generation_id,
+        requirement_text=requirement_text,
+        upload_persist=dict(upload_persist or {}),
+    )
+    return {"comparison_id": comparison_id, "status": "completed"}
+
+
+@celery_app.task(
+    bind=True,
+    name=TaskName.RUN_RAG_EVAL.value,
+    soft_time_limit=3600,
+    time_limit=3660,
+)
+def run_rag_eval_task(self, run_id: int, user_id: int):
+    """Run a persisted RAG evaluation through Celery."""
+    self.update_state(
+        state="STARTED",
+        meta={"status": "rag_eval_running", "run_id": run_id},
+    )
+    execute_eval_run(run_id=run_id, user_id=user_id)
+    return {"run_id": run_id, "status": "completed"}
+
+
+@celery_app.task(
+    bind=True,
+    name=TaskName.RUN_PIPELINE.value,
+    soft_time_limit=3600,
+    time_limit=3660,
+)
+def run_pipeline_task(self, run_id: int, start_stage: str):
+    """Run a persisted orchestration pipeline through Celery."""
+    task_id = getattr(getattr(self, "request", None), "id", None)
+    self.update_state(
+        state="STARTED",
+        meta={
+            "status": "pipeline_running",
+            "run_id": run_id,
+            "start_stage": start_stage,
+            "task_id": task_id,
+        },
+    )
+    run_pipeline_worker(run_id=run_id, start_stage=start_stage, task_id=task_id)
+    return {"run_id": run_id, "status": "completed"}
+
+
+@celery_app.task(bind=True, name=TaskName.RECOVER_EXPIRED_PIPELINE_RUNS.value)
+def recover_expired_pipeline_runs_task(self, limit: int = 20):
+    """Requeue expired running pipeline runs through the governed dispatcher."""
+    self.update_state(
+        state="STARTED",
+        meta={"status": "pipeline_recovery_running", "limit": limit},
+    )
+    return recover_expired_pipeline_runs(limit=limit)
+
+
+@celery_app.task(bind=True, name=TaskName.CLEANUP_LOGS.value)
 def cleanup_logs_task(self, retention_hours: int = 72):
     """清理过期日志。"""
     from datetime import datetime, timedelta
 
     from core.db.models import LogEntry
 
-    db = SessionLocal()
+    db = _session_local()()
     cutoff_date = datetime.utcnow() - timedelta(hours=retention_hours)
 
     try:
@@ -214,7 +358,7 @@ def cleanup_logs_task(self, retention_hours: int = 72):
         db.close()
 
 
-@celery_app.task(bind=True, name="modules.orchestration.tasks.archive_old_data_task")
+@celery_app.task(bind=True, name=TaskName.ARCHIVE_OLD_DATA.value)
 def archive_old_data_task(self, retention_days: int = 30):
     """归档并清理过期日志与测试生成记录。"""
     from datetime import datetime, timedelta
@@ -222,7 +366,7 @@ def archive_old_data_task(self, retention_days: int = 30):
 
     from core.db.models import LogEntry, TestGeneration
 
-    db = SessionLocal()
+    db = _session_local()()
     cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
     archive_dir = "archive_data"
     os.makedirs(archive_dir, exist_ok=True)

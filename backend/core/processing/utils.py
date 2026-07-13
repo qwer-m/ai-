@@ -58,10 +58,11 @@ def extract_code_block(text: str, language: Optional[str] = None) -> str:
     return text.strip()
 
 def run_temp_script(
-    script_content: str, 
-    suffix: str = ".py", 
-    command: list[str] = None, 
-    timeout: int = 30
+    script_content: str,
+    suffix: str = ".py",
+    command: list[str] = None,
+    timeout: int = 30,
+    env: Optional[dict[str, str]] = None,
 ) -> Tuple[str, str, int]:
     """
     执行临时脚本 (Run Temp Script)
@@ -93,7 +94,8 @@ def run_temp_script(
             full_command,
             capture_output=True,
             text=True,
-            timeout=timeout
+            timeout=timeout,
+            env={**os.environ, **(env or {})},
         )
         return result.stdout, result.stderr, result.returncode
     except subprocess.TimeoutExpired:
@@ -104,7 +106,7 @@ def run_temp_script(
         if os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
-            except:
+            except Exception:
                 pass
 
 def log_to_db(db: Session, project_id: int, log_type: str, message: str, user_id: Optional[int] = None):

@@ -1,0 +1,28 @@
+- generic [ref=e3]:
+  - main [ref=e13]:
+    - generic [ref=e37]:
+      - generic [ref=e41]:
+        - heading "Welcome back!" [level=1] [ref=e42]
+        - paragraph [ref=e43]: Please enter your details
+      - generic [ref=e44]:
+        - generic [ref=e45]:
+          - generic [ref=e46]: Email
+          - textbox "Email" [ref=e47]:
+            - /placeholder: anna@gmail.com
+        - generic [ref=e48]:
+          - generic [ref=e49]: Password
+          - textbox "Password" [ref=e50]
+        - generic [ref=e51]:
+          - generic [ref=e52]:
+            - checkbox "Remember for 30 days" [checked] [ref=e53]
+            - generic [ref=e54]: Remember for 30 days
+          - button "Forgot password?" [ref=e55] [cursor=pointer]
+        - button "Log In" [ref=e56] [cursor=pointer]
+        - button "Log in with Google" [ref=e57] [cursor=pointer]:
+          - generic [ref=e58]: G
+          - text: Log in with Google
+      - paragraph [ref=e59]:
+        - text: Don't have an account?
+        - link "Sign Up" [ref=e60] [cursor=pointer]:
+          - /url: /register
+  - generic [ref=e61]: Remember for 30 days enabled

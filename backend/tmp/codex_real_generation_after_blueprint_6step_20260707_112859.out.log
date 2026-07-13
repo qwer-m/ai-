@@ -1,0 +1,50 @@
+Successfully connected to MySQL database: ai_test_platform
+Redis connection failed, fallback to local L1 only: Timeout connecting to server
+Local L1 cache backend: memory
+11:29:10 RUN_START {"project_id": 2, "user_id": 1, "source_generation_id": 489, "before_max_generation_id": 489, "requirement_len": 14881, "expected_count": 80, "active_config": {"id": 70, "provider": "openai", "model": "glm-5.1", "turbo": "kimi-k2.5", "vision": "doubao-seed-2-0-pro-260215", "base_url": "https://new-api.leleketang.com/v1"}, "client": {"provider_type": "OpenAICompatibleProvider", "generation_model": "glm-5.1", "compression_model": "kimi-k2.5", "ocr_model": "doubao-seed-2-0-pro-260215"}}
+snapshot readiness gate: enabled=False before=not_checked_gate_disabled after=not_checked_gate_disabled poll=0 elapsed_ms=0 result=gate_disabled_proceed queue=none/gate_disabled
+11:29:13 STATUS snapshot gate result: gate_disabled_proceed (poll=0, elapsed_ms=0)
+11:29:13 STATUS preparing project snapshot context...
+11:29:13 STATUS snapshot ready and reusable -> using snapshot (reason=snapshot_success_and_hash_matched)
+11:29:13 STATUS precision retrieval enabled (explicit_precision_mode,generation_default_precision,keyword_triggered)
+11:29:13 STATUS hybrid fusion done: mode=snapshot+rag rag_chunks=1 tokens~1165
+11:29:27 STATUS current requirement blueprint applied (count=1,steps=6)
+11:29:27 STATUS 需求压缩完成 (14881 -> 2598 字符)...
+11:29:27 STATUS [multi-pass] 阶段1/3 主生成开始...
+11:29:27 STATUS 正在进行需求元分析 (Meta-Analysis)，识别系统类型与测试策略...
+11:29:27 STATUS 分析完成 - 系统类型: Mobile App, 复杂度: High, 策略: {"functional": 0.6, "regression": 0.2, "non_functional": 0.2}...
+11:29:27 STATUS 正在生成第 1/4 批次 (25 条) - 第 1 次尝试...
+11:29:27 GEN_DIAG {"kind": "prompt_context_intake", "batch_index": 1, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:31:57 GEN_DIAG {"kind": "stream_batch_token_usage", "batch_index": 1, "duration_ms": 150121, "response_chars": 9493, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:31:57 GEN_DIAG {"kind": "stream_batch_quality", "batch_index": 1, "new_valid_cases_count": 25, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:31:57 STATUS 正在生成第 2/4 批次 (25 条) - 第 1 次尝试...
+11:31:57 GEN_DIAG {"kind": "prompt_context_intake", "batch_index": 2, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:34:14 GEN_DIAG {"kind": "stream_batch_token_usage", "batch_index": 2, "duration_ms": 137098, "response_chars": 8176, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:34:14 GEN_DIAG {"kind": "stream_batch_quality", "batch_index": 2, "new_valid_cases_count": 25, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:34:14 STATUS 正在生成第 3/4 批次 (25 条) - 第 1 次尝试...
+11:34:14 GEN_DIAG {"kind": "prompt_context_intake", "batch_index": 3, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:36:34 GEN_DIAG {"kind": "stream_batch_token_usage", "batch_index": 3, "duration_ms": 139766, "response_chars": 8303, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:36:34 GEN_DIAG {"kind": "stream_batch_quality", "batch_index": 3, "new_valid_cases_count": 25, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:36:34 STATUS 正在生成第 4/4 批次 (5 条) - 第 1 次尝试...
+11:36:34 GEN_DIAG {"kind": "prompt_context_intake", "batch_index": 4, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:37:26 GEN_DIAG {"kind": "stream_batch_token_usage", "batch_index": 4, "duration_ms": 52275, "response_chars": 2029, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:37:26 GEN_DIAG {"kind": "stream_batch_quality", "batch_index": 4, "new_valid_cases_count": 5, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:37:27 STATUS [multi-pass] Stage 2/3 gap supplement started...
+11:37:27 STATUS Gap supplement attempt #1...
+11:38:20 STATUS [multi-pass] Stage 3/3 review selection started...
+11:38:37 STATUS Final shortfall supplement started...
+11:39:19 GEN_DIAG {"kind": "persistence_gate", "passed": false, "failure_code": "execution_plan_failed", "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:39:19 GEN_DIAG {"kind": "generation_summary", "final_count": 75, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:39:19 GEN_DIAG {"kind": "generation_convergence", "final_count": 75, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:39:19 GEN_DIAG {"kind": "review_decision_summary", "candidate_total": 83, "retained_total": 73, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:39:19 GEN_DIAG {"kind": "feedback_control_state", "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:39:19 GEN_DIAG {"kind": "judge_summary", "pass_count": 71, "reject_count": 4, "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:39:19 GEN_DIAG {"kind": "judge_decision_table", "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:39:19 GEN_DIAG {"kind": "review_decision_table", "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:39:19 GEN_DIAG {"kind": "review_decision_table_compact", "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:39:19 GEN_DIAG {"kind": "generation_quality_ledger", "final_count": 75, "quality_score": 61, "quality_score_grade": "low", "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:39:19 GEN_DIAG {"kind": "case_quality_gate", "passed": true, "failure_reasons": [], "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:39:19 GEN_DIAG {"kind": "coverage_check", "request_id": "63356b707cea4a6aa15e16d7003b700a"}
+11:39:19 STATUS 生成结果未通过落库门禁: state_chain_conflict
+11:39:19 STREAM_ERROR Error: execution_plan_failed: state_chain_conflict
+11:39:19 RUN_END {"elapsed_sec": 608.78, "stream_chars": 206670, "request_id": "63356b707cea4a6aa15e16d7003b700a", "generation_id_from_stream": null, "persisted_generation_id": null, "latest_generation_id": 489, "latest_case_count": 75}

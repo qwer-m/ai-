@@ -11,16 +11,18 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
     try:
-        return float(os.getenv(name, str(default)).strip())
-    except Exception:
+        return float(str(raw if raw is not None else default).strip())
+    except (TypeError, ValueError):
         return float(default)
 
 
 def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
     try:
-        return int(os.getenv(name, str(default)).strip())
-    except Exception:
+        return int(str(raw if raw is not None else default).strip())
+    except (TypeError, ValueError):
         return int(default)
 
 

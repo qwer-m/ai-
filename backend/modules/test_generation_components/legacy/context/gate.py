@@ -1,10 +1,14 @@
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from concurrent.futures import TimeoutError as FutureTimeoutError
 
 from sqlalchemy.orm import Session
 
-from core.db.database import SessionLocal
-from modules.domain.knowledge_base import knowledge_base
-from modules.testing.test_generation_components.context.snapshot_wait_gate import wait_snapshot_ready_gate
+from modules.orchestration.background_task_governance import run_governed_threadpool_call
+from ...context.snapshot_wait_gate import wait_snapshot_ready_gate
+from ..runtime import LazyAttrProxy
+
+
+SessionLocal = LazyAttrProxy("core.db.database", "SessionLocal")
+knowledge_base = LazyAttrProxy("modules.domain.knowledge_base", "knowledge_base")
 
 
 class LegacyGenerationContextGateMixin:
@@ -42,10 +46,15 @@ class LegacyGenerationContextGateMixin:
                 retry_db.close()
 
         safe_timeout = max(2, int(timeout_sec or 0))
-        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="snapshot-sync-retry")
-        future = executor.submit(_worker)
         try:
-            result = future.result(timeout=safe_timeout)
+            result = run_governed_threadpool_call(
+                profile_key="snapshot_sync_retry_threadpool",
+                target=_worker,
+                timeout=safe_timeout,
+                max_workers=1,
+                thread_name_prefix="snapshot-sync-retry",
+                business_id=project_id,
+            )
             ok = bool(result.get("success") and (result.get("snapshot_text") or "").strip())
             return {
                 "success": ok,
@@ -53,7 +62,6 @@ class LegacyGenerationContextGateMixin:
                 "error": "" if ok else str(result.get("fallback_reason") or "sync_retry_empty_snapshot"),
             }
         except FutureTimeoutError:
-            future.cancel()
             return {
                 "success": False,
                 "result": None,
@@ -61,8 +69,6 @@ class LegacyGenerationContextGateMixin:
             }
         except Exception as e:
             return {"success": False, "result": None, "error": f"sync_snapshot_retry_exception:{e}"}
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
 
     def _run_snapshot_readiness_gate(
         self,

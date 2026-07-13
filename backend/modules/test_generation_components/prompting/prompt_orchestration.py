@@ -1,7 +1,13 @@
 import json
 from typing import Any, Callable
 
-from modules.test_generation_components.prompting.prompt_orchestration_split_helpers import (
+from ..postprocess.case_access import (
+    case_id as case_access_id,
+    case_priority,
+    case_step_lines,
+    case_text_field,
+)
+from .prompt_orchestration_split_helpers import (
     build_closed_loop_base_prompt,
 )
 
@@ -29,7 +35,7 @@ def _build_closed_loop_snapshot(
     for case in cases:
         if not isinstance(case, dict):
             continue
-        module = str(case.get("test_module") or "").strip() or "General"
+        module = case_text_field(case, "test_module") or "General"
         if module not in module_stats:
             module_order.append(module)
             module_stats[module] = {
@@ -161,6 +167,41 @@ def _dump_cases_for_prompt(cases: list[dict[str, Any]], max_items: int = 60) -> 
     return json.dumps(payload, ensure_ascii=False)
 
 
+def _compact_case_for_review_prompt(case: dict[str, Any]) -> dict[str, Any]:
+    """Keep review prompts stable by excluding postprocess/debug metadata."""
+
+    def _clip(value: Any, limit: int) -> str:
+        text = str(value or "").strip()
+        if len(text) <= limit:
+            return text
+        return text[:limit].rstrip() + "..."
+
+    steps = [_clip(item, 120) for item in case_step_lines(case)[:5]]
+
+    return {
+        "id": case_access_id(case),
+        "description": _clip(case_text_field(case, "description"), 180),
+        "test_module": _clip(case_text_field(case, "test_module"), 80),
+        "priority": case_priority(case, prefer_final=True),
+        "steps": steps,
+        "test_input": _clip(case_text_field(case, "test_input"), 120),
+        "expected_result": _clip(case_text_field(case, "expected_result"), 220),
+    }
+
+
+def _dump_review_cases_for_prompt(cases: list[dict[str, Any]], max_items: int = 120) -> str:
+    payload = [
+        _compact_case_for_review_prompt(item)
+        for item in cases
+        if isinstance(item, dict)
+    ][:max(1, int(max_items))]
+    if not payload:
+        return "[]"
+    import json
+
+    return json.dumps(payload, ensure_ascii=False)
+
+
 def _build_coverage_gap_text(
     *,
     coverage_result: dict[str, Any] | None,
@@ -208,7 +249,7 @@ def build_gap_fill_prompt(
     current_biz_key = str(current_biz_key or "").strip() or "unknown"
     missing_rules = [str(item).strip() for item in (missing_rules or []) if str(item).strip()]
     missing_text = _build_coverage_gap_text(coverage_result=coverage_result, missing_rules=missing_rules)
-    existing_cases_text = _dump_cases_for_prompt(existing_cases, max_items=80)
+    existing_cases_text = _dump_cases_for_prompt(existing_cases, max_items=40)
 
     prompt = f"""
 You are the QA Architect Agent.
@@ -226,13 +267,15 @@ You are the QA Architect Agent.
 {missing_text}
 
 强约束（必须遵守）：
-1. 只允许生成“新增补齐用例”，不能重写已有用例。
-2. 只补上述 coverage 缺口，不要新增无关规则。
-3. 不允许生成与已有用例验证目标相同的重复项。
-4. 不允许跨 biz_key 引入其他业务逻辑。
-5. 若信息不足，使用“待确认”，不要自行杜撰。
-6. 缺口优先级：exception/risk > boundary > happy。
-7. 若继续生成无法带来新的覆盖增益（规则/类型/风险），直接返回空数组。
+1. 对【待补缺口】中每一条 rule_id/missing_types，至少生成 1 条能直接命中 rule 文本的新增用例。
+2. 新用例的 description、steps、expected_result 必须包含该缺口的关键业务对象、动作和可断言结果，不能只写泛化描述。
+3. 只允许生成“新增补齐用例”，不能重写已有用例。
+4. 只补上述 coverage 缺口，不要新增无关规则。
+5. 不允许生成与已有用例验证目标相同的重复项。
+6. 不允许跨 biz_key 引入其他业务逻辑。
+7. 若信息不足，使用“待确认”，不要自行杜撰。
+8. 缺口优先级：exception/risk > boundary > happy。
+9. 若继续生成无法带来新的覆盖增益（规则/类型/风险），直接返回空数组。
 
 输出要求：
 - 只返回 JSON 数组，不要输出任何解释。
@@ -263,12 +306,14 @@ def build_review_select_prompt(
     target_count = max(1, int(target_count or 1))
     target_min_count = max(1, int(target_min_count or target_count))
     target_max_count = max(target_min_count, int(target_max_count or target_count))
-    candidate_text = _dump_cases_for_prompt(candidate_cases, max_items=120)
-    candidate_ids = [
-        str(item.get("id") or item.get("case_id") or "").strip()
-        for item in candidate_cases
-        if isinstance(item, dict) and str(item.get("id") or item.get("case_id") or "").strip()
-    ]
+    candidate_text = _dump_review_cases_for_prompt(candidate_cases, max_items=120)
+    candidate_ids: list[str] = []
+    for item in candidate_cases:
+        if not isinstance(item, dict):
+            continue
+        candidate_id = case_access_id(item)
+        if candidate_id:
+            candidate_ids.append(candidate_id)
     candidate_ids = candidate_ids[:200]
     candidate_ids_text = json.dumps(candidate_ids, ensure_ascii=False)
     constraints = dict(coverage_constraints or {})

@@ -1,0 +1,3322 @@
+{
+  "generation_id": 497,
+  "project_id": 2,
+  "request_id": "b38e6146042844a9866542c8580be61f",
+  "diagnostic_source": "gen_diag",
+  "diagnostic_depth": "full",
+  "persisted_log_id": 22553,
+  "next_persisted_log_id": null,
+  "stage_counts": {
+    "primary": 80,
+    "gap": 1,
+    "review": 73
+  },
+  "gen_diag": {
+    "kind": "gen_diag",
+    "mode": "stream",
+    "doc_type": "requirement",
+    "compress": true,
+    "expected_count": 80,
+    "generated_count": 86,
+    "content_length": 10669,
+    "kb_length": 8449,
+    "model": "glm-5.1",
+    "max_tokens": 10000,
+    "multi_pass": true,
+    "generation_mode": "multi_pass",
+    "context_compression_ratio": 0.1746,
+    "context_retained_chunk_count": 1,
+    "context_relevance_distribution": {
+      "sample_size": 1,
+      "high_count": 1,
+      "medium_count": 0,
+      "low_count": 0,
+      "high_ratio": 1.0,
+      "medium_ratio": 0.0,
+      "low_ratio": 0.0,
+      "mean_score": 0.96,
+      "min_score": 0.96,
+      "max_score": 0.96
+    }
+  },
+  "generation_convergence": {
+    "kind": "generation_convergence",
+    "suggested_count": 80,
+    "final_count": 86,
+    "reference_gap": 0,
+    "converged": false,
+    "duplication_rate_estimate": 0.0136986301369863,
+    "primary_count": 80,
+    "gap_count": 1,
+    "review_count": 73,
+    "candidate_count_before_review": 81,
+    "review_selected_count": 73,
+    "post_review_dedup_drop": 0,
+    "judge_reject_count": 6,
+    "judge_pending_count": 2,
+    "judge_pass_count": 65,
+    "final_input_count": 65,
+    "final_output_count": 86,
+    "final_non_judge_drop_count": 0,
+    "scenario_duplicate_pruned_count": 0,
+    "post_review_dedup_reorder_drop_count": 0,
+    "final_description_dedup_drop_count": 1,
+    "total_dedup_drop_count": 1,
+    "gap_attempts": 2,
+    "gap_remaining_after_attempts": 0,
+    "missing_rules_count": 2,
+    "missing_types_exists": true,
+    "low_quality_dropped_count": 6,
+    "low_quality_dropped_examples": [
+      {
+        "stage": "post_judge_quality_filter",
+        "reason": "non_assertable_expected_result",
+        "case_id": "TC-007",
+        "test_module": "帖子详情-导航跳转",
+        "priority": "P1",
+        "description": "点击帖子框体进入帖子详情页",
+        "expected_result": "点击帖子框体后跳转至该帖子的详情页，详情页正常展示帖子内容"
+      },
+      {
+        "stage": "post_judge_quality_filter",
+        "reason": "non_assertable_expected_result",
+        "case_id": "TC-011",
+        "test_module": "审核后台",
+        "priority": "P2",
+        "description": "审核后台-帖子详情页操作按钮功能验证（禁止回复/禁言/标记）",
+        "expected_result": "禁止回复/恢复回复切换正常；禁言7天/解禁切换正常；永久禁言1000天/解禁切换正常；标记功能正常；操作后对应状态即时生效"
+      },
+      {
+        "stage": "post_judge_quality_filter",
+        "reason": "non_assertable_expected_result",
+        "case_id": "TC-036",
+        "test_module": "帖子详情-侧边栏交互",
+        "priority": "P2",
+        "description": "帖子详情页侧边栏浏览量不可点击",
+        "expected_result": "浏览量区域仅展示数值，点击后无任何交互响应，不触发跳转或弹窗"
+      },
+      {
+        "stage": "post_judge_quality_filter",
+        "reason": "non_assertable_expected_result",
+        "case_id": "TC-037",
+        "test_module": "发帖页-内容输入",
+        "priority": "P2",
+        "description": "发帖页支持Unicode标准编码系统表情符号显示",
+        "expected_result": "输入框中可正常输入并显示系统自带表情符号，发布后帖子列表和详情页中表情符号正常展示不乱码"
+      },
+      {
+        "stage": "post_recovery_quality_filter",
+        "reason": "expected_result_quality:non_assertable",
+        "case_id": "TC-027",
+        "test_module": "论坛首页-导航",
+        "priority": "P2",
+        "description": "论坛首页悬浮返回按钮-返回功能验证，点击返回上一级页面",
+        "expected_result": "成功返回上一级页面，功能正常"
+      },
+      {
+        "stage": "post_recovery_quality_filter",
+        "reason": "expected_result_quality:non_assertable",
+        "case_id": "TC-081",
+        "test_module": "发帖页-键盘交互",
+        "priority": "P2",
+        "description": "发帖页系统表情支持-支持Unicode标准编码显示系统自带表情符号",
+        "expected_result": "发帖页能正常输入并显示系统自带表情符号，发布后帖子详情也能正常展示"
+      }
+    ],
+    "postprocess_filter_drop_total": 6,
+    "semantic_dedup_dropped_count": 0,
+    "governance_hard_drop_count": 0,
+    "duplicate_pruned_count": 1,
+    "invalid_pruned_count": 6,
+    "quality_rejected_count": 12,
+    "review_selector_pruned_count": 8,
+    "valid_unique_candidate_count": 81,
+    "generation_coverage_mode": "full_functional_regression",
+    "requested_generation_mode": "",
+    "effective_generation_coverage_mode_source": "feedback_control_state",
+    "explicit_generation_mode_override": false,
+    "explicit_expected_count_floor_preserved": true,
+    "expected_count": 80,
+    "expected_count_explicit": true,
+    "recommended_min": 80,
+    "recommended_max": 120,
+    "target_final_count": 80,
+    "soft_min_count": 64,
+    "hard_min_count": 80,
+    "min_acceptable_final": 80,
+    "target_satisfaction_ratio": 1.075,
+    "underfilled": false,
+    "underfill_level": "",
+    "underfill_reason": "",
+    "underfill_root_cause": "",
+    "append_target_count": 0,
+    "append_final_cap_count": 0,
+    "append_cap_drop_count": 0,
+    "flow_governance": {
+      "applied": true,
+      "reason": "",
+      "scenario_policy_registry_version": 1,
+      "scenario_policy_registered_count": 93,
+      "scenario_policy_candidate_count": 0,
+      "scenario_policy_pending_candidate_count": 0,
+      "domain_policy_registered_count": 4,
+      "scenario_policy_domains": {
+        "ai_wrong_question_teaching": 10,
+        "recent_course_scheduling": 7,
+        "essay_writing": 23,
+        "course_access": 2,
+        "general": 51
+      },
+      "scenario_policy_sources": {
+        "manual_seed": 1,
+        "registry": 16,
+        "legacy_duplicate_policy": 19,
+        "legacy_coverage_pattern": 28,
+        "legacy_judge_duplicate_policy": 29
+      },
+      "scenario_policy_documents": [],
+      "flow_reordered": true,
+      "flow_order": [
+        "stage:需求背景",
+        "stage:论坛首",
+        "stage:1整体修改",
+        "stage:2内容分区",
+        "stage:官方区",
+        "stage:反馈区",
+        "stage:交流区",
+        "stage:作文区",
+        "stage:消息",
+        "stage:3列表",
+        "stage:热",
+        "stage:最新",
+        "stage:精选",
+        "stage:版块标签",
+        "stage:4内容",
+        "stage:官方图标",
+        "stage:帖子标题",
+        "stage:发帖时间",
+        "stage:发帖人信息",
+        "stage:头像和昵",
+        "stage:等级信息",
+        "stage:会员标识"
+      ],
+      "cross_cutting_order": [],
+      "scenario_duplicate_pruned_count": 0,
+      "scenario_duplicate_pruned_indices": [],
+      "scenario_cap_policy": {},
+      "scenario_duplicate_cluster_count": 10,
+      "flow_misordered_count_before": 10,
+      "missing_flow_stage_count": 15,
+      "registry_impact": {
+        "registry_version": 1,
+        "total_policies_available": 93,
+        "candidate_policies_active": 0,
+        "candidate_policies_pending": 0,
+        "primary_domain": "",
+        "scenario_kinds_seen": {
+          "save_delete": 8,
+          "title_format": 6,
+          "feedback": 3,
+          "sorting_limit": 14,
+          "semantic": 22,
+          "source_consistency": 6,
+          "generation_trigger": 1,
+          "permission": 3,
+          "initial_popup": 2,
+          "media_preview": 13,
+          "statistics": 4,
+          "workflow_navigation": 1,
+          "bad_image_review": 1,
+          "filter_toggle": 1
+        },
+        "policies_matched": [
+          {
+            "key": "save_delete",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "title_format",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "feedback",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "sorting_limit",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "source_consistency",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "generation_trigger",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "permission",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "initial_popup",
+            "domain": "general",
+            "source": "legacy_judge_duplicate_policy",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "media_preview",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "statistics",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "workflow_navigation",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "bad_image_review",
+            "domain": "general",
+            "source": "legacy_judge_duplicate_policy",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "filter_toggle",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          }
+        ],
+        "matched_documents": [],
+        "caps_applied": {
+          "save_delete": 1,
+          "title_format": 1,
+          "feedback": 1,
+          "sorting_limit": 1,
+          "source_consistency": 1,
+          "generation_trigger": 1,
+          "permission": 1,
+          "initial_popup": 1,
+          "media_preview": 1,
+          "statistics": 2,
+          "workflow_navigation": 2,
+          "bad_image_review": 1,
+          "filter_toggle": 1
+        },
+        "judge_thresholds_used": {},
+        "cross_module_policies_in_effect": []
+      },
+      "relaxed_for_floor_backfill": true
+    },
+    "needs_priority_review": false,
+    "priority_conflict_count": 0,
+    "priority_undetermined_count": 0,
+    "priority_optional_count": 0,
+    "reasons": [
+      "coverage_missing_rules",
+      "coverage_missing_types",
+      "final_description_dedup_reduced_count",
+      "low_quality_filtered",
+      "flow_structure_reordered"
+    ],
+    "generation_target_case_range": {
+      "min": 80,
+      "max": 120
+    },
+    "multi_pass": true,
+    "generation_mode": "multi_pass"
+  },
+  "review_decision_summary": {
+    "kind": "review_decision_summary",
+    "candidate_total": 81,
+    "retained_total": 67,
+    "dropped_total": 14,
+    "flow_order": [
+      "stage:需求背景",
+      "stage:论坛首",
+      "stage:1整体修改",
+      "stage:2内容分区",
+      "stage:官方区",
+      "stage:反馈区",
+      "stage:交流区",
+      "stage:作文区",
+      "stage:消息",
+      "stage:3列表",
+      "stage:热",
+      "stage:最新",
+      "stage:精选",
+      "stage:版块标签",
+      "stage:4内容",
+      "stage:官方图标",
+      "stage:帖子标题",
+      "stage:发帖时间",
+      "stage:发帖人信息",
+      "stage:头像和昵",
+      "stage:等级信息",
+      "stage:会员标识"
+    ],
+    "flow_labels": {
+      "stage:需求背景": "需求背景",
+      "stage:论坛首": "论坛首页",
+      "stage:1整体修改": "1整体修改",
+      "stage:2内容分区": "2内容分区",
+      "stage:官方区": "官方区",
+      "stage:反馈区": "反馈区",
+      "stage:交流区": "交流区",
+      "stage:作文区": "作文区",
+      "stage:消息": "消息",
+      "stage:3列表": "3列表TAB(二期)",
+      "stage:热": "热⻔",
+      "stage:最新": "最新",
+      "stage:精选": "精选",
+      "stage:版块标签": "版块标签",
+      "stage:4内容": "4内容列表",
+      "stage:官方图标": "官方图标",
+      "stage:帖子标题": "帖子标题",
+      "stage:发帖时间": "发帖时间",
+      "stage:发帖人信息": "发帖人信息",
+      "stage:头像和昵": "头像和昵",
+      "stage:等级信息": "等级信息",
+      "stage:会员标识": "会员标识,"
+    },
+    "flow_stage_breakdown": {
+      "stage:论坛首": 30,
+      "stage:消息": 6,
+      "stage:作文区": 4,
+      "unknown": 36,
+      "stage:热": 2,
+      "stage:发帖人信息": 1,
+      "stage:版块标签": 1,
+      "stage:最新": 1
+    },
+    "flow_missing_stages": [
+      "stage:需求背景",
+      "stage:1整体修改",
+      "stage:2内容分区",
+      "stage:官方区",
+      "stage:反馈区",
+      "stage:交流区",
+      "stage:3列表",
+      "stage:精选",
+      "stage:4内容",
+      "stage:官方图标",
+      "stage:帖子标题",
+      "stage:发帖时间",
+      "stage:头像和昵",
+      "stage:等级信息",
+      "stage:会员标识"
+    ],
+    "flow_missing_stage_count": 15,
+    "flow_misordered_count": 41,
+    "scenario_duplicate_cluster_count": 12,
+    "scenario_duplicate_case_count": 15,
+    "scenario_duplicate_clusters": [
+      {
+        "cluster_id": "SC-001",
+        "scenario_key": "stage:论坛首:intent:open:论坛_作文_文论:content",
+        "group_type": "intent",
+        "size": 2,
+        "first_case_id": "TC-066",
+        "candidate_indices": [
+          1,
+          6
+        ]
+      },
+      {
+        "cluster_id": "SC-002",
+        "scenario_key": "stage:作文区:save_delete:obj:论坛_作文_文论",
+        "group_type": "scenario",
+        "size": 2,
+        "first_case_id": "TC-067",
+        "candidate_indices": [
+          3,
+          4
+        ]
+      },
+      {
+        "cluster_id": "SC-003",
+        "scenario_key": "stage:论坛首:sorting_limit:obj:列表_tab_排序",
+        "group_type": "scenario",
+        "size": 3,
+        "first_case_id": "TC-026",
+        "candidate_indices": [
+          8,
+          10,
+          46
+        ]
+      },
+      {
+        "cluster_id": "SC-004",
+        "scenario_key": "stage:论坛首:intent:submit:列表_tab_排序:sort",
+        "group_type": "intent",
+        "size": 2,
+        "first_case_id": "TC-026",
+        "candidate_indices": [
+          8,
+          46
+        ]
+      },
+      {
+        "cluster_id": "SC-005",
+        "scenario_key": "stage:论坛首:intent:open:入口_口与_与导:navigate",
+        "group_type": "intent",
+        "size": 2,
+        "first_case_id": "TC-002",
+        "candidate_indices": [
+          9,
+          18
+        ]
+      },
+      {
+        "cluster_id": "SC-006",
+        "scenario_key": "stage:论坛首:intent:open:列表_tab_排序:content",
+        "group_type": "intent",
+        "size": 3,
+        "first_case_id": "TC-028",
+        "candidate_indices": [
+          10,
+          45,
+          47
+        ]
+      },
+      {
+        "cluster_id": "SC-007",
+        "scenario_key": "unknown:media_preview:obj:图片查看_全屏_屏图",
+        "group_type": "scenario",
+        "size": 2,
+        "first_case_id": "TC-016",
+        "candidate_indices": [
+          17,
+          39
+        ]
+      },
+      {
+        "cluster_id": "SC-008",
+        "scenario_key": "unknown:media_preview:obj:回复_复类_类型",
+        "group_type": "scenario",
+        "size": 2,
+        "first_case_id": "TC-022",
+        "candidate_indices": [
+          44,
+          64
+        ]
+      },
+      {
+        "cluster_id": "SC-009",
+        "scenario_key": "stage:论坛首:source_consistency:obj:列表_tab_排序",
+        "group_type": "scenario",
+        "size": 2,
+        "first_case_id": "TC-029",
+        "candidate_indices": [
+          45,
+          47
+        ]
+      },
+      {
+        "cluster_id": "SC-010",
+        "scenario_key": "unknown:intent:open:回复内容_回复_复的:content",
+        "group_type": "intent",
+        "size": 3,
+        "first_case_id": "TC-037",
+        "candidate_indices": [
+          48,
+          61,
+          70
+        ]
+      },
+      {
+        "cluster_id": "SC-011",
+        "scenario_key": "stage:论坛首:title_format:obj:论坛首_作文_文论",
+        "group_type": "scenario",
+        "size": 2,
+        "first_case_id": "TC-063",
+        "candidate_indices": [
+          50,
+          55
+        ]
+      },
+      {
+        "cluster_id": "SC-012",
+        "scenario_key": "unknown:intent:open:回复内容_回复_复内:content",
+        "group_type": "intent",
+        "size": 2,
+        "first_case_id": "TC-054",
+        "candidate_indices": [
+          62,
+          81
+        ]
+      }
+    ],
+    "final_flow_stage_breakdown": {
+      "stage:论坛首": 28,
+      "unknown": 35,
+      "stage:消息": 5,
+      "stage:作文区": 5,
+      "stage:版块标签": 1,
+      "stage:热": 2,
+      "stage:最新": 2,
+      "stage:发帖人信息": 1
+    },
+    "final_flow_missing_stages": [
+      "stage:需求背景",
+      "stage:1整体修改",
+      "stage:2内容分区",
+      "stage:官方区",
+      "stage:反馈区",
+      "stage:交流区",
+      "stage:3列表",
+      "stage:精选",
+      "stage:4内容",
+      "stage:官方图标",
+      "stage:帖子标题",
+      "stage:发帖时间",
+      "stage:头像和昵",
+      "stage:等级信息",
+      "stage:会员标识"
+    ],
+    "final_flow_missing_stage_count": 15,
+    "final_flow_misordered_count": 0,
+    "final_scenario_duplicate_cluster_count": 0,
+    "final_scenario_duplicate_case_count": 0,
+    "final_scenario_duplicate_clusters": [],
+    "final_scenario_duplicate_raw_cluster_count": 10,
+    "final_scenario_duplicate_raw_case_count": 18,
+    "final_order_flow_governance": {
+      "applied": true,
+      "reason": "",
+      "scenario_policy_registry_version": 1,
+      "scenario_policy_registered_count": 93,
+      "scenario_policy_candidate_count": 0,
+      "scenario_policy_pending_candidate_count": 0,
+      "domain_policy_registered_count": 4,
+      "scenario_policy_domains": {
+        "ai_wrong_question_teaching": 10,
+        "recent_course_scheduling": 7,
+        "essay_writing": 23,
+        "course_access": 2,
+        "general": 51
+      },
+      "scenario_policy_sources": {
+        "manual_seed": 1,
+        "registry": 16,
+        "legacy_duplicate_policy": 19,
+        "legacy_coverage_pattern": 28,
+        "legacy_judge_duplicate_policy": 29
+      },
+      "scenario_policy_documents": [],
+      "flow_reordered": true,
+      "flow_order": [
+        "stage:需求背景",
+        "stage:论坛首",
+        "stage:1整体修改",
+        "stage:2内容分区",
+        "stage:官方区",
+        "stage:反馈区",
+        "stage:交流区",
+        "stage:作文区",
+        "stage:消息",
+        "stage:3列表",
+        "stage:热",
+        "stage:最新",
+        "stage:精选",
+        "stage:版块标签",
+        "stage:4内容",
+        "stage:官方图标",
+        "stage:帖子标题",
+        "stage:发帖时间",
+        "stage:发帖人信息",
+        "stage:头像和昵",
+        "stage:等级信息",
+        "stage:会员标识"
+      ],
+      "cross_cutting_order": [],
+      "scenario_duplicate_pruned_count": 0,
+      "scenario_duplicate_pruned_indices": [],
+      "scenario_cap_policy": {},
+      "scenario_duplicate_cluster_count": 10,
+      "flow_misordered_count_before": 0,
+      "missing_flow_stage_count": 15,
+      "registry_impact": {
+        "registry_version": 1,
+        "total_policies_available": 93,
+        "candidate_policies_active": 0,
+        "candidate_policies_pending": 0,
+        "primary_domain": "",
+        "scenario_kinds_seen": {
+          "permission": 3,
+          "semantic": 18,
+          "sorting_limit": 14,
+          "media_preview": 13,
+          "statistics": 4,
+          "title_format": 5,
+          "workflow_navigation": 1,
+          "source_consistency": 6,
+          "save_delete": 7,
+          "feedback": 3,
+          "initial_popup": 2,
+          "bad_image_review": 1,
+          "generation_trigger": 1,
+          "filter_toggle": 1
+        },
+        "policies_matched": [
+          {
+            "key": "permission",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "sorting_limit",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "media_preview",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "statistics",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "title_format",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "workflow_navigation",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "source_consistency",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "save_delete",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "feedback",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "initial_popup",
+            "domain": "general",
+            "source": "legacy_judge_duplicate_policy",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "bad_image_review",
+            "domain": "general",
+            "source": "legacy_judge_duplicate_policy",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "generation_trigger",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "filter_toggle",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          }
+        ],
+        "matched_documents": [],
+        "caps_applied": {
+          "permission": 1,
+          "sorting_limit": 1,
+          "media_preview": 1,
+          "statistics": 2,
+          "title_format": 1,
+          "workflow_navigation": 2,
+          "source_consistency": 1,
+          "save_delete": 1,
+          "feedback": 1,
+          "initial_popup": 1,
+          "bad_image_review": 1,
+          "generation_trigger": 1,
+          "filter_toggle": 1
+        },
+        "judge_thresholds_used": {},
+        "cross_module_policies_in_effect": []
+      },
+      "execution_orchestration_plan": {
+        "plan_first": true,
+        "planned_case_count": 86,
+        "main_chain_case_count": 7,
+        "side_suite_count": 5,
+        "execution_group_order": [
+          "main_smoke",
+          "permission",
+          "exception",
+          "boundary",
+          "independent_functional",
+          "display"
+        ],
+        "main_chain": [
+          {
+            "case_id": "TC-001",
+            "execution_sequence": 1,
+            "main_chain_step": 1,
+            "stage": "entry",
+            "stage_kind": "entry",
+            "source_state": "initial",
+            "target_state": "forum_home",
+            "role": "student",
+            "depends_on": []
+          },
+          {
+            "case_id": "TC-002",
+            "execution_sequence": 2,
+            "main_chain_step": 2,
+            "stage": "configure",
+            "stage_kind": "configure",
+            "source_state": "forum_home",
+            "target_state": "zone_selected",
+            "role": "student",
+            "depends_on": [
+              "TC-001"
+            ]
+          },
+          {
+            "case_id": "TC-003",
+            "execution_sequence": 3,
+            "main_chain_step": 3,
+            "stage": "edit",
+            "stage_kind": "edit",
+            "source_state": "zone_selected",
+            "target_state": "post_editing",
+            "role": "student",
+            "depends_on": [
+              "TC-002"
+            ]
+          },
+          {
+            "case_id": "TC-004",
+            "execution_sequence": 4,
+            "main_chain_step": 4,
+            "stage": "preview",
+            "stage_kind": "preview",
+            "source_state": "post_editing",
+            "target_state": "post_detail",
+            "role": "student",
+            "depends_on": [
+              "TC-003"
+            ]
+          },
+          {
+            "case_id": "TC-005",
+            "execution_sequence": 5,
+            "main_chain_step": 5,
+            "stage": "commit",
+            "stage_kind": "commit",
+            "source_state": "post_detail",
+            "target_state": "reply_committed",
+            "role": "student",
+            "depends_on": [
+              "TC-004"
+            ]
+          },
+          {
+            "case_id": "TC-006",
+            "execution_sequence": 6,
+            "main_chain_step": 6,
+            "stage": "downstream_visibility",
+            "stage_kind": "downstream_visibility",
+            "source_state": "reply_committed",
+            "target_state": "message_viewed",
+            "role": "student",
+            "depends_on": [
+              "TC-005"
+            ]
+          },
+          {
+            "case_id": "TC-007",
+            "execution_sequence": 7,
+            "main_chain_step": 7,
+            "stage": "completion_sync",
+            "stage_kind": "completion_sync",
+            "source_state": "message_viewed",
+            "target_state": "user_info_viewed",
+            "role": "student",
+            "depends_on": [
+              "TC-006"
+            ]
+          }
+        ],
+        "side_suites": [
+          {
+            "suite_id": "permission_suite",
+            "execution_group": "permission",
+            "rank": 1,
+            "case_ids": [
+              "TC-009",
+              "TC-008",
+              "TC-010"
+            ],
+            "case_count": 3
+          },
+          {
+            "suite_id": "exception_suite",
+            "execution_group": "exception",
+            "rank": 2,
+            "case_ids": [
+              "TC-011",
+              "TC-012"
+            ],
+            "case_count": 2
+          },
+          {
+            "suite_id": "boundary_suite",
+            "execution_group": "boundary",
+            "rank": 3,
+            "case_ids": [
+              "TC-020",
+              "TC-021",
+              "TC-022",
+              "TC-014",
+              "TC-013",
+              "TC-015",
+              "TC-016",
+              "TC-017",
+              "TC-018",
+              "TC-019"
+            ],
+            "case_count": 10
+          },
+          {
+            "suite_id": "independent_functional_suite",
+            "execution_group": "independent_functional",
+            "rank": 4,
+            "case_ids": [
+              "TC-027",
+              "TC-028",
+              "TC-029",
+              "TC-024",
+              "TC-023",
+              "TC-025",
+              "TC-026"
+            ],
+            "case_count": 7
+          },
+          {
+            "suite_id": "display_suite",
+            "execution_group": "display",
+            "rank": 5,
+            "case_ids": [
+              "TC-030",
+              "TC-038",
+              "TC-039",
+              "TC-040",
+              "TC-041",
+              "TC-045",
+              "TC-046",
+              "TC-071",
+              "TC-074",
+              "TC-075",
+              "TC-076",
+              "TC-077",
+              "TC-078",
+              "TC-079",
+              "TC-080",
+              "TC-081",
+              "TC-082",
+              "TC-083",
+              "TC-084",
+              "TC-085",
+              "TC-086",
+              "TC-031",
+              "TC-032",
+              "TC-037",
+              "TC-043",
+              "TC-053",
+              "TC-072",
+              "TC-073",
+              "TC-057",
+              "TC-063",
+              "TC-036",
+              "TC-058",
+              "TC-044",
+              "TC-033",
+              "TC-034",
+              "TC-035",
+              "TC-042",
+              "TC-047",
+              "TC-048",
+              "TC-049",
+              "TC-050",
+              "TC-051",
+              "TC-052",
+              "TC-054",
+              "TC-055",
+              "TC-056",
+              "TC-059",
+              "TC-060",
+              "TC-061",
+              "TC-062",
+              "TC-064",
+              "TC-065",
+              "TC-066",
+              "TC-067",
+              "TC-068",
+              "TC-069",
+              "TC-070"
+            ],
+            "case_count": 57
+          }
+        ]
+      },
+      "execution_group_order": [
+        "main_smoke",
+        "permission",
+        "exception",
+        "boundary",
+        "independent_functional",
+        "display"
+      ]
+    },
+    "final_execution_group_order": [
+      "main_smoke",
+      "permission",
+      "exception",
+      "boundary",
+      "independent_functional",
+      "display"
+    ],
+    "final_execution_orchestration_plan": {
+      "plan_first": true,
+      "planned_case_count": 86,
+      "main_chain_case_count": 7,
+      "side_suite_count": 5,
+      "execution_group_order": [
+        "main_smoke",
+        "permission",
+        "exception",
+        "boundary",
+        "independent_functional",
+        "display"
+      ],
+      "main_chain": [
+        {
+          "case_id": "TC-001",
+          "execution_sequence": 1,
+          "main_chain_step": 1,
+          "stage": "entry",
+          "stage_kind": "entry",
+          "source_state": "initial",
+          "target_state": "forum_home",
+          "role": "student",
+          "depends_on": []
+        },
+        {
+          "case_id": "TC-002",
+          "execution_sequence": 2,
+          "main_chain_step": 2,
+          "stage": "configure",
+          "stage_kind": "configure",
+          "source_state": "forum_home",
+          "target_state": "zone_selected",
+          "role": "student",
+          "depends_on": [
+            "TC-001"
+          ]
+        },
+        {
+          "case_id": "TC-003",
+          "execution_sequence": 3,
+          "main_chain_step": 3,
+          "stage": "edit",
+          "stage_kind": "edit",
+          "source_state": "zone_selected",
+          "target_state": "post_editing",
+          "role": "student",
+          "depends_on": [
+            "TC-002"
+          ]
+        },
+        {
+          "case_id": "TC-004",
+          "execution_sequence": 4,
+          "main_chain_step": 4,
+          "stage": "preview",
+          "stage_kind": "preview",
+          "source_state": "post_editing",
+          "target_state": "post_detail",
+          "role": "student",
+          "depends_on": [
+            "TC-003"
+          ]
+        },
+        {
+          "case_id": "TC-005",
+          "execution_sequence": 5,
+          "main_chain_step": 5,
+          "stage": "commit",
+          "stage_kind": "commit",
+          "source_state": "post_detail",
+          "target_state": "reply_committed",
+          "role": "student",
+          "depends_on": [
+            "TC-004"
+          ]
+        },
+        {
+          "case_id": "TC-006",
+          "execution_sequence": 6,
+          "main_chain_step": 6,
+          "stage": "downstream_visibility",
+          "stage_kind": "downstream_visibility",
+          "source_state": "reply_committed",
+          "target_state": "message_viewed",
+          "role": "student",
+          "depends_on": [
+            "TC-005"
+          ]
+        },
+        {
+          "case_id": "TC-007",
+          "execution_sequence": 7,
+          "main_chain_step": 7,
+          "stage": "completion_sync",
+          "stage_kind": "completion_sync",
+          "source_state": "message_viewed",
+          "target_state": "user_info_viewed",
+          "role": "student",
+          "depends_on": [
+            "TC-006"
+          ]
+        }
+      ],
+      "side_suites": [
+        {
+          "suite_id": "permission_suite",
+          "execution_group": "permission",
+          "rank": 1,
+          "case_ids": [
+            "TC-009",
+            "TC-008",
+            "TC-010"
+          ],
+          "case_count": 3
+        },
+        {
+          "suite_id": "exception_suite",
+          "execution_group": "exception",
+          "rank": 2,
+          "case_ids": [
+            "TC-011",
+            "TC-012"
+          ],
+          "case_count": 2
+        },
+        {
+          "suite_id": "boundary_suite",
+          "execution_group": "boundary",
+          "rank": 3,
+          "case_ids": [
+            "TC-020",
+            "TC-021",
+            "TC-022",
+            "TC-014",
+            "TC-013",
+            "TC-015",
+            "TC-016",
+            "TC-017",
+            "TC-018",
+            "TC-019"
+          ],
+          "case_count": 10
+        },
+        {
+          "suite_id": "independent_functional_suite",
+          "execution_group": "independent_functional",
+          "rank": 4,
+          "case_ids": [
+            "TC-027",
+            "TC-028",
+            "TC-029",
+            "TC-024",
+            "TC-023",
+            "TC-025",
+            "TC-026"
+          ],
+          "case_count": 7
+        },
+        {
+          "suite_id": "display_suite",
+          "execution_group": "display",
+          "rank": 5,
+          "case_ids": [
+            "TC-030",
+            "TC-038",
+            "TC-039",
+            "TC-040",
+            "TC-041",
+            "TC-045",
+            "TC-046",
+            "TC-071",
+            "TC-074",
+            "TC-075",
+            "TC-076",
+            "TC-077",
+            "TC-078",
+            "TC-079",
+            "TC-080",
+            "TC-081",
+            "TC-082",
+            "TC-083",
+            "TC-084",
+            "TC-085",
+            "TC-086",
+            "TC-031",
+            "TC-032",
+            "TC-037",
+            "TC-043",
+            "TC-053",
+            "TC-072",
+            "TC-073",
+            "TC-057",
+            "TC-063",
+            "TC-036",
+            "TC-058",
+            "TC-044",
+            "TC-033",
+            "TC-034",
+            "TC-035",
+            "TC-042",
+            "TC-047",
+            "TC-048",
+            "TC-049",
+            "TC-050",
+            "TC-051",
+            "TC-052",
+            "TC-054",
+            "TC-055",
+            "TC-056",
+            "TC-059",
+            "TC-060",
+            "TC-061",
+            "TC-062",
+            "TC-064",
+            "TC-065",
+            "TC-066",
+            "TC-067",
+            "TC-068",
+            "TC-069",
+            "TC-070"
+          ],
+          "case_count": 57
+        }
+      ]
+    },
+    "fact_profile_source": "requirement_semantics",
+    "fact_profile_confidence": 0.0,
+    "fact_profile_confirmed_count": 8,
+    "fact_profile_forbidden_count": 0,
+    "fact_profile_pending_count": 1,
+    "project_profile_source": "document_extracted",
+    "project_profile_confidence": 0.0,
+    "flow_governance_applied": true,
+    "flow_reordered": true,
+    "flow_governance_reason": "",
+    "scenario_duplicate_pruned_count": 0,
+    "scenario_duplicate_pruned_indices": [],
+    "execution_plan": {
+      "applied": true,
+      "coverage_mode": "full_functional_regression",
+      "workflow_blueprint_count": 1,
+      "trusted_workflow_contract_count": 0,
+      "current_requirement_blueprint_count": 1,
+      "plan_workflow_blueprint_count": 1,
+      "workflow_blueprint_source": "current_requirement_blueprint",
+      "linear_executable": true,
+      "linear_scope": "main_smoke_chain_only",
+      "main_chain_case_count": 7,
+      "main_chain_stage_order": [
+        "entry",
+        "configure",
+        "edit",
+        "preview",
+        "commit",
+        "downstream_visibility",
+        "completion_sync"
+      ],
+      "main_chain_stage_kinds": [
+        "entry",
+        "configure",
+        "edit",
+        "preview",
+        "commit",
+        "downstream_visibility",
+        "completion_sync"
+      ],
+      "main_chain_incomplete_reason": "",
+      "derived_workflow_debug": {
+        "candidate_total": 83,
+        "action_state_candidate_count": 0,
+        "primary_candidate_count": 0,
+        "fallback_candidate_count": 0,
+        "selected_candidate_count": 0,
+        "closure_reason": ""
+      },
+      "main_chain_excluded_candidates": [
+        {
+          "case_id": "TC-002",
+          "description": "论坛入口未变更验证-从原入口可正常进入论坛首页",
+          "stage_key": "entry",
+          "reason": "destructive_action"
+        },
+        {
+          "case_id": "TC-007",
+          "description": "热门排序权重公式T值边界验证-内容发布至今刚好72小时时T值为0",
+          "stage_key": "entry",
+          "reason": "boundary_capacity"
+        },
+        {
+          "case_id": "TC-008",
+          "description": "热门排序权重公式L和R归一化验证-排序池内最大点赞和回复的帖子权重计算",
+          "stage_key": "entry",
+          "reason": "boundary_capacity"
+        },
+        {
+          "case_id": "TC-010",
+          "description": "精选TAB仅在作文区显示且只展示后台标记精选标签的作品",
+          "stage_key": "entry",
+          "reason": "conditional_visibility_case_in_main_smoke"
+        },
+        {
+          "case_id": "TC-014",
+          "description": "官方区版块标签TAB-无法区分版块标签时不展示该类TAB",
+          "stage_key": "entry",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-018",
+          "description": "消息TAB按类型分区-回复、点赞和系统消息三个TAB",
+          "stage_key": "entry",
+          "reason": "stage_module_not_aligned_with_blueprint"
+        },
+        {
+          "case_id": "TC-020",
+          "description": "发帖页左上角返回按钮点击后放弃编辑内容返回上一页",
+          "stage_key": "entry",
+          "reason": "stage_module_not_aligned_with_blueprint"
+        },
+        {
+          "case_id": "TC-021",
+          "description": "帖子详情页返回按钮位于左上角且返回论坛首页",
+          "stage_key": "entry",
+          "reason": "stage_module_not_aligned_with_blueprint"
+        },
+        {
+          "case_id": "TC-023",
+          "description": "内容列表下拉到顶部切换上一页交互验证",
+          "stage_key": "entry",
+          "reason": "display_only"
+        },
+        {
+          "case_id": "TC-024",
+          "description": "点击发帖人头像打开用户详情弹窗",
+          "stage_key": "entry",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-027",
+          "description": "论坛首页悬浮返回按钮-关闭功能验证",
+          "stage_key": "entry",
+          "reason": "reset_or_abort_case_in_main_smoke"
+        },
+        {
+          "case_id": "TC-030",
+          "description": "作文论坛详情页美术风格-背景主色调和各模块UI样式升级验证",
+          "stage_key": "entry",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-032",
+          "description": "作文论坛详情-好词好句波浪线编辑后字数改动则删除该条波浪线",
+          "stage_key": "entry",
+          "reason": "destructive_action"
+        },
+        {
+          "case_id": "TC-033",
+          "description": "作文论坛详情-展示图片时显示缩略图且点击可放大查看照片详情及左右滑动",
+          "stage_key": "entry",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-034",
+          "description": "作文论坛详情-删除按钮仅投稿人本人可见且二次确认框文案验证",
+          "stage_key": "entry",
+          "reason": "destructive_action"
+        },
+        {
+          "case_id": "TC-035",
+          "description": "官方区仅官方账户有发帖权限-普通用户无法发帖",
+          "stage_key": "entry",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-036",
+          "description": "帖子详情页帖子内容第一行前面增加版块标签",
+          "stage_key": "entry",
+          "reason": "stage_module_not_aligned_with_blueprint"
+        },
+        {
+          "case_id": "TC-039",
+          "description": "用户详情弹窗-论坛列表和帖子详情页点击头像均能正常弹出",
+          "stage_key": "entry",
+          "reason": "display_only"
+        },
+        {
+          "case_id": "TC-042",
+          "description": "作文区额外入口-乐乐作文写作素材页他人作文列表最多展示20条",
+          "stage_key": "entry",
+          "reason": "boundary_capacity"
+        },
+        {
+          "case_id": "TC-043",
+          "description": "帖子详情页侧边栏点赞消息显示最近点赞用户头像",
+          "stage_key": "entry",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-055",
+          "description": "专项计划学习报告-新报告红点与【新】标记消除逻辑",
+          "stage_key": "entry",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-064",
+          "description": "发帖限制-论坛内学习时长不计入额外发帖机会统计",
+          "stage_key": "entry",
+          "reason": "boundary_capacity"
+        },
+        {
+          "case_id": "TC-065",
+          "description": "审核后台-帖子详情页禁言与禁止回复操作及状态同步",
+          "stage_key": "entry",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-077",
+          "description": "回复帖子提示词为'我说两句'且可添加图片",
+          "stage_key": "entry",
+          "reason": "stage_module_not_aligned_with_blueprint"
+        },
+        {
+          "case_id": "TC-078",
+          "description": "回复帖子下的留言提示词为'回复[用户昵称]'且不可添加图片",
+          "stage_key": "entry",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-003",
+          "description": "作文论坛首页-版块标签按年级划分且帖子新增作文标题",
+          "stage_key": "configure",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-005",
+          "description": "论坛首页内容分区展示-官方区、反馈区、交流区、消息分区可见且可切换",
+          "stage_key": "configure",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-006",
+          "description": "热门排序权重公式验证-S=0.3L+0.2R+0.5T计算后按权重值从大到小排列",
+          "stage_key": "configure",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-009",
+          "description": "最新排序-按发帖或回帖时间倒序且每次回帖刷新帖子更新时间",
+          "stage_key": "configure",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-011",
+          "description": "版块标签TAB仅展示有版块标签的帖子且排序同热门规则",
+          "stage_key": "configure",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-012",
+          "description": "反馈区版块标签TAB展示与筛选-功能反馈、视频反馈等标签可切换",
+          "stage_key": "configure",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-013",
+          "description": "作文区精选TAB排序规则-仅展示精选标签作品且排序同热门规则",
+          "stage_key": "configure",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-015",
+          "description": "回复消息未读状态黄色标记-列表曝光时小红点消失",
+          "stage_key": "configure",
+          "reason": "analytics"
+        },
+        {
+          "case_id": "TC-016",
+          "description": "审核通过消息点击跳转帖子详情页-审核不通过弹出toast提示",
+          "stage_key": "configure",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-017",
+          "description": "消息列表为空时显示缺省状态",
+          "stage_key": "configure",
+          "reason": "blocking_negative"
+        },
+        {
+          "case_id": "TC-018",
+          "description": "消息TAB按类型分区-回复、点赞和系统消息三个TAB",
+          "stage_key": "configure",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-019",
+          "description": "点赞消息展示-赞了你的帖子和赞了你的评论两种类型",
+          "stage_key": "configure",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-025",
+          "description": "从视频模块点击反馈按钮默认进入反馈区",
+          "stage_key": "configure",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-029",
+          "description": "消息分区有新内容时展示小红点提示且无数字",
+          "stage_key": "configure",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-036",
+          "description": "帖子详情页帖子内容第一行前面增加版块标签",
+          "stage_key": "configure",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-044",
+          "description": "点赞消息-二级评论的点赞消息也需要展示",
+          "stage_key": "configure",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-057",
+          "description": "发帖页版块分区-用户可不选版块直接发布帖子",
+          "stage_key": "configure",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-058",
+          "description": "发帖页版块分区选择-初始默认不选中且只能单选",
+          "stage_key": "configure",
+          "reason": "reset_or_abort_case_in_main_smoke"
+        },
+        {
+          "case_id": "TC-059",
+          "description": "发帖页点击版块分区标题显示说明tips提示框",
+          "stage_key": "configure",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-026",
+          "description": "发帖按钮维持原文案不变",
+          "stage_key": "edit",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-037",
+          "description": "帖子详情页删除按钮-仅楼主可见且二次确认文案验证",
+          "stage_key": "edit",
+          "reason": "destructive_action"
+        },
+        {
+          "case_id": "TC-038",
+          "description": "论坛首页发帖图片按原图展示-去掉上下左右白边",
+          "stage_key": "edit",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-040",
+          "description": "论坛首页用户头像框正常显示-修复头像显示不全问题",
+          "stage_key": "edit",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-041",
+          "description": "作文区额外入口-点击我要投稿弹出提示框同作文区发帖提示",
+          "stage_key": "edit",
+          "reason": "stage_action_not_supported_by_case_text"
+        },
+        {
+          "case_id": "TC-045",
+          "description": "二级评论只按时间正序排列不受排序方式切换影响",
+          "stage_key": "edit",
+          "reason": "stage_action_not_supported_by_case_text"
+        }
+      ],
+      "independent_case_count": 79,
+      "isolation_case_count": 79,
+      "role_switch_count": 0,
+      "broken_dependency_count": 0,
+      "state_conflict_count": 0,
+      "state_conflicts": [],
+      "selected_stage_state_conflicts": [],
+      "semantic_conflict_count": 0,
+      "semantic_conflicts": [],
+      "execution_group_breakdown": {
+        "boundary": 10,
+        "display": 57,
+        "exception": 2,
+        "independent_functional": 7,
+        "main_smoke": 7,
+        "permission": 3
+      },
+      "execution_group_order": [
+        "main_smoke",
+        "permission",
+        "exception",
+        "boundary",
+        "independent_functional",
+        "display"
+      ],
+      "execution_orchestration_plan": {
+        "plan_first": true,
+        "planned_case_count": 86,
+        "main_chain_case_count": 7,
+        "side_suite_count": 5,
+        "execution_group_order": [
+          "main_smoke",
+          "permission",
+          "exception",
+          "boundary",
+          "independent_functional",
+          "display"
+        ],
+        "main_chain": [
+          {
+            "case_id": "TC-001",
+            "execution_sequence": 1,
+            "main_chain_step": 1,
+            "stage": "entry",
+            "stage_kind": "entry",
+            "source_state": "initial",
+            "target_state": "forum_home",
+            "role": "student",
+            "depends_on": []
+          },
+          {
+            "case_id": "TC-002",
+            "execution_sequence": 2,
+            "main_chain_step": 2,
+            "stage": "configure",
+            "stage_kind": "configure",
+            "source_state": "forum_home",
+            "target_state": "zone_selected",
+            "role": "student",
+            "depends_on": [
+              "TC-001"
+            ]
+          },
+          {
+            "case_id": "TC-003",
+            "execution_sequence": 3,
+            "main_chain_step": 3,
+            "stage": "edit",
+            "stage_kind": "edit",
+            "source_state": "zone_selected",
+            "target_state": "post_editing",
+            "role": "student",
+            "depends_on": [
+              "TC-002"
+            ]
+          },
+          {
+            "case_id": "TC-004",
+            "execution_sequence": 4,
+            "main_chain_step": 4,
+            "stage": "preview",
+            "stage_kind": "preview",
+            "source_state": "post_editing",
+            "target_state": "post_detail",
+            "role": "student",
+            "depends_on": [
+              "TC-003"
+            ]
+          },
+          {
+            "case_id": "TC-005",
+            "execution_sequence": 5,
+            "main_chain_step": 5,
+            "stage": "commit",
+            "stage_kind": "commit",
+            "source_state": "post_detail",
+            "target_state": "reply_committed",
+            "role": "student",
+            "depends_on": [
+              "TC-004"
+            ]
+          },
+          {
+            "case_id": "TC-006",
+            "execution_sequence": 6,
+            "main_chain_step": 6,
+            "stage": "downstream_visibility",
+            "stage_kind": "downstream_visibility",
+            "source_state": "reply_committed",
+            "target_state": "message_viewed",
+            "role": "student",
+            "depends_on": [
+              "TC-005"
+            ]
+          },
+          {
+            "case_id": "TC-007",
+            "execution_sequence": 7,
+            "main_chain_step": 7,
+            "stage": "completion_sync",
+            "stage_kind": "completion_sync",
+            "source_state": "message_viewed",
+            "target_state": "user_info_viewed",
+            "role": "student",
+            "depends_on": [
+              "TC-006"
+            ]
+          }
+        ],
+        "side_suites": [
+          {
+            "suite_id": "permission_suite",
+            "execution_group": "permission",
+            "rank": 1,
+            "case_ids": [
+              "TC-008",
+              "TC-009",
+              "TC-010"
+            ],
+            "case_count": 3
+          },
+          {
+            "suite_id": "exception_suite",
+            "execution_group": "exception",
+            "rank": 2,
+            "case_ids": [
+              "TC-011",
+              "TC-012"
+            ],
+            "case_count": 2
+          },
+          {
+            "suite_id": "boundary_suite",
+            "execution_group": "boundary",
+            "rank": 3,
+            "case_ids": [
+              "TC-013",
+              "TC-014",
+              "TC-015",
+              "TC-016",
+              "TC-017",
+              "TC-018",
+              "TC-019",
+              "TC-020",
+              "TC-021",
+              "TC-022"
+            ],
+            "case_count": 10
+          },
+          {
+            "suite_id": "independent_functional_suite",
+            "execution_group": "independent_functional",
+            "rank": 4,
+            "case_ids": [
+              "TC-023",
+              "TC-024",
+              "TC-025",
+              "TC-026",
+              "TC-027",
+              "TC-028",
+              "TC-029"
+            ],
+            "case_count": 7
+          },
+          {
+            "suite_id": "display_suite",
+            "execution_group": "display",
+            "rank": 5,
+            "case_ids": [
+              "TC-030",
+              "TC-031",
+              "TC-032",
+              "TC-033",
+              "TC-034",
+              "TC-035",
+              "TC-036",
+              "TC-037",
+              "TC-038",
+              "TC-039",
+              "TC-040",
+              "TC-041",
+              "TC-042",
+              "TC-043",
+              "TC-044",
+              "TC-045",
+              "TC-046",
+              "TC-047",
+              "TC-048",
+              "TC-049",
+              "TC-050",
+              "TC-051",
+              "TC-052",
+              "TC-053",
+              "TC-054",
+              "TC-055",
+              "TC-056",
+              "TC-057",
+              "TC-058",
+              "TC-059",
+              "TC-060",
+              "TC-061",
+              "TC-062",
+              "TC-063",
+              "TC-064",
+              "TC-065",
+              "TC-066",
+              "TC-067",
+              "TC-068",
+              "TC-069",
+              "TC-070",
+              "TC-071",
+              "TC-072",
+              "TC-073",
+              "TC-074",
+              "TC-075",
+              "TC-076",
+              "TC-077",
+              "TC-078",
+              "TC-079",
+              "TC-080",
+              "TC-081",
+              "TC-082",
+              "TC-083",
+              "TC-084",
+              "TC-085",
+              "TC-086"
+            ],
+            "case_count": 57
+          }
+        ]
+      },
+      "generated_bridge_case_count": 0,
+      "workflow_contract_materialized_case_count": 3,
+      "group_setup": {
+        "boundary": "seed_boundary_dataset()",
+        "display": "seed_display_ready_dataset()",
+        "exception": "enable_fault_injection_for_case()",
+        "independent_functional": "seed_functional_dataset()",
+        "main_smoke": "seed_workflow_blueprint_dataset()",
+        "permission": "seed_permission_state_dataset()"
+      },
+      "group_teardown": {
+        "boundary": "delete_boundary_dataset()",
+        "display": "delete_display_ready_dataset()",
+        "exception": "disable_fault_injection()",
+        "independent_functional": "cleanup_functional_dataset()",
+        "main_smoke": "cleanup_workflow_blueprint_dataset()",
+        "permission": "reset_permission_state_dataset()"
+      },
+      "fixture_keys": [
+        "boundary_dataset",
+        "display_ready_dataset",
+        "fault_injection_case",
+        "independent_functional_dataset",
+        "permission_state_dataset",
+        "workflow_blueprint_chain_seed"
+      ]
+    },
+    "linear_executable": true,
+    "linear_scope": "main_smoke_chain_only",
+    "main_chain_case_count": 7,
+    "independent_case_count": 79,
+    "isolation_case_count": 79,
+    "broken_dependency_count": 0,
+    "state_conflict_count": 0,
+    "role_switch_count": 0,
+    "final_reasoning_leakage_case_count": 0,
+    "priority_decision_state_breakdown": {
+      "decided": 81,
+      "conflict": 0,
+      "undetermined": 0,
+      "optional": 0,
+      "invalid": 0
+    },
+    "priority_final_breakdown": {
+      "P0": 5,
+      "P1": 11,
+      "P2": 65,
+      "null": 0
+    },
+    "legacy_priority_breakdown": {
+      "P0": 2,
+      "P1": 19,
+      "P2": 60,
+      "UNKNOWN": 0
+    },
+    "priority_conflict_count": 0,
+    "priority_undetermined_count": 0,
+    "priority_optional_count": 0,
+    "priority_invalid_count": 0,
+    "priority_quality_gate_failed": false,
+    "needs_priority_review": false,
+    "invalid_case_count": 0,
+    "reasoning_leakage_case_count": 0,
+    "review_llm_filter_applied": true,
+    "review_input_size": 73,
+    "review_output_size": 73,
+    "review_target_min_count": 49,
+    "review_target_max_count": 68,
+    "review_shortfall_detected": false,
+    "review_shortfall_before_count": 73,
+    "review_shortfall_recovered_count": 0,
+    "review_post_rerank_floor_count": 28,
+    "review_post_rerank_recovered_count": 0,
+    "final_target_floor_count": 80,
+    "final_floor_recovery_attempted": true,
+    "final_floor_recovery_applied": true,
+    "final_floor_recovered_count": 18,
+    "final_floor_recovery_reason": "final_shortfall_supplement_generated",
+    "final_confirmed_conflict_drop_count": 0,
+    "final_shortfall_supplement_attempted": true,
+    "final_shortfall_supplement_applied": true,
+    "final_shortfall_supplement_count": 18,
+    "final_shortfall_supplement_reason": "",
+    "final_shortfall_supplement_debug": {
+      "target_floor_count": 80,
+      "start_count": 67,
+      "supplement_needed": 18,
+      "batch_size": 10,
+      "batch_plan": [
+        10,
+        8
+      ],
+      "batches": [
+        {
+          "batch_index": 1,
+          "batch_goal": 10,
+          "prompt_chars": 16136,
+          "max_tokens": 7000,
+          "response_chars": 3698,
+          "response_preview": "{\n  \"cases\": [\n    {\n      \"id\": \"TC-068\",\n      \"description\": \"热门排序权重公式T值边界验证-内容发布至今刚好72小时时T值为0\",\n      \"test_module\": \"论坛首页-列表TAB排序\",\n      \"preconditions\": \"存在发布至今刚好72小时的帖子，且该帖子有点赞和回复\",\n      \"steps\": \"1. 进入论坛首页交流区；2. 切换至热门TAB；3. 观察发布刚好",
+          "starts_error": false,
+          "parsed_source": "dict.cases",
+          "parsed_count": 10,
+          "error_reason": "",
+          "metadata": {
+            "model": "glm-5.1",
+            "wire_api": "chat_completions",
+            "http_status": 200,
+            "url_path": "/chat/completions",
+            "finish_reason": "stop",
+            "max_tokens": 7000,
+            "json_response": true,
+            "content_len": 3698,
+            "reasoning_len": 0,
+            "input_tokens_estimated": 4599,
+            "output_tokens_estimated": 924,
+            "response_format": {
+              "type": "json_object"
+            },
+            "reasoning_effort": "low",
+            "thinking": {
+              "type": "disabled"
+            }
+          },
+          "unique_count": 10
+        },
+        {
+          "batch_index": 2,
+          "batch_goal": 8,
+          "prompt_chars": 18210,
+          "max_tokens": 5600,
+          "response_chars": 2727,
+          "response_preview": "{\n  \"cases\": [\n    {\n      \"id\": \"TC-078\",\n      \"description\": \"论坛首页悬浮返回按钮-返回功能验证，点击返回上一级页面\",\n      \"test_module\": \"论坛首页-导航\",\n      \"preconditions\": \"用户已登录并进入论坛首页\",\n      \"steps\": \"1. 点击论坛首页悬浮返回按钮中的返回功能\",\n      \"test_input\": \"点击返回按钮\",\n    ",
+          "starts_error": false,
+          "parsed_source": "dict.cases",
+          "parsed_count": 8,
+          "error_reason": "",
+          "metadata": {
+            "model": "glm-5.1",
+            "wire_api": "chat_completions",
+            "http_status": 200,
+            "url_path": "/chat/completions",
+            "finish_reason": "stop",
+            "max_tokens": 5600,
+            "json_response": true,
+            "content_len": 2727,
+            "reasoning_len": 0,
+            "input_tokens_estimated": 5197,
+            "output_tokens_estimated": 681,
+            "response_format": {
+              "type": "json_object"
+            },
+            "reasoning_effort": "low",
+            "thinking": {
+              "type": "disabled"
+            }
+          },
+          "unique_count": 8
+        }
+      ],
+      "raw_generated_count": 18
+    },
+    "requested_generation_mode": "",
+    "effective_generation_coverage_mode_source": "feedback_control_state",
+    "explicit_generation_mode_override": false,
+    "explicit_expected_count_floor_preserved": true,
+    "review_fill_source": "none",
+    "review_llm_selected_count": 68,
+    "review_llm_runtime_debug": {
+      "invoked": true,
+      "pool_non_empty": true,
+      "pool_size": 76,
+      "deterministic_noop_skip_eligible": false,
+      "deterministic_noop_preflight_selected_count": 68,
+      "deterministic_noop_preflight_within_target_window": false,
+      "deterministic_noop_preflight_signature_unchanged": false,
+      "deterministic_noop_preflight_dropped_by_max": true,
+      "skip_reason": "",
+      "primary_model": "glm-5.1",
+      "primary_invalid_reason": "",
+      "primary_reason_incomplete": false,
+      "primary_dropped_reason_count": 3,
+      "primary_dropped_reason_payload_count": 3,
+      "primary_reason_coverage_ratio": 1.0,
+      "response_len": 1284,
+      "response_preview": "```json\n{\n  \"kept_case_ids\": [\n    \"TC-001\",\n    \"TC-002\",\n    \"TC-003\",\n    \"TC-005\",\n    \"TC-006\",\n    \"TC-007\",\n    \"TC-008\",\n    \"TC-009\",\n    \"TC-010\",\n    \"TC-011\",\n    \"TC-012\",\n    \"TC-013\",\n    \"TC-014\",\n    \"TC-015\",\n    \"TC-016\",\n    \"TC-017\",\n    \"TC-018\",\n    \"TC-019\",\n    \"TC-020\",\n    \"TC-021\",\n    \"TC-022\",\n    \"TC-023\",\n    \"TC-024\",\n    \"TC-025\",\n    \"TC-026\",\n    \"TC-027\",\n    \"TC-029\",\n    \"TC-030\",\n    \"TC-031\",\n    \"TC-032\",\n    \"TC-033\",\n    \"TC-034\",\n    \"TC-035\",\n    \"TC",
+      "primary_response_metadata": {
+        "model": "glm-5.1",
+        "wire_api": "chat_completions",
+        "max_tokens": 10000,
+        "json_response": true,
+        "http_status": 200,
+        "url_path": "/chat/completions",
+        "reasoning_effort": "low",
+        "response_format": {
+          "type": "json_object"
+        },
+        "thinking": {
+          "type": "disabled"
+        },
+        "finish_reason": "stop",
+        "content_len": 1284,
+        "reasoning_len": 0,
+        "message_keys": [
+          "role",
+          "content"
+        ],
+        "input_tokens_estimated": 9818,
+        "output_tokens_estimated": 321,
+        "token_estimate_method": "chars_div_4"
+      },
+      "primary_compact_retry_invoked": false,
+      "primary_compact_retry_model": "",
+      "primary_compact_retry_invalid_reason": "",
+      "primary_compact_retry_response_len": 0,
+      "primary_compact_retry_response_metadata": {},
+      "retry_invoked": false,
+      "retry_reason": "",
+      "retry_model": "",
+      "retry_attempts": [],
+      "fallback_skipped_reason": "",
+      "retry_response_len": 0,
+      "retry_parse_success": false,
+      "retry_mapped_count": 0,
+      "retry_payload_has_selection_signal": false,
+      "parsed_type": "dict",
+      "parsed_len": 2,
+      "mapped_count": 73,
+      "mapped_signature_count": 73,
+      "dropped_reason_count": 3,
+      "dropped_reason_payload_count": 3,
+      "dropped_reason_unmapped_count": 0,
+      "payload_has_selection_signal": true,
+      "final_selected_and_dropped_overlap_count": 0,
+      "final_selected_and_dropped_overlap_case_ids": [],
+      "final_payload_consistent": true,
+      "reason_repair_invoked": true,
+      "reason_repair_model": "glm-5.1",
+      "reason_repair_candidate_count": 5,
+      "reason_repair_response_len": 412,
+      "reason_repair_mapped_count": 5,
+      "reason_repair_invalid_reason": "",
+      "reason_repair_response_metadata": {
+        "model": "glm-5.1",
+        "wire_api": "chat_completions",
+        "max_tokens": 2048,
+        "json_response": true,
+        "http_status": 200,
+        "url_path": "/chat/completions",
+        "reasoning_effort": "low",
+        "response_format": {
+          "type": "json_object"
+        },
+        "thinking": {
+          "type": "disabled"
+        },
+        "finish_reason": "stop",
+        "content_len": 412,
+        "reasoning_len": 0,
+        "message_keys": [
+          "role",
+          "content"
+        ],
+        "input_tokens_estimated": 438,
+        "output_tokens_estimated": 103,
+        "token_estimate_method": "chars_div_4"
+      },
+      "final_source": "primary_llm",
+      "applied": true,
+      "applied_reason": "mapped_valid_payload",
+      "exception": "",
+      "forced_reset_by_fallback": false,
+      "fallback_reason_incomplete": false,
+      "final_reason_incomplete": false,
+      "final_reason_coverage_ratio": 1.0,
+      "prompt_chars": 34224,
+      "prompt_est_tokens": 8556,
+      "candidate_count": 76,
+      "append_target_count": 0,
+      "append_final_cap_count": 0,
+      "primary_duration_ms": 12419,
+      "final_dropped_reason_count": 8,
+      "final_dropped_reason_payload_count": 8,
+      "final_dropped_reason_unmapped_count": 0,
+      "reason_repair_duration_ms": 4652
+    },
+    "review_constraint_selected_count": 0,
+    "review_llm_drop_reason_breakdown": {
+      "selection_tradeoff_omitted": 3,
+      "low_value": 2,
+      "duplicate": 3
+    },
+    "review_llm_drop_reason_raw_breakdown": {
+      "selection_tradeoff_omitted": 3,
+      "low_value": 2,
+      "duplicate": 3
+    },
+    "review_llm_drop_reason_source_breakdown": {
+      "llm": 8
+    },
+    "fallback_reason_incomplete": false,
+    "final_reason_incomplete": false,
+    "final_reason_coverage_ratio": 1.0,
+    "fallback_dropped_reason_count": 0,
+    "fallback_dropped_reason_mapped_count": 0,
+    "fallback_dropped_reason_unmapped_count": 0,
+    "fallback_reason_coverage_ratio": 0.0,
+    "llm_reason_coverage_ratio": 1.0,
+    "deterministic_backfill_ratio": 0.0,
+    "reason_source_breakdown": {
+      "primary": 8,
+      "fallback": 0,
+      "backfill": 0
+    },
+    "primary_reason_incomplete": false,
+    "primary_dropped_reason_count": 3,
+    "primary_dropped_reason_payload_count": 3,
+    "primary_reason_coverage_ratio": 1.0,
+    "fallback_with_positive_evidence_count": 0,
+    "fallback_without_positive_evidence_count": 0,
+    "review_llm_pool_count": 76,
+    "candidate_by_pass": {
+      "primary": 80,
+      "gap": 1
+    },
+    "must_keep_candidate_count": 5,
+    "must_keep_retained_count": 5,
+    "must_keep_dropped_count": 0,
+    "retained_due_to_coverage_value_count": 29,
+    "must_cover_rule_hit_count": 0,
+    "forbidden_pattern_violation_count": 0,
+    "soft_constraint_hit_count": 0,
+    "quality_hint_satisfied_count": 0,
+    "drop_by_review_llm_count": 8,
+    "drop_by_review_selector_count": 0,
+    "drop_by_review_gate_count": 0,
+    "drop_by_pre_gate_dedup_count": 0,
+    "drop_by_post_review_dedup_count": 13,
+    "drop_no_new_signal_count": 0,
+    "drop_rule_cap_count": 0,
+    "drop_ui_like_redundant_count": 0,
+    "drop_ui_like_ratio_cap_count": 0,
+    "drop_outside_target_window_count": 0,
+    "drop_by_rerank_low_signal_count": 0,
+    "dropped_model_priority_p0_p1_count": 6,
+    "dropped_core_rule_hit_count": 0,
+    "dropped_missing_rule_hit_count": 0,
+    "dropped_high_signal_count": 12,
+    "dropped_has_coverage_value_count": 13,
+    "drop_ui_like_ratio_postprocess_count": 0,
+    "drop_final_description_duplicate_count": 1,
+    "multi_pass": true,
+    "generation_mode": "multi_pass",
+    "request_id": "b38e6146042844a9866542c8580be61f"
+  },
+  "judge_summary": {
+    "kind": "judge_summary",
+    "pass_count": 65,
+    "repairable_count": 2,
+    "raw_repairable_count": 2,
+    "remaining_repairable_count": 0,
+    "unrepaired_repairable_count": 2,
+    "reject_count": 6,
+    "pending_count": 2,
+    "repaired_case_count": 0,
+    "appended_case_count": 0,
+    "confirmed_pass_out_count": 65,
+    "repaired_pass_out_count": 0,
+    "rejected_out_count": 6,
+    "pending_out_count": 2,
+    "fact_violation_count": 0,
+    "core_flow_covered": false,
+    "reuse_risk_covered": false,
+    "fact_profile_source": "requirement_semantics",
+    "fact_profile_confidence": 0.0,
+    "fact_profile_confirmed_count": 8,
+    "fact_profile_forbidden_count": 0,
+    "fact_profile_pending_count": 1,
+    "generation_id": 497,
+    "request_id": "b38e6146042844a9866542c8580be61f"
+  },
+  "generation_summary": {
+    "kind": "generation_summary",
+    "recommended_range": "80-120",
+    "generation_coverage_mode": "full_functional_regression",
+    "requested_generation_mode": "",
+    "effective_generation_coverage_mode_source": "feedback_control_state",
+    "explicit_generation_mode_override": false,
+    "explicit_expected_count_floor_preserved": true,
+    "expected_count": 80,
+    "expected_count_explicit": true,
+    "recommended_min": 80,
+    "recommended_max": 120,
+    "target_final_count": 80,
+    "soft_min_count": 64,
+    "hard_min_count": 80,
+    "min_acceptable_final": 80,
+    "target_satisfaction_ratio": 1.075,
+    "underfilled": false,
+    "underfill_level": "",
+    "underfill_reason": "",
+    "underfill_root_cause": "",
+    "final_count": 86,
+    "status": "completed_with_quality_stop",
+    "stop_reason": [
+      "stopped_due_to_diminishing_returns"
+    ],
+    "quality_assessment": "low",
+    "needs_priority_review": false,
+    "priority_conflict_count": 0,
+    "priority_undetermined_count": 0,
+    "priority_optional_count": 0,
+    "final_priority_breakdown": {
+      "P0": 9,
+      "P1": 14,
+      "P2": 63
+    },
+    "final_execution_group_breakdown": {
+      "main_smoke": 7,
+      "permission": 3,
+      "exception": 2,
+      "boundary": 10,
+      "independent_functional": 7,
+      "display": 57
+    },
+    "final_module_breakdown_top": {
+      "帖子详情-回复内容": 10,
+      "论坛首页-列表TAB排序": 9,
+      "审核后台": 6,
+      "作文区-论坛详情": 5,
+      "消息功能": 5,
+      "发帖限制-边界": 3,
+      "发帖页-版块选择": 3,
+      "帖子详情-侧边栏交互": 3,
+      "论坛发帖交流": 3,
+      "论坛首页-内容列表": 3,
+      "专项计划学习报告": 2,
+      "作文区-论坛首页": 2,
+      "作文区-额外入口": 2,
+      "回帖页-回复类型区分": 2,
+      "帖子详情-图片查看": 2,
+      "帖子详情-图片详情": 2,
+      "帖子详情-帖子内容": 2,
+      "论坛首页-入口与导航": 2,
+      "论坛首页-用户信息": 2,
+      "内容列表-时间显示": 1
+    },
+    "final_display_case_count": 39,
+    "final_display_ratio": 0.4535,
+    "final_high_priority_ratio": 0.2674,
+    "multi_pass": true,
+    "generation_mode": "multi_pass"
+  },
+  "generation_quality_ledger": {
+    "kind": "generation_quality_ledger",
+    "generation_id": 497,
+    "request_id": "b38e6146042844a9866542c8580be61f",
+    "generation_mode": "multi_pass",
+    "final_count": 86,
+    "quality_assessment": "low",
+    "initial_quality_score": 19,
+    "quality_score": 19,
+    "quality_score_grade": "critical",
+    "quality_score_source": "backend_diagnostic_v1",
+    "quality_score_basis": "coverage+review+judge+funnel+context",
+    "quality_score_confidence": "high",
+    "quality_score_deductions": [
+      {
+        "key": "coverage_gap",
+        "label": "规则覆盖缺口",
+        "count": 0.0312,
+        "points": 1.09
+      },
+      {
+        "key": "missing_rules",
+        "label": "未覆盖阻断规则",
+        "count": 2,
+        "points": 12.0
+      },
+      {
+        "key": "missing_boundary",
+        "label": "缺少边界覆盖",
+        "count": 1,
+        "points": 2.0
+      },
+      {
+        "key": "flow_missing",
+        "label": "流程缺失",
+        "count": 15,
+        "points": 25.0
+      },
+      {
+        "key": "judge_rejected",
+        "label": "判定拒绝",
+        "count": 6,
+        "points": 18.0
+      },
+      {
+        "key": "judge_pending",
+        "label": "待确认逻辑",
+        "count": 2,
+        "points": 3.0
+      },
+      {
+        "key": "fact_pending",
+        "label": "命中待确认事实",
+        "count": 1,
+        "points": 1.5
+      },
+      {
+        "key": "low_quality_dropped",
+        "label": "低质量用例被过滤",
+        "count": 6,
+        "points": 18.0
+      }
+    ],
+    "quality_score_inputs": {
+      "coverage_rate": 0.9688,
+      "total_rules": 64,
+      "missing_rules_count": 2,
+      "final_count": 86,
+      "candidate_total": 81,
+      "retained_total": 67,
+      "judge_total": 75,
+      "rejected_count": 6,
+      "raw_rejected_count": 6,
+      "pending_count": 2,
+      "raw_pending_count": 2,
+      "semantic_duplicate_reject_count": 6,
+      "filtered_semantic_duplicate_reject_count": 0,
+      "filtered_pending_candidate_count": 2,
+      "repairable_count": 0,
+      "raw_repairable_count": 2,
+      "repaired_pass_count": 0,
+      "unrepaired_repairable_count": 2,
+      "fact_profile_forbidden_count": 0,
+      "fact_violation_count": 0,
+      "flow_missing_count": 15,
+      "flow_misordered_count": 0,
+      "scenario_duplicate_cluster_count": 0,
+      "scenario_duplicate_case_count": 0,
+      "low_quality_dropped_count": 6,
+      "semantic_dedup_dropped_count": 0,
+      "semantic_dedup_pressure_count": 1,
+      "semantic_dedup_penalty_count": 0,
+      "structure_metric_scope": "final_cases",
+      "manual_quality_profile_applied": false,
+      "manual_quality_profile_version": ""
+    },
+    "manual_delivery": {
+      "applied": false
+    },
+    "stop_reason": [
+      "stopped_due_to_diminishing_returns"
+    ],
+    "coverage": {
+      "coverage_rate": 0.9688,
+      "total_rules": 64,
+      "total_extracted_rules": 71,
+      "missing_rules_count": 2,
+      "missing_boundary_count": 1,
+      "missing_exception_count": 0,
+      "non_blocking_rules_count": 7
+    },
+    "funnel": {
+      "primary_count": 80,
+      "gap_count": 1,
+      "review_count": 73,
+      "candidate_count_before_review": 81,
+      "review_selected_count": 73,
+      "post_review_dedup_drop": 0,
+      "final_description_dedup_drop_count": 1,
+      "total_dedup_drop_count": 1,
+      "low_quality_dropped_count": 6,
+      "low_quality_dropped_examples": [
+        {
+          "stage": "post_judge_quality_filter",
+          "reason": "non_assertable_expected_result",
+          "case_id": "TC-007",
+          "test_module": "帖子详情-导航跳转",
+          "priority": "P1",
+          "description": "点击帖子框体进入帖子详情页",
+          "expected_result": "点击帖子框体后跳转至该帖子的详情页，详情页正常展示帖子内容"
+        },
+        {
+          "stage": "post_judge_quality_filter",
+          "reason": "non_assertable_expected_result",
+          "case_id": "TC-011",
+          "test_module": "审核后台",
+          "priority": "P2",
+          "description": "审核后台-帖子详情页操作按钮功能验证（禁止回复/禁言/标记）",
+          "expected_result": "禁止回复/恢复回复切换正常；禁言7天/解禁切换正常；永久禁言1000天/解禁切换正常；标记功能正常；操作后对应状态即时生效"
+        },
+        {
+          "stage": "post_judge_quality_filter",
+          "reason": "non_assertable_expected_result",
+          "case_id": "TC-036",
+          "test_module": "帖子详情-侧边栏交互",
+          "priority": "P2",
+          "description": "帖子详情页侧边栏浏览量不可点击",
+          "expected_result": "浏览量区域仅展示数值，点击后无任何交互响应，不触发跳转或弹窗"
+        },
+        {
+          "stage": "post_judge_quality_filter",
+          "reason": "non_assertable_expected_result",
+          "case_id": "TC-037",
+          "test_module": "发帖页-内容输入",
+          "priority": "P2",
+          "description": "发帖页支持Unicode标准编码系统表情符号显示",
+          "expected_result": "输入框中可正常输入并显示系统自带表情符号，发布后帖子列表和详情页中表情符号正常展示不乱码"
+        },
+        {
+          "stage": "post_recovery_quality_filter",
+          "reason": "expected_result_quality:non_assertable",
+          "case_id": "TC-027",
+          "test_module": "论坛首页-导航",
+          "priority": "P2",
+          "description": "论坛首页悬浮返回按钮-返回功能验证，点击返回上一级页面",
+          "expected_result": "成功返回上一级页面，功能正常"
+        },
+        {
+          "stage": "post_recovery_quality_filter",
+          "reason": "expected_result_quality:non_assertable",
+          "case_id": "TC-081",
+          "test_module": "发帖页-键盘交互",
+          "priority": "P2",
+          "description": "发帖页系统表情支持-支持Unicode标准编码显示系统自带表情符号",
+          "expected_result": "发帖页能正常输入并显示系统自带表情符号，发布后帖子详情也能正常展示"
+        }
+      ],
+      "semantic_dedup_dropped_count": 0
+    },
+    "review": {
+      "candidate_total": 81,
+      "retained_total": 67,
+      "drop_by_review_llm_count": 8,
+      "drop_by_review_gate_count": 0,
+      "drop_by_post_review_dedup_count": 13,
+      "drop_final_description_duplicate_count": 1,
+      "flow_missing_stage_count": 15,
+      "flow_misordered_count": 41,
+      "final_flow_missing_stage_count": 15,
+      "final_flow_misordered_count": 0,
+      "scenario_duplicate_cluster_count": 12,
+      "scenario_duplicate_case_count": 15,
+      "final_scenario_duplicate_cluster_count": 0,
+      "final_scenario_duplicate_case_count": 0,
+      "fact_profile_forbidden_count": 0,
+      "fact_profile_pending_count": 1
+    },
+    "judge": {
+      "total": 75,
+      "rejected_out_count": 6,
+      "pending_out_count": 2,
+      "repairable_count": 0,
+      "raw_repairable_count": 2,
+      "repaired_pass_out_count": 0,
+      "unrepaired_repairable_count": 2,
+      "fact_violation_count": 0,
+      "rejected_total": 6,
+      "reason_clusters": {
+        "semantic_duplicate": 6
+      },
+      "dominant_reason": "semantic_duplicate"
+    },
+    "context": {
+      "snapshot_status": "success",
+      "snapshot_used": true,
+      "realtime_rag_used": true,
+      "current_document_used": true,
+      "fusion_mode": "snapshot+rag",
+      "compression_ratio": 0.1746,
+      "retained_chunk_count": 1
+    },
+    "control": {
+      "control_state_applied": true,
+      "generation_coverage_mode": "full_functional_regression",
+      "must_cover_rules_count": 0,
+      "quality_fix_hints_count": 9
+    },
+    "quality_remediation": {
+      "kind": "quality_remediation",
+      "quality_score": 19,
+      "quality_score_grade": "critical",
+      "action_count": 4,
+      "primary_action": "cover_missing_rules",
+      "actions": [
+        {
+          "action_id": "cover_missing_rules",
+          "priority": "P0",
+          "reason": "blocking_coverage_gap",
+          "target_stage": "gap_or_final_quality_supplement",
+          "evidence": {
+            "missing_rules": [
+              "RULE-023",
+              "RULE-047"
+            ],
+            "missing_boundary": [
+              "RULE-058"
+            ],
+            "missing_exception": [],
+            "coverage_rate": 0.9688
+          }
+        },
+        {
+          "action_id": "reduce_semantic_duplicates",
+          "priority": "P0",
+          "reason": "judge_rejected_or_pending_candidates",
+          "target_stage": "primary_generation_and_review_selection",
+          "evidence": {
+            "rejected_count": 6,
+            "pending_count": 2,
+            "semantic_duplicate_reject_count": 6,
+            "filtered_semantic_duplicate_reject_count": 0,
+            "unresolved_semantic_duplicate_reject_count": 6,
+            "dominant_reason": "semantic_duplicate",
+            "reason_clusters": {
+              "semantic_duplicate": 6
+            }
+          }
+        },
+        {
+          "action_id": "repair_final_flow_structure",
+          "priority": "P0",
+          "reason": "final_flow_structure_invalid",
+          "target_stage": "final_case_assembly",
+          "evidence": {
+            "final_flow_misordered_count": 0,
+            "final_flow_missing_stage_count": 15
+          }
+        },
+        {
+          "action_id": "tighten_expected_results",
+          "priority": "P1",
+          "reason": "low_quality_cases_filtered",
+          "target_stage": "primary_generation_prompt_and_postprocess",
+          "evidence": {
+            "low_quality_dropped_count": 6,
+            "examples": [
+              {
+                "stage": "post_judge_quality_filter",
+                "reason": "non_assertable_expected_result",
+                "case_id": "TC-007",
+                "test_module": "帖子详情-导航跳转",
+                "priority": "P1",
+                "description": "点击帖子框体进入帖子详情页",
+                "expected_result": "点击帖子框体后跳转至该帖子的详情页，详情页正常展示帖子内容"
+              },
+              {
+                "stage": "post_judge_quality_filter",
+                "reason": "non_assertable_expected_result",
+                "case_id": "TC-011",
+                "test_module": "审核后台",
+                "priority": "P2",
+                "description": "审核后台-帖子详情页操作按钮功能验证（禁止回复/禁言/标记）",
+                "expected_result": "禁止回复/恢复回复切换正常；禁言7天/解禁切换正常；永久禁言1000天/解禁切换正常；标记功能正常；操作后对应状态即时生效"
+              },
+              {
+                "stage": "post_judge_quality_filter",
+                "reason": "non_assertable_expected_result",
+                "case_id": "TC-036",
+                "test_module": "帖子详情-侧边栏交互",
+                "priority": "P2",
+                "description": "帖子详情页侧边栏浏览量不可点击",
+                "expected_result": "浏览量区域仅展示数值，点击后无任何交互响应，不触发跳转或弹窗"
+              },
+              {
+                "stage": "post_judge_quality_filter",
+                "reason": "non_assertable_expected_result",
+                "case_id": "TC-037",
+                "test_module": "发帖页-内容输入",
+                "priority": "P2",
+                "description": "发帖页支持Unicode标准编码系统表情符号显示",
+                "expected_result": "输入框中可正常输入并显示系统自带表情符号，发布后帖子列表和详情页中表情符号正常展示不乱码"
+              },
+              {
+                "stage": "post_recovery_quality_filter",
+                "reason": "expected_result_quality:non_assertable",
+                "case_id": "TC-027",
+                "test_module": "论坛首页-导航",
+                "priority": "P2",
+                "description": "论坛首页悬浮返回按钮-返回功能验证，点击返回上一级页面",
+                "expected_result": "成功返回上一级页面，功能正常"
+              }
+            ]
+          }
+        }
+      ],
+      "next_run_controls": {
+        "target_missing_rules": [
+          "RULE-023",
+          "RULE-047"
+        ],
+        "avoid_judge_reject_reasons": {
+          "semantic_duplicate": 6
+        },
+        "low_quality_dropped_count": 6,
+        "semantic_dedup_penalty_count": 0
+      }
+    },
+    "case_quality_gate": {
+      "kind": "case_quality_gate",
+      "mode": "shadow",
+      "passed": false,
+      "blocked": false,
+      "failure_reasons": [
+        "quality_score_critical"
+      ],
+      "metrics": {
+        "final_count": 86,
+        "min_acceptable_final": 80,
+        "judge_rejected_count": 6,
+        "final_scenario_duplicate_case_count": 0,
+        "final_flow_misordered_count": 0,
+        "reasoning_leak_count": 0,
+        "role_mismatch_count": 0,
+        "quality_score": 19,
+        "quality_score_grade": "critical",
+        "raw_judge_rejected_count": 6,
+        "semantic_duplicate_reject_count": 6,
+        "filtered_semantic_duplicate_reject_count": 0
+      }
+    }
+  },
+  "generation_timing_ledger": {
+    "kind": "generation_timing_ledger",
+    "schema_version": "1.0",
+    "generation_id": 497,
+    "project_id": 2,
+    "request_id": "b38e6146042844a9866542c8580be61f",
+    "mode": "multi_pass",
+    "multi_pass": true,
+    "duration_by_stage_ms": {
+      "prepare_total": 17345,
+      "client_resolution": 2,
+      "linked_final_case_signal": 104,
+      "append_existing_lookup": 0,
+      "snapshot_gate": 0,
+      "hybrid_context": 3550,
+      "feedback_control_state": 101,
+      "current_requirement_blueprint": 13582,
+      "requirement_compress": 0,
+      "kb_context_compress": 0,
+      "meta_analysis": 3,
+      "primary": 419925,
+      "stream_generation_phase": 420033,
+      "gap": 159574,
+      "review": 22668,
+      "final_shortfall": 73541,
+      "postprocess_total": 278563
+    },
+    "event_count": 24,
+    "events": [
+      {
+        "stage": "client_resolution",
+        "duration_ms": 2,
+        "db_available": true,
+        "user_scoped": true
+      },
+      {
+        "stage": "requirement_compression_decision",
+        "duration_ms": 1,
+        "char_count": 10669,
+        "min_chars": 12000,
+        "should_compress": false
+      },
+      {
+        "stage": "linked_final_case_signal",
+        "duration_ms": 104,
+        "linked_final_case_count": 0,
+        "source_doc_count": 0
+      },
+      {
+        "stage": "memory_fabric_init",
+        "duration_ms": 0,
+        "available": true
+      },
+      {
+        "stage": "snapshot_gate",
+        "duration_ms": 0,
+        "active_db_session": true,
+        "proceed": true,
+        "snapshot_wait_result": "gate_disabled_proceed"
+      },
+      {
+        "stage": "hybrid_context",
+        "duration_ms": 3550,
+        "context_source": "snapshot+rag",
+        "kb_chars": 8449,
+        "snapshot_used": true,
+        "realtime_rag_used": true,
+        "abort_generation": false
+      },
+      {
+        "stage": "feedback_control_state",
+        "duration_ms": 101,
+        "workflow_blueprint_count": 0,
+        "linked_final_case_count": 0
+      },
+      {
+        "stage": "current_requirement_blueprint",
+        "duration_ms": 13582,
+        "status": "applied",
+        "count": 1,
+        "step_count": 7,
+        "max_tokens": 1600
+      },
+      {
+        "stage": "requirement_compress",
+        "duration_ms": 0,
+        "status": "skipped_below_threshold",
+        "before_chars": 10669,
+        "after_chars": 10669,
+        "min_chars": 12000
+      },
+      {
+        "stage": "prepare_total",
+        "duration_ms": 17345,
+        "status": "completed",
+        "db_available": true,
+        "append": false,
+        "compression_requested": true,
+        "kb_chars": 8449,
+        "context_source": "snapshot+rag"
+      },
+      {
+        "stage": "meta_analysis",
+        "duration_ms": 3,
+        "system_type": "Mobile App",
+        "complexity": "Medium"
+      },
+      {
+        "stage": "primary_batch_attempt",
+        "duration_ms": 162102,
+        "batch_index": 1,
+        "total_batches": 4,
+        "attempt": 1,
+        "requested_count": 25,
+        "response_chars": 8532,
+        "attempt_status": "parsed",
+        "provider_error": "",
+        "parsed_case_count": 25
+      },
+      {
+        "stage": "primary_batch_attempt",
+        "duration_ms": 112534,
+        "batch_index": 2,
+        "total_batches": 4,
+        "attempt": 1,
+        "requested_count": 25,
+        "response_chars": 8695,
+        "attempt_status": "parsed",
+        "provider_error": "",
+        "parsed_case_count": 25
+      },
+      {
+        "stage": "primary_batch_attempt",
+        "duration_ms": 100104,
+        "batch_index": 3,
+        "total_batches": 4,
+        "attempt": 1,
+        "requested_count": 25,
+        "response_chars": 8246,
+        "attempt_status": "parsed",
+        "provider_error": "",
+        "parsed_case_count": 25
+      },
+      {
+        "stage": "primary_batch_attempt",
+        "duration_ms": 45102,
+        "batch_index": 4,
+        "total_batches": 4,
+        "attempt": 1,
+        "requested_count": 5,
+        "response_chars": 2258,
+        "attempt_status": "parsed",
+        "provider_error": "",
+        "parsed_case_count": 5
+      },
+      {
+        "stage": "primary_batches",
+        "duration_ms": 419925,
+        "total_batches": 4,
+        "completed_batches": 4,
+        "batch_size": 25,
+        "expected_count": 80,
+        "early_stop_triggered": false,
+        "early_stop_reason": ""
+      },
+      {
+        "stage": "stream_generation_phase",
+        "duration_ms": 420033,
+        "total_batches": 4,
+        "completed_batches": 4
+      },
+      {
+        "stage": "postprocess_initial_parse_filter",
+        "duration_ms": 1629,
+        "primary_count": 80,
+        "input_chars": 30735
+      },
+      {
+        "stage": "gap_supplement_attempt",
+        "duration_ms": 68305,
+        "attempt": 1,
+        "response_chars": 2411,
+        "parsed_case_count": 5,
+        "effective_added_count": 0,
+        "gap_remaining_before": 3,
+        "gap_remaining_after": 3,
+        "no_gain_streak": 1,
+        "attempt_status": "parsed",
+        "stop_reason": ""
+      },
+      {
+        "stage": "gap_supplement_attempt",
+        "duration_ms": 91268,
+        "attempt": 2,
+        "response_chars": 2507,
+        "parsed_case_count": 5,
+        "effective_added_count": 1,
+        "gap_remaining_before": 3,
+        "gap_remaining_after": 0,
+        "no_gain_streak": 0,
+        "attempt_status": "parsed",
+        "stop_reason": "coverage_converged"
+      },
+      {
+        "stage": "gap_supplement",
+        "duration_ms": 159574,
+        "attempt_count": 2,
+        "added_count": 1,
+        "remaining_gap_count": 0,
+        "stopped_by_provider_error": false,
+        "stopped_by_no_gain": false,
+        "stop_reason": "coverage_converged"
+      },
+      {
+        "stage": "review_selection",
+        "duration_ms": 22668,
+        "candidate_count": 81,
+        "llm_pool_count": 76,
+        "selected_count": 73,
+        "llm_invoked": true,
+        "llm_applied": true,
+        "llm_skip_reason": ""
+      },
+      {
+        "stage": "final_shortfall_supplement",
+        "duration_ms": 73541,
+        "attempted": true,
+        "applied": true,
+        "added_count": 18,
+        "reason": "",
+        "debug": "{'target_floor_count': 80, 'start_count': 67, 'supplement_needed': 18, 'batch_size': 10, 'batch_plan': [10, 8], 'batches': [{'batch_index': 1, 'batch_goal': 10, 'prompt_chars': 16136, 'max_tokens': 7000, 'response_chars': 3698, 'response_preview': '{\\n  \"cases\": [\\n    {\\n      \"id\": \"TC-068\",\\n    "
+      },
+      {
+        "stage": "postprocess_total",
+        "duration_ms": 278563,
+        "final_count": 86,
+        "candidate_count_before_review": 81,
+        "review_selected_count": 73
+      }
+    ]
+  },
+  "review_detail_export_meta": {
+    "candidate_total": 81,
+    "exported_row_count": 20,
+    "is_truncated": true,
+    "truncation_reason": "detail_limit",
+    "source_summary_available": true,
+    "source_detail_available": true,
+    "detail_row_count_total": 81,
+    "detail_rows_scope": "sampled_due_to_size"
+  },
+  "funnel": {
+    "candidate_total": 81,
+    "review_selected_count": 73,
+    "drop_by_review_llm_count": 8,
+    "drop_by_review_gate_count": 0,
+    "drop_by_pre_gate_dedup_count": 0,
+    "drop_by_post_review_dedup_count": 13,
+    "judge_rejected_or_pending_count": 8,
+    "post_review_non_judge_drop_count": 5,
+    "final_count": 86,
+    "judge_pass_out_count": 65,
+    "judge_repaired_pass_out_count": 0
+  },
+  "dropped_breakdown": {
+    "total": 14,
+    "exported_row_count": 3,
+    "is_truncated": true,
+    "truncation_reason": "detail_limit",
+    "source_summary_available": true,
+    "source_detail_available": true,
+    "by_stage": {
+      "post_review_dedup_or_reorder": 2,
+      "review_llm": 1
+    },
+    "by_reason": {
+      "drop_post_review_dedup_or_reorder": 2,
+      "drop_not_selected_by_review_llm:duplicate": 1
+    },
+    "by_priority_final": {
+      "P2": 3
+    },
+    "by_priority_decision_state": {
+      "decided": 3
+    },
+    "by_priority_legacy": {
+      "P2": 1,
+      "P1": 2
+    },
+    "by_priority": {
+      "P2": 1,
+      "P1": 2
+    },
+    "by_module_top10": [
+      [
+        "作文区-论坛详情",
+        1
+      ],
+      [
+        "帖子详情-回复内容",
+        1
+      ],
+      [
+        "论坛首页-分区权限",
+        1
+      ]
+    ],
+    "dropped_case_ids": [
+      "TC-066",
+      "TC-041",
+      "TC-004"
+    ]
+  },
+  "judge_breakdown": {
+    "total": 75,
+    "exported_row_count": 8,
+    "rows_scope": "reject_pending_only",
+    "rejected_or_pending_total": 8,
+    "by_status": {
+      "REJECT": 6,
+      "PENDING": 2
+    },
+    "by_reason": {
+      "semantic_duplicate:TC-073": 1,
+      "semantic_duplicate:TC-008": 1,
+      "semantic_duplicate:TC-012": 3,
+      "semantic_duplicate:TC-025": 1,
+      "contains_pending_logic": 2
+    },
+    "by_priority": {
+      "P2": 8
+    },
+    "by_priority_final": {
+      "P2": 8
+    },
+    "by_priority_decision_state": {
+      "decided": 7,
+      "undetermined": 1
+    },
+    "by_module_top10": [
+      [
+        "帖子详情-图片查看",
+        1
+      ],
+      [
+        "作文区-论坛详情",
+        1
+      ],
+      [
+        "发帖限制-边界",
+        1
+      ],
+      [
+        "论坛首页-列表TAB排序",
+        1
+      ],
+      [
+        "发帖限制-学习奖励",
+        1
+      ],
+      [
+        "发帖限制-次数管控",
+        1
+      ],
+      [
+        "帖子详情-回复内容",
+        1
+      ],
+      [
+        "论坛首页-内容列表",
+        1
+      ]
+    ],
+    "rejected_or_pending_case_ids": [
+      "TC-001",
+      "TC-006",
+      "TC-013",
+      "TC-024",
+      "TC-041",
+      "TC-042",
+      "TC-057",
+      "TC-067"
+    ]
+  }
+}

@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
@@ -106,6 +106,115 @@ def test_only_current_biz_keeps_only_current_scope() -> None:
     assert output["biz_key_isolation_log"]["mode"] == "strict_current_only"
 
 
+def test_testcase_context_preserves_reference_module_order() -> None:
+    output = build_structured_prompt_context(
+        requirement="按参考用例顺序生成",
+        existing_cases=[
+            {
+                "id": "TC-001",
+                "biz_key": "learning_flow",
+                "test_module": "督导端入口",
+                "priority": "P0",
+                "description": "入口展示",
+            },
+            {
+                "id": "TC-002",
+                "biz_key": "learning_flow",
+                "test_module": "作业拍照批改",
+                "priority": "P0",
+                "description": "拍照批改",
+            },
+            {
+                "id": "TC-003",
+                "biz_key": "learning_flow",
+                "test_module": "习题本",
+                "priority": "P0",
+                "description": "习题本展示",
+            },
+        ],
+        current_biz_key="learning_flow",
+        only_current_biz=False,
+    )
+
+    text = output["testcase_context"]
+
+    assert text.index("#### test_module: 督导端入口") < text.index("#### test_module: 作业拍照批改")
+    assert text.index("#### test_module: 作业拍照批改") < text.index("#### test_module: 习题本")
+
+
+def test_testcase_context_accepts_alias_case_fields() -> None:
+    output = build_structured_prompt_context(
+        requirement="REQ-ALIAS: close org",
+        existing_cases=[
+            {
+                "caseId": "TC-ALIAS",
+                "metadata": {"biz_key": "org_close_rule"},
+                "module": "org-close",
+                "Priority": "P0",
+                "title": "verify alias close path",
+            }
+        ],
+        current_biz_key="org_close_rule",
+        only_current_biz=True,
+    )
+
+    text = output["testcase_context"]
+
+    assert "### biz_key: org_close_rule" in text
+    assert "#### test_module: org-close" in text
+    assert "* TC-ALIAS: verify alias close path" in text
+    assert output["module_order_hint"] == ["org-close"]
+    assert output["context_by_biz"]["org_close_rule"]["module_order_hint"] == ["org-close"]
+
+
+def test_module_order_hint_prefers_requirement_document_order_over_reference_cases() -> None:
+    output = build_structured_prompt_context(
+        requirement="按需求文档流程生成",
+        rag_result={
+            "debug": {
+                "final_chunks": [
+                    {
+                        "filename": "req.md",
+                        "doc_type": "requirement",
+                        "biz_key": "learning_flow",
+                        "module": "习题本",
+                        "chunk_text": "REQ-001: 先查看习题本。",
+                    },
+                    {
+                        "filename": "req.md",
+                        "doc_type": "requirement",
+                        "biz_key": "learning_flow",
+                        "module": "周末提升计划",
+                        "chunk_text": "REQ-002: 再进入周末提升计划。",
+                    },
+                ]
+            }
+        },
+        existing_cases=[
+            {
+                "id": "TC-001",
+                "biz_key": "learning_flow",
+                "test_module": "周末提升计划",
+                "priority": "P0",
+                "description": "参考用例顺序靠前",
+            },
+            {
+                "id": "TC-002",
+                "biz_key": "learning_flow",
+                "test_module": "习题本",
+                "priority": "P0",
+                "description": "参考用例顺序靠后",
+            },
+        ],
+        current_biz_key="learning_flow",
+        only_current_biz=False,
+    )
+
+    assert output["module_order_source"] == "requirement_document"
+    assert output["module_order_hint"] == ["习题本", "周末提升计划"]
+    assert output["context_by_biz"]["learning_flow"]["module_order_hint"] == ["习题本", "周末提升计划"]
+
+
 def test_missing_fields_fallback_and_degrade_when_current_unknown() -> None:
     output = build_structured_prompt_context(
         requirement="登录失败超过5次触发异常提示。",
@@ -138,6 +247,134 @@ def test_control_context_includes_preferred_patterns() -> None:
     assert int(output["control_summary"].get("preferred_patterns_count") or 0) == 1
     assert "### PREFERRED PATTERN QUOTA (AB)" in output["control_context"]
     assert output["control_summary"].get("preferred_quota_variant") == "B"
+
+
+def test_control_context_includes_manual_quality_profile() -> None:
+    output = build_structured_prompt_context(
+        requirement="recent course schedule regression",
+        feedback_control_state={
+            "source_meta": {
+                "manual_quality_profile": {
+                    "kind": "manual_quality_profile",
+                    "profile_source": "priority_sample_pool_manual_verified",
+                    "profile_version": "stable-1",
+                    "trusted_sample_count": 12,
+                    "priority_distribution": {"P0": 4, "P1": 6, "P2": 2},
+                    "module_distribution_top": {
+                        "本周课程模块": 5,
+                        "排课-学习计划-第1步": 4,
+                    },
+                    "execution_lifecycle_fields": ["ST", "release", "补充项"],
+                    "high_priority_ratio": 0.83,
+                    "display_ratio_cap": 0.25,
+                }
+            }
+        },
+    )
+
+    context = output["control_context"]
+    assert "### MANUAL QUALITY PROFILE" in context
+    assert "target P0/P1 ratio: about 83%" in context
+    assert "display-only cap: <= 25%" in context
+    assert "本周课程模块" in context
+
+
+def test_control_context_includes_workflow_blueprints() -> None:
+    output = build_structured_prompt_context(
+        requirement="REQ-904: checkout must close the paid order flow",
+        feedback_control_state={
+            "workflow_blueprints": [
+                {
+                    "id": "checkout_flow",
+                    "name": "checkout flow",
+                    "steps": [
+                        {"id": "submit", "label": "Submit order"},
+                        {"id": "verify", "label": "Verify paid status"},
+                    ],
+                }
+            ]
+        },
+    )
+
+    assert "### WORKFLOW BLUEPRINTS" in output["control_context"]
+    assert "checkout flow: Submit order -> Verify paid status" in output["control_context"]
+    assert "### GENERATION EXECUTION PLAN" in output["control_context"]
+    assert "* Generate main-chain cases first" in output["control_context"]
+    assert "  1. submit / Submit order" in output["control_context"]
+    assert "  2. verify / Verify paid status" in output["control_context"]
+    assert "permission/security -> exception/recovery -> boundary/state rollback" in output["control_context"]
+    assert int(output["control_summary"].get("workflow_blueprint_count") or 0) == 1
+    assert int(output["control_summary"].get("generation_execution_plan_blueprint_count") or 0) == 1
+    assert int(output["control_summary"].get("generation_execution_plan_step_count") or 0) == 2
+    assert output["control_summary"].get("generation_execution_independent_suite_order") == [
+        "permission/security",
+        "exception/recovery",
+        "boundary/state rollback",
+        "independent functional",
+        "UI/display",
+    ]
+
+
+def test_structured_context_builds_fact_and_project_profiles() -> None:
+    output = build_structured_prompt_context(
+        requirement="REQ-100: Inventory imports must not include archived records.",
+        rag_result={
+            "debug": {
+                "final_chunks": [
+                    {
+                        "filename": "inventory_req.md",
+                        "doc_type": "requirement",
+                        "biz_key": "inventory_flow",
+                        "module": "Upload Center",
+                        "chunk_text": "REQ-101: Upload Center validates files before Review Queue.",
+                    },
+                    {
+                        "filename": "inventory_req.md",
+                        "doc_type": "requirement",
+                        "biz_key": "inventory_flow",
+                        "module": "Review Queue",
+                        "chunk_text": "REQ-102: Review Queue approval happens before Dashboard statistics.",
+                    },
+                ]
+            }
+        },
+        current_biz_key="inventory_flow",
+        only_current_biz=True,
+    )
+
+    assert output["fact_profile"]["confirmed_facts"]
+    assert any("must not include archived records" in item.lower() for item in output["fact_profile"]["confirmed_facts"])
+    assert output["fact_profile"]["forbidden_facts"] == []
+    assert output["project_profile"]["flow_outline"]["flow_order"]
+    assert output["project_profile"]["flow_outline"]["data_flow_edges"]
+    assert "### FACT PROFILE" in output["control_context"]
+    assert "### PROJECT STRUCTURE PROFILE" in output["control_context"]
+    assert "* data-flow edges:" in output["control_context"]
+    assert output["feedback_control_state"]["source_meta"]["fact_profile"]["forbidden_facts"] == []
+    assert output["feedback_control_state"]["source_meta"]["project_profile"]["flow_outline"]["flow_order"]
+
+
+def test_structured_context_excludes_requirement_parse_diagnostics_from_fact_profile() -> None:
+    output = build_structured_prompt_context(
+        requirement="""
+论坛详情页必须展示评论入口，并支持用户发表回复。
+
+[Requirement Understanding]
+{"version":"requirement-understanding-v1","visual_facts":[{"source":"pdf_visual:X46.jpg","text":"版主回复标签仅版主内容展示，信息被隐藏"}]}
+
+[Parsed Requirement Evidence]
+- pdf_visual: filename=X46.jpg, strategy=pdf_image_ocr, chars=917, ocr_source=cloud, cloud_fallback=true
+
+[Multimodal Evidence Alignment]
+- pdf_visual:X46.jpg -> requirement score=1.00; requirement="论坛"; evidence="版主回复标签仅版主内容展示"
+""",
+    )
+
+    merged = "\n".join(output["fact_profile"].get("confirmed_facts") or [])
+    merged += "\n".join(output["fact_profile"].get("hard_flow_constraints") or [])
+    assert "评论入口" in merged
+    assert "pdf_visual" not in merged
+    assert "信息被隐藏" not in merged
 
 
 def test_control_context_applies_preferred_quota_ab_variant(monkeypatch) -> None:

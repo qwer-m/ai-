@@ -4,7 +4,7 @@ import { api } from '../utils/api';
 interface User {
   id: number;
   username: string;
-  email: string;
+  email?: string | null;
 }
 
 interface AuthContextType {

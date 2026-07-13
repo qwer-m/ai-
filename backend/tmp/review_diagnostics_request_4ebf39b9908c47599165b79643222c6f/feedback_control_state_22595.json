@@ -1,0 +1,370 @@
+{
+  "kind": "feedback_control_state",
+  "control_state_applied": true,
+  "generation_coverage_mode": "full_functional_regression",
+  "generation_target_case_range": {
+    "min": 80,
+    "max": 120
+  },
+  "fact_profile_source": "requirement_semantics",
+  "fact_profile_confidence": 0.0,
+  "fact_profile_confirmed_count": 8,
+  "fact_profile_forbidden_count": 0,
+  "fact_profile_pending_count": 1,
+  "project_profile_source": "document_extracted",
+  "project_profile_confidence": 0.0,
+  "project_profile_flow_count": 14,
+  "manual_quality_profile_source": "",
+  "manual_quality_profile_version": "",
+  "manual_quality_profile_trusted_count": 0,
+  "manual_quality_profile_high_priority_ratio": 0.0,
+  "manual_quality_profile_display_ratio_cap": 0.0,
+  "must_cover_rules_count": 0,
+  "rule_quota_keys": [],
+  "soft_constraints_count": 1,
+  "quality_fix_hints_count": 9,
+  "preferred_patterns_count": 0,
+  "forbidden_patterns_count": 0,
+  "source_meta": {
+    "sources": [
+      "current_requirement_blueprint",
+      "workflow_blueprint_repository",
+      "priority_sample_pool_domain_gate",
+      "anomaly_pool",
+      "generation_coverage_profile",
+      "requirement_semantics",
+      "fact_profile",
+      "project_profile"
+    ],
+    "current_requirement_blueprint_status": "applied",
+    "current_requirement_blueprint_count": 1,
+    "current_requirement_blueprint_step_count": 7,
+    "current_requirement_blueprint_source": "current_requirement_blueprint",
+    "current_requirement_blueprint_max_tokens": 1600,
+    "requirement_understanding_used": true,
+    "requirement_understanding_visual_fact_count": 4,
+    "requirement_understanding_invalid_visual_block_count": 0,
+    "current_requirement_blueprint_raw_chars": 1507,
+    "current_requirement_blueprint_ids": [
+      "forum_post_flow"
+    ],
+    "workflow_blueprint_repository_count": 0,
+    "trusted_workflow_contract_count": 0,
+    "workflow_blueprint_current_source_doc_ids": [],
+    "workflow_blueprint_same_source_count": 0,
+    "priority_pool_sample_count": 58,
+    "priority_pool_total_positive_count": 50,
+    "priority_pool_total_negative_count": 8,
+    "generation_id": null,
+    "retrieval_query_used": true,
+    "retrieval_top_k": 5,
+    "retrieval_hit_count": 0,
+    "retrieval_selected_count": 0,
+    "retrieval_fallback": "domain_unstable",
+    "retrieval_selected_weight_avg": 0.0,
+    "retrieval_selected_quality_avg": 0.0,
+    "retrieval_diversity_cluster_cap": 2,
+    "retrieval_diversity_skipped_count": 0,
+    "retrieval_lexical_fallback_used": false,
+    "retrieval_active_sample_count": 58,
+    "retrieval_disabled_sample_count": 0,
+    "retrieval_low_confidence_sample_count": 0,
+    "retrieval_min_pattern_confidence": 0.6,
+    "retrieval_signal_quota_applied": false,
+    "retrieval_signal_quota_relaxed": false,
+    "retrieval_positive_min_quota": 2,
+    "retrieval_negative_max_quota": 3,
+    "retrieval_selected_positive_count": 0,
+    "retrieval_selected_negative_count": 0,
+    "retrieval_pool_positive_count": 50,
+    "retrieval_pool_negative_count": 8,
+    "retrieval_raw_positive_count": 0,
+    "retrieval_raw_negative_count": 0,
+    "retrieval_after_diversity_positive_count": 0,
+    "retrieval_after_diversity_negative_count": 0,
+    "retrieval_after_quota_merge_positive_count": 0,
+    "retrieval_after_quota_merge_negative_count": 0,
+    "retrieval_final_selected_positive_count": 0,
+    "retrieval_final_selected_negative_count": 0,
+    "retrieval_query_domain_tags": [
+      "course_access",
+      "essay_writing"
+    ],
+    "retrieval_domain_scores": {
+      "essay_writing": 3,
+      "course_access": 3
+    },
+    "retrieval_domain_gate_status": "ambiguous_registered_domain",
+    "retrieval_domain_gate_reason": "registered_domain_tags_without_primary",
+    "retrieval_domain_gate_blocked": true,
+    "retrieval_domain_gate_allows_historical_profile": false,
+    "retrieval_domain_filter_applied": true,
+    "retrieval_domain_matched_sample_count": 0,
+    "retrieval_domain_skipped_sample_count": 58,
+    "retrieval_domain_no_match": true,
+    "retrieval_sample_id_hit_count": 0,
+    "retrieval_index_mismatch_count": 0,
+    "retrieval_query_primary_domain": "",
+    "workflow_blueprint_direct_candidate_count": 0,
+    "workflow_blueprint_direct_selected_count": 0,
+    "retrieval_index_resync_attempted": false,
+    "retrieval_index_resync_success": false,
+    "retrieval_index_resync_error": "",
+    "sample_count": 0,
+    "challenge_sample_count": 0,
+    "regression_sample_count": 0,
+    "rule_frequency": {},
+    "generation_coverage_profile": {
+      "coverage_mode": "full_functional_regression",
+      "case_density": "high",
+      "target_case_range": {
+        "min": 80,
+        "max": 120
+      },
+      "activation_evidence": {
+        "expected_count": 80,
+        "linked_final_case_count": 0,
+        "full_regression_token_hit": false,
+        "expanded_regression_token_hit": false,
+        "standard_regression_token_hit": true
+      },
+      "coverage_layers": [
+        "入口与导航：覆盖入口展示、跳转、返回、空状态和旧入口残留。",
+        "核心流程：按主业务流程拆分步骤级用例，不把多功能点合并为一条。",
+        "状态矩阵：覆盖未开始、进行中、已完成、已下架、已删除、无数据等状态。",
+        "配置与权限：覆盖开关配置、版本兼容、角色/端差异和不可操作状态。",
+        "边界异常：覆盖数量不足、时间冲突、无数据、失败提示、不可删除/不可编辑等异常。",
+        "跨模块回归：覆盖首页、详情页、管理页、历史记录、报告等关联页面的数据流转。"
+      ]
+    },
+    "fact_profile": {
+      "profile_version": "fact-profile-v1",
+      "profile_source": "requirement_semantics",
+      "confidence": 0,
+      "confirmed_facts": [
+        "本期优化先只调整论坛内部，不更改论坛的⼊⼝\u0001",
+        "返回按钮：去掉原置顶⿊条，采⽤通⽤悬浮按钮样式，包含返回、关闭和刷新三种\u0001",
+        "发帖按钮：维持原⽂案\u0001",
+        "官⽅区：同原【公告】，只有官⽅账⼾有发帖权限\u0001",
+        "反馈区：同原【反馈】，在视频和其他模块的点击反馈按钮，默认进⼊该区域\u0001",
+        "交流区：同原【交流】\u0001",
+        "消息：同原【消息】，有新内容时展⽰⼩红点提⽰（⽆需标出数字）\u0001",
+        "规则同热⻔规则\u0001"
+      ],
+      "scoped_rules": [],
+      "forbidden_facts": [],
+      "pending_items": [
+        "a. 官⽅区：待定，需要运营⼩伙伴给出未来的运营⽅案后再定，如⽆法区分版块标"
+      ],
+      "reuse_declarations": [
+        "官⽅区：同原【公告】，只有官⽅账⼾有发帖权限\u0001",
+        "反馈区：同原【反馈】，在视频和其他模块的点击反馈按钮，默认进⼊该区域\u0001",
+        "交流区：同原【交流】\u0001",
+        "消息：同原【消息】，有新内容时展⽰⼩红点提⽰（⽆需标出数字）\u0001"
+      ],
+      "hard_flow_constraints": [
+        "本期优化先只调整论坛内部，不更改论坛的⼊⼝\u0001",
+        "返回按钮：去掉原置顶⿊条，采⽤通⽤悬浮按钮样式，包含返回、关闭和刷新三种\u0001",
+        "a. 官⽅区：待定，需要运营⼩伙伴给出未来的运营⽅案后再定，如⽆法区分版块标"
+      ],
+      "reuse_risks": [
+        "wrong_return_target_risk: verify reused flow returns to the current module target instead of a legacy page.",
+        "legacy_behavior_risk: verify reused module does not retain legacy buttons, copy, or obsolete behaviors."
+      ],
+      "source_priority": [
+        "current_requirement",
+        "rag_requirement",
+        "supplement_boundary",
+        "testcase_style_only",
+        "historical_feedback"
+      ],
+      "conflict_policy": "current_requirement_wins",
+      "strategy_only": 0
+    },
+    "project_profile": {
+      "profile_version": "project-profile-v1",
+      "profile_source": "document_extracted",
+      "confidence": 0,
+      "flow_outline": {
+        "source": "requirement_keyword_positions",
+        "domain_gate_status": "ambiguous_registered_domain",
+        "domain_gate_reason": "primary_domain_not_in_requirement_topic",
+        "domain_gate_allows_historical_profile": false,
+        "flow_order": [
+          "stage:额外入口",
+          "stage:帖子审核消息",
+          "stage:帖子",
+          "stage:用戶详情弹窗",
+          "stage:作文论坛",
+          "stage:论坛首",
+          "stage:点赞消息",
+          "stage:回复的回复",
+          "stage:回帖",
+          "stage:发帖",
+          "stage:作文论坛首",
+          "stage:回复消息",
+          "stage:新增点赞消息",
+          "stage:评论和回复评论"
+        ],
+        "document_flow_order": [
+          "stage:论坛首",
+          "stage:帖子",
+          "stage:点赞消息",
+          "stage:回复的回复",
+          "stage:回帖",
+          "stage:发帖",
+          "stage:回帖",
+          "stage:用戶详情弹窗",
+          "stage:额外入口",
+          "stage:作文论坛首",
+          "stage:作文论坛",
+          "stage:回复消息",
+          "stage:新增点赞消息",
+          "stage:评论和回复评论",
+          "stage:帖子审核消息",
+          "stage:发帖限制"
+        ],
+        "flow_labels": {
+          "stage:论坛首": "论坛首页",
+          "stage:帖子": "帖子详情",
+          "stage:点赞消息": "点赞消息",
+          "stage:回复的回复": "回复的回复",
+          "stage:回帖": "回帖/发帖页",
+          "stage:发帖": "发帖页",
+          "stage:用戶详情弹窗": "用戶详情弹窗",
+          "stage:额外入口": "额外入口",
+          "stage:作文论坛首": "作文论坛首页",
+          "stage:作文论坛": "作文论坛详情",
+          "stage:回复消息": "回复消息",
+          "stage:新增点赞消息": "新增点赞消息",
+          "stage:评论和回复评论": "评论和回复评论",
+          "stage:帖子审核消息": "帖子审核消息"
+        },
+        "flow_stage_positions": {
+          "stage:论坛首": 8,
+          "stage:帖子": 117,
+          "stage:点赞消息": 132,
+          "stage:回复的回复": 197,
+          "stage:回帖": 277,
+          "stage:发帖": 255,
+          "stage:用戶详情弹窗": 292,
+          "stage:额外入口": 295,
+          "stage:作文论坛首": 305,
+          "stage:作文论坛": 329,
+          "stage:回复消息": 370,
+          "stage:新增点赞消息": 383,
+          "stage:评论和回复评论": 384,
+          "stage:帖子审核消息": 398,
+          "stage:发帖限制": 410
+        },
+        "cross_cutting": [
+          "stage:发帖限制"
+        ],
+        "cross_cutting_labels": {
+          "stage:发帖限制": "发帖限制"
+        },
+        "data_flow_edges": [
+          {
+            "from": "stage:额外入口",
+            "to": "stage:帖子审核消息",
+            "from_label": "额外入口",
+            "to_label": "帖子审核消息"
+          },
+          {
+            "from": "stage:帖子审核消息",
+            "to": "stage:帖子",
+            "from_label": "帖子审核消息",
+            "to_label": "帖子详情"
+          },
+          {
+            "from": "stage:帖子",
+            "to": "stage:用戶详情弹窗",
+            "from_label": "帖子详情",
+            "to_label": "用戶详情弹窗"
+          },
+          {
+            "from": "stage:用戶详情弹窗",
+            "to": "stage:作文论坛",
+            "from_label": "用戶详情弹窗",
+            "to_label": "作文论坛详情"
+          },
+          {
+            "from": "stage:作文论坛",
+            "to": "stage:论坛首",
+            "from_label": "作文论坛详情",
+            "to_label": "论坛首页"
+          },
+          {
+            "from": "stage:论坛首",
+            "to": "stage:点赞消息",
+            "from_label": "论坛首页",
+            "to_label": "点赞消息"
+          },
+          {
+            "from": "stage:点赞消息",
+            "to": "stage:回复的回复",
+            "from_label": "点赞消息",
+            "to_label": "回复的回复"
+          },
+          {
+            "from": "stage:回复的回复",
+            "to": "stage:回帖",
+            "from_label": "回复的回复",
+            "to_label": "回帖/发帖页"
+          },
+          {
+            "from": "stage:回帖",
+            "to": "stage:发帖",
+            "from_label": "回帖/发帖页",
+            "to_label": "发帖页"
+          },
+          {
+            "from": "stage:发帖",
+            "to": "stage:作文论坛首",
+            "from_label": "发帖页",
+            "to_label": "作文论坛首页"
+          },
+          {
+            "from": "stage:作文论坛首",
+            "to": "stage:回复消息",
+            "from_label": "作文论坛首页",
+            "to_label": "回复消息"
+          },
+          {
+            "from": "stage:回复消息",
+            "to": "stage:新增点赞消息",
+            "from_label": "回复消息",
+            "to_label": "新增点赞消息"
+          },
+          {
+            "from": "stage:新增点赞消息",
+            "to": "stage:评论和回复评论",
+            "from_label": "新增点赞消息",
+            "to_label": "评论和回复评论"
+          }
+        ],
+        "data_flow_phase_rank": {
+          "stage:帖子": "artifact_detail",
+          "stage:用戶详情弹窗": "artifact_detail",
+          "stage:额外入口": "entry_capture",
+          "stage:作文论坛": "artifact_detail",
+          "stage:帖子审核消息": "review_confirm"
+        },
+        "data_flow_order_applied": true
+      },
+      "ordering_policy": "flow_first_then_cross_cutting",
+      "scenario_cluster_policy": {
+        "default_max_per_scenario": 2
+      },
+      "profile_constraints": [
+        "strategy_only_not_fact_source"
+      ],
+      "strategy_only": 1
+    }
+  },
+  "request_id": "4ebf39b9908c47599165b79643222c6f",
+  "project_id": 2,
+  "multi_pass": true,
+  "generation_mode": "multi_pass",
+  "_log_id": 22595
+}

@@ -2,13 +2,22 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type {
   CoverageResult,
+  CaseQualityGateEvent,
+  FeedbackControlStateEvent,
   GenDiagEvent,
   GenDiagSummaryEvent,
+  GenerationContextCompressionEvent,
   GenerationConvergenceEvent,
+  GenerationQualityLedgerEvent,
   GenerationSummaryEvent,
   JudgeDecisionTableEvent,
   JudgeSummaryEvent,
+  MemoryFabricDiagEvent,
+  PersistenceGateEvent,
+  RequirementParseEvent,
   ReviewDecisionSummaryEvent,
+  ReviewDecisionTableCompactEvent,
+  StreamBatchTokenUsageEvent,
 } from './diagParser';
 import { parseGenDiagEvent } from './diagParser';
 
@@ -30,7 +39,28 @@ export type ResultDebugState = {
   ts: number;
 };
 
+export type ExecutionSuiteDebugState = {
+  generationId: number | null;
+  caseCount?: number;
+  suiteCount?: number;
+  runnableSuiteCount?: number;
+  linearExecutable?: boolean;
+  executionReadiness?: string;
+  mainSuiteId?: string;
+  warnings?: string[];
+  ts: number;
+};
+
+export type JudgeDecisionTableMeta = {
+  rowCount?: number;
+  rowCountTotal?: number;
+  rowCountRejectPending?: number;
+  rowsScope?: string;
+  rowEvidenceIncomplete?: boolean;
+};
+
 export type DebugState = {
+  projectId?: number | null;
   generationMode?: string;
   bizKeys: string[];
   currentBizKey?: string;
@@ -39,17 +69,31 @@ export type DebugState = {
   genDiag?: GenDiagSummaryEvent;
   generationConvergence?: GenerationConvergenceEvent;
   reviewDecisionSummary?: ReviewDecisionSummaryEvent;
+  reviewDecisionTableCompactRows?: Array<Record<string, unknown>>;
   judgeSummary?: JudgeSummaryEvent;
   judgeDecisionTableRows?: Array<Record<string, unknown>>;
+  judgeDecisionTableMeta?: JudgeDecisionTableMeta;
   generationSummary?: GenerationSummaryEvent;
+  generationContextCompression?: GenerationContextCompressionEvent;
+  feedbackControlState?: FeedbackControlStateEvent;
+  generationQualityLedger?: GenerationQualityLedgerEvent;
+  memoryFabricDiag?: MemoryFabricDiagEvent;
+  streamBatchTokenUsageRows?: StreamBatchTokenUsageEvent[];
+  persistenceGate?: PersistenceGateEvent;
+  caseQualityGate?: CaseQualityGateEvent;
+  requirementParse?: RequirementParseEvent;
   resultState?: ResultDebugState;
+  executionSuiteState?: ExecutionSuiteDebugState;
   lastUpdatedAt?: number;
   ingestDiag: (event: unknown) => void;
   setResultState: (payload: Omit<ResultDebugState, 'ts'>) => void;
+  setExecutionSuiteState: (payload: Omit<ExecutionSuiteDebugState, 'ts'>) => void;
+  resetForProject: (projectId: number | null) => void;
   reset: () => void;
 };
 
 const INITIAL_STATE = {
+  projectId: undefined as number | null | undefined,
   generationMode: undefined as string | undefined,
   bizKeys: [] as string[],
   currentBizKey: undefined as string | undefined,
@@ -58,10 +102,21 @@ const INITIAL_STATE = {
   genDiag: undefined as GenDiagSummaryEvent | undefined,
   generationConvergence: undefined as GenerationConvergenceEvent | undefined,
   reviewDecisionSummary: undefined as ReviewDecisionSummaryEvent | undefined,
+  reviewDecisionTableCompactRows: undefined as Array<Record<string, unknown>> | undefined,
   judgeSummary: undefined as JudgeSummaryEvent | undefined,
   judgeDecisionTableRows: undefined as Array<Record<string, unknown>> | undefined,
+  judgeDecisionTableMeta: undefined as JudgeDecisionTableMeta | undefined,
   generationSummary: undefined as GenerationSummaryEvent | undefined,
+  generationContextCompression: undefined as GenerationContextCompressionEvent | undefined,
+  feedbackControlState: undefined as FeedbackControlStateEvent | undefined,
+  generationQualityLedger: undefined as GenerationQualityLedgerEvent | undefined,
+  memoryFabricDiag: undefined as MemoryFabricDiagEvent | undefined,
+  streamBatchTokenUsageRows: undefined as StreamBatchTokenUsageEvent[] | undefined,
+  persistenceGate: undefined as PersistenceGateEvent | undefined,
+  caseQualityGate: undefined as CaseQualityGateEvent | undefined,
+  requirementParse: undefined as RequirementParseEvent | undefined,
   resultState: undefined as ResultDebugState | undefined,
+  executionSuiteState: undefined as ExecutionSuiteDebugState | undefined,
   lastUpdatedAt: undefined as number | undefined,
 };
 const DEBUG_STORE_STORAGE_KEY = 'tg_rag_debug_store_v1';
@@ -114,8 +169,11 @@ function applyEvent(state: DebugState, event: GenDiagEvent): Partial<DebugState>
   }
 
   if (event.kind === 'coverage_check') {
+    const coveragePayload = event.data && typeof event.data === 'object'
+      ? event.data
+      : event;
     return {
-      coverage: event.data || state.coverage,
+      coverage: coveragePayload as CoverageResult,
       lastUpdatedAt: now,
     };
   }
@@ -149,11 +207,29 @@ function applyEvent(state: DebugState, event: GenDiagEvent): Partial<DebugState>
   }
 
   if (event.kind === 'judge_decision_table') {
+    const tableEvent = event as JudgeDecisionTableEvent;
     const rows = Array.isArray((event as JudgeDecisionTableEvent).rows)
       ? (event as JudgeDecisionTableEvent).rows?.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
       : [];
     return {
       judgeDecisionTableRows: rows,
+      judgeDecisionTableMeta: {
+        rowCount: Number(tableEvent.row_count),
+        rowCountTotal: Number(tableEvent.row_count_total),
+        rowCountRejectPending: Number(tableEvent.row_count_reject_pending),
+        rowsScope: String(tableEvent.rows_scope || ''),
+        rowEvidenceIncomplete: Boolean(tableEvent.row_evidence_incomplete),
+      },
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'review_decision_table_compact') {
+    const rows = Array.isArray((event as ReviewDecisionTableCompactEvent).rows)
+      ? (event as ReviewDecisionTableCompactEvent).rows?.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+      : [];
+    return {
+      reviewDecisionTableCompactRows: rows,
       lastUpdatedAt: now,
     };
   }
@@ -161,6 +237,75 @@ function applyEvent(state: DebugState, event: GenDiagEvent): Partial<DebugState>
   if (event.kind === 'generation_summary') {
     return {
       generationSummary: event,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'generation_context_compression') {
+    return {
+      generationContextCompression: event,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'feedback_control_state') {
+    return {
+      feedbackControlState: event,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'generation_quality_ledger') {
+    return {
+      generationQualityLedger: event,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'memory_fabric_diag') {
+    return {
+      memoryFabricDiag: event as MemoryFabricDiagEvent,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'stream_batch_token_usage') {
+    const incoming = event as StreamBatchTokenUsageEvent;
+    const rows = Array.isArray(state.streamBatchTokenUsageRows) ? [...state.streamBatchTokenUsageRows] : [];
+    const idx = rows.findIndex((row) => (
+      Number(row.batch_index) === Number(incoming.batch_index)
+      && Number(row.attempt || 1) === Number(incoming.attempt || 1)
+      && String(row.request_id || '') === String(incoming.request_id || '')
+    ));
+    if (idx >= 0) rows[idx] = incoming;
+    else rows.push(incoming);
+    rows.sort((a, b) => (
+      Number(a.batch_index || 0) - Number(b.batch_index || 0)
+      || Number(a.attempt || 0) - Number(b.attempt || 0)
+    ));
+    return {
+      streamBatchTokenUsageRows: rows.slice(-80),
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'persistence_gate') {
+    return {
+      persistenceGate: event,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'case_quality_gate') {
+    return {
+      caseQualityGate: event,
+      lastUpdatedAt: now,
+    };
+  }
+
+  if (event.kind === 'requirement_parse') {
+    return {
+      requirementParse: event,
       lastUpdatedAt: now,
     };
   }
@@ -190,6 +335,21 @@ export const useRagDebugStore = create<DebugState>()(
         });
       },
 
+      setExecutionSuiteState: (payload) => {
+        const now = Date.now();
+        set({
+          executionSuiteState: {
+            ...payload,
+            ts: now,
+          },
+          lastUpdatedAt: now,
+        });
+      },
+
+      resetForProject: (projectId) => {
+        set({ ...INITIAL_STATE, projectId });
+      },
+
       reset: () => {
         set({ ...INITIAL_STATE });
       },
@@ -198,6 +358,7 @@ export const useRagDebugStore = create<DebugState>()(
       name: DEBUG_STORE_STORAGE_KEY,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
+        projectId: state.projectId,
         generationMode: state.generationMode,
         bizKeys: state.bizKeys,
         currentBizKey: state.currentBizKey,
@@ -206,10 +367,21 @@ export const useRagDebugStore = create<DebugState>()(
         genDiag: state.genDiag,
         generationConvergence: state.generationConvergence,
         reviewDecisionSummary: state.reviewDecisionSummary,
+        reviewDecisionTableCompactRows: state.reviewDecisionTableCompactRows,
         judgeSummary: state.judgeSummary,
         judgeDecisionTableRows: state.judgeDecisionTableRows,
+        judgeDecisionTableMeta: state.judgeDecisionTableMeta,
         generationSummary: state.generationSummary,
+        generationContextCompression: state.generationContextCompression,
+        feedbackControlState: state.feedbackControlState,
+        generationQualityLedger: state.generationQualityLedger,
+        memoryFabricDiag: state.memoryFabricDiag,
+        streamBatchTokenUsageRows: state.streamBatchTokenUsageRows,
+        persistenceGate: state.persistenceGate,
+        caseQualityGate: state.caseQualityGate,
+        requirementParse: state.requirementParse,
         resultState: state.resultState,
+        executionSuiteState: state.executionSuiteState,
         lastUpdatedAt: state.lastUpdatedAt,
       }),
     }

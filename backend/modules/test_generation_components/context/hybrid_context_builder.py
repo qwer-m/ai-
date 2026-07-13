@@ -33,15 +33,27 @@ def _env_bool(key: str, default: bool) -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
+def _env_int(key: str, default: int, minimum: int, maximum: int | None = None) -> int:
+    raw = os.getenv(key)
+    try:
+        value = int(str(raw if raw is not None else default).strip())
+    except (TypeError, ValueError):
+        value = int(default)
+    value = max(int(minimum), value)
+    if maximum is not None:
+        value = min(int(maximum), value)
+    return value
+
+
 @dataclass(frozen=True)
 class HybridContextConfig:
     """融合上下文预算配置。"""
 
-    snapshot_max_tokens: int = max(600, int(os.getenv("RAG_HYBRID_SNAPSHOT_MAX_TOKENS", "2000")))
-    rag_max_tokens: int = max(300, int(os.getenv("RAG_HYBRID_RAG_MAX_TOKENS", "1000")))
-    total_max_tokens: int = max(1000, int(os.getenv("RAG_HYBRID_TOTAL_MAX_TOKENS", "3200")))
-    rag_top_k: int = max(3, min(5, int(os.getenv("RAG_HYBRID_RAG_TOP_K", "4"))))
-    snapshot_insufficient_tokens: int = max(200, int(os.getenv("RAG_HYBRID_SNAPSHOT_MIN_TOKENS", "800")))
+    snapshot_max_tokens: int = _env_int("RAG_HYBRID_SNAPSHOT_MAX_TOKENS", 2000, 600)
+    rag_max_tokens: int = _env_int("RAG_HYBRID_RAG_MAX_TOKENS", 1000, 300)
+    total_max_tokens: int = _env_int("RAG_HYBRID_TOTAL_MAX_TOKENS", 3200, 1000)
+    rag_top_k: int = _env_int("RAG_HYBRID_RAG_TOP_K", 4, 3, 5)
+    snapshot_insufficient_tokens: int = _env_int("RAG_HYBRID_SNAPSHOT_MIN_TOKENS", 800, 200)
     default_precision_mode: bool = _env_bool("RAG_HYBRID_DEFAULT_PRECISION_MODE", True)
 
 

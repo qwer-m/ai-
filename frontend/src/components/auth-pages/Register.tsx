@@ -19,6 +19,9 @@ const Register: React.FC = () => {
     if (password !== confirmPassword) {
       return setError('两次输入的密码不一致');
     }
+    if (password.length < 6) {
+      return setError('密码至少需要 6 位');
+    }
 
     setError('');
     setLoading(true);
@@ -38,29 +41,73 @@ const Register: React.FC = () => {
     }
   };
 
+  const hasError = Boolean(error);
+
   return (
     <Container className="d-flex align-items-center justify-content-center register-page-shell register-page-full-height">
       <div className="w-100 register-page-wrap register-page-wrap-narrow">
         <Card className="register-card">
           <Card.Body className="register-card-body">
             <h2 className="text-center mb-4">注册账号</h2>
-            {error && <Alert variant="danger">{error}</Alert>}
-            <Form onSubmit={handleSubmit}>
-              <Form.Group id="username" className="mb-3">
+            {error && (
+              <Alert id="register-error" variant="danger" aria-live="polite">
+                {error}
+              </Alert>
+            )}
+            <Form onSubmit={handleSubmit} aria-busy={loading}>
+              <Form.Group controlId="username" className="mb-3">
                 <Form.Label>用户名</Form.Label>
-                <Form.Control className="register-control" type="text" required value={username} onChange={(e) => setUsername(e.target.value)} />
+                <Form.Control
+                  className="register-control"
+                  type="text"
+                  autoComplete="username"
+                  required
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  aria-invalid={hasError}
+                  aria-describedby={hasError ? 'register-error' : undefined}
+                />
               </Form.Group>
-              <Form.Group id="email" className="mb-3">
+              <Form.Group controlId="email" className="mb-3">
                 <Form.Label>Email</Form.Label>
-                <Form.Control className="register-control" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+                <Form.Control
+                  className="register-control"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  aria-invalid={hasError}
+                  aria-describedby={hasError ? 'register-error' : undefined}
+                />
               </Form.Group>
-              <Form.Group id="password" className="mb-3">
+              <Form.Group controlId="password" className="mb-3">
                 <Form.Label>密码</Form.Label>
-                <Form.Control className="register-control" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+                <Form.Control
+                  className="register-control"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  aria-invalid={hasError}
+                  aria-describedby={hasError ? 'register-error' : undefined}
+                />
               </Form.Group>
-              <Form.Group id="confirm-password" className="mb-3">
+              <Form.Group controlId="confirm-password" className="mb-3">
                 <Form.Label>确认密码</Form.Label>
-                <Form.Control className="register-control" type="password" required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+                <Form.Control
+                  className="register-control"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  minLength={6}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  aria-invalid={hasError}
+                  aria-describedby={hasError ? 'register-error' : undefined}
+                />
               </Form.Group>
               <Button disabled={loading} className="w-100 register-primary-btn" type="submit">
                 {loading ? '注册中...' : '注册'}

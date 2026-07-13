@@ -6,6 +6,10 @@ from core.db.models import KnowledgeDocument
 from modules.knowledge_base_components.repositories.knowledge_document_repository import (
     KnowledgeDocumentRepository,
 )
+from modules.orchestration.background_task_governance import (
+    BackgroundTaskKind,
+    build_background_task_status,
+)
 from routers.system.common_support import _serialize_linked_doc, _to_iso
 
 
@@ -70,8 +74,12 @@ def build_knowledge_detail_response(doc: KnowledgeDocument, linked_docs: list[Kn
     }
 
 
-def build_parse_status_response(doc: KnowledgeDocument, task_state: Optional[str]) -> dict:
-    return {
+def build_parse_status_response(
+    doc: KnowledgeDocument,
+    task_state: Optional[str],
+    task_status: Optional[dict] = None,
+) -> dict:
+    response = {
         "id": doc.project_specific_id or doc.id,
         "global_id": doc.id,
         "parse_status": doc.parse_status,
@@ -81,10 +89,21 @@ def build_parse_status_response(doc: KnowledgeDocument, task_state: Optional[str
         "retry_count": doc.retry_count,
         "task_state": task_state,
     }
+    if task_status is not None or doc.task_id:
+        response["task_status"] = build_background_task_status(
+            BackgroundTaskKind.KNOWLEDGE_DOCUMENT_PARSE,
+            task_id=doc.task_id,
+            task_status=task_status,
+            business_id=doc.id,
+            business_status=doc.parse_status,
+            business_error=doc.parse_error,
+            retry_count=doc.retry_count,
+        )
+    return response
 
 
 def build_upload_knowledge_response(doc: KnowledgeDocument, enqueue_result: dict) -> dict:
-    return {
+    response = {
         "success": True,
         "id": doc.project_specific_id or doc.id,
         "global_id": doc.id,
@@ -97,3 +116,6 @@ def build_upload_knowledge_response(doc: KnowledgeDocument, enqueue_result: dict
         "task_id": enqueue_result.get("task_id"),
         "retry_count": doc.retry_count,
     }
+    if enqueue_result.get("queue_result") is not None:
+        response["queue_result"] = enqueue_result.get("queue_result")
+    return response

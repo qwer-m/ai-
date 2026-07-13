@@ -1,14 +1,22 @@
 ﻿import { useMemo, useState } from 'react';
 import { Badge, Button, Form } from 'react-bootstrap';
+import { Fragment } from 'react';
+import { coverageTypeLabel } from './debugLabels';
 import { useRagDebugStore } from './debugStore';
 
 type Props = {
-  onRuleClick?: (ruleId: string) => void;
+  onRuleClick?: (ruleId: string, ruleText?: string) => void;
   activeRuleId?: string | null;
 };
 
 function toArray(input: unknown): string[] {
   return Array.isArray(input) ? input.map((x) => String(x)) : [];
+}
+
+function countValue(input: unknown): number {
+  if (Array.isArray(input)) return input.length;
+  const n = Number(input);
+  return Number.isFinite(n) ? n : 0;
 }
 
 export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
@@ -41,7 +49,7 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
             onChange={(e) => setOnlyMissing(e.target.checked)}
           />
           <Form.Select size="sm" value={bizFilter} onChange={(e) => setBizFilter(e.target.value)} style={{ width: 170 }}>
-            <option value="all">全部 biz_key</option>
+            <option value="all">全部业务</option>
             {bizKeys.map((key) => (
               <option key={key} value={key}>
                 {key}
@@ -52,14 +60,14 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
       </div>
 
       <div className="small text-muted rag-debug-muted mb-2">
-        total_rules: {coverage?.total_rules ?? 0} / covered_rules: {coverage?.covered_rules ?? 0} / missing_rules: {coverage?.missing_rules ?? 0}
+        规则总数：{countValue(coverage?.total_rules)} / 已覆盖：{countValue(coverage?.covered_rules)} / 未覆盖：{countValue(coverage?.missing_rules)}
       </div>
 
       <div className="table-responsive">
         <table className="table table-sm align-middle mb-0">
           <thead>
             <tr>
-              <th>Rule ID</th>
+              <th>规则编号</th>
               <th>状态</th>
               <th>已覆盖</th>
               <th>缺失</th>
@@ -76,41 +84,54 @@ export function CoverageTable({ onRuleClick, activeRuleId }: Props) {
             ) : null}
             {diagnostics.map((item, idx) => {
               const ruleId = String(item?.rule_id || `rule-${idx + 1}`);
+              const ruleText = String((item as any)?.rule_text || '');
               const covered = Boolean(item?.covered);
               const coverageTypes = toArray((item as any)?.coverage_types);
               const missingTypes = toArray((item as any)?.missing_types);
               return (
-                <tr key={`${ruleId}-${idx}`} className={activeRuleId && activeRuleId === ruleId ? 'table-warning' : undefined}>
-                  <td className="fw-semibold">{ruleId}</td>
-                  <td>
-                    <Badge bg={covered ? 'success' : 'danger'}>{covered ? '已覆盖' : '未覆盖'}</Badge>
-                  </td>
-                  <td>
-                    {!coverageTypes.length ? <span className="text-muted">-</span> : null}
-                    <div className="d-flex flex-wrap gap-1">
-                      {coverageTypes.map((tag) => (
-                        <Badge key={`${ruleId}-cov-${tag}`} bg="success-subtle" text="success">
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  </td>
-                  <td>
-                    {!missingTypes.length ? <span className="text-muted">-</span> : null}
-                    <div className="d-flex flex-wrap gap-1">
-                      {missingTypes.map((tag) => (
-                        <Badge key={`${ruleId}-miss-${tag}`} bg="danger-subtle" text="danger">
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  </td>
-                  <td>
-                    <Button variant="outline-secondary" size="sm" onClick={() => onRuleClick?.(ruleId)} disabled={!onRuleClick}>
-                      查看关联
-                    </Button>
-                  </td>
-                </tr>
+                <Fragment key={`${ruleId}-${idx}`}>
+                  <tr key={`${ruleId}-${idx}`} className={activeRuleId && activeRuleId === ruleId ? 'table-warning' : undefined}>
+                    <td className="fw-semibold">{ruleId}</td>
+                    <td>
+                      <Badge bg={covered ? 'success' : 'danger'}>{covered ? '已覆盖' : '未覆盖'}</Badge>
+                    </td>
+                    <td>
+                      {!coverageTypes.length ? <span className="text-muted">-</span> : null}
+                      <div className="d-flex flex-wrap gap-1">
+                        {coverageTypes.map((tag) => (
+                          <Badge key={`${ruleId}-cov-${tag}`} bg="success-subtle" text="success">
+                            {coverageTypeLabel(tag)}
+                          </Badge>
+                        ))}
+                      </div>
+                    </td>
+                    <td>
+                      {!missingTypes.length ? <span className="text-muted">-</span> : null}
+                      <div className="d-flex flex-wrap gap-1">
+                        {missingTypes.map((tag) => (
+                          <Badge key={`${ruleId}-miss-${tag}`} bg="danger-subtle" text="danger">
+                            {coverageTypeLabel(tag)}
+                          </Badge>
+                        ))}
+                      </div>
+                    </td>
+                    <td>
+                      <Button variant="outline-secondary" size="sm" onClick={() => onRuleClick?.(ruleId, ruleText)} disabled={!onRuleClick}>
+                        查看需求点
+                      </Button>
+                    </td>
+                  </tr>
+                  {activeRuleId === ruleId ? (
+                    <tr key={`${ruleId}-${idx}-detail`} className="table-warning">
+                      <td colSpan={5}>
+                        <div className="small">
+                          <span className="fw-semibold me-2">需求文档对应需求点：</span>
+                          <span>{ruleText || '当前覆盖诊断未返回需求点文本'}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               );
             })}
           </tbody>

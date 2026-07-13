@@ -2,6 +2,15 @@
   max-width: min(1260px, 96vw);
 }
 
+body.config-modal-open .modal-backdrop.show {
+  opacity: 0.82;
+  background-color: #0f172a;
+}
+
+body.theme-dark.config-modal-open .modal-backdrop.show {
+  opacity: 0.9;
+}
+
 .config-modal-dialog .modal-content {
   border: 1px solid var(--ui-border);
   border-radius: 16px;
@@ -80,7 +89,7 @@
 
 .config-model-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
 }
 

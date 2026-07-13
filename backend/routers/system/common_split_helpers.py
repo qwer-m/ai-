@@ -3,11 +3,9 @@ import logging
 import re
 from typing import Any, Optional
 
-from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from celery_config import celery_app
 from core.authn.auth import get_current_user
 from core.db.database import get_db
 from core.db.models import User
@@ -50,6 +48,7 @@ def list_knowledge(
     end_date: Optional[str] = None,
     include_linked_test_cases: bool = False,
     include_evaluation_reports: bool = False,
+    include_internal_artifacts: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -64,6 +63,8 @@ def list_knowledge(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    page = max(1, int(page))
+    page_size = max(1, int(page_size))
     total, documents = KnowledgeDocumentRepository(db).list_project_documents_paginated(
         project_id=project_id,
         page=page,
@@ -72,10 +73,25 @@ def list_knowledge(
         doc_type=doc_type,
         include_linked_test_cases=include_linked_test_cases,
         include_evaluation_reports=include_evaluation_reports,
+        include_internal_artifacts=include_internal_artifacts,
         start_date=start_date,
         end_date=end_date,
     )
     total_pages = (total + page_size - 1) // page_size if total else 1
+    if page > total_pages:
+        page = total_pages
+        total, documents = KnowledgeDocumentRepository(db).list_project_documents_paginated(
+            project_id=project_id,
+            page=page,
+            page_size=page_size,
+            search=search,
+            doc_type=doc_type,
+            include_linked_test_cases=include_linked_test_cases,
+            include_evaluation_reports=include_evaluation_reports,
+            include_internal_artifacts=include_internal_artifacts,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
     linked_map, source_name_map = build_knowledge_list_related_maps(db, project_id, documents)
 

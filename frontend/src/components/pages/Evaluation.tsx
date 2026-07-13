@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { AutomationEvaluationPanels } from '../evaluation/AutomationEvaluationPanels';
 import { EvaluationOverviewPanel } from '../evaluation/EvaluationOverviewPanel';
 import { RagValidationPanel } from '../evaluation/RagValidationPanel';
@@ -59,6 +59,9 @@ export function Evaluation({
   const showUi = view === 'ui';
   const showApi = view === 'api';
   const showRag = view === 'rag';
+  const storageKey = `evaluation:testcase:draft:${projectId ?? 'none'}`;
+  const hydratedStorageKeyRef = useRef('');
+  const skipNextDraftPersistRef = useRef(false);
 
   useEffect(() => {
     if (!actions.toastMsg) return;
@@ -70,18 +73,70 @@ export function Evaluation({
     actions.setToastMsg(null);
   }, [actions.toastMsg, actions.setToastMsg]);
 
+  useEffect(() => {
+    if (hydratedStorageKeyRef.current === storageKey) return;
+    hydratedStorageKeyRef.current = storageKey;
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      skipNextDraftPersistRef.current = true;
+      if (typeof draft?.evalGenerated === 'string') setEvalGenerated(draft.evalGenerated);
+      if (typeof draft?.evalModified === 'string') setEvalModified(draft.evalModified);
+      if (typeof draft?.evalResult === 'string') setEvalResult(draft.evalResult);
+      if (typeof draft?.supplementText === 'string') actions.setSupplementText(draft.supplementText);
+      if (typeof draft?.uploadedCompareFilename === 'string') actions.setUploadedCompareFilename(draft.uploadedCompareFilename);
+      if (typeof draft?.loadedCompareFilename === 'string') actions.setLoadedCompareFilename(draft.loadedCompareFilename);
+    } catch {
+      // Ignore malformed local drafts; the current in-memory state remains authoritative.
+    }
+  }, [storageKey, setEvalGenerated, setEvalModified, setEvalResult, actions]);
+
+  useEffect(() => {
+    if (hydratedStorageKeyRef.current !== storageKey) return;
+    if (skipNextDraftPersistRef.current) {
+      skipNextDraftPersistRef.current = false;
+      return;
+    }
+    try {
+      window.localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          evalGenerated,
+          evalModified,
+          evalResult,
+          supplementText: actions.supplementText,
+          uploadedCompareFilename: actions.uploadedCompareFilename,
+          loadedCompareFilename: actions.loadedCompareFilename,
+          updatedAt: new Date().toISOString(),
+        }),
+      );
+    } catch {
+      // localStorage may be unavailable or full; this should not block evaluation.
+    }
+  }, [
+    storageKey,
+    evalGenerated,
+    evalModified,
+    evalResult,
+    actions.supplementText,
+    actions.uploadedCompareFilename,
+    actions.loadedCompareFilename,
+  ]);
+
   return (
     <div className="bento-grid align-content-start evaluation-shell workbench-shell">
-      {showRoot ? (
+      <div style={{ display: showRoot ? 'contents' : 'none' }}>
         <EvaluationOverviewPanel
           diag={actions.latestDiag}
           qm={actions.latestQm}
           onExportHistory={actions.exportHistory}
         />
-      ) : null}
+      </div>
 
-      {showTestcase ? (
+      <div style={{ display: showTestcase ? 'contents' : 'none' }}>
         <TestCaseCoveragePanel
+          projectId={projectId}
           evalGenerated={evalGenerated}
           setEvalGenerated={setEvalGenerated}
           evalModified={evalModified}
@@ -94,8 +149,10 @@ export function Evaluation({
           onLoadGenerationById={actions.loadGenerationById}
           onFileChange={actions.setCompareFile}
           uploadedCompareFilename={actions.uploadedCompareFilename}
+          compareFile={actions.file}
           loadedCompareFilename={actions.loadedCompareFilename}
           onCompare={actions.compareTestCases}
+          onInvalidateEvaluation={() => setEvalResult(null)}
           history={actions.history}
           showSupplement={actions.showSupplement}
           setShowSupplement={actions.setShowSupplement}
@@ -110,14 +167,14 @@ export function Evaluation({
           onSaveKnowledge={actions.handleSaveKnowledge}
           savingKnowledge={actions.loading === 'save_knowledge'}
         />
-      ) : null}
+      </div>
 
-      {showRag ? (
+      <div style={{ display: showRag ? 'contents' : 'none' }}>
         <RagValidationPanel
           projectId={projectId}
           onLog={onLog}
         />
-      ) : null}
+      </div>
 
       <AutomationEvaluationPanels
         showUi={showUi}

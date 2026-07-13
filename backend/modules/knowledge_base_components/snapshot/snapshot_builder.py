@@ -26,35 +26,46 @@ def _env_bool(key: str, default: bool) -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
+def _env_int(key: str, default: int, minimum: int) -> int:
+    raw = os.getenv(key)
+    try:
+        value = int(str(raw if raw is not None else default).strip())
+    except (TypeError, ValueError):
+        value = int(default)
+    return max(int(minimum), value)
+
+
+def _env_float(key: str, default: float, minimum: float, maximum: float | None = None) -> float:
+    raw = os.getenv(key)
+    try:
+        value = float(str(raw if raw is not None else default).strip())
+    except (TypeError, ValueError):
+        value = float(default)
+    value = max(float(minimum), value)
+    if maximum is not None:
+        value = min(float(maximum), value)
+    return value
+
+
 @dataclass(frozen=True)
 class SnapshotBuildConfig:
     """快照构建阈值。"""
 
-    max_docs: int = max(1, int(os.getenv("RAG_SNAPSHOT_MAX_DOCS", "200")))
-    max_snapshot_chars: int = max(4000, int(os.getenv("RAG_SNAPSHOT_MAX_CHARS", "120000")))
-    incremental_doc_threshold: int = max(
-        1, int(os.getenv("RAG_SNAPSHOT_INCREMENTAL_DOC_THRESHOLD", "8"))
+    max_docs: int = _env_int("RAG_SNAPSHOT_MAX_DOCS", 200, 1)
+    max_snapshot_chars: int = _env_int("RAG_SNAPSHOT_MAX_CHARS", 120000, 4000)
+    incremental_doc_threshold: int = _env_int("RAG_SNAPSHOT_INCREMENTAL_DOC_THRESHOLD", 8, 1)
+    incremental_ratio_threshold: float = _env_float(
+        "RAG_SNAPSHOT_INCREMENTAL_RATIO_THRESHOLD", 0.30, 0.0, 1.0
     )
-    incremental_ratio_threshold: float = float(
-        os.getenv("RAG_SNAPSHOT_INCREMENTAL_RATIO_THRESHOLD", "0.30")
-    )
-    full_rebuild_hours: int = max(1, int(os.getenv("RAG_SNAPSHOT_FULL_REBUILD_HOURS", "24")))
-    max_incremental_merges: int = max(
-        1, int(os.getenv("RAG_SNAPSHOT_MAX_INCREMENTAL_MERGES", "4"))
-    )
+    full_rebuild_hours: int = _env_int("RAG_SNAPSHOT_FULL_REBUILD_HOURS", 24, 1)
+    max_incremental_merges: int = _env_int("RAG_SNAPSHOT_MAX_INCREMENTAL_MERGES", 4, 1)
     # 新增：输入保护与分段参数。
-    input_soft_limit: int = max(4000, int(os.getenv("RAG_SNAPSHOT_INPUT_SOFT_LIMIT", "25000")))
-    single_doc_max_chars: int = max(
-        800, int(os.getenv("RAG_SNAPSHOT_SINGLE_DOC_MAX_CHARS", "12000"))
-    )
-    batch_max_docs: int = max(1, int(os.getenv("RAG_SNAPSHOT_BATCH_MAX_DOCS", "12")))
-    final_merge_limit: int = max(
-        4000, int(os.getenv("RAG_SNAPSHOT_FINAL_MERGE_LIMIT", "24000"))
-    )
+    input_soft_limit: int = _env_int("RAG_SNAPSHOT_INPUT_SOFT_LIMIT", 25000, 4000)
+    single_doc_max_chars: int = _env_int("RAG_SNAPSHOT_SINGLE_DOC_MAX_CHARS", 12000, 800)
+    batch_max_docs: int = _env_int("RAG_SNAPSHOT_BATCH_MAX_DOCS", 12, 1)
+    final_merge_limit: int = _env_int("RAG_SNAPSHOT_FINAL_MERGE_LIMIT", 24000, 4000)
     async_prewarm_enabled: bool = _env_bool("RAG_SNAPSHOT_ASYNC_PREWARM", True)
-    enqueue_cooldown_seconds: int = max(
-        5, int(os.getenv("RAG_SNAPSHOT_ENQUEUE_COOLDOWN_SECONDS", "30"))
-    )
+    enqueue_cooldown_seconds: int = _env_int("RAG_SNAPSHOT_ENQUEUE_COOLDOWN_SECONDS", 30, 5)
 
 
 SNAPSHOT_CONFIG = SnapshotBuildConfig()
@@ -98,6 +109,50 @@ def collect_project_docs(module, db: Session, project_id: int, user_id: Optional
                 # 中文注释：补充来源元信息，便于构建日志解释“有效文档数”由哪些类型构成。
                 "doc_type": str(doc.doc_type or "unknown"),
                 "owner_user_id": doc.user_id,
+            }
+        )
+    return corpus
+
+
+def collect_project_doc_fingerprints(db: Session, project_id: int, user_id: Optional[int]) -> list[dict]:
+    """Collect snapshot corpus fingerprints without generating document summaries."""
+    _ = user_id
+    repo = KnowledgeDocumentRepository(db)
+    rows = repo.list_project_doc_snapshot_fingerprints(
+        project_id=project_id,
+        max_docs=SNAPSHOT_CONFIG.max_docs,
+    )
+    missing_hash_ids: list[int] = []
+    for row in rows:
+        summary_length = int(getattr(row, "summary_length", 0) or 0)
+        content_length = int(getattr(row, "content_length", 0) or 0)
+        has_text = bool(summary_length > 0 or content_length > 0)
+        if has_text and not str(getattr(row, "content_hash", "") or "").strip():
+            missing_hash_ids.append(int(getattr(row, "id")))
+
+    fallback_hashes: dict[int, str] = {}
+    for row in repo.list_project_doc_contents_by_ids(project_id=project_id, doc_ids=missing_hash_ids):
+        content = str(getattr(row, "content", "") or "")
+        fallback_hashes[int(getattr(row, "id"))] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    corpus: list[dict] = []
+    for row in rows:
+        doc_id = int(getattr(row, "id"))
+        summary_length = int(getattr(row, "summary_length", 0) or 0)
+        content_length = int(getattr(row, "content_length", 0) or 0)
+        if summary_length <= 0 and content_length <= 0:
+            continue
+        fingerprint = str(getattr(row, "content_hash", "") or "").strip() or fallback_hashes.get(doc_id, "")
+        if not fingerprint:
+            continue
+        corpus.append(
+            {
+                "doc_id": doc_id,
+                "filename": getattr(row, "filename", None) or f"doc_{doc_id}",
+                "text": "",
+                "fingerprint": fingerprint,
+                "doc_type": str(getattr(row, "doc_type", None) or "unknown"),
+                "owner_user_id": getattr(row, "user_id", None),
             }
         )
     return corpus

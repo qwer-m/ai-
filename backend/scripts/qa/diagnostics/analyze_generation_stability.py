@@ -14,7 +14,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from core.db.database import SessionLocal
-from core.db.models import LogEntry
+from core.db.models import LogEntry, TestGeneration
 
 
 @dataclass
@@ -150,6 +150,163 @@ def _pick_latest_payload(payloads: list[tuple[int, dict[str, Any]]], kind: str) 
     return latest
 
 
+def _safe_parse_generation_result(raw_text: str) -> Any:
+    text = str(raw_text or "").strip()
+    if not text:
+        return []
+    try:
+        return json.loads(text)
+    except Exception:
+        return []
+
+
+def _extract_case_list(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        cases = payload.get("cases")
+        if isinstance(cases, list):
+            return [item for item in cases if isinstance(item, dict)]
+        nested_error = payload.get("error")
+        if isinstance(nested_error, dict):
+            nested_cases = nested_error.get("cases")
+            if isinstance(nested_cases, list):
+                return [item for item in nested_cases if isinstance(item, dict)]
+    return []
+
+
+def _load_generation_row_payload(generation_id: int) -> tuple[TestGeneration | None, Any]:
+    db = SessionLocal()
+    try:
+        row = db.query(TestGeneration).filter(TestGeneration.id == int(generation_id)).first()
+        if row is None:
+            return None, []
+        parsed = _safe_parse_generation_result(getattr(row, "generated_result", ""))
+        return row, parsed
+    finally:
+        db.close()
+
+
+def _build_run_snapshot_from_generated_result(generation_id: int) -> dict[str, Any]:
+    row, parsed_payload = _load_generation_row_payload(int(generation_id))
+    if row is None:
+        raise RuntimeError(f"generation_id={generation_id} not found")
+
+    cases = _extract_case_list(parsed_payload)
+    case_total = int(len(cases))
+
+    state_breakdown: dict[str, int] = {"decided": 0, "conflict": 0, "undetermined": 0, "optional": 0, "invalid": 0}
+    final_breakdown: dict[str, int] = {"P0": 0, "P1": 0, "P2": 0, "null": 0}
+    legacy_breakdown: dict[str, int] = {"P0": 0, "P1": 0, "P2": 0, "UNKNOWN": 0}
+    for case in cases:
+        state = str(case.get("priority_decision_state") or "undetermined").strip().lower()
+        if state not in state_breakdown:
+            state = "undetermined"
+        state_breakdown[state] += 1
+
+        priority_final = str(case.get("priority_final") or "").strip().upper()
+        if priority_final not in {"P0", "P1", "P2"}:
+            priority_final = "null"
+        final_breakdown[priority_final] += 1
+
+        legacy = str(case.get("legacy_priority") or case.get("priority") or "").strip().upper()
+        if legacy not in {"P0", "P1", "P2"}:
+            legacy = "UNKNOWN"
+        legacy_breakdown[legacy] += 1
+
+    reason_chain_seed = f"generation:{int(generation_id)}|project:{int(getattr(row, 'project_id', 0) or 0)}|count:{case_total}"
+    context_fingerprint = hashlib.sha256(reason_chain_seed.encode("utf-8")).hexdigest()[:16]
+
+    priority_conflict_count = int(state_breakdown.get("conflict") or 0)
+    priority_undetermined_count = int(state_breakdown.get("undetermined") or 0)
+    priority_optional_count = int(state_breakdown.get("optional") or 0)
+    priority_invalid_count = int(state_breakdown.get("invalid") or 0)
+
+    return {
+        "generation_id": int(generation_id),
+        "request_id": "",
+        "candidate_by_stage": {
+            "primary": int(case_total),
+            "gap": 0,
+            "review": int(case_total),
+            "before_review": int(case_total),
+            "retained": int(case_total),
+        },
+        "candidate_by_pass": {
+            "pass_primary": int(case_total),
+            "pass_gap_increment": 0,
+        },
+        "context_source": "",
+        "context_fingerprint": str(context_fingerprint),
+        "rag_snapshot_id": "",
+        "corpus_hash": "",
+        "retrieval_hash": "",
+        "review_primary_valid": False,
+        "review_retry_valid": False,
+        "review_final_source": "generated_result_fallback",
+        "review_input_size": int(case_total),
+        "review_output_size": int(case_total),
+        "reason_source_breakdown": {"primary": 0, "fallback": 0, "backfill": 0},
+        "review_runtime": {
+            "primary_model": "",
+            "primary_invalid_reason": "gen_diag_missing",
+            "primary_reason_incomplete": True,
+            "primary_dropped_reason_count": 0,
+            "primary_dropped_reason_payload_count": 0,
+            "primary_reason_coverage_ratio": 0.0,
+            "retry_invoked": False,
+            "retry_reason": "",
+            "retry_model": "",
+            "mapped_count": 0,
+            "dropped_reason_count": 0,
+            "fallback_reason_incomplete": False,
+            "fallback_dropped_reason_count": 0,
+            "fallback_dropped_reason_mapped_count": 0,
+            "fallback_dropped_reason_unmapped_count": 0,
+            "fallback_reason_coverage_ratio": 0.0,
+            "payload_has_selection_signal": False,
+            "retry_mapped_count": 0,
+            "retry_payload_has_selection_signal": False,
+            "applied_reason": "generated_result_fallback",
+        },
+        "llm_reason_coverage_ratio": 0.0,
+        "deterministic_backfill_ratio": 0.0,
+        "reason_metrics": {
+            "drop_by_review_llm_count": 0,
+            "llm_reason_count": 0,
+            "deterministic_backfill_count": 0,
+            "llm_reason_coverage_ratio": 0.0,
+            "deterministic_backfill_ratio": 0.0,
+            "sampled_detail_rows": False,
+            "sampled_detail_row_count": 0,
+            "sampled_deterministic_row_count": 0,
+            "deterministic_source_breakdown_sampled": {},
+            "mapped_count_effective": 0,
+            "dropped_reason_count_effective": 0,
+            "dominant_deterministic_source": "",
+        },
+        "priority_metrics": {
+            "priority_decision_state_breakdown": state_breakdown,
+            "priority_final_breakdown": final_breakdown,
+            "legacy_priority_breakdown": legacy_breakdown,
+            "priority_conflict_count": int(priority_conflict_count),
+            "priority_undetermined_count": int(priority_undetermined_count),
+            "priority_optional_count": int(priority_optional_count),
+            "priority_invalid_count": int(priority_invalid_count),
+            "needs_priority_review": bool(priority_conflict_count > 0 or priority_undetermined_count > 0),
+        },
+        "priority_conflict_count": int(priority_conflict_count),
+        "priority_undetermined_count": int(priority_undetermined_count),
+        "priority_optional_count": int(priority_optional_count),
+        "needs_priority_review": bool(priority_conflict_count > 0 or priority_undetermined_count > 0),
+        "drop_ratio": 0.0,
+        "generated_model": "",
+        "generation_mode": "",
+        "diagnostic_source": "generated_result_fallback",
+        "diagnostic_depth": "limited",
+    }
+
+
 def _build_stage_map(payloads: list[tuple[int, dict[str, Any]]]) -> dict[str, int]:
     stage_map: dict[str, int] = {}
     for _, payload in payloads:
@@ -277,17 +434,83 @@ def _build_deterministic_backfill_attribution(
     }
 
 
+def _build_priority_decision_metrics(
+    *,
+    review_summary: dict[str, Any],
+    review_table_payload: dict[str, Any],
+) -> dict[str, Any]:
+    rows = [item for item in (review_table_payload.get("rows") or []) if isinstance(item, dict)]
+
+    summary_state_breakdown = review_summary.get("priority_decision_state_breakdown")
+    state_breakdown = dict(summary_state_breakdown) if isinstance(summary_state_breakdown, dict) else {}
+    if not state_breakdown:
+        for item in rows:
+            key = str(item.get("priority_decision_state") or "undetermined").strip().lower()
+            if key not in {"decided", "conflict", "undetermined", "optional", "invalid"}:
+                key = "undetermined"
+            state_breakdown[key] = int(state_breakdown.get(key, 0)) + 1
+    for key in ("decided", "conflict", "undetermined", "optional", "invalid"):
+        state_breakdown[key] = int(state_breakdown.get(key, 0))
+
+    summary_final_breakdown = review_summary.get("priority_final_breakdown")
+    final_breakdown = dict(summary_final_breakdown) if isinstance(summary_final_breakdown, dict) else {}
+    if not final_breakdown:
+        for item in rows:
+            key = str(item.get("priority_final") or "").strip().upper()
+            if key not in {"P0", "P1", "P2"}:
+                key = "null"
+            final_breakdown[key] = int(final_breakdown.get(key, 0)) + 1
+    for key in ("P0", "P1", "P2", "null"):
+        final_breakdown[key] = int(final_breakdown.get(key, 0))
+
+    summary_legacy_breakdown = review_summary.get("legacy_priority_breakdown")
+    legacy_breakdown = dict(summary_legacy_breakdown) if isinstance(summary_legacy_breakdown, dict) else {}
+    if not legacy_breakdown:
+        for item in rows:
+            key = str(item.get("legacy_priority") or item.get("priority") or "").strip().upper()
+            if key not in {"P0", "P1", "P2"}:
+                key = "UNKNOWN"
+            legacy_breakdown[key] = int(legacy_breakdown.get(key, 0)) + 1
+    for key in ("P0", "P1", "P2", "UNKNOWN"):
+        legacy_breakdown[key] = int(legacy_breakdown.get(key, 0))
+
+    priority_conflict_count = _as_int(review_summary.get("priority_conflict_count"), state_breakdown.get("conflict", 0))
+    priority_undetermined_count = _as_int(
+        review_summary.get("priority_undetermined_count"),
+        state_breakdown.get("undetermined", 0),
+    )
+    priority_optional_count = _as_int(review_summary.get("priority_optional_count"), state_breakdown.get("optional", 0))
+    priority_invalid_count = _as_int(review_summary.get("priority_invalid_count"), state_breakdown.get("invalid", 0))
+    needs_priority_review = bool(
+        review_summary.get("needs_priority_review")
+        or priority_conflict_count > 0
+        or priority_undetermined_count > 0
+    )
+    return {
+        "priority_decision_state_breakdown": state_breakdown,
+        "priority_final_breakdown": final_breakdown,
+        "legacy_priority_breakdown": legacy_breakdown,
+        "priority_conflict_count": int(priority_conflict_count),
+        "priority_undetermined_count": int(priority_undetermined_count),
+        "priority_optional_count": int(priority_optional_count),
+        "priority_invalid_count": int(priority_invalid_count),
+        "needs_priority_review": bool(needs_priority_review),
+    }
+
+
 def _build_run_snapshot(generation_id: int) -> dict[str, Any]:
     ctx = _find_context(int(generation_id))
     if not ctx:
-        raise RuntimeError(f"generation_id={generation_id} context not found")
+        return _build_run_snapshot_from_generated_result(int(generation_id))
     payloads = _load_run_payloads(ctx)
     if not payloads:
-        raise RuntimeError(f"generation_id={generation_id} has no GEN_DIAG payloads")
+        return _build_run_snapshot_from_generated_result(int(generation_id))
 
     stage_map = _build_stage_map(payloads)
     convergence = _pick_latest_payload(payloads, "generation_convergence")
     review_summary = _pick_latest_payload(payloads, "review_decision_summary")
+    if not review_summary:
+        return _build_run_snapshot_from_generated_result(int(generation_id))
     review_table_payload = _pick_latest_payload(payloads, "review_decision_table")
     generation_context_compression = _pick_latest_payload(payloads, "generation_context_compression")
     feedback_control_state = _pick_latest_payload(payloads, "feedback_control_state")
@@ -311,6 +534,10 @@ def _build_run_snapshot(generation_id: int) -> dict[str, Any]:
     retained_total = _as_int(review_summary.get("retained_total"), _as_int(convergence.get("review_selected_count"), 0))
 
     reason_metrics = _build_deterministic_backfill_attribution(
+        review_summary=review_summary,
+        review_table_payload=review_table_payload,
+    )
+    priority_metrics = _build_priority_decision_metrics(
         review_summary=review_summary,
         review_table_payload=review_table_payload,
     )
@@ -384,9 +611,16 @@ def _build_run_snapshot(generation_id: int) -> dict[str, Any]:
         "llm_reason_coverage_ratio": float(reason_metrics.get("llm_reason_coverage_ratio") or 0.0),
         "deterministic_backfill_ratio": float(reason_metrics.get("deterministic_backfill_ratio") or 0.0),
         "reason_metrics": reason_metrics,
+        "priority_metrics": priority_metrics,
+        "priority_conflict_count": int(priority_metrics.get("priority_conflict_count") or 0),
+        "priority_undetermined_count": int(priority_metrics.get("priority_undetermined_count") or 0),
+        "priority_optional_count": int(priority_metrics.get("priority_optional_count") or 0),
+        "needs_priority_review": bool(priority_metrics.get("needs_priority_review")),
         "drop_ratio": _safe_ratio(drop_total, candidate_total),
         "generated_model": str(gen_diag.get("model") or ""),
         "generation_mode": str(gen_diag.get("generation_mode") or generation_mode_payload.get("mode") or ""),
+        "diagnostic_source": "gen_diag",
+        "diagnostic_depth": "full",
     }
 
 
@@ -455,6 +689,18 @@ def _build_diff(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
                 4,
             ),
         },
+        {
+            "metric": "priority_conflict_count",
+            "left": _as_int(left.get("priority_conflict_count"), 0),
+            "right": _as_int(right.get("priority_conflict_count"), 0),
+            "delta": _as_int(right.get("priority_conflict_count"), 0) - _as_int(left.get("priority_conflict_count"), 0),
+        },
+        {
+            "metric": "priority_undetermined_count",
+            "left": _as_int(left.get("priority_undetermined_count"), 0),
+            "right": _as_int(right.get("priority_undetermined_count"), 0),
+            "delta": _as_int(right.get("priority_undetermined_count"), 0) - _as_int(left.get("priority_undetermined_count"), 0),
+        },
     ]
 
     variance_sources: list[str] = []
@@ -466,6 +712,10 @@ def _build_diff(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
         variance_sources.append("review_runtime_variance")
     if str(r_runtime.get("primary_invalid_reason") or "") != str(l_runtime.get("primary_invalid_reason") or ""):
         variance_sources.append("review_payload_validity_variance")
+    if _as_int(right.get("priority_conflict_count"), 0) != _as_int(left.get("priority_conflict_count"), 0) or _as_int(
+        right.get("priority_undetermined_count"), 0
+    ) != _as_int(left.get("priority_undetermined_count"), 0):
+        variance_sources.append("priority_decision_variance")
     if float(right.get("deterministic_backfill_ratio") or 0.0) != float(left.get("deterministic_backfill_ratio") or 0.0):
         variance_sources.append("reason_coverage_variance")
     if not variance_sources:
@@ -518,6 +768,19 @@ def main() -> int:
     print(f"  left: {args.left}")
     print(f"  right: {args.right}")
     print(f"  out: {out_path}")
+    print(
+        f"  left_source: {left.get('diagnostic_source')} ({left.get('diagnostic_depth')})"
+    )
+    print(
+        f"  right_source: {right.get('diagnostic_source')} ({right.get('diagnostic_depth')})"
+    )
+    if str(left.get("diagnostic_depth") or "").strip().lower() == "limited" or str(
+        right.get("diagnostic_depth") or ""
+    ).strip().lower() == "limited":
+        print(
+            "  warning: one or both runs are generated_result fallback (limited); "
+            "review/convergence comparisons may be incomplete."
+        )
     print("  variance_sources:")
     for item in diff.get("variance_sources") or []:
         print(f"    - {item}")

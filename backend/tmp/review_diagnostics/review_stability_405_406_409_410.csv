@@ -1,5 +1,0 @@
-﻿generation_id,candidate_total,review_llm_pool_count,target_min_count,target_max_count,drop_by_review_llm_count,drop_by_review_llm_ratio,final_count,judge_rejected_or_pending_count,review_llm_drop_reason_breakdown,review_llm_drop_reason_raw_breakdown,review_llm_drop_reason_source_breakdown
-405,67,63,15,26,37,0.5873,30,1,"{""unspecified"": 4, ""coverage_redundant"": 24, ""low_value"": 9}",{},{}
-406,63,61,15,26,35,0.5738,28,1,"{""unspecified"": 26, ""low_value"": 4, ""coverage_redundant"": 5}",{},{}
-409,73,67,16,28,39,0.5821,33,2,"{""fallback_unspecified"": 16, ""coverage_redundant"": 13, ""duplicate"": 9, ""low_value"": 1}","{""unspecified"": 16, ""coverage_redundant"": 13, ""duplicate"": 9, ""low_value"": 1}","{""deterministic_backfill"": 16, ""llm"": 23}"
-410,35,33,9,15,18,0.5455,18,0,"{""fallback_unspecified"": 18}","{""unspecified"": 18}","{""deterministic_backfill"": 18}"

@@ -1,8 +1,10 @@
-﻿"""JSON validation and ordering helpers for test generation postprocessing."""
+"""JSON validation and ordering helpers for test generation postprocessing."""
 
 from __future__ import annotations
 
 from typing import Any
+
+from .case_access import case_flat_text, case_text_field, case_text_value
 
 _CASE_KIND_ORDER = {
     "ui_verification": 0,
@@ -17,14 +19,8 @@ _CASE_KIND_ORDER = {
 
 
 def _safe_text_join(value: Any) -> str:
-    """Convert nested field values to a plain string for keyword heuristics."""
-    if value is None:
-        return ""
-    if isinstance(value, list):
-        return " ".join(_safe_text_join(x) for x in value)
-    if isinstance(value, dict):
-        return " ".join(_safe_text_join(v) for v in value.values())
-    return str(value)
+    """Compatibility wrapper for legacy JSON helper imports."""
+    return case_text_value(value)
 
 
 def infer_case_kind(case: dict[str, Any]) -> str:
@@ -35,16 +31,12 @@ def infer_case_kind(case: dict[str, Any]) -> str:
     UI -> Integration -> Security/Permission -> Performance/Stability -> Exception ->
     Validation/Boundary -> Happy -> Other
     """
-    text = " ".join(
-        [
-            _safe_text_join(case.get("description")),
-            _safe_text_join(case.get("test_module")),
-            _safe_text_join(case.get("preconditions")),
-            _safe_text_join(case.get("steps")),
-            _safe_text_join(case.get("test_input")),
-            _safe_text_join(case.get("expected_result")),
-        ]
-    ).lower()
+    text = case_flat_text(
+        case,
+        fields=("description", "test_module", "preconditions", "steps", "test_input", "expected_result"),
+        separator=" ",
+        lower=True,
+    )
 
     def has_any(keywords: list[str]) -> bool:
         return any(k in text for k in keywords)
@@ -180,7 +172,7 @@ def infer_case_kind(case: dict[str, Any]) -> str:
         return "happy_path"
 
     # Fallback: treat high-priority unlabeled cases as happy-path first.
-    if str(case.get("priority") or "").upper() == "P0":
+    if case_text_field(case, "priority").upper() == "P0":
         return "happy_path"
     return "other"
 
@@ -209,7 +201,7 @@ def extract_module_order_from_cases(
     for case in cases:
         if not isinstance(case, dict):
             continue
-        module = str(case.get("test_module") or "").strip() or "General"
+        module = case_text_field(case, "test_module") or "General"
         if module in seen:
             continue
         ordered.append(module)
@@ -247,10 +239,10 @@ def reorder_cases_by_closed_loop(
 
     annotated: list[tuple[tuple[int, int, int, int], dict[str, Any]]] = []
     for idx, case in enumerate(normalized_cases):
-        module = str(case.get("test_module") or "").strip() or "General"
+        module = case_text_field(case, "test_module") or "General"
         kind = infer_case_kind(case)
         kind_rank = _CASE_KIND_ORDER.get(kind, _CASE_KIND_ORDER["other"])
-        pri = str(case.get("priority") or "P1").upper()
+        pri = (case_text_field(case, "priority") or "P1").upper()
         pri_rank = priority_rank.get(pri, 1)
         key = (module_rank.get(module, len(module_rank)), kind_rank, pri_rank, idx)
         annotated.append((key, dict(case)))

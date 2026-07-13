@@ -24,41 +24,67 @@ export function QuotaRing({ provider, apiKey, baseUrl, model }: Props) {
     loading: true,
   });
 
-  const fetchData = async () => {
-    if (!apiKey && provider !== 'local') return;
-
-    try {
-      const res = await api.post<any>('/api/config/quota', {
-        provider,
-        api_key: apiKey,
-        base_url: baseUrl,
-        model_name: model,
-      });
-
-      if (res.supported) {
-        setQuota({
-          total: parseFloat(res.total),
-          remaining: parseFloat(res.remaining),
-          supported: true,
-          loading: false,
-        });
-      } else {
-        setQuota((prev) => ({ ...prev, supported: false, loading: false }));
-      }
-    } catch {
-      setQuota((prev) => ({ ...prev, loading: false }));
-    }
-  };
-
   useEffect(() => {
+    let cancelled = false;
+
+    const fetchData = async () => {
+      if (!apiKey && provider !== 'local') {
+        if (!cancelled) {
+          setQuota({
+            total: 0,
+            remaining: 0,
+            supported: false,
+            loading: false,
+          });
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        setQuota((prev) => ({ ...prev, loading: true }));
+      }
+
+      try {
+        const res = await api.post<any>('/api/config/quota', {
+          provider,
+          api_key: apiKey,
+          base_url: baseUrl,
+          model_name: model,
+        });
+
+        if (cancelled) return;
+
+        if (res.supported) {
+          setQuota({
+            total: parseFloat(res.total),
+            remaining: parseFloat(res.remaining),
+            supported: true,
+            loading: false,
+          });
+        } else {
+          setQuota({
+            total: 0,
+            remaining: 0,
+            supported: false,
+            loading: false,
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setQuota((prev) => ({ ...prev, loading: false }));
+        }
+      }
+    };
+
     void fetchData();
     const interval = setInterval(() => {
       void fetchData();
     }, 10000);
-    return () => clearInterval(interval);
-  }, [provider, apiKey, baseUrl]);
-
-  if (!quota.supported) return null;
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [provider, apiKey, baseUrl, model]);
 
   const percent = quota.total > 0 ? (quota.remaining / quota.total) * 100 : 0;
   const stateClass = useMemo(() => {
@@ -66,6 +92,8 @@ export function QuotaRing({ provider, apiKey, baseUrl, model }: Props) {
     if (percent < 50) return 'config-quota-indicator--warn';
     return 'config-quota-indicator--ok';
   }, [percent]);
+
+  if (!quota.supported) return null;
 
   return (
     <OverlayTrigger

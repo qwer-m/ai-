@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -121,7 +121,9 @@ def test_stream_postprocess_does_not_backfill_on_review_shortfall() -> None:
     result = _drain_with_return(gen)
 
     final_cases = (result or {}).get("cases") or []
-    assert len(final_cases) == 1
+    # Review may return fewer rows than target, but postprocess should recover
+    # from candidate pool instead of collapsing to a single retained case.
+    assert len(final_cases) >= 2
     descriptions = {item.get("description") for item in final_cases}
     assert "stream-1" in descriptions
-    assert len(descriptions) == 1
+    assert len(descriptions) >= 2

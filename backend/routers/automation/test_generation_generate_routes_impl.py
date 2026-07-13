@@ -1,18 +1,41 @@
 from __future__ import annotations
 
-from pathlib import Path
+from fastapi import APIRouter
 
-_PARTS = (
-    'test_generation_generate_routes_impl_parts/test_generation_generate_routes_impl_part1.py.part',
-    'test_generation_generate_routes_impl_parts/test_generation_generate_routes_impl_part2.py.part',
-    'test_generation_generate_routes_impl_parts/test_generation_generate_routes_impl_part3.py.part'
+from .test_generation_generate_routes_estimate import estimate_test_count
+from .test_generation_generate_routes_estimate import router as estimate_router
+from .test_generation_generate_routes_stream import generate_tests_stream
+from .test_generation_generate_routes_stream import router as stream_router
+from .test_generation_generate_routes_json import generate_tests, generate_tests_async
+from .test_generation_generate_routes_json import router as json_router
+from .test_generation_generate_routes_file import (
+    generate_tests_from_file,
+    generate_tests_from_file_async,
 )
+from .test_generation_generate_routes_file import router as file_router
+from .test_generation_generate_routes_excel import (
+    export_tests_excel,
+    generate_tests_excel,
+    generate_tests_from_file_excel,
+)
+from .test_generation_generate_routes_excel import router as excel_router
 
-_base_dir = Path(__file__).resolve().parent
-_source_chunks: list[str] = []
-for _rel in _PARTS:
-    _source_chunks.append((_base_dir / _rel).read_text(encoding='utf-8'))
+router = APIRouter()
+router.include_router(estimate_router)
+router.include_router(stream_router)
+router.include_router(json_router)
+router.include_router(file_router)
+router.include_router(excel_router)
 
-exec(compile(''.join(_source_chunks), __file__, 'exec'), globals(), globals())
-
-del Path, _PARTS, _base_dir, _source_chunks, _rel
+__all__ = [
+    "router",
+    "estimate_test_count",
+    "generate_tests_stream",
+    "generate_tests",
+    "generate_tests_async",
+    "generate_tests_from_file",
+    "generate_tests_from_file_async",
+    "generate_tests_excel",
+    "generate_tests_from_file_excel",
+    "export_tests_excel",
+]

@@ -1,4 +1,13 @@
+import hashlib
+
+from sqlalchemy import event
+
 from ._shared import Base, Column, Integer, String, Boolean, JSON, DateTime, ForeignKey, Float, Text, func, UniqueConstraint, relationship, backref, LONGTEXT
+
+
+def _build_query_hash(query: str | None) -> str:
+    normalized = str(query or "").strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 class RagDataset(Base):
     """
@@ -23,12 +32,13 @@ class RagDatasetSample(Base):
     """
     __tablename__ = "rag_dataset_samples"
     __table_args__ = (
-        UniqueConstraint("dataset_id", "query", name="uq_rag_dataset_samples_dataset_query"),
+        UniqueConstraint("dataset_id", "query_hash", name="uq_rag_dataset_samples_dataset_query_hash"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
     dataset_id = Column(Integer, ForeignKey("rag_datasets.id"), nullable=False, index=True)
     query = Column(Text, nullable=False, comment="问题")
+    query_hash = Column(String(64), nullable=False, index=True, comment="问题文本SHA256，用于长文本去重")
     gold_docs = Column(JSON, nullable=True, comment="标准文档ID/名称列表")
     gold_chunks = Column(JSON, nullable=True, comment="标准chunk_id列表")
     gold_answer = Column(LONGTEXT, nullable=True, comment="标准答案")
@@ -40,6 +50,18 @@ class RagDatasetSample(Base):
     enabled = Column(Boolean, nullable=False, default=True, index=True, comment="是否启用")
     created_at = Column(DateTime, server_default=func.now(), index=True)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+@event.listens_for(RagDatasetSample.query, "set", retval=True)
+def _sync_rag_sample_query_hash(target, value, oldvalue, initiator):
+    target.query_hash = _build_query_hash(value)
+    return value
+
+
+@event.listens_for(RagDatasetSample, "before_insert")
+@event.listens_for(RagDatasetSample, "before_update")
+def _ensure_rag_sample_query_hash(mapper, connection, target):
+    target.query_hash = _build_query_hash(target.query)
 
 class RagEvalRun(Base):
     """

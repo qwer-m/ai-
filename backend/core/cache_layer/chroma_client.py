@@ -1,13 +1,17 @@
-﻿import logging
+import logging
 import os
 import shutil
 import json
+import ipaddress
+from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
+from urllib.parse import urlparse
 
 import chromadb
 import dashscope
+import httpx
 from chromadb import Documents, EmbeddingFunction, Embeddings
 from chromadb.config import Settings
 from chromadb.utils import embedding_functions
@@ -25,10 +29,30 @@ os.environ.setdefault("CHROMA_TELEMETRY_IMPL", "core.cache_layer.chroma_telemetr
 
 # 模块级日志器：统一输出向量库相关日志
 logger = logging.getLogger(__name__)
+
+
+def _env_int(name: str, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        logger.warning("Invalid integer env %s=%r; using default=%s", name, raw, default)
+        return default
+    if minimum is not None and value < minimum:
+        logger.warning("Env %s=%r below minimum=%s; using minimum", name, raw, minimum)
+        return minimum
+    if maximum is not None and value > maximum:
+        logger.warning("Env %s=%r above maximum=%s; using maximum", name, raw, maximum)
+        return maximum
+    return value
+
+
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CHROMA_PATH = BACKEND_ROOT / "chroma_db"
-DEFAULT_EMBED_BATCH_SIZE = max(1, int(os.getenv("DASHSCOPE_EMBED_BATCH_SIZE", "25")))
-DEFAULT_EMBED_MAX_CHARS = max(128, min(2048, int(os.getenv("DASHSCOPE_EMBED_MAX_CHARS", "2000"))))
+DEFAULT_EMBED_BATCH_SIZE = _env_int("DASHSCOPE_EMBED_BATCH_SIZE", 25, minimum=1)
+DEFAULT_EMBED_MAX_CHARS = _env_int("DASHSCOPE_EMBED_MAX_CHARS", 2000, minimum=128, maximum=2048)
 _RUNTIME_AUTO_RECOVER = str(os.getenv("CHROMA_RUNTIME_AUTO_RECOVER", "true")).strip().lower() in {
     "1",
     "true",
@@ -42,6 +66,8 @@ _HNSW_LOAD_ERROR_SIGNALS = (
     "error sending backfill request to compactor",
     # 中文注释：查询阶段常见损坏信号，表现为索引/ID 映射不一致。
     "error finding id",
+    "collection expecting embedding with dimension",
+    "embedding with dimension",
 )
 
 
@@ -157,49 +183,349 @@ def _backup_corrupted_store(path: Path) -> Path | None:
     return backup
 
 
-class DashScopeEmbeddingFunction(EmbeddingFunction):
-    """基于 DashScope 的向量化函数封装。"""
+@dataclass(frozen=True)
+class EmbeddingProviderConfig:
+    provider: str = "local"
+    model: str = ""
+    api_key: str = ""
+    api_key_env: str = "DASHSCOPE_API_KEY"
+    base_url: str = ""
+    batch_size: int = DEFAULT_EMBED_BATCH_SIZE
+    max_chars: int = DEFAULT_EMBED_MAX_CHARS
+    timeout_seconds: float = 30.0
 
-    def __init__(self, api_key: str):
-        self.api_key = api_key
+
+def _default_embedding_model(provider: str) -> str:
+    normalized = _normalize_embedding_provider(provider)
+    if normalized == "dashscope":
+        return str(dashscope.TextEmbedding.Models.text_embedding_v1)
+    if normalized in {"openai", "openai_compatible"}:
+        return "text-embedding-3-small"
+    return ""
+
+
+def build_embedding_provider_config(
+    *,
+    provider: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+    text_model_config: dict | None = None,
+) -> EmbeddingProviderConfig:
+    text_config = dict(text_model_config or {})
+    raw_provider = provider if provider is not None else getattr(settings, "EMBEDDING_PROVIDER", "local")
+    normalized_provider = _normalize_embedding_provider(raw_provider)
+    if normalized_provider == "follow_text":
+        normalized_provider = _normalize_embedding_provider(text_config.get("provider") or "local")
+
+    api_key_env = str(getattr(settings, "EMBEDDING_API_KEY_ENV", "") or "").strip()
+    if normalized_provider == "local":
+        api_key_env = ""
+    elif not api_key_env:
+        api_key_env = "DASHSCOPE_API_KEY" if normalized_provider in {"dashscope", "auto"} else "OPENAI_API_KEY"
+    provider_fallback_key = settings.DASHSCOPE_API_KEY if normalized_provider in {"dashscope", "auto"} else ""
+    if normalized_provider == "local":
+        resolved_api_key = ""
+    else:
+        resolved_api_key = str(
+            api_key
+            if api_key is not None
+            else (
+                os.getenv(api_key_env)
+                or text_config.get("api_key")
+                or provider_fallback_key
+                or ""
+            )
+        )
+    resolved_api_key = resolved_api_key.strip()
+    resolved_base_url = str(
+        base_url
+        if base_url is not None
+        else (getattr(settings, "EMBEDDING_BASE_URL", "") or text_config.get("base_url") or "")
+    ).strip()
+    resolved_model = str(
+        model
+        if model is not None
+        else (getattr(settings, "EMBEDDING_MODEL_NAME", "") or text_config.get("embedding_model") or "")
+    ).strip()
+    if not resolved_model:
+        resolved_model = _default_embedding_model(normalized_provider)
+
+    return EmbeddingProviderConfig(
+        provider=normalized_provider,
+        model=resolved_model,
+        api_key=resolved_api_key,
+        api_key_env=api_key_env,
+        base_url=resolved_base_url,
+        batch_size=max(1, int(DEFAULT_EMBED_BATCH_SIZE)),
+        max_chars=max(128, int(DEFAULT_EMBED_MAX_CHARS)),
+        timeout_seconds=max(1.0, float(getattr(settings, "EMBEDDING_TIMEOUT_SECONDS", 30.0) or 30.0)),
+    )
+
+
+class DashScopeEmbeddingProvider:
+    def __init__(self, config: EmbeddingProviderConfig):
+        self.config = config
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        embeddings: list[list[float]] = []
+        total = len(texts)
+        model_name = self.config.model or str(dashscope.TextEmbedding.Models.text_embedding_v1)
+        for batch_index, batch in enumerate(_iter_batches(texts, self.config.batch_size), start=1):
+            resp = dashscope.TextEmbedding.call(
+                model=model_name,
+                input=batch,
+                api_key=self.config.api_key,
+            )
+            if resp.status_code != HTTPStatus.OK:
+                logger.error(
+                    "DashScope Embedding Error on batch=%s size=%s/%s: %s",
+                    batch_index,
+                    len(batch),
+                    total,
+                    resp,
+                )
+                raise Exception(f"DashScope Embedding Error: {resp.message}")
+            batch_embeddings = [item["embedding"] for item in resp.output["embeddings"]]
+            if len(batch_embeddings) != len(batch):
+                raise Exception(
+                    f"DashScope Embedding Error: batch size mismatch, expected={len(batch)} actual={len(batch_embeddings)}"
+                )
+            embeddings.extend(batch_embeddings)
+        return embeddings
+
+
+class OpenAICompatibleEmbeddingProvider:
+    def __init__(self, config: EmbeddingProviderConfig):
+        self.config = config
+
+    def _endpoint(self) -> str:
+        base_url = str(self.config.base_url or "").strip().rstrip("/")
+        if not base_url:
+            raise ValueError("base_url is required for openai-compatible embeddings")
+        if base_url.endswith("/embeddings"):
+            return base_url
+        if base_url.endswith("/responses") or base_url.endswith("/chat/completions"):
+            base_url = base_url.rsplit("/", 1)[0]
+        return f"{base_url}/embeddings"
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        headers = {"Content-Type": "application/json"}
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
+        embeddings: list[list[float]] = []
+        with httpx.Client(timeout=float(self.config.timeout_seconds or 30.0)) as client:
+            for batch in _iter_batches(texts, self.config.batch_size):
+                response = client.post(
+                    self._endpoint(),
+                    headers=headers,
+                    json={"model": self.config.model, "input": batch},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                data = payload.get("data") if isinstance(payload, dict) else None
+                if not isinstance(data, list):
+                    raise ValueError("OpenAI-compatible embedding response missing data list")
+                rows = sorted(
+                    [item for item in data if isinstance(item, dict)],
+                    key=lambda item: int(item.get("index") or 0),
+                )
+                batch_embeddings = [item.get("embedding") for item in rows]
+                if len(batch_embeddings) != len(batch) or not all(isinstance(item, list) for item in batch_embeddings):
+                    raise ValueError("OpenAI-compatible embedding response size mismatch")
+                embeddings.extend(batch_embeddings)
+        return embeddings
+
+
+class DynamicEmbeddingFunction(EmbeddingFunction):
+    def __init__(self, config: EmbeddingProviderConfig):
+        self.config = config
+        if config.provider == "dashscope":
+            self._provider = DashScopeEmbeddingProvider(config)
+        elif config.provider in {"openai", "openai_compatible"}:
+            self._provider = OpenAICompatibleEmbeddingProvider(config)
+        else:
+            raise ValueError(f"Unsupported dynamic embedding provider: {config.provider}")
+
+    def name(self) -> str:
+        return f"{self.config.provider}:{self.config.model or 'default'}"
+
+    def get_config(self) -> dict:
+        return {
+            "provider": self.config.provider,
+            "model": self.config.model,
+            "api_key_env": self.config.api_key_env,
+            "base_url": self.config.base_url,
+            "batch_size": int(self.config.batch_size),
+            "max_chars": int(self.config.max_chars),
+            "timeout_seconds": float(self.config.timeout_seconds),
+        }
+
+    @staticmethod
+    def build_from_config(config: dict) -> "DynamicEmbeddingFunction":
+        DynamicEmbeddingFunction.validate_config(config)
+        provider = str(config.get("provider") or "local").strip().lower()
+        api_key_env = str(config.get("api_key_env") or "DASHSCOPE_API_KEY").strip()
+        return DynamicEmbeddingFunction(
+            build_embedding_provider_config(
+                provider=provider,
+                api_key=os.getenv(api_key_env) or "",
+                base_url=str(config.get("base_url") or ""),
+                model=str(config.get("model") or ""),
+            )
+        )
+
+    @staticmethod
+    def validate_config(config: dict) -> None:
+        if not isinstance(config, dict):
+            raise ValueError("DynamicEmbeddingFunction config must be a dict")
+        provider = _normalize_embedding_provider(config.get("provider"))
+        if provider not in {"dashscope", "openai", "openai_compatible"}:
+            raise ValueError(f"Unsupported dynamic embedding provider: {provider}")
 
     def __call__(self, input: Documents) -> Embeddings:
-        """把文本列表转换为向量列表。"""
         if not input:
             return []
-
         try:
             texts = [str(item or "") for item in input]
-            embeddings: list[list[float]] = []
-            total = len(texts)
-
-            for batch_index, batch in enumerate(_iter_batches(texts, DEFAULT_EMBED_BATCH_SIZE), start=1):
-                resp = dashscope.TextEmbedding.call(
-                    model=dashscope.TextEmbedding.Models.text_embedding_v1,
-                    input=batch,
-                    api_key=self.api_key,
-                )
-                if resp.status_code != HTTPStatus.OK:
-                    logger.error(
-                        "DashScope Embedding Error on batch=%s size=%s/%s: %s",
-                        batch_index,
-                        len(batch),
-                        total,
-                        resp,
-                    )
-                    raise Exception(f"DashScope Embedding Error: {resp.message}")
-
-                batch_embeddings = [item["embedding"] for item in resp.output["embeddings"]]
-                if len(batch_embeddings) != len(batch):
-                    raise Exception(
-                        f"DashScope Embedding Error: batch size mismatch, expected={len(batch)} actual={len(batch_embeddings)}"
-                    )
-                embeddings.extend(batch_embeddings)
-
-            return embeddings
+            return self._provider.embed(texts)
         except Exception as e:
             logger.error("Embedding failed: %s", e)
             raise e
+
+
+class DashScopeEmbeddingFunction(DynamicEmbeddingFunction):
+    """Backward-compatible DashScope embedding wrapper."""
+
+    def __init__(self, api_key: str, model: str | None = None):
+        self.api_key = api_key
+        super().__init__(
+            build_embedding_provider_config(
+                provider="dashscope",
+                api_key=api_key,
+                model=model or str(dashscope.TextEmbedding.Models.text_embedding_v1),
+            )
+        )
+
+    def name(self) -> str:
+        return "dashscope-text-embedding-v1"
+
+    @staticmethod
+    def build_from_config(config: dict) -> "DashScopeEmbeddingFunction":
+        DashScopeEmbeddingFunction.validate_config(config)
+        api_key_env = str((config or {}).get("api_key_env") or "DASHSCOPE_API_KEY")
+        api_key = str(os.getenv(api_key_env) or settings.DASHSCOPE_API_KEY or "")
+        return DashScopeEmbeddingFunction(api_key, model=str((config or {}).get("model") or ""))
+
+    @staticmethod
+    def validate_config(config: dict) -> None:
+        if not isinstance(config, dict):
+            raise ValueError("DashScopeEmbeddingFunction config must be a dict")
+
+
+def _normalize_embedding_provider(raw_provider: str | None) -> str:
+    provider = str(raw_provider or "local").strip().lower()
+    if provider in {"local", "default", "chroma", "chroma_default"}:
+        return "local"
+    if provider in {"dashscope", "aliyun", "ali"}:
+        return "dashscope"
+    if provider in {"openai", "deepseek", "ollama"}:
+        return "openai_compatible"
+    if provider in {"openai_compatible", "openai-compatible", "compatible"}:
+        return "openai_compatible"
+    if provider in {"follow_text", "text", "model_router"}:
+        return "follow_text"
+    if provider == "auto":
+        return "auto"
+    logger.warning("Unknown EMBEDDING_PROVIDER=%s, falling back to local", raw_provider)
+    return "local"
+
+
+def _base_url_is_local(base_url: str) -> bool:
+    parsed = urlparse(str(base_url or "").strip())
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        return False
+    if host in {"localhost", "::1"} or host.endswith(".local"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return bool(ip.is_loopback or ip.is_private)
+
+
+def select_embedding_function(
+    provider: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+    text_model_config: dict | None = None,
+):
+    config = build_embedding_provider_config(
+        provider=provider,
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        text_model_config=text_model_config,
+    )
+    selected_provider = config.provider
+    if selected_provider == "auto":
+        selected_provider = "dashscope" if config.api_key else "local"
+    if selected_provider == "dashscope":
+        if config.api_key:
+            return DashScopeEmbeddingFunction(config.api_key, model=config.model), "dashscope"
+        logger.warning("EMBEDDING_PROVIDER=dashscope but DASHSCOPE_API_KEY is empty; falling back to local")
+    if selected_provider == "openai_compatible":
+        if config.base_url and config.model:
+            return DynamicEmbeddingFunction(config), "openai_compatible"
+        logger.warning("EMBEDDING_PROVIDER=%s requires EMBEDDING_BASE_URL and EMBEDDING_MODEL_NAME; falling back to local", selected_provider)
+    return embedding_functions.DefaultEmbeddingFunction(), "local"
+
+
+def describe_embedding_runtime(
+    provider: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+    text_model_config: dict | None = None,
+) -> dict:
+    config = build_embedding_provider_config(
+        provider=provider,
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        text_model_config=text_model_config,
+    )
+    selected_provider = config.provider
+    fallback_reason = ""
+    if selected_provider == "auto":
+        selected_provider = "dashscope" if config.api_key else "local"
+    if selected_provider == "dashscope" and not config.api_key:
+        fallback_reason = "dashscope_api_key_missing"
+        selected_provider = "local"
+    if selected_provider == "openai_compatible" and not (config.base_url and config.model):
+        fallback_reason = "openai_compatible_base_url_or_model_missing"
+        selected_provider = "local"
+    would_call_embedding_model = selected_provider in {"dashscope", "openai_compatible"}
+    base_url_local = _base_url_is_local(config.base_url)
+    would_call_cloud = selected_provider == "dashscope" or (
+        selected_provider == "openai_compatible" and not base_url_local
+    )
+    return {
+        "configured_provider": config.provider,
+        "selected_provider": selected_provider,
+        "model": config.model,
+        "base_url_set": bool(config.base_url),
+        "base_url_local": base_url_local,
+        "api_key_env": config.api_key_env,
+        "api_key_set": bool(config.api_key),
+        "would_call_embedding_model": would_call_embedding_model,
+        "would_call_cloud": would_call_cloud,
+        "fallback_reason": fallback_reason,
+        "batch_size": int(config.batch_size),
+        "max_chars": int(config.max_chars),
+    }
 
 
 class ChromaClient:
@@ -208,7 +534,7 @@ class ChromaClient:
 
     负责：
     1. 初始化持久化向量库
-    2. 选择向量化函数（DashScope / 默认）
+        2. 选择向量化函数（本地 / DashScope / OpenAI-compatible）
     3. 文档入库、检索、删除
     """
 
@@ -330,13 +656,13 @@ class ChromaClient:
             ),
         )
 
-        # 有 DashScope Key 时优先使用云端向量；否则用默认本地向量函数
-        if settings.DASHSCOPE_API_KEY:
-            self.embedding_fn = DashScopeEmbeddingFunction(settings.DASHSCOPE_API_KEY)
+        self.embedding_fn, embedding_provider = select_embedding_function()
+        if embedding_provider == "dashscope":
             logger.info("Using DashScope Embedding Function")
+        elif embedding_provider == "openai_compatible":
+            logger.info("Using OpenAI-compatible Embedding Function")
         else:
-            self.embedding_fn = embedding_functions.DefaultEmbeddingFunction()
-            logger.info("Using Default Embedding Function (Warning: Requires download)")
+            logger.info("Using Default Embedding Function (provider=local; may require local model download)")
 
         self.collection = self.client.get_or_create_collection(
             name="knowledge_base",

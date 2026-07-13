@@ -1,209 +1,241 @@
-﻿from typing import Any, Iterator
+from typing import Any, Iterator
 import json
+import traceback
 
-from core.db.models import LogEntry, TestGeneration
-from modules.domain.stage25_switches import STAGE25_SWITCHES
-from modules.testing.test_generation_components.prompting.generation_diagnostics import (
-    build_context_compression_diagnostics,
-    build_coverage_diagnostics,
+from .persistence_diagnostics import (
+    _build_pre_persistence_failure_diagnostics,
 )
-from modules.testing.test_generation_components.prompting.prompt_orchestration import (
-    build_supplement_closed_loop_instruction,
+from .persistence_post_persist_diagnostics import (
+    add_diagnostic_log,
+    build_stream_post_persist_diagnostic_payloads,
 )
-from modules.testing.test_generation_components.postprocess.result_postprocess import (
-    merge_cases_for_append,
-    stream_postprocess_cases,
+from .persistence_postprocess_result import unpack_stream_postprocess_result
+from .persistence_quality_ledger import (
+    _build_quality_ledger_payload as _build_quality_ledger_payload_impl,
 )
-from modules.testing.test_generation_components.legacy.adapters import (
-    count_unique_test_cases,
-    deduplicate_test_cases,
-    infer_case_kind,
-    normalize_json_structure,
-    reorder_cases_by_closed_loop,
-    clean_and_parse_json,
-)
+from .persistence_status_text import render_stop_reason_text as _render_stop_reason_text
+from .persistence_timing_events import sanitize_timing_events as _sanitize_timing_events
+from .persistence_timing_ledger import build_stream_timing_ledger
+from .runtime import LazyAttrProxy, call_component, resolve_lazy_attr
 
 
-_STOP_REASON_LABELS = {
-    "coverage_satisfied": "coverage_satisfied（核心规则覆盖已满足）",
-    "stopped_due_to_diminishing_returns": "stopped_due_to_diminishing_returns（继续生成收益递减）",
-    "optimal_case_set_reached": "optimal_case_set_reached（当前为最优测试用例集合）",
-}
-_MAX_GEN_DIAG_MESSAGE_BYTES = 60000
+LogEntry = LazyAttrProxy("core.db.models", "LogEntry")
+TestGeneration = LazyAttrProxy("core.db.models", "TestGeneration")
+settings = LazyAttrProxy("core.settings.config", "settings")
+STAGE25_SWITCHES = LazyAttrProxy("modules.domain.stage25_switches", "STAGE25_SWITCHES")
 
 
-def _render_stop_reason_text(stop_reasons: list[Any]) -> str:
-    labels: list[str] = []
-    for reason in stop_reasons:
-        key = str(reason or "").strip()
-        if not key:
-            continue
-        label = _STOP_REASON_LABELS.get(key, key)
-        if label in labels:
-            continue
-        labels.append(label)
-    return "；".join(labels)
+def summarize_case_quality_gate(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...coverage.case_quality_gate", "summarize_case_quality_gate", *args, **kwargs)
 
 
-def _judge_status_key(row: dict[str, Any]) -> str:
-    status = str((row or {}).get("judge_status") or (row or {}).get("status") or "").strip().upper()
-    return status
+def build_case_quality_failures(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...postprocess.persistence_gate", "build_case_quality_failures", *args, **kwargs)
 
 
-def _safe_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [str(item) for item in value if str(item).strip()]
+def build_case_quality_metrics(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...postprocess.persistence_gate", "build_case_quality_metrics", *args, **kwargs)
 
 
-def _build_judge_signal_payload(row: dict[str, Any]) -> dict[str, Any]:
-    signals_raw = row.get("signals") if isinstance(row.get("signals"), dict) else {}
-    return {
-        "violates_confirmed_fact": bool(
-            signals_raw.get("violates_confirmed_fact", row.get("violates_confirmed_fact"))
-        ),
-        "missing_core_flow": bool(
-            signals_raw.get("missing_core_flow", row.get("missing_core_flow"))
-        ),
-        "missing_reuse_risk": bool(
-            signals_raw.get("missing_reuse_risk", row.get("missing_reuse_risk"))
-        ),
-        "contains_pending_logic": bool(
-            signals_raw.get("contains_pending_logic", row.get("contains_pending_logic"))
-        ),
-        "confirmed_fact_hits": _safe_list(
-            signals_raw.get("confirmed_fact_hits", row.get("confirmed_fact_hits"))
-        ),
-        "confirmed_fact_violations": _safe_list(
-            signals_raw.get("confirmed_fact_violations", row.get("confirmed_fact_violations"))
-        ),
-        "reuse_risk_hits": _safe_list(signals_raw.get("reuse_risk_hits", row.get("reuse_risk_hits"))),
-        "pending_hits": _safe_list(signals_raw.get("pending_hits", row.get("pending_hits"))),
-    }
+def build_persistence_gate_diagnostic(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...postprocess.persistence_gate", "build_persistence_gate_diagnostic", *args, **kwargs)
 
 
-def _normalize_judge_row(
-    row: dict[str, Any],
+def evaluate_persistence_gate(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...postprocess.persistence_gate", "evaluate_persistence_gate", *args, **kwargs)
+
+
+def is_candidate_insufficient_underfill(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...postprocess.persistence_gate", "is_candidate_insufficient_underfill", *args, **kwargs)
+
+
+def summarize_persistence_case_quality_gate(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...postprocess.persistence_gate", "summarize_persistence_case_quality_gate", *args, **kwargs)
+
+
+def merge_contract_quality_gate(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...postprocess.case_contract", "merge_contract_quality_gate", *args, **kwargs)
+
+
+def project_persistable_cases(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...postprocess.case_contract", "project_persistable_cases", *args, **kwargs)
+
+
+def summarize_persistable_case_contract(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...postprocess.case_contract", "summarize_persistable_case_contract", *args, **kwargs)
+
+
+def build_context_compression_diagnostics(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...prompting.generation_diagnostics", "build_context_compression_diagnostics", *args, **kwargs)
+
+
+def build_context_source_log(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...prompting.generation_diagnostics", "build_context_source_log", *args, **kwargs)
+
+
+def build_coverage_diagnostics(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...prompting.generation_diagnostics", "build_coverage_diagnostics", *args, **kwargs)
+
+
+def build_execution_suite(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...execution.execution_suite", "build_execution_suite", *args, **kwargs)
+
+
+def build_supplement_closed_loop_instruction(*args: Any, **kwargs: Any) -> Any:
+    return call_component(
+        "...prompting.prompt_orchestration",
+        "build_supplement_closed_loop_instruction",
+        *args,
+        **kwargs,
+    )
+
+
+def merge_cases_for_append(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...postprocess.result_postprocess", "merge_cases_for_append", *args, **kwargs)
+
+
+def normalize_final_case_priorities(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...postprocess.result_postprocess", "normalize_final_case_priorities", *args, **kwargs)
+
+
+def stream_postprocess_cases(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...postprocess.result_postprocess", "stream_postprocess_cases", *args, **kwargs)
+
+
+def count_unique_test_cases(*args: Any, **kwargs: Any) -> Any:
+    return call_component("..adapters", "count_unique_test_cases", *args, **kwargs)
+
+
+def deduplicate_test_cases(*args: Any, **kwargs: Any) -> Any:
+    return call_component("..adapters", "deduplicate_test_cases", *args, **kwargs)
+
+
+def infer_case_kind(*args: Any, **kwargs: Any) -> Any:
+    return call_component("..adapters", "infer_case_kind", *args, **kwargs)
+
+
+def normalize_json_structure(*args: Any, **kwargs: Any) -> Any:
+    return call_component("..adapters", "normalize_json_structure", *args, **kwargs)
+
+
+def reorder_cases_by_closed_loop(*args: Any, **kwargs: Any) -> Any:
+    return call_component("..adapters", "reorder_cases_by_closed_loop", *args, **kwargs)
+
+
+def clean_and_parse_json(*args: Any, **kwargs: Any) -> Any:
+    return call_component("..adapters", "clean_and_parse_json", *args, **kwargs)
+
+
+def _select_generation_model(client: Any, full_input: str) -> str:
+    selector = getattr(client, "select_model", None)
+    if callable(selector):
+        try:
+            selected = selector(full_input, task_type="generation")
+            if selected:
+                return str(selected)
+        except Exception:
+            pass
+    return str(getattr(client, "model_name", None) or getattr(client, "model", None) or "unknown")
+
+
+def _normalize_missing_priority_final_cases(
+    cases: Any,
     *,
-    generation_id: int,
+    requirement_text: str,
+) -> Any:
+    """Fill stripped priority_final fields without masking explicit invalid values."""
+    if not isinstance(cases, list):
+        return cases
+    if not any(isinstance(item, dict) and "priority_final" not in item for item in cases):
+        return cases
+
+    normalized = normalize_final_case_priorities(cases, requirement_text=requirement_text)
+    normalized_by_index = {
+        index: item
+        for index, item in enumerate(normalized if isinstance(normalized, list) else [])
+        if isinstance(item, dict)
+    }
+    resolved: list[Any] = []
+    for index, item in enumerate(cases):
+        if isinstance(item, dict) and "priority_final" not in item:
+            resolved.append(normalized_by_index.get(index, item))
+        else:
+            resolved.append(item)
+    return resolved
+
+
+def _build_quality_ledger_payload(
+    *,
+    generation_id: int | None,
     request_id: str,
+    mode: str,
+    stage_counts: dict[str, Any],
+    coverage_payload: dict[str, Any],
+    convergence_payload: dict[str, Any],
+    generation_summary_payload: dict[str, Any],
+    review_decision_summary_payload: dict[str, Any],
+    judge_summary_payload: dict[str, Any],
+    feedback_control_debug_payload: dict[str, Any],
+    compression_diag_payload: dict[str, Any],
+    context_result: dict[str, Any],
+    judge_decision_table_payload: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    signals_payload = _build_judge_signal_payload(row)
-    before_case = row.get("before_case_snapshot")
-    if not isinstance(before_case, dict):
-        before_case = row.get("before_case")
-    if not isinstance(before_case, dict):
-        before_case = {}
-    after_case = row.get("after_case_snapshot")
-    if not isinstance(after_case, dict):
-        after_case = row.get("after_case")
-    if not isinstance(after_case, dict):
-        after_case = {}
-
-    return {
-        "generation_id": int(generation_id),
-        "request_id": str(request_id or "").strip(),
-        "case_id": str(row.get("case_id") or "").strip(),
-        "judge_status": _judge_status_key(row),
-        "reject_reason": str(row.get("reject_reason") or "").strip(),
-        "pending_reason": str(row.get("pending_reason") or "").strip(),
-        "signals": signals_payload,
-        "violates_confirmed_fact": bool(signals_payload.get("violates_confirmed_fact")),
-        "missing_core_flow": bool(signals_payload.get("missing_core_flow")),
-        "missing_reuse_risk": bool(signals_payload.get("missing_reuse_risk")),
-        "contains_pending_logic": bool(signals_payload.get("contains_pending_logic")),
-        "confirmed_fact_hits": list(signals_payload.get("confirmed_fact_hits") or []),
-        "confirmed_fact_violations": list(signals_payload.get("confirmed_fact_violations") or []),
-        "reuse_risk_hits": list(signals_payload.get("reuse_risk_hits") or []),
-        "pending_hits": list(signals_payload.get("pending_hits") or []),
-        "before_case_snapshot": dict(before_case),
-        "after_case_snapshot": dict(after_case),
-    }
+    return _build_quality_ledger_payload_impl(
+        generation_id=generation_id,
+        request_id=request_id,
+        mode=mode,
+        stage_counts=stage_counts,
+        coverage_payload=coverage_payload,
+        convergence_payload=convergence_payload,
+        generation_summary_payload=generation_summary_payload,
+        review_decision_summary_payload=review_decision_summary_payload,
+        judge_summary_payload=judge_summary_payload,
+        feedback_control_debug_payload=feedback_control_debug_payload,
+        compression_diag_payload=compression_diag_payload,
+        context_result=context_result,
+        judge_decision_table_payload=judge_decision_table_payload,
+        build_case_quality_failures_fn=build_case_quality_failures,
+        build_case_quality_metrics_fn=build_case_quality_metrics,
+        is_candidate_insufficient_underfill_fn=is_candidate_insufficient_underfill,
+    )
 
 
-def _normalize_review_compact_rows(
-    rows: list[dict[str, Any]],
+def _emit_stream_context_source_log(
     *,
-    generation_id: int,
-    request_id: str,
-) -> list[dict[str, Any]]:
-    compact_rows: list[dict[str, Any]] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        if str(row.get("dropped_stage") or "") != "review_llm":
-            continue
-        evidence = row.get("review_llm_drop_reason_evidence")
-        if not isinstance(evidence, dict):
-            evidence = {}
-        compact_rows.append(
-            {
-                "generation_id": int(generation_id),
-                "request_id": str(request_id or "").strip(),
-                "candidate_index": int(row.get("candidate_index") or 0),
-                "case_id": str(row.get("case_id") or "").strip(),
-                "test_module": str(row.get("test_module") or "").strip(),
-                "model_priority_current": str(row.get("model_priority_current") or "").strip(),
-                "bucket": str(row.get("bucket") or "").strip(),
-                "dropped_stage": "review_llm",
-                "dropped_reason": str(row.get("dropped_reason") or "").strip(),
-                "review_llm_drop_reason_raw": str(row.get("review_llm_drop_reason_raw") or "").strip(),
-                "review_llm_drop_reason": str(row.get("review_llm_drop_reason") or "").strip(),
-                "review_llm_drop_reason_source": str(row.get("review_llm_drop_reason_source") or "").strip(),
-                "high_signal": bool(row.get("high_signal")),
-                "has_coverage_value": bool(row.get("has_coverage_value")),
-                "has_positive_evidence": bool(row.get("has_positive_evidence")),
-                "has_coverage_signal": bool(row.get("has_coverage_signal")),
-                "has_high_signal": bool(row.get("has_high_signal")),
-                "has_competition_signal": bool(row.get("has_competition_signal")),
-                "focus_score": int(row.get("focus_score") or 0),
-                "evidence": {
-                    "selected_case_ids": list(evidence.get("selected_case_ids") or [])[:3],
-                    "selected_count_in_bucket": int(evidence.get("selected_count_in_bucket") or 0),
-                    "coverage_gain_score": int(evidence.get("coverage_gain_score") or 0),
-                    "missing_rule_hits_count": int(len(evidence.get("missing_rule_hits") or [])),
-                    "core_rule_hits_count": int(len(evidence.get("core_rule_hits") or [])),
-                    "unique_coverage_hits_count": int(len(evidence.get("unique_coverage_hits") or [])),
-                    "similarity": float(evidence.get("similarity") or 0.0),
-                    "duplicate_of_case_id": str(evidence.get("duplicate_of_case_id") or "").strip(),
-                },
-            }
+    db: Any,
+    project_id: int,
+    user_id: int | None,
+    context_result: dict[str, Any] | None,
+    gate_debug: dict[str, Any] | None,
+    doc_type: str,
+    compress: bool,
+    requirement_length: int,
+) -> None:
+    if not db or not STAGE25_SWITCHES.final_context_source_log_enabled:
+        return
+    try:
+        payload = build_context_source_log(
+            context_result=context_result,
+            gate_debug=gate_debug,
+            doc_type=doc_type,
+            compress=compress,
+            requirement_length=requirement_length,
         )
-    return compact_rows
-
-
-def _fit_table_diag_payload_size(payload: dict[str, Any], *, max_bytes: int = _MAX_GEN_DIAG_MESSAGE_BYTES) -> dict[str, Any]:
-    fitted = dict(payload or {})
-    rows = [item for item in (fitted.get("rows") or []) if isinstance(item, dict)]
-    fitted["rows"] = rows
-    fitted["row_count"] = int(len(rows))
-    fitted.setdefault("row_count_total", int(len(rows)))
-
-    def _payload_size_bytes(obj: dict[str, Any]) -> int:
-        return len(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
-
-    if _payload_size_bytes(fitted) <= max_bytes:
-        return fitted
-
-    sampled = list(rows)
-    while sampled:
-        candidate = dict(fitted)
-        candidate["rows"] = sampled
-        candidate["row_count"] = int(len(sampled))
-        candidate["row_count_total"] = int(len(rows))
-        candidate["rows_scope"] = "sampled_due_to_size"
-        if _payload_size_bytes(candidate) <= max_bytes:
-            return candidate
-        if len(sampled) <= 1:
-            break
-        sampled = sampled[: max(1, int(len(sampled) // 2))]
-
-    fallback = dict(fitted)
-    fallback["rows"] = []
-    fallback["row_count"] = 0
-    fallback["row_count_total"] = int(len(rows))
-    fallback["rows_scope"] = "summary_only_due_to_size"
-    return fallback
+        db.add(
+            LogEntry(
+                project_id=project_id,
+                user_id=user_id,
+                log_type="system",
+                message=f"GEN_CONTEXT_SOURCE:{json.dumps(payload, ensure_ascii=False)}",
+            )
+        )
+        db.commit()
+    except Exception as exc:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print(f"Failed to emit stream context source log: {exc}")
 
 
 class LegacyGenerationStreamPersistMixin:
@@ -212,7 +244,7 @@ class LegacyGenerationStreamPersistMixin:
         self,
         *,
         state: dict[str, Any],
-    ) -> Iterator[None]:
+    ) -> Iterator[Any]:
         client = state["client"]
         requirement = state["requirement"]
         project_id = state["project_id"]
@@ -241,6 +273,8 @@ class LegacyGenerationStreamPersistMixin:
         feedback_control_state = state.get("feedback_control_state") or {}
         requirement_semantics_context = state.get("requirement_semantics_context") or {}
         memory_diag = state.get("memory_diag") if isinstance(state.get("memory_diag"), dict) else {}
+        generation_timing_events = _sanitize_timing_events(state.get("generation_timing_events") or [])
+        persisted_generation_id: int | None = None
 
         try:
             postprocess_result = yield from stream_postprocess_cases(
@@ -269,63 +303,161 @@ class LegacyGenerationStreamPersistMixin:
                 requirement_semantics_context=requirement_semantics_context,
             )
 
-            stage_counts: dict[str, Any] = {}
-            coverage_payload: dict[str, Any] = {}
-            convergence_payload: dict[str, Any] = {}
-            generation_summary_payload: dict[str, Any] = {}
-            review_decision_summary_payload: dict[str, Any] = {}
-            review_decision_table_payload: list[dict[str, Any]] = []
-            judge_decision_table_payload: list[dict[str, Any]] = []
-            feedback_control_debug_payload: dict[str, Any] = {}
-            judge_summary_payload: dict[str, Any] = {}
-            if isinstance(postprocess_result, dict):
-                parsed_result = postprocess_result.get("cases")
-                if not isinstance(parsed_result, list):
-                    parsed_result = []
-                stage_counts = dict(postprocess_result.get("stage_counts") or {})
-                coverage_payload = dict(postprocess_result.get("coverage") or {})
-                convergence_payload = dict(postprocess_result.get("convergence_debug") or {})
-                generation_summary_payload = dict(postprocess_result.get("generation_summary") or {})
-                review_decision_summary_payload = dict(postprocess_result.get("review_decision_summary") or {})
-                review_decision_table_payload = [
-                    item
-                    for item in (postprocess_result.get("review_decision_table") or [])
-                    if isinstance(item, dict)
-                ]
-                judge_decision_table_payload = [
-                    item
-                    for item in (postprocess_result.get("judge_decision_table") or [])
-                    if isinstance(item, dict)
-                ]
-                feedback_control_debug_payload = dict(postprocess_result.get("feedback_control_debug") or {})
-                judge_summary_payload = dict(postprocess_result.get("judge_summary") or {})
-            else:
-                parsed_result = postprocess_result if isinstance(postprocess_result, list) else []
+            postprocess_payload = unpack_stream_postprocess_result(
+                postprocess_result,
+                generation_timing_events=generation_timing_events,
+                sanitize_timing_events_fn=_sanitize_timing_events,
+            )
+            parsed_result = postprocess_payload.parsed_result
+            stage_counts = postprocess_payload.stage_counts
+            coverage_payload = postprocess_payload.coverage_payload
+            convergence_payload = postprocess_payload.convergence_payload
+            generation_summary_payload = postprocess_payload.generation_summary_payload
+            review_decision_summary_payload = postprocess_payload.review_decision_summary_payload
+            review_decision_table_payload = postprocess_payload.review_decision_table_payload
+            judge_decision_table_payload = postprocess_payload.judge_decision_table_payload
+            feedback_control_debug_payload = postprocess_payload.feedback_control_debug_payload
+            judge_summary_payload = postprocess_payload.judge_summary_payload
+            generation_timing_events = postprocess_payload.generation_timing_events
 
-            if len(parsed_result) == 0:
-                yield "\n@@STATUS@@:鐢熸垚澶辫触\n"
-                yield "Error: 妯″瀷杩斿洖绌虹粨鏋滄垨瑙ｆ瀽涓嶅埌鏈夋晥鐢ㄤ緥锛岃妫€鏌ユā鍨嬮厤缃?鎻愮ず璇?缃戠粶鍚庨噸璇昞n"
-
-            cleaned_response = json.dumps(parsed_result, ensure_ascii=False)
-            persisted_generation_id: int | None = None
-
+            parsed_result = _normalize_missing_priority_final_cases(parsed_result, requirement_text=requirement)
+            gate_candidate_cases = parsed_result if isinstance(parsed_result, list) else []
+            stream_quality_gate_result = summarize_case_quality_gate(gate_candidate_cases)
+            stream_quality_gate_result = merge_contract_quality_gate(
+                stream_quality_gate_result,
+                summarize_persistable_case_contract(gate_candidate_cases),
+            )
+            stream_quality_gate_result = summarize_persistence_case_quality_gate(
+                stream_quality_gate_result,
+                generation_summary=generation_summary_payload,
+                review_decision_summary=review_decision_summary_payload,
+                judge_summary=judge_summary_payload,
+                settings=settings,
+            )
+            persistence_preview = gate_candidate_cases
+            if append and existing_entry:
+                persistence_preview = merge_cases_for_append(
+                    existing_cases,
+                    gate_candidate_cases,
+                    deduplicate_test_cases_fn=deduplicate_test_cases,
+                    reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+                )
+            stream_quality_gate_result = merge_contract_quality_gate(
+                stream_quality_gate_result,
+                summarize_persistable_case_contract(persistence_preview),
+            )
+            workflow_blueprints = [
+                dict(item)
+                for item in (feedback_control_state.get("workflow_blueprints") or [])
+                if isinstance(item, dict)
+            ] if isinstance(feedback_control_state, dict) else []
+            execution_plan = dict(review_decision_summary_payload.get("execution_plan") or {})
+            persistence_gate_result = evaluate_persistence_gate(
+                persistence_preview,
+                workflow_blueprints=workflow_blueprints,
+                execution_plan=execution_plan,
+                generation_mode=generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                quality_gate=stream_quality_gate_result,
+                settings=settings,
+            )
+            persistence_gate_diag = build_persistence_gate_diagnostic(persistence_gate_result)
+            persistence_gate_diag["request_id"] = request_id
+            persistence_gate_diag["project_id"] = int(project_id)
+            yield add_diagnostic_log(
+                db=db,
+                log_entry_type=LogEntry,
+                project_id=project_id,
+                user_id=user_id,
+                payload=persistence_gate_diag,
+            )
             if db:
+                db.commit()
+            if not bool(persistence_gate_result.get("passed")):
+                compression_diag_payload = build_context_compression_diagnostics(
+                    context_result=context_result if isinstance(context_result, dict) else {},
+                )
+                pre_failure_diagnostics = _build_pre_persistence_failure_diagnostics(
+                    build_quality_ledger_payload=_build_quality_ledger_payload,
+                    generation_id=None,
+                    request_id=request_id,
+                    project_id=int(project_id),
+                    mode=generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    multi_pass=bool(multi_pass),
+                    expected_count=int(expected_count or 0),
+                    stage_counts=stage_counts,
+                    coverage_payload=coverage_payload,
+                    convergence_payload=convergence_payload,
+                    generation_summary_payload=generation_summary_payload,
+                    review_decision_summary_payload=review_decision_summary_payload,
+                    review_decision_table_payload=review_decision_table_payload,
+                    judge_summary_payload=judge_summary_payload,
+                    judge_decision_table_payload=judge_decision_table_payload,
+                    feedback_control_debug_payload=feedback_control_debug_payload,
+                    compression_diag_payload=compression_diag_payload,
+                    context_result=context_result if isinstance(context_result, dict) else {},
+                )
+                for diag_payload in pre_failure_diagnostics:
+                    yield add_diagnostic_log(
+                        db=db,
+                        log_entry_type=LogEntry,
+                        project_id=project_id,
+                        user_id=user_id,
+                        payload=diag_payload,
+                    )
+                if db and pre_failure_diagnostics:
+                    db.commit()
+                failure_code = str(persistence_gate_result.get("failure_code") or "execution_plan_failed")
+                execution_plan_validation = persistence_gate_result.get("execution_plan_validation")
+                quality_gate = persistence_gate_result.get("quality_gate")
+                quality_failed_checks = (
+                    quality_gate.get("failed_checks")
+                    if isinstance(quality_gate, dict)
+                    else []
+                )
+                execution_failure_reasons = (
+                    execution_plan_validation.get("failure_reasons")
+                    if isinstance(execution_plan_validation, dict)
+                    else []
+                )
+                failure_reasons = (
+                    quality_failed_checks
+                    if failure_code == "LOW_QUALITY_GENERATED_CASES"
+                    else execution_failure_reasons
+                )
+                failure_reason_text = ",".join(
+                    str(item).strip()
+                    for item in (failure_reasons or [])
+                    if str(item).strip()
+                )
+                failure_detail = f": {failure_reason_text}" if failure_reason_text else ""
+                yield f"\n@@STATUS@@:生成结果未通过落库门禁{failure_detail}\n"
+                yield f"Error: {failure_code}{failure_detail}\n"
+                return
+            gate_passed_cases = (
+                persistence_gate_result.get("cases")
+                if isinstance(persistence_gate_result.get("cases"), list)
+                else []
+            )
+            parsed_result = project_persistable_cases(gate_passed_cases)
+            cleaned_response = json.dumps(parsed_result, ensure_ascii=False)
+            if db:
+                test_generation_model = resolve_lazy_attr(TestGeneration)
                 if overwrite:
                     from sqlalchemy import desc
 
-                    query = db.query(TestGeneration).filter(
-                        TestGeneration.project_id == project_id,
-                        TestGeneration.requirement_text == original_requirement,
+                    query = db.query(test_generation_model).filter(
+                        test_generation_model.project_id == project_id,
+                        test_generation_model.requirement_text == original_requirement,
                     )
                     if user_id:
-                        query = query.filter(TestGeneration.user_id == user_id)
-                    existing_entry_overwrite = query.order_by(desc(TestGeneration.created_at)).first()
+                        query = query.filter(test_generation_model.user_id == user_id)
+                    existing_entry_overwrite = query.order_by(desc(test_generation_model.created_at)).first()
                     if existing_entry_overwrite:
                         existing_entry_overwrite.generated_result = cleaned_response
                         db.commit()
                         persisted_generation_id = int(existing_entry_overwrite.id or 0) or None
                     else:
-                        new_entry = TestGeneration(
+                        new_entry = test_generation_model(
                             requirement_text=original_requirement,
                             generated_result=cleaned_response,
                             project_id=project_id,
@@ -337,17 +469,11 @@ class LegacyGenerationStreamPersistMixin:
                         db.commit()
                         persisted_generation_id = int(new_entry.id or 0) or None
                 elif append and existing_entry:
-                    merged_result = merge_cases_for_append(
-                        existing_cases,
-                        parsed_result,
-                        deduplicate_test_cases_fn=deduplicate_test_cases,
-                        reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
-                    )
-                    existing_entry.generated_result = json.dumps(merged_result, ensure_ascii=False)
+                    existing_entry.generated_result = json.dumps(parsed_result, ensure_ascii=False)
                     db.commit()
                     persisted_generation_id = int(existing_entry.id or 0) or None
                 else:
-                    new_entry = TestGeneration(
+                    new_entry = test_generation_model(
                         requirement_text=original_requirement,
                         generated_result=cleaned_response,
                         project_id=project_id,
@@ -360,308 +486,106 @@ class LegacyGenerationStreamPersistMixin:
                     persisted_generation_id = int(new_entry.id or 0) or None
 
                 # 中文注释：把本次最终落库 generation_id 回传给前端，便于流式完成后回拉最终结果。
-                if persisted_generation_id:
-                    persisted_payload = {
-                        "kind": "generation_persisted",
-                        "generation_id": int(persisted_generation_id),
-                        "project_id": int(project_id),
-                    }
-                    if request_id:
-                        persisted_payload["request_id"] = request_id
-                    db.add(
-                        LogEntry(
-                            project_id=project_id,
-                            log_type="system",
-                            message=f"GEN_DIAG:{json.dumps(persisted_payload, ensure_ascii=False)}",
-                            user_id=user_id,
-                        )
-                    )
-                    yield f"GEN_DIAG:{json.dumps(persisted_payload, ensure_ascii=False)}\n"
-
-                mode_payload = {
-                    "kind": "generation_mode",
-                    "mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
-                    "biz_keys": [current_biz_key or "unknown"],
-                    "current_biz_key": current_biz_key or "unknown",
-                    "multi_pass": bool(multi_pass),
-                }
-                db.add(
-                    LogEntry(
-                        project_id=project_id,
-                        log_type="system",
-                        message=f"GEN_DIAG:{json.dumps(mode_payload, ensure_ascii=False)}",
-                        user_id=user_id,
-                    )
+                timing_ledger = build_stream_timing_ledger(
+                    generation_timing_events=generation_timing_events,
+                    generation_id=persisted_generation_id,
+                    project_id=project_id,
+                    request_id=request_id,
+                    generation_mode=generation_mode,
+                    multi_pass=multi_pass,
                 )
-                yield f"GEN_DIAG:{json.dumps(mode_payload, ensure_ascii=False)}\n"
+                duration_by_stage_ms = timing_ledger.duration_by_stage_ms
 
-                # 中文注释：记录阶段日志，便于观察 multi-pass 执行情况。
-                for stage in ("primary", "gap", "review"):
-                    payload = {
-                        "kind": "generation_stage",
-                        "stage": stage,
-                        "case_count": int(stage_counts.get(stage, 0)),
-                        "multi_pass": bool(multi_pass),
-                        "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
-                    }
-                    db.add(
-                        LogEntry(
-                            project_id=project_id,
-                            log_type="system",
-                            message=f"GEN_DIAG:{json.dumps(payload, ensure_ascii=False)}",
-                            user_id=user_id,
-                        )
-                    )
-                    yield f"GEN_DIAG:{json.dumps(payload, ensure_ascii=False)}\n"
-
-                # GEN_DIAG 鎬昏
                 full_input = (system_prompt or "") + requirement
-                actual_model = client.select_model(full_input, task_type="generation")
+                actual_model = _select_generation_model(client, full_input)
+                execution_suite_payload = build_execution_suite(gate_passed_cases)
+                yield add_diagnostic_log(
+                    db=db,
+                    log_entry_type=LogEntry,
+                    project_id=project_id,
+                    user_id=user_id,
+                    payload={
+                        "kind": "generation_execution_suite",
+                        "generation_id": persisted_generation_id,
+                        "project_id": project_id,
+                        "request_id": request_id,
+                        "source": "persistence_gate_pre_projection",
+                        "case_count": int(execution_suite_payload.get("case_count") or 0)
+                        if isinstance(execution_suite_payload, dict)
+                        else 0,
+                        "execution_readiness": str(execution_suite_payload.get("execution_readiness") or "")
+                        if isinstance(execution_suite_payload, dict)
+                        else "",
+                        "execution_suite": execution_suite_payload
+                        if isinstance(execution_suite_payload, dict)
+                        else {},
+                    },
+                )
                 compression_diag_payload = build_context_compression_diagnostics(
                     context_result=context_result if isinstance(context_result, dict) else {},
                 )
-                diag = {
-                    "kind": "gen_diag",
-                    "mode": "stream",
-                    "doc_type": doc_type,
-                    "compress": compress,
-                    "expected_count": expected_count,
-                    "generated_count": count_unique_test_cases(parsed_result),
-                    "content_length": len(requirement),
-                    "kb_length": len(kb_context or ""),
-                    "model": actual_model,
-                    "max_tokens": client.max_tokens,
-                    "multi_pass": bool(multi_pass),
-                    "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
-                    "context_compression_ratio": compression_diag_payload.get("compression_ratio"),
-                    "context_retained_chunk_count": compression_diag_payload.get("retained_chunk_count"),
-                    "context_relevance_distribution": compression_diag_payload.get("relevance_distribution") or {},
-                }
-                db.add(
-                    LogEntry(
-                        project_id=project_id,
-                        log_type="system",
-                        message=f"GEN_DIAG:{json.dumps(diag, ensure_ascii=False)}",
-                        user_id=user_id,
-                    )
+                quality_ledger_payload = _build_quality_ledger_payload(
+                    generation_id=persisted_generation_id,
+                    request_id=request_id,
+                    mode=generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    stage_counts=stage_counts,
+                    coverage_payload=coverage_payload,
+                    convergence_payload=convergence_payload,
+                    generation_summary_payload=generation_summary_payload,
+                    review_decision_summary_payload=review_decision_summary_payload,
+                    judge_summary_payload=judge_summary_payload,
+                    feedback_control_debug_payload=feedback_control_debug_payload,
+                    compression_diag_payload=compression_diag_payload,
+                    context_result=context_result if isinstance(context_result, dict) else {},
+                    judge_decision_table_payload=judge_decision_table_payload,
                 )
-                yield f"GEN_DIAG:{json.dumps(diag, ensure_ascii=False)}\n"
-                compression_diag = {
-                    "kind": "generation_context_compression",
-                    **compression_diag_payload,
-                    "multi_pass": bool(multi_pass),
-                    "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
-                }
-                if request_id:
-                    compression_diag["request_id"] = request_id
-                db.add(
-                    LogEntry(
-                        project_id=project_id,
-                        log_type="system",
-                        message=f"GEN_DIAG:{json.dumps(compression_diag, ensure_ascii=False)}",
-                        user_id=user_id,
-                    )
+                post_persist_payloads = build_stream_post_persist_diagnostic_payloads(
+                    generation_id=persisted_generation_id,
+                    project_id=project_id,
+                    request_id=request_id,
+                    generation_mode=generation_mode,
+                    multi_pass=multi_pass,
+                    current_biz_key=current_biz_key,
+                    timing_payload=timing_ledger.payload,
+                    stage_counts=stage_counts,
+                    duration_by_stage_ms=duration_by_stage_ms,
+                    doc_type=doc_type,
+                    compress=compress,
+                    expected_count=expected_count,
+                    generated_count=count_unique_test_cases(parsed_result),
+                    requirement_length=len(requirement),
+                    kb_length=len(kb_context or ""),
+                    model=actual_model,
+                    max_tokens=getattr(client, "max_tokens", None),
+                    compression_diag_payload=compression_diag_payload,
+                    convergence_payload=convergence_payload,
+                    review_decision_summary_payload=review_decision_summary_payload,
+                    feedback_control_debug_payload=feedback_control_debug_payload,
+                    judge_summary_payload=judge_summary_payload,
+                    judge_decision_table_payload=judge_decision_table_payload,
+                    memory_diag=memory_diag,
+                    review_decision_table_payload=review_decision_table_payload,
+                    generation_summary_payload=generation_summary_payload,
+                    quality_ledger_payload=quality_ledger_payload,
+                    coverage_payload=coverage_payload,
                 )
-                yield f"GEN_DIAG:{json.dumps(compression_diag, ensure_ascii=False)}\n"
+                for payload in post_persist_payloads.before_generation_summary:
+                    yield add_diagnostic_log(
+                        db=db,
+                        log_entry_type=LogEntry,
+                        project_id=project_id,
+                        user_id=user_id,
+                        payload=payload,
+                    )
 
-                # 中文注释：记录“质量/覆盖收敛”诊断，数量仅作为参考差异，不再判定为失败。
-                if convergence_payload:
-                    convergence_diag = {
-                        "kind": "generation_convergence",
-                        **convergence_payload,
-                        "expected_count": int(expected_count or 0),
-                        "multi_pass": bool(multi_pass),
-                        "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
-                    }
-                    db.add(
-                        LogEntry(
-                            project_id=project_id,
-                            log_type="system",
-                            message=f"GEN_DIAG:{json.dumps(convergence_diag, ensure_ascii=False)}",
-                            user_id=user_id,
-                        )
+                if post_persist_payloads.generation_summary:
+                    yield add_diagnostic_log(
+                        db=db,
+                        log_entry_type=LogEntry,
+                        project_id=project_id,
+                        user_id=user_id,
+                        payload=post_persist_payloads.generation_summary,
                     )
-                    yield f"GEN_DIAG:{json.dumps(convergence_diag, ensure_ascii=False)}\n"
-
-                if review_decision_summary_payload:
-                    review_summary_diag = {
-                        "kind": "review_decision_summary",
-                        **review_decision_summary_payload,
-                        "multi_pass": bool(multi_pass),
-                        "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
-                    }
-                    if request_id:
-                        review_summary_diag["request_id"] = request_id
-                    db.add(
-                        LogEntry(
-                            project_id=project_id,
-                            log_type="system",
-                            message=f"GEN_DIAG:{json.dumps(review_summary_diag, ensure_ascii=False)}",
-                            user_id=user_id,
-                        )
-                    )
-                    yield f"GEN_DIAG:{json.dumps(review_summary_diag, ensure_ascii=False)}\n"
-
-                if feedback_control_debug_payload:
-                    control_diag = {
-                        "kind": "feedback_control_state",
-                        **feedback_control_debug_payload,
-                    }
-                    if request_id:
-                        control_diag["request_id"] = request_id
-                    db.add(
-                        LogEntry(
-                            project_id=project_id,
-                            log_type="system",
-                            message=f"GEN_DIAG:{json.dumps(control_diag, ensure_ascii=False)}",
-                            user_id=user_id,
-                        )
-                    )
-                    yield f"GEN_DIAG:{json.dumps(control_diag, ensure_ascii=False)}\n"
-                if judge_summary_payload:
-                    judge_diag = {
-                        "kind": "judge_summary",
-                        **judge_summary_payload,
-                    }
-                    if persisted_generation_id:
-                        judge_diag["generation_id"] = int(persisted_generation_id)
-                    if request_id:
-                        judge_diag["request_id"] = request_id
-                    db.add(
-                        LogEntry(
-                            project_id=project_id,
-                            log_type="system",
-                            message=f"GEN_DIAG:{json.dumps(judge_diag, ensure_ascii=False)}",
-                            user_id=user_id,
-                        )
-                    )
-                    yield f"GEN_DIAG:{json.dumps(judge_diag, ensure_ascii=False)}\n"
-                if judge_summary_payload or judge_decision_table_payload:
-                    normalized_rows = [
-                        _normalize_judge_row(
-                            item,
-                            generation_id=int(persisted_generation_id or 0),
-                            request_id=request_id,
-                        )
-                        for item in judge_decision_table_payload
-                        if isinstance(item, dict)
-                    ]
-                    reject_pending_rows = [
-                        row
-                        for row in normalized_rows
-                        if str(row.get("judge_status") or "").upper() in {"REJECT", "PENDING"}
-                    ]
-                    rows_to_persist = reject_pending_rows or normalized_rows
-                    judge_table_diag = {
-                        "kind": "judge_decision_table",
-                        "generation_id": int(persisted_generation_id or 0),
-                        "rows": rows_to_persist,
-                        "row_count": int(len(rows_to_persist)),
-                        "row_count_total": int(len(normalized_rows)),
-                        "row_count_reject_pending": int(len(reject_pending_rows)),
-                        "rows_scope": "reject_pending_only" if reject_pending_rows else "all_when_no_reject_pending",
-                        "row_evidence_incomplete": bool(
-                            int(judge_summary_payload.get("rejected_out_count") or 0)
-                            + int(judge_summary_payload.get("pending_out_count") or 0) > 0
-                            and len(reject_pending_rows) == 0
-                        ),
-                        "multi_pass": bool(multi_pass),
-                        "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
-                    }
-                    if request_id:
-                        judge_table_diag["request_id"] = request_id
-                    judge_table_diag = _fit_table_diag_payload_size(judge_table_diag)
-                    db.add(
-                        LogEntry(
-                            project_id=project_id,
-                            log_type="system",
-                            message=f"GEN_DIAG:{json.dumps(judge_table_diag, ensure_ascii=False)}",
-                            user_id=user_id,
-                        )
-                    )
-                    yield f"GEN_DIAG:{json.dumps(judge_table_diag, ensure_ascii=False)}\n"
-                if memory_diag:
-                    memory_diag_payload = {
-                        "kind": "memory_fabric_diag",
-                        **dict(memory_diag),
-                    }
-                    if request_id:
-                        memory_diag_payload["request_id"] = request_id
-                    db.add(
-                        LogEntry(
-                            project_id=project_id,
-                            log_type="system",
-                            message=f"GEN_DIAG:{json.dumps(memory_diag_payload, ensure_ascii=False)}",
-                            user_id=user_id,
-                        )
-                    )
-                    yield f"GEN_DIAG:{json.dumps(memory_diag_payload, ensure_ascii=False)}\n"
-
-                if review_decision_table_payload:
-                    review_table_diag = {
-                        "kind": "review_decision_table",
-                        "generation_id": int(persisted_generation_id or 0),
-                        "rows": review_decision_table_payload,
-                        "row_count": int(len(review_decision_table_payload)),
-                        "multi_pass": bool(multi_pass),
-                        "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
-                    }
-                    if request_id:
-                        review_table_diag["request_id"] = request_id
-                    review_table_diag = _fit_table_diag_payload_size(review_table_diag)
-                    db.add(
-                        LogEntry(
-                            project_id=project_id,
-                            log_type="system",
-                            message=f"GEN_DIAG:{json.dumps(review_table_diag, ensure_ascii=False)}",
-                            user_id=user_id,
-                        )
-                    )
-                    yield f"GEN_DIAG:{json.dumps(review_table_diag, ensure_ascii=False)}\n"
-
-                    compact_rows = _normalize_review_compact_rows(
-                        review_decision_table_payload,
-                        generation_id=int(persisted_generation_id or 0),
-                        request_id=request_id,
-                    )
-                    if compact_rows:
-                        review_table_compact_diag = {
-                            "kind": "review_decision_table_compact",
-                            "generation_id": int(persisted_generation_id or 0),
-                            "rows": compact_rows,
-                            "row_count": int(len(compact_rows)),
-                            "multi_pass": bool(multi_pass),
-                            "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
-                        }
-                        if request_id:
-                            review_table_compact_diag["request_id"] = request_id
-                        review_table_compact_diag = _fit_table_diag_payload_size(review_table_compact_diag)
-                        db.add(
-                            LogEntry(
-                                project_id=project_id,
-                                log_type="system",
-                                message=f"GEN_DIAG:{json.dumps(review_table_compact_diag, ensure_ascii=False)}",
-                                user_id=user_id,
-                            )
-                        )
-                        yield f"GEN_DIAG:{json.dumps(review_table_compact_diag, ensure_ascii=False)}\n"
-
-                if generation_summary_payload:
-                    generation_summary_diag = {
-                        "kind": "generation_summary",
-                        **generation_summary_payload,
-                        "multi_pass": bool(multi_pass),
-                        "generation_mode": generation_mode or ("multi_pass" if multi_pass else "single_pass"),
-                    }
-                    db.add(
-                        LogEntry(
-                            project_id=project_id,
-                            log_type="system",
-                            message=f"GEN_DIAG:{json.dumps(generation_summary_diag, ensure_ascii=False)}",
-                            user_id=user_id,
-                        )
-                    )
-                    yield f"GEN_DIAG:{json.dumps(generation_summary_diag, ensure_ascii=False)}\n"
                     status = str(generation_summary_payload.get("status") or "")
                     stop_reason_text = _render_stop_reason_text(
                         list(generation_summary_payload.get("stop_reason") or [])
@@ -675,21 +599,16 @@ class LegacyGenerationStreamPersistMixin:
                         yield "@@STATUS@@:当前为最优测试用例集合\n"
                         yield "@@STATUS@@:继续生成将降低质量或增加冗余\n"
 
-                # 中文注释：记录覆盖检查日志。
-                if coverage_payload:
-                    coverage_payload["multi_pass"] = bool(multi_pass)
-                    coverage_payload["generation_mode"] = generation_mode or ("multi_pass" if multi_pass else "single_pass")
-                    db.add(
-                        LogEntry(
-                            project_id=project_id,
-                            log_type="system",
-                            message=f"GEN_DIAG:{json.dumps(coverage_payload, ensure_ascii=False)}",
-                            user_id=user_id,
-                        )
+                for payload in post_persist_payloads.after_generation_summary:
+                    yield add_diagnostic_log(
+                        db=db,
+                        log_entry_type=LogEntry,
+                        project_id=project_id,
+                        user_id=user_id,
+                        payload=payload,
                     )
-                    yield f"GEN_DIAG:{json.dumps(coverage_payload, ensure_ascii=False)}\n"
 
-                # 淇濈暀鏃㈡湁瑕嗙洊璇婃柇
+                # 保留既有覆盖诊断
                 if STAGE25_SWITCHES.coverage_diagnostics_enabled:
                     coverage_diag = build_coverage_diagnostics(
                         requirement=requirement,
@@ -698,19 +617,18 @@ class LegacyGenerationStreamPersistMixin:
                         fusion_debug=(context_result or {}).get("fusion_debug") or {},
                         expected_count=int(expected_count or 0),
                     )
-                    db.add(
-                        LogEntry(
-                            project_id=project_id,
-                            log_type="system",
-                            message=f"GEN_COVERAGE_DIAG:{json.dumps(coverage_diag, ensure_ascii=False)}",
-                            user_id=user_id,
-                        )
+                    yield add_diagnostic_log(
+                        db=db,
+                        log_entry_type=LogEntry,
+                        project_id=project_id,
+                        user_id=user_id,
+                        payload=coverage_diag,
+                        prefix="GEN_COVERAGE_DIAG",
                     )
-                    yield f"GEN_COVERAGE_DIAG:{json.dumps(coverage_diag, ensure_ascii=False)}\n"
 
                 db.commit()
 
-                self._emit_context_source_log(
+                _emit_stream_context_source_log(
                     db=db,
                     project_id=project_id,
                     user_id=user_id,
@@ -721,4 +639,39 @@ class LegacyGenerationStreamPersistMixin:
                     requirement_length=len(requirement or ""),
                 )
         except Exception as e:
-            print(f"Failed to save streamed result to DB: {e}")
+            error_type = type(e).__name__
+            error_message = str(e)
+            diagnostic_payload = {
+                "kind": "stream_persist_exception",
+                "request_id": request_id,
+                "project_id": int(project_id or 0),
+                "user_id": int(user_id or 0) if user_id is not None else None,
+                "generation_id": int(persisted_generation_id or 0),
+                "error_type": error_type,
+                "error_message": error_message[:1000],
+                "traceback_tail": traceback.format_exc()[-2000:],
+            }
+            print(f"Failed to save streamed result to DB: {error_type}: {error_message}")
+            if db:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                try:
+                    yield add_diagnostic_log(
+                        db=db,
+                        log_entry_type=LogEntry,
+                        project_id=project_id,
+                        user_id=user_id,
+                        payload=diagnostic_payload,
+                    )
+                    db.commit()
+                except Exception:
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
+            else:
+                yield f"GEN_DIAG:{json.dumps(diagnostic_payload, ensure_ascii=False)}\n"
+            yield "@@STATUS@@:生成结果落库失败，已保留流式预览结果，请查看 stream_persist_exception 诊断\n"
+            yield f"Error: STREAM_PERSISTENCE_FAILED: {error_type}: {error_message[:300]}\n"

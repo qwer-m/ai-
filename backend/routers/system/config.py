@@ -1,4 +1,4 @@
-﻿"""Configuration center router entrypoint."""
+"""Configuration center router entrypoint."""
 
 from fastapi import APIRouter
 

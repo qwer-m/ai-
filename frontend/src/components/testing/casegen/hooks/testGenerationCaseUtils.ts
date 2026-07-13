@@ -9,7 +9,22 @@ export const getErrorText = (error: any) => {
   if (!error) return '';
   if (typeof error === 'string') return error;
   if (error?.data?.error) return String(error.data.error);
-  if (error?.data?.detail) return String(error.data.detail);
+  if (error?.data?.detail) {
+    if (typeof error.data.detail === 'string') return String(error.data.detail);
+    const detail = error.data.detail;
+    if (detail && typeof detail === 'object') {
+      const code = typeof detail.error_code === 'string' ? detail.error_code.trim() : '';
+      const message =
+        (typeof detail.error_message === 'string' && detail.error_message.trim()) ||
+        (typeof detail.error === 'string' && detail.error.trim()) ||
+        (typeof detail.message === 'string' && detail.message.trim()) ||
+        '';
+      if (message && code) return `${message} (${code})`;
+      if (message) return message;
+      if (code) return code;
+    }
+    try { return JSON.stringify(error.data.detail); } catch { return String(error.data.detail); }
+  }
   if (error?.data?.message) return String(error.data.message);
   if (error?.message) return String(error.message);
   try { return JSON.stringify(error); } catch { return String(error); }
@@ -121,10 +136,14 @@ export const normalizeStandardCases = (items: any[]) => items
     const rawPriority = pickField(item, ['priority', 'p', '优先级']) ?? item.priority;
     const normalizedPriority = normalizePriority(rawPriority);
     const meta = (item?.meta && typeof item.meta === 'object' && !Array.isArray(item.meta)) ? item.meta : undefined;
-    const priorityDebug = (meta?.priority_debug && typeof meta.priority_debug === 'object')
-      ? meta.priority_debug
-      : undefined;
-    const finalPriority = normalizePriority(priorityDebug?.final_priority ?? normalizedPriority);
+    const priorityDebug = (item?.priorityDebug && typeof item.priorityDebug === 'object')
+      ? item.priorityDebug
+      : (item?.priority_debug && typeof item.priority_debug === 'object')
+        ? item.priority_debug
+        : (meta?.priority_debug && typeof meta.priority_debug === 'object')
+          ? meta.priority_debug
+          : undefined;
+    const finalPriority = normalizePriority(item.finalPriority ?? item.final_priority ?? item.priority_final ?? priorityDebug?.final_priority ?? normalizedPriority);
     const normalizedFinalPriority = finalPriority || normalizedPriority;
 
     return {
@@ -137,6 +156,8 @@ export const normalizeStandardCases = (items: any[]) => items
       test_input: String(pickField(item, ['test_input', 'input', '输入', '测试输入']) ?? '').trim(),
       expected_result: String(pickField(item, ['expected_result', 'expected', 'expect', '预期', '预期结果']) ?? '').trim(),
       priority: normalizedFinalPriority,
+      priority_final: normalizedFinalPriority,
+      finalPriority: normalizedFinalPriority,
       priorityDebug,
       meta: meta ?? item?.meta,
     };
@@ -144,11 +165,16 @@ export const normalizeStandardCases = (items: any[]) => items
 
 export const deduplicateStandardCases = (items: any[]) => {
   const seen = new Set<string>();
+  const seenDescription = new Set<string>();
   const norm = (v: unknown) => String(v ?? '').trim().toLowerCase().replace(/\r/g, '').replace(/\n/g, ' ');
+  const normDescription = (v: unknown) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
   return items.filter((item) => {
+    const descriptionKey = normDescription(item.description);
+    if (descriptionKey && seenDescription.has(descriptionKey)) return false;
     const steps = Array.isArray(item.steps) ? item.steps.map((s: unknown) => norm(s)).join(' | ') : norm(item.steps);
     const key = `${norm(item.test_module)}||${norm(item.description)}||${norm(item.test_input)}||${norm(item.expected_result)}||${steps}`;
     if (!key || seen.has(key)) return false;
+    if (descriptionKey) seenDescription.add(descriptionKey);
     seen.add(key);
     return true;
   });

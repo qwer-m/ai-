@@ -1,10 +1,10 @@
-from modules.testing.test_generation_components.legacy.context.gate import (
+from .gate import (
     LegacyGenerationContextGateMixin,
 )
-from modules.testing.test_generation_components.legacy.context.hybrid import (
+from .hybrid import (
     LegacyGenerationContextHybridMixin,
 )
-from modules.testing.test_generation_components.legacy.context.trace import (
+from .trace import (
     LegacyGenerationContextTraceMixin,
 )
 

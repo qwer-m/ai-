@@ -12,6 +12,16 @@ from sqlalchemy.orm import Session, aliased
 from core.db.models import KnowledgeDocument, Project
 
 
+USER_MANAGED_DOC_TYPES = (
+    "requirement",
+    "test_case",
+    "prototype",
+    "product_requirement",
+    "incomplete",
+)
+OPTIONAL_USER_VISIBLE_DOC_TYPES = ("evaluation_report",)
+
+
 class KnowledgeDocumentRepository:
     """Session-backed repository for KnowledgeDocument."""
 
@@ -63,6 +73,31 @@ class KnowledgeDocumentRepository:
         if exclude_doc_id is not None:
             query = query.filter(KnowledgeDocument.id != exclude_doc_id)
         return query.first()
+
+    def find_latest_by_identity(
+        self,
+        *,
+        project_id: int,
+        user_id: int | None,
+        doc_type: str | None,
+        filename: str,
+        exclude_doc_id: int | None = None,
+    ) -> Optional[KnowledgeDocument]:
+        query = self.db.query(KnowledgeDocument).filter(
+            KnowledgeDocument.project_id == project_id,
+            KnowledgeDocument.filename == filename,
+        )
+        if user_id is None:
+            query = query.filter(KnowledgeDocument.user_id.is_(None))
+        else:
+            query = query.filter(KnowledgeDocument.user_id == user_id)
+        if doc_type is None:
+            query = query.filter(KnowledgeDocument.doc_type.is_(None))
+        else:
+            query = query.filter(KnowledgeDocument.doc_type == doc_type)
+        if exclude_doc_id is not None:
+            query = query.filter(KnowledgeDocument.id != exclude_doc_id)
+        return query.order_by(KnowledgeDocument.created_at.desc(), KnowledgeDocument.id.desc()).first()
 
     def find_by_hash(self, *, content_hash: str) -> Optional[KnowledgeDocument]:
         return (
@@ -180,6 +215,46 @@ class KnowledgeDocumentRepository:
             .all()
         )
 
+    def list_project_doc_snapshot_fingerprints(
+        self,
+        *,
+        project_id: int,
+        max_docs: int,
+    ) -> list:
+        return (
+            self.db.query(
+                KnowledgeDocument.id,
+                KnowledgeDocument.filename,
+                KnowledgeDocument.content_hash,
+                KnowledgeDocument.doc_type,
+                KnowledgeDocument.user_id,
+                func.length(KnowledgeDocument.summary).label("summary_length"),
+                func.length(KnowledgeDocument.content).label("content_length"),
+            )
+            .filter(KnowledgeDocument.project_id == project_id)
+            .order_by(KnowledgeDocument.created_at.asc(), KnowledgeDocument.id.asc())
+            .limit(max(1, int(max_docs)))
+            .all()
+        )
+
+    def list_project_doc_contents_by_ids(
+        self,
+        *,
+        project_id: int,
+        doc_ids: Iterable[int],
+    ) -> list:
+        cleaned_doc_ids = [int(value) for value in doc_ids if value is not None]
+        if not cleaned_doc_ids:
+            return []
+        return (
+            self.db.query(KnowledgeDocument.id, KnowledgeDocument.content)
+            .filter(
+                KnowledgeDocument.project_id == project_id,
+                KnowledgeDocument.id.in_(cleaned_doc_ids),
+            )
+            .all()
+        )
+
     def list_project_docs_ordered_by_id(self, *, project_id: int) -> list[KnowledgeDocument]:
         return (
             self.db.query(KnowledgeDocument)
@@ -270,10 +345,17 @@ class KnowledgeDocumentRepository:
         doc_type: str | None = None,
         include_linked_test_cases: bool = False,
         include_evaluation_reports: bool = False,
+        include_internal_artifacts: bool = False,
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> tuple[int, list[KnowledgeDocument]]:
         query = self.db.query(KnowledgeDocument).filter(KnowledgeDocument.project_id == project_id)
+
+        if not include_internal_artifacts:
+            visible_types = list(USER_MANAGED_DOC_TYPES)
+            if include_evaluation_reports:
+                visible_types.extend(OPTIONAL_USER_VISIBLE_DOC_TYPES)
+            query = query.filter(KnowledgeDocument.doc_type.in_(visible_types))
 
         if search:
             query = query.filter(KnowledgeDocument.filename.like(f"%{search}%"))

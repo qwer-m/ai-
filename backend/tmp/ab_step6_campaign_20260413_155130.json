@@ -1078,14 +1078,14 @@
               "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 1 次尝试...",
               "@@STATUS@@:生成失败",
               "@@STATUS@@:Initial streaming result is empty, trying one non-stream rescue pass...",
-              "@@STATUS@@:鐢熸垚澶辫触",
+              "@@STATUS@@:生成失败",
               "@@STATUS@@:正常完成",
               "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
             ],
             "errors": [
               "[额度耗尽] 模型 MiniMax-M2.5 的免费额度已用完，请在控制台关闭'仅使用免费额度'模式或充值。",
               "[额度耗尽] 模型 MiniMax-M2.5 的免费额度已用完，请在控制台关闭'仅使用免费额度'模式或充值。",
-              "Error: 妯″瀷杩斿洖绌虹粨鏋滄垨瑙ｆ瀽涓嶅埌鏈夋晥鐢ㄤ緥锛岃妫€鏌ユā鍨嬮厤缃?鎻愮ず璇?缃戠粶鍚庨噸璇昞nGEN_DIAG:{\"kind\": \"generation_persisted\", \"generation_id\": 292, \"project_id\": 8, \"request_id\": \"e70062f2dba945d490ab127985a8b997\"}"
+              "Error: 模型返回空结果或解析不到有效用例，请检查模型配置、提示词或网络后重试\nGEN_DIAG:{\"kind\": \"generation_persisted\", \"generation_id\": 292, \"project_id\": 8, \"request_id\": \"e70062f2dba945d490ab127985a8b997\"}"
             ],
             "stats": {
               "count": 0,

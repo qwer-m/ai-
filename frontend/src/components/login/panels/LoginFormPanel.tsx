@@ -10,11 +10,14 @@ interface LoginFormPanelProps {
   remember: boolean;
   error: string;
   loading: boolean;
+  googleLoading: boolean;
   buttonState: ButtonState;
   onUsernameChange: (nextValue: string) => void;
   onPasswordChange: (nextValue: string) => void;
   onRememberChange: (nextValue: boolean) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onForgotPassword: () => void;
+  onGoogleLogin: () => void;
   onEmailFocus: () => void;
   onPasswordFocus: () => void;
   onFieldBlur: () => void;
@@ -27,11 +30,14 @@ export function LoginFormPanel({
   remember,
   error,
   loading,
+  googleLoading,
   buttonState,
   onUsernameChange,
   onPasswordChange,
   onRememberChange,
   onSubmit,
+  onForgotPassword,
+  onGoogleLogin,
   onEmailFocus,
   onPasswordFocus,
   onFieldBlur,
@@ -50,7 +56,7 @@ export function LoginFormPanel({
       </header>
 
       {error && (
-        <Alert variant="danger" className="login-alert">
+        <Alert id="login-error" variant="danger" className="login-alert" aria-live="polite">
           {error}
         </Alert>
       )}
@@ -68,6 +74,8 @@ export function LoginFormPanel({
             onChange={(event) => onUsernameChange(event.target.value)}
             onFocus={onEmailFocus}
             onBlur={onFieldBlur}
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? 'login-error' : undefined}
           />
         </Form.Group>
 
@@ -81,6 +89,8 @@ export function LoginFormPanel({
             onChange={(event) => onPasswordChange(event.target.value)}
             onFocus={onPasswordFocus}
             onBlur={onFieldBlur}
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? 'login-error' : undefined}
           />
         </Form.Group>
 
@@ -95,6 +105,7 @@ export function LoginFormPanel({
           <button
             type="button"
             className="login-link-button"
+            onClick={onForgotPassword}
             onMouseDown={(event) => event.preventDefault()}
           >
             Forgot password?
@@ -113,11 +124,17 @@ export function LoginFormPanel({
           {loading ? 'Logging in...' : 'Log In'}
         </Button>
 
-        <Button type="button" variant="light" className="login-google-btn">
+        <Button
+          type="button"
+          variant="light"
+          className="login-google-btn"
+          disabled={googleLoading}
+          onClick={onGoogleLogin}
+        >
           <span className="login-google-btn__icon" aria-hidden="true">
             G
           </span>
-          <span>Log in with Google</span>
+          <span>{googleLoading ? 'Connecting Google...' : 'Log in with Google'}</span>
         </Button>
       </Form>
 

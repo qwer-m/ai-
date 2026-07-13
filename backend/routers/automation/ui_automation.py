@@ -1,10 +1,11 @@
-﻿from typing import Optional
+from typing import Optional
 
 import os
 import re
 import requests
 import subprocess
-from fastapi import APIRouter, Depends, Form, HTTPException
+import tempfile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
@@ -144,6 +145,40 @@ def get_screenshot(
     return FileResponse(file_path)
 
 
+@router.post("/ai-locate-element")
+async def ai_locate_element(
+    image: UploadFile = File(...),
+    element_description: str = Form(...),
+    image_model: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    suffix = os.path.splitext(image.filename or "")[1] or ".png"
+    tmp_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp_path = tmp.name
+            tmp.write(await image.read())
+        coords = ui_automator.ai_locate_element(
+            tmp_path,
+            element_description,
+            db=db,
+            user_id=current_user.id,
+            image_model=image_model,
+        )
+        if isinstance(coords, str):
+            raise HTTPException(status_code=502, detail=coords)
+        if not isinstance(coords, (list, tuple)) or len(coords) < 2:
+            raise HTTPException(status_code=502, detail="AI locator returned invalid coordinates")
+        return {"coordinates": [int(coords[0]), int(coords[1])]}
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+
 @router.post("/generate")
 def generate_ui_script_only(
     req: UIRequest,
@@ -151,11 +186,14 @@ def generate_ui_script_only(
     current_user: User = Depends(get_current_user),
     token: str = Depends(oauth2_scheme),
 ):
-    status, result = UIAutomationService(db).generate_script(
-        payload=req.model_dump(),
-        user_id=current_user.id,
-        token=token,
-    )
+    try:
+        status, result = UIAutomationService(db).generate_script(
+            payload=req.model_dump(),
+            user_id=current_user.id,
+            token=token,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     if status == "project_not_found":
         raise HTTPException(status_code=404, detail="Project not found")
     return result
@@ -171,6 +209,7 @@ def execute_ui_script_direct(
     test_case_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    token: str = Depends(oauth2_scheme),
 ):
     status, result = UIAutomationService(db).execute_script_direct(
         payload={
@@ -182,6 +221,7 @@ def execute_ui_script_direct(
             "test_case_id": test_case_id,
         },
         user_id=current_user.id,
+        token=token,
     )
     if status == "project_not_found":
         raise HTTPException(status_code=404, detail="Project not found")
@@ -195,11 +235,14 @@ def run_ui_automation(
     current_user: User = Depends(get_current_user),
     token: str = Depends(oauth2_scheme),
 ):
-    status, result = UIAutomationService(db).run_ui_automation(
-        payload=req.model_dump(),
-        user_id=current_user.id,
-        token=token,
-    )
+    try:
+        status, result = UIAutomationService(db).run_ui_automation(
+            payload=req.model_dump(),
+            user_id=current_user.id,
+            token=token,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     if status == "project_not_found":
         raise HTTPException(status_code=404, detail="Project not found")
     return result

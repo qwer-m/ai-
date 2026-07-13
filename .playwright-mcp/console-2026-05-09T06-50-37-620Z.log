@@ -1,0 +1,17 @@
+[      87ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=21c1e0c0:20102
+[     479ms] [INFO] [TG_RESULT_DIAG] generationId=null @ http://localhost:5173/src/components/testing/casegen/hooks/useTestGenerationController.ts:164
+[     479ms] [INFO] [TG_RESULT_DIAG] isFinalResultLoaded=false @ http://localhost:5173/src/components/testing/casegen/hooks/useTestGenerationController.ts:165
+[     485ms] [INFO] [TG_RESULT_DIAG] generationId=null @ http://localhost:5173/src/components/testing/casegen/hooks/useTestGenerationController.ts:164
+[     486ms] [INFO] [TG_RESULT_DIAG] isFinalResultLoaded=false @ http://localhost:5173/src/components/testing/casegen/hooks/useTestGenerationController.ts:165
+[  247817ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=21c1e0c0:20102
+[  248188ms] [INFO] [TG_RESULT_DIAG] generationId=null @ http://localhost:5173/src/components/testing/casegen/hooks/useTestGenerationController.ts:164
+[  248188ms] [INFO] [TG_RESULT_DIAG] isFinalResultLoaded=false @ http://localhost:5173/src/components/testing/casegen/hooks/useTestGenerationController.ts:165
+[  248193ms] [INFO] [TG_RESULT_DIAG] generationId=null @ http://localhost:5173/src/components/testing/casegen/hooks/useTestGenerationController.ts:164
+[  248194ms] [INFO] [TG_RESULT_DIAG] isFinalResultLoaded=false @ http://localhost:5173/src/components/testing/casegen/hooks/useTestGenerationController.ts:165
+[ 1404410ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:5173/@vite/client:864
+[ 1419924ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/api/health:0
+[ 1434470ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=21c1e0c0:20102
+[ 1436931ms] [INFO] [TG_RESULT_DIAG] generationId=null @ http://localhost:5173/src/components/testing/casegen/hooks/useTestGenerationController.ts:164
+[ 1436932ms] [INFO] [TG_RESULT_DIAG] isFinalResultLoaded=false @ http://localhost:5173/src/components/testing/casegen/hooks/useTestGenerationController.ts:165
+[ 1436935ms] [INFO] [TG_RESULT_DIAG] generationId=null @ http://localhost:5173/src/components/testing/casegen/hooks/useTestGenerationController.ts:164
+[ 1436935ms] [INFO] [TG_RESULT_DIAG] isFinalResultLoaded=false @ http://localhost:5173/src/components/testing/casegen/hooks/useTestGenerationController.ts:165

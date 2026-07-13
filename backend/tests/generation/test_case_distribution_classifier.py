@@ -21,6 +21,30 @@ def test_classify_case_distribution_returns_flow_for_multi_step_path() -> None:
     assert classify_case_distribution(case) == "FLOW"
 
 
+def test_classify_case_distribution_accepts_alias_fields() -> None:
+    case = {
+        "caseId": "TC-ALIAS",
+        "title": "open course and finish the practice journey",
+        "testSteps": ["enter course", "submit answer", "return to course list"],
+        "expectedResult": "user completes the learning flow",
+    }
+
+    assert classify_case_distribution(case) == "FLOW"
+    assert classify_case_distributions([case]) == {"TC-ALIAS": "FLOW"}
+
+
+def test_classify_case_distribution_splits_text_steps_with_shared_accessor() -> None:
+    case = {
+        "caseId": "TC-TEXT-STEPS",
+        "title": "finish the practice journey",
+        "testSteps": "enter course;do exercise；submit answer",
+        "expectedResult": "user completes the learning flow",
+    }
+
+    assert classify_case_distribution(case) == "FLOW"
+    assert summarize_case_structure_signals([case])["multi_step_case_count"] == 1
+
+
 def test_classify_case_distribution_returns_state_for_context_guard_case() -> None:
     case = {
         "id": "TC-002",

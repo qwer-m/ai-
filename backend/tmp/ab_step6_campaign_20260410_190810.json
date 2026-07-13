@@ -135,7 +135,7 @@
               "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 1 次尝试...",
               "@@STATUS@@:生成失败",
               "@@STATUS@@:Initial streaming result is empty, trying one non-stream rescue pass...",
-              "@@STATUS@@:鐢熸垚澶辫触",
+              "@@STATUS@@:生成失败",
               "@@STATUS@@:正常完成",
               "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
             ],
@@ -212,7 +212,7 @@
               "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 1 次尝试...",
               "@@STATUS@@:生成失败",
               "@@STATUS@@:Initial streaming result is empty, trying one non-stream rescue pass...",
-              "@@STATUS@@:鐢熸垚澶辫触",
+              "@@STATUS@@:生成失败",
               "@@STATUS@@:正常完成",
               "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
             ],
@@ -338,7 +338,7 @@
               "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 1 次尝试...",
               "@@STATUS@@:生成失败",
               "@@STATUS@@:Initial streaming result is empty, trying one non-stream rescue pass...",
-              "@@STATUS@@:鐢熸垚澶辫触",
+              "@@STATUS@@:生成失败",
               "@@STATUS@@:正常完成",
               "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
             ],
@@ -415,7 +415,7 @@
               "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 1 次尝试...",
               "@@STATUS@@:生成失败",
               "@@STATUS@@:Initial streaming result is empty, trying one non-stream rescue pass...",
-              "@@STATUS@@:鐢熸垚澶辫触",
+              "@@STATUS@@:生成失败",
               "@@STATUS@@:正常完成",
               "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
             ],
@@ -541,7 +541,7 @@
               "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 1 次尝试...",
               "@@STATUS@@:生成失败",
               "@@STATUS@@:Initial streaming result is empty, trying one non-stream rescue pass...",
-              "@@STATUS@@:鐢熸垚澶辫触",
+              "@@STATUS@@:生成失败",
               "@@STATUS@@:正常完成",
               "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
             ],
@@ -618,7 +618,7 @@
               "@@STATUS@@:正在生成第 1/1 批次 (2 条) - 第 1 次尝试...",
               "@@STATUS@@:生成失败",
               "@@STATUS@@:Initial streaming result is empty, trying one non-stream rescue pass...",
-              "@@STATUS@@:鐢熸垚澶辫触",
+              "@@STATUS@@:生成失败",
               "@@STATUS@@:正常完成",
               "@@STATUS@@:停止原因：stopped_due_to_diminishing_returns（继续生成收益递减）"
             ],

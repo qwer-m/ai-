@@ -1,4 +1,4 @@
-﻿"""Knowledge-base offline parsing pipeline."""
+"""Knowledge-base offline parsing pipeline."""
 
 from __future__ import annotations
 
@@ -240,26 +240,44 @@ def parse_document_offline_impl(
     validate_parsed_content(content)
 
     content_hash = module.calculate_hash(content)
-    existing = repo.find_duplicate_by_hash(
+    pending_doc = doc
+    cover_doc = repo.find_latest_by_identity(
         project_id=doc.project_id,
-        content_hash=content_hash,
+        user_id=user_id if user_id is not None else doc.user_id,
+        doc_type=doc.doc_type,
+        filename=doc.filename,
         exclude_doc_id=doc.id,
     )
-    if existing and not force:
-        doc.parse_status = "failed"
-        doc.parse_error = f"duplicate document detected: existing file '{existing.filename}'"
-        doc.parsed_at = datetime.utcnow()
-        repo.commit()
-        cleanup_offline_file(file_path)
-        return {
-            "status": "duplicate",
-            "document_id": doc.id,
-            "existing_doc_id": existing.id,
-            "existing_filename": existing.filename,
-        }
+
+    if cover_doc:
+        doc = cover_doc
+    else:
+        existing = repo.find_duplicate_by_hash(
+            project_id=doc.project_id,
+            content_hash=content_hash,
+            exclude_doc_id=doc.id,
+        )
+        if existing and not force:
+            pending_doc.parse_status = "failed"
+            pending_doc.parse_error = f"duplicate document detected: existing file '{existing.filename}'"
+            pending_doc.parsed_at = datetime.utcnow()
+            repo.commit()
+            cleanup_offline_file(file_path)
+            return {
+                "status": "duplicate",
+                "document_id": pending_doc.id,
+                "existing_doc_id": existing.id,
+                "existing_filename": existing.filename,
+            }
+        pending_doc = None
 
     doc.content = content
     doc.content_hash = content_hash
+    doc.summary = None
+    doc.parse_status = "parsing"
+    doc.parse_error = None
+    doc.task_id = task_id or doc.task_id
+    doc.retry_count = retry_count
     if user_id is not None and not doc.user_id:
         doc.user_id = user_id
     repo.commit()
@@ -347,6 +365,8 @@ def parse_document_offline_impl(
         doc.parse_error = None
         doc.parsed_at = datetime.utcnow()
         doc.retry_count = retry_count
+        if pending_doc is not None:
+            repo.delete(pending_doc)
         repo.commit()
     except Exception:
         repo.rollback()
@@ -357,8 +377,17 @@ def parse_document_offline_impl(
                 logger.error("offline index rollback failed doc_id=%s err=%s", doc_id, rollback_error)
         raise
 
+    if pending_doc is not None:
+        module.reindex_project_specific_ids(pending_doc.doc_type, pending_doc.project_id, db)
+
     cleanup_offline_file(file_path)
     logger.info("offline parse success doc_id=%s task_id=%s", doc_id, task_id)
+    if pending_doc is not None:
+        return {
+            "status": "covered",
+            "document_id": doc.id,
+            "covered_pending_doc_id": pending_doc.id,
+        }
     return {"status": "success", "document_id": doc.id}
 
 

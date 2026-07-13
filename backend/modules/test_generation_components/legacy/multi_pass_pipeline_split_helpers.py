@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from modules.testing.test_generation_components.coverage.coverage_analyzer import analyze_coverage
-from modules.testing.test_generation_components.postprocess.result_postprocess import (
+from ..coverage.coverage_analyzer import analyze_coverage
+from ..postprocess.result_postprocess import (
     apply_priority_semantics_to_case,
 )
 

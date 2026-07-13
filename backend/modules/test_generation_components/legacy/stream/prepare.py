@@ -1,24 +1,76 @@
 from typing import Any, Iterator
 import json
-import uuid
+import time
 
 from sqlalchemy.orm import Session
 
-from core.ai.ai_client import get_client_for_user
-from core.db.models import TestGeneration
-from modules.memory_fabric.contracts.memory_context import MemoryContext
-from modules.memory_fabric.runtime.diagnostics import init_memory_diag
-from modules.memory_fabric.runtime.factory import get_memory_fabric
-from modules.testing.test_generation_components.prompting.generation_diagnostics import build_gate_reason_chain
-from modules.testing.test_generation_components.control.build_feedback_control_state import (
-    build_feedback_control_state,
+from .runtime import LazyAttrProxy, call_component
+from .prepare_runtime import (
+    record_prepare_timing_event,
+    resolve_append_existing_state,
+    resolve_stream_prepare_runtime,
 )
-from modules.testing.test_generation_components.legacy.adapters import (
-    count_unique_test_cases,
-    deduplicate_test_cases,
-    normalize_json_structure,
-)
-from modules.testing.test_generation_components.postprocess.result_postprocess import prepare_append_existing_cases
+
+
+TestGeneration = LazyAttrProxy("core.db.models", "TestGeneration")
+MemoryContext = LazyAttrProxy("modules.memory_fabric.contracts.memory_context", "MemoryContext")
+
+
+def get_client_for_user(*args: Any, **kwargs: Any) -> Any:
+    return call_component("core.ai.ai_client", "get_client_for_user", *args, **kwargs)
+
+
+def init_memory_diag(*args: Any, **kwargs: Any) -> Any:
+    return call_component("modules.memory_fabric.runtime.diagnostics", "init_memory_diag", *args, **kwargs)
+
+
+def get_memory_fabric(*args: Any, **kwargs: Any) -> Any:
+    return call_component("modules.memory_fabric.runtime.factory", "get_memory_fabric", *args, **kwargs)
+
+
+def build_gate_reason_chain(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...prompting.generation_diagnostics", "build_gate_reason_chain", *args, **kwargs)
+
+
+def build_feedback_control_state(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...control.build_feedback_control_state", "build_feedback_control_state", *args, **kwargs)
+
+
+def merge_current_requirement_blueprint_control_state(*args: Any, **kwargs: Any) -> Any:
+    return call_component(
+        "...control.current_requirement_blueprint",
+        "merge_current_requirement_blueprint_control_state",
+        *args,
+        **kwargs,
+    )
+
+
+def merge_generation_mode_control_state(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...control.generation_mode_activation", "merge_generation_mode_control_state", *args, **kwargs)
+
+
+def resolve_linked_final_case_signal(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...control.generation_mode_activation", "resolve_linked_final_case_signal", *args, **kwargs)
+
+
+def count_unique_test_cases(*args: Any, **kwargs: Any) -> Any:
+    return call_component("..adapters", "count_unique_test_cases", *args, **kwargs)
+
+
+def deduplicate_test_cases(*args: Any, **kwargs: Any) -> Any:
+    return call_component("..adapters", "deduplicate_test_cases", *args, **kwargs)
+
+
+def normalize_json_structure(*args: Any, **kwargs: Any) -> Any:
+    return call_component("..adapters", "normalize_json_structure", *args, **kwargs)
+
+
+def prepare_append_existing_cases(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...postprocess.result_postprocess", "prepare_append_existing_cases", *args, **kwargs)
+
+
+def requirement_compression_decision(*args: Any, **kwargs: Any) -> Any:
+    return call_component("..compression_policy", "requirement_compression_decision", *args, **kwargs)
 
 
 class LegacyGenerationStreamPrepareMixin:
@@ -44,51 +96,58 @@ class LegacyGenerationStreamPrepareMixin:
         generation_mode: str = "",
         enable_sample_pool_feedback: bool = True,
     ) -> Iterator[dict[str, Any]]:
-        # Get client for user
-        client = get_client_for_user(user_id, db)
-        request_id = uuid.uuid4().hex
+        prepare_started = time.perf_counter()
+        timing_events: list[dict[str, Any]] = []
 
-        # Retrieve context from Knowledge Base if DB is available
-        original_requirement = requirement
+        def _record_timing_event(stage: str, started_at: float, **fields: Any) -> dict[str, Any]:
+            return record_prepare_timing_event(timing_events, stage, started_at, **fields)
+
+        runtime_state = resolve_stream_prepare_runtime(
+            user_id=user_id,
+            db=db,
+            project_id=project_id,
+            requirement=requirement,
+            compress=compress,
+            get_client_for_user_fn=get_client_for_user,
+            requirement_compression_decision_fn=requirement_compression_decision,
+            resolve_linked_final_case_signal_fn=resolve_linked_final_case_signal,
+            init_memory_diag_fn=init_memory_diag,
+            get_memory_fabric_fn=get_memory_fabric,
+            memory_context_cls=MemoryContext,
+            record_timing_event_fn=_record_timing_event,
+        )
+        client = runtime_state.client
+        request_id = runtime_state.request_id
+        original_requirement = runtime_state.original_requirement
+        compression_decision = runtime_state.compression_decision
+        linked_final_case_signal = runtime_state.linked_final_case_signal
+        memory_diag = runtime_state.memory_diag
+        memory_fabric = runtime_state.memory_fabric
+        memory_ctx = runtime_state.memory_ctx
+
         kb_context = ""
         context_result: dict[str, Any] = {}
         gate_debug: dict[str, Any] = {}
         feedback_control_state: dict[str, Any] = {}
-        memory_diag: dict[str, Any] = init_memory_diag()
-        memory_fabric = None
-        try:
-            memory_fabric = get_memory_fabric()
-        except Exception:
-            memory_fabric = None
-        memory_ctx = MemoryContext.from_runtime(
-            user_id=user_id,
-            project_id=project_id,
-            run_id=request_id,
-            request_id=request_id,
-        )
         
         # Determine start_id if appending
-        start_id = 1
-        existing_cases = []
-        existing_entry = None
-        
-        if db and append:
-             from sqlalchemy import desc
-             query = db.query(TestGeneration).filter(
-                 TestGeneration.project_id == project_id,
-                 TestGeneration.requirement_text == original_requirement
-             )
-             if user_id:
-                 query = query.filter(TestGeneration.user_id == user_id)
-             existing_entry = query.order_by(desc(TestGeneration.created_at)).first()
-             
-             if existing_entry and existing_entry.generated_result:
-                 existing_cases, existing_unique_count, start_id = prepare_append_existing_cases(
-                     existing_entry.generated_result,
-                     normalize_json_structure_fn=normalize_json_structure,
-                     deduplicate_test_cases_fn=deduplicate_test_cases,
-                     count_unique_test_cases_fn=count_unique_test_cases,
-                 )
+        append_state = resolve_append_existing_state(
+            db=db,
+            append=append,
+            project_id=project_id,
+            user_id=user_id,
+            original_requirement=original_requirement,
+            test_generation_model=TestGeneration,
+            prepare_append_existing_cases_fn=prepare_append_existing_cases,
+            normalize_json_structure_fn=normalize_json_structure,
+            deduplicate_test_cases_fn=deduplicate_test_cases,
+            count_unique_test_cases_fn=count_unique_test_cases,
+            record_timing_event_fn=_record_timing_event,
+        )
+        start_id = append_state.start_id
+        existing_cases = append_state.existing_cases
+        existing_entry = append_state.existing_entry
+        existing_unique_count = append_state.existing_unique_count
 
         if db:
             status_messages: list[str] = []
@@ -100,13 +159,22 @@ class LegacyGenerationStreamPrepareMixin:
                     "snapshot_wait_result": "skipped_non_session_db",
                 },
             }
-            if self._is_active_db_session(db):
+            snapshot_gate_started = time.perf_counter()
+            active_db_session = self._is_active_db_session(db)
+            if active_db_session:
                 gate_result = self._run_snapshot_readiness_gate(
                 project_id=project_id,
                 user_id=user_id,
                 status_messages=status_messages,
             )
             gate_debug = gate_result.get("gate_debug") or {}
+            _record_timing_event(
+                "snapshot_gate",
+                snapshot_gate_started,
+                active_db_session=bool(active_db_session),
+                proceed=bool(gate_result.get("proceed")),
+                snapshot_wait_result=str(gate_debug.get("snapshot_wait_result") or ""),
+            )
             if not gate_result.get("proceed"):
                 gate_reason_chain = build_gate_reason_chain(gate_debug)
                 wait_result = str(gate_debug.get("snapshot_wait_result") or "").strip().lower()
@@ -162,8 +230,16 @@ class LegacyGenerationStreamPrepareMixin:
                     abort_code=gate_error_code,
                     compressed_chars=0,
                 )
-                return {"abort": True}
+                _record_timing_event(
+                    "prepare_total",
+                    prepare_started,
+                    status="aborted_snapshot_gate",
+                    db_available=bool(db),
+                    kb_chars=0,
+                )
+                return {"abort": True, "generation_timing_events": timing_events}
 
+            hybrid_context_started = time.perf_counter()
             context_result = self._resolve_kb_context_with_hybrid(
                 requirement=requirement,
                 project_id=project_id,
@@ -193,17 +269,39 @@ class LegacyGenerationStreamPrepareMixin:
             fusion_debug["final_generation_context_mode"] = context_result.get("context_source") or "empty"
             context_result["fusion_debug"] = fusion_debug
             kb_context = context_result.get("kb_context") or ""
-            feedback_control_state = build_feedback_control_state(
-                db=db,
-                project_id=project_id,
-                user_id=user_id,
+            _record_timing_event(
+                "hybrid_context",
+                hybrid_context_started,
+                context_source=str(context_result.get("context_source") or ""),
+                kb_chars=int(len(kb_context or "")),
+                snapshot_used=bool(fusion_debug.get("snapshot_used")),
+                realtime_rag_used=bool(fusion_debug.get("realtime_rag_used", fusion_debug.get("rag_used"))),
+                abort_generation=bool(context_result.get("abort_generation")),
+            )
+            feedback_control_started = time.perf_counter()
+            feedback_control_state = merge_generation_mode_control_state(
+                build_feedback_control_state(
+                    db=db,
+                    project_id=project_id,
+                    user_id=user_id,
+                    requirement_text=original_requirement,
+                    current_source_doc_ids=linked_final_case_signal.get("source_doc_ids") or [],
+                    enable_priority_sample_pool=bool(enable_sample_pool_feedback),
+                    include_agent_learning=True,
+                    memory_fabric=memory_fabric,
+                    memory_ctx=memory_ctx,
+                    memory_diag=memory_diag,
+                ),
                 requirement_text=original_requirement,
-                enable_priority_sample_pool=bool(enable_sample_pool_feedback),
-                include_agent_learning=True,
-                memory_fabric=memory_fabric,
-                memory_ctx=memory_ctx,
-                memory_diag=memory_diag,
+                expected_count=int(expected_count or 0),
+                linked_final_case_count=int(linked_final_case_signal.get("linked_final_case_count") or 0),
             ).to_dict()
+            _record_timing_event(
+                "feedback_control_state",
+                feedback_control_started,
+                workflow_blueprint_count=int(len(feedback_control_state.get("workflow_blueprints") or [])),
+                linked_final_case_count=int(linked_final_case_signal.get("linked_final_case_count") or 0),
+            )
 
             # 中文注释：向前端显式透出 snapshot 回退策略状态，避免将 not ready 误判为失败。
             context_debug_payload = {
@@ -226,6 +324,7 @@ class LegacyGenerationStreamPrepareMixin:
                     or ""
                 ),
             }
+            context_result["context_debug"] = context_debug_payload
             yield f"@@CONTEXT_DEBUG@@:{json.dumps(context_debug_payload, ensure_ascii=False)}\n"
 
             for status_message in status_messages:
@@ -277,11 +376,69 @@ class LegacyGenerationStreamPrepareMixin:
                     abort_code="HYBRID_EMPTY_CONTEXT_ABORT",
                     compressed_chars=len(kb_context or ""),
                 )
-                return {"abort": True}
+                _record_timing_event(
+                    "prepare_total",
+                    prepare_started,
+                    status="aborted_hybrid_empty_context",
+                    db_available=bool(db),
+                    kb_chars=int(len(kb_context or "")),
+                )
+                return {"abort": True, "generation_timing_events": timing_events}
 
-            if compress:
+            blueprint_started = time.perf_counter()
+            feedback_control_state = merge_current_requirement_blueprint_control_state(
+                feedback_control_state,
+                client=client,
+                requirement_text=original_requirement,
+                db=db,
+                project_id=project_id,
+                user_id=user_id,
+            ).to_dict()
+            current_blueprint_meta = dict((feedback_control_state or {}).get("source_meta") or {})
+            current_blueprint_status = str(
+                current_blueprint_meta.get("current_requirement_blueprint_status") or ""
+            )
+            _record_timing_event(
+                "current_requirement_blueprint",
+                blueprint_started,
+                status=current_blueprint_status,
+                count=int(current_blueprint_meta.get("current_requirement_blueprint_count") or 0),
+                step_count=int(current_blueprint_meta.get("current_requirement_blueprint_step_count") or 0),
+                max_tokens=int(current_blueprint_meta.get("current_requirement_blueprint_max_tokens") or 0),
+            )
+            if current_blueprint_status:
+                yield (
+                    "@@STATUS@@:current requirement blueprint "
+                    f"{current_blueprint_status} "
+                    f"(count={current_blueprint_meta.get('current_requirement_blueprint_count', 0)},"
+                    f"steps={current_blueprint_meta.get('current_requirement_blueprint_step_count', 0)})\n"
+                )
+
+            compression_decision = requirement_compression_decision(
+                requirement,
+                compress_requested=bool(compress),
+            )
+            if compress and not bool(compression_decision.get("should_compress")):
+                requirement_compress_started = time.perf_counter()
+                yield (
+                    "@@STATUS@@:需求长度 "
+                    f"{compression_decision.get('char_count')} 低于压缩阈值 "
+                    f"{compression_decision.get('min_chars')}，跳过需求压缩...\n"
+                )
+                _record_timing_event(
+                    "requirement_compress",
+                    requirement_compress_started,
+                    status="skipped_below_threshold",
+                    before_chars=int(len(requirement or "")),
+                    after_chars=int(len(requirement or "")),
+                    min_chars=int(compression_decision.get("min_chars") or 0),
+                )
+            if compress and bool(compression_decision.get("should_compress")):
+                requirement_compress_started = time.perf_counter()
+                req_len_before = len(requirement)
+                compress_status = "exception"
+                compressed_req = None
                 try:
-                    req_len_before = len(requirement)
                     compressed_req = client.compress_context(
                         requirement,
                         prompt="请将以下需求压缩为适合测试用例生成的精炼版本，保留技术细节、字段/ID、约束、边界与异常规则，去除冗余。输出纯文本。",
@@ -293,14 +450,30 @@ class LegacyGenerationStreamPrepareMixin:
                         and not compressed_req.startswith("Exception")
                     ):
                         requirement = compressed_req
+                        compress_status = "applied"
                         yield f"@@STATUS@@:需求压缩完成 ({req_len_before} -> {len(requirement)} 字符)...\n"
                     else:
                         yield f"@@STATUS@@:需求压缩返回异常，使用原始文本: {(compressed_req or '')[:50]}...\n"
                 except Exception as e:
                     yield f"@@STATUS@@:需求压缩失败 ({str(e)})，将使用原始文本...\n"
 
+                if compress_status == "exception" and compressed_req is not None:
+                    compress_status = "invalid_response"
+                _record_timing_event(
+                    "requirement_compress",
+                    requirement_compress_started,
+                    status=compress_status,
+                    before_chars=int(req_len_before),
+                    after_chars=int(len(requirement or "")),
+                    min_chars=int(compression_decision.get("min_chars") or 0),
+                )
+
         if db and not compress:
             if requirement and len(requirement) > 120000:
+                long_req_compress_started = time.perf_counter()
+                req_len_before = len(requirement)
+                compress_status = "exception"
+                compressed_req = None
                 yield "@@STATUS@@:输入内容较长，正在进行智能压缩以适配模型上下文...\n"
                 try:
                     req_len_before = len(requirement)
@@ -311,12 +484,26 @@ class LegacyGenerationStreamPrepareMixin:
                     )
                     if compressed_req and not compressed_req.startswith("Error"):
                         requirement = compressed_req
+                        compress_status = "applied"
                         yield f"@@STATUS@@:长文本压缩完成 ({req_len_before} -> {len(requirement)} 字符)...\n"
                     else:
                         yield f"@@STATUS@@:长文本压缩异常，使用原始文本...\n"
                 except Exception:
                     pass
+                if compress_status == "exception" and compressed_req is not None:
+                    compress_status = "invalid_response"
+                _record_timing_event(
+                    "long_requirement_compress",
+                    long_req_compress_started,
+                    status=compress_status,
+                    before_chars=int(req_len_before),
+                    after_chars=int(len(requirement or "")),
+                )
             if kb_context and len(kb_context) > 120000:
+                kb_compress_started = time.perf_counter()
+                kb_len_before = len(kb_context)
+                compress_status = "exception"
+                compressed_kb = None
                 yield "@@STATUS@@:知识库上下文较长，正在进行智能压缩以适配模型上下文...\n"
                 try:
                     kb_len_before = len(kb_context)
@@ -327,12 +514,39 @@ class LegacyGenerationStreamPrepareMixin:
                     )
                     if compressed_kb and not compressed_kb.startswith("Error"):
                         kb_context = compressed_kb
+                        compress_status = "applied"
                         yield f"@@STATUS@@:知识库压缩完成 ({kb_len_before} -> {len(kb_context)} 字符)...\n"
                     else:
                         yield f"@@STATUS@@:知识库压缩异常，使用原始文本...\n"
                 except Exception:
                     pass
+                if compress_status == "exception" and compressed_kb is not None:
+                    compress_status = "invalid_response"
+                _record_timing_event(
+                    "kb_context_compress",
+                    kb_compress_started,
+                    status=compress_status,
+                    before_chars=int(kb_len_before),
+                    after_chars=int(len(kb_context or "")),
+                )
 
+        feedback_control_state = merge_generation_mode_control_state(
+            feedback_control_state,
+            requirement_text=original_requirement,
+            expected_count=int(expected_count or 0),
+            linked_final_case_count=int(linked_final_case_signal.get("linked_final_case_count") or 0),
+        ).to_dict()
+
+        _record_timing_event(
+            "prepare_total",
+            prepare_started,
+            status="completed",
+            db_available=bool(db),
+            append=bool(append),
+            compression_requested=bool(compress),
+            kb_chars=int(len(kb_context or "")),
+            context_source=str(context_result.get("context_source") or ""),
+        )
 
         return {
             "abort": False,
@@ -343,6 +557,7 @@ class LegacyGenerationStreamPrepareMixin:
             "db": db,
             "doc_type": doc_type,
             "compress": compress,
+            "requirement_compression_decision": compression_decision,
             "expected_count": expected_count,
             "batch_size": batch_size,
             "overwrite": overwrite,
@@ -352,6 +567,7 @@ class LegacyGenerationStreamPrepareMixin:
             "kb_context": kb_context,
             "start_id": start_id,
             "existing_cases": existing_cases,
+            "existing_unique_count": existing_unique_count,
             "existing_entry": existing_entry,
             "context_result": context_result,
             "gate_debug": gate_debug,
@@ -361,5 +577,6 @@ class LegacyGenerationStreamPrepareMixin:
             "generation_mode": str(generation_mode or "").strip().lower(),
             "feedback_control_state": feedback_control_state,
             "memory_diag": memory_diag,
+            "generation_timing_events": timing_events,
         }
 

@@ -8,32 +8,18 @@ from typing import Any
 
 from modules.domain.stage25_switches import STAGE25_SWITCHES
 
+from ..postprocess.case_access import case_text_field
 
-_STOPWORDS = {
-    "以及",
-    "或者",
-    "并且",
-    "如果",
-    "那么",
-    "这个",
-    "那个",
-    "需要",
-    "可以",
-    "功能",
-    "模块",
-    "系统",
-    "页面",
-    "用户",
-    "数据",
-}
-
-from modules.test_generation_components.prompting.generation_diagnostics_split_helpers import (
+from .generation_diagnostics_split_helpers import (
     _extract_keywords,
     _flatten_case_text,
     _priority_distribution,
     _steps_count,
     _classify_case_type,
 )
+
+from .prompt_context_intake_diagnostics import build_prompt_context_intake_diagnostics
+
 
 def _extract_requirement_constraints(requirement: str) -> list[str]:
     text = str(requirement or "")
@@ -72,11 +58,7 @@ def build_coverage_diagnostics(
         else:
             miss_keywords.append(keyword)
 
-    module_set = {
-        str(case.get("test_module") or "").strip()
-        for case in cases
-        if str(case.get("test_module") or "").strip()
-    }
+    module_set = {module for module in (case_text_field(case, "test_module") for case in cases) if module}
 
     final_chunks = fusion_debug.get("final_chunks") or []
     anchor_terms: set[str] = set()

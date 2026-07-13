@@ -63,9 +63,80 @@ export type DefectAnalysis = {
   modifications?: string[];
 };
 
+export type RequirementBaseline = {
+  requirement_points?: string[];
+  ai_requirement_gaps?: string[];
+  human_requirement_gaps?: string[];
+  ai_unanchored_points?: string[];
+  human_added_value?: string[];
+  both_missing_points?: string[];
+  missing_in_generated?: string[];
+  missing_in_modified?: string[];
+  covered_by_both?: string[];
+  generated_coverage_count?: number;
+  modified_coverage_count?: number;
+  generated_coverage_rate?: number;
+  modified_coverage_rate?: number;
+  summary?: string;
+  heuristic?: {
+    requirement_points?: string[];
+    missing_in_generated?: string[];
+    missing_in_modified?: string[];
+    both_missing_points?: string[];
+    covered_by_both?: string[];
+    generated_coverage_count?: number;
+    modified_coverage_count?: number;
+    generated_coverage_rate?: number;
+    modified_coverage_rate?: number;
+  };
+};
+
+export type EvaluationProgress = {
+  phase?: string;
+  completed_chunks?: number;
+  total_chunks?: number;
+  completed_units?: number;
+  total_units?: number;
+  failed_chunks?: number;
+  retrying_chunks?: Array<{
+    chunk_index?: string | number;
+    attempt?: number;
+    max_attempts?: number;
+    last_error?: string;
+  }>;
+  failed_chunk_details?: Array<{
+    chunk_index?: string | number;
+    chunk_unit_count?: number;
+    error?: string;
+  }>;
+  current_chunk?: string | number;
+  last_error?: string;
+};
+
+export type PartialChunkResult = {
+  chunk_index?: string | number;
+  chunk_unit_count?: number;
+  retry_attempts?: number;
+  summary?: string;
+  metrics?: QualityMetrics;
+  defect_analysis?: DefectAnalysis;
+  case_judgements?: Array<{
+    unit_id?: string;
+    verdict?: string;
+    reason?: string;
+  }>;
+};
+
 export type ParsedQualityReport = {
+  analysisStatus?: string;
+  analysisMode?: string;
+  isFinalEvaluation?: boolean;
+  comparisonId?: number;
   metrics: QualityMetrics;
   defectAnalysis: DefectAnalysis;
+  requirementBaseline?: RequirementBaseline;
+  progress?: EvaluationProgress;
+  partialChunkResults?: PartialChunkResult[];
   summary: string;
 } | null;
 

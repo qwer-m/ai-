@@ -1,4 +1,4 @@
-export class APIError extends Error {
+﻿export class APIError extends Error {
   status: number;
   data: any;
 
@@ -6,6 +6,45 @@ export class APIError extends Error {
     super(message);
     this.status = status;
     this.data = data;
+  }
+}
+
+function extractErrorMessage(data: any, statusText?: string): string {
+  const fallback = statusText || 'Request failed';
+  if (data === undefined || data === null) return fallback;
+  if (typeof data === 'string') return data.trim() || fallback;
+  if (typeof data !== 'object') return String(data);
+
+  const directCandidates = [data.error_message, data.error, data.message, data.msg];
+  for (const candidate of directCandidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+
+  const detail = data.detail;
+  if (typeof detail === 'string' && detail.trim()) return detail.trim();
+  if (detail && typeof detail === 'object') {
+    const detailCandidates = [
+      detail.error_message,
+      detail.error,
+      detail.message,
+      detail.msg,
+      detail.detail,
+    ];
+    for (const candidate of detailCandidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        const code = typeof detail.error_code === 'string' ? detail.error_code.trim() : '';
+        return code ? `${candidate.trim()} (${code})` : candidate.trim();
+      }
+    }
+    if (typeof detail.error_code === 'string' && detail.error_code.trim()) {
+      return detail.error_code.trim();
+    }
+  }
+
+  try {
+    return JSON.stringify(data);
+  } catch {
+    return fallback;
   }
 }
 
@@ -77,12 +116,7 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     }
 
     if (!response.ok) {
-      const message =
-        data && typeof data === 'object'
-          ? (data.error || data.detail || data.message || response.statusText || 'Request failed')
-          : (typeof data === 'string' && data.trim()
-              ? data
-              : (response.statusText || 'Request failed'));
+      const message = extractErrorMessage(data, response.statusText);
       throw new APIError(message, response.status, data);
     }
     
@@ -119,11 +153,11 @@ async function requestRaw(url: string, options: RequestInit = {}): Promise<Respo
       }
     }
     const message =
-      contentType.includes('application/json') && data && typeof data === 'object'
-        ? (data.error || data.detail || data.message || response.statusText || 'Request failed')
+      contentType.includes('application/json')
+        ? extractErrorMessage(data, response.statusText)
         : (typeof data === 'string' && data.trim()
             ? data
-            : (response.statusText || 'Request failed'));
+            : extractErrorMessage(data, response.statusText));
     throw new APIError(message, response.status, data);
   }
   return response;

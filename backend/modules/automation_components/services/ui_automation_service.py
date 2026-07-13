@@ -108,7 +108,13 @@ class UIAutomationService:
         )
         return "ok", {"script": script}
 
-    def execute_script_direct(self, *, payload: dict[str, Any], user_id: int) -> tuple[str, dict[str, Any] | None]:
+    def execute_script_direct(
+        self,
+        *,
+        payload: dict[str, Any],
+        user_id: int,
+        token: str | None = None,
+    ) -> tuple[str, dict[str, Any] | None]:
         project_id = int(payload.get("project_id") or 0)
         if not self.has_owned_project(project_id=project_id, user_id=user_id):
             return "project_not_found", None
@@ -121,6 +127,7 @@ class UIAutomationService:
             project_id,
             user_id=user_id,
             test_case_id=payload.get("test_case_id"),
+            auth_token=token,
         )
         return "ok", result
 
@@ -145,7 +152,16 @@ class UIAutomationService:
             image_model=payload.get("image_model"),
             requirement_context=requirement_context,
         )
-        result = ui_automator.execute_script(script, url, task, automation_type, self._db, project_id, user_id=user_id)
+        result = ui_automator.execute_script(
+            script,
+            url,
+            task,
+            automation_type,
+            self._db,
+            project_id,
+            user_id=user_id,
+            auth_token=token,
+        )
         log_to_db(
             self._db,
             project_id,

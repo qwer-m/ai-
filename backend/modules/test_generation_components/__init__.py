@@ -1,15 +1,22 @@
-﻿
+
 """Test generation components package."""
 
-# Compatibility re-exports for historical flat imports.
-from modules.testing.test_generation_components.context import hybrid_context_builder as hybrid_context_builder
-from modules.testing.test_generation_components.context import hybrid_guard as hybrid_guard
-from modules.testing.test_generation_components.context import snapshot_wait_gate as snapshot_wait_gate
-from modules.testing.test_generation_components.export import excel_export as excel_export
-from modules.testing.test_generation_components.postprocess import json_processing as json_processing
-from modules.testing.test_generation_components.postprocess import result_postprocess as result_postprocess
-from modules.testing.test_generation_components.prompting import generation_diagnostics as generation_diagnostics
-from modules.testing.test_generation_components.prompting import prompt_orchestration as prompt_orchestration
+from __future__ import annotations
+
+import importlib
+
+# Compatibility re-exports for historical flat imports. Keep these lazy so
+# importing the package does not recursively initialize legacy compatibility paths.
+_EXPORT_MODULES = {
+    "excel_export": ".export.excel_export",
+    "generation_diagnostics": ".prompting.generation_diagnostics",
+    "hybrid_context_builder": ".context.hybrid_context_builder",
+    "hybrid_guard": ".context.hybrid_guard",
+    "json_processing": ".postprocess.json_processing",
+    "prompt_orchestration": ".prompting.prompt_orchestration",
+    "result_postprocess": ".postprocess.result_postprocess",
+    "snapshot_wait_gate": ".context.snapshot_wait_gate",
+}
 
 __all__ = [
     "excel_export",
@@ -21,3 +28,11 @@ __all__ = [
     "result_postprocess",
     "snapshot_wait_gate",
 ]
+
+
+def __getattr__(name: str):
+    if name not in _EXPORT_MODULES:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = importlib.import_module(_EXPORT_MODULES[name], __name__)
+    globals()[name] = module
+    return module

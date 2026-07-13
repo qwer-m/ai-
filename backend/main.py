@@ -19,7 +19,7 @@ import asyncio
 import io
 from datetime import datetime, timedelta
 from typing import List, Optional, Any, Dict
-from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks, Request, Query
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, Request, Query
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, StreamingResponse, Response, RedirectResponse
 from starlette.concurrency import iterate_in_threadpool
 from fastapi.staticfiles import StaticFiles

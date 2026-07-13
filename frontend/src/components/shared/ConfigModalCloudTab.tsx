@@ -8,20 +8,28 @@ type Props = {
   model: string;
   vlModel: string;
   turboModel: string;
+  reviewModel: string;
   turboProvider: string;
   turboApiKey: string;
+  reviewProvider: string;
+  reviewApiKey: string;
   vlProvider: string;
   vlApiKey: string;
+  vlBaseUrl: string;
   onProviderChange: (value: string) => void;
   onApiKeyChange: (value: string) => void;
   onBaseUrlChange: (value: string) => void;
   onModelChange: (value: string) => void;
   onVlModelChange: (value: string) => void;
   onTurboModelChange: (value: string) => void;
+  onReviewModelChange: (value: string) => void;
   onTurboProviderChange: (value: string) => void;
   onTurboApiKeyChange: (value: string) => void;
+  onReviewProviderChange: (value: string) => void;
+  onReviewApiKeyChange: (value: string) => void;
   onVlProviderChange: (value: string) => void;
   onVlApiKeyChange: (value: string) => void;
+  onVlBaseUrlChange: (value: string) => void;
   onDirty: () => void;
 };
 
@@ -32,23 +40,32 @@ export function CloudTab({
   model,
   vlModel,
   turboModel,
+  reviewModel,
   turboProvider,
   turboApiKey,
+  reviewProvider,
+  reviewApiKey,
   vlProvider,
   vlApiKey,
+  vlBaseUrl,
   onProviderChange,
   onApiKeyChange,
   onBaseUrlChange,
   onModelChange,
   onVlModelChange,
   onTurboModelChange,
+  onReviewModelChange,
   onTurboProviderChange,
   onTurboApiKeyChange,
+  onReviewProviderChange,
+  onReviewApiKeyChange,
   onVlProviderChange,
   onVlApiKeyChange,
+  onVlBaseUrlChange,
   onDirty,
 }: Props) {
   const turboFollowMain = turboProvider === 'follow_main';
+  const reviewFollowMain = reviewProvider === 'follow_main';
   const vlFollowMain = vlProvider === 'follow_main';
   const showBaseUrlInput = provider === 'openai';
 
@@ -153,6 +170,51 @@ export function CloudTab({
 
         <section className="config-model-card">
           <div className="config-model-card__header">
+            <h6>审查模型</h6>
+            <span>用于测试用例评审/筛选</span>
+          </div>
+          <Form.Group className="config-field">
+            <Form.Label>服务商</Form.Label>
+            <Form.Select value={reviewProvider} onChange={(e) => onReviewProviderChange(e.target.value)}>
+              <option value="follow_main">跟随主模型（文本模型）</option>
+              <option value="dashscope">DashScope (阿里云灵积)</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="openai">OpenAI (兼容服务)</option>
+            </Form.Select>
+          </Form.Group>
+          <Form.Group className="config-field">
+            <Form.Label>API Key</Form.Label>
+            <InputGroup>
+              <Form.Control
+                type="password"
+                value={reviewApiKey}
+                onChange={(e) => onReviewApiKeyChange(e.target.value)}
+                placeholder={
+                  reviewFollowMain
+                    ? '跟随主模型，无需单独填写'
+                    : reviewApiKey === '******'
+                      ? '已加密存储'
+                      : 'sk-...'
+                }
+                disabled={reviewFollowMain}
+              />
+            </InputGroup>
+          </Form.Group>
+          <Form.Group className="config-field config-field--model">
+            <Form.Label>模型名称</Form.Label>
+            <Form.Control
+              type="text"
+              value={reviewModel}
+              onChange={(e) => onReviewModelChange(e.target.value)}
+              placeholder="e.g. deepseek-chat"
+              list="review-models"
+            />
+            <datalist id="review-models" />
+          </Form.Group>
+        </section>
+
+        <section className="config-model-card">
+          <div className="config-model-card__header">
             <h6>图像模型</h6>
             <span>用于图片理解/OCR兜底</span>
           </div>
@@ -175,6 +237,8 @@ export function CloudTab({
                 placeholder={
                   vlFollowMain
                     ? '跟随主模型，无需单独填写'
+                    : vlProvider === provider
+                      ? '留空沿用主模型 API Key'
                     : vlApiKey === '******'
                       ? '已加密存储'
                       : 'sk-...'
@@ -183,13 +247,25 @@ export function CloudTab({
               />
             </InputGroup>
           </Form.Group>
+          {!vlFollowMain && vlProvider === 'openai' && (
+            <Form.Group className="config-field">
+              <Form.Label>API Base URL</Form.Label>
+              <Form.Control
+                type="text"
+                value={vlBaseUrl}
+                onChange={(e) => onVlBaseUrlChange(e.target.value)}
+                placeholder={provider === 'openai' ? '留空沿用主模型 Base URL' : 'https://api.openai.com/v1'}
+              />
+              <Form.Text>同一网关仅切换视觉模型时，可沿用主模型 Base URL。</Form.Text>
+            </Form.Group>
+          )}
           <Form.Group className="config-field config-field--model">
             <Form.Label>模型名称</Form.Label>
             <Form.Control
               type="text"
               value={vlModel}
               onChange={(e) => onVlModelChange(e.target.value)}
-              placeholder="e.g. qwen-vl-plus"
+              placeholder="e.g. doubao-seed-2-0-pro-260215"
               list="vl-models"
             />
             <datalist id="vl-models" />

@@ -1,2 +1,0 @@
-﻿case_id,module,priority,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
-TC-008,补做功能,P2,验证补做范围边界：补做期内最后一天（如上周日23:59）仍可进行补做，补做期结束后马上变为只读,REJECT,violates_confirmed_fact,True,False,False

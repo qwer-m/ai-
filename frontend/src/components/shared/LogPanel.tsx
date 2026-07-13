@@ -19,6 +19,212 @@ type Props = {
   onClear?: () => void;
 };
 
+function toNumber(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function numberText(value: unknown): string {
+  const n = toNumber(value);
+  return n === null ? '-' : String(n);
+}
+
+function percentText(value: unknown): string {
+  const n = toNumber(value);
+  if (n === null) return '-';
+  return `${Math.round(n * 1000) / 10}%`;
+}
+
+function boolText(value: unknown): string {
+  if (value === true) return '是';
+  if (value === false) return '否';
+  return '-';
+}
+
+function statusText(value: unknown): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '-';
+  const map: Record<string, string> = {
+    high: '高',
+    medium: '中',
+    low: '低',
+    completed_with_optimal_set: '完成：最优集合',
+  };
+  return map[raw] || raw;
+}
+
+function parsePrefixedJson(message: string, prefix: string): Record<string, unknown> | null {
+  const idx = message.indexOf(prefix);
+  if (idx < 0) return null;
+  const raw = message.slice(idx + prefix.length).trim();
+  if (!raw.startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatStopReasons(value: unknown): string {
+  const reasons = Array.isArray(value) ? value.map((item) => String(item || '').trim()).filter(Boolean) : [];
+  if (!reasons.length) return '-';
+  const map: Record<string, string> = {
+    coverage_satisfied: '覆盖满足',
+    stopped_due_to_diminishing_returns: '收益递减',
+    optimal_case_set_reached: '最优集合',
+    dedup_reduced_count_stop: '去重后收敛',
+    final_description_dedup_reduced_count: '最终描述去重',
+    low_quality_filtered: '低质已过滤',
+  };
+  return reasons.map((item) => map[item] || item).join(' / ');
+}
+
+function formatGenDiagMessage(message: string): string | null {
+  const payload = parsePrefixedJson(message, 'GEN_DIAG:');
+  if (!payload) return null;
+
+  const kind = String(payload.kind || '').trim();
+  if (kind === 'requirement_parse') {
+    const blocks = Array.isArray(payload.blocks) ? payload.blocks : [];
+    const blockItems = blocks.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item));
+    const imageBlocks = blockItems.filter((item) => item.is_image === true);
+    const successCount = imageBlocks.filter((item) => ['local', 'cloud'].includes(String(item.ocr_source || ''))).length;
+    const failedBlocks = imageBlocks.filter((item) => String(item.ocr_source || '') === 'failed');
+    const blockingFailedCount = failedBlocks.filter((item) => item.ocr_blocking === true).length;
+    const warningCount = imageBlocks.filter((item) => Boolean(String(item.ocr_warning || '').trim())).length;
+    const mainTextChars = blockItems
+      .filter((item) => item.role === 'main_requirement')
+      .reduce((sum, item) => sum + Number(item.text_length || 0), 0);
+    const ocrSummary = imageBlocks.length === 0
+      ? '无图片块'
+      : (
+        failedBlocks.length > 0
+          ? `${blockingFailedCount > 0 ? 'OCR阻断失败' : 'OCR部分降级'} ${successCount}/${imageBlocks.length} 成功`
+          : `OCR已识别 ${successCount}/${imageBlocks.length}${warningCount > 0 ? '（本地降级）' : ''}`
+      );
+    return `需求解析：块 ${numberText(blockItems.length)}，主文本 ${numberText(mainTextChars)} 字，图片 ${numberText(imageBlocks.length)}；${ocrSummary}`;
+  }
+
+  if (kind === 'generation_quality_ledger') {
+    const coverage = (payload.coverage && typeof payload.coverage === 'object') ? payload.coverage as Record<string, unknown> : {};
+    const review = (payload.review && typeof payload.review === 'object') ? payload.review as Record<string, unknown> : {};
+    const funnel = (payload.funnel && typeof payload.funnel === 'object') ? payload.funnel as Record<string, unknown> : {};
+    const judge = (payload.judge && typeof payload.judge === 'object') ? payload.judge as Record<string, unknown> : {};
+    const context = (payload.context && typeof payload.context === 'object') ? payload.context as Record<string, unknown> : {};
+    return [
+      `诊断摘要：最终 ${numberText(payload.final_count)} 条，质量 ${statusText(payload.quality_assessment)}，覆盖 ${percentText(coverage.coverage_rate)}，缺失规则 ${numberText(coverage.missing_rules_count)}`,
+      `漏斗：候选 ${numberText(funnel.primary_count)}，Review ${numberText(funnel.review_count)}，LLM丢弃 ${numberText(review.drop_by_review_llm_count)}，后置去重 ${numberText(review.drop_by_post_review_dedup_count)}，Judge拒绝/待定 ${numberText(Number(judge.rejected_out_count || 0) + Number(judge.pending_out_count || 0))}`,
+      `上下文：snapshot=${boolText(context.snapshot_used)}，RAG=${boolText(context.realtime_rag_used)}，当前文档=${boolText(context.current_document_used)}，压缩率=${numberText(context.compression_ratio)}`,
+    ].join('\n');
+  }
+
+  if (kind === 'review_decision_summary') {
+    const runtime = (payload.review_llm_runtime_debug && typeof payload.review_llm_runtime_debug === 'object')
+      ? payload.review_llm_runtime_debug as Record<string, unknown>
+      : {};
+    const primaryMeta = (runtime.primary_response_metadata && typeof runtime.primary_response_metadata === 'object')
+      ? runtime.primary_response_metadata as Record<string, unknown>
+      : {};
+    const compactMeta = (runtime.primary_compact_retry_response_metadata && typeof runtime.primary_compact_retry_response_metadata === 'object')
+      ? runtime.primary_compact_retry_response_metadata as Record<string, unknown>
+      : {};
+    const compactRetry = runtime.primary_compact_retry_invoked
+      ? `，同模型紧凑重试 ${String(runtime.primary_compact_retry_model || '-')}(${String(runtime.primary_compact_retry_invalid_reason || 'ok')})`
+      : '';
+    const overlapCount = Number(runtime.final_selected_and_dropped_overlap_count || 0);
+    const consistencyText = Object.prototype.hasOwnProperty.call(runtime, 'final_payload_consistent')
+      ? `，信号一致=${boolText(runtime.final_payload_consistent)}${overlapCount > 0 ? `，kept/dropped重叠 ${overlapCount}` : ''}`
+      : '';
+    const reasonHealthText = Object.prototype.hasOwnProperty.call(payload, 'final_reason_incomplete')
+      ? `，理由完整=${boolText(!payload.final_reason_incomplete)}，理由覆盖=${percentText(payload.final_reason_coverage_ratio)}`
+      : '';
+    const reasonRepairText = runtime.reason_repair_invoked
+      ? `，理由修复 ${String(runtime.reason_repair_model || '-')}(${numberText(runtime.reason_repair_mapped_count)}条/${String(runtime.reason_repair_invalid_reason || 'ok')})`
+      : '';
+    const responseMetaText = primaryMeta && Object.keys(primaryMeta).length > 0
+      ? `主响应：status=${String(primaryMeta.http_status || '-')} finish=${String(primaryMeta.finish_reason || '-')} content=${numberText(primaryMeta.content_len)} reasoning=${numberText(primaryMeta.reasoning_len)}${compactMeta && Object.keys(compactMeta).length > 0 ? `；紧凑重试 content=${numberText(compactMeta.content_len)} reasoning=${numberText(compactMeta.reasoning_len)}` : ''}`
+      : '';
+    return [
+      `Review摘要：候选 ${numberText(payload.candidate_total)} → 保留 ${numberText(payload.retained_total)}，丢弃 ${numberText(payload.dropped_total)}`,
+      `结构诊断：流程缺口 ${numberText(payload.flow_missing_stage_count)}，顺序倒挂 ${numberText(payload.flow_misordered_count)}，场景重复簇 ${numberText(payload.scenario_duplicate_cluster_count)}，重复用例 ${numberText(payload.scenario_duplicate_case_count)}，已裁剪 ${numberText(payload.scenario_duplicate_pruned_count)}，已重排=${boolText(payload.flow_reordered)}`,
+      `丢弃来源：LLM ${numberText(payload.drop_by_review_llm_count)}，Gate ${numberText(payload.drop_by_review_gate_count)}，语义去重 ${numberText(payload.drop_by_post_review_dedup_count)}，最终描述重复 ${numberText(payload.drop_final_description_duplicate_count)}`,
+      `审查调用：主模型 ${String(runtime.primary_model || '-')}，fallback ${String(runtime.retry_model || '-')}${compactRetry}${reasonRepairText}，来源 ${String(runtime.final_source || '-')}${consistencyText}${reasonHealthText}`,
+      responseMetaText,
+    ].filter(Boolean).join('\n');
+  }
+
+  if (kind === 'generation_summary') {
+    return `生成摘要：最终 ${numberText(payload.final_count)} 条，状态 ${statusText(payload.status)}，质量 ${statusText(payload.quality_assessment)}，停止原因 ${formatStopReasons(payload.stop_reason)}`;
+  }
+
+  if (kind === 'generation_convergence') {
+    return `收敛摘要：primary ${numberText(payload.primary_count)} / gap ${numberText(payload.gap_count)} / review ${numberText(payload.review_count)} / final ${numberText(payload.final_count)}，重复率 ${percentText(payload.duplication_rate_estimate)}，最终描述重复 ${numberText(payload.final_description_dedup_drop_count)}`;
+  }
+
+  return null;
+}
+
+function formatLogMessage(message: string): string {
+  return formatGenDiagMessage(message) || message;
+}
+
+function isBlockingGenDiag(payload: Record<string, unknown>): boolean {
+  const kind = String(payload.kind || '').trim();
+  if (kind === 'persistence_gate') {
+    return payload.blocked === true || (payload.passed === false && String(payload.gate_mode || '') === 'enforce');
+  }
+  if (kind === 'case_quality_gate') {
+    return payload.blocked === true;
+  }
+  if (kind === 'requirement_parse') {
+    const blocks = Array.isArray(payload.blocks) ? payload.blocks : [];
+    return blocks.some((block) => {
+      if (!block || typeof block !== 'object') return false;
+      const item = block as Record<string, unknown>;
+      return item.ocr_blocking === true && Boolean(String(item.ocr_error || '').trim());
+    });
+  }
+  if (kind === 'generation_summary') {
+    const status = String(payload.status || '').toLowerCase();
+    return ['failed', 'error'].includes(status);
+  }
+  return false;
+}
+
+function isWarningGenDiag(payload: Record<string, unknown>): boolean {
+  const kind = String(payload.kind || '').trim();
+  if (kind === 'case_quality_gate') {
+    return payload.passed === false && payload.blocked !== true;
+  }
+  if (kind === 'requirement_parse') {
+    const blocks = Array.isArray(payload.blocks) ? payload.blocks : [];
+    return blocks.some((block) => {
+      if (!block || typeof block !== 'object') return false;
+      const item = block as Record<string, unknown>;
+      return (Boolean(String(item.ocr_error || '').trim()) || Boolean(String(item.ocr_warning || '').trim()))
+        && item.ocr_blocking !== true;
+    });
+  }
+  return false;
+}
+
+function isErrorMessage(msg: string): boolean {
+  const payload = parsePrefixedJson(msg, 'GEN_DIAG:');
+  if (payload) return isBlockingGenDiag(payload);
+  return /error|失败|异常/i.test(msg);
+}
+
+function isWarningMessage(msg: string): boolean {
+  const payload = parsePrefixedJson(msg, 'GEN_DIAG:');
+  if (payload) return isWarningGenDiag(payload);
+  return /警告|warning/i.test(msg);
+}
+
+function isSuccessMessage(msg: string): boolean {
+  return /成功|完成|success/i.test(msg);
+}
+
 export function LogPanel({ userLogs, systemLogs, loading, error, onClear }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<'user' | 'system'>('user');
@@ -46,10 +252,6 @@ export function LogPanel({ userLogs, systemLogs, loading, error, onClear }: Prop
     const maxHeight = Math.max(MIN_PANEL_HEIGHT, Math.round(viewportHeight * MAX_PANEL_HEIGHT_RATIO));
     return Math.max(MIN_PANEL_HEIGHT, Math.min(maxHeight, Math.round(height)));
   }, []);
-
-  const isErrorMessage = (msg: string) => /error|失败|异常/i.test(msg);
-  const isSuccessMessage = (msg: string) => /成功|完成|success/i.test(msg);
-  const isWarningMessage = (msg: string) => /警告|warning/i.test(msg);
 
   useEffect(() => {
     if (!expanded) return;
@@ -112,15 +314,6 @@ export function LogPanel({ userLogs, systemLogs, loading, error, onClear }: Prop
     if (!target) return;
     followBottomRef.current[activeTab] = isNearBottom(target);
   };
-
-  useEffect(() => {
-    if (systemLogs.length > 0) {
-      const lastLog = systemLogs[systemLogs.length - 1];
-      if (isErrorMessage(lastLog.message || '') && !expanded) {
-        setExpanded(true);
-      }
-    }
-  }, [systemLogs.length]);
 
   const formatTime = (iso: string) => {
     if (!iso) return '';
@@ -273,6 +466,7 @@ export function LogPanel({ userLogs, systemLogs, loading, error, onClear }: Prop
             {filteredLogs.length === 0 ? <div className="text-muted opacity-50">暂无日志</div> : null}
             {filteredLogs.map((log) => {
               const msg = log.message || '';
+              const displayMsg = formatLogMessage(msg);
               return (
                 <div
                   key={log.id}
@@ -285,7 +479,7 @@ export function LogPanel({ userLogs, systemLogs, loading, error, onClear }: Prop
                   <span className="opacity-50 flex-shrink-0 dashboard-log-time-col">
                     {formatTime(log.created_at)}
                   </span>
-                  <span className="text-break">{msg}</span>
+                  <span className="text-break" style={{ whiteSpace: 'pre-wrap' }}>{displayMsg}</span>
                 </div>
               );
             })}

@@ -1,7 +1,9 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import ClassVar, List
 
 class TestGenRequest(BaseModel):
+    __test__: ClassVar[bool] = False
+
     requirement: str
     project_id: int
     compress: bool = False
@@ -15,6 +17,8 @@ class TestGenRequest(BaseModel):
     generation_mode: str = ""
 
 class TestComparisonRequest(BaseModel):
+    __test__: ClassVar[bool] = False
+
     generated_test_case: str
     modified_test_case: str
     project_id: int

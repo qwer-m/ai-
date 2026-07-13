@@ -4,6 +4,7 @@ from modules.testing.test_generation_components.prompting.generation_diagnostics
     build_coverage_diagnostics,
     build_final_context_trace,
     build_gate_reason_chain,
+    build_prompt_context_intake_diagnostics,
 )
 
 
@@ -64,6 +65,31 @@ def test_build_coverage_diagnostics_contains_required_metrics():
     assert isinstance(diag["possible_gap_reasons"], list)
     assert "priority_distribution" in diag
     assert 0.0 <= diag["requirement_keyword_coverage"] <= 1.0
+
+
+def test_build_coverage_diagnostics_counts_alias_modules():
+    diag = build_coverage_diagnostics(
+        requirement="save and preview",
+        generated_cases=[
+            {
+                "caseId": "TC-001",
+                "module": "Save",
+                "title": "save plan",
+                "expectedResult": "saved",
+            },
+            {
+                "caseId": "TC-002",
+                "testModule": "Preview",
+                "title": "preview plan",
+                "expectedResult": "previewed",
+            },
+        ],
+        kb_context="",
+        expected_count=2,
+    )
+
+    assert diag["module_count"] == 2
+    assert diag["modules_preview"] == ["Preview", "Save"]
 
 
 def test_build_context_source_log_has_snapshot_and_rag_sections():
@@ -127,6 +153,182 @@ def test_build_context_compression_diagnostics_reports_core_metrics():
     assert payload["snapshot_id"] == "snap-001"
     assert payload["corpus_hash"] == "corpus-abc"
     assert isinstance(payload["retrieval_hash"], str) and len(payload["retrieval_hash"]) > 0
+
+
+def test_build_prompt_context_intake_diagnostics_reports_sections_and_sources():
+    system_prompt = "system prompt with generation rules"
+    base_prompt = "base prompt"
+    requirement = (
+        "User clicks save and previews result.\n\n"
+        "[Requirement Understanding]\n"
+        '{"version":"requirement-understanding-v1","visual_fact_count":2,'
+        '"invalid_visual_block_count":1,"aligned_evidence":[{"source":"pdf_visual:X46.jpg"}]}'
+    )
+    payload = build_prompt_context_intake_diagnostics(
+        prompt_context={
+            "requirement_context": "User must click save and then preview the committed result.",
+            "requirement_semantics_context": "confirmed save -> preview flow",
+            "testcase_context": "(empty)",
+            "supplement_context": "reference examples",
+            "control_context": (
+                "control rules\n"
+                "### GENERATION EXECUTION PLAN\n"
+                "* Generate main-chain cases first.\n"
+                "  1. save / Save result\n"
+                "  2. preview / Preview committed result"
+            ),
+            "current_biz_key": "lesson_review",
+            "only_current_biz": True,
+            "control_summary": {
+                "must_cover_rules_count": 2,
+                "quality_fix_hints_count": 3,
+                "generation_execution_plan_blueprint_count": 1,
+                "generation_execution_plan_step_count": 2,
+                "generation_execution_independent_suite_order": [
+                    "permission/security",
+                    "exception/recovery",
+                    "boundary/state rollback",
+                    "independent functional",
+                    "UI/display",
+                ],
+            },
+            "feedback_control_state": {
+                "workflow_blueprints": [{"name": "main_smoke"}],
+                "source_meta": {
+                    "fact_profile": {
+                        "profile_source": "requirement_semantics",
+                        "confidence": 0.8,
+                        "confirmed_facts": ["save creates result"],
+                        "pending_items": [],
+                        "forbidden_facts": ["do not jump to report first"],
+                    }
+                },
+            },
+            "biz_key_order": ["lesson_review"],
+            "module_order_hint": ["entry", "save", "preview"],
+            "module_order_source": "requirement",
+            "requirement_semantics_by_biz": {
+                "lesson_review": {
+                    "confirmed_facts": ["save creates result"],
+                    "scoped_rules": ["save required"],
+                    "pending_items": ["preview copy"],
+                    "forbidden_facts": ["skip save"],
+                    "reuse_risks": [],
+                }
+            },
+            "scoped_rules": ["save required"],
+            "hard_flow_constraints": ["save before preview"],
+            "reuse_risks": [],
+        },
+        context_result={
+            "context_source": "snapshot+rag",
+            "fusion_debug": {
+                "snapshot_used": True,
+                "snapshot_status": "ready",
+                "snapshot_version": 4,
+                "rag_used": True,
+                "rag_chunk_count": 2,
+            },
+            "snapshot_result": {"snapshot_version": 4},
+            "rag_result": {
+                "debug": {
+                    "final_status": "success",
+                    "retrieval_profile": {"query": "save preview"},
+                    "final_chunks": [
+                        {
+                            "doc_id": "doc-1",
+                            "chunk_id": "chunk-1",
+                            "filename": "requirement.md",
+                            "final_score": 0.91,
+                            "chunk_text": "开发适配点: 数据库表仅作技术说明",
+                        },
+                        {
+                            "doc_id": "doc-2",
+                            "chunk_id": "chunk-2",
+                            "filename": "flow.md",
+                            "final_score": 0.86,
+                            "chunk_text": "点击保存后进入预览页",
+                        },
+                    ],
+                }
+            },
+        },
+        requirement=requirement,
+        kb_context="snapshot plus rag context",
+        base_prompt=base_prompt,
+        system_prompt=system_prompt,
+        mode="stream",
+        doc_type="requirement",
+        compress=False,
+        project_id=1,
+        request_id="req-1",
+        batch_index=1,
+        total_batches=2,
+        attempt=1,
+        expected_count=5,
+        multi_pass=True,
+        generation_mode="multi_pass",
+        model="qwen-plus",
+        max_output_tokens=10000,
+    )
+
+    assert payload["kind"] == "prompt_context_intake"
+    assert payload["max_tokens_semantics"] == "output_tokens"
+    assert payload["section_sizes"]["system_prompt"]["chars"] == len(system_prompt)
+    assert payload["section_sizes"]["full_input"]["chars"] == len(system_prompt + requirement)
+    assert payload["source_lanes"]["rag"]["chunk_count"] == 2
+    assert payload["rag_sources"][0]["doc_id"] == "doc-1"
+    assert "dev_adaptation_fragment" in payload["rag_sources"][0]["noise_flags"]
+    assert payload["control"]["workflow_blueprint_count"] == 1
+    assert payload["control"]["generation_execution_plan_blueprint_count"] == 1
+    assert payload["control"]["generation_execution_plan_step_count"] == 2
+    assert payload["control"]["generation_execution_plan_in_context"] is True
+    assert payload["control"]["generation_execution_independent_suite_order"][:2] == [
+        "permission/security",
+        "exception/recovery",
+    ]
+    assert payload["control"]["fact_profile_confirmed_count"] == 1
+    assert payload["requirement_understanding"]["present"] is True
+    assert payload["requirement_understanding"]["visual_fact_count"] == 2
+    assert payload["requirement_understanding"]["invalid_visual_block_count"] == 1
+    assert payload["requirement_understanding"]["aligned_evidence_count"] == 1
+    assert payload["business_scope"]["requirement_semantics_by_biz"][0]["pending_items_count"] == 1
+    assert "workflow_blueprint_missing" not in payload["risk_flags"]
+    assert "generation_execution_plan_missing" not in payload["risk_flags"]
+
+
+def test_build_prompt_context_intake_diagnostics_flags_missing_generation_execution_plan():
+    payload = build_prompt_context_intake_diagnostics(
+        prompt_context={
+            "requirement_context": "User must complete save before previewing the result.",
+            "control_context": "### WORKFLOW BLUEPRINTS\n* save flow: Save result -> Preview result",
+            "feedback_control_state": {
+                "workflow_blueprints": [
+                    {
+                        "name": "save flow",
+                        "steps": [
+                            {"id": "save", "label": "Save result"},
+                            {"id": "preview", "label": "Preview result"},
+                        ],
+                    }
+                ],
+                "source_meta": {
+                    "fact_profile": {
+                        "confirmed_facts": ["save before preview"],
+                        "pending_items": [],
+                    }
+                },
+            },
+        },
+        context_result={},
+        requirement="User saves and previews result.",
+    )
+
+    assert payload["control"]["workflow_blueprint_count"] == 1
+    assert payload["control"]["generation_execution_plan_step_count"] == 0
+    assert payload["control"]["generation_execution_plan_in_context"] is False
+    assert "workflow_blueprint_missing" not in payload["risk_flags"]
+    assert "generation_execution_plan_missing" in payload["risk_flags"]
 
 
 def test_build_final_context_trace_rag_only_success():

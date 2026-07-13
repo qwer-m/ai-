@@ -4,8 +4,10 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from modules.test_generation_components.prompting.prompt_orchestration import (
+    build_append_closed_loop_coverage_instruction,
     build_closed_loop_base_prompt,
     build_gap_fill_prompt,
+    build_review_select_prompt,
 )
 
 
@@ -27,6 +29,24 @@ def test_business_isolation_rule_contains_current_biz_key() -> None:
     assert "Coverage != P0" in prompt
     assert "Requirement Semantics - CONFIRMED vs PENDING" in prompt
     assert "Pending / Open Questions are NOT confirmed behavior" in prompt
+    assert "EXPECTED_RESULT ASSERTABILITY (MANDATORY)" in prompt
+    assert "正常展示" in prompt
+    assert "do NOT generate that case" in prompt
+
+
+def test_base_prompt_declares_execution_order_contract() -> None:
+    prompt = build_closed_loop_base_prompt(
+        strategy_plan={"system_type": "Web", "impact_scope": "module", "suggested_ratios": {}},
+        requirement_context="REQ context",
+        control_context="### WORKFLOW BLUEPRINTS\n* entry / open / initial->opened\n* commit / save / opened->saved",
+        current_biz_key="workflow_order",
+    )
+
+    assert "EXECUTION ORDER CONTRACT (MANDATORY)" in prompt
+    assert "JSON 数组顺序就是执行计划顺序" in prompt
+    assert "exact blueprint step order" in prompt
+    assert "permission/security -> exception/recovery -> boundary/state rollback" in prompt
+    assert "Do not interleave UI/display" in prompt
 
 
 def test_gap_fill_prompt_consumes_coverage_result() -> None:
@@ -60,3 +80,76 @@ def test_gap_fill_prompt_consumes_coverage_result() -> None:
     assert "REQ-023" in prompt
     assert "missing_types=boundary,exception" in prompt
     assert "coverage" in prompt.lower()
+
+
+def test_review_select_prompt_uses_compact_candidate_payload() -> None:
+    cases = [
+        {
+            "id": "TC-001",
+            "description": "verify close org happy path",
+            "test_module": "org-close",
+            "preconditions": ["logged in"],
+            "steps": ["1. submit close request"],
+            "test_input": "org=A",
+            "expected_result": "org A status changes to closed and disappears from active list",
+            "priority": "P1",
+            "model_priority_current": "P0",
+            "legacy_priority": "P0",
+            "priority_final": "P1",
+            "priority_decision_source": "debug-only",
+            "priority_reasons": ["debug-only"],
+            "review_llm_drop_reason_evidence": {"large": "debug"},
+        }
+        for _ in range(20)
+    ]
+
+    prompt = build_review_select_prompt(
+        requirement_context="REQ close org",
+        candidate_cases=cases,
+        target_count=20,
+        target_min_count=10,
+        target_max_count=20,
+    )
+
+    assert '"priority": "P1"' in prompt
+    assert "model_priority_current" not in prompt
+    assert "priority_decision_source" not in prompt
+    assert "review_llm_drop_reason_evidence" not in prompt
+    assert len(prompt) < 20000
+
+
+def test_review_select_prompt_accepts_alias_case_fields() -> None:
+    prompt = build_review_select_prompt(
+        requirement_context="REQ close org",
+        candidate_cases=[
+            {
+                "caseId": "TC-ALIAS",
+                "title": "verify alias close path",
+                "module": "org-close",
+                "testSteps": ["submit close request"],
+                "testData": "org=A",
+                "expectedResult": "org is closed",
+                "finalPriority": "P0",
+            }
+        ],
+        target_count=1,
+    )
+
+    assert '"id": "TC-ALIAS"' in prompt
+    assert '"description": "verify alias close path"' in prompt
+    assert '"test_module": "org-close"' in prompt
+    assert '"priority": "P0"' in prompt
+    assert '"test_input": "org=A"' in prompt
+    assert '"expected_result": "org is closed"' in prompt
+    assert '"TC-ALIAS"' in prompt
+
+
+def test_closed_loop_snapshot_accepts_alias_module_field() -> None:
+    prompt = build_append_closed_loop_coverage_instruction(
+        existing_cases=[{"caseId": "TC-001", "module": "org-close"}],
+        requirement="plain requirement",
+        expected_count=1,
+        infer_case_kind_fn=lambda _case: "happy_path",
+    )
+
+    assert "org-close: total=1" in prompt

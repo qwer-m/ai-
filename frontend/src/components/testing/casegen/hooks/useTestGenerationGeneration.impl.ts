@@ -1,4 +1,468 @@
-﻿// @ts-nocheck
-import{useEffect as We}from"react";import{api as K,getAuthHeaders as Xe}from"../../../../utils/api";import{cleanStreamingContent as Be,parseMultipleJsonArrays as Te}from"../../../test-generation/streamContent";import{parseGenDiagEvent as j}from"../../../test-generation/debug/diagParser";import{deduplicateStandardCases as S,getErrorText as $e,getUniqueCaseCount as Ve,normalizeStandardCases as x,parseStreamingArrayContent as Ke,sanitizeStandardCases as Re,translateError as Q,validateStandardCases as Fe}from"./testGenerationCaseUtils";import{MAX_FINAL_RESULT_FETCH_RETRIES as Y,sleep as Qe,parsePersistedGenerationIdFromLine as Ye,normalizeHistoryCases as Ue}from"./useTestGenerationGeneration.helpers";function st({projectId:O,mode:T,requirement:$,file:b,protoFile:Z,docType:L,compress:ke,force:xe,expectedCount:P,appendCount:Oe,textResult:Pe,fileResult:Ie,textStreamingContent:Je,fileStreamingContent:je,setTextResult:ee,setFileResult:te,setTextStreamingContent:re,setFileStreamingContent:ne,setTextStreamingParsedResult:ae,setFileStreamingParsedResult:ie,setTextFinalResult:se,setFileFinalResult:oe,setTextResultSource:le,setFileResultSource:ce,setTextIsFinalResultLoaded:ue,setFileIsFinalResultLoaded:de,setTextGenerationId:fe,setFileGenerationId:me,setExpectedCount:R,setLoading:I,setError:pe,setPollStatus:_,setIsEstimating:z,setDuplicateData:J,setShowDuplicateModal:E,duplicateData:ge,setToastType:ye,setToastMsg:he,onLog:n,onGenerated:ve,onGenerationComplete:we,onError:be,onDebugEvent:M,onDebugReset:ze,enableSamplePoolFeedback:tt}){We(()=>{const f=setTimeout(async()=>{z(!0);try{const a=new FormData;if(a.append("project_id",String(O||0)),a.append("doc_type","requirement"),T==="text"){if(!$.trim()){R(20);return}a.append("requirement",$)}else{if(!b){R(20);return}a.append("file",b)}const s=await K.upload("/api/estimate-test-count",a);s&&typeof s.count=="number"&&R(s.count)}catch(a){const s=await Q(a);ye("error"),he(`\u667A\u80FD\u4F30\u7B97\u5931\u8D25\uFF0C\u5DF2\u56DE\u9000\u9ED8\u8BA4\u503C\u3002\u9519\u8BEF\uFF1A${s}`)}finally{z(!1)}},T==="text"?800:600);return()=>clearTimeout(f)},[$,b,T,O,R,z,he,ye]);const Me=e=>{const f=e?Pe:Ie;return Array.isArray(f)?S(x(f)):Ke(e?Je:je)},Ce=async(e,f,a)=>{if(!navigator.onLine)return alert("Network is offline, cannot generate.");if(!O)return alert("Please select a project first.");if(e&&!$.trim())return alert("Please enter requirement text.");if(!e&&!b)return alert("Please select a file.");const s=e?ee:te,H=e?re:ne,q=e?ae:ie,Se=e?se:oe,W=e?le:ce,X=e?ue:de,B=e?fe:me,F=a?Me(e):[];let _e=P;if(a){const l=Ve(F);_e=l<P?l+Math.min(25,P-l):l+Math.min(25,Oe)}const U=Math.max(1,Math.floor(Number(_e)||1));!a&&U!==P&&R(U),ze?.(),I(!0),pe(null),W("streaming_preview"),X(!1),B(null),a||(s(null),q(null)),Se(null),H(""),_("Generating in real time..."),n(e?"Starting text-mode test generation...":`Starting file-mode test generation: ${b?.name||""}`);const g=new FormData;g.append("project_id",String(O)),g.append("doc_type",e?"requirement":L),g.append("compress",String(ke)),g.append("expected_count",String(U)),g.append("force",String(f!==void 0?f:xe)),g.append("enable_sample_pool_feedback",String(tt)),a&&g.append("append","true"),e?g.append("requirement_text",$):b&&(g.append("file",b),L==="incomplete"&&Z&&g.append("prototype_file",Z));const He=async l=>{n(`Detected generation_id=${l}, fetching final persisted result...`);for(let i=1;i<=Y;i++)try{const y=await K.get(`/api/test-generations/${l}`),u=Ue(y);if(u.length>0)return u;throw new Error("persisted_result_not_ready")}catch(y){const u=$e(y);if(i>=Y)return n(`Failed to fetch final persisted result: ${u}`),null;n(`Final result not ready, retrying (${i}/${Y})...`),await Qe(300*i)}return null};try{const l=await K.raw("/api/generate-tests-stream",{method:"POST",headers:{...Xe()},body:g});if(!l.ok){const r=await l.json().catch(()=>({}));throw new Error(r.error||`HTTP ${l.status}`)}const i=l.body?.getReader();if(!i)throw new Error("No response body");const y=new TextDecoder;let u="",A=!1,t="",d=null,Ee=0,k=null;const Ae=r=>{const h=j(r);h&&M?.(h);const v=Ye(r);v&&(k=v,B(v))};for(;;){const{done:r,value:h}=await i.read();if(r)break;if(t+=y.decode(h,{stream:!0}),d!==null){d+=t,t="";try{const o=d.startsWith(":")?d.substring(1):d,m=JSON.parse(o);J(m),E(!0),n("Duplicate document detected, waiting for confirmation..."),i.cancel();return}catch{continue}}for(;;){const o=t.match(/@@STATUS@@:(.*?)(?:\r?\n)/);if(o){const c=o[1].trim();_(c),n(c);const w=j(c);w&&M?.(w),t=t.replace(o[0],"");continue}const m=t.match(/@@CONTEXT_DEBUG@@:(.*?)(?:\r?\n)/);if(m){const c=m[1].trim();t=t.replace(m[0],"");try{const w=JSON.parse(c);n(`context_debug: ${c}`);const Ne=j(w)||j(c);Ne&&M?.(Ne)}catch{n(`context_debug_parse_failed: ${c}`)}continue}break}if(!A&&t.includes("@@DUPLICATE@@")){A=!0;const o=t.indexOf("@@DUPLICATE@@"),m=t.slice(o+13);t=t.slice(0,o),d=m;try{const c=d.startsWith(":")?d.substring(1):d,w=JSON.parse(c);J(w),E(!0),n("Duplicate document detected, waiting for confirmation..."),i.cancel();return}catch{}}const v=["@@STATUS@@:","@@DUPLICATE@@","@@CONTEXT_DEBUG@@:"];let D=t.length;const C=Math.max(0,t.length-20);for(let o=t.length-1;o>=C;o--){const m=t.slice(o);v.some(c=>c.startsWith(m))&&(D=o)}const N=t.slice(0,D);if(t=t.slice(D),N){u+=N,H(u);for(const o of N.split(/\r?\n/))Ae(o)}if(Date.now()-Ee>500){Ee=Date.now();const o=Te(u),m=Re(o);if(m.valid.length>0){const c=S(m.valid),w=a?S([...x(F),...c]):c;q(w),s(w)}}}if(d!==null)try{const r=d.startsWith(":")?d.substring(1):d,h=JSON.parse(r);J(h),E(!0),n("Duplicate document detected, waiting for confirmation...");return}catch{J({id:null}),E(!0);return}if(t){for(const r of t.split(/\r?\n/))Ae(r);u+=t.replace(/@@STATUS@@:.*$/gm,"").replace(/@@CONTEXT_DEBUG@@:.*$/gm,""),H(u)}const qe=typeof window<"u"&&new URLSearchParams(window.location.search).get("skipNormalize")==="1",Ge=Be(u).trim();if(!Ge)throw new Error("Generation result is empty; check model config, quota, or network and retry.");const V=Array.from(Ge.matchAll(/(?:^|\r?\n)Error:\s*([^\r\n]+)/g));let G=[];try{G=Te(u)}catch{}let p=[];if(qe){const r=a?[...Array.isArray(F)?F:[],...G]:G;p=S(x(r))}else{const r=Re(G),h=r.valid;if(r.dropped.length>0&&n(`Filtered ${r.dropped.length} invalid case(s) from streamed output.`),h.length===0){if(V.length>0){const C=V[V.length-1]?.[1]||"";throw new Error(C?`Generation failed: ${C}`:"Generation failed: backend returned an error")}throw Array.isArray(G)&&G.length===0?new Error("Generation result is an empty array, please retry"):new Error("Generation result is not an array of case objects; ensure the model returns a JSON array of objects")}const v=S(h),D=Fe(v);if(D.ok||n(`Validation warning (tolerated): ${D.error}`),a){const C=S(x([...x(F),...v])),N=Fe(C);N.ok||n(`Merged validation warning (tolerated): ${N.error}`),p=C}else p=S(v)}if(!a&&p.length>U&&(p=p.slice(0,U)),!Array.isArray(p)||p.length===0)throw new Error("Generation completed but no valid test cases were produced");q(p),s(p),W("streaming_preview"),X(!1);let De=p;if(k){const r=await He(k);r&&r.length>0?(De=r,Se(r),s(r),W("final_persisted"),X(!0),B(k),_("\u5DF2\u5207\u6362\u4E3A\u6700\u7EC8\u7ED3\u679C"),n(`Final persisted result loaded (generation_id=${k}, cases=${r.length}).`)):(_("\u751F\u6210\u5B8C\u6210\uFF08\u9884\u89C8\uFF09"),n("Using streaming preview because persisted result fetch failed."))}else _("\u751F\u6210\u5B8C\u6210\uFF08\u9884\u89C8\uFF09"),n("No persisted generation id detected in stream; keep streaming preview result.");ve(De),n("Generation completed"),we&&we()}catch(l){const i=$e(l),y=await Q(l),A=i.includes("Generation failed:")||i.includes("Error:")||i.includes("HTTP ")?i:y;pe(A),_("\u751F\u6210\u5931\u8D25"),n(`Generation failed: ${A}`),i&&i!==y&&n(`Generation failed(raw): ${i}`),be&&(i.includes("401")||i.includes("QUOTA")||i.includes("API Key not set"))&&be(y)}finally{I(!1)}};return{handleGenerateStream:Ce,handleDuplicateConfirm:()=>{E(!1),Ce(T==="text",!0)},handleDuplicateCancel:async()=>{if(ge?.id)try{I(!0);const e=Number(ge.id),f=await K.get(`/api/test-generations/${e}`),a=Ue(f),s=a.length>0?a:f;T==="text"?(ee(s),ae(null),se(s),le("final_persisted"),ue(!0),fe(Number.isFinite(e)?e:null),re(JSON.stringify(s,null,2))):(te(s),ie(null),oe(s),ce("final_persisted"),de(!0),me(Number.isFinite(e)?e:null),ne(JSON.stringify(s,null,2))),ve(s),n("Loaded historical generation result")}catch(e){const f=await Q(e);n(`Failed to load history: ${f}`)}finally{I(!1)}E(!1)}}}export{st as useTestGenerationGeneration};
+import { api } from '../../../../utils/api';
+import { parseGenDiagEvent } from '../../../test-generation/debug/diagParser';
+import type { TestGenerationMode } from '../../../test-generation/types';
+import {
+  deduplicateStandardCases,
+  getErrorText,
+  getUniqueCaseCount,
+  normalizeStandardCases,
+  parseStreamingArrayContent,
+  translateError,
+} from './testGenerationCaseUtils';
+import {
+  MAX_FINAL_RESULT_FETCH_RETRIES,
+  normalizeHistoryCases,
+  parsePersistedGenerationIdFromLine,
+  sleep,
+} from './useTestGenerationGeneration.helpers';
+import {
+  buildGenerationStreamFormData,
+  openGenerationStream,
+} from './generationStreamClient';
+import {
+  assembleFinalGeneratedCases,
+  buildStreamingPreviewCases,
+} from './generationResultAssembler';
+import {
+  consumeCompleteControlLines,
+  parseDuplicatePayload,
+  splitDuplicateTag,
+  splitFlushableStreamText,
+  stripTrailingControlLines,
+} from './generationStreamProtocol';
 
+type ResultSource = 'none' | 'streaming_preview' | 'final_persisted';
 
+type UseTestGenerationGenerationArgs = {
+  projectId: number | null;
+  mode: TestGenerationMode;
+  requirement: string;
+  file: File | null;
+  protoFile: File | null;
+  docType: string;
+  compress: boolean;
+  force: boolean;
+  expectedCount: number;
+  appendCount: number;
+  textResult: any;
+  fileResult: any;
+  textStreamingContent: string;
+  fileStreamingContent: string;
+  setTextResult: (value: any) => void;
+  setFileResult: (value: any) => void;
+  setTextStreamingContent: (value: string) => void;
+  setFileStreamingContent: (value: string) => void;
+  setTextStreamingParsedResult: (value: any) => void;
+  setFileStreamingParsedResult: (value: any) => void;
+  setTextFinalResult: (value: any) => void;
+  setFileFinalResult: (value: any) => void;
+  setTextResultSource: (value: ResultSource) => void;
+  setFileResultSource: (value: ResultSource) => void;
+  setTextIsFinalResultLoaded: (value: boolean) => void;
+  setFileIsFinalResultLoaded: (value: boolean) => void;
+  setTextGenerationId: (value: number | null) => void;
+  setFileGenerationId: (value: number | null) => void;
+  setExpectedCount: (value: number) => void;
+  setLoading: (value: boolean) => void;
+  setError: (value: string | null) => void;
+  setPollStatus: (value: string) => void;
+  setDuplicateData: (value: any) => void;
+  setShowDuplicateModal: (value: boolean) => void;
+  duplicateData: any;
+  onLog: (message: string) => void;
+  onGenerated: (data: any) => void;
+  onGenerationComplete?: () => void;
+  onError?: (message: string) => void;
+  onDebugEvent?: (event: unknown) => void;
+  onDebugReset?: () => void;
+  enableSamplePoolFeedback: boolean;
+};
+
+type CurrentModeState = {
+  setResult: (value: any) => void;
+  setStreamingContent: (value: string) => void;
+  setStreamingParsedResult: (value: any) => void;
+  setFinalResult: (value: any) => void;
+  setResultSource: (value: ResultSource) => void;
+  setIsFinalResultLoaded: (value: boolean) => void;
+  setGenerationId: (value: number | null) => void;
+};
+
+async function fetchFinalPersistedResult(
+  generationId: number,
+  onLog: (message: string) => void,
+): Promise<any[] | null> {
+  onLog(`Detected generation_id=${generationId}, fetching final persisted result...`);
+
+  for (let attempt = 1; attempt <= MAX_FINAL_RESULT_FETCH_RETRIES; attempt++) {
+    try {
+      const response = await api.get<any>(`/api/test-generations/${generationId}`);
+      const cases = normalizeHistoryCases(response);
+      if (cases.length > 0) return cases;
+      throw new Error('persisted_result_not_ready');
+    } catch (error) {
+      const message = getErrorText(error);
+      if (attempt >= MAX_FINAL_RESULT_FETCH_RETRIES) {
+        onLog(`Failed to fetch final persisted result: ${message}`);
+        return null;
+      }
+
+      onLog(`Final result not ready, retrying (${attempt}/${MAX_FINAL_RESULT_FETCH_RETRIES})...`);
+      await sleep(300 * attempt);
+    }
+  }
+
+  return null;
+}
+
+function shouldOpenConfigForError(message: string): boolean {
+  return message.includes('401')
+    || message.includes('QUOTA')
+    || message.includes('API Key not set');
+}
+
+export function useTestGenerationGeneration({
+  projectId,
+  mode,
+  requirement,
+  file,
+  protoFile,
+  docType,
+  compress,
+  force,
+  expectedCount,
+  appendCount,
+  textResult,
+  fileResult,
+  textStreamingContent,
+  fileStreamingContent,
+  setTextResult,
+  setFileResult,
+  setTextStreamingContent,
+  setFileStreamingContent,
+  setTextStreamingParsedResult,
+  setFileStreamingParsedResult,
+  setTextFinalResult,
+  setFileFinalResult,
+  setTextResultSource,
+  setFileResultSource,
+  setTextIsFinalResultLoaded,
+  setFileIsFinalResultLoaded,
+  setTextGenerationId,
+  setFileGenerationId,
+  setExpectedCount,
+  setLoading,
+  setError,
+  setPollStatus,
+  setDuplicateData,
+  setShowDuplicateModal,
+  duplicateData,
+  onLog,
+  onGenerated,
+  onGenerationComplete,
+  onError,
+  onDebugEvent,
+  onDebugReset,
+  enableSamplePoolFeedback,
+}: UseTestGenerationGenerationArgs) {
+  const getCurrentModeState = (isText: boolean): CurrentModeState => ({
+    setResult: isText ? setTextResult : setFileResult,
+    setStreamingContent: isText ? setTextStreamingContent : setFileStreamingContent,
+    setStreamingParsedResult: isText ? setTextStreamingParsedResult : setFileStreamingParsedResult,
+    setFinalResult: isText ? setTextFinalResult : setFileFinalResult,
+    setResultSource: isText ? setTextResultSource : setFileResultSource,
+    setIsFinalResultLoaded: isText ? setTextIsFinalResultLoaded : setFileIsFinalResultLoaded,
+    setGenerationId: isText ? setTextGenerationId : setFileGenerationId,
+  });
+
+  const getExistingCases = (isText: boolean) => {
+    const existing = isText ? textResult : fileResult;
+    if (Array.isArray(existing)) {
+      return deduplicateStandardCases(normalizeStandardCases(existing));
+    }
+    return parseStreamingArrayContent(isText ? textStreamingContent : fileStreamingContent);
+  };
+
+  const handleGenerateStream = async (
+    isText: boolean,
+    forceOverride?: boolean,
+    appendMode?: boolean,
+  ) => {
+    if (!navigator.onLine) return alert('Network is offline, cannot generate.');
+    if (!projectId) return alert('Please select a project first.');
+    if (isText && !requirement.trim()) return alert('Please enter requirement text.');
+    if (!isText && !file) return alert('Please select a file.');
+
+    const currentState = getCurrentModeState(isText);
+    const shouldAppend = Boolean(appendMode);
+    const existingCases = shouldAppend ? getExistingCases(isText) : [];
+
+    let targetExpectedCount = expectedCount;
+    if (shouldAppend) {
+      const currentCount = getUniqueCaseCount(existingCases);
+      targetExpectedCount = currentCount < expectedCount
+        ? currentCount + Math.min(25, expectedCount - currentCount)
+        : currentCount + Math.min(25, appendCount);
+    }
+
+    const safeExpectedCount = Math.max(1, Math.floor(Number(targetExpectedCount) || 1));
+    if (!shouldAppend && safeExpectedCount !== expectedCount) {
+      setExpectedCount(safeExpectedCount);
+    }
+
+    onDebugReset?.();
+    setLoading(true);
+    setError(null);
+    currentState.setResultSource('streaming_preview');
+    currentState.setIsFinalResultLoaded(false);
+    currentState.setGenerationId(null);
+    if (!shouldAppend) {
+      currentState.setResult(null);
+      currentState.setStreamingParsedResult(null);
+    }
+    currentState.setFinalResult(null);
+    currentState.setStreamingContent('');
+    setPollStatus('Generating in real time...');
+    onLog(isText ? 'Starting text-mode test generation...' : `Starting file-mode test generation: ${file?.name || ''}`);
+
+    const formData = buildGenerationStreamFormData({
+      projectId,
+      isText,
+      requirement,
+      file,
+      protoFile,
+      docType,
+      compress,
+      expectedCount: safeExpectedCount,
+      force: forceOverride !== undefined ? forceOverride : force,
+      appendMode: shouldAppend,
+      enableSamplePoolFeedback,
+    });
+
+    try {
+      const reader = await openGenerationStream(formData);
+      const decoder = new TextDecoder();
+      let rawText = '';
+      let duplicateDetected = false;
+      let buffer = '';
+      let pendingDuplicateJson: string | null = null;
+      let lastParseTime = 0;
+      let persistedGenerationId: number | null = null;
+
+      const setDetectedGenerationId = (line: string) => {
+        const diagnosticEvent = parseGenDiagEvent(line);
+        if (diagnosticEvent) onDebugEvent?.(diagnosticEvent);
+
+        const generationId = parsePersistedGenerationIdFromLine(line);
+        if (generationId) {
+          persistedGenerationId = generationId;
+          currentState.setGenerationId(generationId);
+        }
+      };
+
+      const showDuplicateDocument = (data: unknown) => {
+        setDuplicateData(data);
+        setShowDuplicateModal(true);
+        onLog('Duplicate document detected, waiting for confirmation...');
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        if (pendingDuplicateJson !== null) {
+          pendingDuplicateJson += buffer;
+          buffer = '';
+          const duplicatePayload = parseDuplicatePayload(pendingDuplicateJson);
+          if (duplicatePayload.ok) {
+            showDuplicateDocument(duplicatePayload.data);
+            void reader.cancel();
+            return;
+          }
+          continue;
+        }
+
+        buffer = consumeCompleteControlLines(buffer, {
+          onStatus: (statusMessage) => {
+            setPollStatus(statusMessage);
+            onLog(statusMessage);
+            const diagnosticEvent = parseGenDiagEvent(statusMessage);
+            if (diagnosticEvent) onDebugEvent?.(diagnosticEvent);
+          },
+          onContextDebug: (rawPayload) => {
+            try {
+              const parsedPayload = JSON.parse(rawPayload);
+              onLog(`context_debug: ${rawPayload}`);
+              const diagnosticEvent = parseGenDiagEvent(parsedPayload) || parseGenDiagEvent(rawPayload);
+              if (diagnosticEvent) onDebugEvent?.(diagnosticEvent);
+            } catch {
+              onLog(`context_debug_parse_failed: ${rawPayload}`);
+            }
+          },
+        });
+
+        if (!duplicateDetected) {
+          const duplicateSplit = splitDuplicateTag(buffer);
+          if (duplicateSplit.duplicateDetected) {
+            duplicateDetected = true;
+            buffer = duplicateSplit.before;
+            pendingDuplicateJson = duplicateSplit.payload;
+
+            const duplicatePayload = parseDuplicatePayload(pendingDuplicateJson);
+            if (duplicatePayload.ok) {
+              showDuplicateDocument(duplicatePayload.data);
+              void reader.cancel();
+              return;
+            }
+          } else {
+            buffer = duplicateSplit.buffer;
+          }
+        }
+
+        const { flushText, remainder } = splitFlushableStreamText(buffer);
+        buffer = remainder;
+
+        if (flushText) {
+          rawText += flushText;
+          currentState.setStreamingContent(rawText);
+          for (const line of flushText.split(/\r?\n/)) {
+            setDetectedGenerationId(line);
+          }
+        }
+
+        if (Date.now() - lastParseTime > 500) {
+          lastParseTime = Date.now();
+          const previewCases = buildStreamingPreviewCases(rawText, shouldAppend, existingCases);
+          if (previewCases && previewCases.length > 0) {
+            currentState.setStreamingParsedResult(previewCases);
+            currentState.setResult(previewCases);
+          }
+        }
+      }
+
+      if (pendingDuplicateJson !== null) {
+        const duplicatePayload = parseDuplicatePayload(pendingDuplicateJson);
+        if (duplicatePayload.ok) {
+          showDuplicateDocument(duplicatePayload.data);
+          return;
+        }
+        setDuplicateData({ id: null });
+        setShowDuplicateModal(true);
+        return;
+      }
+
+      if (buffer) {
+        for (const line of buffer.split(/\r?\n/)) {
+          setDetectedGenerationId(line);
+        }
+        rawText += stripTrailingControlLines(buffer);
+        currentState.setStreamingContent(rawText);
+      }
+
+      const previewCases = assembleFinalGeneratedCases({
+        rawText,
+        appendMode: shouldAppend,
+        existingCases,
+        expectedCount: safeExpectedCount,
+        onLog,
+      });
+      currentState.setStreamingParsedResult(previewCases);
+      currentState.setResult(previewCases);
+      currentState.setResultSource('streaming_preview');
+      currentState.setIsFinalResultLoaded(false);
+
+      let generatedCases = previewCases;
+      if (persistedGenerationId) {
+        const persistedCases = await fetchFinalPersistedResult(persistedGenerationId, onLog);
+        if (persistedCases && persistedCases.length > 0) {
+          generatedCases = persistedCases;
+          currentState.setFinalResult(persistedCases);
+          currentState.setResult(persistedCases);
+          currentState.setResultSource('final_persisted');
+          currentState.setIsFinalResultLoaded(true);
+          currentState.setGenerationId(persistedGenerationId);
+          setPollStatus('已切换为最终结果');
+          onLog(`Final persisted result loaded (generation_id=${persistedGenerationId}, cases=${persistedCases.length}).`);
+        } else {
+          setPollStatus('生成完成（预览）');
+          onLog('Using streaming preview because persisted result fetch failed.');
+        }
+      } else {
+        setPollStatus('生成完成（预览）');
+        onLog('No persisted generation id detected in stream; keep streaming preview result.');
+      }
+
+      onGenerated(generatedCases);
+      onLog('Generation completed');
+      onGenerationComplete?.();
+    } catch (error) {
+      const rawMessage = getErrorText(error);
+      const translatedMessage = await translateError(error);
+      const displayMessage = rawMessage.includes('Generation failed:')
+        || rawMessage.includes('Error:')
+        || rawMessage.includes('HTTP ')
+        ? rawMessage
+        : translatedMessage;
+
+      setError(displayMessage);
+      setPollStatus('生成失败');
+      onLog(`Generation failed: ${displayMessage}`);
+      if (rawMessage && rawMessage !== translatedMessage) {
+        onLog(`Generation failed(raw): ${rawMessage}`);
+      }
+      if (onError && shouldOpenConfigForError(rawMessage)) {
+        onError(translatedMessage);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return {
+    handleGenerateStream,
+    handleDuplicateConfirm: () => {
+      setShowDuplicateModal(false);
+      void handleGenerateStream(mode === 'text', true);
+    },
+    handleDuplicateCancel: async () => {
+      if (duplicateData?.id) {
+        try {
+          setLoading(true);
+          const generationId = Number(duplicateData.id);
+          const historyResponse = await api.get<any>(`/api/test-generations/${generationId}`);
+          const historyCases = normalizeHistoryCases(historyResponse);
+          const result = historyCases.length > 0 ? historyCases : historyResponse;
+
+          if (mode === 'text') {
+            setTextResult(result);
+            setTextStreamingParsedResult(null);
+            setTextFinalResult(result);
+            setTextResultSource('final_persisted');
+            setTextIsFinalResultLoaded(true);
+            setTextGenerationId(Number.isFinite(generationId) ? generationId : null);
+            setTextStreamingContent(JSON.stringify(result, null, 2));
+          } else {
+            setFileResult(result);
+            setFileStreamingParsedResult(null);
+            setFileFinalResult(result);
+            setFileResultSource('final_persisted');
+            setFileIsFinalResultLoaded(true);
+            setFileGenerationId(Number.isFinite(generationId) ? generationId : null);
+            setFileStreamingContent(JSON.stringify(result, null, 2));
+          }
+
+          onGenerated(result);
+          onLog('Loaded historical generation result');
+        } catch (error) {
+          const message = await translateError(error);
+          onLog(`Failed to load history: ${message}`);
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      setShowDuplicateModal(false);
+    },
+  };
+}

@@ -1,0 +1,26 @@
+{
+  "generation_id": 439,
+  "review_decision_summary": {
+    "kind": "review_decision_summary",
+    "candidate_total": 0,
+    "retained_total": 0,
+    "dropped_total": 0,
+    "drop_by_review_llm_count": 0,
+    "drop_by_review_selector_count": 0,
+    "review_input_size": 0,
+    "review_output_size": 0,
+    "review_decision_summary_available": false,
+    "review_skipped_reason": "gen_diag_missing_generated_result_fallback"
+  },
+  "diagnostic_source": "generated_result_fallback",
+  "diagnostic_depth": "limited",
+  "candidate_total": 0,
+  "exported_row_count": 0,
+  "row_count": 0,
+  "is_truncated": false,
+  "truncation_reason": "",
+  "source_summary_available": true,
+  "source_detail_available": true,
+  "detail_row_count_total": 0,
+  "detail_rows_scope": "generated_result_fallback"
+}

@@ -1,5 +1,7 @@
 from typing import Any, Callable
 
+from ..postprocess.streaming_execution_plan_ordering import execution_side_suite_order_text
+
 def build_closed_loop_base_prompt(
     strategy_plan: dict[str, Any] | None,
     *,
@@ -21,6 +23,7 @@ def build_closed_loop_base_prompt(
     supplement_context = (supplement_context or "").strip() or "(empty)"
     control_context = (control_context or "").strip()
     current_biz_key = (current_biz_key or "").strip() or "unknown"
+    side_suite_order = execution_side_suite_order_text()
     control_block = ""
     if control_context and control_context.lower() != "(empty)":
         control_block = f"""
@@ -99,8 +102,9 @@ Generate test cases in STRICT JSON format.
 SEMANTIC RULES (MANDATORY):
 1. Generate formal test cases only from Confirmed Facts, Reuse Declarations, and Hard Flow Constraints.
 2. Pending / Open Questions are NOT confirmed behavior.
-3. If a case depends on Pending / Open Questions, mark it with "[Pending Confirmation]" and do not treat it as a settled fact.
-4. Reuse Declarations must trigger reuse-adaptation checks, not only generic workflow checks.
+3. For ordinary requirement documents, do NOT output formal test cases that depend on Pending / Open Questions.
+4. Use "[Pending Confirmation]" only when the document type is explicitly incomplete and the incomplete-document rules below require inferred assumptions.
+5. Reuse Declarations must trigger reuse-adaptation checks, not only generic workflow checks.
 {control_block}
 
 【已有测试用例（Testcases - STYLE ONLY）】
@@ -144,6 +148,15 @@ S0 - Workflow / Closed-loop (HIGHEST PRIORITY):
    - Exception / Error Handling
    - 至少一个关键风险（权限 / 安全 / 性能）
 4. 必须先模块内闭环，再考虑全局
+5. JSON 数组顺序就是执行计划顺序，不是普通列表排序。
+
+EXECUTION ORDER CONTRACT (MANDATORY):
+1. If WORKFLOW BLUEPRINTS are present in the control context, generate the first main-chain cases in the exact blueprint step order.
+2. Main-chain cases must appear before independent suites and must preserve state transition order: source_state -> target_state.
+3. After the main chain, output independent suites in this order:
+   {side_suite_order}.
+4. Do not interleave UI/display, boundary, or exception cases into the main chain unless they advance the confirmed workflow state.
+5. When a case belongs to an independent suite, keep it after the main workflow and write preconditions that prepare its own state.
 
 --------------------------------
 
@@ -263,6 +276,22 @@ Constraints:
 10. If yes → remove or stop, NOT add.
 
 ❗若出现杜撰、重复或低信息增益内容 → 必须删除后再输出；允许数量低于参考值
+
+# ================================
+# EXPECTED_RESULT ASSERTABILITY (MANDATORY)
+# ================================
+
+- expected_result MUST be a concrete, verifiable assertion.
+- expected_result MUST describe observable outcome/state/data, not template wording.
+- Forbidden placeholder expressions in expected_result include:
+  - 正常展示
+  - 符合预期
+  - 执行成功
+  - 返回成功
+  - 结果可核对
+  - 结果正确
+  - 正常 / 成功 / OK (without concrete assertion target)
+- If a scenario cannot provide a concrete expected_result assertion, do NOT generate that case.
 
 # ================================
 # 📦 OUTPUT REQUIREMENTS（STRICT）

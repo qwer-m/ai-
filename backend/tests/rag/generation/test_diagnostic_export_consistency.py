@@ -20,6 +20,17 @@ def _rows(n: int) -> list[dict]:
         {
             "candidate_index": idx + 1,
             "case_id": f"TC-{idx + 1:03d}",
+            "model_priority": "P0" if idx == 0 else "P1",
+            "model_priority_current": "P0" if idx == 0 else "P1",
+            "legacy_priority": "P2" if idx % 2 else "P0",
+            "priority_final": "P0" if idx == 0 else "",
+            "priority_decision_state": "decided" if idx == 0 else "conflict",
+            "priority_decision_source": "model_semantic_consistent" if idx == 0 else "model_semantic_conflict",
+            "priority_confidence": "high" if idx == 0 else "low",
+            "priority_conflict_reason": "" if idx == 0 else "model=P0,suggested=P2",
+            "priority_score": 80 if idx == 0 else 10,
+            "suggested_priority": "P0" if idx == 0 else "P2",
+            "priority_reasons": ["main_workflow_hit"] if idx == 0 else ["structural_p2_low_value_signal"],
             "retained_final": bool((idx % 2) == 0),
             "dropped_stage": "review_llm" if (idx % 2) else "retained",
             "dropped_reason": "drop_not_selected_by_review_llm:coverage_redundant" if (idx % 2) else "retained",
@@ -94,6 +105,31 @@ def test_review_summary_output_has_consistent_field_naming(tmp_path: Path) -> No
     assert summary_obj["source_summary_available"] is True
     assert summary_obj["source_detail_available"] is True
     assert table_path.exists()
+    csv_text = table_path.read_text(encoding="utf-8-sig")
+    assert "model_priority" in csv_text.splitlines()[0]
+    assert "legacy_priority" in csv_text.splitlines()[0]
+    assert "priority_decision_state" in csv_text.splitlines()[0]
+    assert "priority_final" in csv_text.splitlines()[0]
+
+
+def test_review_summary_output_contains_diagnostic_source_fields(tmp_path: Path) -> None:
+    generation_id = 1001
+    summary_payload = {"candidate_total": 12, "review_decision_summary_available": False}
+    detail_payload = {"row_count": 12, "row_count_total": 12, "rows_scope": "generated_result_fallback"}
+    rows = _rows(12)
+
+    summary_path, _ = write_review_outputs(
+        generation_id=generation_id,
+        summary_payload=summary_payload,
+        table_payload=detail_payload,
+        table_rows=rows,
+        out_dir=tmp_path,
+        diagnostic_source="generated_result_fallback",
+        diagnostic_depth="limited",
+    )
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert payload["diagnostic_source"] == "generated_result_fallback"
+    assert payload["diagnostic_depth"] == "limited"
 
 
 def test_funnel_and_review_meta_calculation_are_consistent() -> None:

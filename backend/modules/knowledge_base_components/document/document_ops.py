@@ -87,6 +87,15 @@ def add_document_impl(
     repo = KnowledgeDocumentRepository(db)
     content_hash = module.calculate_hash(content)
 
+    cover_doc = repo.find_latest_by_identity(
+        project_id=project_id,
+        user_id=user_id,
+        doc_type=doc_type,
+        filename=filename,
+    )
+    if cover_doc:
+        return update_document_impl(module, cover_doc.id, filename, content, doc_type, db)
+
     existing = repo.find_duplicate_by_hash(project_id=project_id, content_hash=content_hash)
 
     if existing:
@@ -241,9 +250,9 @@ def update_document_impl(
 def delete_document_impl(module, doc_id: int, db: Session):
     """Delete a document and clean linked indexes."""
     repo = KnowledgeDocumentRepository(db)
-    doc = repo.get_by_project_specific_id(doc_id)
+    doc = repo.get_by_id(doc_id)
     if not doc:
-        doc = repo.get_by_id(doc_id)
+        doc = repo.get_by_project_specific_id(doc_id)
     if not doc:
         return False
 

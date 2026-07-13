@@ -1,7 +1,7 @@
 import classNames from 'classnames';
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import { Badge, Button } from 'react-bootstrap';
-import { FaCheckCircle, FaCopy, FaFileCode } from 'react-icons/fa';
+import { FaCheckCircle, FaCopy, FaFileCode, FaMagic } from 'react-icons/fa';
 import type { TestGenerationMode } from './types';
 
 type ResultSource = 'none' | 'streaming_preview' | 'final_persisted';
@@ -22,17 +22,17 @@ type TestGenerationResultSectionProps = {
     rawPreviewCount: number;
     reviewCandidateCount: number | null;
     reviewSelectedCount: number | null;
+    judgeInputCount: number | null;
     judgeRejectedOrPendingCount: number | null;
     finalCount: number;
   };
+  canOptimize?: boolean;
+  optimizing?: boolean;
+  onOptimize?: () => void | Promise<void>;
   onCopy: () => void;
   highlightRuleId?: string | null;
+  highlightRuleText?: string;
   onClearHighlight?: () => void;
-};
-
-type MatchedCase = {
-  caseId: string;
-  description: string;
 };
 
 type PriorityRow = {
@@ -43,10 +43,6 @@ type PriorityRow = {
   changed: boolean;
   hasPriorityDebug: boolean;
 };
-
-function escapeRegExp(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 function normalizeRuleToken(ruleId: string | null | undefined): string {
   return String(ruleId || '').trim();
@@ -62,17 +58,6 @@ function getRenderedText(mode: TestGenerationMode, result: any, streamingContent
   return result ? JSON.stringify(result, null, 2) : '';
 }
 
-function getMatchedCases(result: any, keyword: string): MatchedCase[] {
-  if (!Array.isArray(result) || !keyword) return [];
-  const lower = keyword.toLowerCase();
-  return result
-    .filter((item) => JSON.stringify(item ?? {}).toLowerCase().includes(lower))
-    .map((item, idx) => ({
-      caseId: String(item?.id || item?.case_id || `CASE-${idx + 1}`),
-      description: String(item?.description || item?.title || '').slice(0, 80),
-    }));
-}
-
 function normalizePriorityValue(v: unknown): 'P0' | 'P1' | 'P2' {
   const s = String(v ?? '').trim().toUpperCase();
   if (s === 'P0' || s === 'P1' || s === 'P2') return s;
@@ -85,11 +70,11 @@ function normalizePriorityValue(v: unknown): 'P0' | 'P1' | 'P2' {
 function buildPriorityRows(result: any): PriorityRow[] {
   if (!Array.isArray(result)) return [];
   return result.map((item, idx) => {
-    const priorityDebug = item?.priorityDebug ?? item?.meta?.priority_debug;
+    const priorityDebug = item?.priorityDebug ?? item?.priority_debug ?? item?.meta?.priority_debug;
     const hasPriorityDebug = Boolean(priorityDebug && typeof priorityDebug === 'object');
     const displayPriority = normalizePriorityValue(item?.displayPriority ?? item?.priority);
-    const rawPriority = normalizePriorityValue(item?.rawPriority ?? priorityDebug?.original_priority ?? item?.priority);
-    const finalPriority = normalizePriorityValue(item?.finalPriority ?? priorityDebug?.final_priority ?? displayPriority);
+    const rawPriority = normalizePriorityValue(item?.rawPriority ?? item?.raw_priority ?? priorityDebug?.original_priority ?? item?.priority);
+    const finalPriority = normalizePriorityValue(item?.finalPriority ?? item?.final_priority ?? item?.priority_final ?? priorityDebug?.final_priority ?? displayPriority);
     const caseId = String(item?.id || item?.case_id || `CASE-${idx + 1}`);
     return {
       id: caseId,
@@ -127,51 +112,16 @@ export function TestGenerationResultSection({
   finalCaseCount,
   displayCaseCount,
   funnelMetrics,
+  canOptimize = false,
+  optimizing = false,
+  onOptimize,
   onCopy,
   highlightRuleId,
+  highlightRuleText,
   onClearHighlight,
 }: TestGenerationResultSectionProps) {
   const normalizedRuleId = normalizeRuleToken(highlightRuleId);
   const renderedText = useMemo(() => getRenderedText(mode, result, streamingContent), [mode, result, streamingContent]);
-  const matchedCases = useMemo(() => getMatchedCases(result, normalizedRuleId), [result, normalizedRuleId]);
-  const firstMarkRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (!normalizedRuleId) return;
-    if (firstMarkRef.current) {
-      firstMarkRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, [normalizedRuleId, renderedText]);
-
-  const renderedContent = useMemo(() => {
-    if (!normalizedRuleId || !renderedText) return renderedText;
-    const regex = new RegExp(`(${escapeRegExp(normalizedRuleId)})`, 'ig');
-    const segments = renderedText.split(regex);
-    let marked = false;
-    return segments.map((seg, idx) => {
-      const isHit = idx % 2 === 1;
-      if (!isHit) return <span key={`seg-${idx}`}>{seg}</span>;
-      if (!marked) {
-        marked = true;
-        return (
-          <mark
-            key={`seg-${idx}`}
-            ref={(node) => {
-              if (node) firstMarkRef.current = node;
-            }}
-            className="test-generation-highlight-mark"
-          >
-            {seg}
-          </mark>
-        );
-      }
-      return (
-        <mark key={`seg-${idx}`} className="test-generation-highlight-mark">
-          {seg}
-        </mark>
-      );
-    });
-  }, [normalizedRuleId, renderedText]);
 
   const isPreview = resultSource === 'streaming_preview';
   const isFinal = resultSource === 'final_persisted' && isFinalResultLoaded;
@@ -217,6 +167,18 @@ export function TestGenerationResultSection({
               ID {generationId}
             </Badge>
           ) : null}
+          {canOptimize ? (
+            <Button
+              variant="outline-primary"
+              size="sm"
+              className="d-flex align-items-center gap-1"
+              onClick={onOptimize}
+              disabled={loading || optimizing || !onOptimize}
+              title="将质量观察中未达标的问题反馈给模型，并基于本次结果生成优化版"
+            >
+              <FaMagic /> {optimizing ? '分批优化中...' : '优化生成'}
+            </Button>
+          ) : null}
           {streamingContent ? (
             <Button
               variant="link"
@@ -230,6 +192,12 @@ export function TestGenerationResultSection({
           ) : null}
         </div>
       </div>
+
+      {optimizing ? (
+        <div className="px-4 py-2 border-bottom bg-info-subtle small text-info-emphasis">
+          正在分批提交质量问题和当前用例进行二次优化，优化成功前会继续保留当前结果。
+        </div>
+      ) : null}
 
       {isPreview ? (
         <div className="px-4 py-2 border-bottom bg-warning-subtle small text-muted">
@@ -248,6 +216,7 @@ export function TestGenerationResultSection({
         <Badge bg="secondary">raw预览 {funnelMetrics.rawPreviewCount}</Badge>
         <Badge bg="secondary">review候选 {funnelMetrics.reviewCandidateCount ?? '-'}</Badge>
         <Badge bg="secondary">review入选 {funnelMetrics.reviewSelectedCount ?? '-'}</Badge>
+        <Badge bg="secondary">judge输入 {funnelMetrics.judgeInputCount ?? '-'}</Badge>
         <Badge bg="secondary">judge拒绝/待定 {funnelMetrics.judgeRejectedOrPendingCount ?? '-'}</Badge>
         <Badge bg="dark">final {funnelMetrics.finalCount}</Badge>
       </div>
@@ -306,28 +275,16 @@ export function TestGenerationResultSection({
 
       {normalizedRuleId ? (
         <div className="px-4 py-2 border-bottom bg-warning-subtle small d-flex justify-content-between align-items-center">
-          <div className="d-flex align-items-center gap-2">
-            <span className="fw-semibold">规则聚焦:</span>
+          <div className="d-flex align-items-center gap-2 flex-wrap">
+            <span className="fw-semibold">需求点聚焦:</span>
             <Badge bg="warning" text="dark">
               {normalizedRuleId}
             </Badge>
-            <span className="text-muted">命中用例 {matchedCases.length} 条</span>
+            <span className="text-muted">{highlightRuleText || '缺少需求点文本'}</span>
           </div>
           <Button variant="outline-secondary" size="sm" onClick={onClearHighlight}>
             清除聚焦
           </Button>
-        </div>
-      ) : null}
-
-      {normalizedRuleId && matchedCases.length ? (
-        <div className="px-4 py-2 border-bottom small test-generation-related-cases">
-          <span className="fw-semibold me-2">关联用例:</span>
-          {matchedCases.slice(0, 8).map((item) => (
-            <Badge key={`${item.caseId}-${item.description}`} bg="light" text="dark" className="me-2 mb-1">
-              {item.caseId}
-            </Badge>
-          ))}
-          {matchedCases.length > 8 ? <span className="text-muted">+{matchedCases.length - 8} 条</span> : null}
         </div>
       ) : null}
 
@@ -339,7 +296,7 @@ export function TestGenerationResultSection({
           <div className="flex-grow-1 overflow-auto p-4 font-monospace test-generation-result-content test-generation-prewrap">
             {mode === 'text' ? (
               result || renderedText ? (
-                renderedContent
+                renderedText
               ) : (
                 <div className="text-center text-muted mt-5 py-5">
                   <div className="mb-3 opacity-25">
@@ -349,7 +306,7 @@ export function TestGenerationResultSection({
                 </div>
               )
             ) : result || renderedText ? (
-              renderedContent
+              renderedText
             ) : (
               <div className="text-center text-muted mt-5 py-5">
                 <div className="mb-3 opacity-25">

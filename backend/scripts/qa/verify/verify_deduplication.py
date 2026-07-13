@@ -1,13 +1,19 @@
 import sys
-import os
 from datetime import datetime
-from sqlalchemy import create_engine, desc
-from sqlalchemy.orm import sessionmaker
+from pathlib import Path
 
-# Add path
-sys.path.append(os.path.join(os.getcwd(), "ai_test_platform"))
+# Add backend root before importing app modules.
+BACKEND_ROOT = Path(__file__).resolve().parents[3]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
-from core.db.database import SessionLocal, engine, Base
+from scripts.qa.verify._db_isolation import cleanup_project_test_data, require_explicit_db_write_opt_in
+
+require_explicit_db_write_opt_in("verify_deduplication.py")
+
+from sqlalchemy import desc
+
+from core.db.database import SessionLocal
 from core.db.models import Project, KnowledgeDocument, TestGeneration
 from modules.domain.knowledge_base import knowledge_base
 
@@ -137,6 +143,9 @@ def test_deduplication():
         import traceback
         traceback.print_exc()
     finally:
+        if project_id is not None:
+            cleanup_project_test_data(db, project_id)
+            print(f"Cleaned verification data for project {project_id}")
         db.close()
 
 if __name__ == "__main__":

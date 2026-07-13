@@ -1,4 +1,4 @@
-﻿"""Development environment one-click startup script."""
+"""Development environment one-click startup script."""
 
 import os
 import subprocess
@@ -71,6 +71,8 @@ def main() -> None:
     if not ensure_redis_ready():
         print("[ERROR] Redis is required but unavailable. Please fix Redis and retry.")
         return
+    runtime_env["REDIS_HOST"] = os.environ.get("REDIS_HOST", runtime_env.get("REDIS_HOST", "localhost"))
+    runtime_env["REDIS_PORT"] = os.environ.get("REDIS_PORT", runtime_env.get("REDIS_PORT", "6379"))
 
     if not ensure_database_schema(current_dir):
         print("[ERROR] Database schema check failed. Please fix DB and retry.")

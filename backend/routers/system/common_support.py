@@ -1,4 +1,4 @@
-﻿import json
+import json
 import re
 from datetime import datetime
 from typing import Any, Optional

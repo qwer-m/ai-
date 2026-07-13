@@ -36,7 +36,6 @@ type TestGenerationPageViewProps = {
   setCompress: (value: boolean) => void;
   expectedCount: number;
   setExpectedCount: (value: number) => void;
-  isEstimating: boolean;
   appendCount: number;
   setAppendCount: (value: number) => void;
   force: boolean;
@@ -62,9 +61,17 @@ type TestGenerationPageViewProps = {
     rawPreviewCount: number;
     reviewCandidateCount: number | null;
     reviewSelectedCount: number | null;
+    judgeInputCount: number | null;
     judgeRejectedOrPendingCount: number | null;
     finalCount: number;
   };
+  errorInsight: {
+    title: string;
+    details: string[];
+  } | null;
+  canOptimizeGeneration: boolean;
+  optimizingGeneration: boolean;
+  handleOptimizeGeneration: () => void | Promise<void>;
   handleCopyCurrent: () => void;
   toastMsg: string | null;
   toastType: 'success' | 'error';
@@ -102,7 +109,6 @@ export function TestGenerationPageView({
   setCompress,
   expectedCount,
   setExpectedCount,
-  isEstimating,
   appendCount,
   setAppendCount,
   force,
@@ -125,6 +131,10 @@ export function TestGenerationPageView({
   finalCaseCount,
   displayCaseCount,
   funnelMetrics,
+  errorInsight,
+  canOptimizeGeneration,
+  optimizingGeneration,
+  handleOptimizeGeneration,
   handleCopyCurrent,
   toastMsg,
   toastType,
@@ -136,7 +146,11 @@ export function TestGenerationPageView({
   handleDuplicateCancel,
   handleDuplicateConfirm,
 }: TestGenerationPageViewProps) {
-  const [activeRuleId, setActiveRuleId] = useState<string | null>(null);
+  const [activeRuleFocus, setActiveRuleFocus] = useState<{ ruleId: string; ruleText: string } | null>(null);
+
+  const handleRuleClick = (ruleId: string, ruleText = '') => {
+    setActiveRuleFocus({ ruleId, ruleText });
+  };
 
   return (
     <div className="test-generation-shell workbench-shell bento-grid h-100 align-content-start position-relative postman-theme">
@@ -185,7 +199,6 @@ export function TestGenerationPageView({
         onCompressChange={setCompress}
         expectedCount={expectedCount}
         onExpectedCountChange={setExpectedCount}
-        isEstimating={isEstimating}
         appendCount={appendCount}
         onAppendCountChange={setAppendCount}
         force={force}
@@ -210,9 +223,17 @@ export function TestGenerationPageView({
       ) : null}
       {error ? (
         <div className="col-span-12 d-flex flex-column gap-2">
-          <InlineStatusBanner type="error" text={error} />
+          <InlineStatusBanner type="error" text={errorInsight?.title || error} />
           <Alert variant="danger" dismissible onClose={() => setError(null)} className="shadow-sm border-0 mb-0 py-2">
-            <FaExclamationCircle className="me-2" /> 你可以检查模型配置、网络与日志后重试。
+            <div className="d-flex align-items-start gap-2">
+              <FaExclamationCircle className="mt-1 flex-shrink-0" />
+              <div className="d-flex flex-column gap-1 small">
+                {errorInsight?.details?.length ? errorInsight.details.map((item) => (
+                  <div key={item}>{item}</div>
+                )) : <div>{error}</div>}
+                <div>你可以检查模型配置、网络与日志后重试。</div>
+              </div>
+            </div>
           </Alert>
         </div>
       ) : null}
@@ -230,15 +251,19 @@ export function TestGenerationPageView({
         finalCaseCount={finalCaseCount}
         displayCaseCount={displayCaseCount}
         funnelMetrics={funnelMetrics}
+        canOptimize={canOptimizeGeneration}
+        optimizing={optimizingGeneration}
+        onOptimize={handleOptimizeGeneration}
         onCopy={handleCopyCurrent}
-        highlightRuleId={activeRuleId}
-        onClearHighlight={() => setActiveRuleId(null)}
+        highlightRuleId={activeRuleFocus?.ruleId ?? null}
+        highlightRuleText={activeRuleFocus?.ruleText ?? ''}
+        onClearHighlight={() => setActiveRuleFocus(null)}
       />
 
       <RagDebugPanel
         className="col-span-12"
-        activeRuleId={activeRuleId}
-        onRuleClick={setActiveRuleId}
+        activeRuleId={activeRuleFocus?.ruleId ?? null}
+        onRuleClick={handleRuleClick}
         result={result}
         resultSource={resultSource}
         projectId={projectId}

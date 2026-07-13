@@ -1,4 +1,4 @@
-﻿"""Evaluation router entrypoint."""
+"""Evaluation router entrypoint."""
 
 from fastapi import APIRouter
 
