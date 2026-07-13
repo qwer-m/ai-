@@ -236,14 +236,131 @@ body.theme-dark .bento-card {
 }
 
 .col-span-12 { grid-column: span 12 / span 12; }
+.col-span-8 { grid-column: span 8 / span 8; }
 .col-span-6 { grid-column: span 6 / span 6; }
+.col-span-4 { grid-column: span 4 / span 4; }
 
 @media (max-width: 992px) {
   /* 响应式修复：小屏幕下默认改为单列，避免内容挤压 */
+  .col-span-8 { grid-column: span 12 / span 12; }
   .col-span-6 { grid-column: span 12 / span 12; }
+  .col-span-4 { grid-column: span 12 / span 12; }
 }
 
 /* 样式修复：补齐代码中使用的基础工具类，避免样式缺失导致显示异常 */
+.test-generation-workbench {
+  align-items: start;
+  gap: 14px;
+}
+
+.test-generation-workbench .bento-card {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+
+.test-generation-workbench .bento-card:hover {
+  transform: none;
+  box-shadow: var(--shadow-sm);
+  border-color: var(--border-subtle);
+}
+
+.test-generation-workbench .bento-card::after {
+  display: none;
+}
+
+.test-gen-hero {
+  min-height: 92px;
+}
+
+.test-gen-input-card,
+.test-gen-config-card {
+  min-height: 430px;
+}
+
+.test-gen-mode-tabs {
+  border: 1px solid var(--border-subtle);
+  gap: 4px;
+}
+
+.test-gen-mode-tabs .nav-link {
+  color: var(--text-secondary);
+  border-radius: 999px !important;
+  min-width: 74px;
+  text-align: center;
+}
+
+.test-gen-mode-tabs .nav-link.active {
+  background: var(--primary-600) !important;
+  color: var(--text-on-primary) !important;
+  box-shadow: var(--shadow-xs);
+}
+
+.test-gen-main-input,
+.test-gen-textarea,
+.test-gen-upload-zone,
+.test-gen-file-preview {
+  min-height: 318px;
+}
+
+.test-gen-textarea,
+.test-gen-upload-zone,
+.test-gen-file-preview,
+.test-gen-config-section {
+  border: 1px solid var(--border-subtle);
+}
+
+.test-gen-textarea,
+.test-gen-upload-zone,
+.test-gen-file-preview {
+  background-color: #f9fafb !important;
+}
+
+.test-gen-upload-zone {
+  border-style: dashed;
+}
+
+.test-gen-upload-zone:hover {
+  border-color: var(--primary-300) !important;
+  background-color: var(--primary-50) !important;
+}
+
+.test-gen-config-section {
+  background-color: #f9fafb !important;
+}
+
+.test-gen-config-card .form-label {
+  margin-bottom: 0.45rem;
+}
+
+.test-gen-config-card .form-control,
+.test-gen-config-card .form-select {
+  min-height: 38px;
+}
+
+.test-gen-action-button {
+  min-height: 42px;
+  border-radius: var(--radius-md);
+}
+
+.test-gen-result-card {
+  box-shadow: var(--shadow-xs);
+}
+
+.test-gen-result-body {
+  min-height: 0;
+}
+
+.test-gen-result-body > .col-12 {
+  min-height: 0;
+}
+
+@media (max-width: 992px) {
+  .test-gen-input-card,
+  .test-gen-config-card {
+    min-height: auto;
+  }
+}
+
 .bg-app { background-color: var(--bg-app); }
 .transition-all { transition: all 0.3s ease; }
 .grid { display: grid; }

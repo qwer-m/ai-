@@ -26,6 +26,200 @@ import re
 from json import JSONDecoder
 import ast
 
+
+def _clip_text(value: any, limit: int = 120) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "..."
+
+
+def _normalize_case_id(value: any, fallback_index: int) -> str:
+    raw = str(value or "").strip()
+    if re.fullmatch(r"TC-\d{3,}", raw):
+        return raw
+    if re.fullmatch(r"\d+", raw):
+        return f"TC-{int(raw):03d}"
+    return f"TC-{fallback_index + 1:03d}"
+
+
+def _case_sort_number(case_id: str) -> int:
+    match = re.search(r"(\d+)", case_id or "")
+    return int(match.group(1)) if match else 999999
+
+
+def _case_steps(case: dict) -> list[str]:
+    steps = case.get("steps")
+    if isinstance(steps, list):
+        return [_clip_text(item, 160) for item in steps if str(item or "").strip()]
+    if isinstance(steps, str):
+        return [_clip_text(item, 160) for item in steps.splitlines() if item.strip()]
+    return []
+
+
+def _derive_execution_action(case: dict) -> str:
+    steps = _case_steps(case)
+    if steps:
+        return steps[0]
+    return _clip_text(case.get("description"), 120)
+
+
+def _module_suite_id(index: int) -> str:
+    return f"module_suite_{index:03d}"
+
+
+def build_generation_execution_suite(
+    cases: any,
+    generation_id: int | None = None,
+    project_id: int | None = None,
+    request_id: str | None = None,
+    source: str = "monolith_public_projection",
+) -> dict | None:
+    if not isinstance(cases, list):
+        return None
+
+    normalized_cases = [case for case in cases if isinstance(case, dict)]
+    if not normalized_cases:
+        return None
+
+    suites_by_module: dict[str, dict] = {}
+    ordered_suite_keys: list[str] = []
+    public_numbers: list[int] = []
+
+    for index, case in enumerate(normalized_cases):
+        case_id = _normalize_case_id(case.get("id") or case.get("ID") or case.get("case_id"), index)
+        public_numbers.append(_case_sort_number(case_id))
+
+        module_name = _clip_text(case.get("test_module") or "General", 80)
+        if module_name not in suites_by_module:
+            suite_index = len(ordered_suite_keys) + 1
+            ordered_suite_keys.append(module_name)
+            suites_by_module[module_name] = {
+                "suite_id": _module_suite_id(suite_index),
+                "suite_name": module_name,
+                "execution_group": f"module_{suite_index:03d}",
+                "run_mode": "isolated",
+                "group_setup": "",
+                "group_teardown": "",
+                "case_count": 0,
+                "roles": [],
+                "fixture_keys": [],
+                "missing_dependencies": [],
+                "runnable": True,
+                "warnings": [],
+                "cases": [],
+            }
+
+        suite = suites_by_module[module_name]
+        suite["case_count"] += 1
+        suite["cases"].append({
+            "case_id": case_id,
+            "suite_order": suite["case_count"],
+            "execution_sequence": index + 1,
+            "depends_on": [],
+            "role": "",
+            "session_key": "",
+            "fixture_key": "",
+            "source_state": _clip_text("; ".join(case.get("preconditions") or []) if isinstance(case.get("preconditions"), list) else case.get("preconditions"), 120),
+            "target_state": _clip_text(case.get("expected_result"), 120),
+            "action": _derive_execution_action(case),
+            "runnable": True,
+        })
+
+    suites = [suites_by_module[key] for key in ordered_suite_keys]
+    public_id_order_monotonic = all(
+        public_numbers[i] <= public_numbers[i + 1]
+        for i in range(len(public_numbers) - 1)
+    )
+    warnings = []
+    if not public_id_order_monotonic:
+        warnings.append("public_case_ids_not_monotonic")
+
+    return {
+        "kind": "execution_suite",
+        "version": "execution-suite-v1",
+        "generation_id": generation_id,
+        "project_id": project_id,
+        "request_id": request_id,
+        "source": source,
+        "case_count": len(normalized_cases),
+        "suite_count": len(suites),
+        "runnable_suite_count": len(suites),
+        "linear_executable": True,
+        "linear_scope": "public_result_module_order",
+        "execution_readiness": "ready",
+        "main_suite_id": suites[0]["suite_id"] if suites else None,
+        "metadata_quality": {
+            "complete_execution_metadata": True,
+            "has_any_execution_metadata": True,
+            "missing_dependency_count": 0,
+            "action_source": "first_step_or_description",
+            "description_action_aligned": True,
+        },
+        "warnings": warnings,
+        "suites": suites,
+    }
+
+
+def emit_generation_execution_suite_diag(
+    db: Session,
+    cases: any,
+    generation_id: int | None,
+    project_id: int | None,
+    user_id: int | None,
+    request_id: str | None = None,
+    source: str = "monolith_public_projection",
+) -> None:
+    suite = build_generation_execution_suite(
+        cases,
+        generation_id=generation_id,
+        project_id=project_id,
+        request_id=request_id,
+        source=source,
+    )
+    if not suite:
+        return
+
+    payload = {
+        "kind": "generation_execution_suite",
+        "generation_id": generation_id,
+        "project_id": project_id,
+        "request_id": request_id,
+        "source": source,
+        "case_count": suite.get("case_count"),
+        "execution_readiness": suite.get("execution_readiness"),
+        "execution_suite_compact": suite,
+    }
+    message = f"GEN_DIAG:{json.dumps(payload, ensure_ascii=False)}"
+    if len(message.encode("utf-8")) > 60000:
+        compact_cases = []
+        for suite_item in suite.get("suites") or []:
+            compact_suite = dict(suite_item)
+            compact_suite["cases"] = [
+                {
+                    "case_id": item.get("case_id"),
+                    "suite_order": item.get("suite_order"),
+                    "execution_sequence": item.get("execution_sequence"),
+                    "depends_on": item.get("depends_on") or [],
+                    "action": _clip_text(item.get("action"), 60),
+                    "runnable": item.get("runnable", True),
+                }
+                for item in compact_suite.get("cases") or []
+            ]
+            compact_cases.append(compact_suite)
+        suite = dict(suite)
+        suite["suites"] = compact_cases
+        payload["execution_suite_compact"] = suite
+        payload["payload_compacted_due_to_size"] = True
+        message = f"GEN_DIAG:{json.dumps(payload, ensure_ascii=False)}"
+
+    db.add(LogEntry(
+        project_id=project_id,
+        log_type="system",
+        message=message,
+        user_id=user_id,
+    ))
+
 def clean_and_parse_json(response_text: str) -> any:
     """
     清洗并解析 LLM 返回的 JSON 文本 (Clean and Parse JSON Response)
@@ -604,6 +798,15 @@ class TestGenerationModule:
                 db.add(db_entry)
                 db.commit()
                 db.refresh(db_entry)
+                emit_generation_execution_suite_diag(
+                    db,
+                    result,
+                    generation_id=db_entry.id,
+                    project_id=project_id,
+                    user_id=user_id,
+                    source="monolith_json_projection",
+                )
+                db.commit()
                 # Add db id to result for reference
                 if isinstance(result, list):
                      pass # Can't add to list easily, maybe wrap? keeping as is.
@@ -1305,6 +1508,8 @@ Types:
             cleaned_response = json.dumps(parsed_result, ensure_ascii=False)
             
             if db:
+                persisted_generation = None
+                persisted_cases_for_diag = parsed_result
                 if overwrite:
                     from sqlalchemy import desc
                     query = db.query(TestGeneration).filter(
@@ -1319,6 +1524,7 @@ Types:
                         existing_entry_overwrite.generated_result = cleaned_response
                         db.commit()
                         db.refresh(existing_entry_overwrite)
+                        persisted_generation = existing_entry_overwrite
                     else:
                          db_entry = TestGeneration(
                             requirement_text=original_requirement,
@@ -1328,6 +1534,8 @@ Types:
                         )
                          db.add(db_entry)
                          db.commit()
+                         db.refresh(db_entry)
+                         persisted_generation = db_entry
                 elif append and existing_entry:
                     # Merge with existing cases
                     if isinstance(parsed_result, list):
@@ -1335,6 +1543,8 @@ Types:
                         existing_entry.generated_result = json.dumps(merged_result, ensure_ascii=False)
                         db.commit()
                         db.refresh(existing_entry)
+                        persisted_generation = existing_entry
+                        persisted_cases_for_diag = merged_result
                 else:
                     db_entry = TestGeneration(
                         requirement_text=original_requirement,
@@ -1344,10 +1554,29 @@ Types:
                     )
                     db.add(db_entry)
                     db.commit()
+                    db.refresh(db_entry)
+                    persisted_generation = db_entry
+
+                if persisted_generation is not None:
+                    generation_meta = {
+                        "id": persisted_generation.id,
+                        "project_id": persisted_generation.project_id,
+                        "created_at": persisted_generation.created_at.isoformat() if persisted_generation.created_at else None,
+                    }
+                    yield f"@@GENERATION_META@@:{json.dumps(generation_meta, ensure_ascii=False)}\n"
 
                 # --- Log GEN_DIAG and GEN_QM ---
                 try:
                     count = len(parsed_result) if isinstance(parsed_result, list) else 0
+                    if persisted_generation is not None:
+                        emit_generation_execution_suite_diag(
+                            db,
+                            persisted_cases_for_diag,
+                            generation_id=persisted_generation.id,
+                            project_id=project_id,
+                            user_id=user_id,
+                            source="monolith_stream_projection",
+                        )
                     
                     # Calculate actual model for accurate logging
                     # system_prompt is defined above in this function

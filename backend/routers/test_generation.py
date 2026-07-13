@@ -2,12 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, R
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, or_
 import json
 import os
+import re
+from typing import Any
 
 from core.database import get_db
-from core.models import Project, User, TestGeneration
+from core.models import Project, User, TestGeneration, LogEntry
 from core.auth import get_current_user
 from core.utils import log_to_db, logger
 from core.file_processing import parse_file_content
@@ -42,6 +44,22 @@ def _get_previous_generation_json(
     user_id: int,
     requirement_text: str,
 ):
+    prev = _get_previous_generation_record(db, project_id, user_id, requirement_text)
+    prev_json = None
+    if prev and prev.generated_result:
+        try:
+            prev_json = json.loads(prev.generated_result)
+        except Exception:
+            prev_json = {"raw": prev.generated_result}
+    return prev_json
+
+
+def _get_previous_generation_record(
+    db: Session,
+    project_id: int,
+    user_id: int,
+    requirement_text: str,
+) -> TestGeneration | None:
     prev = db.query(TestGeneration).filter(
         TestGeneration.project_id == project_id,
         TestGeneration.requirement_text == requirement_text,
@@ -56,13 +74,310 @@ def _get_previous_generation_json(
             TestGeneration.user_id == user_id
         ).order_by(TestGeneration.created_at.desc()).first()
 
-    prev_json = None
-    if prev and prev.generated_result:
-        try:
-            prev_json = json.loads(prev.generated_result)
-        except Exception:
-            prev_json = {"raw": prev.generated_result}
-    return prev_json
+    return prev
+
+
+def _parse_generation_result(generated_result: str | None) -> Any:
+    if not generated_result:
+        return []
+
+    try:
+        return json.loads(generated_result)
+    except Exception:
+        return {"raw": generated_result}
+
+
+def _get_owned_generation(generation_id: int, db: Session, user_id: int) -> TestGeneration:
+    generation = db.query(TestGeneration).filter(TestGeneration.id == generation_id).first()
+    if not generation:
+        raise HTTPException(status_code=404, detail="Test generation not found")
+
+    if generation.user_id is not None and generation.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Test generation not found")
+
+    if generation.project_id is not None:
+        _get_owned_project(generation.project_id, db, user_id)
+
+    return generation
+
+
+def _serialize_generation_summary(generation: TestGeneration) -> dict[str, Any]:
+    parsed = _parse_generation_result(generation.generated_result)
+    case_count = len(parsed) if isinstance(parsed, list) else 0
+    return {
+        "id": generation.id,
+        "project_id": generation.project_id,
+        "requirement_text": generation.requirement_text,
+        "created_at": generation.created_at.isoformat() if generation.created_at else None,
+        "case_count": case_count,
+    }
+
+
+def _parse_gen_diag_message(message: str | None) -> dict[str, Any] | None:
+    if not message or "GEN_DIAG:" not in message:
+        return None
+
+    raw = message.split("GEN_DIAG:", 1)[1].strip()
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return None
+
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _find_execution_suite_payload(db: Session, generation: TestGeneration) -> dict[str, Any] | None:
+    generation_id = int(generation.id)
+    id_with_space = f'%"generation_id": {generation_id}%'
+    id_without_space = f'%"generation_id":{generation_id}%'
+
+    query = db.query(LogEntry).filter(
+        LogEntry.project_id == generation.project_id,
+        LogEntry.message.like("%generation_execution_suite%"),
+        or_(
+            LogEntry.message.like(id_with_space),
+            LogEntry.message.like(id_without_space),
+        ),
+    )
+    if generation.user_id is not None:
+        query = query.filter(or_(LogEntry.user_id == generation.user_id, LogEntry.user_id.is_(None)))
+
+    logs = query.order_by(desc(LogEntry.created_at), desc(LogEntry.id)).limit(20).all()
+    for log in logs:
+        payload = _parse_gen_diag_message(log.message)
+        if not payload or payload.get("kind") != "generation_execution_suite":
+            continue
+        if int(payload.get("generation_id") or 0) == generation_id:
+            payload["_log_id"] = log.id
+            payload["_log_created_at"] = log.created_at.isoformat() if log.created_at else None
+            return payload
+
+    return None
+
+
+def _extract_compact_execution_suite(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not payload:
+        return None
+
+    for key in ("execution_suite_compact", "execution_suite"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            return value
+
+    if payload.get("kind") == "execution_suite":
+        return payload
+
+    return None
+
+
+def _case_id_number(case_id: str) -> int | None:
+    match = re.search(r"(\d+)", case_id or "")
+    return int(match.group(1)) if match else None
+
+
+def _build_public_case_lookup(cases: Any) -> tuple[dict[str, dict[str, Any]], bool]:
+    if not isinstance(cases, list):
+        return {}, True
+
+    lookup: dict[str, dict[str, Any]] = {}
+    ordered_numbers: list[int] = []
+    for index, case in enumerate(cases):
+        if not isinstance(case, dict):
+            continue
+        case_id = str(case.get("id") or case.get("ID") or "").strip()
+        if not case_id:
+            continue
+        number = _case_id_number(case_id)
+        if number is not None:
+            ordered_numbers.append(number)
+        lookup[case_id] = {
+            "public_order": index + 1,
+            "description": case.get("description") or "",
+            "test_module": case.get("test_module") or "",
+            "priority": case.get("priority_final") or case.get("priority") or "",
+            "expected_result": case.get("expected_result") or "",
+        }
+
+    monotonic = all(ordered_numbers[i] <= ordered_numbers[i + 1] for i in range(len(ordered_numbers) - 1))
+    return lookup, monotonic
+
+
+def _merge_execution_case(case_ref: dict[str, Any], public_cases: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    case_id = str(case_ref.get("case_id") or case_ref.get("id") or "").strip()
+    public = public_cases.get(case_id, {})
+    depends_on = case_ref.get("depends_on") or []
+    if not isinstance(depends_on, list):
+        depends_on = [str(depends_on)]
+
+    return {
+        "case_id": case_id,
+        "suite_order": case_ref.get("suite_order"),
+        "execution_sequence": case_ref.get("execution_sequence"),
+        "depends_on": depends_on,
+        "role": case_ref.get("role") or "",
+        "session_key": case_ref.get("session_key") or "",
+        "fixture_key": case_ref.get("fixture_key") or "",
+        "source_state": case_ref.get("source_state") or "",
+        "target_state": case_ref.get("target_state") or "",
+        "action": case_ref.get("action") or "",
+        "setup_hint": case_ref.get("setup_hint") or "",
+        "teardown_hint": case_ref.get("teardown_hint") or "",
+        "runnable": case_ref.get("runnable", True),
+        **public,
+    }
+
+
+def _fallback_execution_suites(cases: Any, public_cases: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    if not isinstance(cases, list):
+        return []
+
+    fallback_cases: list[dict[str, Any]] = []
+    for index, case in enumerate(cases):
+        if not isinstance(case, dict):
+            continue
+        case_id = str(case.get("id") or case.get("ID") or f"CASE-{index + 1}").strip()
+        fallback_cases.append(_merge_execution_case({
+            "case_id": case_id,
+            "suite_order": index + 1,
+            "execution_sequence": index + 1,
+            "depends_on": [],
+            "runnable": True,
+        }, public_cases))
+
+    return [{
+        "suite_id": "public_result_order",
+        "suite_name": "公开结果顺序",
+        "execution_group": "public_result",
+        "run_mode": "listed",
+        "case_count": len(fallback_cases),
+        "runnable": False,
+        "warnings": ["未找到执行套件诊断，仅展示公开结果中的列表顺序。"],
+        "cases": fallback_cases,
+    }]
+
+
+def _build_execution_order_response(generation: TestGeneration, db: Session) -> dict[str, Any]:
+    public_result = _parse_generation_result(generation.generated_result)
+    public_lookup, public_id_order_monotonic = _build_public_case_lookup(public_result)
+    payload = _find_execution_suite_payload(db, generation)
+    suite = _extract_compact_execution_suite(payload)
+    notes: list[str] = []
+
+    suites: list[dict[str, Any]] = []
+    if suite and isinstance(suite.get("suites"), list):
+        for item in suite.get("suites") or []:
+            if not isinstance(item, dict):
+                continue
+            cases = [
+                _merge_execution_case(case_ref, public_lookup)
+                for case_ref in (item.get("cases") or [])
+                if isinstance(case_ref, dict)
+            ]
+            suites.append({
+                "suite_id": item.get("suite_id") or "",
+                "suite_name": item.get("suite_name") or "",
+                "execution_group": item.get("execution_group") or "",
+                "run_mode": item.get("run_mode") or "",
+                "group_setup": item.get("group_setup") or "",
+                "group_teardown": item.get("group_teardown") or "",
+                "case_count": item.get("case_count") or len(cases),
+                "runnable": item.get("runnable", True),
+                "warnings": item.get("warnings") or [],
+                "cases": cases,
+            })
+        source = "gen_diag"
+        if payload and payload.get("execution_suite_omitted_due_to_size"):
+            notes.append("执行套件全量字段因日志长度限制被压缩，当前视图使用 compact case refs。")
+    else:
+        suites = _fallback_execution_suites(public_result, public_lookup)
+        source = "generated_result_fallback"
+        notes.append("未找到 generation_execution_suite 诊断，无法还原真实依赖关系。")
+
+    if not public_id_order_monotonic:
+        notes.append("公开结果中的用例编号不是单调递增，阅读执行顺序应以本视图的 suite_order/execution_sequence 为准。")
+
+    public_count = len(public_result) if isinstance(public_result, list) else 0
+    return {
+        "generation_id": generation.id,
+        "project_id": generation.project_id,
+        "created_at": generation.created_at.isoformat() if generation.created_at else None,
+        "source": source,
+        "diagnostic_log_id": payload.get("_log_id") if payload else None,
+        "request_id": payload.get("request_id") if payload else None,
+        "case_count": (suite or payload or {}).get("case_count") or public_count,
+        "public_case_count": public_count,
+        "suite_count": (suite or {}).get("suite_count") or len(suites),
+        "runnable_suite_count": (suite or {}).get("runnable_suite_count"),
+        "linear_executable": (suite or {}).get("linear_executable"),
+        "execution_readiness": (suite or payload or {}).get("execution_readiness") or "legacy_manual",
+        "main_suite_id": (suite or {}).get("main_suite_id"),
+        "public_id_order_monotonic": public_id_order_monotonic,
+        "notes": notes,
+        "suites": suites,
+    }
+
+
+@router.get("/test-generations")
+def list_test_generations(
+    project_id: int,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _get_owned_project(project_id, db, current_user.id)
+    safe_limit = max(1, min(int(limit or 20), 100))
+    generations = (
+        db.query(TestGeneration)
+        .filter(
+            TestGeneration.project_id == project_id,
+            or_(TestGeneration.user_id == current_user.id, TestGeneration.user_id.is_(None)),
+        )
+        .order_by(desc(TestGeneration.created_at), desc(TestGeneration.id))
+        .limit(safe_limit)
+        .all()
+    )
+    return [_serialize_generation_summary(item) for item in generations]
+
+
+@router.get("/test-generations/latest/execution-order")
+def get_latest_execution_order(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _get_owned_project(project_id, db, current_user.id)
+    generation = (
+        db.query(TestGeneration)
+        .filter(
+            TestGeneration.project_id == project_id,
+            or_(TestGeneration.user_id == current_user.id, TestGeneration.user_id.is_(None)),
+        )
+        .order_by(desc(TestGeneration.created_at), desc(TestGeneration.id))
+        .first()
+    )
+    if not generation:
+        raise HTTPException(status_code=404, detail="Test generation not found")
+    return _build_execution_order_response(generation, db)
+
+
+@router.get("/test-generations/{generation_id}/execution-order")
+def get_execution_order(
+    generation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    generation = _get_owned_generation(generation_id, db, current_user.id)
+    return _build_execution_order_response(generation, db)
+
+
+@router.get("/test-generations/{generation_id}")
+def get_test_generation(
+    generation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    generation = _get_owned_generation(generation_id, db, current_user.id)
+    return _parse_generation_result(generation.generated_result)
 
 
 @router.post("/estimate-test-count")
@@ -178,9 +493,11 @@ async def generate_tests_stream(
                 user_id=current_user.id,
             )
             if isinstance(kb_add, dict) and kb_add.get("status") == "duplicate" and not force:
-                previous_json = _get_previous_generation_json(db, project_id, current_user.id, content)
+                previous = _get_previous_generation_record(db, project_id, current_user.id, content)
+                previous_json = _parse_generation_result(previous.generated_result) if previous else None
                 payload = {
                     "duplicate": True,
+                    "id": previous.id if previous else None,
                     "filename": kb_add.get("existing_filename"),
                     "previous_json": previous_json,
                 }
@@ -395,6 +712,7 @@ async def generate_tests_from_file(
                         prev_json = {"raw": prev.generated_result}
                 return {
                     "duplicate": True,
+                    "id": prev.id if prev else None,
                     "filename": kb_add.get("existing_filename"),
                     "previous_json": prev_json
                 }
@@ -538,6 +856,7 @@ async def generate_tests_from_file_async(
                         prev_json = {"raw": prev.generated_result}
                 return {
                     "duplicate": True,
+                    "id": prev.id if prev else None,
                     "filename": kb_add.get("existing_filename"),
                     "previous_json": prev_json
                 }
