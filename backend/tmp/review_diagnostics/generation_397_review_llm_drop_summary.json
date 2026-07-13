@@ -1,0 +1,48 @@
+{
+  "generation_id": 397,
+  "request_id": "654696a46c464c0987c5b737e59d4fcf",
+  "review_row_count_total": 43,
+  "review_llm_drop_count": 25,
+  "drop_by_module": {
+    "督导端": 4,
+    "新增数据模板": 1,
+    "异常与边界": 2,
+    "跨模块联动": 1,
+    "教材切换": 1,
+    "周一习题本": 1,
+    "错题本": 1,
+    "周末课程": 1,
+    "周末学习": 1,
+    "学习报告": 1,
+    "重新学习": 1,
+    "学习报表": 1,
+    "督导端单题错题集": 1,
+    "全局控制与权限": 8
+  },
+  "drop_by_priority": {
+    "P1": 17,
+    "P2": 8
+  },
+  "drop_by_scene": {
+    "state": 6,
+    "happy": 13,
+    "exception": 6
+  },
+  "p1_drop_count": 17,
+  "p1_drop_by_module": {
+    "督导端": 4,
+    "跨模块联动": 1,
+    "教材切换": 1,
+    "周一习题本": 1,
+    "错题本": 1,
+    "周末课程": 1,
+    "周末学习": 1,
+    "学习报告": 1,
+    "重新学习": 1,
+    "学习报表": 1,
+    "督导端单题错题集": 1,
+    "全局控制与权限": 3
+  },
+  "high_signal_dropped_count": 8,
+  "coverage_value_dropped_count": 2
+}

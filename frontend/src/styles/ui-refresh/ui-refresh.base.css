@@ -1,0 +1,308 @@
+﻿:root {
+  --ui-bg: #f3f6fb;
+  --ui-surface: #ffffff;
+  --ui-surface-muted: #f8fbff;
+  --ui-text: #0f172a;
+  --ui-text-soft: #5b6475;
+  --ui-border: #dbe4f0;
+  --ui-border-strong: #cbd5e1;
+  --ui-primary: #4f46e5;
+  --ui-primary-soft: rgba(79, 70, 229, 0.12);
+  --ui-danger-soft: rgba(239, 68, 68, 0.12);
+  --ui-shadow-sm: 0 3px 12px rgba(15, 23, 42, 0.06);
+  --ui-shadow-md: 0 12px 26px rgba(15, 23, 42, 0.09);
+}
+
+body.theme-dark {
+  --ui-bg: #000000;
+  --ui-surface: #1b212a;
+  --ui-surface-muted: #161b22;
+  --ui-text: #b9cae1;
+  --ui-text-soft: #8ea3be;
+  --ui-border: #232a33;
+  --ui-border-strong: #2b3440;
+  --ui-primary: #586b8d;
+  --ui-primary-soft: rgba(88, 107, 141, 0.18);
+  --ui-danger-soft: rgba(248, 113, 113, 0.15);
+  --ui-shadow-sm: 0 3px 12px rgba(2, 6, 23, 0.46);
+  --ui-shadow-md: 0 12px 26px rgba(2, 6, 23, 0.58);
+}
+
+.dashboard-shell {
+  color: var(--ui-text);
+}
+
+.dashboard-shell .dashboard-main,
+.dashboard-shell .dashboard-sidebar,
+.dashboard-shell .glass-panel,
+.dashboard-shell .bento-card {
+  border-color: var(--ui-border) !important;
+  box-shadow: var(--ui-shadow-sm);
+}
+
+.dashboard-shell .dashboard-topbar {
+  border-bottom: 1px solid var(--ui-border) !important;
+}
+
+.dashboard-workspace .dashboard-body-layout {
+  gap: 14px !important;
+  margin-bottom: 6px;
+}
+
+.dashboard-topbar-surface {
+  border-radius: 0 0 14px 14px;
+}
+
+.dashboard-topbar-shell {
+  height: 64px;
+}
+
+.dashboard-content-host-min {
+  min-width: 0;
+  min-height: 0;
+}
+
+.dashboard-content-scroll {
+  min-height: 0;
+  overflow-y: auto !important;
+  overflow-x: hidden;
+}
+
+.dashboard-content-container-immersive {
+  height: 100%;
+  min-height: 0;
+}
+
+.dashboard-content-container-normal {
+  min-height: 100%;
+}
+
+.dashboard-content-min-h-0 {
+  min-height: 0;
+}
+
+.dashboard-tab-panel {
+  display: none;
+  height: 100%;
+}
+
+.dashboard-tab-panel.is-active {
+  display: block;
+}
+
+.dashboard-project-switcher .dashboard-project-chip {
+  border-color: var(--ui-border);
+  background: color-mix(in srgb, var(--ui-surface) 90%, transparent);
+}
+
+.dashboard-project-switcher .dashboard-project-label {
+  height: 36px;
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+
+.dashboard-project-switcher .dashboard-project-select {
+  min-width: 160px;
+  max-width: 280px;
+  height: 36px;
+}
+
+.dashboard-action-cluster .dashboard-icon-btn {
+  width: 36px;
+  min-width: 36px;
+  justify-content: center;
+}
+
+.dashboard-action-cluster .dashboard-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--ui-border);
+  opacity: 0.8;
+  margin: 0 4px;
+}
+
+.dashboard-sidebar-surface {
+  position: relative;
+  width: 260px;
+  min-width: 260px;
+}
+
+.dashboard-sidebar-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ui-surface-muted) 88%, transparent) 0%, transparent 100%);
+}
+
+.dashboard-pro-badge {
+  font-size: 0.6em;
+}
+
+.dashboard-sidebar-scroll-gutter {
+  scrollbar-gutter: stable;
+}
+
+.dashboard-sidebar-link-row {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+  min-height: 38px;
+  margin-bottom: 4px;
+}
+
+.dashboard-sidebar-overflow-hidden {
+  overflow: hidden;
+}
+
+.dashboard-sidebar-toggle-icon {
+  min-width: 24px;
+  width: 24px;
+  height: 24px;
+  margin-right: -8px;
+}
+
+.dashboard-sidebar-child-icon {
+  width: 16px;
+}
+
+.dashboard-sidebar-nav-wrap .sidebar-link {
+  border: 1px solid transparent;
+}
+
+.dashboard-sidebar-nav-wrap .sidebar-link:hover {
+  background: var(--ui-surface-muted);
+  border-color: var(--ui-border);
+}
+
+.dashboard-sidebar-health {
+  border-top: 1px solid var(--ui-border);
+}
+
+.dashboard-health-spinner {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
+.dashboard-health-chip {
+  min-width: 0;
+}
+
+.dashboard-health-badge {
+  font-size: 0.6em;
+}
+
+.dashboard-health-status {
+  font-size: 0.75em;
+}
+
+.dashboard-shell .form-label {
+  color: var(--ui-text-soft) !important;
+  font-size: 0.84rem;
+  letter-spacing: 0.02em;
+  margin-bottom: 0.38rem;
+  font-weight: 600;
+}
+
+.dashboard-shell .form-control,
+.dashboard-shell .form-select,
+.dashboard-shell .input-group-text {
+  min-height: 40px;
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.dashboard-shell textarea.form-control {
+  min-height: 92px;
+}
+
+.dashboard-shell .form-control:focus,
+.dashboard-shell .form-select:focus {
+  border-color: var(--ui-primary) !important;
+  box-shadow: 0 0 0 3px var(--ui-primary-soft) !important;
+}
+
+.dashboard-shell .btn {
+  border-radius: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.dashboard-shell .btn-outline-secondary,
+.dashboard-shell .btn-outline-primary,
+.dashboard-shell .btn-outline-danger,
+.dashboard-shell .btn-outline-info,
+.dashboard-shell .btn-light,
+.dashboard-shell .btn-light-pro {
+  background: var(--ui-surface) !important;
+  border-color: var(--ui-border) !important;
+}
+
+.dashboard-shell .btn-outline-secondary:hover,
+.dashboard-shell .btn-outline-primary:hover,
+.dashboard-shell .btn-outline-danger:hover,
+.dashboard-shell .btn-outline-info:hover,
+.dashboard-shell .btn-light:hover,
+.dashboard-shell .btn-light-pro:hover {
+  border-color: var(--ui-border-strong) !important;
+  background: var(--ui-surface-muted) !important;
+}
+
+.dashboard-shell .table-responsive {
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  background: var(--ui-surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.dashboard-shell .table {
+  margin-bottom: 0;
+}
+
+.dashboard-shell .table thead th {
+  background: var(--ui-surface-muted) !important;
+  border-color: var(--ui-border) !important;
+  color: var(--ui-text);
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.dashboard-shell .table td {
+  border-color: var(--ui-border) !important;
+  color: var(--ui-text);
+  vertical-align: middle;
+}
+
+.dashboard-shell .table tbody tr:nth-child(2n) td {
+  background: color-mix(in srgb, var(--ui-surface-muted) 65%, transparent) !important;
+}
+
+.dashboard-shell .table tbody tr:hover td {
+  background: color-mix(in srgb, var(--ui-primary-soft) 65%, var(--ui-surface)) !important;
+}
+
+.dashboard-shell .nav-tabs .nav-link {
+  color: var(--ui-text-soft);
+}
+
+.dashboard-shell .nav-tabs .nav-link.active {
+  color: var(--ui-text);
+  border-color: var(--ui-border) var(--ui-border) transparent;
+}
+
+.dashboard-shell .form-check {
+  margin-bottom: 0;
+}
+
+.dashboard-shell .form-check-input {
+  border-color: var(--ui-border-strong);
+}
+
+.dashboard-shell .form-check-input:checked {
+  background-color: var(--ui-primary);
+  border-color: var(--ui-primary);
+}
+
+.dashboard-shell .form-check-input:focus {
+  box-shadow: 0 0 0 3px var(--ui-primary-soft);
+}
+

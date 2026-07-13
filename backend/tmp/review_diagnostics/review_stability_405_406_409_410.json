@@ -1,0 +1,58 @@
+[
+  {
+    "generation_id": 405,
+    "candidate_total": 67,
+    "review_llm_pool_count": 63,
+    "target_min_count": 15,
+    "target_max_count": 26,
+    "drop_by_review_llm_count": 37,
+    "drop_by_review_llm_ratio": 0.5873,
+    "final_count": 30,
+    "judge_rejected_or_pending_count": 1,
+    "review_llm_drop_reason_breakdown": "{\"unspecified\": 4, \"coverage_redundant\": 24, \"low_value\": 9}",
+    "review_llm_drop_reason_raw_breakdown": "{}",
+    "review_llm_drop_reason_source_breakdown": "{}"
+  },
+  {
+    "generation_id": 406,
+    "candidate_total": 63,
+    "review_llm_pool_count": 61,
+    "target_min_count": 15,
+    "target_max_count": 26,
+    "drop_by_review_llm_count": 35,
+    "drop_by_review_llm_ratio": 0.5738,
+    "final_count": 28,
+    "judge_rejected_or_pending_count": 1,
+    "review_llm_drop_reason_breakdown": "{\"unspecified\": 26, \"low_value\": 4, \"coverage_redundant\": 5}",
+    "review_llm_drop_reason_raw_breakdown": "{}",
+    "review_llm_drop_reason_source_breakdown": "{}"
+  },
+  {
+    "generation_id": 409,
+    "candidate_total": 73,
+    "review_llm_pool_count": 67,
+    "target_min_count": 16,
+    "target_max_count": 28,
+    "drop_by_review_llm_count": 39,
+    "drop_by_review_llm_ratio": 0.5821,
+    "final_count": 33,
+    "judge_rejected_or_pending_count": 2,
+    "review_llm_drop_reason_breakdown": "{\"fallback_unspecified\": 16, \"coverage_redundant\": 13, \"duplicate\": 9, \"low_value\": 1}",
+    "review_llm_drop_reason_raw_breakdown": "{\"unspecified\": 16, \"coverage_redundant\": 13, \"duplicate\": 9, \"low_value\": 1}",
+    "review_llm_drop_reason_source_breakdown": "{\"deterministic_backfill\": 16, \"llm\": 23}"
+  },
+  {
+    "generation_id": 410,
+    "candidate_total": 35,
+    "review_llm_pool_count": 33,
+    "target_min_count": 9,
+    "target_max_count": 15,
+    "drop_by_review_llm_count": 18,
+    "drop_by_review_llm_ratio": 0.5455,
+    "final_count": 18,
+    "judge_rejected_or_pending_count": 0,
+    "review_llm_drop_reason_breakdown": "{\"fallback_unspecified\": 18}",
+    "review_llm_drop_reason_raw_breakdown": "{\"unspecified\": 18}",
+    "review_llm_drop_reason_source_breakdown": "{\"deterministic_backfill\": 18}"
+  }
+]

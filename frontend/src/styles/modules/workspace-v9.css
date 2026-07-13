@@ -1,0 +1,338 @@
+/* 工作台全局重构 v9：按钮体�?+ 表格分页 + 顶栏侧栏层级 */
+
+body.ui-overhaul-v4 .dashboard-topbar-shell {
+  min-height: 74px !important;
+  height: 74px !important;
+  align-items: center !important;
+  padding-top: 12px !important;
+  padding-bottom: 12px !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--fd-border) 95%, transparent) !important;
+}
+
+body.ui-overhaul-v4 .dashboard-topbar {
+  background:
+    radial-gradient(680px 180px at 12% -40%, color-mix(in srgb, var(--fd-primary) 10%, transparent), transparent 64%),
+    linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 95%, transparent), color-mix(in srgb, var(--fd-surface-soft) 88%, transparent)) !important;
+}
+
+body.ui-overhaul-v4 .dashboard-project-switcher {
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+body.ui-overhaul-v4 .dashboard-project-chip {
+  min-height: 40px;
+  min-width: 98px;
+  border: 1px solid color-mix(in srgb, var(--fd-border) 92%, transparent) !important;
+  border-radius: 12px !important;
+  background: color-mix(in srgb, var(--fd-surface) 92%, transparent) !important;
+  color: var(--fd-text-soft) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 6px 14px rgba(15, 23, 42, 0.08);
+}
+
+body.ui-overhaul-v4 .dashboard-project-select {
+  width: clamp(124px, 10em, 148px);
+  min-width: clamp(124px, 10em, 148px);
+  max-width: 148px;
+  min-height: 40px;
+  border: 1px solid color-mix(in srgb, var(--fd-border) 94%, transparent) !important;
+  border-radius: 12px !important;
+  background: color-mix(in srgb, var(--fd-surface) 96%, transparent) !important;
+  font-weight: 600;
+  color: var(--fd-text) !important;
+  text-align: center;
+  text-align-last: center;
+}
+
+body.ui-overhaul-v4 .dashboard-action-cluster {
+  align-items: center;
+  gap: 10px !important;
+}
+
+body.ui-overhaul-v4 .dashboard-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+body.ui-overhaul-v4 .dashboard-topbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+body.ui-overhaul-v4 .dashboard-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--fd-border) 92%, transparent);
+  background: color-mix(in srgb, var(--fd-surface) 95%, transparent);
+  color: var(--fd-text-soft);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+body.ui-overhaul-v4 .dashboard-meta-pill.is-info {
+  border-color: color-mix(in srgb, var(--fd-primary) 34%, var(--fd-border));
+  background: color-mix(in srgb, var(--fd-primary) 12%, var(--fd-surface-soft));
+  color: color-mix(in srgb, var(--fd-primary) 78%, #1e3a8a);
+}
+
+body.ui-overhaul-v4 .dashboard-meta-pill.is-ok {
+  border-color: color-mix(in srgb, var(--fd-success) 40%, var(--fd-border));
+  background: color-mix(in srgb, var(--fd-success) 12%, var(--fd-surface-soft));
+  color: color-mix(in srgb, var(--fd-success) 74%, #166534);
+}
+
+body.ui-overhaul-v4 .dashboard-meta-pill.is-warning {
+  border-color: color-mix(in srgb, var(--fd-warning) 42%, var(--fd-border));
+  background: color-mix(in srgb, var(--fd-warning) 14%, var(--fd-surface-soft));
+  color: color-mix(in srgb, var(--fd-warning) 78%, #92400e);
+}
+
+body.ui-overhaul-v4 .dashboard-meta-pill.is-checking {
+  border-color: color-mix(in srgb, var(--fd-primary) 34%, var(--fd-border));
+  background: color-mix(in srgb, var(--fd-primary) 10%, var(--fd-surface-soft));
+}
+
+body.ui-overhaul-v4 .dashboard-icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px !important;
+  border: 1px solid color-mix(in srgb, var(--fd-border) 94%, transparent) !important;
+  background: color-mix(in srgb, var(--fd-surface) 96%, transparent) !important;
+}
+
+body.ui-overhaul-v4 .dashboard-divider {
+  width: 1px;
+  height: 28px;
+  background: color-mix(in srgb, var(--fd-border) 95%, transparent);
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-head {
+  padding: 18px 18px 14px !important;
+  border-bottom-color: color-mix(in srgb, var(--fd-border) 95%, transparent) !important;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-nav-wrap {
+  padding: 12px 10px 10px !important;
+}
+
+body.ui-overhaul-v4 .dashboard-nav-group {
+  padding: 6px 4px 4px;
+  border: 1px solid color-mix(in srgb, var(--fd-border) 88%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--fd-surface-soft) 72%, transparent);
+}
+
+body.ui-overhaul-v4 .dashboard-nav-group-title {
+  font-size: 0.73rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fd-text-soft);
+  padding: 2px 8px 0;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-link-row {
+  min-height: 44px;
+  border-radius: 12px !important;
+  border: 1px solid transparent !important;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-nav-wrap .sidebar-link:not(.active-pro):hover {
+  border-color: color-mix(in srgb, var(--fd-primary) 28%, var(--fd-border));
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-link-row.active-pro {
+  border-color: color-mix(in srgb, var(--fd-primary) 24%, var(--fd-border)) !important;
+  background: color-mix(in srgb, var(--fd-primary) 10%, var(--fd-surface-soft)) !important;
+  box-shadow: none !important;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar .border-start {
+  border-left-color: color-mix(in srgb, var(--fd-border) 90%, transparent) !important;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar .sidebar-link.small {
+  min-height: 34px;
+  border-radius: 10px !important;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-health {
+  border-top: 1px solid color-mix(in srgb, var(--fd-border) 92%, transparent);
+}
+
+body.ui-overhaul-v4 .dashboard-health-chip {
+  min-height: 34px;
+  border-radius: 10px !important;
+}
+
+body.ui-overhaul-v4 .workbench-shell .btn,
+body.ui-overhaul-v4 .rag-console .btn,
+body.ui-overhaul-v4 .knowledge-base-shell .btn,
+body.ui-overhaul-v4 .evaluation-shell .btn,
+body.ui-overhaul-v4 .test-generation-shell .btn {
+  min-height: 38px;
+  border-radius: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+body.ui-overhaul-v4 .workbench-shell .btn-sm,
+body.ui-overhaul-v4 .rag-console .btn-sm,
+body.ui-overhaul-v4 .knowledge-base-shell .btn-sm,
+body.ui-overhaul-v4 .evaluation-shell .btn-sm {
+  min-height: 34px;
+  border-radius: 10px;
+}
+
+body.ui-overhaul-v4 .workbench-shell .btn-primary,
+body.ui-overhaul-v4 .workbench-shell .btn-pro-primary {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--fd-primary) 95%, #1d4ed8), color-mix(in srgb, var(--fd-primary-2) 82%, #5b718f)) !important;
+  border: 0 !important;
+  box-shadow: 0 10px 20px color-mix(in srgb, var(--fd-primary) 26%, transparent);
+}
+
+body.ui-overhaul-v4 .workbench-shell .btn-primary:hover,
+body.ui-overhaul-v4 .workbench-shell .btn-pro-primary:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+
+body.ui-overhaul-v4 .workbench-shell .btn-outline-secondary,
+body.ui-overhaul-v4 .workbench-shell .btn-outline-primary,
+body.ui-overhaul-v4 .workbench-shell .btn-outline-danger,
+body.ui-overhaul-v4 .workbench-shell .btn-outline-warning,
+body.ui-overhaul-v4 .workbench-shell .btn-outline-info {
+  border-color: color-mix(in srgb, var(--fd-border) 92%, transparent);
+  background: color-mix(in srgb, var(--fd-surface) 96%, transparent);
+}
+
+body.ui-overhaul-v4 .workbench-shell .table-responsive {
+  border-radius: 12px !important;
+  border: 1px solid color-mix(in srgb, var(--fd-border) 95%, transparent) !important;
+}
+
+body.ui-overhaul-v4 .workbench-shell .table thead th {
+  background: color-mix(in srgb, var(--fd-surface-soft) 90%, transparent) !important;
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--fd-text-soft);
+}
+
+body.ui-overhaul-v4 .workbench-shell .table td {
+  font-size: 0.9rem;
+}
+
+body.ui-overhaul-v4 .knowledge-pagination-bar {
+  border-top: 1px solid color-mix(in srgb, var(--fd-border) 92%, transparent) !important;
+  background: color-mix(in srgb, var(--fd-surface-soft) 78%, transparent) !important;
+}
+
+body.ui-overhaul-v4 .knowledge-pagination-control .page-link,
+body.ui-overhaul-v4 .rag-report-pagination .btn {
+  min-width: 34px;
+  border-radius: 9px !important;
+  border-color: color-mix(in srgb, var(--fd-border) 90%, transparent);
+  color: var(--fd-text-soft);
+  background: color-mix(in srgb, var(--fd-surface) 95%, transparent);
+}
+
+body.ui-overhaul-v4 .knowledge-pagination-control .page-item.active .page-link {
+  background: linear-gradient(135deg, var(--fd-primary), var(--fd-primary-2));
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 8px 14px color-mix(in srgb, var(--fd-primary) 24%, transparent);
+}
+
+body.ui-overhaul-v4 .knowledge-pagination-control .page-item.disabled .page-link {
+  opacity: 0.55;
+}
+
+body.ui-overhaul-v4 .knowledge-pagination-control .page-link:hover,
+body.ui-overhaul-v4 .rag-report-pagination .btn:hover {
+  border-color: color-mix(in srgb, var(--fd-primary) 28%, var(--fd-border));
+  background: color-mix(in srgb, var(--fd-primary) 10%, var(--fd-surface));
+}
+
+body.theme-dark.ui-overhaul-v4 .dashboard-topbar {
+  background: #000000 !important;
+}
+
+body.theme-dark.ui-overhaul-v4 .dashboard-workspace {
+  background: #000000 !important;
+}
+
+body.theme-dark.ui-overhaul-v4 .dashboard-topbar-surface {
+  background: #000000 !important;
+}
+
+body.theme-dark.ui-overhaul-v4 .dashboard-project-chip,
+body.theme-dark.ui-overhaul-v4 .dashboard-project-select,
+body.theme-dark.ui-overhaul-v4 .dashboard-icon-btn,
+body.theme-dark.ui-overhaul-v4 .dashboard-meta-pill {
+  background: color-mix(in srgb, var(--fd-surface) 92%, transparent) !important;
+  border-color: color-mix(in srgb, var(--fd-border) 92%, transparent) !important;
+}
+
+body.theme-dark.ui-overhaul-v4 .dashboard-nav-group {
+  background: color-mix(in srgb, var(--fd-surface-soft) 90%, transparent);
+  border-color: color-mix(in srgb, var(--fd-border) 76%, transparent);
+}
+
+body.theme-dark.ui-overhaul-v4 .dashboard-divider {
+  background: color-mix(in srgb, var(--fd-border) 80%, transparent);
+}
+
+body.theme-dark.ui-overhaul-v4 .workbench-shell .btn-outline-secondary,
+body.theme-dark.ui-overhaul-v4 .workbench-shell .btn-outline-primary,
+body.theme-dark.ui-overhaul-v4 .workbench-shell .btn-outline-danger,
+body.theme-dark.ui-overhaul-v4 .workbench-shell .btn-outline-warning,
+body.theme-dark.ui-overhaul-v4 .workbench-shell .btn-outline-info,
+body.theme-dark.ui-overhaul-v4 .knowledge-pagination-control .page-link,
+body.theme-dark.ui-overhaul-v4 .rag-report-pagination .btn {
+  background: color-mix(in srgb, var(--fd-surface) 92%, transparent);
+  border-color: color-mix(in srgb, var(--fd-border) 88%, transparent);
+  color: #9fb3cc;
+}
+
+body.theme-dark.ui-overhaul-v4 .workbench-shell .table thead th {
+  background: color-mix(in srgb, #172033 92%, transparent) !important;
+  color: #b9cae1;
+}
+
+body.theme-dark.ui-overhaul-v4 .knowledge-pagination-control .page-item.active .page-link {
+  color: #b9cae1;
+}
+
+@media (max-width: 991px) {
+  body.ui-overhaul-v4 .dashboard-topbar-shell {
+    min-height: 66px !important;
+    height: auto !important;
+    padding-inline: 12px !important;
+  }
+
+  body.ui-overhaul-v4 .dashboard-project-select {
+    min-width: 170px;
+    width: 100%;
+  }
+
+  body.ui-overhaul-v4 .dashboard-topbar-right {
+    gap: 8px;
+  }
+
+  body.ui-overhaul-v4 .dashboard-action-cluster {
+    gap: 8px !important;
+  }
+
+  body.ui-overhaul-v4 .dashboard-icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+}
+

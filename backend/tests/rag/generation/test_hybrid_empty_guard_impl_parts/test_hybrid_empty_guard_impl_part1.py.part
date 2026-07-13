@@ -1,0 +1,200 @@
+import json
+from dataclasses import dataclass
+
+import pytest
+
+import modules.testing.test_generation_components.legacy_generation_impl as legacy_mod
+import modules.testing.test_generation_components.legacy.json_generation as json_generation_mod
+import modules.testing.test_generation_components.legacy.stream.prepare as stream_prepare_mod
+import modules.testing.test_generation_components.legacy.context.hybrid as hybrid_mod
+from modules.testing.test_generation_components.legacy_generation_impl import TestGenerationModule
+
+@dataclass
+class _DummyGuardConfig:
+    """测试用兜底配置对象，用于稳定控制策略分支。"""
+
+    strategy: str = "fail_fast"
+    sync_snapshot_retry_enabled: bool = True
+    sync_snapshot_retry_timeout_sec: int = 3
+
+    def normalized_strategy(self) -> str:
+        return self.strategy
+
+class _FakeClient:
+    """模型客户端桩：仅记录是否被调用，不做真实外部请求。"""
+
+    def __init__(self) -> None:
+        self.generate_calls = 0
+        self.stream_calls = 0
+
+    def generate_response(self, *args, **kwargs):
+        self.generate_calls += 1
+        return json.dumps(
+            [
+                {
+                    "id": "TC-001",
+                    "description": "测试",
+                    "test_module": "模块",
+                    "preconditions": [],
+                    "steps": ["步骤1"],
+                    "test_input": "输入",
+                    "expected_result": "期望",
+                    "priority": "P0",
+                }
+            ],
+            ensure_ascii=False,
+        )
+
+    def generate_response_stream(self, *args, **kwargs):
+        self.stream_calls += 1
+        yield self.generate_response(*args, **kwargs)
+
+    def compress_context(self, context: str, *args, **kwargs):
+        return context
+
+@pytest.fixture()
+def tg_env(monkeypatch):
+    """统一测试夹具：注入 fake client 和轻量 meta 分析。"""
+    fake_client = _FakeClient()
+
+    monkeypatch.setattr(json_generation_mod, "get_client_for_user", lambda user_id, db: fake_client)
+    monkeypatch.setattr(stream_prepare_mod, "get_client_for_user", lambda user_id, db: fake_client)
+    monkeypatch.setattr(legacy_mod, "get_client_for_user", lambda user_id, db: fake_client, raising=False)
+
+    monkeypatch.setattr(
+        TestGenerationModule,
+        "analyze_requirement_context",
+        lambda self, requirement, kb_context, client, db: {
+            "system_type": "Web",
+            "complexity": "Medium",
+            "suggested_ratios": {"functional": 0.6, "regression": 0.2, "non_functional": 0.2},
+            "focus_areas": ["核心流程"],
+            "device_scenarios": ["web"],
+            "impact_scope": "single_module",
+        },
+    )
+
+    module = TestGenerationModule()
+    return module, fake_client
+
+def _patch_kb(monkeypatch, snapshot_result, rag_result):
+    """注入 snapshot 与 RAG 结果桩。"""
+    monkeypatch.setattr(
+        hybrid_mod.knowledge_base,
+        "get_or_build_context_snapshot",
+        lambda **kwargs: snapshot_result,
+    )
+    monkeypatch.setattr(
+        hybrid_mod.knowledge_base,
+        "get_relevant_context",
+        lambda **kwargs: rag_result,
+    )
+
+@pytest.mark.parametrize("decision", ["fail_fast"])
+def test_scene1_force_double_empty_abort(monkeypatch, tg_env, capsys, decision):
+    """场景1：强制双空，必须立即终止且不调用模型。"""
+    module, fake_client = tg_env
+
+    monkeypatch.setattr(
+        hybrid_mod,
+        "HYBRID_EMPTY_GUARD_CONFIG",
+        _DummyGuardConfig(strategy=decision, sync_snapshot_retry_enabled=False),
+    )
+    _patch_kb(
+        monkeypatch,
+        snapshot_result={
+            "success": False,
+            "fallback_reason": "snapshot_async_rebuild_skip",
+            "queue_result": {"queued": False, "reason": "already_pending"},
+            "snapshot_status": "pending",
+        },
+        rag_result={
+            "debug": {
+                "lane_counts": {"original_raw": 0},
+                "lane_reasons": {"original_raw": "no_hit"},
+                "final_chunks": [],
+            }
+        },
+    )
+
+    monkeypatch.setattr(
+        hybrid_mod,
+        "build_hybrid_context",
+        lambda **kwargs: {
+            "context": "",
+            "debug": {
+                "snapshot_used": False,
+                "rag_used": False,
+                "fusion_mode": "empty",
+                "rag_chunk_count": 0,
+                "final_context_tokens": 0,
+            },
+        },
+    )
+
+    result = module.generate_test_cases_json(
+        requirement="Redis 为什么这么快",
+        project_id=61,
+        db=object(),
+        user_id=29,
+        compress=False,
+    )
+
+    assert result["error"] == "HYBRID_EMPTY_CONTEXT_ABORT"
+    debug = result["fusion_debug"]
+    assert debug["hybrid_empty_context"] is True
+    assert debug["final_decision"] == "fail_fast"
+    assert debug["snapshot_queue_reason"] == "already_pending"
+    assert fake_client.generate_calls == 0
+
+    out = capsys.readouterr().out
+    assert "Hybrid guard abort(json)" in out
+    assert "snapshot_queue_reason=already_pending" in out
+
+def test_scene2_double_empty_then_sync_retry_success(monkeypatch, tg_env):
+    """场景2：双空后同步补救成功，应继续生成并允许调用模型。"""
+    module, fake_client = tg_env
+
+    monkeypatch.setattr(
+        hybrid_mod,
+        "HYBRID_EMPTY_GUARD_CONFIG",
+        _DummyGuardConfig(strategy="sync_snapshot_retry_then_fail", sync_snapshot_retry_enabled=True),
+    )
+    _patch_kb(
+        monkeypatch,
+        snapshot_result={
+            "success": False,
+            "fallback_reason": "snapshot_async_rebuild_skip",
+            "queue_result": {"queued": False, "reason": "already_pending"},
+            "snapshot_status": "pending",
+        },
+        rag_result={
+            "debug": {
+                "lane_counts": {"original_raw": 0},
+                "lane_reasons": {"original_raw": "no_hit"},
+                "final_chunks": [],
+            }
+        },
+    )
+
+    def _hybrid_build(**kwargs):
+        if (kwargs.get("snapshot_text") or "").strip():
+            return {
+                "context": "【项目知识背景】补救后的 snapshot",
+                "debug": {
+                    "snapshot_used": True,
+                    "rag_used": False,
+                    "fusion_mode": "snapshot_only",
+                    "rag_chunk_count": 0,
+                    "final_context_tokens": 24,
+                },
+            }
+        return {
+            "context": "",
+            "debug": {
+                "snapshot_used": False,
+                "rag_used": False,
+                "fusion_mode": "empty",
+                "rag_chunk_count": 0,
+                "final_context_tokens": 0,
+            },

@@ -1,0 +1,17 @@
+﻿case_id,module,priority,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,核心闭环,P1,验证在核心闭环执行中途切换教材/年级后，新维度的闭环能否独立正常启动,PASS,-,False,False,False
+TC-002,核心闭环,P1,验证学生端完整教学闭环：周中做题 -> AI判分归档错题 -> 生成薄弱点 -> 周末课程推荐 -> 完成周末学习与测评 -> 生成学习报告 -> 更新周一习题本,PASS,-,True,False,False
+TC-003,核心闭环,P1,验证核心闭环中关键数据（错题数、知识点掌握度）在采集、定位、推荐、反馈各节点的一致性,PASS,-,False,False,False
+TC-004,核心闭环,P1,验证用户在当前周所有题目都答对（无错题）时，核心闭环各环节（薄弱点列表、周末课程推荐、学习报告）的边界表现,PASS,-,False,False,False
+TC-005,核心闭环,P1,验证核心闭环中AI即时判分服务异常时，系统的错误处理与闭环恢复机制,PASS,-,False,False,False
+TC-006,核心闭环,P1,验证核心闭环中知识图谱构建与定位的实时性（从错题采集到薄弱点列表更新）,PASS,-,False,False,False
+TC-007,核心闭环,P1,验证未付费用户尝试执行完整教学闭环时，关键环节被权限拦截,PASS,-,False,False,False
+TC-008,学习报告页,P2,验证学习报告答题照片区数量上限（最多20张）,PASS,-,False,False,False
+TC-009,学习报告页,P1,验证学习报告页“返回首页”操作对周末任务状态的标记,PASS,-,False,False,False
+TC-010,学习报告页,P2,验证“补做”后学习报告的全量覆盖更新,PASS,-,False,False,False
+TC-011,学习报告页,P2,验证学习报告页的“重新学习”操作条件（当前周/上周补做期内可重置）,PASS,-,False,False,False
+TC-012,任务与判分,P2,验证周中任务提交与AI即时判分及错题归档,PASS,-,False,False,False
+TC-013,任务与判分,P2,验证周末课程包内容一致性（周六与周日内容相同）,PASS,-,False,False,False
+TC-014,周末学习与测评,P2,验证随堂测评完整流程：打印题->手写->拍照上传->OCR+AI判分->错题归档,PASS,-,False,False,False
+TC-015,周末学习与测评,P2,验证周末学习断点续播与进度同步,PASS,-,False,False,False
+TC-016,异常与边界,P2,验证网络异常时，已加载数据的保留与重试机制,PASS,-,False,False,False

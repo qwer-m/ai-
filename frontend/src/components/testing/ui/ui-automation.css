@@ -1,0 +1,248 @@
+﻿.ui-automation-shell {
+  height: 100%;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ui-surface-muted) 75%, transparent) 0%, transparent 100%);
+  color: var(--ui-text);
+}
+
+.ui-automation-body,
+.ui-automation-report {
+  min-height: 0;
+}
+
+.ui-automation-sidebar {
+  width: var(--ui-sidebar-width, 260px);
+  transition: width 0.2s ease;
+  overflow: hidden;
+  background: var(--ui-surface);
+  border-color: var(--ui-border) !important;
+}
+
+.ui-automation-sidebar.is-closed {
+  width: 0;
+}
+
+.ui-automation-sidebar.is-resizing {
+  transition: none;
+}
+
+.ui-automation-sidebar-head {
+  background: var(--ui-surface-muted);
+}
+
+.ui-automation-main,
+.ui-automation-report-content {
+  min-width: 0;
+  background: color-mix(in srgb, var(--ui-surface-muted) 42%, transparent);
+}
+
+.ui-automation-main-min {
+  min-width: 0;
+}
+
+.ui-automation-workspace {
+  min-height: 0;
+}
+
+.ui-automation-preview-main {
+  flex: 2;
+}
+
+.ui-automation-right-main,
+.ui-automation-side-fill {
+  flex: 1;
+}
+
+.ui-automation-min-h-0 {
+  min-height: 0;
+}
+
+.ui-automation-fill-height {
+  height: 100%;
+}
+
+.ui-automation-preview-card,
+.ui-automation-side-card,
+.ui-automation-report-summary,
+.ui-automation-report-shot,
+.ui-automation-report-analysis,
+.ui-automation-live-card,
+.ui-automation-script-card {
+  border: 1px solid var(--ui-border) !important;
+  border-radius: 14px;
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-sm);
+}
+
+.ui-automation-toolbar,
+.ui-automation-side-head,
+.ui-automation-live-card-head {
+  background: var(--ui-surface-muted);
+  border-color: var(--ui-border) !important;
+}
+
+.ui-automation-target-input {
+  max-width: 560px;
+}
+
+.ui-automation-target-input .input-group-text,
+.ui-automation-target-input .form-control,
+.ui-automation-target-input .btn {
+  border-color: var(--ui-border);
+}
+
+.ui-automation-side-card .form-control.ui-automation-readonly-area {
+  resize: none;
+  font-size: 0.9rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  background: color-mix(in srgb, var(--ui-surface-muted) 62%, transparent);
+  color: var(--ui-text);
+}
+
+.ui-automation-small-btn {
+  font-size: 0.8rem;
+  padding: 2px 10px;
+  border-radius: 8px;
+}
+
+.ui-automation-live-card-body {
+  background: color-mix(in srgb, var(--ui-surface-muted) 68%, transparent);
+}
+
+.ui-automation-live-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.ui-automation-report-shot-image {
+  object-fit: cover;
+  cursor: pointer;
+}
+
+.ui-automation-prewrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ui-automation-resizer {
+  width: 6px;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
+}
+
+.ui-automation-resizer:hover {
+  background: color-mix(in srgb, var(--ui-primary) 24%, transparent);
+}
+
+.ui-automation-history-scroll {
+  background: var(--ui-surface);
+}
+
+.ui-automation-history-item {
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--ui-text);
+  border-color: color-mix(in srgb, var(--ui-border) 70%, transparent) !important;
+}
+
+.ui-automation-history-row {
+  padding-left: calc(var(--ui-depth, 0) * 16px + 8px) !important;
+}
+
+.ui-automation-history-item:hover {
+  background: var(--ui-surface-muted);
+}
+
+.ui-automation-history-item.is-selected {
+  background: color-mix(in srgb, var(--ui-primary) 16%, transparent);
+  color: var(--ui-text);
+}
+
+.ui-automation-history-fold-toggle {
+  width: 16px;
+}
+
+.ui-automation-history-actions {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.ui-automation-history-item:hover .ui-automation-history-actions,
+.ui-automation-history-item.is-selected .ui-automation-history-actions {
+  opacity: 1;
+}
+
+.ui-automation-report-sidebar {
+  width: clamp(240px, 26%, 320px);
+  min-width: 220px;
+  border-color: var(--ui-border) !important;
+  background: var(--ui-surface);
+}
+
+.ui-automation-report-detail {
+  background: color-mix(in srgb, var(--ui-surface-muted) 45%, transparent);
+}
+
+.ui-automation-report-shot {
+  width: 240px;
+}
+
+.ui-automation-report-shot-image-wrap {
+  height: 135px;
+  overflow: hidden;
+}
+
+.ui-automation-report-empty {
+  border: 1px dashed var(--ui-border);
+  border-radius: 10px;
+  background: var(--ui-surface-muted);
+}
+
+.ui-automation-live-preview .card-header,
+.ui-automation-report-analysis .card-header {
+  color: var(--ui-text);
+}
+
+.ui-automation-report-analysis pre {
+  color: var(--ui-text);
+}
+
+body.theme-dark .ui-automation-shell {
+  background: linear-gradient(180deg, color-mix(in srgb, #111827 85%, transparent) 0%, transparent 100%);
+}
+
+body.theme-dark .ui-automation-main,
+body.theme-dark .ui-automation-report-content,
+body.theme-dark .ui-automation-report-detail,
+body.theme-dark .ui-automation-live-card-body {
+  background: color-mix(in srgb, #0f172a 70%, transparent);
+}
+
+body.theme-dark .ui-automation-side-card .ui-automation-readonly-area {
+  background: color-mix(in srgb, #0f172a 80%, transparent);
+}
+
+@media (max-width: 1200px) {
+  .ui-automation-workspace {
+    flex-direction: column;
+  }
+
+  .ui-automation-preview-card,
+  .ui-automation-right-column {
+    flex: none !important;
+    min-height: 320px;
+  }
+}
+
+@media (max-width: 992px) {
+  .ui-automation-report {
+    flex-direction: column;
+  }
+
+  .ui-automation-report-sidebar {
+    width: 100%;
+    min-width: 0;
+    height: 240px;
+  }
+}

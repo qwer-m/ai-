@@ -1,0 +1,38 @@
+﻿.rag-console .rag-report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
+  gap: 12px;
+}
+
+.rag-console .rag-report-grid-tight {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
+}
+
+.rag-console .rag-report-grid-wide {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important;
+}
+
+.rag-console .rag-report-grid .rag-col-span-2 {
+  grid-column: span 2;
+}
+
+.rag-console .rag-report-grid .rag-col-span-3 {
+  grid-column: span 3;
+}
+
+.rag-console .rag-report-grid .form-label {
+  font-size: 12px;
+  letter-spacing: 0.08px;
+}
+
+.rag-console .rag-report-grid .form-control,
+.rag-console .rag-report-grid .form-select {
+  border-radius: 10px;
+}
+
+.rag-console .rag-report-grid > .form-group,
+.rag-console .rag-report-grid > .rag-col-span-2,
+.rag-console .rag-report-grid > .rag-col-span-3 {
+  min-width: 0;
+}
+

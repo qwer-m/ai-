@@ -1,0 +1,294 @@
+{
+  "generation_id": 434,
+  "project_id": 8,
+  "request_id": "a876177c5cc543c9a0c7141faf6f014e",
+  "persisted_log_id": 11733,
+  "next_persisted_log_id": null,
+  "stage_counts": {
+    "primary": 36,
+    "gap": 9,
+    "review": 18
+  },
+  "gen_diag": {
+    "kind": "gen_diag",
+    "mode": "stream",
+    "doc_type": "requirement",
+    "compress": false,
+    "expected_count": 20,
+    "generated_count": 18,
+    "content_length": 11218,
+    "kb_length": 3694,
+    "model": "deepseek-v4-flash",
+    "max_tokens": 10000,
+    "multi_pass": true,
+    "generation_mode": "multi_pass",
+    "context_compression_ratio": 1.0,
+    "context_retained_chunk_count": 4,
+    "context_relevance_distribution": {
+      "sample_size": 4,
+      "high_count": 0,
+      "medium_count": 2,
+      "low_count": 2,
+      "high_ratio": 0.0,
+      "medium_ratio": 0.5,
+      "low_ratio": 0.5,
+      "mean_score": 0.5041,
+      "min_score": 0.4175,
+      "max_score": 0.62
+    }
+  },
+  "generation_convergence": {
+    "kind": "generation_convergence",
+    "suggested_count": 20,
+    "final_count": 18,
+    "reference_gap": 2,
+    "converged": false,
+    "duplication_rate_estimate": 0.0,
+    "primary_count": 36,
+    "gap_count": 9,
+    "review_count": 18,
+    "candidate_count_before_review": 45,
+    "review_selected_count": 18,
+    "post_review_dedup_drop": 0,
+    "gap_attempts": 3,
+    "gap_remaining_after_attempts": 76,
+    "missing_rules_count": 89,
+    "missing_types_exists": true,
+    "low_quality_dropped_count": 0,
+    "reasons": [
+      "coverage_gap_still_exists",
+      "gap_attempt_limit_reached",
+      "coverage_missing_rules",
+      "coverage_missing_types"
+    ],
+    "expected_count": 20,
+    "multi_pass": true,
+    "generation_mode": "multi_pass"
+  },
+  "review_decision_summary": {
+    "kind": "review_decision_summary",
+    "candidate_total": 45,
+    "retained_total": 18,
+    "dropped_total": 27,
+    "review_llm_filter_applied": true,
+    "review_target_min_count": 10,
+    "review_target_max_count": 13,
+    "review_llm_selected_count": 12,
+    "review_llm_runtime_debug": {
+      "invoked": true,
+      "pool_non_empty": true,
+      "pool_size": 40,
+      "primary_model": "deepseek-v4-flash",
+      "primary_invalid_reason": "schema_parse_error",
+      "response_len": 357,
+      "response_preview": "{\n  \"kept_case_ids\": [\"TC-001\", \"TC-004\", \"TC-006\", \"TC-009\", \"TC-011\", \"TC-012\", \"TC-019\", \"TC-020\", \"TC-021\", \"TC-026\", \"TC-028\", \"TC-030\", \"TC-031\", \"TC-034\"],\n  \"dropped\": [\n    {\"case_id\": \"TC-002\", \"reason\": \"coverage_redundant\"},\n    {\"case_id\": \"TC-003\", \"reason\": \"low_value\"},\n    {\"case_id\": \"TC-005\", \"reason\": \"low_value\"},\n    {\"case_id\": \"TC-",
+      "retry_invoked": true,
+      "retry_reason": "schema_parse_error",
+      "retry_model": "deepseek-chat",
+      "retry_attempts": [
+        {
+          "model": "deepseek-chat",
+          "response_len": 1641,
+          "is_error": false,
+          "invalid_reason": "",
+          "parsed_type": "dict",
+          "mapped_count": 17,
+          "payload_has_selection_signal": true
+        }
+      ],
+      "retry_response_len": 1641,
+      "retry_parse_success": true,
+      "retry_mapped_count": 17,
+      "retry_payload_has_selection_signal": true,
+      "parsed_type": "dict",
+      "parsed_len": 2,
+      "mapped_count": 0,
+      "mapped_signature_count": 0,
+      "dropped_reason_count": 0,
+      "payload_has_selection_signal": false,
+      "final_source": "fallback_llm",
+      "applied": true,
+      "applied_reason": "retry_payload_valid",
+      "exception": "",
+      "forced_reset_by_fallback": false
+    },
+    "review_constraint_selected_count": 1,
+    "review_llm_drop_reason_breakdown": {
+      "coverage_protected_omitted": 27
+    },
+    "review_llm_drop_reason_raw_breakdown": {
+      "coverage_redundant": 22,
+      "unspecified": 5
+    },
+    "review_llm_drop_reason_source_breakdown": {
+      "deterministic_backfill": 27
+    },
+    "fallback_with_positive_evidence_count": 0,
+    "fallback_without_positive_evidence_count": 0,
+    "review_llm_pool_count": 40,
+    "must_keep_candidate_count": 5,
+    "must_keep_retained_count": 5,
+    "must_keep_dropped_count": 0,
+    "drop_by_review_llm_count": 27,
+    "drop_by_review_selector_count": 0,
+    "drop_by_review_gate_count": 0,
+    "drop_by_pre_gate_dedup_count": 0,
+    "drop_by_post_review_dedup_count": 0,
+    "drop_no_new_signal_count": 0,
+    "drop_rule_cap_count": 0,
+    "drop_ui_like_redundant_count": 0,
+    "drop_ui_like_ratio_cap_count": 0,
+    "drop_outside_target_window_count": 0,
+    "drop_by_rerank_low_signal_count": 0,
+    "dropped_model_priority_p0_p1_count": 20,
+    "dropped_core_rule_hit_count": 6,
+    "dropped_missing_rule_hit_count": 0,
+    "dropped_high_signal_count": 1,
+    "dropped_has_coverage_value_count": 6,
+    "retained_due_to_coverage_value_count": 6,
+    "must_cover_rule_hit_count": 0,
+    "forbidden_pattern_violation_count": 0,
+    "soft_constraint_hit_count": 0,
+    "quality_hint_satisfied_count": 0,
+    "drop_ui_like_ratio_postprocess_count": 0,
+    "multi_pass": true,
+    "generation_mode": "multi_pass",
+    "request_id": "a876177c5cc543c9a0c7141faf6f014e"
+  },
+  "judge_summary": {
+    "kind": "judge_summary",
+    "pass_count": 18,
+    "repairable_count": 0,
+    "reject_count": 0,
+    "pending_count": 0,
+    "repaired_case_count": 0,
+    "appended_case_count": 0,
+    "confirmed_pass_out_count": 18,
+    "repaired_pass_out_count": 0,
+    "rejected_out_count": 0,
+    "pending_out_count": 0,
+    "core_flow_covered": true,
+    "reuse_risk_covered": true,
+    "generation_id": 434,
+    "request_id": "a876177c5cc543c9a0c7141faf6f014e"
+  },
+  "generation_summary": {
+    "kind": "generation_summary",
+    "recommended_range": "30-50",
+    "final_count": 18,
+    "status": "completed_with_quality_stop",
+    "stop_reason": [
+      "stopped_due_to_diminishing_returns"
+    ],
+    "quality_assessment": "medium",
+    "multi_pass": true,
+    "generation_mode": "multi_pass"
+  },
+  "review_detail_export_meta": {
+    "candidate_total": 45,
+    "exported_row_count": 22,
+    "is_truncated": true,
+    "truncation_reason": "detail_limit",
+    "source_summary_available": true,
+    "source_detail_available": true,
+    "detail_row_count_total": 45,
+    "detail_rows_scope": "sampled_due_to_size"
+  },
+  "funnel": {
+    "candidate_total": 45,
+    "review_selected_count": 18,
+    "drop_by_review_llm_count": 27,
+    "drop_by_review_gate_count": 0,
+    "drop_by_pre_gate_dedup_count": 0,
+    "drop_by_post_review_dedup_count": 0,
+    "judge_rejected_or_pending_count": 0,
+    "post_review_non_judge_drop_count": 0,
+    "final_count": 18,
+    "judge_pass_out_count": 18,
+    "judge_repaired_pass_out_count": 0
+  },
+  "dropped_breakdown": {
+    "total": 27,
+    "exported_row_count": 15,
+    "is_truncated": true,
+    "truncation_reason": "detail_limit",
+    "source_summary_available": true,
+    "source_detail_available": true,
+    "by_stage": {
+      "review_llm": 15
+    },
+    "by_reason": {
+      "drop_not_selected_by_review_llm:coverage_protected_omitted": 15
+    },
+    "by_priority": {
+      "P1": 13,
+      "P2": 2
+    },
+    "by_module_top10": [
+      [
+        "首页-全局控制",
+        3
+      ],
+      [
+        "首页-教学周",
+        2
+      ],
+      [
+        "周中练习-习题本",
+        2
+      ],
+      [
+        "周末提升-薄弱点定位",
+        2
+      ],
+      [
+        "周末提升-随堂测评",
+        2
+      ],
+      [
+        "首页-教学周-补做",
+        1
+      ],
+      [
+        "周末提升-课程推荐",
+        1
+      ],
+      [
+        "周末提升-在线学习",
+        1
+      ],
+      [
+        "周末提升-提交报告",
+        1
+      ]
+    ],
+    "dropped_case_ids": [
+      "TC-002",
+      "TC-003",
+      "TC-005",
+      "TC-006",
+      "TC-007",
+      "TC-009",
+      "TC-012",
+      "TC-013",
+      "TC-016",
+      "TC-017",
+      "TC-018",
+      "TC-019",
+      "TC-020",
+      "TC-021",
+      "TC-022"
+    ]
+  },
+  "judge_breakdown": {
+    "total": 18,
+    "rejected_or_pending_total": 0,
+    "by_status": {
+      "PASS": 18
+    },
+    "by_reason": {},
+    "by_priority": {},
+    "by_module_top10": [],
+    "rejected_or_pending_case_ids": []
+  }
+}

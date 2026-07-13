@@ -1,0 +1,4 @@
+﻿run_id,selected_count,positive_selected,negative_selected,retrieval_hit_count,fallback,preferred_patterns_count,forbidden_patterns_count,final_prompt_preferred_nonempty,final_prompt_forbidden_nonempty
+370,5,5,0,0,lexical_fallback,5,0,True,False
+371,5,5,0,0,lexical_fallback,5,0,True,False
+372,5,5,0,0,lexical_fallback,5,0,True,False

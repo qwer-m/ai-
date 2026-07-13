@@ -1,0 +1,62 @@
+[
+  {
+    "generation_id": 409,
+    "candidate_total": 73,
+    "review_llm_pool_count": 67,
+    "target_min_count": 16,
+    "target_max_count": 28,
+    "drop_by_review_llm_count": 39,
+    "drop_by_review_llm_ratio": 0.5821,
+    "final_count": 33,
+    "review_llm_drop_reason_breakdown": "{\"fallback_unspecified\": 16, \"coverage_redundant\": 13, \"duplicate\": 9, \"low_value\": 1}",
+    "review_llm_drop_reason_raw_breakdown": "{\"unspecified\": 16, \"coverage_redundant\": 13, \"duplicate\": 9, \"low_value\": 1}",
+    "review_llm_drop_reason_source_breakdown": "{\"deterministic_backfill\": 16, \"llm\": 23}",
+    "fallback_with_positive_evidence_count": 0,
+    "fallback_without_positive_evidence_count": 0
+  },
+  {
+    "generation_id": 410,
+    "candidate_total": 35,
+    "review_llm_pool_count": 33,
+    "target_min_count": 9,
+    "target_max_count": 15,
+    "drop_by_review_llm_count": 18,
+    "drop_by_review_llm_ratio": 0.5455,
+    "final_count": 18,
+    "review_llm_drop_reason_breakdown": "{\"fallback_unspecified\": 18}",
+    "review_llm_drop_reason_raw_breakdown": "{\"unspecified\": 18}",
+    "review_llm_drop_reason_source_breakdown": "{\"deterministic_backfill\": 18}",
+    "fallback_with_positive_evidence_count": 0,
+    "fallback_without_positive_evidence_count": 0
+  },
+  {
+    "generation_id": 411,
+    "candidate_total": 62,
+    "review_llm_pool_count": 58,
+    "target_min_count": 14,
+    "target_max_count": 24,
+    "drop_by_review_llm_count": 34,
+    "drop_by_review_llm_ratio": 0.5862,
+    "final_count": 29,
+    "review_llm_drop_reason_breakdown": "{\"coverage_redundant\": 32, \"duplicate\": 1, \"low_value\": 1}",
+    "review_llm_drop_reason_raw_breakdown": "{\"coverage_redundant\": 32, \"duplicate\": 1, \"low_value\": 1}",
+    "review_llm_drop_reason_source_breakdown": "{\"llm\": 34}",
+    "fallback_with_positive_evidence_count": 0,
+    "fallback_without_positive_evidence_count": 0
+  },
+  {
+    "generation_id": 412,
+    "candidate_total": 33,
+    "review_llm_pool_count": 29,
+    "target_min_count": 9,
+    "target_max_count": 15,
+    "drop_by_review_llm_count": 14,
+    "drop_by_review_llm_ratio": 0.4828,
+    "final_count": 20,
+    "review_llm_drop_reason_breakdown": "{\"coverage_redundant\": 14}",
+    "review_llm_drop_reason_raw_breakdown": "{\"coverage_redundant\": 14}",
+    "review_llm_drop_reason_source_breakdown": "{\"llm\": 14}",
+    "fallback_with_positive_evidence_count": 0,
+    "fallback_without_positive_evidence_count": 0
+  }
+]

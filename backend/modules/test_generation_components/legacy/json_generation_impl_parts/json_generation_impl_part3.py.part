@@ -1,0 +1,281 @@
+                            LogEntry(
+                                project_id=project_id,
+                                user_id=user_id,
+                                log_type="system",
+                                message=f"GEN_DIAG:{json.dumps(payload, ensure_ascii=False)}",
+                            )
+                        )
+                    if coverage_check_payload:
+                        coverage_payload = dict(coverage_check_payload)
+                        coverage_payload.update(
+                            {
+                                "request_id": request_id,
+                                "multi_pass": bool(multi_pass),
+                                "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                            }
+                        )
+                        db.add(
+                            LogEntry(
+                                project_id=project_id,
+                                user_id=user_id,
+                                log_type="system",
+                                message=f"GEN_DIAG:{json.dumps(coverage_payload, ensure_ascii=False)}",
+                            )
+                        )
+                    if feedback_control_diag_payload:
+                        control_diag_payload = {
+                            "kind": "feedback_control_state",
+                            **dict(feedback_control_diag_payload),
+                            "request_id": request_id,
+                            "multi_pass": bool(multi_pass),
+                            "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                        }
+                        db.add(
+                            LogEntry(
+                                project_id=project_id,
+                                user_id=user_id,
+                                log_type="system",
+                                message=f"GEN_DIAG:{json.dumps(control_diag_payload, ensure_ascii=False)}",
+                            )
+                        )
+                    if judge_summary_payload:
+                        judge_diag_payload = {
+                            "kind": "judge_summary",
+                            **dict(judge_summary_payload),
+                            "request_id": request_id,
+                            "multi_pass": bool(multi_pass),
+                            "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                        }
+                        db.add(
+                            LogEntry(
+                                project_id=project_id,
+                                user_id=user_id,
+                                log_type="system",
+                                message=f"GEN_DIAG:{json.dumps(judge_diag_payload, ensure_ascii=False)}",
+                            )
+                        )
+                    if memory_diag:
+                        memory_diag_payload = {
+                            "kind": "memory_fabric_diag",
+                            **dict(memory_diag),
+                            "request_id": request_id,
+                            "multi_pass": bool(multi_pass),
+                            "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                        }
+                        db.add(
+                            LogEntry(
+                                project_id=project_id,
+                                user_id=user_id,
+                                log_type="system",
+                                message=f"GEN_DIAG:{json.dumps(memory_diag_payload, ensure_ascii=False)}",
+                            )
+                        )
+                    full_input = (system_prompt or "") + requirement
+                    actual_model = client.select_model(full_input, task_type="generation")
+                    compression_diag_payload = build_context_compression_diagnostics(
+                        context_result=context_result if isinstance(context_result, dict) else {},
+                    )
+                    gen_diag_payload = {
+                        "kind": "gen_diag",
+                        "mode": "json",
+                        "doc_type": doc_type,
+                        "compress": bool(compress),
+                        "expected_count": int(expected_count or 0),
+                        "generated_count": int(count_unique_test_cases(result)) if isinstance(result, list) else 0,
+                        "content_length": len(requirement or ""),
+                        "kb_length": len(kb_context or ""),
+                        "model": actual_model,
+                        "max_tokens": client.max_tokens,
+                        "request_id": request_id,
+                        "multi_pass": bool(multi_pass),
+                        "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                        "context_compression_ratio": compression_diag_payload.get("compression_ratio"),
+                        "context_retained_chunk_count": compression_diag_payload.get("retained_chunk_count"),
+                        "context_relevance_distribution": compression_diag_payload.get("relevance_distribution") or {},
+                    }
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            user_id=user_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(gen_diag_payload, ensure_ascii=False)}",
+                        )
+                    )
+                    compression_event_payload = {
+                        "kind": "generation_context_compression",
+                        **compression_diag_payload,
+                        "request_id": request_id,
+                        "multi_pass": bool(multi_pass),
+                        "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    }
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            user_id=user_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(compression_event_payload, ensure_ascii=False)}",
+                        )
+                    )
+                    db.commit()
+
+                db_entry = TestGeneration(
+                    requirement_text=original_requirement,
+                    generated_result=json.dumps(result, ensure_ascii=False)
+                    if not (isinstance(result, dict) and ("error" in result))
+                    else json.dumps({"error": result, "raw": raw_response_payload}, ensure_ascii=False),
+                    project_id=project_id,
+                    user_id=user_id
+                )
+                db.add(db_entry)
+                db.commit()
+                db.refresh(db_entry)
+
+                normalized_judge_rows: list[dict[str, Any]] = []
+                for row in (judge_decision_table_payload or []):
+                    if not isinstance(row, dict):
+                        continue
+                    status = str(row.get("judge_status") or row.get("status") or "").strip().upper()
+                    signals_raw = row.get("signals") if isinstance(row.get("signals"), dict) else {}
+                    before_case = row.get("before_case_snapshot")
+                    if not isinstance(before_case, dict):
+                        before_case = {}
+                    after_case = row.get("after_case_snapshot")
+                    if not isinstance(after_case, dict):
+                        after_case = {}
+                    normalized_judge_rows.append(
+                        {
+                            "generation_id": int(db_entry.id or 0),
+                            "request_id": request_id,
+                            "case_id": str(row.get("case_id") or "").strip(),
+                            "judge_status": status,
+                            "reject_reason": str(row.get("reject_reason") or "").strip(),
+                            "pending_reason": str(row.get("pending_reason") or "").strip(),
+                            "signals": {
+                                "violates_confirmed_fact": bool(
+                                    signals_raw.get("violates_confirmed_fact", row.get("violates_confirmed_fact"))
+                                ),
+                                "missing_core_flow": bool(
+                                    signals_raw.get("missing_core_flow", row.get("missing_core_flow"))
+                                ),
+                                "missing_reuse_risk": bool(
+                                    signals_raw.get("missing_reuse_risk", row.get("missing_reuse_risk"))
+                                ),
+                                "contains_pending_logic": bool(
+                                    signals_raw.get("contains_pending_logic", row.get("contains_pending_logic"))
+                                ),
+                                "confirmed_fact_hits": list(signals_raw.get("confirmed_fact_hits") or row.get("confirmed_fact_hits") or []),
+                                "confirmed_fact_violations": list(signals_raw.get("confirmed_fact_violations") or row.get("confirmed_fact_violations") or []),
+                                "reuse_risk_hits": list(signals_raw.get("reuse_risk_hits") or row.get("reuse_risk_hits") or []),
+                                "pending_hits": list(signals_raw.get("pending_hits") or row.get("pending_hits") or []),
+                            },
+                            "before_case_snapshot": dict(before_case),
+                            "after_case_snapshot": dict(after_case),
+                        }
+                    )
+                reject_pending_rows = [
+                    row
+                    for row in normalized_judge_rows
+                    if str(row.get("judge_status") or "").upper() in {"REJECT", "PENDING"}
+                ]
+                if judge_summary_payload or normalized_judge_rows:
+                    judge_table_diag_payload = {
+                        "kind": "judge_decision_table",
+                        "generation_id": int(db_entry.id or 0),
+                        "request_id": request_id,
+                        "rows": reject_pending_rows or normalized_judge_rows,
+                        "row_count": int(len(reject_pending_rows or normalized_judge_rows)),
+                        "row_count_total": int(len(normalized_judge_rows)),
+                        "row_count_reject_pending": int(len(reject_pending_rows)),
+                        "rows_scope": "reject_pending_only" if reject_pending_rows else "all_when_no_reject_pending",
+                        "row_evidence_incomplete": bool(
+                            int(judge_summary_payload.get("rejected_out_count") or 0)
+                            + int(judge_summary_payload.get("pending_out_count") or 0) > 0
+                            and len(reject_pending_rows) == 0
+                        ),
+                        "multi_pass": bool(multi_pass),
+                        "generation_mode": normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass"),
+                    }
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            user_id=user_id,
+                            log_type="system",
+                            message=f"GEN_DIAG:{json.dumps(judge_table_diag_payload, ensure_ascii=False)}",
+                        )
+                    )
+                    db.commit()
+                # Add db id to result for reference
+                if isinstance(result, list):
+                     pass # Can't add to list easily, maybe wrap? keeping as is.
+                elif isinstance(result, dict):
+                    result['db_id'] = db_entry.id
+
+                if isinstance(result, list) and STAGE25_SWITCHES.coverage_diagnostics_enabled:
+                    coverage_diag = build_coverage_diagnostics(
+                        requirement=requirement,
+                        generated_cases=[x for x in result if isinstance(x, dict)],
+                        kb_context=kb_context,
+                        fusion_debug=(context_result or {}).get("fusion_debug") or {},
+                        expected_count=int(expected_count or 0),
+                    )
+                    db.add(
+                        LogEntry(
+                            project_id=project_id,
+                            user_id=user_id,
+                            log_type="system",
+                            message=f"GEN_COVERAGE_DIAG:{json.dumps(coverage_diag, ensure_ascii=False)}",
+                        )
+                    )
+                    db.commit()
+            except Exception as e:
+                print(f"Failed to save to DB: {e}")
+
+        self._emit_context_source_log(
+            db=db,
+            project_id=project_id,
+            user_id=user_id,
+            context_result=context_result,
+            gate_debug=gate_debug,
+            doc_type=doc_type,
+            compress=compress,
+            requirement_length=len(requirement or ""),
+        )
+                 
+        return result
+
+    def generate_test_cases_excel(
+        self,
+        requirement: str,
+        project_id: int,
+        db: Session = None,
+        doc_type: str = "requirement",
+        compress: bool = False,
+        user_id: int = None,
+        current_biz_key: str = "",
+        only_current_biz: bool = False,
+        multi_pass: bool = True,
+        generation_mode: str = "",
+    ) -> bytes:
+        # Generate test cases in JSON format
+        json_result = self.generate_test_cases_json(
+            requirement,
+            project_id,
+            db,
+            doc_type,
+            compress,
+            user_id=user_id,
+            current_biz_key=current_biz_key,
+            only_current_biz=only_current_biz,
+            multi_pass=multi_pass,
+            generation_mode=generation_mode,
+        )
+        
+        return self.convert_json_to_excel(json_result)
+
+    def convert_json_to_excel(self, json_data: list | dict) -> bytes:
+        """
+        瀵煎嚭鍏ュ彛淇濇寔鍘熸柟娉曠鍚嶏紝鍐呴儴濮旀墭缁欑粍浠跺疄鐜般€?
+
+        杩欐牱鍙伩鍏嶈矾鐢卞眰璋冪敤璺緞鍙樺寲锛屽悓鏃惰瀵煎嚭閫昏緫涓庣敓鎴愮紪鎺掗€昏緫瑙ｈ€︺€?
+        """
+        return _convert_json_to_excel_adapter(json_data)

@@ -1,0 +1,68 @@
+{
+  "generation_id": 44,
+  "request_id": "d3b5c7d20d6d412484c3e86b9b1ddf00",
+  "review_decision_summary": {
+    "kind": "review_decision_summary",
+    "candidate_total": 36,
+    "retained_total": 15,
+    "dropped_total": 21,
+    "review_llm_filter_applied": true,
+    "drop_by_review_llm_count": 13,
+    "drop_by_review_gate_count": 8,
+    "drop_by_pre_gate_dedup_count": 0,
+    "drop_by_post_review_dedup_count": 0,
+    "drop_no_new_signal_count": 8,
+    "drop_rule_cap_count": 0,
+    "drop_by_rerank_low_signal_count": 8,
+    "dropped_model_priority_p0_p1_count": 0,
+    "dropped_core_rule_hit_count": 1,
+    "dropped_missing_rule_hit_count": 1,
+    "dropped_high_signal_count": 0,
+    "dropped_has_coverage_value_count": 1,
+    "retained_due_to_coverage_value_count": 3,
+    "multi_pass": true,
+    "generation_mode": "multi_pass",
+    "request_id": "d3b5c7d20d6d412484c3e86b9b1ddf00"
+  },
+  "generation_convergence": {
+    "kind": "generation_convergence",
+    "suggested_count": 50,
+    "final_count": 15,
+    "reference_gap": 35,
+    "converged": false,
+    "duplication_rate_estimate": 0.0,
+    "primary_count": 36,
+    "gap_count": 0,
+    "review_count": 15,
+    "candidate_count_before_review": 36,
+    "review_selected_count": 15,
+    "post_review_dedup_drop": 0,
+    "gap_attempts": 3,
+    "gap_remaining_after_attempts": 23,
+    "missing_rules_count": 24,
+    "missing_types_exists": true,
+    "low_quality_dropped_count": 0,
+    "reasons": [
+      "coverage_gap_still_exists",
+      "gap_attempt_limit_reached",
+      "coverage_missing_rules",
+      "coverage_missing_types"
+    ],
+    "expected_count": 50,
+    "multi_pass": true,
+    "generation_mode": "multi_pass"
+  },
+  "generation_summary": {
+    "kind": "generation_summary",
+    "recommended_range": "30-50",
+    "final_count": 15,
+    "status": "completed_with_quality_stop",
+    "stop_reason": [
+      "stopped_due_to_diminishing_returns"
+    ],
+    "quality_assessment": "medium",
+    "multi_pass": true,
+    "generation_mode": "multi_pass"
+  },
+  "row_count": 36
+}

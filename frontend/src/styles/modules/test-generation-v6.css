@@ -1,0 +1,92 @@
+/* Test Generation 模块样式 v6 */
+
+body.ui-overhaul-v4 .test-generation-shell {
+  grid-auto-rows: min-content;
+}
+
+body.ui-overhaul-v4 .test-generation-header {
+  padding-top: 18px !important;
+  padding-bottom: 18px !important;
+}
+
+body.ui-overhaul-v4 .test-generation-header p {
+  font-size: 0.96rem;
+}
+
+body.ui-overhaul-v4 .test-generation-input .nav-pills,
+body.ui-overhaul-v4 .test-generation-config .nav-pills {
+  border-radius: 12px !important;
+}
+
+body.ui-overhaul-v4 .test-generation-mode-switch {
+  width: fit-content;
+  min-width: 0;
+  gap: 4px;
+  padding: 4px !important;
+}
+
+body.ui-overhaul-v4 .test-generation-mode-switch .nav-item {
+  display: flex;
+}
+
+body.ui-overhaul-v4 .test-generation-mode-link {
+  min-width: 96px;
+  padding: 10px 18px !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+body.ui-overhaul-v4 .test-generation-mode-link svg {
+  margin-right: 0 !important;
+  flex-shrink: 0;
+}
+
+body.ui-overhaul-v4 .test-generation-upload-zone {
+  border-radius: 14px !important;
+  min-height: 320px;
+}
+
+body.ui-overhaul-v4 .test-generation-input-body {
+  height: 360px;
+}
+
+body.ui-overhaul-v4 .test-generation-config .form-check-label {
+  font-weight: 600;
+}
+
+body.ui-overhaul-v4 .test-generation-result-panel {
+  min-height: 560px;
+  max-height: 640px;
+  height: 62vh;
+}
+
+body.ui-overhaul-v4 .test-generation-result-subhead {
+  letter-spacing: 0.02em;
+}
+
+body.ui-overhaul-v4 .test-generation-result-content {
+  font-size: 0.93rem;
+  border-top: 1px solid var(--fd-border);
+}
+
+body.ui-overhaul-v4 .test-generation-highlight-mark {
+  border: 1px solid color-mix(in srgb, #f59e0b 26%, transparent);
+}
+
+body.ui-overhaul-v4 .test-generation-related-cases .badge {
+  border: 1px solid color-mix(in srgb, var(--fd-border) 90%, transparent);
+}
+
+body.ui-overhaul-v4 .test-generation-progress {
+  border-radius: 10px !important;
+}
+
+@media (max-width: 1100px) {
+  body.ui-overhaul-v4 .test-generation-result-panel {
+    height: 56vh;
+  }
+}

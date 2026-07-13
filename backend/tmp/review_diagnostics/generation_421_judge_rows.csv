@@ -1,0 +1,16 @@
+﻿case_id,module,priority,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,任务与判分,P1,周中任务刷题提交后AI即时判分并归档错题,PASS,-,False,False,False
+TC-002,学习报告操作,P1,返回首页将当前周周末任务标记为已完成,PASS,-,False,False,False
+TC-003,学习报告操作,P2,重新学习：当前周/上周补做期内可重置，超出范围不可重置,PASS,-,False,False,False
+TC-004,跨模块联动,P1,定位学系统与首页工单台任务状态同步：在定位学完成周末任务后，首页工单台对应任务标记为已完成,PASS,-,False,False,False
+TC-005,跨模块联动,P1,跨模块联动：首页工单台任务状态同步定位学完成状态,PASS,-,False,False,False
+TC-006,周一习题本,P1,周一习题本：当日任务完成后自动生成，无/全对/有错题三态,PASS,-,False,False,False
+TC-007,学习报告页,P1,学习报告分享操作：分享至微信好友/朋友圈，家长仅读权限校验,PASS,-,False,False,False
+TC-008,学习报告页,P1,学习报告返回首页：将当前周周末任务标记为已完成,PASS,-,False,False,False
+TC-009,学习报告页,P1,学习报告：补做后全量覆盖更新，答题照片区最多20张,PASS,-,False,False,False
+TC-010,学习报告页,P1,学习报告页重新学习（重置）后，周末任务状态变为待完成，学习数据重置为未开始状态,PASS,-,False,False,False
+TC-011,学习报告页,P2,学习报告重新学习：超出补做范围的历史周不可重置,PASS,-,True,False,False
+TC-012,学习数据与统计,P1,知识点掌握度跨模块联动：周中刷题提交后，知识点掌握度实时更新，在首页和报告页同步显示,PASS,-,False,False,False
+TC-013,周末学习与测评（在线）,P2,周末学习完成后，在过期前（周日24:00前）仍可重新学习重置，过期后重置按钮不可用,PASS,-,False,False,False
+TC-014,周末学习与测评（在线）,P1,网络异常情况下提交周末随堂测评，提示保留已上传数据，支持重试,PASS,-,False,False,False
+TC-015,周末学习与测评（在线）,P2,随堂测评OCR识别失败时，提示用户重新拍照上传,PASS,-,False,False,False

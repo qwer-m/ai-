@@ -1,0 +1,16 @@
+{
+  "generation_id": 413,
+  "pool_count": 18,
+  "selected_by_review_llm_count": 13,
+  "dropped_by_review_llm_count": 5,
+  "old_reason_breakdown": {
+    "coverage_redundant": 4,
+    "coverage_protected_omitted": 1
+  },
+  "new_reason_breakdown_replay": {
+    "coverage_redundant": 4,
+    "coverage_protected_omitted": 1
+  },
+  "changed_count": 0,
+  "changed_rows": []
+}

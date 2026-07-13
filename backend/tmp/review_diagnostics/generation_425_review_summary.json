@@ -1,0 +1,87 @@
+{
+  "generation_id": 425,
+  "review_decision_summary": {
+    "kind": "review_decision_summary",
+    "candidate_total": 55,
+    "retained_total": 28,
+    "dropped_total": 27,
+    "review_llm_filter_applied": true,
+    "review_target_min_count": 11,
+    "review_target_max_count": 19,
+    "review_llm_selected_count": 17,
+    "review_llm_runtime_debug": {
+      "invoked": true,
+      "pool_non_empty": true,
+      "pool_size": 46,
+      "primary_model": "deepseek-reasoner",
+      "response_len": 1905,
+      "response_preview": "{\n  \"kept_case_ids\": [\n    \"TC-001\",\n    \"TC-002\",\n    \"TC-005\",\n    \"TC-008\",\n    \"TC-012\",\n    \"TC-014\",\n    \"TC-015\",\n    \"TC-016\",\n    \"TC-022\",\n    \"TC-024\",\n    \"TC-026\",\n    \"TC-027\",\n    \"TC-031\",\n    \"TC-040\",\n    \"TC-045\",\n    \"TC-046\",\n    \"TC-048\",\n    \"TC-050\",\n    \"TC-052\"\n  ],\n  \"dropped\": [\n    {\"case_id\": \"TC-003\", \"reason\": \"coverage_redundant\"},\n    {\"case_id\": \"TC-004\", \"reason\": \"coverage_redundant\"},\n    {\"case_id\": \"TC-006\", \"reason\": \"coverage_redundant\"},\n    {\"case_id\":",
+      "retry_invoked": true,
+      "retry_model": "deepseek-chat",
+      "retry_attempts": [
+        {
+          "model": "deepseek-chat",
+          "response_len": 1905,
+          "is_error": false
+        }
+      ],
+      "retry_response_len": 1905,
+      "parsed_type": "dict",
+      "parsed_len": 2,
+      "mapped_count": 19,
+      "mapped_signature_count": 19,
+      "dropped_reason_count": 27,
+      "payload_has_selection_signal": true,
+      "applied": true,
+      "applied_reason": "mapped_or_payload_signal",
+      "exception": "",
+      "forced_reset_by_fallback": false
+    },
+    "review_constraint_selected_count": 2,
+    "review_llm_drop_reason_breakdown": {
+      "coverage_protected_omitted": 1,
+      "coverage_redundant": 25,
+      "fallback_unspecified": 1
+    },
+    "review_llm_drop_reason_raw_breakdown": {
+      "unspecified": 2,
+      "coverage_redundant": 25
+    },
+    "review_llm_drop_reason_source_breakdown": {
+      "deterministic_backfill": 2,
+      "llm": 25
+    },
+    "fallback_with_positive_evidence_count": 0,
+    "fallback_without_positive_evidence_count": 1,
+    "review_llm_pool_count": 46,
+    "must_keep_candidate_count": 9,
+    "must_keep_retained_count": 9,
+    "must_keep_dropped_count": 0,
+    "drop_by_review_llm_count": 27,
+    "drop_by_review_selector_count": 0,
+    "drop_by_review_gate_count": 0,
+    "drop_by_pre_gate_dedup_count": 0,
+    "drop_by_post_review_dedup_count": 0,
+    "drop_no_new_signal_count": 0,
+    "drop_rule_cap_count": 0,
+    "drop_ui_like_redundant_count": 0,
+    "drop_ui_like_ratio_cap_count": 0,
+    "drop_outside_target_window_count": 0,
+    "drop_by_rerank_low_signal_count": 0,
+    "dropped_model_priority_p0_p1_count": 21,
+    "dropped_core_rule_hit_count": 3,
+    "dropped_missing_rule_hit_count": 0,
+    "dropped_high_signal_count": 2,
+    "dropped_has_coverage_value_count": 3,
+    "retained_due_to_coverage_value_count": 1,
+    "must_cover_rule_hit_count": 0,
+    "forbidden_pattern_violation_count": 0,
+    "soft_constraint_hit_count": 0,
+    "quality_hint_satisfied_count": 0,
+    "drop_ui_like_ratio_postprocess_count": 0,
+    "multi_pass": true,
+    "generation_mode": "multi_pass",
+    "request_id": "37cced05c4bc4ccfbc2f1fe765842d86"
+  },
+  "row_count": 27
+}

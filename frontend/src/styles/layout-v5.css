@@ -1,0 +1,274 @@
+/* Phase-3: 全局布局与层级重构，减少分散补丁样式冲突。 */
+
+body.ui-overhaul-v4 .dashboard-workspace {
+  background:
+    radial-gradient(1200px 520px at 8% -12%, color-mix(in srgb, var(--fd-primary) 18%, transparent), transparent 62%),
+    radial-gradient(900px 460px at 96% 2%, color-mix(in srgb, var(--fd-primary-2) 16%, transparent), transparent 68%),
+    var(--fd-bg);
+}
+
+body.ui-overhaul-v4 .dashboard-body-layout {
+  align-items: stretch;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar {
+  backdrop-filter: saturate(120%) blur(8px);
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-head {
+  padding-bottom: 14px !important;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-nav-wrap {
+  padding-top: 10px !important;
+  padding-bottom: 12px !important;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-nav-wrap .sidebar-link {
+  transition: transform 140ms ease, background-color 160ms ease, border-color 160ms ease;
+  border: 1px solid transparent;
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-nav-wrap .sidebar-link:hover {
+  transform: translateX(2px);
+  border-color: color-mix(in srgb, var(--fd-primary) 24%, var(--fd-border));
+}
+
+body.ui-overhaul-v4 .dashboard-sidebar-nav-wrap .sidebar-link.active-pro {
+  box-shadow: 0 10px 20px color-mix(in srgb, var(--fd-primary) 28%, transparent);
+}
+
+body.ui-overhaul-v4 .dashboard-main-surface {
+  border-radius: 20px !important;
+  overflow: hidden;
+}
+
+body.ui-overhaul-v4 .dashboard-topbar {
+  border-bottom: 1px solid var(--fd-border) !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 80%, transparent), color-mix(in srgb, var(--fd-surface-soft) 85%, transparent)) !important;
+}
+
+body.ui-overhaul-v4 .dashboard-project-chip {
+  min-height: 38px;
+  border-radius: 12px !important;
+  padding-inline: 14px !important;
+}
+
+body.ui-overhaul-v4 .dashboard-project-select {
+  min-height: 38px;
+  border-radius: 12px !important;
+}
+
+body.ui-overhaul-v4 .dashboard-action-cluster .btn {
+  min-height: 38px;
+}
+
+body.ui-overhaul-v4 .dashboard-icon-btn {
+  border: 1px solid var(--fd-border) !important;
+}
+
+body.ui-overhaul-v4 .dashboard-content-host {
+  padding: 16px 18px 10px !important;
+}
+
+body.ui-overhaul-v4 .dashboard-content-container-immersive,
+body.ui-overhaul-v4 .dashboard-content-container-normal {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 100%;
+  width: 100%;
+  gap: 14px;
+}
+
+body.ui-overhaul-v4 .dashboard-content-container-immersive > *,
+body.ui-overhaul-v4 .dashboard-content-container-normal > * {
+  min-height: 0;
+}
+
+body.ui-overhaul-v4 .dashboard-tab-panel.is-active {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 100%;
+  animation: dashboard-tab-fade 180ms ease-out;
+}
+
+body.ui-overhaul-v4 .dashboard-log-content {
+  background: color-mix(in srgb, var(--fd-surface) 88%, var(--fd-surface-soft));
+}
+
+body.ui-overhaul-v4 .dashboard-log-stream {
+  background: color-mix(in srgb, var(--fd-surface-soft) 84%, transparent);
+  font-size: 0.86rem;
+}
+
+body.ui-overhaul-v4 .dashboard-log-mini-btn {
+  min-width: 32px;
+}
+
+body.ui-overhaul-v4 .project-page-shell,
+body.ui-overhaul-v4 .test-generation-shell,
+body.ui-overhaul-v4 .evaluation-shell,
+body.ui-overhaul-v4 .knowledge-base-shell,
+body.ui-overhaul-v4 .api-testing-shell,
+body.ui-overhaul-v4 .api-automation-shell,
+body.ui-overhaul-v4 .ui-automation-shell {
+  gap: 14px !important;
+  width: 100%;
+  min-height: 100%;
+}
+
+body.ui-overhaul-v4 .api-testing-shell {
+  border: 1px solid var(--fd-border);
+  border-radius: 16px;
+  background: linear-gradient(180deg, var(--fd-surface) 0%, var(--fd-surface-soft) 100%);
+  overflow: hidden;
+}
+
+body.ui-overhaul-v4 .api-testing-tabs-head {
+  background: color-mix(in srgb, var(--fd-surface-soft) 86%, transparent) !important;
+  border-bottom: 1px solid var(--fd-border) !important;
+}
+
+body.ui-overhaul-v4 .api-testing-tabs-head .nav-link {
+  font-weight: 600;
+  color: var(--fd-text-soft);
+  border: 1px solid transparent;
+}
+
+body.ui-overhaul-v4 .api-testing-tabs-head .nav-link.active {
+  color: var(--fd-text);
+  background: var(--fd-surface);
+  border-color: var(--fd-border) var(--fd-border) var(--fd-surface);
+}
+
+body.ui-overhaul-v4 .knowledge-base-shell {
+  border: 1px solid var(--fd-border);
+  border-radius: 16px;
+  background: linear-gradient(180deg, var(--fd-surface) 0%, var(--fd-surface-soft) 100%);
+  padding: 12px;
+}
+
+body.ui-overhaul-v4 .knowledge-toolbar-card {
+  border: 1px solid var(--fd-border) !important;
+  border-radius: 14px !important;
+  background: color-mix(in srgb, var(--fd-surface-soft) 80%, transparent) !important;
+}
+
+body.ui-overhaul-v4 .knowledge-content-area {
+  border: 1px solid var(--fd-border) !important;
+  background: color-mix(in srgb, var(--fd-surface) 86%, var(--fd-surface-soft)) !important;
+}
+
+body.ui-overhaul-v4 .knowledge-doc-col.is-drag-before .doc-card {
+  box-shadow: inset 0 2px 0 color-mix(in srgb, var(--fd-primary) 60%, transparent);
+}
+
+body.ui-overhaul-v4 .knowledge-doc-col.is-drag-after .doc-card {
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--fd-primary) 60%, transparent);
+}
+
+body.ui-overhaul-v4 .test-generation-header,
+body.ui-overhaul-v4 .test-generation-input,
+body.ui-overhaul-v4 .test-generation-config,
+body.ui-overhaul-v4 .test-generation-result,
+body.ui-overhaul-v4 .ui-section-card,
+body.ui-overhaul-v4 .knowledge-toolbar-card,
+body.ui-overhaul-v4 .knowledge-content-area {
+  border-radius: 16px !important;
+}
+
+body.ui-overhaul-v4 .test-generation-result-head {
+  min-height: 62px;
+}
+
+body.ui-overhaul-v4 .test-generation-result-content {
+  line-height: 1.48;
+}
+
+body.ui-overhaul-v4 .evaluation-shell .bento-card,
+body.ui-overhaul-v4 .evaluation-shell .card {
+  border-radius: 16px !important;
+}
+
+body.ui-overhaul-v4 .evaluation-shell .table-responsive {
+  border-radius: 14px !important;
+}
+
+body.ui-overhaul-v4 .knowledge-content-area .doc-card {
+  border-radius: 14px !important;
+}
+
+body.ui-overhaul-v4 .knowledge-content-area .doc-card:hover {
+  transform: translateY(-2px);
+}
+
+body.ui-overhaul-v4 .modal-content {
+  border-radius: 18px !important;
+}
+
+body.ui-overhaul-v4 .modal-header {
+  border-bottom-color: var(--fd-border) !important;
+}
+
+body.ui-overhaul-v4 .modal-footer {
+  border-top-color: var(--fd-border) !important;
+}
+
+body.ui-overhaul-v4 .btn {
+  transition: background-color 160ms ease, border-color 160ms ease, transform 120ms ease;
+}
+
+body.ui-overhaul-v4 .btn:focus-visible,
+body.ui-overhaul-v4 .form-control:focus-visible,
+body.ui-overhaul-v4 .form-select:focus-visible,
+body.ui-overhaul-v4 .nav-link:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--fd-primary) 50%, transparent);
+  outline-offset: 2px;
+}
+
+@keyframes dashboard-tab-fade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 1200px) {
+  body.ui-overhaul-v4 .dashboard-topbar {
+    align-items: center !important;
+  }
+  body.ui-overhaul-v4 .dashboard-action-cluster {
+    gap: 8px !important;
+  }
+}
+
+@media (max-width: 992px) {
+  body.ui-overhaul-v4 .dashboard-sidebar-surface {
+    width: 220px;
+    min-width: 220px;
+  }
+  body.ui-overhaul-v4 .dashboard-topbar-shell {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  body.ui-overhaul-v4 .dashboard-body-layout {
+    gap: 10px !important;
+  }
+  body.ui-overhaul-v4 .dashboard-main-surface {
+    border-radius: 14px !important;
+  }
+  body.ui-overhaul-v4 .dashboard-sidebar-surface {
+    width: 200px;
+    min-width: 200px;
+  }
+}

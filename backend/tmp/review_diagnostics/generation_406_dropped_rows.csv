@@ -1,0 +1,21 @@
+﻿candidate_index,case_id,description,test_module,model_priority_current,dropped_stage,dropped_reason,bucket,has_coverage_value,high_signal,covered_rule_ids
+2,TC-002,验证已选择过教材的用户再次进入，系统自动加载默认教材/年级的当前周数据,系统入口与初始化,P1,review_llm,drop_not_selected_by_review_llm,系统入口与初始化|happy,False,False,"[""RULE-007"", ""RULE-011""]"
+3,TC-003,验证用户切换教材/年级，数据独立计数且加载对应周数据,全局控制-教材切换,P1,review_llm,drop_not_selected_by_review_llm,全局控制-教材切换|happy,False,False,"[""RULE-007"", ""RULE-011""]"
+5,TC-005,验证周末课程推荐内容基于本周全量答题数据生成，且周六周日内容相同,周末学习-课程推荐,P1,review_llm,drop_not_selected_by_review_llm,周末学习-课程推荐|happy,False,False,"[""RULE-027"", ""RULE-047""]"
+8,TC-008,验证‘重新学习’功能在当前周/上周补做期内可用，重置后数据可更新,学习报告页-重新学习,P1,review_llm,drop_not_selected_by_review_llm,学习报告页-重新学习|happy,False,False,"[""RULE-032"", ""RULE-049""]"
+10,TC-010,验证连续学习天数计算规则：每日完成任务则累加，中断则清零,学习数据-连续学习天数,P1,review_llm,drop_not_selected_by_review_llm,学习数据-连续学习天数|happy,False,False,[]
+11,TC-011,验证知识点掌握度根据本周答题情况动态计算并展示（薄弱/一般/熟练）,AI定位与推荐-知识点掌握度,P1,review_llm,drop_not_selected_by_review_llm,ai定位与推荐-知识点掌握度|happy,False,False,"[""RULE-004"", ""RULE-022"", ""RULE-024""]"
+13,TC-013,验证当前周与上周补做期内，可进行补做操作并更新数据,全局控制-补做规则,P1,review_llm,drop_not_selected_by_review_llm,全局控制-补做规则|happy,False,False,[]
+15,TC-015,验证周日24:00后（过期），当前周任务仅可查看，不可进行任何学习操作,全局控制-过期规则,P2,review_llm,drop_not_selected_by_review_llm,全局控制-过期规则|happy,False,False,"[""RULE-014"", ""RULE-049""]"
+17,TC-017,验证断点续播功能：退出周末课程后再次进入，从上次退出点继续,周末学习-断点续播,P1,review_llm,drop_not_selected_by_review_llm,周末学习-断点续播|happy,False,False,[]
+18,TC-018,验证‘我的错题’本中，错题按日期归档且支持跳转到原始题目或相关模块,错题本,P2,review_llm,drop_not_selected_by_review_llm:low_value,错题本|happy,False,False,[]
+21,TC-021,验证督导端‘申请拍照判题’流程，学生端提交申请后督导端可见并处理,督导端-智能课堂,P2,review_llm,drop_not_selected_by_review_llm,督导端-智能课堂|happy,False,False,"[""RULE-042"", ""RULE-047"", ""RULE-048"", ""RULE-049""]"
+22,TC-022,验证数据去重规则：同一题目多次做错，在错题本中合理去重,错题本-去重,P2,review_llm,drop_not_selected_by_review_llm:low_value,错题本-去重|exception,False,True,[]
+23,TC-023,验证教学周切换时，页面数据（任务、统计、推荐）能正确刷新,全局控制-周切换,P1,review_llm,drop_not_selected_by_review_llm,全局控制-周切换|state,False,False,[]
+24,TC-024,验证学习报告页答题照片区最多显示20张照片的限制,学习报告页-功能视图,P2,review_llm,drop_not_selected_by_review_llm:low_value,学习报告页-功能视图|happy,False,False,"[""RULE-032"", ""RULE-034""]"
+25,TC-025,验证‘周一习题本’的重学更新机制：重学后习题本状态和内容更新,学习数据-周一习题本,P2,review_llm,drop_not_selected_by_review_llm:coverage_redundant,学习数据-周一习题本|state,False,False,"[""RULE-023""]"
+26,TC-026,验证系统以服务器时间为基准，自动定位当前教学周，不受客户端本地时间影响,全局控制,P1,review_llm,drop_not_selected_by_review_llm,全局控制|happy,False,False,"[""RULE-006"", ""RULE-007"", ""RULE-011""]"
+27,TC-027,验证用户×教材/年级×教学周三维数据主键的独立性，切换任一维度数据不混淆,数据与状态,P1,review_llm,drop_not_selected_by_review_llm:coverage_redundant,数据与状态|happy,False,False,"[""RULE-007"", ""RULE-011""]"
+28,TC-028,验证教学周切换功能（前/后周），且历史周仅支持查看时操作按钮置灰或隐藏,全局控制,P2,review_llm,drop_not_selected_by_review_llm:coverage_redundant,全局控制|state,False,False,"[""RULE-049""]"
+30,TC-030,验证督导端点击‘完成判卷’后，学生端任务状态与学情数据不变,督导端,P1,review_llm,drop_not_selected_by_review_llm:coverage_redundant,督导端|state,True,False,"[""RULE-017"", ""RULE-042"", ""RULE-044"", ""RULE-045"", ""RULE-049""]"
+31,TC-031,验证周末课程包内容统一性：周六与周日推荐的课程内容、顺序、测评完全一致,周末学习与测评,P1,review_llm,drop_not_selected_by_review_llm,周末学习与测评|happy,False,False,"[""RULE-028"", ""RULE-047""]"

@@ -1,0 +1,7 @@
+﻿metric,left,right,delta
+candidate_total,30,45,15
+candidate_primary,22,36,14
+candidate_gap,8,9,1
+drop_ratio,0.4667,0.6,0.1333
+deterministic_backfill_ratio,0.6429,1.0,0.3571
+llm_reason_coverage_ratio,0.3571,0.0,-0.3571

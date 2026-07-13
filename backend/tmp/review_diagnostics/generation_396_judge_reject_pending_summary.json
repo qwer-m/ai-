@@ -1,0 +1,23 @@
+{
+  "generation_id": 396,
+  "project_id": 8,
+  "request_id": "86034f135bef4a7ea67d0d2e92003b25",
+  "source_log_id": 10944,
+  "rows_scope": "reject_pending_only",
+  "row_count": 15,
+  "row_count_total": 40,
+  "row_count_reject_pending": 15,
+  "row_evidence_incomplete": false,
+  "status_distribution": {
+    "REJECT": 13,
+    "PENDING": 2
+  },
+  "reason_distribution": {
+    "violates_confirmed_fact": 13,
+    "contains_pending_logic": 2
+  },
+  "violates_confirmed_fact_count": 13,
+  "contains_pending_logic_count": 2,
+  "missing_core_flow_count": 0,
+  "missing_reuse_risk_count": 0
+}

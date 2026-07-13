@@ -1,0 +1,151 @@
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = EvaluationHistoryService(db)
+    if not service.has_owned_project(project_id=project_id, user_id=current_user.id):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    normalized_key = build_source_key(source_key or "") if source_key else None
+    doc = service.get_latest_supplement_doc(
+        project_id=project_id,
+        user_id=current_user.id,
+        source_key=normalized_key,
+    )
+    if not doc:
+        return {"found": False}
+    return {
+        "found": True,
+        "doc_id": doc.id,
+        "supplement": doc.content or "",
+        "source_key": normalized_key,
+    }
+
+@router.post("/evaluation/save-knowledge")
+async def save_evaluation_knowledge(
+    project_id: int = Form(...),
+    defect_analysis: str = Form(""),
+    user_supplement: str = Form(""),
+    doc_id: Optional[int] = Form(None),
+    source_key: str = Form(""),
+    source_title: str = Form(""),
+    generation_id: Optional[int] = Form(None),
+    files: list[UploadFile] | None = File(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = EvaluationHistoryService(db)
+    if not service.has_owned_project(project_id=project_id, user_id=current_user.id):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    client = get_client_for_user(current_user.id, db)
+    ocr_model = client.vl_model if client else ""
+    normalized_source_title = normalize_source_title(source_title)
+    normalized_source_key = build_source_key(source_key or normalized_source_title)
+
+    attachments: list[str] = []
+    attachment_details: list[dict[str, Any]] = []
+    for upload in files or []:
+        upload_bytes = await upload.read()
+        if is_image_filename(upload.filename or ""):
+            parsed, ocr_meta = parse_image_bytes_with_fallback(
+                filename=upload.filename or "",
+                content_bytes=upload_bytes,
+                db=db,
+                user_id=current_user.id,
+            )
+        else:
+            parsed = parse_file_bytes(
+                filename=upload.filename or "",
+                content_bytes=upload_bytes,
+                db=db,
+                user_id=current_user.id,
+            )
+            ocr_meta = {"ocr_source": "not_image", "cloud_fallback": False, "error": ""}
+        attachments.append(f"## Attachment: {upload.filename}\n{parsed}")
+        attachment_details.append(
+            {
+                "filename": upload.filename or "",
+                "extracted_text": parsed or "",
+                "extracted_length": len(parsed or ""),
+                "ocr_model": ocr_model,
+                "ocr_ok": is_attachment_ocr_ok(parsed or ""),
+                "ocr_source": ocr_meta.get("ocr_source", "unknown"),
+                "local_ocr_error": ocr_meta.get("local_ocr_error", ""),
+                "cloud_fallback": bool(ocr_meta.get("cloud_fallback", False)),
+                "ocr_error": ocr_meta.get("error", ""),
+            }
+        )
+
+    sections = [
+        "# Evaluation Knowledge",
+        "## Source",
+        f"- source_key: {normalized_source_key}",
+        f"- source_title: {normalized_source_title}",
+        f"- generation_id: {generation_id if generation_id is not None else '(none)'}",
+        "## Defect Analysis",
+        defect_analysis or "(empty)",
+        "## User Supplement",
+        user_supplement or "(empty)",
+    ]
+    if attachments:
+        sections.append("## Attachments")
+        sections.extend(attachments)
+    content = "\n\n".join(sections)
+    filename = source_filename(normalized_source_key)
+
+    status, doc, replaced_previous, previous_doc_id, conflict = service.upsert_evaluation_report(
+        project_id=project_id,
+        user_id=current_user.id,
+        doc_id=doc_id,
+        source_key=normalized_source_key,
+        filename=filename,
+        content=content,
+    )
+    if status == "not_found":
+        raise HTTPException(status_code=404, detail="Knowledge document not found")
+    if status == "conflict":
+        raise HTTPException(status_code=409, detail=conflict)
+    if not doc:
+        raise HTTPException(status_code=500, detail="Failed to save evaluation knowledge")
+
+    service.log_save_knowledge(
+        project_id=project_id,
+        user_id=current_user.id,
+        doc_id=doc.id,
+        attachment_count=len(attachments),
+        content_length=len(content),
+    )
+    ocr_ok_count = sum(1 for item in attachment_details if item.get("ocr_ok"))
+    ocr_failed_files = [item.get("filename") or "" for item in attachment_details if not item.get("ocr_ok")]
+    ocr_all_ok = bool(attachment_details) and ocr_ok_count == len(attachment_details)
+    persisted_attachment_count = sum(
+        1 for item in attachment_details if (item.get("extracted_text") or "") in (doc.content or "")
+    )
+
+    return {
+        "success": True,
+        "result": {
+            "id": doc.id,
+            "filename": doc.filename,
+            "source_key": normalized_source_key,
+            "source_title": normalized_source_title,
+            "generation_id": generation_id,
+            "replaced_previous": replaced_previous,
+            "previous_doc_id": previous_doc_id,
+            "ocr_model": ocr_model,
+            "ocr_summary": {
+                "total": len(attachment_details),
+                "ok": ocr_ok_count,
+                "all_ok": ocr_all_ok,
+                "failed_files": ocr_failed_files,
+            },
+            "persist_summary": {
+                "content_length": len(doc.content or ""),
+                "attachments_embedded": persisted_attachment_count,
+                "attachments_expected": len(attachment_details),
+                "verified": persisted_attachment_count == len(attachment_details),
+            },
+            "attachment_details": attachment_details,
+            "saved_content_preview": (content or "")[:1000],
+        },
+    }

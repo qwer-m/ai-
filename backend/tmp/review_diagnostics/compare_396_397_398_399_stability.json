@@ -1,0 +1,81 @@
+{
+  "runs": [
+    {
+      "generation_id": 396,
+      "candidate_total": 52,
+      "review_selected_count": 39,
+      "drop_by_review_llm_count": 13,
+      "drop_by_post_review_dedup_count": 15,
+      "judge_rejected_or_pending_count": 15,
+      "final_count": 25,
+      "review_drop_ratio": 0.25,
+      "review_select_ratio": 0.75,
+      "judge_by_reason": {
+        "violates_confirmed_fact": 13,
+        "contains_pending_logic": 2
+      },
+      "dropped_model_priority_p0_p1_count": 9,
+      "dropped_high_signal_count": 16
+    },
+    {
+      "generation_id": 397,
+      "candidate_total": 43,
+      "review_selected_count": 18,
+      "drop_by_review_llm_count": 25,
+      "drop_by_post_review_dedup_count": 0,
+      "judge_rejected_or_pending_count": 0,
+      "final_count": 19,
+      "review_drop_ratio": 0.5814,
+      "review_select_ratio": 0.4186,
+      "judge_by_reason": {},
+      "dropped_model_priority_p0_p1_count": 17,
+      "dropped_high_signal_count": 8
+    },
+    {
+      "generation_id": 398,
+      "candidate_total": 65,
+      "review_selected_count": 8,
+      "drop_by_review_llm_count": 57,
+      "drop_by_post_review_dedup_count": 0,
+      "judge_rejected_or_pending_count": 0,
+      "final_count": 9,
+      "review_drop_ratio": 0.8769,
+      "review_select_ratio": 0.1231,
+      "judge_by_reason": {},
+      "dropped_model_priority_p0_p1_count": 36,
+      "dropped_high_signal_count": 9
+    },
+    {
+      "generation_id": 399,
+      "candidate_total": 63,
+      "review_selected_count": 21,
+      "drop_by_review_llm_count": 42,
+      "drop_by_post_review_dedup_count": 1,
+      "judge_rejected_or_pending_count": 1,
+      "final_count": 21,
+      "review_drop_ratio": 0.6667,
+      "review_select_ratio": 0.3333,
+      "judge_by_reason": {
+        "violates_confirmed_fact": 1
+      },
+      "dropped_model_priority_p0_p1_count": 23,
+      "dropped_high_signal_count": 14
+    }
+  ],
+  "stability_397_399": {
+    "avg_review_drop_ratio": 0.7083,
+    "min_review_drop_ratio": 0.5814,
+    "max_review_drop_ratio": 0.8769,
+    "avg_review_select_ratio": 0.2917,
+    "judge_reject_pending_counts": [
+      0,
+      0,
+      1
+    ],
+    "review_llm_drop_counts": [
+      25,
+      57,
+      42
+    ]
+  }
+}

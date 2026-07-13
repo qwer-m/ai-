@@ -1,0 +1,139 @@
+{
+  "mode": "step6_stability_campaign",
+  "run_at": "2026-04-10T18:52:20.245096+08:00",
+  "params": {
+    "per_category": 2,
+    "expected_count": 2,
+    "seed_limit": 2500,
+    "scan_multiplier": 3,
+    "categories": [
+      "noise_ui"
+    ],
+    "treated_only": false,
+    "strong_treated_only": true,
+    "generation_mode": "single_pass",
+    "multi_pass": false,
+    "max_requirement_length": 3000
+  },
+  "seed_pool_counts": {
+    "normal": 17,
+    "complex": 10,
+    "noise_ui": 80
+  },
+  "selected_counts": {
+    "normal": 0,
+    "complex": 0,
+    "noise_ui": 0
+  },
+  "treatment_audit": {
+    "normal": {
+      "pool_total": 0,
+      "pool_treated_pred": 0,
+      "pool_strong_treated_pred": 0,
+      "pool_untreated_pred": 0,
+      "scan_cap": 0,
+      "selected_total": 0,
+      "selected_treated_pred": 0,
+      "selected_strong_treated_pred": 0
+    },
+    "complex": {
+      "pool_total": 0,
+      "pool_treated_pred": 0,
+      "pool_strong_treated_pred": 0,
+      "pool_untreated_pred": 0,
+      "scan_cap": 0,
+      "selected_total": 0,
+      "selected_treated_pred": 0,
+      "selected_strong_treated_pred": 0
+    },
+    "noise_ui": {
+      "pool_total": 6,
+      "pool_treated_pred": 0,
+      "pool_strong_treated_pred": 0,
+      "pool_untreated_pred": 0,
+      "scan_cap": 6,
+      "selected_total": 0,
+      "selected_treated_pred": 0,
+      "selected_strong_treated_pred": 0
+    }
+  },
+  "categories": {
+    "normal": {
+      "results": [],
+      "summary": {
+        "runs": 0,
+        "p1_ratio_delta_avg": 0.0,
+        "p1_ratio_delta_min": 0.0,
+        "p1_ratio_delta_max": 0.0,
+        "positive_p1_delta_runs": 0,
+        "non_negative_p1_delta_runs": 0,
+        "negative_rate": 0.0,
+        "worst_delta": 0.0,
+        "delta_variance": 0.0
+      }
+    },
+    "complex": {
+      "results": [],
+      "summary": {
+        "runs": 0,
+        "p1_ratio_delta_avg": 0.0,
+        "p1_ratio_delta_min": 0.0,
+        "p1_ratio_delta_max": 0.0,
+        "positive_p1_delta_runs": 0,
+        "non_negative_p1_delta_runs": 0,
+        "negative_rate": 0.0,
+        "worst_delta": 0.0,
+        "delta_variance": 0.0
+      }
+    },
+    "noise_ui": {
+      "results": [],
+      "summary": {
+        "runs": 0,
+        "p1_ratio_delta_avg": 0.0,
+        "p1_ratio_delta_min": 0.0,
+        "p1_ratio_delta_max": 0.0,
+        "positive_p1_delta_runs": 0,
+        "non_negative_p1_delta_runs": 0,
+        "negative_rate": 0.0,
+        "worst_delta": 0.0,
+        "delta_variance": 0.0
+      }
+    }
+  },
+  "overall_summary": {
+    "runs": 0,
+    "p1_ratio_delta_avg": 0.0,
+    "p1_ratio_delta_min": 0.0,
+    "p1_ratio_delta_max": 0.0,
+    "positive_p1_delta_runs": 0,
+    "non_negative_p1_delta_runs": 0,
+    "negative_rate": 0.0,
+    "worst_delta": 0.0,
+    "delta_variance": 0.0
+  },
+  "treated_summary": {
+    "runs": 0,
+    "p1_ratio_delta_avg": 0.0,
+    "p1_ratio_delta_min": 0.0,
+    "p1_ratio_delta_max": 0.0,
+    "positive_p1_delta_runs": 0,
+    "non_negative_p1_delta_runs": 0,
+    "negative_rate": 0.0,
+    "worst_delta": 0.0,
+    "delta_variance": 0.0
+  },
+  "untreated_summary": {
+    "runs": 0,
+    "p1_ratio_delta_avg": 0.0,
+    "p1_ratio_delta_min": 0.0,
+    "p1_ratio_delta_max": 0.0,
+    "positive_p1_delta_runs": 0,
+    "non_negative_p1_delta_runs": 0,
+    "negative_rate": 0.0,
+    "worst_delta": 0.0,
+    "delta_variance": 0.0
+  },
+  "treatment_rate": 0.0,
+  "negative_slice": []
+}

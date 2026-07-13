@@ -1,0 +1,241 @@
+﻿.rag-console {
+  --rag-bg-soft: linear-gradient(180deg, #f8fbff 0%, #f5f7fb 100%);
+  --rag-border: #dfe6f1;
+  --rag-border-strong: #cdd8e7;
+  --rag-text-muted: #667085;
+  --rag-title: #1d2939;
+  --rag-blue: #2563eb;
+  --rag-green: #16a34a;
+  --rag-amber: #d97706;
+  --rag-red: #dc2626;
+}
+
+.rag-console .rag-console-title-row {
+  margin-bottom: 2px;
+}
+
+.rag-console .rag-console-subtitle {
+  color: var(--rag-text-muted) !important;
+}
+
+.rag-console .rag-console-tab-pane {
+  animation: rag-console-fade-in 0.24s ease-out;
+}
+
+.rag-console .rag-console-tabs .nav-tabs {
+  border-bottom-color: var(--rag-border);
+  gap: 4px;
+}
+
+.rag-console .rag-console-tabs .nav-link {
+  border-radius: 10px 10px 0 0;
+  color: #52607a;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.rag-console .rag-console-tabs .nav-link.active {
+  color: var(--rag-title);
+  background: #fff;
+  border-color: var(--rag-border) var(--rag-border) #fff;
+}
+
+.rag-console .rag-console-controls .rag-console-topbar {
+  top: 10px;
+  border: 1px solid var(--rag-border-strong) !important;
+  border-radius: 14px !important;
+  background: var(--rag-bg-soft) !important;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+}
+
+.rag-console .rag-console-topbar-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+.rag-console .rag-console-topbar-title .fs-5 {
+  color: var(--rag-title);
+  letter-spacing: 0.15px;
+}
+
+.rag-console .rag-console-context {
+  color: var(--rag-text-muted) !important;
+}
+
+.rag-console .rag-console-kv b {
+  color: #334155;
+}
+
+.rag-console .rag-console-surface,
+.rag-console .rag-console-panel {
+  border: 1px solid var(--rag-border) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.04);
+}
+
+.rag-console .rag-console-panel-title {
+  color: #0f172a;
+  font-size: 16px;
+  letter-spacing: 0.15px;
+}
+
+.rag-console .rag-console-query-input {
+  border-radius: 12px;
+  min-height: 162px;
+}
+
+.rag-console .rag-console-control {
+  border-radius: 10px;
+}
+
+.rag-console .rag-console-rewrite-box {
+  border-radius: 12px !important;
+  border-color: #dbe5f3 !important;
+  background: linear-gradient(180deg, #f8fbff 0%, #f3f8ff 100%) !important;
+}
+
+.rag-console .rag-console-right-title {
+  color: #1e293b;
+  font-size: 14px;
+}
+
+.rag-console .rag-console-checks .form-check-input:checked {
+  background-color: var(--rag-blue);
+  border-color: var(--rag-blue);
+}
+
+.rag-console .rag-console-btn-primary {
+  border-radius: 10px;
+  font-weight: 700;
+}
+
+.rag-console .rag-console-btn-outline {
+  border-radius: 10px;
+}
+
+.rag-console .rag-console-advanced {
+  background: linear-gradient(180deg, #ffffff 0%, #f9fbff 100%) !important;
+}
+
+.rag-console .rag-console-advanced-title {
+  color: #334155 !important;
+  letter-spacing: 0.1px;
+}
+
+.rag-console .rag-console-pill {
+  border-radius: 999px !important;
+}
+
+.rag-console .rag-console-movement-card {
+  border-color: #d9e4f2 !important;
+  background: linear-gradient(180deg, #f8fbff 0%, #f4f8ff 100%) !important;
+}
+
+.rag-console .rag-console-up {
+  color: var(--rag-green);
+  font-weight: 600;
+}
+
+.rag-console .rag-console-down {
+  color: var(--rag-red);
+  font-weight: 600;
+}
+
+.rag-console .rag-console-flat {
+  color: #64748b;
+}
+
+.rag-console .rag-console-answer {
+  border-radius: 12px;
+  background: #fbfdff;
+}
+
+.rag-console .rag-console-score-card,
+.rag-console .rag-console-cause-card,
+.rag-console .rag-console-suggestion-card {
+  border-color: #dbe5f3 !important;
+  border-radius: 12px !important;
+}
+
+.rag-console .rag-console-ok {
+  color: var(--rag-green);
+}
+
+.rag-console .rag-console-warn {
+  color: var(--rag-amber);
+}
+
+.rag-console .rag-console-bad {
+  color: var(--rag-red);
+}
+
+.rag-console .rag-console-cause-hit {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.rag-console .rag-console-cause-miss {
+  color: #64748b;
+}
+
+.rag-console .rag-console-table-wrap {
+  border: 1px solid #deebfb;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.rag-console .rag-console-table {
+  margin-bottom: 0;
+}
+
+.rag-console .rag-console-table thead th {
+  background: #f2f7ff !important;
+  color: #334155 !important;
+  font-weight: 700;
+  border-color: #dce8f8 !important;
+  white-space: nowrap;
+}
+
+.rag-console .rag-console-table td {
+  border-color: #e5eefb !important;
+  vertical-align: top;
+}
+
+.rag-console .rag-console-chunk-id-cell {
+  min-width: 140px;
+}
+
+.rag-console .rag-console-chunk-text-cell {
+  max-width: 460px;
+  word-break: break-word;
+}
+
+.rag-console .rag-console-table tbody tr:nth-child(2n) td {
+  background: #fbfdff;
+}
+
+.rag-console .rag-console-table tbody tr:hover td {
+  background: #eef5ff !important;
+}
+
+.rag-console .rag-console-chunk-block > .rag-console-block-title {
+  color: #334155;
+}
+
+.rag-console .grid {
+  display: grid;
+}
+
+.rag-console .grid-cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.rag-console .grid-cols-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.rag-console .grid-cols-5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
