@@ -121,8 +121,6 @@ def should_attempt_final_shortfall_supplement(
         return False
     if int(final_target_floor_count or 0) <= 0:
         return False
-    if bool(append):
-        return False
     return int(current_count or 0) < int(final_target_floor_count or 0)
 
 

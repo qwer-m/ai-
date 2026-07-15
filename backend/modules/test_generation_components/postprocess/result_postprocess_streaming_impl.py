@@ -406,6 +406,7 @@ def stream_postprocess_cases(
         authoritative_workflow_blueprints=authoritative_workflow_blueprints,
         flow_project_profile=flow_project_profile,
         project_profile=project_profile,
+        append=append,
         reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop_fn,
         govern_cases_by_flow_structure_fn=govern_cases_by_flow_structure,
         analyze_case_structure_fn=analyze_case_structure,
@@ -416,7 +417,10 @@ def stream_postprocess_cases(
     final_case_structure = final_assembly.final_case_structure
     final_independent_case_structure = final_assembly.final_independent_case_structure
     final_count = final_assembly.final_count
-    post_review_dedup_drop = final_assembly.post_review_dedup_drop
+    post_review_dedup_drop = final_assembly.post_review_dedup_drop + final_assembly.append_duplicate_pruned_count
+    if final_assembly.final_quality_drop_total > 0:
+        low_quality_filter_stats.add_postprocess_quality_drop(final_assembly.final_quality_drop_total)
+        low_quality_filter_stats.low_quality_drop_details.extend(final_assembly.final_quality_drop_details)
 
     review_summary_state = _assemble_review_summary_state(
         requirement=requirement,

@@ -165,7 +165,7 @@ def recover_final_floor_from_candidate_pool(
         valid_candidate_count=final_floor_candidate_count,
         full_regression_floor=resolved_full_regression_floor,
     )
-    if int(expected_min_floor_count or 0) > 0 and not append:
+    if int(expected_min_floor_count or 0) > 0:
         final_target_floor_count = max(
             int(final_target_floor_count or 0),
             int(expected_min_floor_count or 0),
@@ -186,7 +186,7 @@ def recover_final_floor_from_candidate_pool(
                 int(resolved_full_regression_floor or 0),
             )
 
-    if int(final_target_floor_count or 0) <= 0 or append:
+    if int(final_target_floor_count or 0) <= 0:
         return FinalFloorRecoveryResult(
             cases=result_cases,
             flow_governance_summary=result_flow_summary,

@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { api } from '../utils/api';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { api, AUTH_EXPIRED_EVENT } from '../utils/api';
 
 interface User {
   id: number;
@@ -22,6 +22,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem('token');
+    setToken(null);
+    setUser(null);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener(AUTH_EXPIRED_EVENT, logout);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, logout);
+  }, [logout]);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -49,18 +60,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     initAuth();
-  }, []);
+  }, [logout]);
 
   const login = (newToken: string, newUser: User) => {
     localStorage.setItem('token', newToken);
     setToken(newToken);
     setUser(newUser);
-  };
-
-  const logout = () => {
-    localStorage.removeItem('token');
-    setToken(null);
-    setUser(null);
   };
 
   return (

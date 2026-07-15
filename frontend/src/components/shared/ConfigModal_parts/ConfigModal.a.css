@@ -38,6 +38,11 @@ body.theme-dark.config-modal-open .modal-backdrop.show {
   padding: 1rem 1.25rem;
 }
 
+.config-modal-dialog.modal-dialog-scrollable .config-modal-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .config-modal-body .alert {
   border-radius: 10px;
   border-color: var(--ui-border);

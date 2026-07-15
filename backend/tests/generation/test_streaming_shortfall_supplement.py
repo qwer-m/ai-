@@ -67,14 +67,14 @@ def test_should_attempt_final_shortfall_supplement_requires_floor_and_shortfall(
     ) is True
 
 
-def test_should_attempt_final_shortfall_supplement_blocks_append_and_non_shortfall() -> None:
+def test_should_attempt_final_shortfall_supplement_allows_append_shortfall() -> None:
     assert should_attempt_final_shortfall_supplement(
         effective_generation_coverage_mode="full_functional_regression",
         expected_count_value=0,
         final_target_floor_count=40,
         append=True,
         current_count=12,
-    ) is False
+    ) is True
     assert should_attempt_final_shortfall_supplement(
         effective_generation_coverage_mode="full_functional_regression",
         expected_count_value=0,

@@ -1,0 +1,30 @@
+{
+  "started_from_generation_id": 515,
+  "base_count": 33,
+  "target_expected_count": 43,
+  "completed_at": "2026-07-14T17:35:44",
+  "append": {
+    "label": "append_10_after_fix",
+    "status": "no_persisted_generation",
+    "elapsed_seconds": 598.1,
+    "before_latest_generation_id": 515,
+    "stream_line_count": 873,
+    "last_status": "@@STATUS@@:生成结果未通过落库门禁: final_scenario_duplicates_above_threshold",
+    "last_error": "Error: LOW_QUALITY_GENERATED_CASES: final_scenario_duplicates_above_threshold",
+    "detected_generation_ids": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "persisted": {
+      "found": false
+    },
+    "diagnostics": {}
+  }
+}

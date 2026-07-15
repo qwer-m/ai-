@@ -9,6 +9,13 @@
   }
 }
 
+export const AUTH_EXPIRED_EVENT = 'auth:expired';
+
+function notifyAuthExpired(): void {
+  localStorage.removeItem('token');
+  window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+}
+
 function extractErrorMessage(data: any, statusText?: string): string {
   const fallback = statusText || 'Request failed';
   if (data === undefined || data === null) return fallback;
@@ -89,10 +96,7 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     const response = await fetch(url, config);
     
     if (response.status === 401) {
-        localStorage.removeItem('token');
-        // Optional: Redirect to login or dispatch event
-        // window.location.href = '/login'; 
-        // We'll let the UI handle the error or redirect
+      notifyAuthExpired();
     }
 
     const contentType = response.headers.get('content-type') || '';
@@ -139,7 +143,7 @@ async function requestRaw(url: string, options: RequestInit = {}): Promise<Respo
   const response = await fetch(url, config);
 
   if (response.status === 401) {
-    localStorage.removeItem('token');
+    notifyAuthExpired();
   }
   if (!response.ok) {
     const contentType = response.headers.get('content-type') || '';

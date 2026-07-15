@@ -8,6 +8,10 @@ class UIRequest(BaseModel):
     automation_type: str = "web"
     image_model: Optional[str] = None
     requirement_context: Optional[str] = None
+    device_id: Optional[str] = None
+    visual_asset_group: Optional[str] = None
+    appium_server_url: Optional[str] = None
+    reset_app_data: Optional[bool] = None
 
 class UIAutoEvalRequest(BaseModel):
     script: str

@@ -24,7 +24,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({ executionId, status, s
                     <Card.Body className="ui-automation-live-card-body p-0 d-flex align-items-center justify-content-center position-relative overflow-hidden">
                         {latestScreenshot && executionId ? (
                             <img
-                                src={`/api/screenshots/${executionId}/${latestScreenshot.split(/[/\\]/).pop()}`}
+                                src={`/api/ui-automation/screenshots/${executionId}/${latestScreenshot.split(/[/\\]/).pop()}`}
                                 alt="Live Preview"
                                 className="ui-automation-live-image"
                             />

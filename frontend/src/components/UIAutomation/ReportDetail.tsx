@@ -63,7 +63,7 @@ export const ReportDetail: React.FC<ReportDetailProps> = ({ execution, onReRun }
                     <Card key={idx} className="ui-automation-report-shot border-0 flex-shrink-0">
                         <div className="position-relative ui-automation-report-shot-image-wrap">
                             <img
-                                src={`/api/screenshots/${execution.id}/${path.split(/[/\\]/).pop()}`}
+                                src={`/api/ui-automation/screenshots/${execution.id}/${path.split(/[/\\]/).pop()}`}
                                 className="w-100 h-100 ui-automation-report-shot-image"
                                 alt={`步骤 ${idx + 1}`}
                             />

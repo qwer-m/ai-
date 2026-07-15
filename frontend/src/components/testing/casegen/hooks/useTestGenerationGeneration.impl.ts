@@ -44,6 +44,8 @@ type UseTestGenerationGenerationArgs = {
   force: boolean;
   expectedCount: number;
   appendCount: number;
+  textGenerationId: number | null;
+  fileGenerationId: number | null;
   textResult: any;
   fileResult: any;
   textStreamingContent: string;
@@ -132,6 +134,8 @@ export function useTestGenerationGeneration({
   force,
   expectedCount,
   appendCount,
+  textGenerationId,
+  fileGenerationId,
   textResult,
   fileResult,
   textStreamingContent,
@@ -175,6 +179,10 @@ export function useTestGenerationGeneration({
     setGenerationId: isText ? setTextGenerationId : setFileGenerationId,
   });
 
+  const getCurrentGenerationId = (isText: boolean): number | null => (
+    isText ? textGenerationId : fileGenerationId
+  );
+
   const getExistingCases = (isText: boolean) => {
     const existing = isText ? textResult : fileResult;
     if (Array.isArray(existing)) {
@@ -196,13 +204,12 @@ export function useTestGenerationGeneration({
     const currentState = getCurrentModeState(isText);
     const shouldAppend = Boolean(appendMode);
     const existingCases = shouldAppend ? getExistingCases(isText) : [];
+    const previousGenerationId = shouldAppend ? getCurrentGenerationId(isText) : null;
 
     let targetExpectedCount = expectedCount;
     if (shouldAppend) {
       const currentCount = getUniqueCaseCount(existingCases);
-      targetExpectedCount = currentCount < expectedCount
-        ? currentCount + Math.min(25, expectedCount - currentCount)
-        : currentCount + Math.min(25, appendCount);
+      targetExpectedCount = currentCount + Math.min(25, Math.max(1, appendCount));
     }
 
     const safeExpectedCount = Math.max(1, Math.floor(Number(targetExpectedCount) || 1));
@@ -236,6 +243,7 @@ export function useTestGenerationGeneration({
       expectedCount: safeExpectedCount,
       force: forceOverride !== undefined ? forceOverride : force,
       appendMode: shouldAppend,
+      previousGenerationId,
       enableSamplePoolFeedback,
     });
 

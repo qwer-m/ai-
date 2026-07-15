@@ -7,6 +7,8 @@ from typing import Any
 from core.processing.utils import log_to_db
 from core.processing.workflow import WorkflowKind, WorkflowStage, log_workflow_trace
 from modules.automation_components.repositories.ui_automation_repository import UIAutomationRepository
+from modules.automation_components.services.ui_automation_export_service import export_standalone_ui_script
+from modules.automation_components.services.ui_visual_asset_service import list_visual_asset_catalogs
 from modules.orchestration.context_orchestrator import context_orchestrator
 from modules.testing.ui_automation import ui_automator
 
@@ -20,6 +22,31 @@ class UIAutomationService:
 
     def has_owned_project(self, *, project_id: int, user_id: int) -> bool:
         return bool(self.repo.get_owned_project(project_id=project_id, user_id=user_id))
+
+    @staticmethod
+    def _runtime_env(payload: dict[str, Any]) -> dict[str, str]:
+        mapping = {
+            "device_id": "APPIUM_UDID",
+            "appium_server_url": "APPIUM_SERVER_URL",
+        }
+        result = {
+            env_name: str(payload.get(field)).strip()
+            for field, env_name in mapping.items()
+            if payload.get(field) is not None and str(payload.get(field)).strip()
+        }
+        if payload.get("reset_app_data") is not None:
+            result["RESET_APP_DATA"] = "true" if bool(payload["reset_app_data"]) else "false"
+        return result
+
+    @staticmethod
+    def _visual_asset_group(payload: dict[str, Any], automation_type: str) -> str | None:
+        configured = str(payload.get("visual_asset_group") or "").strip()
+        if configured:
+            return configured
+        if automation_type != "app":
+            return None
+        catalogs = list_visual_asset_catalogs()
+        return str(catalogs[0]["group"]) if len(catalogs) == 1 else None
 
     def _build_requirement_context(self, *, payload: dict[str, Any], user_id: int) -> str | None:
         requirement_context = payload.get("requirement_context")
@@ -96,17 +123,29 @@ class UIAutomationService:
         if not self.has_owned_project(project_id=project_id, user_id=user_id):
             return "project_not_found", None
         requirement_context = self._build_requirement_context(payload=payload, user_id=user_id)
-        script = ui_automator.generate_ai_image_recognition_script(
-            str(payload.get("task") or ""),
-            str(payload.get("url") or ""),
-            str(payload.get("automation_type") or "web"),
+        automation_type = str(payload.get("automation_type") or "web")
+        task = str(payload.get("task") or "")
+        target = str(payload.get("url") or "")
+        visual_asset_group = self._visual_asset_group(payload, automation_type)
+        script = ui_automator.generate_executable_script(
+            task,
+            target,
+            automation_type,
             db=self._db,
             user_id=user_id,
-            token=token,
-            image_model=payload.get("image_model"),
             requirement_context=requirement_context,
+            device_id=payload.get("device_id"),
+            visual_asset_group=visual_asset_group,
         )
-        return "ok", {"script": script}
+        export = export_standalone_ui_script(
+            script=script,
+            task=task,
+            target=target,
+            automation_type=automation_type,
+            project_id=project_id,
+            visual_asset_group=visual_asset_group,
+        )
+        return "ok", {"script": script, "export": export}
 
     def execute_script_direct(
         self,
@@ -118,17 +157,34 @@ class UIAutomationService:
         project_id = int(payload.get("project_id") or 0)
         if not self.has_owned_project(project_id=project_id, user_id=user_id):
             return "project_not_found", None
+        task = str(payload.get("task") or "")
+        target = str(payload.get("url") or "")
+        automation_type = str(payload.get("automation_type") or "web")
+        script = str(payload.get("script") or "")
+        visual_asset_group = self._visual_asset_group(payload, automation_type)
+        export = export_standalone_ui_script(
+            script=script,
+            task=task,
+            target=target,
+            automation_type=automation_type,
+            project_id=project_id,
+            visual_asset_group=visual_asset_group,
+        )
         result = ui_automator.execute_script(
-            str(payload.get("script") or ""),
-            str(payload.get("url") or ""),
-            str(payload.get("task") or ""),
-            str(payload.get("automation_type") or "web"),
+            script,
+            target,
+            task,
+            automation_type,
             self._db,
             project_id,
             user_id=user_id,
             test_case_id=payload.get("test_case_id"),
             auth_token=token,
+            script_path=export["script_path"],
+            working_directory=export["root_dir"],
+            execution_env=self._runtime_env(payload),
         )
+        result["export"] = export
         return "ok", result
 
     def run_ui_automation(self, *, payload: dict[str, Any], user_id: int, token: str) -> tuple[str, dict[str, Any] | None]:
@@ -140,17 +196,26 @@ class UIAutomationService:
         task = str(payload.get("task") or "")
         url = str(payload.get("url") or "")
         automation_type = str(payload.get("automation_type") or "web")
+        visual_asset_group = self._visual_asset_group(payload, automation_type)
 
         log_to_db(self._db, project_id, "system", f"开始执行UI自动化: {task}", user_id=user_id)
-        script = ui_automator.generate_ai_image_recognition_script(
+        script = ui_automator.generate_executable_script(
             task,
             url,
             automation_type,
             db=self._db,
             user_id=user_id,
-            token=token,
-            image_model=payload.get("image_model"),
             requirement_context=requirement_context,
+            device_id=payload.get("device_id"),
+            visual_asset_group=visual_asset_group,
+        )
+        export = export_standalone_ui_script(
+            script=script,
+            task=task,
+            target=url,
+            automation_type=automation_type,
+            project_id=project_id,
+            visual_asset_group=visual_asset_group,
         )
         result = ui_automator.execute_script(
             script,
@@ -161,6 +226,9 @@ class UIAutomationService:
             project_id,
             user_id=user_id,
             auth_token=token,
+            script_path=export["script_path"],
+            working_directory=export["root_dir"],
+            execution_env=self._runtime_env(payload),
         )
         log_to_db(
             self._db,
@@ -169,5 +237,5 @@ class UIAutomationService:
             f"UI自动化执行完成，结果: {result.get('status', 'unknown')}",
             user_id=user_id,
         )
-        return "ok", {"script": script, "result": result}
+        return "ok", {"script": script, "result": result, "export": export}
 

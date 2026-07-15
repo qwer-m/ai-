@@ -689,7 +689,7 @@ def test_persistence_gate_treats_candidate_insufficient_underfill_as_advisory() 
     assert gate["failure_code"] == ""
 
 
-def test_persistence_gate_treats_count_shortfall_as_soft_warning() -> None:
+def test_persistence_gate_blocks_count_shortfall_after_recovery_attempts() -> None:
     quality = {
         "passed": False,
         "failed_checks": ["final_count_below_min_acceptable"],
@@ -704,11 +704,11 @@ def test_persistence_gate_treats_count_shortfall_as_soft_warning() -> None:
         settings=_settings("enforce"),
     )
 
-    assert gate["passed"] is True
-    assert gate["failure_code"] == ""
-    assert gate["quality_would_block"] is False
-    assert gate["quality_would_warn"] is True
-    assert gate["quality_soft_failures"] == ["final_count_below_min_acceptable"]
+    assert gate["passed"] is False
+    assert gate["failure_code"] == "LOW_QUALITY_GENERATED_CASES"
+    assert gate["quality_would_block"] is True
+    assert gate["quality_would_warn"] is False
+    assert gate["quality_hard_failures"] == ["final_count_below_min_acceptable"]
 
 
 def test_final_case_strip_preserves_formal_priority_and_execution_fields() -> None:
@@ -876,6 +876,120 @@ def test_append_merge_semantically_deduplicates_alias_cases() -> None:
     )
 
     assert [item.get("id") or item.get("caseId") for item in merged] == ["TC-001", "TC-003"]
+
+
+def test_append_merge_demotes_new_main_smoke_when_it_breaks_existing_main_chain() -> None:
+    existing = _main_chain_cases()
+    new_cases = [
+        {
+            "id": "TC-900",
+            "test_module": "补充覆盖",
+            "description": "补充验证学习进度展示",
+            "preconditions": ["已有学习记录"],
+            "steps": ["打开学习进度页"],
+            "test_input": "已有学习记录",
+            "expected_result": "页面显示最新学习进度，接口返回 200",
+            "priority": "P1",
+            "priority_final": "P1",
+            "execution_group": "main_smoke",
+            "main_chain_step": 1,
+            "workflow_transition": {
+                "workflow_id": "new_append_chain",
+                "source_state": "initial",
+                "action": "open progress",
+                "target_state": "progress_visible",
+                "path_type": "positive",
+                "blocking": False,
+                "destructive": False,
+                "can_advance_main_flow": True,
+            },
+        }
+    ]
+
+    merged = merge_cases_for_append(
+        existing,
+        new_cases,
+        deduplicate_test_cases_fn=lambda cases: [dict(item) for item in cases],
+        reorder_cases_by_closed_loop_fn=lambda cases, **kwargs: [dict(item) for item in cases],
+    )
+    gate = validate_execution_plan(
+        merged,
+        workflow_blueprints=[_trusted_blueprint()],
+        execution_plan={"workflow_blueprint_source": "feedback_control_state"},
+        generation_mode="stream",
+    )
+
+    assert merged[-1]["execution_group"] == "independent_functional"
+    assert merged[-1]["append_original_execution_group"] == "main_smoke"
+    assert gate["passed"] is True
+
+
+def test_append_merge_allows_new_main_smoke_when_it_extends_existing_chain() -> None:
+    existing = _main_chain_cases()
+    new_cases = [
+        {
+            "id": "TC-900",
+            "test_module": "学习闭环",
+            "description": "学生完成学习后同步展示学习结果",
+            "preconditions": ["学生已进入学习完成态"],
+            "steps": ["打开学习结果页", "查看最新学习结果"],
+            "test_input": "已完成课程学习",
+            "expected_result": "学习结果页显示最新完成状态，进度状态同步为 completed",
+            "priority": "P1",
+            "priority_final": "P1",
+            "execution_group": "main_smoke",
+            "main_chain_step": 7,
+            "execution_sequence": 7,
+            "role": "student",
+            "session_key": "student_session",
+            "workflow_transition": {
+                "workflow_id": "schedule_flow",
+                "source_state": "consumed",
+                "action": "sync completion result",
+                "target_state": "completed",
+                "path_type": "positive",
+                "blocking": False,
+                "destructive": False,
+                "can_advance_main_flow": True,
+                "stage_kind": "downstream_visibility",
+            },
+        }
+    ]
+
+    merged = merge_cases_for_append(
+        existing,
+        new_cases,
+        deduplicate_test_cases_fn=lambda cases: [dict(item) for item in cases],
+        reorder_cases_by_closed_loop_fn=lambda cases, **kwargs: [dict(item) for item in cases],
+    )
+    gate = validate_execution_plan(
+        merged,
+        workflow_blueprints=[_trusted_blueprint()],
+        execution_plan={"workflow_blueprint_source": "feedback_control_state"},
+        generation_mode="stream",
+    )
+
+    assert [item["id"] for item in merged[:6]] == [item["id"] for item in existing]
+    assert merged[-1]["id"] == "TC-900"
+    assert merged[-1]["execution_group"] == "main_smoke"
+    assert "append_original_execution_group" not in merged[-1]
+    assert gate["passed"] is True
+
+
+def test_append_merge_keeps_existing_cases_when_new_case_is_duplicate() -> None:
+    existing = _main_chain_cases()
+    duplicate_new = dict(existing[0])
+    duplicate_new["id"] = "TC-999"
+
+    merged = merge_cases_for_append(
+        existing,
+        [duplicate_new],
+        deduplicate_test_cases_fn=lambda cases: [dict(item) for item in cases],
+        reorder_cases_by_closed_loop_fn=lambda cases, **kwargs: [dict(item) for item in cases],
+    )
+
+    assert len(merged) == len(existing)
+    assert [item["description"] for item in merged] == [item["description"] for item in existing]
 
 
 class _FakeDb:

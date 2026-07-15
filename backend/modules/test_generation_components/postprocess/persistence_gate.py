@@ -10,7 +10,7 @@ from .execution_plan_validator import (
 
 
 _VALID_GATE_MODES = {"shadow", "enforce"}
-_SOFT_QUALITY_FAILURES = {"final_count_below_min_acceptable"}
+_SOFT_QUALITY_FAILURES: set[str] = set()
 
 
 def _to_int(value: Any, default: int = 0) -> int:

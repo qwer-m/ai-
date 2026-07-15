@@ -69,6 +69,15 @@ def prepare_append_existing_cases(*args: Any, **kwargs: Any) -> Any:
     return call_component("...postprocess.result_postprocess", "prepare_append_existing_cases", *args, **kwargs)
 
 
+def hydrate_append_existing_cases_from_diagnostic(*args: Any, **kwargs: Any) -> Any:
+    return call_component(
+        "...execution.execution_suite_history",
+        "hydrate_append_existing_cases_from_diagnostic",
+        *args,
+        **kwargs,
+    )
+
+
 def requirement_compression_decision(*args: Any, **kwargs: Any) -> Any:
     return call_component("..compression_policy", "requirement_compression_decision", *args, **kwargs)
 
@@ -89,6 +98,7 @@ class LegacyGenerationStreamPrepareMixin:
         batch_size: int = 10,
         overwrite: bool = False,
         append: bool = False,
+        previous_generation_id: int | None = None,
         user_id: int | None = None,
         current_biz_key: str = "",
         only_current_biz: bool = False,
@@ -137,17 +147,35 @@ class LegacyGenerationStreamPrepareMixin:
             project_id=project_id,
             user_id=user_id,
             original_requirement=original_requirement,
+            previous_generation_id=previous_generation_id,
             test_generation_model=TestGeneration,
             prepare_append_existing_cases_fn=prepare_append_existing_cases,
             normalize_json_structure_fn=normalize_json_structure,
             deduplicate_test_cases_fn=deduplicate_test_cases,
             count_unique_test_cases_fn=count_unique_test_cases,
             record_timing_event_fn=_record_timing_event,
+            hydrate_append_existing_cases_fn=hydrate_append_existing_cases_from_diagnostic,
         )
         start_id = append_state.start_id
         existing_cases = append_state.existing_cases
         existing_entry = append_state.existing_entry
         existing_unique_count = append_state.existing_unique_count
+        if append and (not existing_entry or existing_unique_count <= 0):
+            yield "@@STATUS@@:追加生成未找到上一轮结果，已终止本次追加。\n"
+            yield (
+                "Error: APPEND_BASELINE_NOT_FOUND: "
+                "追加生成需要上一轮 generation_id 或可用的历史结果，请先加载最终生成结果后再追加。\n"
+            )
+            _record_timing_event(
+                "prepare_total",
+                prepare_started,
+                status="aborted_append_baseline_not_found",
+                db_available=bool(db),
+                append=True,
+                previous_generation_id=int(previous_generation_id or 0),
+                append_lookup_source=str(append_state.lookup_source or ""),
+            )
+            return {"abort": True, "generation_timing_events": timing_events}
 
         if db:
             status_messages: list[str] = []

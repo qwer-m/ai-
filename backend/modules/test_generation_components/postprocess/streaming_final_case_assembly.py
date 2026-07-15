@@ -6,7 +6,7 @@ from typing import Any, Callable
 from ..coverage.coverage_case_complexity import case_complexity_profile
 from .priority_anchor_rules import enforce_main_path_p0_anchors
 from .streaming_case_keys import case_signature
-from .streaming_case_quality import strip_case_meta_list
+from .streaming_case_quality import filter_final_quality_cases, strip_case_meta_list
 from .streaming_case_source_metadata import (
     annotate_case_source_metadata,
     apply_case_source_metadata,
@@ -40,6 +40,9 @@ class FinalCaseAssemblyResult:
     final_independent_case_structure: dict[str, Any]
     final_count: int
     post_review_dedup_drop: int
+    final_quality_drop_total: int
+    final_quality_drop_details: list[dict[str, Any]]
+    append_duplicate_pruned_count: int
 
 
 def _restore_demoted_model_p0_candidates(
@@ -86,6 +89,7 @@ def assemble_final_cases(
     authoritative_workflow_blueprints: list[dict[str, Any]],
     flow_project_profile: dict[str, Any],
     project_profile: dict[str, Any],
+    append: bool = False,
     reorder_cases_by_closed_loop_fn: Callable[..., list[dict[str, Any]]],
     govern_cases_by_flow_structure_fn: Callable[..., tuple[list[dict[str, Any]], dict[str, Any]]],
     analyze_case_structure_fn: Callable[..., dict[str, Any]],
@@ -161,6 +165,33 @@ def assemble_final_cases(
         cases,
         source_cases=source_seed,
     )
+    append_duplicate_pruned_count = 0
+    if append:
+        try:
+            pruned_cases, prune_summary = govern_cases_by_flow_structure_fn(
+                requirement,
+                _dict_case_items(cases),
+                start_id=start_id,
+                renumber_ids=True,
+                max_per_scenario=2,
+                project_profile=flow_project_profile,
+            )
+            pruned_case_items = _dict_case_items(pruned_cases)
+            if pruned_case_items and len(pruned_case_items) < len(_dict_case_items(cases)):
+                cases = pruned_case_items
+                append_duplicate_pruned_count = int(
+                    prune_summary.get("scenario_duplicate_pruned_count")
+                    if isinstance(prune_summary, dict)
+                    else len(_dict_case_items(cases)) - len(pruned_case_items)
+                )
+        except Exception:
+            append_duplicate_pruned_count = 0
+    final_quality_drop_details: list[dict[str, Any]] = []
+    cases, final_quality_drop_total = filter_final_quality_cases(
+        _dict_case_items(cases),
+        final_quality_drop_details,
+        stage="final_assembly_quality_filter",
+    )
     final_structure_state = resolve_final_case_structures(
         requirement=requirement,
         parsed_result=cases,
@@ -179,6 +210,9 @@ def assemble_final_cases(
         final_independent_case_structure=dict(final_structure_state.get("final_independent_case_structure") or {}),
         final_count=int(final_count or 0),
         post_review_dedup_drop=max(0, int(review_selected_count or 0) - int(final_count or 0)),
+        final_quality_drop_total=int(final_quality_drop_total or 0),
+        final_quality_drop_details=final_quality_drop_details,
+        append_duplicate_pruned_count=int(append_duplicate_pruned_count or 0),
     )
 
 

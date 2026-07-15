@@ -13,78 +13,84 @@ def build_requirement_context_prompt(requirement_context: str | None) -> str:
 
 def build_web_system_prompt(req_context_prompt: str) -> str:
     return f"""
-            You are a Test Automation Engineer specializing in AI-driven UI automation.
-            Generate a complete, runnable Python script that uses AI image recognition for automatic element positioning.
+            You are a senior Test Automation Engineer.
+            Generate a complete, standalone, runnable Python UI automation script.
             {req_context_prompt}
 
             Requirements:
             1. Use Playwright's async API with proper setup and teardown for browser control.
-            2. Do NOT use traditional element positioning methods (CSS selectors, XPath, etc.).
-            3. Instead, use AI-driven image recognition for all element interactions.
-            4. Handle potential errors gracefully.
-            5. Print "TEST PASSED" if successful, "TEST FAILED" otherwise.
-            6. Include proper asyncio.run() to execute the main function.
-            7. Return ONLY the python code.
+            2. The script MUST run outside this platform and MUST NOT call any platform API.
+            3. Use deterministic locators in this order: role/name, label, placeholder,
+               stable test id, visible text. Use CSS only when there is no semantic locator;
+               do not use XPath, generated class names, coordinates, screenshots, OCR, or AI
+               image recognition for element interaction.
+               When a role locator uses an exact observed accessible name, pass exact=True so
+               Playwright strict mode cannot also match a longer name.
+            4. Read the target URL from UI_TARGET_URL, using the supplied target as its default.
+               Read UI_HEADLESS (true/false) to control browser visibility.
+            5. Use Playwright auto-waiting and assertion-based waits. Never use sleep() or
+               wait_for_timeout(). Assert observable business results instead of only asserting
+               that a click completed.
+            6. Use the real target application and its real APIs. Do not intercept or mock the
+               application's own network requests and do not generate fake test data.
+            7. Put screenshots, traces, and other runtime evidence under the directory from
+               UI_ARTIFACT_DIR (default: artifacts). Create the directory when needed.
+            8. Handle errors with a non-zero process exit code and always close browser resources.
+            9. Print structured JSON step logs. Print "TEST PASSED" only after all assertions pass;
+               print "TEST FAILED" and the actual exception on failure.
+            10. Include asyncio.run(main()) and return ONLY Python code.
 
             IMPORTANT:
             - After every major action (click, fill, navigate), print JSON logs.
             - Format: {{"type": "step", "action": "click", "details": "Clicked Login", "status": "success"}}
+            - Never hardcode credentials, tokens, absolute local file paths, or platform imports.
+            - Import Playwright expect and use await expect(...) for every requested verification.
+            - The platform compiler injects a standalone wait_for_ui_ready(page) call immediately
+              after page.goto(...), so assertions and screenshots only run after real rendering.
+            - Never skip a requested action or replace a requested business assertion with a
+              generic page title/body visibility check.
             """
 
 
 def build_app_system_prompt(req_context_prompt: str) -> str:
     return f"""
-            You are a Mobile Test Automation Engineer specializing in AI-driven UI automation.
-            Generate a complete, runnable Python script that uses AI image recognition for automatic element positioning.
+            You are a senior Mobile Test Automation Engineer.
+            Generate a complete, standalone, runnable Python Appium script.
             {req_context_prompt}
 
             Requirements:
             1. Use Appium Python Client with proper setup and teardown for device control.
-            2. Do NOT use traditional element positioning methods (ID, XPath, accessibility ID, etc.).
-            3. Instead, use AI-driven image recognition for all element interactions.
-            4. Handle potential errors gracefully.
-            5. Print "TEST PASSED" if successful, "TEST FAILED" otherwise.
-            6. For Android, use UiAutomator2 driver; for iOS, use XCUITest driver.
-            7. Return ONLY the python code.
+            2. The script MUST run outside this platform and MUST NOT call any platform API.
+            3. Use the platform's mature hybrid locator contract:
+               - Native controls: accessibility id, stable resource id, Android UIAutomator/iOS predicate.
+               - Cocos/Canvas controls absent from the native hierarchy: only use a named asset from
+                 visual_asset_catalogs through runtime.ui_hybrid_runtime.VisualAssetCatalog and
+                 HybridAppSession.visual_tap/assert_visual.
+               - Never invent resource ids or asset names. Never use XPath, raw coordinates, OCR,
+                 or runtime AI requests. AI is only used before generation to create the saved assets.
+            4. Read Appium server URL and capabilities from environment variables. Use the supplied
+               app target only as a non-secret default. Never hardcode device-specific secrets.
+            5. Use explicit condition-based waits; never use sleep(). HybridAppSession already provides
+               condition-based visual polling. Assert observable business
+               results instead of only asserting that a tap completed.
+            6. Use the real application and its real backend. Do not mock application APIs or
+               generate fake test data.
+            7. Put screenshots and runtime evidence under UI_ARTIFACT_DIR (default: artifacts).
+               Use HybridAppSession.capture so the platform can ingest structured screenshot events.
+            8. Handle errors with a non-zero process exit code and always quit the driver.
+            9. Print structured JSON step logs. Print "TEST PASSED" only after all assertions pass;
+               print "TEST FAILED" and the actual exception on failure.
+            10. For Android hybrid scripts import create_android_driver, select_online_device,
+                VisualAssetCatalog, HybridAppSession and run_adb from runtime.ui_hybrid_runtime.
+                Resolve ROOT from Path(__file__).resolve().parents[1], insert ROOT into sys.path before
+                importing the bundled runtime, then load the exact observed visual_assets.json.
+                For iOS use XCUITest. Return ONLY Python code.
+            11. RESET_APP_DATA may trigger `adb shell pm clear` only when the requested test explicitly
+                needs a zero-state start. Read APPIUM_UDID, APPIUM_APP_PACKAGE, APPIUM_APP_ACTIVITY,
+                APPIUM_SERVER_URL, APPIUM_DEVICE_NAME and RESET_APP_DATA from environment variables.
+
+            IMPORTANT:
+            - A Cocos action is valid only when its asset name exists in the observed catalog.
+            - Do not copy OpenCV matching code into each case; reuse the bundled hybrid runtime.
+            - Print "TEST PASSED" only after native and/or visual business assertions pass.
             """
-
-
-def build_ai_locate_function(token: str | None, image_model: str | None) -> str:
-    _ = token
-    model_field = f"'image_model': '{image_model}'" if image_model else ""
-    data_dict = (
-        f"data = {{'element_description': element_description, {model_field}}}"
-        if model_field
-        else "data = {'element_description': element_description}"
-    )
-
-    return f"""
-# AI image recognition function for element localization
-def ai_locate_element(screenshot_path, element_description):
-    import requests
-    import os
-
-    try:
-        api_base = os.environ.get("UI_AUTOMATION_API_BASE", "http://localhost:8000").rstrip("/")
-        url = f"{{api_base}}/api/ui-automation/ai-locate-element"
-        if not os.path.exists(screenshot_path):
-             print(f"Error: Screenshot file not found: {{screenshot_path}}")
-             return (0, 0)
-
-        files = {{'image': open(screenshot_path, 'rb')}}
-        {data_dict}
-        headers = {{}}
-        auth_token = os.environ.get("UI_AUTOMATION_TOKEN", "")
-        if auth_token:
-            headers["Authorization"] = f"Bearer {{auth_token}}"
-
-        response = requests.post(url, files=files, data=data, headers=headers)
-        response.raise_for_status()
-
-        coords = response.json()['coordinates']
-        print(f"AI Located '{{element_description}}' at: {{coords}}")
-        return (coords[0], coords[1])
-    except Exception as e:
-        print(f"AI Location Error: {{str(e)}}")
-        raise
-"""

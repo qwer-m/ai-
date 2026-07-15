@@ -26,6 +26,7 @@ class AppendExistingState:
     existing_cases: list[dict[str, Any]]
     existing_entry: Any
     existing_unique_count: int
+    lookup_source: str = ""
 
 
 def record_prepare_timing_event(
@@ -141,6 +142,8 @@ def resolve_append_existing_state(
     deduplicate_test_cases_fn: Callable[..., list[dict[str, Any]]],
     count_unique_test_cases_fn: Callable[..., int],
     record_timing_event_fn: Callable[..., dict[str, Any]],
+    hydrate_append_existing_cases_fn: Callable[..., list[dict[str, Any]]] | None = None,
+    previous_generation_id: int | None = None,
 ) -> AppendExistingState:
     start_id = 1
     existing_cases: list[dict[str, Any]] = []
@@ -153,19 +156,33 @@ def resolve_append_existing_state(
             existing_cases=existing_cases,
             existing_entry=existing_entry,
             existing_unique_count=existing_unique_count,
+            lookup_source="not_append",
         )
 
     append_lookup_started = time.perf_counter()
     from sqlalchemy import desc
 
     resolved_model = resolve_lazy_attr(test_generation_model)
-    query = db.query(resolved_model).filter(
-        resolved_model.project_id == project_id,
-        resolved_model.requirement_text == original_requirement,
-    )
-    if user_id:
-        query = query.filter(resolved_model.user_id == user_id)
-    existing_entry = query.order_by(desc(resolved_model.created_at)).first()
+    lookup_source = "requirement_text"
+    previous_id = int(previous_generation_id or 0)
+    if previous_id > 0:
+        query = db.query(resolved_model).filter(
+            resolved_model.id == previous_id,
+            resolved_model.project_id == project_id,
+        )
+        if user_id:
+            query = query.filter(resolved_model.user_id == user_id)
+        existing_entry = query.first()
+        lookup_source = "previous_generation_id"
+
+    if not existing_entry and previous_id <= 0:
+        query = db.query(resolved_model).filter(
+            resolved_model.project_id == project_id,
+            resolved_model.requirement_text == original_requirement,
+        )
+        if user_id:
+            query = query.filter(resolved_model.user_id == user_id)
+        existing_entry = query.order_by(desc(resolved_model.created_at)).first()
 
     if existing_entry and existing_entry.generated_result:
         existing_cases, existing_unique_count, start_id = prepare_append_existing_cases_fn(
@@ -174,10 +191,18 @@ def resolve_append_existing_state(
             deduplicate_test_cases_fn=deduplicate_test_cases_fn,
             count_unique_test_cases_fn=count_unique_test_cases_fn,
         )
+        if hydrate_append_existing_cases_fn:
+            existing_cases = hydrate_append_existing_cases_fn(
+                existing_cases,
+                db=db,
+                entry=existing_entry,
+            )
     record_timing_event_fn(
         "append_existing_lookup",
         append_lookup_started,
         found=bool(existing_entry),
+        lookup_source=lookup_source,
+        previous_generation_id=previous_id or None,
         existing_unique_count=int(existing_unique_count or 0),
         start_id=int(start_id or 1),
     )
@@ -186,4 +211,5 @@ def resolve_append_existing_state(
         existing_cases=existing_cases,
         existing_entry=existing_entry,
         existing_unique_count=int(existing_unique_count or 0),
+        lookup_source=lookup_source,
     )

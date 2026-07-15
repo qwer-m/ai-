@@ -11,6 +11,7 @@ type GenerationStreamFormDataInput = {
   expectedCount: number;
   force: boolean;
   appendMode: boolean;
+  previousGenerationId: number | null;
   enableSamplePoolFeedback: boolean;
 };
 
@@ -25,6 +26,7 @@ export function buildGenerationStreamFormData({
   expectedCount,
   force,
   appendMode,
+  previousGenerationId,
   enableSamplePoolFeedback,
 }: GenerationStreamFormDataInput): FormData {
   const formData = new FormData();
@@ -35,6 +37,9 @@ export function buildGenerationStreamFormData({
   formData.append('force', String(force));
   formData.append('enable_sample_pool_feedback', String(enableSamplePoolFeedback));
   if (appendMode) formData.append('append', 'true');
+  if (appendMode && previousGenerationId) {
+    formData.append('previous_generation_id', String(previousGenerationId));
+  }
 
   if (isText) {
     formData.append('requirement_text', requirement);

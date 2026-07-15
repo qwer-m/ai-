@@ -8,7 +8,9 @@ import { translateConfigError } from './ConfigModal.utils';
 import './ConfigModal.css';
 
 const CLOUD_PROVIDERS = ['dashscope', 'openai', 'deepseek'];
+const DEFAULT_CLOUD_PROVIDER = 'dashscope';
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
+const DEFAULT_LOCAL_BASE_URL = 'http://localhost:11434/v1';
 const OFFICIAL_BASE_URL_BY_PROVIDER: Record<string, string> = {
   deepseek: 'https://api.deepseek.com',
 };
@@ -32,6 +34,8 @@ type MessageState = {
   text: string;
 } | null;
 
+type ConfigLoadStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
+
 export function ConfigModal({ show, onHide, initialError }: Props) {
   const [tab, setTab] = useState('cloud');
 
@@ -54,20 +58,48 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
   const [detectingOcr, setDetectingOcr] = useState(false);
   const [ocrHint, setOcrHint] = useState<MessageState>(null);
 
-  const [provider, setProvider] = useState('dashscope');
+  const [provider, setProvider] = useState(DEFAULT_CLOUD_PROVIDER);
   const [cloudBaseUrl, setCloudBaseUrl] = useState('');
   const [lastOpenaiBaseUrl, setLastOpenaiBaseUrl] = useState(DEFAULT_OPENAI_BASE_URL);
-  const [localBaseUrl, setLocalBaseUrl] = useState('http://localhost:11434/v1');
+  const [localBaseUrl, setLocalBaseUrl] = useState(DEFAULT_LOCAL_BASE_URL);
   const [localModelName, setLocalModelName] = useState('');
   const [detectedServices, setDetectedServices] = useState<any[]>([]);
   const [detectingLocal, setDetectingLocal] = useState(false);
 
   const [message, setMessage] = useState<MessageState>(null);
   const [pending, setPending] = useState(false);
+  const [configLoadStatus, setConfigLoadStatus] = useState<ConfigLoadStatus>('idle');
+  const [configLoadError, setConfigLoadError] = useState<string | null>(null);
   const [streamOutput, setStreamOutput] = useState('');
   const [streamState, setStreamState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [dirty, setDirty] = useState(false);
   const effectiveCloudBaseUrl = resolveCloudBaseUrl(provider, cloudBaseUrl);
+  const configLoading = configLoadStatus === 'loading';
+  const configReady = configLoadStatus === 'ready' || configLoadStatus === 'empty';
+
+  const resetConfigForm = () => {
+    setTab('cloud');
+    setProvider(DEFAULT_CLOUD_PROVIDER);
+    setApiKey('');
+    setModelName('');
+    setVlModelName('');
+    setTurboModelName('');
+    setReviewModelName('');
+    setCloudBaseUrl('');
+    setTurboProvider('follow_main');
+    setTurboApiKey('');
+    setReviewProvider('follow_main');
+    setReviewApiKey('');
+    setVlProvider('follow_main');
+    setVlApiKey('');
+    setVlBaseUrl('');
+    setLocalBaseUrl(DEFAULT_LOCAL_BASE_URL);
+    setLocalModelName('');
+    setDetectedServices([]);
+    setTesseractPath('');
+    setTesseractManualOverride(false);
+    setOcrHint(null);
+  };
 
   useEffect(() => {
     if (message?.type === 'danger') {
@@ -98,14 +130,25 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
 
   useEffect(() => {
     if (!show) {
+      setConfigLoadStatus('idle');
+      setConfigLoadError(null);
       return;
     }
 
     let mounted = true;
-    api
-      .get('/api/config/current')
-      .then((res) => {
-        if (!mounted || !res?.active) {
+    setConfigLoadStatus('loading');
+    setConfigLoadError(null);
+
+    void (async () => {
+      try {
+        const res = await api.get('/api/config/current');
+        if (!mounted) {
+          return;
+        }
+        if (!res?.active) {
+          resetConfigForm();
+          setConfigLoadStatus('empty');
+          setDirty(false);
           return;
         }
 
@@ -146,8 +189,16 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
         } else {
           setOcrHint(null);
         }
-      })
-      .catch(console.error);
+        setConfigLoadStatus('ready');
+        setDirty(false);
+      } catch (error) {
+        const text = await translateConfigError(error);
+        if (mounted) {
+          setConfigLoadError(`加载当前配置失败：${text}`);
+          setConfigLoadStatus('error');
+        }
+      }
+    })();
 
     if (initialError) {
       void (async () => {
@@ -496,15 +547,27 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
   };
 
   return (
-    <Modal show={show} onHide={handleClose} backdrop="static" size="xl" dialogClassName="config-modal-dialog">
+    <Modal show={show} onHide={handleClose} backdrop="static" size="xl" scrollable dialogClassName="config-modal-dialog">
       <Modal.Header closeButton className="config-modal-header">
         <Modal.Title>API 配置中心</Modal.Title>
       </Modal.Header>
 
-      <Modal.Body className="config-modal-body">
-        {message && <Alert variant={message.type}>{message.text}</Alert>}
+      <Modal.Body className="config-modal-body" aria-busy={configLoading}>
+        {message && <Alert variant={message.type} role={message.type === 'danger' ? 'alert' : 'status'}>{message.text}</Alert>}
+        {configLoading && (
+          <Alert variant="info" role="status" aria-live="polite" className="d-flex align-items-center gap-2">
+            <Spinner size="sm" animation="border" aria-hidden="true" />
+            正在加载当前配置...
+          </Alert>
+        )}
+        {configLoadStatus === 'error' && configLoadError && (
+          <Alert variant="danger" role="alert">{configLoadError}</Alert>
+        )}
+        {configLoadStatus === 'empty' && (
+          <Alert variant="warning" role="status">当前账户暂无已激活的模型配置，请填写并保存。</Alert>
+        )}
 
-        <section className="config-center-panel">
+        {configReady && <section className="config-center-panel">
           <Tabs activeKey={tab} onSelect={(key) => setTab(key || 'cloud')} className="config-modal-tabs mb-3">
           <Tab eventKey="cloud" title="云端模型 (Cloud)">
             <CloudTab
@@ -605,17 +668,17 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
             </section>
           </aside>
           </div>
-        </section>
+        </section>}
       </Modal.Body>
 
       <Modal.Footer className="config-modal-footer">
         <Button variant="secondary" onClick={handleClose} className="config-modal-btn config-modal-btn--secondary">
           取消
         </Button>
-        <Button variant="info" onClick={validateConnection} disabled={pending} className="config-modal-btn config-modal-btn--info">
+        <Button variant="info" onClick={validateConnection} disabled={pending || !configReady} className="config-modal-btn config-modal-btn--info">
           验证连接
         </Button>
-        <Button variant="primary" onClick={saveConfig} disabled={pending} className="config-modal-btn config-modal-btn--primary">
+        <Button variant="primary" onClick={saveConfig} disabled={pending || !configReady} className="config-modal-btn config-modal-btn--primary">
           {pending ? '保存中...' : '应用并保存'}
         </Button>
       </Modal.Footer>

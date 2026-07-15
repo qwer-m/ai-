@@ -22,6 +22,10 @@ from .streaming_execution_plan_ordering import (
     apply_existing_execution_group_ordering,
     assign_presentation_order,
 )
+from .execution_plan_validator import (
+    validate_main_smoke_semantic_alignment,
+    validate_main_smoke_state_chain,
+)
 
 _REASONING_LEAKAGE_SIGNALS = reasoning_leakage_signals()
 
@@ -245,6 +249,74 @@ def _semantic_merge_cases(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return kept
 
 
+def _case_execution_group(case: dict[str, Any]) -> str:
+    return str(case.get("execution_group") or "").strip().lower()
+
+
+def _append_existing_has_main_smoke(existing_cases: list[dict[str, Any]]) -> bool:
+    return any(isinstance(item, dict) and _case_execution_group(item) == "main_smoke" for item in existing_cases or [])
+
+
+def _append_main_chain_insert_is_valid(
+    existing_cases: list[dict[str, Any]],
+    new_cases: list[dict[str, Any]],
+) -> bool:
+    main_new_cases = [
+        dict(item)
+        for item in new_cases
+        if isinstance(item, dict) and _case_execution_group(item) == "main_smoke"
+    ]
+    if not main_new_cases:
+        return True
+    if not _append_existing_has_main_smoke(existing_cases):
+        return True
+    proposed = [dict(item) for item in existing_cases if isinstance(item, dict)]
+    proposed.extend(main_new_cases)
+    return not validate_main_smoke_state_chain(proposed) and not validate_main_smoke_semantic_alignment(proposed)
+
+
+def _normalize_append_new_execution_groups(
+    existing_cases: list[dict[str, Any]],
+    new_cases: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if (
+        not _append_existing_has_main_smoke(existing_cases)
+        or _append_main_chain_insert_is_valid(existing_cases, new_cases)
+    ):
+        return [dict(item) for item in new_cases if isinstance(item, dict)]
+    normalized: list[dict[str, Any]] = []
+    for item in new_cases:
+        if not isinstance(item, dict):
+            continue
+        case = dict(item)
+        if _case_execution_group(case) == "main_smoke":
+            case["append_original_execution_group"] = "main_smoke"
+            case["execution_group"] = "independent_functional"
+            case["chain_id"] = "append_independent_suite"
+            case.pop("main_chain_step", None)
+            case.pop("main_chain_stage", None)
+            case.pop("main_chain_stage_kind", None)
+        normalized.append(case)
+    return normalized
+
+
+def _append_filter_new_semantic_unique(
+    existing_cases: list[dict[str, Any]],
+    new_cases: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    kept_new: list[dict[str, Any]] = []
+    protected_existing = [dict(item) for item in existing_cases if isinstance(item, dict)]
+    for item in new_cases:
+        if not isinstance(item, dict):
+            continue
+        if any(_is_append_semantic_duplicate(item, existed) for existed in protected_existing):
+            continue
+        if any(_is_append_semantic_duplicate(item, existed) for existed in kept_new):
+            continue
+        kept_new.append(dict(item))
+    return kept_new
+
+
 def prepare_append_existing_cases(
     existing_generated_result: str | None,
     *,
@@ -324,17 +396,20 @@ def merge_cases_for_append(
     if not isinstance(new_cases, list):
         return new_cases
 
-    merged_result: list[dict[str, Any]] = []
-    if isinstance(existing_cases, list):
-        merged_result.extend(existing_cases)
-    merged_result.extend(new_cases)
-    merged_result = filter_invalid_final_cases(merged_result)
-    merged_result = deduplicate_test_cases_fn(merged_result)
-    merged_result = _semantic_merge_cases(merged_result)
+    protected_existing = [
+        dict(item)
+        for item in (existing_cases or [])
+        if isinstance(item, dict)
+    ]
+    normalized_new_cases = _normalize_append_new_execution_groups(protected_existing, new_cases)
+    normalized_new_cases = filter_invalid_final_cases(normalized_new_cases)
+    normalized_new_cases = deduplicate_test_cases_fn(normalized_new_cases)
+    normalized_new_cases = _append_filter_new_semantic_unique(protected_existing, normalized_new_cases)
+    merged_result: list[dict[str, Any]] = [*protected_existing, *normalized_new_cases]
     merged_result = reorder_cases_by_closed_loop_fn(
         merged_result,
         start_id=1,
-        renumber_ids=True,
+        renumber_ids=False,
     )
     merged_result = assign_presentation_order(
         merged_result,
@@ -343,7 +418,7 @@ def merge_cases_for_append(
     merged_result = apply_existing_execution_group_ordering(
         merged_result,
         start_id=1,
-        renumber_ids=True,
+        renumber_ids=False,
     )
     merged_result = strip_case_meta_fields(merged_result)
     return merged_result

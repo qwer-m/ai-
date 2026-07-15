@@ -17,6 +17,12 @@ def _ui_automator():
     return import_module("modules.testing.ui_automation").ui_automator
 
 
+def _ui_exporter():
+    return import_module(
+        "modules.automation_components.services.ui_automation_export_service"
+    ).export_standalone_ui_script
+
+
 def _api_tester():
     return import_module("modules.testing.api_testing").api_tester
 
@@ -85,15 +91,20 @@ def _execute_stage_once(
             automation_type = str(ui_cfg.get("automation_type") or "web")
 
             ui_automator = _ui_automator()
-            script = ui_automator.generate_ai_image_recognition_script(
+            script = ui_automator.generate_executable_script(
                 task_description=task,
                 url=target,
                 automation_type=automation_type,
                 db=db,
                 user_id=user_id,
-                token=None,
-                image_model=None,
                 requirement_context=None,
+            )
+            export = _ui_exporter()(
+                script=script,
+                task=task,
+                target=target,
+                automation_type=automation_type,
+                project_id=project_id,
             )
             exec_result = ui_automator.execute_script(
                 script=script,
@@ -113,6 +124,7 @@ def _execute_stage_once(
                 "script": script or "",
                 "execution_result": output,
                 "raw_result": exec_result,
+                "export": export,
             }
             if exec_status == "failed":
                 return {
