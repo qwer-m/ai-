@@ -19,13 +19,11 @@ import {
 } from 'react-icons/fa';
 import { api } from '../../../utils/api';
 import { HistoryList, type HistoryListHandle } from '../../UIAutomation/HistoryList';
-import { LivePreview } from '../../UIAutomation/LivePreview';
 import { ReportDetail } from '../../UIAutomation/ReportDetail';
 import { ImportedTestCasesView, type ImportedUITestCase } from './ImportedTestCasesView';
 import './ui-automation.css';
 
 type UIAutomationView = 'web' | 'app' | 'report' | 'regression';
-type CenterView = 'live' | 'cases';
 
 interface Props {
   projectId: number | null;
@@ -142,18 +140,15 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
   const [appTarget, setAppTarget] = useState('');
   const [status, setStatus] = useState('idle');
   const [executionId, setExecutionId] = useState<number | null>(null);
-  const [executionLogs, setExecutionLogs] = useState('');
   const [executionError, setExecutionError] = useState('');
-  const [screenshotPaths, setScreenshotPaths] = useState<string[]>([]);
   const [selectedCaseId, setSelectedCaseId] = useState<number | null>(null);
   const [selectedFolder, setSelectedFolder] = useState<{ id: number; name: string } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const [sidebarWidth, setSidebarWidth] = useState(292);
   const [resizing, setResizing] = useState(false);
   const [reportRows, setReportRows] = useState<UIExecutionSummary[]>([]);
   const [selectedExecution, setSelectedExecution] = useState<any>(null);
 
-  const [centerView, setCenterView] = useState<CenterView>('live');
   const [uploadedFilename, setUploadedFilename] = useState('');
   const [importedCases, setImportedCases] = useState<ImportedUITestCase[]>([]);
   const [selectedImportedKeys, setSelectedImportedKeys] = useState<Set<string>>(new Set());
@@ -183,10 +178,7 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
     setSelectedFolder(null);
     setStatus('idle');
     setExecutionId(null);
-    setExecutionLogs('');
     setExecutionError('');
-    setScreenshotPaths([]);
-    setCenterView('live');
     setUploadedFilename('');
     setImportedCases([]);
     setSelectedImportedKeys(new Set());
@@ -210,8 +202,6 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
       timer = setInterval(() => {
         void api.get<any>(`/api/ui-automation/${executionId}`).then((detail) => {
           setStatus(detail.status || 'failed');
-          setExecutionLogs(detail.execution_result || '');
-          setScreenshotPaths(Array.isArray(detail.screenshot_paths) ? detail.screenshot_paths : []);
           if (detail.status === 'failed') setExecutionError(getExecutionFailure({ stderr: detail.execution_result }));
         });
       }, 2000);
@@ -278,7 +268,6 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
     try {
       await ensureTargetReady();
       setStatus('running');
-      setCenterView('live');
       const form = new FormData();
       form.append('script', script);
       form.append('task', operation.description);
@@ -291,8 +280,6 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
       const nextStatus = result.status || 'failed';
       setStatus(nextStatus);
       setExecutionId(result.execution_id || null);
-      setExecutionLogs(`STDOUT:\n${result.stdout || ''}\n\nSTDERR:\n${result.stderr || ''}`);
-      setScreenshotPaths(Array.isArray(result.screenshot_paths) ? result.screenshot_paths : []);
       setExportInfo(result.export || exportInfo);
       if (nextStatus === 'failed') setExecutionError(getExecutionFailure(result));
       onLog(`自动化操作“${operation.name}”执行完成：${statusLabel(nextStatus)}`);
@@ -300,7 +287,6 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
       const message = getErrorMessage(error);
       setStatus('failed');
       setExecutionError(message);
-      setExecutionLogs(message);
       onLog(`启动自动化操作失败：${message}`);
     }
   };
@@ -322,9 +308,7 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
     setExportInfo(null);
     setExecutionId(null);
     setStatus('idle');
-    setExecutionLogs('');
     setExecutionError('');
-    setScreenshotPaths([]);
     setNaturalPreviewScript('');
     setNaturalRunSucceeded(false);
     setNaturalConverted(false);
@@ -337,15 +321,12 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
     setExportInfo(null);
     setStatus('idle');
     setExecutionId(null);
-    setExecutionLogs('');
     setExecutionError('');
-    setScreenshotPaths([]);
     setNaturalName('');
     setNaturalDescription('');
     setNaturalPreviewScript('');
     setNaturalRunSucceeded(false);
     setNaturalConverted(false);
-    setCenterView('live');
     onLog('已新建自动化操作，请填写操作名称和自然语言描述。');
   };
 
@@ -360,7 +341,6 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
       setUploadedFilename(response.filename);
       setImportedCases(response.cases.map((item) => ({ ...item, conversion_status: 'idle' })));
       setSelectedImportedKeys(new Set(response.cases.map((item) => item.key)));
-      setCenterView('cases');
       onLog(`已解析测试用例文件“${response.filename}”：${response.case_count} 条`);
     } catch (error) {
       const message = getErrorMessage(error);
@@ -420,8 +400,6 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
           });
           const execution = preview.result || {};
           setExecutionId(execution.execution_id || null);
-          setExecutionLogs(`STDOUT:\n${execution.stdout || ''}\n\nSTDERR:\n${execution.stderr || ''}`);
-          setScreenshotPaths(Array.isArray(execution.screenshot_paths) ? execution.screenshot_paths : []);
           if (execution.status !== 'success') {
             throw new Error(getExecutionFailure(execution));
           }
@@ -475,7 +453,6 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
     try {
       await ensureTargetReady();
       setStatus('running');
-      setCenterView('live');
       const steps = description.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
       const response = await api.post<any>('/api/ui-automation/natural-run', {
         project_id: projectId,
@@ -489,8 +466,6 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
       const nextStatus = result.status || 'failed';
       setStatus(nextStatus);
       setExecutionId(result.execution_id || null);
-      setExecutionLogs(`STDOUT:\n${result.stdout || ''}\n\nSTDERR:\n${result.stderr || ''}`);
-      setScreenshotPaths(Array.isArray(result.screenshot_paths) ? result.screenshot_paths : []);
       setNaturalPreviewScript(response.script || '');
       setOperation(response.operation || { name, description, steps });
       setNaturalName(name);
@@ -506,7 +481,6 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
       const message = getErrorMessage(error);
       setStatus('failed');
       setExecutionError(message);
-      setExecutionLogs(message);
       onLog(`自然语言画面执行失败：${message}`);
     } finally {
       setNaturalRunning(false);
@@ -618,7 +592,7 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
         />
       ) : null}
 
-      <main className="ui-automation-main flex-grow-1 d-flex flex-column ui-automation-main-min">
+      <main className="ui-automation-main flex-grow-1 d-flex flex-column">
         <div className="ui-automation-workspace flex-grow-1 d-flex gap-3 p-3 overflow-hidden">
           <div className="ui-automation-center-column d-flex flex-column gap-3 overflow-hidden">
             <div className="ui-automation-toolbar ui-automation-panel-card p-2 d-flex align-items-center gap-2">
@@ -634,30 +608,23 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
                 />
                 <Button variant="outline-secondary" onClick={() => void detectTarget()}>检测</Button>
               </InputGroup>
-              {centerView === 'cases' ? (
-                <Button size="sm" variant="outline-secondary" onClick={() => setCenterView('live')}>查看实时画面</Button>
-              ) : null}
             </div>
 
             <section className="ui-automation-preview-card ui-automation-preview-main ui-automation-panel-card overflow-hidden">
-              {centerView === 'cases' ? (
+              {importedCases.length > 0 ? (
                 <ImportedTestCasesView
                   filename={uploadedFilename}
                   cases={importedCases}
                   selectedKeys={selectedImportedKeys}
                   onToggle={toggleImportedCase}
                   onToggleAll={toggleAllImportedCases}
-                  onShowLive={() => setCenterView('live')}
                 />
               ) : (
-                <LivePreview
-                  executionId={executionId}
-                  status={status}
-                  logs={executionLogs}
-                  screenshotPaths={screenshotPaths}
-                  isPolling={status === 'running' || status === 'pending'}
-                  automationType={automationType}
-                />
+                <div className="ui-automation-empty-state h-100 d-flex flex-column align-items-center justify-content-center text-center">
+                  <span className="ui-automation-empty-icon"><FaCloudUploadAlt /></span>
+                  <strong>测试用例工作区</strong>
+                  <p>上传测试用例后，可在这里勾选并查看 AI 转化进度。</p>
+                </div>
               )}
             </section>
           </div>
@@ -701,7 +668,6 @@ export function UIAutomation({ projectId, projectName = '', onLog, view = 'web' 
                   <div className="ui-case-import-summary mt-3">
                     <span>共 {importedCases.length} 条</span>
                     <span>已选 {selectedImportedKeys.size} 条</span>
-                    <Button size="sm" variant="link" className="p-0" onClick={() => setCenterView('cases')}>查看用例</Button>
                   </div>
                 ) : null}
               </div>

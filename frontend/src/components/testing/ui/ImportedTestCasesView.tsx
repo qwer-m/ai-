@@ -1,5 +1,5 @@
-import { Button, Form } from 'react-bootstrap';
-import { FaDesktop, FaFileAlt } from 'react-icons/fa';
+import { Form } from 'react-bootstrap';
+import { FaFileAlt } from 'react-icons/fa';
 
 export type CaseConversionStatus = 'idle' | 'converting' | 'converted' | 'failed';
 
@@ -24,7 +24,6 @@ interface Props {
   selectedKeys: Set<string>;
   onToggle: (key: string) => void;
   onToggleAll: () => void;
-  onShowLive: () => void;
 }
 
 const conversionText: Record<CaseConversionStatus, string> = {
@@ -34,19 +33,16 @@ const conversionText: Record<CaseConversionStatus, string> = {
   failed: '转化失败',
 };
 
-export function ImportedTestCasesView({ filename, cases, selectedKeys, onToggle, onToggleAll, onShowLive }: Props) {
+export function ImportedTestCasesView({ filename, cases, selectedKeys, onToggle, onToggleAll }: Props) {
   const allSelected = cases.length > 0 && selectedKeys.size === cases.length;
 
   return (
     <div className="ui-imported-cases h-100 d-flex flex-column">
-      <div className="ui-automation-live-card-head border-bottom px-3 py-2 d-flex align-items-center justify-content-between gap-3">
+      <div className="ui-imported-cases-head border-bottom px-3 py-2 d-flex align-items-center gap-3">
         <div className="min-w-0">
           <div className="small fw-bold"><FaFileAlt className="me-2 text-primary" />已上传测试用例</div>
           <div className="small text-muted text-truncate mt-1">{filename} · {cases.length} 条</div>
         </div>
-        <Button size="sm" variant="outline-secondary" onClick={onShowLive}>
-          <FaDesktop className="me-1" />实时画面
-        </Button>
       </div>
       <div className="ui-imported-case-table-wrap flex-grow-1 overflow-auto">
         <table className="ui-imported-case-table w-100">

@@ -113,8 +113,7 @@ body.ui-overhaul-v4 .test-generation-shell,
 body.ui-overhaul-v4 .evaluation-shell,
 body.ui-overhaul-v4 .knowledge-base-shell,
 body.ui-overhaul-v4 .api-testing-shell,
-body.ui-overhaul-v4 .api-automation-shell,
-body.ui-overhaul-v4 .ui-automation-shell {
+body.ui-overhaul-v4 .api-automation-shell {
   gap: 14px !important;
   width: 100%;
   min-height: 100%;

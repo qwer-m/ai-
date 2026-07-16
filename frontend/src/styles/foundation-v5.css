@@ -11,6 +11,7 @@
   --fd-text: #0f172a;
   --fd-text-soft: #5b6475;
   --fd-border: #d7e0ef;
+  --fd-border-strong: #c5d0df;
 
   --fd-primary: #4f46e5;
   --fd-primary-2: #2563eb;
@@ -32,6 +33,7 @@ body.theme-dark {
   --fd-text: #9fb3cc;
   --fd-text-soft: #8ea3be;
   --fd-border: #232a33;
+  --fd-border-strong: #2b3440;
   --fd-primary: #586b8d;
   --fd-primary-2: #4e607f;
   --fd-shadow-sm: 0 8px 20px rgba(2, 6, 23, 0.45);
