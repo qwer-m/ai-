@@ -34,11 +34,17 @@ class UITestCaseRepository:
     def add(self, entity: object) -> None:
         self.db.add(entity)
 
+    def flush(self) -> None:
+        self.db.flush()
+
     def delete(self, entity: object) -> None:
         self.db.delete(entity)
 
     def commit(self) -> None:
         self.db.commit()
+
+    def rollback(self) -> None:
+        self.db.rollback()
 
     def refresh(self, entity: object) -> None:
         self.db.refresh(entity)

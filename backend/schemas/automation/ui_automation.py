@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 class UIRequest(BaseModel):
@@ -8,6 +8,13 @@ class UIRequest(BaseModel):
     automation_type: str = "web"
     image_model: Optional[str] = None
     requirement_context: Optional[str] = None
+    operation_name: Optional[str] = None
+    operation_steps: list[str] = Field(default_factory=list)
+    parent_id: Optional[int] = None
+
+
+class UIScriptConvertRequest(UIRequest):
+    script: str
 
 class UIAutoEvalRequest(BaseModel):
     script: str

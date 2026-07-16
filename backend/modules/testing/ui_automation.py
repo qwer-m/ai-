@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from core.ai.ai_client import get_client_for_user
 from core.db.models import UIExecution
-from core.processing.utils import extract_code_block, run_temp_script
+from core.processing.utils import extract_code_block, run_script_file, run_temp_script
 from modules.testing.ui_automation_prompts import (
     build_ai_locate_function,
     build_app_system_prompt,
@@ -81,6 +81,64 @@ def reject_model_error_script(script: str) -> str:
     return cleaned
 
 
+def validate_page_object_model(script: str) -> str:
+    """Ensure generated UI code keeps locators and interactions out of the test entrypoint."""
+    cleaned = reject_model_error_script(script)
+    try:
+        tree = ast.parse(cleaned)
+    except SyntaxError as exc:
+        raise ValueError(f"Generated UI automation script has invalid Python syntax: {exc}") from exc
+
+    page_classes = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name.endswith("Page")
+    ]
+    if not page_classes:
+        raise ValueError("Generated UI automation script must use Page Object Model with at least one *Page class.")
+
+    public_methods = [
+        child
+        for page_class in page_classes
+        for child in page_class.body
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and not child.name.startswith("_")
+    ]
+    if not public_methods:
+        raise ValueError("Page Object classes must expose page-level business methods.")
+
+    entrypoints = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "main"
+    ]
+    if not entrypoints:
+        raise ValueError("Generated UI automation script must define main().")
+
+    forbidden_entrypoint_calls = {
+        "click",
+        "fill",
+        "tap",
+        "find_element",
+        "find_elements",
+        "get_by_role",
+        "get_by_label",
+        "get_by_text",
+        "locator",
+        "ai_locate_element",
+    }
+    for entrypoint in entrypoints:
+        for node in ast.walk(entrypoint):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Attribute) and node.func.attr in forbidden_entrypoint_calls:
+                raise ValueError(
+                    f"Page Object violation: main() directly calls {node.func.attr}(); move it into a *Page class."
+                )
+            if isinstance(node.func, ast.Name) and node.func.id == "ai_locate_element":
+                raise ValueError("Page Object violation: main() directly calls ai_locate_element().")
+    return cleaned
+
+
 class UIAutomationModule:
     def get_current_app_info(self, device_id: str = None) -> dict:
         try:
@@ -138,7 +196,7 @@ class UIAutomationModule:
             prompt = f"Target App: {url}\nTask: {task_description}"
 
         response = client.generate_response(prompt, system_prompt)
-        return reject_model_error_script(extract_code_block(response, "python"))
+        return validate_page_object_model(extract_code_block(response, "python"))
 
     def execute_script(
         self,
@@ -151,6 +209,7 @@ class UIAutomationModule:
         user_id: int = None,
         test_case_id: int = None,
         auth_token: str = None,
+        script_path: str = None,
     ) -> dict:
         execution = UIExecution(
             project_id=project_id,
@@ -174,7 +233,10 @@ class UIAutomationModule:
             }
             if auth_token:
                 script_env["UI_AUTOMATION_TOKEN"] = auth_token
-            stdout, stderr, returncode = run_temp_script(script, timeout=300, env=script_env)
+            if script_path:
+                stdout, stderr, returncode = run_script_file(script_path, timeout=300, env=script_env)
+            else:
+                stdout, stderr, returncode = run_temp_script(script, timeout=300, env=script_env)
             status = "success" if returncode == 0 else "failed"
             if "TEST FAILED" in stdout or "TEST FAILED" in stderr:
                 status = "failed"

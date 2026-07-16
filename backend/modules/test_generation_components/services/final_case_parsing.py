@@ -62,7 +62,7 @@ def parse_test_cases_spreadsheet_bytes(filename: str, content_bytes: bytes) -> l
             workbook = openpyxl.load_workbook(io.BytesIO(content_bytes), data_only=True)
             for sheet in workbook.worksheets:
                 for row in sheet.iter_rows(values_only=True):
-                    all_rows.append([_text(cell).strip() for cell in row])
+                    all_rows.append([_cell_text(cell) for cell in row])
         except Exception:
             all_rows = []
 
@@ -89,13 +89,12 @@ def _parse_json_cases(text: str) -> list[dict[str, Any]]:
 
 def _parse_csv_cases(text: str) -> list[dict[str, Any]]:
     try:
-        reader = csv.DictReader(StringIO(text))
-        rows = [dict(row) for row in reader if row]
+        rows = [[_cell_text(cell) for cell in row] for row in csv.reader(StringIO(text))]
     except Exception:
         return []
     if not rows:
         return []
-    return [_normalize_case_dict(row) for row in rows if any(str(v or "").strip() for v in row.values())]
+    return _parse_case_table_rows(rows, header_markers=_case_table_header_markers())
 
 
 def _parse_html_table_cases(text: str) -> list[dict[str, Any]]:
@@ -137,7 +136,7 @@ def _parse_case_table_rows(rows: list[list[Any]], *, header_markers: set[str] | 
         raw: dict[str, Any] = {}
         for header, value in zip(headers, row):
             key = _text(header).strip()
-            cell_value = _text(value).strip()
+            cell_value = _cell_text(value)
             if not key or key.lower().startswith("unnamed") or not cell_value:
                 continue
             raw[key] = cell_value
@@ -165,4 +164,11 @@ def _text(raw: Any) -> str:
     if isinstance(raw, dict):
         return " ".join(_text(value) for value in raw.values())
     return re.sub(r"\s+", " ", str(raw or "")).strip()
+
+
+def _cell_text(raw: Any) -> str:
+    """保留步骤和前置条件单元格中的换行，仅清理首尾空白。"""
+    if isinstance(raw, (list, dict)):
+        return _text(raw)
+    return str(raw or "").replace("\r\n", "\n").replace("\r", "\n").strip()
 

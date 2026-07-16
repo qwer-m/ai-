@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from core.db.database import get_db
 from core.db.models import User
 from core.authn.auth import get_current_user
@@ -44,14 +44,16 @@ class UITestCaseResponse(BaseModel):
     requirements: Optional[str]
     automation_type: Optional[str]
     target_config: Optional[str]
-    children: List['UITestCaseResponse'] = []
+    code_path: Optional[str] = None
+    children: List['UITestCaseResponse'] = Field(default_factory=list)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 UITestCaseResponse.update_forward_refs()
 
-@router.get("/", response_model=List[UITestCaseResponse])
+@router.get("", response_model=List[UITestCaseResponse])
+@router.get("/", response_model=List[UITestCaseResponse], include_in_schema=False)
 def get_test_cases(project_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Get all test cases for a project in a flat list (frontend handles tree) 
@@ -65,23 +67,30 @@ def get_test_cases(project_id: int, db: Session = Depends(get_db), current_user:
         raise HTTPException(status_code=404, detail="Project not found")
     return rows
 
-@router.post("/", response_model=UITestCaseResponse)
+@router.post("", response_model=UITestCaseResponse)
+@router.post("/", response_model=UITestCaseResponse, include_in_schema=False)
 def create_test_case(item: UITestCaseCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    status, db_item = UITestCaseService(db).create_case(
-        payload=item.model_dump(),
-        user_id=current_user.id,
-    )
+    try:
+        status, db_item = UITestCaseService(db).create_case(
+            payload=item.model_dump(),
+            user_id=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if status == "project_not_found" or not db_item:
         raise HTTPException(status_code=404, detail="Project not found")
     return db_item
 
 @router.put("/{item_id}", response_model=UITestCaseResponse)
 def update_test_case(item_id: int, item: UITestCaseUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    status, db_item = UITestCaseService(db).update_case(
-        item_id=item_id,
-        payload=item.model_dump(exclude_unset=True),
-        user_id=current_user.id,
-    )
+    try:
+        status, db_item = UITestCaseService(db).update_case(
+            item_id=item_id,
+            payload=item.model_dump(exclude_unset=True),
+            user_id=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if status == "not_found" or not db_item:
         raise HTTPException(status_code=404, detail="Test case not found")
     return db_item

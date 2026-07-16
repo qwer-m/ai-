@@ -206,6 +206,7 @@ export function DashboardContent({
               <UIAutomation
                 key={projectId ?? 'ui-automation-none'}
                 projectId={projectId}
+                projectName={projects.find((project) => project.id === projectId)?.name || ''}
                 onLog={(msg: string) => {
                   void onUserLog(msg);
                 }}

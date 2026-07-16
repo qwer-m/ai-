@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from core.db.models import Project, UIExecution
+from core.db.models import Project, UIExecution, UITestCase
 
 
 class UIAutomationRepository:
@@ -39,4 +39,37 @@ class UIAutomationRepository:
             .filter(UIExecution.id == execution_id, UIExecution.user_id == user_id)
             .first()
         )
+
+    def get_operation_case(
+        self,
+        *,
+        project_id: int,
+        operation_name: str,
+        automation_type: str,
+    ) -> UITestCase | None:
+        return (
+            self.db.query(UITestCase)
+            .filter(
+                UITestCase.project_id == project_id,
+                UITestCase.name == operation_name,
+                UITestCase.type == "file",
+                UITestCase.automation_type == automation_type,
+            )
+            .first()
+        )
+
+    def get_project_case(self, *, project_id: int, item_id: int) -> UITestCase | None:
+        return (
+            self.db.query(UITestCase)
+            .filter(UITestCase.id == item_id, UITestCase.project_id == project_id)
+            .first()
+        )
+
+    def list_project_cases(self, *, project_id: int) -> list[UITestCase]:
+        return self.db.query(UITestCase).filter(UITestCase.project_id == project_id).all()
+
+    def save(self, entity: object) -> None:
+        self.db.add(entity)
+        self.db.commit()
+        self.db.refresh(entity)
 

@@ -6,7 +6,7 @@ from typing import Any
 
 
 CASE_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
-    "id": ("id", "ID", "case_id", "caseId", "test_case_id", "testcase_id", "用例编号", "编号"),
+    "id": ("id", "ID", "case_id", "caseId", "test_case_id", "testcase_id", "用例ID", "用例编号", "编号"),
     "description": (
         "description",
         "desc",

@@ -12,8 +12,13 @@ bcrypt==4.0.1
 httpx>=0.24.0
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
 slowapi>=0.1.8
 playwright>=1.40.0
+opencv-python-headless>=4.10,<5
+numpy>=1.26,<3
+Appium-Python-Client>=4,<6
+selenium>=4.20,<5
 dashscope>=1.14.0
 openai>=1.0.0
 chromadb>=0.4.22

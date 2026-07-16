@@ -11,6 +11,8 @@ import subprocess
 import tempfile
 from typing import Optional, Tuple
 import logging
+import sys
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 # Use string import or lazy import if circular dependency occurs
@@ -108,6 +110,39 @@ def run_temp_script(
                 os.remove(tmp_path)
             except Exception:
                 pass
+
+
+def run_script_file(
+    script_path: str | Path,
+    *,
+    timeout: int = 300,
+    env: Optional[dict[str, str]] = None,
+) -> Tuple[str, str, int]:
+    """在脚本所属的独立项目目录中执行已导出的真实文件。"""
+    path = Path(script_path).resolve()
+    if not path.is_file():
+        return "", f"Script file not found: {path}", -1
+    project_root = path.parent.parent
+    project_python = project_root / ".venv" / "Scripts" / "python.exe"
+    python_executable = str(project_python) if project_python.is_file() else sys.executable
+    try:
+        result = subprocess.run(
+            [python_executable, str(path)],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env={
+                **os.environ,
+                "PYTHONPATH": str(project_root),
+                **(env or {}),
+            },
+        )
+        return result.stdout, result.stderr, result.returncode
+    except subprocess.TimeoutExpired:
+        return "", f"Execution timed out after {timeout} seconds", -1
+    except Exception as exc:
+        return "", f"Execution failed: {exc}", -1
 
 def log_to_db(db: Session, project_id: int, log_type: str, message: str, user_id: Optional[int] = None):
     try:
