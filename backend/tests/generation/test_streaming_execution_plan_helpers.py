@@ -8,6 +8,7 @@ from modules.testing.test_generation_components.postprocess.streaming_execution_
     derived_workflow_steps_from_selected,
     empty_execution_plan_summary,
     infer_role,
+    infer_group,
     infer_workflow_phase,
     infer_workflow_stage_kind,
     is_core_result_output_anchor,
@@ -237,6 +238,32 @@ def test_main_chain_excludes_static_display_goal_even_when_steps_enter_page() ->
     assert main_chain_exclusion_reason(case, **_main_chain_exclusion_kwargs()) == "display_only"
 
 
+def test_main_chain_excludes_ui_goal_even_when_incidental_entry_supports_blueprint_action() -> None:
+    from modules.test_generation_components.postprocess.execution_plan_action_support import (
+        main_chain_action_support_conflict_reason,
+    )
+
+    case = {
+        "id": "TC-UI",
+        "test_module": "Feedback",
+        "description": "Post button copy and visual style remain unchanged",
+        "preconditions": ["User entered the feedback page"],
+        "steps": ["Open the feedback page", "Observe the post button copy"],
+        "expected_result": "The copy and visual style match the original design",
+    }
+
+    assert main_chain_exclusion_reason(
+        case,
+        step_meta={
+            "stage_kind": "consume",
+            "label": "Open post editor",
+            "action": "Click the post button and enter the editor",
+        },
+        action_support_conflict_fn=main_chain_action_support_conflict_reason,
+        **_main_chain_exclusion_kwargs(),
+    ) == "display_only"
+
+
 def test_main_chain_excludes_return_button_goal() -> None:
     case = {
         "id": "TC-002",
@@ -331,6 +358,14 @@ def test_workflow_stage_kind_and_phase_infer_action_order() -> None:
     assert infer_workflow_phase("保存并提交后生成评分") == 60
     assert infer_workflow_stage_kind("下游页面展示最新评分结果") == "downstream_visibility"
     assert infer_workflow_phase("下游页面展示最新评分结果") == 70
+    assert infer_workflow_stage_kind("系统自动打分并给出评分") == "unknown"
+    assert infer_workflow_phase("系统自动打分并给出评分") == 90
+    assert infer_workflow_stage_kind("评分结果为85分") == "unknown"
+    assert infer_workflow_phase("评分结果为85分") == 90
+    assert infer_workflow_stage_kind("开始学习课程") == "unknown"
+    assert infer_workflow_phase("开始学习课程") == 90
+    assert infer_workflow_stage_kind("learn lesson") == "unknown"
+    assert infer_workflow_phase("learn lesson") == 90
     assert infer_workflow_stage_kind("点击进入学习页面") == "consume"
     assert infer_workflow_phase("点击进入学习页面") == 10
     assert infer_workflow_stage_kind("预览检查结果") == "preview"
@@ -439,6 +474,11 @@ def test_display_only_workflow_text_ignores_real_actions_and_downstream_visibili
         display_only_tokens=display_tokens,
         downstream_visibility_tokens=downstream_tokens,
     )
+    assert is_display_only_workflow_text(
+        "learn card layout",
+        display_only_tokens=display_tokens,
+        downstream_visibility_tokens=downstream_tokens,
+    )
     assert not is_display_only_workflow_text(
         "进入列表并保存设置",
         display_only_tokens=display_tokens,
@@ -513,6 +553,8 @@ def test_derived_workflow_candidate_buckets_scores_primary_fallback_and_exclusio
     cases = [
         {"id": "primary", "priority": "P1", "description": "保存并提交成功，状态更新展示"},
         {"id": "fallback", "priority": "P2", "description": "打开入口后准备完成"},
+        {"id": "scoring-only", "priority": "P1", "description": "系统自动打分并给出评分结果"},
+        {"id": "learning-only", "priority": "P1", "description": "开始学习并完成课程"},
         {"id": "excluded", "priority": "P1", "description": "analytics dashboard 保存成功"},
     ]
     recorded: list[tuple[str, str]] = []
@@ -729,25 +771,30 @@ def test_derive_workflow_blueprint_from_current_cases_returns_closure_reason_and
 
 
 def test_role_session_and_public_contract_helpers() -> None:
-    assert infer_role({"description": "student opens course", "role": ""}) == "student"
+    assert infer_role({"description": "student opens course", "role": ""}) == "business_user"
+    assert infer_role({"description": "generic workflow", "role": "content_editor"}) == "content_editor"
+    for protocol_role in ("admin", "guest", "authenticated", "anonymous"):
+        assert infer_role({"description": "generic workflow", "role": protocol_role}) == protocol_role
+        assert session_key_for_role(protocol_role) == f"{protocol_role}_session"
     assert session_key_for_role("student") == "student_session"
+    assert session_key_for_role("content_editor") == "content_editor_session"
     assert is_internal_state_text("draft_saved_state") is True
     assert is_internal_state_text("Student main workflow") is False
-    assert public_contract_module_label({"module": "draft_saved_state"}, "student submit") == "学生端主链路"
+    assert public_contract_module_label({"module": "draft_saved_state"}, "student submit") == "业务主链路"
     assert public_contract_module_label({"module": "Course Center"}, "student submit") == "Course Center"
 
 
 def test_low_value_main_chain_p0_ignores_pending_only_status() -> None:
     assert is_low_value_main_chain_p0(
         {
-            "description": "Review page remains pending after 48 hours",
-            "expected_result": "Pending status remains visible",
+            "description": "Review state remains pending",
+            "expected_result": "State remains unchanged and visible",
         }
     )
     assert not is_low_value_main_chain_p0(
         {
             "description": "Submit form",
-            "expected_result": "Submit success and correction result is generated",
+            "expected_result": "Submit success and processing result is generated",
         }
     )
 
@@ -755,16 +802,37 @@ def test_low_value_main_chain_p0_ignores_pending_only_status() -> None:
 def test_core_result_output_anchor_rejects_detail_only_display() -> None:
     assert is_core_result_output_anchor(
         {
-            "description": "Open correction result",
-            "expected_result": "Four modules and result details are visible",
+            "description": "Open downstream output",
+            "expected_result": "The output is available",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "downstream_visibility",
         }
     )
     assert not is_core_result_output_anchor(
         {
-            "description": "Open scoring panel",
-            "expected_result": "Star rating and disabled button are visible",
+            "description": "Open auxiliary display panel",
+            "expected_result": "Copy and layout are visible",
+            "execution_group": "display",
+            "priority_reasons": ["structural_p2_low_value_signal"],
         }
     )
+
+
+def test_infer_group_prefers_existing_structure_before_generic_text() -> None:
+    assert infer_group(
+        {
+            "execution_group": "boundary",
+            "description": "ordinary validation",
+        },
+        in_main_chain=False,
+    ) == "boundary"
+    assert infer_group(
+        {
+            "main_chain_stage_kind": "preview",
+            "description": "ordinary validation",
+        },
+        in_main_chain=False,
+    ) == "display"
 
 
 def test_materialize_workflow_contract_case_filters_internal_stage_fields() -> None:
@@ -774,7 +842,7 @@ def test_materialize_workflow_contract_case_filters_internal_stage_fields() -> N
             "label": "保存草稿",
             "stage_kind": "commit",
             "module": "draft_saved_state",
-            "domain": "作文批改",
+            "domain": "内容处理",
             "test_steps": ["draft_saved_state", "点击保存草稿"],
             "actor": "teacher",
             "main_path_step": False,
@@ -783,12 +851,12 @@ def test_materialize_workflow_contract_case_filters_internal_stage_fields() -> N
 
     assert materialized is not None
     assert materialized["id"] == "TC-CONTRACT-DRAFT-SAVE"
-    assert materialized["test_module"] == "作文批改"
+    assert materialized["test_module"] == "内容处理"
     assert materialized["steps"] == ["点击保存草稿"]
     assert materialized["test_input"] == "保存草稿"
     assert materialized["expected_result"] == "保存草稿完成，保存结果展示成功状态"
     assert materialized["priority"] == "P1"
-    assert materialized["role"] == "supervisor"
+    assert materialized["role"] == "teacher"
     assert materialized["workflow_contract_materialized_case"] is True
 
 
@@ -834,5 +902,5 @@ def test_workflow_bridge_case_requires_previous_stage_available() -> None:
     assert bridge["preconditions"] == ["entry_opened"]
     assert bridge["expected_result"] == "submitted"
     assert bridge["priority"] == "P0"
-    assert bridge["role"] == "supervisor"
+    assert bridge["role"] == "teacher"
     assert bridge["workflow_blueprint_bridge"] is True

@@ -294,7 +294,7 @@ def has_concrete_expected_assertion(text: str) -> bool:
     if re.search(r"[\"'`“”‘’].{4,}[\"'`“”‘’]", normalized):
         return True
     if re.search(r"\d+\s*/\s*\d+", normalized) and any(
-        token in normalized for token in ("显示为", "剩余批改次数", "剩余次数")
+        token in normalized for token in ("显示为", "剩余次数")
     ):
         return True
     concrete_tokens = (
@@ -312,18 +312,12 @@ def has_concrete_expected_assertion(text: str) -> bool:
         "无需解锁",
         "提示阻止",
         "直接进入",
-        "当前单元",
         "主题名称",
-        "上册",
-        "下册",
         "列表依次",
         "顺序与",
         "权重公式",
         "公式计算结果一致",
         "降序排列",
-        "作文圈",
-        "我的作文",
-        "批改记录",
         "图片不清晰",
         "重试选项",
         "disabled",
@@ -349,6 +343,7 @@ def has_weak_ambiguous_expected_result(text: str) -> bool:
         "或显示异常",
         "或显示对应内容",
         "或按配置",
+        "or show",
         "or show error",
         "or display error",
         "or prompt error",
@@ -379,6 +374,21 @@ def looks_template_polluted_expected_result(text: str) -> bool:
     normalized = str(text or "").strip()
     if not normalized:
         return False
+    legacy_template_signatures = (
+        "对应记录，且列表或查询中不再显示该记录",
+        "对应记录，且查询结果应反映新值",
+        "且后续查询可验证结果",
+        "且每条记录关键字段值正确",
+        "响应状态码正确，且用户仅可访问",
+        "应生成可下载的",
+        "导入并返回处理结果或统计信息",
+        "应触发权限或付费拦截提示",
+        "按钮可用状态与提示文案正确",
+        "应给出明确校验提示，并拦截不符合条件的输入",
+        "关键字段，且字段值与输入/后端数据一致",
+    )
+    if normalized.startswith("执行") and any(signature in normalized for signature in legacy_template_signatures):
+        return True
     pollution_pairs = (
         ("目标页面", "页面路径与标题", "显隐原图"),
         ("target page", "path", "original image"),
@@ -391,7 +401,7 @@ def looks_template_polluted_expected_result(text: str) -> bool:
         return True
     if "页面路径与标题" in normalized and any(
         token in normalized
-        for token in ("上传图片", "显隐", "原图", "缩略图", "批改", "复制", "排序", "弹窗")
+        for token in ("上传图片", "显隐", "原图", "缩略图", "复制", "排序", "弹窗")
     ):
         return True
     if "should navigate to target page" in lowered and any(
@@ -429,14 +439,12 @@ def looks_template_polluted_expected_result(text: str) -> bool:
         "音频",
         "资料",
         "pdf",
-        "批改结果",
-        "作文批改",
-        "审题立意",
-        "写作技法",
+        "处理结果",
+        "生成结果",
         "video",
         "media",
         "resource",
-        "correction result",
+        "generated result",
     )
     template_delete_tokens = ("应删除", "删除", "should delete", "remove")
     if (

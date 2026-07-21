@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
 from .case_access import case_text_field
+from .module_contract import apply_functional_module_phase, build_functional_supplement_plan
 from .result_postprocess_priority_semantics import apply_priority_semantics_to_cases
 from .streaming_case_keys import case_signature
 from .streaming_case_quality import filter_low_quality_cases_with_stats
@@ -158,6 +159,7 @@ def build_final_shortfall_supplement_prompt(
     batch_index: int = 1,
     batch_count: int = 1,
     previous_supplement_cases: Iterable[Any] | None = None,
+    functional_phase: dict[str, Any] | None = None,
 ) -> str:
     final_case_items = _dict_case_items(final_cases)
     existing_case_brief = [
@@ -190,6 +192,7 @@ def build_final_shortfall_supplement_prompt(
         module_key = case_text_field(item, "test_module") or "unknown"
         existing_module_counts[module_key] = int(existing_module_counts.get(module_key) or 0) + 1
 
+    phase = dict(functional_phase or {})
     payload = {
         "task": "final_shortfall_supplement",
         "batch_index": int(batch_index or 1),
@@ -204,6 +207,10 @@ def build_final_shortfall_supplement_prompt(
         "existing_module_counts": existing_module_counts,
         "existing_final_cases_to_avoid": existing_case_brief,
         "previous_supplement_cases_to_avoid": previous_supplement_brief,
+        "functional_phase": str(phase.get("phase") or ""),
+        "functional_module": str(phase.get("module_name") or ""),
+        "functional_features": list(phase.get("features") or [])[:12],
+        "functional_interactions": list(phase.get("interactions") or [])[:12],
     }
 
     return f"""
@@ -213,6 +220,7 @@ FINAL_SHORTFALL_SUPPLEMENT:
 - Focus only on the current requirement excerpt and the missing coverage evidence below.
 - If missing_rule_evidence contains rule_text, generated cases must directly cover those rule_text facts and missing_types before adding generic count filler.
 - Prefer under-covered business modules, independent functional paths, boundaries, exceptions, and cross-module state synchronization.
+- Treat functional_phase as a hard scope. For module_internal, every case must belong to functional_module. For cross_module, every case must verify a real interaction between the listed modules.
 - Do not add display-only, copy/toast-only, sorting-only, thumbnail-only, or popup-only cases unless they close a blocking business flow.
 - Do not include legacy behavior that conflicts with confirmed current requirements.
 - P0 only for blocking main-path closure; otherwise use P1/P2.
@@ -315,13 +323,33 @@ def run_final_shortfall_supplement(
     conflict_drop_count = 0
     target_count = int(target_floor_count or 0)
     supplement_limit = max(1, int(supplement_needed or 0))
-    batch_plan = _resolve_batch_plan(supplement_needed=supplement_limit)
+    functional_batch_plan = build_functional_supplement_plan(
+        flow_project_profile,
+        current_cases=result_cases,
+        target_count=target_count,
+        supplement_needed=supplement_limit,
+        max_batch_size=FINAL_SHORTFALL_SUPPLEMENT_BATCH_SIZE,
+        max_batches=FINAL_SHORTFALL_SUPPLEMENT_MAX_BATCHES,
+    )
+    batch_plan = (
+        [int(item.get("target_count") or 0) for item in functional_batch_plan]
+        if functional_batch_plan
+        else _resolve_batch_plan(supplement_needed=supplement_limit)
+    )
     debug: dict[str, Any] = {
         "target_floor_count": int(target_count),
         "start_count": int(current_shortfall_count or 0),
         "supplement_needed": int(supplement_limit),
         "batch_size": int(FINAL_SHORTFALL_SUPPLEMENT_BATCH_SIZE),
         "batch_plan": list(batch_plan),
+        "functional_batch_plan": [
+            {
+                "phase": str(item.get("phase") or ""),
+                "module_name": str(item.get("module_name") or ""),
+                "target_count": int(item.get("target_count") or 0),
+            }
+            for item in functional_batch_plan
+        ],
         "batches": [],
     }
 
@@ -333,6 +361,11 @@ def run_final_shortfall_supplement(
         if len(all_supplement_cases) >= supplement_limit:
             break
 
+        functional_phase = (
+            functional_batch_plan[batch_index - 1]
+            if batch_index - 1 < len(functional_batch_plan)
+            else {}
+        )
         prompt = supplement_prompt if batch_index == 1 and supplement_prompt else build_final_shortfall_supplement_prompt(
             requirement=requirement,
             final_cases=[*result_cases, *all_supplement_cases],
@@ -343,6 +376,7 @@ def run_final_shortfall_supplement(
             batch_index=batch_index,
             batch_count=len(batch_plan),
             previous_supplement_cases=all_supplement_cases,
+            functional_phase=functional_phase,
         )
         max_tokens = max(2500, min(7000, int(batch_goal or 1) * 700))
         supplement_raw = client.generate_response(
@@ -364,6 +398,7 @@ def run_final_shortfall_supplement(
             parsed_cases, parsed_source = _extract_case_list_payload(parsed_payload)
         if parsed_cases:
             parsed_cases = _dict_case_items(normalize_json_structure_fn(parsed_cases))
+            parsed_cases = apply_functional_module_phase(parsed_cases, functional_phase)
             parsed_cases = annotate_case_source_metadata(
                 parsed_cases,
                 source_stage="final_shortfall_supplement",

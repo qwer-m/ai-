@@ -350,6 +350,20 @@ def build_prompt_context_intake_diagnostics(
             "biz_key_order": list(prompt_context.get("biz_key_order") or [])[:20],
             "module_order_hint": list(prompt_context.get("module_order_hint") or [])[:20],
             "module_order_source": str(prompt_context.get("module_order_source") or ""),
+            "functional_modules": [
+                str(item.get("module_name") or "")
+                for item in (prompt_context.get("module_catalog") or [])[:20]
+                if isinstance(item, dict) and str(item.get("module_name") or "").strip()
+            ],
+            "excluded_modules": [
+                {
+                    "module_name": str(item.get("module_name") or ""),
+                    "scope_reason": str(item.get("scope_reason") or ""),
+                }
+                for item in (prompt_context.get("excluded_modules") or [])[:20]
+                if isinstance(item, dict) and str(item.get("module_name") or "").strip()
+            ],
+            "module_interaction_count": int(len(prompt_context.get("module_interactions") or [])),
             "requirement_semantics_by_biz": _summarize_semantics_by_biz(
                 prompt_context.get("requirement_semantics_by_biz")
             ),

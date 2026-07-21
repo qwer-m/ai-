@@ -79,7 +79,7 @@ def test_coverage_priority_semantics_returns_usable_coverage_context() -> None:
     assert {case["id"] for case in prioritized} == {"TC-flow-001", "TC-export-weak"}
 
 
-def test_weak_optional_priority_is_downgraded_and_floored() -> None:
+def test_weak_optional_text_does_not_apply_a_hidden_priority_floor() -> None:
     prioritized, _coverage_context = coverage_priority_semantics_result(
         REQUIREMENT,
         _real_cases(),
@@ -91,7 +91,7 @@ def test_weak_optional_priority_is_downgraded_and_floored() -> None:
     assert weak_case["model_priority_current"] == "P0"
     assert weak_case["priority_decision_source"] == "model_p0_guard_downgrade"
     assert weak_case["priority_final"] == "P1"
-    assert weak_case["priority"] == "P2"
+    assert weak_case["priority"] == "P1"
     assert weak_case["priority"] != "P0"
 
 

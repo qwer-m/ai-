@@ -124,7 +124,7 @@ def test_preserve_review_priority_demotions_ignores_non_dict_items() -> None:
     ]
 
 
-def test_rebuild_priority_by_semantics_promotes_registered_p0_group_tokens() -> None:
+def test_rebuild_priority_by_semantics_does_not_promote_business_tokens_to_p0() -> None:
     cases = [
         {"id": "pay", "priority": "P2", "description": "付费拦截提示", "expected_result": "无法进入"},
         {"id": "ai", "priority": "P2", "description": "auto score result", "expected_result": "score is visible"},
@@ -132,18 +132,18 @@ def test_rebuild_priority_by_semantics_promotes_registered_p0_group_tokens() -> 
 
     rebuilt = rebuild_priority_by_semantics(cases)
 
-    assert [case["priority"] for case in rebuilt] == ["P0", "P0"]
+    assert [case["priority"] for case in rebuilt] == ["P2", "P2"]
 
 
-def test_rebuild_priority_by_semantics_promotes_p0_extra_tokens() -> None:
+def test_rebuild_priority_by_semantics_leaves_main_flow_priority_to_execution_plan() -> None:
     rebuilt = rebuild_priority_by_semantics(
         [{"id": "main", "priority": "P2", "description": "主流程闭环", "expected_result": "完成"}]
     )
 
-    assert rebuilt[0]["priority"] == "P0"
+    assert rebuilt[0]["priority"] == "P2"
 
 
-def test_rebuild_priority_by_semantics_applies_p1_and_p2_fallback_tokens() -> None:
+def test_rebuild_priority_by_semantics_promotes_navigation_without_downgrading_existing_p1() -> None:
     rebuilt = rebuild_priority_by_semantics(
         [
             {"id": "nav", "priority": "P2", "description": "页面跳转交互", "expected_result": "跳转成功"},
@@ -151,7 +151,7 @@ def test_rebuild_priority_by_semantics_applies_p1_and_p2_fallback_tokens() -> No
         ]
     )
 
-    assert [case["priority"] for case in rebuilt] == ["P1", "P2"]
+    assert [case["priority"] for case in rebuilt] == ["P1", "P1"]
 
 
 def test_rebuild_priority_by_semantics_normalizes_unknown_priority_and_skips_non_dict() -> None:

@@ -43,7 +43,7 @@ def test_init_stream_postprocess_state_preserves_append_and_coverage_floor() -> 
     assert state.reference_count_effective == 20
     assert state.append_final_cap_count == 20
     assert state.expected_count_value == 90
-    assert state.effective_generation_coverage_mode == "full_functional_regression"
-    assert state.generation_coverage_mode == "full_functional_regression"
+    assert state.effective_generation_coverage_mode == "expanded_regression"
+    assert state.generation_coverage_mode == "expanded_regression"
     assert state.resolved_full_regression_floor == 96
     assert state.explicit_expected_count_floor_preserved is False

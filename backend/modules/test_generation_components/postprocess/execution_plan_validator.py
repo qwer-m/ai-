@@ -21,9 +21,7 @@ from .execution_plan_semantic_alignment import (
     main_chain_blueprint_semantic_conflict_reason,
     validate_main_smoke_semantic_alignment,
 )
-from .execution_plan_validation_tokens import (
-    _ROLE_SESSION_KEYS,
-)
+from ..control.actor_roles import session_key_for_role
 from .streaming_execution_plan_ordering import execution_group_order_rank
 
 
@@ -154,7 +152,7 @@ def validate_main_smoke_state_chain(cases: Any) -> list[dict[str, Any]]:
                     "session_key": session_key,
                 }
             )
-        expected_session = _ROLE_SESSION_KEYS.get(role)
+        expected_session = session_key_for_role(role) if role else ""
         if expected_session and session_key and session_key != expected_session:
             conflicts.append(
                 {

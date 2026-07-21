@@ -7,6 +7,16 @@ from ..control.actor_roles import (
     session_key_for_role as session_key_for_actor_role,
 )
 from .case_access import case_flat_text, case_priority
+from .priority_behavior_semantics import (
+    has_generic_blocking_outcome,
+    has_generic_non_blocking_behavior,
+    has_generic_output_outcome,
+    has_structured_blocking_priority_evidence,
+    has_structured_core_signal,
+    infer_non_main_execution_group,
+    is_structured_non_blocking_detail,
+    is_structured_output_anchor,
+)
 from .streaming_execution_plan_stage_inference import contains_any_token
 from .streaming_postprocess_utils import _clip_text
 
@@ -26,7 +36,7 @@ def priority_rank(item: dict[str, Any]) -> int:
 
 
 def infer_role(item: dict[str, Any]) -> str:
-    return normalize_actor_role_value(item.get("role"), fallback_text=execution_case_text(item))
+    return normalize_actor_role_value(item.get("role"))
 
 
 def session_key_for_role(role: str) -> str:
@@ -98,9 +108,6 @@ def infer_data_state(
 
 def fixture_for_case(item: dict[str, Any], group: str, data_state: str) -> dict[str, str]:
     text = execution_case_text(item)
-    fixture_key = "default_logged_in_student"
-    fixture_builder = "login_student()"
-    cleanup_policy = "reset_session"
     if group == "main_smoke":
         fixture_key = "workflow_blueprint_chain_seed"
         fixture_builder = "seed_workflow_blueprint_dataset()"
@@ -142,133 +149,29 @@ def fixture_for_case(item: dict[str, Any], group: str, data_state: str) -> dict[
     }
 
 
-def is_student_observation_projection(item: dict[str, Any]) -> bool:
-    text = execution_case_text(item)
-    approval_or_publish = contains_any_token(
-        text,
-        (
-            "review approved",
-            "approval passed",
-            "published",
-            "visible in community",
-            "审核通过",
-            "已发布",
-            "发布",
-        ),
-    )
-    student_surface = contains_any_token(
-        text,
-        (
-            "community",
-            "visible",
-            "student",
-            "作文圈",
-            "我的作文",
-            "列表可见",
-            "可见",
-            "同步",
-        ),
-    )
-    return bool(approval_or_publish and student_surface)
-
-
-LOW_VALUE_MAIN_CHAIN_P0_TOKENS = (
-    "remains pending",
-    "pending status remains",
-    "pending status",
-    "48 hours",
-    "48h",
-    "record limit",
-    "records limit",
-    "maximum records",
-    "drag sort",
-    "drag sorted",
-    "delete thumbnail",
-    "force close",
-    "kill app",
-    "保持审核中",
-    "审核中保持",
-    "状态保持",
-    "48小时",
-)
-
-MAIN_CHAIN_CLOSURE_TOKENS = (
-    "submit succeeds",
-    "submit success",
-    "submitted successfully",
-    "generate correction result",
-    "correction result is generated",
-    "feedback modules",
-    "four modules",
-    "result details",
-    "approval passed",
-    "review approved",
-    "approved work",
-    "first lesson",
-    "all courses",
-    "locked",
-    "paywall",
-    "提交成功",
-    "生成批改结果",
-    "批改结果",
-    "四个模块",
-    "审核通过",
-    "第一课",
-    "全部课程",
-)
-
-CORE_RESULT_COMPLETE_OUTPUT_TOKENS = (
-    "feedback modules",
-    "four modules",
-    "result details",
-    "correction result is generated",
-    "generate correction result",
-    "四个模块",
-    "四部分",
-    "结果详情",
-    "批改结果页展示",
-)
-
-CORE_RESULT_DETAIL_ONLY_TOKENS = (
-    "star rating",
-    "stars",
-    "button disabled",
-    "disabled button",
-    "0 images",
-    "editable title",
-    "title body",
-    "星星评分",
-    "评分展示",
-    "按钮不可点",
-    "置灰",
-    "0张",
-    "标题正文",
-    "可编辑",
-)
-
-CORE_RESULT_OUTPUT_ANCHOR_TOKENS = (
-    "feedback modules",
-    "four modules",
-    "result details",
-    "correction result is generated",
-    "generate correction result",
-)
-
-
 def is_low_value_main_chain_p0(item: dict[str, Any]) -> bool:
     text = execution_case_text(item)
-    low_value_status = contains_any_token(text, LOW_VALUE_MAIN_CHAIN_P0_TOKENS)
-    blocking_closure = contains_any_token(text, MAIN_CHAIN_CLOSURE_TOKENS)
-    return bool(low_value_status and not blocking_closure)
+    if (
+        is_structured_output_anchor(item)
+        or has_structured_blocking_priority_evidence(item)
+        or has_generic_blocking_outcome(text)
+    ):
+        return False
+    if has_structured_core_signal(item) and not is_structured_non_blocking_detail(item):
+        return False
+    return bool(
+        is_structured_non_blocking_detail(item)
+        or has_generic_non_blocking_behavior(text)
+    )
 
 
 def is_core_result_output_anchor(item: dict[str, Any]) -> bool:
     text = execution_case_text(item)
-    complete_result_output = contains_any_token(text, CORE_RESULT_COMPLETE_OUTPUT_TOKENS)
-    detail_only_output = contains_any_token(text, CORE_RESULT_DETAIL_ONLY_TOKENS)
-    if detail_only_output and not complete_result_output:
+    if is_structured_output_anchor(item):
+        return True
+    if is_structured_non_blocking_detail(item):
         return False
-    return contains_any_token(text, CORE_RESULT_OUTPUT_ANCHOR_TOKENS) or complete_result_output
+    return has_generic_output_outcome(text)
 
 
 def default_group_setup_map() -> dict[str, str]:
@@ -297,39 +200,7 @@ def infer_group(item: dict[str, Any], *, in_main_chain: bool) -> str:
     if in_main_chain:
         return "main_smoke"
     text = execution_case_text(item)
-    if contains_any_token(
-        text,
-        (
-            "权限",
-            "无权限",
-            "越权",
-            "授权失败",
-            "鉴权",
-            "未登录",
-            "permission",
-            "unauthorized",
-            "forbidden",
-            "access denied",
-            "auth failed",
-        ),
-    ):
-        return "permission"
-    if contains_any_token(
-        text,
-        ("失败", "异常", "超时", "网络", "拒绝", "不通过", "接口", "重试", "failure", "error", "timeout", "retry"),
-    ):
-        return "exception"
-    if contains_any_token(
-        text,
-        ("空状态", "最多", "最少", "上限", "下限", "格式", "大小", "边界", "无数据", "max", "min", "limit", "boundary"),
-    ):
-        return "boundary"
-    if contains_any_token(
-        text,
-        ("下载", "入口", "弹窗", "展示", "排序", "筛选", "列表", "详情", "display", "list", "detail", "filter"),
-    ):
-        return "display"
-    return "independent_functional"
+    return infer_non_main_execution_group(item, text)
 
 
 def setup_hint(

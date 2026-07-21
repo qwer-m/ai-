@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from typing import Any
-
-from modules.testing.sample_case_access import sample_case_steps as _sample_case_steps
 
 from .feedback_control_config import (
     _MAX_WORKFLOW_BLUEPRINTS,
     _MIN_PRIORITY_POOL_PATTERN_CONFIDENCE,
 )
-from .feedback_control_priority_retrieval import (
-    _sample_matches_primary_domain,
-)
+from .feedback_control_priority_retrieval_text import _sample_matches_primary_domain
 from .feedback_control_priority_signals import (
     _is_pattern_active,
     _pattern_confidence,
@@ -30,45 +25,41 @@ def _workflow_blueprint_from_sample(
     *,
     sample_value_fn: Callable[..., Any] | None = None,
     sample_case_id_fn: Callable[[dict[str, Any]], str] | None = None,
-    sample_case_steps_fn: Callable[..., list[str]] | None = None,
 ) -> dict[str, Any] | None:
     sample_value = sample_value_fn or _sample_value
     sample_case_id = sample_case_id_fn or _sample_case_id
-    sample_case_steps = sample_case_steps_fn or _sample_case_steps
     grain = str(sample_value(sample, "pattern_grain", "patternGrain") or "").strip().lower()
     if grain != "workflow_blueprint":
         return None
     raw = sample_value(sample, "workflow_blueprint", "workflowBlueprint")
     blueprint = dict(raw) if isinstance(raw, dict) else {}
+    selection_source = str(blueprint.get("selection_source") or "").strip().lower()
+    if selection_source not in {"explicit_main_smoke", "trusted_workflow_contract"}:
+        return None
     steps = blueprint.get("steps")
     if not isinstance(steps, list) or len(steps) < 2:
-        step_texts = sample_case_steps(sample, "source_case_steps", "sourceCaseSteps")
-        if len(step_texts) <= 1:
-            step_texts = [
-                str(item).strip()
-                for item in re.split(r"\n+|[；;]", str(step_texts[0] if step_texts else ""))
-                if str(item).strip()
-            ]
-        steps = [
-            {
-                "id": f"step_{index:03d}",
-                "label": text[:120],
-                "action": text[:160],
-                "match_keywords": [text[:80]],
-            }
-            for index, text in enumerate(step_texts[:12], start=1)
-        ]
+        return None
     normalized_steps: list[dict[str, Any]] = []
     for index, step in enumerate(steps or [], start=1):
-        normalized_step = dict(step) if isinstance(step, dict) else {"label": str(step or "").strip()}
+        if not isinstance(step, dict):
+            return None
+        normalized_step = dict(step)
         label = str(
             normalized_step.get("label")
             or normalized_step.get("action")
             or normalized_step.get("description")
             or ""
         ).strip()
-        if not label:
-            continue
+        required = (
+            label,
+            normalized_step.get("action"),
+            normalized_step.get("actor"),
+            normalized_step.get("state_in"),
+            normalized_step.get("state_out"),
+            normalized_step.get("stage_kind"),
+        )
+        if not all(str(value or "").strip() for value in required):
+            return None
         normalized_step["id"] = str(normalized_step.get("id") or f"step_{index:03d}").strip()
         normalized_step["label"] = label[:160]
         normalized_steps.append(normalized_step)

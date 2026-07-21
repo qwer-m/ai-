@@ -45,7 +45,6 @@ from .json_generation_dependencies import (
     summarize_persistence_case_quality_gate,
     training_gate,
 )
-from .json_generation_backfill import apply_core_flow_backfill_if_needed
 from .json_generation_execution import run_json_generation_execution
 from .json_generation_diag_emitters import (
     emit_json_biz_key_diag,
@@ -58,6 +57,7 @@ from .json_generation_persist_diagnostics import (
 )
 from .json_generation_persistence import run_json_persistence_flow
 from .json_generation_review_postprocess import run_json_review_postprocess
+from ..postprocess.module_contract import enforce_functional_module_contract
 from .json_generation_runtime import resolve_json_generation_runtime
 
 
@@ -346,9 +346,11 @@ class LegacyGenerationJsonMixin:
             linked_final_case_count=int(
                 (linked_final_case_signal or {}).get("linked_final_case_count") or 0
             ),
+            strategy_plan=strategy_plan,
         ).to_dict()
         prompt_context = build_structured_prompt_context(
             requirement=requirement or "",
+            architecture_requirement=original_requirement or requirement or "",
             kb_context=kb_context or "",
             rag_result=(context_result or {}).get("rag_result") if isinstance(context_result, dict) else None,
             existing_cases=[],
@@ -524,6 +526,20 @@ Return ONLY the JSON array.
         final_case_count = review_postprocess.final_case_count
         empty_result_guard_triggered = review_postprocess.empty_result_guard_triggered
         empty_result_stage = review_postprocess.empty_result_stage
+        if isinstance(result, list):
+            result, module_contract_summary = enforce_functional_module_contract(
+                [item for item in result if isinstance(item, dict)],
+                project_profile=prompt_context.get("project_profile") or {},
+                inherit_execution_context=True,
+            )
+            stage_counts["module_contract_normalized"] = int(
+                module_contract_summary.get("normalized_count") or 0
+            )
+            stage_counts["module_contract_rejected"] = int(
+                module_contract_summary.get("rejected_count") or 0
+            )
+            final_cases_after_judge = [dict(item) for item in result]
+            final_case_count = int(len(final_cases_after_judge))
 
         persistence_result = run_json_persistence_flow(
             db=db,
@@ -570,7 +586,6 @@ Return ONLY the JSON array.
             emit_pre_persist_generation_diagnostics_fn=emit_pre_persist_generation_diagnostics,
             emit_post_persist_generation_diagnostics_fn=emit_post_persist_generation_diagnostics,
             emit_post_persist_coverage_audit_diagnostics_fn=emit_post_persist_coverage_audit_diagnostics,
-            apply_core_flow_backfill_if_needed_fn=apply_core_flow_backfill_if_needed,
             normalize_missing_priority_final_cases_fn=_normalize_missing_priority_final_cases,
             merge_contract_quality_gate_fn=merge_contract_quality_gate,
             summarize_persistable_case_contract_fn=summarize_persistable_case_contract,

@@ -64,7 +64,7 @@ def test_resolve_case_priority_promotes_model_p2_when_no_hard_guard_and_high_beh
     assert final_priority == "P1"
 
 
-def test_wrong_collection_strong_signal_promotes_model_p2_to_p0() -> None:
+def test_business_noun_alone_does_not_promote_model_p2_to_p0() -> None:
     case = {
         "description": "Verify wrong question collection is generated after wrong answers.",
         "test_module": "learning-error-book",
@@ -78,10 +78,10 @@ def test_wrong_collection_strong_signal_promotes_model_p2_to_p0() -> None:
     output = apply_priority_semantics_to_case(dict(case), attach_debug=True)
     debug = ((output.get("meta") or {}).get("priority_debug") or {})
 
-    assert output["priority"] == "P0"
-    assert output["priority_final"] == "P0"
-    assert output["priority_decision_source"] == "strong_p0_signal_guard"
-    assert debug.get("priority_decision_source") == "strong_p0_signal_guard"
+    assert output["priority"] in {"P1", "P2"}
+    assert output["priority_final"] in {"P1", "P2"}
+    assert output["priority_decision_source"] != "strong_p0_signal_guard"
+    assert debug.get("priority_decision_source") != "strong_p0_signal_guard"
 
 
 def test_apply_priority_semantics_attaches_debug_meta() -> None:

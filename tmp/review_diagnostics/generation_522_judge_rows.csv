@@ -1,0 +1,16 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,交流区,P2,P2,P2,P2,decided,model_semantic_consistent,high,,交流区帖子时间显示规则边界验证，覆盖各时间区间格式,PASS,-,False,False,False
+TC-002,交流区,P2,P2,P2,P2,decided,model_semantic_consistent,high,,交流区普通用户发帖权限验证，确认所有用户均可正常发帖,PASS,-,False,False,False
+TC-003,交流区,P2,P2,P2,P2,decided,p2_cap_guard,high,,交流区与原交流区功能回归验证，确认核心行为一致且无遗留旧元素,PASS,-,False,False,False
+TC-004,交流区,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",交流区帖子列表分批加载交互验证，上拉加载下一页内容,PASS,-,False,False,False
+TC-005,交流区,P1,P1,P1,P1,decided,model_semantic_consistent,high,,论坛首页四分区连续切换内容加载验证，依次切换官方区→反馈区→交流区→消息Tab，验证各分区内容正确加载且无旧分区内容残留,PASS,-,False,False,False
+TC-006,交流区,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,回帖页返回按钮放弃编辑内容跨页验证，在帖子详情页点击回复进入回帖页编辑内容后点击左上角返回按钮，验证编辑内容被放弃且返回帖子详情页,PASS,-,False,False,False
+TC-007,交流区,P2,P2,P2,P2,decided,p2_cap_guard,high,,帖子详情页返回按钮跨页状态保持验证，从交流区进入帖子详情页后点击返回按钮，验证返回论坛首页且交流区Tab仍为选中状态,PASS,-,False,False,False
+TC-008,官方区,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,官方区帖子点击进入详情页跳转验证,PASS,-,False,False,False
+TC-009,官方区,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",官方区与原公告区功能回归验证，确认核心行为一致且无遗留旧元素,PASS,-,False,False,False
+TC-010,官方区,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,官方区无帖子时的空状态展示,PASS,-,False,False,False
+TC-011,官方区,P2,P1,P2,P2,decided,p2_cap_guard,high,,普通用户在官方区发帖权限限制，验证普通用户无法发帖,PASS,-,False,False,False
+TC-012,官方区,P2,P1,P2,P2,decided,p2_cap_guard,high,,官方账户在官方区发帖，验证官方账户拥有发帖权限,PASS,-,False,False,False
+TC-013,官方区,P1,P1,P1,P1,decided,model_semantic_consistent,high,,官方账户跨分区发帖权限差异验证，官方账户在官方区拥有发帖权限，切换至交流区后发帖权限与普通用户一致,PASS,-,False,False,False
+TC-014,官方区,P2,P2,P2,P2,decided,p2_cap_guard,high,,官方区页面通用悬浮返回按钮，验证返回/关闭/刷新三种功能,PASS,-,False,False,False
+TC-015,消息,P2,P2,P2,P2,decided,p2_cap_guard,high,,消息Tab回复消息点击跳转验证，点击回复类型消息后正确跳转至原帖所在分区的帖子详情页,PASS,-,False,False,False

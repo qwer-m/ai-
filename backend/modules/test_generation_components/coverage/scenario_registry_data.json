@@ -6,975 +6,11 @@
     "expanded_regression",
     "full_functional_regression"
   ],
-  "domains": [
-    {
-      "key": "ai_wrong_question_teaching",
-      "hints": [
-        "讲错题",
-        "知识错题",
-        "错题讲解",
-        "点击对话",
-        "继续录音",
-        "语音录制",
-        "语音转文字",
-        "学员回答",
-        "学生回答",
-        "追问",
-        "四轮对话",
-        "评分弹窗",
-        "综合评分",
-        "答非所问",
-        "字数不足",
-        "查看讲错题",
-        "费曼",
-        "随堂测",
-        "去日清",
-        "feynman",
-        "follow-up",
-        "wrong question"
-      ],
-      "dominant_threshold": 0.35,
-      "min_strong_score": 3,
-      "min_tag_score": 2,
-      "source": "manual_seed",
-      "status": "active",
-      "documents": [
-        "讲错题接入AI.pdf"
-      ],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": true
-    },
-    {
-      "key": "recent_course_scheduling",
-      "hints": [
-        "近期课程",
-        "排课",
-        "新增计划",
-        "已有计划",
-        "编辑计划",
-        "课程规划",
-        "课程管理",
-        "学习计划",
-        "本周进度",
-        "本周任务",
-        "课堂管理",
-        "节假日",
-        "上课日",
-        "顺延",
-        "快进",
-        "防抄答案",
-        "course scheduling",
-        "schedule plan"
-      ],
-      "dominant_threshold": 0.35,
-      "min_strong_score": 3,
-      "min_tag_score": 2,
-      "source": "manual_seed",
-      "status": "active",
-      "documents": [
-        "近期课程+排课.pdf"
-      ]
-    },
-    {
-      "key": "essay_writing",
-      "hints": [
-        "作文",
-        "投稿",
-        "批改",
-        "润色",
-        "作文圈",
-        "范文",
-        "pdf",
-        "essay",
-        "writing"
-      ],
-      "dominant_threshold": 0.35,
-      "min_strong_score": 3,
-      "min_tag_score": 2,
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": []
-    },
-    {
-      "key": "course_access",
-      "hints": [
-        "课程",
-        "试学",
-        "会员",
-        "权限",
-        "解锁",
-        "course",
-        "trial",
-        "member"
-      ],
-      "dominant_threshold": 0.35,
-      "min_strong_score": 2,
-      "min_tag_score": 1,
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": []
-    }
-  ],
+  "domains": [],
   "scenarios": [
     {
-      "key": "ai_answer_irrelevant_score_zero",
-      "keywords": [
-        "答非所问",
-        "准确性",
-        "0分",
-        "无关",
-        "天气",
-        "score zero"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 1,
-        "expanded_regression": 1,
-        "full_functional_regression": 1
-      },
-      "domain": "ai_wrong_question_teaching",
-      "source": "manual_seed",
-      "status": "active",
-      "judge_duplicate": true,
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": true,
-      "documents": [
-        "讲错题接入AI.pdf"
-      ]
-    },
-    {
-      "key": "ai_completed_reentry_readonly",
-      "keywords": [
-        "已完成",
-        "再次进入",
-        "历史对话",
-        "置灰",
-        "不可操作",
-        "重复打分",
-        "只读"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 1,
-        "expanded_regression": 1,
-        "full_functional_regression": 1
-      },
-      "domain": "ai_wrong_question_teaching"
-    },
-    {
-      "key": "ai_direct_answer_guard",
-      "keywords": [
-        "直接给出答案",
-        "正确答案",
-        "你错了",
-        "直接否定",
-        "不直接",
-        "引导",
-        "no direct answer"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 1,
-        "expanded_regression": 1,
-        "full_functional_regression": 1
-      },
-      "domain": "ai_wrong_question_teaching"
-    },
-    {
-      "key": "ai_recording_input_state",
-      "keywords": [
-        "录音",
-        "继续录音",
-        "取消录音",
-        "语音上传",
-        "语音转文字",
-        "重试",
-        "audio"
-      ],
-      "default_cap": 2,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 2,
-        "expanded_regression": 2,
-        "full_functional_regression": 2
-      },
-      "domain": "ai_wrong_question_teaching"
-    },
-    {
-      "key": "ai_short_answer_score_boundary",
-      "keywords": [
-        "49字",
-        "50字",
-        "字数不足",
-        "扣50%",
-        "完整性",
-        "清晰度",
-        "少于50"
-      ],
-      "default_cap": 2,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 2,
-        "expanded_regression": 2,
-        "full_functional_regression": 2
-      },
-      "domain": "ai_wrong_question_teaching"
-    },
-    {
-      "key": "ai_teacher_score_conversion",
-      "keywords": [
-        "教师",
-        "百分制",
-        "10分制",
-        "换算",
-        "纠错有效性",
-        "扣分",
-        "满分"
-      ],
-      "default_cap": 2,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 2,
-        "expanded_regression": 2,
-        "full_functional_regression": 2
-      },
-      "domain": "ai_wrong_question_teaching"
-    },
-    {
-      "key": "ai_supervisor_detail_button_state",
-      "keywords": [
-        "督导",
-        "查看讲错题",
-        "按钮",
-        "置灰",
-        "完成",
-        "未完成",
-        "详情"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 1,
-        "expanded_regression": 1,
-        "full_functional_regression": 1
-      },
-      "domain": "ai_wrong_question_teaching"
-    },
-    {
-      "key": "ai_score_popup_threshold",
-      "keywords": [
-        "太棒啦",
-        "太遗憾了",
-        "去日清",
-        "联系督导",
-        "5秒",
-        "评分弹窗"
-      ],
-      "default_cap": 2,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 2,
-        "expanded_regression": 2,
-        "full_functional_regression": 2
-      },
-      "domain": "ai_wrong_question_teaching"
-    },
-    {
-      "key": "ai_print_dialog",
-      "keywords": [
-        "打印",
-        "打印内容",
-        "打印预览",
-        "仅题目",
-        "题目+答案"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 1,
-        "expanded_regression": 1,
-        "full_functional_regression": 1
-      },
-      "domain": "ai_wrong_question_teaching"
-    },
-    {
-      "key": "quiz_result_action_navigation",
-      "keywords": [
-        "随堂测",
-        "查看解析",
-        "重学课程",
-        "讲知识错题",
-        "正确率",
-        "结果弹窗"
-      ],
-      "default_cap": 2,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 2,
-        "expanded_regression": 2,
-        "full_functional_regression": 2
-      },
-      "domain": "ai_wrong_question_teaching"
-    },
-    {
-      "key": "schedule_week_progress_empty",
-      "keywords": [
-        "本周暂无学习计划",
-        "空状态",
-        "无课程",
-        "暂无学习计划"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 1,
-        "expanded_regression": 2,
-        "full_functional_regression": 3
-      },
-      "domain": "recent_course_scheduling"
-    },
-    {
-      "key": "schedule_task_card_display",
-      "keywords": [
-        "本周任务",
-        "任务卡片",
-        "重要知识点",
-        "全部完成时长",
-        "课程类型标识"
-      ],
-      "default_cap": 2,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 2,
-        "expanded_regression": 4,
-        "full_functional_regression": 8
-      },
-      "domain": "recent_course_scheduling"
-    },
-    {
-      "key": "schedule_fast_forward_answer_control",
-      "keywords": [
-        "禁止快进",
-        "允许快进",
-        "防抄答案",
-        "扫码",
-        "查看答案",
-        "进度条"
-      ],
-      "default_cap": 2,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 2,
-        "expanded_regression": 3,
-        "full_functional_regression": 5
-      },
-      "domain": "recent_course_scheduling"
-    },
-    {
-      "key": "schedule_plan_edit_lifecycle",
-      "keywords": [
-        "编辑计划",
-        "下架",
-        "二次确认",
-        "已完成讲次",
-        "开始日期不可编辑",
-        "已有计划"
-      ],
-      "default_cap": 2,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 2,
-        "expanded_regression": 5,
-        "full_functional_regression": 9
-      },
-      "domain": "recent_course_scheduling"
-    },
-    {
-      "key": "schedule_lesson_time_shift",
-      "keywords": [
-        "顺延",
-        "时间冲突",
-        "手动微调",
-        "课程时间调整",
-        "固定间隔"
-      ],
-      "default_cap": 2,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 2,
-        "expanded_regression": 4,
-        "full_functional_regression": 5
-      },
-      "domain": "recent_course_scheduling"
-    },
-    {
-      "key": "schedule_auto_course_selection",
-      "keywords": [
-        "自动选课",
-        "测评",
-        "推荐课程",
-        "测评报告",
-        "近半年"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 1,
-        "expanded_regression": 2,
-        "full_functional_regression": 4
-      },
-      "domain": "recent_course_scheduling"
-    },
-    {
-      "key": "schedule_analytics_event",
-      "keywords": [
-        "埋点",
-        "上报",
-        "学生ID",
-        "督导ID",
-        "停留时间",
-        "PV",
-        "UV"
-      ],
-      "default_cap": 2,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "core_smoke": 1,
-        "standard_regression": 2,
-        "expanded_regression": 2,
-        "full_functional_regression": 2
-      },
-      "domain": "recent_course_scheduling"
-    },
-    {
-      "key": "pdf_download_content",
-      "keywords": [
-        "pdf",
-        "下载",
-        "内容",
-        "资料",
-        "download",
-        "content"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": true
-    },
-    {
-      "key": "essay_empty_state",
-      "keywords": [
-        "我的作文空状态",
-        "我的作文",
-        "暂无作文",
-        "空状态",
-        "my essays empty"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": true
-    },
-    {
-      "key": "delete_restore_unsubmitted",
-      "keywords": [
-        "删除",
-        "已发布",
-        "未投稿",
-        "恢复",
-        "delete restore"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": true
-    },
-    {
-      "key": "featured_sorting",
-      "keywords": [
-        "作文圈",
-        "精选",
-        "排序",
-        "权重",
-        "featured sorting"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": true
-    },
-    {
-      "key": "essay_submission_failure_reason",
-      "keywords": [
-        "投稿",
-        "失败原因",
-        "驳回原因",
-        "审核失败",
-        "submission",
-        "failure reason"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.22,
-        "overlap": 6
-      },
-      "cross_module": false
-    },
-    {
-      "key": "essay_polish_copy",
-      "keywords": [
-        "全文润色",
-        "复制",
-        "润色文",
-        "polish",
-        "copy"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.22,
-        "overlap": 6
-      },
-      "cross_module": false
-    },
-    {
-      "key": "essay_critique_button_availability",
-      "keywords": [
-        "去批改",
-        "按钮",
-        "不可点",
-        "不可用",
-        "可用",
-        "critique button",
-        "disabled"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": false
-    },
-    {
-      "key": "my_essay_limit",
-      "keywords": [
-        "我的作文",
-        "最多20条",
-        "上限",
-        "my essays",
-        "max 20"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": true
-    },
-    {
-      "key": "nonlinear_course_unlock",
-      "keywords": [
-        "非线性",
-        "任意进入",
-        "无需前置",
-        "未锁",
-        "nonlinear",
-        "any stage",
-        "no prerequisite"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "course_access",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": true
-    },
-    {
-      "key": "free_first_lesson",
-      "keywords": [
-        "普通用户",
-        "第一课",
-        "试学",
-        "会员中心",
-        "first lesson",
-        "trial",
-        "member center"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "course_access",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": true
-    },
-    {
-      "key": "secret_overlay",
-      "keywords": [
-        "秘籍",
-        "蒙层",
-        "获得",
-        "弹层",
-        "获得秘籍",
-        "秘籍弹窗",
-        "secret",
-        "overlay"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": true
-    },
-    {
-      "key": "essay_submission_success_state",
-      "keywords": [
-        "投稿成功",
-        "提交成功",
-        "审核中",
-        "状态",
-        "submission success",
-        "pending review"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": true
-    },
-    {
-      "key": "critique_limit",
-      "keywords": [
-        "同一主题",
-        "5次",
-        "批改上限",
-        "次数",
-        "critique limit"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": false
-    },
-    {
-      "key": "star_rating",
-      "keywords": [
-        "综合点评",
-        "星星",
-        "6分制",
-        "star rating"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": false
-    },
-    {
-      "key": "sentence_comment_jump",
-      "keywords": [
-        "分句点评",
-        "划线",
-        "跳转",
-        "切换",
-        "sentence comment"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": false
-    },
-    {
-      "key": "hot_recommend_entry",
-      "keywords": [
-        "热门推荐",
-        "入口",
-        "展示",
-        "hot recommendation"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": false
-    },
-    {
-      "key": "secret_entry_list",
-      "keywords": [
-        "写作秘籍",
-        "秘籍",
-        "入口",
-        "列表",
-        "secret list"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": false
-    },
-    {
-      "key": "essay_sample_numbering",
-      "keywords": [
-        "优秀范文",
-        "多篇",
-        "单篇",
-        "序号",
-        "sample numbering"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": false
-    },
-    {
-      "key": "original_image_toggle",
-      "keywords": [
-        "原图",
-        "显",
-        "隐",
-        "按钮",
-        "original image toggle"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 5,
-      "mode_caps": {
-        "full_functional_regression": 1
-      },
-      "domain": "essay_writing",
-      "source": "legacy_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.2,
-        "overlap": 5
-      },
-      "cross_module": false
-    },
-    {
       "key": "title_format",
+      "judge_duplicate": true,
       "keywords": [
         "标题",
         "格式",
@@ -1016,13 +52,12 @@
     },
     {
       "key": "filter_toggle",
+      "judge_duplicate": true,
       "keywords": [
-        "只看错题",
-        "开关",
         "筛选",
         "过滤",
+        "开关",
         "只看",
-        "隐藏正确题",
         "filter",
         "toggle"
       ],
@@ -1041,13 +76,12 @@
     },
     {
       "key": "empty_state",
+      "judge_duplicate": true,
       "keywords": [
         "空状态",
         "暂无",
         "无记录",
         "无数据",
-        "未识别到有效题目",
-        "无有效题目",
         "empty",
         "no data"
       ],
@@ -1063,6 +97,7 @@
     },
     {
       "key": "media_preview",
+      "judge_duplicate": true,
       "keywords": [
         "图片",
         "照片",
@@ -1104,11 +139,11 @@
     },
     {
       "key": "source_consistency",
+      "judge_duplicate": true,
       "keywords": [
         "来源",
         "标签",
         "配置",
-        "知识点",
         "source",
         "tag"
       ],
@@ -1124,6 +159,7 @@
     },
     {
       "key": "network_error",
+      "judge_duplicate": true,
       "keywords": [
         "网络",
         "断网",
@@ -1142,6 +178,7 @@
     },
     {
       "key": "permission",
+      "judge_duplicate": true,
       "keywords": [
         "权限",
         "授权",
@@ -1160,6 +197,7 @@
     },
     {
       "key": "save_delete",
+      "judge_duplicate": true,
       "keywords": [
         "保存",
         "删除",
@@ -1185,8 +223,6 @@
         "判定",
         "修正",
         "更正",
-        "历史误判",
-        "上报模型优化",
         "manual",
         "correct"
       ],
@@ -1202,11 +238,10 @@
     },
     {
       "key": "feedback",
+      "judge_duplicate": true,
       "keywords": [
         "反馈",
         "处理",
-        "12小时",
-        "专用模型",
         "feedback"
       ],
       "default_cap": 1,
@@ -1251,6 +286,7 @@
     },
     {
       "key": "sorting_limit",
+      "judge_duplicate": true,
       "keywords": [
         "排序",
         "降序",
@@ -1275,11 +311,10 @@
     },
     {
       "key": "print_export",
+      "judge_duplicate": true,
       "keywords": [
         "打印",
         "导出",
-        "出门测",
-        "教材",
         "print",
         "export"
       ],
@@ -1295,6 +330,7 @@
     },
     {
       "key": "generation_trigger",
+      "judge_duplicate": true,
       "keywords": [
         "生成",
         "自动生成",
@@ -1334,6 +370,7 @@
     },
     {
       "key": "readonly",
+      "judge_duplicate": true,
       "keywords": [
         "只读",
         "隐藏编辑",
@@ -1352,6 +389,7 @@
     },
     {
       "key": "quota_limit",
+      "judge_duplicate": true,
       "keywords": [
         "额度",
         "次数",
@@ -1373,12 +411,14 @@
     },
     {
       "key": "history_makeup",
+      "judge_duplicate": true,
       "keywords": [
         "历史",
-        "补做",
-        "补学",
+        "恢复",
+        "重试",
         "history",
-        "makeup"
+        "recover",
+        "retry"
       ],
       "default_cap": 1,
       "specific": false,
@@ -1391,100 +431,8 @@
       "cross_module": false
     },
     {
-      "key": "submission_success_state",
-      "keywords": [
-        "投稿成功",
-        "审核中",
-        "弹窗",
-        "submission success"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "essay_writing",
-      "source": "legacy_coverage_pattern",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "community_empty_state",
-      "keywords": [
-        "作文圈空状态",
-        "作文圈暂无",
-        "暂无作文",
-        "无数据",
-        "community empty"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "essay_writing",
-      "source": "legacy_coverage_pattern",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "full_text_copy",
-      "keywords": [
-        "复制全文",
-        "全文复制",
-        "复制成功",
-        "copy full text"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "essay_writing",
-      "source": "legacy_coverage_pattern",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "polish_original_compare",
-      "keywords": [
-        "全文润色",
-        "原文对比",
-        "对比显示",
-        "polish original compare"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "essay_writing",
-      "source": "legacy_coverage_pattern",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "technique_practice_answer",
-      "keywords": [
-        "技法巩固答题",
-        "答题结果",
-        "答案状态",
-        "technique practice"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_coverage_pattern",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
       "key": "category_sorting",
       "keywords": [
-        "语文分类",
         "分类排序",
         "类目排序",
         "category sorting"
@@ -1500,50 +448,12 @@
       "cross_module": false
     },
     {
-      "key": "upload_image_management",
-      "keywords": [
-        "上传图片",
-        "删除图片",
-        "拖动",
-        "缩略图",
-        "upload image management"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "essay_writing",
-      "source": "legacy_coverage_pattern",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "essay_limit_20",
-      "keywords": [
-        "我的作文20条",
-        "20条上限",
-        "最多20",
-        "essay limit 20"
-      ],
-      "default_cap": 1,
-      "specific": true,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "essay_writing",
-      "source": "legacy_coverage_pattern",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
       "key": "initial_popup",
+      "judge_duplicate": true,
       "keywords": [
         "首次进入",
         "首次加载",
         "弹窗",
-        "已智能完成全页批改",
-        "批改完成弹窗",
         "popup",
         "dialog"
       ],
@@ -1558,565 +468,13 @@
       "cross_module": false
     },
     {
-      "key": "card_element",
-      "keywords": [
-        "题目卡片",
-        "状态角标",
-        "元信息",
-        "查看详解",
-        "卡片元素",
-        "card"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "workbook_scope",
-      "keywords": [
-        "习题本",
-        "拍照搜题",
-        "课内练习",
-        "快问快答",
-        "牛刀小试",
-        "不包含",
-        "只显示"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "bad_image_review",
-      "keywords": [
-        "模糊",
-        "全黑",
-        "不完整",
-        "允许上传",
-        "待复核",
-        "图片质量",
-        "bad image"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "answer_analysis_placeholder",
-      "keywords": [
-        "暂无正确答案",
-        "暂无解析内容",
-        "无解析",
-        "无正确答案",
-        "placeholder"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "manual_mark_correct",
-      "keywords": [
-        "判定正确",
-        "改为正确",
-        "变为正确",
-        "修正为正确",
-        "错题本移除",
-        "被移除",
-        "正确数",
-        "mark correct"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "manual_mark_wrong",
-      "keywords": [
-        "判定错误",
-        "改为错误",
-        "变为错误",
-        "修正为错误",
-        "错题本新增",
-        "错误数",
-        "mark wrong"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "review_status_color",
-      "keywords": [
-        "序号栏",
-        "颜色",
-        "绿色",
-        "橙色",
-        "红色",
-        "需关注",
-        "status color"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "review_warm_hint",
-      "keywords": [
-        "温馨提示",
-        "书写差异",
-        "特殊题型",
-        "人工复核",
-        "重点核对",
-        "warm hint"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "review_detail_content",
-      "keywords": [
-        "单题详情",
-        "模型判断",
-        "学生答案",
-        "参考答案",
-        "判定按钮",
-        "detail content"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "review_filter_tabs",
-      "keywords": [
-        "筛选标签",
-        "待复核",
-        "需关注",
-        "题量",
-        "全部标签",
-        "filter tabs"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "plan_step1_scope",
-      "keywords": [
-        "第一步",
-        "数据范围",
-        "已完成",
-        "精准学习题本",
-        "牛刀",
-        "当前教学周",
-        "weakness scope"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "plan_step1_sorting",
-      "keywords": [
-        "第一步",
-        "错题率",
-        "错题数",
-        "降序",
-        "前3",
-        "目标知识点",
-        "weakness sort"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "plan_second_step_navigation",
-      "keywords": [
-        "第二步",
-        "上一步",
-        "开始学习",
-        "专属学习方案",
-        "目标知识点",
-        "second step"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "plan_slice_auto_advance",
-      "keywords": [
-        "第三步",
-        "切片",
-        "自动进入",
-        "自动切换",
-        "下一个切片",
-        "auto advance"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "plan_slice_regeneration",
-      "keywords": [
-        "第三步",
-        "重新生成",
-        "薄弱知识点",
-        "课程切片",
-        "左侧导航树",
-        "同步更新",
-        "slice regeneration"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "plan_fourth_summary",
-      "keywords": [
-        "第四步",
-        "学习完成啦",
-        "周末提升成果",
-        "本周练习汇总",
-        "只读",
-        "数据源",
-        "fourth step"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "report_trigger",
-      "keywords": [
-        "触发条件",
-        "回到首页",
-        "报告自动生成",
-        "点击回到首页",
-        "generate report"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "share_friend",
-      "keywords": [
-        "微信好友",
-        "好友",
-        "微信群",
-        "H5链接",
-        "二维码",
-        "分享卡片",
-        "friend share"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "share_moments",
-      "keywords": [
-        "朋友圈",
-        "长图",
-        "信息长图",
-        "moments share"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "report_comment_ai",
-      "keywords": [
-        "督导评语",
-        "AI初稿",
-        "肯定",
-        "表扬",
-        "指出",
-        "鼓励",
-        "comment ai"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "report_comment_voice",
-      "keywords": [
-        "督导评语",
-        "语音输入",
-        "转文字",
-        "录音",
-        "麦克风",
-        "voice"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "report_comment_edit",
-      "keywords": [
-        "督导评语",
-        "编辑修改",
-        "保存",
-        "comment edit"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "report_overview_cards",
-      "keywords": [
-        "本周学习概览",
-        "四个数据卡",
-        "数据卡",
-        "来源标注",
-        "观看视频数",
-        "完成练习题数"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "report_wrong_analysis",
-      "keywords": [
-        "本周错题分析",
-        "高频",
-        "重点错题",
-        "错误答案",
-        "正确答案",
-        "wrong analysis"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "report_next_plan",
-      "keywords": [
-        "下周学习计划",
-        "未掌握",
-        "薄弱点",
-        "教学进度",
-        "next plan"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "quota_exhaustion",
-      "keywords": [
-        "额度",
-        "耗尽",
-        "拦截",
-        "体验次数已用完",
-        "无法生成",
-        "学习入口",
-        "quota exhausted"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "cross_module": false
-    },
-    {
-      "key": "quota_consumption",
-      "keywords": [
-        "额度",
-        "初始",
-        "50",
-        "49",
-        "扣减",
-        "每题",
-        "消耗",
-        "quota consumption"
-      ],
-      "default_cap": 1,
-      "specific": false,
-      "precedence": 0,
-      "mode_caps": {},
-      "domain": "general",
-      "source": "legacy_judge_duplicate_policy",
-      "status": "active",
-      "documents": [],
-      "judge_threshold": {
-        "score": 0.22,
-        "overlap": 8
-      },
-      "cross_module": false
-    },
-    {
       "key": "silent_refresh",
+      "judge_duplicate": true,
       "keywords": [
         "静默刷新",
         "无弹窗",
-        "新增错题",
-        "重新批改",
-        "知识点掌握度",
+        "后台更新",
+        "数据刷新",
         "silent",
         "refresh"
       ],

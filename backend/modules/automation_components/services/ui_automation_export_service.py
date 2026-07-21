@@ -56,9 +56,42 @@ class UIAutomationExportService:
         temporary.write_text(content, encoding="utf-8", newline="\n")
         temporary.replace(path)
 
+    @staticmethod
+    def _write_powershell(path: Path, content: str) -> None:
+        """PowerShell 5 需要 BOM 才能稳定解析包含中文的 UTF-8 脚本。"""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.tmp")
+        temporary.write_text(content, encoding="utf-8-sig", newline="\r\n")
+        temporary.replace(path)
+
     @classmethod
     def _write_json(cls, path: Path, payload: Any) -> None:
         cls._write_text(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+
+    @staticmethod
+    def _env_example_source(script: str) -> str:
+        """从真实生成脚本提取环境变量，避免独立项目遗漏业务配置。"""
+        defaults = {
+            "UI_VISION_API_KEY": "",
+            "UI_VISION_BASE_URL": "https://api.openai.com/v1",
+            "UI_VISION_MODEL": "gpt-4.1-mini",
+            "APPIUM_SERVER_URL": "http://127.0.0.1:4723",
+            "ANDROID_DEVICE_ID": "",
+            "APPIUM_NEW_COMMAND_TIMEOUT": "900",
+        }
+        patterns = (
+            r"os\.environ\.get\(\s*['\"]([A-Z][A-Z0-9_]*)['\"]",
+            r"os\.getenv\(\s*['\"]([A-Z][A-Z0-9_]*)['\"]",
+            r"os\.environ\[\s*['\"]([A-Z][A-Z0-9_]*)['\"]\s*\]",
+        )
+        names = {
+            match
+            for pattern in patterns
+            for match in re.findall(pattern, script or "")
+        }
+        for name in sorted(names):
+            defaults.setdefault(name, "")
+        return "".join(f"{name}={value}\n" for name, value in defaults.items())
 
     @classmethod
     def _align_script_project_root(cls, script_path: Path, script_relative: Path) -> None:
@@ -397,6 +430,10 @@ import re
 from pathlib import Path
 
 import requests
+from PIL import Image
+
+
+COORDINATE_MAX = 1000
 
 
 def locate_element(screenshot_path: str, element_description: str) -> tuple[int, int]:
@@ -413,7 +450,8 @@ def locate_element(screenshot_path: str, element_description: str) -> tuple[int,
     encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
     prompt = (
         f"定位图片中的目标元素：{element_description}。"
-        "只返回元素中心点坐标 JSON，例如 {\\"x\\": 120, \\"y\\": 300}。"
+        "使用固定归一化坐标系：左上角为 [0, 0]，右下角为 [1000, 1000]。"
+        "只返回元素中心点 JSON，例如 {\\"x\\": 500, \\"y\\": 500}。"
     )
     response = requests.post(
         f"{base_url}/chat/completions",
@@ -433,11 +471,20 @@ def locate_element(screenshot_path: str, element_description: str) -> tuple[int,
     match = re.search(r"\\{[^{}]*\\}", content)
     if match:
         coords = json.loads(match.group(0))
-        return int(coords["x"]), int(coords["y"])
-    numbers = re.findall(r"-?\\d+", content)
-    if len(numbers) >= 2:
-        return int(numbers[0]), int(numbers[1])
-    raise RuntimeError(f"视觉模型未返回有效坐标：{content}")
+        normalized_x, normalized_y = float(coords["x"]), float(coords["y"])
+    else:
+        numbers = re.findall(r"-?\\d+", content)
+        if len(numbers) < 2:
+            raise RuntimeError(f"视觉模型未返回有效坐标：{content}")
+        normalized_x, normalized_y = float(numbers[0]), float(numbers[1])
+    if not 0 <= normalized_x <= COORDINATE_MAX or not 0 <= normalized_y <= COORDINATE_MAX:
+        raise RuntimeError(f"视觉模型坐标超出 0-1000 范围：{(normalized_x, normalized_y)}")
+    with Image.open(image_path) as image:
+        width, height = image.size
+    return (
+        round(normalized_x * max(0, width - 1) / COORDINATE_MAX),
+        round(normalized_y * max(0, height - 1) / COORDINATE_MAX),
+    )
 '''
 
     @staticmethod
@@ -448,6 +495,25 @@ def locate_element(screenshot_path: str, element_description: str) -> tuple[int,
 )
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$EnvFile = Join-Path $Root ".env"
+if (Test-Path -LiteralPath $EnvFile) {
+    Get-Content -LiteralPath $EnvFile -Encoding UTF8 | ForEach-Object {
+        $Line = $_.Trim()
+        if ($Line -and -not $Line.StartsWith("#") -and $Line.Contains("=")) {
+            $Parts = $Line.Split("=", 2)
+            [Environment]::SetEnvironmentVariable($Parts[0].Trim(), $Parts[1].Trim(), "Process")
+        }
+    }
+}
+if (-not $env:APPIUM_NEW_COMMAND_TIMEOUT) {
+    $env:APPIUM_NEW_COMMAND_TIMEOUT = "900"
+}
+# 独立项目运行前唤醒显式配置的 Android 设备，避免长时间模型调用后锁屏。
+if ($env:ANDROID_DEVICE_ID) {
+    $Adb = (Get-Command adb -ErrorAction Stop).Source
+    & $Adb -s $env:ANDROID_DEVICE_ID shell input keyevent 224 | Out-Null
+    & $Adb -s $env:ANDROID_DEVICE_ID shell wm dismiss-keyguard | Out-Null
+}
 $Manifest = Get-Content -LiteralPath (Join-Path $Root "manifest.json") -Raw -Encoding UTF8 | ConvertFrom-Json
 $Entry = $Manifest.operations | Where-Object { $_.name -eq $Operation -or $_.slug -eq $Operation } | Select-Object -First 1
 if (-not $Entry) { throw "未找到自动化操作：$Operation" }
@@ -504,8 +570,8 @@ $ProjectPython = Join-Path $Root ".venv\\Scripts\\python.exe"
         self._write_text(project_dir / script_rel, script_content)
         self._write_text(project_dir / page_rel, page_content)
         self._write_text(project_dir / "runtime/ai_visual_runtime.py", self._runtime_source())
-        self._write_text(project_dir / "run.ps1", self._run_script_source())
-        self._write_text(project_dir / "install.ps1", self._install_script_source())
+        self._write_powershell(project_dir / "run.ps1", self._run_script_source())
+        self._write_powershell(project_dir / "install.ps1", self._install_script_source())
         manifest_path = project_dir / "manifest.json"
         manifest = self._read_json(manifest_path, {})
         existing_types = {
@@ -513,7 +579,7 @@ $ProjectPython = Join-Path $Root ".venv\\Scripts\\python.exe"
             for item in (manifest.get("operations") or [])
         }
         existing_types.add(automation_type)
-        requirements = ["requests>=2.31,<3"]
+        requirements = ["requests>=2.31,<3", "pillow>=10,<12"]
         if "app" in existing_types:
             requirements.append("Appium-Python-Client>=2.11,<6")
         if "web" in existing_types:
@@ -521,12 +587,13 @@ $ProjectPython = Join-Path $Root ".venv\\Scripts\\python.exe"
         self._write_text(project_dir / "requirements.txt", "\n".join(requirements) + "\n")
         self._write_text(
             project_dir / ".env.example",
-            "UI_VISION_API_KEY=\nUI_VISION_BASE_URL=https://api.openai.com/v1\nUI_VISION_MODEL=gpt-4.1-mini\nAPPIUM_SERVER_URL=http://127.0.0.1:4723\n",
+            self._env_example_source(script),
         )
         self._write_text(
             project_dir / "README.md",
             f"# {project_name} UI 自动化\n\n该目录由平台按项目独立生成，源码、依赖、资源和运行产物均与平台仓库隔离。\n\n"
             "## 首次安装\n\n```powershell\n.\\install.ps1\n```\n\n"
+            "运行前请复制 `.env.example` 为 `.env`，填写视觉模型和真实设备配置。\n\n"
             f"## 运行操作\n\n```powershell\n.\\run.ps1 -Operation \"{name}\"\n```\n",
         )
 

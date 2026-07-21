@@ -61,6 +61,7 @@ def is_placeholder_expected_result(text: str) -> bool:
         "待确认",
         "占位",
         "按配置",
+        "符合预期",
         "结果符合预期",
         "执行成功",
         "返回成功",

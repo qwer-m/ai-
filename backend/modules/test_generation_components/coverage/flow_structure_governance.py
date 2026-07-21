@@ -55,10 +55,10 @@ def _scenario_max_keep(
     mode_caps = scenario_caps_by_mode.get(mode) or {}
     if kind in mode_caps:
         return max(1, int(mode_caps.get(kind) or 1))
-    if mode_caps:
-        return max(1, int(mode_caps.get("default") or default_max or 2))
     if kind in default_scenario_caps:
         return max(1, int(default_scenario_caps[kind]))
+    if mode_caps:
+        return max(1, int(mode_caps.get("default") or default_max or 2))
     return max(1, int(default_max or 2))
 
 

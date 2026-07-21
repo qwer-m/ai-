@@ -75,17 +75,11 @@ _GENERIC_MATCH_TERMS = {
     "button",
     "status",
     "state",
-    "student",
-    "teacher",
-    "supervisor",
     "user",
     "课程",
     "页面",
     "按钮",
     "状态",
-    "学生",
-    "学员",
-    "老师",
     "用户",
     "显示",
     "查看",
@@ -128,11 +122,24 @@ def _workflow_contract_search_terms(contract: dict[str, Any]) -> tuple[dict[str,
     weighted: dict[str, int] = {}
     core_terms: set[str] = set()
     has_explicit_terms = False
+    edges = [edge for edge in (contract.get("steps") or contract.get("edges") or []) if isinstance(edge, dict)]
+    contract_actors = contract.get("actors") if isinstance(contract.get("actors"), list) else []
+    actor_terms = {
+        normalized
+        for normalized in (
+            _normalize_match_term(actor)
+            for actor in [
+                *contract_actors,
+                *(edge.get("actor") or edge.get("role") for edge in edges),
+            ]
+        )
+        if normalized
+    }
 
     def add(value: Any, *, weight: int, explicit: bool = False, core: bool = False) -> None:
         nonlocal has_explicit_terms
         term = _normalize_match_term(value)
-        if _is_generic_match_term(term):
+        if _is_generic_match_term(term) or term in actor_terms:
             return
         if explicit:
             has_explicit_terms = True
@@ -142,7 +149,6 @@ def _workflow_contract_search_terms(contract: dict[str, Any]) -> tuple[dict[str,
 
     for term in contract.get("match_terms") or []:
         add(term, weight=2, explicit=True)
-    edges = [edge for edge in (contract.get("steps") or contract.get("edges") or []) if isinstance(edge, dict)]
     total_edges = len(edges)
     for index, edge in enumerate(edges, start=1):
         if not isinstance(edge, dict):
@@ -193,14 +199,7 @@ def _normalize_edge(raw: Any, *, index: int, workflow_id: str) -> dict[str, Any]
     action = _text(edge.get("action") or edge.get("label") or edge.get("description"))
     if not state_in or not state_out or not action:
         return None
-    actor = normalize_actor_role(
-        edge.get("actor") or edge.get("role"),
-        fallback_text=" ".join(
-            _text(part)
-            for part in (edge.get("label"), edge.get("action"), edge.get("description"))
-            if _text(part)
-        ),
-    )
+    actor = normalize_actor_role(edge.get("actor") or edge.get("role"))
     edge_id = _text(edge.get("id")) or f"step_{index:03d}"
     label = _text(edge.get("label")) or action
     return {

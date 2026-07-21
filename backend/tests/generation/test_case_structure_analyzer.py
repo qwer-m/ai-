@@ -201,20 +201,20 @@ def test_current_requirement_order_preempts_project_profile_for_governance() -> 
 def test_project_profile_data_flow_order_supplements_when_current_flow_missing() -> None:
     project_profile = build_project_profile(
         requirement_text="",
-        module_order_hint=["Learning Report", "Capture Upload", "Review Queue", "Workbook"],
+        module_order_hint=["Operation Report", "Import Entry", "Review Queue", "Record List"],
         module_order_source="test_hint",
     )
     cases = [
         {
             "id": "TC-001",
-            "description": "Learning Report share link works",
+            "description": "Operation Report share link works",
             "expected_result": "Share link is created",
             "priority": "P0",
         },
         {
             "id": "TC-002",
-            "description": "Capture Upload accepts images",
-            "expected_result": "Images upload successfully",
+            "description": "Import Entry accepts files",
+            "expected_result": "Files upload successfully",
             "priority": "P0",
         },
         {
@@ -225,7 +225,7 @@ def test_project_profile_data_flow_order_supplements_when_current_flow_missing()
         },
         {
             "id": "TC-004",
-            "description": "Workbook title format is correct",
+            "description": "Record List title format is correct",
             "expected_result": "Title is correct",
             "priority": "P0",
         },
@@ -241,12 +241,15 @@ def test_project_profile_data_flow_order_supplements_when_current_flow_missing()
 
     assert summary["flow_reordered"] is True
     assert project_profile["flow_outline"]["data_flow_edges"]
-    assert [case["description"] for case in governed] == [
-        "Capture Upload accepts images",
+    descriptions = [case["description"] for case in governed]
+    assert descriptions[:2] == [
+        "Import Entry accepts files",
         "Review Queue manual correction works",
-        "Workbook title format is correct",
-        "Learning Report share link works",
     ]
+    assert set(descriptions[2:]) == {
+        "Record List title format is correct",
+        "Operation Report share link works",
+    }
 
 
 def test_low_confidence_project_profile_does_not_merge_flow_profile() -> None:
@@ -391,7 +394,7 @@ def test_governance_prefers_clear_single_purpose_case_over_complex_duplicate() -
     assert [case["id"] for case in governed] == ["TC-002"]
 
 
-def test_full_mode_uses_relaxed_scenario_caps() -> None:
+def test_full_mode_preserves_explicit_scenario_caps() -> None:
     cases = [
         {
             "id": f"TC-{idx:03d}",
@@ -429,11 +432,11 @@ def test_full_mode_uses_relaxed_scenario_caps() -> None:
 
     assert len(default_governed) == 1
     assert default_summary["scenario_cap_policy"]["title_format"] == 1
-    assert len(full_governed) == 3
-    assert full_summary["scenario_cap_policy"]["title_format"] == 5
+    assert len(full_governed) == 1
+    assert full_summary["scenario_cap_policy"]["title_format"] == 1
 
 
-def test_full_mode_keeps_domain_specific_duplicate_caps_strict_before_generic_caps() -> None:
+def test_full_mode_does_not_apply_removed_document_specific_caps() -> None:
     cases = [
         {
             "id": "TC-001",
@@ -486,13 +489,13 @@ def test_full_mode_keeps_domain_specific_duplicate_caps_strict_before_generic_ca
         },
     )
 
-    assert summary["scenario_cap_policy"]["delete_restore_unsubmitted"] == 1
-    assert summary["scenario_cap_policy"]["submission_success_state"] == 1
-    assert summary["scenario_duplicate_pruned_count"] == 2
-    assert [case["id"] for case in governed] == ["TC-001", "TC-003"]
+    assert "delete_restore_unsubmitted" not in summary["scenario_cap_policy"]
+    assert "submission_success_state" not in summary["scenario_cap_policy"]
+    assert summary["scenario_duplicate_pruned_count"] == 0
+    assert [case["id"] for case in governed] == ["TC-001", "TC-002", "TC-003", "TC-004"]
 
 
-def test_domain_specific_scenarios_ignore_broad_setup_keywords() -> None:
+def test_removed_document_specific_scenario_is_not_classified() -> None:
     cases = [
         {
             "id": "TC-001",
@@ -515,8 +518,7 @@ def test_domain_specific_scenarios_ignore_broad_setup_keywords() -> None:
     scenario_keys = [classify_case_scenario_key(case, "stage:作文批改") for case in cases]
     structure = analyze_case_structure("作文批改流程", cases)
 
-    assert scenario_keys[0] != "global:upload_image_management"
-    assert scenario_keys[1] == "global:upload_image_management"
+    assert all(key != "global:upload_image_management" for key in scenario_keys)
     assert structure["duplicate_cluster_count"] == 0
 
 
@@ -548,17 +550,17 @@ def test_explicit_execution_sequence_suppresses_document_flow_misorder_noise() -
     assert structure["misordered_count"] == 0
 
 
-def test_chinese_learning_flow_orders_capture_review_artifact_plan_report() -> None:
+def test_chinese_business_flow_orders_entry_review_artifact_plan_report() -> None:
     modules = [
-        "习题本",
-        "周末提升计划",
-        "学习成长报告",
-        "题目详情页",
-        "批改结果复核",
-        "作业拍照批改",
-        "体验额度",
+        "记录列表",
+        "执行计划",
+        "运行报告",
+        "记录详情",
+        "审批复核",
+        "文件导入入口",
+        "访问额度",
         "全局异常",
-        "补学规则",
+        "历史恢复",
     ]
     project_profile = build_project_profile(
         requirement_text="",
@@ -584,14 +586,19 @@ def test_chinese_learning_flow_orders_capture_review_artifact_plan_report() -> N
     )
 
     assert summary["flow_reordered"] is True
-    assert [case["test_module"] for case in governed] == [
-        "作业拍照批改",
-        "批改结果复核",
-        "习题本",
-        "题目详情页",
-        "周末提升计划",
-        "学习成长报告",
-        "体验额度",
+    ordered_modules = [case["test_module"] for case in governed]
+    assert ordered_modules[:2] == [
+        "文件导入入口",
+        "审批复核",
+    ]
+    assert set(ordered_modules[2:6]) == {
+        "记录列表",
+        "记录详情",
+        "执行计划",
+        "运行报告",
+    }
+    assert ordered_modules[6:] == [
+        "访问额度",
         "全局异常",
-        "补学规则",
+        "历史恢复",
     ]

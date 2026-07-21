@@ -42,14 +42,11 @@ def filter_cases_conflicting_with_confirmed_flow_facts(
     )
     stage_context_tokens = (
         "stage",
-        "lesson",
-        "course step",
-        "课程环节",
-        "学习环节",
+        "step",
+        "phase",
+        "流程阶段",
+        "阶段",
         "环节",
-        "审题立意",
-        "写作技法",
-        "技法巩固",
     )
     nonlinear_case_tokens = (
         "non-linear",
@@ -97,14 +94,14 @@ def filter_cases_conflicting_with_confirmed_flow_facts(
         "only first stage",
         "only the first stage",
         "complete previous",
-        "previous section",
+        "previous phase",
         "仅第一个环节",
         "仅第一环节",
         "只有第一个环节",
         "其余为未解锁",
         "其余环节未解锁",
-        "完成前一节才可以解锁",
-        "完成前一节才可以",
+        "完成前一阶段才可以解锁",
+        "完成前一阶段才可以",
         "完成前一环节才可",
     )
     compatibility_tokens = (

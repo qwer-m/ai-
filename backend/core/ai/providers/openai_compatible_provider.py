@@ -28,13 +28,14 @@ class OpenAICompatibleProvider(BaseModelProvider):
         self.model = model
         self.last_response_metadata: Dict[str, Any] = {}
 
-    def _http_timeout(self) -> httpx.Timeout:
+    def _http_timeout(self, total_override: float | None = None) -> httpx.Timeout:
         override = getattr(self, "request_timeout_seconds", None)
-        raw = str(
-            override
-            if override not in (None, "")
-            else os.getenv("OPENAI_COMPAT_HTTP_TIMEOUT_SECONDS", os.getenv("AI_HTTP_TIMEOUT_SECONDS", "90"))
-        ).strip()
+        resolved_override = total_override if total_override not in (None, "") else override
+        configured_timeout = os.getenv(
+            "OPENAI_COMPAT_HTTP_TIMEOUT_SECONDS",
+            os.getenv("AI_HTTP_TIMEOUT_SECONDS", "90"),
+        )
+        raw = str(resolved_override if resolved_override not in (None, "") else configured_timeout).strip()
         try:
             total = float(raw)
         except Exception:
@@ -199,7 +200,16 @@ class OpenAICompatibleProvider(BaseModelProvider):
 
         return "".join(pieces)
 
-    def _wants_json_response(self, messages: List[Dict[str, Any]]) -> bool:
+    def _wants_json_response(
+        self,
+        messages: List[Dict[str, Any]],
+        response_mode: str = "auto",
+    ) -> bool:
+        normalized_mode = str(response_mode or "auto").strip().lower()
+        if normalized_mode == "json":
+            return True
+        if normalized_mode == "text":
+            return False
         text = " ".join(str(msg.get("content") or "") for msg in messages or [])
         lowered = text.lower()
         return (
@@ -228,14 +238,30 @@ class OpenAICompatibleProvider(BaseModelProvider):
             return 2.0
         return value
 
-    def generate(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None) -> str:
+    def generate(
+        self,
+        messages: List[Dict[str, str]],
+        model: str,
+        max_tokens: Optional[int] = None,
+        response_mode: str = "auto",
+        request_timeout_seconds: float | None = None,
+        reasoning_effort: str | None = None,
+        disable_thinking: bool = False,
+    ) -> str:
         target_model = model or self.model
         resolved_max_tokens = self._normalize_max_tokens(max_tokens, target_model)
-        wants_json_response = self._wants_json_response(messages)  # type: ignore[arg-type]
+        normalized_response_mode = str(response_mode or "auto").strip().lower()
+        if normalized_response_mode not in {"auto", "json", "text"}:
+            normalized_response_mode = "auto"
+        wants_json_response = self._wants_json_response(  # type: ignore[arg-type]
+            messages,
+            normalized_response_mode,
+        )
         self.last_response_metadata = {
             "model": target_model,
             "wire_api": self.wire_api,
             "max_tokens": resolved_max_tokens,
+            "response_mode": normalized_response_mode,
             "json_response": wants_json_response,
         }
 
@@ -257,19 +283,27 @@ class OpenAICompatibleProvider(BaseModelProvider):
             }
             if resolved_max_tokens:
                 payload["max_tokens"] = resolved_max_tokens
+            if reasoning_effort:
+                payload["reasoning_effort"] = str(reasoning_effort)
+            if disable_thinking:
+                payload["thinking"] = {"type": "disabled"}
             if wants_json_response:
                 response_format_type = os.getenv("OPENAI_COMPAT_JSON_RESPONSE_FORMAT", "json_object").strip()
                 disable_response_format = bool(getattr(self, "disable_json_response_format", False))
                 if response_format_type and not disable_response_format:
                     payload["response_format"] = {"type": response_format_type}
-                reasoning_effort = os.getenv("OPENAI_COMPAT_JSON_REASONING_EFFORT", "low").strip()
+                json_reasoning_effort = os.getenv("OPENAI_COMPAT_JSON_REASONING_EFFORT", "low").strip()
                 disable_reasoning_effort = bool(getattr(self, "disable_json_reasoning_effort", False))
-                if reasoning_effort and not disable_reasoning_effort:
-                    payload["reasoning_effort"] = reasoning_effort
-                disable_thinking = str(
+                if json_reasoning_effort and not disable_reasoning_effort and "reasoning_effort" not in payload:
+                    payload["reasoning_effort"] = json_reasoning_effort
+                json_disable_thinking = str(
                     os.getenv("OPENAI_COMPAT_JSON_DISABLE_THINKING", "true")
                 ).strip().lower() not in {"0", "false", "no", "off"}
-                if disable_thinking and not bool(getattr(self, "disable_json_thinking", False)):
+                if (
+                    json_disable_thinking
+                    and "thinking" not in payload
+                    and not bool(getattr(self, "disable_json_thinking", False))
+                ):
                     payload["thinking"] = {"type": "disabled"}
 
         headers = {
@@ -278,7 +312,9 @@ class OpenAICompatibleProvider(BaseModelProvider):
         }
 
         try:
-            with httpx.Client(**self._http_client_kwargs(timeout=self._http_timeout())) as client:
+            with httpx.Client(
+                **self._http_client_kwargs(timeout=self._http_timeout(request_timeout_seconds))
+            ) as client:
                 resp = client.post(url, headers=headers, json=payload)
                 json_compat_fields = ("reasoning_effort", "response_format", "thinking")
                 if resp.status_code in {400, 422} and any(field in payload for field in json_compat_fields):

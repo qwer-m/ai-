@@ -35,9 +35,9 @@ from .feedback_control_pattern_policy import (
     _extract_reuse_risks,
 )
 from .feedback_control_priority_retrieval import (
-    _sample_text_for_retrieval,
     _select_priority_pool_samples_by_requirement,
 )
+from .feedback_control_priority_retrieval_text import _sample_text_for_retrieval
 from .feedback_control_priority_signals import (
     _count_signal_split,
     _is_manual_verified_negative_sample,
@@ -137,28 +137,6 @@ def build_from_priority_sample_pool(
     if not samples:
         return FeedbackControlState.empty()
 
-    manual_quality_profile = build_manual_profile(
-        samples,
-        project_id=int(project_id),
-        user_id=int(user_id),
-        existing_profile=payload.get("manual_quality_profile"),
-    )
-    manual_profile_hints = manual_profile_hints_fn(manual_quality_profile)
-    manual_profile_meta: dict[str, Any] = {}
-    if manual_quality_profile:
-        manual_profile_meta = {
-            "manual_quality_profile": manual_quality_profile,
-            "manual_quality_profile_version": str(manual_quality_profile.get("profile_version") or ""),
-            "manual_quality_profile_trusted_count": int(manual_quality_profile.get("trusted_sample_count") or 0),
-            "manual_quality_profile_case_count": int(manual_quality_profile.get("profile_case_count") or 0),
-            "manual_quality_profile_high_priority_ratio": float(
-                manual_quality_profile.get("high_priority_ratio") or 0.0
-            ),
-            "manual_quality_profile_display_ratio_cap": float(
-                manual_quality_profile.get("display_ratio_cap") or 0.0
-            ),
-        }
-
     pool_total_positive_count, pool_total_negative_count = _count_signal_split(samples)
     generation_id = _safe_int(payload.get("generation_id"), default=0) or None
     pattern_index_token = str(payload.get("pattern_index_token") or "").strip()
@@ -188,12 +166,15 @@ def build_from_priority_sample_pool(
         max_negative_top_k=max_negative_top_k,
         min_pattern_confidence=min_pattern_confidence,
     )
-    direct_workflow_samples = _select_priority_pool_workflow_blueprint_samples(
-        samples=samples,
-        requirement_text=str(requirement_text or ""),
-        max_workflow_blueprints=max_workflow_blueprints,
-        min_pattern_confidence=min_pattern_confidence,
-    )
+    query_used = bool(str(requirement_text or "").strip())
+    direct_workflow_samples = []
+    if not query_used:
+        direct_workflow_samples = _select_priority_pool_workflow_blueprint_samples(
+            samples=samples,
+            requirement_text="",
+            max_workflow_blueprints=max_workflow_blueprints,
+            min_pattern_confidence=min_pattern_confidence,
+        )
     direct_added = 0
     if direct_workflow_samples:
         selected_identities = {_priority_pool_sample_identity(sample) for sample in selected_samples}
@@ -211,11 +192,9 @@ def build_from_priority_sample_pool(
     retrieval_meta["retrieval_index_resync_error"] = ""
 
     if (
-        (
-            int(retrieval_meta.get("retrieval_hit_count") or 0) <= 0
-            or int(retrieval_meta.get("retrieval_index_mismatch_count") or 0) > 0
-        )
-        and str(retrieval_meta.get("retrieval_fallback") or "") == "lexical_fallback"
+        query_used
+        and int(retrieval_meta.get("retrieval_index_mismatch_count") or 0) > 0
+        and str(retrieval_meta.get("retrieval_fallback") or "") == "retrieval_no_match"
     ):
         retrieval_meta["retrieval_index_resync_attempted"] = True
         try:
@@ -251,12 +230,31 @@ def build_from_priority_sample_pool(
             retrieval_meta["retrieval_index_resync_success"] = False
             retrieval_meta["retrieval_index_resync_error"] = str(resync_err)[:240]
 
+    profile_samples = selected_samples if query_used else samples
+    manual_quality_profile = build_manual_profile(
+        profile_samples,
+        project_id=int(project_id),
+        user_id=int(user_id),
+        existing_profile=(None if query_used else payload.get("manual_quality_profile")),
+    )
+    manual_profile_hints = manual_profile_hints_fn(manual_quality_profile)
+    manual_profile_meta: dict[str, Any] = {}
+    if manual_quality_profile:
+        manual_profile_meta = {
+            "manual_quality_profile": manual_quality_profile,
+            "manual_quality_profile_version": str(manual_quality_profile.get("profile_version") or ""),
+            "manual_quality_profile_trusted_count": int(manual_quality_profile.get("trusted_sample_count") or 0),
+            "manual_quality_profile_case_count": int(manual_quality_profile.get("profile_case_count") or 0),
+            "manual_quality_profile_high_priority_ratio": float(
+                manual_quality_profile.get("high_priority_ratio") or 0.0
+            ),
+            "manual_quality_profile_display_ratio_cap": float(
+                manual_quality_profile.get("display_ratio_cap") or 0.0
+            ),
+        }
+
     if not selected_samples:
-        domain_gate_blocked = bool(
-            retrieval_meta.get("retrieval_domain_gate_blocked")
-            or retrieval_meta.get("retrieval_domain_no_match")
-        )
-        if manual_quality_profile and not domain_gate_blocked:
+        if manual_quality_profile:
             return FeedbackControlState(
                 quality_fix_hints=manual_profile_hints[:max(1, int(max_priority_pool_hints))],
                 source_meta={
@@ -267,10 +265,10 @@ def build_from_priority_sample_pool(
                     **retrieval_meta,
                 },
             )
-        if domain_gate_blocked:
+        if query_used:
             return FeedbackControlState(
                 source_meta={
-                    "sources": ["priority_sample_pool_domain_gate"],
+                    "sources": ["priority_sample_pool_retrieval"],
                     "priority_pool_sample_count": int(len(samples)),
                     "priority_pool_total_positive_count": int(pool_total_positive_count),
                     "priority_pool_total_negative_count": int(pool_total_negative_count),

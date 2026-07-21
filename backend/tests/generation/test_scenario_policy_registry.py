@@ -14,6 +14,7 @@ from modules.test_generation_components.coverage.coverage_analyzer import (
     summarize_duplicate_excess_by_policy,
 )
 from modules.test_generation_components.coverage import coverage_analyzer
+from modules.test_generation_components.coverage import coverage_case_classifier
 from modules.test_generation_components.coverage import scenario_registry
 from modules.test_generation_components.coverage import registry_candidate_store
 from modules.test_generation_components.coverage.scenario_registry import (
@@ -35,12 +36,37 @@ def test_scenario_registry_is_loaded_from_data_file() -> None:
     assert payload["version"] == meta["scenario_policy_registry_version"]
     assert len(payload["domains"]) == meta["domain_policy_registered_count"]
     assert len(payload["scenarios"]) == meta["scenario_policy_registered_count"]
-    assert meta["scenario_policy_sources"]["manual_seed"] >= 1
-    assert "讲错题接入AI.pdf" in meta["scenario_policy_documents"]
-    assert "ai_answer_irrelevant_score_zero" in {
+    assert payload["domains"] == []
+    assert meta["domain_policy_registered_count"] == 0
+    assert "manual_seed" not in meta["scenario_policy_sources"]
+    assert "讲错题接入AI.pdf" not in meta["scenario_policy_documents"]
+    scenario_keys = {
         scenario["key"] for scenario in payload["scenarios"]
     }
     assert {
+        "title_format",
+        "network_error",
+        "permission",
+    } <= scenario_keys
+    assert not {"bad_image_review", "quota_exhaustion"} & scenario_keys
+    question_only_keywords = [
+        keyword
+        for scenario in payload["scenarios"]
+        for keyword in scenario.get("keywords", [])
+        if keyword and set(keyword) == {"?"}
+    ]
+    assert question_only_keywords == []
+    keywords_by_key = {
+        scenario["key"]: set(scenario.get("keywords", []))
+        for scenario in payload["scenarios"]
+    }
+    assert {"筛选", "过滤", "开关", "只看"} <= keywords_by_key["filter_toggle"]
+    assert {"空状态", "暂无", "无记录", "无数据"} <= keywords_by_key["empty_state"]
+    assert {"来源", "标签", "配置"} <= keywords_by_key["source_consistency"]
+    assert {"手动", "判定", "修正", "更正"} <= keywords_by_key["manual_correction"]
+    assert {"反馈", "处理"} <= keywords_by_key["feedback"]
+    assert {"打印", "导出"} <= keywords_by_key["print_export"]
+    assert not {
         "pdf_download_content",
         "essay_empty_state",
         "delete_restore_unsubmitted",
@@ -60,9 +86,43 @@ def test_scenario_registry_is_loaded_from_data_file() -> None:
         "secret_entry_list",
         "essay_sample_numbering",
         "original_image_toggle",
-    } <= {
-        scenario["key"] for scenario in payload["scenarios"]
+        "submission_success_state",
+        "community_empty_state",
+        "full_text_copy",
+        "polish_original_compare",
+        "upload_image_management",
+        "essay_limit_20",
+        "technique_practice_answer",
+    } & scenario_keys
+    assert not {"essay_writing", "course_access"} & {
+        domain["key"] for domain in payload["domains"]
     }
+
+
+def test_coverage_policy_uses_registry_as_single_source_of_truth() -> None:
+    registry_patterns = scenario_registry.scenario_pattern_entries(
+        include_domain_specific=True
+    )
+    registry_default_caps = scenario_registry.default_scenario_caps()
+    registry_mode_caps = scenario_registry.mode_scenario_caps()
+
+    assert coverage_case_classifier._SCENARIO_PATTERNS == registry_patterns
+    assert coverage_analyzer._DEFAULT_SCENARIO_CAPS == registry_default_caps
+    for mode, caps in coverage_analyzer._SCENARIO_CAPS_BY_MODE.items():
+        explicit_registry_caps = registry_mode_caps.get(mode, {})
+        for scenario_key in registry_default_caps:
+            if scenario_key in caps:
+                assert caps[scenario_key] == explicit_registry_caps[scenario_key]
+
+
+def test_scenario_registry_allows_general_policies_without_domain_profiles() -> None:
+    domains = scenario_registry._build_domain_policies({"domains": []})
+    scenarios = scenario_registry._build_scenario_policies(
+        {"scenarios": [{"key": "generic_save", "keywords": ["save"], "domain": "general"}]}
+    )
+
+    assert domains == ()
+    scenario_registry._validate_registry_links(domains, scenarios)
 
 
 def test_scenario_registry_loader_skips_disabled_entries() -> None:
@@ -175,170 +235,48 @@ def _project_profile(label: str, mode: str = "full_functional_regression") -> di
     }
 
 
-def test_ai_wrong_question_duplicate_families_use_registry_caps() -> None:
+def test_general_empty_state_family_applies_without_domain_profile() -> None:
     cases = [
         {
-            "id": "TC-016",
-            "description": "验证学员回答答非所问时，准确性直接记为0分",
-            "test_module": "学员端AI评分",
-            "steps": ["学员输入今天天气很好"],
-            "expected_result": "评分结果显示准确性分数为0分，其他维度正常评分",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-024",
-            "description": "验证学员端回答答非所问时准确性自动0分，且总分按规则计算",
-            "test_module": "学员端AI讲错题评分",
-            "steps": ["输入“今天天气不错”"],
-            "expected_result": "准确性维度得0分，综合评分低于8分",
+            "id": "TC-001",
+            "description": "记录列表无数据时展示空状态",
+            "test_module": "记录列表",
+            "expected_result": "列表显示暂无数据且不展示记录卡片",
             "priority": "P1",
         },
         {
-            "id": "TC-037",
-            "description": "验证评分规则：答非所问时，准确性直接0分",
-            "test_module": "学员端AI讲错题交互-评分机制",
-            "steps": ["回答与问题无关的内容"],
-            "expected_result": "准确性得分为0分，并标注答非所问",
-            "priority": "P2",
-        },
-    ]
-
-    governed, summary = govern_cases_by_flow_structure(
-        "讲错题AI评分",
-        cases,
-        renumber_ids=False,
-        project_profile=_project_profile("学员端AI评分"),
-    )
-
-    assert summary["scenario_policy_registry_version"] == 1
-    assert summary["scenario_cap_policy"]["ai_answer_irrelevant_score_zero"] == 1
-    assert summary["scenario_duplicate_pruned_count"] == 2
-    assert [case["id"] for case in governed] == ["TC-016"]
-
-
-def test_ai_completed_reentry_variants_collapse_to_readonly_family() -> None:
-    cases = [
-        {
-            "id": "TC-022",
-            "description": "验证学员端重复进入已完成的讲错题页面，显示历史对话且所有交互按钮置灰不可操作",
-            "test_module": "学员端AI讲错题-重复进入",
-            "expected_result": "页面保留所有历史对话内容；输入框、录音按钮均置灰",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-056",
-            "description": "验证已完成讲错题后学员再次进入该讲错题页面，无法重复打分且不能继续回答",
-            "test_module": "学员端AI讲错题重复进入",
-            "expected_result": "展示之前的完整历史对话，输入框和语音录制按钮置灰或移除",
-            "priority": "P2",
-        },
-    ]
-
-    governed, summary = govern_cases_by_flow_structure(
-        "讲错题已完成重复进入",
-        cases,
-        renumber_ids=False,
-        project_profile=_project_profile("学员端AI讲错题", "expanded_regression"),
-    )
-
-    assert summary["scenario_cap_policy"]["ai_completed_reentry_readonly"] == 1
-    assert summary["scenario_duplicate_pruned_count"] == 1
-    assert [case["id"] for case in governed] == ["TC-022"]
-
-
-def test_schedule_duplicate_families_are_specific_before_generic_empty_state() -> None:
-    cases = [
-        {
-            "id": "TC-007",
-            "description": "首页-本周进度模块：当本周无课程时，空状态展示'本周暂无学习计划'",
-            "test_module": "首页-本周进度模块",
-            "expected_result": "本周进度区域显示文案'本周暂无学习计划'",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-008",
-            "description": "首页-本周进度模块：空状态（无课程）旧版本显示“本周暂无学习计划”",
-            "test_module": "首页-本周进度模块",
-            "expected_result": "本周进度模块展示“本周暂无学习计划”，不显示排行榜和进度条",
+            "id": "TC-002",
+            "description": "记录列表为空时展示无数据占位",
+            "test_module": "记录列表",
+            "expected_result": "页面显示暂无数据的空状态占位",
             "priority": "P1",
         },
     ]
 
     scenario_keys = [
-        classify_case_scenario_key(case, "stage:首页-本周进度模块")
+        classify_case_scenario_key(case, "stage:记录列表")
         for case in cases
     ]
     governed, summary = govern_cases_by_flow_structure(
-        "近期课程 首页 本周进度",
+        "记录列表在无数据时显示空状态。",
         cases,
         renumber_ids=False,
-        project_profile=_project_profile("首页-本周进度模块", "standard_regression"),
+        project_profile=_project_profile("记录列表", "standard_regression"),
     )
 
-    assert all("schedule_week_progress_empty" in key for key in scenario_keys)
-    assert summary["scenario_cap_policy"]["schedule_week_progress_empty"] == 1
+    assert all("empty_state" in key for key in scenario_keys)
+    assert summary["scenario_cap_policy"]["empty_state"] == 1
     assert summary["scenario_duplicate_pruned_count"] == 1
-    assert [case["id"] for case in governed] == ["TC-007"]
+    assert [case["id"] for case in governed] == ["TC-001"]
 
 
-def test_domain_registry_keeps_only_dominant_domain_for_mixed_requirement_text() -> None:
-    ai_text = (
-        "讲错题接入AI，覆盖点击对话、"
-        "继续录音、学员回答、追问、"
-        "四轮对话、评分弹窗、综合评分、"
-        "答非所问、去日清，但页面中偶然提到学习计划入口。"
-    )
-    schedule_text = (
-        "近期课程和排课：新增计划、已有计划、"
-        "编辑计划、课程规划、课程管理、"
-        "学习计划、本周进度、本周任务、课堂管理、"
-        "顺延和防抄答案，但某个按钮可能跳到讲错题。"
-    )
-
-    assert infer_domain_tags(ai_text) == {"ai_wrong_question_teaching"}
-    assert infer_domain_tags(schedule_text) == {"recent_course_scheduling"}
-    assert infer_primary_domain_tag(ai_text) == "ai_wrong_question_teaching"
-    assert infer_primary_domain_tag(schedule_text) == "recent_course_scheduling"
-
-
-def test_schedule_requirement_does_not_use_ai_supervisor_duplicate_family() -> None:
-    cases = [
-        {
-            "id": "TC-001",
-            "description": "首页本周任务-未完成课程按钮状态和详情入口",
-            "test_module": "首页-本周任务模块",
-            "steps": ["进入首页", "查看未完成课程卡片"],
-            "expected_result": "未完成课程显示学习按钮可点击，详情入口展示课程标题",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-002",
-            "description": "首页本周任务-已完成课程复习按钮置灰",
-            "test_module": "首页-本周任务模块",
-            "steps": ["进入首页", "查看已完成课程卡片"],
-            "expected_result": "已完成课程显示复习按钮置灰，点击详情不触发讲错题督导页",
-            "priority": "P1",
-        },
-    ]
-    requirement = (
-        "近期课程和排课：本周任务、"
-        "学习计划、新增计划、已有计划、"
-        "课程管理和防抄答案。"
-    )
-
-    structure = analyze_case_structure(requirement, cases)
-    scenario_keys = [str(row.get("scenario_key") or "") for row in structure["rows"]]
-    governed, summary = govern_cases_by_flow_structure(
-        requirement,
-        cases,
-        renumber_ids=False,
-        project_profile=_project_profile("首页-本周任务模块"),
-    )
-
-    assert structure["primary_domain"] == "recent_course_scheduling"
-    assert not any("ai_supervisor_detail_button_state" in key for key in scenario_keys)
-    assert "ai_supervisor_detail_button_state" not in summary["scenario_cap_policy"]
-    assert [case["id"] for case in governed] == ["TC-001", "TC-002"]
+def test_removed_product_terms_do_not_activate_hidden_domain_profiles() -> None:
+    for requirement_text in (
+        "AI评分、错题讲解、语音录制和追问。",
+        "课程排期、学习计划、本周任务和顺延。",
+    ):
+        assert infer_domain_tags(requirement_text) == set()
+        assert infer_primary_domain_tag(requirement_text) == ""
 
 
 def test_forum_requirement_does_not_leak_ai_wrong_question_policy() -> None:
@@ -378,7 +316,7 @@ def test_forum_requirement_does_not_leak_ai_wrong_question_policy() -> None:
     scenario_keys = [str(row.get("scenario_key") or "") for row in structure["rows"]]
     governed, summary = govern_cases_by_flow_structure(requirement, cases, renumber_ids=False)
 
-    assert "course_access" in set(structure["domain_tags"])
+    assert "course_access" not in set(structure["domain_tags"])
     assert not any("ai_supervisor_detail_button_state" in key for key in scenario_keys)
     assert not any("essay_critique_button_availability" in key for key in scenario_keys)
     assert not any("original_image_toggle" in key for key in scenario_keys)
@@ -400,57 +338,45 @@ def test_forum_requirement_does_not_leak_ai_wrong_question_policy() -> None:
     assert "ai_supervisor_detail_button_state" not in summary["registry_impact"][
         "cross_module_policies_in_effect"
     ]
-    assert [case["id"] for case in governed] == ["TC-001", "TC-002", "TC-003"]
+    assert len(governed) == 3
+    assert {case["id"] for case in governed} == {"TC-001", "TC-002", "TC-003"}
 
 
-def test_runtime_registry_exports_domain_specific_policies_only_for_primary_domain() -> None:
-    domain_key = "ai_answer_irrelevant_score_zero"
-
-    assert domain_key not in dict(scenario_registry.scenario_pattern_entries())
-    assert domain_key not in scenario_registry.judge_duplicate_scenario_kinds()
-    assert domain_key not in scenario_registry.judge_duplicate_thresholds()
-    assert domain_key not in scenario_registry.cross_module_scenario_kinds()
-
-    assert domain_key in dict(
-        scenario_registry.scenario_pattern_entries(primary_domain="ai_wrong_question_teaching")
-    )
-    assert domain_key in scenario_registry.judge_duplicate_scenario_kinds(
-        primary_domain="ai_wrong_question_teaching"
-    )
-    assert domain_key in scenario_registry.judge_duplicate_thresholds(
-        primary_domain="ai_wrong_question_teaching"
-    )
-    assert domain_key in scenario_registry.cross_module_scenario_kinds(
-        primary_domain="ai_wrong_question_teaching"
+def test_runtime_registry_ignores_unregistered_primary_domain_names() -> None:
+    general = dict(scenario_registry.scenario_pattern_entries())
+    with_unknown_domain = dict(
+        scenario_registry.scenario_pattern_entries(primary_domain="unregistered_product")
     )
 
+    assert general == with_unknown_domain
 
-def test_duplicate_excess_counts_only_cases_over_scenario_cap() -> None:
-    requirement = "近期课程排课：已有计划、编辑计划、下架和二次确认。"
+
+def test_duplicate_excess_counts_only_cases_over_general_scenario_cap() -> None:
+    requirement = "统计记录总数。"
     cases = [
         {
             "id": "TC-001",
-            "description": "排课已有计划-编辑计划后保存生效",
-            "test_module": "排课-已有计划",
-            "expected_result": "已有计划更新并保存成功",
+            "description": "统计记录总数并展示数量",
+            "test_module": "记录统计",
+            "expected_result": "总数显示为 10",
             "priority": "P1",
         },
         {
             "id": "TC-002",
-            "description": "排课已有计划-下架时需要二次确认",
-            "test_module": "排课-已有计划",
-            "expected_result": "下架已有计划时弹出二次确认",
+            "description": "统计记录总数并展示数量",
+            "test_module": "记录统计",
+            "expected_result": "总数显示为 10",
             "priority": "P1",
         },
         {
             "id": "TC-003",
-            "description": "排课已有计划-编辑下架后列表刷新",
-            "test_module": "排课-已有计划",
-            "expected_result": "编辑或下架后已有计划列表刷新",
+            "description": "统计记录总数并展示数量",
+            "test_module": "记录统计",
+            "expected_result": "总数显示为 10",
             "priority": "P1",
         },
     ]
-    project_profile = _project_profile("排课-已有计划", "standard_regression")
+    project_profile = _project_profile("记录统计", "standard_regression")
 
     structure_two = analyze_case_structure(requirement, cases[:2])
     excess_two = summarize_duplicate_excess_by_policy(
@@ -567,7 +493,7 @@ def test_disabled_scenario_pruning_also_preserves_intent_clusters(
     assert duplicate_excess["duplicate_excess_case_count"] == 0
 
 
-def test_priority_pool_retrieval_filters_by_primary_requirement_domain(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_priority_pool_query_without_retrieval_hit_does_not_scan_full_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(feedback_control, "retrieve_priority_sample_patterns", lambda **_: [])
     requirement_text = (
         "讲错题接入AI：点击对话、继续录音、"
@@ -598,26 +524,26 @@ def test_priority_pool_retrieval_filters_by_primary_requirement_domain(monkeypat
         requirement_text=requirement_text,
     )
 
-    assert meta["retrieval_query_primary_domain"] == "ai_wrong_question_teaching"
-    assert meta["retrieval_domain_filter_applied"] is True
-    assert meta["retrieval_domain_skipped_sample_count"] == 1
-    assert [item["title"] for item in selected] == ["AI wrong-question sample"]
+    assert selected == []
+    assert meta["retrieval_fallback"] == "retrieval_no_match"
+    assert meta["retrieval_domain_filter_applied"] is False
+    assert meta["retrieval_domain_skipped_sample_count"] == 0
 
 
 def test_duplicate_policy_runs_even_without_flow_outline() -> None:
     cases = [
         {
             "id": "TC-001",
-            "description": "验证学员回答答非所问时准确性直接0分",
-            "test_module": "学员端AI评分",
-            "expected_result": "准确性得0分",
+            "description": "记录列表无数据时展示空状态",
+            "test_module": "记录列表",
+            "expected_result": "显示暂无数据且不展示记录卡片",
             "priority": "P0",
         },
         {
             "id": "TC-002",
-            "description": "答非所问时准确性计为0分并影响总分",
-            "test_module": "评分规则",
-            "expected_result": "准确性为0分，其他维度正常",
+            "description": "记录列表无数据时展示空状态",
+            "test_module": "记录列表",
+            "expected_result": "显示暂无数据且不展示记录卡片",
             "priority": "P1",
         },
     ]
@@ -631,7 +557,7 @@ def test_duplicate_policy_runs_even_without_flow_outline() -> None:
 
     assert summary["applied"] is True
     assert summary["flow_reordered"] is False
-    assert summary["scenario_cap_policy"]["ai_answer_irrelevant_score_zero"] == 1
+    assert summary["scenario_cap_policy"]["empty_state"] == 1
     assert summary["scenario_duplicate_pruned_count"] == 1
     assert [case["id"] for case in governed] == ["TC-001"]
 
@@ -718,5 +644,5 @@ def test_registry_candidate_proposal_skips_general_ui_and_cross_domain_noise(
         ],
     )
 
-    assert [candidate.key for candidate in result] == ["candidate_ai_gap_permission"]
-    assert [payload["domain"] for payload in proposed_payloads] == ["ai_wrong_question_teaching"]
+    assert result == []
+    assert proposed_payloads == []

@@ -448,12 +448,42 @@ def _execution_repair_case_briefs(cases: list[dict[str, Any]], ledger: dict[str,
             row["_suggested_main_chain_stage_kind"] = suggested_stage_kind
         selected.append(row)
 
+    # 中文注释：显式执行契约优先于正文词面猜测，避免领域词命中挤占主链样本。
+    for index, case in enumerate(cases, start=1):
+        if not isinstance(case, dict):
+            continue
+        execution_group = str(case.get("execution_group") or "").strip().lower()
+        explicit_stage = str(
+            case.get("main_chain_stage_kind")
+            or case.get("main_chain_stage")
+            or case.get("stage_kind")
+            or ""
+        ).strip()
+        actor = str(case.get("actor") or case.get("role") or "").strip()
+        action = str(case.get("action") or "").strip()
+        state_in = str(case.get("state_in") or case.get("source_state") or "").strip()
+        state_out = str(case.get("state_out") or case.get("target_state") or "").strip()
+        has_explicit_contract = bool(
+            execution_group == "main_smoke"
+            and explicit_stage
+            and actor
+            and action
+            and state_in
+            and state_out
+        )
+        if has_explicit_contract:
+            add_case(
+                case,
+                index,
+                suggested_stage_kind=explicit_stage,
+            )
+
     stage_profiles = [
-        ("entry", ("入口", "进入", "首页", "论坛首页", "导航", "分区", "列表TAB", "entry", "home", "navigate")),
-        ("configure", ("发帖", "发布入口", "编辑", "填写", "输入", "选择", "上传", "配置", "compose", "configure", "input", "upload")),
+        ("entry", ("入口", "进入", "首页", "导航", "分区", "列表", "entry", "home", "navigate")),
+        ("configure", ("编辑", "填写", "输入", "选择", "上传", "配置", "compose", "configure", "input", "upload")),
         ("preview", ("详情", "预览", "展示", "查看", "列表", "图片", "内容", "detail", "preview", "display", "view")),
         ("commit", ("提交", "发布", "保存", "确认", "删除", "审核", "commit", "submit", "publish", "save")),
-        ("downstream_visibility", ("消息", "通知", "可见", "展示", "列表", "回复", "审核消息", "message", "visible", "notification", "reply")),
+        ("downstream_visibility", ("消息", "通知", "可见", "展示", "列表", "回复", "message", "visible", "notification", "reply")),
         ("completion_sync", ("同步", "完成", "状态", "更新", "闭环", "跳转", "落地", "sync", "complete", "status", "done")),
     ]
 
@@ -490,13 +520,6 @@ def _execution_repair_case_briefs(cases: list[dict[str, Any]], ledger: dict[str,
     for index, case in enumerate(cases, start=1):
         if not isinstance(case, dict):
             continue
-        execution_group = str(case.get("execution_group") or "").strip().lower()
-        if execution_group == "main_smoke":
-            add_case(case, index)
-
-    for index, case in enumerate(cases, start=1):
-        if not isinstance(case, dict):
-            continue
         priority = str(case.get("priority_final") or case.get("priority") or "").strip().upper()
         if priority == "P0":
             add_case(case, index, allow_same_module=False)
@@ -505,7 +528,6 @@ def _execution_repair_case_briefs(cases: list[dict[str, Any]], ledger: dict[str,
         "入口",
         "进入",
         "发布",
-        "发帖",
         "提交",
         "保存",
         "评论",

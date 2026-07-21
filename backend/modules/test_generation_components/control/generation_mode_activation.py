@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import hashlib
-import re
 import csv
 import json
+import math
 from io import StringIO
 from typing import Any
 
@@ -92,68 +92,31 @@ def resolve_linked_final_case_signal(
         return {"linked_final_case_count": 0, "linked_final_case_doc_ids": [], "source_doc_ids": []}
 
 
-_FULL_REGRESSION_TOKENS = (
-    "全功能",
-    "完整功能",
-    "完整覆盖",
-    "全量回归",
-    "全回归",
-    "功能测试",
-    "系统测试",
-    "全链路",
-    "full regression",
-    "full functional",
-    "full coverage",
-    "system test",
-)
-_STANDARD_REGRESSION_TOKENS = (
-    "回归",
-    "改版",
-    "重构",
-    "调整",
-    "兼容",
-    "standard regression",
-    "regression",
-)
-_EXPANDED_REGRESSION_TOKENS = (
-    "中高密度",
-    "主要功能全覆盖",
-    "完整覆盖",
-    "覆盖充分",
-    "扩展回归",
-    "较完整",
-    "expanded regression",
-    "broad coverage",
-    "major feature coverage",
-)
-
-_FULL_REGRESSION_SCENARIOS = (
-    "入口与导航：覆盖入口展示、跳转、返回、空状态和旧入口残留。",
-    "核心流程：按主业务流程拆分步骤级用例，不把多功能点合并为一条。",
-    "状态矩阵：覆盖未开始、进行中、已完成、已下架、已删除、无数据等状态。",
-    "配置与权限：覆盖开关配置、版本兼容、角色/端差异和不可操作状态。",
-    "边界异常：覆盖数量不足、时间冲突、无数据、失败提示、不可删除/不可编辑等异常。",
-    "跨模块回归：覆盖首页、详情页、管理页、历史记录、报告等关联页面的数据流转。",
-)
-_STANDARD_REGRESSION_SCENARIOS = (
-    "入口、主流程、编辑/删除/保存、异常提示、跨页返回至少各覆盖一类。",
-    "状态变化用例必须验证操作前后差异，不只验证静态展示。",
-    "保留少量原有模块回归，避免新增功能影响既有链路。",
-)
-_EXPANDED_REGRESSION_SCENARIOS = (
-    "Preserve broad module coverage while pruning near-duplicate cases.",
-    "Keep core happy paths, permission boundaries, state transitions, and high-value exceptions.",
-    "Prefer requirement-specific business details over generic UI display checks.",
-    "Keep enough cross-module cases to validate end-to-end business closure.",
-)
-_CORE_SMOKE_SCENARIOS = (
-    "优先覆盖最高价值主流程、关键异常和一个回归风险点。",
-)
+def _normalize_target_case_range(raw: Any) -> dict[str, int]:
+    if not isinstance(raw, dict):
+        return {}
+    try:
+        minimum = max(0, int(raw.get("min") or 0))
+        maximum = max(0, int(raw.get("max") or 0))
+    except (TypeError, ValueError):
+        return {}
+    if minimum <= 0 or maximum < minimum:
+        return {}
+    return {"min": minimum, "max": maximum}
 
 
-def _contains_any(text: str, tokens: tuple[str, ...]) -> bool:
-    lowered = str(text or "").lower()
-    return any(str(token).lower() in lowered for token in tokens)
+def _functional_architecture_from_state(state: FeedbackControlState) -> dict[str, Any]:
+    project_profile = dict((state.source_meta or {}).get("project_profile") or {})
+    architecture = project_profile.get("functional_architecture")
+    return dict(architecture) if isinstance(architecture, dict) else {}
+
+
+def _explicit_count_target_range(expected_count: int) -> dict[str, int]:
+    """显式数量允许小幅浮动，避免把参考数量变成严格凑数门槛。"""
+    expected = max(0, int(expected_count or 0))
+    if expected <= 0:
+        return {}
+    return {"min": max(1, int(math.ceil(expected * 0.8))), "max": expected}
 
 
 def infer_generation_coverage_profile(
@@ -161,49 +124,72 @@ def infer_generation_coverage_profile(
     requirement_text: str = "",
     expected_count: int = 0,
     linked_final_case_count: int = 0,
+    strategy_plan: dict[str, Any] | None = None,
+    control_state: Any = None,
+    functional_architecture: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Infer coverage profile without hard-coding product-specific modules."""
-    text = re.sub(r"\s+", " ", str(requirement_text or "").strip())
+    """从显式数量和已有结构化控制数据组装覆盖画像，不解析业务词。"""
     expected = max(0, int(expected_count or 0))
     linked_count = max(0, int(linked_final_case_count or 0))
-
-    if expected >= 80 or linked_count >= 80 or _contains_any(text, _FULL_REGRESSION_TOKENS):
-        mode = "full_functional_regression"
-        target_range = {"min": 80, "max": 120}
-        scenarios = list(_FULL_REGRESSION_SCENARIOS)
-        density = "high"
-    elif (
-        60 <= expected < 80
-        or 60 <= linked_count < 80
-        or _contains_any(text, _EXPANDED_REGRESSION_TOKENS)
-    ):
-        mode = "expanded_regression"
-        target_range = {"min": 60, "max": 80}
-        scenarios = list(_EXPANDED_REGRESSION_SCENARIOS)
-        density = "medium_high"
-    elif expected >= 30 or linked_count >= 30 or _contains_any(text, _STANDARD_REGRESSION_TOKENS):
-        mode = "standard_regression"
-        target_range = {"min": 30, "max": 50}
-        scenarios = list(_STANDARD_REGRESSION_SCENARIOS)
-        density = "medium"
+    state = FeedbackControlState.from_any(control_state)
+    plan = dict(strategy_plan or {})
+    coverage_targets = (
+        dict(plan.get("coverage_targets"))
+        if isinstance(plan.get("coverage_targets"), dict)
+        else {}
+    )
+    architecture = dict(functional_architecture or {}) or _functional_architecture_from_state(state)
+    functional_modules = [
+        item for item in (architecture.get("functional_modules") or []) if isinstance(item, dict)
+    ]
+    module_interactions = [
+        item for item in (architecture.get("module_interactions") or []) if isinstance(item, dict)
+    ]
+    target_range = (
+        _explicit_count_target_range(expected)
+        if expected > 0
+        else _normalize_target_case_range(coverage_targets.get("target_case_range"))
+    )
+    layers = [
+        str(item).strip()
+        for item in (coverage_targets.get("layers") or [])
+        if str(item).strip()
+    ]
+    coverage_mode = str(coverage_targets.get("mode") or "").strip()
+    case_density = str(coverage_targets.get("case_density") or "").strip()
+    control_signal_count = int(
+        len(state.must_cover_rules)
+        + len(state.must_have_scenarios)
+        + len(state.rule_quota)
+        + len(state.workflow_blueprints)
+    )
+    if expected > 0:
+        source = "explicit_expected_count"
+    elif coverage_targets:
+        source = "strategy_plan"
+    elif control_signal_count > 0:
+        source = "control_state"
+    elif functional_modules or module_interactions:
+        source = "functional_architecture"
     else:
-        mode = "core_smoke"
-        target_range = {"min": 10, "max": 20}
-        scenarios = list(_CORE_SMOKE_SCENARIOS)
-        density = "low"
+        source = "requirement_evidence"
 
     return {
-        "coverage_mode": mode,
-        "case_density": density,
+        "coverage_mode": coverage_mode,
+        "case_density": case_density,
         "target_case_range": target_range,
+        "coverage_source": source,
         "activation_evidence": {
             "expected_count": expected,
+            "expected_count_explicit": bool(expected > 0),
             "linked_final_case_count": linked_count,
-            "full_regression_token_hit": bool(_contains_any(text, _FULL_REGRESSION_TOKENS)),
-            "expanded_regression_token_hit": bool(_contains_any(text, _EXPANDED_REGRESSION_TOKENS)),
-            "standard_regression_token_hit": bool(_contains_any(text, _STANDARD_REGRESSION_TOKENS)),
+            "strategy_coverage_target_present": bool(coverage_targets),
+            "control_signal_count": control_signal_count,
+            "functional_module_count": int(len(functional_modules)),
+            "module_interaction_count": int(len(module_interactions)),
+            "requirement_text_parsed_for_mode": False,
         },
-        "coverage_layers": scenarios,
+        "coverage_layers": layers,
     }
 
 
@@ -212,41 +198,29 @@ def build_generation_mode_control_state(
     requirement_text: str = "",
     expected_count: int = 0,
     linked_final_case_count: int = 0,
+    strategy_plan: dict[str, Any] | None = None,
+    control_state: Any = None,
+    functional_architecture: dict[str, Any] | None = None,
 ) -> FeedbackControlState:
     profile = infer_generation_coverage_profile(
         requirement_text=requirement_text,
         expected_count=expected_count,
         linked_final_case_count=linked_final_case_count,
+        strategy_plan=strategy_plan,
+        control_state=control_state,
+        functional_architecture=functional_architecture,
     )
-    mode = str(profile.get("coverage_mode") or "core_smoke")
     layers = [str(item) for item in (profile.get("coverage_layers") or []) if str(item).strip()]
 
     quality_hints = [
         "每条用例必须有明确验证目标和具体可断言 expected_result。",
-        "不要为了达到数量而补低价值静态展示、纯样式或重复列表用例。",
+        "按现有功能模块、显式规则、模块交互和工作流契约组织覆盖，不从正文关键词猜测固定场景。",
+        "边界、异常和非功能风险仅在需求或控制证据支持时生成，不要求所有模块套用同一分类清单。",
+        "显式 expected_count 是数量目标；扩充时优先补不同规则或状态闭环，不用重复和静态展示凑数。",
     ]
-    soft_constraints: list[str] = []
-    if mode == "full_functional_regression":
-        quality_hints.append("全功能回归模式下按模块/状态/异常/跨模块分层生成，允许数量显著高于核心冒烟集。")
-        soft_constraints.append("不要把全功能回归压缩成只覆盖核心流程的 10-20 条核心集。")
-        quality_hints.append("Full regression must keep high-value negative and exception coverage: validation failure, submit failure, retry, load failure, permission denial, audit/reject rules, notification/state sync, and configurable thresholds when supported by requirements.")
-        quality_hints.append("For modules with community, comment/reply, publish, or review concepts, keep at least one moderation/audit-state case and one front-end state-sync case when the requirement mentions those concepts.")
-        quality_hints.append("For modules with generated or processed results, keep both successful result display and failure/retry paths; do not replace them with generic UI display checks.")
-        quality_hints.append("For file/media or generated-result flows, include supported upload permission, format/size, upload failure, processing interruption, processing failure, retry, and result recovery cases before adding more display-only cases.")
-        quality_hints.append("For moderation/audit flows, split materially different rejection reasons such as topic mismatch, privacy/safety issue, plagiarism/duplicate content, and large source-content deviation when those reasons are present in the requirement.")
-        quality_hints.append("For downloadable or playable resources, keep load failure, reload/retry, storage permission, and download failure cases when the requirement includes those resource operations.")
-    elif mode == "expanded_regression":
-        quality_hints.append("Expanded regression mode should keep broad requirement coverage, remove near-duplicates, and avoid collapsing a 60-70 case draft into a compact smoke set.")
-        quality_hints.append("For 60-80 case output, keep a small P0 minority for supported blocking main-path, submit/publish, permission, payment, or state-closing risks; keep ordinary coverage at P1/P2.")
-        quality_hints.append("Current requirement semantics override legacy regression assumptions; drop cases that assert an older opposite rule unless the current requirement explicitly keeps it.")
-    elif mode == "standard_regression":
-        quality_hints.append("标准回归模式下优先覆盖主流程、状态变化、异常边界和既有功能回归。")
-    else:
-        quality_hints.append("核心冒烟模式下保留最小高价值集合，避免展开全量排列组合。")
 
     return FeedbackControlState(
         must_have_scenarios=layers,
-        soft_constraints=soft_constraints,
         quality_fix_hints=quality_hints,
         source_meta={
             "sources": ["generation_coverage_profile"],
@@ -261,6 +235,8 @@ def merge_generation_mode_control_state(
     requirement_text: str = "",
     expected_count: int = 0,
     linked_final_case_count: int = 0,
+    strategy_plan: dict[str, Any] | None = None,
+    functional_architecture: dict[str, Any] | None = None,
 ) -> FeedbackControlState:
     """Merge coverage profile into any existing control-state shape."""
     if isinstance(base_state, FeedbackControlState):
@@ -280,5 +256,8 @@ def merge_generation_mode_control_state(
             requirement_text=requirement_text,
             expected_count=expected_count,
             linked_final_case_count=linked_final_case_count,
+            strategy_plan=strategy_plan,
+            control_state=normalized_base,
+            functional_architecture=functional_architecture,
         )
     )

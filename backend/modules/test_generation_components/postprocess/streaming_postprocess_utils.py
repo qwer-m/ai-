@@ -284,46 +284,34 @@ def resolve_generation_coverage_profile(
     generation_coverage_mode: str,
     full_regression_recommended_floor: int = 80,
 ) -> dict[str, Any]:
-    mode_rank = {
-        "core_smoke": 0,
-        "standard_regression": 1,
-        "expanded_regression": 2,
-        "full_functional_regression": 3,
+    supported_modes = {
+        "core_smoke",
+        "standard_regression",
+        "expanded_regression",
+        "full_functional_regression",
     }
     try:
         expected_count_value = max(0, int(expected_count or 0))
     except Exception:
         expected_count_value = 0
 
-    effective_mode = str(generation_coverage_mode or "")
-    effective_source = "feedback_control_state" if effective_mode in mode_rank else ""
+    structured_mode = str(generation_coverage_mode or "").strip()
     requested_mode = str(generation_mode or "").strip().lower()
-    explicit_mode_override = False
-    expected_count_mode = ""
-    if expected_count_value >= 80:
-        expected_count_mode = "full_functional_regression"
-    elif expected_count_value >= 60:
-        expected_count_mode = "expanded_regression"
-    elif expected_count_value > 0:
-        expected_count_mode = "standard_regression"
-
-    if mode_rank.get(expected_count_mode, -1) > mode_rank.get(effective_mode, -1):
-        effective_mode = expected_count_mode
-        effective_source = "expected_count"
-    if (
-        requested_mode in mode_rank
-        and mode_rank.get(requested_mode, -1) > mode_rank.get(effective_mode, -1)
-    ):
+    if requested_mode in supported_modes:
         effective_mode = requested_mode
         effective_source = "generation_mode"
         explicit_mode_override = True
-    if effective_mode not in mode_rank:
-        effective_mode = expected_count_mode or "standard_regression"
-        effective_source = "fallback"
+    elif structured_mode in supported_modes:
+        effective_mode = structured_mode
+        effective_source = "feedback_control_state"
+        explicit_mode_override = False
+    else:
+        effective_mode = "core_smoke"
+        effective_source = "default"
+        explicit_mode_override = False
 
     explicit_expected_count_floor_preserved = bool(
         expected_count_value > 0
-        and expected_count_value < int(full_regression_recommended_floor or 0)
         and effective_mode == "full_functional_regression"
     )
     return {

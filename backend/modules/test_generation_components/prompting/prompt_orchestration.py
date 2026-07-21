@@ -48,7 +48,7 @@ def _build_closed_loop_snapshot(
             }
         module_stats[module]["total"] += 1
         kind = infer_case_kind_fn(case)
-        if kind == "happy_path":
+        if kind in ("happy_path", "workflow_entry"):
             module_stats[module]["happy"] += 1
         elif kind == "validation_boundary":
             module_stats[module]["validation"] += 1

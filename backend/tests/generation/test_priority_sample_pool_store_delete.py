@@ -375,7 +375,7 @@ def test_raw_sample_pool_dedup_uses_title_and_business_assertion() -> None:
     assertions = {item.get("business_assertion") for item in raw}
     assert "展示排行榜数据和前三名用户" in assertions
     assert "展示个人学习进度和已完成讲次" in assertions
-    assert all(item.get("category_label") == "人工业务覆盖" for item in raw)
+    assert all(item.get("category_label") == "manual_final_business_coverage" for item in raw)
     assert all(item.get("category_source") == "backend_inferred" for item in raw)
 
 
@@ -408,7 +408,7 @@ def test_raw_sample_pool_strips_execution_scaffold_from_learned_pattern() -> Non
     assert scaffold.get("fixture_key") == "community_tab_sorting_dataset"
 
 
-def test_raw_sample_pool_normalization_cleans_legacy_hardcoded_comments() -> None:
+def test_raw_sample_pool_normalization_preserves_source_comments_verbatim() -> None:
     raw = normalize_raw_priority_samples([
         {
             "sample_id": "legacy-final-comment",
@@ -427,8 +427,12 @@ def test_raw_sample_pool_normalization_cleans_legacy_hardcoded_comments() -> Non
     ])
 
     assert len(raw) == 2
-    assert all(item.get("user_comment") == "" for item in raw)
-    assert all(item.get("userComment") == "" for item in raw)
+    expected_comments = {
+        "Linked human-final case; extra business coverage is positive evidence, not an anomaly.",
+        "AI-only case is treated as negative only because it has a clear quality failure; missing from human final alone is not enough.",
+    }
+    assert {item.get("user_comment") for item in raw} == expected_comments
+    assert {item.get("userComment") for item in raw} == expected_comments
 
 
 def test_raw_sample_pool_generated_ids_do_not_overwrite_workflow_blueprints() -> None:
@@ -684,11 +688,13 @@ class TestDataContractNormalization:
         sample = store.normalize_priority_sample({})
         assert sample.get("confidence") == 0.5
 
-    def test_legacy_source_maps_to_canonical_source_type(self):
+    def test_unknown_legacy_sources_fall_back_to_manual_pool_input(self):
         sample = store.normalize_priority_sample({"source": "quality_evaluation_defect_analysis"})
-        assert sample.get("source_type") == "quality_evaluation_defect"
+        assert sample.get("source_type") == "manual_pool_input"
+        assert sample.get("source") == "manual_pool_input"
         sample2 = store.normalize_priority_sample({"source": "linked_final_test_case"})
-        assert sample2.get("source_type") == "linked_final_case_pattern"
+        assert sample2.get("source_type") == "manual_pool_input"
+        assert sample2.get("source") == "manual_pool_input"
 
 
 # ── Three-layer model tests ────────────────────────────────────────

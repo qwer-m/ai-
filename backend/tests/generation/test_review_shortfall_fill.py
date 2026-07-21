@@ -77,9 +77,9 @@ def test_stream_postprocess_does_not_backfill_on_review_shortfall() -> None:
     client = _ShortReviewClient()
     full_content = """
     [
-      {"id":"TC-001","description":"stream-1","test_module":"module-a","preconditions":[],"steps":["s1"],"test_input":"i1","expected_result":"ok1","priority":"P0"},
-      {"id":"TC-002","description":"stream-2","test_module":"module-a","preconditions":[],"steps":["s2"],"test_input":"i2","expected_result":"ok2","priority":"P1"},
-      {"id":"TC-003","description":"stream-3","test_module":"module-a","preconditions":[],"steps":["s3"],"test_input":"i3","expected_result":"ok3","priority":"P2"}
+      {"id":"TC-001","description":"create schedule record","test_module":"module-a","preconditions":["schedule form is open"],"steps":["submit a new schedule"],"test_input":"schedule=A","expected_result":"API returns 201 and the list contains schedule A with active status","priority":"P0"},
+      {"id":"TC-002","description":"update schedule owner","test_module":"module-a","preconditions":["schedule A exists"],"steps":["change the owner to teacher B"],"test_input":"owner=teacher B","expected_result":"the detail page owner field equals teacher B and the version increases by one","priority":"P1"},
+      {"id":"TC-003","description":"delete schedule record","test_module":"module-a","preconditions":["schedule B exists"],"steps":["delete schedule B"],"test_input":"schedule=B","expected_result":"searching by schedule B returns zero records and the delete audit event exists","priority":"P2"}
     ]
     """
 
@@ -90,7 +90,7 @@ def test_stream_postprocess_does_not_backfill_on_review_shortfall() -> None:
         if "QA Auditor" in prompt:
             return """
             [
-              {"id":"TC-001","description":"stream-1","test_module":"module-a","preconditions":[],"steps":["s1"],"test_input":"i1","expected_result":"ok1","priority":"P0"}
+              {"id":"TC-001","description":"create schedule record","test_module":"module-a","preconditions":["schedule form is open"],"steps":["submit a new schedule"],"test_input":"schedule=A","expected_result":"API returns 201 and the list contains schedule A with active status","priority":"P0"}
             ]
             """
         return original_generate_response(requirement, prompt, db=db, **kwargs)
@@ -125,5 +125,5 @@ def test_stream_postprocess_does_not_backfill_on_review_shortfall() -> None:
     # from candidate pool instead of collapsing to a single retained case.
     assert len(final_cases) >= 2
     descriptions = {item.get("description") for item in final_cases}
-    assert "stream-1" in descriptions
+    assert "create schedule record" in descriptions
     assert len(descriptions) >= 2

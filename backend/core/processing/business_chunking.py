@@ -41,9 +41,6 @@ def _extract_first_module_hint(text: str) -> str | None:
         m = re.search(r"(?:模块|功能模块|模块名称)\s*[:：]\s*([^\n]{1,40})", line, flags=re.I)
         if m:
             return m.group(1).strip()
-        if len(line) <= 30:
-            return line
-        break
     return None
 
 
@@ -90,8 +87,9 @@ class RequirementChunker:
             fallback = SemanticChunker().chunk(text)
             module_hint = _extract_first_module_hint(text)
             for item in fallback:
-                item.module = module_hint
-                item.biz_key = extract_biz_key(item.text, module_hint or "")
+                chunk_module = _extract_first_module_hint(item.text) or module_hint
+                item.module = chunk_module
+                item.biz_key = extract_biz_key(item.text, chunk_module or "")
             logger.debug("RequirementChunker fallback semantic_chunks=%s", len(fallback))
             return fallback
 
@@ -103,11 +101,12 @@ class RequirementChunker:
                 continue
             req_match = self._REQ_ID_RE.search(block_text[:160])
             requirement_id = req_match.group(0).upper().replace(" ", "") if req_match else None
+            block_module = _extract_first_module_hint(block_text) or module_hint
             results.append(
                 Chunk(
                     text=block_text,
-                    module=module_hint,
-                    biz_key=extract_biz_key(block_text, module_hint or ""),
+                    module=block_module,
+                    biz_key=extract_biz_key(block_text, block_module or ""),
                     requirement_id=requirement_id,
                 )
             )

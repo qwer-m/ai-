@@ -136,10 +136,12 @@ def resolve_review_priority_fields(
     if retained and not unresolved_priority_decision:
         planned_priority_value = str(final_priority_by_signature.get(signature) or "").strip().upper()
         if planned_priority_value in _VALID_PRIORITY_VALUES:
+            priority_changed_by_plan = planned_priority_value != priority_final_value
             priority_final_value = planned_priority_value
-            if not priority_resolution_reason_value:
+            if priority_changed_by_plan:
                 priority_resolution_reason_value = "priority_final_reflected_from_execution_plan"
-            if not priority_decision_source_value or priority_decision_source_value == "insufficient_evidence":
+                priority_decision_source_value = "execution_plan_final_priority"
+            elif not priority_decision_source_value or priority_decision_source_value == "insufficient_evidence":
                 priority_decision_source_value = "execution_plan_final_priority"
     if priority_decision_state_value not in _ALLOWED_PRIORITY_DECISION_STATES:
         if priority_final_value in _VALID_PRIORITY_VALUES:

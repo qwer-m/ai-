@@ -49,6 +49,38 @@ def test_base_prompt_declares_execution_order_contract() -> None:
     assert "Do not interleave UI/display" in prompt
 
 
+def test_base_prompt_uses_structured_targets_without_fixed_coverage_templates() -> None:
+    prompt = build_closed_loop_base_prompt(
+        strategy_plan={
+            "system_type": "Web",
+            "impact_scope": "module",
+            "suggested_ratios": {
+                "functional": 0.6,
+                "regression": 0.2,
+                "non_functional": 0.2,
+            },
+            "coverage_targets": {
+                "target_case_range": {"min": 12, "max": 18},
+                "focus": ["REQ-1", "REQ-2"],
+            },
+        },
+        requirement_context="REQ context",
+        control_context="### FUNCTIONAL MODULE CONTRACT\n* A\n* A -> B",
+        current_biz_key="generic_flow",
+    )
+
+    assert '"coverage_targets"' in prompt
+    assert '"min": 12' in prompt
+    assert "FUNCTIONAL MODULE CONTRACT" in prompt
+    assert "At least 30%" not in prompt
+    assert "At least 20%" not in prompt
+    assert "must be <= 40%" not in prompt
+    assert "same-type cases <= 2" not in prompt
+    assert "每个模块必须包含" not in prompt
+    assert "Recommended range: 30-50" not in prompt
+    assert "Functional: 60%" not in prompt
+
+
 def test_gap_fill_prompt_consumes_coverage_result() -> None:
     prompt = build_gap_fill_prompt(
         requirement_context="REQ-023 close org only when balance is zero",

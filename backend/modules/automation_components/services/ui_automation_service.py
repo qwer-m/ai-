@@ -10,7 +10,6 @@ from core.db.models import UITestCase
 from core.processing.workflow import WorkflowKind, WorkflowStage, log_workflow_trace
 from modules.automation_components.repositories.ui_automation_repository import UIAutomationRepository
 from modules.automation_components.services.ui_automation_export_service import UIAutomationExportService
-from modules.orchestration.context_orchestrator import context_orchestrator
 from modules.testing.ui_automation import ui_automator
 
 
@@ -91,28 +90,28 @@ class UIAutomationService:
             return str(requirement_context)
 
         project_id = int(payload.get("project_id") or 0)
-        task = str(payload.get("task") or "")
-        context_bundle = context_orchestrator.assemble_context(
-            WorkflowKind.UI_AUTOMATION,
-            project_id,
-            self._db,
-            user_id=user_id,
-            query_text=task[:500],
-            requirement_text=task[:1000],
-            include_knowledge=True,
-            include_logs=True,
-            knowledge_limit=4,
-            log_limit=10,
-        )
+        operation = self._operation(payload)
+        steps = operation.get("steps") or []
+        context = ""
+        if steps:
+            context = "[当前 UI 操作步骤]\n" + "\n".join(
+                f"{index}. {step}" for index, step in enumerate(steps, start=1)
+            )
         log_workflow_trace(
             self._db,
             project_id,
             user_id,
             WorkflowKind.UI_AUTOMATION,
             WorkflowStage.CONTEXT,
-            {"action": "assemble_ui_context", "auto_context": True, **context_bundle["diagnostics"]},
+            {
+                "action": "assemble_ui_context",
+                "auto_context": False,
+                "source": "operation_steps",
+                "step_count": len(steps),
+                "combined_length": len(context),
+            },
         )
-        return context_bundle["combined_context"] or None
+        return context or None
 
     def list_history(self, *, project_id: int, user_id: int) -> tuple[str, list[dict[str, Any]]]:
         if not self.has_owned_project(project_id=project_id, user_id=user_id):
@@ -239,6 +238,8 @@ class UIAutomationService:
             test_case_id=None,
             auth_token=token,
             script_path=None,
+            image_model=payload.get("image_model"),
+            require_semantic_verification=True,
         )
         return "ok", {"script": script, "operation": operation, "result": result}
 

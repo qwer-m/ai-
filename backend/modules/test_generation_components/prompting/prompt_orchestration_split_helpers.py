@@ -1,6 +1,24 @@
-from typing import Any, Callable
+import json
+from typing import Any
 
 from ..postprocess.streaming_execution_plan_ordering import execution_side_suite_order_text
+
+
+def _render_structured_strategy(plan: dict[str, Any]) -> str:
+    """只透传元分析已有的结构化策略，不在提示词层补默认配额。"""
+    payload = {
+        key: plan.get(key)
+        for key in (
+            "system_type",
+            "impact_scope",
+            "complexity",
+            "coverage_targets",
+        )
+        if plan.get(key) not in (None, "", [], {})
+    }
+    if not payload:
+        return "(none; derive coverage from confirmed requirement/control evidence)"
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
 def build_closed_loop_base_prompt(
     strategy_plan: dict[str, Any] | None,
@@ -16,7 +34,7 @@ def build_closed_loop_base_prompt(
 ) -> str:
     """Layered workflow-first base prompt used by JSON/stream generation."""
     plan = strategy_plan or {}
-    ratios = plan.get("suggested_ratios", {}) or {}
+    structured_strategy = _render_structured_strategy(plan)
     requirement_context = (requirement_context or "").strip() or "(empty)"
     requirement_semantics_context = (requirement_semantics_context or "").strip() or "(empty)"
     testcase_context = (testcase_context or "").strip() or "(empty)"
@@ -34,35 +52,32 @@ Primary objective: prioritize core business workflow coverage and high-risk beha
 {control_context}
 
 OBJECTIVE RULES:
-1. Prioritize full workflow coverage (entry -> learning -> interaction -> practice -> completion -> return).
+1. Prioritize the complete workflow explicitly supported by requirement/control evidence; do not invent missing domain stages.
 2. Prioritize key state transitions (loading, switching, interruption, recovery, exception).
 3. Prioritize cross-page / cross-module behavior chains.
 4. Prioritize real user paths over single-widget checks.
 5. If a case cannot map to business workflow or state transition, lower its priority.
 
 GENERATION STRATEGY (STRICT ORDER):
-1) Workflow-path cases first (must include):
-- End-to-end learning loop closure
-- Correct page navigation
-- Reasonable interruption/recovery behavior
-- Multi-step operation consistency
-2) State/data-change cases second:
-- Data load / refresh / switch behavior
-- State consistency across grade/version/page switches
-- Race / duplicate request / overwrite risks
-3) Exception-path cases third:
-- Network failure
-- Missing data
-- Invalid input
-- Boundary conditions
-4) UI/display cases last:
-- Style/color/copy checks are supplemental only
-- Do not over-generate pure display cases
+1) Workflow-contract cases first:
+- Follow explicit workflow blueprints, flow order, module interactions, and confirmed state transitions.
+- Keep entry, action, resulting state, and downstream visibility in an executable order when the evidence defines them.
+2) Rule/state cases second:
+- Cover distinct confirmed rules and observable before/after state differences.
+- Treat explicitly documented scope, role, version, page, and data boundaries as inputs instead of inventing a generic matrix.
+3) Evidence-backed exception/risk cases third:
+- Generate only failures, recovery behavior, validation boundaries, and risks supported by requirement/control evidence.
+- Do not inject a standard exception catalog into every module.
+4) Presentation-only UI/display cases last:
+- Workflow entries, clickable controls, navigation, and state-changing UI interactions belong to the business workflow.
+- Missing, blocked, invisible, or non-clickable core entries are workflow-blocking failures; priority follows business impact.
+- Style/color/copy/spacing checks that do not affect workflow are supplemental only.
+- Do not over-generate presentation-only cases.
 
 PRIORITY ASSIGNMENT (BUSINESS IMPACT FIRST):
-- P1: core workflow break, wrong page jump, learning-path abnormality, state/data errors affecting usability
+- P1: core workflow break, wrong page jump, requirement-backed business-path abnormality, state/data errors affecting usability
 - P2: UI display issues, copy issues, style issues, non-core interaction issues
-- UI-only cases must NOT be P1 unless they block core workflow.
+- Presentation-only cases must NOT be P1 unless the presentation defect blocks the core workflow.
 - If any issue meets global P0 criteria in this prompt, escalate it to P0.
 
 NEGATIVE CONSTRAINTS (WEAK, FOR DEDUP ONLY):
@@ -72,18 +87,17 @@ NEGATIVE CONSTRAINTS (WEAK, FOR DEDUP ONLY):
 - Reduce micro interactions unrelated to business workflow
 - These constraints must NOT override workflow/state generation.
 
-DIVERSITY REQUIREMENTS:
-- At least 30% workflow/path cases
-- At least 20% state/data-change cases
-- UI/display cases must be <= 40%
-- Avoid semantic duplicates (same-type cases <= 2)
+COVERAGE BALANCE:
+- Follow explicit coverage targets, rule quotas, functional-module contracts, and workflow blueprints from the structured strategy/control context.
+- Allocate cases by distinct confirmed rules, observable state transitions, and business impact; do not apply an implicit percentage or per-scenario quota.
+- Remove semantic duplicates while preserving cases with materially different preconditions, actions, state transitions, or expected outcomes.
 
 FINAL CHECK BEFORE OUTPUT:
 1. Is the full main workflow covered?
 2. Is there cross-page or cross-module behavior?
 3. Are state transitions or data changes covered?
 4. Are there obvious duplicate cases?
-5. Are UI/display cases too many?
+5. Are presentation-only UI/display cases too many?
 If not satisfied, revise before output.
 """
     base_prompt = f"""You are the QA Architect Agent.
@@ -142,11 +156,7 @@ STRATEGY ORDER (must obey top-down):
 S0 - Workflow / Closed-loop (HIGHEST PRIORITY):
 1. 按用户旅程、页面、业务节点顺序拆分模块
 2. 当前模块未闭环时，禁止跳到下一个模块
-3. 每个模块必须包含：
-   - Happy Path
-   - Boundary / Validation
-   - Exception / Error Handling
-   - 至少一个关键风险（权限 / 安全 / 性能）
+3. 对 control context 明确列出的功能模块，覆盖其显式功能、规则和状态转换；边界、异常和非功能风险仅在需求或控制证据支持时生成，不强制所有模块套用同一分类清单。
 4. 必须先模块内闭环，再考虑全局
 5. JSON 数组顺序就是执行计划顺序，不是普通列表排序。
 
@@ -180,21 +190,14 @@ MANDATORY TEST CASE DESIGN PRINCIPLES (5 Pillars):
 
 S2 - Global Guidance (REFERENCE ONLY):
 
-SYSTEM TYPE: {plan.get('system_type')}
-IMPACT SCOPE: {plan.get('impact_scope')}
-
-Target Ratios (reference only):
-- Functional: {int(float(ratios.get('functional', 0.6)) * 100)}%
-- Regression: {int(float(ratios.get('regression', 0.2)) * 100)}%
-- Non-Functional: {int(float(ratios.get('non_functional', 0.2)) * 100)}%
+STRUCTURED STRATEGY PLAN:
+{structured_strategy}
 
 Case Volume Guidance (reference only):
-- 数量只是参考，不是完成指标
-- 严禁为了凑数量引入重复、低价值或杜撰用例
-- 若继续生成不再产生信息增益，必须停止
-- Recommended range: 30-50 test cases.
-- There is NO requirement to reach the upper bound.
-- Quality and coverage are more important than quantity.
+- Use an explicit expected_count or structured coverage target when one is provided by the request/control data.
+- If no explicit target exists, determine scope from confirmed rules, functional modules, module interactions, and workflow blueprints; do not assume a default range.
+- Do not introduce repeated, low-value, or speculative cases merely to increase count.
+- Quality, business closure, and evidence-backed coverage take precedence over quantity.
 
 ⚠️ 若与 S0/S1 冲突，必须优先质量与闭环，不得为数量让步
 
@@ -262,10 +265,7 @@ Constraints:
 1. Ensure coverage of all explicitly stated Requirement rules.
    Do NOT infer, invent, or extrapolate rules beyond the provided context.
    If a scenario is not supported by explicit evidence, do NOT generate a test case for it.
-2. 每个模块是否闭环：
-   - Happy Path
-   - Boundary
-   - Exception
+2. 每个已开始的功能模块是否覆盖其显式规则和可观察状态闭环？是否错误套用了需求未支持的统一分类清单？
 3. 是否遗漏关键边界？
 4. 是否存在重复验证点？
 5. 是否引入了未定义规则？（禁止）

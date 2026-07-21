@@ -83,6 +83,7 @@ def run_json_generation_execution(
         system_prompt,
         db=db,
         task_type="generation",
+        response_mode="json",
     )
     result = finalize_generated_cases_fn(
         response,

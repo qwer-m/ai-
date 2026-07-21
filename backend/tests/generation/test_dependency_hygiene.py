@@ -269,7 +269,6 @@ forbidden = [
     "modules.test_generation_components.control.build_feedback_control_state",
     "modules.test_generation_components.prompting.structured_context",
     "modules.test_generation_components.postprocess.result_postprocess",
-    "modules.test_generation_components.coverage.core_flow_backfill_generation",
 ]
 print(json.dumps({"loaded": [name for name in forbidden if name in sys.modules]}))
 """,
@@ -319,7 +318,7 @@ print(json.dumps({"loaded": [name for name in forbidden if name in sys.modules]}
     assert payload["loaded"] == []
 
 
-def test_stream_quality_gate_summary_does_not_load_backfill_generation_runtime() -> None:
+def test_stream_quality_gate_summary_does_not_load_heavy_runtime() -> None:
     result = _run_python_with_backend_path(
         """
 import importlib
@@ -340,7 +339,6 @@ forbidden = [
     "core.db.models",
     "core.db.database",
     "core.cache_layer.cache",
-    "modules.test_generation_components.coverage.core_flow_backfill_generation",
 ]
 print(json.dumps({
     "passed": summary.get("passed"),
@@ -428,10 +426,6 @@ pairs = [
     (
         "modules.test_generation_components.prompting.structured_context",
         "modules.testing.test_generation_components.prompting.structured_context",
-    ),
-    (
-        "modules.test_generation_components.coverage.core_flow_backfill_generation",
-        "modules.testing.test_generation_components.coverage.core_flow_backfill_generation",
     ),
     (
         "modules.test_generation_components.control.feedback_control_state",
@@ -533,7 +527,6 @@ print(json.dumps({
     "embedding_timeout": settings.EMBEDDING_TIMEOUT_SECONDS,
     "max_tokens": settings.MAX_TOKENS,
     "redis_port": settings.REDIS_PORT,
-    "coverage_ratio": settings.CORE_FLOW_BACKFILL_MIN_COVERAGE_RATIO,
     "state_coverage": settings.EXECUTION_PLAN_MIN_STATE_FIELD_COVERAGE,
 }))
 """,
@@ -541,7 +534,6 @@ print(json.dumps({
             "EMBEDDING_TIMEOUT_SECONDS": "bad",
             "MAX_TOKENS": "bad",
             "REDIS_PORT": "70000",
-            "CORE_FLOW_BACKFILL_MIN_COVERAGE_RATIO": "1.5",
             "EXECUTION_PLAN_MIN_STATE_FIELD_COVERAGE": "-0.1",
         },
     )
@@ -552,7 +544,6 @@ print(json.dumps({
         "embedding_timeout": 30.0,
         "max_tokens": 10000,
         "redis_port": 65535,
-        "coverage_ratio": 1.0,
         "state_coverage": 0.0,
     }
 

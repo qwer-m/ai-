@@ -7,47 +7,11 @@ from .postprocess_priority_config import (
     p0_keywords as _cfg_p0_keywords,
     p1_keywords as _cfg_p1_keywords,
     p2_keywords as _cfg_p2_keywords,
-    strong_p0_ai_scoring_tokens,
-    strong_p0_payment_gate_tokens,
-    strong_p0_submit_report_tokens,
-    strong_p0_week_boundary_tokens,
-    strong_p0_wrong_collection_tokens,
 )
 from .result_postprocess_priority_rules import (
     _contains_any,
     _normalize_existing_priority,
 )
-
-
-def _contains_strong_p0_signal(case_text: str) -> bool:
-    text = str(case_text or "").lower()
-    payment_gate = _contains_any(
-        text,
-        strong_p0_payment_gate_tokens(),
-    )
-    ai_scoring = _contains_any(
-        text,
-        strong_p0_ai_scoring_tokens(),
-    )
-    wrong_collection = _contains_any(
-        text,
-        strong_p0_wrong_collection_tokens(),
-    )
-    week_boundary_or_makeup = _contains_any(
-        text,
-        strong_p0_week_boundary_tokens(),
-    )
-    submit_report_closure = _contains_any(
-        text,
-        strong_p0_submit_report_tokens(),
-    )
-    return bool(
-        payment_gate
-        or ai_scoring
-        or wrong_collection
-        or week_boundary_or_makeup
-        or submit_report_closure
-    )
 
 
 def _build_priority_decision(

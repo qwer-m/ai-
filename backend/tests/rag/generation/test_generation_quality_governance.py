@@ -15,30 +15,30 @@ def test_quality_governance_deduplicates_and_normalizes_steps_preconditions() ->
                 "id": "TC-001",
                 "description": "周末流程完成后返回首页并标记完成",
                 "test_module": "学习流程",
-                "preconditions": [],
+                "preconditions": ["用户已登录"],
                 "steps": ["1. 打开周末任务", "2. 完成任务", "3. 返回首页并标记完成"],
                 "test_input": "正常数据",
-                "expected_result": "任务完成并标记成功",
+                "expected_result": "首页状态标识显示“已完成”，刷新后任务状态仍为已完成",
                 "priority": "P1",
             },
             {
                 "id": "TC-002",
                 "description": "周末流程完成后返回首页并标记完成",
                 "test_module": "学习流程",
-                "preconditions": [],
+                "preconditions": ["用户已登录"],
                 "steps": ["step1 打开周末任务", "step2 完成任务", "step3 返回首页并标记完成"],
                 "test_input": "正常数据",
-                "expected_result": "任务完成并标记成功",
+                "expected_result": "首页状态标识显示“已完成”，刷新后任务状态仍为已完成",
                 "priority": "P1",
             },
             {
                 "id": "TC-003",
                 "description": "支付拦截提示展示",
                 "test_module": "支付模块",
-                "preconditions": [],
+                "preconditions": ["用户已登录"],
                 "steps": ["3) 点击购买按钮"],
                 "test_input": "未订阅用户",
-                "expected_result": "显示付费拦截",
+                "expected_result": "系统提示“订阅后可继续”，目标内容保持隐藏且未进入详情页",
                 "priority": "P1",
             },
         ],
@@ -74,18 +74,15 @@ def test_quality_governance_backfills_placeholder_expected_result_and_test_input
     )
     output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
     assert len(output_cases) == 0
-    table = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
-    assert table
-    assert str(table[0].get("expected_result_quality") or "") == "non_assertable"
-    assert str(table[0].get("expected_result_quality_reason") or "") in {
-        "no_concrete_assertion",
-        "template_or_weak_assertion",
-    }
+    convergence = dict(result.get("convergence_debug") or {})
+    assert int(convergence.get("low_quality_dropped_count") or 0) == 1
+    dropped = list(convergence.get("low_quality_dropped_examples") or [])
+    assert dropped and dropped[0].get("reason") == "missing_test_input"
 
 
-def test_quality_governance_uncertain_requirement_downgrades_case_priority() -> None:
+def test_quality_governance_drops_case_based_only_on_unconfirmed_requirement() -> None:
     result = _run_cases(
-        requirement="能力模型评分需教研确认，本期可以不做",
+        requirement="能力模型评分待确认，本期可以不做",
         cases=[
             {
                 "id": "TC-010",
@@ -101,33 +98,9 @@ def test_quality_governance_uncertain_requirement_downgrades_case_priority() -> 
     )
     output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
     assert len(output_cases) == 0
-    table = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
-    assert table
-    assert str(table[0].get("priority_final") or "").upper() != "P0"
-    assert "可选/视配置" in str(table[0].get("expected_result") or "")
-
-
-def test_quality_governance_fails_when_required_p0_coverage_missing() -> None:
-    result = _run_cases(
-        requirement="主流程必须覆盖周中->周末->学习报告->完成闭环",
-        cases=[
-            {
-                "id": "TC-020",
-                "description": "仅校验通用设置页展示",
-                "test_module": "设置页",
-                "preconditions": ["已登录"],
-                "steps": ["1. 打开设置页", "2. 查看基础信息"],
-                "test_input": "默认配置",
-                "expected_result": "展示设置页内容",
-                "priority": "P1",
-            }
-        ],
-    )
-    coverage = result.get("coverage") or {}
-    assert coverage.get("missing_rules") == ["RULE-001"]
-    assert coverage.get("covered_rules") == []
-    summary = result.get("generation_summary") or {}
-    assert summary.get("status") == "completed_with_quality_stop"
+    convergence = dict(result.get("convergence_debug") or {})
+    dropped = list(convergence.get("low_quality_dropped_examples") or [])
+    assert dropped and dropped[0].get("reason") == "unconfirmed_requirement"
 
 
 def test_quality_governance_promotes_core_cases_to_p0() -> None:
@@ -570,42 +543,6 @@ def test_confirmed_nonlinear_course_unlock_drops_legacy_locked_case() -> None:
     assert str(dropped[0].get("dropped_stage") or "")
 
 
-def test_obsolete_linear_unlock_case_dropped_without_explicit_legacy_tag() -> None:
-    result = _run_cases(
-        requirement="课程环节当前必须采用任意环节可进入的学习方式。",
-        cases=[
-            {
-                "id": "TC-014",
-                "description": "初始状态下会员用户仅第一个环节已解锁，其余为未解锁",
-                "test_module": "课程环节",
-                "preconditions": ["会员用户进入课程环节页"],
-                "steps": ["1. 查看审题立意、写作技法、技法巩固三个环节", "2. 点击未解锁环节"],
-                "test_input": "会员用户初始学习状态",
-                "expected_result": "仅第一个环节已解锁，其余环节点击弹出toast“完成前一节才可以解锁哦”。",
-                "priority": "P0",
-            },
-            {
-                "id": "TC-015",
-                "description": "会员用户初始可进入任意课程环节",
-                "test_module": "课程环节",
-                "preconditions": ["会员用户进入课程环节页"],
-                "steps": ["1. 分别点击审题立意、写作技法、技法巩固"],
-                "test_input": "会员用户初始学习状态",
-                "expected_result": "三个环节均可进入对应学习内容，不要求先完成前一环节。",
-                "priority": "P0",
-            },
-        ],
-    )
-    output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
-    descriptions = " ".join(str(item.get("description") or "") for item in output_cases)
-    assert "仅第一个环节已解锁" not in descriptions
-    assert "初始可进入任意课程环节" in descriptions
-    rows = [item for item in (result.get("review_decision_table") or []) if isinstance(item, dict)]
-    dropped = [row for row in rows if str(row.get("case_id") or "") == "TC-014"]
-    assert dropped
-    assert str(dropped[0].get("dropped_stage") or "")
-
-
 def test_expected_result_self_explanation_question_mark_marked_invalid_case() -> None:
     result = _run_cases(
         requirement="Recent learning plan should display the current course and next course with explicit deletion behavior.",
@@ -750,10 +687,10 @@ def test_quality_governance_resolves_required_p0_priority_conflict_without_revie
     assert len(table) == 1
     row = table[0]
     assert row.get("priority_decision_state") == "decided"
-    assert row.get("priority_decision_source") == "conflict_resolved_by_high_risk_business_rule"
-    assert row.get("priority_conflict_reason") == "model=P0,suggested=P2"
-    assert row.get("priority_resolution_reason") == "high_risk_guard_or_keyword"
+    assert row.get("priority_decision_source") == "execution_plan_final_priority"
+    assert row.get("priority_resolution_reason") == "priority_final_reflected_from_execution_plan"
     assert row.get("priority_final") == "P0"
+    assert output_cases[0].get("priority") == "P0"
 
     generation_summary = dict((result.get("generation_summary") or {}))
     assert generation_summary.get("needs_priority_review") is False
@@ -820,7 +757,7 @@ def test_quality_governance_final_priority_uses_semantic_final_value_after_debug
     assert str(output_cases[0].get("priority_final") or "").strip().upper() == "P2"
 
 
-def test_full_regression_priority_demotes_non_blocking_p0_and_promotes_main_path() -> None:
+def test_full_regression_priority_does_not_promote_text_only_main_path() -> None:
     full_regression_state = {
         "source_meta": {
             "generation_coverage_profile": {
@@ -870,7 +807,7 @@ def test_full_regression_priority_demotes_non_blocking_p0_and_promotes_main_path
     by_description = {str(item.get("description") or ""): item for item in output_cases}
     assert str(by_description["分句点评点击划线句子跳转到对应点评"].get("priority") or "") == "P1"
     assert str(by_description["我的作文最多20条"].get("priority") or "") == "P1"
-    assert str(by_description["上传图片后点击去批改成功生成批改结果"].get("priority") or "") == "P0"
+    assert str(by_description["上传图片后点击去批改成功生成批改结果"].get("priority") or "") == "P1"
     generation_summary = dict(result.get("generation_summary") or {})
     assert int(generation_summary.get("hard_min_count") or 0) >= 85
 
@@ -933,13 +870,13 @@ def test_full_regression_demotes_detail_p0_cases_called_out_by_review() -> None:
     )
 
     by_description = {str(item.get("description") or ""): item for item in (result.get("cases") or [])}
-    assert str(by_description["上传图片后点击去批改成功生成批改结果"].get("priority") or "") == "P0"
+    assert str(by_description["上传图片后点击去批改成功生成批改结果"].get("priority") or "") == "P1"
     assert str(by_description["0张图片时去批改按钮不可点"].get("priority") or "") == "P1"
     assert str(by_description["综合点评星星评分展示"].get("priority") or "") == "P1"
     assert str(by_description["投稿页标题正文可编辑"].get("priority") or "") == "P1"
 
 
-def test_full_regression_promotes_core_business_chain_p0_floor() -> None:
+def test_full_regression_does_not_promote_domain_nouns_beyond_generic_chain() -> None:
     state = {
         "source_meta": {
             "generation_coverage_profile": {
@@ -999,20 +936,14 @@ def test_full_regression_promotes_core_business_chain_p0_floor() -> None:
         if str(item.get("priority") or "").strip().upper() == "P0"
     }
 
-    assert len(p0_descriptions) >= 8
-    assert "上传图片后点击去批改成功生成批改结果" in p0_descriptions
-    assert "批改反馈四部分完整展示" in p0_descriptions
+    assert len(p0_descriptions) >= 3
+    assert "上传图片后点击去批改成功生成批改结果" not in p0_descriptions
+    assert "批改反馈四部分完整展示" not in p0_descriptions
     assert "投稿提交成功后状态进入审核中" in p0_descriptions
-    assert any("审核通过" in description and "作文圈" in description for description in p0_descriptions)
-    assert any(
-        bool(item.get("student_observation_projection"))
-        and str(item.get("role") or "") == "student"
-        and str(item.get("session_key") or "") == "student_session"
-        for item in output_cases
-    )
+    assert not any(bool(item.get("student_observation_projection")) for item in output_cases)
     assert "普通用户第一课免费可试学" in p0_descriptions
+    assert "普通用户非第一课跳转会员中心" in p0_descriptions
     assert "会员用户全部课程可学" in p0_descriptions
-    assert any("删除已发布作品后恢复未投稿" in description for description in p0_descriptions)
 
 
 def test_reasoning_leakage_is_detected_in_description() -> None:

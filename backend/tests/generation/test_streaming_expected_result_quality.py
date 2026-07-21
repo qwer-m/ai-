@@ -8,14 +8,14 @@ from modules.test_generation_components.postprocess.streaming_expected_result_qu
     looks_template_polluted_expected_result,
     looks_truncated_text,
 )
-from modules.test_generation_components.coverage.core_flow_backfill_generation import (
+from modules.test_generation_components.coverage.case_quality_gate import (
     summarize_case_quality_gate,
 )
 
 
 def test_expected_result_quality_detects_concrete_assertions() -> None:
-    assert has_concrete_expected_assertion("系统提示“课程保存成功”")
-    assert has_concrete_expected_assertion("剩余批改次数显示为 2/5")
+    assert has_concrete_expected_assertion("系统提示“记录保存成功”")
+    assert has_concrete_expected_assertion("剩余次数显示为 2/5")
     assert has_concrete_expected_assertion("按钮置灰且不可点击")
     assert not has_concrete_expected_assertion("结果符合预期")
 
@@ -28,7 +28,7 @@ def test_expected_result_quality_marks_weak_or_placeholder_results_non_assertabl
 
 
 def test_expected_result_quality_allows_ambiguous_text_when_specific_assertion_exists() -> None:
-    text = "可能显示系统提示“课程保存成功”"
+    text = "可能显示系统提示“记录保存成功”"
 
     assert is_ambiguous_expected_result(text)
     assert has_concrete_expected_assertion(text)
@@ -37,7 +37,7 @@ def test_expected_result_quality_allows_ambiguous_text_when_specific_assertion_e
 
 
 def test_expected_result_quality_allows_multiclause_business_assertions_with_option_text() -> None:
-    text = "上课日支持多选；默认每节2小时；时间段可选8:00-10:00；预览中按所选日期生成课程"
+    text = "执行日支持多选；默认每项2小时；时间段可选8:00-10:00；预览中按所选日期生成计划"
 
     assert is_ambiguous_expected_result(text)
     assert has_concrete_expected_assertion(text)
@@ -62,8 +62,8 @@ def test_expected_result_quality_allows_multiclause_business_assertions_with_opt
 def test_expected_result_quality_allows_boundary_state_and_conflict_assertions() -> None:
     texts = [
         "默认每节2小时，一天最多只能设置5节，第6节无法添加或提示超出限制",
-        "当前在学课程正常展示，下一节课读取最新计划中最近的一节课程",
-        "1.系统自动标记冲突课程并提示时间冲突；2.需手动微调时间解决冲突；3.手动调整后后续课程按规则自动顺延",
+        "当前执行项正常展示；下一项显示为“ITEM-002”，来源字段显示“最新计划”",
+        "1.系统自动标记冲突项并提示时间冲突；2.需手动微调时间解决冲突；3.手动调整后后续项目按规则自动顺延",
     ]
 
     for text in texts:
@@ -88,6 +88,12 @@ def test_expected_result_quality_allows_common_ui_visibility_and_formula_asserti
 def test_expected_result_quality_detects_template_pollution_and_truncation() -> None:
     assert looks_template_polluted_expected_result("应跳转到目标页面，页面路径与标题均与上传图片显隐原图一致")
     assert is_non_assertable_expected_result("应跳转到目标页面，页面路径与标题均与上传图片显隐原图一致")
+    legacy_delete_template = (
+        "执行观察提示及列表变化后，应删除失败场景验证对应记录，"
+        "且列表或查询中不再显示该记录"
+    )
+    assert looks_template_polluted_expected_result(legacy_delete_template)
+    assert is_non_assertable_expected_result(legacy_delete_template)
     assert looks_truncated_text("操作后应正常展")
     assert looks_truncated_text("操作后显示为。")
     assert not looks_truncated_text("操作后显示为已排课")

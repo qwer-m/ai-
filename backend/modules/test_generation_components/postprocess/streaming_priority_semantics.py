@@ -4,7 +4,6 @@ from typing import Any, Callable, Iterable
 
 from .result_postprocess_priority_semantics import apply_priority_semantics_to_cases
 from .streaming_postprocess_utils import _dict_case_items, _rule_diagnostics_payload
-from .streaming_uncertain_requirement import enforce_uncertain_priority_floor
 
 
 def coverage_priority_semantics_result(
@@ -21,7 +20,7 @@ def coverage_priority_semantics_result(
         coverage_context=coverage_context,
         rule_diagnostics=_rule_diagnostics_payload(coverage_context),
     )
-    return enforce_uncertain_priority_floor(_dict_case_items(prioritized)), coverage_context
+    return _dict_case_items(prioritized), coverage_context
 
 
 def apply_coverage_priority_semantics(

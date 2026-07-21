@@ -219,10 +219,12 @@ def propose_from_recurring_signals(
     """
     from .scenario_registry import (
         classify_registered_scenario_family,
+        DOMAIN_POLICIES,
         SCENARIO_FAMILY_POLICIES,
     )
 
     existing_keys = {p.key for p in SCENARIO_FAMILY_POLICIES}
+    registered_domains = {policy.key for policy in DOMAIN_POLICIES}
     proposed: list[RegistryCandidate] = []
 
     for pattern in patterns:
@@ -237,6 +239,8 @@ def propose_from_recurring_signals(
 
         pattern_scope = str(pattern.get("pattern_scope") or "general").strip() or "general"
         if pattern_scope in {"general", "ui", "unknown"}:
+            continue
+        if pattern_scope not in registered_domains:
             continue
         if any(token in pattern_canonical.lower() for token in ("ui-only", "static ui", "layout-only", "copy-only", "display")):
             continue

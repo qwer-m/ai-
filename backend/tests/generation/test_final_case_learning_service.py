@@ -19,7 +19,44 @@ from modules.test_generation_components.control.workflow_blueprint_repository im
 from routers.automation.test_generation_history_routes import FinalCaseLearningRequest
 
 
-def test_final_manual_business_extension_is_positive_not_negative() -> None:
+def _explicit_workflow_case(
+    *,
+    case_id: str,
+    sequence: int,
+    stage_kind: str,
+    action: str,
+    state_in: str,
+    state_out: str,
+    description: str = "",
+    test_module: str = "",
+    expected_result: str = "",
+    actor: str = "business_user",
+    workflow_id: str = "explicit_workflow",
+) -> dict:
+    return {
+        "id": case_id,
+        "description": description,
+        "test_module": test_module,
+        "steps": [action],
+        "expected_result": expected_result,
+        "priority": "P0",
+        "execution_group": "main_smoke",
+        "execution_sequence": sequence,
+        "workflow_transition": {
+            "workflow_id": workflow_id,
+            "stage_kind": stage_kind,
+            "actor": actor,
+            "action": action,
+            "source_state": state_in,
+            "target_state": state_out,
+            "path_type": "positive",
+            "main_path_step": True,
+            "can_advance_main_flow": True,
+        },
+    }
+
+
+def test_final_case_text_does_not_infer_manual_business_extension() -> None:
     generated_cases = [
         {
             "id": "TC-AI-001",
@@ -49,13 +86,14 @@ def test_final_manual_business_extension_is_positive_not_negative() -> None:
     )
 
     assert result["diagnostics"]["positive_sample_count"] == 1
-    assert result["diagnostics"]["manual_business_extension_count"] == 1
+    assert result["diagnostics"]["manual_business_extension_count"] == 0
+    assert result["diagnostics"]["manual_business_extension_candidate_count"] == 0
     assert result["diagnostics"]["negative_sample_count"] == 0
     sample = result["positive_samples"][0]
     assert sample["signal_type"] == "positive"
     assert sample["pattern_usage"] == "prefer"
-    assert sample["manual_business_extension"] is True
-    assert "cross_system" in sample["pattern_category"] or "permission" in sample["pattern_category"]
+    assert sample["manual_business_extension"] is False
+    assert sample["pattern_category"] == "human_final_case"
 
 
 def test_ai_only_is_not_negative_without_clear_quality_failure() -> None:
@@ -179,7 +217,7 @@ def test_final_case_learning_samples_attach_quality_ledger_scope_and_confidence(
     assert positive["pattern_confidence"] > negative["pattern_confidence"]
 
 
-def test_final_case_learning_positive_samples_use_pattern_grain() -> None:
+def test_final_case_learning_plain_text_keeps_structured_neutral_category() -> None:
     final_title = "Verify switching back to course A keeps progress after operating course B"
     result = build_learning_samples_from_final_cases(
         generated_cases=[],
@@ -202,7 +240,9 @@ def test_final_case_learning_positive_samples_use_pattern_grain() -> None:
     assert positive["source_case_title"] == final_title
     assert positive["pattern_scope"] == "project"
     assert positive["pattern_summary"] != final_title
-    assert "状态迁移" in positive["pattern_summary"]
+    assert positive["pattern_category"] == "human_final_case"
+    assert "structured_source:human_final_case" in positive["pattern_summary"]
+    assert "state_transition" not in positive["pattern_summary"]
 
 
 def test_final_case_learning_positive_sample_does_not_prefill_hardcoded_comment() -> None:
@@ -245,8 +285,8 @@ def test_final_case_learning_progress_display_does_not_default_to_state_flow() -
     )
 
     positive = result["positive_samples"][0]
-    assert positive["pattern_category"] == "manual_final_business_coverage"
-    assert "状态迁移" not in positive["pattern_summary"]
+    assert positive["pattern_category"] == "human_final_case"
+    assert "state_transition" not in positive["pattern_summary"]
 
 
 def test_final_case_learning_aggregates_final_cases_into_patterns() -> None:
@@ -278,7 +318,7 @@ def test_final_case_learning_aggregates_final_cases_into_patterns() -> None:
     assert all(item["pattern_grain"] == "pattern" for item in result["positive_samples"])
 
 
-def test_final_case_learning_emits_ordered_workflow_blueprint_sample() -> None:
+def test_final_case_learning_plain_text_does_not_emit_workflow_blueprint() -> None:
     result = build_learning_samples_from_final_cases(
         generated_cases=[],
         final_cases=[
@@ -303,19 +343,12 @@ def test_final_case_learning_emits_ordered_workflow_blueprint_sample() -> None:
         generation_id=500,
     )
 
-    blueprint_sample = result["positive_samples"][0]
-    assert blueprint_sample["pattern_grain"] == "workflow_blueprint"
-    assert blueprint_sample["pattern_category"] == "main_smoke_flow"
-    steps = blueprint_sample["workflow_blueprint"]["steps"]
-    assert [step["source_case_id"] for step in steps] == ["TC-H-001", "TC-H-002"]
-    assert steps[0]["state_in"] == "checkout_order_initial"
-    assert steps[1]["state_in"] == steps[0]["state_out"]
-    assert steps[0]["action"] == "submit_payment"
-    assert all(step["path_type"] == "positive" for step in steps)
-    assert all(step["can_advance_main_flow"] is True for step in steps)
+    assert result["diagnostics"]["workflow_blueprint_sample_count"] == 0
+    assert all(item["pattern_grain"] == "pattern" for item in result["positive_samples"])
+    assert all("workflow_blueprint" not in item for item in result["positive_samples"])
 
 
-def test_final_case_learning_blueprint_excludes_non_advancing_cases_and_uses_semantic_states() -> None:
+def test_final_case_learning_blueprint_uses_only_explicit_advancing_contract_steps() -> None:
     result = build_learning_samples_from_final_cases(
         generated_cases=[],
         final_cases=[
@@ -328,6 +361,16 @@ def test_final_case_learning_blueprint_excludes_non_advancing_cases_and_uses_sem
                 "priority": "P0",
             },
             {
+                **_explicit_workflow_case(
+                    case_id="TC-H-002",
+                    sequence=1,
+                    stage_kind="configure",
+                    action="select_courses",
+                    state_in="schedule_draft_created",
+                    state_out="schedule_courses_selected",
+                    actor="supervisor",
+                    workflow_id="schedule_plan_flow",
+                ),
                 "id": "TC-H-002",
                 "description": "排课新增计划第一步选择课程",
                 "test_module": "排课-新增计划",
@@ -336,6 +379,16 @@ def test_final_case_learning_blueprint_excludes_non_advancing_cases_and_uses_sem
                 "priority": "P0",
             },
             {
+                **_explicit_workflow_case(
+                    case_id="TC-H-003",
+                    sequence=2,
+                    stage_kind="edit",
+                    action="configure_schedule_time",
+                    state_in="schedule_courses_selected",
+                    state_out="schedule_time_configured",
+                    actor="supervisor",
+                    workflow_id="schedule_plan_flow",
+                ),
                 "id": "TC-H-003",
                 "description": "排课新增计划第二步设置上课日期和时间",
                 "test_module": "排课-新增计划",
@@ -344,6 +397,16 @@ def test_final_case_learning_blueprint_excludes_non_advancing_cases_and_uses_sem
                 "priority": "P0",
             },
             {
+                **_explicit_workflow_case(
+                    case_id="TC-H-004",
+                    sequence=3,
+                    stage_kind="commit",
+                    action="save_schedule_plan",
+                    state_in="schedule_time_configured",
+                    state_out="schedule_plan_saved",
+                    actor="supervisor",
+                    workflow_id="schedule_plan_flow",
+                ),
                 "id": "TC-H-004",
                 "description": "排课新增计划第三步预览并保存",
                 "test_module": "排课-新增计划",
@@ -352,6 +415,16 @@ def test_final_case_learning_blueprint_excludes_non_advancing_cases_and_uses_sem
                 "priority": "P0",
             },
             {
+                **_explicit_workflow_case(
+                    case_id="TC-H-005",
+                    sequence=4,
+                    stage_kind="downstream_visibility",
+                    action="view_student_weekly_task",
+                    state_in="schedule_plan_saved",
+                    state_out="student_home_weekly_task_visible",
+                    actor="student",
+                    workflow_id="schedule_plan_flow",
+                ),
                 "id": "TC-H-005",
                 "description": "学生端首页本周任务展示新增课程",
                 "test_module": "首页本周任务",
@@ -388,7 +461,7 @@ def test_final_case_learning_blueprint_excludes_non_advancing_cases_and_uses_sem
         "student_home_weekly_task_visible",
     ]
     assert [step["state_in"] for step in steps[1:]] == [step["state_out"] for step in steps[:-1]]
-    assert all(step["workflow_id"] == "workflow_blueprint_501" for step in steps)
+    assert all(step["workflow_id"] == "schedule_plan_flow" for step in steps)
 
 
 def test_final_case_learning_blueprint_scans_past_early_downstream_display_cases() -> None:
@@ -408,6 +481,16 @@ def test_final_case_learning_blueprint_scans_past_early_downstream_display_cases
         final_cases=[
             *early_display_cases,
             {
+                **_explicit_workflow_case(
+                    case_id="TC-CFG-001",
+                    sequence=1,
+                    stage_kind="configure",
+                    action="select_course",
+                    state_in="lesson_plan_draft_created",
+                    state_out="lesson_plan_course_selected",
+                    actor="supervisor",
+                    workflow_id="lesson_plan_flow",
+                ),
                 "id": "TC-CFG-001",
                 "description": "Create lesson plan and select course",
                 "test_module": "lesson plan",
@@ -416,6 +499,16 @@ def test_final_case_learning_blueprint_scans_past_early_downstream_display_cases
                 "priority": "P0",
             },
             {
+                **_explicit_workflow_case(
+                    case_id="TC-PRE-001",
+                    sequence=2,
+                    stage_kind="preview",
+                    action="preview_plan",
+                    state_in="lesson_plan_course_selected",
+                    state_out="lesson_plan_previewed",
+                    actor="supervisor",
+                    workflow_id="lesson_plan_flow",
+                ),
                 "id": "TC-PRE-001",
                 "description": "Preview lesson plan summary",
                 "test_module": "lesson plan",
@@ -424,6 +517,16 @@ def test_final_case_learning_blueprint_scans_past_early_downstream_display_cases
                 "priority": "P1",
             },
             {
+                **_explicit_workflow_case(
+                    case_id="TC-SAVE-001",
+                    sequence=3,
+                    stage_kind="commit",
+                    action="save_plan",
+                    state_in="lesson_plan_previewed",
+                    state_out="lesson_plan_saved",
+                    actor="supervisor",
+                    workflow_id="lesson_plan_flow",
+                ),
                 "id": "TC-SAVE-001",
                 "description": "Save lesson plan",
                 "test_module": "lesson plan",
@@ -432,6 +535,16 @@ def test_final_case_learning_blueprint_scans_past_early_downstream_display_cases
                 "priority": "P0",
             },
             {
+                **_explicit_workflow_case(
+                    case_id="TC-VIS-001",
+                    sequence=4,
+                    stage_kind="downstream_visibility",
+                    action="view_student_plan",
+                    state_in="lesson_plan_saved",
+                    state_out="student_plan_visible",
+                    actor="student",
+                    workflow_id="lesson_plan_flow",
+                ),
                 "id": "TC-VIS-001",
                 "description": "Student side lesson plan visible after save",
                 "test_module": "student side",
@@ -495,6 +608,16 @@ def test_final_case_workflow_blueprint_builds_trusted_contract_candidate() -> No
         generated_cases=[],
         final_cases=[
             {
+                **_explicit_workflow_case(
+                    case_id="TC-CFG-001",
+                    sequence=1,
+                    stage_kind="configure",
+                    action="select_course",
+                    state_in="lesson_plan_draft_created",
+                    state_out="lesson_plan_course_selected",
+                    actor="supervisor",
+                    workflow_id="lesson_plan_flow",
+                ),
                 "id": "TC-CFG-001",
                 "description": "Create lesson plan and select course",
                 "test_module": "lesson plan",
@@ -503,6 +626,16 @@ def test_final_case_workflow_blueprint_builds_trusted_contract_candidate() -> No
                 "priority": "P0",
             },
             {
+                **_explicit_workflow_case(
+                    case_id="TC-PRE-001",
+                    sequence=2,
+                    stage_kind="preview",
+                    action="preview_plan",
+                    state_in="lesson_plan_course_selected",
+                    state_out="lesson_plan_previewed",
+                    actor="supervisor",
+                    workflow_id="lesson_plan_flow",
+                ),
                 "id": "TC-PRE-001",
                 "description": "Preview lesson plan summary",
                 "test_module": "lesson plan",
@@ -511,6 +644,16 @@ def test_final_case_workflow_blueprint_builds_trusted_contract_candidate() -> No
                 "priority": "P1",
             },
             {
+                **_explicit_workflow_case(
+                    case_id="TC-SAVE-001",
+                    sequence=3,
+                    stage_kind="commit",
+                    action="save_plan",
+                    state_in="lesson_plan_previewed",
+                    state_out="lesson_plan_saved",
+                    actor="supervisor",
+                    workflow_id="lesson_plan_flow",
+                ),
                 "id": "TC-SAVE-001",
                 "description": "Save lesson plan",
                 "test_module": "lesson plan",
@@ -519,6 +662,16 @@ def test_final_case_workflow_blueprint_builds_trusted_contract_candidate() -> No
                 "priority": "P0",
             },
             {
+                **_explicit_workflow_case(
+                    case_id="TC-VIS-001",
+                    sequence=4,
+                    stage_kind="downstream_visibility",
+                    action="view_student_plan",
+                    state_in="lesson_plan_saved",
+                    state_out="student_plan_visible",
+                    actor="student",
+                    workflow_id="lesson_plan_flow",
+                ),
                 "id": "TC-VIS-001",
                 "description": "Student side lesson plan visible after save",
                 "test_module": "student side",
@@ -686,7 +839,7 @@ def test_parse_test_cases_spreadsheet_bytes_reads_uploaded_xlsx_rows() -> None:
     assert cases[0]["priority"] == "P0"
 
 
-def test_evaluation_defect_analysis_does_not_prefer_generated_only_missing_point() -> None:
+def test_evaluation_defect_analysis_trusts_structured_missing_point_field() -> None:
     report = {
         "metrics": {"precision": 0.49, "recall": 0.67},
         "defect_analysis": {
@@ -699,14 +852,14 @@ def test_evaluation_defect_analysis_does_not_prefer_generated_only_missing_point
     result = build_learning_candidates_from_evaluation_result(report)
 
     assert result["diagnostics"]["candidate_count"] == 1
-    assert result["diagnostics"]["selected_by_default_count"] == 0
+    assert result["diagnostics"]["selected_by_default_count"] == 1
     candidate = result["candidates"][0]
     assert candidate["source_field"] == "missing_points"
-    assert candidate["candidate_type"] == "negative_pattern"
-    assert candidate["selected_by_default"] is False
-    assert candidate["sample"]["signal_type"] == "negative"
-    assert candidate["sample"]["pattern_usage"] == "avoid"
-    assert candidate["sample"]["reason_category"] == "generated_only_defect_misfiled_as_missing"
+    assert candidate["candidate_type"] == "positive_pattern"
+    assert candidate["selected_by_default"] is True
+    assert candidate["sample"]["signal_type"] == "positive"
+    assert candidate["sample"]["pattern_usage"] == "prefer"
+    assert candidate["sample"]["reason_category"] == "recall_gap"
 
 
 def test_evaluation_defect_analysis_filters_low_context_learning_candidates() -> None:
@@ -744,14 +897,15 @@ def test_evaluation_defect_analysis_filters_low_context_learning_candidates() ->
     assert "缺失讲错题录音按钮功能验证" not in texts
     assert "TC-039修正CASE-49" not in texts
     assert "TC-001提问逻辑" not in texts
-    assert result["diagnostics"]["quality_gate_rejected_count"] >= 5
+    assert result["diagnostics"]["quality_gate_rejected_count"] == 6
     assert result["diagnostics"]["selected_by_default_count"] == 0
-
-    redundant = next(item for item in result["candidates"] if "duplicate_redundant" in item["text"])
-    assert redundant["candidate_type"] == "negative_pattern"
-    assert redundant["selected_by_default"] is False
-    assert redundant["sample"]["pattern_usage"] == "avoid"
-    assert redundant["sample"]["quality_gate_status"] == "review_required"
+    assert len(result["candidates"]) == 2
+    modification = next(item for item in result["candidates"] if item["source_field"] == "modifications")
+    hallucination = next(item for item in result["candidates"] if item["source_field"] == "hallucinations")
+    assert modification["candidate_type"] == "quality_fix_hint"
+    assert modification["sample"]["signal_type"] == "positive"
+    assert hallucination["candidate_type"] == "negative_pattern"
+    assert hallucination["sample"]["signal_type"] == "negative"
 
 
 def test_quality_evaluation_apply_filter_rejects_low_context_sample() -> None:
@@ -788,17 +942,17 @@ def test_quality_evaluation_apply_filter_rejects_low_context_sample() -> None:
     assert filtered["quality_gate_policy"] == "evaluation_defect_reusable_pattern_v1"
 
 
-def test_evaluation_defect_analysis_aggregates_negative_candidates() -> None:
+def test_evaluation_defect_analysis_aggregates_only_identical_evidence_fingerprints() -> None:
     report = {
         "metrics": {"precision": 0.84, "recall": 0.67},
         "defect_analysis": {
             "hallucinations": [
-                "生成用例TC-001关于排课时间顺延的多个子场景在修改版中未体现",
-                "生成用例TC-002关于排课课程时间冲突的多个子场景在修改版中未体现",
-                "生成用例TC-003关于节假日排课时间展示的多个子场景在修改版中未体现",
-                "生成用例TC-004关于学习计划卡片跳转在修改版中未体现",
-                "生成用例TC-005关于学习计划周列表展示在修改版中未体现",
-                "生成用例TC-006关于重复相似的按钮展示检查在修改版中被合并",
+                "Generated case validates an unrelated navigation color not present in final requirements.",
+                "Generated case validates an unrelated navigation color not present in final requirements",
+                "Generated case includes a redundant footer animation check absent from the final cases.",
+                "Generated case includes a redundant footer animation check absent from the final cases",
+                "Generated case adds unrelated avatar border behavior absent from the final cases.",
+                "Generated case adds unrelated avatar border behavior absent from the final cases",
             ]
         },
     }
@@ -808,7 +962,7 @@ def test_evaluation_defect_analysis_aggregates_negative_candidates() -> None:
     diagnostics = result["diagnostics"]
     assert diagnostics["raw_candidate_count"] == 6
     assert diagnostics["candidate_count"] == 3
-    assert diagnostics["candidate_aggregation_policy"].startswith("defect_field_semantic_bucket")
     negatives = [item for item in result["candidates"] if item["candidate_type"] == "negative_pattern"]
     assert len(negatives) == 3
-    assert any(item.get("aggregated_count", 1) > 1 for item in negatives)
+    assert all(item["aggregated_count"] == 2 for item in negatives)
+    assert all(item["sample"]["aggregated_evidence_count"] == 2 for item in negatives)

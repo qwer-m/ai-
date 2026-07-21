@@ -13,7 +13,6 @@ from .final_case_sample_learning import (
     _aggregate_positive_pattern_samples,
     _build_negative_sample,
     _build_positive_sample,
-    _case_is_grounded_in_requirement,
     _clear_negative_reason,
     _compact_quality_ledger,
     _match_generated_to_final,
@@ -42,9 +41,13 @@ def build_learning_samples_from_final_cases(
 
     positive_candidates: list[dict[str, Any]] = []
     for idx, case in enumerate(normalized_final[:_MAX_DERIVED_POSITIVE_SAMPLES], start=1):
-        extension = bool(str(requirement_text or "").strip()) and not _case_is_grounded_in_requirement(
-            case,
-            requirement_text,
+        relation = str(
+            case.get("learning_relation") or case.get("learningRelation") or ""
+        ).strip().lower()
+        extension = bool(
+            case.get("manual_business_extension") is True
+            or case.get("manualBusinessExtension") is True
+            or relation == "final_added"
         )
         positive_candidates.append(
             _build_positive_sample(

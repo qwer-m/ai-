@@ -41,7 +41,6 @@ DERIVED_WORKFLOW_ACTION_TOKENS = (
     "入口",
     "跳转",
     "点击",
-    "学习",
     "查看",
     "打开",
     "create",
@@ -59,7 +58,6 @@ DERIVED_WORKFLOW_ACTION_TOKENS = (
     "navigate",
     "click",
     "view",
-    "learn",
     "open",
     "entry",
     "prepare",
@@ -67,14 +65,6 @@ DERIVED_WORKFLOW_ACTION_TOKENS = (
     "reflect",
     "reflects",
     "downstream",
-    "触发打分",
-    "开始打分",
-    "自动打分",
-    "评分计算",
-    "生成评分",
-    "给出评分",
-    "trigger score",
-    "score calculation",
 )
 
 DERIVED_WORKFLOW_STATE_TOKENS = (
@@ -106,11 +96,6 @@ DERIVED_WORKFLOW_STATE_TOKENS = (
     "prepared",
     "reflected",
     "shown",
-    "评分结果",
-    "打分结果",
-    "综合评分",
-    "score result",
-    "scoring result",
 )
 
 DERIVED_WORKFLOW_BOUNDARY_TOKENS = (
@@ -209,7 +194,7 @@ def derived_workflow_steps_from_selected(
                 "id": f"derived_step_{step_index:03d}",
                 "label": _clip_text(description, 160),
                 "module": _clip_text(module, 80),
-                "actor": normalize_actor_role_value("", fallback_text=execution_case_text(item)),
+                "actor": normalize_actor_role_value(""),
                 "action": _clip_text(description, 160),
                 "state_in": previous_state,
                 "state_out": state_out,

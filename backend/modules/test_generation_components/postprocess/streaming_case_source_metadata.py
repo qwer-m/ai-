@@ -11,6 +11,9 @@ SOURCE_METADATA_FIELDS = (
     "origin_batch_index",
     "origin_batch_case_index",
     "origin_source_stage",
+    "functional_phase",
+    "functional_module_anchor",
+    "functional_interaction_modules",
 )
 
 
@@ -117,10 +120,10 @@ def apply_case_source_metadata(
     output: list[dict[str, Any]] = []
     for item in _dict_cases(cases):
         updated = dict(item)
-        metadata = source_by_id.get(_case_id(updated))
+        signature = case_signature(updated)
+        metadata = source_by_signature.get(signature) if signature else None
         if metadata is None:
-            signature = case_signature(updated)
-            metadata = source_by_signature.get(signature) if signature else None
+            metadata = source_by_id.get(_case_id(updated))
         for field, value in dict(metadata or {}).items():
             _set_value(updated, field, value, overwrite=False)
         output.append(updated)

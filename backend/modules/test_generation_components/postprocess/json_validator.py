@@ -7,14 +7,15 @@ from typing import Any
 from .case_access import case_flat_text, case_text_field, case_text_value
 
 _CASE_KIND_ORDER = {
-    "ui_verification": 0,
+    "workflow_entry": 0,
     "happy_path": 1,
     "validation_boundary": 2,
     "exception_error": 3,
     "permission_security": 4,
     "performance_stability_compat": 5,
     "integration_cross_module": 6,
-    "other": 7,
+    "ui_verification": 7,
+    "other": 8,
 }
 
 
@@ -27,9 +28,7 @@ def infer_case_kind(case: dict[str, Any]) -> str:
     """
     Heuristic case type inference for closed-loop ordering.
 
-    Priority of classification:
-    UI -> Integration -> Security/Permission -> Performance/Stability -> Exception ->
-    Validation/Boundary -> Happy -> Other
+    Priority of classification distinguishes workflow-bearing UI from presentation-only UI.
     """
     text = case_flat_text(
         case,
@@ -41,18 +40,39 @@ def infer_case_kind(case: dict[str, Any]) -> str:
     def has_any(keywords: list[str]) -> bool:
         return any(k in text for k in keywords)
 
-    if has_any(
+    presentation_only = has_any(
         [
             "ui verification",
             "visual",
             "layout",
             "样式",
-            "界面",
-            "页面展示",
+            "颜色",
+            "字体",
+            "间距",
             "视觉",
-            "交互样式",
+            "纯展示",
+            "页面展示",
         ]
-    ):
+    )
+    workflow_interaction = has_any(
+        [
+            "workflow entry",
+            "entry point",
+            "入口",
+            "点击进入",
+            "点击后进入",
+            "点击后跳转",
+            "不可点击",
+            "点击无效",
+            "无法进入",
+            "cannot click",
+            "not clickable",
+            "navigate to",
+        ]
+    )
+    if workflow_interaction:
+        return "workflow_entry"
+    if presentation_only:
         return "ui_verification"
 
     if has_any(

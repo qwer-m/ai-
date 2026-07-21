@@ -20,6 +20,11 @@ from core.ai.ai_providers import (
 )
 class AIClient:
     """Facade over configured model providers, cache, and target-model routing."""
+
+    _TASK_RESPONSE_MODES = {
+        "generation": "json",
+        "ui_automation": "text",
+    }
     def __init__(self, provider: BaseModelProvider = None, *, init_from_settings: bool = True):
         self._provider = provider
         self.model = settings.MODEL_NAME
@@ -208,6 +213,10 @@ class AIClient:
         max_tokens: int = None,
         task_type: str = "general",
         model: str = None,
+        response_mode: str | None = None,
+        request_timeout_seconds: float | None = None,
+        reasoning_effort: str | None = None,
+        disable_thinking: bool = False,
     ) -> str:
         """Generate a non-streaming model response with cache and metadata handling."""
         if not self.provider:
@@ -234,21 +243,42 @@ class AIClient:
             target_provider = self.turbo_provider
         if not target_provider:
             return "Error: AI Provider not configured."
+        resolved_response_mode = str(
+            response_mode or self._TASK_RESPONSE_MODES.get(task_type, "auto")
+        ).strip().lower()
+        if resolved_response_mode not in {"auto", "json", "text"}:
+            raise ValueError(f"Unsupported AI response mode: {resolved_response_mode}")
         if db:
-            cache_key_content = f"{target_model}:{json.dumps(messages, ensure_ascii=False)}"
+            cache_key_content = (
+                f"{target_model}:{resolved_response_mode}:"
+                f"{json.dumps(messages, ensure_ascii=False)}"
+            )
             cached = cache_service.get(cache_key_content, "L4", db)
             if cached:
                 self.last_response_metadata = {
                     "model": target_model,
                     "cached": True,
+                    "response_mode": resolved_response_mode,
                     "input_tokens_estimated": max(1, len(json.dumps(messages, ensure_ascii=False)) // 4),
                     "output_tokens_estimated": max(0, len(str(cached or "")) // 4),
                     "token_estimate_method": "chars_div_4",
                 }
                 return cached
-        result = target_provider.generate(messages, target_model, max_tokens or self.max_tokens)
+        if isinstance(target_provider, OpenAICompatibleProvider):
+            result = target_provider.generate(
+                messages,
+                target_model,
+                max_tokens or self.max_tokens,
+                response_mode=resolved_response_mode,
+                request_timeout_seconds=request_timeout_seconds,
+                reasoning_effort=reasoning_effort,
+                disable_thinking=disable_thinking,
+            )
+        else:
+            result = target_provider.generate(messages, target_model, max_tokens or self.max_tokens)
         self.last_response_metadata = dict(getattr(target_provider, "last_response_metadata", {}) or {})
         self.last_response_metadata.setdefault("model", target_model)
+        self.last_response_metadata.setdefault("response_mode", resolved_response_mode)
         self.last_response_metadata.setdefault("input_tokens_estimated", max(1, len(json.dumps(messages, ensure_ascii=False)) // 4))
         self.last_response_metadata.setdefault("output_tokens_estimated", max(0, len(str(result or "")) // 4))
         self.last_response_metadata.setdefault("token_estimate_method", "chars_div_4")

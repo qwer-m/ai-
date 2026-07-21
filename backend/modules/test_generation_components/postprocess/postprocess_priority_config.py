@@ -26,10 +26,6 @@ from .postprocess_priority_defaults import (
     _DEFAULT_MAIN_WORKFLOW_TOKENS,
     _DEFAULT_P0_CORE_TOKENS,
     _DEFAULT_P0_CRITICAL_FAMILIES,
-    _DEFAULT_P0_ESSAY_DOMAIN_NEGATIVE_TOKENS,
-    _DEFAULT_P0_ESSAY_DOMAIN_POSITIVE_TOKENS,
-    _DEFAULT_P0_ESSAY_DOMAIN_PRIMARY_TOKENS,
-    _DEFAULT_P0_ESSAY_EXCLUSION_TOKENS,
     _DEFAULT_P0_KEYWORDS,
     _DEFAULT_P0_LOW_VALUE_TOKENS,
     _DEFAULT_P1_KEYWORDS,
@@ -44,11 +40,6 @@ from .postprocess_priority_defaults import (
     _DEFAULT_SEVERE_SECURITY_RISK_TOKENS,
     _DEFAULT_STATE_GUARD_TOKENS,
     _DEFAULT_STATE_TRANSITION_TOKENS,
-    _DEFAULT_STRONG_P0_AI_SCORING_TOKENS,
-    _DEFAULT_STRONG_P0_PAYMENT_GATE_TOKENS,
-    _DEFAULT_STRONG_P0_SUBMIT_REPORT_TOKENS,
-    _DEFAULT_STRONG_P0_WEEK_BOUNDARY_TOKENS,
-    _DEFAULT_STRONG_P0_WRONG_COLLECTION_TOKENS,
     _DEFAULT_UI_KEYWORDS,
     _DEFAULT_UI_RISK_WORDS,
     _DEFAULT_UNCERTAIN_REQUIREMENT_SIGNALS,
@@ -112,22 +103,6 @@ def p0_low_value_tokens() -> tuple[str, ...]:
     return _string_tuple(_PAYLOAD.get("p0_low_value_tokens")) or _DEFAULT_P0_LOW_VALUE_TOKENS
 
 
-def p0_essay_domain_positive_tokens() -> tuple[str, ...]:
-    return _string_tuple(_PAYLOAD.get("p0_essay_domain_positive_tokens")) or _DEFAULT_P0_ESSAY_DOMAIN_POSITIVE_TOKENS
-
-
-def p0_essay_domain_negative_tokens() -> tuple[str, ...]:
-    return _string_tuple(_PAYLOAD.get("p0_essay_domain_negative_tokens")) or _DEFAULT_P0_ESSAY_DOMAIN_NEGATIVE_TOKENS
-
-
-def p0_essay_exclusion_tokens() -> tuple[str, ...]:
-    return _string_tuple(_PAYLOAD.get("p0_essay_exclusion_tokens")) or _DEFAULT_P0_ESSAY_EXCLUSION_TOKENS
-
-
-def p0_essay_domain_primary_tokens() -> tuple[str, ...]:
-    return _string_tuple(_PAYLOAD.get("p0_essay_domain_primary_tokens")) or _DEFAULT_P0_ESSAY_DOMAIN_PRIMARY_TOKENS
-
-
 # -- Priority semantics (result_postprocess_priority_semantics.py) --
 
 def uncertain_requirement_signals() -> tuple[str, ...]:
@@ -144,26 +119,6 @@ def p1_keywords() -> tuple[str, ...]:
 
 def p2_keywords() -> tuple[str, ...]:
     return _string_tuple(_PAYLOAD.get("p2_keywords")) or _DEFAULT_P2_KEYWORDS
-
-
-def strong_p0_payment_gate_tokens() -> tuple[str, ...]:
-    return _string_tuple(_PAYLOAD.get("strong_p0_payment_gate_tokens")) or _DEFAULT_STRONG_P0_PAYMENT_GATE_TOKENS
-
-
-def strong_p0_ai_scoring_tokens() -> tuple[str, ...]:
-    return _string_tuple(_PAYLOAD.get("strong_p0_ai_scoring_tokens")) or _DEFAULT_STRONG_P0_AI_SCORING_TOKENS
-
-
-def strong_p0_wrong_collection_tokens() -> tuple[str, ...]:
-    return _string_tuple(_PAYLOAD.get("strong_p0_wrong_collection_tokens")) or _DEFAULT_STRONG_P0_WRONG_COLLECTION_TOKENS
-
-
-def strong_p0_week_boundary_tokens() -> tuple[str, ...]:
-    return _string_tuple(_PAYLOAD.get("strong_p0_week_boundary_tokens")) or _DEFAULT_STRONG_P0_WEEK_BOUNDARY_TOKENS
-
-
-def strong_p0_submit_report_tokens() -> tuple[str, ...]:
-    return _string_tuple(_PAYLOAD.get("strong_p0_submit_report_tokens")) or _DEFAULT_STRONG_P0_SUBMIT_REPORT_TOKENS
 
 
 # -- Priority scoring helpers (result_postprocess_priority_semantics_split_helpers.py) --

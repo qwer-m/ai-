@@ -3,6 +3,11 @@ from __future__ import annotations
 import math
 from typing import Any, Callable
 
+from ...postprocess.module_contract import (
+    apply_functional_module_phase,
+    build_functional_module_batch_plan,
+)
+
 
 def resolve_stream_batch_plan(
     *,
@@ -37,6 +42,55 @@ def resolve_stream_batch_plan(
         "total_batches": int(total_batches),
         "auto_extended": bool(auto_extended),
     }
+
+
+def select_complete_generated_cases(
+    cases: list[dict[str, Any]],
+    *,
+    limit: int,
+    start_id: int,
+    is_placeholder_expected_result_fn: Callable[[str], bool],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """只接收模型完整产出的用例，缺字段用例留给下一次模型生成补足。"""
+    accepted: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    max_count = max(0, int(limit or 0))
+
+    for raw_case in cases:
+        if not isinstance(raw_case, dict):
+            continue
+        case = dict(raw_case)
+        missing_fields: list[str] = []
+        if len(str(case.get("description") or "").strip()) < 4:
+            missing_fields.append("description")
+        if not str(case.get("test_module") or "").strip():
+            missing_fields.append("test_module")
+        if not any(str(item or "").strip() for item in (case.get("preconditions") or [])):
+            missing_fields.append("preconditions")
+        if not any(str(item or "").strip() for item in (case.get("steps") or [])):
+            missing_fields.append("steps")
+        if not str(case.get("test_input") or "").strip():
+            missing_fields.append("test_input")
+        expected_result = str(case.get("expected_result") or "").strip()
+        if not expected_result or is_placeholder_expected_result_fn(expected_result):
+            missing_fields.append("expected_result")
+        if str(case.get("priority") or "").strip().upper() not in {"P0", "P1", "P2"}:
+            missing_fields.append("priority")
+
+        if missing_fields:
+            rejected.append(
+                {
+                    "case_id": str(case.get("id") or "").strip(),
+                    "missing_fields": missing_fields,
+                }
+            )
+            continue
+        if len(accepted) >= max_count:
+            break
+        case["id"] = f"TC-{int(start_id) + len(accepted):03d}"
+        accepted.append(case)
+
+    return accepted, rejected
 
 
 def build_existing_case_history(

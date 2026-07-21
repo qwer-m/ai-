@@ -1,0 +1,16 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,论坛首⻚,P2,P2,P2,P2,decided,model_semantic_consistent,high,,验证非官方账号在官方区无发帖权限，发帖按钮不可用或不展示,PASS,-,False,False,False
+TC-002,论坛首⻚,P2,P2,P2,P2,decided,p2_cap_guard,high,,验证从视频或其他模块点击反馈按钮后默认进入反馈区,PASS,-,False,False,False
+TC-003,论坛首⻚,P2,P2,P2,P2,decided,p2_cap_guard,high,,验证消息分区有新内容时展示小红点提示且不标出数字,PASS,-,False,False,False
+TC-004,论坛首⻚,P1,P1,P1,P1,decided,model_semantic_consistent,high,,验证论坛首页四个内容分区（官方区、反馈区、交流区、消息）可正常切换,PASS,-,False,False,False
+TC-005,论坛首⻚,P2,P2,P2,P2,decided,model_semantic_consistent,high,,验证帖子列表时间显示规则在5个边界值区间的正确展示,PASS,-,False,False,False
+TC-006,论坛首⻚,P2,P2,P2,P2,decided,model_semantic_consistent,high,,验证论坛首页返回按钮采用通用悬浮样式，包含返回、关闭和刷新三种功能,PASS,-,False,False,False
+TC-007,论坛首⻚,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",验证内容列表分批加载交互：上拉到底显示'继续上拉去第2页'，继续上拉显示'松开看第2页'，松手加载第2页,PASS,-,False,False,False
+TC-008,审核后台,P2,P2,P2,P2,decided,model_semantic_consistent,high,,验证审核后台帖子详情页的操作按钮（禁止回复/恢复回复、禁言7天/解禁、永久禁言1000天/解禁、标记）功能正确执行,PASS,-,False,False,False
+TC-009,审核后台,P2,P2,P2,P2,decided,model_semantic_consistent,high,,验证审核后台回复列表中每条回复显示对应的原帖内容，二级回复列表中每条显示对应的回复评论,PASS,-,False,False,False
+TC-010,审核后台,P2,P2,P2,P2,decided,model_semantic_consistent,high,,验证审核后台查看帖子和回复时，保留显示原用户信息，并额外展示乐乐号、设备信息、版本信息,PASS,-,False,False,False
+TC-011,帖子详情,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证帖子删除按钮仅楼主可见，非楼主不可见删除按钮,PASS,-,False,False,False
+TC-012,帖子详情,P2,P2,P2,P2,decided,model_semantic_consistent,high,,验证回复的回复默认展示3条，超过3条显示'展开N条回复'按钮，每次展开5条，仍有隐藏则显示'展开更多回复',PASS,-,False,False,False
+TC-013,帖子详情,P2,P2,P2,P2,decided,model_semantic_consistent,high,,验证点击帖子内容中的图片可全屏展示，左右滑动切换图片，单击关闭图片详情,PASS,-,False,False,False
+TC-014,帖子详情,P2,P2,P2,P2,decided,model_semantic_consistent,high,,验证回复列表切换排序方式后刷新回到第一页，不同排序规则正确生效,PASS,-,False,False,False
+TC-015,用戶详情弹窗,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证关闭用户详情弹窗后返回原页面，页面状态无异常,PASS,-,False,False,False

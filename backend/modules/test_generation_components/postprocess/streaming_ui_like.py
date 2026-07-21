@@ -4,6 +4,7 @@ from typing import Any, Callable
 
 from .case_access import case_flat_text, case_step_lines, case_steps, case_text_field
 from .result_postprocess_priority_semantics_split_helpers import score_case_priority
+from .json_validator import infer_case_kind
 
 FINAL_DISPLAY_SURFACE_TOKENS = (
     "display",
@@ -153,6 +154,8 @@ def is_display_only_final_case(case: dict[str, Any]) -> bool:
 
 
 def is_ui_like_case(case: dict[str, Any], score_profile: dict[str, Any]) -> bool:
+    if infer_case_kind(case) == "workflow_entry":
+        return False
     steps = case_steps(case)
     step_count = len(steps)
     step_text = " ".join(steps).lower()
@@ -322,6 +325,8 @@ def apply_ui_like_ratio_postprocess_cap(
     removable: list[tuple[int, int, int, int]] = []
     for index, (case, profile) in enumerate(zip(input_cases, score_profiles)):
         if not bool(profile.get("ui_like_case")):
+            continue
+        if infer_case_kind(case) == "workflow_entry":
             continue
         has_coverage_value = bool(
             (profile.get("missing_rule_hits") or [])

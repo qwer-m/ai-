@@ -130,6 +130,10 @@ def _build_control_context(
     project_profile = dict((state.source_meta or {}).get("project_profile") or {})
     manual_quality_profile = dict((state.source_meta or {}).get("manual_quality_profile") or {})
     project_flow_outline = dict(project_profile.get("flow_outline") or {})
+    functional_architecture = dict(project_profile.get("functional_architecture") or {})
+    functional_modules = [
+        item for item in (functional_architecture.get("functional_modules") or []) if isinstance(item, dict)
+    ]
     generation_execution_plan = _build_generation_execution_plan_from_blueprints(state.workflow_blueprints)
     generation_coverage_mode = str(generation_profile.get("coverage_mode") or "").strip()
     summary = {
@@ -165,6 +169,9 @@ def _build_control_context(
         "project_profile_confidence": float(project_profile.get("confidence") or 0.0),
         "project_profile_flow_count": int(len(project_flow_outline.get("flow_order") or [])),
         "project_profile_cross_cutting_count": int(len(project_flow_outline.get("cross_cutting") or [])),
+        "functional_module_count": int(len(functional_modules)),
+        "functional_interaction_count": int(len(functional_architecture.get("module_interactions") or [])),
+        "excluded_functional_module_count": int(len(functional_architecture.get("excluded_modules") or [])),
         "manual_quality_profile_source": str(manual_quality_profile.get("profile_source") or "").strip(),
         "manual_quality_profile_version": str(manual_quality_profile.get("profile_version") or "").strip(),
         "manual_quality_profile_trusted_count": int(manual_quality_profile.get("trusted_sample_count") or 0),
@@ -307,6 +314,42 @@ def _build_control_context(
         lines.append(f"* confidence: {float(project_profile.get('confidence') or 0.0):.2f}")
         lines.append("* Use this as ordering and coverage structure only; it is not a fact source.")
         lines.append("* Final test cases should follow the flow outline first; put cross-cutting modules after the main flow unless a case explicitly validates their interaction with a main-flow step.")
+        if functional_modules:
+            module_names = [str(item.get("module_name") or "").strip() for item in functional_modules]
+            module_names = [item for item in module_names if item]
+            lines.append("")
+            lines.append("### FUNCTIONAL MODULE CONTRACT")
+            lines.append(f"* allowed test_module values: {', '.join(module_names)}")
+            lines.append("* test_module MUST use exactly one allowed value; pages, controls, actions, risks, and test types are not new modules.")
+            lines.append("* Generate module-internal features first, then explicit cross-module interactions.")
+            lines.append("* Workflow entry controls and state-changing UI interactions belong to the business flow; only presentation-only checks belong to UI/display.")
+            for module in functional_modules[:24]:
+                name = str(module.get("module_name") or "").strip()
+                features = [str(item).strip() for item in (module.get("features") or []) if str(item).strip()]
+                aliases = [str(item).strip() for item in (module.get("aliases") or []) if str(item).strip()]
+                detail = f"; explicit features: {' | '.join(features[:4])}" if features else ""
+                alias_text = f"; aliases: {', '.join(aliases[:6])}" if aliases else ""
+                lines.append(f"* {name}{alias_text}{detail}")
+            excluded_modules = [
+                item for item in (functional_architecture.get("excluded_modules") or []) if isinstance(item, dict)
+            ]
+            if excluded_modules:
+                excluded_labels = [
+                    f"{str(item.get('module_name') or '')}({str(item.get('scope_reason') or 'out_of_scope')})"
+                    for item in excluded_modules[:12]
+                ]
+                lines.append(f"* out-of-scope modules, DO NOT generate: {', '.join(excluded_labels)}")
+            interactions = [
+                item for item in (functional_architecture.get("module_interactions") or []) if isinstance(item, dict)
+            ]
+            if interactions:
+                lines.append("* explicit module interactions:")
+                for item in interactions[:16]:
+                    lines.append(
+                        "  - "
+                        f"{str(item.get('source_module') or '')} -> {str(item.get('target_module') or '')}: "
+                        f"{str(item.get('trigger') or '')}"
+                    )
         if flow_order:
             labels = [str(flow_labels.get(key) or key) for key in flow_order]
             lines.append(f"* flow outline: {' -> '.join(labels[:24])}")

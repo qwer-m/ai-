@@ -21,8 +21,39 @@ def _policy(
 def test_policy_demotes_non_blocking_detail_without_business_anchor() -> None:
     policy = _policy(has_low_value_signal=True)
 
-    assert policy.should_demote_non_blocking("star rating max 20") is True
-    assert policy.should_demote_non_blocking("generate correction result") is False
+    assert policy.should_demote_non_blocking("copy and layout display") is True
+    assert policy.should_demote_non_blocking("result is generated and output becomes available") is False
+
+
+def test_policy_prefers_structured_main_chain_stage_over_display_wording() -> None:
+    policy = _policy(has_low_value_signal=True)
+    item = {
+        "execution_group": "main_smoke",
+        "main_chain_stage_kind": "entry",
+        "functional_phase": "cross_module",
+        "functional_interaction_modules": ["Source", "Target"],
+    }
+
+    assert policy.should_demote_non_blocking("entry layout is visible", item=item) is False
+    rank = policy.primary_rank(
+        item=item,
+        index=1,
+        text="entry layout is visible",
+        normalized_priority="P1",
+    )
+    assert rank is not None
+    assert rank[2] == "workflow_entry"
+
+
+def test_policy_structured_display_evidence_overrides_critical_sounding_text() -> None:
+    policy = _policy(configured_family="result_display", has_core_signal=True)
+    item = {
+        "execution_group": "display",
+        "priority_reasons": ["structural_p2_low_value_signal"],
+    }
+
+    assert policy.critical_anchor_family("complete result", item=item) == ""
+    assert policy.should_demote_non_blocking("complete result", item=item) is True
 
 
 def test_policy_primary_rank_promotes_configured_critical_family() -> None:
@@ -31,7 +62,7 @@ def test_policy_primary_rank_promotes_configured_critical_family() -> None:
     rank = policy.primary_rank(
         item={},
         index=2,
-        text="member all courses",
+        text="unauthorized user opens a locked report behind a paywall",
         normalized_priority="P1",
     )
 

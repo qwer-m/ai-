@@ -293,6 +293,103 @@ def test_validator_accepts_chinese_preview_and_downstream_terms() -> None:
     assert conflicts == []
 
 
+def test_scoring_business_terms_do_not_satisfy_protocol_stage_actions() -> None:
+    cases = [
+        {
+            "id": "TC-SCORE-COMMIT",
+            "description": "系统自动打分并给出评分",
+            "steps": ["触发打分"],
+            "expected_result": "生成综合评分",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "commit",
+        },
+        {
+            "id": "TC-SCORE-DOWNSTREAM",
+            "description": "评分结果为85分",
+            "steps": ["读取打分结果"],
+            "expected_result": "综合评分为85分",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "downstream_visibility",
+        },
+    ]
+
+    reasons_by_case: dict[str, set[str]] = {}
+    for conflict in validate_main_smoke_semantic_alignment(cases):
+        reasons_by_case.setdefault(conflict["case_id"], set()).add(conflict["reason"])
+
+    assert "stage_text_lacks_commit_action" in reasons_by_case["TC-SCORE-COMMIT"]
+    assert "stage_text_lacks_downstream_propagation" in reasons_by_case["TC-SCORE-DOWNSTREAM"]
+
+
+def test_learning_business_term_does_not_satisfy_consume_protocol_action() -> None:
+    cases = [
+        {
+            "id": "TC-LEARNING-CONSUME",
+            "description": "开始学习课程",
+            "steps": ["学习课程内容"],
+            "expected_result": "课程处于可学习状态",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "consume",
+        }
+    ]
+
+    reasons = {
+        conflict["reason"]
+        for conflict in validate_main_smoke_semantic_alignment(cases)
+    }
+
+    assert "stage_text_lacks_consume_action" in reasons
+
+
+def test_validator_rejects_display_only_and_multi_stage_materialized_main_cases() -> None:
+    cases = [
+        {
+            "id": "TC-UI",
+            "test_module": "Feedback",
+            "description": "Post button copy and visual style remain unchanged",
+            "preconditions": ["User entered the feedback page"],
+            "steps": ["Open the page", "Observe the button copy"],
+            "test_input": "Original design",
+            "expected_result": "The button copy and visual style match the original design",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "consume",
+            "workflow_contract_materialized_case": True,
+        },
+        {
+            "id": "TC-FULL",
+            "test_module": "Content",
+            "description": "Open the editor, edit content, publish it, then verify the notification",
+            "preconditions": ["User is signed in"],
+            "steps": ["Open", "Edit", "Publish", "View notification"],
+            "test_input": "Valid content",
+            "expected_result": "The content is published and the notification is visible",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "entry",
+            "workflow_contract_materialized_case": True,
+        },
+        {
+            "id": "TC-COMMIT-REPLAY",
+            "test_module": "Content",
+            "description": "Publish content",
+            "preconditions": ["Content preview is ready"],
+            "steps": ["Open the editor", "Edit content", "Publish content"],
+            "test_input": "Valid content",
+            "expected_result": "The content is published",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "commit",
+            "workflow_contract_materialized_case": True,
+        },
+    ]
+
+    reasons_by_case: dict[str, set[str]] = {}
+    for conflict in validate_main_smoke_semantic_alignment(cases):
+        reasons_by_case.setdefault(conflict["case_id"], set()).add(conflict["reason"])
+
+    assert "display_only_case_used_in_main_chain" in reasons_by_case["TC-UI"]
+    assert "case_goal_spans_commit_stage" in reasons_by_case["TC-FULL"]
+    assert "commit_case_replays_edit_stage" in reasons_by_case["TC-COMMIT-REPLAY"]
+
+
 def test_validator_rejects_generation_490_weak_token_main_chain_mismatches() -> None:
     cases = [
         {
@@ -513,7 +610,7 @@ def test_validator_rejects_workflow_action_not_supported_by_case_text() -> None:
     assert "stage_action_not_supported_by_case_text" in reasons
 
 
-def test_validator_rejects_management_report_case_as_student_completion_sync() -> None:
+def test_validator_rejects_report_history_case_as_completion_sync_without_role_guessing() -> None:
     cases = _main_chain_cases()
     terminal = cases[-1]
     terminal["description"] = "student info table shows report and history buttons after class"
@@ -533,7 +630,7 @@ def test_validator_rejects_management_report_case_as_student_completion_sync() -
     reasons = {item["reason"] for item in result["semantic_conflicts"]}
     assert result["passed"] is False
     assert "main_smoke_semantic_conflict" in result["failure_reasons"]
-    assert "student_role_with_management_surface_text" in reasons
+    assert "student_role_with_management_surface_text" not in reasons
     assert "report_history_case_not_completion_sync" in reasons
 
 

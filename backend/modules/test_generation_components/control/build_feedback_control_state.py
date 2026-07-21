@@ -69,9 +69,11 @@ from .feedback_control_workflow_repository import (
 )
 from .feedback_control_priority_retrieval import (
     _apply_signal_quota as _apply_signal_quota_impl,
+    _select_priority_pool_samples_by_requirement as _select_priority_pool_samples_by_requirement_impl,
+)
+from .feedback_control_priority_retrieval_text import (
     _sample_matches_primary_domain as _sample_matches_primary_domain,
     _sample_text_for_retrieval as _sample_text_for_retrieval,
-    _select_priority_pool_samples_by_requirement as _select_priority_pool_samples_by_requirement_impl,
 )
 from .feedback_control_priority_workflows import (
     _priority_pool_sample_identity as _priority_pool_sample_identity_impl,

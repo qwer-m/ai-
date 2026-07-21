@@ -3,14 +3,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .streaming_case_normalization import normalize_priority_value
-
-
 UNCERTAIN_SIGNALS = (
-    "需教研确认",
+    "需要确认",
     "需要讨论",
     "本期可以不做",
-    "模型暂不支持",
     "待确认",
     "待讨论",
     "暂不支持",
@@ -43,16 +39,18 @@ def extract_uncertain_requirement_tokens(requirement_text: str) -> set[str]:
     return tokens
 
 
-def apply_uncertain_requirement_downgrade(
+def filter_uncertain_requirement_cases(
     cases: list[dict[str, Any]],
     *,
     requirement_text: str,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """删除仅由待确认条目支撑的用例，不改写最终用例文本。"""
     uncertain_tokens = extract_uncertain_requirement_tokens(requirement_text)
     if not uncertain_tokens and not any(signal in str(requirement_text or "") for signal in UNCERTAIN_SIGNALS):
-        return [dict(item) for item in cases if isinstance(item, dict)]
+        return [dict(item) for item in cases if isinstance(item, dict)], []
 
-    output: list[dict[str, Any]] = []
+    accepted: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
     for case in cases:
         if not isinstance(case, dict):
             continue
@@ -68,22 +66,7 @@ def apply_uncertain_requirement_downgrade(
         if not hit_uncertain and uncertain_tokens:
             hit_uncertain = any(token in text for token in uncertain_tokens)
         if hit_uncertain:
-            updated["priority"] = "P2"
-            expected_text = str(updated.get("expected_result") or "").strip()
-            if expected_text and "可选/视配置" not in expected_text:
-                updated["expected_result"] = f"{expected_text}（可选/视配置）"
-        output.append(updated)
-    return output
-
-
-def enforce_uncertain_priority_floor(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    output: list[dict[str, Any]] = []
-    for case in cases:
-        if not isinstance(case, dict):
+            rejected.append(updated)
             continue
-        updated = dict(case)
-        expected_text = str(updated.get("expected_result") or "").strip()
-        if "可选/视配置" in expected_text and normalize_priority_value(str(updated.get("priority") or "")) != "P2":
-            updated["priority"] = "P2"
-        output.append(updated)
-    return output
+        accepted.append(updated)
+    return accepted, rejected

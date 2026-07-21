@@ -29,7 +29,6 @@ from .execution_plan_validation_tokens import (
     _DOWNSTREAM_PROPAGATION_TOKENS,
     _DOWNSTREAM_VISIBILITY_TOKENS,
     _INTERNAL_PLACEHOLDER_PATTERN,
-    _MANAGEMENT_SURFACE_TOKENS,
     _PASSIVE_LIST_STATUS_TOKENS,
     _PASSIVE_VISIBILITY_SURFACE_TOKENS,
     _PREVIEW_REQUIRED_TOKENS,
@@ -37,6 +36,12 @@ from .execution_plan_validation_tokens import (
     _RESET_OR_ABORT_TOKENS,
     _RESUME_STATE_ONLY_TOKENS,
 )
+from .streaming_execution_plan_helpers import (
+    is_pure_ui_goal_text,
+    main_chain_goal_action_text,
+    main_chain_goal_text,
+)
+from .streaming_execution_plan_stage_inference import token_hit
 
 _EDIT_REQUIRED_TOKENS = (
     "编辑",
@@ -59,6 +64,14 @@ _EDIT_REQUIRED_TOKENS = (
     "upload",
     "content input",
     "input content",
+)
+_ATOMIC_EDIT_ACTION_TOKENS = (
+    "编辑", "填写", "输入", "上传", "选择版块", "选择分类",
+    "edit", "fill", "input", "upload", "compose",
+)
+_ATOMIC_PREP_NAVIGATION_TOKENS = (
+    "进入", "返回", "切换", "打开",
+    "navigate", "enter", "return", "switch", "open",
 )
 
 _BLUEPRINT_STAGE_SPLIT_RE = re.compile(r"[\s,，。；;：:/\\|｜、（）()\[\]【】{}<>《》\-—_]+")
@@ -306,6 +319,43 @@ def validate_main_smoke_semantic_alignment(cases: Any) -> list[dict[str, Any]]:
             )
             continue
 
+        goal_text = main_chain_goal_text(case)
+        if is_pure_ui_goal_text(goal_text):
+            _add_semantic_conflict(
+                conflicts,
+                case=case,
+                reason="display_only_case_used_in_main_chain",
+                stage_kind=stage_kind,
+            )
+
+        goal_action_text = " ".join(
+            [
+                main_chain_goal_action_text(case),
+                _text(case.get("steps")),
+            ]
+        )
+        if stage_kind in {"entry", "consume", "configure", "edit"} and token_hit(
+            goal_action_text,
+            _COMMIT_ACTION_TOKENS,
+        ):
+            _add_semantic_conflict(
+                conflicts,
+                case=case,
+                reason="case_goal_spans_commit_stage",
+                stage_kind=stage_kind,
+            )
+        if (
+            stage_kind == "commit"
+            and token_hit(goal_action_text, _ATOMIC_EDIT_ACTION_TOKENS)
+            and token_hit(goal_action_text, _ATOMIC_PREP_NAVIGATION_TOKENS)
+        ):
+            _add_semantic_conflict(
+                conflicts,
+                case=case,
+                reason="commit_case_replays_edit_stage",
+                stage_kind=stage_kind,
+            )
+
         if bool(case.get("generated_bridge_case")) or bool(case.get("workflow_blueprint_bridge")):
             _add_semantic_conflict(
                 conflicts,
@@ -345,15 +395,6 @@ def validate_main_smoke_semantic_alignment(cases: Any) -> list[dict[str, Any]]:
                 conflicts,
                 case=case,
                 reason="conditional_visibility_case_in_main_smoke",
-                stage_kind=stage_kind,
-            )
-
-        role = _text(case.get("role")).lower()
-        if role == "student" and _has_any_text(text, _MANAGEMENT_SURFACE_TOKENS):
-            _add_semantic_conflict(
-                conflicts,
-                case=case,
-                reason="student_role_with_management_surface_text",
                 stage_kind=stage_kind,
             )
 

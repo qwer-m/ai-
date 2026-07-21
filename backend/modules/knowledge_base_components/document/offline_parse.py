@@ -38,7 +38,24 @@ from modules.knowledge_base_components.repositories.knowledge_document_repositor
 )
 
 logger = logging.getLogger(__name__)
-OFFLINE_UPLOAD_DIR = Path(__file__).resolve().parents[2] / "runtime" / "knowledge_uploads"
+BACKEND_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_OFFLINE_UPLOAD_DIR = BACKEND_ROOT / "runtime" / "knowledge_uploads"
+
+
+def _resolve_offline_upload_dir() -> Path:
+    """解析离线解析上传目录，相对路径统一以 backend 为基准。"""
+    raw = str(os.getenv("OFFLINE_UPLOAD_DIR") or "").strip()
+    if not raw:
+        return DEFAULT_OFFLINE_UPLOAD_DIR
+
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = BACKEND_ROOT / path
+    return path.resolve()
+
+
+# 避免工作目录变化导致文件落到 backend 之外。
+OFFLINE_UPLOAD_DIR = _resolve_offline_upload_dir()
 
 
 def _to_chroma_chunk_payloads(

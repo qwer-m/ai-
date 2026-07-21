@@ -64,6 +64,7 @@ def test_assemble_final_cases_strips_meta_and_reports_final_count() -> None:
     assert result.final_count == 2
     assert result.post_review_dedup_drop == 1
     assert result.final_order_flow_governance_summary["applied"] is True
+    assert result.execution_plan_summary["functional_phase_coverage"]["applied"] is False
     assert result.final_case_structure["rows"]
     assert all("meta" not in item for item in result.cases)
     assert all("priority_conflict_reason" not in item for item in result.cases)

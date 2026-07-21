@@ -20,6 +20,7 @@ def _valid_case() -> dict[str, object]:
         "test_module": "课程排课",
         "description": "保存课程排课",
         "expected_result": "系统提示保存成功",
+        "test_input": "课程名称=数学",
         "priority": "P1",
         "steps": ["1. 填写课程", "2. 保存"],
         "preconditions": ["已登录"],
@@ -39,6 +40,7 @@ def test_low_quality_reason_accepts_alias_fields() -> None:
         "testModule": "Course scheduling",
         "title": "Save course scheduling",
         "expectedResult": "System shows save success message",
+        "testInput": "course name=Math",
         "Priority": "P1",
         "testSteps": ["1. Fill course", "2. Save"],
         "prerequisites": ["Teacher has logged in"],
@@ -63,6 +65,7 @@ def test_low_quality_reason_reports_first_structural_failure() -> None:
         ({**_valid_case(), "description": "短"}, "description_too_short"),
         ({**_valid_case(), "test_module": ""}, "missing_test_module"),
         ({**_valid_case(), "expected_result": ""}, "missing_expected_result"),
+        ({**_valid_case(), "test_input": ""}, "missing_test_input"),
         ({**_valid_case(), "priority": "P9"}, "invalid_priority"),
         ({**_valid_case(), "steps": []}, "missing_steps"),
         ({**_valid_case(), "preconditions": []}, "missing_preconditions"),
@@ -186,6 +189,8 @@ def test_strip_case_meta_list_removes_debug_fields_and_promotes_final_priority()
             "priority_final": "P0",
             "priority_score": 99,
             "meta": {"debug": True},
+            "functional_phase": "cross_module",
+            "functional_interaction_modules": ["Account", "Notice"],
             "description": "保存课程排课",
         },
         "bad",
@@ -224,6 +229,7 @@ def _real_quality_case(case_id: str, description: str = "Save course schedule") 
         "test_module": "Course scheduling",
         "description": description,
         "expected_result": 'System shows "Save success" toast and record status is saved',
+        "test_input": "course name=Math",
         "priority": "P1",
         "steps": ["Open course scheduling form", "Save course schedule"],
         "preconditions": ["Teacher has logged in"],
@@ -259,7 +265,7 @@ def test_filter_final_quality_cases_ignores_non_dict_and_records_final_drop_deta
     ]
 
 
-def test_normalize_case_structure_fills_required_fields_and_normalizes_priority() -> None:
+def test_normalize_case_structure_does_not_fill_missing_business_fields() -> None:
     normalized = normalize_case_structure(
         {
             "id": "TC-NORMALIZE",
@@ -272,11 +278,10 @@ def test_normalize_case_structure_fills_required_fields_and_normalizes_priority(
 
     assert normalized is not None
     assert normalized["steps"] == ["1. Fill course name", "2. Save schedule"]
-    assert normalized["preconditions"] == [
-        "User has logged in and can access module Course scheduling"
-    ]
-    assert normalized["test_input"] == "Fill course name"
-    assert str(normalized["expected_result"]).strip()
+    assert normalized["preconditions"] == []
+    assert normalized["test_input"] == ""
+    assert normalized["expected_result"] == ""
+    assert normalized["expected_result_quality_reason"] == "missing_expected_result"
     assert normalized["priority"] == "P2"
 
 

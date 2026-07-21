@@ -6,7 +6,7 @@
 
 - `test_generation_quality_governance.py`：最终用例质量治理，如优先级、可断言期望、截断文本、推理泄漏、最终用例过滤。
 - `test_execution_plan_quality_contracts.py`：workflow blueprint、main smoke、execution group、fixture 选择等执行计划契约。
-- `test_core_flow_backfill*.py`：core flow 覆盖、backfill 计划、候选生成与应用。
+- `test_judge_repairer.py`：根据需求动态提取的核心流程约束、判定信号与修复契约。
 - `test_generation_route_quality_errors.py`：路由层对空结果、低质量结果等生成状态的 HTTP 错误映射。
 - `test_generation_diagnostics.py` / `test_*diagnostic*`：GEN_DIAG、导出、稳定性归因等诊断输出契约。
 

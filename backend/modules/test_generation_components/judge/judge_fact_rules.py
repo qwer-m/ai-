@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..control.scoped_rule_semantics import (
+    is_scoped_requirement_rule,
+    scoped_rule_applies_to_case,
+    scoped_rule_has_exclusive_action_conflict,
+)
 from ..postprocess.case_access import case_flat_text
 
 from .judge_fact_negative import (
@@ -140,178 +145,9 @@ def _violates_flow_order(case_text: str, flow_constraint: str) -> bool:
     return positions != sorted(positions)
 
 
-def _is_time_window_scope_rule(rule_text: str) -> bool:
-    lowered = str(rule_text or "").strip().lower()
-    if not lowered:
-        return False
-    time_markers = (
-        "周日24:00",
-        "周日 24:00",
-        "24:00后",
-        "24:00 后",
-        "24点后",
-        "24 点后",
-        "sunday 24:00",
-        "after sunday 24:00",
-    )
-    view_only_markers = (
-        "仅可查看",
-        "只可查看",
-        "仅查看",
-        "不可操作",
-        "不能操作",
-        "禁止操作",
-        "view only",
-        "read only",
-        "read-only",
-        "readonly",
-    )
-    return bool(
-        any(marker in lowered for marker in time_markers)
-        and any(marker in lowered for marker in view_only_markers)
-    )
-
-
-def _matches_time_window_scope(case_text: str) -> bool:
-    lowered = str(case_text or "").strip().lower()
-    if not lowered:
-        return False
-    scope_markers = (
-        "历史周",
-        "补做",
-        "补学",
-        "历史任务",
-        "历史周任务",
-        "历史周补学",
-        "周末任务",
-        "补做期",
-    )
-    time_markers = (
-        "周日24:00",
-        "周日 24:00",
-        "周日24点",
-        "周日 24点",
-        "24:00后",
-        "24:00 后",
-        "24点后",
-        "24 点后",
-        "截止后",
-        "过期后",
-        "sunday 24:00",
-        "after sunday",
-        "after deadline",
-    )
-    return bool(
-        any(marker in lowered for marker in scope_markers)
-        and any(marker in lowered for marker in time_markers)
-    )
-
-
-def _is_before_deadline_context(case_text: str) -> bool:
-    lowered = str(case_text or "").strip().lower()
-    if not lowered:
-        return False
-    before_markers = (
-        "周日24:00前",
-        "周日 24:00前",
-        "周日24点前",
-        "周日 24点前",
-        "24:00前",
-        "24:00 前",
-        "24点前",
-        "24 点前",
-        "截止前",
-        "过期前",
-        "未过期",
-        "before sunday 24:00",
-        "before deadline",
-    )
-    after_markers = (
-        "周日24:00后",
-        "周日 24:00后",
-        "周日24点后",
-        "周日 24点后",
-        "24:00后",
-        "24:00 后",
-        "24点后",
-        "24 点后",
-        "截止后",
-        "过期后",
-        "after sunday 24:00",
-        "after deadline",
-    )
-    has_before = any(marker in lowered for marker in before_markers)
-    has_after = any(marker in lowered for marker in after_markers)
-    return bool(has_before and (not has_after))
-
-
-def _violates_time_window_scope_rule(case_text: str) -> bool:
-    lowered = str(case_text or "").strip().lower()
-    if not lowered:
-        return False
-    if _is_before_deadline_context(lowered):
-        return False
-    positive_operation_markers = (
-        "可以操作",
-        "允许操作",
-        "可以提交",
-        "允许提交",
-        "提交成功",
-        "操作成功",
-        "可以编辑",
-        "允许编辑",
-        "可以修改",
-        "允许修改",
-        "can operate",
-        "can submit",
-        "allowed to operate",
-        "allowed to submit",
-        "allowed to edit",
-    )
-    nonnegated_tokens = (
-        "可操作",
-        "可提交",
-        "可编辑",
-        "可修改",
-    )
-    read_only_markers = (
-        "仅可查看",
-        "只可查看",
-        "仅查看",
-        "不可操作",
-        "不能操作",
-        "禁止操作",
-        "只读",
-        "read only",
-        "read-only",
-        "readonly",
-    )
-    has_positive_operation = any(marker in lowered for marker in positive_operation_markers)
-    if not has_positive_operation:
-        for token in nonnegated_tokens:
-            start = 0
-            while True:
-                idx = lowered.find(token, start)
-                if idx < 0:
-                    break
-                prefix = lowered[max(0, idx - 2):idx]
-                if all(neg not in prefix for neg in ("不", "禁")):
-                    has_positive_operation = True
-                    break
-                start = idx + len(token)
-            if has_positive_operation:
-                break
-    has_read_only_guard = any(marker in lowered for marker in read_only_markers)
-    if has_positive_operation:
-        return True
-    if has_read_only_guard:
-        return False
-    return False
-
-
 def _rule_applies_to_case(case_text: str, rule_text: str) -> bool:
-    if _is_time_window_scope_rule(rule_text):
-        return _matches_time_window_scope(case_text)
+    if is_scoped_requirement_rule(rule_text):
+        return scoped_rule_applies_to_case(case_text, rule_text)
     rule_marker = _normalize_text(rule_text)
     case_marker = _normalize_text(case_text)
     return bool(rule_marker and case_marker and rule_marker in case_marker)
@@ -345,8 +181,11 @@ def _find_confirmed_fact_violations(
         if not _rule_applies_to_case(case_text, scoped_rule):
             continue
         hits.append(scoped_rule)
-        if _is_time_window_scope_rule(scoped_rule):
-            if _violates_time_window_scope_rule(case_text):
+        if is_scoped_requirement_rule(scoped_rule):
+            if (
+                scoped_rule_has_exclusive_action_conflict(case_text, scoped_rule)
+                or _violates_negative_fact(case_text, scoped_rule)
+            ):
                 violations.append(scoped_rule)
             continue
         if _violates_negative_fact(case_text, scoped_rule):
@@ -400,10 +239,6 @@ __all__ = [
     '_violates_temporal_shutdown_fact',
     '_violates_negative_fact',
     '_violates_flow_order',
-    '_is_time_window_scope_rule',
-    '_matches_time_window_scope',
-    '_is_before_deadline_context',
-    '_violates_time_window_scope_rule',
     '_rule_applies_to_case',
     '_find_confirmed_fact_violations',
     '_find_forbidden_fact_violations',

@@ -6,22 +6,80 @@ from .case_access import case_flat_text, case_priority
 from .postprocess_priority_config import (
     p0_core_tokens,
     p0_critical_families,
-    p0_essay_domain_negative_tokens,
-    p0_essay_domain_positive_tokens,
-    p0_essay_domain_primary_tokens,
-    p0_essay_exclusion_tokens,
     p0_low_value_tokens,
 )
 from .priority_anchor_floor_policy import MainPathAnchorPolicy
 from .streaming_case_normalization import normalize_priority_value
+from .streaming_execution_plan_helpers import is_pure_ui_goal_text, main_chain_goal_text
 from .streaming_postprocess_utils import _dict_case_copies
 
-_COURSE_PERMISSION_FAMILIES = {
-    "free_first_lesson",
-    "locked_member_courses",
-    "member_all_courses",
-    "permission",
-}
+_ENTRY_ACTION_TOKENS = (
+    "点击",
+    "点按",
+    "进入",
+    "打开",
+    "跳转",
+    "返回",
+    "切换",
+    "click",
+    "tap",
+    "enter",
+    "open",
+    "navigate",
+    "return",
+    "switch",
+)
+
+_ENTRY_SURFACE_TOKENS = (
+    "入口",
+    "按钮",
+    "卡片",
+    "列表项",
+    "页面",
+    "链接",
+    "菜单",
+    "路径",
+    "tab",
+    "entry",
+    "button",
+    "card",
+    "list item",
+    "page",
+    "link",
+    "menu",
+    "route",
+)
+
+_ENTRY_OUTCOME_TOKENS = (
+    "进入",
+    "打开",
+    "跳转",
+    "返回",
+    "定位到",
+    "目标页面",
+    "详情页",
+    "首页",
+    "列表页",
+    "不可点击",
+    "点击无效",
+    "无响应",
+    "入口不存在",
+    "未显示入口",
+    "enter",
+    "open",
+    "navigate",
+    "redirect",
+    "target page",
+    "not clickable",
+    "no response",
+    "entry missing",
+    "blocks access",
+    "access blocked",
+    "cannot access",
+    "无法访问",
+    "无法进入",
+    "阻止进入",
+)
 
 
 def p0_main_path_target_count(case_count: int, *, coverage_mode: str = "") -> int:
@@ -74,24 +132,6 @@ def p0_case_anchor_text(case: dict[str, Any] | Any) -> str:
     )
 
 
-def p0_essay_domain_active(requirement_text: str = "") -> bool:
-    requirement_text_lower = str(requirement_text or "").lower()
-    return any(
-        token.lower() in requirement_text_lower
-        for token in p0_essay_domain_primary_tokens()
-    ) or (
-        any(token.lower() in requirement_text_lower for token in p0_essay_domain_positive_tokens())
-        and not any(token.lower() in requirement_text_lower for token in p0_essay_domain_negative_tokens())
-    )
-
-
-def p0_cross_domain_essay_case(case: dict[str, Any], *, requirement_text: str = "") -> bool:
-    if p0_essay_domain_active(requirement_text):
-        return False
-    text = p0_case_anchor_text(case)
-    return any(token.lower() in text for token in p0_essay_exclusion_tokens())
-
-
 def p0_has_low_value_signal(case_or_text: dict[str, Any] | str) -> bool:
     text = p0_case_anchor_text(case_or_text)
     return any(token.lower() in text for token in p0_low_value_tokens())
@@ -104,35 +144,78 @@ def p0_has_core_signal(case_or_text: dict[str, Any] | str) -> bool:
 
 def p0_configured_anchor_family(
     case_or_text: dict[str, Any] | str,
-    *,
-    requirement_text: str = "",
-    course_only_when_non_essay: bool = True,
 ) -> str:
-    if isinstance(case_or_text, dict) and p0_cross_domain_essay_case(
-        case_or_text,
-        requirement_text=requirement_text,
-    ):
-        return ""
     text = p0_case_anchor_text(case_or_text)
     critical_families = p0_critical_families()
-    if course_only_when_non_essay and not p0_essay_domain_active(requirement_text):
-        critical_families = tuple(
-            item
-            for item in critical_families
-            if str(item[0]) in _COURSE_PERMISSION_FAMILIES
-        )
     for family, tokens in critical_families:
         if all(token.lower() in text for token in tokens):
             return str(family)
     return ""
 
 
-def p0_main_path_anchor(case: dict[str, Any], *, requirement_text: str = "") -> bool:
-    if p0_cross_domain_essay_case(case, requirement_text=requirement_text):
-        return False
-    if p0_configured_anchor_family(case, requirement_text=requirement_text):
+def p0_main_path_anchor(case: dict[str, Any]) -> bool:
+    if p0_configured_anchor_family(case):
         return True
     return p0_has_core_signal(case) and not p0_has_low_value_signal(case)
+
+
+def is_entry_path_availability_case(case: dict[str, Any]) -> bool:
+    """识别会阻断用户进入目标功能的真实入口路径，排除仅检查样式的用例。"""
+    if not isinstance(case, dict):
+        return False
+    if is_pure_ui_goal_text(main_chain_goal_text(case)):
+        return False
+    action_segments = [
+        str(case.get("description") or "").lower(),
+        str(case.get("test_input") or "").lower(),
+        *[
+            str(item or "").lower()
+            for item in (case.get("steps") or [])
+            if str(item or "").strip()
+        ],
+    ]
+    outcome_text = case_flat_text(
+        case,
+        fields=("description", "expected_result"),
+        separator=" ",
+        lower=True,
+    )
+    has_surface_action = any(
+        any(action.lower() in segment for action in _ENTRY_ACTION_TOKENS)
+        and any(surface.lower() in segment for surface in _ENTRY_SURFACE_TOKENS)
+        for segment in action_segments
+    )
+    has_outcome = any(token.lower() in outcome_text for token in _ENTRY_OUTCOME_TOKENS)
+    return bool(has_surface_action and has_outcome)
+
+
+def enforce_entry_path_p0(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    output = _dict_case_copies(cases)
+    for item in output:
+        if not is_entry_path_availability_case(item):
+            continue
+        apply_priority_override(
+            item,
+            priority="P0",
+            source="entry_path_availability_p0",
+        )
+    return output
+
+
+def enforce_pure_ui_p2(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """纯文案和视觉样式校验不占用业务阻断优先级。"""
+    output = _dict_case_copies(cases)
+    for item in output:
+        if str(item.get("execution_group") or "").strip() == "main_smoke":
+            continue
+        if not is_pure_ui_goal_text(main_chain_goal_text(item)):
+            continue
+        apply_priority_override(
+            item,
+            priority="P2",
+            source="pure_ui_non_blocking_p2",
+        )
+    return output
 
 
 def _default_case_signature(case: dict[str, Any]) -> str:
@@ -160,11 +243,7 @@ def enforce_main_path_p0_anchors(
     target_count = p0_main_path_target_count(case_count, coverage_mode=mode)
     signature_fn = case_signature_fn or _default_case_signature
     policy = MainPathAnchorPolicy(
-        configured_anchor_family_fn=lambda text: p0_configured_anchor_family(
-            text,
-            requirement_text=str(requirement_text or ""),
-            course_only_when_non_essay=False,
-        ),
+        configured_anchor_family_fn=p0_configured_anchor_family,
         has_core_signal_fn=p0_has_core_signal,
         has_low_value_signal_fn=p0_has_low_value_signal,
         complexity_profile_fn=case_complexity_profile_fn,
@@ -173,15 +252,8 @@ def enforce_main_path_p0_anchors(
     for item in candidate_cases:
         if normalize_priority_value(case_priority(item)) != "P0":
             continue
-        if p0_cross_domain_essay_case(item, requirement_text=str(requirement_text or "")):
-            apply_priority_override(
-                item,
-                priority="P1",
-                source="main_path_anchor_demoted_domain_mismatch",
-            )
-            continue
         text = p0_case_anchor_text(item)
-        if policy.should_demote_non_blocking(text):
+        if policy.should_demote_non_blocking(text, item=item):
             apply_priority_override(
                 item,
                 priority="P1",
@@ -200,8 +272,6 @@ def enforce_main_path_p0_anchors(
     for index, item in enumerate(candidate_cases):
         if signature_fn(item) in existing_p0_signatures:
             continue
-        if p0_cross_domain_essay_case(item, requirement_text=str(requirement_text or "")):
-            continue
         text = p0_case_anchor_text(item)
         normalized_priority = normalize_priority_value(case_priority(item))
         rank = policy.primary_rank(
@@ -218,8 +288,6 @@ def enforce_main_path_p0_anchors(
         for index, item in enumerate(candidate_cases):
             signature = signature_fn(item)
             if signature in existing_p0_signatures or signature in ranked_signatures:
-                continue
-            if p0_cross_domain_essay_case(item, requirement_text=str(requirement_text or "")):
                 continue
             text = p0_case_anchor_text(item)
             normalized_priority = normalize_priority_value(case_priority(item))
@@ -274,4 +342,31 @@ def enforce_main_path_p0_anchors(
                         source="main_path_anchor_floor",
                     )
                     break
+    return output
+
+
+def enforce_execution_plan_p0_floor(
+    cases: list[dict[str, Any]],
+    *,
+    min_p0_count: int = 6,
+) -> list[dict[str, Any]]:
+    """在执行计划成形后，仅用主链用例补齐持久化要求的 P0 下限。"""
+    output = _dict_case_copies(cases)
+    target = max(0, int(min_p0_count or 0))
+    current = sum(1 for item in output if normalize_priority_value(case_priority(item)) == "P0")
+    if current >= target:
+        return output
+    for item in output:
+        if current >= target:
+            break
+        if str(item.get("execution_group") or "").strip().lower() != "main_smoke":
+            continue
+        if normalize_priority_value(case_priority(item)) == "P0":
+            continue
+        apply_priority_override(
+            item,
+            priority="P0",
+            source="execution_plan_main_chain_p0_floor",
+        )
+        current += 1
     return output

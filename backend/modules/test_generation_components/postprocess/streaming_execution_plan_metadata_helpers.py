@@ -13,7 +13,6 @@ from .streaming_execution_plan_helpers import (
     infer_role as _infer_role,
     is_core_result_output_anchor as _is_core_result_output_anchor,
     is_low_value_main_chain_p0 as _is_low_value_main_chain_p0,
-    is_student_observation_projection as _is_student_observation_projection,
     main_chain_state_overrides_for_current_generation as _main_chain_state_overrides_for_current_generation,
     normalize_actor_role_value as _normalize_actor_role,
     session_key_for_role as _session_key_for_role,
@@ -48,6 +47,7 @@ def annotate_execution_plan_cases(
     annotated: list[dict[str, Any]] = []
     previous_main_id = ""
     previous_main_result = ""
+    previous_main_role = ""
     main_chain_stage_by_signature = {
         _signature(item): (stage_key, stage_label, index + 1)
         for index, (stage_key, stage_label, item) in enumerate(selected)
@@ -73,16 +73,11 @@ def annotate_execution_plan_cases(
         group = _infer_group(updated, in_main_chain=in_main_chain)
         step_meta_for_role = stage_meta_by_key.get(stage_key) or {}
         role = (
-            _normalize_actor_role(step_meta_for_role.get("actor"), fallback_text=_case_text(updated))
+            _normalize_actor_role(step_meta_for_role.get("actor"))
             if in_main_chain and str(step_meta_for_role.get("actor") or "").strip()
             else _infer_role(updated)
         )
-        student_observation_projection = _is_student_observation_projection(updated)
-        if student_observation_projection:
-            updated["source_actor_role"] = role
-            role = "student"
-            updated["student_observation_projection"] = True
-        elif in_main_chain and str(step_meta_for_role.get("source_actor_role") or "").strip():
+        if in_main_chain and str(step_meta_for_role.get("source_actor_role") or "").strip():
             updated["source_actor_role"] = str(step_meta_for_role.get("source_actor_role") or "").strip()
         depends_on = [previous_main_id] if in_main_chain and previous_main_id else []
         data_state = _infer_data_state(
@@ -97,10 +92,9 @@ def annotate_execution_plan_cases(
         updated["depends_on"] = depends_on
         updated["role"] = role
         updated["session_key"] = _session_key_for_role(role)
+        role_changed = bool(in_main_chain and previous_main_role and role != previous_main_role)
         updated["role_switch_strategy"] = (
-            "switch_to_admin_session_then_return_student_session"
-            if in_main_chain and role == "admin"
-            else "reuse_group_session"
+            "switch_to_dedicated_role_session" if role_changed else "reuse_role_session"
         )
         updated["data_state"] = data_state
         updated["isolation_required"] = bool(not in_main_chain)
@@ -202,26 +196,20 @@ def annotate_execution_plan_cases(
                 (
                     "generate result",
                     "generated result",
-                    "correction result",
                     "review result",
-                    "four modules",
-                    "feedback modules",
+                    "complete result",
+                    "result details",
                     "upload",
                     "submit success",
                     "approval passed",
                     "review approved",
                     "上传",
-                    "去批改",
-                    "生成批改结果",
-                    "批改结果",
-                    "四部分",
-                    "综合点评",
-                    "全文润色",
-                    "优化建议",
+                    "生成结果",
+                    "完整结果",
+                    "结果详情",
                     "提交成功",
                     "审核通过",
                     "已发布",
-                    "作文圈",
                 ),
             )
             preserve_semantic_anchor = decision_source in {
@@ -247,6 +235,7 @@ def annotate_execution_plan_cases(
         if in_main_chain:
             previous_main_id = new_id
             previous_main_result = str(updated.get("expected_result") or "")
+            previous_main_role = role
 
     return annotated
 

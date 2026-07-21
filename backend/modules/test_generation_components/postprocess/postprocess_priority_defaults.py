@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .priority_behavior_semantics import GENERIC_LOW_VALUE_TOKENS
+
 _DEFAULT_REASONING_LEAKAGE_SIGNALS = (
     "假设",
     "为简单设",
@@ -50,10 +52,6 @@ _DEFAULT_QUALITY_CHECK_FIELDS = (
 _DEFAULT_P1_KEYWORDS = (
     "paywall",
     "payment gate",
-    "learning entry",
-    "ai scoring",
-    "wrong question",
-    "error collection",
     "workflow",
     "state",
     "sync",
@@ -67,85 +65,22 @@ _DEFAULT_P1_KEYWORDS = (
     "result",
 )
 
-_DEFAULT_STRONG_P0_PAYMENT_GATE_TOKENS = (
-    "paywall",
-    "payment gate",
-    "unpaid",
-    "subscribe",
-    "learning entry",
-    "blocks access",
-    "cannot continue",
-    "付费",
-    "支付",
-    "拦截",
-    "会员",
-    "锁定",
-)
-
-_DEFAULT_STRONG_P0_AI_SCORING_TOKENS = (
-    "ai scoring",
-    "auto score",
-    "automatic scoring",
-    "ocr upload",
-    "answer sheet",
-    "智能判分",
-    "自动判分",
-    "评分",
-)
-
-_DEFAULT_STRONG_P0_WRONG_COLLECTION_TOKENS = (
-    "wrong question",
-    "wrong question collection",
-    "error collection",
-    "wrong answers",
-    "错题",
-    "错题归集",
-    "错题本",
-)
-
-_DEFAULT_STRONG_P0_SUBMIT_REPORT_TOKENS = (
-    "submit success",
-    "publish",
-    "approval",
-    "approved",
-    "upload",
-    "generate result",
-    "generated result",
-    "上传",
-    "生成",
-    "生成批改结果",
-    "提交成功",
-    "投稿",
-    "审核通过",
-)
-
 _DEFAULT_P0_CRITICAL_FAMILIES = (
     ("generation_result", ("upload", "generate", "result")),
-    ("generation_result", ("generate", "correction result")),
-    ("generation_result", ("generated", "correction result")),
-    ("result_display", ("four modules",)),
-    ("result_display", ("feedback modules",)),
+    ("result_display", ("complete result",)),
     ("result_display", ("result details",)),
     ("submission", ("submit", "success")),
     ("submission", ("submit", "pending review")),
     ("approval", ("review approved",)),
     ("approval", ("approval passed",)),
     ("approval", ("approved work",)),
-    ("permission", ("first lesson",)),
-    ("permission", ("all courses", "member")),
     ("permission", ("locked", "paywall")),
-    ("permission", ("member", "course access")),
-    ("community_detail", ("community detail",)),
-    ("community_detail", ("work detail", "approved")),
+    ("permission", ("权限", "锁定")),
     ("generation_result", ("上传", "生成", "结果")),
-    ("generation_result", ("生成", "批改结果")),
-    ("result_display", ("四个模块",)),
-    ("result_display", ("四部分",)),
+    ("result_display", ("完整结果",)),
     ("submission", ("提交成功",)),
     ("submission", ("进入审核中",)),
     ("approval", ("审核通过",)),
-    ("permission", ("第一课",)),
-    ("permission", ("全部课程", "会员")),
 )
 
 _DEFAULT_P0_CORE_TOKENS = (
@@ -162,133 +97,33 @@ _DEFAULT_P0_CORE_TOKENS = (
     "vip",
     "locked",
     "paywall",
-    "first lesson",
-    "all courses",
     "generate result",
     "generated result",
-    "generate correction",
-    "correction result",
-    "four modules",
-    "feedback modules",
+    "complete result",
     "result details",
-    "community detail",
     "上传",
     "提交",
     "提交成功",
-    "投稿",
     "发布",
     "审核",
     "审核通过",
     "权限",
     "会员",
     "锁定",
-    "第一课",
-    "全部课程",
     "生成结果",
-    "生成批改结果",
-    "批改结果",
-    "四个模块",
-    "四部分",
+    "完整结果",
 )
 
-_DEFAULT_P0_LOW_VALUE_TOKENS = (
-    "copy",
-    "toast",
-    "tooltip",
-    "record limit",
-    "records limit",
-    "maximum records",
-    "max records",
-    "drag sort",
-    "drag sorted",
-    "delete thumbnail",
-    "deleted",
-    "delete image",
-    "remove image",
-    "force close",
-    "kill app",
-    "48h",
-    "48 hours",
-    "remains pending",
-    "pending status remains",
-    "pending status",
-    "star rating",
-    "stars",
-    "button disabled",
-    "disabled button",
-    "0 images",
-    "editable title",
-    "title body",
-    "复制",
-    "提示",
-    "最大20条",
-    "上限",
-    "拖动排序",
-    "删除图片",
-    "删除缩略图",
-    "强制退出",
-    "48小时",
-    "状态保持",
-    "星星评分",
-    "评分展示",
-    "按钮不可点",
-    "置灰",
-    "0张",
-    "标题正文",
-    "可编辑",
-)
-
-_DEFAULT_P0_ESSAY_DOMAIN_PRIMARY_TOKENS = (
-    "essay",
-    "composition",
-    "writing",
-    "correction",
-    "correction result",
-    "作文",
-    "批改",
-    "投稿",
-)
-
-_DEFAULT_P0_ESSAY_DOMAIN_POSITIVE_TOKENS = (
-    "essay",
-    "composition",
-    "writing",
-    "correction",
-    "作文",
-    "批改",
-    "投稿",
-)
-
-_DEFAULT_P0_ESSAY_DOMAIN_NEGATIVE_TOKENS = (
-    "schedule",
-    "course schedule",
-    "recent course",
-    "lesson plan",
-    "排课",
-    "课程时间",
-    "近期课程",
-    "学习计划",
-)
-
-_DEFAULT_P0_ESSAY_EXCLUSION_TOKENS = (
-    "essay",
-    "composition",
-    "essay submission",
-    "作文",
-    "批改",
-    "投稿",
-    "作品",
-)
+_DEFAULT_P0_LOW_VALUE_TOKENS = GENERIC_LOW_VALUE_TOKENS
 
 _DEFAULT_UNCERTAIN_REQUIREMENT_SIGNALS = (
-    "需教研确认",
+    "需确认",
+    "需要确认",
     "需要讨论",
     "本期可以不做",
     "本期可以不要",
     "暂不支持",
     "模型不支持",
-    "小学没定位模型",
-    "由教研提供",
     "待确认",
     "待讨论",
     "to be confirmed",
@@ -330,18 +165,6 @@ _DEFAULT_P2_KEYWORDS = (
     "display",
     "layout",
     "performance",
-)
-
-_DEFAULT_STRONG_P0_WEEK_BOUNDARY_TOKENS = (
-    "周次切换",
-    "教学周",
-    "周日24",
-    "时间边界",
-    "补做期",
-    "历史周",
-    "补做规则",
-    "week switch",
-    "history week",
 )
 
 _DEFAULT_UI_KEYWORDS = (
@@ -471,9 +294,6 @@ _DEFAULT_REUSE_RISK_TOKENS = (
     "回首页",
     "回列表",
     "返回目标",
-    "不串课文",
-    "不串单元",
-    "串原模块",
     "reuse",
     "reused",
     "legacy behavior",
@@ -539,7 +359,6 @@ _DEFAULT_BEHAVIOR_DEPTH_TOKENS = (
     "幂等",
     "一致",
     "不丢上下文",
-    "不串课文",
     "不错跳",
     "上下文保持",
     "断言",
@@ -553,8 +372,8 @@ _DEFAULT_BEHAVIOR_DEPTH_TOKENS = (
 )
 
 _DEFAULT_STATE_GUARD_TOKENS = (
-    "不串课文",
-    "不串单元",
+    "不串数据",
+    "不串上下文",
     "不丢上下文",
     "不错误推进",
     "不标记完成",
@@ -562,8 +381,7 @@ _DEFAULT_STATE_GUARD_TOKENS = (
     "context preserved",
     "no wrong progression",
     "keep current node",
-    "no cross-unit leak",
-    "no cross-lesson leak",
+    "no cross-context leak",
 )
 
 _DEFAULT_IMPORTANT_NON_BLOCKING_TOKENS = (
@@ -585,21 +403,17 @@ _DEFAULT_HIGH_FREQUENCY_TOKENS = (
 )
 
 _DEFAULT_IMPORTANT_DETAIL_NAVIGATION_TOKENS = (
-    "分句点评",
-    "划线句子",
-    "点评跳转",
-    "sentence comment",
-    "underlined sentence",
-    "comment jump",
+    "详情跳转",
+    "列表到详情",
+    "detail navigation",
+    "list to detail",
 )
 
 _DEFAULT_IMPORTANT_CONTENT_LIMIT_TOKENS = (
-    "我的作文最多20条",
-    "我的作文最多 20 条",
-    "作品最多20条",
-    "作品最多 20 条",
-    "my essays max 20",
-    "my compositions max 20",
+    "记录上限",
+    "内容上限",
+    "record limit",
+    "content limit",
 )
 
 _DEFAULT_USABILITY_DEGRADED_TOKENS = (
@@ -687,21 +501,12 @@ __all__ = [
     "_DEFAULT_INVALID_CASE_QUALITY_MARKERS",
     "_DEFAULT_QUALITY_CHECK_FIELDS",
     "_DEFAULT_P1_KEYWORDS",
-    "_DEFAULT_STRONG_P0_PAYMENT_GATE_TOKENS",
-    "_DEFAULT_STRONG_P0_AI_SCORING_TOKENS",
-    "_DEFAULT_STRONG_P0_WRONG_COLLECTION_TOKENS",
-    "_DEFAULT_STRONG_P0_SUBMIT_REPORT_TOKENS",
     "_DEFAULT_P0_CRITICAL_FAMILIES",
     "_DEFAULT_P0_CORE_TOKENS",
     "_DEFAULT_P0_LOW_VALUE_TOKENS",
-    "_DEFAULT_P0_ESSAY_DOMAIN_PRIMARY_TOKENS",
-    "_DEFAULT_P0_ESSAY_DOMAIN_POSITIVE_TOKENS",
-    "_DEFAULT_P0_ESSAY_DOMAIN_NEGATIVE_TOKENS",
-    "_DEFAULT_P0_ESSAY_EXCLUSION_TOKENS",
     "_DEFAULT_UNCERTAIN_REQUIREMENT_SIGNALS",
     "_DEFAULT_P0_KEYWORDS",
     "_DEFAULT_P2_KEYWORDS",
-    "_DEFAULT_STRONG_P0_WEEK_BOUNDARY_TOKENS",
     "_DEFAULT_UI_KEYWORDS",
     "_DEFAULT_UI_RISK_WORDS",
     "_DEFAULT_MAIN_WORKFLOW_TOKENS",

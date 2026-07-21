@@ -15,7 +15,6 @@ from .postprocess_priority_config import (
 )
 from .result_postprocess_priority_decisions import (
     _build_priority_decision,
-    _contains_strong_p0_signal,
     _has_positive_p1_evidence,
     _normalize_score_result_for_debug_and_resolve,
     _resolve_priority_conflict_to_final,
@@ -37,7 +36,6 @@ def resolve_case_priority_decision(
 ) -> dict[str, Any]:
     normalized_model = _normalize_existing_priority(model_priority)
     case_text = _extract_case_text(case if isinstance(case, dict) else {})
-    strong_p0_signal = _contains_strong_p0_signal(case_text)
     uncertain_requirement_hit = _contains_any(str(case_text or "").lower(), _UNCERTAIN_REQUIREMENT_SIGNALS)
     score = int(score_result.get("priority_score") or 0)
     bonus_score = int(score_result.get("bonus_score") or 0)
@@ -57,8 +55,6 @@ def resolve_case_priority_decision(
                 "case_level_release_blocking",
             )
         )
-    if strong_p0_signal:
-        case_level_hard_guard = True
     p2_cap = bool(score_result.get("p2_cap"))
     coverage_value_exempt = bool(score_result.get("coverage_value_exempt"))
     missing_rule_hits = [str(item) for item in (score_result.get("missing_rule_hits") or []) if str(item).strip()]
@@ -94,27 +90,13 @@ def resolve_case_priority_decision(
         )
 
     if normalized_model == "P0":
-        p0_score_floor = 0 if strong_p0_signal else 70
-        if (not case_level_hard_guard) or score < p0_score_floor:
+        if (not case_level_hard_guard) or score < 70:
             return _build_priority_decision(
                 priority_final="P1",
                 decision_state="decided",
                 decision_source="model_p0_guard_downgrade",
                 confidence="high",
             )
-
-    if (
-        normalized_model == "P2"
-        and strong_p0_signal
-        and case_level_hard_guard
-        and not p2_cap
-    ):
-        return _build_priority_decision(
-            priority_final="P0",
-            decision_state="decided",
-            decision_source="strong_p0_signal_guard",
-            confidence="medium",
-        )
 
     # Third calibration: security/data critical hits with mid score can move from P2 to P1.
     if (
@@ -188,7 +170,7 @@ def resolve_case_priority_decision(
             decision_source="score_threshold_promotion",
             confidence="medium",
         )
-    if normalized_model == "P1" and case_level_hard_guard and score >= (0 if strong_p0_signal else 70):
+    if normalized_model == "P1" and case_level_hard_guard and score >= 70:
         return _build_priority_decision(
             priority_final="P0",
             decision_state="decided",

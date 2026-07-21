@@ -54,6 +54,7 @@ from .streaming_review_selection import (
 from .streaming_reasoning_quality import reasoning_leakage_hits as _reasoning_leakage_hits
 from .streaming_text_match import CaseGovernanceMatcher
 from .streaming_ui_like import apply_ui_like_ratio_postprocess_cap as _apply_ui_like_ratio_postprocess_cap
+from .module_contract import enforce_functional_module_contract, rebalance_functional_phase_coverage
 
 
 def stream_postprocess_cases(
@@ -276,8 +277,31 @@ def stream_postprocess_cases(
     reference_count_effective = review_stage_result.reference_count_effective
     stage_counts["review"] = int(review_selected_count or 0)
 
+    phase_target_count = min(
+        int(candidate_count_before_review or 0),
+        max(_dict_case_count(parsed_result), int(final_target_floor_count or 0)),
+    )
+    parsed_result, functional_phase_recovery_summary = rebalance_functional_phase_coverage(
+        _dict_case_items(parsed_result),
+        candidate_cases=[
+            *_dict_case_items(review_stage_result.review_candidate_cases),
+            *_dict_case_items(review_stage_result.candidate_cases),
+        ],
+        project_profile=project_profile,
+        target_count=phase_target_count,
+    )
+    stage_counts["functional_phase_recovered"] = int(
+        functional_phase_recovery_summary.get("added_count") or 0
+    )
+
     parsed_result = normalize_json_structure_fn(parsed_result)
     parsed_result = deduplicate_test_cases_fn(parsed_result)
+    parsed_result, module_contract_summary = enforce_functional_module_contract(
+        _dict_case_items(parsed_result),
+        project_profile=project_profile,
+    )
+    stage_counts["module_contract_normalized"] = int(module_contract_summary.get("normalized_count") or 0)
+    stage_counts["module_contract_rejected"] = int(module_contract_summary.get("rejected_count") or 0)
     parsed_result = reorder_cases_by_closed_loop_fn(parsed_result, start_id=start_id, renumber_ids=True)
     parsed_result = _apply_coverage_priority_semantics(
         requirement,

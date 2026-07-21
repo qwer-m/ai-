@@ -2,9 +2,6 @@ from __future__ import annotations
 
 import re
 
-from ..control.actor_roles import CANONICAL_ROLE_SESSION_KEYS
-
-
 _STATE_FIELD_NAMES = (
     "workflow_id",
     "source_state",
@@ -17,26 +14,16 @@ _STATE_FIELD_NAMES = (
     "state_transition_confidence",
 )
 
-_ROLE_SESSION_KEYS = dict(CANONICAL_ROLE_SESSION_KEYS)
-
 _COMMIT_ACTION_TOKENS = (
     "保存",
     "提交",
     "发布",
     "确认",
-    "触发打分",
-    "开始打分",
-    "自动打分",
-    "评分计算",
-    "生成评分",
-    "给出评分",
     "save",
     "submit",
     "publish",
     "commit",
     "confirm",
-    "trigger score",
-    "score calculation",
 )
 
 _DOWNSTREAM_VISIBILITY_TOKENS = (
@@ -53,9 +40,6 @@ _DOWNSTREAM_VISIBILITY_TOKENS = (
     "生效",
     "展示",
     "显示",
-    "评分结果",
-    "打分结果",
-    "综合评分",
     "visible",
     "display",
     "displayed",
@@ -64,8 +48,6 @@ _DOWNSTREAM_VISIBILITY_TOKENS = (
     "shows",
     "shown",
     "reflect",
-    "score result",
-    "scoring result",
 )
 
 _COMPLETION_SYNC_TOKENS = (
@@ -87,11 +69,9 @@ _CONSUME_TOKENS = (
     "进入",
     "打开",
     "查看",
-    "学习",
     "enter",
     "open",
     "view",
-    "learn",
     "consume",
 )
 
@@ -256,19 +236,11 @@ _COMMIT_REQUIRED_TOKENS = (
     "确认",
     "完成创建",
     "创建成功",
-    "触发打分",
-    "开始打分",
-    "自动打分",
-    "评分计算",
-    "生成评分",
-    "给出评分",
     "save",
     "submit",
     "commit",
     "confirm",
     "created",
-    "trigger score",
-    "score calculation",
 )
 
 _DOWNSTREAM_PROPAGATION_TOKENS = (
@@ -294,11 +266,6 @@ _DOWNSTREAM_PROPAGATION_TOKENS = (
     "创建",
     "保存",
     "一致",
-    "书房端",
-    "学生端",
-    "评分结果",
-    "打分结果",
-    "综合评分",
     "sync",
     "synced",
     "effective",
@@ -315,8 +282,6 @@ _DOWNSTREAM_PROPAGATION_TOKENS = (
     "shown",
     "reflect",
     "reflected",
-    "score result",
-    "scoring result",
 )
 
 _CONSUME_REQUIRED_TOKENS = (
@@ -328,13 +293,11 @@ _CONSUME_REQUIRED_TOKENS = (
     "跳转",
     "进入",
     "打开",
-    "学习",
     "点击",
     "查看",
     "navigate",
     "enter",
     "open",
-    "learn",
     "click",
     "view",
     "consume",
@@ -382,19 +345,6 @@ _REPORT_HISTORY_ONLY_TOKENS = (
     "历史课程",
     "report",
     "history",
-)
-
-_MANAGEMENT_SURFACE_TOKENS = (
-    "督导",
-    "老师",
-    "教师",
-    "学员信息表格",
-    "课程管理",
-    "课堂管理",
-    "supervisor",
-    "teacher",
-    "student info table",
-    "course management",
 )
 
 _INTERNAL_PLACEHOLDER_PATTERN = re.compile(r"\b[a-z]+(?:_[a-z0-9]+){2,}\b")

@@ -137,21 +137,6 @@ class Config:
     ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days
 
     # ===========================
-    # Core flow backfill flags
-    # ===========================
-    CORE_FLOW_BACKFILL_ENABLED = _env_flag("CORE_FLOW_BACKFILL_ENABLED", False)
-    CORE_FLOW_BACKFILL_APPLY_TO_FINAL = _env_flag("CORE_FLOW_BACKFILL_APPLY_TO_FINAL", False)
-    CORE_FLOW_BACKFILL_MAX_CANDIDATES = _env_int("CORE_FLOW_BACKFILL_MAX_CANDIDATES", 12, minimum=1)
-    CORE_FLOW_BACKFILL_MIN_FINAL_CASES = _env_int("CORE_FLOW_BACKFILL_MIN_FINAL_CASES", 12, minimum=1)
-    CORE_FLOW_BACKFILL_MAX_FINAL_CASES = _env_int("CORE_FLOW_BACKFILL_MAX_FINAL_CASES", 18, minimum=1)
-    CORE_FLOW_BACKFILL_MIN_COVERAGE_RATIO = _env_float(
-        "CORE_FLOW_BACKFILL_MIN_COVERAGE_RATIO",
-        0.8,
-        minimum=0.0,
-        maximum=1.0,
-    )
-
-    # ===========================
     # Stream generation coverage shard flags
     # ===========================
     GENERATION_STREAM_COVERAGE_SHARDS_ENABLED = _env_flag("GENERATION_STREAM_COVERAGE_SHARDS_ENABLED", False)

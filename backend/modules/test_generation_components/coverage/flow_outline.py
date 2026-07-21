@@ -23,7 +23,7 @@ _CROSS_CUTTING_ORDER = [str(item.get("key") or "") for item in _CROSS_CUTTING_DE
 
 _STAGE_SPLIT_RE = re.compile(r"\s*(?:->|=>|[\\/\|>:_\-\u2014\uff1a\uff1b])\s*")
 _NUMBERED_HEADING_RE = re.compile(
-    r"^\s*(?:(?:\d+|[A-Za-z])(?:[.)\]\uff09\uff0e\u3001-]|\s+)|"
+    r"^\s*(?:(?:\d+(?:\.\d+)*|[A-Za-z])(?:[.)\]\uff09\uff0e\u3001-]|\s+)|"
     r"[\u4e00-\u9fff]{1,4}[.)\]\uff09\uff0e\u3001-])"
 )
 _STAGE_TRAILING_NOISE_RE = re.compile(
@@ -95,7 +95,12 @@ _META_SECTION_HINTS = (
     "introduction",
     "other features",
     "other function",
+    "functional modules",
     "data requirement",
+    "technical solution",
+    "technical research",
+    "implementation detail",
+    "system structure",
     "out of scope",
     "not in scope",
     "需求背景",
@@ -106,9 +111,33 @@ _META_SECTION_HINTS = (
     "总体",
     "范围",
     "其他功能",
+    "功能模块",
+    "模块划分",
+    "数据需求",
+    "技术方案",
+    "技术调研",
+    "实现细节",
+    "系统结构",
+    "本期不做",
+)
+
+_NON_EXECUTABLE_SECTION_HINTS = (
+    "technical solution",
+    "technical research",
+    "implementation detail",
+    "system structure",
+    "data requirement",
+    "out of scope",
+    "not in scope",
+    "技术方案",
+    "技术调研",
+    "实现细节",
+    "系统结构",
     "数据需求",
     "本期不做",
 )
+
+_STRUCTURE_SECTION_SUFFIXES = ("structure", "architecture", "结构", "架构")
 
 _UI_ATTRIBUTE_HINTS = (
     "icon",
@@ -457,9 +486,8 @@ def _is_plain_container_label(label: str) -> bool:
         return True
     if _label_token_hit(lowered, _CONTAINER_SECTION_HINTS):
         return True
-    # Single short Chinese labels ending in "区" are usually content partitions,
-    # not executable steps in a user journey.
-    return bool(re.fullmatch(r"[\u4e00-\u9fff]{1,8}\u533a", lowered))
+    # 中文注释：命名功能区可能就是需求模块，不能仅凭“区”后缀排除。
+    return False
 
 
 def _is_non_executable_document_section_label(label: str) -> bool:
@@ -476,7 +504,12 @@ def _is_non_executable_document_section_label(label: str) -> bool:
         return True
     if "的消息" in raw_label:
         return True
-    if _canonical_stage_label(canonical).strip().lower() in _GENERIC_SURFACE_LABELS:
+    if _label_token_hit(match_text, _NON_EXECUTABLE_SECTION_HINTS):
+        return True
+    normalized_canonical = _canonical_stage_label(canonical).strip().lower()
+    if any(normalized_canonical.endswith(suffix) for suffix in _STRUCTURE_SECTION_SUFFIXES):
+        return True
+    if normalized_canonical in _GENERIC_SURFACE_LABELS:
         return True
     has_action = _has_execution_signal(canonical)
     if _label_token_hit(match_text, _OPTION_LABEL_HINTS):

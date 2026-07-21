@@ -7,6 +7,9 @@ from modules.automation_components.services.ui_automation_export_service import 
 
 SCRIPT = '''"""真实 UI 操作脚本。"""
 from __future__ import annotations
+import os
+
+PHONE = os.getenv("TIANTIANLIAN_PHONE", "")
 
 class LoginPage:
     def __init__(self, driver):
@@ -66,6 +69,8 @@ def test_export_operations_are_isolated_by_real_project(tmp_path: Path) -> None:
     }
     assert manifest["operations"][0]["name"] == "游客登录"
     assert manifest["operations"][0]["architecture"] == "page_object"
+    env_example = (Path(tiantianlian["root_dir"]) / ".env.example").read_text(encoding="utf-8")
+    assert "TIANTIANLIAN_PHONE=" in env_example
 
 
 def test_export_upserts_the_same_operation(tmp_path: Path) -> None:

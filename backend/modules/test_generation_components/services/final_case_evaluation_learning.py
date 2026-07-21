@@ -140,26 +140,6 @@ def build_learning_candidates_from_evaluation_result(evaluation_result: Any) -> 
         )
 
     for idx, item in enumerate(_as_text_list(defect.get("missing_points")), start=1):
-        generated_only = _is_generated_only_evaluation_defect(item)
-        redundant_or_overgenerated = _is_redundant_or_overgenerated_evaluation_defect(item)
-        if generated_only or redundant_or_overgenerated:
-            add_candidate(
-                source_field="missing_points",
-                item=item,
-                index=idx,
-                signal_type="negative",
-                pattern_usage="avoid",
-                pattern_category="hallucination_or_redundant_case",
-                reason_category=(
-                    "generated_only_defect_misfiled_as_missing"
-                    if generated_only
-                    else "redundant_defect_misfiled_as_missing"
-                ),
-                candidate_type="negative_pattern",
-                selected_by_default=False,
-                confidence=_confidence_from_metrics(metrics, base=0.62, metric_name="precision", inverse=True),
-            )
-            continue
         add_candidate(
             source_field="missing_points",
             item=item,
@@ -173,26 +153,6 @@ def build_learning_candidates_from_evaluation_result(evaluation_result: Any) -> 
             confidence=_confidence_from_metrics(metrics, base=0.72, metric_name="recall", inverse=True),
         )
     for idx, item in enumerate(_as_text_list(defect.get("modifications")), start=1):
-        generated_only = _is_generated_only_evaluation_defect(item)
-        redundant_or_overgenerated = _is_redundant_or_overgenerated_evaluation_defect(item)
-        if generated_only or redundant_or_overgenerated:
-            add_candidate(
-                source_field="modifications",
-                item=item,
-                index=idx,
-                signal_type="negative",
-                pattern_usage="avoid",
-                pattern_category="hallucination_or_redundant_case",
-                reason_category=(
-                    "generated_only_defect_misfiled_as_modification"
-                    if generated_only
-                    else "redundant_defect_misfiled_as_modification"
-                ),
-                candidate_type="negative_pattern",
-                selected_by_default=False,
-                confidence=_confidence_from_metrics(metrics, base=0.62, metric_name="precision", inverse=True),
-            )
-            continue
         add_candidate(
             source_field="modifications",
             item=item,
@@ -291,71 +251,6 @@ def _summarize_evaluation_defect_pattern(
     return f"{prefix} | {pattern_category} | {_text(text)[:140]}"[:180]
 
 
-def _is_generated_only_evaluation_defect(raw: Any) -> bool:
-    text = _text(raw)
-    if not text:
-        return False
-    generated_side_tokens = (
-        "生成用例",
-        "原生成",
-        "AI 生成",
-        "AI生成",
-        "generated",
-    )
-    final_absent_tokens = (
-        "修改用例未涉及",
-        "修改用例未覆盖",
-        "修改用例不存在",
-        "修改用例完全不存在",
-        "修改版本未涉及",
-        "修改版本未覆盖",
-        "修改版本中未体现",
-        "修改后未涉及",
-        "在修改用例中不存在",
-        "在修改用例中未体现",
-        "modified version does not",
-        "absent from modified",
-    )
-    generated_excess_tokens = (
-        "生成用例包含大量",
-        "生成用例中新增了大量",
-        "生成用例新增了大量",
-        "生成用例额外包含",
-        "generated contains many",
-        "generated adds many",
-    )
-    lowered = text.lower()
-    has_generated_side = any(token.lower() in lowered for token in generated_side_tokens)
-    if not has_generated_side:
-        return False
-    return any(token.lower() in lowered for token in final_absent_tokens + generated_excess_tokens)
-
-
-def _is_redundant_or_overgenerated_evaluation_defect(raw: Any) -> bool:
-    text = _text(raw)
-    if not text:
-        return False
-    lowered = text.lower()
-    generated_tokens = ("ai", "生成", "generated")
-    redundant_tokens = (
-        "duplicate_redundant",
-        "重复",
-        "冗余",
-        "合并",
-        "过多",
-        "大量",
-        "多个",
-        "未被人工采用",
-        "not adopted",
-        "redundant",
-        "duplicate",
-        "merged",
-    )
-    return any(token in lowered for token in generated_tokens) and any(
-        token in lowered for token in redundant_tokens
-    )
-
-
 def _aggregate_evaluation_learning_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
     buckets: dict[str, list[dict[str, Any]]] = {}
     for candidate in candidates:
@@ -383,28 +278,15 @@ def _evaluation_candidate_key(candidate: dict[str, Any]) -> str:
         [
             source_field,
             candidate_type,
-            _semantic_bucket_for_learning_text(text),
+            _learning_text_fingerprint(text),
         ]
     )
 
 
-def _semantic_bucket_for_learning_text(text: str) -> str:
-    normalized = text.lower()
-    token_groups = [
-        ("schedule_time", ("排课", "课程时间", "时间区间", "顺延", "课程延期", "节假日", "时间冲突", "schedule")),
-        ("learning_plan", ("学习计划", "计划页", "卡片", "周列表", "学习中", "复习", "计划")),
-        ("course_status", ("课程状态", "已完成", "未完成", "进度", "归档", "下架", "状态")),
-        ("navigation_flow", ("跳转", "进入", "返回", "下一步", "页面流转", "入口")),
-        ("teacher_admin", ("督导", "老师", "书房", "中房端", "后台", "管理端", "ta", "ops")),
-        ("ui_copy", ("文案", "提示", "按钮", "标题", "标签", "弹窗", "显示")),
-        ("duplicate_redundant", ("重复", "相似", "合并", "大量", "冗余")),
-        ("buried_point", ("埋点", "pv", "uv", "上报")),
-    ]
-    for name, tokens in token_groups:
-        if any(token in normalized for token in tokens):
-            return name
+def _learning_text_fingerprint(text: str) -> str:
+    """仅合并规范化后相同的评估证据，不从正文猜测业务类别。"""
     compact = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "", text.lower())
-    return compact[:24] or "general"
+    return compact[:64] or "general"
 
 
 def _evaluation_candidate_field_limit(source_field: str, candidate: dict[str, Any]) -> int:
@@ -441,7 +323,7 @@ def _merge_evaluation_candidate_bucket(bucket: list[dict[str, Any]]) -> dict[str
     if "auto_select" not in gate_statuses and "review_required" in gate_statuses:
         gate_status = "review_required"
     base["text"] = summary
-    base["id"] = f"{base.get('source_field')}-{_semantic_bucket_for_learning_text(summary)}"
+    base["id"] = f"{base.get('source_field')}-{_learning_text_fingerprint(summary)}"
     base["confidence"] = round(max(float(item.get("confidence") or 0.0) for item in bucket), 4)
     base["selected_by_default"] = selected_by_default
     base["quality_gate_status"] = gate_status
@@ -472,7 +354,7 @@ def _summarize_candidate_texts(texts: list[str]) -> str:
     if len(texts) == 1:
         return texts[0]
     first = texts[0]
-    bucket = _semantic_bucket_for_learning_text(first)
+    bucket = _learning_text_fingerprint(first)
     examples = "；".join(text[:60] for text in texts[:3])
     return f"{bucket} 类问题聚合：{len(texts)} 条相似缺陷，代表例：{examples}"[:240]
 

@@ -676,17 +676,6 @@ def normalize_current_requirement_blueprint_payload(
             step_id = _slug(raw_step.get("id") or f"{stage_kind}_{step_index:02d}", fallback=f"step_{step_index:02d}")
             state_out = _slug(explicit_state_out or f"{step_id}_done", fallback=f"step_{step_index:02d}_done")
             source_actor_role = _text(raw_step.get("actor") or raw_step.get("role"))
-            role_context = " ".join(
-                str(part or "")
-                for part in (
-                    source_actor_role,
-                    label,
-                    action,
-                    raw_step.get("module"),
-                    raw_step.get("feature"),
-                )
-                if str(part or "").strip()
-            )
             normalized_steps.append(
                 {
                     **raw_step,
@@ -699,7 +688,7 @@ def normalize_current_requirement_blueprint_payload(
                     "source_state": previous_state,
                     "target_state": state_out,
                     "stage_kind": stage_kind,
-                    "actor": normalize_actor_role(source_actor_role, fallback_text=role_context),
+                    "actor": normalize_actor_role(source_actor_role),
                     "source_actor_role": source_actor_role or "business_user",
                     "path_type": "positive",
                     "blocking": False,
@@ -751,7 +740,7 @@ Do not generate test cases. Do not use historical examples, RAG matches, or exte
 Return compact minified JSON only. No markdown. No explanation.
 
 Schema:
-{"workflow_blueprints":[{"workflow_id":"short_id","name":"short name","confidence":0.8,"steps":[{"id":"entry","label":"<=18 chars","action":"<=40 chars","stage_kind":"entry|configure|edit|preview|commit|downstream_visibility|consume|completion_sync","actor":"admin|supervisor|student|member|student_free|business_user","state_out":"short_state","match_keywords":["<=8 chars"],"evidence":["<=30 chars"]}]}]}
+{"workflow_blueprints":[{"workflow_id":"short_id","name":"short name","confidence":0.8,"steps":[{"id":"entry","label":"<=18 chars","action":"<=40 chars","stage_kind":"entry|configure|edit|preview|commit|downstream_visibility|consume|completion_sync","actor":"explicit actor or business_user","state_out":"short_state","match_keywords":["<=8 chars"],"evidence":["<=30 chars"]}]}]}
 
 Rules:
 - Use 6 positive main-flow steps when possible; use 4 to 5 only when the document truly has fewer executable stages.
@@ -764,7 +753,7 @@ Rules:
 - Do not use quota/limit/exceeded/count cap/permission failure/error/empty-state checks as main-flow preview or validation steps.
 - Never mention quota, limit, count cap, exceeded, permission failure, error, empty-state, or rejection evidence in main-flow steps.
 - Preview/check steps must confirm that the happy-path content, selection, image, form, or result is ready to submit; they must not block the flow.
-- Normalize persona labels into the closest actor enum. Use business_user for generic users/customers/requesters/operators.
+- Preserve an actor explicitly stated by the requirement. Use business_user only when the requirement does not identify an actor.
 - If the requirement is Chinese, write name/label/action/match_keywords/evidence in concise Chinese.
 - Every step must be supported by the current requirement text.
 - If no executable flow is present, return {"workflow_blueprints":[]}.

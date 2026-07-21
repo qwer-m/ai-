@@ -12,6 +12,7 @@ from .execution_plan_validator import (
     validate_main_smoke_semantic_alignment,
     validate_main_smoke_state_chain,
 )
+from .execution_plan_case_state import main_chain_precondition_conflict_reason
 from .streaming_case_keys import (
     case_signature as _signature,
     review_case_id as _review_case_id,
@@ -45,6 +46,7 @@ from .streaming_execution_plan_metadata_helpers import (
     annotate_execution_plan_cases as _annotate_execution_plan_cases,
 )
 from .streaming_execution_plan_ordering import order_execution_plan_cases as _order_execution_plan_cases
+from .streaming_execution_plan_stage_inference import stage_kind_compatible as _stage_kind_compatible
 from .streaming_execution_plan_summary import (
     build_execution_plan_metadata_summary as _build_execution_plan_metadata_summary,
 )
@@ -171,7 +173,7 @@ def apply_execution_plan_metadata(
     selected_signatures: set[str] = set()
     strict_blueprint_semantic_filter = bool(workflow_blueprints)
     semantic_filter_main_chain = bool(plan_workflow_blueprints)
-    for stage_key, stage_label, patterns in main_chain_stages:
+    for stage_index, (stage_key, stage_label, patterns) in enumerate(main_chain_stages):
         ranked: list[tuple[int, int, dict[str, Any]]] = []
         for index, item in enumerate(candidate_cases):
             signature = _signature(item)
@@ -211,6 +213,52 @@ def apply_execution_plan_metadata(
             candidate_stage_kind = _workflow_stage_kind_from_text(
                 _main_chain_goal_action_text(item) or _main_chain_goal_text(item) or text
             )
+            if semantic_filter_main_chain and not _stage_kind_compatible(
+                expected_stage_kind,
+                candidate_stage_kind,
+            ):
+                _record_main_chain_exclusion(
+                    item,
+                    "stage_kind_not_compatible_with_case_action",
+                    stage_key=stage_key,
+                )
+                continue
+            if semantic_filter_main_chain and stage_index > 0:
+                prior_stage_overlap = False
+                for prior_key, _prior_label, _prior_patterns in main_chain_stages[:stage_index]:
+                    if not any(selected_key == prior_key for selected_key, _label, _case in selected_by_stage):
+                        continue
+                    prior_meta = workflow_stage_meta_by_key.get(prior_key) or {}
+                    prior_anchors = [
+                        str(value).strip().lower()
+                        for value in [
+                            prior_meta.get("action"),
+                            *(prior_meta.get("match_keywords") or []),
+                            *(prior_meta.get("keywords") or []),
+                        ]
+                        if len(str(value).strip()) >= 4
+                    ]
+                    if any(anchor in text for anchor in prior_anchors):
+                        prior_stage_overlap = True
+                        break
+                if prior_stage_overlap:
+                    _record_main_chain_exclusion(
+                        item,
+                        "case_spans_multiple_blueprint_stages",
+                        stage_key=stage_key,
+                    )
+                    continue
+            if semantic_filter_main_chain and selected_by_stage:
+                previous_stage_key, _previous_stage_label, previous_case = selected_by_stage[-1]
+                continuity_reason = main_chain_precondition_conflict_reason(
+                    previous_case,
+                    item,
+                    previous_step_meta=workflow_stage_meta_by_key.get(previous_stage_key) or {},
+                    current_step_meta=step_meta,
+                )
+                if continuity_reason:
+                    _record_main_chain_exclusion(item, continuity_reason, stage_key=stage_key)
+                    continue
             if semantic_filter_main_chain:
                 semantic_probe = dict(item)
                 semantic_probe["execution_group"] = "main_smoke"
@@ -270,10 +318,7 @@ def apply_execution_plan_metadata(
                     for evidence in (step_meta.get("evidence") or [])
                     if str(evidence).strip()
                 ]
-                semantic_probe["role"] = _normalize_actor_role(
-                    step_meta.get("actor") or item.get("role"),
-                    fallback_text=text,
-                )
+                semantic_probe["role"] = _normalize_actor_role(step_meta.get("actor") or item.get("role"))
                 semantic_conflicts = validate_main_smoke_semantic_alignment([semantic_probe])
                 if semantic_conflicts:
                     first_reason = str(semantic_conflicts[0].get("reason") or "main_chain_semantic_conflict")

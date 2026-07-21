@@ -1,7 +1,7 @@
 {
   "version": 1,
   "intent_action_keywords": [
-    ["submit", ["submit", "commit", "publish", "post", "提交", "投稿", "发布"]],
+    ["submit", ["submit", "commit", "publish", "post", "提交", "发布"]],
     ["open", ["open", "enter", "view", "click", "tap", "打开", "进入", "查看", "点击"]],
     ["switch", ["switch", "toggle", "filter", "select", "切换", "筛选", "选择"]],
     ["delete", ["delete", "remove", "clear", "删除", "移除", "清空"]],
@@ -60,28 +60,28 @@
     "history", "global", "rule", "risk"
   ],
   "data_flow_phases": [
-    ["entry_capture", ["拍照", "拍摄", "上传", "采集", "识别", "批改", "入口", "capture", "upload", "import", "entry"]],
+    ["entry_capture", ["进入", "上传", "导入", "新建", "采集", "入口", "capture", "upload", "import", "entry", "create"]],
     ["review_confirm", ["复核", "审核", "审批", "确认", "修正", "review", "approve", "confirm", "correct"]],
-    ["artifact_list", ["习题本", "错题本", "题本", "列表", "workbook", "notebook", "dashboard", "list"]],
-    ["artifact_detail", ["详情", "解析", "答案", "detail", "answer", "analysis"]],
-    ["learning_plan", ["提升计划", "学习计划", "方案", "课程", "看视频", "切片", "plan", "course", "lesson", "slice"]],
+    ["artifact_list", ["列表", "工作台", "dashboard", "list"]],
+    ["artifact_detail", ["详情", "detail"]],
+    ["planning", ["计划", "方案", "配置", "plan", "schedule", "config"]],
     ["completion_summary", ["完成", "复盘", "成果", "汇总", "summary", "complete", "completion"]],
-    ["report", ["报告", "成长报告", "周报", "分享", "report", "share"]],
+    ["report", ["报告", "分享", "report", "share"]],
     ["access_limit", ["额度", "权限", "拦截", "次数", "quota", "permission", "limit", "gate"]],
     ["global_exception", ["全局", "异常", "空状态", "无数据", "exception", "global", "empty"]],
-    ["history_makeup", ["历史", "补做", "补学", "history", "makeup"]]
+    ["history_recovery", ["历史", "恢复", "重试", "history", "recover", "retry"]]
   ],
   "data_flow_phase_tie_priority": {
     "review_confirm": 0,
     "entry_capture": 1,
     "artifact_list": 2,
     "artifact_detail": 3,
-    "learning_plan": 4,
+    "planning": 4,
     "completion_summary": 5,
     "report": 6,
     "access_limit": 7,
     "global_exception": 8,
-    "history_makeup": 9
+    "history_recovery": 9
   },
   "flow_stage_definitions": [],
   "cross_cutting_definitions": []

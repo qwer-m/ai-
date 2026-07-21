@@ -19,6 +19,33 @@ class StreamPostprocessResultPayload:
     generation_timing_events: list[dict[str, Any]]
 
 
+def merge_pre_projection_functional_phase_summary(
+    module_contract_summary: dict[str, Any],
+    *,
+    review_decision_summary: dict[str, Any],
+    final_case_count: int,
+) -> dict[str, Any]:
+    """用公共字段投影前的阶段统计修正最终诊断，不恢复内部字段。"""
+    result = dict(module_contract_summary or {})
+    execution_plan = review_decision_summary.get("execution_plan")
+    if not isinstance(execution_plan, dict):
+        return result
+    coverage = execution_plan.get("functional_phase_coverage")
+    if not isinstance(coverage, dict) or not bool(coverage.get("applied")):
+        return result
+    phase_counts = {
+        str(key): int(value or 0)
+        for key, value in (coverage.get("phase_counts") or {}).items()
+        if str(key).strip() and int(value or 0) > 0
+    }
+    if sum(phase_counts.values()) != max(0, int(final_case_count or 0)):
+        return result
+    result["functional_phase_counts"] = phase_counts
+    result["functional_phase_counts_source"] = "execution_plan_pre_public_projection"
+    result["functional_phase_remaining_deficits"] = dict(coverage.get("remaining_deficits") or {})
+    return result
+
+
 def unpack_stream_postprocess_result(
     postprocess_result: Any,
     *,

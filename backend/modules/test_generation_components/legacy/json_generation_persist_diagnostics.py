@@ -230,10 +230,6 @@ def emit_post_persist_coverage_audit_diagnostics(
     db: Any,
     project_id: int,
     user_id: int | None,
-    request_id: str,
-    generation_id: int,
-    normalized_generation_mode: str | None,
-    multi_pass: bool,
     result: Any,
     requirement: str,
     kb_context: str,
@@ -263,55 +259,3 @@ def emit_post_persist_coverage_audit_diagnostics(
             )
         )
         db.commit()
-
-    from ..coverage.core_flow_coverage_contract import audit_core_flow_coverage
-    from core.settings.config import settings
-
-    mode = _generation_mode(normalized_generation_mode, multi_pass)
-    core_flow_audit = audit_core_flow_coverage(case_items)
-    core_flow_audit_payload = {
-        "kind": "core_flow_coverage",
-        "request_id": request_id,
-        "generation_id": int(generation_id),
-        "multi_pass": bool(multi_pass),
-        "generation_mode": mode,
-        "core_flow_covered_count": int(core_flow_audit["core_flow_covered_count"]),
-        "core_flow_required_count": int(core_flow_audit["core_flow_required_count"]),
-        "core_flow_coverage_ratio": float(core_flow_audit["core_flow_coverage_ratio"]),
-        "core_flow_coverage_passed": bool(core_flow_audit["core_flow_coverage_passed"]),
-        "missing_core_flows": list(core_flow_audit["missing_core_flows"]),
-        "false_positive_guard_notes": list(core_flow_audit["false_positive_guard_notes"]),
-    }
-    _add_gen_diag_log(db=db, project_id=project_id, user_id=user_id, payload=core_flow_audit_payload)
-    db.commit()
-
-    if not bool(getattr(settings, "CORE_FLOW_BACKFILL_ENABLED", False)):
-        return
-
-    from ..coverage.core_flow_backfill import plan_core_flow_backfill
-
-    backfill_plan = plan_core_flow_backfill(
-        requirement_context=requirement,
-        existing_cases=case_items,
-        coverage_audit=core_flow_audit,
-        max_backfill_cases=int(getattr(settings, "CORE_FLOW_BACKFILL_MAX_CANDIDATES", 12) or 12),
-    )
-    backfill_diag_payload = {
-        "kind": "core_flow_backfill_dry_run",
-        "request_id": request_id,
-        "generation_id": int(generation_id),
-        "multi_pass": bool(multi_pass),
-        "generation_mode": mode,
-        **{key: value for key, value in backfill_plan.items() if key != "backfill_plan"},
-        "backfill_plan_summary": [
-            {
-                "flow_key": item["flow_key"],
-                "flow_name": item["flow_name"],
-                "suggested_priority": item["suggested_priority"],
-                "target_case_count": item["target_case_count"],
-            }
-            for item in backfill_plan.get("backfill_plan") or []
-        ],
-    }
-    _add_gen_diag_log(db=db, project_id=project_id, user_id=user_id, payload=backfill_diag_payload)
-    db.commit()

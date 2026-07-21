@@ -15,6 +15,70 @@ _STAGE_KIND_COMPATIBILITY: dict[str, set[str]] = {
     "consume": {"consume", "preview", "entry", "unknown"},
 }
 
+_COMMIT_TOKENS = (
+    "保存",
+    "提交",
+    "确认",
+    "发布",
+    "save",
+    "submit",
+    "commit",
+    "confirm",
+    "publish",
+)
+_DOWNSTREAM_PHASE_TOKENS = (
+    "同步",
+    "生效",
+    "展示",
+    "显示",
+    "刷新",
+    "sync",
+    "display",
+    "displayed",
+    "show",
+    "shows",
+    "shown",
+    "visible",
+    "effective",
+    "reflect",
+    "reflects",
+    "reflected",
+    "downstream",
+)
+_DOWNSTREAM_VISIBILITY_TOKENS = (*_DOWNSTREAM_PHASE_TOKENS, "出现", "可见", "最新", "latest")
+_ENTRY_ANCHOR_TOKENS = ("入口", "工作流入口", "进入入口", "entry", "workflow entry")
+_CONSUME_TOKENS = (
+    "点击",
+    "跳转",
+    "查看",
+    "打开",
+    "进入",
+    "click",
+    "navigate",
+    "view",
+    "open",
+)
+_PREVIEW_TOKENS = ("预览", "检查", "确认前", "preview", "review")
+_CONFIGURE_TOKENS = (
+    "新增",
+    "创建",
+    "添加",
+    "选择",
+    "设置",
+    "配置",
+    "编辑",
+    "修改",
+    "create",
+    "add",
+    "select",
+    "set",
+    "configure",
+    "edit",
+    "modify",
+)
+_ENTRY_TOKENS = ("访问", "enter", "access")
+_COMPLETION_TOKENS = ("完成", "进度", "状态", "complete", "completion", "progress", "status")
+
 
 def contains_any_token(text: str, tokens: Collection[str]) -> bool:
     haystack = str(text or "").lower()
@@ -25,6 +89,8 @@ def stage_kind_compatible(expected: str, candidate: str) -> bool:
     expected_kind = str(expected or "").strip().lower()
     candidate_kind = str(candidate or "").strip().lower() or "unknown"
     if not expected_kind or expected_kind == "unknown":
+        return True
+    if candidate_kind == "unknown":
         return True
     return candidate_kind in _STAGE_KIND_COMPATIBILITY.get(expected_kind, {expected_kind, "unknown"})
 
@@ -48,154 +114,30 @@ def token_hit(text: str, tokens: tuple[str, ...]) -> bool:
 
 def infer_workflow_stage_kind(text: str) -> str:
     lowered = str(text or "").lower()
-    if token_hit(lowered, ("保存", "提交", "确认", "发布")):
+    if token_hit(lowered, _COMMIT_TOKENS):
         return "commit"
-    if token_hit(lowered, ("保存", "提交", "确认", "发布", "save", "submit", "commit", "confirm", "publish")):
-        return "commit"
-    if token_hit(
-        lowered,
-        (
-            "触发打分",
-            "开始打分",
-            "自动打分",
-            "评分计算",
-            "生成评分",
-            "给出评分",
-            "trigger score",
-            "score calculation",
-        ),
-    ):
-        return "commit"
-    if token_hit(
-        lowered,
-        (
-            "同步",
-            "生效",
-            "展示",
-            "显示",
-            "出现",
-            "可见",
-            "最新",
-            "评分结果",
-            "打分结果",
-            "综合评分",
-            "visible",
-            "display",
-            "displayed",
-            "show",
-            "shows",
-            "shown",
-            "score result",
-            "scoring result",
-        ),
-    ):
+    if token_hit(lowered, _DOWNSTREAM_VISIBILITY_TOKENS):
         return "downstream_visibility"
-    if token_hit(lowered, ("入口", "进入入口")):
+    if token_hit(lowered, _ENTRY_ANCHOR_TOKENS):
         return "entry"
-    if token_hit(
-        lowered,
-        (
-            "点击",
-            "跳转",
-            "学习",
-            "查看",
-            "打开",
-            "进入",
-        ),
-    ):
+    if token_hit(lowered, _CONSUME_TOKENS):
         return "consume"
-    if token_hit(lowered, ("预览", "检查", "确认前")):
+    if token_hit(lowered, _PREVIEW_TOKENS):
         return "preview"
-    if token_hit(
-        lowered,
-        (
-            "新增",
-            "创建",
-            "添加",
-            "选择",
-            "设置",
-            "配置",
-            "编辑",
-            "修改",
-        ),
-    ):
+    if token_hit(lowered, _CONFIGURE_TOKENS):
         return "configure"
-    if token_hit(lowered, ("进入", "访问", "打开")):
+    if token_hit(lowered, _ENTRY_TOKENS):
         return "entry"
-    if token_hit(lowered, ("完成", "进度", "状态")):
-        return "completion_sync"
-    if token_hit(lowered, ("同步", "生效", "展示", "显示", "刷新", "最新", "sync", "display", "show", "visible", "effective", "latest", "reflect", "reflects", "reflected", "downstream")):
-        return "downstream_visibility"
-    if token_hit(lowered, ("入口", "工作流入口", "进入入口", "entry", "workflow entry")):
-        return "entry"
-    if token_hit(lowered, ("点击", "跳转", "学习", "查看", "打开", "click", "navigate", "learn", "view", "open")):
-        return "consume"
-    if token_hit(lowered, ("预览", "检查", "确认前", "preview", "review")):
-        return "preview"
-    if token_hit(lowered, ("新增", "创建", "添加", "选择", "设置", "配置", "编辑", "修改", "create", "add", "select", "set", "configure", "edit", "modify")):
-        return "configure"
-    if token_hit(lowered, ("进入", "访问", "打开", "enter", "access", "open")):
-        return "entry"
-    if token_hit(lowered, ("完成", "进度", "状态", "complete", "completion", "progress", "status")):
+    if token_hit(lowered, _COMPLETION_TOKENS):
         return "completion_sync"
     return "unknown"
 
 
 def infer_workflow_phase(text: str) -> int:
     lowered = str(text or "").lower()
-    if token_hit(
-        lowered,
-        (
-            "保存",
-            "提交",
-            "确认",
-            "发布",
-            "下架",
-            "删除",
-            "save",
-            "submit",
-            "commit",
-            "confirm",
-            "publish",
-            "delete",
-            "触发打分",
-            "开始打分",
-            "自动打分",
-            "评分计算",
-            "生成评分",
-            "给出评分",
-            "trigger score",
-            "score calculation",
-        ),
-    ):
+    if token_hit(lowered, (*_COMMIT_TOKENS, "下架", "删除", "delete")):
         return 60
-    if token_hit(
-        lowered,
-        (
-            "同步",
-            "展示",
-            "显示",
-            "刷新",
-            "生效",
-            "评分结果",
-            "打分结果",
-            "综合评分",
-            "sync",
-            "display",
-            "displayed",
-            "show",
-            "shows",
-            "shown",
-            "effective",
-            "visible",
-            "reflect",
-            "reflects",
-            "reflected",
-            "downstream",
-            "score result",
-            "scoring result",
-        ),
-    ):
+    if token_hit(lowered, _DOWNSTREAM_PHASE_TOKENS):
         return 70
     if contains_any_token(lowered, ("打开", "进入", "访问", "入口", "open", "enter", "entry")):
         return 10
@@ -205,34 +147,6 @@ def infer_workflow_phase(text: str) -> int:
         return 30
     if contains_any_token(lowered, ("预览", "检查", "确认前", "preview", "review")):
         return 50
-    if token_hit(
-        lowered,
-        (
-            "保存",
-            "提交",
-            "确认",
-            "发布",
-            "下架",
-            "删除",
-            "save",
-            "submit",
-            "commit",
-            "confirm",
-            "publish",
-            "delete",
-            "触发打分",
-            "开始打分",
-            "自动打分",
-            "评分计算",
-            "生成评分",
-            "给出评分",
-            "trigger score",
-            "score calculation",
-        ),
-    ):
-        return 60
-    if token_hit(lowered, ("同步", "展示", "显示", "刷新", "生效", "sync", "display", "displayed", "show", "shows", "shown", "effective", "visible", "reflect", "reflects", "reflected", "downstream")):
-        return 70
-    if contains_any_token(lowered, ("点击", "跳转", "学习", "查看", "click", "navigate", "learn", "view")):
+    if contains_any_token(lowered, ("点击", "跳转", "查看", "click", "navigate", "view")):
         return 80
     return 90

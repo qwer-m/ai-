@@ -186,7 +186,7 @@ def assemble_review_summary_state(
         flow_profile_with_scenario_policy_fn=flow_profile_with_scenario_policy_fn,
     )
     final_duplicate_excess = summarize_duplicate_excess_by_policy_fn(
-        final_case_structure,
+        final_independent_case_structure,
         project_profile=final_duplicate_project_profile,
         default_max=2,
     )

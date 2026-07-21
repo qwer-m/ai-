@@ -1,8 +1,54 @@
 from __future__ import annotations
 
 from modules.test_generation_components.legacy.stream.persistence_postprocess_result import (
+    merge_pre_projection_functional_phase_summary,
     unpack_stream_postprocess_result,
 )
+
+
+def test_merge_pre_projection_functional_phase_summary_uses_matching_final_counts() -> None:
+    summary = merge_pre_projection_functional_phase_summary(
+        {"functional_phase_counts": {"module_internal:消息": 4}},
+        review_decision_summary={
+            "execution_plan": {
+                "functional_phase_coverage": {
+                    "applied": True,
+                    "phase_counts": {
+                        "module_internal:消息": 2,
+                        "cross_module": 2,
+                    },
+                    "remaining_deficits": {"cross_module": 1},
+                }
+            }
+        },
+        final_case_count=4,
+    )
+
+    assert summary["functional_phase_counts"] == {
+        "module_internal:消息": 2,
+        "cross_module": 2,
+    }
+    assert summary["functional_phase_counts_source"] == "execution_plan_pre_public_projection"
+    assert summary["functional_phase_remaining_deficits"] == {"cross_module": 1}
+
+
+def test_merge_pre_projection_functional_phase_summary_rejects_stale_counts() -> None:
+    original = {"functional_phase_counts": {"module_internal:消息": 4}}
+
+    summary = merge_pre_projection_functional_phase_summary(
+        original,
+        review_decision_summary={
+            "execution_plan": {
+                "functional_phase_coverage": {
+                    "applied": True,
+                    "phase_counts": {"cross_module": 3},
+                }
+            }
+        },
+        final_case_count=4,
+    )
+
+    assert summary == original
 
 
 def test_unpack_stream_postprocess_result_preserves_structured_payloads() -> None:

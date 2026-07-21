@@ -28,52 +28,7 @@ _SCENARIO_POLICY_BY_KEY = {
 _REGISTERED_SCENARIO_KINDS = judge_duplicate_scenario_kinds()
 _REGISTERED_SCENARIO_THRESHOLDS = judge_duplicate_thresholds()
 
-_DUPLICATE_SIMPLE_SCENARIOS = {
-    "title_format",
-    "initial_popup",
-    "filter_toggle",
-    "empty_state",
-    "card_element",
-    "workbook_scope",
-    "bad_image_review",
-    "media_preview",
-    "answer_analysis_placeholder",
-    "source_consistency",
-    "network_error",
-    "permission",
-    "save_delete",
-    "manual_mark_correct",
-    "manual_mark_wrong",
-    "review_warm_hint",
-    "review_detail_content",
-    "review_status_color",
-    "review_filter_tabs",
-    "feedback",
-    "plan_step1_scope",
-    "plan_second_step_navigation",
-    "plan_slice_auto_advance",
-    "plan_slice_regeneration",
-    "plan_fourth_summary",
-    "sorting_limit",
-    "print_export",
-    "report_trigger",
-    "generation_trigger",
-    "share_friend",
-    "share_moments",
-    "report_comment_ai",
-    "report_comment_voice",
-    "report_comment_edit",
-    "report_overview_cards",
-    "report_wrong_analysis",
-    "report_next_plan",
-    "readonly",
-    "quota_exhaustion",
-    "quota_consumption",
-    "quota_limit",
-    "silent_refresh",
-    "history_makeup",
-}
-_DUPLICATE_SIMPLE_SCENARIOS.update(_REGISTERED_SCENARIO_KINDS)
+_DUPLICATE_SIMPLE_SCENARIOS = set(_REGISTERED_SCENARIO_KINDS)
 
 _DUPLICATE_SCENARIO_THRESHOLDS: dict[str, tuple[float, int]] = judge_duplicate_thresholds()
 
@@ -82,13 +37,6 @@ _CROSS_MODULE_DUPLICATE_SCENARIOS.update(cross_module_scenario_kinds())
 
 _BROAD_GENERAL_DUPLICATE_MIN_SCORE = 0.62
 _BROAD_GENERAL_DUPLICATE_MIN_OVERLAP = 12
-_DIMENSIONAL_GENERAL_SCENARIO_KINDS = {
-    "quota_limit",
-    "quota_exhaustion",
-    "quota_consumption",
-    "sorting_limit",
-    "media_preview",
-}
 
 _SEMANTIC_STOP_TOKENS = {
     "case",
@@ -233,8 +181,6 @@ def _cross_module_scenarios_for_runtime(
 
 def _is_broad_general_scenario_kind(kind: str) -> bool:
     scenario_kind = str(kind or "")
-    if scenario_kind not in _DIMENSIONAL_GENERAL_SCENARIO_KINDS:
-        return False
     policy = _SCENARIO_POLICY_BY_KEY.get(str(kind or ""))
     if policy is None:
         return False

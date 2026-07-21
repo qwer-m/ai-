@@ -3,134 +3,25 @@
 from __future__ import annotations
 
 import re
-from difflib import SequenceMatcher
 from typing import Any
 
 from ..postprocess.case_access import case_priority, case_text_parts
+from ..postprocess.streaming_expected_result_quality import is_non_assertable_expected_result
 from .final_case_parsing import _text
 
 _MAX_DERIVED_POSITIVE_SAMPLES = 120
 _MAX_DERIVED_POSITIVE_PATTERNS = 40
 _MAX_POSITIVE_SAMPLES_PER_PATTERN_KEY = 2
 _MAX_DERIVED_NEGATIVE_SAMPLES = 80
-_SIMILARITY_MATCH_THRESHOLD = 0.62
-
-_NON_ASSERTABLE_EXPECTED_PATTERNS = (
-    "正常展示",
-    "正常显示",
-    "执行成功",
-    "符合预期",
-    "返回成功",
-    "结果正确",
-    "结果可核对",
-    "按配置",
-    "无异常",
-)
-
-_LOW_VALUE_UI_TOKENS = (
-    "按钮",
-    "样式",
-    "布局",
-    "颜色",
-    "文案",
-    "展示",
-    "显示",
-    "页面标题",
-    "进度条",
-    "时长",
-    "打印弹窗",
-    "倍速",
-    "视频播放",
-    "网络异常",
-)
-
-_BUSINESS_IMPACT_TOKENS = (
-    "退款",
-    "退费",
-    "购卡",
-    "开卡",
-    "余额",
-    "金额",
-    "订单",
-    "交易",
-    "支付",
-    "权限",
-    "未开卡",
-    "督导",
-    "ta",
-    "ops",
-    "小程序",
-    "学习报告",
-    "课程管理",
-    "学习状态",
-    "状态同步",
-    "跨端",
-    "回滚",
-    "隔离",
-    "一致",
-)
-
-_CROSS_SYSTEM_TOKENS = (
-    "跨端",
-    "小程序",
-    "ops",
-    "ta",
-    "督导",
-    "书房",
-    "后台",
-    "管理端",
-    "admin",
-    "client",
-    "backend",
-    "report",
-    "cross",
-)
-_STATE_TOKENS = (
-    "状态",
-    "进度",
-    "同步",
-    "保留",
-    "未丢失",
-    "一致",
-    "记录",
-    "state",
-    "progress",
-    "retain",
-    "retained",
-    "unchanged",
-    "consistent",
-    "switch",
-    "switching",
-)
-_TRANSACTION_TOKENS = (
-    "支付",
-    "购卡",
-    "开卡",
-    "退款",
-    "退费",
-    "订单",
-    "金额",
-    "余额",
-    "交易",
-    "payment",
-    "refund",
-    "order",
-    "transaction",
-    "rollback",
-)
-_PERMISSION_TOKENS = (
-    "权限",
-    "未开卡",
-    "不可访问",
-    "隐藏",
-    "绕过",
-    "隔离",
-    "permission",
-    "unauthorized",
-    "forbidden",
-    "hidden",
-    "access",
-)
+_EXECUTION_GROUP_PATTERN_CATEGORIES = {
+    "main_smoke": "main_smoke_flow",
+    "permission": "permission_guard",
+    "exception": "exception_path",
+    "boundary": "boundary_condition",
+    "display": "display_behavior",
+    "independent_functional": "functional_behavior",
+}
+_INVALID_EXPECTED_RESULT_QUALITIES = frozenset({"invalid_case", "non_assertable", "truncated"})
 
 
 def _case_text(case: dict[str, Any]) -> str:
@@ -147,142 +38,37 @@ def _fingerprint(raw: str) -> str:
     return re.sub(r"\s+", "", str(raw or "").lower())[:5000]
 
 
-def _case_signature(case: dict[str, Any]) -> str:
-    text = _case_text(case).lower()
-    text = re.sub(r"tc[-_ ]?\d+", " ", text, flags=re.IGNORECASE)
-    text = re.sub(r"\d+", " ", text)
-    return re.sub(r"\s+", " ", text).strip()[:1200]
-
-
-def _case_similarity(left: dict[str, Any], right: dict[str, Any]) -> float:
-    left_sig = _case_signature(left)
-    right_sig = _case_signature(right)
-    if not left_sig or not right_sig:
-        return 0.0
-    return SequenceMatcher(None, left_sig, right_sig).ratio()
+def _stable_case_id(case: dict[str, Any]) -> str:
+    return _text(case.get("id") or case.get("case_id") or case.get("caseId"))
 
 
 def _match_generated_to_final(generated_cases: list[dict[str, Any]], final_cases: list[dict[str, Any]]) -> set[int]:
-    matched: set[int] = set()
-    for gen_idx, generated in enumerate(generated_cases):
-        best = 0.0
-        for final in final_cases:
-            best = max(best, _case_similarity(generated, final))
-            if best >= _SIMILARITY_MATCH_THRESHOLD:
-                break
-        if best >= _SIMILARITY_MATCH_THRESHOLD:
-            matched.add(gen_idx)
-    return matched
-
-
-def _contains_any(text: str, tokens: tuple[str, ...]) -> bool:
-    lowered = text.lower()
-    return any(token.lower() in lowered for token in tokens)
-
-
-def _is_state_consistency_case(text: str) -> bool:
-    lowered = text.lower()
-    strong_phrases = (
-        "状态流转",
-        "状态迁移",
-        "状态变化",
-        "状态同步",
-        "状态一致",
-        "跨端同步",
-        "跨端一致",
-        "刷新后保持",
-        "切换后保持",
-        "返回后保持",
-        "state transition",
-        "state consistency",
-        "status transition",
-        "status consistency",
-        "switch-back",
-        "switch back",
-    )
-    if any(token in lowered for token in strong_phrases):
-        return True
-    state_terms = (
-        "状态",
-        "status",
-        "state",
-    )
-    transition_terms = (
-        "流转",
-        "迁移",
-        "切换",
-        "跳转",
-        "返回",
-        "变更",
-        "从",
-        "到",
-        "transition",
-        "switch",
-        "change",
-    )
-    consistency_terms = (
-        "一致",
-        "同步",
-        "保留",
-        "保持",
-        "未丢失",
-        "持久",
-        "刷新后",
-        "回到",
-        "回退",
-        "consistent",
-        "sync",
-        "retain",
-        "retained",
-        "unchanged",
-        "persist",
-        "persistence",
-        "refresh",
-        "rollback",
-    )
-    weak_progress_terms = (
-        "进度",
-        "记录",
-        "progress",
-        "record",
-    )
-    has_state = any(token in lowered for token in state_terms)
-    has_transition = any(token in lowered for token in transition_terms)
-    has_consistency = any(token in lowered for token in consistency_terms)
-    has_weak_progress = any(token in lowered for token in weak_progress_terms)
-    if has_state and (has_transition or has_consistency):
-        return True
-    if has_weak_progress and has_transition and has_consistency:
-        return True
-    return False
-
-
-def _case_is_grounded_in_requirement(case: dict[str, Any], requirement_text: str) -> bool:
-    requirement = _fingerprint(requirement_text)
-    if not requirement:
-        return False
-    case_tokens = [
-        token
-        for token in re.split(r"[\s,，。；;、:：/\\|（）()\[\]【】]+", _case_text(case))
-        if len(token) >= 2
-    ]
-    if not case_tokens:
-        return False
-    hits = sum(1 for token in case_tokens[:80] if token.lower() in requirement)
-    return hits >= 2
+    final_ids = {_stable_case_id(case) for case in final_cases}
+    final_ids.discard("")
+    return {
+        index
+        for index, case in enumerate(generated_cases)
+        if _stable_case_id(case) in final_ids
+    }
 
 
 def _infer_pattern_category(case: dict[str, Any]) -> str:
-    text = _case_text(case)
-    if _contains_any(text, _PERMISSION_TOKENS):
-        return "permission_or_scope_guard"
-    if _contains_any(text, _CROSS_SYSTEM_TOKENS):
-        return "cross_system_business_flow"
-    if _contains_any(text, _TRANSACTION_TOKENS):
-        return "transaction_business_risk"
-    if _is_state_consistency_case(text):
-        return "state_consistency_flow"
-    return "manual_final_business_coverage"
+    explicit = _text(case.get("pattern_category") or case.get("patternCategory")).lower()
+    if explicit and _text(case.get("category_source") or case.get("categorySource")):
+        return explicit[:64]
+    execution_group = _text(case.get("execution_group") or case.get("executionGroup")).lower()
+    if execution_group in _EXECUTION_GROUP_PATTERN_CATEGORIES:
+        return _EXECUTION_GROUP_PATTERN_CATEGORIES[execution_group]
+    transition = case.get("workflow_transition")
+    if isinstance(transition, dict) and (
+        _text(transition.get("source_state") or transition.get("state_in"))
+        and _text(transition.get("target_state") or transition.get("state_out"))
+    ):
+        return "state_transition"
+    relation = _text(case.get("learning_relation") or case.get("learningRelation")).lower()
+    if relation in {"final_added", "final_modified", "final_unchanged"}:
+        return relation
+    return "human_final_case"
 
 
 def _priority(case: dict[str, Any]) -> str:
@@ -298,8 +84,7 @@ def _aggregate_positive_pattern_samples(samples: list[dict[str, Any]]) -> list[d
         buckets.setdefault(key, []).append(sample)
 
     selected: list[dict[str, Any]] = []
-    # Prefer high-risk and cross-system buckets first; within a bucket keep only
-    # a few representative final cases so the pool stores reusable patterns.
+    # 中文注释：类别仅作为上游结构化元数据，排序由显式优先级与稳定键决定。
     for _key, bucket in sorted(buckets.items(), key=lambda item: _positive_bucket_rank(item[1])):
         selected.extend(bucket[:_MAX_POSITIVE_SAMPLES_PER_PATTERN_KEY])
         if len(selected) >= _MAX_DERIVED_POSITIVE_PATTERNS:
@@ -320,17 +105,10 @@ def _positive_pattern_key(sample: dict[str, Any]) -> str:
 
 def _positive_bucket_rank(bucket: list[dict[str, Any]]) -> tuple[int, int, str]:
     first = bucket[0] if bucket else {}
-    category = str(first.get("pattern_category") or "")
     priority = str(first.get("expected_priority") or "P2")
-    category_rank = {
-        "transaction_business_risk": 0,
-        "permission_or_scope_guard": 1,
-        "cross_system_business_flow": 2,
-        "state_consistency_flow": 3,
-        "manual_final_business_coverage": 4,
-    }.get(category, 5)
     priority_rank = {"P0": 0, "P1": 1, "P2": 2}.get(priority, 2)
-    return (category_rank, priority_rank, _positive_pattern_key(first))
+    relation_rank = 0 if str(first.get("pattern_category") or "") == "final_modified" else 1
+    return (priority_rank, relation_rank, _positive_pattern_key(first))
 
 
 def _build_positive_sample(
@@ -407,43 +185,25 @@ def _summarize_module_hint(module: str) -> str:
 
 
 def _positive_pattern_detail(category: str) -> str:
-    mapping = {
-        "permission_or_scope_guard": (
-            "覆盖未授权、未开通、隐藏或越权访问的拦截，并验证无副作用"
-        ),
-        "cross_system_business_flow": (
-            "覆盖客户端、管理端和下游报表之间的状态与权限一致性"
-        ),
-        "transaction_business_risk": (
-            "覆盖支付、退款、订单、权益和回滚在完整业务链路中的一致性"
-        ),
-        "state_consistency_flow": (
-            "验证用户操作后的状态迁移、持久化、刷新、切回和进度一致性"
-        ),
-        "manual_final_business_coverage": (
-            "优先学习带明确断言的业务流程和回归覆盖，弱化孤立静态展示检查"
-        ),
-    }
-    return mapping.get(category) or mapping["manual_final_business_coverage"]
+    return f"structured_source:{category or 'human_final_case'}"
 
 
 def _clear_negative_reason(case: dict[str, Any]) -> str:
     expected = _text(case.get("expected_result"))
-    text = _case_text(case)
-    expected_compact = re.sub(r"\s+", "", expected)
-    if expected_compact and len(expected_compact) <= 16:
-        if any(pattern in expected_compact for pattern in _NON_ASSERTABLE_EXPECTED_PATTERNS):
-            return "non_assertable_expected_result"
-    if any(pattern in expected for pattern in _NON_ASSERTABLE_EXPECTED_PATTERNS):
-        if len(expected_compact) <= 40:
-            return "non_assertable_expected_result"
+    expected_quality = _text(
+        case.get("expected_result_quality") or case.get("expectedResultQuality")
+    ).lower()
+    if expected_quality in _INVALID_EXPECTED_RESULT_QUALITIES:
+        return f"expected_result_quality:{expected_quality}"
+    if expected_quality and expected_quality != "assertable":
+        return ""
+    if expected and is_non_assertable_expected_result(expected):
+        return "non_assertable_expected_result"
 
     priority = _priority(case)
-    if priority == "P0":
-        low_value = _contains_any(text, _LOW_VALUE_UI_TOKENS)
-        business_impact = _contains_any(text, _BUSINESS_IMPACT_TOKENS)
-        if low_value and not business_impact:
-            return "priority_overpromotion_for_low_value_ui_case"
+    execution_group = _text(case.get("execution_group") or case.get("executionGroup")).lower()
+    if priority == "P0" and execution_group == "display":
+        return "priority_overpromotion_for_display_case"
     return ""
 
 

@@ -3,8 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from .module_contract import enforce_functional_module_contract, summarize_functional_phase_coverage
+
 from ..coverage.coverage_case_complexity import case_complexity_profile
-from .priority_anchor_rules import enforce_main_path_p0_anchors
+from .priority_anchor_rules import (
+    enforce_entry_path_p0,
+    enforce_execution_plan_p0_floor,
+    enforce_main_path_p0_anchors,
+    enforce_pure_ui_p2,
+)
 from .streaming_case_keys import case_signature
 from .streaming_case_quality import strip_case_meta_list
 from .streaming_case_source_metadata import (
@@ -23,14 +30,6 @@ from .streaming_postprocess_utils import (
 from .streaming_priority_rebuild import preserve_review_priority_demotions
 from .streaming_structure_diagnostics import resolve_final_case_structures
 
-_DEMOTED_MODEL_P0_SOURCES = frozenset(
-    {
-        "model_p0_guard_downgrade",
-        "main_path_anchor_demoted_non_blocking",
-    }
-)
-
-
 @dataclass(frozen=True)
 class FinalCaseAssemblyResult:
     cases: list[dict[str, Any]]
@@ -40,35 +39,6 @@ class FinalCaseAssemblyResult:
     final_independent_case_structure: dict[str, Any]
     final_count: int
     post_review_dedup_drop: int
-
-
-def _restore_demoted_model_p0_candidates(
-    cases: list[dict[str, Any]],
-    review_candidate_cases: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    output = _dict_case_items(cases)
-    existing_signatures = {case_signature(item) for item in output if case_signature(item)}
-    for source_case in _dict_case_items(review_candidate_cases):
-        signature = case_signature(source_case)
-        if not signature or signature in existing_signatures:
-            continue
-        decision_source = str(source_case.get("priority_decision_source") or "").strip()
-        model_priority = str(
-            source_case.get("model_priority_current") or source_case.get("model_priority") or source_case.get("priority")
-        ).strip().upper()
-        final_priority = str(source_case.get("priority_final") or source_case.get("priority") or "").strip().upper()
-        if decision_source not in _DEMOTED_MODEL_P0_SOURCES:
-            continue
-        if model_priority != "P0" or final_priority not in {"P1", "P2"}:
-            continue
-        restored = dict(source_case)
-        restored["priority"] = final_priority
-        restored["priority_final"] = final_priority
-        restored["priority_decision_state"] = "overridden"
-        restored["priority_decision_source"] = "review_model_p0_demotion_preserved"
-        output.append(restored)
-        existing_signatures.add(signature)
-    return output
 
 
 def assemble_final_cases(
@@ -100,12 +70,12 @@ def assemble_final_cases(
         parsed_result,
         source_cases=source_seed,
     )
-    parsed_result = _restore_demoted_model_p0_candidates(
+    contract_cases, _module_contract_summary = enforce_functional_module_contract(
         _dict_case_items(parsed_result),
-        _dict_case_items(review_candidate_cases),
+        project_profile=project_profile,
     )
     cases = reorder_cases_by_closed_loop_fn(
-        _dict_case_items(parsed_result),
+        contract_cases,
         start_id=start_id,
         renumber_ids=True,
     )
@@ -157,10 +127,21 @@ def assemble_final_cases(
         review_candidate_cases,
         case_signature_fn=case_signature,
     )
+    cases = enforce_execution_plan_p0_floor(cases, min_p0_count=6)
+    cases = enforce_entry_path_p0(cases)
+    cases = enforce_pure_ui_p2(cases)
     cases = apply_case_source_metadata(
         cases,
         source_cases=source_seed,
     )
+    execution_plan_summary = {
+        **dict(execution_plan_summary or {}),
+        "functional_phase_coverage": summarize_functional_phase_coverage(
+            _dict_case_items(cases),
+            project_profile=project_profile,
+            target_count=len(cases),
+        ),
+    }
     final_structure_state = resolve_final_case_structures(
         requirement=requirement,
         parsed_result=cases,

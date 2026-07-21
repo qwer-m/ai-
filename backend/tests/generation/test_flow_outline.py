@@ -145,3 +145,36 @@ def test_chinese_numbered_field_headings_are_not_required_flow_stages() -> None:
     assert "内容分区" not in flow_labels
     assert "帖子标题" not in flow_labels
     assert "精选" not in flow_labels
+
+
+def test_technical_and_structure_sections_are_not_user_flow_stages() -> None:
+    requirement = """
+    1. 课程结构:
+    2. 进入课程:
+    3. 课程环节:
+    4. 技术调研:
+    4.1 技术方案:
+    5. 作文批改:
+    """
+
+    outline = extract_flow_outline(requirement, [])
+    flow_labels = [outline["flow_labels"][key] for key in outline["flow_order"]]
+
+    assert flow_labels == ["进入课程", "课程环节", "作文批改"]
+    assert "课程结构" not in flow_labels
+    assert "技术调研" not in flow_labels
+    assert "技术方案" not in flow_labels
+
+
+def test_named_function_zones_are_kept_without_a_zone_name_registry() -> None:
+    requirement = """
+    1. 功能模块:
+    1.1 设备区:
+    1.2 工单区:
+    1.3 审计区:
+    """
+
+    outline = extract_flow_outline(requirement, [])
+    flow_labels = [outline["flow_labels"][key] for key in outline["flow_order"]]
+
+    assert flow_labels == ["设备区", "工单区", "审计区"]

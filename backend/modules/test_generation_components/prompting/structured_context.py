@@ -224,6 +224,7 @@ def _build_requirement_context(
 def build_structured_prompt_context(
     *,
     requirement: str,
+    architecture_requirement: str = "",
     kb_context: str = "",
     rag_result: Any = None,
     existing_cases: list[dict[str, Any]] | None = None,
@@ -343,7 +344,8 @@ def build_structured_prompt_context(
         source="requirement_semantics",
     )
     project_profile = build_project_profile(
-        requirement_text=requirement_context or requirement or "",
+        requirement_text=architecture_requirement or requirement or requirement_context or "",
+        flow_context_text=requirement_context or requirement or "",
         cases=[c for c in (existing_cases or []) if isinstance(c, dict)],
         module_order_hint=list(module_order_hint),
         module_order_source=module_order_source,
@@ -399,6 +401,9 @@ def build_structured_prompt_context(
         "module_order_hint": list(module_order_hint),
         "module_order_by_biz": module_order_by_biz,
         "module_order_source": module_order_source,
+        "module_catalog": list((project_profile.get("functional_architecture") or {}).get("functional_modules") or []),
+        "module_interactions": list((project_profile.get("functional_architecture") or {}).get("module_interactions") or []),
+        "excluded_modules": list((project_profile.get("functional_architecture") or {}).get("excluded_modules") or []),
         "fact_profile": fact_profile,
         "project_profile": project_profile,
         "context_by_biz": context_by_biz,

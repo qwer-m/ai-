@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Collection
+from typing import Any
 
 from ..control.actor_roles import normalize_actor_role as normalize_actor_role_value
 from .streaming_postprocess_utils import _clip_text
-
-
-def _contains_any_token(text: str, tokens: Collection[str]) -> bool:
-    return any(token and token.lower() in text for token in tokens)
 
 
 def is_internal_state_text(value: str) -> bool:
@@ -25,8 +21,6 @@ def public_contract_module_label(step_meta: dict[str, Any], label: str) -> str:
         value = str(raw or "").strip()
         if value and not is_internal_state_text(value):
             return _clip_text(value, 80)
-    if _contains_any_token(str(label or "").lower(), ("学生", "学员", "student")):
-        return "学生端主链路"
     return "业务主链路"
 
 
@@ -84,7 +78,7 @@ def materialize_workflow_contract_case(stage_key: str, step_meta: dict[str, Any]
         "test_input": action,
         "expected_result": expected_result,
         "priority": "P0" if bool(step_meta.get("main_path_step", True)) else "P1",
-        "role": normalize_actor_role_value(step_meta.get("actor"), fallback_text=label),
+        "role": normalize_actor_role_value(step_meta.get("actor")),
         "workflow_contract_materialized_case": True,
     }
 
@@ -120,7 +114,7 @@ def workflow_bridge_case(
         "test_input": str(step_meta.get("input") or step_meta.get("state_in") or "workflow state"),
         "expected_result": assertion or f"workflow state reaches {stage_key}",
         "priority": "P0" if bool(step_meta.get("main_path_step", True)) else "P1",
-        "role": normalize_actor_role_value(step_meta.get("actor"), fallback_text=label),
+        "role": normalize_actor_role_value(step_meta.get("actor")),
         "generated_bridge_case": True,
         "workflow_blueprint_bridge": True,
     }

@@ -4,6 +4,7 @@ import re
 from collections import defaultdict
 from typing import Any
 
+from ..control.scoped_rule_semantics import is_scoped_requirement_rule
 from .structured_context_split_helpers import (
     _biz_tag,
     _clip_text,
@@ -239,50 +240,6 @@ def _contains_any_marker(text: str, markers: tuple[str, ...]) -> bool:
     return any(marker in lowered for marker in markers)
 
 
-def _is_time_window_scope_rule(fragment: str) -> bool:
-    lowered = str(fragment or "").strip().lower()
-    if not lowered:
-        return False
-
-    time_markers = (
-        "周日24:00",
-        "周日 24:00",
-        "24:00后",
-        "24:00 后",
-        "24点后",
-        "24 点后",
-        "sunday 24:00",
-        "after sunday 24:00",
-    )
-    view_only_markers = (
-        "仅可查看",
-        "只可查看",
-        "仅查看",
-        "不可操作",
-        "不能操作",
-        "禁止操作",
-        "view only",
-        "read only",
-        "read-only",
-        "readonly",
-    )
-    scope_markers = (
-        "历史周",
-        "补做",
-        "补学",
-        "历史任务",
-        "周末任务",
-        "过期规则",
-        "历史周补学",
-        "补做期",
-    )
-
-    has_time_gate = any(marker in lowered for marker in time_markers)
-    has_view_only = any(marker in lowered for marker in view_only_markers)
-    has_scope = any(marker in lowered for marker in scope_markers)
-    return bool(has_time_gate and has_view_only and (has_scope or "周日" in lowered))
-
-
 def _classify_requirement_fragment(fragment: str) -> dict[str, bool]:
     lowered = str(fragment or "").strip().lower()
     if not lowered:
@@ -297,7 +254,7 @@ def _classify_requirement_fragment(fragment: str) -> dict[str, bool]:
     pending = _contains_any_marker(lowered, _PENDING_REQUIREMENT_MARKERS)
     reuse = _contains_any_marker(lowered, _REUSE_DECLARATION_MARKERS)
     hard_flow = _contains_any_marker(lowered, _HARD_FLOW_MARKERS)
-    scoped_rule = _is_time_window_scope_rule(lowered)
+    scoped_rule = is_scoped_requirement_rule(lowered)
     confirmed = bool(
         (not pending)
         and (

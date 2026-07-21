@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from modules.test_generation_components.control.generation_mode_activation import (
     build_generation_mode_control_state,
     infer_generation_coverage_profile,
+    merge_generation_mode_control_state,
     resolve_linked_final_case_signal,
 )
 from modules.test_generation_components.control.current_requirement_blueprint import (
@@ -25,6 +26,15 @@ from modules.testing.test_generation_components.postprocess.result_postprocess i
     strip_case_meta_fields,
 )
 from modules.test_generation_components.prompting.structured_context import build_structured_prompt_context
+
+
+def _coverage_strategy(mode: str, expected_count: int) -> dict[str, object]:
+    return {
+        "coverage_targets": {
+            "mode": mode,
+            "target_case_range": {"min": expected_count, "max": expected_count},
+        }
+    }
 
 
 class _NoopClient:
@@ -216,36 +226,79 @@ def test_current_requirement_blueprint_extraction_clamps_too_small_budget(monkey
     assert diagnostics["current_requirement_blueprint_max_tokens"] == 600
 
 
-def test_full_functional_regression_profile_activates_from_expected_count() -> None:
+def test_explicit_expected_count_is_not_mapped_to_a_fixed_mode_tier() -> None:
     profile = infer_generation_coverage_profile(
         requirement_text="近期课程和排课功能调整",
         expected_count=100,
     )
 
-    assert profile["coverage_mode"] == "full_functional_regression"
-    assert profile["target_case_range"] == {"min": 80, "max": 120}
-    assert len(profile["coverage_layers"]) >= 5
+    assert profile["coverage_mode"] == ""
+    assert profile["case_density"] == ""
+    assert profile["target_case_range"] == {"min": 80, "max": 100}
+    assert profile["coverage_layers"] == []
+    assert profile["coverage_source"] == "explicit_expected_count"
+    assert profile["activation_evidence"]["requirement_text_parsed_for_mode"] is False
 
 
-def test_standard_regression_profile_activates_from_document_intent() -> None:
+def test_document_intent_does_not_activate_a_keyword_mode() -> None:
     profile = infer_generation_coverage_profile(
         requirement_text="本次改版需要做标准回归，确保原有模块不受影响",
         expected_count=20,
     )
 
-    assert profile["coverage_mode"] == "standard_regression"
-    assert profile["target_case_range"] == {"min": 30, "max": 50}
+    assert profile["coverage_mode"] == ""
+    assert profile["target_case_range"] == {"min": 16, "max": 20}
+    assert profile["coverage_layers"] == []
 
 
-def test_expanded_regression_profile_activates_from_mid_sized_expected_count() -> None:
+def test_strategy_plan_explicit_coverage_targets_are_preserved() -> None:
     profile = infer_generation_coverage_profile(
         requirement_text="writing workflow regression",
         expected_count=70,
+        strategy_plan={
+            "coverage_targets": {
+                "mode": "release_acceptance",
+                "case_density": "plan_defined",
+                "target_case_range": {"min": 12, "max": 18},
+                "layers": ["覆盖显式发布闭环"],
+            }
+        },
     )
 
-    assert profile["coverage_mode"] == "expanded_regression"
-    assert profile["case_density"] == "medium_high"
-    assert profile["target_case_range"] == {"min": 60, "max": 80}
+    assert profile["coverage_mode"] == "release_acceptance"
+    assert profile["case_density"] == "plan_defined"
+    assert profile["target_case_range"] == {"min": 56, "max": 70}
+    assert profile["coverage_layers"] == ["覆盖显式发布闭环"]
+
+
+def test_merge_uses_existing_control_and_functional_architecture_without_domain_scenarios() -> None:
+    state = merge_generation_mode_control_state(
+        {
+            "must_cover_rules": ["REQ-1: 保存后状态为已发布"],
+            "rule_quota": {"REQ-1": 1},
+            "source_meta": {
+                "project_profile": {
+                    "functional_architecture": {
+                        "functional_modules": [{"module_name": "发布区"}],
+                        "module_interactions": [
+                            {"source_module": "发布区", "target_module": "消息区"}
+                        ],
+                    }
+                }
+            },
+        },
+        requirement_text="任意领域正文",
+        expected_count=17,
+    )
+
+    profile = dict(state.source_meta.get("generation_coverage_profile") or {})
+    evidence = dict(profile.get("activation_evidence") or {})
+    assert state.must_cover_rules == ["REQ-1: 保存后状态为已发布"]
+    assert state.must_have_scenarios == []
+    assert profile["target_case_range"] == {"min": 14, "max": 17}
+    assert evidence["control_signal_count"] == 2
+    assert evidence["functional_module_count"] == 1
+    assert evidence["module_interaction_count"] == 1
 
 
 def test_generation_mode_control_reaches_structured_prompt_context() -> None:
@@ -260,17 +313,17 @@ def test_generation_mode_control_reaches_structured_prompt_context() -> None:
 
     summary = dict(prompt_context.get("control_summary") or {})
     control_text = str(prompt_context.get("control_context") or "")
-    assert summary["generation_coverage_mode"] == "full_functional_regression"
-    assert summary["generation_target_case_range"] == {"min": 80, "max": 120}
-    assert "GENERATION COVERAGE MODE" in control_text
-    assert "full_functional_regression" in control_text
-    assert "not a quota" in control_text
+    assert summary["generation_coverage_mode"] == ""
+    assert summary["generation_target_case_range"] == {"min": 80, "max": 100}
+    assert "GENERATION COVERAGE MODE" not in control_text
+    assert "不从正文关键词猜测固定场景" in "\n".join(state.quality_fix_hints)
 
 
 def test_full_functional_mode_prevents_review_gate_compressing_dense_case_set() -> None:
     state = build_generation_mode_control_state(
         requirement_text="full functional regression for a management workflow",
         expected_count=100,
+        strategy_plan=_coverage_strategy("full_functional_regression", 100),
     )
     cases = [
         {
@@ -323,7 +376,7 @@ def test_full_functional_mode_prevents_review_gate_compressing_dense_case_set() 
     assert len(result.get("cases") or []) >= 30
     summary = dict(result.get("generation_summary") or {})
     assert summary["generation_coverage_mode"] == "full_functional_regression"
-    assert summary["recommended_range"] == "80-120"
+    assert summary["recommended_range"] == "80-100"
     debug = dict(result.get("feedback_control_debug") or {})
     assert debug["generation_coverage_mode"] == "full_functional_regression"
 
@@ -332,6 +385,7 @@ def test_expanded_regression_mode_keeps_broad_case_set_after_review_gate() -> No
     state = build_generation_mode_control_state(
         requirement_text="expanded regression for a writing workflow",
         expected_count=70,
+        strategy_plan=_coverage_strategy("expanded_regression", 70),
     )
     cases = [
         {
@@ -384,7 +438,7 @@ def test_expanded_regression_mode_keeps_broad_case_set_after_review_gate() -> No
     assert len(result.get("cases") or []) >= 56
     summary = dict(result.get("generation_summary") or {})
     assert summary["generation_coverage_mode"] == "expanded_regression"
-    assert summary["recommended_range"] == "60-80"
+    assert summary["recommended_range"] == "56-70"
     assert summary["target_final_count"] == 70
     assert summary["soft_min_count"] == 56
     assert summary["hard_min_count"] == 49
@@ -395,6 +449,7 @@ def test_explicit_expected_count_accepts_recovered_soft_floor_after_pruning() ->
     state = build_generation_mode_control_state(
         requirement_text="expanded regression for a writing workflow",
         expected_count=70,
+        strategy_plan=_coverage_strategy("expanded_regression", 70),
     )
     cases = [
         {
@@ -457,6 +512,7 @@ def test_full_mode_uses_mode_aware_final_duplicate_caps_for_generic_scenarios() 
     state = build_generation_mode_control_state(
         requirement_text="full functional regression for dashboard and course workflow",
         expected_count=120,
+        strategy_plan=_coverage_strategy("full_functional_regression", 120),
     )
     cases = [
         {
@@ -541,10 +597,11 @@ def test_full_mode_uses_mode_aware_final_duplicate_caps_for_generic_scenarios() 
     assert review_summary["flow_governance_applied"] is True
 
 
-def test_full_mode_promotes_main_path_p0_anchor_when_model_omits_p0() -> None:
+def test_full_mode_does_not_invent_p0_from_unstructured_business_words() -> None:
     state = build_generation_mode_control_state(
         requirement_text="full functional regression for upload, submit, review, and permission workflow",
         expected_count=100,
+        strategy_plan=_coverage_strategy("full_functional_regression", 100),
     )
     cases = [
         {
@@ -596,19 +653,16 @@ def test_full_mode_promotes_main_path_p0_anchor_when_model_omits_p0() -> None:
     )
 
     priorities = [str(item.get("priority") or "").upper() for item in (result.get("cases") or [])]
-    assert "P0" in priorities
+    assert "P0" not in priorities
 
 
-def test_full_mode_maintains_p0_anchor_floor_when_one_p0_exists() -> None:
+def test_full_mode_does_not_invent_a_fixed_p0_quota_from_case_count() -> None:
     state = build_generation_mode_control_state(
         requirement_text="full functional regression for upload, submit, approval, permission, and community workflow",
         expected_count=100,
+        strategy_plan=_coverage_strategy("full_functional_regression", 100),
     )
     payload = state.to_dict()
-    payload.setdefault("source_meta", {})["generation_coverage_profile"] = {
-        "coverage_mode": "standard_regression",
-        "target_case_range": {"min": 30, "max": 50},
-    }
     seed_cases = [
         {
             "id": "TC-001",
@@ -711,7 +765,7 @@ def test_full_mode_maintains_p0_anchor_floor_when_one_p0_exists() -> None:
     )
 
     priorities = [str(item.get("priority") or "").upper() for item in (result.get("cases") or [])]
-    assert priorities.count("P0") >= 8
+    assert priorities.count("P0") < 8
     summary = dict(result.get("generation_summary") or {})
     assert summary["generation_coverage_mode"] == "full_functional_regression"
     persisted_cases = strip_case_meta_fields(
@@ -721,7 +775,7 @@ def test_full_mode_maintains_p0_anchor_floor_when_one_p0_exists() -> None:
         )
     )
     persisted_priorities = [str(item.get("priority") or "").upper() for item in persisted_cases]
-    assert persisted_priorities.count("P0") >= 8
+    assert persisted_priorities.count("P0") < 8
 
 
 def test_public_normalization_preserves_full_regression_main_path_floor_with_ui_words() -> None:
@@ -801,7 +855,14 @@ def test_public_normalization_preserves_full_regression_main_path_floor_with_ui_
         )
     )
 
-    assert sum(1 for item in normalized if str(item.get("priority") or "").upper() == "P0") >= 8
+    assert sum(1 for item in normalized if str(item.get("priority") or "").upper() == "P0") < 7
+    by_description = {str(item.get("description") or ""): item for item in normalized}
+    assert str(
+        by_description["批改反馈-完整四部分生成：校验综合点评、分句点评、提升思路、全文润色全部正确显示"].get(
+            "priority"
+        )
+        or ""
+    ).upper() == "P2"
 
 
 def test_public_normalization_does_not_promote_essay_cases_for_schedule_requirement() -> None:
@@ -836,6 +897,7 @@ def test_full_mode_does_not_promote_non_blocking_display_cases_to_p0() -> None:
     state = build_generation_mode_control_state(
         requirement_text="full functional regression for upload, submit, approval, permission, sorting, and sharing workflow",
         expected_count=100,
+        strategy_plan=_coverage_strategy("full_functional_regression", 100),
     )
     cases = [
         {
@@ -950,13 +1012,14 @@ def test_full_mode_does_not_promote_non_blocking_display_cases_to_p0() -> None:
         if priority == "P0"
         and any(token in description.lower() for token in ("upload", "submit", "approved", "permission", "generated result"))
     )
-    assert true_anchor_p0_count >= 3
+    assert true_anchor_p0_count == 0
 
 
 def test_full_mode_demotes_popup_status_and_limit_cases_from_p0() -> None:
     state = build_generation_mode_control_state(
         requirement_text="full functional regression for submission, status, and record management",
         expected_count=100,
+        strategy_plan=_coverage_strategy("full_functional_regression", 100),
     )
     cases = [
         {
@@ -1050,6 +1113,7 @@ def test_template_polluted_expected_result_is_removed_before_final() -> None:
     state = build_generation_mode_control_state(
         requirement_text="full functional regression for image visibility and correction result",
         expected_count=100,
+        strategy_plan=_coverage_strategy("full_functional_regression", 100),
     )
     cases = [
         {
@@ -1109,6 +1173,7 @@ def test_full_mode_demotes_media_management_and_time_status_from_p0() -> None:
     state = build_generation_mode_control_state(
         requirement_text="full functional regression for upload, submission, approval, permission, and media management",
         expected_count=100,
+        strategy_plan=_coverage_strategy("full_functional_regression", 100),
     )
     cases = [
         {
@@ -1243,18 +1308,19 @@ def test_full_mode_demotes_media_management_and_time_status_from_p0() -> None:
         str(item.get("description") or ""): str(item.get("priority") or "").upper()
         for item in (result.get("cases") or [])
     }
-    assert priorities_by_description["Image thumbnails can be deleted and drag sorted"] != "P0"
-    assert priorities_by_description["Force close app keeps uploaded image list"] != "P0"
-    assert priorities_by_description["Review remains pending for 48 hours"] != "P0"
-    assert priorities_by_description["My works list keeps maximum records limit at 20"] != "P0"
-    assert priorities_by_description["Upload valid image and successfully generate correction result"] == "P0"
-    assert priorities_by_description["Correction feedback displays four modules completely"] == "P0"
+    assert priorities_by_description.get("Image thumbnails can be deleted and drag sorted") != "P0"
+    assert priorities_by_description.get("Force close app keeps uploaded image list") != "P0"
+    assert priorities_by_description.get("Review remains pending for 48 hours") != "P0"
+    assert priorities_by_description.get("My works list keeps maximum records limit at 20") != "P0"
+    assert priorities_by_description["Upload valid image and successfully generate correction result"] == "P1"
+    assert priorities_by_description["Correction feedback displays four modules completely"] == "P1"
 
 
-def test_full_mode_shortfall_supplement_recovers_below_floor_result() -> None:
+def test_full_mode_shortfall_supplement_reports_remaining_gap_below_explicit_tolerance() -> None:
     state = build_generation_mode_control_state(
         requirement_text="full functional regression for generated results, audit, permissions, upload failures, and downloads",
         expected_count=120,
+        strategy_plan=_coverage_strategy("full_functional_regression", 120),
     )
     base_cases = [
         {
@@ -1349,14 +1415,15 @@ def test_full_mode_shortfall_supplement_recovers_below_floor_result() -> None:
     assert review_summary["final_shortfall_supplement_applied"] is True
     assert review_summary["final_shortfall_supplement_count"] > 0
     assert review_summary["final_scenario_duplicate_case_count"] == 0
-    assert summary["underfilled"] is False
-    assert any("FINAL_SHORTFALL_SUPPLEMENT" in prompt and "final floor 80" in prompt for prompt in client.prompts)
+    assert summary["underfilled"] is True
+    assert any("FINAL_SHORTFALL_SUPPLEMENT" in prompt for prompt in client.prompts)
 
 
 def test_standard_expected_count_shortfall_supplement_recovers_below_floor_result() -> None:
     state = build_generation_mode_control_state(
         requirement_text="standard regression for activity entry, course visibility, assessment, reports, reward, and purchase flows",
         expected_count=50,
+        strategy_plan=_coverage_strategy("standard_regression", 50),
     )
     focus_words = [
         "entry",
@@ -1486,6 +1553,7 @@ def test_standard_expected_count_exposes_matching_final_floor() -> None:
     state = build_generation_mode_control_state(
         requirement_text="Activity operation regression covers entry configuration state permission audit export and failure paths.",
         expected_count=50,
+        strategy_plan=_coverage_strategy("standard_regression", 50),
     )
     focus_words = [
         "entry",
@@ -1617,6 +1685,7 @@ def test_full_mode_marks_below_recommended_floor_underfilled_even_when_candidate
     state = build_generation_mode_control_state(
         requirement_text="full functional regression for a compact candidate set",
         expected_count=100,
+        strategy_plan=_coverage_strategy("full_functional_regression", 100),
     )
     cases = [
         {
@@ -2133,7 +2202,7 @@ def test_external_workflow_blueprint_materializes_missing_trusted_middle_step() 
     assert "course_schedule_flow" not in public_text
 
 
-def test_current_requirement_blueprint_normalizes_freeform_actor_sessions() -> None:
+def test_current_requirement_blueprint_preserves_explicit_actor_sessions() -> None:
     blueprint = {
         "id": "activity_flow",
         "workflow_id": "activity_flow",
@@ -2310,24 +2379,32 @@ def test_current_requirement_blueprint_normalizes_freeform_actor_sessions() -> N
         if str(item.get("execution_group") or "") == "main_smoke"
     ]
     assert [item.get("role") for item in main_cases] == [
-        "admin",
-        "supervisor",
-        "supervisor",
-        "supervisor",
-        "student_free",
-        "member",
+        "后台运营",
+        "老师端用户",
+        "教师用户",
+        "老师端用户",
+        "非会员用户",
+        "会员用户",
     ]
     assert [item.get("session_key") for item in main_cases] == [
-        "admin_review_session",
-        "supervisor_session",
-        "supervisor_session",
-        "supervisor_session",
-        "free_student_session",
-        "member_student_session",
+        "后台运营_session",
+        "老师端用户_session",
+        "教师用户_session",
+        "老师端用户_session",
+        "非会员用户_session",
+        "会员用户_session",
+    ]
+    assert [item.get("role_switch_strategy") for item in main_cases] == [
+        "reuse_role_session",
+        "switch_to_dedicated_role_session",
+        "switch_to_dedicated_role_session",
+        "switch_to_dedicated_role_session",
+        "switch_to_dedicated_role_session",
+        "switch_to_dedicated_role_session",
     ]
 
 
-def test_current_requirement_blueprint_keeps_generic_business_user_for_non_education_flow() -> None:
+def test_current_requirement_blueprint_preserves_explicit_generic_actor() -> None:
     blueprint = {
         "id": "order_fulfillment_flow",
         "workflow_id": "order_fulfillment_flow",
@@ -2502,7 +2579,7 @@ def test_current_requirement_blueprint_keeps_generic_business_user_for_non_educa
         for item in (result.get("cases") or [])
         if str(item.get("execution_group") or "") == "main_smoke"
     ]
-    assert [item.get("role") for item in main_cases] == ["business_user"] * 6
-    assert [item.get("session_key") for item in main_cases] == ["business_user_session"] * 6
+    assert [item.get("role") for item in main_cases] == ["用户"] * 6
+    assert [item.get("session_key") for item in main_cases] == ["用户_session"] * 6
     assert all(item.get("source_actor_role") == "用户" for item in main_cases)
     assert "student" not in {str(item.get("role") or "") for item in main_cases}

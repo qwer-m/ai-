@@ -52,3 +52,8 @@ def test_page_object_validator_accepts_business_method_orchestration():
 def test_page_object_validator_rejects_direct_entrypoint_interaction():
     with pytest.raises(ValueError, match=r"main\(\) directly calls (click|get_by_role)"):
         validate_page_object_model(INVALID_DIRECT_INTERACTION_SCRIPT)
+
+
+def test_app_validator_rejects_script_without_runtime_contracts():
+    with pytest.raises(ValueError, match="missing required runtime contracts"):
+        validate_page_object_model(VALID_POM_SCRIPT, automation_type="app")

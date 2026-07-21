@@ -8,8 +8,6 @@ from modules.testing.priority_sample_pool_store import (
     retrieve_priority_sample_patterns as _retrieve_priority_sample_patterns,
 )
 from .feedback_control_config import (
-    _ASCII_TOKEN_PATTERN,
-    _CJK_CHAR_PATTERN,
     _MAX_PRIORITY_POOL_CLUSTER_CAP,
     _MAX_PRIORITY_POOL_RETRIEVAL_TOP_K,
     _MIN_PRIORITY_POOL_PATTERN_CONFIDENCE,
@@ -22,17 +20,11 @@ from .feedback_control_priority_signals import (
     _pattern_confidence,
 )
 from .feedback_control_priority_quota import _apply_signal_quota as _apply_signal_quota_impl
-from .feedback_control_priority_retrieval_text import (
-    _sample_matches_primary_domain,
-    _sample_text_for_retrieval,
-)
 from .feedback_control_priority_retrieval_meta import build_priority_retrieval_meta
 from .feedback_control_sample_access import (
     sample_case_id as _sample_case_id,
     sample_value as _sample_value,
 )
-from ..coverage.domain_gate import current_domain_gate
-from ..coverage.scenario_registry import infer_domain_tags, infer_primary_domain_tag
 
 
 RetrievePrioritySamplePatternsFn = Callable[..., list[dict[str, Any]]]
@@ -104,43 +96,7 @@ def _select_priority_pool_samples_by_requirement(
         return [], retrieval_meta
 
     query = str(requirement_text or "").strip()
-    query_domains = infer_domain_tags(query)
-    primary_query_domain = infer_primary_domain_tag(query)
-    domain_gate = current_domain_gate(query)
-    retrieval_meta["retrieval_query_domain_tags"] = sorted(query_domains)
-    retrieval_meta["retrieval_query_primary_domain"] = primary_query_domain
-    retrieval_meta["retrieval_domain_scores"] = dict(domain_gate.get("domain_scores") or {})
-    retrieval_meta["retrieval_domain_gate_status"] = str(domain_gate.get("status") or "")
-    retrieval_meta["retrieval_domain_gate_reason"] = str(domain_gate.get("reason") or "")
-    retrieval_meta["retrieval_domain_gate_allows_historical_profile"] = bool(
-        domain_gate.get("allows_historical_profile")
-    )
-    if not bool(domain_gate.get("allows_historical_profile")):
-        retrieval_meta["retrieval_domain_filter_applied"] = True
-        retrieval_meta["retrieval_domain_no_match"] = True
-        retrieval_meta["retrieval_domain_gate_blocked"] = True
-        retrieval_meta["retrieval_domain_matched_sample_count"] = 0
-        retrieval_meta["retrieval_domain_skipped_sample_count"] = int(len(active_samples))
-        retrieval_meta["retrieval_fallback"] = "domain_unstable"
-        return [], retrieval_meta
     allowed_object_ids: set[int] = {id(item) for item in active_samples}
-    if primary_query_domain:
-        domain_matched_samples = [
-            item
-            for item in active_samples
-            if _sample_matches_primary_domain(item, primary_query_domain)
-        ]
-        retrieval_meta["retrieval_domain_matched_sample_count"] = int(len(domain_matched_samples))
-        retrieval_meta["retrieval_domain_skipped_sample_count"] = int(
-            len(active_samples) - len(domain_matched_samples)
-        )
-        retrieval_meta["retrieval_domain_filter_applied"] = True
-        if not domain_matched_samples:
-            retrieval_meta["retrieval_domain_no_match"] = True
-            retrieval_meta["retrieval_fallback"] = "domain_no_match"
-            return [], retrieval_meta
-        active_samples = domain_matched_samples
-        allowed_object_ids = {id(item) for item in active_samples}
 
     sample_by_id: dict[str, dict[str, Any]] = {}
     for item in active_samples:
@@ -175,36 +131,6 @@ def _select_priority_pool_samples_by_requirement(
             retrieval_meta.get("retrieval_diversity_skipped_count") or 0
         ) + int(skipped)
         return selected_local
-
-    def _ascii_tokens(text: str) -> set[str]:
-        return {token.lower() for token in _ASCII_TOKEN_PATTERN.findall(str(text or "")) if token}
-
-    def _cjk_chars(text: str) -> set[str]:
-        return {char for char in _CJK_CHAR_PATTERN.findall(str(text or "")) if char.strip()}
-
-    query_ascii = _ascii_tokens(query)
-    query_cjk = _cjk_chars(query)
-
-    def _lexical_score(sample_like: dict[str, Any]) -> float:
-        text = _sample_text_for_retrieval(sample_like)
-        if not text:
-            return 0.0
-        sample_ascii = _ascii_tokens(text)
-        sample_cjk = _cjk_chars(text)
-        ascii_overlap = len(query_ascii & sample_ascii) if query_ascii else 0
-        cjk_overlap = len(query_cjk & sample_cjk) if query_cjk else 0
-        sample_primary_domain = infer_primary_domain_tag(text)
-        domain_overlap = 1 if primary_query_domain and sample_primary_domain == primary_query_domain else 0
-        try:
-            weight = float(_sample_value(sample_like, "pattern_weight") or 0.0)
-        except Exception:
-            weight = 0.0
-        return float(
-            domain_overlap * 12.0
-            + ascii_overlap * 2.0
-            + cjk_overlap * 0.6
-            + min(max(weight, 0.0), 2.0) * 0.2
-        )
 
     if not query:
         candidates = sorted(
@@ -332,12 +258,12 @@ def _select_priority_pool_samples_by_requirement(
     retrieval_meta["retrieval_after_diversity_positive_count"] = int(diversity_positive)
     retrieval_meta["retrieval_after_diversity_negative_count"] = int(diversity_negative)
     selected = _apply_signal_quota(
-            selected_diversity,
-            retrieval_meta=retrieval_meta,
-            max_retrieval_top_k=max_retrieval_top_k,
-            min_positive_top_k=min_positive_top_k,
-            max_negative_top_k=max_negative_top_k,
-        )
+        selected_diversity,
+        retrieval_meta=retrieval_meta,
+        max_retrieval_top_k=max_retrieval_top_k,
+        min_positive_top_k=min_positive_top_k,
+        max_negative_top_k=max_negative_top_k,
+    )
 
     if selected:
         retrieval_meta["retrieval_selected_count"] = int(len(selected))
@@ -351,74 +277,5 @@ def _select_priority_pool_samples_by_requirement(
         )
         return selected, retrieval_meta
 
-    lexical_sorted = sorted(
-        active_samples,
-        key=lambda item: (
-            _lexical_score(item),
-            float(_sample_value(item, "pattern_weight") or 0.0),
-            float(_sample_value(item, "pattern_quality_score") or 0.0),
-        ),
-        reverse=True,
-    )
-    raw_positive, raw_negative = _count_signal_split(lexical_sorted)
-    retrieval_meta["retrieval_raw_positive_count"] = int(raw_positive)
-    retrieval_meta["retrieval_raw_negative_count"] = int(raw_negative)
-    lexical_selected_diversity = _apply_diversity_cap(lexical_sorted)
-    diversity_positive, diversity_negative = _count_signal_split(lexical_selected_diversity)
-    retrieval_meta["retrieval_after_diversity_positive_count"] = int(diversity_positive)
-    retrieval_meta["retrieval_after_diversity_negative_count"] = int(diversity_negative)
-    lexical_selected = _apply_signal_quota(
-        lexical_selected_diversity,
-        retrieval_meta=retrieval_meta,
-        max_retrieval_top_k=max_retrieval_top_k,
-        min_positive_top_k=min_positive_top_k,
-        max_negative_top_k=max_negative_top_k,
-    )
-    if lexical_selected:
-        retrieval_meta["retrieval_fallback"] = "lexical_fallback"
-        retrieval_meta["retrieval_lexical_fallback_used"] = True
-        retrieval_meta["retrieval_selected_count"] = int(len(lexical_selected))
-        retrieval_meta["retrieval_selected_weight_avg"] = round(
-            sum(float(_sample_value(item, "pattern_weight") or 0.0) for item in lexical_selected) / len(lexical_selected),
-            4,
-        )
-        retrieval_meta["retrieval_selected_quality_avg"] = round(
-            sum(float(_sample_value(item, "pattern_quality_score") or 0.0) for item in lexical_selected) / len(lexical_selected),
-            4,
-        )
-        return lexical_selected, retrieval_meta
-
-    retrieval_meta["retrieval_fallback"] = "head_top_k"
-    fallback = sorted(
-        active_samples,
-        key=lambda item: (
-            float(_sample_value(item, "pattern_weight") or 0.0),
-            float(_sample_value(item, "pattern_quality_score") or 0.0),
-        ),
-        reverse=True,
-    )
-    raw_positive, raw_negative = _count_signal_split(fallback)
-    retrieval_meta["retrieval_raw_positive_count"] = int(raw_positive)
-    retrieval_meta["retrieval_raw_negative_count"] = int(raw_negative)
-    fallback_diversity = _apply_diversity_cap(fallback)
-    diversity_positive, diversity_negative = _count_signal_split(fallback_diversity)
-    retrieval_meta["retrieval_after_diversity_positive_count"] = int(diversity_positive)
-    retrieval_meta["retrieval_after_diversity_negative_count"] = int(diversity_negative)
-    fallback = _apply_signal_quota(
-        fallback_diversity,
-        retrieval_meta=retrieval_meta,
-        max_retrieval_top_k=max_retrieval_top_k,
-        min_positive_top_k=min_positive_top_k,
-        max_negative_top_k=max_negative_top_k,
-    )
-    retrieval_meta["retrieval_selected_count"] = int(len(fallback))
-    if fallback:
-        retrieval_meta["retrieval_selected_weight_avg"] = round(
-            sum(float(_sample_value(item, "pattern_weight") or 0.0) for item in fallback) / len(fallback),
-            4,
-        )
-        retrieval_meta["retrieval_selected_quality_avg"] = round(
-            sum(float(_sample_value(item, "pattern_quality_score") or 0.0) for item in fallback) / len(fallback),
-            4,
-        )
-    return fallback, retrieval_meta
+    retrieval_meta["retrieval_fallback"] = "retrieval_no_match"
+    return [], retrieval_meta

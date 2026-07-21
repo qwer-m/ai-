@@ -3,24 +3,20 @@ from __future__ import annotations
 from typing import Any, Callable, Iterable
 
 from .case_access import case_id, case_priority, case_text_field, case_value
+from .module_contract import FUNCTIONAL_PHASE_FIELDS
 from .streaming_case_normalization import (
     is_placeholder_expected_result,
     normalize_priority_value,
     normalize_steps,
-    strip_step_prefix,
 )
-from .streaming_expected_result_builder import build_expected_result_from_case
 from .streaming_expected_result_quality import is_non_assertable_expected_result, looks_truncated_text
-from .streaming_p0_groups import covered_p0_groups, required_p0_groups_from_requirement
 from .streaming_priority_rebuild import rebuild_priority_by_semantics
 from .streaming_priority_semantics import apply_coverage_priority_semantics
 from .streaming_reasoning_quality import reasoning_leakage_hits
 from .streaming_semantic_dedup import semantic_deduplicate_cases
 from .streaming_semantic_text import semantic_tokenize
 from .streaming_uncertain_requirement import (
-    UNCERTAIN_SIGNALS,
-    apply_uncertain_requirement_downgrade,
-    enforce_uncertain_priority_floor,
+    filter_uncertain_requirement_cases,
 )
 
 
@@ -38,6 +34,8 @@ def low_quality_reason(case: dict[str, Any]) -> str:
         return "missing_test_module"
     if not expected_result:
         return "missing_expected_result"
+    if not case_text_field(case, "test_input"):
+        return "missing_test_input"
     if priority not in {"P0", "P1", "P2"}:
         return "invalid_priority"
     if not isinstance(steps, list) or not any(str(step).strip() for step in steps):
@@ -121,21 +119,13 @@ def normalize_case_structure(case: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(preconditions, list):
         preconditions = []
     preconditions = [str(item).strip() for item in preconditions if str(item).strip()]
-    if not preconditions:
-        preconditions = [f"User has logged in and can access module {module}"]
 
     if not expected_result or is_placeholder_expected_result(expected_result):
-        rebuilt_expected_result = build_expected_result_from_case(
-            module=module,
-            description=description,
-            normalized_steps=normalized_steps,
+        expected_result = expected_result_raw
+        expected_result_quality = "non_assertable"
+        expected_result_quality_reason = (
+            "missing_expected_result" if not expected_result else "placeholder_expected_result"
         )
-        if rebuilt_expected_result:
-            expected_result = rebuilt_expected_result
-        else:
-            expected_result = expected_result_raw
-            expected_result_quality = "non_assertable"
-            expected_result_quality_reason = "no_concrete_assertion"
     else:
         step_tokens = semantic_tokenize(" ".join(normalized_steps), limit=18)
         expected_tokens = semantic_tokenize(expected_result, limit=12)
@@ -156,10 +146,6 @@ def normalize_case_structure(case: dict[str, Any]) -> dict[str, Any] | None:
             expected_result_quality_reason = "contains_concrete_assertion"
 
     test_input = str(normalized.get("test_input") or "").strip()
-    if not test_input:
-        test_input = strip_step_prefix(normalized_steps[0]) if normalized_steps else ""
-    if not test_input:
-        test_input = description or module or "默认输入"
 
     normalized["steps"] = normalized_steps
     normalized["preconditions"] = preconditions
@@ -202,6 +188,7 @@ def filter_low_quality_cases_with_stats(
         "invalid_structure_dropped": 0,
         "weak_case_dropped": 0,
         "semantic_dedup_dropped": 0,
+        "uncertain_requirement_dropped": 0,
         "governance_hard_drop": 0,
         "total_dropped": 0,
         "dropped_details": [],
@@ -237,41 +224,34 @@ def filter_low_quality_cases_with_stats(
     stats["semantic_dedup_dropped"] += int(dedup_dropped)
 
     reprioritized_cases = rebuild_priority_by_semantics(deduplicated_cases)
-    downgraded_cases = apply_uncertain_requirement_downgrade(
+    confirmed_cases, uncertain_cases = filter_uncertain_requirement_cases(
         reprioritized_cases,
         requirement_text=str(requirement_text or ""),
     )
-    downgraded_cases = enforce_uncertain_priority_floor(downgraded_cases)
-    if downgraded_cases:
-        downgraded_cases = apply_coverage_priority_semantics(
+    stats["uncertain_requirement_dropped"] += len(uncertain_cases)
+    for case in uncertain_cases:
+        stats["dropped_details"].append(
+            quality_drop_detail(
+                case,
+                reason="unconfirmed_requirement",
+                stage="requirement_certainty_filter",
+            )
+        )
+    if confirmed_cases:
+        confirmed_cases = apply_coverage_priority_semantics(
             str(requirement_text or ""),
-            downgraded_cases,
+            confirmed_cases,
             analyze_coverage_fn=analyze_coverage_fn,
         )
-
-    required_groups = required_p0_groups_from_requirement(str(requirement_text or ""))
-    requirement_has_uncertain_signal = any(
-        signal in str(requirement_text or "") for signal in UNCERTAIN_SIGNALS
-    )
-    if required_groups and not requirement_has_uncertain_signal:
-        covered_groups = covered_p0_groups(downgraded_cases)
-        if not covered_groups:
-            needs_priority_review = any(
-                str(item.get("priority_decision_state") or "").strip().lower()
-                in {"conflict", "undetermined", "invalid"}
-                for item in downgraded_cases
-                if isinstance(item, dict)
-            )
-            if not needs_priority_review:
-                pass
 
     stats["total_dropped"] = int(
         stats.get("invalid_structure_dropped", 0)
         + stats.get("weak_case_dropped", 0)
         + stats.get("semantic_dedup_dropped", 0)
+        + stats.get("uncertain_requirement_dropped", 0)
         + stats.get("governance_hard_drop", 0)
     )
-    return downgraded_cases, stats
+    return confirmed_cases, stats
 
 
 def final_quality_drop_reason(case: dict[str, Any]) -> str:
@@ -311,6 +291,7 @@ def strip_case_meta_list(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
         "priority_score",
         "suggested_priority",
         "priority_reasons",
+        *FUNCTIONAL_PHASE_FIELDS,
     }
     stripped: list[dict[str, Any]] = []
     for item in cases:

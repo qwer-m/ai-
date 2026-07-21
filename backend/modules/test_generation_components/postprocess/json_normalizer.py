@@ -12,6 +12,7 @@ from .json_validator import (
     infer_case_kind,
     reorder_cases_by_closed_loop,
 )
+from .module_contract import FUNCTIONAL_PHASE_FIELDS
 
 
 def normalize_json_structure(data: Any) -> Any:
@@ -87,17 +88,20 @@ def normalize_json_structure(data: Any) -> Any:
             else:
                 p = ""
 
-        normalized.append(
-            {
-                "id": final_id,
-                "description": description,
-                "test_module": test_module,
-                "preconditions": preconditions,
-                "steps": steps,
-                "test_input": test_input,
-                "expected_result": expected_result,
-                "priority": p,
-            }
-        )
+        normalized_case = {
+            "id": final_id,
+            "description": description,
+            "test_module": test_module,
+            "preconditions": preconditions,
+            "steps": steps,
+            "test_input": test_input,
+            "expected_result": expected_result,
+            "priority": p,
+        }
+        for field in FUNCTIONAL_PHASE_FIELDS:
+            value = item.get(field)
+            if value is not None and value != "" and value != []:
+                normalized_case[field] = value
+        normalized.append(normalized_case)
 
     return normalized

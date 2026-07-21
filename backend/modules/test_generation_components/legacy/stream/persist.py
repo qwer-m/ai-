@@ -1,4 +1,6 @@
 from typing import Any, Iterator
+
+from ...postprocess.module_contract import enforce_functional_module_contract
 import json
 import traceback
 
@@ -9,7 +11,10 @@ from .persistence_post_persist_diagnostics import (
     add_diagnostic_log,
     build_stream_post_persist_diagnostic_payloads,
 )
-from .persistence_postprocess_result import unpack_stream_postprocess_result
+from .persistence_postprocess_result import (
+    merge_pre_projection_functional_phase_summary,
+    unpack_stream_postprocess_result,
+)
 from .persistence_quality_ledger import (
     _build_quality_ledger_payload as _build_quality_ledger_payload_impl,
 )
@@ -321,6 +326,40 @@ class LegacyGenerationStreamPersistMixin:
             generation_timing_events = postprocess_payload.generation_timing_events
 
             parsed_result = _normalize_missing_priority_final_cases(parsed_result, requirement_text=requirement)
+            source_meta = (
+                dict(feedback_control_state.get("source_meta") or {})
+                if isinstance(feedback_control_state, dict)
+                else {}
+            )
+            parsed_result, final_module_contract_summary = enforce_functional_module_contract(
+                [item for item in (parsed_result or []) if isinstance(item, dict)],
+                project_profile=source_meta.get("project_profile") or {},
+                inherit_execution_context=True,
+            )
+            final_module_contract_summary = merge_pre_projection_functional_phase_summary(
+                final_module_contract_summary,
+                review_decision_summary=review_decision_summary_payload,
+                final_case_count=len(parsed_result),
+            )
+            stage_counts["module_contract_final_normalized"] = int(
+                final_module_contract_summary.get("normalized_count") or 0
+            )
+            stage_counts["module_contract_final_rejected"] = int(
+                final_module_contract_summary.get("rejected_count") or 0
+            )
+            yield add_diagnostic_log(
+                db=db,
+                log_entry_type=LogEntry,
+                project_id=project_id,
+                user_id=user_id,
+                payload={
+                    "kind": "functional_module_contract_final",
+                    "request_id": request_id,
+                    "project_id": int(project_id),
+                    **final_module_contract_summary,
+                    "final_case_count": int(len(parsed_result)),
+                },
+            )
             gate_candidate_cases = parsed_result if isinstance(parsed_result, list) else []
             stream_quality_gate_result = summarize_case_quality_gate(gate_candidate_cases)
             stream_quality_gate_result = merge_contract_quality_gate(

@@ -1,0 +1,16 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,课程环节机制-写作技法,P2,P1,P2,P2,undetermined,conflict_resolved_by_insufficient_positive_evidence,medium,"model=P1,suggested=P2",写作技法环节-视频+答题闯关模式及环节间切换,PASS,-,False,False,False
+TC-002,课程环节机制-审题立意,P2,P1,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P1,suggested=P2",审题立意环节-视频+答题闯关模式完成流程,PASS,-,False,False,False
+TC-003,课程环节机制-技法卡状态变化,P2,P1,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P1,suggested=P2",技法卡获得触发-完成最后一环节且至少1颗星后技法卡点亮,PASS,-,False,False,False
+TC-004,课程环节机制-状态变化,P2,P1,P2,P2,undetermined,conflict_resolved_by_insufficient_positive_evidence,medium,"model=P1,suggested=P2","星星状态标记-获得1颗星标记""已完成""，0星标记""未完成已解锁""",PASS,-,False,False,False
+TC-005,课程环节机制,P0,P1,P0,P0,decided,hard_guard_promotion,high,,非线性解锁-初始可随意进入任意环节验证,PASS,-,False,False,False
+TC-006,课程环节机制,P0,P2,P0,P0,decided,strong_p0_signal_guard,medium,,技法巩固环节-纯答题完成按钮返回课程环节页,PASS,-,False,False,False
+TC-007,投稿,P0,P2,P0,P0,decided,strong_p0_signal_guard,medium,,投稿页首次进入规则弹窗-需滑动至底部点亮按钮,PASS,-,False,False,False
+TC-008,作文批改,P1,P0,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P0,suggested=P2",每主题限5次批改-按钮上方显示剩余次数,PASS,-,False,False,False
+TC-009,作文批改,P0,P1,P0,P0,decided,hard_guard_promotion,high,,上传作文图片-拍照/相册多选、拖动排序、删除操作,PASS,-,False,False,False
+TC-010,作文批改,P0,P1,P0,P0,decided,hard_guard_promotion,high,,提交AI批改后识别中状态显示,PASS,-,False,False,False
+TC-011,权限控制,P0,P0,P0,P0,undetermined,conflict_resolved_by_high_risk_business_rule,medium,"model=P0,suggested=P2",普通用户点击VIP锁跳转会员中心,PASS,-,False,False,False
+TC-012,权限控制,P2,P2,P2,P2,decided,model_semantic_consistent,high,,已开通用户隐藏升级课程按钮,PASS,-,False,False,False
+TC-013,入口与导航,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,"热门推荐入口-乐乐作文角标""更新中""进入课程列表",PASS,-,False,False,False
+TC-014,入口与课程列表,P1,P0,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P0,suggested=P2",普通用户查看课程列表，验证VIP锁状态和升级课程按钮,PASS,-,False,False,False
+TC-015,入口与课程列表,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,通过语文分类置顶入口进入课程列表,PASS,-,False,False,False

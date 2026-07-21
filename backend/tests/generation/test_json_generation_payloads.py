@@ -1,113 +1,9 @@
 import json
 
-from modules.test_generation_components.legacy.json_generation_payloads import (
-    build_core_flow_backfill_apply_summary_payload,
-)
 from modules.test_generation_components.legacy.json_generation_persist_diagnostics import (
     build_post_persist_generation_diagnostic_payloads,
     emit_post_persist_coverage_audit_diagnostics,
 )
-
-
-def test_core_flow_backfill_apply_summary_payload_normalizes_counts_and_coverage() -> None:
-    payload = build_core_flow_backfill_apply_summary_payload(
-        request_id="req-1",
-        normalized_generation_mode="",
-        multi_pass=True,
-        backfill_enabled=1,
-        backfill_apply_to_final="yes",
-        backfill_applied="",
-        primary_case_count_before_backfill="3",
-        result=[{"id": 1}, "ignored", {"id": 2}],
-        core_flow_backfill_generation_result={
-            "generated_backfill_candidate_cases": [{"id": "g1"}, {"id": "g2"}],
-            "accepted_backfill_cases": [{"id": "a1"}],
-            "rejected_backfill_cases": [],
-            "accepted_for_preview_count": "4",
-            "primary_retained_count": 2,
-            "primary_trimmed_count": "1",
-            "backfill_retained_count": 3,
-            "backfill_trimmed_count": "0",
-        },
-        core_flow_coverage_before_apply={
-            "core_flow_covered_count": "1",
-            "core_flow_required_count": "4",
-            "core_flow_coverage_ratio": "0.25",
-        },
-        core_flow_coverage_after_apply={
-            "core_flow_covered_count": 3,
-            "core_flow_required_count": 4,
-            "core_flow_coverage_ratio": 0.75,
-        },
-        core_flow_still_missing_after_apply=("payment", "refund"),
-        final_quality_gate_passed=0,
-        apply_skip_reason=None,
-    )
-
-    assert payload == {
-        "kind": "core_flow_backfill_apply_summary",
-        "request_id": "req-1",
-        "generation_mode": "multi_pass",
-        "backfill_enabled": True,
-        "backfill_apply_to_final": True,
-        "backfill_applied": False,
-        "primary_case_count": 3,
-        "final_case_count": 2,
-        "generated_backfill_candidate_count": 2,
-        "accepted_backfill_candidate_count": 1,
-        "rejected_backfill_candidate_count": 0,
-        "accepted_for_preview_count": 4,
-        "primary_retained_count": 2,
-        "primary_trimmed_count": 1,
-        "backfill_retained_count": 3,
-        "backfill_trimmed_count": 0,
-        "coverage_before": {
-            "covered_count": 1,
-            "required_count": 4,
-            "coverage_ratio": 0.25,
-        },
-        "coverage_after": {
-            "covered_count": 3,
-            "required_count": 4,
-            "coverage_ratio": 0.75,
-        },
-        "still_missing_core_flows": ["payment", "refund"],
-        "final_quality_gate_passed": False,
-        "apply_skip_reason": "",
-    }
-
-
-def test_core_flow_backfill_apply_summary_payload_prefers_normalized_generation_mode() -> None:
-    payload = build_core_flow_backfill_apply_summary_payload(
-        request_id="req-2",
-        normalized_generation_mode="full",
-        multi_pass=False,
-        backfill_enabled=False,
-        backfill_apply_to_final=False,
-        backfill_applied=True,
-        primary_case_count_before_backfill=1,
-        result={"not": "a-list"},
-        core_flow_backfill_generation_result={},
-        core_flow_coverage_before_apply={},
-        core_flow_coverage_after_apply={},
-        core_flow_still_missing_after_apply=[],
-        final_quality_gate_passed=True,
-        apply_skip_reason="merged_result_quality_gate_failed",
-    )
-
-    assert payload["generation_mode"] == "full"
-    assert payload["final_case_count"] == 0
-    assert payload["coverage_before"] == {
-        "covered_count": 0,
-        "required_count": 0,
-        "coverage_ratio": 0.0,
-    }
-    assert payload["coverage_after"] == {
-        "covered_count": 0,
-        "required_count": 0,
-        "coverage_ratio": 0.0,
-    }
-    assert payload["apply_skip_reason"] == "merged_result_quality_gate_failed"
 
 
 def test_post_persist_generation_diagnostic_payloads_build_defaults_and_judge_table() -> None:
@@ -254,11 +150,8 @@ def test_emit_pre_persist_generation_diagnostics_writes_logs_and_returns_reusabl
     assert result.compression_event_payload["compression_ratio"] == 0.25
 
 
-def test_emit_post_persist_coverage_audit_diagnostics_writes_coverage_and_backfill_logs(monkeypatch) -> None:
-    import modules.test_generation_components.coverage.core_flow_backfill as backfill_mod
-    import modules.test_generation_components.coverage.core_flow_coverage_contract as coverage_mod
+def test_emit_post_persist_coverage_audit_diagnostics_writes_generic_coverage_log(monkeypatch) -> None:
     import modules.test_generation_components.legacy.json_generation_persist_diagnostics as diagnostics_mod
-    from core.settings.config import settings
 
     class _LogEntry:
         def __init__(self, **kwargs):
@@ -276,46 +169,12 @@ def test_emit_post_persist_coverage_audit_diagnostics_writes_coverage_and_backfi
             self.commit_count += 1
 
     monkeypatch.setattr(diagnostics_mod, "LogEntry", _LogEntry)
-    monkeypatch.setattr(settings, "CORE_FLOW_BACKFILL_ENABLED", True, raising=False)
-    monkeypatch.setattr(settings, "CORE_FLOW_BACKFILL_MAX_CANDIDATES", 3, raising=False)
-    monkeypatch.setattr(
-        coverage_mod,
-        "audit_core_flow_coverage",
-        lambda cases: {
-            "core_flow_covered_count": 1,
-            "core_flow_required_count": 2,
-            "core_flow_coverage_ratio": 0.5,
-            "core_flow_coverage_passed": False,
-            "missing_core_flows": ["refund"],
-            "false_positive_guard_notes": ["note"],
-        },
-    )
-
-    def _plan_core_flow_backfill(**kwargs):
-        assert kwargs["max_backfill_cases"] == 3
-        return {
-            "missing_core_flow_count": 1,
-            "backfill_plan": [
-                {
-                    "flow_key": "refund",
-                    "flow_name": "退款",
-                    "suggested_priority": "P1",
-                    "target_case_count": 1,
-                }
-            ],
-        }
-
-    monkeypatch.setattr(backfill_mod, "plan_core_flow_backfill", _plan_core_flow_backfill)
 
     db = _Db()
     emit_post_persist_coverage_audit_diagnostics(
         db=db,
         project_id=7,
         user_id=1001,
-        request_id="req-coverage-1",
-        generation_id=42,
-        normalized_generation_mode="",
-        multi_pass=True,
         result=[
             {
                 "id": "TC-001",
@@ -339,20 +198,7 @@ def test_emit_post_persist_coverage_audit_diagnostics_writes_coverage_and_backfi
     messages = [str(item.message) for item in db.logs]
     assert messages[0].startswith("GEN_COVERAGE_DIAG:")
     coverage_payload = json.loads(messages[0].removeprefix("GEN_COVERAGE_DIAG:"))
-    core_flow_payload = json.loads(messages[1].removeprefix("GEN_DIAG:"))
-    backfill_payload = json.loads(messages[2].removeprefix("GEN_DIAG:"))
 
-    assert db.commit_count == 3
+    assert db.commit_count == 1
+    assert len(messages) == 1
     assert coverage_payload["generated_count"] == 1
-    assert core_flow_payload["kind"] == "core_flow_coverage"
-    assert core_flow_payload["generation_mode"] == "multi_pass"
-    assert core_flow_payload["missing_core_flows"] == ["refund"]
-    assert backfill_payload["kind"] == "core_flow_backfill_dry_run"
-    assert backfill_payload["backfill_plan_summary"] == [
-        {
-            "flow_key": "refund",
-            "flow_name": "退款",
-            "suggested_priority": "P1",
-            "target_case_count": 1,
-        }
-    ]

@@ -161,6 +161,39 @@ def test_contract_requirement_match_keeps_related_unlinked_contract() -> None:
     ) is True
 
 
+def test_contract_requirement_match_does_not_use_declared_actor_as_business_evidence() -> None:
+    contract = normalize_workflow_contract(
+        {
+            **_contract(),
+            "actors": ["content_reviewer"],
+            "match_terms": ["content_reviewer"],
+            "edges": [
+                {
+                    "state_in": "draft_ready",
+                    "action": "review_content",
+                    "state_out": "review_completed",
+                    "actor": "content_reviewer",
+                },
+                {
+                    "state_in": "review_completed",
+                    "action": "publish_content",
+                    "state_out": "content_published",
+                    "actor": "content_reviewer",
+                },
+            ],
+        }
+    )
+
+    assert contract is not None
+    score, hit_count, has_explicit_terms, core_hit_count, hit_terms = _contract_requirement_match(
+        contract,
+        "content_reviewer",
+    )
+
+    assert (score, hit_count, core_hit_count, hit_terms) == (0, 0, 0, [])
+    assert has_explicit_terms is False
+
+
 def test_feedback_control_state_reads_repository_when_sample_pool_disabled(monkeypatch) -> None:
     class _Repository:
         def __init__(self, _db: object) -> None:

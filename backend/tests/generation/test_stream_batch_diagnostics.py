@@ -178,6 +178,8 @@ def test_build_stream_batch_system_prompt_keeps_quality_first_contract() -> None
     assert "Start the Test Case IDs from 10 (e.g., TC-010)." in prompt
     assert "Reference count: about 4 cases. This is NOT a quota." in prompt
     assert "Keep closed-loop continuity in current module first" in prompt
+    assert "must all be present and non-empty" in prompt
+    assert "the backend will reject incomplete cases instead of filling them with templates" in prompt
     assert "main, visual" in prompt
 
 

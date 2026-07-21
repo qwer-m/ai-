@@ -18,9 +18,12 @@ from .batch_diagnostic_emitters import (
     emit_stream_batch_token_usage_diag as _emit_stream_batch_token_usage_diag_payload,
 )
 from .batch_flow_control import (
+    apply_functional_module_phase,
     build_existing_case_history,
+    build_functional_module_batch_plan,
     build_stream_batch_quality_metric,
     resolve_stream_batch_plan,
+    select_complete_generated_cases,
 )
 from .batch_parallel_shards import (
     build_coverage_shard_plan,
@@ -32,10 +35,12 @@ from .batch_parallel_shards import (
 )
 from .batch_prompt_runtime import (
     append_history_to_testcase_context,
+    build_functional_module_instruction,
     build_recent_history_context,
     build_stream_batch_system_prompt,
 )
 from .runtime import LazyAttrProxy, call_component
+from ...postprocess.streaming_case_normalization import is_placeholder_expected_result
 
 
 LogEntry = LazyAttrProxy("core.db.models", "LogEntry")
@@ -110,6 +115,7 @@ class LegacyGenerationStreamBatchesMixin:
     ) -> Iterator[dict[str, Any]]:
         client = state["client"]
         requirement = state["requirement"]
+        architecture_requirement = str(state.get("original_requirement") or requirement or "")
         project_id = state["project_id"]
         db = state["db"]
         doc_type = state["doc_type"]
@@ -255,6 +261,7 @@ class LegacyGenerationStreamBatchesMixin:
 
         prompt_context = build_structured_prompt_context(
             requirement=requirement or "",
+            architecture_requirement=architecture_requirement,
             kb_context=kb_context or "",
             rag_result=(context_result or {}).get("rag_result") if isinstance(context_result, dict) else None,
             existing_cases=[c for c in existing_cases if isinstance(c, dict)] if isinstance(existing_cases, list) else [],
@@ -263,6 +270,7 @@ class LegacyGenerationStreamBatchesMixin:
             feedback_control_state=feedback_control_state,
         )
         current_biz_key = str(prompt_context.get("current_biz_key") or current_biz_key or "unknown")
+        project_profile = dict(prompt_context.get("project_profile") or {})
         if isinstance(prompt_context.get("feedback_control_state"), dict):
             feedback_control_state = dict(prompt_context.get("feedback_control_state") or {})
         requirement_semantics_context = _extract_requirement_semantics_payload(prompt_context)
@@ -299,6 +307,38 @@ class LegacyGenerationStreamBatchesMixin:
             )
         expected_count = int(batch_plan["expected_count"])
         total_batches = int(batch_plan["total_batches"])
+        stream_batch_diags: list[str] = []
+        module_batch_plan: list[dict[str, Any]] = []
+        if not append:
+            module_batch_plan = build_functional_module_batch_plan(
+                project_profile,
+                expected_count=int(expected_count or 0),
+            )
+            if module_batch_plan:
+                total_batches = int(len(module_batch_plan))
+                batch_size = max(int(item.get("target_count") or 1) for item in module_batch_plan)
+                _emit_stream_gen_diag(
+                    {
+                        "kind": "functional_module_batch_plan",
+                        "project_id": int(project_id),
+                        "request_id": str(request_id or ""),
+                        "allowed_modules": [
+                            str(item.get("module_name") or "")
+                            for item in module_batch_plan
+                            if str(item.get("phase") or "") == "module_internal"
+                        ],
+                        "phases": [
+                            {
+                                "phase": str(item.get("phase") or ""),
+                                "module_name": str(item.get("module_name") or ""),
+                                "target_count": int(item.get("target_count") or 0),
+                            }
+                            for item in module_batch_plan
+                        ],
+                    }
+                )
+                if stream_batch_diags:
+                    yield stream_batch_diags.pop()
         planned_total_batches = int(total_batches)
         current_id = start_id
 
@@ -311,7 +351,6 @@ class LegacyGenerationStreamBatchesMixin:
         low_gain_streak = 0
         early_stop_triggered = False
         early_stop_reason = ""
-        stream_batch_diags: list[str] = []
         parallel_result_summary: dict[str, Any] = {}
 
         primary_batches_started = time.perf_counter()
@@ -326,6 +365,9 @@ class LegacyGenerationStreamBatchesMixin:
             coverage_rule_count=int(len(coverage_plan_rules)),
             config=parallel_config,
         )
+        if module_batch_plan:
+            parallel_allowed = False
+            parallel_gate_reason = "functional_module_plan_active"
         if bool(parallel_config.enabled):
             _emit_stream_gen_diag(
                 {
@@ -485,6 +527,7 @@ class LegacyGenerationStreamBatchesMixin:
                         parallel_fallback_reason = "shard_failed"
 
                 merge_result: dict[str, Any] = {}
+                parallel_incomplete_rows: list[dict[str, Any]] = []
                 if not parallel_fallback_reason:
                     merge_result = merge_parallel_shard_cases(
                         shard_results,
@@ -492,12 +535,21 @@ class LegacyGenerationStreamBatchesMixin:
                         start_id=int(start_id or 1),
                         expected_count=int(expected_count or 0),
                     )
+                    complete_cases, parallel_incomplete_rows = select_complete_generated_cases(
+                        [case for case in (merge_result.get("cases") or []) if isinstance(case, dict)],
+                        limit=int(expected_count or 0),
+                        start_id=int(start_id or 1),
+                        is_placeholder_expected_result_fn=is_placeholder_expected_result,
+                    )
+                    merge_result["cases"] = complete_cases
                     unique_case_count = int(merge_result.get("unique_case_count") or 0)
                     input_case_count = int(merge_result.get("input_case_count") or 0)
                     duplicate_rate = float(merge_result.get("duplicate_rate") or 0.0)
                     unique_ratio = float(unique_case_count) / float(expected_count or 1)
                     if input_case_count <= 0:
                         parallel_fallback_reason = "empty_parallel_result"
+                    elif parallel_incomplete_rows:
+                        parallel_fallback_reason = "incomplete_case_schema"
                     elif duplicate_rate > float(parallel_config.duplicate_rate_abort):
                         parallel_fallback_reason = "duplicate_rate_above_threshold"
                     elif unique_ratio < float(parallel_config.min_unique_ratio):
@@ -516,6 +568,8 @@ class LegacyGenerationStreamBatchesMixin:
                     "duplicate_rate": float(merge_result.get("duplicate_rate") or 0.0),
                     "min_unique_ratio": float(parallel_config.min_unique_ratio),
                     "duplicate_rate_abort": float(parallel_config.duplicate_rate_abort),
+                    "incomplete_case_count": int(len(parallel_incomplete_rows)),
+                    "incomplete_case_samples": parallel_incomplete_rows[:10],
                     "per_shard_counts": list(merge_result.get("per_shard_counts") or [])[:10],
                     "shard_results": [
                         {
@@ -594,13 +648,17 @@ class LegacyGenerationStreamBatchesMixin:
 
         for batch_index in range(total_batches):
             remaining = expected_count - (current_id - start_id)
-            current_batch_count = min(batch_size, remaining)
+            current_phase = module_batch_plan[batch_index] if batch_index < len(module_batch_plan) else {}
+            planned_phase_count = int(current_phase.get("target_count") or batch_size)
+            current_batch_count = min(planned_phase_count, remaining)
             if current_batch_count <= 0:
                 break
 
             generated_in_batch = 0
             attempt = 0
             parsed_batch_cases: list[dict[str, Any]] = []
+            incomplete_case_count = 0
+            functional_phase_mismatch_count = 0
 
             while generated_in_batch < current_batch_count and attempt < 3:
                 need = current_batch_count - generated_in_batch
@@ -615,6 +673,7 @@ class LegacyGenerationStreamBatchesMixin:
 
                 prompt_context = build_structured_prompt_context(
                     requirement=requirement or "",
+                    architecture_requirement=architecture_requirement,
                     kb_context=kb_context or "",
                     rag_result=(context_result or {}).get("rag_result") if isinstance(context_result, dict) else None,
                     existing_cases=[c for c in existing_cases if isinstance(c, dict)] if isinstance(existing_cases, list) else [],
@@ -666,6 +725,10 @@ class LegacyGenerationStreamBatchesMixin:
                     current_id=current_id,
                     generated_in_batch=generated_in_batch,
                     need=need,
+                    module_instruction=build_functional_module_instruction(
+                        project_profile=project_profile,
+                        phase=current_phase,
+                    ),
                 )
 
                 if not final_trace_emitted:
@@ -779,34 +842,68 @@ class LegacyGenerationStreamBatchesMixin:
                     parsed_batch = clean_and_parse_json(attempt_content)
                     parsed_batch = normalize_json_structure(parsed_batch)
                     if isinstance(parsed_batch, list):
-                        parsed_batch_cases = [case for case in parsed_batch if isinstance(case, dict)]
-                        attempt_timing_event["parsed_case_count"] = int(len(parsed_batch_cases))
-                        attempt_timing_event["attempt_status"] = "parsed"
-                        if len(parsed_batch_cases) > int(need):
-                            overflow_count = int(len(parsed_batch_cases) - int(need))
-                            parsed_batch_cases = parsed_batch_cases[: int(need)]
+                        raw_attempt_cases = [case for case in parsed_batch if isinstance(case, dict)]
+                        attempt_cases = apply_functional_module_phase(raw_attempt_cases, current_phase)
+                        phase_mismatch_count = int(len(raw_attempt_cases) - len(attempt_cases))
+                        accepted_attempt, incomplete_rows = select_complete_generated_cases(
+                            attempt_cases,
+                            limit=int(need),
+                            start_id=int(current_id + generated_in_batch),
+                            is_placeholder_expected_result_fn=is_placeholder_expected_result,
+                        )
+                        parsed_batch_cases.extend(accepted_attempt)
+                        generated_in_batch += int(len(accepted_attempt))
+                        incomplete_case_count += int(len(incomplete_rows))
+                        functional_phase_mismatch_count += phase_mismatch_count
+                        attempt_timing_event["parsed_case_count"] = int(len(raw_attempt_cases))
+                        attempt_timing_event["functional_phase_matched_case_count"] = int(len(attempt_cases))
+                        attempt_timing_event["accepted_case_count"] = int(len(accepted_attempt))
+                        attempt_timing_event["incomplete_case_count"] = int(len(incomplete_rows))
+                        attempt_timing_event["functional_phase_mismatch_count"] = phase_mismatch_count
+                        attempt_timing_event["attempt_status"] = (
+                            "functional_phase_mismatch_partial" if phase_mismatch_count and accepted_attempt
+                            else "functional_phase_mismatch" if phase_mismatch_count
+                            else "parsed_partial" if incomplete_rows and accepted_attempt
+                            else "schema_incomplete" if incomplete_rows
+                            else "parsed"
+                        )
+                        for case in accepted_attempt:
+                            history_summaries.append(f"{case.get('id', '')}: {case.get('description', '')}")
+                        if incomplete_rows or phase_mismatch_count:
                             _emit_stream_batch_quality_diag(
                                 {
                                     "batch_index": int(batch_index + 1),
-                                    "batch_overflow_trimmed": True,
+                                    "attempt": int(attempt),
                                     "requested_count": int(need),
-                                    "overflow_count": int(overflow_count),
+                                    "accepted_case_count": int(len(accepted_attempt)),
+                                    "incomplete_case_count": int(len(incomplete_rows)),
+                                    "incomplete_case_samples": incomplete_rows[:10],
+                                    "functional_phase_mismatch_count": phase_mismatch_count,
+                                    "source_regeneration_scheduled": bool(
+                                        generated_in_batch < current_batch_count and attempt < 3
+                                    ),
                                 }
                             )
                             if stream_batch_diags:
                                 yield stream_batch_diags.pop()
-                        generated_in_batch = current_batch_count
-                        if parsed_batch_cases:
-                            full_content += json.dumps(parsed_batch_cases, ensure_ascii=False, indent=2)
-                            full_content += "\n"
-                            for case in parsed_batch_cases:
-                                history_summaries.append(f"{case.get('id', '')}: {case.get('description', '')}")
-                        else:
-                            full_content += "[]\n"
+                        if generated_in_batch >= current_batch_count:
+                            break
+                        if phase_mismatch_count and attempt < 3:
+                            yield "@@STATUS@@:检测到用例未命中文档中的跨模块交互证据，正在重新生成当前阶段...\n"
+                            continue
+                        if incomplete_rows and attempt < 3:
+                            yield "@@STATUS@@:检测到模型缺失必填字段，正在基于当前需求补充生成...\n"
+                            continue
                         break
                 except Exception:
                     attempt_timing_event["attempt_status"] = "parse_failed"
                     pass
+
+            if parsed_batch_cases:
+                full_content += json.dumps(parsed_batch_cases, ensure_ascii=False, indent=2)
+                full_content += "\n"
+            else:
+                full_content += "[]\n"
 
             if parsed_batch_cases:
                 batch_metric, low_gain_streak = build_stream_batch_quality_metric(
@@ -817,6 +914,8 @@ class LegacyGenerationStreamBatchesMixin:
                     is_non_assertable_expected_result_fn=_is_non_assertable_expected_result,
                     previous_low_gain_streak=int(low_gain_streak),
                 )
+                batch_metric["source_incomplete_case_count"] = int(incomplete_case_count)
+                batch_metric["source_functional_phase_mismatch_count"] = int(functional_phase_mismatch_count)
                 batch_quality_metrics.append(batch_metric)
                 _emit_stream_batch_quality_diag(batch_quality_metrics[-1])
                 if stream_batch_diags:
@@ -839,7 +938,7 @@ class LegacyGenerationStreamBatchesMixin:
             else:
                 low_gain_streak = 0
 
-            current_id += current_batch_count
+            current_id += int(len(parsed_batch_cases))
             completed_batches += 1
             if early_stop_triggered:
                 break

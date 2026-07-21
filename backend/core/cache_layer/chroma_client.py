@@ -49,7 +49,7 @@ def _env_int(name: str, default: int, *, minimum: int | None = None, maximum: in
     return value
 
 
-BACKEND_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CHROMA_PATH = BACKEND_ROOT / "chroma_db"
 DEFAULT_EMBED_BATCH_SIZE = _env_int("DASHSCOPE_EMBED_BATCH_SIZE", 25, minimum=1)
 DEFAULT_EMBED_MAX_CHARS = _env_int("DASHSCOPE_EMBED_MAX_CHARS", 2000, minimum=128, maximum=2048)

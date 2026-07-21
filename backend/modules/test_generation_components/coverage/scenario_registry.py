@@ -86,8 +86,6 @@ def _build_domain_policies(payload: dict[str, object]) -> tuple[DomainPolicy, ..
                 documents=_string_tuple(raw.get("documents", []), field_name=f"domains.{key}.documents"),
             )
         )
-    if not policies:
-        raise ValueError("scenario registry must contain at least one domain policy")
     return tuple(policies)
 
 

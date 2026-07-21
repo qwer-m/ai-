@@ -85,142 +85,19 @@ _VALID_SAMPLE_SOURCES = frozenset(
         "manual_pool_input",
     }
 )
-_SOURCE_LEGACY_MAP: dict[str, str] = {
-    "quality_evaluation_defect_analysis": "quality_evaluation_defect",
-    "ai_only_quality_failure": "quality_evaluation_defect",
-    "linked_final_test_case": "linked_final_case_pattern",
-    "defect_analysis": "quality_evaluation_defect",
-}
-_UI_LOW_VALUE_PATTERN_TOKENS = (
-    "ui-only",
-    "static ui",
-    "static display",
-    "copy check",
-    "copy-only",
-    "style check",
-    "layout check",
-    "layout-only",
-    "visual only",
-    "field display",
-    "list sorting",
-    "placeholder",
-    "ui ",
-    "display",
-    "analytics",
-    "tracking",
-    "event tracking",
-    "buried point",
-    "pv",
-    "uv",
-    "埋点",
-    "上报",
-    "曝光",
-    "点击埋点",
-    "展示埋点",
-    "文案",
-    "样式",
-    "布局",
-    "展示",
-    "列表排序",
-    "字段展示",
+_CORE_RULE_CATEGORIES = frozenset(
+    {
+        "core_flow",
+        "core_flow_closure",
+        "critical_path_coverage",
+        "high_value_assertion",
+        "main_smoke_flow",
+        "state_transition",
+    }
 )
-
-_ASSERTABLE_PATTERN_TOKENS = (
-    "assert",
-    "assertion",
-    "concrete assertion",
-    "expected_result_quality",
-    "contains_concrete_assertion",
-    "0分",
-    "0 分",
-    "50%",
-    "12.5",
-    "10/20",
-    "不可用",
-    "保留",
-    "不重复",
-    "不丢失",
-    "状态为",
-    "显示为",
-    "跳转至",
-)
-_CORE_RULE_PATTERN_TOKENS = (
-    "core rule",
-    "core_flow",
-    "main flow",
-    "p0",
-    "核心规则",
-    "核心流程",
-    "主流程",
-    "阻断",
-    "权限",
-    "鉴权",
-    "评分规则",
-)
-_EXCEPTION_RECOVERY_PATTERN_TOKENS = (
-    "exception",
-    "error",
-    "fail",
-    "failure",
-    "timeout",
-    "retry",
-    "recover",
-    "resume",
-    "异常",
-    "失败",
-    "超时",
-    "重试",
-    "恢复",
-    "保留输入",
-    "网络中断",
-)
-_BOUNDARY_PATTERN_TOKENS = (
-    "boundary",
-    "limit",
-    "edge",
-    "max",
-    "min",
-    "49",
-    "50",
-    "3.9",
-    "7.5",
-    "边界",
-    "上限",
-    "下限",
-    "恰好",
-    "少于",
-    "大于",
-    "最多",
-    "最少",
-)
-_CORE_REQUIREMENT_DOMAIN_TOKENS = (
-    "讲错题",
-    "错题",
-    "ai讲错题",
-    "ai 讲错题",
-    "评分",
-    "追问",
-    "录音",
-    "语音",
-    "麦克风",
-)
-_WEAK_RELATED_DOMAIN_TOKENS = (
-    "排课",
-    "新增计划",
-    "已有计划",
-    "学习计划",
-    "课堂管理",
-    "防抄答案",
-    "历史课程",
-    "本周任务",
-    "本周进度",
-    "排行榜",
-    "埋点",
-    "上报",
-    "曝光",
-    "纯 ui",
-    "ui-only",
-)
+_EXCEPTION_CATEGORIES = frozenset({"exception_path", "exception_recovery"})
+_BOUNDARY_CATEGORIES = frozenset({"boundary_condition", "boundary_effective_coverage"})
+_DISPLAY_CATEGORIES = frozenset({"display", "display_issue", "display_only", "layout_only", "ui_low_value"})
 
 logger = logging.getLogger(__name__)
 
@@ -271,105 +148,67 @@ def _normalize_sample_source(raw: Any) -> str:
         return "priority_debug_manual_add"
     if text in _VALID_SAMPLE_SOURCES:
         return text
-    if text in _SOURCE_LEGACY_MAP:
-        return _SOURCE_LEGACY_MAP[text]
     return "manual_pool_input"
 
 
-def _is_ui_low_value_pattern(*parts: Any) -> bool:
-    merged = " ".join(str(part or "") for part in parts).strip().lower()
-    if not merged:
-        return False
-    return any(token in merged for token in _UI_LOW_VALUE_PATTERN_TOKENS)
-
-
-def _has_any_token(text: str, tokens: tuple[str, ...]) -> bool:
-    lowered = str(text or "").lower()
-    return any(token and token.lower() in lowered for token in tokens)
-
-
 def _sample_signal_profile(sample: dict[str, Any], summary: str = "") -> dict[str, bool]:
-    search_text = _sample_search_text(sample, summary)
+    # 中文注释：样本质量只消费上游结构化契约，不再从正文猜测产品领域或固定数值边界。
+    del summary
     reason = _sanitize_text(_sample_value(sample, "reason_category", "reasonCategory"), max_len=64).lower()
     category = _normalize_pattern_category(_sample_value(sample, "pattern_category", "patternCategory"))
     priority = _sanitize_text(_sample_value(sample, "expected_priority", "expectedPriority"), max_len=8).upper()
-    return {
-        "assertable": _has_any_token(search_text, _ASSERTABLE_PATTERN_TOKENS),
-        "core_rule": bool(
-            priority == "P0"
-            or reason in {"core_flow", "state_transition"}
-            or category in {"core_flow_closure", "critical_path_coverage", "high_value_assertion"}
-            or _has_any_token(search_text, _CORE_RULE_PATTERN_TOKENS)
-        ),
-        "exception_recovery": bool(
-            reason in {"exception_path", "state_transition"}
-            or _has_any_token(search_text, _EXCEPTION_RECOVERY_PATTERN_TOKENS)
-        ),
-        "boundary": bool(
-            reason == "boundary_condition"
-            or category == "boundary_effective_coverage"
-            or _has_any_token(search_text, _BOUNDARY_PATTERN_TOKENS)
-        ),
-        "core_requirement_domain": _has_any_token(search_text, _CORE_REQUIREMENT_DOMAIN_TOKENS),
-        "weak_related_domain": _has_any_token(search_text, _WEAK_RELATED_DOMAIN_TOKENS),
-        "ui_low_value": _is_ui_low_value_pattern(search_text),
-    }
-
-
-def _sample_intent_bucket(sample: dict[str, Any]) -> str:
-    text = _sample_search_text(sample, str(sample.get("pattern_summary") or ""))
-    if _has_any_token(text, ("麦克风", "microphone", "录音", "语音")) and _has_any_token(text, ("权限", "拒绝", "permission", "deny")):
-        return "microphone_permission"
-    if _has_any_token(text, ("网络", "中断", "恢复", "retry", "recover", "resume")):
-        return "network_recovery"
-    if _has_any_token(text, ("超时", "504", "timeout")):
-        return "timeout_retry"
-    if _has_any_token(text, ("500", "上传失败", "服务器错误")):
-        return "upload_server_error"
-    if _has_any_token(text, ("49", "50", "50%", "字数", "少于50", "恰好50")):
-        return "answer_length_boundary"
-    if _has_any_token(text, ("3.9", "7.5", "8.9", "鼓励语", "分段")):
-        return "score_band_boundary"
-    if _has_any_token(text, ("答非所问", "准确性", "完整性", "清晰度")):
-        return "scoring_dimensions"
-    if _has_any_token(text, ("追问", "轮次", "不重复")):
-        return "followup_turn_flow"
-    if _has_any_token(text, ("排课", "计划", "课程规划")):
-        return "schedule_plan"
-    if _has_any_token(text, ("埋点", "上报", "曝光", "tracking", "analytics")):
-        return "analytics_tracking"
-    if _has_any_token(text, ("展示", "按钮", "文案", "布局", "display", "ui")):
-        return "generic_display"
-    return ""
-
-
-def _sample_search_text(sample: dict[str, Any], summary: str = "") -> str:
-    return " ".join(
-        str(part or "")
-        for part in [
-            summary,
-            _sample_value(sample, "pattern_summary", "patternSummary"),
-            _sample_value(sample, "pattern_canonical", "patternCanonical"),
-            _sample_value(sample, "pattern_category", "patternCategory"),
-            _sample_value(sample, "reason_category", "reasonCategory"),
-            _sample_value(sample, "expected_priority", "expectedPriority"),
-            _sample_value(sample, "expected_result_quality", "expectedResultQuality"),
-            _sample_value(sample, "expected_result_quality_reason", "expectedResultQualityReason"),
-            _sample_value(sample, "title"),
-            _sample_case_text(sample, "description", "source_case_title", "sourceCaseTitle"),
-            _sample_case_text(sample, "test_module", "source_case_module", "sourceCaseModule"),
-            _sample_case_text(sample, "steps", "source_case_steps", "sourceCaseSteps"),
-            _sample_value(sample, "business_assertion", "businessAssertion"),
-            _sample_case_text(
-                sample,
-                "expected_result",
-                "source_case_expected_result",
-                "sourceCaseExpectedResult",
-            ),
-            _sample_value(sample, "user_comment", "userComment"),
-        ]
-        if str(part or "").strip()
+    execution_group = _sanitize_text(
+        _sample_value(sample, "execution_group", "executionGroup"),
+        max_len=40,
     ).lower()
+    pattern_grain = _sanitize_text(
+        _sample_value(sample, "pattern_grain", "patternGrain"),
+        max_len=40,
+    ).lower()
+    expected_quality = _sanitize_text(
+        _sample_value(sample, "expected_result_quality", "expectedResultQuality"),
+        max_len=40,
+    ).lower()
+    assertion = _sanitize_text(
+        _sample_case_text(
+            sample,
+            "expected_result",
+            "source_case_expected_result",
+            "sourceCaseExpectedResult",
+            "business_assertion",
+            "businessAssertion",
+        ),
+        max_len=240,
+    )
+    assertable = bool(expected_quality == "assertable" or (not expected_quality and assertion))
+    core_rule = bool(
+        priority == "P0"
+        or reason in _CORE_RULE_CATEGORIES
+        or category in _CORE_RULE_CATEGORIES
+        or pattern_grain == "workflow_blueprint"
+    )
+    exception_recovery = bool(
+        reason in _EXCEPTION_CATEGORIES
+        or category in _EXCEPTION_CATEGORIES
+        or execution_group == "exception"
+    )
+    boundary = bool(
+        reason in _BOUNDARY_CATEGORIES
+        or category in _BOUNDARY_CATEGORIES
+        or execution_group == "boundary"
+    )
+    ui_low_value = bool(
+        reason in _DISPLAY_CATEGORIES
+        or category in _DISPLAY_CATEGORIES
+        or execution_group == "display"
+    )
+    return {
+        "assertable": assertable,
+        "core_rule": core_rule,
+        "exception_recovery": exception_recovery,
+        "boundary": boundary,
+        "ui_low_value": ui_low_value,
+    }
 
 
 def _canonicalize_pattern_text(raw: Any) -> str:
@@ -391,95 +230,13 @@ def _canonicalize_intent_text(raw: Any) -> str:
         return ""
     text = re.sub(r"(tc|case|rule|req)[\-_ ]?\d+", " ", text, flags=re.IGNORECASE)
     text = re.sub(r"\d+(?:\.\d+)?", " ", text)
-    replacements = {
-        "ai讲错题": "讲错题",
-        "ai 讲错题": "讲错题",
-        "学员端": "学生端",
-        "督导端": "老师端",
-        "教师端": "老师端",
-        "管理员": "后台",
-    }
-    for source, target in replacements.items():
-        text = text.replace(source, target)
-    stop_words = (
-        "验证",
-        "检查",
-        "查看",
-        "观察",
-        "页面",
-        "模块",
-        "功能",
-        "场景",
-        "边界值",
-        "边界",
-        "异常",
-        "逻辑",
-        "显示",
-        "提示",
-        "按钮",
-        "点击",
-        "输入",
-        "提交",
-    )
-    for word in stop_words:
-        text = text.replace(word, " ")
     text = re.sub(r"[`'\"“”‘’\[\]\(\)\{\}<>：:；;，,。.!！?？、/|_\-]+", " ", text)
     tokens = [token for token in re.split(r"\s+", text) if token]
     return " ".join(tokens[:16])[:_MAX_PATTERN_CANONICAL_LEN]
 
 
-_LEGACY_HARDCODED_COMMENT_MARKERS = (
-    "linked human-final case; extra business coverage is positive evidence",
-    "ai-only case is treated as negative only because it has a clear quality failure",
-)
-
-_PATTERN_CATEGORY_LABELS = {
-    "permission_or_scope_guard": "权限/范围防护",
-    "cross_system_business_flow": "跨端业务流程",
-    "transaction_business_risk": "交易业务风险",
-    "state_consistency_flow": "状态一致性",
-    "manual_final_business_coverage": "人工业务覆盖",
-    "core_flow_closure": "核心流程闭环",
-    "cross_page_flow": "跨页面流程",
-    "multi_step_interaction": "多步骤交互",
-    "state_transition_pattern": "状态流转",
-    "critical_path_coverage": "关键路径覆盖",
-    "complex_business_combination": "复杂业务组合",
-    "high_value_assertion": "高价值断言",
-    "boundary_effective_coverage": "边界有效覆盖",
-    "recall_gap_missing_business_coverage": "业务覆盖遗漏",
-    "quality_fix_hint": "质量修正建议",
-    "hallucination_or_redundant_case": "幻觉/冗余用例",
-    "duplicate_redundant": "重复/冗余",
-    "schedule_time": "排课/时间规则",
-}
-
-_REASON_CATEGORY_LABELS = {
-    "core_flow": "核心流程",
-    "exception_path": "异常路径",
-    "boundary_condition": "边界条件",
-    "state_transition": "状态迁移",
-    "redundant_case": "冗余用例",
-    "display_issue": "展示问题",
-    "other": "其他",
-    "non_assertable_expected_result": "预期不可断言",
-    "priority_overpromotion_for_low_value_ui_case": "低价值展示误提级",
-    "hallucination_or_redundant_case": "幻觉/冗余用例",
-    "recall_gap": "召回缺口",
-    "quality_fix_hint": "质量修正建议",
-    "generated_only_defect_misfiled_as_missing": "生成侧缺陷误归为遗漏",
-    "generated_only_defect_misfiled_as_modification": "生成侧缺陷误归为修改建议",
-    "duplicate_redundant": "重复/冗余",
-    "schedule_time": "排课/时间规则",
-}
-
-
 def _clean_sample_user_comment(raw: Any) -> str:
-    comment = _sanitize_text(raw, max_len=240)
-    lowered = comment.lower()
-    if any(marker in lowered for marker in _LEGACY_HARDCODED_COMMENT_MARKERS):
-        return ""
-    return comment
+    return _sanitize_text(raw, max_len=240)
 
 
 def _category_label(sample: dict[str, Any], *, signal_type: str) -> str:
@@ -493,12 +250,12 @@ def _category_label(sample: dict[str, Any], *, signal_type: str) -> str:
         category = _normalize_pattern_category(
             _sample_value(sample, "pattern_category", "patternCategory")
         )
-        return _PATTERN_CATEGORY_LABELS.get(category, category)
+        return category
     reason = _sanitize_text(
         _sample_value(sample, "reason_category", "reasonCategory"),
         max_len=64,
     ).lower()
-    return _REASON_CATEGORY_LABELS.get(reason, reason)
+    return reason
 
 
 def _pattern_quality_score(summary: str, sample: dict[str, Any] | None = None) -> float:
@@ -511,13 +268,6 @@ def _pattern_quality_score(summary: str, sample: dict[str, Any] | None = None) -
         score += 0.2
     elif length > 70:
         score += 0.1
-    # Encourage abstract action/risk words.
-    lowered = text.lower()
-    if any(token in lowered for token in ("状态", "异常", "一致", "同步", "回滚", "失败", "state", "retry", "rollback", "consisten")):
-        score += 0.2
-    # Penalize over-specific UI wording.
-    if any(token in lowered for token in ("按钮", "页面", "文案", "样式", "布局", "button", "page", "ui")):
-        score -= 0.1
     if isinstance(sample, dict):
         profile = _sample_signal_profile(sample, summary)
         if profile["assertable"]:
@@ -528,10 +278,6 @@ def _pattern_quality_score(summary: str, sample: dict[str, Any] | None = None) -
             score += 0.08
         if profile["boundary"]:
             score += 0.08
-        if profile["core_requirement_domain"]:
-            score += 0.08
-        if profile["weak_related_domain"]:
-            score -= 0.12
         if profile["ui_low_value"]:
             score -= 0.08
     return round(max(0.0, min(1.0, score)), 4)
@@ -619,10 +365,6 @@ def _pattern_weight(sample: dict[str, Any], summary: str, quality: float, source
         weight += 0.16
     if profile["boundary"]:
         weight += 0.14
-    if profile["core_requirement_domain"]:
-        weight += 0.18
-    if profile["weak_related_domain"]:
-        weight -= 0.25
     if is_negative_signal and ui_low_value:
         # Keep UI-negative patterns retrievable so they can suppress low-value UI-only cases.
         weight += 0.08
@@ -913,7 +655,6 @@ def _aggregate_by_cluster(
             key=lambda s: (
                 float(s.get("pattern_weight") or 0.0),
                 float(s.get("pattern_quality_score") or 0.0),
-                int(_sample_signal_profile(s, str(s.get("pattern_summary") or "")).get("core_requirement_domain")),
             ),
             reverse=True,
         )
@@ -1207,9 +948,7 @@ def _raw_sample_family_key(sample: dict[str, Any]) -> str:
             if str(part or "").strip()
         )
     )
-    intent_bucket = _sample_intent_bucket(sample)
-    strong_intent_bucket = intent_bucket if intent_bucket not in {"generic_display", "schedule_plan", "analytics_tracking"} else ""
-    family_intent = strong_intent_bucket or intent_key or title_key
+    family_intent = intent_key or title_key
     if not family_intent:
         return ""
     return "|".join(
@@ -1298,8 +1037,6 @@ def _raw_sample_semantic_key(sample: dict[str, Any]) -> str:
             if str(part or "").strip()
         )
     )
-    intent_bucket = _sample_intent_bucket(sample)
-    strong_intent_bucket = intent_bucket if intent_bucket not in {"generic_display", "schedule_plan", "analytics_tracking"} else ""
     if not title_key and not assertion_key:
         fallback = _sanitize_text(sample.get("pattern_canonical"), max_len=_MAX_PATTERN_CANONICAL_LEN)
         if not fallback:
@@ -1313,8 +1050,8 @@ def _raw_sample_semantic_key(sample: dict[str, Any]) -> str:
             signal_type,
             category,
             module_key,
-            strong_intent_bucket or intent_key or title_key,
-            "" if strong_intent_bucket else assertion_key[:96],
+            intent_key or title_key,
+            assertion_key[:96],
         ]
         if part
     )
@@ -1373,8 +1110,6 @@ def _choose_raw_sample_winner(left: dict[str, Any], right: dict[str, Any]) -> di
             + int(profile["core_rule"]) * 3
             + int(profile["exception_recovery"]) * 2
             + int(profile["boundary"]) * 2
-            + int(profile["core_requirement_domain"]) * 2
-            - int(profile["weak_related_domain"]) * 2
             - int(profile["ui_low_value"])
         )
         priority = _sanitize_text(_sample_value(sample, "expected_priority", "expectedPriority"), max_len=8).upper()

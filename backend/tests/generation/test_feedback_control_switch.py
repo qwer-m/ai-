@@ -63,7 +63,7 @@ def test_priority_pool_case_identity_uses_case_id_aliases_without_plain_id() -> 
     assert control_builder._priority_pool_sample_identity({"id": "row-1", "sourceCaseId": "SRC-1"}) == "SRC-1"
 
 
-def test_workflow_blueprint_sample_builds_steps_from_shared_step_aliases() -> None:
+def test_workflow_blueprint_sample_rejects_unstructured_step_aliases() -> None:
     blueprint = control_builder._workflow_blueprint_from_sample(
         {
             "pattern_grain": "workflow_blueprint",
@@ -74,9 +74,7 @@ def test_workflow_blueprint_sample_builds_steps_from_shared_step_aliases() -> No
         }
     )
 
-    assert blueprint is not None
-    assert blueprint["id"] == "TC-ALIAS"
-    assert [step["label"] for step in blueprint["steps"]] == ["Open plan page", "Save plan"]
+    assert blueprint is None
 
 
 def test_priority_pool_feedback_disabled_skips_priority_source(monkeypatch) -> None:
@@ -156,7 +154,7 @@ def test_redundant_case_maps_to_soft_constraints_not_forbidden(monkeypatch) -> N
     assert "sync entry display duplicate" in state.soft_constraints
 
 
-def test_redundant_case_maps_registered_family_to_scenario_cap(monkeypatch) -> None:
+def test_redundant_case_without_registered_family_keeps_only_soft_constraint(monkeypatch) -> None:
     def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
         return {
             "generation_id": 43,
@@ -181,9 +179,8 @@ def test_redundant_case_maps_registered_family_to_scenario_cap(monkeypatch) -> N
     )
 
     assert state.forbidden_patterns == []
-    assert state.source_meta["priority_pool_redundant_scenario_caps"] == {
-        "ai_answer_irrelevant_score_zero": 1
-    }
+    assert state.soft_constraints
+    assert state.source_meta["priority_pool_redundant_scenario_caps"] == {}
 
 
 def test_positive_pattern_maps_to_preferred_patterns(monkeypatch) -> None:
@@ -216,7 +213,7 @@ def test_positive_pattern_maps_to_preferred_patterns(monkeypatch) -> None:
     assert state.source_meta.get("negative_selected_count") == 0
 
 
-def test_positive_case_maps_registered_family_to_must_have_scenario(monkeypatch) -> None:
+def test_positive_case_without_registered_family_uses_generic_reason_scenario(monkeypatch) -> None:
     def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
         return {
             "generation_id": 44,
@@ -241,10 +238,8 @@ def test_positive_case_maps_registered_family_to_must_have_scenario(monkeypatch)
         user_id=1,
     )
 
-    assert "ai_answer_irrelevant_score_zero" in state.must_have_scenarios
-    assert state.source_meta["priority_pool_positive_scenario_families"] == {
-        "ai_answer_irrelevant_score_zero": 1
-    }
+    assert "核心流程稳定性场景" in state.must_have_scenarios
+    assert state.source_meta["priority_pool_positive_scenario_families"] == {}
 
 
 def test_sample_kind_positive_maps_to_preferred_patterns(monkeypatch) -> None:
@@ -474,7 +469,7 @@ def test_priority_pool_retrieval_uses_sample_id_when_index_order_is_stale(monkey
     assert state.source_meta.get("retrieval_sample_id_hit_count") == 1
 
 
-def test_priority_pool_directly_includes_workflow_blueprints_outside_pattern_topk(monkeypatch) -> None:
+def test_priority_pool_query_does_not_append_unretrieved_workflow_blueprints(monkeypatch) -> None:
     def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
         return {
             "generation_id": 90,
@@ -529,13 +524,12 @@ def test_priority_pool_directly_includes_workflow_blueprints_outside_pattern_top
         requirement_text="display card checks",
     )
 
-    assert len(state.workflow_blueprints) == 1
-    assert state.workflow_blueprints[0]["id"] == "wf-save-verify"
-    assert state.source_meta.get("workflow_blueprint_direct_selected_count") == 1
-    assert state.source_meta.get("workflow_blueprint_count") == 1
+    assert state.workflow_blueprints == []
+    assert state.source_meta.get("workflow_blueprint_direct_selected_count") == 0
+    assert state.source_meta.get("workflow_blueprint_count") == 0
 
 
-def test_priority_pool_requirement_domain_filter_blocks_unrelated_pool_samples(monkeypatch) -> None:
+def test_priority_pool_query_uses_retrieval_result_without_domain_name_filter(monkeypatch) -> None:
     def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
         return {
             "generation_id": 470,
@@ -572,13 +566,13 @@ def test_priority_pool_requirement_domain_filter_blocks_unrelated_pool_samples(m
         requirement_text="讲错题接入AI：覆盖追问、评分和对话恢复",
     )
 
-    assert state.source_meta.get("retrieval_domain_filter_applied") is True
-    assert state.source_meta.get("retrieval_domain_matched_sample_count") == 1
-    assert "RULE-AI" in state.must_cover_rules
-    assert "RULE-SCHEDULE" not in state.must_cover_rules
+    assert state.source_meta.get("retrieval_domain_filter_applied") is False
+    assert state.source_meta.get("retrieval_hit_count") == 1
+    assert "RULE-SCHEDULE" in state.must_cover_rules
+    assert "RULE-AI" not in state.must_cover_rules
 
 
-def test_priority_pool_requirement_domain_no_match_disables_pool_signal(monkeypatch) -> None:
+def test_priority_pool_query_without_retrieval_hit_returns_no_samples(monkeypatch) -> None:
     monkeypatch.setattr(control_builder, "retrieve_priority_sample_patterns", lambda **_: [])
     selected, meta = control_builder._select_priority_pool_samples_by_requirement(
         samples=[
@@ -597,12 +591,17 @@ def test_priority_pool_requirement_domain_no_match_disables_pool_signal(monkeypa
     )
 
     assert selected == []
-    assert meta.get("retrieval_fallback") == "domain_no_match"
-    assert meta.get("retrieval_domain_no_match") is True
+    assert meta.get("retrieval_fallback") == "retrieval_no_match"
+    assert meta.get("retrieval_hit_count") == 0
+    assert meta.get("retrieval_domain_filter_applied") is False
 
 
-def test_priority_pool_requirement_domain_filter_keeps_matching_schedule_samples(monkeypatch) -> None:
-    monkeypatch.setattr(control_builder, "retrieve_priority_sample_patterns", lambda **_: [])
+def test_priority_pool_query_keeps_matching_retrieval_result(monkeypatch) -> None:
+    monkeypatch.setattr(
+        control_builder,
+        "retrieve_priority_sample_patterns",
+        lambda **_: [{"sample_index": 0}],
+    )
     selected, meta = control_builder._select_priority_pool_samples_by_requirement(
         samples=[
             {
@@ -620,11 +619,11 @@ def test_priority_pool_requirement_domain_filter_keeps_matching_schedule_samples
     )
 
     assert len(selected) == 1
-    assert meta.get("retrieval_domain_filter_applied") is True
-    assert meta.get("retrieval_domain_matched_sample_count") == 1
+    assert meta.get("retrieval_hit_count") == 1
+    assert meta.get("retrieval_domain_filter_applied") is False
 
 
-def test_priority_pool_ambiguous_registered_domain_blocks_historical_profile(monkeypatch) -> None:
+def test_priority_pool_query_without_hit_does_not_reinject_manual_profile(monkeypatch) -> None:
     def fake_load_priority_sample_pool(**_: object) -> dict[str, object]:
         return {
             "generation_id": 496,
@@ -638,6 +637,7 @@ def test_priority_pool_ambiguous_registered_domain_blocks_historical_profile(mon
                     "pattern_usage": "prefer",
                     "pattern_summary": "course member permission unlock",
                     "user_comment": "keep this profile",
+                    "manual_confirmed": True,
                 },
                 {
                     "case_id": "TC-WF",
@@ -649,6 +649,7 @@ def test_priority_pool_ambiguous_registered_domain_blocks_historical_profile(mon
                     "pattern_usage": "prefer",
                     "pattern_grain": "workflow_blueprint",
                     "pattern_summary": "workflow blueprint main smoke flow course member access",
+                    "manual_confirmed": True,
                     "workflow_blueprint": {
                         "id": "course-access",
                         "steps": [
@@ -664,7 +665,7 @@ def test_priority_pool_ambiguous_registered_domain_blocks_historical_profile(mon
     monkeypatch.setattr(
         control_builder,
         "retrieve_priority_sample_patterns",
-        lambda **_: [{"sample_index": 0, "sample_id": ""}],
+        lambda **_: [],
     )
 
     state = control_builder._build_from_priority_sample_pool(
@@ -677,9 +678,9 @@ def test_priority_pool_ambiguous_registered_domain_blocks_historical_profile(mon
     assert state.must_cover_rules == []
     assert state.quality_fix_hints == []
     assert state.workflow_blueprints == []
-    assert state.source_meta.get("retrieval_fallback") == "domain_unstable"
-    assert state.source_meta.get("retrieval_domain_gate_blocked") is True
-    assert state.source_meta.get("retrieval_domain_gate_status") == "ambiguous_registered_domain"
+    assert state.source_meta.get("retrieval_fallback") == "retrieval_no_match"
+    assert state.source_meta.get("retrieval_hit_count") == 0
+    assert state.source_meta.get("retrieval_domain_gate_blocked") is False
     assert "manual_quality_profile" not in state.source_meta
 
 
@@ -880,7 +881,7 @@ def test_priority_sample_weight_prefers_assertable_learning_exception_over_displ
     assert float(learning.get("pattern_quality_score") or 0.0) > float(display.get("pattern_quality_score") or 0.0)
 
 
-def test_normalize_raw_priority_samples_merges_same_intent_and_keeps_best_case() -> None:
+def test_normalize_raw_priority_samples_does_not_merge_by_textual_intent() -> None:
     samples = normalize_raw_priority_samples(
         [
             {
@@ -909,9 +910,9 @@ def test_normalize_raw_priority_samples_merges_same_intent_and_keeps_best_case()
         ]
     )
 
-    assert len(samples) == 1
-    assert samples[0].get("sample_id") == "high"
-    assert samples[0].get("expected_priority") == "P0"
+    assert len(samples) == 2
+    assert {item.get("sample_id") for item in samples} == {"low", "high"}
+    assert {item.get("expected_priority") for item in samples} == {"P0", "P2"}
 
 
 def test_priority_pool_selection_skips_disabled_patterns(monkeypatch) -> None:
@@ -1071,7 +1072,7 @@ def test_priority_pool_source_meta_tracks_pattern_scope_and_grain(monkeypatch) -
     assert "state consistency pattern" in state.preferred_patterns
 
 
-def test_priority_pool_manual_profile_uses_full_verified_pool_not_selected_topk(monkeypatch) -> None:
+def test_priority_pool_query_builds_manual_profile_from_retrieved_samples(monkeypatch) -> None:
     samples = [
         {
             "case_id": f"TC-{index}",
@@ -1127,10 +1128,10 @@ def test_priority_pool_manual_profile_uses_full_verified_pool_not_selected_topk(
     profile = state.source_meta.get("manual_quality_profile")
     assert isinstance(profile, dict)
     assert state.source_meta.get("priority_pool_selected_sample_count") == 2
-    assert profile["trusted_sample_count"] == 4
-    assert profile["priority_distribution"] == {"P0": 2, "P1": 2}
+    assert profile["trusted_sample_count"] == 2
+    assert profile["priority_distribution"] == {"P0": 2}
     assert profile["high_priority_ratio"] == 1.0
-    assert "未确认展示模块" not in profile["module_distribution_top"]
+    assert len(profile["module_distribution_top"]) == 2
 
 
 def test_priority_pool_selection_enforces_positive_min_quota_when_available(monkeypatch) -> None:

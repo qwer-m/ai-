@@ -9,7 +9,7 @@ from .postprocess_priority_config import (
     quality_check_fields,
     reasoning_leakage_signals,
 )
-from .priority_anchor_rules import apply_priority_override, p0_cross_domain_essay_case, p0_main_path_anchor
+from .priority_anchor_rules import apply_priority_override, p0_main_path_anchor
 from .case_access import case_flat_text, case_priority, case_text_field, case_text_parts
 from .result_postprocess_priority_semantics import (
     apply_priority_semantics_to_case,
@@ -65,11 +65,8 @@ def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") 
     cases = [dict(item) for item in result if isinstance(item, dict)]
     if not cases:
         return []
-    def _is_cross_domain_essay_case(case: dict[str, Any]) -> bool:
-        return p0_cross_domain_essay_case(case, requirement_text=str(requirement_text or ""))
-
     def _public_p0_main_path_anchor(case: dict[str, Any]) -> bool:
-        return p0_main_path_anchor(case, requirement_text=str(requirement_text or ""))
+        return p0_main_path_anchor(case)
 
     forced_priority_by_signature: dict[str, str] = {}
     for item in cases:
@@ -77,8 +74,6 @@ def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") 
         final_priority = case_priority(item, prefer_final=True)
         is_execution_main_smoke = str(item.get("execution_group") or "").strip() == "main_smoke"
         if is_execution_main_smoke and final_priority in {"P0", "P1", "P2"}:
-            if final_priority == "P0" and _is_cross_domain_essay_case(item):
-                continue
             signature = _public_priority_signature(item)
             if signature:
                 forced_priority_by_signature[signature] = final_priority
@@ -89,8 +84,6 @@ def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") 
             "execution_plan_final_priority",
             "execution_plan_main_support_step_demoted",
         } and final_priority in {"P0", "P1", "P2"}:
-            if final_priority == "P0" and _is_cross_domain_essay_case(item):
-                continue
             signature = _public_priority_signature(item)
             if signature:
                 forced_priority_by_signature[signature] = final_priority
@@ -114,17 +107,7 @@ def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") 
         updated = dict(item)
         signature = _public_priority_signature(updated)
         forced_priority = forced_priority_by_signature.get(signature) if forced_priority_by_signature else None
-        if _is_cross_domain_essay_case(updated) and case_priority(updated) == "P0":
-            apply_priority_override(
-                updated,
-                priority="P1",
-                source="domain_mismatch_p0_demoted",
-            )
-            restored.append(updated)
-            continue
         if forced_priority in {"P0", "P1", "P2"}:
-            if forced_priority == "P0" and _is_cross_domain_essay_case(updated):
-                forced_priority = "P1"
             apply_priority_override(
                 updated,
                 priority=forced_priority,
@@ -135,24 +118,6 @@ def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") 
                 ),
             )
         restored.append(updated)
-    if len(restored) >= 80:
-        target_p0_count = min(12, max(8, int((len(restored) + 9) // 10)))
-        current_p0 = sum(1 for item in restored if case_priority(item) == "P0")
-        if current_p0 < target_p0_count:
-            promoted = 0
-            for item in restored:
-                if current_p0 + promoted >= target_p0_count:
-                    break
-                if case_priority(item) == "P0":
-                    continue
-                if not _public_p0_main_path_anchor(item):
-                    continue
-                apply_priority_override(
-                    item,
-                    priority="P0",
-                    source="public_main_path_anchor_floor",
-                )
-                promoted += 1
     return restored
 
 

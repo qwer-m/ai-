@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import re
 import sys
 import time
@@ -20,7 +21,7 @@ from modules.testing.test_generation import test_generator
 
 PROJECT_ID = 2
 USER_ID = 1
-EXPECTED_COUNT = 80
+EXPECTED_COUNT = int(os.getenv("CODEX_REAL_EXPECTED_COUNT", "80"))
 
 
 def _now() -> str:

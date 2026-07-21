@@ -39,11 +39,6 @@ from .streaming_execution_plan_derived_workflow import (
 from .streaming_postprocess_utils import _clip_text
 
 from .streaming_execution_plan_grouping import (
-    CORE_RESULT_COMPLETE_OUTPUT_TOKENS,
-    CORE_RESULT_DETAIL_ONLY_TOKENS,
-    CORE_RESULT_OUTPUT_ANCHOR_TOKENS,
-    LOW_VALUE_MAIN_CHAIN_P0_TOKENS,
-    MAIN_CHAIN_CLOSURE_TOKENS,
     default_group_setup_map,
     default_group_teardown_map,
     empty_execution_plan_summary,
@@ -54,7 +49,6 @@ from .streaming_execution_plan_grouping import (
     infer_role,
     is_core_result_output_anchor,
     is_low_value_main_chain_p0,
-    is_student_observation_projection,
     main_chain_state_overrides_for_current_generation,
     priority_rank,
     session_key_for_role,
@@ -342,6 +336,24 @@ def main_chain_goal_action_text(item: dict[str, Any]) -> str:
     )
 
 
+def is_pure_ui_goal_text(text: str) -> bool:
+    """识别仅验证文案或视觉样式、没有业务状态变化的用例目标。"""
+    pure_ui_tokens = (
+        "文案", "样式", "颜色", "字号", "字体", "间距", "边距", "布局", "对齐", "美术风格",
+        "copy", "visual style", "color", "font", "spacing", "margin", "layout", "alignment",
+    )
+    business_action_tokens = (
+        "新增", "创建", "选择", "设置", "编辑", "填写", "上传", "保存", "提交", "发布", "确认",
+        "跳转", "进入", "点击", "删除", "回复", "点赞", "审核", "同步", "通知",
+        "create", "select", "set", "edit", "fill", "upload", "save", "submit", "publish", "confirm",
+        "navigate", "enter", "click", "delete", "reply", "like", "audit", "sync", "notify",
+    )
+    return bool(
+        contains_any_token(text, pure_ui_tokens)
+        and not contains_any_token(text, business_action_tokens)
+    )
+
+
 def workflow_transition_for_case(
     item: dict[str, Any],
     *,
@@ -475,6 +487,8 @@ def main_chain_exclusion_reason(
         return not bool(action_support_conflict_fn(semantic_probe))
 
     goal_text = main_chain_goal_text(item)
+    if goal_text and is_pure_ui_goal_text(goal_text):
+        return "display_only"
     goal_downstream_tokens = {
         token
         for token in downstream_visibility_tokens
@@ -581,7 +595,6 @@ def is_display_only_workflow_text(
         "click",
         "open",
         "view",
-        "learn",
         "navigate",
         "enter",
     )

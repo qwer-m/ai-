@@ -4,7 +4,6 @@ from collections.abc import Callable
 from typing import Any
 
 from .streaming_case_normalization import normalize_priority_value
-from .streaming_p0_groups import P0_GROUP_TOKENS
 
 
 _REVIEW_PRIORITY_DEMOTION_SOURCES = frozenset(
@@ -52,25 +51,7 @@ def preserve_review_priority_demotions(
 
 
 def rebuild_priority_by_semantics(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    p0_extra_tokens = (
-        "主流程",
-        "闭环",
-        "未付费",
-        "付费提示",
-        "直接url",
-        "直接url访问",
-        "ai判分",
-        "ocr",
-        "错题归集",
-        "错题本",
-        "教学周",
-        "周日24:00",
-        "周日24",
-        "补做期",
-        "历史周",
-        "提交全部",
-        "查看学习报告",
-    )
+    """归一模型优先级，并为明确的跨页面交互提供通用 P1 下限。"""
     p1_tokens = (
         "交互",
         "页面跳转",
@@ -79,15 +60,6 @@ def rebuild_priority_by_semantics(cases: list[dict[str, Any]]) -> list[dict[str,
         "sync",
         "navigate",
         "redirect",
-    )
-    p2_tokens = (
-        "ui",
-        "文案",
-        "样式",
-        "展示",
-        "icon",
-        "layout",
-        "copywriting",
     )
     output: list[dict[str, Any]] = []
     for case in cases:
@@ -106,14 +78,8 @@ def rebuild_priority_by_semantics(cases: list[dict[str, Any]]) -> list[dict[str,
             ]
         ).lower()
         priority = normalize_priority_value(str(updated.get("priority") or "P2"))
-        if any(token in text for tokens in P0_GROUP_TOKENS.values() for token in tokens) or any(
-            token in text for token in p0_extra_tokens
-        ):
-            priority = "P0"
-        elif any(token in text for token in p1_tokens):
+        if priority == "P2" and any(token in text for token in p1_tokens):
             priority = "P1"
-        elif any(token in text for token in p2_tokens):
-            priority = "P2"
         updated["priority"] = priority
         output.append(updated)
     return output

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from modules.test_generation_components.postprocess.execution_plan_case_state import (
+    main_chain_precondition_conflict_reason,
+)
 from modules.test_generation_components.postprocess.streaming_execution_plan_metadata import (
     apply_execution_plan_metadata,
 )
@@ -461,3 +464,173 @@ def test_apply_execution_plan_metadata_prefers_semantic_stage_match_over_weak_p0
         "weak-message-overlap": "stage_action_not_supported_by_case_text",
         "weak-audit-module-only": "stage_action_not_supported_by_case_text",
     }
+
+
+def test_main_chain_rejects_completed_action_and_unproduced_precondition_state() -> None:
+    workflow_blueprints = [
+        {
+            "id": "forum_publish_flow",
+            "source": "current_requirement_blueprint",
+            "steps": [
+                {
+                    "id": "entry",
+                    "label": "Open forum home",
+                    "action": "Open forum home through entry button",
+                    "state_in": "initial",
+                    "state_out": "forum_home",
+                    "stage_kind": "entry",
+                    "keywords": ["forum home"],
+                },
+                {
+                    "id": "configure",
+                    "label": "Select forum zone",
+                    "action": "Select forum zone",
+                    "state_in": "forum_home",
+                    "state_out": "zone_selected",
+                    "stage_kind": "configure",
+                    "keywords": ["select forum zone"],
+                },
+                {
+                    "id": "edit",
+                    "label": "Edit post body",
+                    "action": "Edit post title and body",
+                    "state_in": "zone_selected",
+                    "state_out": "post_editing",
+                    "stage_kind": "edit",
+                    "keywords": ["edit post"],
+                },
+                {
+                    "id": "preview",
+                    "label": "Preview edited post",
+                    "action": "Preview edited post content",
+                    "state_in": "post_editing",
+                    "state_out": "post_ready",
+                    "stage_kind": "preview",
+                    "keywords": ["preview edited post"],
+                },
+                {
+                    "id": "commit",
+                    "label": "Submit post",
+                    "action": "Submit post",
+                    "state_in": "post_ready",
+                    "state_out": "post_submitted",
+                    "stage_kind": "commit",
+                    "keywords": ["submit post"],
+                },
+                {
+                    "id": "consume",
+                    "label": "Open submitted post detail",
+                    "action": "Open submitted post detail",
+                    "state_in": "post_submitted",
+                    "state_out": "post_visible",
+                    "stage_kind": "consume",
+                    "keywords": ["submitted post detail"],
+                },
+            ],
+        }
+    ]
+    cases = [
+        {
+            "id": "entry",
+            "test_module": "Forum",
+            "description": "Open forum home through entry button",
+            "preconditions": ["User is logged in"],
+            "steps": ["Click forum entry button"],
+            "expected_result": "Forum home opens",
+            "priority": "P1",
+        },
+        {
+            "id": "configure",
+            "test_module": "Forum",
+            "description": "Select forum zone",
+            "preconditions": ["Forum home is open"],
+            "steps": ["Select official zone"],
+            "expected_result": "Selected zone is active",
+            "priority": "P1",
+        },
+        {
+            "id": "wrong-edit-completed",
+            "test_module": "Forum",
+            "description": "Edit post title and body then submit post",
+            "preconditions": ["A forum zone is selected"],
+            "steps": ["Edit post", "Submit post"],
+            "expected_result": "Post submitted successfully",
+            "priority": "P0",
+        },
+        {
+            "id": "edit",
+            "test_module": "Forum",
+            "description": "Edit post title and body",
+            "preconditions": ["A forum zone is selected"],
+            "steps": ["Edit post title", "Edit post body"],
+            "expected_result": "Edited content is ready for preview",
+            "priority": "P1",
+        },
+        {
+            "id": "preview",
+            "test_module": "Forum",
+            "description": "Preview edited post content",
+            "preconditions": ["Post content is being edited"],
+            "steps": ["Open preview"],
+            "expected_result": "Edited title and body are shown in preview",
+            "priority": "P1",
+        },
+        {
+            "id": "commit",
+            "test_module": "Forum",
+            "description": "Submit post",
+            "preconditions": ["Post preview is ready"],
+            "steps": ["Click submit"],
+            "expected_result": "Post submitted successfully",
+            "priority": "P1",
+        },
+        {
+            "id": "wrong-consume-message",
+            "test_module": "Message",
+            "description": "Open submitted post detail from approval message",
+            "preconditions": ["User has an approved system message"],
+            "steps": ["Click approval message"],
+            "expected_result": "Submitted post detail opens",
+            "priority": "P0",
+        },
+        {
+            "id": "consume",
+            "test_module": "Forum",
+            "description": "Open submitted post detail",
+            "preconditions": ["Post is submitted"],
+            "steps": ["Click submitted post card"],
+            "expected_result": "Submitted post detail opens",
+            "priority": "P1",
+        },
+    ]
+
+    annotated, summary = apply_execution_plan_metadata(cases, workflow_blueprints=workflow_blueprints)
+    main_descriptions = [
+        str(item.get("description") or "")
+        for item in annotated
+        if item.get("execution_group") == "main_smoke"
+    ]
+    assert summary["linear_executable"] is True
+    assert "Edit post title and body" in main_descriptions
+    assert "Edit post title and body then submit post" not in main_descriptions
+    assert "Open submitted post detail" in main_descriptions
+    assert "Open submitted post detail from approval message" not in main_descriptions
+    excluded = {
+        (item.get("case_id"), item.get("stage_key")): item.get("reason")
+        for item in (summary.get("main_chain_excluded_candidates") or [])
+    }
+    assert excluded[("wrong-edit-completed", "edit")] == "case_goal_spans_commit_stage"
+    assert excluded[("wrong-consume-message", "consume")] == "precondition_state_not_produced_by_previous_stage"
+
+
+def test_learning_completion_phrase_does_not_produce_generic_completed_state() -> None:
+    current_case = {"preconditions": ["流程已完成"]}
+
+    assert main_chain_precondition_conflict_reason(
+        {"expected_result": "完成学习"},
+        current_case,
+    ) == "precondition_state_not_produced_by_previous_stage"
+    assert main_chain_precondition_conflict_reason(
+        {"expected_result": "流程已完成"},
+        current_case,
+    ) == ""

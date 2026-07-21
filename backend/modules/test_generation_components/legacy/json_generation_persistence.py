@@ -57,7 +57,6 @@ def run_json_persistence_flow(
     emit_pre_persist_generation_diagnostics_fn: Callable[..., Any],
     emit_post_persist_generation_diagnostics_fn: Callable[..., Any],
     emit_post_persist_coverage_audit_diagnostics_fn: Callable[..., Any],
-    apply_core_flow_backfill_if_needed_fn: Callable[..., Any],
     normalize_missing_priority_final_cases_fn: Callable[..., Any],
     merge_contract_quality_gate_fn: Callable[..., dict[str, Any]],
     summarize_persistable_case_contract_fn: Callable[..., dict[str, Any]],
@@ -108,36 +107,7 @@ def run_json_persistence_flow(
             compression_event_payload_value = pre_persist_diag_result.compression_event_payload
 
         from core.settings.config import settings
-        from ..coverage.core_flow_backfill_generation import summarize_case_quality_gate
-
-        if isinstance(result_value, list):
-            backfill_apply_result = apply_core_flow_backfill_if_needed_fn(
-                db=db,
-                client=client,
-                settings=settings,
-                requirement=requirement,
-                result=result_value,
-                project_id=project_id,
-                user_id=user_id,
-                request_id=request_id,
-                normalized_generation_mode=normalized_generation_mode,
-                multi_pass=multi_pass,
-                generation_summary_payload=generation_summary,
-                final_cases_after_judge=final_cases,
-                final_case_count=final_count,
-                normalize_missing_priority_final_cases_fn=normalize_missing_priority_final_cases_fn,
-                merge_contract_quality_gate_fn=merge_contract_quality_gate_fn,
-                summarize_persistable_case_contract_fn=summarize_persistable_case_contract_fn,
-            )
-            if backfill_apply_result.error_payload:
-                return JsonPersistenceResult(
-                    result=backfill_apply_result.result,
-                    error_payload=backfill_apply_result.error_payload,
-                )
-            result_value = backfill_apply_result.result
-            final_cases = backfill_apply_result.final_cases_after_judge
-            final_count = backfill_apply_result.final_case_count
-            generation_summary = backfill_apply_result.generation_summary_payload
+        from ..coverage.case_quality_gate import summarize_case_quality_gate
 
         if isinstance(result_value, list):
             result_value = normalize_missing_priority_final_cases_fn(result_value, requirement_text=requirement)
@@ -382,10 +352,6 @@ def _evaluate_and_persist(
         db=db,
         project_id=project_id,
         user_id=user_id,
-        request_id=request_id,
-        generation_id=persisted_generation_id,
-        normalized_generation_mode=normalized_generation_mode,
-        multi_pass=multi_pass,
         result=persisted_result,
         requirement=requirement,
         kb_context=kb_context,

@@ -84,16 +84,9 @@ def main_chain_stages_from_blueprints(
             patterns = stage_match_patterns(step)
             if not stage_key or not stage_label or not patterns:
                 continue
-            stage_text = " ".join(
-                str(step.get(key) or "")
-                for key in ("label", "action", "description", "module", "assertion", "state_out")
-            )
             workflow_stage_meta_by_key[stage_key] = {
                 **step,
-                "actor": normalize_actor_role_value(
-                    step.get("actor") or step.get("role"),
-                    fallback_text=stage_text,
-                ),
+                "actor": normalize_actor_role_value(step.get("actor") or step.get("role")),
                 "source_actor_role": str(
                     step.get("source_actor_role") or step.get("actor") or step.get("role") or ""
                 ).strip(),

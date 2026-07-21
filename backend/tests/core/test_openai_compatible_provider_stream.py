@@ -255,3 +255,81 @@ def test_json_chat_request_can_disable_json_compat_fields(monkeypatch) -> None:
     assert "reasoning_effort" not in fake_client.posts[0]["json"]
     assert "response_format" not in fake_client.posts[0]["json"]
     assert "thinking" not in fake_client.posts[0]["json"]
+
+
+def test_explicit_text_mode_does_not_enable_json_for_incidental_json_word(monkeypatch) -> None:
+    fake_client = _FakePostClient(
+        [
+            _FakePostResponse(
+                200,
+                {
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {
+                                "role": "assistant",
+                                "content": "class LoginPage:\n    pass",
+                            },
+                        }
+                    ]
+                },
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        "core.ai.providers.openai_compatible_provider.httpx.Client",
+        lambda **kwargs: fake_client,
+    )
+
+    provider = OpenAICompatibleProvider("https://example.test/v1", "sk-test", "model")
+    result = provider.generate(
+        [{"role": "user", "content": "生成 Python，并打印 JSON 格式日志"}],
+        "model",
+        max_tokens=100,
+        response_mode="text",
+    )
+
+    assert result.startswith("class LoginPage")
+    assert "response_format" not in fake_client.posts[0]["json"]
+    assert "reasoning_effort" not in fake_client.posts[0]["json"]
+    assert "thinking" not in fake_client.posts[0]["json"]
+    assert provider.last_response_metadata["response_mode"] == "text"
+    assert provider.last_response_metadata["json_response"] is False
+
+
+def test_explicit_json_mode_enables_structured_response_without_json_word(monkeypatch) -> None:
+    fake_client = _FakePostClient(
+        [
+            _FakePostResponse(
+                200,
+                {
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {
+                                "role": "assistant",
+                                "content": '{"cases":[]}',
+                            },
+                        }
+                    ]
+                },
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        "core.ai.providers.openai_compatible_provider.httpx.Client",
+        lambda **kwargs: fake_client,
+    )
+
+    provider = OpenAICompatibleProvider("https://example.test/v1", "sk-test", "model")
+    result = provider.generate(
+        [{"role": "user", "content": "生成测试用例"}],
+        "model",
+        max_tokens=100,
+        response_mode="json",
+    )
+
+    assert result == '{"cases":[]}'
+    assert fake_client.posts[0]["json"]["response_format"] == {"type": "json_object"}
+    assert provider.last_response_metadata["response_mode"] == "json"
+    assert provider.last_response_metadata["json_response"] is True

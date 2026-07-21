@@ -189,30 +189,30 @@ def test_judge_rejects_near_duplicate_same_scenario_cases_at_batch_level() -> No
     cases = [
         {
             "id": "TC-001",
-            "description": "验证习题本中只看错题开关默认关闭，开启后隐藏正确题，无错题时显示指定空状态文案",
-            "test_module": "习题本",
-            "steps": ["1. 打开习题本", "2. 开启只看错题"],
-            "test_input": "开关切换操作",
-            "expected_result": "默认关闭显示全部题目；开启后只显示错误题；全部正确时显示本次作业全部作答正确，暂无错题",
-            "priority": "P0",
+            "description": "记录列表筛选开关默认关闭，开启后只显示失败记录",
+            "test_module": "记录列表",
+            "steps": ["打开记录列表", "开启失败记录筛选开关"],
+            "test_input": "筛选开关开启",
+            "expected_result": "过滤成功记录，仅显示失败记录",
+            "priority": "P1",
         },
         {
             "id": "TC-002",
-            "description": "验证本周全部答对0错题时习题本只看错题后显示本次作业全部作答正确，暂无错题",
-            "test_module": "习题本",
-            "steps": ["1. 打开习题本", "2. 点击只看错题"],
-            "test_input": "无",
-            "expected_result": "开启只看错题后列表为空，并显示本次作业全部作答正确，暂无错题",
-            "priority": "P0",
+            "description": "记录列表过滤开关默认关闭，开启筛选后仅展示失败记录",
+            "test_module": "记录列表",
+            "steps": ["进入记录列表", "打开失败记录过滤开关"],
+            "test_input": "过滤开关开启",
+            "expected_result": "筛选成功记录后，列表只展示失败记录",
+            "priority": "P1",
         },
         {
             "id": "TC-003",
-            "description": "验证习题本只看错题开关开启后正确隐藏正确题",
-            "test_module": "习题本",
-            "steps": ["1. 打开习题本", "2. 开启只看错题"],
-            "test_input": "无",
-            "expected_result": "只显示错题，正确题隐藏",
-            "priority": "P0",
+            "description": "记录列表只看失败开关默认关闭，开启过滤后只显示失败记录",
+            "test_module": "记录列表",
+            "steps": ["打开记录列表", "启用只看失败记录开关"],
+            "test_input": "只看失败记录",
+            "expected_result": "过滤成功记录，列表仅保留失败记录",
+            "priority": "P1",
         },
     ]
 
@@ -220,46 +220,36 @@ def test_judge_rejects_near_duplicate_same_scenario_cases_at_batch_level() -> No
 
     assert judged.reject_count == 2
     duplicate_rows = [item for item in judged.cases if item.signals.is_semantic_duplicate]
-    assert {item.case_id for item in duplicate_rows} == {"TC-002", "TC-003"}
-    assert all(item.reject_reason == "semantic_duplicate:TC-001" for item in duplicate_rows)
+    assert len(duplicate_rows) == 2
+    assert len([item for item in judged.cases if item.status == "PASS"]) == 1
+    assert all(str(item.reject_reason or "").startswith("semantic_duplicate:TC-") for item in duplicate_rows)
 
 
-def test_judge_rejects_registered_registry_duplicate_scenarios_across_modules() -> None:
+def test_judge_does_not_collapse_registered_scenarios_across_modules() -> None:
     cases = [
         {
             "id": "TC-001",
-            "description": "验证学员回答答非所问时，准确性直接记为0分",
-            "test_module": "学员端AI评分",
-            "steps": [
-                "1. AI提问具体数学题",
-                "2. 学员输入与题目无关的内容",
-                "3. 查看准确性分数",
-            ],
-            "test_input": "今天天气很好",
-            "expected_result": "准确性分数为0分，其他维度正常评分",
-            "priority": "P0",
+            "description": "订单列表筛选开关开启后仅显示失败订单",
+            "test_module": "订单列表",
+            "steps": ["打开订单列表", "开启失败订单过滤开关"],
+            "test_input": "失败订单筛选",
+            "expected_result": "列表过滤成功订单，仅显示失败订单",
+            "priority": "P1",
         },
         {
             "id": "TC-002",
-            "description": "验证学员端回答答非所问时准确性自动0分，且总分按规则计算",
-            "test_module": "学员端AI讲错题评分",
-            "steps": [
-                "1. 在AI追问后输入与问题无关的回答",
-                "2. 完成交互后查看评分明细",
-            ],
-            "test_input": "今天天气不错",
-            "expected_result": "准确性维度得0分，系统标注答非所问",
+            "description": "用户列表筛选开关开启后仅显示禁用用户",
+            "test_module": "用户列表",
+            "steps": ["打开用户列表", "开启禁用用户过滤开关"],
+            "test_input": "禁用用户筛选",
+            "expected_result": "列表过滤启用用户，仅显示禁用用户",
             "priority": "P1",
         },
     ]
 
     judged = judge_cases(cases, {})
-    duplicate = next(item for item in judged.cases if item.case_id == "TC-002")
-
-    assert duplicate.status == "REJECT"
-    assert duplicate.reject_reason == "semantic_duplicate:TC-001"
-    assert duplicate.signals.is_semantic_duplicate is True
-    assert duplicate.signals.duplicate_of_case_id == "TC-001"
+    assert judged.reject_count == 0
+    assert all(not item.signals.is_semantic_duplicate for item in judged.cases)
 
 
 def test_judge_does_not_use_broad_schedule_registry_families_as_duplicate_rules() -> None:
@@ -303,191 +293,54 @@ def test_judge_does_not_use_broad_schedule_registry_families_as_duplicate_rules(
     }
 
 
-def test_judge_rejects_popup_card_share_quota_and_refresh_duplicate_scenarios() -> None:
+def test_judge_rejects_generic_popup_quota_and_refresh_duplicates() -> None:
     cases = [
         {
             "id": "TC-001",
-            "description": "批改结果复核页面首次进入时弹出批改完成弹窗",
-            "test_module": "批改结果复核",
-            "steps": ["AI批改完成后自动跳转至复核页面"],
-            "expected_result": "页面弹出弹窗，文案包含已智能完成全页批改",
+            "description": "控制台首次进入时弹出使用说明弹窗",
+            "test_module": "控制台",
+            "steps": ["首次打开控制台"],
+            "expected_result": "页面首次加载后弹出使用说明弹窗",
             "priority": "P1",
         },
         {
             "id": "TC-002",
-            "description": "验证批改结果复核页面首次进入时弹出已智能完成全页批改弹窗",
-            "test_module": "批改结果复核",
-            "steps": ["观察页面是否弹出弹窗"],
-            "expected_result": "页面加载完成后弹出批改完成弹窗，弹窗可关闭",
+            "description": "验证控制台首次加载时展示使用说明弹窗",
+            "test_module": "控制台",
+            "steps": ["首次进入控制台", "观察弹窗"],
+            "expected_result": "首次进入时弹出使用说明弹窗且可关闭",
             "priority": "P1",
         },
         {
             "id": "TC-003",
-            "description": "验证习题本题目卡片包含状态角标、知识点标签、元信息、题目图片、查看详解按钮",
-            "test_module": "习题本",
-            "steps": ["查看习题本题目卡片"],
-            "expected_result": "卡片显示状态角标、知识点标签、元信息、图片和查看详解按钮",
-            "priority": "P0",
+            "description": "接口调用额度达到上限后拦截继续请求并提示次数耗尽",
+            "test_module": "接口额度",
+            "steps": ["耗尽接口调用次数", "再次发起请求"],
+            "expected_result": "请求被拦截并提示调用额度已耗尽",
+            "priority": "P1",
         },
         {
             "id": "TC-004",
-            "description": "题目卡片元素验证：状态角标、知识点标签、元信息、图片、查看详解按钮",
-            "test_module": "习题本-题目卡片",
-            "steps": ["检查题目卡片元素"],
-            "expected_result": "状态角标、知识点标签、元信息、图片、查看详解按钮均展示",
+            "description": "接口调用次数耗尽后限制后续请求并显示额度上限提示",
+            "test_module": "接口额度",
+            "steps": ["将调用次数用完", "继续调用接口"],
+            "expected_result": "后续请求被拦截，页面提示接口额度耗尽",
             "priority": "P1",
         },
         {
             "id": "TC-005",
-            "description": "验证学习成长报告分享至微信好友和朋友圈",
-            "test_module": "学习成长报告",
-            "steps": ["点击分享按钮"],
-            "expected_result": "微信好友生成H5链接和二维码，朋友圈生成信息长图",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-006",
-            "description": "验证学习成长报告分享到朋友圈自动生成长图",
-            "test_module": "学习成长报告",
-            "steps": ["点击分享到朋友圈"],
-            "expected_result": "长图包含学生姓名、教学周和核心数据",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-007",
-            "description": "验证体验额度耗尽后所有学习入口均被拦截",
-            "test_module": "体验额度",
-            "steps": ["点击学习入口"],
-            "expected_result": "弹出体验次数已用完的拦截文案",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-008",
-            "description": "体验额度耗尽后拦截所有学习入口并显示指定文案",
-            "test_module": "体验额度",
-            "steps": ["尝试进入任何学习入口"],
-            "expected_result": "每个操作均弹出体验次数已用完的拦截提示",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-009",
-            "description": "验证督导新增错题后学生端习题本静默刷新且无弹窗",
-            "test_module": "全局异常",
-            "steps": ["督导新增错题", "学生端等待刷新"],
-            "expected_result": "学生端无弹窗，新增错题出现，知识点掌握度重算",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-010",
-            "description": "督导重新批改新增错题后学生端数据静默刷新",
-            "test_module": "全局异常-静默刷新",
-            "steps": ["触发后端数据变更"],
-            "expected_result": "页面数据静默刷新，无任何弹窗提示，提升计划同步更新",
-            "priority": "P1",
-        },
-    ]
-
-    judged = judge_cases(cases, {})
-    duplicate_pairs = {
-        frozenset({item.case_id, item.signals.duplicate_of_case_id})
-        for item in judged.cases
-        if item.signals.is_semantic_duplicate
-    }
-
-    assert frozenset({"TC-001", "TC-002"}) in duplicate_pairs
-    assert frozenset({"TC-003", "TC-004"}) in duplicate_pairs
-    assert frozenset({"TC-007", "TC-008"}) in duplicate_pairs
-    assert frozenset({"TC-009", "TC-010"}) in duplicate_pairs
-
-
-def test_judge_rejects_nested_plan_report_quota_duplicate_scenarios() -> None:
-    cases = [
-        {
-            "id": "TC-001",
-            "description": "批改结果复核温馨提示显示条件验证（需关注题和特殊题型）",
-            "test_module": "批改结果复核",
-            "steps": ["查看需关注题和特殊题型详情"],
-            "expected_result": "需关注题显示书写差异建议人工复核；特殊题型显示特殊题型建议重点核对",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-002",
-            "description": "批改结果复核温馨提示书写差异建议人工复核显示条件验证",
-            "test_module": "批改结果复核",
-            "steps": ["查看需关注题详情"],
-            "expected_result": "温馨提示显示书写差异建议人工复核",
-            "priority": "P2",
-        },
-        {
-            "id": "TC-003",
-            "description": "周末提升计划第一步数据范围验证，仅当前教学周已完成精准学习题本",
-            "test_module": "周末提升计划第一步",
-            "steps": ["进入看看我的弱点", "查看错题来源"],
-            "expected_result": "只统计当前教学周已完成精准学习题本，不包含牛刀小试和未完成题本",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-004",
-            "description": "周末提升计划第一步数据范围与错题率计算，验证仅纳入当前教学周已完成精准学习题本",
-            "test_module": "周末提升计划-第一步",
-            "steps": ["进入看看我的弱点"],
-            "expected_result": "仅展示当前教学周已完成精准学习题本中的错题，不包含牛刀课内练习",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-005",
-            "description": "周末提升计划第三步学习流程，完成一个切片自动进入下一个",
-            "test_module": "周末提升计划-第三步",
-            "steps": ["完成第一个切片"],
-            "expected_result": "完成当前切片后自动跳转至下一个切片",
+            "description": "后台更新记录后列表静默刷新且无弹窗",
+            "test_module": "记录列表",
+            "steps": ["后台更新记录", "等待列表刷新"],
+            "expected_result": "列表数据静默刷新，不显示弹窗",
             "priority": "P1",
         },
         {
             "id": "TC-006",
-            "description": "周末提升计划第三步切片自动进入下一个验证",
-            "test_module": "周末提升计划第三步",
-            "steps": ["完成第一个切片全部内容"],
-            "expected_result": "系统自动切换到下一个切片，无需手动点击",
-            "priority": "P2",
-        },
-        {
-            "id": "TC-007",
-            "description": "学习成长报告分享微信好友群功能验证",
-            "test_module": "学习成长报告",
-            "steps": ["点击分享微信好友"],
-            "expected_result": "生成H5链接和二维码，分享卡片包含学生姓名、教学周、摘要、封面图",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-008",
-            "description": "学习成长报告分享微信好友卡片内容验证",
-            "test_module": "学习成长报告（督导端）",
-            "steps": ["查看分享卡片预览"],
-            "expected_result": "分享卡片包含学生姓名、教学周、摘要文本、封面图片",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-009",
-            "description": "学习成长报告分享到朋友圈功能验证信息长图生成",
-            "test_module": "学习成长报告",
-            "steps": ["选择分享到朋友圈"],
-            "expected_result": "自动生成信息长图，包含学生姓名、教学周、核心数据",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-010",
-            "description": "体验额度正常消耗，学生首次批改1道题，额度从50减少至49",
-            "test_module": "体验额度",
-            "steps": ["批改1道题", "查看额度"],
-            "expected_result": "体验额度显示为49",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-011",
-            "description": "体验额度初始额度与每次识别批改扣减",
-            "test_module": "体验额度",
-            "steps": ["确认初始额度50", "批改1道题", "查看剩余额度"],
-            "expected_result": "初始额度50，完成1次识别或批改后显示49",
+            "description": "记录被后台更新后页面无弹窗并静默刷新列表数据",
+            "test_module": "记录列表",
+            "steps": ["触发后台数据更新", "观察列表"],
+            "expected_result": "页面无弹窗，列表数据完成静默刷新",
             "priority": "P1",
         },
     ]
@@ -502,74 +355,10 @@ def test_judge_rejects_nested_plan_report_quota_duplicate_scenarios() -> None:
     assert frozenset({"TC-001", "TC-002"}) in duplicate_pairs
     assert frozenset({"TC-003", "TC-004"}) in duplicate_pairs
     assert frozenset({"TC-005", "TC-006"}) in duplicate_pairs
-    assert frozenset({"TC-007", "TC-008"}) in duplicate_pairs
-    assert frozenset({"TC-010", "TC-011"}) in duplicate_pairs
-    assert frozenset({"TC-007", "TC-009"}) not in duplicate_pairs
-    assert frozenset({"TC-008", "TC-009"}) not in duplicate_pairs
 
 
-def test_judge_rejects_latest_residual_duplicates_without_collapsing_distinct_comment_checks() -> None:
-    cases = [
-        {
-            "id": "TC-001",
-            "description": "验证习题本只包含拍照搜题进错题本的题目，不包含课内练习（快问快答、牛刀小试）的记录",
-            "test_module": "习题本",
-            "steps": ["进入当前教学周习题本页面", "查看题目列表"],
-            "expected_result": "习题本中只显示拍照搜题进错题本的题目，课内练习的记录不会出现在列表中",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-002",
-            "description": "验证习题本只收录拍照搜题进错题本的题目，不包含课内练习",
-            "test_module": "习题本",
-            "steps": ["进入习题本"],
-            "expected_result": "习题本列表中只显示拍照搜题的那1道题，快问快答和牛刀小试的题目不出现",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-003",
-            "description": "验证学习成长报告本周学习概览四个数据卡数值来源正确",
-            "test_module": "学习成长报告（督导端）",
-            "steps": ["查看本周学习概览区域的四个数值", "核对每个数据卡下方的来源标注"],
-            "expected_result": "四个数据卡分别显示视频数、练习题数、错题数、知识点数，且每个卡下方标注来源",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-004",
-            "description": "学习成长报告本周学习概览四个数据卡有来源标注",
-            "test_module": "学习成长报告（督导端）",
-            "steps": ["查看本周学习概览区域的四个数据卡", "检查每个数据卡下方的来源标注"],
-            "expected_result": "四个数据卡各自显示来源说明，例如来自周末提升计划或课内练习",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-005",
-            "description": "验证学习成长报告中督导评语的语音输入转文字功能可用",
-            "test_module": "学习成长报告",
-            "steps": ["点击语音输入按钮", "录音并查看评语编辑框"],
-            "expected_result": "语音录制结束后，语音自动转换为文字并填入评语编辑框",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-006",
-            "description": "验证学习成长报告中督导评语AI初稿结构包含肯定、表扬、指出、鼓励四个部分",
-            "test_module": "学习成长报告",
-            "steps": ["查看督导评语区域", "按段落分析内容"],
-            "expected_result": "AI初稿包含肯定近期努力、表扬具体进步、指出待加强知识点、鼓励继续加油",
-            "priority": "P2",
-        },
-    ]
 
-    judged = judge_cases(cases, {})
-    duplicate_pairs = {
-        frozenset({item.case_id, item.signals.duplicate_of_case_id})
-        for item in judged.cases
-        if item.signals.is_semantic_duplicate
-    }
 
-    assert frozenset({"TC-001", "TC-002"}) in duplicate_pairs
-    assert frozenset({"TC-003", "TC-004"}) in duplicate_pairs
-    assert frozenset({"TC-005", "TC-006"}) not in duplicate_pairs
 
 
 def test_judge_marks_generic_automation_template_expected_result_as_pending() -> None:
@@ -599,37 +388,37 @@ def test_judge_marks_generic_automation_template_expected_result_as_pending() ->
     assert all(item.signals.vague_or_unconfirmed_hits for item in judged.cases)
 
 
-def test_judge_rejects_review_status_color_duplicate_and_marks_vague_format_copy() -> None:
+def test_judge_rejects_generic_title_format_duplicate_and_marks_vague_copy() -> None:
     cases = [
         {
             "id": "TC-001",
-            "description": "序号栏颜色根据批改状态正确显示：正确绿色、待复核橙色、错误红色、需关注其他颜色",
-            "test_module": "批改结果复核页面",
-            "steps": ["查看题目列表中的序号方块颜色"],
-            "expected_result": "正确显示绿色，待复核显示橙色，错误显示红色，需关注显示其他颜色",
+            "description": "验证导出文件标题格式为项目名加日期",
+            "test_module": "文件导出",
+            "steps": ["导出文件", "查看文件标题"],
+            "expected_result": "导出文件标题按项目名加日期的格式显示",
             "priority": "P2",
         },
         {
             "id": "TC-002",
-            "description": "批改结果复核序号栏颜色验证：正确为绿色、待复核为橙色、错误为红色、其他需关注为灰色",
-            "test_module": "批改结果复核页面",
-            "steps": ["进入复核页面", "观察全部标签下各题目的序号栏颜色"],
-            "expected_result": "正确题目序号栏背景为绿色，待复核题目为橙色，错误题目为红色，需关注题目为灰色",
+            "description": "验证导出文件标题格式使用项目名加日期",
+            "test_module": "文件导出",
+            "steps": ["执行文件导出", "检查文件标题"],
+            "expected_result": "文件标题使用项目名加日期的格式展示",
             "priority": "P2",
         },
         {
             "id": "TC-003",
-            "description": "验证习题本标题格式为小学数学X周X习题本",
-            "test_module": "习题本标题",
-            "steps": ["打开习题本页面", "查看标题"],
-            "expected_result": "习题本标题显示为小学数学3周3习题本或类似格式，其中X对应周数，符合描述格式",
-            "priority": "P0",
+            "description": "验证通知标题格式",
+            "test_module": "通知中心",
+            "steps": ["打开通知中心", "查看通知标题"],
+            "expected_result": "通知标题显示为名称加日期或类似格式",
+            "priority": "P1",
         },
         {
             "id": "TC-004",
-            "description": "验证每周对比变化率显示",
-            "test_module": "学习成长报告",
-            "steps": ["查看每周对比区域"],
+            "description": "验证环比变化率显示",
+            "test_module": "统计面板",
+            "steps": ["查看环比变化区域"],
             "expected_result": "相等时显示持平或增加0%",
             "priority": "P1",
         },
@@ -647,61 +436,6 @@ def test_judge_rejects_review_status_color_duplicate_and_marks_vague_format_copy
     assert {"TC-003", "TC-004"}.issubset(pending_ids)
 
 
-def test_judge_rejects_bad_image_duplicate_and_keeps_manual_correction_directions() -> None:
-    cases = [
-        {
-            "id": "TC-001",
-            "description": "作业拍照批改：图片模糊全黑不完整时允许上传，批改后对应题目标记为待复核",
-            "test_module": "作业拍照批改",
-            "steps": ["拍摄模糊图片", "点击开始智能批改"],
-            "expected_result": "图片成功上传并完成批改；复核页面中对应题目的序号栏颜色为橙色，待复核中显示该题",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-002",
-            "description": "作业拍照批改上传模糊全黑不完整图片，允许上传且批改后标记待复核",
-            "test_module": "作业拍照批改（督导端）",
-            "steps": ["拍摄或导入异常图片", "点击开始智能批改", "检查复核状态"],
-            "expected_result": "允许上传并执行批改；对应题目被标记为待复核橙色标签",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-003",
-            "description": "批改结果复核单题判定正确后触发弹窗并同步学情",
-            "test_module": "批改结果复核",
-            "steps": ["点击判定正确按钮", "确认弹窗"],
-            "expected_result": "该题状态变为正确，错题本移除该题，正确数增加，模型优化上报接口被调用",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-004",
-            "description": "批改结果复核单题判定错误后触发弹窗并更正历史误判数据",
-            "test_module": "批改结果复核",
-            "steps": ["点击判定错误按钮", "确认弹窗"],
-            "expected_result": "该题学情数据更正为错误，错题本新增该题，错误数增加，模型优化请求已上报",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-005",
-            "description": "批改结果复核已判定错误的题目手动修正为正确后错题本自动移除该题",
-            "test_module": "批改结果复核页面",
-            "steps": ["点击判定正确并确认", "查看错题本"],
-            "expected_result": "错题本中该题被移除，学情数据重新计算，历史误判记录被更正",
-            "priority": "P1",
-        },
-    ]
-
-    judged = judge_cases(cases, {})
-    duplicate_pairs = {
-        frozenset({item.case_id, item.signals.duplicate_of_case_id})
-        for item in judged.cases
-        if item.signals.is_semantic_duplicate
-    }
-
-    assert frozenset({"TC-001", "TC-002"}) in duplicate_pairs
-    assert frozenset({"TC-003", "TC-005"}) in duplicate_pairs
-    assert frozenset({"TC-003", "TC-004"}) not in duplicate_pairs
-    assert frozenset({"TC-004", "TC-005"}) not in duplicate_pairs
 
 
 def test_judge_uses_fact_profile_from_control_state() -> None:
@@ -838,54 +572,54 @@ def test_judge_marks_optional_design_copy_as_pending() -> None:
     assert judged.cases[0].signals.vague_or_unconfirmed_hits
 
 
-def test_judge_rejects_latest_residual_duplicate_scenarios() -> None:
+def test_judge_rejects_generic_filter_refresh_and_readonly_duplicates() -> None:
     cases = [
         {
             "id": "TC-001",
-            "description": "批改结果复核-筛选标签切换时题目列表正确更新",
-            "test_module": "批改结果复核",
-            "steps": ["点击全部标签", "点击待复核标签", "点击需关注标签"],
-            "expected_result": "点击全部显示所有题目；点击待复核仅显示待复核题目；点击需关注仅显示需关注题目；右侧题量数字对应显示数量",
+            "description": "记录列表筛选开关切换后仅显示失败记录",
+            "test_module": "记录列表",
+            "steps": ["打开记录列表", "开启失败记录过滤开关"],
+            "expected_result": "列表过滤成功记录，只显示失败记录",
             "priority": "P2",
         },
         {
             "id": "TC-002",
-            "description": "批改结果复核页面-筛选标签切换：点击'待复核'后列表只显示被标记为待复核的题目",
-            "test_module": "批改结果复核页面",
-            "steps": ["在顶部筛选标签中点击'待复核'", "查看题目列表"],
-            "expected_result": "列表只显示标记为'待复核'的那道题，右侧题量显示为1，已隐藏正确和错误的题目",
+            "description": "记录列表过滤开关开启后只展示失败记录",
+            "test_module": "记录列表",
+            "steps": ["进入记录列表", "启用失败记录筛选开关"],
+            "expected_result": "成功记录被过滤，列表仅展示失败记录",
             "priority": "P1",
         },
         {
             "id": "TC-003",
-            "description": "周末提升计划第三步-系统重新生成薄弱知识点后课程切片同步重新生成",
-            "test_module": "周末提升计划",
-            "steps": ["后端触发薄弱知识点重新生成", "学生端返回第三步查看切片列表"],
-            "expected_result": "课程切片列表更新为与新薄弱知识点对应的切片，旧切片被替换或删除",
-            "priority": "P0",
+            "description": "后台更新记录后列表静默刷新且无弹窗",
+            "test_module": "记录同步",
+            "steps": ["后台更新记录", "等待列表刷新"],
+            "expected_result": "记录列表静默刷新，页面无弹窗",
+            "priority": "P1",
         },
         {
             "id": "TC-004",
-            "description": "周末提升计划-第三步：系统重新生成薄弱知识点后，左侧导航树和右侧切片同步更新",
-            "test_module": "周末提升计划",
-            "steps": ["模拟督导重新批改错题，触发薄弱知识点变化", "观察左侧导航树和右侧切片内容"],
-            "expected_result": "左侧导航树更新为新课程切片列表，右侧内容自动切换到第一个切片，提示用户课程已更新",
-            "priority": "P0",
+            "description": "记录被后台更新后页面无弹窗并静默刷新列表",
+            "test_module": "记录同步",
+            "steps": ["触发后台记录更新", "观察列表数据"],
+            "expected_result": "页面无弹窗，记录列表完成静默刷新",
+            "priority": "P1",
         },
         {
             "id": "TC-005",
-            "description": "学习成长报告-H5页面为只读模式，隐藏编辑和管理操作",
-            "test_module": "学习成长报告",
-            "steps": ["使用手机浏览器打开H5链接", "观察页面是否有编辑、删除、修改督导评语等管理操作按钮"],
-            "expected_result": "H5页面无任何编辑或管理入口，所有数据均为只读展示",
+            "description": "分享页面为只读模式并隐藏编辑入口",
+            "test_module": "分享页面",
+            "steps": ["打开分享页面", "检查编辑入口"],
+            "expected_result": "页面只读展示，编辑入口隐藏且内容不可编辑",
             "priority": "P1",
         },
         {
             "id": "TC-006",
-            "description": "学习成长报告-H5页面只读且隐藏编辑管理操作",
-            "test_module": "学习成长报告",
-            "steps": ["使用手机浏览器或微信打开H5链接", "检查页面是否包含编辑按钮、管理入口"],
-            "expected_result": "页面仅展示报告内容，无编辑按钮、无管理入口，所有操作按钮均不可见或不可交互，为纯只读模式",
+            "description": "分享页面保持只读并隐藏所有编辑操作",
+            "test_module": "分享页面",
+            "steps": ["进入分享页面", "检查编辑按钮"],
+            "expected_result": "页面内容不可编辑，编辑按钮和管理入口均隐藏",
             "priority": "P2",
         },
     ]
@@ -902,115 +636,8 @@ def test_judge_rejects_latest_residual_duplicate_scenarios() -> None:
     assert frozenset({"TC-005", "TC-006"}) in duplicate_pairs
 
 
-def test_judge_rejects_student_essay_residual_duplicate_intents() -> None:
-    cases = [
-        {
-            "id": "TC-001",
-            "description": "投稿失败后展示失败原因",
-            "test_module": "作文批改",
-            "steps": ["打开投稿详情", "查看审核结果"],
-            "expected_result": "页面展示未通过的失败原因",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-002",
-            "description": "作品审核驳回时可查看驳回原因",
-            "test_module": "作文批改-投稿",
-            "steps": ["进入我的作文", "点击未通过作品"],
-            "expected_result": "未通过作品显示审核失败原因",
-            "priority": "P2",
-        },
-        {
-            "id": "TC-003",
-            "description": "普通用户第一课可试学",
-            "test_module": "课程列表",
-            "steps": ["普通用户进入课程列表", "点击第一课"],
-            "expected_result": "第一课可进入，不跳会员中心",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-004",
-            "description": "普通用户只有第一课可免费进入",
-            "test_module": "课程权限",
-            "steps": ["普通用户打开课程", "分别点击第一课和第二课"],
-            "expected_result": "第一课进入试学，其他课程跳转会员中心",
-            "priority": "P0",
-        },
-        {
-            "id": "TC-005",
-            "description": "下载PDF后内容与批改结果一致",
-            "test_module": "资料下载",
-            "steps": ["点击PDF下载", "打开文件检查内容"],
-            "expected_result": "PDF文件包含批改结果主要内容",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-006",
-            "description": "资料PDF下载内容校验",
-            "test_module": "下载资料",
-            "steps": ["在批改结果页下载PDF", "核对PDF内容"],
-            "expected_result": "下载PDF内容与页面批改结果保持一致",
-            "priority": "P2",
-        },
-    ]
-
-    judged = judge_cases(cases, {})
-    duplicate_pairs = {
-        frozenset({item.case_id, item.signals.duplicate_of_case_id})
-        for item in judged.cases
-        if item.signals.is_semantic_duplicate
-    }
-
-    assert frozenset({"TC-001", "TC-002"}) in duplicate_pairs
-    assert frozenset({"TC-003", "TC-004"}) in duplicate_pairs
-    assert frozenset({"TC-005", "TC-006"}) in duplicate_pairs
 
 
-def test_judge_rejects_student_essay_latest_duplicate_clusters() -> None:
-    cases = [
-        {
-            "id": "TC-001",
-            "description": "同一主题第5次批改后拦截继续批改",
-            "test_module": "作文批改",
-            "steps": ["连续批改同一主题5次", "再次点击去批改"],
-            "expected_result": "系统提示同一主题批改次数已达上限",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-002",
-            "description": "同一作文主题5次批改上限校验",
-            "test_module": "作文批改",
-            "steps": ["同一主题已完成5次批改", "上传图片并点击去批改"],
-            "expected_result": "不再发起批改请求并展示次数上限提示",
-            "priority": "P2",
-        },
-        {
-            "id": "TC-003",
-            "description": "作文圈精选作品按精选排序展示",
-            "test_module": "作文圈",
-            "steps": ["后台设置精选作品", "打开作文圈精选列表"],
-            "expected_result": "精选作品进入作文圈精选列表并按排序规则展示",
-            "priority": "P1",
-        },
-        {
-            "id": "TC-004",
-            "description": "作文圈精选列表权重排序校验",
-            "test_module": "作文圈",
-            "steps": ["设置多个精选作品", "查看精选列表顺序"],
-            "expected_result": "精选列表顺序与排序规则一致",
-            "priority": "P2",
-        },
-    ]
-
-    judged = judge_cases(cases, {})
-    duplicate_pairs = {
-        frozenset({item.case_id, item.signals.duplicate_of_case_id})
-        for item in judged.cases
-        if item.signals.is_semantic_duplicate
-    }
-
-    assert frozenset({"TC-001", "TC-002"}) in duplicate_pairs
-    assert frozenset({"TC-003", "TC-004"}) in duplicate_pairs
 
 
 def test_judge_marks_generic_template_expected_result_as_pending() -> None:

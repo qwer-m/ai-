@@ -12,7 +12,24 @@ Prompt 加载模块 (Prompt Loader Module)
 
 import yaml
 import os
+from pathlib import Path
 from typing import Dict, Any, Optional
+
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_PROMPT_PATH = BACKEND_ROOT / "prompts"
+
+
+def _resolve_prompt_base_path() -> Path:
+    """解析 Prompt 配置目录，相对路径统一以 backend 为基准。"""
+    raw = str(os.getenv("PROMPT_BASE_PATH") or "").strip()
+    if not raw:
+        return DEFAULT_PROMPT_PATH
+
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = BACKEND_ROOT / path
+    return path.resolve()
 
 class PromptLoader:
     """
@@ -21,7 +38,8 @@ class PromptLoader:
     _instance = None
     _prompts: Dict[str, Any] = {}
     _prompt_timestamps: Dict[str, float] = {}
-    _base_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "prompts")
+    # 路径与进程启动目录解耦，同时保留显式环境变量覆盖能力。
+    _base_path = _resolve_prompt_base_path()
 
     def __new__(cls):
         if cls._instance is None:
