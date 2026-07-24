@@ -85,20 +85,6 @@ def test_execution_plan_counts_collects_sorted_unique_fixture_keys() -> None:
     assert counts["fixture_keys"] == ["boundary_dataset", "workflow_blueprint_chain_seed"]
 
 
-def test_execution_plan_counts_tracks_bridge_and_materialized_cases() -> None:
-    annotated = [
-        _case("TC-001", group="main_smoke", generated_bridge_case=True),
-        _case("TC-002", group="main_smoke", workflow_contract_materialized_case=True),
-        _case("TC-003", group="display", generated_bridge_case=False),
-        _case("TC-004", group="permission", workflow_contract_materialized_case=True),
-    ]
-
-    counts = execution_plan_counts(annotated)
-
-    assert counts["generated_bridge_case_count"] == 1
-    assert counts["workflow_contract_materialized_case_count"] == 2
-
-
 def test_build_execution_plan_metadata_summary_preserves_core_fields() -> None:
     annotated = [
         _case(
@@ -108,9 +94,11 @@ def test_build_execution_plan_metadata_summary_preserves_core_fields() -> None:
             main_chain_stage="draft",
             main_chain_step=1,
             main_chain_stage_kind="commit",
-            generated_bridge_case=True,
             fixture_key="workflow_blueprint_chain_seed",
             isolation_required=False,
+            workflow_id="bp-1",
+            source_state="ready",
+            target_state="draft_saved",
         ),
         _case(
             "TC-002",
@@ -120,9 +108,11 @@ def test_build_execution_plan_metadata_summary_preserves_core_fields() -> None:
             main_chain_step=2,
             main_chain_stage_kind="downstream_visibility",
             depends_on=["TC-001"],
-            workflow_contract_materialized_case=True,
             fixture_key="workflow_contract_seed",
             isolation_required=False,
+            workflow_id="bp-1",
+            source_state="draft_saved",
+            target_state="reviewed",
         ),
         _case(
             "TC-003",
@@ -133,17 +123,38 @@ def test_build_execution_plan_metadata_summary_preserves_core_fields() -> None:
         ),
     ]
 
+    contract = {
+        "id": "bp-1",
+        "workflow_id": "bp-1",
+        "initial_state": "ready",
+        "terminal_states": ["reviewed"],
+        "required_stage_ids": ["draft", "review"],
+        "steps": [
+            {
+                "id": "draft",
+                "state_in": "ready",
+                "state_out": "draft_saved",
+                "required": True,
+            },
+            {
+                "id": "review",
+                "state_in": "draft_saved",
+                "state_out": "reviewed",
+                "required": True,
+                "terminal": True,
+            },
+        ],
+    }
     summary = build_execution_plan_metadata_summary(
         annotated,
         coverage_mode="strict",
-        workflow_blueprints=[{"id": "bp-1"}, {"id": "bp-2"}, {"id": "bp-3"}],
-        trusted_workflow_contracts=[{"id": "bp-1"}],
+        workflow_blueprints=[contract, {"id": "bp-2"}, {"id": "bp-3"}],
+        trusted_workflow_contracts=[contract],
         current_requirement_workflow_blueprints=[{"id": "bp-2"}],
-        plan_workflow_blueprints=[{"id": "bp-1"}, {"id": "bp-2"}],
+        plan_workflow_blueprints=[contract, {"id": "bp-2"}],
         workflow_blueprint_source="trusted_workflow_contract",
         main_chain_stage_kinds=["commit", "downstream_visibility"],
         main_chain_incomplete_reason="",
-        derived_workflow_debug={"selected_candidate_count": 2},
         group_setup_map={
             "display": "seed_display_dataset()",
             "main_smoke": "seed_main_chain()",
@@ -167,7 +178,9 @@ def test_build_execution_plan_metadata_summary_preserves_core_fields() -> None:
     assert summary["main_chain_stage_order"] == ["draft", "review"]
     assert summary["main_chain_stage_kinds"] == ["commit", "downstream_visibility"]
     assert summary["main_chain_incomplete_reason"] == ""
-    assert summary["derived_workflow_debug"] == {"selected_candidate_count": 2}
+    assert summary["required_stage_coverage_complete"] is True
+    assert summary["terminal_state_reachable"] is True
+    assert summary["workflow_closure_satisfied"] is True
     assert summary["independent_case_count"] == 1
     assert summary["isolation_case_count"] == 1
     assert summary["role_switch_count"] == 1
@@ -187,8 +200,6 @@ def test_build_execution_plan_metadata_summary_preserves_core_fields() -> None:
             "case_count": 1,
         }
     ]
-    assert summary["generated_bridge_case_count"] == 1
-    assert summary["workflow_contract_materialized_case_count"] == 1
     assert summary["group_setup"] == {
         "display": "seed_display_dataset()",
         "main_smoke": "seed_main_chain()",
@@ -266,7 +277,6 @@ def test_build_execution_plan_metadata_summary_uses_empty_defaults() -> None:
     assert summary["main_chain_stage_order"] == []
     assert summary["main_chain_stage_kinds"] == []
     assert summary["main_chain_incomplete_reason"] == ""
-    assert summary["derived_workflow_debug"] == {}
     assert summary["main_chain_excluded_candidates"] == []
     assert summary["independent_case_count"] == 0
     assert summary["isolation_case_count"] == 0
@@ -288,8 +298,6 @@ def test_build_execution_plan_metadata_summary_uses_empty_defaults() -> None:
         "main_chain": [],
         "side_suites": [],
     }
-    assert summary["generated_bridge_case_count"] == 0
-    assert summary["workflow_contract_materialized_case_count"] == 0
     assert summary["group_setup"] == {}
     assert summary["group_teardown"] == {}
     assert summary["fixture_keys"] == []

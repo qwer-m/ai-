@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from .streaming_case_normalization import is_placeholder_expected_result
 
@@ -55,6 +56,7 @@ _BUSINESS_ASSERTION_PREDICATES = (
     "可选择",
     "自动",
     "生成",
+    "完成",
     "展示",
     "显示",
     "出现",
@@ -67,6 +69,7 @@ _BUSINESS_ASSERTION_PREDICATES = (
     "新增",
     "跳转",
     "进入",
+    "enter",
     "返回",
     "置灰",
     "禁用",
@@ -76,12 +79,24 @@ _BUSINESS_ASSERTION_PREDICATES = (
     "排序",
     "过滤",
     "匹配",
+    "等于",
+    "变为",
+    "变成",
+    "保持",
+    "处于",
+    "包含",
+    "存在",
+    "可见",
     "一致",
     "符合",
     "决定",
     "读取",
     "标记",
     "提示",
+    "拦截",
+    "阻止",
+    "拒绝",
+    "写入",
     "调整",
     "解决",
     "顺延",
@@ -101,65 +116,23 @@ _BUSINESS_ASSERTION_PREDICATES = (
     "supports",
     "retains",
     "matches",
-)
-
-_BUSINESS_ASSERTION_OBJECTS = (
-    "页面",
-    "详情页",
-    "列表",
-    "按钮",
-    "弹窗",
-    "文案",
-    "内容",
-    "信息",
-    "图标",
-    "头像",
-    "昵称",
-    "学校",
-    "地域",
-    "状态",
-    "时间",
-    "日期",
-    "数量",
-    "次数",
-    "记录",
-    "字段",
-    "表单",
-    "入口",
-    "预览",
-    "结果",
-    "数据",
-    "进度",
-    "任务",
-    "计划",
-    "课程",
-    "课时",
-    "限制",
-    "位置",
-    "权重",
-    "公式",
-    "计算结果",
-    "排序位置",
-    "冲突",
-    "规则",
-    "波浪线",
-    "标注",
-    "原文",
-    "帖子",
-    "排名",
-    "称号",
-    "时长",
-    "最新计划",
-    "最近",
-    "toast",
-    "message",
-    "status",
-    "count",
-    "record",
-    "field",
-    "preview",
-    "result",
-    "data",
+    "keeps",
+    "opens",
+    "navigates",
+    "redirects",
+    "exposes",
+    "enterable",
+    "shown",
+    "written",
+    "blocks",
+    "prevents",
+    "rejects",
+    "equals",
+    "becomes",
+    "remains",
+    "is set to",
+    "is absent",
+    "is present",
 )
 
 _CONCRETE_VALUE_RE = re.compile(
@@ -212,6 +185,28 @@ _BUSINESS_STATE_ANCHOR_TOKENS = (
     "updated",
 )
 
+_ASSERTION_RELATION_RE = re.compile(
+    r"(?:等于|变为|变成|保持|处于|包含|不包含|存在|不存在|可见|不可见|可编辑|只读|一致|相同|"
+    r"位于|介于|匹配|在[^，,；;]{1,40}之间|equals?|matches?|becomes?|remains?|between|"
+    r"editable|read[ -]?only|is\s+(?:set\s+to|absent|present)|={1,3})",
+    flags=re.IGNORECASE,
+)
+
+_COPULA_ASSERTION_RE = re.compile(
+    r"^[^，,；;]{2,}(?:为|是)[^，,；;]{1,}$",
+    flags=re.IGNORECASE,
+)
+
+_ENGLISH_COPULA_ASSERTION_RE = re.compile(
+    r"^[a-z0-9][a-z0-9 _./:'-]{1,}\s+(?:is|are)\s+(?:not\s+)?[a-z0-9][a-z0-9 _./:'-]*$",
+    flags=re.IGNORECASE,
+)
+
+_NEGATIVE_STATE_RE = re.compile(
+    r"(?:无|未|没有|不得|不能|不可|\bno\b|\bnot\b|\bwithout\b)",
+    flags=re.IGNORECASE,
+)
+
 
 def _non_assertable_phrase_hit(text: str) -> bool:
     return any(phrase in text for phrase in NON_ASSERTABLE_EXPECTED_PHRASES)
@@ -226,14 +221,66 @@ def _has_business_assertion_predicate(text: str) -> bool:
     return any(token.lower() in lowered for token in _BUSINESS_ASSERTION_PREDICATES)
 
 
-def _has_business_assertion_object(text: str) -> bool:
-    lowered = str(text or "").lower()
-    return any(token.lower() in lowered for token in _BUSINESS_ASSERTION_OBJECTS)
-
-
 def _has_business_state_anchor(text: str) -> bool:
     lowered = str(text or "").lower()
     return any(token.lower() in lowered for token in _BUSINESS_STATE_ANCHOR_TOKENS)
+
+
+def _has_assertion_subject(text: str) -> bool:
+    residue = str(text or "").strip().lower()
+    removable = sorted(
+        {*_BUSINESS_ASSERTION_PREDICATES, *_BUSINESS_STATE_ANCHOR_TOKENS},
+        key=len,
+        reverse=True,
+    )
+    for token in removable:
+        residue = residue.replace(token.lower(), " ")
+    residue = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", residue)
+    return len(residue) >= 2
+
+
+def _assertion_predicate_count(text: str) -> int:
+    lowered = str(text or "").lower()
+    return sum(1 for token in set(_BUSINESS_ASSERTION_PREDICATES) if token.lower() in lowered)
+
+
+def _has_assertion_relation(text: str) -> bool:
+    return bool(
+        _ASSERTION_RELATION_RE.search(text)
+        or _COPULA_ASSERTION_RE.search(text)
+        or _ENGLISH_COPULA_ASSERTION_RE.search(text)
+    )
+
+
+def _verified_semantic_assertion_terms(semantic: Any) -> tuple[str, ...]:
+    if not isinstance(semantic, dict):
+        return ()
+    terms: list[str] = []
+    seen: set[str] = set()
+    for collection_name, fields in (
+        ("module_candidates", ("module_name", "module_key")),
+        ("produced_states", ("entity", "state")),
+    ):
+        collection = semantic.get(collection_name)
+        if not isinstance(collection, list):
+            continue
+        for item in collection:
+            if not isinstance(item, dict) or item.get("evidence_verified") is not True:
+                continue
+            for field in fields:
+                value = re.sub(r"\s+", "", str(item.get(field) or "").strip().lower())
+                if len(value) < 2 or value in seen:
+                    continue
+                seen.add(value)
+                terms.append(value)
+    return tuple(terms)
+
+
+def _has_verified_semantic_assertion(text: str, semantic: Any) -> bool:
+    normalized = re.sub(r"\s+", "", str(text or "").strip().lower())
+    if not normalized or not _has_business_assertion_predicate(text):
+        return False
+    return any(term in normalized for term in _verified_semantic_assertion_terms(semantic))
 
 
 def _is_concrete_business_assertion_clause(text: str) -> bool:
@@ -242,13 +289,24 @@ def _is_concrete_business_assertion_clause(text: str) -> bool:
         return False
     has_value = _has_concrete_value(clause)
     has_anchor = _has_business_state_anchor(clause)
-    if _non_assertable_phrase_hit(clause) and not (has_value or has_anchor):
+    has_relation = _has_assertion_relation(clause)
+    has_negative_state = bool(_NEGATIVE_STATE_RE.search(clause))
+    has_subject = _has_assertion_subject(clause)
+    if _non_assertable_phrase_hit(clause) and not (
+        has_value or has_negative_state or (has_anchor and has_subject)
+    ):
         return False
-    if not _has_business_assertion_predicate(clause):
+    if not (_has_business_assertion_predicate(clause) or has_relation):
         return False
     if has_value:
         return True
-    return bool(_has_business_assertion_object(clause) and has_anchor)
+    if has_relation:
+        return has_subject
+    if has_negative_state:
+        return has_subject
+    if _assertion_predicate_count(clause) >= 2:
+        return has_subject
+    return bool(has_anchor and has_subject)
 
 
 def _business_assertion_clause_count(text: str) -> int:
@@ -287,7 +345,7 @@ def _has_formula_or_algorithm_assertion(text: str) -> bool:
     return bool(numeric_signal and result_signal)
 
 
-def has_concrete_expected_assertion(text: str) -> bool:
+def has_concrete_expected_assertion(text: str, semantic: Any = None) -> bool:
     normalized = str(text or "").strip()
     if not normalized:
         return False
@@ -306,29 +364,29 @@ def has_concrete_expected_assertion(text: str) -> bool:
         "移除",
         "恢复为",
         "可重新",
-        "无锁",
-        "无任何锁",
         "无提示",
-        "无需解锁",
         "提示阻止",
-        "直接进入",
-        "主题名称",
-        "列表依次",
         "顺序与",
-        "权重公式",
-        "公式计算结果一致",
         "降序排列",
-        "图片不清晰",
         "重试选项",
+        "enabled",
         "disabled",
         "hidden",
+        "visible",
         "restore",
         "removed",
     )
     if any(token in normalized for token in concrete_tokens):
         return True
+    if _has_verified_semantic_assertion(normalized, semantic):
+        return True
     if _has_formula_or_algorithm_assertion(normalized):
         return True
+    if _is_concrete_business_assertion_clause(normalized):
+        if _has_assertion_relation(normalized):
+            return True
+        if _assertion_predicate_count(normalized) >= 2 or _NEGATIVE_STATE_RE.search(normalized):
+            return True
     if _business_assertion_clause_count(normalized) >= 2:
         return True
     return False
@@ -352,7 +410,7 @@ def has_weak_ambiguous_expected_result(text: str) -> bool:
     return any(token in normalized for token in weak_alternatives)
 
 
-def is_non_assertable_expected_result(text: str) -> bool:
+def is_non_assertable_expected_result(text: str, semantic: Any = None) -> bool:
     normalized = str(text or "").strip()
     if not normalized:
         return True
@@ -360,14 +418,27 @@ def is_non_assertable_expected_result(text: str) -> bool:
         return True
     if is_placeholder_expected_result(normalized):
         return True
-    concrete_assertion = has_concrete_expected_assertion(normalized)
+    concrete_assertion = has_concrete_expected_assertion(normalized, semantic)
     if is_ambiguous_expected_result(normalized):
         if concrete_assertion and not has_weak_ambiguous_expected_result(normalized):
             return False
         return True
     if concrete_assertion:
         return False
-    return _non_assertable_phrase_hit(normalized)
+    return True
+
+
+def is_case_expected_result_non_assertable(case: Any) -> bool:
+    if not isinstance(case, dict):
+        return True
+    expected_result = ""
+    for key in ("expected_result", "expectedResult", "预期结果", "预期"):
+        value = str(case.get(key) or "").strip()
+        if value:
+            expected_result = value
+            break
+    semantic = case.get("_semantic") if isinstance(case.get("_semantic"), dict) else None
+    return is_non_assertable_expected_result(expected_result, semantic)
 
 
 def looks_template_polluted_expected_result(text: str) -> bool:

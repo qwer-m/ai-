@@ -8,7 +8,6 @@ from .json_generation_dependencies import (
     LogEntry,
     TestGeneration,
     analyze_coverage,
-    apply_existing_execution_group_ordering,
     build_closed_loop_base_prompt,
     build_context_compression_diagnostics,
     build_coverage_diagnostics,
@@ -22,13 +21,13 @@ from .json_generation_dependencies import (
     clean_and_parse_json,
     count_unique_test_cases,
     deduplicate_test_cases,
+    evaluate_current_requirement_semantic_compilation,
     evaluate_persistence_gate,
     finalize_generated_cases,
     get_client_for_user,
     get_memory_fabric,
     infer_case_kind,
     init_memory_diag,
-    judge_cases,
     merge_contract_quality_gate,
     merge_current_requirement_blueprint_control_state,
     merge_generation_mode_control_state,
@@ -36,19 +35,17 @@ from .json_generation_dependencies import (
     normalize_json_structure,
     project_persistable_cases,
     reorder_cases_by_closed_loop,
-    repair_cases,
     requirement_compression_decision,
     resolve_linked_final_case_signal,
-    run_multi_pass_generation,
     stream_postprocess_cases,
     summarize_persistable_case_contract,
     summarize_persistence_case_quality_gate,
-    training_gate,
 )
 from .json_generation_execution import run_json_generation_execution
 from .json_generation_diag_emitters import (
     emit_json_biz_key_diag,
     emit_json_prompt_context_intake_diag,
+    persist_generation_diag,
 )
 from .json_generation_persist_diagnostics import (
     emit_pre_persist_generation_diagnostics,
@@ -58,6 +55,10 @@ from .json_generation_persist_diagnostics import (
 from .json_generation_persistence import run_json_persistence_flow
 from .json_generation_review_postprocess import run_json_review_postprocess
 from ..postprocess.module_contract import enforce_functional_module_contract
+from ..control.semantic_contract import (
+    CASE_SEMANTIC_CONTRACT_ABORT_CODE,
+    resolve_case_semantic_gate,
+)
 from .json_generation_runtime import resolve_json_generation_runtime
 
 
@@ -306,15 +307,6 @@ class LegacyGenerationJsonMixin:
                 )
                 return error_payload
 
-            feedback_control_state = merge_current_requirement_blueprint_control_state(
-                feedback_control_state,
-                client=client,
-                requirement_text=original_requirement,
-                db=db,
-                project_id=project_id,
-                user_id=user_id,
-            ).to_dict()
-
             compression_decision = requirement_compression_decision(
                 requirement,
                 compress_requested=bool(compress),
@@ -331,6 +323,53 @@ class LegacyGenerationJsonMixin:
                         requirement = compressed_req
                 except Exception:
                     pass
+
+        feedback_control_state = merge_current_requirement_blueprint_control_state(
+            feedback_control_state,
+            client=client,
+            requirement_text=original_requirement,
+            db=db,
+            project_id=project_id,
+            user_id=user_id,
+        ).to_dict()
+        current_blueprint_meta = dict((feedback_control_state or {}).get("source_meta") or {})
+        semantic_compilation_gate = evaluate_current_requirement_semantic_compilation(
+            current_blueprint_meta,
+            requirement_text=original_requirement,
+        )
+        if not semantic_compilation_gate.get("passed"):
+            diagnostic_payload = {
+                "kind": "semantic_compilation_abort",
+                "request_id": request_id,
+                "project_id": project_id,
+                "user_id": user_id,
+                **semantic_compilation_gate,
+            }
+            persist_generation_diag(
+                db=db,
+                active_db_session=self._is_active_db_session(db),
+                log_entry_model=LogEntry,
+                project_id=project_id,
+                user_id=user_id,
+                payload=diagnostic_payload,
+            )
+            error_payload = {
+                "error": semantic_compilation_gate.get("abort_code"),
+                "abort_code": semantic_compilation_gate.get("abort_code"),
+                "message": semantic_compilation_gate.get("message"),
+                "reason_chain": [
+                    "current_requirement_semantic_compilation_failed",
+                    "generation_aborted_before_test_case_model_call",
+                ],
+                "semantic_compilation": semantic_compilation_gate,
+                "diagnostic": diagnostic_payload,
+            }
+            print(
+                "semantic compilation abort(json): "
+                f"status={semantic_compilation_gate.get('semantic_compile_status')}, "
+                f"declaration={semantic_compilation_gate.get('workflow_declaration_status')}"
+            )
+            return error_payload
 
         # Meta-Analysis Step (Dynamic Strategy Planning)
         analysis_result = self.analyze_requirement_context(requirement, kb_context, client, db)
@@ -451,6 +490,22 @@ Return ONLY the JSON array.
             log_entry_model=LogEntry,
             build_prompt_context_intake_diagnostics_fn=build_prompt_context_intake_diagnostics,
         )
+        require_case_semantic_contract, requirement_semantic_contract = resolve_case_semantic_gate(
+            feedback_control_state
+        )
+        case_semantic_rejections: list[dict[str, Any]] = []
+
+        def _normalize_generated_json_structure(data: Any) -> Any:
+            if not require_case_semantic_contract:
+                return normalize_json_structure(data)
+            return normalize_json_structure(
+                data,
+                require_case_semantic_contract=True,
+                requirement_semantic_contract=requirement_semantic_contract,
+                semantic_rejections=case_semantic_rejections,
+                semantic_source_stage="json_primary_generation",
+            )
+
         execution_result = run_json_generation_execution(
             client=client,
             requirement=requirement,
@@ -458,27 +513,52 @@ Return ONLY the JSON array.
             system_prompt=system_prompt,
             prompt_context=prompt_context,
             resolved_current_biz=resolved_current_biz,
-            expected_count=expected_count,
-            batch_size=batch_size,
             start_id=start_id,
             normalized_generation_mode=normalized_generation_mode,
-            multi_pass=multi_pass,
-            generation_mode=generation_mode,
-            strategy_plan=strategy_plan,
-            doc_type=doc_type,
             clean_and_parse_json_fn=clean_and_parse_json,
-            normalize_json_structure_fn=normalize_json_structure,
+            normalize_json_structure_fn=_normalize_generated_json_structure,
             deduplicate_test_cases_fn=deduplicate_test_cases,
             reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
-            run_multi_pass_generation_fn=run_multi_pass_generation,
             finalize_generated_cases_fn=finalize_generated_cases,
             analyze_coverage_fn=analyze_coverage,
-            build_closed_loop_base_prompt_fn=build_closed_loop_base_prompt,
         )
         result = execution_result.result
         stage_logs = execution_result.stage_logs
         coverage_check_payload = execution_result.coverage_check_payload
         raw_response_payload = execution_result.raw_response_payload
+        if case_semantic_rejections:
+            semantic_rejection_diagnostic = {
+                "kind": "case_semantic_contract_rejections",
+                "request_id": request_id,
+                "project_id": project_id,
+                "user_id": user_id,
+                "rejected_count": int(len(case_semantic_rejections)),
+                "accepted_count": int(len(result)) if isinstance(result, list) else 0,
+                "rejections": list(case_semantic_rejections)[:20],
+            }
+            persist_generation_diag(
+                db=db,
+                active_db_session=self._is_active_db_session(db),
+                log_entry_model=LogEntry,
+                project_id=project_id,
+                user_id=user_id,
+                payload=semantic_rejection_diagnostic,
+            )
+            if require_case_semantic_contract and not result:
+                return {
+                    "error": CASE_SEMANTIC_CONTRACT_ABORT_CODE,
+                    "abort_code": CASE_SEMANTIC_CONTRACT_ABORT_CODE,
+                    "message": "模型生成用例未满足结构化语义契约，已在 Review 前中止。",
+                    "reason_chain": [
+                        "generated_case_semantic_contract_failed",
+                        "generation_aborted_before_review",
+                    ],
+                    "diagnostic": {
+                        **semantic_rejection_diagnostic,
+                        "kind": "case_semantic_contract_abort",
+                        "abort_code": CASE_SEMANTIC_CONTRACT_ABORT_CODE,
+                    },
+                }
 
         review_postprocess = run_json_review_postprocess(
             result=result,
@@ -494,7 +574,6 @@ Return ONLY the JSON array.
             generation_mode=generation_mode,
             feedback_control_state=feedback_control_state if isinstance(feedback_control_state, dict) else {},
             prompt_context=prompt_context,
-            stage_logs=stage_logs,
             stage_counts=stage_counts,
             coverage_check_payload=coverage_check_payload,
             clean_and_parse_json_fn=clean_and_parse_json,
@@ -506,10 +585,7 @@ Return ONLY the JSON array.
             build_supplement_closed_loop_instruction_fn=build_supplement_closed_loop_instruction,
             build_requirement_semantics_payload_fn=build_requirement_semantics_payload,
             stream_postprocess_cases_fn=stream_postprocess_cases,
-            judge_cases_fn=judge_cases,
-            repair_cases_fn=repair_cases,
-            training_gate_fn=training_gate,
-            apply_existing_execution_group_ordering_fn=apply_existing_execution_group_ordering,
+            initial_case_semantic_rejections=case_semantic_rejections,
         )
         result = review_postprocess.result
         stage_counts = review_postprocess.stage_counts
@@ -526,6 +602,15 @@ Return ONLY the JSON array.
         final_case_count = review_postprocess.final_case_count
         empty_result_guard_triggered = review_postprocess.empty_result_guard_triggered
         empty_result_stage = review_postprocess.empty_result_stage
+        if not review_postprocess.stream_postprocess_applied:
+            return dict(result) if isinstance(result, dict) else {
+                "error": "GLOBAL_REVIEW_REQUIRED",
+                "error_code": "GLOBAL_REVIEW_REQUIRED",
+                "abort_code": "GLOBAL_REVIEW_REQUIRED",
+                "error_message": "全局 Review 未成功执行，已终止生成，未持久化候选结果。",
+                "status": "failed",
+                "final_status": "global_review_failed",
+            }
         if isinstance(result, list):
             result, module_contract_summary = enforce_functional_module_contract(
                 [item for item in result if isinstance(item, dict)],

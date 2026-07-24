@@ -1,3 +1,5 @@
+import json
+
 import modules.testing.test_generation_components.legacy.stream.batches as batches_mod
 from modules.testing.test_generation_components.legacy_generation_impl import TestGenerationModule
 
@@ -14,7 +16,7 @@ class _FakeClient:
 
 
 class _DuplicateBatchClient:
-    """中文注释：固定返回同一条用例，验证连续低增益批次会触发提前停止。"""
+    """中文注释：固定返回同一条用例，验证局部低增益不会截断全局批次。"""
 
     def generate_response(self, *args, **kwargs):
         return "[]"
@@ -22,8 +24,8 @@ class _DuplicateBatchClient:
     def generate_response_stream(self, *args, **kwargs):
         yield (
             '[{"id":"TC-001","description":"重复场景","test_module":"模块A",'
-            '"preconditions":[],"steps":["step1"],"test_input":"input",'
-            '"expected_result":"执行成功","priority":"P2"}]'
+            '"preconditions":["authenticated user exists"],"steps":["step1"],"test_input":"input",'
+            '"expected_result":"the saved state is visible after reopening","priority":"P2"}]'
         )
 
 
@@ -56,8 +58,49 @@ class _ParallelShardClient:
     def generate_response(self, *args, **kwargs):  # noqa: ANN002, ANN003
         return (
             f'[{{"id":"{self.case_id}","description":"{self.description}",'
-            '"test_module":"Forum","preconditions":[],"steps":["open","submit"],'
+            '"test_module":"Forum","preconditions":["authenticated user exists"],"steps":["open","submit"],'
             '"test_input":"valid data","expected_result":"state is updated","priority":"P1"}}]'
+        )
+
+
+class _ParallelContractClient:
+    def __init__(self, *, public_module: str, semantic_module: str, description: str) -> None:
+        self.public_module = public_module
+        self.semantic_module = semantic_module
+        self.description = description
+        self.last_response_metadata = {"model": "parallel-contract-model"}
+
+    def generate_response(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        module_key = self.semantic_module.lower()
+        return json.dumps(
+            [
+                {
+                    "id": "raw-case",
+                    "description": self.description,
+                    "test_module": self.public_module,
+                    "preconditions": ["authenticated user exists"],
+                    "steps": [self.description],
+                    "test_input": "valid data",
+                    "expected_result": "state is updated",
+                    "priority": "P1",
+                    "_semantic": {
+                        "module_candidates": [
+                            {
+                                "module_key": module_key,
+                                "module_name": self.semantic_module,
+                                "role": "primary",
+                                "confidence": 0.9,
+                                "evidence": [self.description],
+                            }
+                        ],
+                        "interaction_ids": [],
+                        "workflow_stage_candidates": [],
+                        "precondition_states": [],
+                        "produced_states": [],
+                    },
+                }
+            ],
+            ensure_ascii=False,
         )
 
 
@@ -131,7 +174,7 @@ def test_stream_batches_guard_against_none_plan(monkeypatch):
     assert batches_mod is not None
 
 
-def test_stream_batches_early_stop_on_low_incremental_gain() -> None:
+def test_stream_batches_keep_global_plan_after_local_low_incremental_gain() -> None:
     module = TestGenerationModule()
     client = _DuplicateBatchClient()
     state = {
@@ -163,13 +206,14 @@ def test_stream_batches_early_stop_on_low_incremental_gain() -> None:
             break
 
     assert isinstance(final_state, dict)
-    assert final_state.get("stream_early_stop_triggered") is True
-    assert final_state.get("stream_early_stop_reason") == "low_incremental_gain_two_batches"
+    assert final_state.get("stream_early_stop_triggered") is False
+    assert final_state.get("stream_early_stop_reason") == ""
     metrics = [row for row in (final_state.get("stream_batch_quality_metrics") or []) if isinstance(row, dict)]
     assert len(metrics) >= 2
     assert metrics[0].get("low_gain_detected") is True
     assert metrics[1].get("low_gain_detected") is True
     assert any("GEN_DIAG:" in str(chunk) and "stream_batch_quality" in str(chunk) for chunk in chunks)
+    assert any("global_batches_continue" in str(chunk) for chunk in chunks)
 
 
 def test_stream_batches_injects_coverage_plan_lite() -> None:
@@ -259,9 +303,99 @@ def test_stream_batches_accepts_parallel_coverage_shards(monkeypatch) -> None:
     assert isinstance(final_state, dict)
     assert final_state.get("stream_parallel_shards_used") is True
     assert final_state.get("stream_parallel_shard_result", {}).get("status") == "accepted"
+    assert final_state.get("stream_batch_acceptance_summaries", [])[0].get("source") == "parallel_shards"
+    assert final_state.get("stream_batch_acceptance_summaries", [])[0].get("accepted_count") == 2
     assert "TC-001" in final_state.get("full_content", "")
     assert "TC-002" in final_state.get("full_content", "")
     assert any("parallel_coverage_shard_result" in str(chunk) for chunk in chunks)
+
+
+def test_parallel_module_conflict_falls_back_before_acceptance(monkeypatch) -> None:
+    _enable_parallel_shards(monkeypatch)
+    _patch_two_rule_coverage_plan(monkeypatch)
+    profile = {
+        "functional_architecture": {
+            "functional_modules": [
+                {
+                    "module_key": "forum",
+                    "module_name": "Forum",
+                    "scope_status": "in_scope",
+                    "evidence_verified": True,
+                },
+                {
+                    "module_key": "other",
+                    "module_name": "Other",
+                    "scope_status": "in_scope",
+                    "evidence_verified": True,
+                },
+            ],
+            "module_interactions": [],
+        }
+    }
+    monkeypatch.setattr(
+        batches_mod,
+        "build_structured_prompt_context",
+        lambda **kwargs: {
+            "requirement_context": kwargs.get("requirement") or "",
+            "requirement_semantics_context": "",
+            "testcase_context": "",
+            "supplement_context": "",
+            "control_context": "",
+            "current_biz_key": "forum",
+            "project_profile": profile,
+            "feedback_control_state": {},
+        },
+    )
+    shard_clients = [
+        _ParallelContractClient(
+            public_module="Forum",
+            semantic_module="Forum",
+            description="create forum post",
+        ),
+        _ParallelContractClient(
+            public_module="Other",
+            semantic_module="Forum",
+            description="create forum reply",
+        ),
+    ]
+
+    state = {
+        "client": _FakeClient(),
+        "requirement": "Forum optimization requirement",
+        "project_id": 1,
+        "db": None,
+        "doc_type": "requirement",
+        "expected_count": 26,
+        "batch_size": 25,
+        "append": False,
+        "user_id": 1,
+        "request_id": "parallel-contract-fallback",
+        "kb_context": "",
+        "start_id": 1,
+        "existing_cases": [],
+        "context_result": {},
+        "gate_debug": {},
+        "parallel_shard_client_factory": lambda shard: shard_clients[
+            int(shard["shard_index"]) - 1
+        ],
+    }
+
+    gen = TestGenerationModule()._stream_run_batches_phase(state=state)
+    final_state = None
+    while True:
+        try:
+            next(gen)
+        except StopIteration as stop:
+            final_state = stop.value
+            break
+
+    assert isinstance(final_state, dict)
+    result = final_state["stream_parallel_shard_result"]
+    assert final_state["stream_parallel_shards_used"] is False
+    assert result["status"] == "fallback"
+    assert result["fallback_reason"] == "functional_module_contract_rejected"
+    assert result["accepted_case_count"] == 1
+    assert result["functional_module_contract"]["module_rejected_case_count"] == 1
 
 
 def test_stream_batches_falls_back_when_parallel_client_unavailable(monkeypatch) -> None:

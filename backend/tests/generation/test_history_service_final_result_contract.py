@@ -276,6 +276,69 @@ def test_history_rehydrates_execution_suite_from_compact_diagnostic() -> None:
     assert suite["suites"][0]["cases"][1]["depends_on"] == ["TC-001"]
 
 
+def test_history_rehydrates_declared_independent_suite_without_leaking_internal_fields() -> None:
+    internal_cases = [
+        {
+            "id": "TC-001",
+            "description": "validate independent behavior",
+            "test_module": "independent module",
+            "preconditions": [],
+            "steps": ["run independent behavior"],
+            "test_input": "valid input",
+            "expected_result": "independent behavior succeeds",
+            "priority": "P1",
+            "priority_final": "P1",
+            "execution_group": "independent_functional",
+            "execution_sequence": 1,
+            "role": "business_user",
+            "session_key": "business_user_session",
+            "_semantic": {"workflow_stage_candidates": []},
+        }
+    ]
+    public_result = history_service_module._public_generation_result_text(
+        json.dumps(internal_cases, ensure_ascii=False)
+    )
+    public_cases = json.loads(public_result)
+    assert "_semantic" not in public_cases[0]
+    assert "execution_group" not in public_cases[0]
+    assert "execution_sequence" not in public_cases[0]
+
+    compact_suite = {
+        "kind": "execution_suite",
+        "workflow_absence_declared": True,
+        "execution_readiness": "independent_ready",
+        "suites": [
+            {
+                "suite_id": "independent_functional_chain",
+                "execution_group": "independent_functional",
+                "cases": [
+                    {
+                        "case_id": "TC-001",
+                        "execution_sequence": 1,
+                        "role": "business_user",
+                        "session_key": "business_user_session",
+                    }
+                ],
+            }
+        ],
+    }
+
+    suite = history_service_module._build_execution_suite_from_generated_result(
+        public_result,
+        suite_hint=compact_suite,
+    )
+
+    main_smoke_count = sum(
+        int(item.get("case_count") or 0)
+        for item in suite["suites"]
+        if item.get("execution_group") == "main_smoke"
+    )
+    assert main_smoke_count == 0
+    assert suite["linear_executable"] is False
+    assert suite["workflow_absence_declared"] is True
+    assert suite["execution_readiness"] == "independent_ready"
+
+
 def test_history_list_includes_execution_suite_summary(monkeypatch) -> None:
     cases = [
         {

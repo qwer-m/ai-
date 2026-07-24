@@ -13,9 +13,20 @@ from .json_validator import (
     reorder_cases_by_closed_loop,
 )
 from .module_contract import FUNCTIONAL_PHASE_FIELDS
+from ..control.semantic_contract import (
+    normalize_case_semantic,
+    validate_case_semantic_contract,
+)
 
 
-def normalize_json_structure(data: Any) -> Any:
+def normalize_json_structure(
+    data: Any,
+    *,
+    require_case_semantic_contract: bool = False,
+    requirement_semantic_contract: dict[str, Any] | None = None,
+    semantic_rejections: list[dict[str, Any]] | None = None,
+    semantic_source_stage: str = "generated_case",
+) -> Any:
     """Normalize generated case structures without changing non-list inputs."""
     if not isinstance(data, list):
         return data
@@ -102,6 +113,45 @@ def normalize_json_structure(data: Any) -> Any:
             value = item.get(field)
             if value is not None and value != "" and value != []:
                 normalized_case[field] = value
+        case_text = "\n".join(
+            [
+                description,
+                test_module,
+                *preconditions,
+                *steps,
+                test_input,
+                expected_result,
+            ]
+        )
+        semantic_validation = validate_case_semantic_contract(
+            item.get("_semantic"),
+            case_text=case_text,
+            requirement_contract=requirement_semantic_contract,
+        )
+        if require_case_semantic_contract and not semantic_validation.get("valid"):
+            if semantic_rejections is not None:
+                semantic_rejections.append(
+                    {
+                        "source_stage": str(semantic_source_stage or "generated_case"),
+                        "case_index": int(i + 1),
+                        "case_id": final_id,
+                        "description": description[:160],
+                        "rejection_reasons": list(
+                            semantic_validation.get("rejection_reasons") or []
+                        ),
+                        "rejected_semantic_items": list(
+                            semantic_validation.get("rejected_semantic_items") or []
+                        )[:16],
+                    }
+                )
+            continue
+        semantic = (
+            semantic_validation.get("semantic")
+            if require_case_semantic_contract
+            else normalize_case_semantic(item.get("_semantic"), case_text=case_text)
+        )
+        if semantic:
+            normalized_case["_semantic"] = semantic
         normalized.append(normalized_case)
 
     return normalized

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 from .case_access import case_flat_text, case_step_lines, case_steps, case_text_field
 from .result_postprocess_priority_semantics_split_helpers import score_case_priority
@@ -217,7 +217,7 @@ def is_ui_like_case(case: dict[str, Any], score_profile: dict[str, Any]) -> bool
         "幂等",
         "一致",
         "不丢上下文",
-        "不串课文",
+        "无串扰",
         "不错跳",
         "上下文保持",
         "断言",
@@ -232,8 +232,8 @@ def is_ui_like_case(case: dict[str, Any], score_profile: dict[str, Any]) -> bool
     has_pseudo_flow = any(token in text for token in pseudo_flow_tokens)
     has_behavior_depth = any(token in text for token in behavior_depth_tokens)
     state_guard_tokens = (
-        "不串课文",
-        "不串单元",
+        "无串扰",
+        "保持隔离",
         "不丢上下文",
         "不错误推进",
         "不标记完成",
@@ -241,8 +241,7 @@ def is_ui_like_case(case: dict[str, Any], score_profile: dict[str, Any]) -> bool
         "context preserved",
         "no wrong progression",
         "keep current node",
-        "no cross-unit leak",
-        "no cross-lesson leak",
+        "no cross-context leak",
     )
     has_state_guard_signal = any(token in text for token in state_guard_tokens)
     step_guard_patterns = (
@@ -292,72 +291,4 @@ def is_ui_like_case(case: dict[str, Any], score_profile: dict[str, Any]) -> bool
     return False
 
 
-def apply_ui_like_ratio_postprocess_cap(
-    cases: list[dict[str, Any]],
-    *,
-    forbidden_patterns_active: bool,
-    focus_score_fn: Callable[[dict[str, Any]], int],
-    ui_max_ratio: float = 0.40,
-    ui_min_keep: int = 2,
-) -> tuple[list[dict[str, Any]], int]:
-    if not forbidden_patterns_active:
-        return list(cases), 0
-
-    input_cases = [item for item in cases if isinstance(item, dict)]
-    total_after_priority = int(len(input_cases))
-    if total_after_priority <= 0:
-        return input_cases, 0
-
-    score_profiles: list[dict[str, Any]] = []
-    ui_like_count = 0
-    for case in input_cases:
-        # Keep UI-like cap aligned with observe_batch_a semantics (no external coverage context).
-        profile = score_case_priority(case)
-        if bool(profile.get("ui_like_case")):
-            ui_like_count += 1
-        score_profiles.append(profile)
-
-    allowed_ui_like_count = max(int(ui_min_keep), int(float(total_after_priority) * float(ui_max_ratio)))
-    need_drop_count = int(max(0, ui_like_count - allowed_ui_like_count))
-    if need_drop_count <= 0:
-        return input_cases, 0
-
-    removable: list[tuple[int, int, int, int]] = []
-    for index, (case, profile) in enumerate(zip(input_cases, score_profiles)):
-        if not bool(profile.get("ui_like_case")):
-            continue
-        if infer_case_kind(case) == "workflow_entry":
-            continue
-        has_coverage_value = bool(
-            (profile.get("missing_rule_hits") or [])
-            or (profile.get("core_rule_hits") or [])
-            or (profile.get("unique_coverage_hits") or [])
-        )
-        reasons = [str(x) for x in (profile.get("reasons") or [])]
-        main_workflow_hit = bool("main_workflow_hit" in reasons)
-        preferred_pattern_hit = bool(profile.get("preferred_pattern_hit"))
-        reuse_risk_hit = bool(profile.get("reuse_risk_hit"))
-        cross_or_state_hit = bool(profile.get("cross_page_flow_hit") or profile.get("state_transition_hit"))
-        if has_coverage_value or main_workflow_hit or preferred_pattern_hit or reuse_risk_hit or cross_or_state_hit:
-            continue
-        removable.append(
-            (
-                int(profile.get("focus_score") or focus_score_fn(case)),
-                int(profile.get("coverage_gain_score") or 0),
-                int(str(case.get("priority") or "").strip().upper() in {"P0", "P1"}),
-                int(index),
-            )
-        )
-
-    if not removable:
-        return input_cases, 0
-
-    removable.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
-    drop_index_set = {
-        int(item[3]) for item in removable[: int(min(need_drop_count, len(removable)))]
-    }
-    if not drop_index_set:
-        return input_cases, 0
-    return [
-        case for idx, case in enumerate(input_cases) if int(idx) not in drop_index_set
-    ], int(len(drop_index_set))
+__all__ = ["is_ui_like_case"]

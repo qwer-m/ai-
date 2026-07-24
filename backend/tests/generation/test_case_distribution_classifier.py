@@ -14,9 +14,9 @@ from modules.test_generation_components.eval.case_distribution_classifier import
 def test_classify_case_distribution_returns_flow_for_multi_step_path() -> None:
     case = {
         "id": "TC-001",
-        "description": "open course and finish the practice journey",
-        "steps": ["enter course", "submit answer", "return to course list"],
-        "expected_result": "user completes the learning flow",
+        "description": "open request and finish the approval journey",
+        "steps": ["enter request", "submit approval", "return to request list"],
+        "expected_result": "user completes the approval flow",
     }
     assert classify_case_distribution(case) == "FLOW"
 
@@ -24,9 +24,9 @@ def test_classify_case_distribution_returns_flow_for_multi_step_path() -> None:
 def test_classify_case_distribution_accepts_alias_fields() -> None:
     case = {
         "caseId": "TC-ALIAS",
-        "title": "open course and finish the practice journey",
-        "testSteps": ["enter course", "submit answer", "return to course list"],
-        "expectedResult": "user completes the learning flow",
+        "title": "open request and finish the approval journey",
+        "testSteps": ["enter request", "submit approval", "return to request list"],
+        "expectedResult": "user completes the approval flow",
     }
 
     assert classify_case_distribution(case) == "FLOW"
@@ -36,9 +36,9 @@ def test_classify_case_distribution_accepts_alias_fields() -> None:
 def test_classify_case_distribution_splits_text_steps_with_shared_accessor() -> None:
     case = {
         "caseId": "TC-TEXT-STEPS",
-        "title": "finish the practice journey",
-        "testSteps": "enter course;do exercise；submit answer",
-        "expectedResult": "user completes the learning flow",
+        "title": "finish the approval journey",
+        "testSteps": "enter request;review details；submit approval",
+        "expectedResult": "user completes the approval flow",
     }
 
     assert classify_case_distribution(case) == "FLOW"
@@ -49,7 +49,7 @@ def test_classify_case_distribution_returns_state_for_context_guard_case() -> No
     case = {
         "id": "TC-002",
         "description": "reload after interruption",
-        "steps": ["interrupt app", "resume current lesson"],
+        "steps": ["interrupt app", "resume current request"],
         "expected_result": "context preserved and keep current state",
     }
     assert classify_case_distribution(case) == "STATE"
@@ -58,8 +58,8 @@ def test_classify_case_distribution_returns_state_for_context_guard_case() -> No
 def test_classify_case_distribution_keeps_return_reenter_state_guard_as_state() -> None:
     case = {
         "id": "TC-002A",
-        "description": "return to course list and re-enter current lesson",
-        "steps": ["return to course list", "re-enter current lesson"],
+        "description": "return to request list and re-enter current request",
+        "steps": ["return to request list", "re-enter current request"],
         "expected_result": "context preserved and keep current state",
     }
     assert classify_case_distribution(case) == "STATE"
@@ -79,8 +79,8 @@ def test_classify_case_distributions_and_summaries_use_shared_rules() -> None:
     cases = [
         {
             "id": "TC-001",
-            "description": "enter course and submit exercise",
-            "steps": ["enter course", "do exercise", "submit answer"],
+            "description": "enter item and submit approval",
+            "steps": ["enter item", "review details", "submit approval"],
             "expected_result": "flow closes correctly",
         },
         {
@@ -122,3 +122,92 @@ def test_classify_case_distribution_requires_progress_signal_for_flow() -> None:
         "expected_result": "navigation remains available",
     }
     assert classify_case_distribution(case) == "UI"
+
+
+def test_classify_case_distribution_prefers_structured_execution_contract() -> None:
+    main_flow = {
+        "id": "TC-STRUCT-001",
+        "description": "button title display",
+        "steps": ["open page"],
+        "expected_result": "button title is visible",
+        "execution_group": "main_smoke",
+        "workflow_transition": {
+            "source_state": "draft_ready",
+            "target_state": "request_submitted",
+            "can_advance_main_flow": True,
+        },
+    }
+    state_case = {
+        "id": "TC-STRUCT-002",
+        "description": "refresh view",
+        "steps": ["refresh"],
+        "expected_result": "view remains current",
+        "_semantic": {
+            "produced_states": [
+                {
+                    "entity": "request",
+                    "state": "current",
+                    "evidence_verified": True,
+                }
+            ]
+        },
+    }
+
+    assert classify_case_distribution(main_flow) == "FLOW"
+    assert classify_case_distribution(state_case) == "STATE"
+
+
+def test_classify_case_distribution_does_not_trust_unverified_semantic_state() -> None:
+    case = {
+        "id": "TC-STRUCT-003",
+        "description": "button title display",
+        "steps": ["open page"],
+        "expected_result": "button title is visible",
+        "_semantic": {
+            "produced_states": [
+                {
+                    "entity": "request",
+                    "state": "current",
+                    "evidence_verified": False,
+                }
+            ]
+        },
+    }
+
+    assert classify_case_distribution(case) == "UI"
+
+
+def test_structure_signals_do_not_infer_cross_module_from_two_module_candidates() -> None:
+    case = {
+        "id": "TC-STRUCT-004",
+        "description": "verify a shared panel",
+        "steps": ["inspect panel"],
+        "expected_result": "panel remains visible",
+        "_semantic": {
+            "interaction_ids": [],
+            "module_candidates": [
+                {"module_key": "source", "role": "source", "evidence_verified": True},
+                {"module_key": "target", "role": "target", "evidence_verified": True},
+            ],
+        },
+    }
+
+    assert summarize_case_structure_signals([case])["cross_page_case_count"] == 0
+
+
+def test_structure_signals_require_interaction_and_source_target_roles() -> None:
+    case = {
+        "id": "TC-STRUCT-005",
+        "description": "verify a shared panel",
+        "steps": ["inspect panel"],
+        "expected_result": "panel remains visible",
+        "_semantic": {
+            "interaction_ids": ["source_target_sync"],
+            "module_candidates": [
+                {"module_key": "source", "role": "source", "evidence_verified": True},
+                {"module_key": "target", "role": "target", "evidence_verified": True},
+            ],
+        },
+    }
+
+    assert summarize_case_structure_signals([case])["cross_page_case_count"] == 1

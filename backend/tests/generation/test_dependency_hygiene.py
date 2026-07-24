@@ -527,14 +527,12 @@ print(json.dumps({
     "embedding_timeout": settings.EMBEDDING_TIMEOUT_SECONDS,
     "max_tokens": settings.MAX_TOKENS,
     "redis_port": settings.REDIS_PORT,
-    "state_coverage": settings.EXECUTION_PLAN_MIN_STATE_FIELD_COVERAGE,
 }))
 """,
         {
             "EMBEDDING_TIMEOUT_SECONDS": "bad",
             "MAX_TOKENS": "bad",
             "REDIS_PORT": "70000",
-            "EXECUTION_PLAN_MIN_STATE_FIELD_COVERAGE": "-0.1",
         },
     )
 
@@ -544,7 +542,6 @@ print(json.dumps({
         "embedding_timeout": 30.0,
         "max_tokens": 10000,
         "redis_port": 65535,
-        "state_coverage": 0.0,
     }
 
 

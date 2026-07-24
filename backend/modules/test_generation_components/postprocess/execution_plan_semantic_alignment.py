@@ -37,6 +37,7 @@ from .execution_plan_validation_tokens import (
     _RESUME_STATE_ONLY_TOKENS,
 )
 from .streaming_execution_plan_helpers import (
+    evaluate_declared_workflow_closure,
     is_pure_ui_goal_text,
     main_chain_goal_action_text,
     main_chain_goal_text,
@@ -300,8 +301,8 @@ def _add_semantic_conflict(
     )
 
 
-def validate_main_smoke_semantic_alignment(cases: Any) -> list[dict[str, Any]]:
-    """Validate that user-facing case text supports the assigned main-chain stage."""
+def _collect_main_smoke_semantic_findings(cases: Any) -> list[dict[str, Any]]:
+    """Collect semantic findings before separating blocking conflicts from local warnings."""
     normalized = materialize_final_case_state_fields(cases)
     final_cases = [dict(item) for item in normalized if isinstance(item, dict)] if isinstance(normalized, list) else []
     main_cases = _main_smoke_cases(final_cases)
@@ -356,7 +357,11 @@ def validate_main_smoke_semantic_alignment(cases: Any) -> list[dict[str, Any]]:
                 stage_kind=stage_kind,
             )
 
-        if bool(case.get("generated_bridge_case")) or bool(case.get("workflow_blueprint_bridge")):
+        if (
+            bool(case.get("generated_bridge_case"))
+            or bool(case.get("workflow_blueprint_bridge"))
+            or bool(case.get("workflow_contract_materialized_case"))
+        ):
             _add_semantic_conflict(
                 conflicts,
                 case=case,
@@ -492,22 +497,66 @@ def validate_main_smoke_semantic_alignment(cases: Any) -> list[dict[str, Any]]:
     return conflicts
 
 
-def _closure_metrics(main_cases: list[dict[str, Any]]) -> dict[str, Any]:
-    stage_kinds = [_stage_kind(item) for item in main_cases]
-    commit_indexes = [index for index, kind in enumerate(stage_kinds) if kind == "commit"]
-    downstream_indexes = [
-        index
-        for index, kind in enumerate(stage_kinds)
-        if kind in {"downstream_visibility", "consume", "completion_sync"}
-    ]
-    closed_loop = bool(
-        commit_indexes
-        and downstream_indexes
-        and any(downstream_index > commit_index for commit_index in commit_indexes for downstream_index in downstream_indexes)
+_SOFT_SEMANTIC_REASONS = {
+    "display_only_case_used_in_main_chain",
+    "case_goal_spans_commit_stage",
+    "commit_case_replays_edit_stage",
+    "resume_state_case_in_main_smoke",
+    "conditional_visibility_case_in_main_smoke",
+    "stage_action_not_supported_by_case_text",
+    "stage_object_not_supported_by_case_text",
+    "stage_module_not_aligned_with_blueprint",
+    "stage_text_lacks_configure_action",
+    "passive_list_status_case_used_as_configure",
+    "stage_text_lacks_edit_action",
+    "stage_text_lacks_preview_action",
+    "stage_text_lacks_commit_action",
+    "stage_text_lacks_downstream_propagation",
+    "stage_text_lacks_consume_action",
+    "stage_text_lacks_completion_sync",
+    "report_history_case_not_completion_sync",
+}
+
+
+def analyze_main_smoke_semantic_alignment(cases: Any) -> dict[str, list[dict[str, Any]]]:
+    """将局部语义瑕疵保留为警告，只让明确矛盾阻断声明式闭环。"""
+    conflicts: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    for finding in _collect_main_smoke_semantic_findings(cases):
+        current = dict(finding)
+        reason = str(current.get("reason") or "").strip()
+        if reason in _SOFT_SEMANTIC_REASONS:
+            current["severity"] = "warning"
+            warnings.append(current)
+        else:
+            current["severity"] = "error"
+            conflicts.append(current)
+    return {"conflicts": conflicts, "warnings": warnings}
+
+
+def validate_main_smoke_semantic_alignment(cases: Any) -> list[dict[str, Any]]:
+    """Return only semantic contradictions that must block executable closure."""
+    return analyze_main_smoke_semantic_alignment(cases)["conflicts"]
+
+
+def _closure_metrics(
+    main_cases: list[dict[str, Any]],
+    *,
+    workflow_blueprints: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    closure = evaluate_declared_workflow_closure(
+        main_cases,
+        workflow_blueprints=workflow_blueprints,
     )
     return {
-        "main_chain_stage_kinds": stage_kinds,
-        "commit_step_count": int(len(commit_indexes)),
-        "downstream_or_completion_step_count": int(len(downstream_indexes)),
-        "commit_downstream_completion_closed": bool(closed_loop),
+        "main_chain_stage_kinds": [_stage_kind(item) for item in main_cases],
+        "workflow_closure": closure,
+        "required_stage_count": int(len(closure.get("required_stage_ids") or [])),
+        "covered_required_stage_count": int(
+            len(closure.get("required_stage_ids") or [])
+            - len(closure.get("missing_required_stage_ids") or [])
+        ),
+        "required_stage_coverage_complete": not bool(closure.get("missing_required_stage_ids")),
+        "terminal_state_reachable": bool(closure.get("terminal_state_reachable")),
+        "workflow_closure_satisfied": bool(closure.get("closure_satisfied")),
     }

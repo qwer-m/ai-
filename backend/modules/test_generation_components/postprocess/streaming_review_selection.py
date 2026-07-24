@@ -2,28 +2,21 @@ from __future__ import annotations
 
 from typing import Any, Callable, Iterable
 
+from ..coverage.coverage_case_complexity import case_complexity_profile
 from .case_access import case_flat_text, case_priority
 from .result_postprocess_priority_semantics import score_case_priority
 from .streaming_case_keys import (
+    candidate_identity_key,
     case_coverage_bucket,
     case_focus_score,
+    case_priority_score,
     case_signature,
     review_case_id,
 )
 from .streaming_postprocess_utils import _dict_case_items
-from .streaming_review_candidate_pool import (
-    ReviewCandidatePoolSplit,
-    hit_must_cover_rule,
-    is_high_signal,
-    merge_review_selection_candidates,
-    rank_review_case_for_fill,
-    review_must_keep_reasons,
-    split_review_candidate_pool,
-)
 from .streaming_review_mapping import normalize_review_llm_reason
 from .streaming_review_constraints import (
     build_review_selection_constraints,
-    enforce_review_selection_constraints,
 )
 from .streaming_review_selection_summary import (
     build_review_decision_summary_payload,
@@ -32,7 +25,7 @@ from .streaming_review_selection_summary import (
     summarize_review_drop_reason_counts,
     summarize_review_drop_stage_counts,
     summarize_review_llm_drop_diagnostics,
-    summarize_review_must_keep_and_signal_counts,
+    summarize_review_signal_counts,
 )
 from .streaming_rule_keys import extract_rule_keys
 from .streaming_semantic_text import jaccard_similarity, semantic_signature, semantic_tokenize
@@ -41,85 +34,85 @@ ReviewRankFn = Callable[..., tuple[int, ...]]
 CoverageAnalyzeFn = Callable[[str, list[dict[str, Any]]], dict[str, Any]]
 RuleDiagnosticsFn = Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]
 SignatureFn = Callable[[dict[str, Any]], str]
+CandidateKeyFn = Callable[[dict[str, Any]], str]
 
 
-def recover_review_selection_shortfall(
-    *,
-    selection_input: list[dict[str, Any]],
-    candidate_cases: list[dict[str, Any]],
-    target_min_count: int,
-    constraint_reason_map: dict[str, str] | None,
-    domain_guard_active: bool = False,
-    cross_domain_noise_fn: Callable[[dict[str, Any]], bool] | None = None,
-    coverage_context: dict[str, Any] | None,
-    rule_diagnostics: dict[str, Any] | list[dict[str, Any]] | None,
-    rank_case_fn: ReviewRankFn,
-) -> tuple[list[dict[str, Any]], dict[str, str], int]:
-    selected = _dict_case_items(selection_input)
-    target_min = max(1, int(target_min_count or 1))
-    if len(selected) >= target_min:
-        return selected, dict(constraint_reason_map or {}), 0
-
-    reason_map = dict(constraint_reason_map or {})
-    selected_signatures = {case_signature(item) for item in selected if case_signature(item)}
-    fill_pool = [
-        item
-        for item in _dict_case_items(candidate_cases)
-        if case_signature(item) and case_signature(item) not in selected_signatures
-    ]
-    if domain_guard_active and cross_domain_noise_fn is not None:
-        guarded_fill_pool = [item for item in fill_pool if not cross_domain_noise_fn(item)]
-        if guarded_fill_pool:
-            fill_pool = guarded_fill_pool
-
-    fill_pool.sort(
-        key=lambda item: tuple(
-            -value
-            for value in rank_case_fn(
-                item,
-                coverage_context=coverage_context,
-                rule_diagnostics=rule_diagnostics,
-            )
-        )
-        + (review_case_id(item),)
+def is_high_signal(case: dict[str, Any], score_profile: dict[str, Any] | None = None) -> bool:
+    profile = score_profile if isinstance(score_profile, dict) else {}
+    focus_score = int(case_focus_score(case))
+    has_coverage_value = bool(
+        profile.get("missing_rule_hits")
+        or profile.get("core_rule_hits")
+        or profile.get("unique_coverage_hits")
+    )
+    rule_risk_reasons = {
+        str(item).strip().lower()
+        for item in (profile.get("rule_risk_reasons") or [])
+        if str(item).strip()
+    }
+    return bool(
+        has_coverage_value
+        or "high" in rule_risk_reasons
+        or profile.get("reuse_risk_hit") is True
+        or focus_score >= 2
+        or int(profile.get("coverage_gain_score") or 0) >= 8
     )
 
-    before_count = len(selected)
-    for fill_case in fill_pool:
-        if len(selected) >= target_min:
-            break
-        signature = case_signature(fill_case)
-        if not signature or signature in selected_signatures:
-            continue
-        selected.append(fill_case)
-        selected_signatures.add(signature)
-        reason_map.setdefault(signature, "retained_by_shortfall_recovery")
 
-    return selected, reason_map, max(0, len(selected) - before_count)
-
-
-def resolve_review_post_rerank_floor_count(
+def rank_review_case_for_fill(
+    case: dict[str, Any],
     *,
-    candidate_count_before_review: int,
-    reference_count_effective: int,
-    generation_coverage_mode: str,
-) -> int:
-    candidate_count = int(candidate_count_before_review or 0)
-    if candidate_count >= 2:
-        reference_count = int(reference_count_effective or 0)
-        if reference_count >= 10:
-            review_floor_ratio = 0.2
-            coverage_mode = str(generation_coverage_mode or "")
-            if coverage_mode == "expanded_regression":
-                review_floor_ratio = 0.80
-            elif coverage_mode == "full_functional_regression":
-                review_floor_ratio = 0.35
-            return min(
-                candidate_count,
-                max(2, int(round(float(reference_count) * float(review_floor_ratio)))),
-            )
-        return min(candidate_count, 2)
-    return 1
+    coverage_context: dict[str, Any] | None,
+    rule_diagnostics: dict[str, Any] | list[dict[str, Any]] | None,
+) -> tuple[int, int, int, int, int, int, int]:
+    profile = score_case_priority(
+        case,
+        coverage_context=coverage_context,
+        rule_diagnostics=rule_diagnostics,
+    )
+    has_coverage_value = bool(
+        profile.get("missing_rule_hits")
+        or profile.get("core_rule_hits")
+        or profile.get("unique_coverage_hits")
+    )
+    complexity_score = int(case_complexity_profile(case).get("complexity_score") or 0)
+    return (
+        int(has_coverage_value),
+        int(profile.get("reuse_risk_hit") is True),
+        int(is_high_signal(case, profile)),
+        int(case_focus_score(case)),
+        int(max(0, int(profile.get("coverage_gain_score") or 0))),
+        -min(complexity_score, 8),
+        int(case_priority_score(case)),
+    )
+
+
+def hit_must_cover_rule(
+    rule_keys: list[str],
+    score_profile: dict[str, Any] | None = None,
+    *,
+    must_cover_rule_set: set[str] | None = None,
+) -> bool:
+    if not must_cover_rule_set:
+        return False
+    case_rules = {
+        str(item).strip().upper()
+        for item in (rule_keys or [])
+        if str(item).strip()
+    }
+    profile = dict(score_profile or {})
+    for field in (
+        "covered_rule_ids",
+        "missing_rule_hits",
+        "core_rule_hits",
+        "unique_coverage_hits",
+    ):
+        case_rules.update(
+            str(item).strip().upper()
+            for item in (profile.get(field) or [])
+            if str(item).strip()
+        )
+    return bool(case_rules.intersection(must_cover_rule_set))
 
 
 def apply_append_target_cap(
@@ -131,11 +124,36 @@ def apply_append_target_cap(
     rule_diagnostics_fn: RuleDiagnosticsFn,
     rank_case_fn: ReviewRankFn,
     signature_fn: SignatureFn,
+    protected_candidate_keys: set[str] | None = None,
+    candidate_key_fn: CandidateKeyFn = candidate_identity_key,
+    diagnostics_out: dict[str, Any] | None = None,
 ) -> tuple[list[Any], set[str], int]:
     original_cases = list(parsed_cases)
     target_count = int(append_final_cap_count or 0)
     dict_case_count = int(sum(1 for item in original_cases if isinstance(item, dict)))
+    protected_keys = {
+        str(item).strip()
+        for item in (protected_candidate_keys or set())
+        if str(item).strip()
+    }
+    diagnostics = diagnostics_out if isinstance(diagnostics_out, dict) else {}
     if target_count <= 0 or dict_case_count <= target_count:
+        diagnostics.update(
+            {
+                "applied": False,
+                "target_count": int(target_count),
+                "input_count": int(dict_case_count),
+                "protected_count": int(
+                    sum(
+                        1
+                        for item in original_cases
+                        if isinstance(item, dict)
+                        and candidate_key_fn(item) in protected_keys
+                    )
+                ),
+                "soft_target_exceeded_for_closure": False,
+            }
+        )
         return list(original_cases), set(), 0
 
     dict_cases = _dict_case_items(original_cases)
@@ -146,7 +164,17 @@ def apply_append_target_cap(
         for index, item in enumerate(original_cases)
         if isinstance(item, dict)
     ]
-    indexed_cases.sort(
+    protected_indices = {
+        int(index)
+        for index, case in indexed_cases
+        if candidate_key_fn(case) in protected_keys
+    }
+    ranked_nonprotected = [
+        (index, case)
+        for index, case in indexed_cases
+        if int(index) not in protected_indices
+    ]
+    ranked_nonprotected.sort(
         key=lambda pair: tuple(
             [
                 -value
@@ -159,10 +187,11 @@ def apply_append_target_cap(
         )
         + (int(pair[0]),)
     )
-    keep_indices = {
-        int(index)
-        for index, _case in indexed_cases[:target_count]
-    }
+    remaining_slots = max(0, target_count - len(protected_indices))
+    keep_indices = set(protected_indices)
+    keep_indices.update(
+        int(index) for index, _case in ranked_nonprotected[:remaining_slots]
+    )
     drop_signatures = {
         signature_fn(case)
         for index, case in enumerate(original_cases)
@@ -173,52 +202,21 @@ def apply_append_target_cap(
         for index, case in enumerate(original_cases)
         if isinstance(case, dict) and int(index) in keep_indices
     ]
-    return capped_cases, drop_signatures, int(len(drop_signatures))
-
-
-def recover_post_rerank_shortfall(
-    *,
-    parsed_cases: list[dict[str, Any]],
-    review_selection_input: list[dict[str, Any]],
-    candidate_cases: list[dict[str, Any]],
-    floor_count: int,
-    coverage_context: dict[str, Any] | None,
-    rule_diagnostics: dict[str, Any] | list[dict[str, Any]] | None,
-    rank_case_fn: ReviewRankFn,
-) -> tuple[list[dict[str, Any]], int]:
-    recovered_cases = _dict_case_items(parsed_cases)
-    target_floor = max(1, int(floor_count or 1))
-    if len(recovered_cases) >= target_floor:
-        return recovered_cases, 0
-
-    recovered_signatures = {case_signature(item) for item in recovered_cases if case_signature(item)}
-    recovery_pool: list[dict[str, Any]] = []
-    for source_case in [*_dict_case_items(review_selection_input), *_dict_case_items(candidate_cases)]:
-        signature = case_signature(source_case)
-        if not signature or signature in recovered_signatures:
-            continue
-        recovered_signatures.add(signature)
-        recovery_pool.append(source_case)
-
-    recovery_pool.sort(
-        key=lambda item: tuple(
-            -value
-            for value in rank_case_fn(
-                item,
-                coverage_context=coverage_context,
-                rule_diagnostics=rule_diagnostics,
-            )
-        )
-        + (review_case_id(item),)
+    diagnostics.update(
+        {
+            "applied": True,
+            "target_count": int(target_count),
+            "input_count": int(dict_case_count),
+            "output_count": int(len(capped_cases)),
+            "protected_count": int(len(protected_indices)),
+            "protected_candidate_keys": sorted(protected_keys),
+            "soft_target_exceeded_for_closure": bool(
+                len(protected_indices) > target_count
+            ),
+            "target_overflow_count": max(0, len(capped_cases) - target_count),
+        }
     )
-
-    before_count = len(recovered_cases)
-    for fill_case in recovery_pool:
-        if len(recovered_cases) >= target_floor:
-            break
-        recovered_cases.append(fill_case)
-
-    return recovered_cases, max(0, len(recovered_cases) - before_count)
+    return capped_cases, drop_signatures, int(len(drop_signatures))
 
 
 def resolve_review_llm_drop_reason_maps(

@@ -4,6 +4,7 @@ from modules.test_generation_components.postprocess.case_access import (
     case_text_field,
 )
 from modules.test_generation_components.postprocess.streaming_case_keys import (
+    candidate_identity_key,
     case_focus_score,
     case_signature,
     review_case_id,
@@ -46,10 +47,10 @@ def test_build_review_decision_table_context_filters_non_dict_rows_and_cases() -
         },
     )
 
-    final_signature = case_signature(final)
-    assert context.selection_signatures == {case_signature(selected)}
-    assert context.final_signatures == {final_signature}
-    assert context.final_priority_by_signature == {final_signature: "P0"}
+    final_candidate_key = candidate_identity_key(final)
+    assert context.selection_candidate_keys == {candidate_identity_key(selected)}
+    assert context.final_candidate_keys == {final_candidate_key}
+    assert context.final_priority_by_candidate_key == {final_candidate_key: "P0"}
     assert context.structure_rows_by_index == {
         2: {"candidate_index": "2", "structure_marker": "state-chain"}
     }
@@ -58,25 +59,25 @@ def test_build_review_decision_table_context_filters_non_dict_rows_and_cases() -
 def test_build_review_decision_table_context_normalizes_trace_signature_sets() -> None:
     selected = _case("TC-SELECTED")
     dropped = _case("TC-DROPPED")
-    selected_signature = case_signature(selected)
-    dropped_signature = case_signature(dropped)
+    selected_candidate_key = candidate_identity_key(selected)
+    dropped_candidate_key = candidate_identity_key(dropped)
 
     context = build_review_decision_table_context(
         review_selection_input=[selected, dropped],
         review_gate_trace={
             "decisions": {
-                selected_signature: {"bucket": "course|happy"},
+                selected_candidate_key: {"bucket": "course|happy"},
             },
-            "selected_signatures": [selected_signature, selected_signature, 101],
-            "dedup_dropped_signatures": [dropped_signature, 202, dropped_signature],
+            "selected_candidate_keys": [selected_candidate_key, selected_candidate_key, 101],
+            "dedup_dropped_candidate_keys": [dropped_candidate_key, 202, dropped_candidate_key],
         },
         parsed_result=[selected],
         review_case_structure={"rows": []},
     )
 
-    assert context.trace_decisions == {selected_signature: {"bucket": "course|happy"}}
-    assert context.selected_gate_signatures == {selected_signature, "101"}
-    assert context.dedup_drop_signatures == {dropped_signature, "202"}
+    assert context.trace_decisions == {selected_candidate_key: {"bucket": "course|happy"}}
+    assert context.selected_gate_candidate_keys == {selected_candidate_key, "101"}
+    assert context.dedup_drop_candidate_keys == {dropped_candidate_key, "202"}
 
 
 def test_build_review_candidate_row_base_fields_defaults_unknown_stage_and_scores() -> None:
@@ -199,7 +200,6 @@ def test_build_review_candidate_row_diagnostic_fields_normalizes_values() -> Non
             "reuse_risk_hit": 1,
         },
         selected_by_review_llm=1,
-        selected_by_review_must_keep=True,
         selected_by_review_constraints=False,
         review_constraint_reason="",
         review_llm_drop_reason_raw="raw low value",
@@ -212,8 +212,6 @@ def test_build_review_candidate_row_diagnostic_fields_normalizes_values() -> Non
         has_competition_signal=False,
         review_llm_applied=True,
         signature=signature,
-        review_must_keep_signatures={signature},
-        review_must_keep_reason_map={signature: ["main_path", "must_cover_rule"]},
         selected_gate_signatures=set(),
         retained=False,
         dropped_stage="review_llm",
@@ -232,7 +230,6 @@ def test_build_review_candidate_row_diagnostic_fields_normalizes_values() -> Non
     assert fields["suggested_priority"] == "P1"
     assert fields["priority_reasons"] == ["main_chain", "202"]
     assert fields["selected_by_review_llm"] is True
-    assert fields["selected_by_review_must_keep"] is True
     assert fields["selected_by_review_constraints"] is False
     assert fields["review_llm_drop_reason_resolved"] == "duplicate_intent"
     assert fields["review_llm_drop_reason_evidence"] == evidence
@@ -241,8 +238,6 @@ def test_build_review_candidate_row_diagnostic_fields_normalizes_values() -> Non
     assert fields["has_high_signal"] is True
     assert fields["has_competition_signal"] is False
     assert fields["review_llm_filter_applied"] is True
-    assert fields["must_keep_candidate"] is True
-    assert fields["must_keep_reasons"] == ["main_path", "must_cover_rule"]
     assert fields["selected_by_review_gate"] is False
     assert fields["retained_final"] is False
     assert fields["dropped_stage"] == "review_llm"
@@ -399,21 +394,21 @@ def _drop_decision(
 ):
     defaults = {
         "signature": signature,
+        "candidate_key": signature,
         "review_llm_applied": False,
         "review_llm_selected_signatures": set(),
-        "review_must_keep_signatures": set(),
         "review_constraint_retained_signatures": set(),
         "review_constraint_reason_map": {},
         "review_llm_drop_reason_raw_map": {},
         "review_llm_drop_reason_map": {},
         "review_llm_drop_reason_source_map": {},
         "review_llm_drop_reason_evidence_map": {},
-        "selection_signatures": {signature},
+        "selection_candidate_keys": {signature},
         "append_cap_drop_signatures": set(),
         "final_description_dedup_drop_signatures": set(),
-        "dedup_drop_signatures": set(),
-        "selected_gate_signatures": {signature},
-        "final_signatures": {signature},
+        "dedup_drop_candidate_keys": set(),
+        "selected_gate_candidate_keys": {signature},
+        "final_candidate_keys": {signature},
         "gate_reason": "",
     }
     defaults.update(overrides)
@@ -428,9 +423,9 @@ def test_resolve_review_candidate_drop_decision_prefers_review_llm_drop() -> Non
         review_llm_drop_reason_map={"sig-a": "duplicate_intent"},
         review_llm_drop_reason_source_map={"sig-a": "model"},
         review_llm_drop_reason_evidence_map={"sig-a": {"has_coverage_signal": True}},
-        selection_signatures={"sig-a"},
+        selection_candidate_keys={"sig-a"},
         append_cap_drop_signatures={"sig-a"},
-        final_signatures=set(),
+        final_candidate_keys=set(),
     )
 
     assert decision.dropped_stage == "review_llm"
@@ -447,8 +442,8 @@ def test_resolve_review_candidate_drop_decision_uses_selector_target_window_reas
         review_llm_applied=True,
         review_llm_selected_signatures={"sig-a"},
         review_constraint_reason_map={"sig-a": "dropped_by_target_max"},
-        selection_signatures=set(),
-        final_signatures=set(),
+        selection_candidate_keys=set(),
+        final_candidate_keys=set(),
     )
 
     assert decision.dropped_stage == "review_selector"
@@ -461,8 +456,8 @@ def test_resolve_review_candidate_drop_decision_marks_append_cap_before_late_ded
     decision = _drop_decision(
         append_cap_drop_signatures={"sig-a"},
         final_description_dedup_drop_signatures={"sig-a"},
-        selected_gate_signatures={"sig-a"},
-        final_signatures=set(),
+        selected_gate_candidate_keys={"sig-a"},
+        final_candidate_keys=set(),
     )
 
     assert decision.dropped_stage == "append_target_cap"
@@ -472,8 +467,8 @@ def test_resolve_review_candidate_drop_decision_marks_append_cap_before_late_ded
 def test_resolve_review_candidate_drop_decision_marks_final_description_duplicate() -> None:
     decision = _drop_decision(
         final_description_dedup_drop_signatures={"sig-a"},
-        selected_gate_signatures={"sig-a"},
-        final_signatures=set(),
+        selected_gate_candidate_keys={"sig-a"},
+        final_candidate_keys=set(),
     )
 
     assert decision.dropped_stage == "post_review_dedup_or_reorder"
@@ -482,8 +477,8 @@ def test_resolve_review_candidate_drop_decision_marks_final_description_duplicat
 
 def test_resolve_review_candidate_drop_decision_marks_review_gate_before_post_gate_drop() -> None:
     decision = _drop_decision(
-        selected_gate_signatures=set(),
-        final_signatures=set(),
+        selected_gate_candidate_keys=set(),
+        final_candidate_keys=set(),
         gate_reason="drop_low_business_value",
     )
 
@@ -494,8 +489,8 @@ def test_resolve_review_candidate_drop_decision_marks_review_gate_before_post_ga
 def test_resolve_review_candidate_drop_decision_marks_retained_row() -> None:
     decision = _drop_decision(
         review_llm_applied=False,
-        selected_gate_signatures={"sig-a"},
-        final_signatures={"sig-a"},
+        selected_gate_candidate_keys={"sig-a"},
+        final_candidate_keys={"sig-a"},
         review_llm_drop_reason_evidence_map={"sig-a": "not-a-dict"},
     )
 

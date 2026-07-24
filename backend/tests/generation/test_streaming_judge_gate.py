@@ -11,7 +11,7 @@ def _case(case_id: str) -> dict[str, str]:
     }
 
 
-def test_run_streaming_judge_gate_applies_training_outputs_and_payloads() -> None:
+def test_run_streaming_judge_gate_reports_training_outputs_without_replacing_review_cases() -> None:
     def judge_cases_fn(**kwargs):
         assert kwargs["control_state"] == {"enabled": True}
         assert kwargs["requirement_semantics_context"] == {"facts": ["x"]}
@@ -30,12 +30,6 @@ def test_run_streaming_judge_gate_applies_training_outputs_and_payloads() -> Non
         requirement_semantics_context={"facts": ["x"]},
         feedback_control_state={"enabled": True},
         fact_profile={"profile_source": "test"},
-        start_id=10,
-        deduplicate_test_cases_fn=lambda cases: cases,
-        reorder_cases_by_closed_loop_fn=lambda cases, **kwargs: [
-            {**case, "id": f"TC-{index:03d}"}
-            for index, case in enumerate(cases, start=kwargs["start_id"])
-        ],
         review_case_id_fn=lambda case: str(case.get("id") or ""),
         build_judge_summary_payload_fn=lambda **kwargs: {
             "confirmed": len(kwargs["confirmed_pass_cases"]),
@@ -50,7 +44,7 @@ def test_run_streaming_judge_gate_applies_training_outputs_and_payloads() -> Non
         training_gate_fn=training_gate_fn,
     )
 
-    assert [case["id"] for case in result.cases] == ["TC-010", "TC-011", "TC-012"]
+    assert [case["id"] for case in result.cases] == ["TC-000"]
     assert result.judge_summary_payload == {
         "confirmed": 2,
         "repaired": 1,
@@ -68,9 +62,6 @@ def test_run_streaming_judge_gate_preserves_current_cases_when_payload_build_fai
         requirement_semantics_context={},
         feedback_control_state={},
         fact_profile={},
-        start_id=1,
-        deduplicate_test_cases_fn=lambda cases: cases,
-        reorder_cases_by_closed_loop_fn=lambda cases, **kwargs: cases,
         review_case_id_fn=lambda case: str(case.get("id") or ""),
         build_judge_summary_payload_fn=lambda **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
         build_judge_decision_table_payload_fn=lambda **kwargs: [],
@@ -79,6 +70,35 @@ def test_run_streaming_judge_gate_preserves_current_cases_when_payload_build_fai
         training_gate_fn=training_gate_fn,
     )
 
-    assert result.cases == [_case("TC-PASS")]
+    assert result.cases == [_case("TC-ORIGINAL")]
     assert result.judge_summary_payload == {}
     assert result.judge_decision_table_payload == []
+
+
+def test_judge_keeps_review_selected_same_topic_cases_with_different_states() -> None:
+    base = {
+        "test_module": "records",
+        "description": "verify record state",
+        "steps": ["open record detail"],
+        "test_input": "record",
+        "expected_result": "record state is visible",
+        "priority": "P1",
+    }
+    draft = {**base, "id": "TC-DRAFT", "preconditions": ["record is draft"]}
+    published = {
+        **base,
+        "id": "TC-PUBLISHED",
+        "preconditions": ["record is published"],
+    }
+
+    result = run_streaming_judge_gate(
+        cases=[draft, published],
+        requirement_semantics_context={},
+        feedback_control_state={},
+        fact_profile={},
+        review_case_id_fn=lambda case: str(case.get("id") or ""),
+        build_judge_summary_payload_fn=lambda **_kwargs: {},
+        build_judge_decision_table_payload_fn=lambda **_kwargs: [],
+    )
+
+    assert [case["id"] for case in result.cases] == ["TC-DRAFT", "TC-PUBLISHED"]

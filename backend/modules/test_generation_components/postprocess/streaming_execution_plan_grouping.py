@@ -56,33 +56,6 @@ def empty_execution_plan_summary() -> dict[str, Any]:
     }
 
 
-def main_chain_state_overrides_for_current_generation(
-    selected_by_stage: list[tuple[str, str, dict[str, Any]]],
-    *,
-    stage_meta_by_key: dict[str, dict[str, Any]] | None,
-    signature_fn: Callable[[dict[str, Any]], str],
-) -> dict[str, tuple[str, str]]:
-    stage_meta = dict(stage_meta_by_key or {})
-    overrides: dict[str, tuple[str, str]] = {}
-    previous_state = ""
-    for index, (stage_key, _stage_label, item) in enumerate(selected_by_stage, start=1):
-        signature = signature_fn(item)
-        if not signature:
-            continue
-        step_meta = stage_meta.get(stage_key) or {}
-        source_state = str(step_meta.get("state_in") or "").strip()
-        target_state = str(step_meta.get("state_out") or "").strip()
-        if previous_state:
-            source_state = previous_state
-        elif not source_state:
-            source_state = "initial"
-        if not target_state or target_state == source_state:
-            target_state = f"derived_selected_state_{index:03d}"
-        overrides[signature] = (source_state, target_state)
-        previous_state = target_state
-    return overrides
-
-
 def infer_data_state(
     item: dict[str, Any],
     *,

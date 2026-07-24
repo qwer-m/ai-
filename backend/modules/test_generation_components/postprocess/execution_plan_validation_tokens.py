@@ -81,7 +81,6 @@ _CONFIGURE_TOKENS = (
     "选择",
     "编辑",
     "填写",
-    "发帖",
     "配置",
     "设置",
     "选择",
@@ -171,7 +170,6 @@ _CONFIGURE_ACTION_REQUIRED_TOKENS = (
     "修改",
     "新增",
     "添加",
-    "发帖",
     "上传",
     "选择",
     "设置",
@@ -342,7 +340,6 @@ _COMPLETION_STRONG_TOKENS = (
 _REPORT_HISTORY_ONLY_TOKENS = (
     "报告",
     "历史记录",
-    "历史课程",
     "report",
     "history",
 )

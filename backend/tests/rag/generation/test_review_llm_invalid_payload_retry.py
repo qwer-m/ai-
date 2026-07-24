@@ -163,7 +163,7 @@ def test_retry_on_invalid_payload_without_selection_signal() -> None:
     assert int(summary.get("drop_by_review_llm_count") or 0) > 0
 
 
-def test_review_llm_skips_when_deterministic_selection_is_noop() -> None:
+def test_review_llm_still_runs_for_complete_global_selection_when_preflight_is_noop() -> None:
     client = _ReplayClient(
         primary_review_response="NOT_JSON_PAYLOAD",
         retry_review_response=_valid_retry_payload(keep_count=4, total_count=8),
@@ -174,15 +174,14 @@ def test_review_llm_skips_when_deterministic_selection_is_noop() -> None:
     timing_events = [item for item in (result or {}).get("timing_events") or [] if isinstance(item, dict)]
     review_timing = next(item for item in timing_events if item.get("stage") == "review_selection")
 
-    assert client.review_calls == 0
-    assert summary.get("review_llm_filter_applied") is False
-    assert runtime.get("invoked") is False
-    assert runtime.get("final_source") == "review_selector"
-    assert runtime.get("applied_reason") == "skipped_deterministic_noop"
-    assert runtime.get("skip_reason") == "llm_pool_within_constraint_window"
-    assert runtime.get("deterministic_noop_skip_eligible") is True
-    assert review_timing.get("llm_invoked") is False
-    assert review_timing.get("llm_skip_reason") == "llm_pool_within_constraint_window"
+    assert client.review_calls == 2
+    assert summary.get("review_llm_filter_applied") is True
+    assert runtime.get("invoked") is True
+    assert runtime.get("final_source") == "fallback_llm"
+    assert runtime.get("applied_reason") == "retry_payload_valid"
+    assert runtime.get("deterministic_noop_skip_eligible") is False
+    assert runtime.get("global_review_complete") is True
+    assert review_timing.get("llm_invoked") is True
 
 
 def test_retry_on_invalid_payload_with_unmapped_case_ids() -> None:
@@ -235,7 +234,7 @@ def test_retry_on_schema_parse_error_payload() -> None:
     assert int(reason_source_breakdown.get("fallback") or 0) > 0
 
 
-def test_empty_primary_response_retries_same_review_model_with_compact_prompt() -> None:
+def test_empty_primary_response_retries_same_review_model_with_full_contract_prompt() -> None:
     client = _ReplayClient(
         primary_review_response="Error: Empty response from model deepseek-reasoner",
         retry_review_response=_valid_retry_payload(keep_count=4, total_count=18),
@@ -246,14 +245,14 @@ def test_empty_primary_response_retries_same_review_model_with_compact_prompt() 
 
     assert summary.get("review_llm_filter_applied") is True
     assert runtime.get("primary_invalid_reason") == "error_response"
-    assert runtime.get("primary_compact_retry_invoked") is True
-    assert runtime.get("primary_compact_retry_invalid_reason") == ""
+    assert runtime.get("primary_contract_retry_invoked") is True
+    assert runtime.get("primary_contract_retry_invalid_reason") == ""
     assert runtime.get("retry_parse_success") is True
-    assert runtime.get("final_source") == "primary_compact_retry"
+    assert runtime.get("final_source") == "primary_contract_retry"
     assert int(runtime.get("retry_mapped_count") or 0) > 0
 
 
-def test_empty_primary_and_compact_retry_skip_expensive_fallback_models() -> None:
+def test_empty_primary_and_contract_retry_skip_expensive_fallback_models() -> None:
     client = _ReplayClient(
         primary_review_response="Error: Empty response from model deepseek-reasoner",
         retry_review_response="Error: Empty response from model deepseek-reasoner",
@@ -265,9 +264,9 @@ def test_empty_primary_and_compact_retry_skip_expensive_fallback_models() -> Non
     assert client.review_calls == 2
     assert summary.get("review_llm_filter_applied") is False
     assert runtime.get("primary_invalid_reason") == "error_response"
-    assert runtime.get("primary_compact_retry_invoked") is True
-    assert runtime.get("primary_compact_retry_invalid_reason") == "error_response"
-    assert runtime.get("fallback_skipped_reason") == "empty_response_after_compact_retry"
+    assert runtime.get("primary_contract_retry_invoked") is True
+    assert runtime.get("primary_contract_retry_invalid_reason") == "error_response"
+    assert runtime.get("fallback_skipped_reason") == "empty_response_after_contract_retry"
     assert runtime.get("retry_attempts") == []
     assert runtime.get("final_source") == "review_selector"
     assert runtime.get("applied_reason") == "error_response"
@@ -282,14 +281,17 @@ def test_retry_valid_selection_but_without_dropped_reasons_marks_incomplete() ->
     summary = dict((result or {}).get("review_decision_summary") or {})
     runtime = dict(summary.get("review_llm_runtime_debug") or {})
 
-    assert summary.get("review_llm_filter_applied") is True
+    assert summary.get("review_llm_filter_applied") is False
     assert runtime.get("primary_invalid_reason") == "schema_parse_error"
     assert runtime.get("final_source") == "fallback_llm"
     assert summary.get("fallback_reason_incomplete") is True
     assert int(summary.get("fallback_dropped_reason_count") or 0) == 0
     assert int(summary.get("fallback_dropped_reason_mapped_count") or 0) == 0
-    assert int(summary.get("drop_by_review_llm_count") or 0) > 0
-    assert float(summary.get("deterministic_backfill_ratio") or 0.0) > 0.0
+    assert int(summary.get("drop_by_review_llm_count") or 0) == 0
+    assert runtime.get("global_review_complete") is False
+    assert runtime.get("full_candidate_set_preserved") is True
+    assert int(runtime.get("global_review_unaccounted_count") or 0) == 10
+    assert int(summary.get("retained_total") or 0) == 14
     assert int(summary.get("drop_by_review_selector_count") or 0) == 0
 
 
@@ -302,13 +304,17 @@ def test_retry_partial_unmapped_dropped_reasons_keeps_mapped_part() -> None:
     summary = dict((result or {}).get("review_decision_summary") or {})
     runtime = dict(summary.get("review_llm_runtime_debug") or {})
 
-    assert summary.get("review_llm_filter_applied") is True
+    assert summary.get("review_llm_filter_applied") is False
     assert runtime.get("final_source") == "fallback_llm"
     assert int(summary.get("fallback_dropped_reason_count") or 0) > 0
     assert int(summary.get("fallback_dropped_reason_mapped_count") or 0) > 0
     assert int(summary.get("fallback_dropped_reason_unmapped_count") or 0) > 0
     assert summary.get("fallback_reason_incomplete") is False
     assert int(summary.get("drop_by_review_selector_count") or 0) == 0
+    assert runtime.get("global_review_complete") is False
+    assert runtime.get("full_candidate_set_preserved") is True
+    assert int(runtime.get("global_review_unaccounted_count") or 0) == 8
+    assert int(summary.get("retained_total") or 0) == 14
 
 
 def test_selector_fallback_after_primary_and_retry_both_invalid() -> None:
@@ -326,7 +332,11 @@ def test_selector_fallback_after_primary_and_retry_both_invalid() -> None:
     assert str(runtime.get("retry_reason") or "").strip() != ""
     assert runtime.get("final_source") == "review_selector"
     assert str(runtime.get("applied_reason") or "").strip() != ""
-    assert int(summary.get("drop_by_review_selector_count") or 0) > 0
+    assert int(summary.get("drop_by_review_selector_count") or 0) == 0
+    assert runtime.get("global_review_complete") is False
+    assert runtime.get("full_candidate_set_preserved") is True
+    assert runtime.get("global_review_incomplete_reason") == "no_mapped_and_no_selection_signal"
+    assert int(summary.get("retained_total") or 0) == 20
 
 
 def test_primary_valid_payload_with_dropped_reasons_has_primary_reason_coverage() -> None:
@@ -357,18 +367,21 @@ def test_primary_valid_payload_without_dropped_reasons_marks_primary_reason_inco
     summary = dict((result or {}).get("review_decision_summary") or {})
     runtime = dict(summary.get("review_llm_runtime_debug") or {})
 
-    assert summary.get("review_llm_filter_applied") is True
+    assert summary.get("review_llm_filter_applied") is False
     assert runtime.get("final_source") == "primary_llm"
     assert runtime.get("primary_reason_incomplete") is True
-    assert runtime.get("final_reason_incomplete") is True
-    assert runtime.get("applied_reason") == "mapped_valid_payload_reason_incomplete"
+    assert runtime.get("final_reason_incomplete") is False
+    assert runtime.get("applied_reason") == "mapped_valid_payload"
     assert int(runtime.get("primary_dropped_reason_count") or 0) == 0
     assert float(runtime.get("primary_reason_coverage_ratio") or 0.0) == 0.0
     assert summary.get("primary_reason_incomplete") is True
-    assert summary.get("final_reason_incomplete") is True
-    assert float(summary.get("final_reason_coverage_ratio") or 0.0) == 0.0
+    assert summary.get("final_reason_incomplete") is False
+    assert float(summary.get("final_reason_coverage_ratio") or 0.0) == 1.0
     assert int(summary.get("primary_dropped_reason_count") or 0) == 0
     assert float(summary.get("primary_reason_coverage_ratio") or 0.0) == 0.0
+    assert runtime.get("global_review_complete") is False
+    assert runtime.get("full_candidate_set_preserved") is True
+    assert int(summary.get("retained_total") or 0) == 14
 
 
 def test_reason_repair_fills_dropped_reasons_without_changing_selection() -> None:
@@ -394,7 +407,7 @@ def test_reason_repair_fills_dropped_reasons_without_changing_selection() -> Non
     assert int((summary.get("reason_source_breakdown") or {}).get("primary") or 0) > 0
 
 
-def test_final_description_dedup_removes_frontend_mece_duplicates() -> None:
+def test_final_exact_dedup_keeps_same_description_with_different_behavior() -> None:
     cases = [_build_case(i) for i in range(1, 8)]
     cases[1]["description"] = "same validation goal"
     cases[2]["description"] = "same validation goal"
@@ -413,5 +426,5 @@ def test_final_description_dedup_removes_frontend_mece_duplicates() -> None:
     descriptions = [str(item.get("description") or "").strip().lower() for item in output_cases]
     summary = dict((result or {}).get("review_decision_summary") or {})
 
-    assert descriptions.count("same validation goal") == 1
-    assert int(summary.get("drop_final_description_duplicate_count") or 0) == 1
+    assert descriptions.count("same validation goal") == 2
+    assert int(summary.get("drop_final_description_duplicate_count") or 0) == 0

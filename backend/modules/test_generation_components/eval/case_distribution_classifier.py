@@ -16,8 +16,6 @@ _FLOW_TOKENS = (
     "返回",
     "跳转",
     "完成",
-    "学习",
-    "练习",
     "提交",
     "闭环",
     "继续",
@@ -35,8 +33,6 @@ _FLOW_PROGRESS_TOKENS = (
     "下一阶段",
     "进入下一阶段",
     "闭环",
-    "答题",
-    "练习",
     "submit",
     "complete",
     "continue",
@@ -101,8 +97,6 @@ _STATE_TOKENS = (
     "retry",
 )
 _STATE_GUARD_TOKENS = (
-    "不串课文",
-    "不串单元",
     "不丢上下文",
     "不错误推进",
     "不标记完成",
@@ -114,8 +108,9 @@ _STATE_GUARD_TOKENS = (
     "keep current page",
     "keep current state",
     "no wrong progression",
-    "no cross-unit leak",
-    "no cross-lesson leak",
+    "no context leak",
+    "no state leak",
+    "no cross-module leak",
 )
 _UI_TOKENS = (
     "按钮",
@@ -174,7 +169,82 @@ def _count_step_tokens(text: str, patterns: tuple[tuple[str, str], ...]) -> bool
     return any(all(token.lower() in text for token in pattern) for pattern in patterns)
 
 
+def _semantic_payload(case: dict[str, Any]) -> dict[str, Any]:
+    value = case.get("_semantic")
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _verified_semantic_items(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [
+        dict(item)
+        for item in value
+        if isinstance(item, dict) and item.get("evidence_verified") is True
+    ]
+
+
+def _workflow_transition(case: dict[str, Any]) -> dict[str, Any]:
+    value = case.get("workflow_transition")
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _transition_state_pair(transition: dict[str, Any]) -> tuple[str, str]:
+    source = str(transition.get("source_state") or transition.get("state_in") or "").strip()
+    target = str(transition.get("target_state") or transition.get("state_out") or "").strip()
+    return source, target
+
+
+def _has_verified_semantic_state(case: dict[str, Any]) -> bool:
+    semantic = _semantic_payload(case)
+    return any(
+        _verified_semantic_items(semantic.get(field))
+        for field in ("precondition_states", "required_states", "produced_states")
+    )
+
+
+def _has_verified_workflow_stage(case: dict[str, Any]) -> bool:
+    semantic = _semantic_payload(case)
+    return bool(_verified_semantic_items(semantic.get("workflow_stage_candidates")))
+
+
+def _has_structured_cross_module_signal(case: dict[str, Any]) -> bool:
+    semantic = _semantic_payload(case)
+    interaction_ids = semantic.get("interaction_ids")
+    if not (
+        isinstance(interaction_ids, list)
+        and any(str(item or "").strip() for item in interaction_ids)
+    ):
+        return False
+    modules = _verified_semantic_items(semantic.get("module_candidates"))
+    roles = {str(item.get("role") or "").strip().lower() for item in modules}
+    return "source" in roles and "target" in roles
+
+
+def _structured_distribution(case: dict[str, Any]) -> str:
+    execution_group = str(case.get("execution_group") or "").strip().lower()
+    if execution_group == "main_smoke":
+        return CASE_TYPE_FLOW
+    if execution_group == "display":
+        return CASE_TYPE_UI
+
+    transition = _workflow_transition(case)
+    source_state, target_state = _transition_state_pair(transition)
+    can_advance = transition.get("can_advance_main_flow") is True
+    if can_advance and source_state and target_state and source_state != target_state:
+        return CASE_TYPE_FLOW
+    if _has_verified_workflow_stage(case) and can_advance:
+        return CASE_TYPE_FLOW
+    if source_state or target_state or _has_verified_semantic_state(case):
+        return CASE_TYPE_STATE
+    return ""
+
+
 def classify_case_distribution(case: dict[str, Any]) -> str:
+    structured = _structured_distribution(case)
+    if structured:
+        return structured
+
     steps = case_step_lines(case)
     step_count = len(steps)
     step_text = " ".join(steps).lower()
@@ -242,9 +312,17 @@ def summarize_case_structure_signals(cases: list[dict[str, Any]]) -> dict[str, i
         text = _flatten_case_text(case)
         if len(steps) >= 3:
             multi_step += 1
-        if _contains_any(text, _CROSS_PAGE_TOKENS):
+        if _has_structured_cross_module_signal(case) or _contains_any(text, _CROSS_PAGE_TOKENS):
             cross_page += 1
-        if _contains_any(text, _STATE_TOKENS) or _contains_any(text, _STATE_GUARD_TOKENS):
+        transition = _workflow_transition(case)
+        source_state, target_state = _transition_state_pair(transition)
+        if (
+            source_state
+            or target_state
+            or _has_verified_semantic_state(case)
+            or _contains_any(text, _STATE_TOKENS)
+            or _contains_any(text, _STATE_GUARD_TOKENS)
+        ):
             state_transition += 1
     return {
         "cross_page_case_count": int(cross_page),

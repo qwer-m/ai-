@@ -17,7 +17,7 @@ def summarize_review_decision_counts(
     review_rows = [row for row in (review_decision_table or []) if isinstance(row, dict)]
     dropped_items = [row for row in (dropped_rows or []) if isinstance(row, dict)]
     return {
-        **summarize_review_must_keep_and_signal_counts(review_rows),
+        **summarize_review_signal_counts(review_rows),
         **summarize_review_drop_stage_counts(
             dropped_items,
             drop_by_review_llm_count=drop_by_review_llm_count,
@@ -31,26 +31,11 @@ def summarize_review_decision_counts(
     }
 
 
-def summarize_review_must_keep_and_signal_counts(
+def summarize_review_signal_counts(
     review_decision_table: Iterable[Any] | None,
 ) -> dict[str, int]:
     review_rows = [row for row in (review_decision_table or []) if isinstance(row, dict)]
     return {
-        "must_keep_candidate_count": int(sum(1 for row in review_rows if bool(row.get("must_keep_candidate")))),
-        "must_keep_retained_count": int(
-            sum(
-                1
-                for row in review_rows
-                if bool(row.get("must_keep_candidate")) and bool(row.get("retained_final"))
-            )
-        ),
-        "must_keep_dropped_count": int(
-            sum(
-                1
-                for row in review_rows
-                if bool(row.get("must_keep_candidate")) and not bool(row.get("retained_final"))
-            )
-        ),
         "retained_due_to_coverage_value_count": int(
             sum(
                 1
@@ -354,25 +339,10 @@ def build_review_decision_summary_payload(
     review_target_max_count: int | None,
     review_shortfall_detected: bool,
     review_shortfall_before_count: int,
-    review_shortfall_recovered_count: int,
-    review_post_rerank_floor_count: int | None,
-    review_post_rerank_recovered_count: int | None,
-    final_target_floor_count: int | None,
-    final_floor_recovery_attempted: bool,
-    final_floor_recovery_applied: bool,
-    final_floor_recovered_count: int | None,
-    final_floor_recovery_reason: str | None,
-    final_confirmed_conflict_drop_count: int | None,
-    final_shortfall_supplement_attempted: bool,
-    final_shortfall_supplement_applied: bool,
-    final_shortfall_supplement_count: int | None,
-    final_shortfall_supplement_reason: str | None,
-    final_shortfall_supplement_debug: dict[str, Any] | None,
     generation_mode: str | None,
     effective_generation_coverage_mode_source: str | None,
     explicit_generation_mode_override: bool,
     explicit_expected_count_floor_preserved: bool,
-    review_fill_source: str | None,
     review_llm_selected_signatures: Iterable[Any] | None,
     review_llm_runtime_debug: dict[str, Any] | None,
     review_constraint_retained_signatures: Iterable[Any] | None,
@@ -413,25 +383,10 @@ def build_review_decision_summary_payload(
         "review_target_max_count": int(review_target_max_count or review_target_min_count or 1),
         "review_shortfall_detected": bool(review_shortfall_detected),
         "review_shortfall_before_count": int(review_shortfall_before_count),
-        "review_shortfall_recovered_count": int(review_shortfall_recovered_count),
-        "review_post_rerank_floor_count": int(review_post_rerank_floor_count or 1),
-        "review_post_rerank_recovered_count": int(review_post_rerank_recovered_count or 0),
-        "final_target_floor_count": int(final_target_floor_count or 0),
-        "final_floor_recovery_attempted": bool(final_floor_recovery_attempted),
-        "final_floor_recovery_applied": bool(final_floor_recovery_applied),
-        "final_floor_recovered_count": int(final_floor_recovered_count or 0),
-        "final_floor_recovery_reason": str(final_floor_recovery_reason or ""),
-        "final_confirmed_conflict_drop_count": int(final_confirmed_conflict_drop_count or 0),
-        "final_shortfall_supplement_attempted": bool(final_shortfall_supplement_attempted),
-        "final_shortfall_supplement_applied": bool(final_shortfall_supplement_applied),
-        "final_shortfall_supplement_count": int(final_shortfall_supplement_count or 0),
-        "final_shortfall_supplement_reason": str(final_shortfall_supplement_reason or ""),
-        "final_shortfall_supplement_debug": dict(final_shortfall_supplement_debug or {}),
         "requested_generation_mode": str(generation_mode or ""),
         "effective_generation_coverage_mode_source": str(effective_generation_coverage_mode_source or ""),
         "explicit_generation_mode_override": bool(explicit_generation_mode_override),
         "explicit_expected_count_floor_preserved": bool(explicit_expected_count_floor_preserved),
-        "review_fill_source": str(review_fill_source or "none"),
         "review_llm_selected_count": int(len(list(review_llm_selected_signatures or []))),
         "review_llm_runtime_debug": dict(review_llm_runtime_debug or {}),
         "review_constraint_selected_count": int(len(list(review_constraint_retained_signatures or []))),

@@ -42,7 +42,10 @@ def merge_pre_projection_functional_phase_summary(
         return result
     result["functional_phase_counts"] = phase_counts
     result["functional_phase_counts_source"] = "execution_plan_pre_public_projection"
-    result["functional_phase_remaining_deficits"] = dict(coverage.get("remaining_deficits") or {})
+    result["functional_module_counts"] = dict(coverage.get("module_counts") or {})
+    result["functional_interaction_counts"] = dict(coverage.get("interaction_counts") or {})
+    result["functional_uncovered_modules"] = list(coverage.get("uncovered_modules") or [])
+    result["functional_uncovered_interactions"] = list(coverage.get("uncovered_interactions") or [])
     return result
 
 

@@ -24,26 +24,26 @@ def _case(case_id: str, description: str, *, priority: str = "P1") -> dict[str, 
     }
 
 
-def test_build_compact_reason_repair_prompt_uses_shared_brief_and_limits_candidates() -> None:
+def test_build_compact_reason_repair_prompt_uses_shared_brief_for_all_candidates() -> None:
     first = _case("TC-001", "create a course", priority="P0")
     second = _case("TC-002", "delete a course")
 
     prompt = build_compact_reason_repair_prompt(
         [first, second],
         drop_reasons=("duplicate", "low_value"),
-        max_candidates=1,
     )
 
     assert "REVIEW REASON REPAIR ONLY." in prompt
     assert "Do NOT select or rewrite cases." in prompt
     assert "Allowed reasons: duplicate, low_value." in prompt
-    assert 'case_id must come from: ["TC-001"]' in prompt
+    assert '"TC-001"' in prompt
+    assert '"TC-002"' in prompt
     assert '"id":"TC-001"' in prompt
     assert '"module":"Course"' in prompt
     assert '"description":"create a course"' in prompt
     assert '"expected_result":"create a course succeeds"' in prompt
     assert '"priority":"P0"' in prompt
-    assert "delete a course" not in prompt
+    assert "delete a course" in prompt
 
 
 def test_build_reason_repair_candidates_uses_case_aliases_and_skips_missing_ids() -> None:
@@ -61,7 +61,7 @@ def test_build_reason_repair_candidates_uses_case_aliases_and_skips_missing_ids(
         "expected_result": "not included",
     }
 
-    candidates = build_reason_repair_candidates([alias_case, missing_id], max_candidates=10)
+    candidates = build_reason_repair_candidates([alias_case, missing_id])
 
     assert candidates == [
         {

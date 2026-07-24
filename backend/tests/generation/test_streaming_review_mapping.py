@@ -19,12 +19,39 @@ def _case(case_id: str, description: str) -> dict[str, str]:
     }
 
 
-def test_map_review_to_candidates_matches_by_signature_and_deduplicates() -> None:
+def test_map_review_to_candidates_matches_by_unique_case_id_and_deduplicates() -> None:
     first = _case("TC-001", "保存课程")
     second = _case("TC-002", "删除课程")
     reviewed = [dict(second), dict(second), {"description": "unknown"}]
 
     assert map_review_to_candidates([first, second], reviewed) == [second]
+
+
+def test_map_review_selection_keeps_same_text_candidates_with_distinct_ids() -> None:
+    first = _case("TC-STATE-A", "same visible text")
+    second = _case("TC-STATE-B", "same visible text")
+    first["steps"] = ["prepare draft"]
+    second["steps"] = ["prepare published record"]
+
+    selected, signatures, _, _ = map_review_selection_with_reasons(
+        [first, second],
+        {"kept_case_ids": ["TC-STATE-A", "TC-STATE-B"]},
+    )
+
+    assert selected == [first, second]
+    assert len(signatures) == 2
+
+
+def test_map_review_selection_fails_closed_for_duplicate_candidate_ids() -> None:
+    first = _case("TC-DUP", "first behavior")
+    second = _case("TC-DUP", "second behavior")
+
+    selected, _, _, _ = map_review_selection_with_reasons(
+        [first, second],
+        {"kept_case_ids": ["TC-DUP"]},
+    )
+
+    assert selected == []
 
 
 def test_map_review_selection_with_reasons_accepts_scalar_id_list() -> None:

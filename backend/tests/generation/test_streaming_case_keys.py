@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
+
 from modules.test_generation_components.postprocess.streaming_case_keys import (
+    candidate_identity_key,
     case_coverage_bucket,
     case_focus_score,
     case_priority_score,
     case_signature,
-    dedupe_by_final_description,
     final_description_dedup_key,
     review_case_id,
 )
@@ -20,7 +22,11 @@ def test_case_signature_and_review_id_are_stable() -> None:
         "test_input": " Data ",
     }
 
-    assert case_signature(case) == "course|save plan|saved|data"
+    signature = json.loads(case_signature(case))
+    assert signature["test_module"] == "course"
+    assert signature["description"] == "save plan"
+    assert signature["expected_result"] == "saved"
+    assert signature["test_input"] == "data"
     assert review_case_id(case) == "TC-001"
 
 
@@ -33,7 +39,11 @@ def test_case_signature_and_review_id_accept_alias_fields() -> None:
         "testInput": " Data ",
     }
 
-    assert case_signature(case) == "course|save plan|saved|data"
+    signature = json.loads(case_signature(case))
+    assert signature["test_module"] == "course"
+    assert signature["description"] == "save plan"
+    assert signature["expected_result"] == "saved"
+    assert signature["test_input"] == "data"
     assert review_case_id(case) == "TC-002"
 
 
@@ -51,6 +61,25 @@ def test_case_priority_and_focus_scores() -> None:
     assert case_focus_score(case) == 5
 
 
+def test_candidate_identity_prefers_frozen_origin_key_after_reordering() -> None:
+    case = {
+        "id": "TC-001",
+        "description": "create record",
+        "test_module": "record",
+        "expected_result": "record is created",
+    }
+    origin_key = candidate_identity_key(case)
+    reordered = {
+        **case,
+        "id": "TC-099",
+        "origin_case_id": "TC-001",
+        "origin_candidate_key": origin_key,
+        "blocking": True,
+    }
+
+    assert candidate_identity_key(reordered) == origin_key
+
+
 def test_case_coverage_bucket_prioritizes_exception_boundary_state_risk() -> None:
     assert case_coverage_bucket({"test_module": "M", "description": "失败"}) == "m|exception"
     assert case_coverage_bucket({"test_module": "M", "description": "最大值"}) == "m|boundary"
@@ -61,16 +90,3 @@ def test_case_coverage_bucket_prioritizes_exception_boundary_state_risk() -> Non
 
 def test_case_coverage_bucket_accepts_alias_module_field() -> None:
     assert case_coverage_bucket({"module": "Alias Module", "description": "normal path"}) == "alias module|happy"
-
-
-def test_dedupe_by_final_description_keeps_first_and_returns_dropped_signatures() -> None:
-    cases = [
-        {"description": "保存  计划", "test_module": "A", "expected_result": "ok"},
-        {"description": "保存 计划", "test_module": "B", "expected_result": "duplicate"},
-        {"description": "提交计划", "test_module": "C", "expected_result": "ok"},
-    ]
-
-    kept, dropped = dedupe_by_final_description(cases)
-
-    assert [final_description_dedup_key(item) for item in kept] == ["保存 计划", "提交计划"]
-    assert dropped == {"b|保存 计划|duplicate|"}

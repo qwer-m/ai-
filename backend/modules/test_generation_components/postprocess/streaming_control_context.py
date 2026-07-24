@@ -26,7 +26,7 @@ class StreamingControlContext:
     workflow_blueprints: list[dict[str, Any]]
     trusted_workflow_contracts: list[dict[str, Any]]
     current_requirement_workflow_blueprints: list[dict[str, Any]]
-    authoritative_workflow_blueprints: list[dict[str, Any]]
+    workflow_absence_declared: bool
 
 
 def _dict_or_empty(value: Any) -> dict[str, Any]:
@@ -44,17 +44,6 @@ def _is_current_requirement_workflow_blueprint(item: dict[str, Any]) -> bool:
     source = str(item.get("repository_source") or item.get("source") or "").strip()
     source_type = str(item.get("source_type") or "").strip()
     return source == "current_requirement_blueprint" or source_type == "current_requirement_extracted"
-
-
-def _is_fallback_current_requirement_workflow_blueprint(item: dict[str, Any]) -> bool:
-    if not _is_current_requirement_workflow_blueprint(item):
-        return False
-    workflow_id = str(item.get("workflow_id") or item.get("id") or "").strip()
-    return bool(
-        item.get("fallback") is True
-        or item.get("allow_final_materialization") is False
-        or workflow_id == "current_requirement_fallback_main_flow"
-    )
 
 
 def resolve_streaming_control_context(feedback_control_state: Any) -> StreamingControlContext:
@@ -82,26 +71,16 @@ def resolve_streaming_control_context(feedback_control_state: Any) -> StreamingC
         for item in (control_state.workflow_blueprints or [])
         if isinstance(item, dict) and isinstance(item.get("steps"), list)
     ]
-    workflow_blueprints = [
-        item for item in raw_workflow_blueprints if not _is_fallback_current_requirement_workflow_blueprint(item)
-    ]
+    workflow_blueprints = list(raw_workflow_blueprints)
     trusted_workflow_contracts = [
         item for item in workflow_blueprints if is_trusted_workflow_contract(item)
     ]
     current_requirement_workflow_blueprints = [
         item
-        for item in raw_workflow_blueprints
+        for item in workflow_blueprints
         if _is_current_requirement_workflow_blueprint(item)
     ]
-    authoritative_workflow_blueprints = [
-        *trusted_workflow_contracts,
-        *[
-            item
-            for item in current_requirement_workflow_blueprints
-            if item not in trusted_workflow_contracts
-            and not _is_fallback_current_requirement_workflow_blueprint(item)
-        ],
-    ]
+    workflow_absence_declared = source_meta.get("workflow_absence_declared") is True
     return StreamingControlContext(
         control_state=control_state,
         source_meta=source_meta,
@@ -120,5 +99,5 @@ def resolve_streaming_control_context(feedback_control_state: Any) -> StreamingC
         workflow_blueprints=workflow_blueprints,
         trusted_workflow_contracts=trusted_workflow_contracts,
         current_requirement_workflow_blueprints=current_requirement_workflow_blueprints,
-        authoritative_workflow_blueprints=authoritative_workflow_blueprints,
+        workflow_absence_declared=workflow_absence_declared,
     )

@@ -159,7 +159,11 @@ def _build_case_ref(case: dict[str, Any], *, fallback_index: int, suite_order: i
     }
 
 
-def build_execution_suite(cases_payload: Any) -> dict[str, Any]:
+def build_execution_suite(
+    cases_payload: Any,
+    *,
+    workflow_absence_declared: bool = False,
+) -> dict[str, Any]:
     """Build a run-friendly suite view from already generated case metadata."""
     cases = parse_generated_cases_payload(cases_payload)
     grouped: dict[str, dict[str, Any]] = {}
@@ -265,12 +269,14 @@ def build_execution_suite(cases_payload: Any) -> dict[str, Any]:
         missing_fields = [field for field, count in metadata_counts.items() if count < len(cases)]
         if missing_fields:
             warnings.append("部分用例缺少执行元数据：" + ", ".join(missing_fields))
-    if cases and not main_suite:
+    if cases and not main_suite and not workflow_absence_declared:
         warnings.append("缺少 main_smoke 主链，无法确认端到端线性执行顺序")
     if missing_dependency_count:
         warnings.append(f"存在 {missing_dependency_count} 个缺失依赖引用")
 
-    if linear_executable and complete_execution_metadata and missing_dependency_count == 0:
+    if workflow_absence_declared and cases and complete_execution_metadata and missing_dependency_count == 0:
+        readiness = "independent_ready"
+    elif linear_executable and complete_execution_metadata and missing_dependency_count == 0:
         readiness = "ready"
     elif cases and not has_any_execution_metadata:
         readiness = "legacy_manual"
@@ -286,6 +292,7 @@ def build_execution_suite(cases_payload: Any) -> dict[str, Any]:
         "suite_count": int(len(suites)),
         "runnable_suite_count": int(sum(1 for suite in suites if bool(suite.get("runnable")))),
         "linear_executable": linear_executable,
+        "workflow_absence_declared": bool(workflow_absence_declared),
         "execution_readiness": readiness,
         "main_suite_id": _text((main_suite or {}).get("suite_id")),
         "metadata_quality": {

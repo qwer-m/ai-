@@ -40,8 +40,8 @@ def count_unique_test_cases(cases: list[dict[str, Any]]) -> int:
     return _count_unique_test_cases(cases)
 
 
-def normalize_json_structure(data: Any) -> Any:
-    return _normalize_json_structure(data)
+def normalize_json_structure(data: Any, **kwargs: Any) -> Any:
+    return _normalize_json_structure(data, **kwargs)
 
 
 def infer_case_kind(case: dict[str, Any]) -> str:

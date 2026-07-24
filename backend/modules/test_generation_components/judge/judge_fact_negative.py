@@ -45,11 +45,25 @@ _TEMPORAL_SHUTDOWN_BLOCK_MARKERS = (
     "不能进入",
     "无法进入",
     "禁止进入",
+    "不可打开",
+    "不能打开",
+    "无法打开",
+    "禁止打开",
+    "不可访问",
+    "不能访问",
+    "无法访问",
+    "禁止访问",
     "不跳转",
     "无响应",
     "not enter",
     "cannot enter",
     "can't enter",
+    "not open",
+    "cannot open",
+    "can't open",
+    "not access",
+    "cannot access",
+    "can't access",
     "closed",
     "unavailable",
 )
@@ -65,15 +79,67 @@ _TEMPORAL_SHUTDOWN_POSITIVE_MARKERS = (
     "入口可点击",
     "入口展示",
     "入口开放",
+    "仍可打开",
+    "可打开",
+    "可以打开",
+    "正常打开",
+    "成功打开",
+    "允许打开",
+    "继续打开",
     "跳转至",
     "跳转到",
-    "进入课程",
-    "进入活动",
     "can enter",
     "may enter",
     "allowed to enter",
     "successfully enters",
+    "can open",
+    "may open",
+    "allowed to open",
+    "successfully opens",
     "redirects to",
+)
+
+_TEMPORAL_SHUTDOWN_TRANSITION_MARKERS = (
+    "进入",
+    "打开",
+    "跳转",
+    "访问",
+    "enter",
+    "open",
+    "navigate",
+    "redirect",
+)
+
+_TEMPORAL_SHUTDOWN_ACTION_MARKERS = (
+    "关闭",
+    "消失",
+    "不可见",
+    "不可点击",
+    "不可进入",
+    "不能进入",
+    "无法进入",
+    "禁止进入",
+    "不可打开",
+    "不能打开",
+    "无法打开",
+    "禁止打开",
+    "不可访问",
+    "不能访问",
+    "无法访问",
+    "禁止访问",
+    "不跳转",
+    "无响应",
+    "closed",
+    "unavailable",
+    "not enter",
+    "cannot enter",
+    "can't enter",
+    "not open",
+    "cannot open",
+    "can't open",
+    "not access",
+    "cannot access",
+    "can't access",
 )
 
 _NEGATED_TAIL_CONTEXT_MARKERS = (
@@ -90,6 +156,16 @@ _NEGATED_TAIL_CONTEXT_MARKERS = (
     "关闭",
     "消失",
     "无响应",
+    "未进入",
+    "未打开",
+    "未跳转",
+    "没有进入",
+    "没有打开",
+    "没有跳转",
+    "未能",
+    "does not",
+    "doesn't",
+    "not allowed",
 )
 
 
@@ -143,13 +219,70 @@ def _case_negates_tail(case_text: str, tail: str) -> bool:
         start = index + max(1, len(tail_text))
 
 
-def _violates_temporal_shutdown_fact(case_text: str) -> bool:
-    lowered_case = str(case_text or "").strip().lower()
-    if not _contains_raw_marker(lowered_case, _TEMPORAL_SHUTDOWN_SCOPE_MARKERS):
-        return False
-    if _contains_raw_marker(lowered_case, _TEMPORAL_SHUTDOWN_BLOCK_MARKERS):
-        return False
-    return _contains_raw_marker(lowered_case, _TEMPORAL_SHUTDOWN_POSITIVE_MARKERS)
+def _temporal_shutdown_target_terms(fact: str) -> tuple[str, ...]:
+    lowered = str(fact or "").strip().lower()
+    for marker in sorted(_TEMPORAL_SHUTDOWN_SCOPE_MARKERS, key=len, reverse=True):
+        lowered = lowered.replace(marker, " ")
+    lowered = re.sub(r"^\s*(?:后|then)\s*", "", lowered)
+    terms: list[str] = []
+    seen: set[str] = set()
+    for segment in re.split(r"[，,；;。.!！]|(?:\b(?:and|while)\b)|(?:且|并且|同时)", lowered):
+        value = str(segment or "").strip()
+        if not value:
+            continue
+        action_index = -1
+        for marker in sorted(_TEMPORAL_SHUTDOWN_ACTION_MARKERS, key=len, reverse=True):
+            index = value.find(marker)
+            if index >= 0 and (action_index < 0 or index < action_index):
+                action_index = index
+        if action_index <= 0:
+            continue
+        prefix = value[:action_index]
+        prefix = re.sub(r"\b(?:the|a|an|is|are|should|must)\b", " ", prefix)
+        prefix = re.sub(r"(?:必须|应当|应该|需要)", " ", prefix)
+        candidates = re.findall(r"[a-z][a-z0-9_-]{1,}|[\u4e00-\u9fff]{2,}", prefix)
+        for candidate in candidates:
+            normalized = str(candidate or "").strip().lower()
+            if len(normalized) < 2 or normalized in seen:
+                continue
+            seen.add(normalized)
+            terms.append(normalized)
+    return tuple(terms)
+
+
+def _clause_has_unnegated_transition(clause: str) -> bool:
+    if _contains_raw_marker(clause, _TEMPORAL_SHUTDOWN_POSITIVE_MARKERS):
+        return True
+    for marker in _TEMPORAL_SHUTDOWN_TRANSITION_MARKERS:
+        start = 0
+        while True:
+            index = clause.find(marker, start)
+            if index < 0:
+                break
+            window = clause[max(0, index - 12): index + len(marker) + 4]
+            if not _contains_raw_marker(window, _NEGATED_TAIL_CONTEXT_MARKERS):
+                return True
+            start = index + max(1, len(marker))
+    return False
+
+
+def _violates_temporal_shutdown_fact(case_text: str, fact: str = "") -> bool:
+    target_terms = _temporal_shutdown_target_terms(fact)
+    clauses = [
+        str(item or "").strip().lower()
+        for item in re.split(r"[，,；;。.!！\n]+", str(case_text or ""))
+        if str(item or "").strip()
+    ]
+    for clause in clauses:
+        if not _contains_raw_marker(clause, _TEMPORAL_SHUTDOWN_SCOPE_MARKERS):
+            continue
+        if _contains_raw_marker(clause, _TEMPORAL_SHUTDOWN_BLOCK_MARKERS):
+            continue
+        if target_terms and not any(term in clause for term in target_terms):
+            continue
+        if _clause_has_unnegated_transition(clause):
+            return True
+    return False
 
 
 def _violates_negative_fact(case_text: str, fact: str) -> bool:
@@ -160,7 +293,7 @@ def _violates_negative_fact(case_text: str, fact: str) -> bool:
         return False
 
     if _is_temporal_shutdown_fact(lowered_fact):
-        return _violates_temporal_shutdown_fact(case_text)
+        return _violates_temporal_shutdown_fact(case_text, lowered_fact)
 
     normalized_case = _normalize_text(case_text)
     tail = _split_negative_fact_tail(lowered_fact)
@@ -178,12 +311,16 @@ __all__ = [
     "_TEMPORAL_SHUTDOWN_SCOPE_MARKERS",
     "_TEMPORAL_SHUTDOWN_BLOCK_MARKERS",
     "_TEMPORAL_SHUTDOWN_POSITIVE_MARKERS",
+    "_TEMPORAL_SHUTDOWN_TRANSITION_MARKERS",
+    "_TEMPORAL_SHUTDOWN_ACTION_MARKERS",
     "_NEGATED_TAIL_CONTEXT_MARKERS",
     "_contains_raw_marker",
     "_negative_fact_marker_pattern",
     "_split_negative_fact_tail",
     "_is_temporal_shutdown_fact",
     "_case_negates_tail",
+    "_temporal_shutdown_target_terms",
+    "_clause_has_unnegated_transition",
     "_violates_temporal_shutdown_fact",
     "_violates_negative_fact",
 ]

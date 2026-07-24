@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..postprocess.case_access import case_signature_text
+from ..postprocess.json_repair import deterministic_case_dedup_key
 from .judge_types import JudgeBatchResult, JudgeStatus
 
 
 def _case_signature(case: dict[str, Any]) -> str:
-    return case_signature_text(case)
+    return deterministic_case_dedup_key(case)
 
 
 def _dedupe_cases(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:

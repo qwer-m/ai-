@@ -4,6 +4,7 @@ from modules.test_generation_components.postprocess.streaming_expected_result_qu
     has_concrete_expected_assertion,
     has_weak_ambiguous_expected_result,
     is_ambiguous_expected_result,
+    is_case_expected_result_non_assertable,
     is_non_assertable_expected_result,
     looks_template_polluted_expected_result,
     looks_truncated_text,
@@ -18,6 +19,8 @@ def test_expected_result_quality_detects_concrete_assertions() -> None:
     assert has_concrete_expected_assertion("剩余次数显示为 2/5")
     assert has_concrete_expected_assertion("按钮置灰且不可点击")
     assert not has_concrete_expected_assertion("结果符合预期")
+    assert has_concrete_expected_assertion("checkout is ready")
+    assert has_concrete_expected_assertion("关闭后标题和正文输入区可编辑")
 
 
 def test_expected_result_quality_marks_weak_or_placeholder_results_non_assertable() -> None:
@@ -25,6 +28,22 @@ def test_expected_result_quality_marks_weak_or_placeholder_results_non_assertabl
     assert is_non_assertable_expected_result("result is as configured")
     assert is_non_assertable_expected_result("或显示错误信息")
     assert has_weak_ambiguous_expected_result("or show error")
+
+
+def test_expected_result_text_heuristics_are_diagnostic_not_hard_gate() -> None:
+    gate = summarize_case_quality_gate(
+        [
+            {
+                "id": "TC-DIAGNOSTIC",
+                "priority_final": "P1",
+                "expected_result": "result is as configured",
+            }
+        ]
+    )
+
+    assert gate["passed"] is True
+    assert gate["failed_checks"] == []
+    assert gate["diagnostic_checks"] == ["non_assertable_expected_result_count=1"]
 
 
 def test_expected_result_quality_allows_ambiguous_text_when_specific_assertion_exists() -> None:
@@ -37,7 +56,7 @@ def test_expected_result_quality_allows_ambiguous_text_when_specific_assertion_e
 
 
 def test_expected_result_quality_allows_multiclause_business_assertions_with_option_text() -> None:
-    text = "执行日支持多选；默认每项2小时；时间段可选8:00-10:00；预览中按所选日期生成计划"
+    text = "执行批次支持多选；默认每项2小时；时间段可选8:00-10:00；预览中按所选日期生成记录"
 
     assert is_ambiguous_expected_result(text)
     assert has_concrete_expected_assertion(text)
@@ -61,9 +80,9 @@ def test_expected_result_quality_allows_multiclause_business_assertions_with_opt
 
 def test_expected_result_quality_allows_boundary_state_and_conflict_assertions() -> None:
     texts = [
-        "默认每节2小时，一天最多只能设置5节，第6节无法添加或提示超出限制",
-        "当前执行项正常展示；下一项显示为“ITEM-002”，来源字段显示“最新计划”",
-        "1.系统自动标记冲突项并提示时间冲突；2.需手动微调时间解决冲突；3.手动调整后后续项目按规则自动顺延",
+        "默认每批2小时，一天最多只能设置5批，第6批无法添加或提示超出限制",
+        "当前执行项正常展示；下一项显示为“ITEM-002”，来源字段显示“最新版本”",
+        "1.系统自动标记冲突项并提示时间冲突；2.需手动微调时间解决冲突；3.调整后后续项目自动顺延",
     ]
 
     for text in texts:
@@ -73,16 +92,60 @@ def test_expected_result_quality_allows_boundary_state_and_conflict_assertions()
 
 def test_expected_result_quality_allows_common_ui_visibility_and_formula_assertions() -> None:
     texts = [
-        "未编辑的好词好句波浪线正常展示，波浪线标注完整显示，与原文一致",
-        "字数有改动的波浪线被删除不展示，未改动的波浪线正常展示",
-        "不展示VIP/SVIP图标，不展示地域和学校信息，头像和昵称正常展示",
-        "跳转到对应帖子的详情页，帖子内容正常展示",
-        "T=MAX(1-72/72,0)=0，该帖子权重仅由L和R决定，排序位置符合公式计算结果",
+        "未编辑的标题标记正常展示，标记内容完整显示，输入值保持一致",
+        "内容有改动的旧标记被移除，未改动的标记正常展示",
+        "不展示内部标签，不展示隐藏字段，账号名称正常展示",
+        "跳转到对应记录的详情页，记录内容正常展示",
+        "T=MAX(1-72/72,0)=0，该记录权重仅由L和R决定，排序位置符合公式计算结果",
     ]
 
     for text in texts:
         assert has_concrete_expected_assertion(text)
         assert not is_non_assertable_expected_result(text)
+
+
+def test_case_expected_result_quality_uses_only_verified_semantic_anchors() -> None:
+    verified_case = {
+        "expected_result": "处理完成",
+        "_semantic": {
+            "module_candidates": [
+                {
+                    "module_name": "处理中心",
+                    "module_key": "processing",
+                    "evidence_verified": True,
+                }
+            ],
+            "produced_states": [
+                {
+                    "entity": "处理",
+                    "state": "完成",
+                    "evidence_verified": True,
+                }
+            ],
+        },
+    }
+    unverified_case = {
+        **verified_case,
+        "_semantic": {
+            "produced_states": [
+                {
+                    "entity": "处理",
+                    "state": "完成",
+                    "evidence_verified": False,
+                }
+            ]
+        },
+    }
+
+    assert not is_case_expected_result_non_assertable(verified_case)
+    assert is_case_expected_result_non_assertable(unverified_case)
+    assert is_non_assertable_expected_result("处理完成")
+
+
+def test_case_expected_result_quality_keeps_generic_text_contract_without_semantic_data() -> None:
+    case = {"expected_result": "记录状态等于 APPROVED"}
+
+    assert not is_case_expected_result_non_assertable(case)
 
 
 def test_expected_result_quality_detects_template_pollution_and_truncation() -> None:

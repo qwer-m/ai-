@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import pytest
+from copy import deepcopy
+from typing import Any
 
 from modules.testing.test_generation_components.postprocess.result_postprocess import (
     normalize_final_case_priorities,
@@ -13,10 +14,108 @@ from tests.rag.generation.quality_governance_harness import (
 )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="多阶段共享 checkout/order 业务词会触发跨阶段候选竞争，显式主链当前无法物化",
-)
+def _run_declared_workflow_cases(
+    requirement: str,
+    cases: list[dict[str, Any]],
+    *,
+    stage_by_case_id: dict[str, str | tuple[str, float]],
+    expected_count: int,
+    feedback_control_state: dict[str, Any],
+) -> dict[str, Any]:
+    """按当前需求语义编译器的真实输出契约准备治理测试输入。"""
+    state = deepcopy(feedback_control_state)
+    blueprints = [
+        dict(item)
+        for item in (state.get("workflow_blueprints") or [])
+        if isinstance(item, dict)
+    ]
+    assert len(blueprints) == 1
+    blueprint = blueprints[0]
+    workflow_id = str(blueprint.get("workflow_id") or blueprint.get("id") or "")
+    blueprint["primary"] = True
+    normalized_steps: list[dict[str, Any]] = []
+    for raw_step in blueprint.get("steps") or []:
+        step = dict(raw_step)
+        step.setdefault("path_type", "positive")
+        step.setdefault("required", False)
+        step.setdefault("terminal", False)
+        step.setdefault("critical", False)
+        step.setdefault("blocking", False)
+        step.setdefault("destructive", False)
+        step.setdefault("can_advance_main_flow", True)
+        step.setdefault("module_candidates", [])
+        step.setdefault("interaction_ids", [])
+        step.setdefault("required_states", [])
+        step.setdefault("produced_states", [])
+        normalized_steps.append(step)
+    blueprint["steps"] = normalized_steps
+    state["workflow_blueprints"] = [blueprint]
+    step_by_id = {
+        str(step.get("id") or ""): step
+        for step in normalized_steps
+        if str(step.get("id") or "")
+    }
+
+    normalized_cases: list[dict[str, Any]] = []
+    for raw_case in cases:
+        case = dict(raw_case)
+        case_id = str(case.get("id") or "")
+        assignment = stage_by_case_id.get(case_id)
+        stage_id = ""
+        confidence = 0.0
+        step: dict[str, Any] = {}
+        if assignment is not None:
+            stage_id, confidence = (
+                assignment if isinstance(assignment, tuple) else (assignment, 0.95)
+            )
+            step = step_by_id[stage_id]
+        evidence = str(
+            case.get("description")
+            or next(iter(case.get("steps") or []), stage_id or case_id)
+        )
+        existing_semantic = (
+            dict(case.get("_semantic")) if isinstance(case.get("_semantic"), dict) else {}
+        )
+        module_name = str(case.get("test_module") or "independent")
+        module_key = "_".join(module_name.lower().split()) or "independent"
+        case["_semantic"] = {
+            "version": "case-semantic-v1",
+            "module_candidates": list(existing_semantic.get("module_candidates") or [])
+            or [
+                {
+                    "module_key": module_key,
+                    "module_name": module_name,
+                    "role": "primary",
+                    "confidence": 0.9,
+                    "evidence": [evidence],
+                    "evidence_verified": True,
+                }
+            ],
+            "interaction_ids": list(existing_semantic.get("interaction_ids") or []),
+            "workflow_stage_candidates": [
+                {
+                    "workflow_id": workflow_id,
+                    "stage_id": stage_id,
+                    "stage_kind": str(step.get("stage_kind") or ""),
+                    "confidence": float(confidence),
+                    "evidence": [evidence],
+                    "evidence_verified": True,
+                }
+            ]
+            if assignment is not None
+            else [],
+            "precondition_states": list(existing_semantic.get("precondition_states") or []),
+            "produced_states": list(existing_semantic.get("produced_states") or []),
+        }
+        normalized_cases.append(case)
+    return _run_cases(
+        requirement=requirement,
+        cases=normalized_cases,
+        expected_count=expected_count,
+        feedback_control_state=state,
+    )
+
+
 def test_execution_plan_uses_workflow_blueprint_without_domain_template() -> None:
     state = {
         "workflow_blueprints": [
@@ -26,6 +125,14 @@ def test_execution_plan_uses_workflow_blueprint_without_domain_template() -> Non
                 "name": "checkout flow",
                 "repository_source": "current_requirement_blueprint",
                 "source_type": "current_requirement_extracted",
+                "initial_state": "initial",
+                "required_stage_ids": [
+                    "open_checkout",
+                    "configure_order",
+                    "submit_order",
+                    "verify_paid",
+                ],
+                "terminal_states": ["paid_status_visible"],
                 "steps": [
                     {
                         "id": "open_checkout",
@@ -35,6 +142,8 @@ def test_execution_plan_uses_workflow_blueprint_without_domain_template() -> Non
                         "state_in": "initial",
                         "state_out": "checkout_opened",
                         "stage_kind": "entry",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["open checkout"],
                         "assertion": "checkout is ready",
                     },
@@ -46,6 +155,8 @@ def test_execution_plan_uses_workflow_blueprint_without_domain_template() -> Non
                         "state_in": "checkout_opened",
                         "state_out": "order_ready",
                         "stage_kind": "configure",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["select delivery and payment method"],
                         "assertion": "order is ready to submit",
                     },
@@ -57,6 +168,8 @@ def test_execution_plan_uses_workflow_blueprint_without_domain_template() -> Non
                         "state_in": "order_ready",
                         "state_out": "order_created",
                         "stage_kind": "commit",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["submit order"],
                         "assertion": "order is created",
                     },
@@ -68,6 +181,8 @@ def test_execution_plan_uses_workflow_blueprint_without_domain_template() -> Non
                         "state_in": "order_created",
                         "state_out": "paid_status_visible",
                         "stage_kind": "downstream_visibility",
+                        "required": True,
+                        "terminal": True,
                         "match_keywords": ["display paid order status"],
                         "assertion": "paid order status is displayed and visible downstream",
                     },
@@ -75,7 +190,7 @@ def test_execution_plan_uses_workflow_blueprint_without_domain_template() -> Non
             }
         ]
     }
-    result = _run_cases(
+    result = _run_declared_workflow_cases(
         requirement=(
             "Checkout flow: open checkout, select delivery and payment method, submit the order, "
             "then display the paid order status downstream."
@@ -132,6 +247,12 @@ def test_execution_plan_uses_workflow_blueprint_without_domain_template() -> Non
                 "priority": "P0",
             },
         ],
+        stage_by_case_id={
+            "TC-001": "open_checkout",
+            "TC-002": "configure_order",
+            "TC-003": "submit_order",
+            "TC-004": "verify_paid",
+        },
         expected_count=10,
         feedback_control_state=state,
     )
@@ -173,22 +294,33 @@ def test_execution_plan_final_output_orders_mixed_side_suites_by_execution_plan(
             {
                 "id": "checkout_flow",
                 "name": "checkout flow",
+                "initial_state": "cart_ready",
+                "required_stage_ids": ["submit_order", "verify_paid"],
+                "terminal_states": ["paid_status_visible"],
                 "steps": [
                     {
                         "id": "submit_order",
                         "label": "Submit order",
+                        "action": "Submit order",
+                        "stage_kind": "commit",
                         "actor": "student",
                         "state_in": "cart_ready",
                         "state_out": "order_created",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["submit order"],
                         "assertion": "order is created",
                     },
                     {
                         "id": "verify_paid",
                         "label": "Verify paid status",
+                        "action": "Verify paid status",
+                        "stage_kind": "downstream_visibility",
                         "actor": "supervisor",
                         "state_in": "order_created",
                         "state_out": "paid_status_visible",
+                        "required": True,
+                        "terminal": True,
                         "match_keywords": ["paid status"],
                         "assertion": "paid status is visible",
                     },
@@ -196,7 +328,7 @@ def test_execution_plan_final_output_orders_mixed_side_suites_by_execution_plan(
             }
         ]
     }
-    result = _run_cases(
+    result = _run_declared_workflow_cases(
         requirement="Checkout execution order regression",
         cases=[
             {
@@ -275,6 +407,10 @@ def test_execution_plan_final_output_orders_mixed_side_suites_by_execution_plan(
                 "execution_group": "independent_functional",
             },
         ],
+        stage_by_case_id={
+            "TC-002": "submit_order",
+            "TC-004": "verify_paid",
+        },
         expected_count=12,
         feedback_control_state=state,
     )
@@ -309,6 +445,9 @@ def test_execution_plan_attaches_transition_contract_to_main_smoke() -> None:
                 "name": "forum publish flow",
                 "repository_source": "current_requirement_blueprint",
                 "source_type": "current_requirement_extracted",
+                "initial_state": "initial",
+                "required_stage_ids": ["open_forum", "select_zone", "submit_post", "view_post"],
+                "terminal_states": ["post_visible"],
                 "steps": [
                     {
                         "id": "open_forum",
@@ -318,6 +457,8 @@ def test_execution_plan_attaches_transition_contract_to_main_smoke() -> None:
                         "state_in": "initial",
                         "state_out": "forum_opened",
                         "stage_kind": "entry",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["open forum home"],
                         "assertion": "forum home is ready",
                     },
@@ -329,6 +470,8 @@ def test_execution_plan_attaches_transition_contract_to_main_smoke() -> None:
                         "state_in": "forum_opened",
                         "state_out": "zone_selected",
                         "stage_kind": "configure",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["select forum zone"],
                         "assertion": "zone is selected",
                     },
@@ -340,6 +483,8 @@ def test_execution_plan_attaches_transition_contract_to_main_smoke() -> None:
                         "state_in": "zone_selected",
                         "state_out": "post_created",
                         "stage_kind": "commit",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["submit new post"],
                         "assertion": "post is created",
                     },
@@ -351,6 +496,8 @@ def test_execution_plan_attaches_transition_contract_to_main_smoke() -> None:
                         "state_in": "post_created",
                         "state_out": "post_visible",
                         "stage_kind": "downstream_visibility",
+                        "required": True,
+                        "terminal": True,
                         "match_keywords": ["display published post in selected zone"],
                         "assertion": "post is displayed and visible downstream in the zone",
                     },
@@ -358,7 +505,7 @@ def test_execution_plan_attaches_transition_contract_to_main_smoke() -> None:
             }
         ]
     }
-    result = _run_cases(
+    result = _run_declared_workflow_cases(
         requirement="Forum flow: open forum home, select a zone, submit a new post, then view it in that zone.",
         cases=[
             {
@@ -402,6 +549,12 @@ def test_execution_plan_attaches_transition_contract_to_main_smoke() -> None:
                 "priority": "P1",
             },
         ],
+        stage_by_case_id={
+            "TC-001": "open_forum",
+            "TC-002": "select_zone",
+            "TC-003": "submit_post",
+            "TC-004": "view_post",
+        },
         expected_count=10,
         feedback_control_state=state,
     )
@@ -434,7 +587,7 @@ def test_execution_plan_attaches_transition_contract_to_main_smoke() -> None:
     assert all(float(item.get("state_transition_confidence") or 0.0) >= 0.9 for item in main_cases)
 
 
-def test_execution_plan_excludes_candidate_when_action_text_does_not_support_stage() -> None:
+def test_execution_plan_keeps_gap_when_no_verified_stage_candidate_exists() -> None:
     state = {
         "workflow_blueprints": [
             {
@@ -443,6 +596,9 @@ def test_execution_plan_excludes_candidate_when_action_text_does_not_support_sta
                 "name": "order submission flow",
                 "source_type": "current_requirement_extracted",
                 "repository_source": "current_requirement_blueprint",
+                "initial_state": "initial",
+                "required_stage_ids": ["open_checkout", "configure_order", "submit_order", "view_receipt"],
+                "terminal_states": ["receipt_visible"],
                 "steps": [
                     {
                         "id": "open_checkout",
@@ -452,7 +608,8 @@ def test_execution_plan_excludes_candidate_when_action_text_does_not_support_sta
                         "state_in": "initial",
                         "state_out": "checkout_opened",
                         "stage_kind": "entry",
-                        "allow_bridge": True,
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["open checkout"],
                     },
                     {
@@ -463,7 +620,8 @@ def test_execution_plan_excludes_candidate_when_action_text_does_not_support_sta
                         "state_in": "checkout_opened",
                         "state_out": "order_configured",
                         "stage_kind": "configure",
-                        "allow_bridge": True,
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["select delivery address"],
                     },
                     {
@@ -474,8 +632,9 @@ def test_execution_plan_excludes_candidate_when_action_text_does_not_support_sta
                         "state_in": "order_configured",
                         "state_out": "order_submitted",
                         "stage_kind": "commit",
-                        "allow_bridge": True,
-                        "match_keywords": ["order"],
+                        "required": True,
+                        "terminal": False,
+                        "match_keywords": ["confirm checkout and submit order"],
                     },
                     {
                         "id": "view_receipt",
@@ -485,14 +644,15 @@ def test_execution_plan_excludes_candidate_when_action_text_does_not_support_sta
                         "state_in": "order_submitted",
                         "state_out": "receipt_visible",
                         "stage_kind": "downstream_visibility",
-                        "allow_bridge": True,
+                        "required": True,
+                        "terminal": True,
                         "match_keywords": ["open submitted order receipt"],
                     },
                 ],
             }
         ]
     }
-    result = _run_cases(
+    result = _run_declared_workflow_cases(
         requirement=(
             "Checkout flow should open checkout, select delivery and payment, submit the order, "
             "and then open the submitted order receipt."
@@ -539,6 +699,11 @@ def test_execution_plan_excludes_candidate_when_action_text_does_not_support_sta
                 "priority": "P0",
             },
         ],
+        stage_by_case_id={
+            "TC-001": "open_checkout",
+            "TC-002": "configure_order",
+            "TC-004": "view_receipt",
+        },
         expected_count=6,
         feedback_control_state=state,
     )
@@ -547,23 +712,26 @@ def test_execution_plan_excludes_candidate_when_action_text_does_not_support_sta
         item for item in (result.get("cases") or [])
         if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
     ]
-    assert [item.get("main_chain_stage") for item in main_cases] == [
-        "open_checkout",
-        "configure_order",
-        "submit_order",
-        "view_receipt",
-    ]
-    commit_case = next(item for item in main_cases if item.get("main_chain_stage") == "submit_order")
-    assert "address filter" not in str(commit_case.get("description") or "").lower()
-    assert commit_case.get("workflow_contract_materialized_case") is True
-    assert commit_case.get("steps") == ["Confirm checkout and submit order"]
-    assert all("address filter" not in str(item.get("description") or "").lower() for item in main_cases)
     plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
+    assignment = dict(plan.get("global_stage_assignment") or {})
+
+    assert main_cases == []
+    assert all(
+        str(item.get("stage_key") or "") != "submit_order"
+        for item in (plan.get("best_assignment") or [])
+    )
+    assert any(
+        str(item.get("stage_key") or "") == "submit_order"
+        for item in (assignment.get("gaps") or [])
+    )
+    assert assignment.get("required_gap_count") == 1
     assert plan.get("workflow_blueprint_source") == "current_requirement_blueprint"
-    assert plan.get("linear_executable") is True
+    assert plan.get("main_chain_incomplete_reason") == "required_stage_gap"
+    assert plan.get("publishable_main_chain") is False
+    assert plan.get("linear_executable") is False
 
 
-def test_trusted_repository_contract_bridges_full_main_chain_when_candidates_do_not_match() -> None:
+def test_current_requirement_contract_keeps_required_gaps_without_verified_candidates() -> None:
     states = [
         ("start", "Ready", "open_workflow", "ready", "started", "entry"),
         ("configure", "Configure", "configure_workflow", "started", "configured", "configure"),
@@ -575,12 +743,14 @@ def test_trusted_repository_contract_bridges_full_main_chain_when_candidates_do_
     state = {
         "workflow_blueprints": [
             {
-                "id": "trusted_bridge_flow",
-                "workflow_id": "trusted_bridge_flow",
-                "name": "trusted bridge flow",
-                "source_type": "human_reviewed",
-                "repository_source": "workflow_blueprint_repository",
-                "trusted": True,
+                "id": "trusted_gap_flow",
+                "workflow_id": "trusted_gap_flow",
+                "name": "trusted gap flow",
+                "source_type": "current_requirement_extracted",
+                "repository_source": "current_requirement_blueprint",
+                "initial_state": "ready",
+                "required_stage_ids": [item[0] for item in states],
+                "terminal_states": ["consumed"],
                 "steps": [
                     {
                         "id": step_id,
@@ -590,7 +760,8 @@ def test_trusted_repository_contract_bridges_full_main_chain_when_candidates_do_
                         "state_in": state_in,
                         "state_out": state_out,
                         "stage_kind": stage_kind,
-                        "allow_bridge": True,
+                        "required": True,
+                        "terminal": step_id == "consume",
                         "match_keywords": [f"__no_candidate_match_{step_id}__"],
                     }
                     for step_id, label, action, state_in, state_out, stage_kind in states
@@ -598,8 +769,8 @@ def test_trusted_repository_contract_bridges_full_main_chain_when_candidates_do_
             }
         ]
     }
-    result = _run_cases(
-        requirement="Trusted repository contract bridge regression",
+    result = _run_declared_workflow_cases(
+        requirement="Current requirement contract required-gap regression",
         cases=[
             {
                 "id": "TC-001",
@@ -612,6 +783,7 @@ def test_trusted_repository_contract_bridges_full_main_chain_when_candidates_do_
                 "priority": "P1",
             }
         ],
+        stage_by_case_id={},
         expected_count=10,
         feedback_control_state=state,
     )
@@ -620,26 +792,29 @@ def test_trusted_repository_contract_bridges_full_main_chain_when_candidates_do_
         item for item in (result.get("cases") or [])
         if isinstance(item, dict) and str(item.get("execution_group") or "") == "main_smoke"
     ]
-    assert [item.get("main_chain_stage") for item in main_cases] == [item[0] for item in states]
-    assert all(item.get("workflow_contract_materialized_case") is True for item in main_cases)
-    assert not any(bool(item.get("generated_bridge_case")) for item in main_cases)
-    assert all(str(item.get("priority") or "") == "P0" for item in main_cases)
     plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
-    assert plan.get("trusted_workflow_contract_count") == 1
-    assert plan.get("generated_bridge_case_count") == 0
-    assert plan.get("workflow_contract_materialized_case_count") == len(states)
-    assert plan.get("main_chain_stage_kinds") == [item[5] for item in states]
-    assert plan.get("linear_executable") is True
+    assignment = dict(plan.get("global_stage_assignment") or {})
+
+    assert main_cases == []
+    assert plan.get("trusted_workflow_contract_count") == 0
+    assert plan.get("workflow_blueprint_source") == "current_requirement_blueprint"
+    assert assignment.get("required_gap_count") == len(states)
+    assert {str(item.get("stage_key") or "") for item in (assignment.get("gaps") or [])} == {
+        item[0] for item in states
+    }
+    assert plan.get("main_chain_incomplete_reason") == "required_stage_gap"
+    assert plan.get("publishable_main_chain") is False
+    assert plan.get("linear_executable") is False
 
 
-def test_text_stage_classifier_keeps_save_and_display_as_commit() -> None:
+def test_declared_stage_kind_keeps_save_and_visibility_roles_distinct() -> None:
     steps = [
-        ("start", "open workflow alpha entry", "ready", "started"),
-        ("configure", "configure schedule beta slot", "started", "configured"),
-        ("preview", "review preview gamma summary", "configured", "preview_ready"),
-        ("commit", "save plan and display delta confirmation", "preview_ready", "committed"),
-        ("visible", "display saved plan on student home epsilon card", "committed", "visible"),
-        ("consume", "learn course from visible plan zeta lesson", "visible", "consumed"),
+        ("start", "open workflow alpha entry", "ready", "started", "entry"),
+        ("configure", "configure schedule beta slot", "started", "configured", "configure"),
+        ("preview", "review preview gamma summary", "configured", "preview_ready", "preview"),
+        ("commit", "save plan and display delta confirmation", "preview_ready", "committed", "commit"),
+        ("visible", "display saved plan on student home epsilon card", "committed", "visible", "downstream_visibility"),
+        ("consume", "learn course from visible plan zeta lesson", "visible", "consumed", "consume"),
     ]
     state = {
         "workflow_blueprints": [
@@ -647,9 +822,11 @@ def test_text_stage_classifier_keeps_save_and_display_as_commit() -> None:
                 "id": "save_display_flow",
                 "workflow_id": "save_display_flow",
                 "name": "save display flow",
-                "source_type": "human_reviewed",
-                "repository_source": "workflow_blueprint_repository",
-                "trusted": True,
+                "source_type": "current_requirement_extracted",
+                "repository_source": "current_requirement_blueprint",
+                "initial_state": "ready",
+                "required_stage_ids": [item[0] for item in steps],
+                "terminal_states": ["consumed"],
                 "steps": [
                     {
                         "id": step_id,
@@ -658,14 +835,17 @@ def test_text_stage_classifier_keeps_save_and_display_as_commit() -> None:
                         "actor": "student",
                         "state_in": state_in,
                         "state_out": state_out,
+                        "stage_kind": stage_kind,
+                        "required": True,
+                        "terminal": step_id == "consume",
                         "match_keywords": [action],
                     }
-                    for step_id, action, state_in, state_out in steps
+                    for step_id, action, state_in, state_out, stage_kind in steps
                 ],
             }
         ]
     }
-    result = _run_cases(
+    result = _run_declared_workflow_cases(
         requirement="Save plan then display it on student home",
         cases=[
             {
@@ -678,8 +858,15 @@ def test_text_stage_classifier_keeps_save_and_display_as_commit() -> None:
                 "expected_result": "saved plan is visible on epsilon card" if step_id == "visible" else f"state reaches {state_out} for {step_id}",
                 "priority": "P0",
             }
-            for index, (step_id, action, state_in, state_out) in enumerate(steps, start=1)
+            for index, (step_id, action, state_in, state_out, _stage_kind) in enumerate(steps, start=1)
         ],
+        stage_by_case_id={
+            f"TC-{index:03d}": step_id
+            for index, (step_id, _action, _state_in, _state_out, _stage_kind) in enumerate(
+                steps,
+                start=1,
+            )
+        },
         expected_count=10,
         feedback_control_state=state,
     )
@@ -712,6 +899,7 @@ def test_persist_priority_normalization_preserves_execution_plan_p0() -> None:
                 "priority": "P0",
                 "priority_final": "P0",
                 "execution_group": "main_smoke",
+                "critical": True,
             }
         ],
         requirement_text="student home shows the saved plan",
@@ -719,7 +907,7 @@ def test_persist_priority_normalization_preserves_execution_plan_p0() -> None:
 
     assert str(result[0].get("priority") or "") == "P0"
     assert str(result[0].get("priority_final") or "") == "P0"
-    assert str(result[0].get("priority_decision_source") or "") == "preserved_execution_plan_priority"
+    assert str(result[0].get("priority_decision_source") or "") == "preserved_structured_critical_priority"
 
 
 def test_execution_plan_excludes_negative_and_destructive_cases_from_main_smoke() -> None:
@@ -728,40 +916,61 @@ def test_execution_plan_excludes_negative_and_destructive_cases_from_main_smoke(
             {
                 "id": "create_plan_flow",
                 "name": "create plan flow",
+                "repository_source": "current_requirement_blueprint",
+                "source_type": "current_requirement_extracted",
+                "initial_state": "initial",
+                "required_stage_ids": ["configure_plan", "save_plan", "student_visibility", "open_course"],
+                "terminal_states": ["course_opened"],
                 "steps": [
                     {
                         "id": "configure_plan",
                         "label": "Configure plan",
+                        "action": "Configure plan",
                         "actor": "supervisor",
                         "state_in": "initial",
                         "state_out": "plan_configured",
+                        "stage_kind": "configure",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["configure plan"],
                         "assertion": "plan is configured",
                     },
                     {
                         "id": "save_plan",
                         "label": "Save plan",
+                        "action": "Save plan",
                         "actor": "supervisor",
                         "state_in": "plan_configured",
                         "state_out": "plan_saved",
+                        "stage_kind": "commit",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["save plan"],
                         "assertion": "plan is saved",
                     },
                     {
                         "id": "student_visibility",
                         "label": "Student visibility",
+                        "action": "Show new plan on student home",
                         "actor": "student",
                         "state_in": "plan_saved",
                         "state_out": "student_home_visible",
+                        "stage_kind": "downstream_visibility",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["student home visible"],
                         "assertion": "new plan is visible",
                     },
                     {
                         "id": "open_course",
                         "label": "Open course",
+                        "action": "Open course",
                         "actor": "student",
                         "state_in": "student_home_visible",
                         "state_out": "course_opened",
+                        "stage_kind": "consume",
+                        "required": True,
+                        "terminal": True,
                         "match_keywords": ["open course"],
                         "assertion": "course page opens",
                     },
@@ -769,7 +978,7 @@ def test_execution_plan_excludes_negative_and_destructive_cases_from_main_smoke(
             }
         ]
     }
-    result = _run_cases(
+    result = _run_declared_workflow_cases(
         requirement="Supervisor creates a plan, student sees the new plan and opens the course.",
         cases=[
             {
@@ -853,6 +1062,12 @@ def test_execution_plan_excludes_negative_and_destructive_cases_from_main_smoke(
                 "priority": "P0",
             },
         ],
+        stage_by_case_id={
+            "TC-001": "configure_plan",
+            "TC-003": "save_plan",
+            "TC-005": "student_visibility",
+            "TC-006": "open_course",
+        },
         expected_count=80,
         feedback_control_state=state,
     )
@@ -865,17 +1080,15 @@ def test_execution_plan_excludes_negative_and_destructive_cases_from_main_smoke(
         "student_visibility",
         "open_course",
     ]
-    assert all(str(item.get("priority") or "") == "P0" for item in main_cases)
     main_descriptions = " ".join(str(item.get("description") or "") for item in main_cases).lower()
     assert "capacity" not in main_descriptions
     assert "conflict" not in main_descriptions
     assert "delete" not in main_descriptions
     plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
-    excluded_reasons = {str(item.get("reason") or "") for item in (plan.get("main_chain_excluded_candidates") or [])}
-    assert "boundary_capacity" in excluded_reasons
+    assert {
+        str(item.get("stage_key") or "") for item in (plan.get("best_assignment") or [])
+    } == {"configure_plan", "save_plan", "student_visibility", "open_course"}
     assert plan.get("linear_executable") is True
-    final_breakdown = dict((result.get("review_decision_summary") or {}).get("priority_final_breakdown") or {})
-    assert int(final_breakdown.get("P0") or 0) >= len(main_cases)
 
 
 def test_execution_plan_does_not_infer_main_smoke_without_workflow_blueprint() -> None:
@@ -912,7 +1125,7 @@ def test_execution_plan_does_not_infer_main_smoke_without_workflow_blueprint() -
     assert plan.get("workflow_blueprint_count") == 0
 
 
-def test_execution_plan_can_bridge_generic_main_flow_without_domain_template() -> None:
+def test_execution_plan_does_not_infer_generic_main_flow_from_positive_case_text() -> None:
     result = _run_cases(
         requirement="Generic workflow regression should preserve a positive entry, commit, and downstream visibility chain.",
         cases=[
@@ -952,15 +1165,14 @@ def test_execution_plan_can_bridge_generic_main_flow_without_domain_template() -
 
     output_cases = [item for item in (result.get("cases") or []) if isinstance(item, dict)]
     main_cases = [item for item in output_cases if str(item.get("execution_group") or "") == "main_smoke"]
-    assert len(main_cases) >= 2
-    transitions = [dict(item.get("workflow_transition") or {}) for item in main_cases]
-    assert all(item.get("path_type") == "positive" for item in transitions)
-    assert all(item.get("blocking") is False for item in transitions)
-    assert all(item.get("destructive") is False for item in transitions)
-    assert all(item.get("can_advance_main_flow") is True for item in transitions)
     plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
-    assert plan.get("linear_executable") is True
-    assert plan.get("main_chain_case_count") == len(main_cases)
+
+    assert main_cases == []
+    assert plan.get("workflow_blueprint_count") == 0
+    assert plan.get("plan_workflow_blueprint_count") == 0
+    assert plan.get("workflow_blueprint_source") == "none"
+    assert plan.get("main_chain_incomplete_reason") == "workflow_blueprint_missing"
+    assert plan.get("linear_executable") is False
 
 
 def test_execution_plan_does_not_treat_scoring_terms_as_generic_commit() -> None:
@@ -1021,6 +1233,9 @@ def test_order_blueprint_excludes_conditional_visibility_and_resume_checks() -> 
                 "id": "order_checkout",
                 "repository_source": "current_requirement_blueprint",
                 "source_type": "current_requirement_extracted",
+                "initial_state": "initial",
+                "required_stage_ids": ["entry", "commit", "downstream"],
+                "terminal_states": ["order_visible"],
                 "steps": [
                     {
                         "id": "entry",
@@ -1028,6 +1243,8 @@ def test_order_blueprint_excludes_conditional_visibility_and_resume_checks() -> 
                         "stage_kind": "entry",
                         "state_in": "initial",
                         "state_out": "checkout_opened",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["open checkout page"],
                     },
                     {
@@ -1036,6 +1253,8 @@ def test_order_blueprint_excludes_conditional_visibility_and_resume_checks() -> 
                         "stage_kind": "commit",
                         "state_in": "checkout_opened",
                         "state_out": "order_submitted",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["submit configured order"],
                     },
                     {
@@ -1044,13 +1263,15 @@ def test_order_blueprint_excludes_conditional_visibility_and_resume_checks() -> 
                         "stage_kind": "downstream_visibility",
                         "state_in": "order_submitted",
                         "state_out": "order_visible",
+                        "required": True,
+                        "terminal": True,
                         "match_keywords": ["display submitted order in order history"],
                     },
                 ],
             }
         ]
     }
-    result = _run_cases(
+    result = _run_declared_workflow_cases(
         requirement=(
             "Order flow: open checkout, submit the configured order, then view it in order history. "
             "Conditional coupon visibility and unfinished checkout recovery are side regressions."
@@ -1107,6 +1328,11 @@ def test_order_blueprint_excludes_conditional_visibility_and_resume_checks() -> 
                 "priority": "P0",
             },
         ],
+        stage_by_case_id={
+            "TC-001": "entry",
+            "TC-002": "commit",
+            "TC-003": "downstream",
+        },
         expected_count=10,
         feedback_control_state=state,
     )
@@ -1132,6 +1358,9 @@ def test_authoritative_blueprint_rejects_static_display_and_return_button_main_c
                 "id": "forum_post",
                 "repository_source": "current_requirement_blueprint",
                 "source_type": "current_requirement_extracted",
+                "initial_state": "initial",
+                "required_stage_ids": ["entry", "configure", "preview", "commit", "downstream"],
+                "terminal_states": ["reply_message_visible"],
                 "steps": [
                     {
                         "id": "entry",
@@ -1141,8 +1370,9 @@ def test_authoritative_blueprint_rejects_static_display_and_return_button_main_c
                         "stage_kind": "entry",
                         "state_in": "initial",
                         "state_out": "forum_home",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["open forum home for posting"],
-                        "allow_bridge": True,
                     },
                     {
                         "id": "configure",
@@ -1152,8 +1382,9 @@ def test_authoritative_blueprint_rejects_static_display_and_return_button_main_c
                         "stage_kind": "configure",
                         "state_in": "forum_home",
                         "state_out": "zone_selected",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["select forum zone"],
-                        "allow_bridge": True,
                     },
                     {
                         "id": "preview",
@@ -1163,8 +1394,9 @@ def test_authoritative_blueprint_rejects_static_display_and_return_button_main_c
                         "stage_kind": "preview",
                         "state_in": "zone_selected",
                         "state_out": "post_detail",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["open post detail for reply"],
-                        "allow_bridge": True,
                     },
                     {
                         "id": "commit",
@@ -1174,8 +1406,9 @@ def test_authoritative_blueprint_rejects_static_display_and_return_button_main_c
                         "stage_kind": "commit",
                         "state_in": "post_detail",
                         "state_out": "reply_committed",
+                        "required": True,
+                        "terminal": False,
                         "match_keywords": ["submit reply"],
-                        "allow_bridge": True,
                     },
                     {
                         "id": "downstream",
@@ -1185,14 +1418,15 @@ def test_authoritative_blueprint_rejects_static_display_and_return_button_main_c
                         "stage_kind": "downstream_visibility",
                         "state_in": "reply_committed",
                         "state_out": "reply_message_visible",
+                        "required": True,
+                        "terminal": True,
                         "match_keywords": ["reply message"],
-                        "allow_bridge": True,
                     },
                 ],
             }
         ]
     }
-    result = _run_cases(
+    result = _run_declared_workflow_cases(
         requirement="Forum flow: enter forum home, select a zone, open post detail, submit reply, then view reply message.",
         cases=[
             {
@@ -1266,6 +1500,13 @@ def test_authoritative_blueprint_rejects_static_display_and_return_button_main_c
                 "priority": "P0",
             },
         ],
+        stage_by_case_id={
+            "TC-002": "configure",
+            "TC-004": "commit",
+            "TC-005": "downstream",
+            "TC-006": "entry",
+            "TC-007": "preview",
+        },
         expected_count=10,
         feedback_control_state=state,
     )
@@ -1290,7 +1531,7 @@ def test_authoritative_blueprint_rejects_static_display_and_return_button_main_c
     assert plan.get("linear_executable") is True
 
 
-def test_current_generation_purchase_chain_uses_real_cases_without_bridge() -> None:
+def test_current_generation_purchase_cases_do_not_become_a_blueprint() -> None:
     result = _run_cases(
         requirement="Purchase flow: open the purchase entry, select an address, submit the purchase, then display it downstream in account history.",
         cases=[
@@ -1334,20 +1575,15 @@ def test_current_generation_purchase_chain_uses_real_cases_without_bridge() -> N
     ]
     plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
 
-    assert [item.get("main_chain_stage_kind") for item in main_cases] == [
-        "entry",
-        "commit",
-        "downstream_visibility",
-    ]
-    assert not any(bool(item.get("generated_bridge_case")) for item in main_cases)
-    assert plan.get("generated_bridge_case_count") == 0
+    assert main_cases == []
     assert plan.get("workflow_blueprint_count") == 0
-    assert plan.get("plan_workflow_blueprint_count") == 1
-    assert plan.get("workflow_blueprint_source") == "current_generation_cases"
-    assert plan.get("linear_executable") is True
+    assert plan.get("plan_workflow_blueprint_count") == 0
+    assert plan.get("workflow_blueprint_source") == "none"
+    assert plan.get("main_chain_incomplete_reason") == "workflow_blueprint_missing"
+    assert plan.get("linear_executable") is False
 
 
-def test_current_generation_main_chain_does_not_materialize_internal_entry_bridge() -> None:
+def test_current_generation_cases_do_not_infer_a_missing_entry_stage() -> None:
     result = _run_cases(
         requirement=(
             "AI tutoring flow: after the student submits an answer, the system triggers scoring "
@@ -1393,10 +1629,8 @@ def test_current_generation_main_chain_does_not_materialize_internal_entry_bridg
     plan = dict((result.get("review_decision_summary") or {}).get("execution_plan") or {})
 
     assert not main_cases
-    assert not any(bool(item.get("generated_bridge_case")) for item in output_cases)
-    assert plan.get("generated_bridge_case_count") == 0
     assert plan.get("workflow_blueprint_source") == "none"
-    assert plan.get("main_chain_incomplete_reason") == "missing_configure_or_entry_step"
+    assert plan.get("main_chain_incomplete_reason") == "workflow_blueprint_missing"
     assert plan.get("linear_executable") is False
 
 

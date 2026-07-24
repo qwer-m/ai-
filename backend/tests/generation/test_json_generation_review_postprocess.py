@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import modules.test_generation_components.legacy.json_generation_review_postprocess as review_postprocess_mod
 from modules.test_generation_components.legacy.json_generation_review_postprocess import (
     run_json_review_postprocess,
@@ -31,7 +29,6 @@ def _base_kwargs(**overrides):
         "generation_mode": "multi_pass",
         "feedback_control_state": {},
         "prompt_context": {"requirement_context": "order flow"},
-        "stage_logs": [{"kind": "generation_stage", "stage": "primary", "case_count": 1}],
         "stage_counts": {"primary": 1, "gap": 0, "review": 1},
         "coverage_check_payload": {"kind": "coverage_check", "covered_count": 1},
         "clean_and_parse_json_fn": lambda text: text,
@@ -45,10 +42,6 @@ def _base_kwargs(**overrides):
             "confirmed_facts": [prompt_context["requirement_context"]]
         },
         "stream_postprocess_cases_fn": lambda **_: iter(()),
-        "judge_cases_fn": lambda **_: None,
-        "repair_cases_fn": lambda **_: None,
-        "training_gate_fn": lambda repaired: ([], [], [], []),
-        "apply_existing_execution_group_ordering_fn": lambda cases: cases,
     }
     kwargs.update(overrides)
     return kwargs
@@ -92,34 +85,34 @@ def test_run_json_review_postprocess_maps_stream_payload_when_session_available(
     assert result.judge_summary_payload == {"pass_count": 1}
 
 
-def test_run_json_review_postprocess_falls_back_without_stream_session(monkeypatch) -> None:
-    fallback = SimpleNamespace(
-        result=[_case("C-003")],
-        candidate_cases_before_judge=[_case("C-001")],
-        candidate_total_before_judge=1,
-        final_cases_after_judge=[_case("C-003")],
-        final_case_count=1,
-        empty_result_guard_triggered=False,
-        empty_result_stage="",
-        coverage_check_payload={"kind": "coverage_check", "covered_count": 1},
-        review_decision_summary_payload={"candidate_total": 1, "retained_total": 1},
-        generation_summary_payload={"final_count": 1},
-        convergence_payload={"final_count": 1},
-        judge_summary_payload={"pass_count": 1},
-        judge_decision_table_payload=[],
-        review_decision_table_payload=[],
-    )
-
-    def fake_fallback_review(**kwargs):
-        assert kwargs["result"] == [_case("C-001")]
-        assert kwargs["feedback_control_state"] == {}
-        return fallback
-
-    monkeypatch.setattr(review_postprocess_mod, "run_json_fallback_review", fake_fallback_review)
-
+def test_run_json_review_postprocess_fails_closed_without_stream_session() -> None:
     result = run_json_review_postprocess(**_base_kwargs())
 
     assert result.stream_postprocess_applied is False
-    assert result.result == [_case("C-003")]
+    assert result.result["error_code"] == "GLOBAL_REVIEW_REQUIRED"
+    assert result.result["review_failure_reason"] == "active_review_session_unavailable"
     assert result.candidate_total_before_judge == 1
-    assert result.review_decision_summary_payload == {"candidate_total": 1, "retained_total": 1}
+    assert result.final_case_count == 0
+    assert result.review_decision_summary_payload["review_applied"] is False
+
+
+def test_run_json_review_postprocess_fails_closed_when_global_review_raises(monkeypatch) -> None:
+    class FakeSession:
+        pass
+
+    monkeypatch.setattr(review_postprocess_mod, "Session", FakeSession)
+
+    def broken_stream_postprocess(**_kwargs):
+        raise RuntimeError("review unavailable")
+        yield  # pragma: no cover
+
+    result = run_json_review_postprocess(
+        **_base_kwargs(
+            db=FakeSession(),
+            stream_postprocess_cases_fn=broken_stream_postprocess,
+        )
+    )
+
+    assert result.stream_postprocess_applied is False
+    assert result.result["error_code"] == "GLOBAL_REVIEW_REQUIRED"
+    assert result.result["review_failure_reason"] == "global_review_exception:RuntimeError"

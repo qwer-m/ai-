@@ -31,17 +31,112 @@ class _FakeClient:
 
     def generate_response(self, *args, **kwargs):
         self.generate_calls += 1
+        requirement = str(args[0] if args else "").strip()
+        prompt = str(args[1] if len(args) > 1 else "")
+        if "Compile the CURRENT requirement into ONE fact-first semantic graph contract" in prompt:
+            evidence_ref = ""
+            try:
+                request_payload = json.loads(requirement)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                request_payload = {}
+            if isinstance(request_payload, dict):
+                requirement = str(
+                    request_payload.get("requirement_source") or requirement
+                ).strip()
+                source_evidence_catalog = request_payload.get("source_evidence_catalog")
+                if isinstance(source_evidence_catalog, list) and source_evidence_catalog:
+                    first_evidence = source_evidence_catalog[0]
+                    if isinstance(first_evidence, dict):
+                        evidence_ref = str(first_evidence.get("ref") or "").strip()
+            return json.dumps(
+                {
+                    "semantic_contract_version": "requirement-semantic-v2",
+                    "confidence": 0.9,
+                    "evidence_facts": [
+                        {
+                            "fact_id": "f_current_requirement",
+                            "fact_kind": "capability",
+                            "statement": requirement,
+                            "requirement_level": "required",
+                            "priority": "p1",
+                            "testability": "testable",
+                            "evidence": [evidence_ref] if evidence_ref else [],
+                            "confidence": 0.9,
+                        }
+                    ],
+                    "semantic_graph": {
+                        "graph_version": "requirement-semantic-graph-v1",
+                        "nodes": [
+                            {
+                                "node_id": "current_requirement",
+                                "kind": "scope",
+                                "name": "当前需求",
+                                "aliases": [],
+                                "scope_status": "in_scope",
+                                "boundary_status": "resolved",
+                                "workflow_role": "none",
+                                "fact_ids": ["f_current_requirement"],
+                                "confidence": 0.9,
+                            },
+                            {
+                                "node_id": "current_requirement_capability",
+                                "kind": "capability",
+                                "name": "当前需求能力",
+                                "aliases": [],
+                                "scope_status": "",
+                                "boundary_status": "resolved",
+                                "workflow_role": "none",
+                                "fact_ids": ["f_current_requirement"],
+                                "confidence": 0.9,
+                            },
+                        ],
+                        "edges": [
+                            {
+                                "edge_id": "owns_current_requirement_capability",
+                                "type": "owns",
+                                "source_node_id": "current_requirement",
+                                "target_node_id": "current_requirement_capability",
+                                "fact_ids": ["f_current_requirement"],
+                                "ownership_role": "primary",
+                                "trigger": "",
+                                "result_state": "",
+                                "transferred_entity_node_ids": [],
+                                "confidence": 0.9,
+                            }
+                        ],
+                        "primary_flow": {"node_ids": [], "edge_ids": []},
+                        "fact_dispositions": [],
+                    },
+                    "workflow_blueprints": [],
+                },
+                ensure_ascii=False,
+            )
         return json.dumps(
             [
                 {
                     "id": "TC-001",
-                    "description": "测试",
-                    "test_module": "模块",
+                    "description": "验证当前需求",
+                    "test_module": "当前需求",
                     "preconditions": [],
-                    "steps": ["步骤1"],
-                    "test_input": "输入",
-                    "expected_result": "期望",
-                    "priority": "P0",
+                    "steps": ["执行当前需求中的操作"],
+                    "test_input": "当前需求数据",
+                    "expected_result": "当前需求结果正确",
+                    "priority": "P1",
+                    "_semantic": {
+                        "module_candidates": [
+                            {
+                                "module_key": "current_requirement",
+                                "module_name": "当前需求",
+                                "role": "primary",
+                                "confidence": 0.9,
+                                "evidence": ["验证当前需求"],
+                            }
+                        ],
+                        "interaction_ids": [],
+                        "workflow_stage_candidates": [],
+                        "precondition_states": [],
+                        "produced_states": [],
+                    },
                 }
             ],
             ensure_ascii=False,
@@ -234,7 +329,9 @@ def test_scene2_double_empty_then_sync_retry_success(monkeypatch, tg_env):
         user_id=29,
         compress=False,
     )
-    assert isinstance(result, list)
+    assert isinstance(result, dict)
+    assert result.get("abort_code") == "GLOBAL_REVIEW_REQUIRED"
+    assert result.get("candidate_total") == 1
     assert fake_client.generate_calls > 0
 
 def test_scene3_double_empty_and_retry_failed(monkeypatch, tg_env):
@@ -422,5 +519,7 @@ def test_scene5_snapshot_failed_requirement_only_fallback(monkeypatch, tg_env):
         user_id=29,
         compress=False,
     )
-    assert isinstance(result, list)
+    assert isinstance(result, dict)
+    assert result.get("abort_code") == "GLOBAL_REVIEW_REQUIRED"
+    assert result.get("candidate_total") == 1
     assert fake_client.generate_calls > 0

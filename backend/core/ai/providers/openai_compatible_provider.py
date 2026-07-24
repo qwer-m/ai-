@@ -47,6 +47,18 @@ class OpenAICompatibleProvider(BaseModelProvider):
         pool_timeout = min(15.0, total)
         return httpx.Timeout(total, connect=connect_timeout, write=write_timeout, pool=pool_timeout)
 
+    def _http_timeout_source(self, total_override: float | None = None) -> str:
+        if total_override not in (None, ""):
+            return "call_override"
+        if getattr(self, "request_timeout_seconds", None) not in (None, ""):
+            return "provider_override"
+        if (
+            "OPENAI_COMPAT_HTTP_TIMEOUT_SECONDS" in os.environ
+            or "AI_HTTP_TIMEOUT_SECONDS" in os.environ
+        ):
+            return "environment"
+        return "default"
+
     def _stream_attempt_timeout_seconds(self) -> float:
         override = getattr(self, "stream_attempt_timeout_seconds", None)
         raw = str(
@@ -264,6 +276,15 @@ class OpenAICompatibleProvider(BaseModelProvider):
             "response_mode": normalized_response_mode,
             "json_response": wants_json_response,
         }
+        http_timeout = self._http_timeout(request_timeout_seconds)
+        self.last_response_metadata.update(
+            {
+                "request_timeout_seconds": float(http_timeout.read or 0.0),
+                "request_timeout_source": self._http_timeout_source(
+                    request_timeout_seconds
+                ),
+            }
+        )
 
         if self.wire_api == "responses":
             url = f"{self.base_url}/responses"
@@ -313,7 +334,7 @@ class OpenAICompatibleProvider(BaseModelProvider):
 
         try:
             with httpx.Client(
-                **self._http_client_kwargs(timeout=self._http_timeout(request_timeout_seconds))
+                **self._http_client_kwargs(timeout=http_timeout)
             ) as client:
                 resp = client.post(url, headers=headers, json=payload)
                 json_compat_fields = ("reasoning_effort", "response_format", "thinking")
@@ -338,13 +359,35 @@ class OpenAICompatibleProvider(BaseModelProvider):
                     data = resp.json()
                     if self.wire_api == "responses":
                         text = self._extract_responses_text(data)
+                        response_status = str(
+                            data.get("status") or ""
+                        ).strip().lower()
+                        incomplete_details = data.get("incomplete_details")
+                        incomplete_reason = (
+                            str(incomplete_details.get("reason") or "")
+                            .strip()
+                            .lower()
+                            if isinstance(incomplete_details, dict)
+                            else ""
+                        )
+                        finish_reason = (
+                            "length"
+                            if response_status == "incomplete"
+                            and incomplete_reason == "max_output_tokens"
+                            else ""
+                        )
                         self.last_response_metadata.update(
                             {
                                 "content_len": len(text or ""),
                                 "raw_keys": list(data.keys())[:20],
+                                "response_status": response_status,
+                                "incomplete_reason": incomplete_reason,
+                                "finish_reason": finish_reason,
                             }
                         )
-                        if text:
+                        # incomplete 是服务端已经结束的本次响应。即使没有局部文本，
+                        # 也必须把终止原因交给上层，不能再发起一份流式重复请求。
+                        if text or response_status == "incomplete":
                             return text
                         streamed_text = self._responses_stream_collect_text(payload)
                         self.last_response_metadata["stream_fallback_content_len"] = len(streamed_text or "")

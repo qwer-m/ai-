@@ -4,6 +4,7 @@ from typing import Any, Callable
 
 from .case_access import case_text_field as _case_text_field
 from .streaming_case_keys import (
+    candidate_identity_key as _candidate_identity_key,
     case_coverage_bucket as _coverage_bucket,
     case_focus_score as _focus_score,
     case_signature as _signature,
@@ -31,7 +32,6 @@ def build_review_decision_table_rows(
     review_candidate_rule_diagnostics: dict[str, Any],
     review_llm_applied: bool,
     review_llm_selected_signatures: set[str],
-    review_must_keep_signatures: set[str],
     review_constraint_retained_signatures: set[str],
     review_constraint_reason_map: dict[str, Any],
     review_llm_drop_reason_raw_map: dict[str, Any],
@@ -41,7 +41,6 @@ def build_review_decision_table_rows(
     append_cap_drop_signatures: set[str],
     final_description_dedup_drop_signatures: set[str],
     must_cover_rule_set: set[str],
-    review_must_keep_reason_map: dict[str, Any],
     score_case_priority_fn: Callable[..., dict[str, Any]],
     hit_must_cover_rule_fn: Callable[..., bool],
     is_high_signal_fn: Callable[[dict[str, Any]], bool],
@@ -55,12 +54,12 @@ def build_review_decision_table_rows(
         parsed_result=parsed_result,
         review_case_structure=review_case_structure,
     )
-    selection_signatures = review_decision_context.selection_signatures
+    selection_candidate_keys = review_decision_context.selection_candidate_keys
     trace_decisions = review_decision_context.trace_decisions
-    selected_gate_signatures = review_decision_context.selected_gate_signatures
-    dedup_drop_signatures = review_decision_context.dedup_drop_signatures
-    final_signatures = review_decision_context.final_signatures
-    final_priority_by_signature = review_decision_context.final_priority_by_signature
+    selected_gate_candidate_keys = review_decision_context.selected_gate_candidate_keys
+    dedup_drop_candidate_keys = review_decision_context.dedup_drop_candidate_keys
+    final_candidate_keys = review_decision_context.final_candidate_keys
+    final_priority_by_candidate_key = review_decision_context.final_priority_by_candidate_key
     structure_rows_by_index = review_decision_context.structure_rows_by_index
 
     review_decision_table: list[dict[str, Any]] = []
@@ -68,32 +67,33 @@ def build_review_decision_table_rows(
         if not isinstance(case, dict):
             continue
         signature = _signature(case)
+        candidate_key = _candidate_identity_key(case)
         structure_row = dict(structure_rows_by_index.get(int(index)) or {})
-        gate_info = dict(trace_decisions.get(signature) or {})
+        gate_info = dict(trace_decisions.get(candidate_key) or {})
         rule_keys = list(gate_info.get("rule_keys") or _extract_rule_keys(case))
         bucket = str(gate_info.get("bucket") or _coverage_bucket(case))
         high_signal = bool(gate_info.get("high_signal")) if gate_info else bool(is_high_signal_fn(case))
         adds_rule = bool(gate_info.get("adds_rule")) if gate_info else False
         adds_bucket = bool(gate_info.get("adds_bucket")) if gate_info else False
         gate_reason = str(gate_info.get("drop_reason") or "")
-        retained = signature in final_signatures
+        retained = candidate_key in final_candidate_keys
         drop_decision = _resolve_review_candidate_drop_decision(
             signature=signature,
+            candidate_key=candidate_key,
             review_llm_applied=review_llm_applied,
             review_llm_selected_signatures=review_llm_selected_signatures,
-            review_must_keep_signatures=review_must_keep_signatures,
             review_constraint_retained_signatures=review_constraint_retained_signatures,
             review_constraint_reason_map=review_constraint_reason_map,
             review_llm_drop_reason_raw_map=review_llm_drop_reason_raw_map,
             review_llm_drop_reason_map=review_llm_drop_reason_map,
             review_llm_drop_reason_source_map=review_llm_drop_reason_source_map,
             review_llm_drop_reason_evidence_map=review_llm_drop_reason_evidence_map,
-            selection_signatures=selection_signatures,
+            selection_candidate_keys=selection_candidate_keys,
             append_cap_drop_signatures=append_cap_drop_signatures,
             final_description_dedup_drop_signatures=final_description_dedup_drop_signatures,
-            dedup_drop_signatures=dedup_drop_signatures,
-            selected_gate_signatures=selected_gate_signatures,
-            final_signatures=final_signatures,
+            dedup_drop_candidate_keys=dedup_drop_candidate_keys,
+            selected_gate_candidate_keys=selected_gate_candidate_keys,
+            final_candidate_keys=final_candidate_keys,
             gate_reason=gate_reason,
         )
         score_profile = score_case_priority_fn(
@@ -103,9 +103,9 @@ def build_review_decision_table_rows(
         )
         priority_fields = _resolve_review_priority_fields(
             case=case,
-            signature=signature,
+            signature=candidate_key,
             retained=retained,
-            final_priority_by_signature=final_priority_by_signature,
+            final_priority_by_signature=final_priority_by_candidate_key,
         )
         hit_must_cover_rule = bool(
             hit_must_cover_rule_fn(
@@ -138,6 +138,8 @@ def build_review_decision_table_rows(
             case_text_field_fn=_case_text_field,
             focus_score_fn=_focus_score,
         )
+        row["candidate_key"] = candidate_key
+        row["exact_signature"] = signature
         row.update(
             _build_review_candidate_row_diagnostic_fields(
                 model_priority_value=priority_fields.model_priority_value,
@@ -150,7 +152,6 @@ def build_review_decision_table_rows(
                 priority_resolution_reason_value=priority_fields.priority_resolution_reason_value,
                 score_profile=score_profile,
                 selected_by_review_llm=drop_decision.selected_by_review_llm,
-                selected_by_review_must_keep=drop_decision.selected_by_review_must_keep,
                 selected_by_review_constraints=drop_decision.selected_by_constraint_guard,
                 review_constraint_reason=drop_decision.review_constraint_reason,
                 review_llm_drop_reason_raw=drop_decision.review_llm_drop_reason_raw,
@@ -163,9 +164,7 @@ def build_review_decision_table_rows(
                 has_competition_signal=drop_decision.has_competition_signal,
                 review_llm_applied=review_llm_applied,
                 signature=signature,
-                review_must_keep_signatures=review_must_keep_signatures,
-                review_must_keep_reason_map=review_must_keep_reason_map,
-                selected_gate_signatures=selected_gate_signatures,
+                selected_gate_signatures=selected_gate_candidate_keys,
                 retained=retained,
                 dropped_stage=drop_decision.dropped_stage,
                 dropped_reason=drop_decision.dropped_reason,

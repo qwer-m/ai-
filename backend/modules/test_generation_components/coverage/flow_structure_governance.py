@@ -43,8 +43,6 @@ def _scenario_max_keep(
         default_scenario_caps=default_scenario_caps,
     )
     policy = _scenario_policy(project_profile)
-    if bool(policy.get("disable_scenario_pruning")):
-        return 1_000_000
     caps = policy.get("scenario_caps") if isinstance(policy.get("scenario_caps"), dict) else {}
     try:
         if kind in caps:

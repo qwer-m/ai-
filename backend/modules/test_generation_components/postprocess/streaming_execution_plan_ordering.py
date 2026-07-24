@@ -303,7 +303,6 @@ def apply_final_independent_case_ordering(
         final_order_profile = flow_profile_with_scenario_policy_fn(
             flow_project_profile,
             disable_scenario_pruning=True,
-            intent_duplicate_cap=1_000_000,
             final_order_only=True,
         )
         ordered_independent, final_order_flow_governance_summary = govern_cases_by_flow_structure_fn(

@@ -6,6 +6,7 @@ from modules.test_generation_components.control.feedback_control_state import Fe
 from modules.test_generation_components.control.workflow_blueprint_repository import (
     _contract_requirement_match,
     _contract_requirement_match_is_sufficient,
+    _is_generic_match_term,
     is_trusted_workflow_contract,
     normalize_workflow_contract,
 )
@@ -24,6 +25,9 @@ def _contract() -> dict:
         "source_type": "human_reviewed",
         "trusted": True,
         "confidence": 1.0,
+        "initial_state": "course_management_ready",
+        "required_stage_ids": ["step_001", "step_002"],
+        "terminal_states": ["courses_selected"],
         "actors": ["supervisor", "student"],
         "match_terms": ["近期课程", "排课"],
         "commit_state": "schedule_plan_saved",
@@ -35,12 +39,15 @@ def _contract() -> dict:
                 "action": "click_schedule_button",
                 "state_out": "schedule_create_started",
                 "actor": "supervisor",
+                "required": True,
             },
             {
                 "state_in": "schedule_create_started",
                 "action": "select_courses",
                 "state_out": "courses_selected",
                 "actor": "supervisor",
+                "required": True,
+                "terminal": True,
             },
         ],
     }
@@ -56,7 +63,32 @@ def test_normalize_workflow_contract_materializes_planner_steps() -> None:
     assert contract["steps"][0]["state_in"] == "course_management_ready"
     assert contract["steps"][0]["state_out"] == "schedule_create_started"
     assert contract["steps"][0]["can_advance_main_flow"] is True
+    assert contract["closure_declaration_complete"] is True
     assert is_trusted_workflow_contract(contract) is True
+
+
+def test_normalize_workflow_contract_does_not_infer_missing_closure_declarations() -> None:
+    payload = _contract()
+    payload.pop("initial_state")
+    payload.pop("required_stage_ids")
+    payload.pop("terminal_states")
+    for step in payload["edges"]:
+        step.pop("required", None)
+        step.pop("terminal", None)
+
+    contract = normalize_workflow_contract(payload)
+
+    assert contract is not None
+    assert contract["initial_state"] == ""
+    assert contract["required_stage_ids"] == []
+    assert contract["terminal_states"] == []
+    assert contract["closure_declaration_complete"] is False
+    assert contract["closure_declaration_errors"] == [
+        "workflow_required_stages_missing",
+        "workflow_initial_state_missing",
+        "workflow_terminal_states_missing",
+    ]
+    assert is_trusted_workflow_contract(contract) is False
 
 
 def test_candidate_derived_contract_cannot_become_trusted() -> None:
@@ -192,6 +224,12 @@ def test_contract_requirement_match_does_not_use_declared_actor_as_business_evid
 
     assert (score, hit_count, core_hit_count, hit_terms) == (0, 0, 0, [])
     assert has_explicit_terms is False
+
+
+def test_business_object_terms_are_not_global_generic_match_terms() -> None:
+    assert _is_generic_match_term("课程") is False
+    assert _is_generic_match_term("订单") is False
+    assert _is_generic_match_term("页面") is True
 
 
 def test_feedback_control_state_reads_repository_when_sample_pool_disabled(monkeypatch) -> None:

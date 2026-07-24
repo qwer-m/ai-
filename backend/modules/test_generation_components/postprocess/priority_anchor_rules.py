@@ -1,109 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
-from .case_access import case_flat_text, case_priority
-from .postprocess_priority_config import (
-    p0_core_tokens,
-    p0_critical_families,
-    p0_low_value_tokens,
+from .priority_behavior_semantics import (
+    case_stage_kind,
+    has_structured_blocking_priority_evidence,
 )
-from .priority_anchor_floor_policy import MainPathAnchorPolicy
-from .streaming_case_normalization import normalize_priority_value
 from .streaming_execution_plan_helpers import is_pure_ui_goal_text, main_chain_goal_text
 from .streaming_postprocess_utils import _dict_case_copies
-
-_ENTRY_ACTION_TOKENS = (
-    "点击",
-    "点按",
-    "进入",
-    "打开",
-    "跳转",
-    "返回",
-    "切换",
-    "click",
-    "tap",
-    "enter",
-    "open",
-    "navigate",
-    "return",
-    "switch",
-)
-
-_ENTRY_SURFACE_TOKENS = (
-    "入口",
-    "按钮",
-    "卡片",
-    "列表项",
-    "页面",
-    "链接",
-    "菜单",
-    "路径",
-    "tab",
-    "entry",
-    "button",
-    "card",
-    "list item",
-    "page",
-    "link",
-    "menu",
-    "route",
-)
-
-_ENTRY_OUTCOME_TOKENS = (
-    "进入",
-    "打开",
-    "跳转",
-    "返回",
-    "定位到",
-    "目标页面",
-    "详情页",
-    "首页",
-    "列表页",
-    "不可点击",
-    "点击无效",
-    "无响应",
-    "入口不存在",
-    "未显示入口",
-    "enter",
-    "open",
-    "navigate",
-    "redirect",
-    "target page",
-    "not clickable",
-    "no response",
-    "entry missing",
-    "blocks access",
-    "access blocked",
-    "cannot access",
-    "无法访问",
-    "无法进入",
-    "阻止进入",
-)
-
-
-def p0_main_path_target_count(case_count: int, *, coverage_mode: str = "") -> int:
-    count = max(0, int(case_count or 0))
-    if count <= 0:
-        return 0
-    mode = str(coverage_mode or "")
-    if mode == "full_functional_regression":
-        if count >= 80:
-            target_count = min(12, max(8, int((count + 9) // 10)))
-        elif count >= 40:
-            target_count = min(10, max(9, int(round(count * 0.12))))
-        else:
-            target_count = min(6, max(3, int(round(count * 0.14))))
-    elif mode == "expanded_regression":
-        target_count = (
-            min(4, max(3, int(round(count * 0.06))))
-            if count >= 50
-            else min(3, max(1, int(round(count * 0.08))))
-        )
-    else:
-        target_count = 0
-    return min(max(0, int(target_count)), count)
-
 
 def apply_priority_override(
     case: dict[str, Any],
@@ -121,72 +25,46 @@ def apply_priority_override(
     case["priority_decision_source"] = str(source or "").strip()
 
 
-def p0_case_anchor_text(case: dict[str, Any] | Any) -> str:
+def has_explicit_blocking_or_critical(case: dict[str, Any]) -> bool:
+    """只认结构化阻断或关键声明，不从普通 UI 文本猜测 P0。"""
     if not isinstance(case, dict):
-        return str(case or "").lower()
-    return case_flat_text(
-        case,
-        fields=("test_module", "description", "expected_result", "test_input", "steps"),
-        separator=" ",
-        lower=True,
+        return False
+    transition = case.get("workflow_transition")
+    transition_payload = dict(transition) if isinstance(transition, dict) else {}
+    criticality = str(
+        case.get("criticality")
+        or case.get("business_criticality")
+        or transition_payload.get("criticality")
+        or ""
+    ).strip().lower()
+    return bool(
+        case.get("blocking") is True
+        or case.get("critical") is True
+        or case.get("business_critical") is True
+        or transition_payload.get("blocking") is True
+        or transition_payload.get("critical") is True
+        or case.get("destructive") is True
+        or transition_payload.get("destructive") is True
+        or criticality in {"critical", "blocking", "release_blocking"}
+        or has_structured_blocking_priority_evidence(case)
     )
-
-
-def p0_has_low_value_signal(case_or_text: dict[str, Any] | str) -> bool:
-    text = p0_case_anchor_text(case_or_text)
-    return any(token.lower() in text for token in p0_low_value_tokens())
-
-
-def p0_has_core_signal(case_or_text: dict[str, Any] | str) -> bool:
-    text = p0_case_anchor_text(case_or_text)
-    return any(token.lower() in text for token in p0_core_tokens())
-
-
-def p0_configured_anchor_family(
-    case_or_text: dict[str, Any] | str,
-) -> str:
-    text = p0_case_anchor_text(case_or_text)
-    critical_families = p0_critical_families()
-    for family, tokens in critical_families:
-        if all(token.lower() in text for token in tokens):
-            return str(family)
-    return ""
-
-
-def p0_main_path_anchor(case: dict[str, Any]) -> bool:
-    if p0_configured_anchor_family(case):
-        return True
-    return p0_has_core_signal(case) and not p0_has_low_value_signal(case)
 
 
 def is_entry_path_availability_case(case: dict[str, Any]) -> bool:
-    """识别会阻断用户进入目标功能的真实入口路径，排除仅检查样式的用例。"""
+    """只按已编译工作流入口 step 的结构化风险识别关键入口。"""
     if not isinstance(case, dict):
         return False
-    if is_pure_ui_goal_text(main_chain_goal_text(case)):
+    if case_stage_kind(case) != "entry":
         return False
-    action_segments = [
-        str(case.get("description") or "").lower(),
-        str(case.get("test_input") or "").lower(),
-        *[
-            str(item or "").lower()
-            for item in (case.get("steps") or [])
-            if str(item or "").strip()
-        ],
-    ]
-    outcome_text = case_flat_text(
-        case,
-        fields=("description", "expected_result"),
-        separator=" ",
-        lower=True,
+    transition = case.get("workflow_transition")
+    if not isinstance(transition, dict):
+        return False
+    # workflow_transition 由执行计划按已核验 blueprint step 编译，正文只用于诊断，
+    # 不再参与 P0 hard guard，避免领域措辞或同义表达改变优先级。
+    return bool(
+        transition.get("blocking") is True
+        or transition.get("critical") is True
     )
-    has_surface_action = any(
-        any(action.lower() in segment for action in _ENTRY_ACTION_TOKENS)
-        and any(surface.lower() in segment for surface in _ENTRY_SURFACE_TOKENS)
-        for segment in action_segments
-    )
-    has_outcome = any(token.lower() in outcome_text for token in _ENTRY_OUTCOME_TOKENS)
-    return bool(has_surface_action and has_outcome)
 
 
 def enforce_entry_path_p0(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -200,13 +78,11 @@ def enforce_entry_path_p0(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
             source="entry_path_availability_p0",
         )
     return output
-
-
 def enforce_pure_ui_p2(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """纯文案和视觉样式校验不占用业务阻断优先级。"""
     output = _dict_case_copies(cases)
     for item in output:
-        if str(item.get("execution_group") or "").strip() == "main_smoke":
+        if has_explicit_blocking_or_critical(item):
             continue
         if not is_pure_ui_goal_text(main_chain_goal_text(item)):
             continue
@@ -215,158 +91,4 @@ def enforce_pure_ui_p2(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
             priority="P2",
             source="pure_ui_non_blocking_p2",
         )
-    return output
-
-
-def _default_case_signature(case: dict[str, Any]) -> str:
-    return "\n".join(
-        str(case.get(field) or "")
-        for field in ("test_module", "description", "expected_result", "test_input")
-    )
-
-
-def enforce_main_path_p0_anchors(
-    cases: list[dict[str, Any]],
-    *,
-    coverage_mode: str = "",
-    requirement_text: str = "",
-    case_signature_fn: Callable[[dict[str, Any]], str] | None = None,
-    case_complexity_profile_fn: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
-) -> list[dict[str, Any]]:
-    candidate_cases = _dict_case_copies(cases)
-    mode = str(coverage_mode or "")
-    if mode not in {"expanded_regression", "full_functional_regression"}:
-        return candidate_cases
-    case_count = len(candidate_cases)
-    if case_count <= 0:
-        return candidate_cases
-    target_count = p0_main_path_target_count(case_count, coverage_mode=mode)
-    signature_fn = case_signature_fn or _default_case_signature
-    policy = MainPathAnchorPolicy(
-        configured_anchor_family_fn=p0_configured_anchor_family,
-        has_core_signal_fn=p0_has_core_signal,
-        has_low_value_signal_fn=p0_has_low_value_signal,
-        complexity_profile_fn=case_complexity_profile_fn,
-    )
-
-    for item in candidate_cases:
-        if normalize_priority_value(case_priority(item)) != "P0":
-            continue
-        text = p0_case_anchor_text(item)
-        if policy.should_demote_non_blocking(text, item=item):
-            apply_priority_override(
-                item,
-                priority="P1",
-                source="main_path_anchor_demoted_non_blocking",
-            )
-
-    existing_p0_signatures = {
-        signature_fn(item)
-        for item in candidate_cases
-        if normalize_priority_value(case_priority(item)) == "P0"
-    }
-    if len(existing_p0_signatures) >= target_count:
-        return candidate_cases
-
-    ranked: list[tuple[int, int, str, dict[str, Any]]] = []
-    for index, item in enumerate(candidate_cases):
-        if signature_fn(item) in existing_p0_signatures:
-            continue
-        text = p0_case_anchor_text(item)
-        normalized_priority = normalize_priority_value(case_priority(item))
-        rank = policy.primary_rank(
-            item=item,
-            index=index,
-            text=text,
-            normalized_priority=normalized_priority,
-        )
-        if rank is not None:
-            ranked.append(rank)
-
-    if len(ranked) < max(1, target_count - len(existing_p0_signatures)):
-        ranked_signatures = {signature_fn(item) for _score, _neg_index, _family, item in ranked}
-        for index, item in enumerate(candidate_cases):
-            signature = signature_fn(item)
-            if signature in existing_p0_signatures or signature in ranked_signatures:
-                continue
-            text = p0_case_anchor_text(item)
-            normalized_priority = normalize_priority_value(case_priority(item))
-            rank = policy.fallback_rank(
-                item=item,
-                index=index,
-                text=text,
-                normalized_priority=normalized_priority,
-                mode=mode,
-            )
-            if rank is not None:
-                ranked.append(rank)
-                ranked_signatures.add(signature)
-
-    if not ranked:
-        return candidate_cases
-    ranked.sort(reverse=True)
-    promoted_signatures: set[str] = set(existing_p0_signatures)
-    promoted_families: set[str] = set()
-    output = _dict_case_copies(candidate_cases)
-    for _score, _neg_index, family, item in ranked:
-        if len(promoted_signatures) >= target_count:
-            break
-        if family in promoted_families and family != "general":
-            continue
-        signature = signature_fn(item)
-        if signature in promoted_signatures:
-            continue
-        promoted_signatures.add(signature)
-        promoted_families.add(family)
-        for updated in output:
-            if signature_fn(updated) == signature:
-                apply_priority_override(
-                    updated,
-                    priority="P0",
-                    source="main_path_anchor_floor",
-                )
-                break
-    if len(promoted_signatures) < target_count:
-        for _score, _neg_index, _family, item in ranked:
-            if len(promoted_signatures) >= target_count:
-                break
-            signature = signature_fn(item)
-            if signature in promoted_signatures:
-                continue
-            promoted_signatures.add(signature)
-            for updated in output:
-                if signature_fn(updated) == signature:
-                    apply_priority_override(
-                        updated,
-                        priority="P0",
-                        source="main_path_anchor_floor",
-                    )
-                    break
-    return output
-
-
-def enforce_execution_plan_p0_floor(
-    cases: list[dict[str, Any]],
-    *,
-    min_p0_count: int = 6,
-) -> list[dict[str, Any]]:
-    """在执行计划成形后，仅用主链用例补齐持久化要求的 P0 下限。"""
-    output = _dict_case_copies(cases)
-    target = max(0, int(min_p0_count or 0))
-    current = sum(1 for item in output if normalize_priority_value(case_priority(item)) == "P0")
-    if current >= target:
-        return output
-    for item in output:
-        if current >= target:
-            break
-        if str(item.get("execution_group") or "").strip().lower() != "main_smoke":
-            continue
-        if normalize_priority_value(case_priority(item)) == "P0":
-            continue
-        apply_priority_override(
-            item,
-            priority="P0",
-            source="execution_plan_main_chain_p0_floor",
-        )
-        current += 1
     return output

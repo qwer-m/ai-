@@ -16,6 +16,7 @@ from .feedback_control_sample_access import (
     sample_case_id as _sample_case_id,
     sample_value as _sample_value,
 )
+from .semantic_contract import MAX_WORKFLOW_STEPS
 from ..coverage.domain_gate import current_domain_gate
 from ..coverage.scenario_registry import infer_primary_domain_tag
 
@@ -37,7 +38,11 @@ def _workflow_blueprint_from_sample(
     if selection_source not in {"explicit_main_smoke", "trusted_workflow_contract"}:
         return None
     steps = blueprint.get("steps")
-    if not isinstance(steps, list) or len(steps) < 2:
+    if (
+        not isinstance(steps, list)
+        or len(steps) < 2
+        or len(steps) > MAX_WORKFLOW_STEPS
+    ):
         return None
     normalized_steps: list[dict[str, Any]] = []
     for index, step in enumerate(steps or [], start=1):
@@ -75,7 +80,7 @@ def _workflow_blueprint_from_sample(
         **blueprint,
         "id": str(blueprint.get("id") or sample_case_id(sample) or "workflow_blueprint"),
         "name": title[:160],
-        "steps": normalized_steps[:12],
+        "steps": normalized_steps,
         "source": str(sample_value(sample, "source", "source_type", "sourceType") or "priority_sample_pool"),
     }
 

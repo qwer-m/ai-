@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Iterable
 
-from .case_access import case_step_lines, case_text_field
 from .streaming_case_keys import review_case_id
 from .streaming_postprocess_utils import (
-    _clip_text,
     _dict_case_items,
     _json_for_prompt,
     _parsed_response_error_reason,
@@ -13,7 +11,6 @@ from .streaming_postprocess_utils import (
 )
 from .streaming_review_mapping import (
     REVIEW_DROP_REASONS,
-    case_review_brief,
     map_review_selection_with_reasons,
 )
 
@@ -55,11 +52,11 @@ def default_review_llm_runtime_debug() -> dict[str, Any]:
         "response_len": 0,
         "response_preview": "",
         "primary_response_metadata": {},
-        "primary_compact_retry_invoked": False,
-        "primary_compact_retry_model": "",
-        "primary_compact_retry_invalid_reason": "",
-        "primary_compact_retry_response_len": 0,
-        "primary_compact_retry_response_metadata": {},
+        "primary_contract_retry_invoked": False,
+        "primary_contract_retry_model": "",
+        "primary_contract_retry_invalid_reason": "",
+        "primary_contract_retry_response_len": 0,
+        "primary_contract_retry_response_metadata": {},
         "retry_invoked": False,
         "retry_reason": "",
         "retry_model": "",
@@ -219,15 +216,12 @@ def build_review_protocol_repair_prompt(
     review_prompt: str,
     candidate_cases: list[dict[str, Any]],
     drop_reasons: Iterable[str] = REVIEW_DROP_REASONS,
-    max_candidates: int = 200,
 ) -> str:
-    candidate_limit = max(0, int(max_candidates or 0))
     candidate_ids = [
         review_case_id(item)
         for item in _dict_case_items(candidate_cases)
         if review_case_id(item)
     ]
-    candidate_ids = candidate_ids[:candidate_limit]
     allowed_reasons = [
         str(reason or "").strip()
         for reason in drop_reasons
@@ -315,67 +309,3 @@ def analyze_review_retry_payload(
         "payload_has_selection_signal": bool(has_selection_signal),
         "invalid_reason": str(invalid_reason),
     }
-
-
-def case_review_retry_brief(case: dict[str, Any]) -> dict[str, Any]:
-    compact: dict[str, Any] = case_review_brief(
-        case,
-        id_key="id",
-        module_key="module",
-        include_expected_result=True,
-        prefer_final_priority=True,
-    )
-    if not compact:
-        return {}
-
-    preconditions = _clip_text(case_text_field(case, "preconditions"), 180, strip=True)
-    if preconditions:
-        compact["preconditions"] = preconditions
-
-    steps = [
-        _clip_text(step, 140, strip=True)
-        for step in case_step_lines(case)[:6]
-        if _clip_text(step, 140, strip=True)
-    ]
-    if steps:
-        compact["steps"] = steps
-
-    test_input = _clip_text(case_text_field(case, "test_input"), 180, strip=True)
-    if test_input:
-        compact["test_input"] = test_input
-
-    return compact
-
-
-def build_compact_review_retry_prompt(
-    candidate_cases: list[dict[str, Any]],
-    *,
-    target_min_count: int,
-    target_max_count: int,
-    drop_reasons: Iterable[str] = REVIEW_DROP_REASONS,
-    max_candidates: int = 200,
-) -> str:
-    compact_cases: list[dict[str, Any]] = []
-    for item in _dict_case_items(candidate_cases):
-        compact = case_review_retry_brief(item)
-        if compact:
-            compact_cases.append(compact)
-
-    candidate_limit = max(0, int(max_candidates or 0))
-    candidate_ids = [str(item.get("id") or "") for item in compact_cases if item.get("id")]
-    reasons = tuple(str(reason or "").strip() for reason in drop_reasons if str(reason or "").strip())
-    min_count = max(1, int(target_min_count or 1))
-    max_count = max(min_count, int(target_max_count or min_count))
-    return (
-        "REVIEW COMPACT RETRY.\n"
-        "The previous review response had no usable final answer. Do not reason aloud.\n"
-        "Return STRICT compact JSON only, no prose, no markdown, no code fences.\n"
-        f"Keep between {min_count} and {max_count} cases when possible.\n"
-        "Schema:\n"
-        '{"kept_case_ids":["TC-001"],"dropped":[{"case_id":"TC-002","reason":"coverage_redundant"}]}\n'
-        f"Allowed reasons: {', '.join(reasons)}.\n"
-        "Case ids must come from this list only:\n"
-        f"{_json_for_prompt(candidate_ids[:candidate_limit])}\n"
-        "Compact candidate facts:\n"
-        f"{_json_for_prompt(compact_cases[:candidate_limit], compact=True)}"
-    )

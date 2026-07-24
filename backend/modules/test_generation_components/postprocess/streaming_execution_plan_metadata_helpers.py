@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Collection
 from typing import Any
 
-from .streaming_case_keys import case_signature as _signature
+from .priority_anchor_rules import has_explicit_blocking_or_critical
+from .streaming_case_keys import candidate_identity_key as _candidate_identity_key
 from .streaming_execution_plan_helpers import (
-    contains_any_token as _any,
-    execution_case_text as _case_text,
     fixture_for_case as _fixture_for_case,
     infer_data_state as _infer_data_state,
     infer_group as _infer_group,
     infer_role as _infer_role,
-    is_core_result_output_anchor as _is_core_result_output_anchor,
-    is_low_value_main_chain_p0 as _is_low_value_main_chain_p0,
-    main_chain_state_overrides_for_current_generation as _main_chain_state_overrides_for_current_generation,
     normalize_actor_role_value as _normalize_actor_role,
     session_key_for_role as _session_key_for_role,
     setup_hint as _setup_hint,
@@ -26,16 +21,11 @@ def annotate_execution_plan_cases(
     *,
     start_id: int = 1,
     selected_by_stage: list[tuple[str, str, dict[str, Any]]] | None = None,
-    selected_by_stage_source: str = "",
     workflow_stage_meta_by_key: dict[str, dict[str, Any]] | None = None,
     workflow_stage_output_state: dict[str, str] | None = None,
     workflow_blueprints: list[dict[str, Any]] | None = None,
     group_setup_map: dict[str, str] | None = None,
     group_teardown_map: dict[str, str] | None = None,
-    analytics_tokens: Collection[str] = (),
-    destructive_action_tokens: Collection[str] = (),
-    blocking_negative_tokens: Collection[str] = (),
-    boundary_capacity_tokens: Collection[str] = (),
 ) -> list[dict[str, Any]]:
     safe_start = max(1, int(start_id or 1))
     stage_meta_by_key = dict(workflow_stage_meta_by_key or {})
@@ -48,26 +38,16 @@ def annotate_execution_plan_cases(
     previous_main_id = ""
     previous_main_result = ""
     previous_main_role = ""
-    main_chain_stage_by_signature = {
-        _signature(item): (stage_key, stage_label, index + 1)
+    main_chain_stage_by_candidate = {
+        _candidate_identity_key(item): (stage_key, stage_label, index + 1)
         for index, (stage_key, stage_label, item) in enumerate(selected)
     }
-    main_chain_state_override_by_signature: dict[str, tuple[str, str]] = {}
-    if selected_by_stage_source == "current_generation_cases":
-        main_chain_state_override_by_signature = (
-            _main_chain_state_overrides_for_current_generation(
-                selected,
-                stage_meta_by_key=stage_meta_by_key,
-                signature_fn=_signature,
-            )
-        )
-
     for offset, item in enumerate(ordered_cases):
         updated = dict(item)
-        signature = _signature(updated)
+        candidate_key = _candidate_identity_key(updated)
         new_id = f"TC-{safe_start + offset:03d}"
         updated["id"] = new_id
-        stage_info = main_chain_stage_by_signature.get(signature)
+        stage_info = main_chain_stage_by_candidate.get(candidate_key)
         in_main_chain = bool(stage_info)
         stage_key = str(stage_info[0]) if stage_info else ""
         group = _infer_group(updated, in_main_chain=in_main_chain)
@@ -133,20 +113,7 @@ def annotate_execution_plan_cases(
                 step_meta=step_meta,
                 stage_label=str(stage_info[1]),
                 workflow_blueprints_present=bool(workflow_blueprints),
-                destructive_action_tokens=destructive_action_tokens,
-                blocking_negative_tokens=blocking_negative_tokens,
-                boundary_capacity_tokens=boundary_capacity_tokens,
-                analytics_tokens=analytics_tokens,
             )
-            state_override = main_chain_state_override_by_signature.get(signature)
-            if state_override:
-                transition = dict(transition)
-                transition["source_state"] = state_override[0]
-                transition["target_state"] = state_override[1]
-                transition["state_transition_confidence"] = max(
-                    float(transition.get("state_transition_confidence") or 0.0),
-                    0.55,
-                )
             expected_stage_kind = str(step_meta.get("stage_kind") or "").strip().lower()
             if expected_stage_kind:
                 transition = dict(transition)
@@ -159,6 +126,7 @@ def annotate_execution_plan_cases(
                 "target_state",
                 "path_type",
                 "blocking",
+                "critical",
                 "destructive",
                 "can_advance_main_flow",
                 "state_transition_confidence",
@@ -166,71 +134,32 @@ def annotate_execution_plan_cases(
                 if transition.get(transition_field) not in (None, ""):
                     updated[transition_field] = transition[transition_field]
             updated["main_chain_stage_kind"] = str(transition.get("stage_kind") or "").strip()
-            if bool(step_meta.get("main_path_step", True)) and not _is_low_value_main_chain_p0(updated):
+            declared_critical = bool(
+                step_meta.get("critical") is True
+                or step_meta.get("blocking") is True
+                or step_meta.get("destructive") is True
+            )
+            if declared_critical and bool(step_meta.get("main_path_step", True)):
                 updated["priority"] = "P0"
                 updated["priority_final"] = "P0"
-            else:
+                updated["priority_decision_state"] = "overridden"
+                updated["priority_decision_source"] = "execution_plan_declared_critical_p0"
+            elif (
+                str(updated.get("priority") or "").strip().upper() == "P0"
+                and not has_explicit_blocking_or_critical(updated)
+            ):
                 updated["priority"] = "P1"
                 updated["priority_final"] = "P1"
                 updated["priority_decision_state"] = "overridden"
-                updated["priority_decision_source"] = "execution_plan_main_support_step_demoted"
-        elif str(updated.get("priority") or "").strip().upper() == "P0":
-            decision_source = str(updated.get("priority_decision_source") or "").strip()
-            non_blocking_detail = _any(
-                _case_text(updated),
-                (
-                    "弹窗",
-                    "提示文案",
-                    "展示",
-                    "排序",
-                    "筛选",
-                    "列表",
-                    "详情",
-                    "display",
-                    "tooltip",
-                    "badge",
-                ),
-            )
-            blocking_business_anchor = _any(
-                _case_text(updated),
-                (
-                    "generate result",
-                    "generated result",
-                    "review result",
-                    "complete result",
-                    "result details",
-                    "upload",
-                    "submit success",
-                    "approval passed",
-                    "review approved",
-                    "上传",
-                    "生成结果",
-                    "完整结果",
-                    "结果详情",
-                    "提交成功",
-                    "审核通过",
-                    "已发布",
-                ),
-            )
-            preserve_semantic_anchor = decision_source in {
-                "main_path_anchor_floor",
-                "hard_guard_promotion",
-                "preserved_priority_override",
-                "conflict_resolved_by_high_risk_business_rule",
-            } and (blocking_business_anchor or not non_blocking_detail)
-            demote_non_main = False
-            if not preserve_semantic_anchor:
-                demote_non_main = group in {"boundary", "display", "exception"}
-            if demote_non_main:
-                updated["priority"] = "P1"
-                updated["priority_final"] = "P1"
-                updated["priority_decision_state"] = "overridden"
-                updated["priority_decision_source"] = "execution_plan_non_main_p0_demoted"
-        elif group == "display" and _is_core_result_output_anchor(updated):
-            updated["priority"] = "P0"
-            updated["priority_final"] = "P0"
+                updated["priority_decision_source"] = "execution_plan_unstructured_p0_demoted"
+        elif (
+            str(updated.get("priority") or "").strip().upper() == "P0"
+            and not has_explicit_blocking_or_critical(updated)
+        ):
+            updated["priority"] = "P1"
+            updated["priority_final"] = "P1"
             updated["priority_decision_state"] = "overridden"
-            updated["priority_decision_source"] = "execution_plan_core_result_output_promoted"
+            updated["priority_decision_source"] = "execution_plan_non_main_p0_demoted"
         annotated.append(updated)
         if in_main_chain:
             previous_main_id = new_id

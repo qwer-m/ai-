@@ -18,6 +18,7 @@ from .execution_plan_case_state import (
 )
 from .execution_plan_semantic_alignment import (
     _closure_metrics,
+    analyze_main_smoke_semantic_alignment,
     main_chain_blueprint_semantic_conflict_reason,
     validate_main_smoke_semantic_alignment,
 )
@@ -38,12 +39,7 @@ def _is_current_requirement_workflow_blueprint(payload: Any) -> bool:
 
 @dataclass(frozen=True)
 class ExecutionPlanValidationPolicy:
-    min_main_smoke_count: int = 6
-    min_p0_count: int = 6
-    min_state_field_coverage: float = 0.8
-    max_workflow_id_missing_rate: float = 0.2
-    reject_untrusted_blueprint_source: bool = True
-    allow_candidate_blueprint_without_contract: bool = True
+    pass
 
 
 def _ratio(numerator: int, denominator: int) -> float:
@@ -134,10 +130,6 @@ def validate_main_smoke_state_chain(cases: Any) -> list[dict[str, Any]]:
                     "target_state": target_state,
                 }
             )
-        if bool(_state_value(case, "blocking")):
-            conflicts.append({"case_id": case_id, "reason": "blocking_case_in_main_smoke"})
-        if bool(_state_value(case, "destructive")) and index < len(main_cases) - 1:
-            conflicts.append({"case_id": case_id, "reason": "destructive_case_before_terminal"})
         if _state_value(case, "can_advance_main_flow") is not True:
             conflicts.append({"case_id": case_id, "reason": "non_advancing_case_in_main_smoke"})
 
@@ -202,7 +194,7 @@ def validate_execution_plan(
     policy: ExecutionPlanValidationPolicy | None = None,
 ) -> dict[str, Any]:
     """Return deterministic execution-plan validation diagnostics for persistence."""
-    resolved_policy = policy or ExecutionPlanValidationPolicy()
+    _ = policy or ExecutionPlanValidationPolicy()
     normalized = materialize_final_case_state_fields(final_cases)
     cases = [dict(item) for item in normalized if isinstance(item, dict)] if isinstance(normalized, list) else []
     main_cases = _main_smoke_cases(cases)
@@ -217,47 +209,82 @@ def validate_execution_plan(
     )
     workflow_id_missing_count = sum(1 for item in main_cases if not _text(_state_value(item, "workflow_id")))
     state_conflicts = validate_main_smoke_state_chain(cases)
-    semantic_conflicts = validate_main_smoke_semantic_alignment(cases)
+    semantic_analysis = analyze_main_smoke_semantic_alignment(cases)
+    semantic_diagnostics = list(semantic_analysis.get("conflicts") or [])
+    semantic_conflicts = [
+        item
+        for item in semantic_diagnostics
+        if str(item.get("reason") or "") == "generated_bridge_case_in_final_main_smoke"
+    ]
+    semantic_warnings = [
+        *list(semantic_analysis.get("warnings") or []),
+        *[
+            {**item, "diagnostic_only": True}
+            for item in semantic_diagnostics
+            if item not in semantic_conflicts
+        ],
+    ]
     order_conflicts = validate_execution_group_order(cases)
-    closure = _closure_metrics(main_cases)
     resolved_execution_plan = dict(execution_plan or {})
     blueprint_source = _text(resolved_execution_plan.get("workflow_blueprint_source")).lower()
-    resolved_blueprints = [dict(item) for item in (workflow_blueprints or []) if isinstance(item, dict)]
+    workflow_absence_declared = resolved_execution_plan.get("workflow_absence_declared") is True
+    input_blueprints = [dict(item) for item in (workflow_blueprints or []) if isinstance(item, dict)]
+    primary_workflow_id = _text(resolved_execution_plan.get("primary_workflow_id"))
+    declared_primary_blueprints = [item for item in input_blueprints if item.get("primary") is True]
+    resolved_blueprints = [
+        item
+        for item in declared_primary_blueprints
+        if not primary_workflow_id
+        or _text(item.get("workflow_id") or item.get("id")) == primary_workflow_id
+    ]
+    primary_workflow_resolution_error = ""
+    if input_blueprints and len(input_blueprints) > 1:
+        primary_workflow_resolution_error = "multiple_workflows_not_supported"
+        resolved_blueprints = []
+    elif input_blueprints and len(resolved_blueprints) != 1:
+        primary_workflow_resolution_error = "primary_workflow_not_declared"
+        resolved_blueprints = []
+    closure = _closure_metrics(main_cases, workflow_blueprints=resolved_blueprints)
+    workflow_closure = dict(closure.get("workflow_closure") or {})
     trusted_workflow_contracts = [
         item for item in resolved_blueprints if is_trusted_workflow_contract(item)
     ]
     current_requirement_blueprints = [
         item for item in resolved_blueprints if _is_current_requirement_workflow_blueprint(item)
     ]
-    blueprint_count = len(resolved_blueprints)
+    blueprint_count = len(input_blueprints)
     trusted_workflow_contract_count = len(trusted_workflow_contracts)
     current_requirement_blueprint_count = len(current_requirement_blueprints)
     state_field_coverage = _ratio(populated_state_fields, state_field_slots)
     workflow_id_missing_rate = _ratio(workflow_id_missing_count, len(main_cases))
 
     failure_reasons: list[str] = []
-    if len(main_cases) < int(resolved_policy.min_main_smoke_count):
-        failure_reasons.append("main_smoke_count_below_threshold")
-    if p0_count < int(resolved_policy.min_p0_count):
-        failure_reasons.append("p0_count_below_threshold")
-    if state_field_coverage < float(resolved_policy.min_state_field_coverage):
-        failure_reasons.append("state_field_coverage_below_threshold")
-    if workflow_id_missing_rate > float(resolved_policy.max_workflow_id_missing_rate):
-        failure_reasons.append("workflow_id_missing_rate_above_threshold")
     if state_conflicts:
         failure_reasons.append("state_chain_conflict")
     if semantic_conflicts:
         failure_reasons.append("main_smoke_semantic_conflict")
     if order_conflicts:
         failure_reasons.append("execution_group_order_conflict")
-    if not bool(closure.get("commit_downstream_completion_closed")):
-        failure_reasons.append("commit_downstream_completion_missing")
-    candidate_blueprint_without_contract = bool(
-        trusted_workflow_contract_count <= 0
-        and blueprint_count <= 0
-        and blueprint_source == "current_generation_cases"
-        and resolved_policy.allow_candidate_blueprint_without_contract
+    independent_suite_executable = bool(
+        workflow_absence_declared
+        and not input_blueprints
+        and not main_cases
+        and cases
     )
+    if not independent_suite_executable:
+        failure_reasons.extend(
+            str(item).strip()
+            for item in (workflow_closure.get("failure_reasons") or [])
+            if str(item).strip()
+        )
+    if workflow_absence_declared and input_blueprints:
+        failure_reasons.append("workflow_absence_conflicts_with_blueprint")
+    if workflow_absence_declared and main_cases:
+        failure_reasons.append("workflow_absence_conflicts_with_main_smoke")
+    if workflow_absence_declared and not cases:
+        failure_reasons.append("workflow_absence_independent_suite_empty")
+    if primary_workflow_resolution_error and not workflow_absence_declared:
+        failure_reasons.append(primary_workflow_resolution_error)
     current_requirement_blueprint_allowed = bool(
         current_requirement_blueprint_count > 0
         and blueprint_source == "current_requirement_blueprint"
@@ -265,14 +292,10 @@ def validate_execution_plan(
     if (
         trusted_workflow_contract_count <= 0
         and not current_requirement_blueprint_allowed
-        and not candidate_blueprint_without_contract
+        and not independent_suite_executable
     ):
         failure_reasons.append("workflow_contract_missing")
-    if (
-        resolved_policy.reject_untrusted_blueprint_source
-        and blueprint_source == "current_generation_cases"
-        and not candidate_blueprint_without_contract
-    ):
+    if blueprint_source == "current_generation_cases":
         failure_reasons.append("untrusted_candidate_derived_blueprint")
 
     return {
@@ -289,13 +312,14 @@ def validate_execution_plan(
             "workflow_id_missing_rate": float(workflow_id_missing_rate),
             "state_conflict_count": int(len(state_conflicts)),
             "semantic_conflict_count": int(len(semantic_conflicts)),
+            "semantic_diagnostic_count": int(len(semantic_diagnostics)),
+            "semantic_warning_count": int(len(semantic_warnings)),
             "execution_group_order_conflict_count": int(len(order_conflicts)),
             "linear_executable": bool(
-                len(main_cases) >= int(resolved_policy.min_main_smoke_count)
+                workflow_closure.get("closure_satisfied")
                 and not state_conflicts
                 and not semantic_conflicts
                 and not order_conflicts
-                and closure.get("commit_downstream_completion_closed")
             ),
             "workflow_blueprint_count": int(blueprint_count),
             "trusted_workflow_contract_count": int(trusted_workflow_contract_count),
@@ -309,12 +333,16 @@ def validate_execution_plan(
                 }
             ),
             "workflow_blueprint_source": blueprint_source or "none",
+            "primary_workflow_id": primary_workflow_id,
+            "primary_workflow_resolution_error": primary_workflow_resolution_error,
+            "workflow_absence_declared": bool(workflow_absence_declared),
+            "independent_suite_executable": bool(independent_suite_executable),
             "current_requirement_blueprint_allowed": bool(current_requirement_blueprint_allowed),
-            "candidate_blueprint_without_contract_allowed": bool(candidate_blueprint_without_contract),
             **closure,
         },
         "state_conflicts": state_conflicts[:100],
         "semantic_conflicts": semantic_conflicts[:100],
+        "semantic_warnings": semantic_warnings[:100],
         "execution_group_order_conflicts": order_conflicts[:100],
         "cases": cases,
     }

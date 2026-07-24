@@ -35,12 +35,9 @@ def _allowed_reason_tuple(drop_reasons: Iterable[str]) -> tuple[str, ...]:
 
 def build_reason_repair_candidates(
     missing_reason_cases: Iterable[Any],
-    *,
-    max_candidates: int = 80,
 ) -> list[dict[str, Any]]:
     repair_candidates: list[dict[str, Any]] = []
-    limit = max(0, int(max_candidates or 0))
-    for item in _dict_case_items(missing_reason_cases)[:limit]:
+    for item in _dict_case_items(missing_reason_cases):
         compact = case_review_brief(
             item,
             id_key="id",
@@ -57,12 +54,8 @@ def build_compact_reason_repair_prompt(
     missing_reason_cases: Iterable[Any],
     *,
     drop_reasons: Iterable[str] = REASON_REPAIR_DROP_REASONS,
-    max_candidates: int = 80,
 ) -> str:
-    repair_candidates = build_reason_repair_candidates(
-        missing_reason_cases,
-        max_candidates=max_candidates,
-    )
+    repair_candidates = build_reason_repair_candidates(missing_reason_cases)
     if not repair_candidates:
         return ""
 
@@ -212,7 +205,6 @@ def apply_reason_repair_for_dropped_cases(
     review_llm_drop_reason_raw_origin_map: dict[str, str],
     review_llm_runtime_debug: dict[str, Any],
     parse_json_fn: ReasonRepairPayloadParser,
-    max_candidates: int = 80,
 ) -> tuple[dict[str, str], dict[str, str], dict[str, Any]]:
     raw_map = dict(review_llm_drop_reason_raw_map or {})
     origin_map = dict(review_llm_drop_reason_raw_origin_map or {})
@@ -243,17 +235,13 @@ def apply_reason_repair_for_dropped_cases(
     if not missing_reason_cases:
         return raw_map, origin_map, runtime_debug
 
-    repair_candidates = build_reason_repair_candidates(
-        missing_reason_cases,
-        max_candidates=max_candidates,
-    )
+    repair_candidates = build_reason_repair_candidates(missing_reason_cases)
     if not repair_candidates:
         return raw_map, origin_map, runtime_debug
 
     repair_prompt = build_compact_reason_repair_prompt(
         missing_reason_cases,
         drop_reasons=REASON_REPAIR_DROP_REASONS,
-        max_candidates=max_candidates,
     )
     runtime_debug["reason_repair_invoked"] = True
     runtime_debug["reason_repair_candidate_count"] = int(len(repair_candidates))

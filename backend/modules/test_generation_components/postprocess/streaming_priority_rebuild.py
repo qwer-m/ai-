@@ -9,7 +9,6 @@ from .streaming_case_normalization import normalize_priority_value
 _REVIEW_PRIORITY_DEMOTION_SOURCES = frozenset(
     {
         "model_p0_guard_downgrade",
-        "main_path_anchor_demoted_non_blocking",
     }
 )
 _REVIEW_PRIORITY_DEMOTION_FINAL_PRIORITIES = frozenset({"P1", "P2"})

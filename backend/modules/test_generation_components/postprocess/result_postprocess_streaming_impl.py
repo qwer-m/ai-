@@ -21,12 +21,14 @@ from .streaming_rescue_pass import run_initial_rescue_pass as _run_initial_rescu
 from .streaming_control_context import resolve_streaming_control_context
 from .streaming_coverage_gap import resolve_coverage_gap_state as _resolve_coverage_gap_state
 from .streaming_case_keys import (
-    case_focus_score as _focus_score,
     review_case_id as _review_case_id,
 )
+from .streaming_case_source_metadata import apply_case_source_metadata as _apply_case_source_metadata
 from .streaming_final_case_assembly import assemble_final_cases as _assemble_final_cases
 from .streaming_final_pruning import apply_post_judge_final_pruning as _apply_post_judge_final_pruning
-from .streaming_final_recovery_stage import run_final_recovery_stage as _run_final_recovery_stage
+from .streaming_execution_plan_metadata import (
+    evaluate_required_stage_candidate_coverage as _evaluate_required_stage_candidate_coverage,
+)
 from .streaming_postprocess_result_payload import (
     build_stream_postprocess_result_payload as _build_stream_postprocess_result_payload,
 )
@@ -53,8 +55,8 @@ from .streaming_review_selection import (
 )
 from .streaming_reasoning_quality import reasoning_leakage_hits as _reasoning_leakage_hits
 from .streaming_text_match import CaseGovernanceMatcher
-from .streaming_ui_like import apply_ui_like_ratio_postprocess_cap as _apply_ui_like_ratio_postprocess_cap
-from .module_contract import enforce_functional_module_contract, rebalance_functional_phase_coverage
+from .module_contract import enforce_functional_module_contract
+from ..control.semantic_contract import resolve_case_semantic_gate
 
 
 def stream_postprocess_cases(
@@ -82,6 +84,7 @@ def stream_postprocess_cases(
     generation_mode: str = "",
     feedback_control_state: dict[str, Any] | None = None,
     requirement_semantics_context: dict[str, Any] | None = None,
+    initial_case_semantic_rejections: list[dict[str, Any]] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Stream postprocess: dedup + quality filtering + rerank + convergence diagnostics."""
 
@@ -118,7 +121,34 @@ def stream_postprocess_cases(
     workflow_blueprints = control_context.workflow_blueprints
     trusted_workflow_contracts = control_context.trusted_workflow_contracts
     current_requirement_workflow_blueprints = control_context.current_requirement_workflow_blueprints
-    authoritative_workflow_blueprints = control_context.authoritative_workflow_blueprints
+    workflow_absence_declared = control_context.workflow_absence_declared
+    require_case_semantic_contract, requirement_semantic_contract = resolve_case_semantic_gate(
+        feedback_control_state
+    )
+    case_semantic_rejections = [
+        dict(item)
+        for item in (initial_case_semantic_rejections or [])
+        if isinstance(item, dict)
+    ]
+
+    def _generated_case_normalizer(source_stage: str) -> Callable[[Any], Any]:
+        if not require_case_semantic_contract:
+            return normalize_json_structure_fn
+
+        def _normalize(data: Any) -> Any:
+            return normalize_json_structure_fn(
+                data,
+                require_case_semantic_contract=True,
+                requirement_semantic_contract=requirement_semantic_contract,
+                semantic_rejections=case_semantic_rejections,
+                semantic_source_stage=source_stage,
+            )
+
+        return _normalize
+
+    primary_case_normalizer = _generated_case_normalizer("stream_primary_postprocess")
+    rescue_case_normalizer = _generated_case_normalizer("stream_primary_rescue")
+    gap_case_normalizer = _generated_case_normalizer("stream_gap_supplement")
 
     case_governance_matcher = CaseGovernanceMatcher.from_raw(
         forbidden_patterns=forbidden_patterns,
@@ -128,7 +158,6 @@ def stream_postprocess_cases(
     )
     _violates_forbidden_pattern = case_governance_matcher.violates_forbidden_pattern
     _hits_soft_constraint = case_governance_matcher.hits_soft_constraint
-    _hits_reuse_risk = case_governance_matcher.hits_reuse_risk
     _satisfies_quality_hint = case_governance_matcher.satisfies_quality_hint
 
 
@@ -136,7 +165,7 @@ def stream_postprocess_cases(
         full_content=full_content,
         requirement=requirement,
         clean_and_parse_json_fn=clean_and_parse_json_fn,
-        normalize_json_structure_fn=normalize_json_structure_fn,
+        normalize_json_structure_fn=primary_case_normalizer,
         deduplicate_test_cases_fn=deduplicate_test_cases_fn,
         analyze_coverage_fn=analyze_coverage,
         record_timing_event_fn=_record_timing_event,
@@ -161,7 +190,6 @@ def stream_postprocess_cases(
     append_target_count = initial_state.append_target_count
     reference_count_effective = initial_state.reference_count_effective
     append_final_cap_count = initial_state.append_final_cap_count
-    expected_count_value = initial_state.expected_count_value
     effective_generation_coverage_mode = initial_state.effective_generation_coverage_mode
     effective_generation_coverage_mode_source = initial_state.effective_generation_coverage_mode_source
     explicit_generation_mode_override = initial_state.explicit_generation_mode_override
@@ -169,7 +197,6 @@ def stream_postprocess_cases(
     explicit_expected_count_floor_preserved = initial_state.explicit_expected_count_floor_preserved
     resolved_full_regression_floor = initial_state.resolved_full_regression_floor
 
-    final_target_floor_count = 0
 
     current_total = _merged_unique_total(
         parsed_result,
@@ -188,7 +215,7 @@ def stream_postprocess_cases(
                 append=append,
                 existing_cases=existing_cases,
                 clean_and_parse_json_fn=clean_and_parse_json_fn,
-                normalize_json_structure_fn=normalize_json_structure_fn,
+                normalize_json_structure_fn=rescue_case_normalizer,
                 deduplicate_test_cases_fn=deduplicate_test_cases_fn,
                 count_unique_test_cases_fn=count_unique_test_cases_fn,
                 analyze_coverage_fn=analyze_coverage,
@@ -206,42 +233,97 @@ def stream_postprocess_cases(
     if normalized_mode not in {"single_pass", "multi_pass", "biz_key_multi_pass"}:
         normalized_mode = "multi_pass" if bool(multi_pass) else "single_pass"
 
-    if normalized_mode in {"multi_pass", "biz_key_multi_pass"} and isinstance(parsed_result, list):
-        coverage_primary = analyze_coverage(requirement, _dict_case_items(parsed_result))
-        coverage_gap_state = _resolve_coverage_gap_state(coverage_primary)
-        missing_rules = coverage_gap_state["missing_rules"]
-        has_missing_types = bool(coverage_gap_state["has_missing_types"])
+    # 模块和交互是执行计划候选资格的一部分，必须先于阶段闭环评估。
+    parsed_result = normalize_json_structure_fn(parsed_result)
+    parsed_result = deduplicate_test_cases_fn(parsed_result)
+    parsed_result, module_contract_summary = enforce_functional_module_contract(
+        _dict_case_items(parsed_result),
+        project_profile=project_profile,
+    )
+    stage_counts["module_contract_normalized"] = int(module_contract_summary.get("normalized_count") or 0)
+    stage_counts["module_contract_rejected"] = int(module_contract_summary.get("rejected_count") or 0)
 
-        need_gap = bool(missing_rules) or has_missing_types
-        if need_gap:
-            gap_result = yield from _run_gap_supplement_attempts(
-                client=client,
-                requirement=requirement,
-                append=append,
-                existing_cases=existing_cases,
-                parsed_result=_dict_case_items(parsed_result),
-                coverage_primary=coverage_primary,
-                coverage_gap_state=coverage_gap_state,
-                current_biz_key=current_biz_key,
-                infer_case_kind_fn=infer_case_kind_fn,
-                build_supplement_closed_loop_instruction_fn=build_supplement_closed_loop_instruction_fn,
-                build_gap_fill_prompt_fn=build_gap_fill_prompt,
-                clean_and_parse_json_fn=clean_and_parse_json_fn,
-                normalize_json_structure_fn=normalize_json_structure_fn,
-                deduplicate_test_cases_fn=deduplicate_test_cases_fn,
-                analyze_coverage_fn=analyze_coverage,
-                resolve_coverage_gap_state_fn=_resolve_coverage_gap_state,
-                record_timing_event_fn=_record_timing_event,
+    coverage_primary = analyze_coverage(requirement, _dict_case_items(parsed_result))
+    coverage_gap_state = _resolve_coverage_gap_state(coverage_primary)
+    generic_gap_enabled = normalized_mode in {"multi_pass", "biz_key_multi_pass"}
+    generic_gap_needed = bool(
+        generic_gap_enabled
+        and (
+            coverage_gap_state.get("missing_rules")
+            or coverage_gap_state.get("has_missing_types")
+        )
+    )
+    required_stage_coverage = _evaluate_required_stage_candidate_coverage(
+        _dict_case_items(parsed_result),
+        workflow_blueprints=workflow_blueprints,
+    )
+    stage_repair_needed = bool(
+        required_stage_coverage.get("source_generation_allowed") is True
+        and required_stage_coverage.get("required_stage_coverage_complete") is not True
+        and required_stage_coverage.get("missing_required_stages")
+    )
+    stage_counts["required_stage_source_generation_allowed"] = int(
+        required_stage_coverage.get("source_generation_allowed") is True
+    )
+    stage_counts["required_stage_gap_before"] = int(
+        len(required_stage_coverage.get("actionable_stage_ids") or [])
+    )
+    stage_counts["required_stage_blueprint_invalid"] = int(
+        bool(workflow_blueprints)
+        and required_stage_coverage.get("source_generation_allowed") is not True
+    )
+
+    if generic_gap_needed or stage_repair_needed:
+        gap_result = yield from _run_gap_supplement_attempts(
+            client=client,
+            requirement=requirement,
+            append=append,
+            existing_cases=existing_cases,
+            parsed_result=_dict_case_items(parsed_result),
+            coverage_primary=coverage_primary,
+            coverage_gap_state=coverage_gap_state,
+            review_contract_context={
+                "workflow_blueprints": workflow_blueprints,
+                "workflow_absence_declared": workflow_absence_declared,
+                "functional_architecture": dict(
+                    (project_profile or {}).get("functional_architecture") or {}
+                ),
+            },
+            current_biz_key=current_biz_key,
+            infer_case_kind_fn=infer_case_kind_fn,
+            build_supplement_closed_loop_instruction_fn=build_supplement_closed_loop_instruction_fn,
+            build_gap_fill_prompt_fn=build_gap_fill_prompt,
+            clean_and_parse_json_fn=clean_and_parse_json_fn,
+            normalize_json_structure_fn=gap_case_normalizer,
+            deduplicate_test_cases_fn=deduplicate_test_cases_fn,
+            analyze_coverage_fn=analyze_coverage,
+            resolve_coverage_gap_state_fn=_resolve_coverage_gap_state,
+            record_timing_event_fn=_record_timing_event,
+            workflow_blueprints=workflow_blueprints,
+            project_profile=project_profile,
+            include_generic_gaps=generic_gap_enabled,
+        )
+        parsed_result = gap_result.cases
+        coverage_primary = gap_result.coverage_primary
+        coverage_gap_state = gap_result.coverage_gap_state
+        gap_attempts = gap_result.attempt_count
+        gap_remaining_after_attempts = gap_result.remaining_gap_count
+        gap_stopped_by_provider_error = gap_result.stopped_by_provider_error
+        stage_counts["gap"] = gap_result.added_count
+        stage_counts["required_stage_gap_remaining"] = int(
+            len(
+                gap_result.required_stage_coverage.get("actionable_stage_ids")
+                or []
             )
-            parsed_result = gap_result.cases
-            coverage_primary = gap_result.coverage_primary
-            coverage_gap_state = gap_result.coverage_gap_state
-            gap_attempts = gap_result.attempt_count
-            gap_remaining_after_attempts = gap_result.remaining_gap_count
-            gap_stopped_by_provider_error = gap_result.stopped_by_provider_error
-            stage_counts["gap"] = gap_result.added_count
-            for filter_stats in gap_result.filter_stats:
-                low_quality_filter_stats.accumulate(filter_stats)
+        )
+        stage_counts["module_contract_normalized"] += int(
+            gap_result.module_contract_normalized_count
+        )
+        stage_counts["module_contract_rejected"] += int(
+            gap_result.module_contract_rejected_count
+        )
+        for filter_stats in gap_result.filter_stats:
+            low_quality_filter_stats.accumulate(filter_stats)
 
     review_stage_result = yield from _run_streaming_review_stage(
         client=client,
@@ -257,6 +339,13 @@ def stream_postprocess_cases(
         must_cover_rule_set=must_cover_rule_set,
         generation_coverage_profile=generation_coverage_profile,
         generation_coverage_mode=generation_coverage_mode,
+        review_contract_context={
+            "workflow_blueprints": workflow_blueprints,
+            "workflow_absence_declared": workflow_absence_declared,
+            "functional_architecture": dict(
+                (project_profile or {}).get("functional_architecture") or {}
+            ),
+        },
         append_target_count=append_target_count,
         append_final_cap_count=append_final_cap_count,
         current_biz_key=current_biz_key,
@@ -266,8 +355,6 @@ def stream_postprocess_cases(
         deduplicate_test_cases_fn=deduplicate_test_cases_fn,
         analyze_coverage_fn=analyze_coverage,
         score_case_priority_fn=score_case_priority,
-        hits_reuse_risk_fn=_hits_reuse_risk,
-        hits_soft_constraint_fn=_hits_soft_constraint,
         record_timing_event_fn=_record_timing_event,
     )
     low_quality_filter_stats.accumulate(review_stage_result.review_filter_stats)
@@ -277,31 +364,11 @@ def stream_postprocess_cases(
     reference_count_effective = review_stage_result.reference_count_effective
     stage_counts["review"] = int(review_selected_count or 0)
 
-    phase_target_count = min(
-        int(candidate_count_before_review or 0),
-        max(_dict_case_count(parsed_result), int(final_target_floor_count or 0)),
-    )
-    parsed_result, functional_phase_recovery_summary = rebalance_functional_phase_coverage(
-        _dict_case_items(parsed_result),
-        candidate_cases=[
-            *_dict_case_items(review_stage_result.review_candidate_cases),
-            *_dict_case_items(review_stage_result.candidate_cases),
-        ],
-        project_profile=project_profile,
-        target_count=phase_target_count,
-    )
-    stage_counts["functional_phase_recovered"] = int(
-        functional_phase_recovery_summary.get("added_count") or 0
-    )
+    # 全局评审完成后不再按模块配额从候选池局部补回。
+    stage_counts["functional_phase_recovered"] = 0
 
     parsed_result = normalize_json_structure_fn(parsed_result)
     parsed_result = deduplicate_test_cases_fn(parsed_result)
-    parsed_result, module_contract_summary = enforce_functional_module_contract(
-        _dict_case_items(parsed_result),
-        project_profile=project_profile,
-    )
-    stage_counts["module_contract_normalized"] = int(module_contract_summary.get("normalized_count") or 0)
-    stage_counts["module_contract_rejected"] = int(module_contract_summary.get("rejected_count") or 0)
     parsed_result = reorder_cases_by_closed_loop_fn(parsed_result, start_id=start_id, renumber_ids=True)
     parsed_result = _apply_coverage_priority_semantics(
         requirement,
@@ -309,25 +376,11 @@ def stream_postprocess_cases(
         analyze_coverage_fn=analyze_coverage,
     )
     ui_like_ratio_postprocess_drop_count = 0
-    parsed_result, ui_like_ratio_postprocess_drop_count = _apply_ui_like_ratio_postprocess_cap(
-        _dict_case_items(parsed_result),
-        forbidden_patterns_active=bool(case_governance_matcher.forbidden_patterns),
-        focus_score_fn=_focus_score,
-    )
-    if ui_like_ratio_postprocess_drop_count > 0:
-        parsed_result = reorder_cases_by_closed_loop_fn(
-            parsed_result,
-            start_id=start_id,
-            renumber_ids=True,
-        )
     judge_gate_result = _run_streaming_judge_gate(
         cases=_dict_case_items(parsed_result),
         requirement_semantics_context=requirement_semantics_context or {},
         feedback_control_state=feedback_control_state if isinstance(feedback_control_state, dict) else {},
         fact_profile=fact_profile,
-        start_id=start_id,
-        deduplicate_test_cases_fn=deduplicate_test_cases_fn,
-        reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop_fn,
         review_case_id_fn=_review_case_id,
         build_judge_summary_payload_fn=_build_judge_summary_payload,
         build_judge_decision_table_payload_fn=_build_judge_decision_table_payload,
@@ -344,12 +397,19 @@ def stream_postprocess_cases(
         analyze_coverage_fn=analyze_coverage,
         reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop_fn,
         rank_case_fn=_rank_review_case_for_fill,
+        workflow_blueprints=workflow_blueprints,
     )
     parsed_result = final_pruning.cases
     pre_priority_coverage = final_pruning.pre_priority_coverage
     final_description_dedup_drop_signatures = final_pruning.final_description_dedup_drop_signatures
     append_cap_drop_signatures = final_pruning.append_cap_drop_signatures
     append_cap_drop_total = final_pruning.append_cap_drop_total
+    stage_counts["append_cap_protected_count"] = int(
+        final_pruning.append_cap_diagnostics.get("protected_count") or 0
+    )
+    stage_counts["append_cap_closure_overflow_count"] = int(
+        final_pruning.append_cap_diagnostics.get("target_overflow_count") or 0
+    )
     final_quality_drop_total = final_pruning.final_quality_drop_total
     if final_quality_drop_total > 0:
         low_quality_filter_stats.add_postprocess_quality_drop(final_quality_drop_total)
@@ -360,13 +420,17 @@ def stream_postprocess_cases(
         generation_coverage_mode=generation_coverage_mode,
         feedback_redundant_caps=feedback_redundant_caps,
     )
+    flow_project_profile = _flow_profile_with_scenario_policy(
+        flow_project_profile,
+        disable_scenario_pruning=True,
+        global_review_selection=True,
+    )
     try:
         parsed_result, flow_governance_summary = govern_cases_by_flow_structure(
             requirement,
             _dict_case_items(parsed_result),
             start_id=start_id,
             renumber_ids=True,
-            max_per_scenario=2,
             project_profile=flow_project_profile,
         )
     except Exception as exc:
@@ -378,44 +442,14 @@ def stream_postprocess_cases(
             "flow_reordered": False,
         }
 
-    final_recovery = yield from _run_final_recovery_stage(
-        client=client,
-        db=db,
-        requirement=requirement,
-        kb_context=kb_context,
-        parsed_result=_dict_case_items(parsed_result),
-        flow_governance_summary=flow_governance_summary,
-        final_target_floor_count=final_target_floor_count,
-        review_candidate_cases=review_stage_result.review_candidate_cases,
-        review_selection_input=review_stage_result.review_selection_input,
-        candidate_cases=review_stage_result.candidate_cases,
-        candidate_count_before_review=candidate_count_before_review,
-        expected_count=expected_count,
-        expected_count_value=expected_count_value,
-        effective_generation_coverage_mode=effective_generation_coverage_mode,
-        resolved_full_regression_floor=resolved_full_regression_floor,
-        append=append,
-        project_profile=project_profile,
-        flow_project_profile=flow_project_profile,
-        start_id=start_id,
-        feedback_control_state=feedback_control_state if isinstance(feedback_control_state, dict) else {},
-        requirement_semantics_context=requirement_semantics_context or {},
-        fact_profile=fact_profile,
-        low_quality_drop_details=low_quality_filter_stats.low_quality_drop_details,
-        clean_and_parse_json_fn=clean_and_parse_json_fn,
-        normalize_json_structure_fn=normalize_json_structure_fn,
-        deduplicate_test_cases_fn=deduplicate_test_cases_fn,
-        reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop_fn,
-        analyze_case_structure_fn=analyze_case_structure,
-        analyze_coverage_fn=analyze_coverage,
-        govern_cases_by_flow_structure_fn=govern_cases_by_flow_structure,
-        record_timing_event_fn=_record_timing_event,
+    parsed_result = _apply_case_source_metadata(
+        _dict_case_items(parsed_result),
+        source_cases=[
+            *_dict_case_items(review_stage_result.review_candidate_cases),
+            *_dict_case_items(review_stage_result.review_selection_input),
+            *_dict_case_items(review_stage_result.candidate_cases),
+        ],
     )
-    low_quality_filter_stats.accumulate(final_recovery.shortfall_filter_stats)
-    low_quality_filter_stats.add_postprocess_quality_drop(final_recovery.final_quality_drop_total)
-    parsed_result = final_recovery.cases
-    flow_governance_summary = final_recovery.flow_governance_summary
-
     final_assembly = _assemble_final_cases(
         parsed_result=_dict_case_items(parsed_result),
         requirement=requirement,
@@ -427,7 +461,7 @@ def stream_postprocess_cases(
         workflow_blueprints=workflow_blueprints,
         trusted_workflow_contracts=trusted_workflow_contracts,
         current_requirement_workflow_blueprints=current_requirement_workflow_blueprints,
-        authoritative_workflow_blueprints=authoritative_workflow_blueprints,
+        workflow_absence_declared=workflow_absence_declared,
         flow_project_profile=flow_project_profile,
         project_profile=project_profile,
         reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop_fn,
@@ -451,8 +485,6 @@ def stream_postprocess_cases(
         project_profile=project_profile,
         flow_project_profile=flow_project_profile,
         flow_governance_summary=flow_governance_summary,
-        final_shortfall_supplement_applied=bool(final_recovery.final_shortfall_supplement_applied),
-        effective_generation_coverage_mode=effective_generation_coverage_mode,
         final_case_structure=final_case_structure,
         final_independent_case_structure=final_independent_case_structure,
         final_order_flow_governance_summary=final_order_flow_governance_summary,
@@ -468,35 +500,19 @@ def stream_postprocess_cases(
         review_llm_drop_reason_map=review_stage_result.review_llm_drop_reason_map,
         review_llm_drop_reason_source_map=review_stage_result.review_llm_drop_reason_source_map,
         review_llm_drop_reason_evidence_map=review_stage_result.review_llm_drop_reason_evidence_map,
-        review_must_keep_signatures=review_stage_result.review_must_keep_signatures,
         review_constraint_retained_signatures=review_stage_result.review_constraint_retained_signatures,
         review_constraint_reason_map=review_stage_result.review_constraint_reason_map,
         append_cap_drop_signatures=append_cap_drop_signatures,
         must_cover_rule_set=must_cover_rule_set,
-        review_must_keep_reason_map=review_stage_result.review_must_keep_reason_map,
         review_selected_count=review_selected_count,
         review_target_min_count=review_stage_result.review_target_min_count,
         review_target_max_count=review_stage_result.review_target_max_count,
         review_shortfall_detected=review_stage_result.review_shortfall_detected,
         review_shortfall_before_count=review_stage_result.review_shortfall_before_count,
-        review_shortfall_recovered_count=review_stage_result.review_shortfall_recovered_count,
-        review_post_rerank_floor_count=review_stage_result.review_post_rerank_floor_count,
-        review_post_rerank_recovered_count=review_stage_result.review_post_rerank_recovered_count,
-        final_target_floor_count=final_recovery.final_target_floor_count,
-        final_floor_recovery_attempted=final_recovery.final_floor_recovery_attempted,
-        final_floor_recovery_applied=final_recovery.final_floor_recovery_applied,
-        final_floor_recovered_count=final_recovery.final_floor_recovered_count,
-        final_floor_recovery_reason=final_recovery.final_floor_recovery_reason,
-        final_confirmed_conflict_drop_count=final_recovery.final_confirmed_conflict_drop_count,
-        final_shortfall_supplement_attempted=final_recovery.final_shortfall_supplement_attempted,
-        final_shortfall_supplement_count=final_recovery.final_shortfall_supplement_count,
-        final_shortfall_supplement_reason=final_recovery.final_shortfall_supplement_reason,
-        final_shortfall_supplement_debug=final_recovery.final_shortfall_supplement_debug,
         generation_mode=generation_mode,
         effective_generation_coverage_mode_source=effective_generation_coverage_mode_source,
         explicit_generation_mode_override=explicit_generation_mode_override,
         explicit_expected_count_floor_preserved=explicit_expected_count_floor_preserved,
-        review_fill_source=review_stage_result.review_fill_source,
         review_llm_pool_count=review_stage_result.review_llm_pool_count,
         stage_counts=stage_counts,
         analyze_coverage_fn=analyze_coverage,
@@ -510,7 +526,6 @@ def stream_postprocess_cases(
         satisfies_quality_hint_fn=_satisfies_quality_hint,
         reasoning_leakage_hits_fn=_reasoning_leakage_hits,
         dict_case_count_fn=_dict_case_count,
-        flow_profile_with_scenario_policy_fn=_flow_profile_with_scenario_policy,
     )
     review_decision_table = review_summary_state.review_decision_table
     final_description_dedup_drop_signatures = review_summary_state.final_description_dedup_drop_signatures
@@ -559,6 +574,14 @@ def stream_postprocess_cases(
     coverage = final_generation_report.coverage
     generation_summary = final_generation_report.generation_summary
     convergence_debug = final_generation_report.convergence_debug
+    stage_counts["case_semantic_rejected"] = int(len(case_semantic_rejections))
+    semantic_contract_diagnostics = {
+        "enabled": bool(require_case_semantic_contract),
+        "rejected_count": int(len(case_semantic_rejections)),
+        "rejections": list(case_semantic_rejections)[:20],
+    }
+    convergence_debug["case_semantic_contract"] = semantic_contract_diagnostics
+    generation_summary["case_semantic_contract"] = semantic_contract_diagnostics
 
     _record_timing_event(
         "postprocess_total",

@@ -1,26 +1,21 @@
 from modules.test_generation_components.control.functional_architecture import extract_functional_architecture
 from modules.test_generation_components.control.project_profile_activation import build_project_profile
 from modules.test_generation_components.legacy.stream.batch_flow_control import (
-    apply_functional_module_phase,
-    build_functional_module_batch_plan,
     select_complete_generated_cases,
 )
 from modules.test_generation_components.postprocess.streaming_case_normalization import is_placeholder_expected_result
 from modules.test_generation_components.postprocess.json_normalizer import normalize_json_structure
 from modules.test_generation_components.postprocess.json_validator import infer_case_kind, reorder_cases_by_closed_loop
 from modules.test_generation_components.postprocess.module_contract import (
-    build_functional_supplement_plan,
+    apply_functional_module_phase,
     case_matches_functional_phase,
     enforce_functional_module_contract,
-    rebalance_functional_phase_coverage,
     summarize_functional_phase_coverage,
 )
 from modules.test_generation_components.postprocess.streaming_ui_like import is_ui_like_case
-from modules.test_generation_components.postprocess.streaming_case_source_metadata import apply_case_source_metadata
 from core.processing.business_chunking import RequirementChunker
 from modules.test_generation_components.postprocess.priority_anchor_rules import (
     enforce_entry_path_p0,
-    enforce_execution_plan_p0_floor,
     enforce_pure_ui_p2,
 )
 
@@ -168,7 +163,7 @@ def test_flow_outline_is_scoped_by_selected_functional_architecture() -> None:
     outline = profile["flow_outline"]
     labels = [outline["flow_labels"][key] for key in outline["flow_order"]]
 
-    assert outline["scope_source"] == "functional_architecture"
+    assert outline["scope_source"] == "functional_architecture_candidates"
     assert outline["scope_module_count"] == 4
     assert set(labels) <= {"内容中心", "服务反馈", "用户交流", "系统提醒"}
     assert not ({"产品首页", "详情页", "管理后台", "作品展示"} & set(labels))
@@ -200,48 +195,12 @@ def test_requirement_chunker_does_not_promote_numbered_items_to_modules() -> Non
     assert all(item.module is None for item in chunks)
 
 
-def test_single_module_events_do_not_create_cross_module_batch() -> None:
-    profile = build_project_profile(requirement_text=STRUCTURED_PARTITION_REQUIREMENT)
-    plan = build_functional_module_batch_plan(profile, expected_count=40)
-
-    assert profile["module_order"] == ["官方区", "反馈区", "交流区", "消息"]
-    assert [item["phase"] for item in plan] == [
-        "module_internal",
-        "module_internal",
-        "module_internal",
-        "module_internal",
-    ]
-    assert [item["target_count"] for item in plan] == [10, 10, 10, 10]
-
-
-def test_batch_plan_omits_cross_module_phase_without_interaction_evidence() -> None:
-    profile = build_project_profile(requirement_text=MARKDOWN_PRODUCT_REQUIREMENT)
-
-    plan = build_functional_module_batch_plan(profile, expected_count=10)
-
-    assert profile["functional_architecture"]["module_interactions"] == []
-    assert [item["phase"] for item in plan] == [
-        "module_internal",
-        "module_internal",
-        "module_internal",
-    ]
-    assert [item["target_count"] for item in plan] == [4, 3, 3]
-
-
-def test_interaction_extraction_requires_two_explicit_module_names() -> None:
+def test_document_structure_candidates_do_not_infer_interaction_direction_from_cooccurrence() -> None:
     single_module = extract_functional_architecture(STRUCTURED_PARTITION_REQUIREMENT)
     explicit_relation = extract_functional_architecture(NUMBERED_PRODUCT_REQUIREMENT)
 
     assert single_module["module_interactions"] == []
-    assert explicit_relation["module_interactions"] == [
-        {
-            "source_module": "课程购买",
-            "target_module": "进入课程",
-            "trigger": "课程购买成功后，进入课程模块刷新页面显示已解锁。",
-            "evidence": ["课程购买成功后，进入课程模块刷新页面显示已解锁。"],
-            "relation_source": "explicit_module_cooccurrence",
-        }
-    ]
+    assert explicit_relation["module_interactions"] == []
 
 
 def test_cross_module_phase_rejects_case_without_interaction_evidence() -> None:
@@ -249,6 +208,7 @@ def test_cross_module_phase_rejects_case_without_interaction_evidence() -> None:
         "phase": "cross_module",
         "interactions": [
             {
+                "interaction_id": "reply_notice",
                 "source_module": "交流区",
                 "target_module": "消息",
                 "trigger": "交流区回复后消息模块显示提醒",
@@ -258,6 +218,7 @@ def test_cross_module_phase_rejects_case_without_interaction_evidence() -> None:
     valid_case = {
         "test_module": "消息",
         "description": "交流区回复后消息模块显示提醒",
+        "_semantic": {"interaction_ids": ["reply_notice"]},
     }
     unrelated_case = {
         "test_module": "消息",
@@ -271,11 +232,12 @@ def test_cross_module_phase_rejects_case_without_interaction_evidence() -> None:
             **valid_case,
             "functional_phase": "cross_module",
             "functional_interaction_modules": ["交流区", "消息"],
+            "functional_interaction_ids": ["reply_notice"],
         }
     ]
 
 
-def test_module_internal_phase_uses_plan_as_authoritative_module_source() -> None:
+def test_module_internal_phase_records_target_without_overwriting_model_module() -> None:
     cases = apply_functional_module_phase(
         [
             {"id": "TC-001", "test_module": "投稿-提交流程", "description": "提交投稿"},
@@ -284,8 +246,9 @@ def test_module_internal_phase_uses_plan_as_authoritative_module_source() -> Non
         {"phase": "module_internal", "module_name": "作文批改"},
     )
 
-    assert [item["test_module"] for item in cases] == ["作文批改", "作文批改"]
-    assert cases[1]["module"] == "作文批改"
+    assert cases[0]["test_module"] == "投稿-提交流程"
+    assert cases[1]["module"] == "临时模块"
+    assert all(item["functional_module_anchor"] == "作文批改" for item in cases)
 
 
 def test_batch_accepts_only_complete_model_cases_and_renumbers_them() -> None:
@@ -319,14 +282,14 @@ def test_batch_accepts_only_complete_model_cases_and_renumbers_them() -> None:
     ]
 
 
-def test_module_contract_normalizes_provable_alias_and_rejects_unknown_module() -> None:
+def test_module_contract_accepts_exact_module_and_rejects_prefix_or_unknown_module() -> None:
     profile = build_project_profile(requirement_text=STRUCTURED_PARTITION_REQUIREMENT)
     cases, summary = enforce_functional_module_contract(
         [
             {
                 "id": "TC-010",
                 "description": "帖子审核不通过消息点击弹出提示",
-                "test_module": "消息-审核消息",
+                "test_module": "消息",
                 "steps": ["进入消息页并点击审核消息"],
                 "expected_result": "展示审核不通过提示",
                 "priority": "P1",
@@ -344,11 +307,11 @@ def test_module_contract_normalizes_provable_alias_and_rejects_unknown_module() 
     )
 
     assert [item["test_module"] for item in cases] == ["消息"]
-    assert summary["normalized_count"] == 1
+    assert summary["normalized_count"] == 0
     assert summary["rejected_modules"] == ["论坛发帖主流程"]
 
 
-def test_materialized_workflow_step_inherits_previous_allowed_module() -> None:
+def test_unmapped_workflow_step_does_not_inherit_neighbor_module() -> None:
     profile = build_project_profile(requirement_text=STRUCTURED_PARTITION_REQUIREMENT)
     cases, summary = enforce_functional_module_contract(
         [
@@ -357,7 +320,6 @@ def test_materialized_workflow_step_inherits_previous_allowed_module() -> None:
                 "id": "TC-002",
                 "test_module": "论坛发帖主流程",
                 "description": "编辑帖子内容",
-                "workflow_contract_materialized_case": True,
             },
             {"id": "TC-003", "test_module": "反馈区", "description": "进入反馈区"},
         ],
@@ -365,9 +327,10 @@ def test_materialized_workflow_step_inherits_previous_allowed_module() -> None:
         inherit_execution_context=True,
     )
 
-    assert [item["test_module"] for item in cases] == ["官方区", "官方区", "反馈区"]
-    assert summary["normalized_count"] == 1
-    assert summary["rejected_count"] == 0
+    assert [item["test_module"] for item in cases] == ["官方区", "反馈区"]
+    assert summary["normalized_count"] == 0
+    assert summary["rejected_count"] == 1
+    assert summary["execution_context_inheritance_applied"] is False
 
 
 def test_workflow_entry_ui_precedes_presentation_only_ui() -> None:
@@ -395,43 +358,52 @@ def test_workflow_entry_ui_precedes_presentation_only_ui() -> None:
     assert [item["id"] for item in ordered] == ["TC-001", "TC-002"]
 
 
-def test_execution_plan_p0_floor_promotes_only_main_chain() -> None:
-    cases = [
-        {
-            "id": f"TC-{index:03d}",
-            "test_module": "交流区",
-            "priority": "P1",
-            "priority_final": "P1",
-            "execution_group": "main_smoke" if index <= 6 else "display",
-        }
-        for index in range(1, 9)
-    ]
-
-    result = enforce_execution_plan_p0_floor(cases, min_p0_count=6)
-
-    assert [item["priority"] for item in result[:6]] == ["P0"] * 6
-    assert [item["priority"] for item in result[6:]] == ["P1", "P1"]
-    assert all(
-        item.get("priority_decision_source") == "execution_plan_main_chain_p0_floor"
-        for item in result[:6]
-    )
-
-
 def _generic_phase_profile() -> dict:
     return {
         "functional_architecture": {
             "functional_modules": [
-                {"module_name": "Account", "scope_status": "in_scope", "features": ["Edit profile"]},
-                {"module_name": "Notice", "scope_status": "in_scope", "features": ["Open notice"]},
+                {
+                    "module_key": "account",
+                    "module_name": "Account",
+                    "scope_status": "in_scope",
+                    "features": ["Create account", "Sign in", "Edit profile", "Deactivate account"],
+                    "evidence_verified": True,
+                },
+                {
+                    "module_key": "notice",
+                    "module_name": "Notice",
+                    "scope_status": "in_scope",
+                    "features": ["Open notice"],
+                    "evidence_verified": True,
+                },
             ],
             "module_interactions": [
                 {
+                    "interaction_id": "account_notice",
+                    "source_module_key": "account",
+                    "target_module_key": "notice",
                     "source_module": "Account",
                     "target_module": "Notice",
                     "trigger": "Profile update sends a notice",
+                    "evidence_verified": True,
                 }
             ],
         }
+    }
+
+
+def _account_notice_semantic() -> dict:
+    return {
+        "module_candidates": [
+            {
+                "module_key": "notice",
+                "module_name": "Notice",
+                "role": "primary",
+                "confidence": 0.9,
+                "evidence": ["Notice"],
+            }
+        ],
+        "interaction_ids": ["account_notice"],
     }
 
 
@@ -441,11 +413,12 @@ def test_functional_phase_metadata_survives_internal_and_cross_batches() -> None
         {"phase": "module_internal", "module_name": "Account"},
     )
     cross = apply_functional_module_phase(
-        [{"id": "TC-002", "test_module": "Notice", "description": "Account profile update creates Notice"}],
+        [{"id": "TC-002", "test_module": "Notice", "description": "Account profile update creates Notice", "_semantic": _account_notice_semantic()}],
         {
             "phase": "cross_module",
             "interactions": [
                 {
+                    "interaction_id": "account_notice",
                     "source_module": "Account",
                     "target_module": "Notice",
                     "trigger": "Profile update sends a notice",
@@ -457,9 +430,10 @@ def test_functional_phase_metadata_survives_internal_and_cross_batches() -> None
 
     assert internal[0]["functional_phase"] == "module_internal"
     assert internal[0]["functional_module_anchor"] == "Account"
-    assert internal[0]["test_module"] == "Account"
+    assert internal[0]["test_module"] == "temporary"
     assert cross[0]["functional_phase"] == "cross_module"
     assert cross[0]["functional_interaction_modules"] == ["Account", "Notice"]
+    assert cross[0]["functional_interaction_ids"] == ["account_notice"]
 
 
 def test_functional_phase_metadata_survives_json_normalization() -> None:
@@ -474,12 +448,14 @@ def test_functional_phase_metadata_survives_json_normalization() -> None:
                 "test_input": "New profile name",
                 "expected_result": "Notice is created",
                 "priority": "P1",
+                "_semantic": _account_notice_semantic(),
             }
         ],
         {
             "phase": "cross_module",
             "interactions": [
                 {
+                    "interaction_id": "account_notice",
                     "source_module": "Account",
                     "target_module": "Notice",
                     "trigger": "Profile update sends a notice",
@@ -493,110 +469,58 @@ def test_functional_phase_metadata_survives_json_normalization() -> None:
 
     assert normalized[0]["functional_phase"] == "cross_module"
     assert normalized[0]["functional_interaction_modules"] == ["Account", "Notice"]
+    assert normalized[0]["functional_interaction_ids"] == ["account_notice"]
+    assert normalized[0]["_semantic"]["interaction_ids"] == ["account_notice"]
 
 
-def test_functional_phase_metadata_uses_signature_before_renumbered_id() -> None:
-    internal = apply_functional_module_phase(
-        [{"id": "TC-001", "test_module": "Account", "description": "Edit profile"}],
-        {"phase": "module_internal", "module_name": "Account"},
-    )[0]
-    cross = apply_functional_module_phase(
-        [{"id": "TC-002", "test_module": "Notice", "description": "Account profile update creates Notice"}],
-        {
-            "phase": "cross_module",
-            "interactions": [
-                {
-                    "source_module": "Account",
-                    "target_module": "Notice",
-                    "trigger": "Profile update sends a notice",
-                    "evidence_terms": ["profile update"],
-                }
-            ],
-        },
-    )[0]
-    renumbered_cross = {
-        key: value
-        for key, value in cross.items()
-        if key not in {"functional_phase", "functional_interaction_modules"}
-    }
-    renumbered_cross["id"] = "TC-001"
-
-    result = apply_case_source_metadata(
-        [renumbered_cross],
-        source_cases=[internal, cross],
+def test_module_contract_derives_cross_module_metadata_from_structured_semantics() -> None:
+    result, summary = enforce_functional_module_contract(
+        [
+            {
+                "id": "TC-001",
+                "test_module": "Notice",
+                "description": "Account profile update creates Notice",
+                "_semantic": _account_notice_semantic(),
+            }
+        ],
+        project_profile=_generic_phase_profile(),
     )
 
+    assert summary["rejected_count"] == 0
     assert result[0]["functional_phase"] == "cross_module"
     assert result[0]["functional_interaction_modules"] == ["Account", "Notice"]
+    assert result[0]["functional_interaction_ids"] == ["account_notice"]
 
 
-def test_review_recovery_restores_missing_functional_phases_from_candidate_pool() -> None:
-    selected = apply_functional_module_phase(
-        [
-            {"id": "A-1", "test_module": "Account", "description": "Edit profile A"},
-            {"id": "A-2", "test_module": "Account", "description": "Edit profile B"},
-        ],
-        {"phase": "module_internal", "module_name": "Account"},
-    )
-    notice_candidates = apply_functional_module_phase(
-        [
-            {"id": "N-1", "test_module": "Notice", "description": "Open notice A"},
-            {"id": "N-2", "test_module": "Notice", "description": "Open notice B"},
-        ],
-        {"phase": "module_internal", "module_name": "Notice"},
-    )
-    cross_candidates = apply_functional_module_phase(
-        [
-            {"id": "X-1", "test_module": "Notice", "description": "Account profile update creates Notice A"},
-            {"id": "X-2", "test_module": "Notice", "description": "Account profile update creates Notice B"},
-        ],
+def test_global_architecture_coverage_preserves_uneven_complex_and_simple_modules() -> None:
+    cases = [
         {
-            "phase": "cross_module",
-            "interactions": [
-                {
-                    "source_module": "Account",
-                    "target_module": "Notice",
-                    "trigger": "Profile update sends a notice",
-                    "evidence_terms": ["profile update"],
-                }
-            ],
-        },
+            "id": f"A-{index}",
+            "test_module": "Account",
+            "description": f"Account workflow rule {index}",
+        }
+        for index in range(1, 6)
+    ]
+    cases.append(
+        {
+            "id": "N-1",
+            "test_module": "Notice",
+            "description": "Open one notice",
+        }
     )
 
-    result, summary = rebalance_functional_phase_coverage(
-        selected,
-        candidate_cases=[*notice_candidates, *cross_candidates],
+    summary = summarize_functional_phase_coverage(
+        cases,
         project_profile=_generic_phase_profile(),
         target_count=6,
     )
 
-    assert len(result) == 6
-    assert summary["added_count"] == 4
-    assert summary["remaining_deficits"] == {
-        "module_internal:Account": 0,
-        "module_internal:Notice": 0,
-        "cross_module": 0,
-    }
-
-
-def test_shortfall_plan_targets_undercovered_module_and_cross_phase() -> None:
-    account_cases = apply_functional_module_phase(
-        [{"id": f"A-{index}", "test_module": "Account", "description": f"Account {index}"} for index in range(4)],
-        {"phase": "module_internal", "module_name": "Account"},
-    )
-
-    plan = build_functional_supplement_plan(
-        _generic_phase_profile(),
-        current_cases=account_cases,
-        target_count=6,
-        supplement_needed=4,
-    )
-
-    assert {item["phase_key"] for item in plan} == {
-        "module_internal:Notice",
-        "cross_module",
-    }
-    assert sum(item["target_count"] for item in plan) == 4
+    assert summary["module_counts"] == {"account": 5, "notice": 1}
+    assert summary["interaction_counts"] == {"account_notice": 0}
+    assert summary["uncovered_modules"] == []
+    assert summary["uncovered_interactions"] == ["account_notice"]
+    assert "phase_targets" not in summary
+    assert "remaining_deficits" not in summary
 
 
 def test_functional_phase_summary_reports_cross_module_before_public_projection() -> None:
@@ -605,11 +529,12 @@ def test_functional_phase_summary_reports_cross_module_before_public_projection(
         {"phase": "module_internal", "module_name": "Account"},
     )
     cross = apply_functional_module_phase(
-        [{"id": "X-1", "test_module": "Notice", "description": "Account profile update creates Notice"}],
+        [{"id": "X-1", "test_module": "Notice", "description": "Account profile update creates Notice", "_semantic": _account_notice_semantic()}],
         {
             "phase": "cross_module",
             "interactions": [
                 {
+                    "interaction_id": "account_notice",
                     "source_module": "Account",
                     "target_module": "Notice",
                     "trigger": "Profile update sends a notice",
@@ -640,6 +565,13 @@ def test_entry_path_availability_is_p0_but_visual_style_is_not() -> None:
             "expected_result": "The target page opens and shows the feedback list",
             "priority": "P2",
             "priority_final": "P2",
+            "main_chain_stage_kind": "entry",
+            "workflow_transition": {
+                "workflow_id": "feedback-flow",
+                "stage_kind": "entry",
+                "critical": True,
+                "blocking": True,
+            },
         },
         {
             "id": "TC-STYLE",

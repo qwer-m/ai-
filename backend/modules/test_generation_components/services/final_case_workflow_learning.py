@@ -215,10 +215,15 @@ def _build_workflow_blueprint_sample(
                 "test_steps": case.get("steps") if isinstance(case.get("steps"), list) else [],
                 "match_keywords": _workflow_step_keywords(case, action),
                 "source_case_id": _text(case.get("id")),
-                "allow_bridge": bool(transition.get("allow_bridge") is True),
                 "workflow_id": workflow_id,
                 "stage_kind": stage_kind,
                 "path_type": "positive",
+                "required": True,
+                "terminal": index == len(selected),
+                "critical": bool(
+                    case.get("critical") is True
+                    or transition.get("critical") is True
+                ),
                 "blocking": False,
                 "destructive": False,
                 "can_advance_main_flow": True,
@@ -255,6 +260,9 @@ def _build_workflow_blueprint_sample(
             "source": "linked_final_case_workflow_blueprint",
             "selection_source": selection_source,
             "state_machine_version": "workflow-blueprint-v2",
+            "initial_state": steps[0]["state_in"],
+            "required_stage_ids": [str(step["id"]) for step in steps],
+            "terminal_states": [steps[-1]["state_out"]],
             "steps": steps,
             "terminal_state": steps[-1]["state_out"],
         },

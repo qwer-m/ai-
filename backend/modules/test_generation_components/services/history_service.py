@@ -122,6 +122,10 @@ def _build_execution_suite_from_generated_result(
 ) -> dict[str, Any]:
     cases = parse_generated_cases_payload(generated_result or "")
     metadata_by_case_id = _compact_suite_metadata_by_case_id(suite_hint)
+    workflow_absence_declared = bool(
+        isinstance(suite_hint, dict)
+        and suite_hint.get("workflow_absence_declared") is True
+    )
     if metadata_by_case_id and cases:
         hydrated_cases: list[dict[str, Any]] = []
         for index, case in enumerate(cases, start=1):
@@ -130,9 +134,15 @@ def _build_execution_suite_from_generated_result(
             if metadata:
                 hydrated.update(metadata)
             hydrated_cases.append(hydrated)
-        return build_execution_suite(hydrated_cases)
+        return build_execution_suite(
+            hydrated_cases,
+            workflow_absence_declared=workflow_absence_declared,
+        )
     if cases:
-        return build_execution_suite(cases)
+        return build_execution_suite(
+            cases,
+            workflow_absence_declared=workflow_absence_declared,
+        )
     if isinstance(suite_hint, dict):
         return suite_hint
     return build_execution_suite(generated_result or "")

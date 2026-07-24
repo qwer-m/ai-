@@ -9,15 +9,12 @@ from .streaming_case_normalization import (
     normalize_priority_value,
     normalize_steps,
 )
-from .streaming_expected_result_quality import is_non_assertable_expected_result, looks_truncated_text
-from .streaming_priority_rebuild import rebuild_priority_by_semantics
-from .streaming_priority_semantics import apply_coverage_priority_semantics
-from .streaming_reasoning_quality import reasoning_leakage_hits
-from .streaming_semantic_dedup import semantic_deduplicate_cases
-from .streaming_semantic_text import semantic_tokenize
-from .streaming_uncertain_requirement import (
-    filter_uncertain_requirement_cases,
+from .streaming_expected_result_quality import (
+    is_case_expected_result_non_assertable,
+    looks_truncated_text,
 )
+from .streaming_reasoning_quality import reasoning_leakage_hits
+from .streaming_semantic_text import semantic_tokenize
 
 
 def low_quality_reason(case: dict[str, Any]) -> str:
@@ -71,29 +68,32 @@ def record_low_quality_drop(
     details.append(quality_drop_detail(case, reason=reason, stage=stage))
 
 
-def filter_final_quality_cases(
+def diagnose_final_quality_cases(
     cases: Iterable[Any],
     low_quality_drop_details: list[dict[str, Any]],
     *,
     stage: str,
 ) -> tuple[list[dict[str, Any]], int]:
-    filtered: list[dict[str, Any]] = []
-    drop_total = 0
+    retained: list[dict[str, Any]] = []
+    diagnostic_total = 0
     for case in cases:
         if not isinstance(case, dict):
             continue
-        drop_reason = final_quality_drop_reason(case)
-        if drop_reason:
-            drop_total += 1
-            record_low_quality_drop(
-                low_quality_drop_details,
-                case,
-                reason=drop_reason,
-                stage=stage,
+        diagnostic_reason = final_quality_diagnostic_reason(case)
+        if diagnostic_reason:
+            diagnostic_total += 1
+            low_quality_drop_details.append(
+                {
+                    **quality_drop_detail(
+                        case,
+                        reason=diagnostic_reason,
+                        stage=stage,
+                    ),
+                    "diagnostic_only": True,
+                }
             )
-            continue
-        filtered.append(case)
-    return filtered, drop_total
+        retained.append(case)
+    return retained, diagnostic_total
 
 
 def normalize_case_structure(case: dict[str, Any]) -> dict[str, Any] | None:
@@ -136,7 +136,7 @@ def normalize_case_structure(case: dict[str, Any]) -> dict[str, Any] | None:
         expected_result_quality = "truncated"
         expected_result_quality_reason = "truncated_suffix_detected"
         truncated_text_detected = True
-    elif is_non_assertable_expected_result(expected_result):
+    elif is_case_expected_result_non_assertable(normalized):
         expected_result_quality = "non_assertable"
         if not expected_result_quality_reason:
             expected_result_quality_reason = "template_or_weak_assertion"
@@ -187,11 +187,13 @@ def filter_low_quality_cases_with_stats(
     stats = {
         "invalid_structure_dropped": 0,
         "weak_case_dropped": 0,
+        "weak_case_detected": 0,
         "semantic_dedup_dropped": 0,
         "uncertain_requirement_dropped": 0,
         "governance_hard_drop": 0,
         "total_dropped": 0,
         "dropped_details": [],
+        "diagnostic_details": [],
     }
     for item in cases:
         if not isinstance(item, dict):
@@ -209,40 +211,15 @@ def filter_low_quality_cases_with_stats(
             continue
         drop_reason = low_quality_reason(normalized)
         if drop_reason:
-            stats["weak_case_dropped"] += 1
-            stats["dropped_details"].append(
+            stats["weak_case_detected"] += 1
+            stats["diagnostic_details"].append(
                 quality_drop_detail(
                     normalized,
                     reason=drop_reason,
-                    stage="initial_quality_filter",
+                    stage="pre_review_quality_diagnostic",
                 )
             )
-            continue
         normalized_cases.append(normalized)
-
-    deduplicated_cases, dedup_dropped = semantic_deduplicate_cases(normalized_cases)
-    stats["semantic_dedup_dropped"] += int(dedup_dropped)
-
-    reprioritized_cases = rebuild_priority_by_semantics(deduplicated_cases)
-    confirmed_cases, uncertain_cases = filter_uncertain_requirement_cases(
-        reprioritized_cases,
-        requirement_text=str(requirement_text or ""),
-    )
-    stats["uncertain_requirement_dropped"] += len(uncertain_cases)
-    for case in uncertain_cases:
-        stats["dropped_details"].append(
-            quality_drop_detail(
-                case,
-                reason="unconfirmed_requirement",
-                stage="requirement_certainty_filter",
-            )
-        )
-    if confirmed_cases:
-        confirmed_cases = apply_coverage_priority_semantics(
-            str(requirement_text or ""),
-            confirmed_cases,
-            analyze_coverage_fn=analyze_coverage_fn,
-        )
 
     stats["total_dropped"] = int(
         stats.get("invalid_structure_dropped", 0)
@@ -251,16 +228,16 @@ def filter_low_quality_cases_with_stats(
         + stats.get("uncertain_requirement_dropped", 0)
         + stats.get("governance_hard_drop", 0)
     )
-    return confirmed_cases, stats
+    return normalized_cases, stats
 
 
-def final_quality_drop_reason(case: dict[str, Any]) -> str:
+def final_quality_diagnostic_reason(case: dict[str, Any]) -> str:
     expected_text = case_text_field(case, "expected_result")
     expected_quality = str(case.get("expected_result_quality") or "").strip().lower()
     if reasoning_leakage_hits(case):
         return "reasoning_leakage"
     text_truncated = looks_truncated_text(expected_text)
-    text_non_assertable = is_non_assertable_expected_result(expected_text)
+    text_non_assertable = is_case_expected_result_non_assertable(case)
     if expected_quality == "invalid_case":
         return "expected_result_quality:invalid_case"
     if expected_quality == "truncated" and text_truncated:

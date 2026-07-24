@@ -11,6 +11,51 @@ class JsonPersistenceResult:
     error_payload: dict[str, Any] | None = None
 
 
+def _project_public_result(
+    result: Any,
+    *,
+    project_persistable_cases_fn: Callable[..., Any],
+) -> Any:
+    """统一 JSON 返回边界，避免失败路径泄漏内部用例字段。"""
+    if not isinstance(result, list):
+        return result
+    projected = project_persistable_cases_fn(result)
+    return projected if isinstance(projected, list) else []
+
+
+def _workflow_blueprint_source_from_declaration(
+    workflow_blueprints: list[dict[str, Any]],
+) -> str:
+    blueprint = next(
+        (
+            item
+            for item in workflow_blueprints
+            if isinstance(item, dict) and isinstance(item.get("steps"), list)
+        ),
+        {},
+    )
+    if not blueprint or blueprint.get("closure_declaration_complete") is not True:
+        return ""
+    repository_source = str(blueprint.get("repository_source") or blueprint.get("source") or "").strip()
+    source_type = str(blueprint.get("source_type") or "").strip()
+    if repository_source == "current_requirement_blueprint" or source_type == "current_requirement_extracted":
+        return "current_requirement_blueprint"
+    if blueprint.get("trusted") is True and repository_source == "workflow_blueprint_repository":
+        return "feedback_control_state"
+    return ""
+
+
+def _resolved_execution_plan_payload(
+    review_decision_summary_payload: dict[str, Any],
+    workflow_blueprints: list[dict[str, Any]],
+) -> dict[str, Any]:
+    execution_plan = dict(review_decision_summary_payload.get("execution_plan") or {})
+    if execution_plan:
+        return execution_plan
+    source = _workflow_blueprint_source_from_declaration(workflow_blueprints)
+    return {"workflow_blueprint_source": source} if source else {}
+
+
 def run_json_persistence_flow(
     *,
     db: Any,
@@ -68,7 +113,12 @@ def run_json_persistence_flow(
     coverage_diagnostics_enabled: bool,
 ) -> JsonPersistenceResult:
     if not db:
-        return JsonPersistenceResult(result=result)
+        return JsonPersistenceResult(
+            result=_project_public_result(
+                result,
+                project_persistable_cases_fn=project_persistable_cases_fn,
+            )
+        )
 
     result_value = result
     gen_diag_payload_value = dict(gen_diag_payload or {})
@@ -176,7 +226,12 @@ def run_json_persistence_flow(
         return persistence_result
     except Exception as exc:
         print(f"Failed to save to DB: {exc}")
-        return JsonPersistenceResult(result=result_value)
+        return JsonPersistenceResult(
+            result=_project_public_result(
+                result_value,
+                project_persistable_cases_fn=project_persistable_cases_fn,
+            )
+        )
 
 
 def _evaluate_and_persist(
@@ -223,15 +278,10 @@ def _evaluate_and_persist(
     build_coverage_diagnostics_fn: Callable[..., dict[str, Any]],
     coverage_diagnostics_enabled: bool,
 ) -> JsonPersistenceResult:
-    execution_plan_payload = dict(review_decision_summary_payload.get("execution_plan") or {})
-    if not execution_plan_payload:
-        if workflow_blueprints:
-            execution_plan_payload = {"workflow_blueprint_source": "feedback_control_state"}
-        elif any(
-            isinstance(item, dict) and str(item.get("execution_group") or "").strip() == "main_smoke"
-            for item in (result if isinstance(result, list) else [])
-        ):
-            execution_plan_payload = {"workflow_blueprint_source": "current_generation_cases"}
+    execution_plan_payload = _resolved_execution_plan_payload(
+        review_decision_summary_payload,
+        workflow_blueprints,
+    )
 
     persistence_cases = project_persistable_cases_fn(result)
     mode = normalized_generation_mode or ("multi_pass" if multi_pass else "single_pass")

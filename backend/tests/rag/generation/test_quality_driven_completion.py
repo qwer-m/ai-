@@ -362,7 +362,6 @@ def test_persist_emits_generation_timing_ledger_from_state_and_postprocess_event
         "stream_generation_phase": 43,
         "gap": 7,
         "review": 11,
-        "final_shortfall": 13,
         "postprocess_total": 31,
     }
     assert timing_payload.get("event_count") == 15
@@ -472,7 +471,7 @@ def test_persist_overwrite_resolves_lazy_model_before_query(monkeypatch) -> None
     assert not any("STREAM_PERSISTENCE_FAILED" in chunk for chunk in chunks)
 
 
-def test_persist_strips_priority_debug_and_uses_final_priority(monkeypatch) -> None:
+def test_persist_strips_internal_execution_metadata_and_uses_final_priority(monkeypatch) -> None:
     from modules.testing.test_generation_components.legacy.stream import persist as persist_module
     monkeypatch.setattr(persist_module.settings, "EXECUTION_PLAN_GATE_MODE", "shadow", raising=False)
 
@@ -536,13 +535,16 @@ def test_persist_strips_priority_debug_and_uses_final_priority(monkeypatch) -> N
     stored = json.loads(_stored_generation_result(state["db"]))
     assert stored[0]["priority"] == "P1"
     assert stored[0]["priority_final"] == "P1"
-    assert stored[0]["execution_group"] == "main_smoke"
-    assert stored[0]["execution_sequence"] == 1
-    assert stored[0]["depends_on"] == []
-    assert stored[0]["fixture_key"] == "workflow_seed"
-    assert stored[0]["group_setup"] == "seed_workflow_dataset()"
-    assert stored[0]["group_teardown"] == "cleanup_workflow_dataset()"
-    assert stored[0]["main_chain_stage_kind"] == "commit"
+    for field in (
+        "execution_group",
+        "execution_sequence",
+        "depends_on",
+        "fixture_key",
+        "group_setup",
+        "group_teardown",
+        "main_chain_stage_kind",
+    ):
+        assert field not in stored[0]
     assert "model_priority_current" not in stored[0]
     assert "priority_decision_source" not in stored[0]
 

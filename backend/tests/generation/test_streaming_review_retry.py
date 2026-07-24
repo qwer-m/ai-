@@ -9,7 +9,6 @@ from modules.test_generation_components.postprocess.json_processing import (
 from modules.test_generation_components.postprocess.streaming_case_keys import case_signature
 from modules.test_generation_components.postprocess.streaming_review_retry import (
     analyze_review_retry_payload,
-    build_compact_review_retry_prompt,
     build_review_protocol_repair_prompt,
     count_review_dropped_reason_payload,
     default_review_llm_runtime_debug,
@@ -101,7 +100,7 @@ def test_resolve_review_fallback_models_deduplicates_deepseek_chain() -> None:
     ) == ["deepseek-chat", "deepseek-reasoner"]
 
 
-def test_build_review_protocol_repair_prompt_limits_candidate_ids_and_reasons() -> None:
+def test_build_review_protocol_repair_prompt_keeps_all_candidate_ids_and_reasons() -> None:
     prompt = build_review_protocol_repair_prompt(
         review_prompt="ORIGINAL REVIEW PROMPT",
         candidate_cases=[
@@ -109,14 +108,13 @@ def test_build_review_protocol_repair_prompt_limits_candidate_ids_and_reasons() 
             _case("TC-002", "delete a course"),
         ],
         drop_reasons=("duplicate", "coverage_redundant"),
-        max_candidates=1,
     )
 
     assert "ORIGINAL REVIEW PROMPT" in prompt
     assert "PROTOCOL FIX (MANDATORY)" in prompt
     assert '"kept_case_ids"' in prompt
     assert '"TC-001"' in prompt
-    assert '"TC-002"' not in prompt
+    assert '"TC-002"' in prompt
     assert '"duplicate","coverage_redundant"' in prompt
 
 
@@ -218,56 +216,3 @@ def test_normalize_review_payload_invalid_reason_handles_schema_and_no_signal() 
         )
         == "no_mapped_and_no_selection_signal"
     )
-
-
-def test_build_compact_review_retry_prompt_uses_candidate_facts_and_limits_ids() -> None:
-    first = _case("TC-001", "create a course", priority="P0")
-    second = _case("TC-002", "delete a course")
-
-    prompt = build_compact_review_retry_prompt(
-        [first, second],
-        target_min_count=2,
-        target_max_count=1,
-        drop_reasons=("duplicate", "low_value"),
-        max_candidates=1,
-    )
-
-    assert "REVIEW COMPACT RETRY." in prompt
-    assert "Return STRICT compact JSON only" in prompt
-    assert "Keep between 2 and 2 cases when possible." in prompt
-    assert "Allowed reasons: duplicate, low_value." in prompt
-    assert '"TC-001"' in prompt
-    assert "delete a course" not in prompt
-    assert '"id":"TC-001"' in prompt
-    assert '"module":"Course"' in prompt
-    assert '"expected_result":"create a course succeeds"' in prompt
-    assert '"priority":"P0"' in prompt
-
-
-def test_build_compact_review_retry_prompt_uses_shared_aliases_and_structured_fields() -> None:
-    case = {
-        "caseId": "TC-ALIAS",
-        "testModule": "Learning",
-        "title": "resume unfinished recommendation",
-        "precondition": "student has unfinished task",
-        "testSteps": [{"step": "open recommendation"}, {"text": "resume answer"}],
-        "testData": {"student_id": "S-100", "wrong_question_id": "W-200"},
-        "assertion": "existing answer is preserved",
-        "finalPriority": "P0",
-    }
-
-    prompt = build_compact_review_retry_prompt(
-        [case],
-        target_min_count=1,
-        target_max_count=1,
-        max_candidates=5,
-    )
-
-    assert '"id":"TC-ALIAS"' in prompt
-    assert '"module":"Learning"' in prompt
-    assert '"description":"resume unfinished recommendation"' in prompt
-    assert '"preconditions":"student has unfinished task"' in prompt
-    assert '"steps":["open recommendation","resume answer"]' in prompt
-    assert '"test_input":"S-100 W-200"' in prompt
-    assert '"expected_result":"existing answer is preserved"' in prompt
-    assert '"priority":"P0"' in prompt

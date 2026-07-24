@@ -99,6 +99,15 @@ def merge_current_requirement_blueprint_control_state(*args: Any, **kwargs: Any)
     )
 
 
+def evaluate_current_requirement_semantic_compilation(*args: Any, **kwargs: Any) -> Any:
+    return _call_component(
+        "..control.current_requirement_blueprint",
+        "evaluate_current_requirement_semantic_compilation",
+        *args,
+        **kwargs,
+    )
+
+
 def merge_generation_mode_control_state(*args: Any, **kwargs: Any) -> Any:
     return _call_component("..control.generation_mode_activation", "merge_generation_mode_control_state", *args, **kwargs)
 
@@ -179,33 +188,8 @@ def _build_case_signature(case_payload: dict[str, Any]) -> str:
     )
 
 
-def apply_existing_execution_group_ordering(*args: Any, **kwargs: Any) -> Any:
-    return _call_component(
-        "..postprocess.streaming_execution_plan_ordering",
-        "apply_existing_execution_group_ordering",
-        *args,
-        **kwargs,
-    )
-
-
-def run_multi_pass_generation(*args: Any, **kwargs: Any) -> Any:
-    return _call_component(".multi_pass_pipeline", "run_multi_pass_generation", *args, **kwargs)
-
-
 def requirement_compression_decision(*args: Any, **kwargs: Any) -> Any:
     return _call_component(".compression_policy", "requirement_compression_decision", *args, **kwargs)
-
-
-def judge_cases(*args: Any, **kwargs: Any) -> Any:
-    return _call_component("..judge.test_case_judge", "judge_cases", *args, **kwargs)
-
-
-def repair_cases(*args: Any, **kwargs: Any) -> Any:
-    return _call_component("..judge.test_case_repairer", "repair_cases", *args, **kwargs)
-
-
-def training_gate(*args: Any, **kwargs: Any) -> Any:
-    return _call_component("..judge.training_gate", "training_gate", *args, **kwargs)
 
 
 def clean_and_parse_json(*args: Any, **kwargs: Any) -> Any:

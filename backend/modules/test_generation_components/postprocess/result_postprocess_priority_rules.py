@@ -3,7 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .case_access import case_flat_text, case_signature_text
+from .case_access import case_flat_text
+from .json_repair import deterministic_case_dedup_key
 
 try:
     from ..prompting.structured_context import (
@@ -63,7 +64,7 @@ def _contains_case_level_release_blocking(text: str) -> bool:
 
 
 def _priority_case_signature(case: dict[str, Any]) -> str:
-    return case_signature_text(case)
+    return deterministic_case_dedup_key(case, include_priority=False)
 
 
 def _rule_hit_by_light_match(rule: dict[str, Any], case_text: str) -> bool:

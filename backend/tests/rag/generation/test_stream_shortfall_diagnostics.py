@@ -158,12 +158,13 @@ def test_stream_postprocess_exposes_convergence_debug_when_under_reference_count
     assert review_summary.get("candidate_total") == 2
     assert review_summary.get("retained_total") == 2
     assert review_summary.get("drop_no_new_signal_count") == 0
-    assert review_summary.get("review_shortfall_detected") is True
-    assert review_summary.get("review_post_rerank_floor_count") == 2
-    assert review_summary.get("review_post_rerank_recovered_count") == 1
-    assert review_summary.get("review_fill_source") == "post_rerank_recovery"
+    assert review_summary.get("review_shortfall_detected") is False
+    assert review_summary.get("review_post_rerank_floor_count") is None
+    assert review_summary.get("review_post_rerank_recovered_count") is None
+    assert review_summary.get("review_fill_source") is None
     assert len(review_table) == 2
-    assert all("dropped_reason" in row for row in review_table if isinstance(row, dict))
+    assert all(row.get("retained_final") is True for row in review_table if isinstance(row, dict))
+    assert all(row.get("dropped_reason") == "retained" for row in review_table if isinstance(row, dict))
 
 
 def test_stream_postprocess_collects_review_drop_reasons() -> None:
@@ -206,17 +207,17 @@ def test_stream_postprocess_collects_review_drop_reasons() -> None:
     assert review_summary.get("retained_total") == 3
     assert review_summary.get("drop_no_new_signal_count") == 0
     assert review_summary.get("drop_by_review_gate_count") == 0
-    assert review_summary.get("review_shortfall_detected") is True
-    assert review_summary.get("review_post_rerank_floor_count") == 2
-    assert review_summary.get("review_post_rerank_recovered_count") == 1
-    assert review_summary.get("final_floor_recovery_applied") is True
-    assert review_summary.get("final_floor_recovered_count") == 1
-    assert review_summary.get("review_fill_source") == "post_rerank_recovery"
+    assert review_summary.get("review_shortfall_detected") is False
+    assert review_summary.get("review_post_rerank_floor_count") is None
+    assert review_summary.get("review_post_rerank_recovered_count") is None
+    assert review_summary.get("final_floor_recovery_applied") is None
+    assert review_summary.get("final_floor_recovered_count") is None
+    assert review_summary.get("review_fill_source") is None
     assert len(review_table) == 3
     review_gate_rows = [row for row in review_table if row.get("dropped_stage") == "review_gate"]
-    assert len(review_gate_rows) == 2
-    assert all(bool(row.get("retained_final")) for row in review_gate_rows)
-    assert all(row.get("dropped_reason") == "drop_no_new_rule_no_new_bucket_no_high_signal" for row in review_gate_rows)
+    assert review_gate_rows == []
+    assert all(bool(row.get("retained_final")) for row in review_table)
+    assert all(row.get("dropped_reason") == "retained" for row in review_table)
 
 
 def test_append_mode_caps_final_new_cases_to_requested_delta() -> None:

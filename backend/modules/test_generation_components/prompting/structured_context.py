@@ -43,9 +43,6 @@ from .structured_context_scope import (
 from .structured_control_context import (
     _build_control_context,
     _build_generation_execution_plan_from_blueprints,
-    _env_bool,
-    _env_float,
-    _env_int,
     _workflow_step_execution_label,
 )
 
@@ -343,12 +340,20 @@ def build_structured_prompt_context(
         current_biz_key=resolved_current_biz,
         source="requirement_semantics",
     )
+    control_source_meta = dict(resolved_control_state.source_meta or {})
+    semantic_contract_present = "requirement_semantic_contract" in control_source_meta
+    requirement_semantic_contract = (
+        dict(control_source_meta.get("requirement_semantic_contract") or {})
+        if semantic_contract_present
+        else None
+    )
     project_profile = build_project_profile(
         requirement_text=architecture_requirement or requirement or requirement_context or "",
         flow_context_text=requirement_context or requirement or "",
         cases=[c for c in (existing_cases or []) if isinstance(c, dict)],
         module_order_hint=list(module_order_hint),
         module_order_source=module_order_source,
+        semantic_contract=requirement_semantic_contract,
     )
     resolved_control_state = merge_fact_profile_control_state(resolved_control_state, fact_profile)
     resolved_control_state = merge_project_profile_control_state(resolved_control_state, project_profile)
@@ -376,6 +381,7 @@ def build_structured_prompt_context(
             "module_order_hint": list(module_order_by_biz.get(biz_key) or []),
             "fact_profile": fact_profile,
             "project_profile": project_profile,
+            "requirement_semantic_contract": requirement_semantic_contract or {},
         }
 
     current_semantics = dict(requirement_semantics_by_biz.get(resolved_current_biz) or {})
@@ -406,5 +412,6 @@ def build_structured_prompt_context(
         "excluded_modules": list((project_profile.get("functional_architecture") or {}).get("excluded_modules") or []),
         "fact_profile": fact_profile,
         "project_profile": project_profile,
+        "requirement_semantic_contract": requirement_semantic_contract or {},
         "context_by_biz": context_by_biz,
     }

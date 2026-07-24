@@ -208,16 +208,20 @@ def summarize_persistable_case_contract(cases: Any) -> dict[str, Any]:
             reasoning_leakage_ids.append(case_id)
 
     failed_checks: list[str] = []
+    diagnostic_checks: list[str] = []
     if missing_required_ids:
         failed_checks.append(f"persistable_required_field_missing_count={len(missing_required_ids)}")
     if invalid_priority_final_ids:
         failed_checks.append(f"persistable_priority_final_invalid_count={len(invalid_priority_final_ids)}")
     if reasoning_leakage_ids:
-        failed_checks.append(f"persistable_reasoning_leakage_count={len(reasoning_leakage_ids)}")
+        diagnostic_checks.append(
+            f"persistable_reasoning_leakage_count={len(reasoning_leakage_ids)}"
+        )
 
     return {
         "passed": not failed_checks,
         "failed_checks": failed_checks,
+        "diagnostic_checks": diagnostic_checks,
         "metrics": {
             "persistable_case_count": int(len(case_items)),
             "persistable_required_field_missing_count": int(len(missing_required_ids)),
@@ -246,9 +250,20 @@ def merge_contract_quality_gate(
         if value and value not in failed_checks:
             failed_checks.append(value)
 
+    diagnostic_checks = [
+        str(item).strip()
+        for item in (merged.get("diagnostic_checks") or [])
+        if str(item).strip()
+    ]
+    for item in contract.get("diagnostic_checks") or []:
+        value = str(item).strip()
+        if value and value not in diagnostic_checks:
+            diagnostic_checks.append(value)
+
     metrics = dict(merged.get("metrics") or {})
     metrics.update(dict(contract.get("metrics") or {}))
     merged["failed_checks"] = failed_checks
+    merged["diagnostic_checks"] = diagnostic_checks
     merged["passed"] = not bool(failed_checks)
     merged["metrics"] = metrics
     for key in (

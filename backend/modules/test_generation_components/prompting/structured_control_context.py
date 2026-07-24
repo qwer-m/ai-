@@ -1,36 +1,15 @@
 from __future__ import annotations
 
-import os
+import json
 from typing import Any
 
 from ..control.feedback_control_state import FeedbackControlState
+from ..control.semantic_contract import (
+    MAX_WORKFLOW_STEPS,
+    REQUIREMENT_SEMANTIC_CONTRACT_VERSION,
+)
+from ..control.requirement_semantic_graph import SEMANTIC_GRAPH_VERSION
 from ..postprocess.streaming_execution_plan_ordering import execution_side_suite_order_labels
-from .structured_context_split_helpers import _clip_text
-
-
-def _env_bool(name: str, default: bool = False) -> bool:
-    raw = str(os.getenv(name, "true" if default else "false") or "").strip().lower()
-    if raw in {"1", "true", "yes", "on"}:
-        return True
-    if raw in {"0", "false", "no", "off"}:
-        return False
-    return bool(default)
-
-
-def _env_int(name: str, default: int, *, min_value: int, max_value: int) -> int:
-    try:
-        parsed = int(str(os.getenv(name, str(default))).strip())
-    except Exception:
-        parsed = int(default)
-    return max(int(min_value), min(int(max_value), int(parsed)))
-
-
-def _env_float(name: str, default: float, *, min_value: float, max_value: float) -> float:
-    try:
-        parsed = float(str(os.getenv(name, str(default))).strip())
-    except Exception:
-        parsed = float(default)
-    return max(float(min_value), min(float(max_value), float(parsed)))
 
 
 def _workflow_step_execution_label(step: dict[str, Any], *, index: int) -> str:
@@ -45,8 +24,336 @@ def _workflow_step_execution_label(step: dict[str, Any], *, index: int) -> str:
     state_in = str(step.get("state_in") or step.get("source_state") or "").strip()
     state_out = str(step.get("state_out") or step.get("target_state") or "").strip()
     state_transition = f"{state_in}->{state_out}" if state_in and state_out else ""
-    parts = [part for part in (step_id, stage_kind, label, state_transition) if part]
+    module_candidates = [
+        str(item.get("module_name") or item.get("module_key") or "").strip()
+        for item in (step.get("module_candidates") or [])
+        if isinstance(item, dict) and str(item.get("module_name") or item.get("module_key") or "").strip()
+    ]
+    required_states = [
+        f"{str(item.get('entity') or '')}.{str(item.get('state') or '')}[{str(item.get('source') or 'unknown')}]"
+        for item in (step.get("required_states") or [])
+        if isinstance(item, dict) and str(item.get("entity") or "").strip() and str(item.get("state") or "").strip()
+    ]
+    produced_states = [
+        f"{str(item.get('entity') or '')}.{str(item.get('state') or '')}"
+        for item in (step.get("produced_states") or [])
+        if isinstance(item, dict) and str(item.get("entity") or "").strip() and str(item.get("state") or "").strip()
+    ]
+    semantic_parts = [
+        f"modules={','.join(module_candidates)}" if module_candidates else "",
+        f"requires={','.join(required_states)}" if required_states else "",
+        f"produces={','.join(produced_states)}" if produced_states else "",
+    ]
+    parts = [
+        part
+        for part in (
+            f"stage_id={step_id}",
+            stage_kind,
+            label,
+            state_transition,
+            *semantic_parts,
+        )
+        if part
+    ]
     return " / ".join(parts)
+
+
+def _typed_state_catalog_item(item: Any) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        return {}
+    catalog = {
+        key: item.get(key)
+        for key in (
+            "entity",
+            "state",
+            "source",
+            "scope",
+            "polarity",
+            "temporal",
+        )
+        if str(item.get(key) or "").strip()
+    }
+    fact_ids = [
+        str(fact_id).strip()
+        for fact_id in (item.get("fact_ids") or [])
+        if str(fact_id).strip()
+    ]
+    if fact_ids:
+        catalog["fact_ids"] = fact_ids
+    return catalog
+
+
+def _build_active_workflow_semantic_catalog(
+    workflow_blueprints: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """向模型交付可直接复制的真实 ID 和状态契约，避免用工作流名称猜 ID。"""
+    catalog: list[dict[str, Any]] = []
+    for blueprint in workflow_blueprints:
+        if not isinstance(blueprint, dict):
+            continue
+        workflow_id = str(
+            blueprint.get("workflow_id") or blueprint.get("id") or ""
+        ).strip()
+        if not workflow_id:
+            continue
+        steps: list[dict[str, Any]] = []
+        for step in (blueprint.get("steps") or [])[:MAX_WORKFLOW_STEPS]:
+            if not isinstance(step, dict):
+                continue
+            stage_id = str(step.get("id") or "").strip()
+            stage_kind = str(step.get("stage_kind") or "").strip()
+            if not stage_id or not stage_kind:
+                continue
+            steps.append(
+                {
+                    "stage_id": stage_id,
+                    "stage_kind": stage_kind,
+                    "label": str(step.get("label") or step.get("action") or "").strip(),
+                    "state_in": str(step.get("state_in") or "").strip(),
+                    "state_out": str(step.get("state_out") or "").strip(),
+                    "required": bool(step.get("required")),
+                    "terminal": bool(step.get("terminal")),
+                    "graph_node_id": str(step.get("graph_node_id") or "").strip(),
+                    "fact_ids": [
+                        str(item).strip()
+                        for item in (step.get("fact_ids") or [])
+                        if str(item).strip()
+                    ],
+                    "scope_candidates": [
+                        {
+                            "scope_id": str(item.get("scope_id") or "").strip(),
+                            "role": str(item.get("role") or "").strip(),
+                            "fact_ids": [
+                                str(fact_id).strip()
+                                for fact_id in (item.get("fact_ids") or [])
+                                if str(fact_id).strip()
+                            ],
+                        }
+                        for item in (step.get("scope_candidates") or [])
+                        if isinstance(item, dict)
+                        and str(item.get("scope_id") or "").strip()
+                    ],
+                    "graph_relation_ids": [
+                        str(item).strip()
+                        for item in (
+                            step.get("graph_relation_ids")
+                            or step.get("relation_ids")
+                            or []
+                        )
+                        if str(item).strip()
+                    ],
+                    "module_candidates": [
+                        {
+                            "module_key": str(item.get("module_key") or "").strip(),
+                            "module_name": str(item.get("module_name") or "").strip(),
+                            "role": str(item.get("role") or "").strip(),
+                        }
+                        for item in (step.get("module_candidates") or [])
+                        if isinstance(item, dict)
+                        and str(item.get("module_key") or "").strip()
+                    ],
+                    "interaction_ids": [
+                        str(item).strip()
+                        for item in (step.get("interaction_ids") or [])
+                        if str(item).strip()
+                    ],
+                    "required_states": [
+                        state
+                        for state in (
+                            _typed_state_catalog_item(item)
+                            for item in (step.get("required_states") or [])
+                        )
+                        if state
+                    ],
+                    "produced_states": [
+                        state
+                        for state in (
+                            _typed_state_catalog_item(item)
+                            for item in (step.get("produced_states") or [])
+                        )
+                        if state
+                    ],
+                }
+            )
+        if not steps:
+            continue
+        catalog.append(
+            {
+                "workflow_id": workflow_id,
+                "workflow_name": str(blueprint.get("name") or "").strip(),
+                "required_stage_ids": [
+                    str(item).strip()
+                    for item in (blueprint.get("required_stage_ids") or [])
+                    if str(item).strip()
+                ],
+                "terminal_states": [
+                    str(item).strip()
+                    for item in (blueprint.get("terminal_states") or [])
+                    if str(item).strip()
+                ],
+                "steps": steps,
+            }
+        )
+    return catalog
+
+
+def _build_active_semantic_graph_catalog(
+    semantic_contract: dict[str, Any],
+) -> dict[str, Any]:
+    """交付完整的已发布语义图，使主链和独立功能共用同一事实源。"""
+
+    validation = dict(semantic_contract.get("semantic_graph_validation") or {})
+    graph = dict(semantic_contract.get("semantic_graph") or {})
+    if (
+        semantic_contract.get("semantic_contract_version")
+        != REQUIREMENT_SEMANTIC_CONTRACT_VERSION
+        or graph.get("graph_version") != SEMANTIC_GRAPH_VERSION
+        or validation.get("publishable") is not True
+    ):
+        return {}
+    raw_facts = [
+        dict(item)
+        for item in (semantic_contract.get("evidence_facts") or [])
+        if isinstance(item, dict) and str(item.get("fact_id") or "").strip()
+    ]
+    raw_nodes = [
+        dict(item)
+        for item in (graph.get("nodes") or [])
+        if isinstance(item, dict) and str(item.get("node_id") or "").strip()
+    ]
+    raw_edges = [
+        dict(item)
+        for item in (graph.get("edges") or [])
+        if isinstance(item, dict) and str(item.get("edge_id") or "").strip()
+    ]
+    fact_ids = {str(item.get("fact_id") or "").strip() for item in raw_facts}
+    node_ids = {str(item.get("node_id") or "").strip() for item in raw_nodes}
+    edge_ids = {str(item.get("edge_id") or "").strip() for item in raw_edges}
+    primary_flow_value = graph.get("primary_flow")
+    primary_flow = (
+        {
+            "node_ids": [
+                str(item).strip()
+                for item in (primary_flow_value.get("node_ids") or [])
+                if str(item).strip()
+            ],
+            "edge_ids": [
+                str(item).strip()
+                for item in (primary_flow_value.get("edge_ids") or [])
+                if str(item).strip()
+            ],
+        }
+        if isinstance(primary_flow_value, dict)
+        else {"node_ids": [], "edge_ids": []}
+    )
+    edges_by_id = {
+        str(item.get("edge_id") or "").strip(): item for item in raw_edges
+    }
+    primary_node_ids = primary_flow["node_ids"]
+    primary_edge_ids = primary_flow["edge_ids"]
+    primary_flow_valid = bool(
+        (not primary_node_ids and not primary_edge_ids)
+        or (
+            len(primary_node_ids) >= 2
+            and len(primary_edge_ids) == len(primary_node_ids) - 1
+            and len(set(primary_node_ids)) == len(primary_node_ids)
+            and len(set(primary_edge_ids)) == len(primary_edge_ids)
+            and all(
+                edge_id in edges_by_id
+                and str(edges_by_id[edge_id].get("type") or "").strip()
+                in {"triggers", "transitions"}
+                and str(
+                    edges_by_id[edge_id].get("source_node_id") or ""
+                ).strip()
+                == primary_node_ids[index]
+                and str(
+                    edges_by_id[edge_id].get("target_node_id") or ""
+                ).strip()
+                == primary_node_ids[index + 1]
+                for index, edge_id in enumerate(primary_edge_ids)
+            )
+        )
+    )
+    if (
+        len(fact_ids) != len(raw_facts)
+        or len(node_ids) != len(raw_nodes)
+        or len(edge_ids) != len(raw_edges)
+        or any(
+            not set(str(value).strip() for value in (node.get("fact_ids") or []))
+            <= fact_ids
+            for node in raw_nodes
+        )
+        or any(
+            str(edge.get("source_node_id") or "").strip() not in node_ids
+            or str(edge.get("target_node_id") or "").strip() not in node_ids
+            or not set(
+                str(value).strip() for value in (edge.get("fact_ids") or [])
+            )
+            <= fact_ids
+            for edge in raw_edges
+        )
+        or not set(primary_flow["node_ids"]) <= node_ids
+        or not set(primary_flow["edge_ids"]) <= edge_ids
+        or not primary_flow_valid
+    ):
+        return {}
+    # publishable 由语义图契约先行校验数量上限与引用完整性；
+    # 提示层不得再根据 workflow 引用或固定数量静默裁剪。
+    facts = [
+        {
+            key: fact.get(key)
+            for key in (
+                "fact_id",
+                "statement",
+                "requirement_level",
+                "priority",
+                "testability",
+            )
+        }
+        for fact in sorted(raw_facts, key=lambda item: str(item.get("fact_id")))
+    ]
+    nodes = [
+        {
+            key: node.get(key)
+            for key in (
+                "node_id",
+                "kind",
+                "name",
+                "scope_status",
+                "boundary_status",
+                "workflow_role",
+                "fact_ids",
+            )
+        }
+        for node in sorted(raw_nodes, key=lambda item: str(item.get("node_id")))
+    ]
+    edges = [
+        {
+            key: edge.get(key)
+            for key in (
+                "edge_id",
+                "type",
+                "source_node_id",
+                "target_node_id",
+                "source_scope_id",
+                "target_scope_id",
+                "trigger",
+                "result_state",
+                "transferred_entity_node_ids",
+                "fact_ids",
+            )
+        }
+        for edge in sorted(raw_edges, key=lambda item: str(item.get("edge_id")))
+    ]
+    if not (facts or nodes or edges):
+        return {}
+    return {
+        "graph_version": str(graph.get("graph_version") or "").strip(),
+        "facts": facts,
+        "nodes": nodes,
+        "edges": edges,
+        "primary_flow": primary_flow,
+    }
 
 
 def _build_generation_execution_plan_from_blueprints(
@@ -60,21 +367,24 @@ def _build_generation_execution_plan_from_blueprints(
     ]
     blueprint_count = 0
     step_count = 0
-    for blueprint in workflow_blueprints[:5]:
+    for blueprint in workflow_blueprints:
         if not isinstance(blueprint, dict):
             continue
         steps = [step for step in (blueprint.get("steps") or []) if isinstance(step, dict)]
         step_labels = [
             _workflow_step_execution_label(step, index=index)
-            for index, step in enumerate(steps[:12], start=1)
+            for index, step in enumerate(steps[:MAX_WORKFLOW_STEPS], start=1)
         ]
         step_labels = [label for label in step_labels if label.strip()]
         if not step_labels:
             continue
         blueprint_count += 1
         step_count += len(step_labels)
-        name = str(blueprint.get("name") or blueprint.get("id") or "workflow").strip()
-        plan_lines.append(f"* {name}:")
+        workflow_id = str(
+            blueprint.get("workflow_id") or blueprint.get("id") or "workflow"
+        ).strip()
+        name = str(blueprint.get("name") or workflow_id).strip()
+        plan_lines.append(f"* workflow_id={workflow_id}; name={name}:")
         plan_lines.extend(
             f"  {index}. {label}"
             for index, label in enumerate(step_labels, start=1)
@@ -104,30 +414,16 @@ def _build_generation_execution_plan_from_blueprints(
 def _build_control_context(
     *,
     control_state: FeedbackControlState | dict[str, Any] | None,
-    max_chars: int = 6000,
     include_soft_constraints_in_text: bool = False,
     include_quality_fix_hints_in_text: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     state = FeedbackControlState.from_any(control_state)
-    strong_preferred_quota_enabled = bool(
-        _env_bool("TESTGEN_ENABLE_STRONG_PREFERRED_QUOTA_AB", True)
-    )
-    preferred_flow_case_quota = _env_int(
-        "TESTGEN_PREFERRED_FLOW_CASE_QUOTA",
-        2,
-        min_value=1,
-        max_value=6,
-    )
-    ui_case_ratio_cap = _env_float(
-        "TESTGEN_UI_CASE_RATIO_CAP",
-        0.40,
-        min_value=0.20,
-        max_value=0.60,
-    )
-    preferred_quota_active = bool(strong_preferred_quota_enabled and state.preferred_patterns)
     generation_profile = dict((state.source_meta or {}).get("generation_coverage_profile") or {})
     fact_profile = dict((state.source_meta or {}).get("fact_profile") or {})
     project_profile = dict((state.source_meta or {}).get("project_profile") or {})
+    requirement_semantic_contract = dict(
+        (state.source_meta or {}).get("requirement_semantic_contract") or {}
+    )
     manual_quality_profile = dict((state.source_meta or {}).get("manual_quality_profile") or {})
     project_flow_outline = dict(project_profile.get("flow_outline") or {})
     functional_architecture = dict(project_profile.get("functional_architecture") or {})
@@ -135,6 +431,12 @@ def _build_control_context(
         item for item in (functional_architecture.get("functional_modules") or []) if isinstance(item, dict)
     ]
     generation_execution_plan = _build_generation_execution_plan_from_blueprints(state.workflow_blueprints)
+    active_workflow_semantic_catalog = _build_active_workflow_semantic_catalog(
+        state.workflow_blueprints
+    )
+    active_semantic_graph_catalog = _build_active_semantic_graph_catalog(
+        requirement_semantic_contract,
+    )
     generation_coverage_mode = str(generation_profile.get("coverage_mode") or "").strip()
     summary = {
         "control_state_applied": bool(state.has_signals()),
@@ -149,14 +451,23 @@ def _build_control_context(
         "workflow_blueprint_count": int(len(state.workflow_blueprints)),
         "generation_execution_plan_blueprint_count": int(generation_execution_plan.get("blueprint_count") or 0),
         "generation_execution_plan_step_count": int(generation_execution_plan.get("step_count") or 0),
+        "active_workflow_semantic_catalog_count": int(
+            len(active_workflow_semantic_catalog)
+        ),
+        "active_semantic_graph_fact_count": int(
+            len(active_semantic_graph_catalog.get("facts") or [])
+        ),
+        "active_semantic_graph_node_count": int(
+            len(active_semantic_graph_catalog.get("nodes") or [])
+        ),
+        "active_semantic_graph_edge_count": int(
+            len(active_semantic_graph_catalog.get("edges") or [])
+        ),
         "generation_execution_independent_suite_order": list(
             generation_execution_plan.get("independent_suite_order") or []
         ),
         "soft_constraints_in_prompt": bool(include_soft_constraints_in_text),
         "quality_fix_hints_in_prompt": bool(include_quality_fix_hints_in_text),
-        "preferred_quota_variant": "B" if preferred_quota_active else "A",
-        "preferred_flow_case_quota": int(preferred_flow_case_quota) if preferred_quota_active else 0,
-        "ui_case_ratio_cap": float(ui_case_ratio_cap),
         "generation_coverage_mode": generation_coverage_mode,
         "generation_case_density": str(generation_profile.get("case_density") or "").strip(),
         "generation_target_case_range": dict(generation_profile.get("target_case_range") or {}),
@@ -171,6 +482,9 @@ def _build_control_context(
         "project_profile_cross_cutting_count": int(len(project_flow_outline.get("cross_cutting") or [])),
         "functional_module_count": int(len(functional_modules)),
         "functional_interaction_count": int(len(functional_architecture.get("module_interactions") or [])),
+        "requirement_semantic_contract_status": str(
+            requirement_semantic_contract.get("status") or ""
+        ),
         "excluded_functional_module_count": int(len(functional_architecture.get("excluded_modules") or [])),
         "manual_quality_profile_source": str(manual_quality_profile.get("profile_source") or "").strip(),
         "manual_quality_profile_version": str(manual_quality_profile.get("profile_version") or "").strip(),
@@ -188,10 +502,10 @@ def _build_control_context(
         or state.preferred_patterns
         or state.reuse_risks
         or state.workflow_blueprints
+        or active_semantic_graph_catalog
         or generation_coverage_mode
         or fact_profile
         or project_profile
-        or manual_quality_profile
         or (include_soft_constraints_in_text and state.soft_constraints)
         or (include_quality_fix_hints_in_text and state.quality_fix_hints)
     )
@@ -245,7 +559,7 @@ def _build_control_context(
     lines.append("### WORKFLOW BLUEPRINTS")
     if state.workflow_blueprints:
         lines.append("* Treat workflow blueprints as execution-order contracts, not as reusable RAG examples.")
-        for blueprint in state.workflow_blueprints[:5]:
+        for blueprint in state.workflow_blueprints:
             if not isinstance(blueprint, dict):
                 continue
             name = str(blueprint.get("name") or blueprint.get("id") or "workflow").strip()
@@ -272,13 +586,56 @@ def _build_control_context(
                     )
                     if item
                 )
-                for step in steps[:12]
+                for step in steps[:MAX_WORKFLOW_STEPS]
                 if str(step.get("label") or step.get("action") or step.get("id") or "").strip()
             ]
             if labels:
                 lines.append(f"* {name}{source_suffix}: {' -> '.join(labels)}")
     else:
         lines.append("* (none)")
+
+    if active_workflow_semantic_catalog:
+        lines.append("")
+        lines.append("### ACTIVE WORKFLOW SEMANTIC CATALOG")
+        lines.append(
+            json.dumps(
+                {"workflows": active_workflow_semantic_catalog},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
+        lines.append(
+            "* `_semantic.workflow_stage_candidates[].workflow_id` MUST copy the exact "
+            "workflow_id above; a workflow_name is never a workflow_id."
+        )
+        lines.append(
+            "* `_semantic.workflow_stage_candidates[].stage_id` and stage_kind MUST copy "
+            "the exact stage_id and stage_kind from the same workflow."
+        )
+        lines.append(
+            "* Before independent suites, generate at least one valid main-chain case for "
+            "every required_stage_id, in declared order. Do not use [] to avoid a matching "
+            "required workflow stage."
+        )
+        lines.append(
+            "* A main-chain case MUST copy the declared module_candidates, interaction_ids, "
+            "required_states, and produced_states. Only case evidence and confidence are newly cited."
+        )
+
+    if active_semantic_graph_catalog:
+        lines.append("")
+        lines.append("### ACTIVE SEMANTIC GRAPH CATALOG")
+        lines.append(
+            json.dumps(
+                active_semantic_graph_catalog,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
+        lines.append(
+            "* Use graph_node_id, fact_ids, scope_candidates, and graph_relation_ids as the "
+            "source of workflow ownership, dependency, constraint, transition, and interaction semantics."
+        )
 
     if generation_execution_plan.get("lines"):
         lines.append("")
@@ -320,15 +677,15 @@ def _build_control_context(
             lines.append("")
             lines.append("### FUNCTIONAL MODULE CONTRACT")
             lines.append(f"* allowed test_module values: {', '.join(module_names)}")
-            lines.append("* test_module MUST use exactly one allowed value; pages, controls, actions, risks, and test types are not new modules.")
+            lines.append("* test_module MUST use one allowed primary module value; keep related or ambiguous module candidates in _semantic.module_candidates.")
             lines.append("* Generate module-internal features first, then explicit cross-module interactions.")
             lines.append("* Workflow entry controls and state-changing UI interactions belong to the business flow; only presentation-only checks belong to UI/display.")
-            for module in functional_modules[:24]:
+            for module in functional_modules:
                 name = str(module.get("module_name") or "").strip()
                 features = [str(item).strip() for item in (module.get("features") or []) if str(item).strip()]
                 aliases = [str(item).strip() for item in (module.get("aliases") or []) if str(item).strip()]
-                detail = f"; explicit features: {' | '.join(features[:4])}" if features else ""
-                alias_text = f"; aliases: {', '.join(aliases[:6])}" if aliases else ""
+                detail = f"; explicit features: {' | '.join(features)}" if features else ""
+                alias_text = f"; aliases: {', '.join(aliases)}" if aliases else ""
                 lines.append(f"* {name}{alias_text}{detail}")
             excluded_modules = [
                 item for item in (functional_architecture.get("excluded_modules") or []) if isinstance(item, dict)
@@ -336,7 +693,7 @@ def _build_control_context(
             if excluded_modules:
                 excluded_labels = [
                     f"{str(item.get('module_name') or '')}({str(item.get('scope_reason') or 'out_of_scope')})"
-                    for item in excluded_modules[:12]
+                    for item in excluded_modules
                 ]
                 lines.append(f"* out-of-scope modules, DO NOT generate: {', '.join(excluded_labels)}")
             interactions = [
@@ -344,61 +701,38 @@ def _build_control_context(
             ]
             if interactions:
                 lines.append("* explicit module interactions:")
-                for item in interactions[:16]:
+                for item in interactions:
                     lines.append(
                         "  - "
+                        f"[{str(item.get('interaction_id') or '')}] "
                         f"{str(item.get('source_module') or '')} -> {str(item.get('target_module') or '')}: "
                         f"{str(item.get('trigger') or '')}"
                     )
         if flow_order:
             labels = [str(flow_labels.get(key) or key) for key in flow_order]
-            lines.append(f"* flow outline: {' -> '.join(labels[:24])}")
+            lines.append(f"* flow outline: {' -> '.join(labels)}")
         data_flow_edges = [
             item for item in (flow_outline.get("data_flow_edges") or []) if isinstance(item, dict)
         ]
         if data_flow_edges:
             edge_labels = [
                 f"{str(item.get('from_label') or item.get('from') or '')} -> {str(item.get('to_label') or item.get('to') or '')}"
-                for item in data_flow_edges[:12]
+                for item in data_flow_edges
             ]
             lines.append(f"* data-flow edges: {'; '.join(edge_labels)}")
         if cross_cutting:
             labels = [str(cross_labels.get(key) or key) for key in cross_cutting]
-            lines.append(f"* cross-cutting modules: {', '.join(labels[:16])}")
+            lines.append(f"* cross-cutting modules: {', '.join(labels)}")
         scenario_policy = dict(project_profile.get("scenario_cluster_policy") or {})
-        if scenario_policy:
+        explicit_scenario_cap = scenario_policy.get("default_max_per_scenario")
+        try:
+            explicit_scenario_cap = int(explicit_scenario_cap)
+        except (TypeError, ValueError):
+            explicit_scenario_cap = 0
+        if explicit_scenario_cap > 0:
             lines.append(
-                f"* default max per scenario: {int(scenario_policy.get('default_max_per_scenario') or 2)}"
+                f"* explicit max per scenario: {explicit_scenario_cap}"
             )
-
-    if manual_quality_profile:
-        priority_distribution = dict(manual_quality_profile.get("priority_distribution") or {})
-        module_distribution = dict(manual_quality_profile.get("module_distribution_top") or {})
-        lifecycle_fields = [
-            str(item).strip()
-            for item in (manual_quality_profile.get("execution_lifecycle_fields") or [])
-            if str(item).strip()
-        ]
-        lines.append("")
-        lines.append("### MANUAL QUALITY PROFILE")
-        lines.append(f"* source: {str(manual_quality_profile.get('profile_source') or 'unknown')}")
-        lines.append(f"* version: {str(manual_quality_profile.get('profile_version') or '')}")
-        lines.append(f"* trusted samples: {int(manual_quality_profile.get('trusted_sample_count') or 0)}")
-        lines.append("* Use this as stable delivery-quality target; do not hard-code its business values.")
-        if priority_distribution:
-            parts = [f"{key}:{int(value)}" for key, value in priority_distribution.items()]
-            lines.append(f"* target priority mix: {', '.join(parts[:8])}")
-        high_ratio = float(manual_quality_profile.get("high_priority_ratio") or 0.0)
-        if high_ratio > 0:
-            lines.append(f"* target P0/P1 ratio: about {int(round(high_ratio * 100.0))}%")
-        display_cap = float(manual_quality_profile.get("display_ratio_cap") or 0.0)
-        if display_cap > 0:
-            lines.append(f"* display-only cap: <= {int(round(display_cap * 100.0))}%")
-        if module_distribution:
-            modules = [str(key) for key in module_distribution.keys()]
-            lines.append(f"* target module coverage: {', '.join(modules[:12])}")
-        if lifecycle_fields:
-            lines.append(f"* lifecycle fields to preserve: {', '.join(lifecycle_fields[:8])}")
 
     if generation_coverage_mode:
         target_range = dict(generation_profile.get("target_case_range") or {})
@@ -420,17 +754,6 @@ def _build_control_context(
         else:
             lines.append("* Keep a compact high-value core set.")
 
-    if preferred_quota_active:
-        lines.append("")
-        lines.append("### PREFERRED PATTERN QUOTA (AB)")
-        lines.append(
-            f"* Must generate at least {int(preferred_flow_case_quota)} workflow/state-transition cases expanded from PREFERRED PATTERNS."
-        )
-        lines.append(
-            f"* UI-only cases (display/layout/copy/style) must not exceed {int(round(ui_case_ratio_cap * 100.0))}% of total generated cases."
-        )
-        lines.append("* If quota conflicts with weak dedup/display heuristics, keep preferred-pattern quota first.")
-
     if include_soft_constraints_in_text:
         lines.append("")
         lines.append("### SOFT CONSTRAINTS (NEGATIVE BIAS)")
@@ -447,4 +770,5 @@ def _build_control_context(
         else:
             lines.append("* (none)")
 
-    return _clip_text("\n".join(lines), max_chars) or "(empty)", summary
+    # 结构化控制契约必须完整进入模型上下文；静默裁剪会丢失尾部工作流、模块或交互。
+    return "\n".join(lines).strip() or "(empty)", summary

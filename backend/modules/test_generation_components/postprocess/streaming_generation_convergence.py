@@ -91,9 +91,14 @@ def derive_convergence_reason_state(
     append_cap_drop_total_count = int(append_cap_drop_total or 0)
     reference_gap_count = int(reference_gap or 0)
     review_selected_count_value = int(review_selected_count or 0)
+    actual_drop_details = [
+        item
+        for item in (low_quality_drop_details or [])
+        if isinstance(item, dict) and item.get("diagnostic_only") is not True
+    ]
     effective_low_quality_dropped_total = max(
         low_quality_dropped_total_count,
-        _dict_item_count(low_quality_drop_details or []),
+        _dict_item_count(actual_drop_details),
     )
 
     if post_review_dedup_drop_count > 0:

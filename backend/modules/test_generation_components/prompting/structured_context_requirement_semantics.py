@@ -4,6 +4,7 @@ import re
 from collections import defaultdict
 from typing import Any
 
+from ..control.reuse_risk_policy import extract_reuse_risks
 from ..control.scoped_rule_semantics import is_scoped_requirement_rule
 from .structured_context_split_helpers import (
     _biz_tag,
@@ -111,7 +112,6 @@ _CONFIRMED_FACT_MARKERS = (
     "选择",
     "按钮",
     "版本",
-    "年级",
     "顺序",
     "复用",
     "沿用",
@@ -120,57 +120,6 @@ _CONFIRMED_FACT_MARKERS = (
     "以",
     "为准",
 )
-_REUSE_RISK_HINTS: dict[str, tuple[str, ...]] = {
-    "wrong_return_target_risk": (
-        "返回",
-        "回首页",
-        "回列表",
-        "返回首页",
-        "返回列表",
-        "return",
-        "home",
-        "list",
-    ),
-    "legacy_behavior_risk": (
-        "旧",
-        "原",
-        "残留",
-        "按钮",
-        "文案",
-        "跳转",
-        "legacy",
-        "residual",
-        "button",
-        "copy",
-    ),
-    "shared_page_residual_risk": (
-        "页面",
-        "页面壳",
-        "共享页面",
-        "共用页面",
-        "shared page",
-        "existing page",
-    ),
-    "shared_flow_residual_risk": (
-        "流程",
-        "串",
-        "课文",
-        "单元",
-        "上下文",
-        "顺序",
-        "flow",
-        "context",
-        "wrong progression",
-    ),
-}
-_REUSE_RISK_DESCRIPTIONS = {
-    "wrong_return_target_risk": "wrong_return_target_risk: verify reused flow returns to the current module target instead of a legacy page.",
-    "legacy_behavior_risk": "legacy_behavior_risk: verify reused module does not retain legacy buttons, copy, or obsolete behaviors.",
-    "shared_page_residual_risk": "shared_page_residual_risk: verify shared page shells do not leak legacy entry or exit behavior into the new module.",
-    "shared_flow_residual_risk": "shared_flow_residual_risk: verify reused flow does not串原模块流程、串课文/单元或污染当前上下文。",
-}
-
-
 def _is_bracket_section_header(line: str) -> bool:
     stripped = str(line or "").strip()
     return bool(stripped.startswith("[") and stripped.endswith("]") and len(stripped) <= 120)
@@ -274,20 +223,7 @@ def _classify_requirement_fragment(fragment: str) -> dict[str, bool]:
 
 
 def _derive_reuse_risks(fragments: list[str]) -> list[str]:
-    if not fragments:
-        return []
-
-    merged = " ".join(str(item or "") for item in fragments)
-    lowered = merged.lower()
-    output: list[str] = []
-    for risk_key, markers in _REUSE_RISK_HINTS.items():
-        if any(marker.lower() in lowered for marker in markers):
-            output.append(_REUSE_RISK_DESCRIPTIONS[risk_key])
-    if not output:
-        output.append(
-            "shared_flow_residual_risk: verify reused modules do not inherit legacy routing, context, or flow side effects."
-        )
-    return output
+    return extract_reuse_risks(*fragments, default_shared_flow=bool(fragments))
 
 
 def _build_requirement_semantics_context(

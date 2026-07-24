@@ -2,27 +2,23 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from modules.test_generation_components.postprocess.streaming_case_keys import case_signature
+from modules.test_generation_components.postprocess.streaming_case_keys import (
+    candidate_identity_key,
+    case_signature,
+)
 from modules.test_generation_components.postprocess.streaming_review_selection import (
     apply_append_target_cap,
     build_review_decision_summary_payload,
     build_review_selection_constraints,
-    enforce_review_selection_constraints,
     is_high_signal,
-    merge_review_selection_candidates,
     rank_review_case_for_fill,
-    recover_post_rerank_shortfall,
-    recover_review_selection_shortfall,
     resolve_review_llm_drop_reason_maps,
-    resolve_review_post_rerank_floor_count,
     review_llm_drop_summary_fields,
-    review_must_keep_reasons,
-    split_review_candidate_pool,
     summarize_review_decision_counts,
     summarize_review_drop_reason_counts,
     summarize_review_drop_stage_counts,
     summarize_review_llm_drop_diagnostics,
-    summarize_review_must_keep_and_signal_counts,
+    summarize_review_signal_counts,
 )
 
 
@@ -86,153 +82,6 @@ def _rank_case(case: dict[str, object], **_: object) -> tuple[int]:
 
 def _count_dict_cases(value: object) -> int:
     return int(sum(1 for item in (value or []) if isinstance(item, dict)))
-
-
-def test_merge_review_selection_candidates_prefers_must_keep_on_duplicate_signature() -> None:
-    description = "teacher approves personalized recommendation release"
-    test_input = "teacher submits approval payload for student recommendation"
-    expected_result = "recommendation release is approved and recorded"
-    must_keep_case = _review_case(
-        "TC-MERGE-001",
-        priority="P0",
-        module="recommendation",
-        description=description,
-        test_input=test_input,
-        expected_result=expected_result,
-    )
-    selected_duplicate = _review_case(
-        "TC-MERGE-002",
-        priority="P2",
-        module="recommendation",
-        description=description,
-        test_input=test_input,
-        expected_result=expected_result,
-    )
-    selected_unique = _review_case(
-        "TC-MERGE-003",
-        priority="P1",
-        module="recommendation",
-        description="student views released personalized recommendation",
-    )
-
-    merged = merge_review_selection_candidates([must_keep_case], [selected_duplicate, selected_unique])
-
-    assert [case["id"] for case in merged] == ["TC-MERGE-001", "TC-MERGE-003"]
-    assert merged[0] is must_keep_case
-    assert case_signature(must_keep_case) == case_signature(selected_duplicate)
-
-
-def test_merge_review_selection_candidates_skips_non_dict_and_preserves_order() -> None:
-    must_keep_first = _review_case(
-        "TC-MERGE-010",
-        priority="P0",
-        module="recommendation",
-        description="teacher keeps recommendation approval main path",
-    )
-    must_keep_second = _review_case(
-        "TC-MERGE-011",
-        priority="P1",
-        module="recommendation",
-        description="teacher keeps recommendation rejection exception path",
-    )
-    selected_first = _review_case(
-        "TC-MERGE-012",
-        priority="P2",
-        module="student",
-        description="student checks recommendation history after release",
-    )
-    selected_second = _review_case(
-        "TC-MERGE-013",
-        priority="P2",
-        module="student",
-        description="student refreshes recommendation details after release",
-    )
-
-    merged = merge_review_selection_candidates(
-        [None, must_keep_first, "not-a-case", must_keep_second],
-        [selected_first, 7, selected_second],
-    )
-
-    assert [case["id"] for case in merged] == [
-        "TC-MERGE-010",
-        "TC-MERGE-011",
-        "TC-MERGE-012",
-        "TC-MERGE-013",
-    ]
-
-
-def test_split_review_candidate_pool_routes_must_keep_and_llm_pool_cases() -> None:
-    must_keep = _review_case("TC-SPLIT-001", priority="P0")
-    reuse_risk = _review_case("TC-SPLIT-002", priority="P1")
-    ordinary = _review_case("TC-SPLIT-003", priority="P2")
-
-    def score_case_priority_fn(case: dict[str, object], **_: object) -> dict[str, object]:
-        return {"reuse_risk_hit": case["id"] == "TC-SPLIT-002"}
-
-    split = split_review_candidate_pool(
-        [must_keep, "not-a-case", reuse_risk, ordinary],
-        coverage_context={"coverage": "context"},
-        rule_diagnostics={"rule": "diagnostics"},
-        must_cover_rule_set={"REQ-100"},
-        score_case_priority_fn=score_case_priority_fn,
-    )
-
-    assert split.must_keep_cases == [must_keep, reuse_risk]
-    assert split.llm_pool_cases == [ordinary]
-    assert split.must_keep_signatures == {
-        case_signature(must_keep),
-        case_signature(reuse_risk),
-    }
-    assert split.must_keep_reason_map[case_signature(must_keep)] == ["priority_p0"]
-    assert split.must_keep_reason_map[case_signature(reuse_risk)] == ["reuse_risk_hit"]
-
-
-def test_split_review_candidate_pool_preserves_first_duplicate_must_keep_case_and_latest_reasons() -> None:
-    description = "teacher approves recommendation publish"
-    test_input = "teacher submits recommendation publish approval"
-    expected_result = "recommendation publish approval is recorded"
-    first = _review_case(
-        "TC-SPLIT-010",
-        priority="P0",
-        description=description,
-        test_input=test_input,
-        expected_result=expected_result,
-    )
-    duplicate = _review_case(
-        "TC-SPLIT-011",
-        priority="P1",
-        description=description,
-        test_input=test_input,
-        expected_result=expected_result,
-    )
-    seen_cases: list[str] = []
-
-    def score_case_priority_fn(case: dict[str, object], **_: object) -> dict[str, object]:
-        seen_cases.append(str(case.get("id") or ""))
-        return {"case_id": case.get("id")}
-
-    def must_keep_reasons_fn(
-        case: dict[str, object],
-        score_profile: dict[str, object],
-        **_: object,
-    ) -> list[str]:
-        return [f"reason_{score_profile['case_id']}"]
-
-    split = split_review_candidate_pool(
-        [first, duplicate],
-        coverage_context={},
-        rule_diagnostics={},
-        must_cover_rule_set=set(),
-        score_case_priority_fn=score_case_priority_fn,
-        must_keep_reasons_fn=must_keep_reasons_fn,
-    )
-
-    signature = case_signature(first)
-    assert seen_cases == ["TC-SPLIT-010", "TC-SPLIT-011"]
-    assert case_signature(duplicate) == signature
-    assert split.must_keep_cases == [first]
-    assert split.must_keep_signatures == {signature}
-    assert split.must_keep_reason_map == {signature: ["reason_TC-SPLIT-011"]}
 
 
 def test_apply_append_target_cap_noops_when_under_cap_without_running_rankers() -> None:
@@ -335,93 +184,55 @@ def test_apply_append_target_cap_returns_fresh_lists_and_drop_sets() -> None:
     assert [item["id"] for item in cases] == ["TC-001", "TC-002"]
 
 
-def test_recover_review_selection_shortfall_fills_ranked_unique_cases() -> None:
-    selected = [_case("TC-001", rank=1)]
-    candidates = [
-        _case("TC-001", rank=100),
-        _case("TC-002", rank=2),
-        _case("TC-003", rank=5),
-    ]
+def test_append_target_cap_preserves_exact_protected_candidate_key() -> None:
+    protected = _case("TC-001", rank=0)
+    cases = [protected, _case("TC-002", rank=9), _case("TC-003", rank=8)]
+    diagnostics: dict[str, object] = {}
 
-    recovered, reason_map, recovered_count = recover_review_selection_shortfall(
-        selection_input=selected,
-        candidate_cases=candidates,
-        target_min_count=3,
-        constraint_reason_map={},
-        coverage_context={},
-        rule_diagnostics={},
+    capped, _drop_signatures, drop_total = apply_append_target_cap(
+        requirement="real requirement",
+        parsed_cases=cases,
+        append_final_cap_count=2,
+        analyze_coverage_fn=lambda _requirement, rows: {"case_count": len(rows)},
+        rule_diagnostics_fn=dict,
         rank_case_fn=_rank_case,
+        signature_fn=case_signature,
+        protected_candidate_keys={candidate_identity_key(protected)},
+        diagnostics_out=diagnostics,
     )
 
-    assert [item["id"] for item in recovered] == ["TC-001", "TC-003", "TC-002"]
-    assert recovered_count == 2
-    assert reason_map[case_signature(candidates[2])] == "retained_by_shortfall_recovery"
-    assert reason_map[case_signature(candidates[1])] == "retained_by_shortfall_recovery"
+    assert [item["id"] for item in capped] == ["TC-001", "TC-002"]
+    assert drop_total == 1
+    assert diagnostics["protected_count"] == 1
+    assert diagnostics["soft_target_exceeded_for_closure"] is False
 
 
-def test_recover_review_selection_shortfall_applies_domain_guard_when_available() -> None:
-    noisy = _case("TC-002", rank=10, domain_noise=True)
-    guarded = _case("TC-003", rank=5)
+def test_append_target_cap_allows_soft_target_overflow_for_protected_closure() -> None:
+    cases = [_case(f"TC-00{index}", rank=index) for index in (1, 2, 3)]
+    diagnostics: dict[str, object] = {}
 
-    recovered, reason_map, recovered_count = recover_review_selection_shortfall(
-        selection_input=[_case("TC-001", rank=1)],
-        candidate_cases=[noisy, guarded],
-        target_min_count=2,
-        constraint_reason_map={},
-        domain_guard_active=True,
-        cross_domain_noise_fn=lambda item: bool(item.get("domain_noise")),
-        coverage_context={},
-        rule_diagnostics={},
+    capped, drop_signatures, drop_total = apply_append_target_cap(
+        requirement="real requirement",
+        parsed_cases=cases,
+        append_final_cap_count=2,
+        analyze_coverage_fn=lambda _requirement, rows: {"case_count": len(rows)},
+        rule_diagnostics_fn=dict,
         rank_case_fn=_rank_case,
+        signature_fn=case_signature,
+        protected_candidate_keys={candidate_identity_key(item) for item in cases},
+        diagnostics_out=diagnostics,
     )
 
-    assert [item["id"] for item in recovered] == ["TC-001", "TC-003"]
-    assert recovered_count == 1
-    assert case_signature(guarded) in reason_map
-    assert case_signature(noisy) not in reason_map
-
-
-def test_recover_post_rerank_shortfall_appends_from_selection_then_candidates() -> None:
-    parsed = [_case("TC-001", rank=1)]
-    selection_input = [_case("TC-002", rank=3)]
-    candidate_cases = [_case("TC-003", rank=7), _case("TC-002", rank=100)]
-
-    recovered, recovered_count = recover_post_rerank_shortfall(
-        parsed_cases=parsed,
-        review_selection_input=selection_input,
-        candidate_cases=candidate_cases,
-        floor_count=3,
-        coverage_context={},
-        rule_diagnostics={},
-        rank_case_fn=_rank_case,
-    )
-
-    assert [item["id"] for item in recovered] == ["TC-001", "TC-003", "TC-002"]
-    assert recovered_count == 2
-
-
-def test_resolve_review_post_rerank_floor_count_matches_modes() -> None:
-    assert resolve_review_post_rerank_floor_count(
-        candidate_count_before_review=50,
-        reference_count_effective=20,
-        generation_coverage_mode="expanded_regression",
-    ) == 16
-    assert resolve_review_post_rerank_floor_count(
-        candidate_count_before_review=50,
-        reference_count_effective=20,
-        generation_coverage_mode="full_functional_regression",
-    ) == 7
-    assert resolve_review_post_rerank_floor_count(
-        candidate_count_before_review=3,
-        reference_count_effective=2,
-        generation_coverage_mode="core_smoke",
-    ) == 2
+    assert capped == cases
+    assert drop_signatures == set()
+    assert drop_total == 0
+    assert diagnostics["soft_target_exceeded_for_closure"] is True
+    assert diagnostics["target_overflow_count"] == 1
 
 
 def test_summarize_review_decision_counts_matches_review_summary_fields() -> None:
     review_decision_table = [
         {
-            "must_keep_candidate": True,
             "retained_final": True,
             "retained_reason": "retained_due_to_coverage_value",
             "hit_must_cover_rule": True,
@@ -429,7 +240,6 @@ def test_summarize_review_decision_counts_matches_review_summary_fields() -> Non
             "satisfies_quality_hint": True,
         },
         {
-            "must_keep_candidate": True,
             "retained_final": False,
             "violates_forbidden_pattern": True,
         },
@@ -470,9 +280,6 @@ def test_summarize_review_decision_counts_matches_review_summary_fields() -> Non
         drop_by_review_llm_count=3,
         drop_by_review_selector_count=4,
     ) == {
-        "must_keep_candidate_count": 2,
-        "must_keep_retained_count": 1,
-        "must_keep_dropped_count": 1,
         "drop_by_review_llm_count": 3,
         "drop_by_review_selector_count": 4,
         "drop_by_review_gate_count": 1,
@@ -499,11 +306,10 @@ def test_summarize_review_decision_counts_matches_review_summary_fields() -> Non
     }
 
 
-def test_summarize_review_must_keep_and_signal_counts_filters_non_dict_rows() -> None:
-    result = summarize_review_must_keep_and_signal_counts(
+def test_summarize_review_signal_counts_filters_non_dict_rows() -> None:
+    result = summarize_review_signal_counts(
         [
             {
-                "must_keep_candidate": True,
                 "retained_final": True,
                 "retained_reason": "retained_due_to_coverage_value",
                 "hit_must_cover_rule": True,
@@ -511,7 +317,6 @@ def test_summarize_review_must_keep_and_signal_counts_filters_non_dict_rows() ->
                 "satisfies_quality_hint": True,
             },
             {
-                "must_keep_candidate": True,
                 "retained_final": False,
                 "violates_forbidden_pattern": True,
             },
@@ -520,9 +325,6 @@ def test_summarize_review_must_keep_and_signal_counts_filters_non_dict_rows() ->
     )
 
     assert result == {
-        "must_keep_candidate_count": 2,
-        "must_keep_retained_count": 1,
-        "must_keep_dropped_count": 1,
         "retained_due_to_coverage_value_count": 1,
         "must_cover_rule_hit_count": 1,
         "forbidden_pattern_violation_count": 1,
@@ -599,7 +401,7 @@ def test_summarize_review_drop_reason_counts_counts_signals_and_final_duplicates
 def test_summarize_review_decision_counts_ignores_non_dict_rows() -> None:
     result = summarize_review_decision_counts(
         [
-            {"must_keep_candidate": True, "retained_final": True},
+            {"retained_final": True},
             "not-a-row",
             None,
         ],
@@ -610,14 +412,13 @@ def test_summarize_review_decision_counts_ignores_non_dict_rows() -> None:
         ],
     )
 
-    assert result["must_keep_candidate_count"] == 1
-    assert result["must_keep_retained_count"] == 1
+    assert result["retained_due_to_coverage_value_count"] == 0
     assert result["drop_by_review_gate_count"] == 1
     assert result["drop_rule_cap_count"] == 1
 
 
 def test_summarize_review_decision_counts_does_not_mutate_inputs() -> None:
-    review_decision_table = [{"must_keep_candidate": True, "retained_final": True}]
+    review_decision_table = [{"retained_final": True}]
     dropped_rows = [{"dropped_stage": "review_gate"}]
     final_duplicate_signatures = {"sig-a", "sig-b"}
     original_review_rows = [dict(row) for row in review_decision_table]
@@ -885,34 +686,6 @@ def test_review_llm_drop_summary_fields_does_not_mutate_inputs() -> None:
     assert runtime_debug == original_runtime_debug
 
 
-def test_review_must_keep_reasons_collects_priority_rule_reuse_and_fact_reasons() -> None:
-    case = _review_case(
-        "TC-MUST-001",
-        priority="P0",
-        module="permission",
-        description="REQ-100 permission approval release blocking main workflow",
-        confirmed_fact_hits=["teacher role can approve"],
-        meta={"confirmed_fact_hits": ["approval audit fact"]},
-    )
-
-    assert review_must_keep_reasons(
-        case,
-        {
-            "reuse_risk_hit": True,
-            "covered_rule_ids": ["REQ-100"],
-            "core_rule_hits": ["REQ-100"],
-            "missing_rule_hits": [],
-            "unique_coverage_hits": [],
-        },
-        must_cover_rule_set={"REQ-100"},
-    ) == [
-        "priority_p0",
-        "reuse_risk_hit",
-        "must_cover_rule_hit",
-        "confirmed_fact_hit",
-    ]
-
-
 def test_rank_review_case_for_fill_marks_real_rule_coverage_as_high_signal() -> None:
     covered_case = _review_case(
         "TC-RANK-001",
@@ -1021,7 +794,7 @@ def test_resolve_review_llm_drop_reason_maps_protects_omitted_coverage_signal() 
     assert evidence_map[omitted_signature]["unique_coverage_hits"] == ["REQ-300"]
 
 
-def test_build_review_selection_constraints_derives_diversity_minima_from_cases() -> None:
+def test_build_review_selection_constraints_uses_structured_target_without_candidate_quotas() -> None:
     cases = [
         _review_case("TC-CON-001", priority="P0", module="permission", description="permission invalid access error"),
         _review_case("TC-CON-002", priority="P1", module="report", description="report dashboard state transition"),
@@ -1038,62 +811,15 @@ def test_build_review_selection_constraints_derives_diversity_minima_from_cases(
     constraints = build_review_selection_constraints(
         cases,
         reference_count=10,
-        generation_profile={"coverage_mode": "standard_regression"},
+        generation_profile={"target_case_range": {"min": 8, "max": 10}},
     )
 
-    assert constraints["priority_min"] == {"P0": 1, "P1": 2, "P2": 1}
-    assert constraints["scenario_min"] == {"happy": 1, "state": 1, "exception": 1}
-    assert constraints["domain_min"] == {"permission": 1, "report": 1}
-    assert constraints["target_min_count"] == 10
+    assert constraints["priority_min"] == {}
+    assert constraints["scenario_min"] == {}
+    assert constraints["domain_min"] == {}
+    assert constraints["target_min_count"] == 8
     assert constraints["target_max_count"] == 10
-
-
-def test_enforce_review_selection_constraints_fills_priority_scenario_and_domain_gaps() -> None:
-    selected_case = _review_case(
-        "TC-ENF-001",
-        priority="P1",
-        module="order",
-        description="order submit happy path",
-    )
-    permission_exception_case = _review_case(
-        "TC-ENF-002",
-        priority="P0",
-        module="permission",
-        description="permission invalid access exception error",
-    )
-    report_state_case = _review_case(
-        "TC-ENF-003",
-        priority="P2",
-        module="report",
-        description="report dashboard state transition after refresh",
-    )
-    filler_case = _review_case(
-        "TC-ENF-004",
-        priority="P2",
-        module="profile",
-        description="profile label display check",
-    )
-    constraints = {
-        "target_min_count": 3,
-        "target_max_count": 3,
-        "priority_min": {"P0": 1, "P1": 1, "P2": 1},
-        "scenario_min": {"exception": 1, "state": 1},
-        "domain_min": {"permission": 1, "report": 1},
-    }
-
-    enforced, reason_map = enforce_review_selection_constraints(
-        selected_cases=[selected_case],
-        pool_cases=[selected_case, filler_case, report_state_case, permission_exception_case],
-        constraints=constraints,
-        coverage_context=_coverage_context(),
-        rule_diagnostics={},
-        rank_case_fn=rank_review_case_for_fill,
-    )
-
-    assert [case["id"] for case in enforced] == ["TC-ENF-001", "TC-ENF-002", "TC-ENF-003"]
-    assert reason_map[case_signature(permission_exception_case)] == "retained_by_constraint_priority_P0"
-    assert reason_map[case_signature(report_state_case)] == "retained_by_constraint_priority_P2"
-    assert case_signature(filler_case) not in reason_map
+    assert constraints["constraint_source"] == "generation_target_case_range"
 
 
 def test_build_review_decision_summary_payload_preserves_summary_counts_and_merge_priority() -> None:
@@ -1144,25 +870,10 @@ def test_build_review_decision_summary_payload_preserves_summary_counts_and_merg
         review_target_max_count=None,
         review_shortfall_detected=True,
         review_shortfall_before_count=1,
-        review_shortfall_recovered_count=1,
-        review_post_rerank_floor_count=None,
-        review_post_rerank_recovered_count=None,
-        final_target_floor_count=None,
-        final_floor_recovery_attempted=True,
-        final_floor_recovery_applied=False,
-        final_floor_recovered_count=None,
-        final_floor_recovery_reason=None,
-        final_confirmed_conflict_drop_count=None,
-        final_shortfall_supplement_attempted=True,
-        final_shortfall_supplement_applied=True,
-        final_shortfall_supplement_count=3,
-        final_shortfall_supplement_reason="expected_count_floor",
-        final_shortfall_supplement_debug={"batches": [{"response_chars": 100}]},
         generation_mode="standard_regression",
         effective_generation_coverage_mode_source="explicit",
         explicit_generation_mode_override=True,
         explicit_expected_count_floor_preserved=True,
-        review_fill_source=None,
         review_llm_selected_signatures={"sig-a", "sig-b"},
         review_llm_runtime_debug=runtime_debug,
         review_constraint_retained_signatures={"sig-c"},
@@ -1186,12 +897,6 @@ def test_build_review_decision_summary_payload_preserves_summary_counts_and_merg
     assert summary["review_input_size"] == 2
     assert summary["review_target_min_count"] == 1
     assert summary["review_target_max_count"] == 1
-    assert summary["review_post_rerank_floor_count"] == 1
-    assert summary["final_target_floor_count"] == 0
-    assert summary["final_floor_recovery_reason"] == ""
-    assert summary["final_confirmed_conflict_drop_count"] == 0
-    assert summary["final_shortfall_supplement_debug"] == {"batches": [{"response_chars": 100}]}
-    assert summary["review_fill_source"] == "none"
     assert summary["candidate_by_pass"] == {"primary": 6, "gap": 2}
     assert summary["drop_by_review_gate_count"] == 1
     assert summary["review_llm_runtime_debug"] == runtime_debug
@@ -1217,25 +922,10 @@ def test_build_review_decision_summary_payload_preserves_explicit_target_max_and
         review_target_max_count=5,
         review_shortfall_detected=False,
         review_shortfall_before_count=0,
-        review_shortfall_recovered_count=0,
-        review_post_rerank_floor_count=4,
-        review_post_rerank_recovered_count=2,
-        final_target_floor_count=6,
-        final_floor_recovery_attempted=False,
-        final_floor_recovery_applied=False,
-        final_floor_recovered_count=0,
-        final_floor_recovery_reason="",
-        final_confirmed_conflict_drop_count=2,
-        final_shortfall_supplement_attempted=False,
-        final_shortfall_supplement_applied=False,
-        final_shortfall_supplement_count=0,
-        final_shortfall_supplement_reason="",
-        final_shortfall_supplement_debug={},
         generation_mode=None,
         effective_generation_coverage_mode_source=None,
         explicit_generation_mode_override=False,
         explicit_expected_count_floor_preserved=False,
-        review_fill_source="constraint",
         review_llm_selected_signatures=[],
         review_llm_runtime_debug=runtime_debug,
         review_constraint_retained_signatures=[],
@@ -1252,8 +942,4 @@ def test_build_review_decision_summary_payload_preserves_explicit_target_max_and
     assert summary["dropped_total"] == 0
     assert summary["review_target_min_count"] == 3
     assert summary["review_target_max_count"] == 5
-    assert summary["review_post_rerank_floor_count"] == 4
-    assert summary["review_post_rerank_recovered_count"] == 2
-    assert summary["final_target_floor_count"] == 6
-    assert summary["final_confirmed_conflict_drop_count"] == 2
     assert summary["review_llm_runtime_debug"]["final_source"] == "fallback_llm"

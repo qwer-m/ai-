@@ -1,9 +1,82 @@
 from __future__ import annotations
 
+import json
+from collections import Counter
 from typing import Any, Callable
 
 
 AnalyzeCoverageFn = Callable[[str, list[dict[str, Any]]], dict[str, Any]]
+
+
+def build_case_semantic_retry_instruction(rejections: list[dict[str, Any]]) -> str:
+    """只汇总契约错误类型和字段，不把被拒用例正文重新塞回提示词。"""
+    reason_counts: Counter[str] = Counter()
+    item_reason_counts: Counter[str] = Counter()
+    missing_field_counts: Counter[str] = Counter()
+    for rejection in rejections if isinstance(rejections, list) else []:
+        if not isinstance(rejection, dict):
+            continue
+        for reason in rejection.get("rejection_reasons") or []:
+            text = str(reason or "").strip()
+            if text:
+                reason_counts[text] += 1
+        for item in rejection.get("rejected_semantic_items") or []:
+            if not isinstance(item, dict):
+                continue
+            item_type = str(item.get("item_type") or "semantic_item").strip()
+            reason = str(item.get("reason") or "invalid").strip()
+            item_reason_counts[f"{item_type}:{reason}"] += 1
+            for field in item.get("missing_or_invalid_fields") or []:
+                field_name = str(field or "").strip()
+                if field_name:
+                    missing_field_counts[field_name] += 1
+    summary = {
+        "rejected_case_count": int(len(rejections or [])),
+        "reason_counts": dict(reason_counts.most_common(16)),
+        "item_reason_counts": dict(item_reason_counts.most_common(16)),
+        "missing_field_counts": dict(missing_field_counts.most_common(16)),
+    }
+    return f"""
+# --- CASE SEMANTIC CONTRACT RETRY ---
+The previous cases were rejected by the strict case-semantic gate.
+Field-level feedback: {json.dumps(summary, ensure_ascii=False, separators=(",", ":"))}
+Regenerate complete case objects, not patches.
+For every module candidate, workflow stage candidate, precondition state, and produced state, include every required field shown in CASE OUTPUT CONTRACT.
+`evidence` must be an array containing an exact quote from that same case's public fields. `confidence` must be a positive number.
+Keep IDs aligned to the active requirement contract. Do not invent semantics and do not omit `_semantic`.
+""".strip()
+
+
+def build_required_stage_coverage_instruction(coverage: dict[str, Any] | None) -> str:
+    """只传递执行计划同口径确认的精确阶段缺口，不传递用例正文。"""
+    payload = dict(coverage or {})
+    if (
+        payload.get("active") is not True
+        or payload.get("source_generation_allowed") is not True
+    ):
+        return ""
+    missing_stages = [
+        {
+            "workflow_id": str(item.get("workflow_id") or "").strip(),
+            "stage_id": str(item.get("stage_id") or "").strip(),
+            "stage_kind": str(item.get("stage_kind") or "").strip(),
+            "stage_order": int(item.get("stage_order") or 0),
+        }
+        for item in (payload.get("missing_required_stages") or [])
+        if isinstance(item, dict)
+        and str(item.get("workflow_id") or "").strip()
+        and str(item.get("stage_id") or "").strip()
+    ]
+    if not missing_stages:
+        return ""
+    return f"""
+# --- REQUIRED WORKFLOW STAGE COVERAGE ---
+The accepted candidate set still misses these exact required workflow stages:
+{json.dumps(missing_stages, ensure_ascii=False, separators=(",", ":"))}
+Before generating independent cases, generate contract-valid candidates for these stages in stage_order.
+Copy workflow_id, stage_id, stage_kind, module_candidates, interaction_ids, required_states, and produced_states from the matching ACTIVE WORKFLOW SEMANTIC CATALOG entries.
+Each stage needs its own executable candidate. Do not infer IDs from case text and do not use an empty workflow_stage_candidates array for a matching required stage.
+""".strip()
 
 
 def extract_requirement_semantics_payload(prompt_context: dict[str, Any]) -> dict[str, list[str]]:
@@ -171,7 +244,6 @@ def build_stream_coverage_plan_lite(
     requirement_text: str,
     *,
     analyze_coverage_fn: AnalyzeCoverageFn,
-    max_rules: int = 16,
 ) -> tuple[str, list[dict[str, Any]]]:
     coverage_seed = analyze_coverage_fn(str(requirement_text or ""), [])
     diagnostics = [
@@ -179,7 +251,7 @@ def build_stream_coverage_plan_lite(
         for item in (coverage_seed.get("rule_diagnostics") or [])
         if isinstance(item, dict) and str(item.get("rule_text") or "").strip()
     ]
-    rules = diagnostics[: max(1, int(max_rules))]
+    rules = diagnostics
     if not rules:
         return "", []
     lines = [
@@ -190,7 +262,7 @@ def build_stream_coverage_plan_lite(
     for index, item in enumerate(rules, start=1):
         rule_text = str(item.get("rule_text") or "").strip()
         rule_id = str(item.get("rule_id") or f"RULE-{index:03d}").strip()
-        lines.append(f"{index}. {rule_id}: {rule_text[:180]}")
+        lines.append(f"{index}. {rule_id}: {rule_text}")
     lines.extend(
         [
             "Before adding a case, identify its validation goal internally.",

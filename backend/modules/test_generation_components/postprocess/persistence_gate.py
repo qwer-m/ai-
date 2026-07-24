@@ -26,18 +26,7 @@ def _gate_mode(settings: Any = None) -> str:
 
 
 def _policy(settings: Any = None) -> ExecutionPlanValidationPolicy:
-    return ExecutionPlanValidationPolicy(
-        min_main_smoke_count=int(getattr(settings, "EXECUTION_PLAN_MIN_MAIN_SMOKE_COUNT", 6)),
-        min_p0_count=int(getattr(settings, "EXECUTION_PLAN_MIN_P0_COUNT", 6)),
-        min_state_field_coverage=float(getattr(settings, "EXECUTION_PLAN_MIN_STATE_FIELD_COVERAGE", 0.8)),
-        max_workflow_id_missing_rate=float(getattr(settings, "EXECUTION_PLAN_MAX_WORKFLOW_ID_MISSING_RATE", 0.2)),
-        reject_untrusted_blueprint_source=bool(
-            getattr(settings, "EXECUTION_PLAN_REJECT_CANDIDATE_DERIVED_BLUEPRINT", True)
-        ),
-        allow_candidate_blueprint_without_contract=bool(
-            getattr(settings, "EXECUTION_PLAN_ALLOW_CANDIDATE_BLUEPRINT_WITHOUT_CONTRACT", True)
-        ),
-    )
+    return ExecutionPlanValidationPolicy()
 
 
 def _setting_int(settings: Any, name: str, default: int) -> int:

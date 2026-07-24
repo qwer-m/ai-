@@ -17,7 +17,7 @@ priority_semantics_module = importlib.import_module(
 )
 
 
-def test_score_case_priority_allows_p0_only_with_guard() -> None:
+def test_score_case_priority_requires_structured_guard_for_p0() -> None:
     case = {
         "description": "Login payment submit flow is blocked and release blocking.",
         "test_module": "payment",
@@ -29,8 +29,13 @@ def test_score_case_priority_allows_p0_only_with_guard() -> None:
     }
     score_result = score_case_priority(case)
     assert score_result["priority_score"] >= 70
-    assert score_result["suggested_priority"] == "P0"
-    assert any(score_result["guards"].values())
+    assert score_result["suggested_priority"] == "P1"
+    assert score_result["guards"]["case_level_hard_guard"] is False
+    assert score_result["guards"]["text_workflow_blocking_diagnostic"] is True
+
+    structured_result = score_case_priority({**case, "critical": True})
+    assert structured_result["suggested_priority"] == "P0"
+    assert structured_result["guards"]["case_level_hard_guard"] is True
 
 
 def test_resolve_case_priority_downgrades_model_p0_without_guard() -> None:

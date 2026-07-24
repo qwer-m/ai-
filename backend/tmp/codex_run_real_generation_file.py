@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import traceback
@@ -28,12 +30,14 @@ from routers.test_generation_routes.support import parse_requirement_for_generat
 PROJECT_ID = int(os.getenv("CODEX_REAL_PROJECT_ID", "2"))
 USER_ID = int(os.getenv("CODEX_REAL_USER_ID", "1"))
 EXPECTED_COUNT = int(os.getenv("CODEX_REAL_EXPECTED_COUNT", "80"))
-SOURCE_FILE = Path(
-    os.getenv(
-        "CODEX_REAL_SOURCE_FILE",
-        r"C:\Users\Administrator\Downloads\【天天练-功能】论坛优化.pdf",
-    )
-)
+OVERWRITE = os.getenv("CODEX_REAL_OVERWRITE", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+_SOURCE_FILE_VALUE = os.getenv("CODEX_REAL_SOURCE_FILE", "").strip()
+SOURCE_FILE = Path(_SOURCE_FILE_VALUE).expanduser() if _SOURCE_FILE_VALUE else None
 
 
 def _now() -> str:
@@ -46,6 +50,37 @@ def _print(kind: str, payload: object) -> None:
     else:
         text = json.dumps(payload, ensure_ascii=False, default=str)
     print(f"{_now()} {kind} {text}", flush=True)
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _code_version() -> str:
+    try:
+        revision = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT.parent,
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout.strip()
+        dirty = bool(
+            subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=ROOT.parent,
+                capture_output=True,
+                check=True,
+                text=True,
+            ).stdout.strip()
+        )
+        return f"{revision}+dirty" if dirty else revision
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
 
 
 def _case_count(raw: str) -> int:
@@ -83,6 +118,11 @@ def _compact_diag(payload: dict[str, Any]) -> dict[str, Any]:
         "quality_score",
         "quality_score_grade",
         "request_id",
+        "current_requirement_blueprint_error",
+        "payload_omitted_due_to_size",
+        "original_payload_size_bytes",
+        "fallback_summary_only",
+        "omitted_keys",
     )
     compact = {key: payload.get(key) for key in common_keys if key in payload}
     if kind == "prompt_context_intake":
@@ -127,9 +167,141 @@ def _compact_diag(payload: dict[str, Any]) -> dict[str, Any]:
                 "requirement_understanding_used",
                 "requirement_understanding_visual_fact_count",
                 "requirement_understanding_invalid_visual_block_count",
+                "semantic_compile_status",
+                "semantic_compile_success",
+                "semantic_compile_attempt_count",
+                "semantic_compile_candidate_attempt_count",
+                "semantic_compile_candidate_attempt_limit",
+                "semantic_compile_independent_recompile_limit",
+                "semantic_compile_independent_recompile_used",
+                "semantic_compile_independent_recompile_attempt",
+                "semantic_compile_independent_recompile_trigger_codes",
+                "semantic_compile_independent_recompile_outcome",
+                "semantic_compile_transport_retry_count",
+                "semantic_compile_transport_failure_count",
+                "semantic_compile_retry_used",
+                "semantic_compile_attempts",
+                "semantic_pipeline_failed_stage",
+                "fact_ledger_compile_status",
+                "fact_ledger_compile_success",
+                "fact_ledger_compile_candidate_attempt_count",
+                "fact_ledger_compile_physical_call_count",
+                "fact_ledger_compile_chunk_count",
+                "fact_ledger_compile_partition_group_count",
+                "fact_ledger_compile_oversized_partition_group_count",
+                "fact_ledger_compile_completed_chunk_count",
+                "fact_ledger_compile_failed_chunk_index",
+                "fact_ledger_compile_global_status",
+                "fact_ledger_compile_global_error_codes",
+                "fact_ledger_fact_count",
+                "scope_ledger_compile_status",
+                "scope_ledger_compile_success",
+                "scope_ledger_compile_candidate_attempt_count",
+                "scope_ledger_compile_physical_call_count",
+                "scope_ledger_binding_shard_count",
+                "scope_ledger_binding_oversized_fact_count",
+                "scope_ledger_binding_completed_shard_count",
+                "scope_ledger_binding_failed_shard_index",
+                "workflow_declaration_status",
+                "workflow_absence_declared",
+                "raw_workflow_candidate_count",
+                "normalized_workflow_count",
+                "rejected_workflow_count",
+                "verified_functional_module_count",
+                "requirement_semantic_graph_fact_count",
+                "requirement_semantic_graph_node_count",
+                "requirement_semantic_graph_edge_count",
+                "semantic_graph_rejections",
+                "semantic_graph_diagnostics",
+                "source_evidence_catalog",
+                "source_evidence_catalog_coverage",
             )
             if key in source_meta
         }
+    elif kind == "semantic_compilation_abort":
+        compact.update(
+            {
+                key: payload.get(key)
+                for key in (
+                    "abort_code",
+                    "message",
+                    "semantic_compile_status",
+                    "semantic_compile_attempt_count",
+                    "semantic_compile_candidate_attempt_count",
+                    "semantic_compile_candidate_attempt_limit",
+                    "semantic_compile_independent_recompile_limit",
+                    "semantic_compile_independent_recompile_used",
+                    "semantic_compile_independent_recompile_attempt",
+                    "semantic_compile_independent_recompile_trigger_codes",
+                    "semantic_compile_independent_recompile_outcome",
+                    "semantic_compile_transport_retry_count",
+                    "semantic_compile_transport_failure_count",
+                    "semantic_compile_retry_used",
+                    "semantic_compile_attempts",
+                    "semantic_compile_request_timeout_seconds",
+                    "semantic_compile_timeout_count",
+                    "semantic_compile_stop_reason",
+                    "workflow_declaration_status",
+                    "workflow_absence_declared",
+                    "raw_workflow_candidate_count",
+                    "normalized_workflow_count",
+                    "rejected_workflow_count",
+                    "workflow_rejection_reasons",
+                    "typed_state_rejections",
+                    "workflow_consistency_rejections",
+                    "verified_functional_module_count",
+                    "current_requirement_blueprint_error",
+                    "semantic_pipeline_failed_stage",
+                    "fact_ledger_compile_status",
+                    "fact_ledger_compile_success",
+                    "fact_ledger_compile_candidate_attempt_count",
+                    "fact_ledger_compile_candidate_attempt_limit",
+                    "fact_ledger_compile_physical_call_count",
+                    "fact_ledger_compile_transport_retry_count",
+                    "fact_ledger_compile_transport_failure_count",
+                    "fact_ledger_compile_fresh_candidate_used",
+                    "fact_ledger_compile_fresh_candidate_trigger_codes",
+                    "fact_ledger_compile_last_parseable_candidate_attempt",
+                    "fact_ledger_compile_last_parseable_candidate_status",
+                    "fact_ledger_compile_last_parseable_candidate_error_codes",
+                    "fact_ledger_compile_stop_reason",
+                    "fact_ledger_compile_chunked",
+                    "fact_ledger_compile_chunk_count",
+                    "fact_ledger_compile_chunk_limit",
+                    "fact_ledger_compile_chunk_budget_units",
+                    "fact_ledger_compile_catalog_budget_units",
+                    "fact_ledger_compile_partition_group_count",
+                    "fact_ledger_compile_oversized_partition_group_count",
+                    "fact_ledger_compile_completed_chunk_count",
+                    "fact_ledger_compile_failed_chunk_index",
+                    "fact_ledger_compile_chunk_summaries",
+                    "fact_ledger_compile_global_status",
+                    "fact_ledger_compile_global_error_codes",
+                    "scope_ledger_compile_status",
+                    "scope_ledger_compile_success",
+                    "scope_ledger_compile_candidate_attempt_count",
+                    "scope_ledger_compile_candidate_attempt_limit",
+                    "scope_ledger_compile_physical_call_count",
+                    "scope_ledger_compile_transport_retry_count",
+                    "scope_ledger_compile_transport_failure_count",
+                    "scope_ledger_compile_stop_reason",
+                    "scope_ledger_compile_global_status",
+                    "scope_ledger_compile_global_error_codes",
+                    "scope_ledger_binding_shard_count",
+                    "scope_ledger_binding_oversized_fact_count",
+                    "scope_ledger_binding_completed_shard_count",
+                    "scope_ledger_binding_failed_shard_index",
+                    "requirement_semantic_graph_fact_count",
+                    "requirement_semantic_graph_node_count",
+                    "requirement_semantic_graph_edge_count",
+                    "semantic_graph_rejections",
+                    "semantic_graph_diagnostics",
+                    "source_evidence_catalog",
+                    "source_evidence_catalog_coverage",
+                )
+                if key in payload
+            }
+        )
     elif kind == "persistence_gate":
         execution_validation = (
             payload.get("execution_plan_validation")
@@ -154,6 +326,8 @@ def _compact_diag(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _parse_file(db) -> tuple[str, dict[str, Any]]:
+    if SOURCE_FILE is None:
+        raise RuntimeError("必须设置 CODEX_REAL_SOURCE_FILE 指向真实需求文件")
     content_type = "application/pdf" if SOURCE_FILE.suffix.lower() == ".pdf" else "application/octet-stream"
     with SOURCE_FILE.open("rb") as fh:
         upload = UploadFile(
@@ -172,7 +346,9 @@ async def _parse_file(db) -> tuple[str, dict[str, Any]]:
 
 
 def main() -> None:
-    if not SOURCE_FILE.exists():
+    if SOURCE_FILE is None:
+        raise RuntimeError("必须设置 CODEX_REAL_SOURCE_FILE 指向真实需求文件")
+    if not SOURCE_FILE.is_file():
         raise FileNotFoundError(str(SOURCE_FILE))
 
     db = SessionLocal()
@@ -194,8 +370,11 @@ def main() -> None:
                 "project_id": PROJECT_ID,
                 "user_id": USER_ID,
                 "source_file": str(SOURCE_FILE),
+                "source_file_sha256": _file_sha256(SOURCE_FILE),
+                "code_version": _code_version(),
                 "before_max_generation_id": before_max_id,
                 "expected_count": EXPECTED_COUNT,
+                "overwrite": OVERWRITE,
                 "active_config": {
                     "id": getattr(active_config, "id", None),
                     "provider": getattr(active_config, "provider", None),
@@ -261,7 +440,7 @@ def main() -> None:
             compress=True,
             expected_count=EXPECTED_COUNT,
             batch_size=10,
-            overwrite=True,
+            overwrite=OVERWRITE,
             append=False,
             user_id=USER_ID,
             current_biz_key="",

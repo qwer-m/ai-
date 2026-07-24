@@ -2,6 +2,7 @@ import json
 from typing import Any
 
 from ..postprocess.streaming_execution_plan_ordering import execution_side_suite_order_text
+from .case_semantic_schema import render_case_semantic_output_contract
 
 
 def _render_structured_strategy(plan: dict[str, Any]) -> str:
@@ -42,6 +43,7 @@ def build_closed_loop_base_prompt(
     control_context = (control_context or "").strip()
     current_biz_key = (current_biz_key or "").strip() or "unknown"
     side_suite_order = execution_side_suite_order_text()
+    case_semantic_contract = render_case_semantic_output_contract()
     control_block = ""
     if control_context and control_context.lower() != "(empty)":
         control_block = f"""
@@ -299,9 +301,9 @@ Constraints:
 
 - 输出必须是一个 JSON 数组（无任何额外文本）
 - 禁止 Markdown / 解释 / 代码块
-- 每个元素必须包含 EXACT 字段：
+- 每个元素必须遵守以下统一用例契约：
 
-id, description, test_module, preconditions, steps, test_input, expected_result, priority
+{case_semantic_contract}
 
 类型要求：
 - id: "TC-001"
@@ -312,6 +314,8 @@ id, description, test_module, preconditions, steps, test_input, expected_result,
 - test_input: string
 - expected_result: string
 - priority: "P0" | "P1" | "P2"
+
+- `_semantic` 只承载当前需求证据，不得复制其他 biz_key 的语义。
 
 --------------------------------
 

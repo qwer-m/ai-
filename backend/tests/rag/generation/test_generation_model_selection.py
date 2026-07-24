@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from core.ai.ai_client import AIClient
 
 
@@ -90,6 +92,67 @@ def test_empty_provider_response_is_explicit_error_and_not_success():
     result = client.generate_response("req", "sys", db=None, task_type="generation")
 
     assert result == "Error: Empty response from model deepseek-v4-flash"
+
+
+def test_json_shaped_cache_hit_preserves_generate_response_text_contract(monkeypatch):
+    provider = _DummyProvider()
+    client = AIClient(provider=provider)
+    client.model = "glm-5.1"
+    cached_payload = {
+        "semantic_contract_version": "requirement-semantic-v1",
+        "workflow_blueprints": [],
+    }
+    cached_value = client._build_l4_cache_value(
+        json.dumps(cached_payload, ensure_ascii=False),
+        {
+            "finish_reason": "stop",
+            "response_status": "completed",
+        },
+    )
+    monkeypatch.setattr(
+        "core.ai.ai_client_impl.cache_service.get",
+        lambda *args, **kwargs: cached_value,
+    )
+
+    result = client.generate_response(
+        "真实需求正文",
+        "编译需求语义",
+        db=object(),
+        task_type="generation",
+    )
+
+    assert isinstance(result, str)
+    assert json.loads(result) == cached_payload
+    assert client.last_response_metadata["cached"] is True
+    assert provider.last_generate_model == ""
+
+
+def test_empty_json_array_cache_hit_is_not_treated_as_cache_miss(monkeypatch):
+    provider = _DummyProvider()
+    client = AIClient(provider=provider)
+    client.model = "glm-5.1"
+    cached_value = client._build_l4_cache_value(
+        "[]",
+        {
+            "finish_reason": "stop",
+            "response_status": "completed",
+        },
+    )
+    monkeypatch.setattr(
+        "core.ai.ai_client_impl.cache_service.get",
+        lambda *args, **kwargs: cached_value,
+    )
+
+    result = client.generate_response(
+        "真实需求正文",
+        "编译需求语义",
+        db=object(),
+        task_type="generation",
+    )
+
+    assert result == "[]"
+    assert client.last_response_metadata["cached"] is True
+    assert provider.last_generate_model == ""
 
 
 def test_compression_falls_back_to_main_provider_when_turbo_provider_fails():

@@ -10,7 +10,7 @@ def _case_signature(case: dict[str, object]) -> str:
     return str(case.get("case_signature") or "")
 
 
-def test_preserve_review_priority_demotions_restores_matching_review_downgrades_to_p1() -> None:
+def test_preserve_review_priority_demotions_ignores_removed_anchor_source() -> None:
     parsed_result = [
         {"case_signature": "case-a", "priority": "P0", "priority_final": "P0"},
         {"case_signature": "case-b", "priority": "P0", "priority_final": "P0"},
@@ -34,12 +34,11 @@ def test_preserve_review_priority_demotions_restores_matching_review_downgrades_
         case_signature_fn=_case_signature,
     )
 
-    assert [case["priority"] for case in restored] == ["P1", "P1"]
-    assert [case["priority_final"] for case in restored] == ["P1", "P1"]
-    assert {case["priority_decision_state"] for case in restored} == {"overridden"}
-    assert {case["priority_decision_source"] for case in restored} == {
-        "review_model_p0_demotion_preserved"
-    }
+    assert [case["priority"] for case in restored] == ["P1", "P0"]
+    assert [case["priority_final"] for case in restored] == ["P1", "P0"]
+    assert restored[0]["priority_decision_state"] == "overridden"
+    assert restored[0]["priority_decision_source"] == "review_model_p0_demotion_preserved"
+    assert "priority_decision_source" not in restored[1]
 
 
 def test_preserve_review_priority_demotions_returns_dict_copies_without_matches() -> None:

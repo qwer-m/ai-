@@ -6,17 +6,12 @@ from .case_access import case_flat_text
 from .execution_plan_validation_tokens import _STATE_FIELD_NAMES
 
 
-_PRECONDITION_STATE_FAMILIES: dict[str, tuple[str, ...]] = {
-    "approval": ("审核通过", "审批通过", "已审核", "approved", "approval passed"),
-    "rejection": ("审核失败", "审核不通过", "审批拒绝", "rejected", "approval failed"),
-    "message": ("系统消息", "通知消息", "message", "notification"),
-    "published": ("已发布", "发布成功", "published", "publication"),
-    "submitted": ("已提交", "提交成功", "submitted", "submit success"),
-    "saved": ("已保存", "保存成功", "saved", "save success"),
-    "completed": ("已完成", "completed", "completion"),
-    "generated": ("已生成", "生成成功", "generated"),
-    "purchased": ("已购买", "购买成功", "purchased", "payment success"),
-    "unlocked": ("已解锁", "开通成功", "unlocked", "activated"),
+_UNKNOWN_STATE_SOURCES = {"", "unknown", "unspecified", "uncertain"}
+_PREVIOUS_STAGE_SOURCES = {"previous_stage", "previous_step", "upstream_stage"}
+_NEGATIVE_POLARITIES = {"negative", "negated", "absent", "false", "not"}
+_CURRENT_STAGE_TEMPORAL_ORDER = {
+    "during_case": 1,
+    "after_case": 2,
 }
 
 
@@ -72,21 +67,223 @@ def _case_semantic_text(case: dict[str, Any]) -> str:
     )
 
 
-def _flatten_text(value: Any) -> str:
-    if isinstance(value, dict):
-        return " ".join(_flatten_text(item) for item in value.values())
-    if isinstance(value, (list, tuple, set)):
-        return " ".join(_flatten_text(item) for item in value)
-    return _text(value)
+def _normalized_token(value: Any) -> str:
+    return _text(value).lower().replace("-", "_").replace(" ", "_")
 
 
-def _state_families(text: str) -> set[str]:
-    lowered = str(text or "").lower()
-    return {
-        family
-        for family, tokens in _PRECONDITION_STATE_FAMILIES.items()
-        if any(str(token).lower() in lowered for token in tokens)
-    }
+def _semantic_payload(case: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(case, dict):
+        return {}
+    payload = case.get("_semantic")
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _normalized_state_records(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    records: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+    for raw_item in value:
+        if not isinstance(raw_item, dict):
+            continue
+        entity = _normalized_token(raw_item.get("entity"))
+        state = _normalized_token(raw_item.get("state"))
+        if not entity or not state:
+            continue
+        source = _normalized_token(raw_item.get("source"))
+        scope = _normalized_token(raw_item.get("scope"))
+        polarity = _normalized_token(raw_item.get("polarity")) or "positive"
+        key = (entity, state, source, scope, polarity)
+        if key in seen:
+            continue
+        seen.add(key)
+        records.append(
+            {
+                "entity": entity,
+                "state": state,
+                "source": source,
+                "scope": scope,
+                "polarity": polarity,
+                "temporal": _normalized_token(raw_item.get("temporal")),
+            }
+        )
+    return records
+
+
+def _state_record_items(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
+
+
+def _positive_confidence(value: Any) -> bool:
+    try:
+        return float(value) > 0.0
+    except (TypeError, ValueError):
+        return False
+
+
+def _verified_semantic_state_items(value: Any) -> list[dict[str, Any]]:
+    return [
+        dict(item)
+        for item in _state_record_items(value)
+        if item.get("evidence_verified") is True
+        and _positive_confidence(item.get("confidence"))
+    ]
+
+
+def typed_precondition_states(
+    case: dict[str, Any] | None,
+    *,
+    step_meta: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    semantic = _semantic_payload(case)
+    return _normalized_state_records(
+        [
+            *_verified_semantic_state_items(semantic.get("precondition_states")),
+            *_state_record_items((step_meta or {}).get("required_states")),
+        ]
+    )
+
+
+def typed_produced_states(
+    case: dict[str, Any] | None,
+    *,
+    step_meta: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    semantic = _semantic_payload(case)
+    return _normalized_state_records(
+        [
+            *_verified_semantic_state_items(semantic.get("produced_states")),
+            *_state_record_items((step_meta or {}).get("produced_states")),
+        ]
+    )
+
+
+def _typed_state_satisfies(required: dict[str, Any], actual: dict[str, Any]) -> bool:
+    if not _same_typed_state(required, actual):
+        return False
+    for field in ("source", "scope"):
+        expected = str(required.get(field) or "")
+        if expected and expected not in _UNKNOWN_STATE_SOURCES and expected != str(actual.get(field) or ""):
+            return False
+    expected_temporal = str(required.get("temporal") or "")
+    actual_temporal = str(actual.get("temporal") or "")
+    if expected_temporal and expected_temporal not in _UNKNOWN_STATE_SOURCES:
+        if expected_temporal == actual_temporal:
+            return True
+        source = str(required.get("source") or actual.get("source") or "")
+        if source == "current_stage":
+            expected_rank = _CURRENT_STAGE_TEMPORAL_ORDER.get(expected_temporal)
+            actual_rank = _CURRENT_STAGE_TEMPORAL_ORDER.get(actual_temporal)
+            if expected_rank is not None and actual_rank is not None:
+                return actual_rank >= expected_rank
+        if (
+            source in _PREVIOUS_STAGE_SOURCES
+            and expected_temporal == "after_previous_stage"
+            and actual_temporal == "before_case"
+        ):
+            return True
+        return False
+    return True
+
+
+def typed_state_contract_conflicts(
+    case: dict[str, Any],
+    *,
+    step_meta: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """校验模型声明的实体状态是否覆盖当前 workflow step 的 typed-state 契约。"""
+    semantic = _semantic_payload(case)
+    actual_preconditions = _normalized_state_records(
+        _verified_semantic_state_items(semantic.get("precondition_states"))
+    )
+    actual_produced = _normalized_state_records(
+        _verified_semantic_state_items(semantic.get("produced_states"))
+    )
+    declared_preconditions = _normalized_state_records(
+        _state_record_items(step_meta.get("required_states"))
+    )
+    declared_produced = _normalized_state_records(
+        _state_record_items(step_meta.get("produced_states"))
+    )
+    conflicts: list[dict[str, Any]] = []
+    for semantic_key, actual, declared in (
+        ("precondition_states", actual_preconditions, declared_preconditions),
+        ("produced_states", actual_produced, declared_produced),
+    ):
+        for expected in declared:
+            if any(_typed_state_satisfies(expected, observed) for observed in actual):
+                continue
+            conflicts.append(
+                {
+                    "reason": f"case_{semantic_key}_missing_workflow_contract_state",
+                    "entity": str(expected.get("entity") or ""),
+                    "state": str(expected.get("state") or ""),
+                    "source": str(expected.get("source") or ""),
+                    "scope": str(expected.get("scope") or ""),
+                    "polarity": str(expected.get("polarity") or "positive"),
+                    "temporal": str(expected.get("temporal") or ""),
+                }
+            )
+    return conflicts
+
+
+def unknown_precondition_source_count(
+    case: dict[str, Any],
+    *,
+    step_meta: dict[str, Any] | None = None,
+) -> int:
+    return sum(
+        1
+        for state in typed_precondition_states(case, step_meta=step_meta)
+        if str(state.get("source") or "") in _UNKNOWN_STATE_SOURCES
+    )
+
+
+def _same_typed_state(required: dict[str, Any], produced: dict[str, Any]) -> bool:
+    if required.get("entity") != produced.get("entity") or required.get("state") != produced.get("state"):
+        return False
+    required_scope = str(required.get("scope") or "")
+    produced_scope = str(produced.get("scope") or "")
+    if required_scope and produced_scope and required_scope != produced_scope:
+        return False
+    required_negative = str(required.get("polarity") or "") in _NEGATIVE_POLARITIES
+    produced_negative = str(produced.get("polarity") or "") in _NEGATIVE_POLARITIES
+    return required_negative == produced_negative
+
+
+def main_chain_precondition_conflicts(
+    previous_case: dict[str, Any] | None,
+    current_case: dict[str, Any],
+    *,
+    previous_step_meta: dict[str, Any] | None = None,
+    current_step_meta: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    required_states = [
+        state
+        for state in _normalized_state_records(
+            _state_record_items((current_step_meta or {}).get("required_states"))
+        )
+        if str(state.get("source") or "") in _PREVIOUS_STAGE_SOURCES
+    ]
+    if not required_states:
+        return []
+    produced_states = _normalized_state_records(
+        _state_record_items((previous_step_meta or {}).get("produced_states"))
+    )
+    return [
+        {
+            "reason": "precondition_state_not_produced_by_previous_stage",
+            "entity": str(required.get("entity") or ""),
+            "state": str(required.get("state") or ""),
+            "scope": str(required.get("scope") or ""),
+            "polarity": str(required.get("polarity") or "positive"),
+            "source": "previous_stage",
+        }
+        for required in required_states
+        if not any(_same_typed_state(required, produced) for produced in produced_states)
+    ]
 
 
 def main_chain_precondition_conflict_reason(
@@ -96,34 +293,16 @@ def main_chain_precondition_conflict_reason(
     previous_step_meta: dict[str, Any] | None = None,
     current_step_meta: dict[str, Any] | None = None,
 ) -> str:
-    """校验当前用例声明的关键前置状态是否由上一阶段或蓝图动作产生。"""
-    if not isinstance(previous_case, dict) or not isinstance(current_case, dict):
+    """只校验明确声明为上一阶段来源的结构化实体状态。"""
+    if not isinstance(current_case, dict):
         return ""
-    precondition_text = _flatten_text(current_case.get("preconditions"))
-    required_families = _state_families(precondition_text)
-    if not required_families:
-        return ""
-    previous_meta = dict(previous_step_meta or {})
-    current_meta = dict(current_step_meta or {})
-    evidence_text = " ".join(
-        [
-            _flatten_text(previous_case.get("description")),
-            _flatten_text(previous_case.get("steps")),
-            _flatten_text(previous_case.get("expected_result")),
-            _flatten_text(previous_meta.get("action")),
-            _flatten_text(previous_meta.get("assertion")),
-            _flatten_text(previous_meta.get("state_out")),
-            _flatten_text(current_meta.get("action")),
-            _flatten_text(current_meta.get("assertion")),
-            _flatten_text(current_meta.get("state_in")),
-        ]
+    conflicts = main_chain_precondition_conflicts(
+        previous_case,
+        current_case,
+        previous_step_meta=previous_step_meta,
+        current_step_meta=current_step_meta,
     )
-    produced_families = _state_families(evidence_text)
-    return (
-        "precondition_state_not_produced_by_previous_stage"
-        if required_families - produced_families
-        else ""
-    )
+    return str(conflicts[0].get("reason") or "") if conflicts else ""
 
 
 def materialize_final_case_state_fields(cases: Any) -> Any:

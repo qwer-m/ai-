@@ -369,7 +369,6 @@ def test_apply_final_independent_case_ordering_applies_successful_governance_ord
     assert calls[0]["project_profile"]["scenario_cluster_policy"] == {
         "existing": "kept",
         "disable_scenario_pruning": True,
-        "intent_duplicate_cap": 1_000_000,
         "final_order_only": True,
     }
 

@@ -4,6 +4,40 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from modules.test_generation_components.prompting.structured_context import build_structured_prompt_context
+from modules.test_generation_components.prompting.structured_control_context import _build_control_context
+from modules.test_generation_components.control.project_profile_activation import normalize_project_profile
+
+
+def test_control_context_keeps_tail_architecture_after_large_rule_catalog() -> None:
+    rules = [f"RULE-{index:03d}: {'x' * 100}" for index in range(100)]
+    control_context, _ = _build_control_context(
+        control_state={
+            "must_cover_rules": rules,
+            "source_meta": {
+                "project_profile": {
+                    "profile_source": "current_requirement",
+                    "functional_architecture": {
+                        "functional_modules": [
+                            {"module_key": "source", "module_name": "Source Module"},
+                            {"module_key": "target", "module_name": "Target Module"},
+                        ],
+                        "module_interactions": [
+                            {
+                                "interaction_id": "source_to_target",
+                                "source_module": "Source Module",
+                                "target_module": "Target Module",
+                                "trigger": "verified trigger",
+                            }
+                        ],
+                    },
+                }
+            },
+        }
+    )
+
+    assert len(control_context) > 6000
+    assert "### FUNCTIONAL MODULE CONTRACT" in control_context
+    assert "[source_to_target] Source Module -> Target Module" in control_context
 
 
 def test_structured_context_groups_requirement_and_supplement_by_biz_key() -> None:
@@ -245,11 +279,23 @@ def test_control_context_includes_preferred_patterns() -> None:
     assert "### PREFERRED PATTERNS" in output["control_context"]
     assert "deterministic settlement assertion chain" in output["control_context"]
     assert int(output["control_summary"].get("preferred_patterns_count") or 0) == 1
-    assert "### PREFERRED PATTERN QUOTA (AB)" in output["control_context"]
-    assert output["control_summary"].get("preferred_quota_variant") == "B"
+    assert "PREFERRED PATTERN QUOTA" not in output["control_context"]
+    assert "Must generate at least" not in output["control_context"]
 
 
-def test_control_context_includes_manual_quality_profile() -> None:
+def test_project_profile_does_not_invent_a_default_scenario_cap() -> None:
+    profile = normalize_project_profile(
+        {
+            "functional_architecture": {
+                "functional_modules": [{"module_name": "发布区"}],
+            }
+        }
+    )
+
+    assert profile["scenario_cluster_policy"] == {}
+
+
+def test_manual_quality_profile_is_diagnostic_only() -> None:
     output = build_structured_prompt_context(
         requirement="recent course schedule regression",
         feedback_control_state={
@@ -273,10 +319,11 @@ def test_control_context_includes_manual_quality_profile() -> None:
     )
 
     context = output["control_context"]
-    assert "### MANUAL QUALITY PROFILE" in context
-    assert "target P0/P1 ratio: about 83%" in context
-    assert "display-only cap: <= 25%" in context
-    assert "本周课程模块" in context
+    assert "MANUAL QUALITY PROFILE" not in context
+    assert "target P0/P1 ratio" not in context
+    assert "display-only cap" not in context
+    assert output["control_summary"]["manual_quality_profile_high_priority_ratio"] == 0.83
+    assert output["control_summary"]["manual_quality_profile_display_ratio_cap"] == 0.25
 
 
 def test_control_context_includes_workflow_blueprints() -> None:
@@ -287,9 +334,22 @@ def test_control_context_includes_workflow_blueprints() -> None:
                 {
                     "id": "checkout_flow",
                     "name": "checkout flow",
+                    "required_stage_ids": ["submit", "verify"],
+                    "terminal_states": ["paid"],
                     "steps": [
-                        {"id": "submit", "label": "Submit order"},
-                        {"id": "verify", "label": "Verify paid status"},
+                        {
+                            "id": "submit",
+                            "stage_kind": "commit",
+                            "label": "Submit order",
+                            "required": True,
+                        },
+                        {
+                            "id": "verify",
+                            "stage_kind": "completion_sync",
+                            "label": "Verify paid status",
+                            "required": True,
+                            "terminal": True,
+                        },
                     ],
                 }
             ]
@@ -297,15 +357,22 @@ def test_control_context_includes_workflow_blueprints() -> None:
     )
 
     assert "### WORKFLOW BLUEPRINTS" in output["control_context"]
-    assert "checkout flow: Submit order -> Verify paid status" in output["control_context"]
+    assert "checkout flow: commit / Submit order -> completion_sync / Verify paid status" in output[
+        "control_context"
+    ]
     assert "### GENERATION EXECUTION PLAN" in output["control_context"]
     assert "* Generate main-chain cases first" in output["control_context"]
-    assert "  1. submit / Submit order" in output["control_context"]
-    assert "  2. verify / Verify paid status" in output["control_context"]
+    assert "workflow_id=checkout_flow; name=checkout flow" in output["control_context"]
+    assert "  1. stage_id=submit / commit / Submit order" in output["control_context"]
+    assert "  2. stage_id=verify / completion_sync / Verify paid status" in output["control_context"]
+    assert "### ACTIVE WORKFLOW SEMANTIC CATALOG" in output["control_context"]
+    assert '"workflow_id":"checkout_flow"' in output["control_context"]
+    assert "a workflow_name is never a workflow_id" in output["control_context"]
     assert "permission/security -> exception/recovery -> boundary/state rollback" in output["control_context"]
     assert int(output["control_summary"].get("workflow_blueprint_count") or 0) == 1
     assert int(output["control_summary"].get("generation_execution_plan_blueprint_count") or 0) == 1
     assert int(output["control_summary"].get("generation_execution_plan_step_count") or 0) == 2
+    assert output["control_summary"]["active_workflow_semantic_catalog_count"] == 1
     assert output["control_summary"].get("generation_execution_independent_suite_order") == [
         "permission/security",
         "exception/recovery",
@@ -313,6 +380,305 @@ def test_control_context_includes_workflow_blueprints() -> None:
         "independent functional",
         "UI/display",
     ]
+
+
+def test_control_context_keeps_complete_publishable_semantic_graph_contract() -> None:
+    control_context, summary = _build_control_context(
+        control_state={
+            "workflow_blueprints": [
+                {
+                    "id": "submit_flow",
+                    "steps": [
+                        {
+                            "id": "submit",
+                            "stage_kind": "commit",
+                            "label": "Submit order",
+                            "graph_node_id": "submit_capability",
+                            "fact_ids": ["f_submit"],
+                            "scope_candidates": [
+                                {
+                                    "scope_id": "order_scope",
+                                    "role": "primary",
+                                    "fact_ids": ["f_submit"],
+                                }
+                            ],
+                            "graph_relation_ids": [
+                                "order_owns_submit",
+                                "submit_to_review",
+                            ],
+                        },
+                        {
+                            "id": "review",
+                            "stage_kind": "consume",
+                            "label": "Review order",
+                            "graph_node_id": "review_capability",
+                            "fact_ids": ["f_review"],
+                            "scope_candidates": [
+                                {
+                                    "scope_id": "order_scope",
+                                    "role": "primary",
+                                    "fact_ids": ["f_review"],
+                                }
+                            ],
+                            "graph_relation_ids": [
+                                "order_owns_review",
+                                "submit_to_review",
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "source_meta": {
+                "requirement_semantic_contract": {
+                    "semantic_contract_version": "requirement-semantic-v2",
+                    "evidence_facts": [
+                        {
+                            "fact_id": "f_submit",
+                            "statement": "User submits an order",
+                            "requirement_level": "required",
+                            "priority": "p1",
+                            "testability": "testable",
+                        },
+                        {
+                            "fact_id": "f_review",
+                            "statement": "Reviewer checks the submitted order",
+                            "requirement_level": "required",
+                            "priority": "p1",
+                            "testability": "testable",
+                        }
+                    ],
+                    "semantic_graph_validation": {"publishable": True},
+                    "semantic_graph": {
+                        "graph_version": "requirement-semantic-graph-v1",
+                        "nodes": [
+                            {
+                                "node_id": "order_scope",
+                                "kind": "scope",
+                                "name": "Order",
+                                "scope_status": "in_scope",
+                                "boundary_status": "resolved",
+                                "workflow_role": "none",
+                                "fact_ids": ["f_submit"],
+                            },
+                            {
+                                "node_id": "submit_capability",
+                                "kind": "capability",
+                                "name": "Submit order",
+                                "scope_status": "",
+                                "boundary_status": "resolved",
+                                "workflow_role": "entry",
+                                "fact_ids": ["f_submit"],
+                            },
+                            {
+                                "node_id": "review_capability",
+                                "kind": "capability",
+                                "name": "Review order",
+                                "scope_status": "",
+                                "boundary_status": "resolved",
+                                "workflow_role": "terminal",
+                                "fact_ids": ["f_review"],
+                            },
+                        ],
+                        "edges": [
+                            {
+                                "edge_id": "order_owns_submit",
+                                "type": "owns",
+                                "source_node_id": "order_scope",
+                                "target_node_id": "submit_capability",
+                                "trigger": "",
+                                "result_state": "",
+                                "transferred_entity_node_ids": [],
+                                "fact_ids": ["f_submit"],
+                            },
+                            {
+                                "edge_id": "order_owns_review",
+                                "type": "owns",
+                                "source_node_id": "order_scope",
+                                "target_node_id": "review_capability",
+                                "trigger": "",
+                                "result_state": "",
+                                "transferred_entity_node_ids": [],
+                                "fact_ids": ["f_review"],
+                            },
+                            {
+                                "edge_id": "submit_to_review",
+                                "type": "transitions",
+                                "source_node_id": "submit_capability",
+                                "target_node_id": "review_capability",
+                                "trigger": "Order submitted",
+                                "result_state": "Review available",
+                                "transferred_entity_node_ids": [],
+                                "fact_ids": ["f_review"],
+                            }
+                        ],
+                        "primary_flow": {
+                            "node_ids": [
+                                "submit_capability",
+                                "review_capability",
+                            ],
+                            "edge_ids": ["submit_to_review"],
+                        },
+                    },
+                }
+            },
+        }
+    )
+
+    assert "### ACTIVE SEMANTIC GRAPH CATALOG" in control_context
+    assert '"graph_node_id":"submit_capability"' in control_context
+    assert '"graph_relation_ids":["order_owns_submit","submit_to_review"]' in control_context
+    assert '"edge_id":"order_owns_submit","type":"owns"' in control_context
+    assert '"fact_id":"f_review"' in control_context
+    assert '"node_id":"review_capability"' in control_context
+    assert '"edge_id":"order_owns_review"' in control_context
+    assert '"primary_flow":{"node_ids":["submit_capability","review_capability"],"edge_ids":["submit_to_review"]}' in control_context
+    assert summary["active_semantic_graph_fact_count"] == 2
+    assert summary["active_semantic_graph_node_count"] == 3
+    assert summary["active_semantic_graph_edge_count"] == 3
+
+
+def test_control_context_keeps_independent_graph_and_items_beyond_sixty_four() -> None:
+    item_count = 65
+    control_context, summary = _build_control_context(
+        control_state={
+            "source_meta": {
+                "requirement_semantic_contract": {
+                    "semantic_contract_version": "requirement-semantic-v2",
+                    "evidence_facts": [
+                        {
+                            "fact_id": f"f_{index:03d}",
+                            "statement": f"Requirement fact {index:03d}",
+                            "requirement_level": "required",
+                            "priority": "p1",
+                            "testability": "testable",
+                        }
+                        for index in range(item_count)
+                    ],
+                    "semantic_graph_validation": {"publishable": True},
+                    "semantic_graph": {
+                        "graph_version": "requirement-semantic-graph-v1",
+                        "nodes": [
+                            {
+                                "node_id": f"node_{index:03d}",
+                                "kind": "capability",
+                                "name": f"Capability {index:03d}",
+                                "scope_status": "in_scope",
+                                "boundary_status": "resolved",
+                                "workflow_role": "none",
+                                "fact_ids": [f"f_{index:03d}"],
+                            }
+                            for index in range(item_count)
+                        ],
+                        "edges": [
+                            {
+                                "edge_id": f"edge_{index:03d}",
+                                "type": "depends_on",
+                                "source_node_id": f"node_{index:03d}",
+                                "target_node_id": f"node_{(index + 1) % item_count:03d}",
+                                "trigger": "",
+                                "result_state": "",
+                                "transferred_entity_node_ids": [],
+                                "fact_ids": [f"f_{index:03d}"],
+                            }
+                            for index in range(item_count)
+                        ],
+                        "primary_flow": {"node_ids": [], "edge_ids": []},
+                    },
+                }
+            }
+        }
+    )
+
+    assert "### ACTIVE SEMANTIC GRAPH CATALOG" in control_context
+    assert '"fact_id":"f_064"' in control_context
+    assert '"node_id":"node_064"' in control_context
+    assert '"edge_id":"edge_064"' in control_context
+    assert '"primary_flow":{"node_ids":[],"edge_ids":[]}' in control_context
+    assert summary["workflow_blueprint_count"] == 0
+    assert summary["active_semantic_graph_fact_count"] == item_count
+    assert summary["active_semantic_graph_node_count"] == item_count
+    assert summary["active_semantic_graph_edge_count"] == item_count
+
+
+def test_control_context_rejects_stale_graph_even_with_old_publishable_flag() -> None:
+    control_context, summary = _build_control_context(
+        control_state={
+            "source_meta": {
+                "requirement_semantic_contract": {
+                    "semantic_contract_version": "requirement-semantic-v2",
+                    "evidence_facts": [{"fact_id": "f_stale", "statement": "stale"}],
+                    "semantic_graph_validation": {"publishable": True},
+                    "semantic_graph": {
+                        "graph_version": "unsupported-version",
+                        "nodes": [
+                            {
+                                "node_id": "stale_node",
+                                "kind": "constraint",
+                                "fact_ids": ["f_stale"],
+                            }
+                        ],
+                        "edges": [],
+                    },
+                }
+            }
+        }
+    )
+
+    assert "### ACTIVE SEMANTIC GRAPH CATALOG" not in control_context
+    assert summary["active_semantic_graph_fact_count"] == 0
+    assert summary["active_semantic_graph_node_count"] == 0
+    assert summary["active_semantic_graph_edge_count"] == 0
+
+
+def test_active_workflow_catalog_keeps_typed_state_fact_identity() -> None:
+    control_context, _ = _build_control_context(
+        control_state={
+            "workflow_blueprints": [
+                {
+                    "id": "state_flow",
+                    "steps": [
+                        {
+                            "id": "state_step",
+                            "stage_kind": "commit",
+                            "label": "提交状态",
+                            "required_states": [
+                                {
+                                    "entity": "content",
+                                    "state": "ready",
+                                    "source": "external_fixture",
+                                    "scope": "entity",
+                                    "polarity": "positive",
+                                    "temporal": "before_case",
+                                    "fact_ids": ["f_content_ready"],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+
+    assert '"fact_ids":["f_content_ready"]' in control_context
+
+
+def test_control_context_keeps_workflow_steps_beyond_old_twelve_step_limit() -> None:
+    steps = [
+        {"id": f"stage_{index:02d}", "label": f"Stage {index:02d}"}
+        for index in range(1, 14)
+    ]
+
+    output = build_structured_prompt_context(
+        requirement="REQ: execute all declared workflow stages",
+        feedback_control_state={
+            "workflow_blueprints": [
+                {"id": "long_flow", "name": "long flow", "steps": steps}
+            ]
+        },
+    )
+
+    assert "stage_id=stage_13 / Stage 13" in output["control_context"]
+    assert output["control_summary"]["generation_execution_plan_step_count"] == 13
 
 
 def test_structured_context_builds_fact_and_project_profiles() -> None:
@@ -343,13 +709,21 @@ def test_structured_context_builds_fact_and_project_profiles() -> None:
     )
 
     assert output["fact_profile"]["confirmed_facts"]
-    assert any("must not include archived records" in item.lower() for item in output["fact_profile"]["confirmed_facts"])
+    requirement_semantics = [
+        *output["fact_profile"]["confirmed_facts"],
+        *output["fact_profile"]["scoped_rules"],
+    ]
+    assert any(
+        "must not include archived records" in item.lower()
+        for item in requirement_semantics
+    )
     assert output["fact_profile"]["forbidden_facts"] == []
     assert output["project_profile"]["flow_outline"]["flow_order"]
-    assert output["project_profile"]["flow_outline"]["data_flow_edges"]
+    assert output["project_profile"]["flow_outline"]["data_flow_edges"] == []
+    assert output["project_profile"]["scenario_cluster_policy"] == {}
     assert "### FACT PROFILE" in output["control_context"]
     assert "### PROJECT STRUCTURE PROFILE" in output["control_context"]
-    assert "* data-flow edges:" in output["control_context"]
+    assert "* data-flow edges:" not in output["control_context"]
     assert output["feedback_control_state"]["source_meta"]["fact_profile"]["forbidden_facts"] == []
     assert output["feedback_control_state"]["source_meta"]["project_profile"]["flow_outline"]["flow_order"]
 
@@ -377,7 +751,7 @@ def test_structured_context_excludes_requirement_parse_diagnostics_from_fact_pro
     assert "信息被隐藏" not in merged
 
 
-def test_control_context_applies_preferred_quota_ab_variant(monkeypatch) -> None:
+def test_legacy_preferred_quota_env_does_not_turn_soft_patterns_into_a_quota(monkeypatch) -> None:
     monkeypatch.setenv("TESTGEN_ENABLE_STRONG_PREFERRED_QUOTA_AB", "true")
     monkeypatch.setenv("TESTGEN_PREFERRED_FLOW_CASE_QUOTA", "2")
     monkeypatch.setenv("TESTGEN_UI_CASE_RATIO_CAP", "0.4")
@@ -388,25 +762,10 @@ def test_control_context_applies_preferred_quota_ab_variant(monkeypatch) -> None
         },
     )
 
-    assert "### PREFERRED PATTERN QUOTA (AB)" in output["control_context"]
-    assert "at least 2 workflow/state-transition cases" in output["control_context"]
-    assert "must not exceed 40%" in output["control_context"]
-    assert output["control_summary"].get("preferred_quota_variant") == "B"
-    assert int(output["control_summary"].get("preferred_flow_case_quota") or 0) == 2
-
-
-def test_control_context_can_disable_preferred_quota_variant_by_env(monkeypatch) -> None:
-    monkeypatch.setenv("TESTGEN_ENABLE_STRONG_PREFERRED_QUOTA_AB", "false")
-    output = build_structured_prompt_context(
-        requirement="REQ-903: legacy mode fallback",
-        feedback_control_state={
-            "preferred_patterns": ["legacy preferred pattern"],
-        },
-    )
-
     assert "### PREFERRED PATTERN QUOTA (AB)" not in output["control_context"]
-    assert output["control_summary"].get("preferred_quota_variant") == "A"
-    assert int(output["control_summary"].get("preferred_flow_case_quota") or 0) == 0
+    assert "at least 2 workflow/state-transition cases" not in output["control_context"]
+    assert "preferred_quota_variant" not in output["control_summary"]
+    assert "preferred_flow_case_quota" not in output["control_summary"]
 
 
 def test_structured_context_extracts_requirement_semantics_and_reuse_risks() -> None:

@@ -2,7 +2,10 @@ import json
 import time
 from typing import Any, Iterator
 
+from .batch_candidate_acceptance import accept_stream_batch_candidates
 from .batch_diagnostics import (
+    build_case_semantic_retry_instruction,
+    build_required_stage_coverage_instruction,
     build_case_signature as _build_case_signature,
     build_stream_batch_token_usage,
     build_stream_coverage_plan_lite as _build_stream_coverage_plan_lite,
@@ -18,9 +21,7 @@ from .batch_diagnostic_emitters import (
     emit_stream_batch_token_usage_diag as _emit_stream_batch_token_usage_diag_payload,
 )
 from .batch_flow_control import (
-    apply_functional_module_phase,
     build_existing_case_history,
-    build_functional_module_batch_plan,
     build_stream_batch_quality_metric,
     resolve_stream_batch_plan,
     select_complete_generated_cases,
@@ -35,11 +36,12 @@ from .batch_parallel_shards import (
 )
 from .batch_prompt_runtime import (
     append_history_to_testcase_context,
-    build_functional_module_instruction,
+    build_functional_architecture_instruction,
     build_recent_history_context,
     build_stream_batch_system_prompt,
 )
 from .runtime import LazyAttrProxy, call_component
+from ...control.semantic_contract import resolve_case_semantic_gate
 from ...postprocess.streaming_case_normalization import is_placeholder_expected_result
 
 
@@ -49,6 +51,26 @@ settings = LazyAttrProxy("core.settings.config", "settings")
 
 def analyze_coverage(*args: Any, **kwargs: Any) -> Any:
     return call_component("...coverage.coverage_analyzer", "analyze_coverage", *args, **kwargs)
+
+
+def evaluate_required_stage_candidate_coverage(*args: Any, **kwargs: Any) -> Any:
+    """运行到批次阶段时再加载执行计划，保持流式入口的轻量导入契约。"""
+    return call_component(
+        "...postprocess.streaming_execution_plan_metadata",
+        "evaluate_required_stage_candidate_coverage",
+        *args,
+        **kwargs,
+    )
+
+
+def enforce_functional_module_contract(*args: Any, **kwargs: Any) -> Any:
+    """延迟加载模块契约，避免流式入口导入后处理依赖树。"""
+    return call_component(
+        "...postprocess.module_contract",
+        "enforce_functional_module_contract",
+        *args,
+        **kwargs,
+    )
 
 
 def build_append_closed_loop_coverage_instruction(*args: Any, **kwargs: Any) -> Any:
@@ -106,6 +128,16 @@ def normalize_json_structure(*args: Any, **kwargs: Any) -> Any:
     return call_component("..adapters", "normalize_json_structure", *args, **kwargs)
 
 
+def project_persistable_cases(*args: Any, **kwargs: Any) -> Any:
+    return call_component("...postprocess.case_contract", "project_persistable_cases", *args, **kwargs)
+
+
+def _public_case_batch_json(cases: list[dict[str, Any]]) -> str:
+    """仅序列化公开用例字段，内部语义继续留在后处理数据流中。"""
+    public_cases = project_persistable_cases(cases)
+    return json.dumps(public_cases, ensure_ascii=False, indent=2)
+
+
 class LegacyGenerationStreamBatchesMixin:
 
     def _stream_run_batches_phase(
@@ -130,6 +162,36 @@ class LegacyGenerationStreamBatchesMixin:
         context_result = state.get("context_result") or {}
         gate_debug = state.get("gate_debug") or {}
         feedback_control_state = state.get("feedback_control_state") or {}
+        require_case_semantic_contract, requirement_semantic_contract = resolve_case_semantic_gate(
+            feedback_control_state
+        )
+        case_semantic_rejections = state.setdefault("case_semantic_rejections", [])
+        requirement_workflow_blueprints = [
+            dict(item)
+            for item in (
+                (requirement_semantic_contract or {}).get("workflow_blueprints") or []
+            )
+            if isinstance(item, dict) and isinstance(item.get("steps"), list)
+        ]
+        accepted_semantic_cases: list[dict[str, Any]] = []
+        required_stage_coverage = evaluate_required_stage_candidate_coverage(
+            accepted_semantic_cases,
+            workflow_blueprints=requirement_workflow_blueprints,
+        )
+        required_stage_coverage_instruction = build_required_stage_coverage_instruction(
+            required_stage_coverage
+        )
+
+        def _normalize_generated_json_structure(data: Any) -> Any:
+            if not require_case_semantic_contract:
+                return normalize_json_structure(data)
+            return normalize_json_structure(
+                data,
+                require_case_semantic_contract=True,
+                requirement_semantic_contract=requirement_semantic_contract,
+                semantic_rejections=case_semantic_rejections,
+                semantic_source_stage="stream_primary_generation",
+            )
         only_current_biz = bool(state.get("only_current_biz") or False)
         current_biz_key = str(state.get("current_biz_key") or "").strip()
         compress = bool(state.get("compress") or False)
@@ -306,39 +368,39 @@ class LegacyGenerationStreamBatchesMixin:
                 f"自动增加 {batch_size} 条用例..\n"
             )
         expected_count = int(batch_plan["expected_count"])
+        generation_target_count = int(batch_plan["generation_target_count"])
         total_batches = int(batch_plan["total_batches"])
         stream_batch_diags: list[str] = []
-        module_batch_plan: list[dict[str, Any]] = []
-        if not append:
-            module_batch_plan = build_functional_module_batch_plan(
-                project_profile,
-                expected_count=int(expected_count or 0),
+        architecture_instruction = build_functional_architecture_instruction(
+            project_profile=project_profile,
+        )
+        architecture = dict(project_profile.get("functional_architecture") or {})
+        verified_modules = [
+            item
+            for item in (architecture.get("functional_modules") or [])
+            if isinstance(item, dict) and item.get("evidence_verified") is True
+        ]
+        verified_interactions = [
+            item
+            for item in (architecture.get("module_interactions") or [])
+            if isinstance(item, dict) and item.get("evidence_verified") is True
+        ]
+        if architecture_instruction:
+            _emit_stream_gen_diag(
+                {
+                    "kind": "functional_architecture_global_batch_context",
+                    "project_id": int(project_id),
+                    "request_id": str(request_id or ""),
+                    "expected_count": int(expected_count),
+                    "generation_target_count": int(generation_target_count),
+                    "batch_size": int(batch_size),
+                    "total_batches": int(total_batches),
+                    "verified_module_count": int(len(verified_modules)),
+                    "verified_interaction_count": int(len(verified_interactions)),
+                }
             )
-            if module_batch_plan:
-                total_batches = int(len(module_batch_plan))
-                batch_size = max(int(item.get("target_count") or 1) for item in module_batch_plan)
-                _emit_stream_gen_diag(
-                    {
-                        "kind": "functional_module_batch_plan",
-                        "project_id": int(project_id),
-                        "request_id": str(request_id or ""),
-                        "allowed_modules": [
-                            str(item.get("module_name") or "")
-                            for item in module_batch_plan
-                            if str(item.get("phase") or "") == "module_internal"
-                        ],
-                        "phases": [
-                            {
-                                "phase": str(item.get("phase") or ""),
-                                "module_name": str(item.get("module_name") or ""),
-                                "target_count": int(item.get("target_count") or 0),
-                            }
-                            for item in module_batch_plan
-                        ],
-                    }
-                )
-                if stream_batch_diags:
-                    yield stream_batch_diags.pop()
+            if stream_batch_diags:
+                yield stream_batch_diags.pop()
         planned_total_batches = int(total_batches)
         current_id = start_id
 
@@ -348,6 +410,8 @@ class LegacyGenerationStreamBatchesMixin:
             build_case_signature_fn=_build_case_signature,
         )
         batch_quality_metrics: list[dict[str, Any]] = []
+        batch_acceptance_summaries: list[dict[str, Any]] = []
+        generated_case_count = 0
         low_gain_streak = 0
         early_stop_triggered = False
         early_stop_reason = ""
@@ -365,9 +429,6 @@ class LegacyGenerationStreamBatchesMixin:
             coverage_rule_count=int(len(coverage_plan_rules)),
             config=parallel_config,
         )
-        if module_batch_plan:
-            parallel_allowed = False
-            parallel_gate_reason = "functional_module_plan_active"
         if bool(parallel_config.enabled):
             _emit_stream_gen_diag(
                 {
@@ -441,6 +502,10 @@ class LegacyGenerationStreamBatchesMixin:
                         parallel_fallback_reason = "parallel_client_unavailable"
                         break
                     shard_instruction = build_parallel_shard_instruction(shard)
+                    if required_stage_coverage_instruction:
+                        shard_instruction = (
+                            f"{shard_instruction}\n\n{required_stage_coverage_instruction}"
+                        )
                     shard_need = max(1, int(shard.get("target_count") or 1))
                     shard_system_prompt = build_stream_batch_system_prompt(
                         base_prompt=base_prompt,
@@ -454,6 +519,7 @@ class LegacyGenerationStreamBatchesMixin:
                         generated_in_batch=0,
                         need=int(shard_need),
                         shard_instruction=shard_instruction,
+                        architecture_instruction=architecture_instruction,
                     )
                     _emit_prompt_context_intake_diag(
                         prompt_context=prompt_context,
@@ -498,7 +564,7 @@ class LegacyGenerationStreamBatchesMixin:
                             requests=shard_requests,
                             requirement=requirement,
                             clean_and_parse_json_fn=clean_and_parse_json,
-                            normalize_json_structure_fn=normalize_json_structure,
+                            normalize_json_structure_fn=_normalize_generated_json_structure,
                             max_workers=int(parallel_config.max_workers),
                         )
                     except Exception as exc:
@@ -528,6 +594,7 @@ class LegacyGenerationStreamBatchesMixin:
 
                 merge_result: dict[str, Any] = {}
                 parallel_incomplete_rows: list[dict[str, Any]] = []
+                parallel_module_contract_summary: dict[str, Any] = {}
                 if not parallel_fallback_reason:
                     merge_result = merge_parallel_shard_cases(
                         shard_results,
@@ -535,13 +602,26 @@ class LegacyGenerationStreamBatchesMixin:
                         start_id=int(start_id or 1),
                         expected_count=int(expected_count or 0),
                     )
-                    complete_cases, parallel_incomplete_rows = select_complete_generated_cases(
+                    parallel_acceptance = accept_stream_batch_candidates(
                         [case for case in (merge_result.get("cases") or []) if isinstance(case, dict)],
                         limit=int(expected_count or 0),
                         start_id=int(start_id or 1),
+                        project_profile=project_profile,
+                        select_complete_generated_cases_fn=select_complete_generated_cases,
                         is_placeholder_expected_result_fn=is_placeholder_expected_result,
+                        enforce_functional_module_contract_fn=enforce_functional_module_contract,
                     )
-                    merge_result["cases"] = complete_cases
+                    merge_result["cases"] = list(parallel_acceptance.cases)
+                    parallel_incomplete_rows = list(parallel_acceptance.incomplete_rows)
+                    parallel_module_contract_summary = dict(
+                        parallel_acceptance.module_contract_summary or {}
+                    )
+                    batch_acceptance_summaries.append(
+                        {
+                            "source": "parallel_shards",
+                            **parallel_module_contract_summary,
+                        }
+                    )
                     unique_case_count = int(merge_result.get("unique_case_count") or 0)
                     input_case_count = int(merge_result.get("input_case_count") or 0)
                     duplicate_rate = float(merge_result.get("duplicate_rate") or 0.0)
@@ -550,6 +630,13 @@ class LegacyGenerationStreamBatchesMixin:
                         parallel_fallback_reason = "empty_parallel_result"
                     elif parallel_incomplete_rows:
                         parallel_fallback_reason = "incomplete_case_schema"
+                    elif int(
+                        parallel_module_contract_summary.get(
+                            "module_rejected_case_count"
+                        )
+                        or 0
+                    ) > 0:
+                        parallel_fallback_reason = "functional_module_contract_rejected"
                     elif duplicate_rate > float(parallel_config.duplicate_rate_abort):
                         parallel_fallback_reason = "duplicate_rate_above_threshold"
                     elif unique_ratio < float(parallel_config.min_unique_ratio):
@@ -564,12 +651,16 @@ class LegacyGenerationStreamBatchesMixin:
                     "shard_count": int(len(shard_plan)),
                     "input_case_count": int(merge_result.get("input_case_count") or 0),
                     "unique_case_count": int(merge_result.get("unique_case_count") or 0),
+                    "accepted_case_count": int(len(merge_result.get("cases") or [])),
                     "duplicate_count": int(merge_result.get("duplicate_count") or 0),
                     "duplicate_rate": float(merge_result.get("duplicate_rate") or 0.0),
                     "min_unique_ratio": float(parallel_config.min_unique_ratio),
                     "duplicate_rate_abort": float(parallel_config.duplicate_rate_abort),
                     "incomplete_case_count": int(len(parallel_incomplete_rows)),
                     "incomplete_case_samples": parallel_incomplete_rows[:10],
+                    "functional_module_contract": dict(
+                        parallel_module_contract_summary or {}
+                    ),
                     "per_shard_counts": list(merge_result.get("per_shard_counts") or [])[:10],
                     "shard_results": [
                         {
@@ -598,6 +689,7 @@ class LegacyGenerationStreamBatchesMixin:
                     fallback_reason=str(parallel_fallback_reason or ""),
                     input_case_count=int(merge_result.get("input_case_count") or 0),
                     unique_case_count=int(merge_result.get("unique_case_count") or 0),
+                    accepted_case_count=int(len(merge_result.get("cases") or [])),
                     duplicate_rate=float(merge_result.get("duplicate_rate") or 0.0),
                 )
 
@@ -611,9 +703,20 @@ class LegacyGenerationStreamBatchesMixin:
                         case for case in (merge_result.get("cases") or []) if isinstance(case, dict)
                     ]
                     if parsed_batch_cases:
+                        accepted_semantic_cases.extend(parsed_batch_cases)
+                        required_stage_coverage = evaluate_required_stage_candidate_coverage(
+                            accepted_semantic_cases,
+                            workflow_blueprints=requirement_workflow_blueprints,
+                        )
+                        required_stage_coverage_instruction = (
+                            build_required_stage_coverage_instruction(
+                                required_stage_coverage
+                            )
+                        )
+                        generated_case_count += int(len(parsed_batch_cases))
                         full_content += json.dumps(parsed_batch_cases, ensure_ascii=False, indent=2)
                         full_content += "\n"
-                        yield json.dumps(parsed_batch_cases, ensure_ascii=False, indent=2)
+                        yield _public_case_batch_json(parsed_batch_cases)
                         yield "\n"
                         for case in parsed_batch_cases:
                             history_summaries.append(f"{case.get('id', '')}: {case.get('description', '')}")
@@ -647,10 +750,8 @@ class LegacyGenerationStreamBatchesMixin:
             total_batches = 0
 
         for batch_index in range(total_batches):
-            remaining = expected_count - (current_id - start_id)
-            current_phase = module_batch_plan[batch_index] if batch_index < len(module_batch_plan) else {}
-            planned_phase_count = int(current_phase.get("target_count") or batch_size)
-            current_batch_count = min(planned_phase_count, remaining)
+            remaining = generation_target_count - (current_id - start_id)
+            current_batch_count = min(batch_size, remaining)
             if current_batch_count <= 0:
                 break
 
@@ -658,7 +759,7 @@ class LegacyGenerationStreamBatchesMixin:
             attempt = 0
             parsed_batch_cases: list[dict[str, Any]] = []
             incomplete_case_count = 0
-            functional_phase_mismatch_count = 0
+            semantic_retry_instruction = ""
 
             while generated_in_batch < current_batch_count and attempt < 3:
                 need = current_batch_count - generated_in_batch
@@ -725,11 +826,14 @@ class LegacyGenerationStreamBatchesMixin:
                     current_id=current_id,
                     generated_in_batch=generated_in_batch,
                     need=need,
-                    module_instruction=build_functional_module_instruction(
-                        project_profile=project_profile,
-                        phase=current_phase,
-                    ),
+                    architecture_instruction=architecture_instruction,
                 )
+                if semantic_retry_instruction:
+                    system_prompt = f"{system_prompt}\n\n{semantic_retry_instruction}"
+                if required_stage_coverage_instruction:
+                    system_prompt = (
+                        f"{system_prompt}\n\n{required_stage_coverage_instruction}"
+                    )
 
                 if not final_trace_emitted:
                     self._emit_final_context_trace(
@@ -769,7 +873,6 @@ class LegacyGenerationStreamBatchesMixin:
                 for chunk in stream:
                     chunk_acc += chunk
                     attempt_content += chunk
-                    yield chunk
                     if chunk.startswith("Error:") or chunk.startswith("[额度耗尽]") or chunk.startswith("Exception occurred:"):
                         provider_error = chunk
                         break
@@ -839,37 +942,95 @@ class LegacyGenerationStreamBatchesMixin:
                 yield "\n"
 
                 try:
-                    parsed_batch = clean_and_parse_json(attempt_content)
-                    parsed_batch = normalize_json_structure(parsed_batch)
+                    raw_parsed_batch = clean_and_parse_json(attempt_content)
+                    raw_model_cases = (
+                        [case for case in raw_parsed_batch if isinstance(case, dict)]
+                        if isinstance(raw_parsed_batch, list)
+                        else []
+                    )
+                    rejection_start = int(len(case_semantic_rejections))
+                    parsed_batch = _normalize_generated_json_structure(raw_parsed_batch)
+                    new_semantic_rejections = list(
+                        case_semantic_rejections[rejection_start:]
+                    )
                     if isinstance(parsed_batch, list):
                         raw_attempt_cases = [case for case in parsed_batch if isinstance(case, dict)]
-                        attempt_cases = apply_functional_module_phase(raw_attempt_cases, current_phase)
-                        phase_mismatch_count = int(len(raw_attempt_cases) - len(attempt_cases))
-                        accepted_attempt, incomplete_rows = select_complete_generated_cases(
-                            attempt_cases,
+                        batch_acceptance = accept_stream_batch_candidates(
+                            raw_attempt_cases,
                             limit=int(need),
                             start_id=int(current_id + generated_in_batch),
+                            project_profile=project_profile,
+                            select_complete_generated_cases_fn=select_complete_generated_cases,
                             is_placeholder_expected_result_fn=is_placeholder_expected_result,
+                            enforce_functional_module_contract_fn=enforce_functional_module_contract,
+                        )
+                        accepted_attempt = list(batch_acceptance.cases)
+                        incomplete_rows = list(batch_acceptance.incomplete_rows)
+                        module_contract_summary = dict(
+                            batch_acceptance.module_contract_summary or {}
+                        )
+                        module_rejected_case_count = int(
+                            module_contract_summary.get("module_rejected_case_count")
+                            or 0
+                        )
+                        batch_acceptance_summaries.append(
+                            {
+                                "source": "serial_batch",
+                                "batch_index": int(batch_index + 1),
+                                "attempt": int(attempt),
+                                **module_contract_summary,
+                            }
                         )
                         parsed_batch_cases.extend(accepted_attempt)
+                        accepted_semantic_cases.extend(accepted_attempt)
+                        required_stage_coverage = evaluate_required_stage_candidate_coverage(
+                            accepted_semantic_cases,
+                            workflow_blueprints=requirement_workflow_blueprints,
+                        )
+                        required_stage_coverage_instruction = (
+                            build_required_stage_coverage_instruction(
+                                required_stage_coverage
+                            )
+                        )
                         generated_in_batch += int(len(accepted_attempt))
-                        incomplete_case_count += int(len(incomplete_rows))
-                        functional_phase_mismatch_count += phase_mismatch_count
-                        attempt_timing_event["parsed_case_count"] = int(len(raw_attempt_cases))
-                        attempt_timing_event["functional_phase_matched_case_count"] = int(len(attempt_cases))
+                        incomplete_case_count += int(
+                            len(incomplete_rows)
+                            + len(new_semantic_rejections)
+                            + module_rejected_case_count
+                        )
+                        attempt_timing_event["parsed_case_count"] = int(
+                            len(raw_model_cases) or len(raw_attempt_cases)
+                        )
                         attempt_timing_event["accepted_case_count"] = int(len(accepted_attempt))
                         attempt_timing_event["incomplete_case_count"] = int(len(incomplete_rows))
-                        attempt_timing_event["functional_phase_mismatch_count"] = phase_mismatch_count
-                        attempt_timing_event["attempt_status"] = (
-                            "functional_phase_mismatch_partial" if phase_mismatch_count and accepted_attempt
-                            else "functional_phase_mismatch" if phase_mismatch_count
-                            else "parsed_partial" if incomplete_rows and accepted_attempt
-                            else "schema_incomplete" if incomplete_rows
-                            else "parsed"
+                        attempt_timing_event["semantic_rejected_case_count"] = int(
+                            len(new_semantic_rejections)
                         )
+                        attempt_timing_event["module_contract_rejected_case_count"] = int(
+                            module_rejected_case_count
+                        )
+                        attempt_timing_event["module_contract_normalized_count"] = int(
+                            module_contract_summary.get("normalized_count") or 0
+                        )
+                        if new_semantic_rejections or module_rejected_case_count:
+                            attempt_timing_event["attempt_status"] = (
+                                "candidate_contract_partial"
+                                if accepted_attempt
+                                else "candidate_contract_rejected"
+                            )
+                            if new_semantic_rejections:
+                                semantic_retry_instruction = build_case_semantic_retry_instruction(
+                                    new_semantic_rejections
+                                )
+                        else:
+                            attempt_timing_event["attempt_status"] = (
+                                "parsed_partial" if incomplete_rows and accepted_attempt
+                                else "schema_incomplete" if incomplete_rows
+                                else "parsed"
+                            )
                         for case in accepted_attempt:
                             history_summaries.append(f"{case.get('id', '')}: {case.get('description', '')}")
-                        if incomplete_rows or phase_mismatch_count:
+                        if incomplete_rows:
                             _emit_stream_batch_quality_diag(
                                 {
                                     "batch_index": int(batch_index + 1),
@@ -878,7 +1039,6 @@ class LegacyGenerationStreamBatchesMixin:
                                     "accepted_case_count": int(len(accepted_attempt)),
                                     "incomplete_case_count": int(len(incomplete_rows)),
                                     "incomplete_case_samples": incomplete_rows[:10],
-                                    "functional_phase_mismatch_count": phase_mismatch_count,
                                     "source_regeneration_scheduled": bool(
                                         generated_in_batch < current_batch_count and attempt < 3
                                     ),
@@ -886,13 +1046,63 @@ class LegacyGenerationStreamBatchesMixin:
                             )
                             if stream_batch_diags:
                                 yield stream_batch_diags.pop()
+                        if new_semantic_rejections:
+                            _emit_stream_batch_quality_diag(
+                                {
+                                    "batch_index": int(batch_index + 1),
+                                    "attempt": int(attempt),
+                                    "requested_count": int(need),
+                                    "accepted_case_count": int(len(accepted_attempt)),
+                                    "semantic_rejected_case_count": int(
+                                        len(new_semantic_rejections)
+                                    ),
+                                    "source_regeneration_scheduled": bool(
+                                        generated_in_batch < current_batch_count and attempt < 3
+                                    ),
+                                }
+                            )
+                            if stream_batch_diags:
+                                yield stream_batch_diags.pop()
+                        if module_rejected_case_count:
+                            _emit_stream_batch_quality_diag(
+                                {
+                                    "batch_index": int(batch_index + 1),
+                                    "attempt": int(attempt),
+                                    "requested_count": int(need),
+                                    "accepted_case_count": int(len(accepted_attempt)),
+                                    "module_contract_rejected_case_count": int(
+                                        module_rejected_case_count
+                                    ),
+                                    "functional_module_contract": dict(
+                                        module_contract_summary or {}
+                                    ),
+                                    "source_regeneration_scheduled": bool(
+                                        generated_in_batch < current_batch_count
+                                        and attempt < 3
+                                    ),
+                                }
+                            )
+                            if stream_batch_diags:
+                                yield stream_batch_diags.pop()
                         if generated_in_batch >= current_batch_count:
                             break
-                        if phase_mismatch_count and attempt < 3:
-                            yield "@@STATUS@@:检测到用例未命中文档中的跨模块交互证据，正在重新生成当前阶段...\n"
+                        if (
+                            module_rejected_case_count
+                            and not incomplete_rows
+                            and not new_semantic_rejections
+                            and attempt < 3
+                        ):
+                            yield "@@STATUS@@:检测到用例模块或交互契约冲突，正在按全局功能架构重新生成...\n"
                             continue
-                        if incomplete_rows and attempt < 3:
-                            yield "@@STATUS@@:检测到模型缺失必填字段，正在基于当前需求补充生成...\n"
+                        if (
+                            incomplete_rows
+                            or new_semantic_rejections
+                            or module_rejected_case_count
+                        ) and attempt < 3:
+                            if new_semantic_rejections:
+                                yield "@@STATUS@@:检测到模型用例语义契约不完整，正在按字段级反馈重新生成...\n"
+                            else:
+                                yield "@@STATUS@@:检测到模型缺失必填字段，正在基于当前需求补充生成...\n"
                             continue
                         break
                 except Exception:
@@ -900,8 +1110,11 @@ class LegacyGenerationStreamBatchesMixin:
                     pass
 
             if parsed_batch_cases:
+                generated_case_count += int(len(parsed_batch_cases))
                 full_content += json.dumps(parsed_batch_cases, ensure_ascii=False, indent=2)
                 full_content += "\n"
+                yield _public_case_batch_json(parsed_batch_cases)
+                yield "\n"
             else:
                 full_content += "[]\n"
 
@@ -915,34 +1128,28 @@ class LegacyGenerationStreamBatchesMixin:
                     previous_low_gain_streak=int(low_gain_streak),
                 )
                 batch_metric["source_incomplete_case_count"] = int(incomplete_case_count)
-                batch_metric["source_functional_phase_mismatch_count"] = int(functional_phase_mismatch_count)
                 batch_quality_metrics.append(batch_metric)
                 _emit_stream_batch_quality_diag(batch_quality_metrics[-1])
                 if stream_batch_diags:
                     yield stream_batch_diags.pop()
 
                 if low_gain_streak >= 2:
-                    early_stop_triggered = True
-                    early_stop_reason = "low_incremental_gain_two_batches"
                     _emit_stream_batch_quality_diag(
                         {
                             "batch_index": int(batch_index + 1),
-                            "early_stop_triggered": True,
-                            "early_stop_reason": str(early_stop_reason),
+                            "early_stop_triggered": False,
+                            "global_batches_continue": True,
+                            "diagnostic_reason": "local_low_incremental_gain",
                             "low_gain_streak": int(low_gain_streak),
                         }
                     )
                     if stream_batch_diags:
                         yield stream_batch_diags.pop()
-                    yield "@@STATUS@@:检测到连续2批低信息增益，提前停止后续批次生成。\n"
             else:
                 low_gain_streak = 0
 
             current_id += int(len(parsed_batch_cases))
             completed_batches += 1
-            if early_stop_triggered:
-                break
-
         _record_timing_event(
             "primary_batches",
             primary_batches_started,
@@ -959,6 +1166,43 @@ class LegacyGenerationStreamBatchesMixin:
             total_batches=int(planned_total_batches),
             completed_batches=int(completed_batches),
         )
+        if required_stage_coverage.get("active") is True:
+            _emit_stream_gen_diag(
+                {
+                    "kind": "required_stage_candidate_coverage",
+                    "request_id": request_id,
+                    "workflow_id": str(
+                        required_stage_coverage.get("workflow_id") or ""
+                    ),
+                    "required_stage_ids": list(
+                        required_stage_coverage.get("required_stage_ids") or []
+                    ),
+                    "covered_required_stage_ids": list(
+                        required_stage_coverage.get(
+                            "covered_required_stage_ids"
+                        )
+                        or []
+                    ),
+                    "missing_required_stage_ids": list(
+                        required_stage_coverage.get(
+                            "missing_required_stage_ids"
+                        )
+                        or []
+                    ),
+                    "candidate_edge_count": int(
+                        required_stage_coverage.get("candidate_edge_count") or 0
+                    ),
+                }
+            )
+        if case_semantic_rejections:
+            _emit_stream_gen_diag(
+                {
+                    "kind": "case_semantic_contract_rejections",
+                    "request_id": request_id,
+                    "rejected_count": int(len(case_semantic_rejections)),
+                    "rejections": list(case_semantic_rejections)[:20],
+                }
+            )
 
         state.update(
             {
@@ -983,12 +1227,26 @@ class LegacyGenerationStreamBatchesMixin:
                 "stream_coverage_plan_lite": coverage_plan_lite,
                 "stream_coverage_plan_rule_count": int(len(coverage_plan_rules)),
                 "stream_batch_quality_metrics": batch_quality_metrics,
+                "stream_batch_acceptance_summaries": list(
+                    batch_acceptance_summaries
+                ),
                 "stream_early_stop_triggered": bool(early_stop_triggered),
                 "stream_early_stop_reason": str(early_stop_reason or ""),
                 "stream_parallel_shards_enabled": bool(parallel_config.enabled),
                 "stream_parallel_shards_used": bool(parallel_completed),
                 "stream_parallel_shard_gate_reason": str(parallel_gate_reason or ""),
                 "stream_parallel_shard_result": parallel_result_summary if isinstance(parallel_result_summary, dict) else {},
+                "case_semantic_rejections": list(case_semantic_rejections),
+                "case_semantic_rejection_count": int(len(case_semantic_rejections)),
+                "case_semantic_accepted_count": int(generated_case_count),
+                "case_semantic_contract_failed": bool(
+                    require_case_semantic_contract
+                    and case_semantic_rejections
+                    and generated_case_count <= 0
+                ),
+                "required_stage_candidate_coverage": dict(
+                    required_stage_coverage or {}
+                ),
                 "generation_timing_events": timing_events,
             }
         )

@@ -19,9 +19,6 @@ def run_streaming_judge_gate(
     requirement_semantics_context: dict[str, Any],
     feedback_control_state: dict[str, Any] | None,
     fact_profile: dict[str, Any],
-    start_id: int,
-    deduplicate_test_cases_fn: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
-    reorder_cases_by_closed_loop_fn: Callable[..., list[dict[str, Any]]],
     review_case_id_fn: Callable[[dict[str, Any]], str],
     build_judge_summary_payload_fn: Callable[..., dict[str, Any]],
     build_judge_decision_table_payload_fn: Callable[..., list[dict[str, Any]]],
@@ -29,6 +26,7 @@ def run_streaming_judge_gate(
     repair_cases_fn: Callable[..., Any] | None = None,
     training_gate_fn: Callable[..., Any] | None = None,
 ) -> StreamingJudgeGateResult:
+    """生成 Judge 诊断，但不覆盖全局 Review 已选定的用例集合。"""
     result_cases = _dict_case_items(cases)
     try:
         if judge_cases_fn is None or repair_cases_fn is None or training_gate_fn is None:
@@ -54,13 +52,6 @@ def run_streaming_judge_gate(
             strategy="rule_first_llm_fallback",
         )
         confirmed_pass_cases, repaired_pass_cases, rejected_cases, pending_cases = training_gate_fn(repaired)
-        result_cases = [*_dict_case_items(confirmed_pass_cases), *_dict_case_items(repaired_pass_cases)]
-        result_cases = deduplicate_test_cases_fn(_dict_case_items(result_cases))
-        result_cases = reorder_cases_by_closed_loop_fn(
-            result_cases,
-            start_id=start_id,
-            renumber_ids=True,
-        )
         judge_summary_payload = build_judge_summary_payload_fn(
             repaired=repaired,
             confirmed_pass_cases=confirmed_pass_cases,

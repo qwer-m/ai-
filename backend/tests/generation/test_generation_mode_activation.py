@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from types import SimpleNamespace
 
@@ -55,48 +56,463 @@ class _SupplementClient(_NoopClient):
         return __import__("json").dumps(self.cases, ensure_ascii=False)
 
 
+class _StreamingSupplementClient(_NoopClient):
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.stream_prompts: list[str] = []
+
+    def generate_response_stream(self, requirement: str, prompt: str, **kwargs):  # noqa: ANN001, ARG002
+        self.stream_prompts.append(prompt)
+        response = self.responses.pop(0) if self.responses else []
+        yield json.dumps(response, ensure_ascii=False)
+
+
+_FACT_CORE_FIELDS = (
+    "fact_kind",
+    "statement",
+    "requirement_level",
+    "priority",
+    "testability",
+    "evidence",
+)
+
+
+def _fact_core(
+    fact: object,
+    *,
+    source_evidence_catalog: list[dict[str, object]],
+) -> tuple[object, ...] | None:
+    if not isinstance(fact, dict):
+        return None
+    quote_by_ref = {
+        str(item.get("ref") or ""): str(item.get("quote") or "")
+        for item in source_evidence_catalog
+        if isinstance(item, dict) and item.get("ref") and item.get("quote")
+    }
+    return tuple(
+        tuple(
+            sorted(
+                {
+                    quote_by_ref.get(str(item or ""), str(item or ""))
+                    for item in fact.get(field) or []
+                    if str(item or "")
+                }
+            )
+        )
+        if field == "evidence"
+        else str(fact.get(field) or "")
+        for field in _FACT_CORE_FIELDS
+    )
+
+
+def _request_scope_facts(request_payload: dict[str, object]) -> list[dict[str, object]]:
+    schema = [
+        "fact_ref",
+        "fact_kind",
+        "statement",
+        "requirement_level",
+        "priority",
+        "testability",
+        "confidence",
+    ]
+    table = request_payload.get("frozen_fact_table")
+    if not isinstance(table, dict) or table.get("schema") != schema:
+        return []
+    rows = table.get("rows")
+    if not isinstance(rows, list):
+        return []
+    output: list[dict[str, object]] = []
+    for row in rows:
+        if not isinstance(row, list) or len(row) != len(schema):
+            return []
+        output.append(
+            {
+                field: copy.deepcopy(value)
+                for field, value in zip(schema, row)
+            }
+        )
+    return output
+
+
+def _local_to_frozen_fact_ids(
+    raw_facts: list[dict[str, object]],
+    frozen_facts: object,
+    *,
+    source_evidence_catalog: list[dict[str, object]],
+) -> dict[str, str]:
+    if not isinstance(frozen_facts, list):
+        return {}
+    stable_ids_by_core: dict[tuple[object, ...], set[str]] = {}
+    for frozen_fact in frozen_facts:
+        core = _fact_core(
+            frozen_fact,
+            source_evidence_catalog=source_evidence_catalog,
+        )
+        stable_id = (
+            str(frozen_fact.get("fact_id") or "")
+            if isinstance(frozen_fact, dict)
+            else ""
+        )
+        if core is not None and stable_id:
+            stable_ids_by_core.setdefault(core, set()).add(stable_id)
+
+    mapping: dict[str, str] = {}
+    for raw_fact in raw_facts:
+        core = _fact_core(
+            raw_fact,
+            source_evidence_catalog=source_evidence_catalog,
+        )
+        local_id = str(raw_fact.get("fact_id") or "")
+        stable_ids = stable_ids_by_core.get(core, set()) if core is not None else set()
+        if local_id and len(stable_ids) == 1:
+            mapping[local_id] = next(iter(stable_ids))
+    return mapping
+
+
+def _rewrite_known_fact_references(
+    value: object,
+    local_to_frozen: dict[str, str],
+) -> object:
+    rewritten = copy.deepcopy(value)
+
+    def _rewrite(current: object) -> None:
+        if isinstance(current, dict):
+            for key, nested in list(current.items()):
+                if key == "fact_id":
+                    raw_id = str(nested or "")
+                    if raw_id in local_to_frozen:
+                        current[key] = local_to_frozen[raw_id]
+                    continue
+                if key == "fact_ids" and isinstance(nested, list):
+                    current[key] = [
+                        local_to_frozen.get(str(item or ""), item)
+                        for item in nested
+                    ]
+                    continue
+                _rewrite(nested)
+        elif isinstance(current, list):
+            for nested in current:
+                _rewrite(nested)
+
+    _rewrite(rewritten)
+    return rewritten
+
+
 class _BlueprintExtractionClient:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
+        self.source_evidence_catalog: list[dict[str, object]] = []
+        self.raw_facts: list[dict[str, object]] = []
 
     def generate_response(self, requirement: str, prompt: str, db=None, **kwargs):  # noqa: ANN001, ARG002
+        request_payload = json.loads(requirement)
+        input_type = request_payload.get("input_type")
         self.calls.append(
             {
                 "requirement": requirement,
                 "prompt": prompt,
+                "input_type": input_type,
                 "kwargs": dict(kwargs),
             }
         )
-        return json.dumps(
-            {
+        if input_type == "current_requirement_atomic_fact_compile":
+            target_source_evidence_catalog = [
+                copy.deepcopy(item)
+                for item in request_payload["target_source_evidence_catalog"]
+            ]
+            self.source_evidence_catalog = [
+                copy.deepcopy(item)
+                for key in (
+                    "target_source_evidence_catalog",
+                    "context_source_evidence_catalog",
+                )
+                for item in request_payload[key]
+            ]
+            evidence_refs = [
+                item["ref"] for item in self.source_evidence_catalog
+            ]
+            target_evidence_refs = [
+                item["ref"] for item in target_source_evidence_catalog
+            ]
+            anchor_evidence_ref = target_evidence_refs[0]
+            self.raw_facts = [
+                {
+                    "fact_id": "f_publish",
+                    "fact_kind": "action",
+                    "statement": "A user publishes a forum post",
+                    "requirement_level": "required",
+                    "priority": "unspecified",
+                    "testability": "testable",
+                    "evidence": evidence_refs,
+                    "anchor_evidence_ref": anchor_evidence_ref,
+                    "confidence": 0.9,
+                },
+                {
+                    "fact_id": "f_open_detail",
+                    "fact_kind": "action",
+                    "statement": "The user opens the post detail page",
+                    "requirement_level": "required",
+                    "priority": "unspecified",
+                    "testability": "testable",
+                    "evidence": evidence_refs,
+                    "anchor_evidence_ref": anchor_evidence_ref,
+                    "confidence": 0.9,
+                },
+            ]
+            return json.dumps(
+                {
+                    "source_evidence_records": [
+                        {
+                            "evidence_ref": evidence_ref,
+                            "owned_facts": (
+                                [
+                                    {
+                                        str(key): copy.deepcopy(value)
+                                        for key, value in fact.items()
+                                        if key != "anchor_evidence_ref"
+                                    }
+                                    for fact in self.raw_facts
+                                ]
+                                if evidence_ref == anchor_evidence_ref
+                                else []
+                            ),
+                        }
+                        for evidence_ref in target_evidence_refs
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        if input_type == "current_requirement_scope_boundary_selection_compile":
+            frozen_facts = _request_scope_facts(request_payload)
+            fact_refs = [
+                item["fact_ref"] for item in frozen_facts
+            ]
+            return json.dumps(
+                {
+                    "boundary_records": [
+                        {
+                            "boundary_id": "forum",
+                            "label": "Forum",
+                            "decision": "in_scope",
+                            "parent_boundary_id": "",
+                            "support": [
+                                {
+                                    "signal": "purpose",
+                                    "fact_refs": fact_refs,
+                                }
+                            ],
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        if input_type == "current_requirement_scope_membership_compile":
+            selection = request_payload["frozen_boundary_selection"]
+            assert selection["boundaries"]
+            assert request_payload["frozen_source_outline"]["fingerprint"]
+            assignments = [
+                {
+                    "boundary_id": boundary["boundary_id"],
+                    "membership_kind": "none",
+                    "membership_ref": "",
+                }
+                for boundary in selection["boundaries"]
+                if boundary.get("parent_boundary_id")
+            ]
+            assert {item["boundary_id"] for item in assignments} == {
+                boundary["boundary_id"]
+                for boundary in selection["boundaries"]
+                if boundary.get("parent_boundary_id")
+            }
+            return json.dumps(
+                {"membership_assignments": assignments},
+                ensure_ascii=False,
+            )
+        if input_type == "current_requirement_scope_binding_compile":
+            target_fact_refs = list(request_payload["target_fact_refs"])
+            assert _request_scope_facts(request_payload)
+            assert request_payload["frozen_boundary_manifest"]["boundaries"]
+            assert request_payload["frozen_source_outline"]["fingerprint"]
+            assert request_payload["target_topology_usage"] == [
+                {
+                    "fact_ref": fact_ref,
+                    "explicit_membership_edges": [],
+                    "support_scope_ids": ["forum"],
+                }
+                for fact_ref in target_fact_refs
+            ]
+            return json.dumps(
+                {
+                    "fact_bindings": [
+                        {
+                            "fact_ref": fact_ref,
+                            "scope_ids": ["forum"],
+                            "role": "owned_requirement",
+                        }
+                        for fact_ref in target_fact_refs
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        assert input_type == "current_requirement_graph_compile"
+        graph_payload = {
+                "confidence": 0.9,
+                "semantic_graph": {
+                    "graph_version": "requirement-semantic-graph-v1",
+                    "nodes": [
+                        {
+                            "node_id": "forum",
+                            "kind": "scope",
+                            "name": "Forum",
+                            "aliases": [],
+                            "scope_status": "in_scope",
+                            "boundary_status": "resolved",
+                            "fact_ids": ["f_publish", "f_open_detail"],
+                            "confidence": 0.9,
+                        },
+                        {
+                            "node_id": "publish_post",
+                            "kind": "capability",
+                            "name": "Publish post",
+                            "aliases": [],
+                            "scope_status": "",
+                            "boundary_status": "resolved",
+                            "fact_ids": ["f_publish"],
+                            "confidence": 0.9,
+                        },
+                        {
+                            "node_id": "open_detail",
+                            "kind": "capability",
+                            "name": "Open detail page",
+                            "aliases": [],
+                            "scope_status": "",
+                            "boundary_status": "resolved",
+                            "fact_ids": ["f_open_detail"],
+                            "confidence": 0.9,
+                        },
+                    ],
+                    "edges": [
+                        {
+                            "edge_id": "forum_owns_publish",
+                            "type": "owns",
+                            "source_node_id": "forum",
+                            "target_node_id": "publish_post",
+                            "fact_ids": ["f_publish"],
+                            "ownership_role": "primary",
+                            "trigger": "",
+                            "result_state": "",
+                            "transferred_entity_node_ids": [],
+                            "confidence": 0.9,
+                        },
+                        {
+                            "edge_id": "forum_owns_detail",
+                            "type": "owns",
+                            "source_node_id": "forum",
+                            "target_node_id": "open_detail",
+                            "fact_ids": ["f_open_detail"],
+                            "ownership_role": "primary",
+                            "trigger": "",
+                            "result_state": "",
+                            "transferred_entity_node_ids": [],
+                            "confidence": 0.9,
+                        },
+                        {
+                            "edge_id": "publish_to_detail",
+                            "type": "transitions",
+                            "source_node_id": "publish_post",
+                            "target_node_id": "open_detail",
+                            "fact_ids": ["f_open_detail"],
+                            "ownership_role": "none",
+                            "trigger": "Post published",
+                            "result_state": "detail_visible",
+                            "transferred_entity_node_ids": [],
+                            "confidence": 0.9,
+                        },
+                    ],
+                    "primary_flow": {
+                        "node_ids": ["publish_post", "open_detail"],
+                        "edge_ids": ["publish_to_detail"],
+                    },
+                    "fact_dispositions": [],
+                },
                 "workflow_blueprints": [
                     {
                         "workflow_id": "forum_publish_flow",
                         "name": "Forum publish flow",
+                        "primary": True,
                         "confidence": 0.8,
+                        "initial_state": "initial",
+                        "required_stage_ids": ["publish_post", "open_detail"],
+                        "terminal_states": ["detail_visible"],
+                        "fact_ids": ["f_publish", "f_open_detail"],
                         "steps": [
                             {
-                                "id": "entry",
-                                "label": "Open forum editor",
-                                "action": "open forum editor",
-                                "stage_kind": "entry",
-                            },
-                            {
-                                "id": "commit",
-                                "label": "Publish post",
-                                "action": "publish post",
+                                "id": "publish_post",
+                                "label": "Publish a forum post",
+                                "action": "Publish a forum post",
                                 "stage_kind": "commit",
+                                "actor": "business_user",
+                                "state_in": "initial",
+                                "state_out": "post_published",
+                                "required": True,
+                                "terminal": False,
+                                "critical": True,
+                                "blocking": True,
+                                "destructive": False,
+                                "scope_candidates": [
+                                    {
+                                        "scope_id": "forum",
+                                        "role": "primary",
+                                        "confidence": 0.9,
+                                        "fact_ids": ["f_publish"],
+                                    }
+                                ],
+                                "relation_ids": ["forum_owns_publish"],
+                                "required_states": [],
+                                "produced_states": [],
+                                "fact_ids": ["f_publish"],
                             },
                             {
-                                "id": "detail",
-                                "label": "View post detail",
-                                "action": "view post detail",
-                                "stage_kind": "downstream_visibility",
+                                "id": "open_detail",
+                                "label": "Open the post detail page",
+                                "action": "Open the post detail page",
+                                "stage_kind": "consume",
+                                "actor": "business_user",
+                                "state_in": "post_published",
+                                "state_out": "detail_visible",
+                                "required": True,
+                                "terminal": True,
+                                "critical": False,
+                                "blocking": False,
+                                "destructive": False,
+                                "scope_candidates": [
+                                    {
+                                        "scope_id": "forum",
+                                        "role": "primary",
+                                        "confidence": 0.9,
+                                        "fact_ids": ["f_open_detail"],
+                                    }
+                                ],
+                                "relation_ids": [
+                                    "forum_owns_detail",
+                                    "publish_to_detail",
+                                ],
+                                "required_states": [],
+                                "produced_states": [],
+                                "fact_ids": ["f_open_detail"],
                             },
                         ],
                     }
-                ]
-            },
+                ],
+            }
+        frozen_context = request_payload["frozen_context"]
+        local_to_frozen = _local_to_frozen_fact_ids(
+            self.raw_facts,
+            frozen_context["evidence_facts"],
+            source_evidence_catalog=self.source_evidence_catalog,
+        )
+        return json.dumps(
+            _rewrite_known_fact_references(graph_payload, local_to_frozen),
             ensure_ascii=False,
         )
 
@@ -161,6 +577,118 @@ def _drain_with_return(gen):
             return stop.value
 
 
+def _strict_case_semantic(
+    case: dict[str, object],
+    *,
+    module_key: str,
+    workflow_id: str = "",
+    stage_id: str = "",
+    stage_kind: str = "",
+) -> dict[str, object]:
+    """为模型新产用例构造最小、完整且证据可核验的语义契约。"""
+    evidence = str(case.get("description") or "").strip()
+    workflow_candidates: list[dict[str, object]] = []
+    if workflow_id and stage_id and stage_kind:
+        workflow_candidates.append(
+            {
+                "workflow_id": workflow_id,
+                "stage_id": stage_id,
+                "stage_kind": stage_kind,
+                "confidence": 0.95,
+                "evidence": [evidence],
+                "evidence_verified": True,
+            }
+        )
+    return {
+        "version": "case-semantic-v1",
+        "module_candidates": [
+            {
+                "module_key": module_key,
+                "module_name": str(case.get("test_module") or module_key),
+                "role": "primary",
+                "confidence": 0.95,
+                "evidence": [evidence],
+                "evidence_verified": True,
+            }
+        ],
+        "interaction_ids": [],
+        "workflow_stage_candidates": workflow_candidates,
+        "precondition_states": [],
+        "produced_states": [],
+    }
+
+
+def _attach_independent_case_semantics(
+    cases: list[dict[str, object]],
+    *,
+    module_key: str,
+) -> list[dict[str, object]]:
+    for case in cases:
+        case["_semantic"] = _strict_case_semantic(case, module_key=module_key)
+    return cases
+
+
+def _complete_primary_workflow_fixture(
+    blueprint: dict[str, object],
+    *,
+    module_key: str,
+) -> dict[str, object]:
+    """补齐通用工作流声明；测试不再依赖正文关键词派生阶段。"""
+    blueprint["primary"] = True
+    blueprint.setdefault("name", str(blueprint.get("workflow_id") or blueprint.get("id") or "workflow"))
+    blueprint.setdefault("confidence", 0.95)
+    for raw_step in blueprint.get("steps") or []:
+        if not isinstance(raw_step, dict):
+            continue
+        label = str(raw_step.get("label") or raw_step.get("action") or raw_step.get("id") or "")
+        raw_step["path_type"] = "positive"
+        raw_step["critical"] = bool(raw_step.get("critical", False))
+        raw_step["blocking"] = bool(raw_step.get("blocking", False))
+        raw_step["destructive"] = bool(raw_step.get("destructive", False))
+        raw_step["can_advance_main_flow"] = True
+        raw_step["module_candidates"] = [
+            {
+                "module_key": module_key,
+                "role": "primary",
+                "confidence": 0.95,
+                "evidence": [label],
+                "evidence_verified": True,
+            }
+        ]
+        raw_step["interaction_ids"] = []
+        raw_step["required_states"] = []
+        raw_step["produced_states"] = []
+        raw_step["evidence"] = [label]
+        raw_step["evidence_verified"] = True
+        raw_step.pop("match_keywords", None)
+    return blueprint
+
+
+def _attach_workflow_case_semantics(
+    cases: list[dict[str, object]],
+    *,
+    blueprint: dict[str, object],
+    module_key: str,
+    stage_by_case_id: dict[str, str],
+) -> list[dict[str, object]]:
+    workflow_id = str(blueprint.get("workflow_id") or blueprint.get("id") or "")
+    stage_kind_by_id = {
+        str(step.get("id") or ""): str(step.get("stage_kind") or "")
+        for step in (blueprint.get("steps") or [])
+        if isinstance(step, dict)
+    }
+    for case in cases:
+        stage_id = stage_by_case_id.get(str(case.get("id") or ""), "")
+        case["_semantic"] = _strict_case_semantic(
+            case,
+            module_key=module_key,
+            workflow_id=workflow_id if stage_id else "",
+            stage_id=stage_id,
+            stage_kind=stage_kind_by_id.get(stage_id, ""),
+        )
+    return cases
+
+
 def test_linked_final_case_signal_prefers_content_hash_lookup(monkeypatch) -> None:
     import modules.knowledge_base_components.repositories.knowledge_document_repository as repo_mod
 
@@ -189,15 +717,22 @@ def test_current_requirement_blueprint_extraction_uses_default_token_budget(monk
 
     blueprints, diagnostics = extract_current_requirement_blueprints(
         client=client,
-        requirement_text="论坛帖子发布后进入详情页。",
+        requirement_text="A user publishes a forum post and opens its detail page.",
         project_id=2,
         user_id=9,
     )
 
     assert len(blueprints) == 1
-    assert client.calls[0]["kwargs"]["max_tokens"] == 1600
-    assert diagnostics["current_requirement_blueprint_max_tokens"] == 1600
-    assert diagnostics["current_requirement_blueprint_status"] == "applied"
+    assert [call["input_type"] for call in client.calls] == [
+        "current_requirement_atomic_fact_compile",
+        "current_requirement_scope_boundary_selection_compile",
+        "current_requirement_scope_membership_compile",
+        "current_requirement_scope_binding_compile",
+        "current_requirement_graph_compile",
+    ]
+    assert [call["kwargs"]["max_tokens"] for call in client.calls] == [8192] * 5
+    assert diagnostics["current_requirement_blueprint_max_tokens"] == 8192
+    assert diagnostics["current_requirement_blueprint_status"] == "applied_with_workflows"
 
 
 def test_current_requirement_blueprint_extraction_allows_env_token_budget(monkeypatch) -> None:
@@ -206,7 +741,7 @@ def test_current_requirement_blueprint_extraction_allows_env_token_budget(monkey
 
     _, diagnostics = extract_current_requirement_blueprints(
         client=client,
-        requirement_text="论坛帖子发布后进入详情页。",
+        requirement_text="A user publishes a forum post and opens its detail page.",
     )
 
     assert client.calls[0]["kwargs"]["max_tokens"] == 1200
@@ -219,11 +754,11 @@ def test_current_requirement_blueprint_extraction_clamps_too_small_budget(monkey
 
     _, diagnostics = extract_current_requirement_blueprints(
         client=client,
-        requirement_text="论坛帖子发布后进入详情页。",
+        requirement_text="A user publishes a forum post and opens its detail page.",
     )
 
-    assert client.calls[0]["kwargs"]["max_tokens"] == 600
-    assert diagnostics["current_requirement_blueprint_max_tokens"] == 600
+    assert client.calls[0]["kwargs"]["max_tokens"] == 1200
+    assert diagnostics["current_requirement_blueprint_max_tokens"] == 1200
 
 
 def test_explicit_expected_count_is_not_mapped_to_a_fixed_mode_tier() -> None:
@@ -778,7 +1313,7 @@ def test_full_mode_does_not_invent_a_fixed_p0_quota_from_case_count() -> None:
     assert persisted_priorities.count("P0") < 8
 
 
-def test_public_normalization_preserves_full_regression_main_path_floor_with_ui_words() -> None:
+def test_public_normalization_does_not_recreate_removed_text_anchor_floor() -> None:
     anchor_cases = [
         {
             "id": "TC-001",
@@ -863,6 +1398,80 @@ def test_public_normalization_preserves_full_regression_main_path_floor_with_ui_
         )
         or ""
     ).upper() == "P2"
+
+
+def test_public_normalization_does_not_restore_removed_floor_source_or_text_anchor() -> None:
+    normalized = normalize_final_case_priorities(
+        [
+            {
+                "id": "TC-001",
+                "description": "Complete four-part generated result display",
+                "test_module": "Result page",
+                "expected_result": "Generated result details are fully displayed",
+                "priority": "P0",
+                "priority_final": "P0",
+                "priority_decision_source": "main_path_anchor_floor",
+            }
+        ],
+        requirement_text="ordinary workflow",
+    )
+
+    assert normalized[0]["priority"] == "P1"
+    assert normalized[0]["priority_decision_source"] == "model_p0_guard_downgrade"
+
+
+def test_public_normalization_preserves_structured_critical_and_declared_main_priority() -> None:
+    normalized = normalize_final_case_priorities(
+        [
+            {
+                "id": "TC-001",
+                "description": "Open critical entry",
+                "test_module": "Entry",
+                "expected_result": "Target page opens",
+                "priority": "P0",
+                "priority_final": "P0",
+                "critical": True,
+            },
+            {
+                "id": "TC-002",
+                "description": "Declared ordinary workflow step",
+                "test_module": "Flow",
+                "expected_result": "State advances",
+                "priority": "P1",
+                "priority_final": "P1",
+                "execution_group": "main_smoke",
+            },
+        ],
+        requirement_text="ordinary workflow",
+    )
+
+    assert normalized[0]["priority"] == "P0"
+    assert normalized[0]["priority_decision_source"] == "preserved_structured_critical_priority"
+    assert normalized[1]["priority"] == "P1"
+    assert normalized[1]["priority_decision_source"] == "preserved_execution_plan_priority"
+
+
+def test_text_only_blocking_words_do_not_create_p0_evidence() -> None:
+    normalized = normalize_final_case_priorities(
+        [
+            {
+                "id": "TC-TEXT-RISK",
+                "description": "P0 blocking failure stops the entire release",
+                "test_module": "Generic flow",
+                "preconditions": ["workflow prepared"],
+                "steps": ["trigger the failure"],
+                "test_input": "blocking failure",
+                "expected_result": "release is blocked by a P0 failure",
+                "priority": "P0",
+                "priority_final": "P0",
+                "execution_group": "main_smoke",
+            }
+        ],
+        requirement_text="generic workflow",
+    )
+
+    assert normalized[0]["priority"] != "P0"
+    assert normalized[0]["priority_decision_source"] == "model_p0_guard_downgrade"
 
 
 def test_public_normalization_does_not_promote_essay_cases_for_schedule_requirement() -> None:
@@ -1109,7 +1718,7 @@ def test_full_mode_demotes_popup_status_and_limit_cases_from_p0() -> None:
     assert priorities_by_description["My works list keeps maximum records limit at 20"] != "P0"
 
 
-def test_template_polluted_expected_result_is_removed_before_final() -> None:
+def test_postprocess_does_not_delete_case_by_template_specific_text_pattern() -> None:
     state = build_generation_mode_control_state(
         requirement_text="full functional regression for image visibility and correction result",
         expected_count=100,
@@ -1123,7 +1732,7 @@ def test_template_polluted_expected_result_is_removed_before_final() -> None:
             "preconditions": ["User is logged in"],
             "steps": ["Open uploaded image", "Click toggle original image"],
             "test_input": "uploaded image",
-            "expected_result": "执行再次点击按钮后，应跳转到目标页面，且页面路径与标题均与作文批改上传图片显隐原图功能一致",
+            "expected_result": "The image visibility changes and the current page remains observable.",
             "priority": "P0",
         },
         {
@@ -1137,6 +1746,7 @@ def test_template_polluted_expected_result_is_removed_before_final() -> None:
             "priority": "P1",
         },
     ]
+    _attach_independent_case_semantics(cases, module_key="correction_upload")
 
     result = _drain_with_return(
         stream_postprocess_cases(
@@ -1164,9 +1774,12 @@ def test_template_polluted_expected_result_is_removed_before_final() -> None:
         )
     )
 
-    final_text = __import__("json").dumps(result.get("cases") or [], ensure_ascii=False)
-    assert "页面路径与标题" not in final_text
-    assert "显隐原图功能一致" not in final_text
+    final_cases = result.get("cases") or []
+    assert {str(item.get("description") or "") for item in final_cases} == {
+        "Image original visibility toggle",
+        "Upload image and generate correction result",
+    }
+    assert all(isinstance(item.get("_semantic"), dict) for item in final_cases)
 
 
 def test_full_mode_demotes_media_management_and_time_status_from_p0() -> None:
@@ -1316,7 +1929,7 @@ def test_full_mode_demotes_media_management_and_time_status_from_p0() -> None:
     assert priorities_by_description["Correction feedback displays four modules completely"] == "P1"
 
 
-def test_full_mode_shortfall_supplement_reports_remaining_gap_below_explicit_tolerance() -> None:
+def test_full_mode_shortfall_does_not_start_post_review_supplement() -> None:
     state = build_generation_mode_control_state(
         requirement_text="full functional regression for generated results, audit, permissions, upload failures, and downloads",
         expected_count=120,
@@ -1410,16 +2023,13 @@ def test_full_mode_shortfall_supplement_reports_remaining_gap_below_explicit_tol
 
     summary = dict(result.get("generation_summary") or {})
     review_summary = dict(result.get("review_decision_summary") or {})
-    assert len(result.get("cases") or []) >= 80
-    assert review_summary["final_shortfall_supplement_attempted"] is True
-    assert review_summary["final_shortfall_supplement_applied"] is True
-    assert review_summary["final_shortfall_supplement_count"] > 0
+    assert not any(str(item.get("id") or "").startswith("S-") for item in (result.get("cases") or []))
     assert review_summary["final_scenario_duplicate_case_count"] == 0
     assert summary["underfilled"] is True
-    assert any("FINAL_SHORTFALL_SUPPLEMENT" in prompt for prompt in client.prompts)
+    assert not any("FINAL_SHORTFALL_SUPPLEMENT" in prompt for prompt in client.prompts)
 
 
-def test_standard_expected_count_shortfall_supplement_recovers_below_floor_result() -> None:
+def test_standard_expected_count_shortfall_does_not_start_post_review_supplement() -> None:
     state = build_generation_mode_control_state(
         requirement_text="standard regression for activity entry, course visibility, assessment, reports, reward, and purchase flows",
         expected_count=50,
@@ -1540,13 +2150,9 @@ def test_standard_expected_count_shortfall_supplement_recovers_below_floor_resul
 
     summary = dict(result.get("generation_summary") or {})
     review_summary = dict(result.get("review_decision_summary") or {})
-    assert len(result.get("cases") or []) >= 40
-    assert review_summary["final_target_floor_count"] == 40
-    assert review_summary["final_shortfall_supplement_attempted"] is True
-    assert review_summary["final_shortfall_supplement_applied"] is True
-    assert review_summary["final_floor_recovered_count"] > 0
-    assert summary["underfilled"] is False
-    assert any("FINAL_SHORTFALL_SUPPLEMENT" in prompt for prompt in client.prompts)
+    assert not any(str(item.get("id") or "").startswith("S-") for item in (result.get("cases") or []))
+    assert "final_shortfall_supplement_attempted" not in review_summary
+    assert not any("FINAL_SHORTFALL_SUPPLEMENT" in prompt for prompt in client.prompts)
 
 
 def test_standard_expected_count_exposes_matching_final_floor() -> None:
@@ -1677,7 +2283,7 @@ def test_standard_expected_count_exposes_matching_final_floor() -> None:
     summary = dict(result.get("generation_summary") or {})
     review_summary = dict(result.get("review_decision_summary") or {})
     assert summary["min_acceptable_final"] == 40
-    assert review_summary["final_target_floor_count"] == 40
+    assert "final_target_floor_count" not in review_summary
     assert summary["underfilled"] is False
 
 
@@ -1735,7 +2341,7 @@ def test_full_mode_marks_below_recommended_floor_underfilled_even_when_candidate
     assert summary["underfill_reason"] == "valid_candidate_insufficient"
 
 
-def test_confirmed_nonlinear_stage_fact_drops_legacy_locked_stage_case() -> None:
+def test_confirmed_fact_does_not_trigger_text_based_case_deletion() -> None:
     state = build_generation_mode_control_state(
         requirement_text="Course stages are non-linear and have no prerequisites; any stage can be entered initially.",
         expected_count=100,
@@ -1769,6 +2375,7 @@ def test_confirmed_nonlinear_stage_fact_drops_legacy_locked_stage_case() -> None
             "priority": "P1",
         },
     ]
+    _attach_independent_case_semantics(cases, module_key="course_stage")
 
     result = _drain_with_return(
         stream_postprocess_cases(
@@ -1798,12 +2405,10 @@ def test_confirmed_nonlinear_stage_fact_drops_legacy_locked_stage_case() -> None
 
     descriptions = " ".join(str(item.get("description") or "") for item in (result.get("cases") or [])).lower()
     assert "allows all stages" in descriptions
-    assert "locked toast" not in descriptions
-    summary = dict(result.get("review_decision_summary") or {})
-    assert int(summary.get("final_confirmed_conflict_drop_count") or 0) >= 1
+    assert "locked toast" in descriptions
 
 
-def test_final_set_internal_nonlinear_stage_conflict_drops_legacy_locked_case() -> None:
+def test_final_set_does_not_infer_semantic_conflict_from_case_text() -> None:
     state = build_generation_mode_control_state(
         requirement_text="Course stage regression with current stage behavior.",
         expected_count=100,
@@ -1830,6 +2435,7 @@ def test_final_set_internal_nonlinear_stage_conflict_drops_legacy_locked_case() 
             "priority": "P1",
         },
     ]
+    _attach_independent_case_semantics(cases, module_key="course_stage")
 
     result = _drain_with_return(
         stream_postprocess_cases(
@@ -1859,9 +2465,7 @@ def test_final_set_internal_nonlinear_stage_conflict_drops_legacy_locked_case() 
 
     descriptions = " ".join(str(item.get("description") or "") for item in (result.get("cases") or [])).lower()
     assert "all stages are enterable" in descriptions
-    assert "locked toast" not in descriptions
-    summary = dict(result.get("review_decision_summary") or {})
-    assert int(summary.get("final_confirmed_conflict_drop_count") or 0) >= 1
+    assert "locked toast" in descriptions
 
 
 def test_external_workflow_blueprint_disconnected_states_do_not_publish_main_smoke_chain() -> None:
@@ -1871,6 +2475,9 @@ def test_external_workflow_blueprint_disconnected_states_do_not_publish_main_smo
         "source_type": "human_reviewed",
         "repository_source": "workflow_blueprint_repository",
         "trusted": True,
+        "initial_state": "initial",
+        "required_stage_ids": ["entry", "configure", "preview", "commit", "downstream", "consume"],
+        "terminal_states": ["course_learning_opened"],
         "steps": [
             {
                 "id": "entry",
@@ -1878,9 +2485,10 @@ def test_external_workflow_blueprint_disconnected_states_do_not_publish_main_smo
                 "action": "open schedule creation",
                 "state_in": "initial",
                 "state_out": "schedule_create_started",
+                "required": True,
+                "terminal": False,
                 "stage_kind": "entry",
                 "actor": "supervisor",
-                "allow_bridge": True,
                 "match_keywords": ["open schedule creation"],
             },
             {
@@ -1889,6 +2497,8 @@ def test_external_workflow_blueprint_disconnected_states_do_not_publish_main_smo
                 "action": "select courses and time",
                 "state_in": "courses_selected",
                 "state_out": "schedule_configured",
+                "required": True,
+                "terminal": False,
                 "stage_kind": "configure",
                 "actor": "supervisor",
                 "match_keywords": ["select courses and time"],
@@ -1899,6 +2509,8 @@ def test_external_workflow_blueprint_disconnected_states_do_not_publish_main_smo
                 "action": "preview schedule plan",
                 "state_in": "schedule_configured",
                 "state_out": "schedule_preview_ready",
+                "required": True,
+                "terminal": False,
                 "stage_kind": "preview",
                 "actor": "supervisor",
                 "match_keywords": ["preview schedule plan"],
@@ -1909,6 +2521,8 @@ def test_external_workflow_blueprint_disconnected_states_do_not_publish_main_smo
                 "action": "save schedule plan",
                 "state_in": "schedule_preview_ready",
                 "state_out": "schedule_committed",
+                "required": True,
+                "terminal": False,
                 "stage_kind": "commit",
                 "actor": "supervisor",
                 "match_keywords": ["save schedule plan"],
@@ -1919,6 +2533,8 @@ def test_external_workflow_blueprint_disconnected_states_do_not_publish_main_smo
                 "action": "display saved schedule on student home",
                 "state_in": "schedule_committed",
                 "state_out": "student_home_visible",
+                "required": True,
+                "terminal": False,
                 "stage_kind": "downstream_visibility",
                 "actor": "student",
                 "match_keywords": ["student home displays saved schedule"],
@@ -1929,12 +2545,15 @@ def test_external_workflow_blueprint_disconnected_states_do_not_publish_main_smo
                 "action": "open visible course",
                 "state_in": "student_home_visible",
                 "state_out": "course_learning_opened",
+                "required": True,
+                "terminal": True,
                 "stage_kind": "consume",
                 "actor": "student",
                 "match_keywords": ["student opens visible course"],
             },
         ],
     }
+    _complete_primary_workflow_fixture(blueprint, module_key="schedule")
     cases = [
         {
             "id": "TC-001",
@@ -1997,6 +2616,19 @@ def test_external_workflow_blueprint_disconnected_states_do_not_publish_main_smo
             "priority": "P0",
         },
     ]
+    _attach_workflow_case_semantics(
+        cases,
+        blueprint=blueprint,
+        module_key="schedule",
+        stage_by_case_id={
+            "TC-001": "entry",
+            "TC-002": "configure",
+            "TC-003": "preview",
+            "TC-004": "commit",
+            "TC-005": "downstream",
+            "TC-006": "consume",
+        },
+    )
 
     result = _drain_with_return(
         stream_postprocess_cases(
@@ -2035,13 +2667,16 @@ def test_external_workflow_blueprint_disconnected_states_do_not_publish_main_smo
     assert execution_plan["selected_stage_state_conflicts"][0]["reason"] == "state_not_connected"
 
 
-def test_external_workflow_blueprint_materializes_missing_trusted_middle_step() -> None:
+def test_external_workflow_blueprint_reports_missing_stage_without_manufacturing_case() -> None:
     blueprint = {
         "id": "course_schedule_flow",
         "workflow_id": "course_schedule_flow",
         "source_type": "human_reviewed",
         "repository_source": "workflow_blueprint_repository",
         "trusted": True,
+        "initial_state": "initial",
+        "required_stage_ids": ["entry", "choose_course", "configure_time", "save_plan", "student_visible"],
+        "terminal_states": ["student_visible"],
         "steps": [
             {
                 "id": "entry",
@@ -2049,9 +2684,10 @@ def test_external_workflow_blueprint_materializes_missing_trusted_middle_step() 
                 "action": "open schedule creation",
                 "state_in": "initial",
                 "state_out": "creation_opened",
+                "required": True,
+                "terminal": False,
                 "stage_kind": "entry",
                 "actor": "supervisor",
-                "allow_bridge": True,
                 "match_keywords": ["open schedule creation"],
             },
             {
@@ -2060,9 +2696,10 @@ def test_external_workflow_blueprint_materializes_missing_trusted_middle_step() 
                 "action": "choose recent course",
                 "state_in": "creation_opened",
                 "state_out": "course_chosen",
+                "required": True,
+                "terminal": False,
                 "stage_kind": "configure",
                 "actor": "supervisor",
-                "allow_bridge": True,
                 "match_keywords": ["choose recent course"],
             },
             {
@@ -2071,9 +2708,10 @@ def test_external_workflow_blueprint_materializes_missing_trusted_middle_step() 
                 "action": "configure schedule time",
                 "state_in": "course_chosen",
                 "state_out": "time_configured",
+                "required": True,
+                "terminal": False,
                 "stage_kind": "configure",
                 "actor": "supervisor",
-                "allow_bridge": True,
                 "match_keywords": ["configure schedule time"],
             },
             {
@@ -2082,9 +2720,10 @@ def test_external_workflow_blueprint_materializes_missing_trusted_middle_step() 
                 "action": "save schedule plan",
                 "state_in": "time_configured",
                 "state_out": "plan_saved",
+                "required": True,
+                "terminal": False,
                 "stage_kind": "commit",
                 "actor": "supervisor",
-                "allow_bridge": True,
                 "match_keywords": ["save schedule plan"],
             },
             {
@@ -2093,13 +2732,15 @@ def test_external_workflow_blueprint_materializes_missing_trusted_middle_step() 
                 "action": "student home displays schedule",
                 "state_in": "plan_saved",
                 "state_out": "student_visible",
+                "required": True,
+                "terminal": True,
                 "stage_kind": "downstream_visibility",
                 "actor": "student",
-                "allow_bridge": True,
                 "match_keywords": ["student home displays schedule"],
             },
         ],
     }
+    _complete_primary_workflow_fixture(blueprint, module_key="schedule")
     cases = [
         {
             "id": "TC-001",
@@ -2142,6 +2783,17 @@ def test_external_workflow_blueprint_materializes_missing_trusted_middle_step() 
             "priority": "P0",
         },
     ]
+    _attach_workflow_case_semantics(
+        cases,
+        blueprint=blueprint,
+        module_key="schedule",
+        stage_by_case_id={
+            "TC-001": "entry",
+            "TC-002": "configure_time",
+            "TC-003": "save_plan",
+            "TC-004": "student_visible",
+        },
+    )
 
     result = _drain_with_return(
         stream_postprocess_cases(
@@ -2171,35 +2823,131 @@ def test_external_workflow_blueprint_materializes_missing_trusted_middle_step() 
 
     summary = dict(result.get("review_decision_summary") or {})
     execution_plan = dict(summary.get("execution_plan") or {})
-    assert execution_plan["linear_executable"] is True
-    assert execution_plan["state_conflict_count"] == 0
-    assert execution_plan["workflow_contract_materialized_case_count"] == 1
+    assert execution_plan["linear_executable"] is False
+    assert execution_plan["publishable_main_chain"] is False
+    assert execution_plan["main_chain_incomplete_reason"] == "required_stage_gap"
+    assert "choose_course" in execution_plan["missing_required_stage_ids"]
     main_cases = [
         item
         for item in (result.get("cases") or [])
         if str(item.get("execution_group") or "") == "main_smoke"
     ]
-    assert [item.get("main_chain_stage") for item in main_cases] == [
-        "entry",
-        "choose_course",
-        "configure_time",
-        "save_plan",
-        "student_visible",
-    ]
-    assert any(item.get("description") == "Choose recent course" for item in main_cases)
-    assert not any(bool(item.get("generated_bridge_case")) for item in main_cases)
-    materialized = next(item for item in main_cases if item.get("description") == "Choose recent course")
-    public_text = " ".join(
-        [
-            str(materialized.get("test_module") or ""),
-            str(materialized.get("description") or ""),
-            str(materialized.get("expected_result") or ""),
-            str(materialized.get("test_input") or ""),
-            " ".join(str(step) for step in materialized.get("steps") or []),
-        ]
+    assert main_cases == []
+    assert not any(
+        item.get("description") == "Choose recent course"
+        for item in (result.get("cases") or [])
     )
-    assert "workflow_blueprint" not in public_text
-    assert "course_schedule_flow" not in public_text
+
+
+def test_single_pass_repairs_only_exact_required_stage_gap() -> None:
+    blueprint = _complete_primary_workflow_fixture(
+        {
+            "id": "publish_flow",
+            "workflow_id": "publish_flow",
+            "initial_state": "draft",
+            "required_stage_ids": ["entry", "visible"],
+            "terminal_states": ["visible"],
+            "steps": [
+                {
+                    "id": "entry",
+                    "label": "Open publish entry",
+                    "action": "open publish entry",
+                    "state_in": "draft",
+                    "state_out": "editing",
+                    "stage_kind": "entry",
+                    "required": True,
+                    "terminal": False,
+                },
+                {
+                    "id": "visible",
+                    "label": "View published post",
+                    "action": "view published post",
+                    "state_in": "editing",
+                    "state_out": "visible",
+                    "stage_kind": "downstream_visibility",
+                    "required": True,
+                    "terminal": True,
+                },
+            ],
+        },
+        module_key="forum",
+    )
+    initial_cases = [
+        {
+            "id": "TC-001",
+            "description": "Open publish entry",
+            "test_module": "Forum",
+            "preconditions": ["User is logged in"],
+            "steps": ["Open publish entry"],
+            "test_input": "forum entry",
+            "expected_result": "The publish editor is visible.",
+            "priority": "P1",
+        }
+    ]
+    supplement_cases = [
+        {
+            "id": "TC-002",
+            "description": "View published post",
+            "test_module": "Forum",
+            "preconditions": ["The publish editor is open"],
+            "steps": ["Publish content", "Open published post"],
+            "test_input": "valid post content",
+            "expected_result": "The published post detail is visible.",
+            "priority": "P1",
+        }
+    ]
+    _attach_workflow_case_semantics(
+        initial_cases,
+        blueprint=blueprint,
+        module_key="forum",
+        stage_by_case_id={"TC-001": "entry"},
+    )
+    _attach_workflow_case_semantics(
+        supplement_cases,
+        blueprint=blueprint,
+        module_key="forum",
+        stage_by_case_id={"TC-002": "visible"},
+    )
+    client = _StreamingSupplementClient([supplement_cases])
+
+    result = _drain_with_return(
+        stream_postprocess_cases(
+            client=client,
+            requirement="Publish a forum post and open its detail.",
+            base_prompt="BASE",
+            kb_context="",
+            full_content=json.dumps(initial_cases, ensure_ascii=False),
+            expected_count=2,
+            append=False,
+            existing_cases=[],
+            existing_unique_count=0,
+            start_id=1,
+            db=None,
+            clean_and_parse_json_fn=clean_and_parse_json,
+            normalize_json_structure_fn=normalize_json_structure,
+            deduplicate_test_cases_fn=deduplicate_test_cases,
+            reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
+            count_unique_test_cases_fn=count_unique_test_cases,
+            infer_case_kind_fn=infer_case_kind,
+            build_supplement_closed_loop_instruction_fn=lambda **_: "",
+            multi_pass=False,
+            generation_mode="single_pass",
+            feedback_control_state={"workflow_blueprints": [blueprint]},
+        )
+    )
+
+    execution_plan = dict(
+        (result.get("review_decision_summary") or {}).get("execution_plan") or {}
+    )
+    assert execution_plan["publishable_main_chain"] is True
+    assert [
+        item.get("main_chain_stage")
+        for item in (result.get("cases") or [])
+        if item.get("execution_group") == "main_smoke"
+    ] == ["entry", "visible"]
+    assert len(client.stream_prompts) == 1
+    assert "Generic rule/type gaps: none" in client.stream_prompts[0]
+    assert '"stage_id":"visible"' in client.stream_prompts[0]
 
 
 def test_current_requirement_blueprint_preserves_explicit_actor_sessions() -> None:
@@ -2209,6 +2957,9 @@ def test_current_requirement_blueprint_preserves_explicit_actor_sessions() -> No
         "source_type": "current_requirement_extracted",
         "repository_source": "current_requirement_blueprint",
         "trusted": False,
+        "initial_state": "initial",
+        "required_stage_ids": ["entry", "configure", "preview", "commit", "free_visible", "member_complete"],
+        "terminal_states": ["member_progress_complete"],
         "steps": [
             {
                 "id": "entry",
@@ -2218,7 +2969,8 @@ def test_current_requirement_blueprint_preserves_explicit_actor_sessions() -> No
                 "state_out": "entry_opened",
                 "stage_kind": "entry",
                 "actor": "后台运营",
-                "allow_bridge": True,
+                "required": True,
+                "terminal": False,
                 "match_keywords": ["Admin opens activity setup entry"],
             },
             {
@@ -2229,7 +2981,8 @@ def test_current_requirement_blueprint_preserves_explicit_actor_sessions() -> No
                 "state_out": "rules_configured",
                 "stage_kind": "configure",
                 "actor": "老师端用户",
-                "allow_bridge": True,
+                "required": True,
+                "terminal": False,
                 "match_keywords": ["Teacher configures activity rules"],
             },
             {
@@ -2240,7 +2993,8 @@ def test_current_requirement_blueprint_preserves_explicit_actor_sessions() -> No
                 "state_out": "preview_ready",
                 "stage_kind": "preview",
                 "actor": "教师用户",
-                "allow_bridge": True,
+                "required": True,
+                "terminal": False,
                 "match_keywords": ["Teacher previews activity content"],
             },
             {
@@ -2251,7 +3005,8 @@ def test_current_requirement_blueprint_preserves_explicit_actor_sessions() -> No
                 "state_out": "plan_saved",
                 "stage_kind": "commit",
                 "actor": "老师端用户",
-                "allow_bridge": True,
+                "required": True,
+                "terminal": False,
                 "match_keywords": ["Teacher saves activity plan"],
             },
             {
@@ -2262,7 +3017,8 @@ def test_current_requirement_blueprint_preserves_explicit_actor_sessions() -> No
                 "state_out": "free_user_visible",
                 "stage_kind": "downstream_visibility",
                 "actor": "非会员用户",
-                "allow_bridge": True,
+                "required": True,
+                "terminal": False,
                 "match_keywords": ["Non-member user sees saved activity visible"],
             },
             {
@@ -2273,11 +3029,13 @@ def test_current_requirement_blueprint_preserves_explicit_actor_sessions() -> No
                 "state_out": "member_progress_complete",
                 "stage_kind": "completion_sync",
                 "actor": "会员用户",
-                "allow_bridge": True,
+                "required": True,
+                "terminal": True,
                 "match_keywords": ["Member user opens activity and progress becomes complete"],
             },
         ],
     }
+    _complete_primary_workflow_fixture(blueprint, module_key="activity")
     cases = [
         {
             "id": "TC-001",
@@ -2340,6 +3098,19 @@ def test_current_requirement_blueprint_preserves_explicit_actor_sessions() -> No
             "priority": "P0",
         },
     ]
+    _attach_workflow_case_semantics(
+        cases,
+        blueprint=blueprint,
+        module_key="activity",
+        stage_by_case_id={
+            "TC-001": "entry",
+            "TC-002": "configure",
+            "TC-003": "preview",
+            "TC-004": "commit",
+            "TC-005": "free_visible",
+            "TC-006": "member_complete",
+        },
+    )
 
     result = _drain_with_return(
         stream_postprocess_cases(
@@ -2411,6 +3182,9 @@ def test_current_requirement_blueprint_preserves_explicit_generic_actor() -> Non
         "source_type": "current_requirement_extracted",
         "repository_source": "current_requirement_blueprint",
         "trusted": False,
+        "initial_state": "initial",
+        "required_stage_ids": ["entry", "configure", "preview", "commit", "visible", "complete"],
+        "terminal_states": ["fulfillment_status_synced"],
         "steps": [
             {
                 "id": "entry",
@@ -2420,7 +3194,8 @@ def test_current_requirement_blueprint_preserves_explicit_generic_actor() -> Non
                 "state_out": "checkout_opened",
                 "stage_kind": "entry",
                 "actor": "用户",
-                "allow_bridge": True,
+                "required": True,
+                "terminal": False,
                 "match_keywords": ["Customer opens order checkout entry"],
             },
             {
@@ -2431,7 +3206,8 @@ def test_current_requirement_blueprint_preserves_explicit_generic_actor() -> Non
                 "state_out": "order_configured",
                 "stage_kind": "configure",
                 "actor": "用户",
-                "allow_bridge": True,
+                "required": True,
+                "terminal": False,
                 "match_keywords": ["Customer configures order items and delivery address"],
             },
             {
@@ -2442,7 +3218,8 @@ def test_current_requirement_blueprint_preserves_explicit_generic_actor() -> Non
                 "state_out": "order_preview_ready",
                 "stage_kind": "preview",
                 "actor": "用户",
-                "allow_bridge": True,
+                "required": True,
+                "terminal": False,
                 "match_keywords": ["Customer reviews order confirmation preview"],
             },
             {
@@ -2453,7 +3230,8 @@ def test_current_requirement_blueprint_preserves_explicit_generic_actor() -> Non
                 "state_out": "order_submitted",
                 "stage_kind": "commit",
                 "actor": "用户",
-                "allow_bridge": True,
+                "required": True,
+                "terminal": False,
                 "match_keywords": ["Customer submits order"],
             },
             {
@@ -2464,7 +3242,8 @@ def test_current_requirement_blueprint_preserves_explicit_generic_actor() -> Non
                 "state_out": "order_status_visible",
                 "stage_kind": "downstream_visibility",
                 "actor": "用户",
-                "allow_bridge": True,
+                "required": True,
+                "terminal": False,
                 "match_keywords": ["Order center displays latest saved order status"],
             },
             {
@@ -2475,11 +3254,13 @@ def test_current_requirement_blueprint_preserves_explicit_generic_actor() -> Non
                 "state_out": "fulfillment_status_synced",
                 "stage_kind": "completion_sync",
                 "actor": "用户",
-                "allow_bridge": True,
+                "required": True,
+                "terminal": True,
                 "match_keywords": ["Fulfillment status sync completes after payment"],
             },
         ],
     }
+    _complete_primary_workflow_fixture(blueprint, module_key="order")
     cases = [
         {
             "id": "TC-001",
@@ -2542,6 +3323,19 @@ def test_current_requirement_blueprint_preserves_explicit_generic_actor() -> Non
             "priority": "P0",
         },
     ]
+    _attach_workflow_case_semantics(
+        cases,
+        blueprint=blueprint,
+        module_key="order",
+        stage_by_case_id={
+            "TC-001": "entry",
+            "TC-002": "configure",
+            "TC-003": "preview",
+            "TC-004": "commit",
+            "TC-005": "visible",
+            "TC-006": "complete",
+        },
+    )
 
     result = _drain_with_return(
         stream_postprocess_cases(

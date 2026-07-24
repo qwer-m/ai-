@@ -27,8 +27,8 @@ def clean_and_parse_json(response_text: str) -> Any:
     return _clean_and_parse_json_impl(response_text)
 
 
-def normalize_json_structure(data: Any) -> Any:
-    return _normalize_json_structure_impl(data)
+def normalize_json_structure(data: Any, **kwargs: Any) -> Any:
+    return _normalize_json_structure_impl(data, **kwargs)
 
 
 def deduplicate_test_cases(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -20,7 +20,6 @@ from .streaming_review_mapping import (
 )
 from .streaming_review_retry import (
     analyze_review_retry_payload as _analyze_review_retry_payload,
-    build_compact_review_retry_prompt as _build_compact_review_retry_prompt,
     build_review_protocol_repair_prompt as _build_review_protocol_repair_prompt,
     resolve_review_fallback_models as _resolve_review_fallback_models,
     review_retry_payload_debug_counts as _review_payload_debug_counts,
@@ -50,6 +49,7 @@ def run_review_llm_selection(
     review_target_min_count: int,
     review_target_max_count: int,
     review_constraints: dict[str, Any],
+    review_contract_context: dict[str, Any],
     current_biz_key: str,
     build_review_select_prompt_fn: Callable[..., str],
     clean_and_parse_json_fn: Callable[[str], Any],
@@ -75,6 +75,7 @@ def run_review_llm_selection(
                 target_min_count=review_target_min_count,
                 target_max_count=review_target_max_count,
                 coverage_constraints=review_constraints,
+                review_contract_context=review_contract_context,
                 current_biz_key=current_biz_key,
                 pretty_json=False,
             )
@@ -132,14 +133,13 @@ def run_review_llm_selection(
             final_source = "primary_llm"
             retry_reason = str(primary_result.get("invalid_reason") or "")
             if retry_reason:
-                retry_reason, final_source, final_result, review_response_text = _run_compact_retry_if_available(
+                retry_reason, final_source, final_result, review_response_text = _run_contract_retry_if_available(
                     client=client,
                     db=db,
                     retry_reason=retry_reason,
                     review_response_text=review_response_text,
+                    review_prompt=review_prompt,
                     llm_pool_cases=llm_pool_cases,
-                    review_target_min_count=review_target_min_count,
-                    review_target_max_count=review_target_max_count,
                     clean_and_parse_json_fn=clean_and_parse_json_fn,
                     normalize_json_structure_fn=normalize_json_structure_fn,
                     review_llm_runtime_debug=review_llm_runtime_debug,
@@ -227,15 +227,14 @@ def run_review_llm_selection(
     )
 
 
-def _run_compact_retry_if_available(
+def _run_contract_retry_if_available(
     *,
     client: Any,
     db: Any,
     retry_reason: str,
     review_response_text: str,
+    review_prompt: str,
     llm_pool_cases: list[dict[str, Any]],
-    review_target_min_count: int,
-    review_target_max_count: int,
     clean_and_parse_json_fn: Callable[[str], Any],
     normalize_json_structure_fn: Callable[[Any], Any],
     review_llm_runtime_debug: dict[str, Any],
@@ -252,17 +251,15 @@ def _run_compact_retry_if_available(
     ):
         return retry_reason, final_source, final_result, review_response_text
 
-    review_llm_runtime_debug["primary_compact_retry_invoked"] = True
-    review_llm_runtime_debug["primary_compact_retry_model"] = primary_model_for_retry
-    compact_retry_started = time.perf_counter()
-    compact_retry_text = str(
+    review_llm_runtime_debug["primary_contract_retry_invoked"] = True
+    review_llm_runtime_debug["primary_contract_retry_model"] = primary_model_for_retry
+    contract_retry_started = time.perf_counter()
+    contract_retry_text = str(
         client.generate_response(
-            _build_compact_review_retry_prompt(
-                llm_pool_cases,
-                target_min_count=review_target_min_count,
-                target_max_count=review_target_max_count,
+            _build_review_protocol_repair_prompt(
+                review_prompt=review_prompt,
+                candidate_cases=llm_pool_cases,
                 drop_reasons=_REVIEW_DROP_REASONS,
-                max_candidates=200,
             ),
             "You are a QA Auditor. Return strict JSON only.",
             db=db,
@@ -272,25 +269,25 @@ def _run_compact_retry_if_available(
         )
         or ""
     )
-    review_llm_runtime_debug["primary_compact_retry_duration_ms"] = max(
+    review_llm_runtime_debug["primary_contract_retry_duration_ms"] = max(
         0,
-        int(round((time.perf_counter() - compact_retry_started) * 1000)),
+        int(round((time.perf_counter() - contract_retry_started) * 1000)),
     )
-    review_llm_runtime_debug["primary_compact_retry_response_len"] = int(len(compact_retry_text))
-    review_llm_runtime_debug["primary_compact_retry_response_metadata"] = _client_response_metadata(client)
-    compact_retry_result = _analyze_review_retry_payload(
-        compact_retry_text,
+    review_llm_runtime_debug["primary_contract_retry_response_len"] = int(len(contract_retry_text))
+    review_llm_runtime_debug["primary_contract_retry_response_metadata"] = _client_response_metadata(client)
+    contract_retry_result = _analyze_review_retry_payload(
+        contract_retry_text,
         candidate_cases=llm_pool_cases,
         parse_json_fn=clean_and_parse_json_fn,
         normalize_json_structure_fn=normalize_json_structure_fn,
-        reason_origin="primary_compact_retry",
+        reason_origin="primary_contract_retry",
         map_selection_fn=_map_review_selection_with_reasons,
     )
-    compact_retry_invalid_reason = str(compact_retry_result.get("invalid_reason") or "")
-    review_llm_runtime_debug["primary_compact_retry_invalid_reason"] = compact_retry_invalid_reason
-    if compact_retry_invalid_reason:
+    contract_retry_invalid_reason = str(contract_retry_result.get("invalid_reason") or "")
+    review_llm_runtime_debug["primary_contract_retry_invalid_reason"] = contract_retry_invalid_reason
+    if contract_retry_invalid_reason:
         return retry_reason, final_source, final_result, review_response_text
-    return "", "primary_compact_retry", compact_retry_result, compact_retry_text
+    return "", "primary_contract_retry", contract_retry_result, contract_retry_text
 
 
 def _review_fallback_skip_reason(
@@ -300,12 +297,12 @@ def _review_fallback_skip_reason(
 ) -> str:
     if retry_reason not in _RETRYABLE_RESPONSE_ERROR_REASONS:
         return ""
-    if not bool(review_llm_runtime_debug.get("primary_compact_retry_invoked")):
+    if not bool(review_llm_runtime_debug.get("primary_contract_retry_invoked")):
         return ""
-    compact_invalid_reason = str(review_llm_runtime_debug.get("primary_compact_retry_invalid_reason") or "")
-    if compact_invalid_reason not in _RETRYABLE_RESPONSE_ERROR_REASONS:
+    contract_invalid_reason = str(review_llm_runtime_debug.get("primary_contract_retry_invalid_reason") or "")
+    if contract_invalid_reason not in _RETRYABLE_RESPONSE_ERROR_REASONS:
         return ""
-    return "empty_response_after_compact_retry"
+    return "empty_response_after_contract_retry"
 
 
 def _run_fallback_retries(
@@ -330,7 +327,6 @@ def _run_fallback_retries(
         review_prompt=review_prompt,
         candidate_cases=llm_pool_cases,
         drop_reasons=_REVIEW_DROP_REASONS,
-        max_candidates=200,
     )
 
     for fallback_model in fallback_models:

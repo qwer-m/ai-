@@ -7,7 +7,6 @@ from modules.test_generation_components.postprocess.streaming_final_case_summary
     build_review_flow_structure_fields,
     final_dedup_priority_summary_fields,
     final_case_breakdown,
-    resolve_final_duplicate_project_profile,
     review_flow_structure_summary_fields,
     summarize_final_description_dedup_drops,
     summarize_final_description_dedup_and_priority_breakdown,
@@ -295,104 +294,6 @@ def test_final_dedup_priority_summary_fields_defaults_empty_payload() -> None:
         "priority_quality_gate_failed": False,
         "needs_priority_review": False,
     }
-
-
-def test_resolve_final_duplicate_project_profile_returns_original_by_default() -> None:
-    calls: list[dict[str, object]] = []
-    profile = {"profile_source": "flow", "scenario_policy": {"enabled": True}}
-
-    resolved = resolve_final_duplicate_project_profile(
-        flow_project_profile=profile,
-        flow_governance_summary={"applied": True},
-        final_shortfall_supplement_applied=False,
-        effective_generation_coverage_mode="standard",
-        flow_profile_with_scenario_policy_fn=lambda source, **kwargs: calls.append(
-            {"source": source, "kwargs": kwargs}
-        )
-        or {"unexpected": True},
-    )
-
-    assert resolved is profile
-    assert calls == []
-
-
-def test_resolve_final_duplicate_project_profile_relaxed_backfill_uses_policy_profile() -> None:
-    calls: list[dict[str, object]] = []
-    profile = {"profile_source": "flow", "scenario_policy": {"enabled": True}}
-
-    def record_policy_profile(source: dict[str, object], **kwargs: object) -> dict[str, object]:
-        calls.append({"source": source, "kwargs": kwargs})
-        return {"profile_source": "flow", "scenario_policy": {"enabled": False}}
-
-    resolved = resolve_final_duplicate_project_profile(
-        flow_project_profile=profile,
-        flow_governance_summary={"relaxed_for_floor_backfill": True},
-        final_shortfall_supplement_applied=False,
-        effective_generation_coverage_mode="full_regression",
-        flow_profile_with_scenario_policy_fn=record_policy_profile,
-    )
-
-    assert resolved == {"profile_source": "flow", "scenario_policy": {"enabled": False}}
-    assert calls == [
-        {
-            "source": profile,
-            "kwargs": {
-                "coverage_mode": "full_regression",
-                "disable_scenario_pruning": True,
-                "intent_duplicate_cap": 1_000_000,
-                "relaxed_for_floor_backfill": True,
-            },
-        }
-    ]
-
-
-def test_resolve_final_duplicate_project_profile_shortfall_supplement_uses_policy_profile() -> None:
-    calls: list[dict[str, object]] = []
-    profile = {"profile_source": "flow", "scenario_policy": {"enabled": True}}
-
-    def record_policy_profile(source: dict[str, object], **kwargs: object) -> dict[str, object]:
-        calls.append({"source": source, "kwargs": kwargs})
-        return {"profile_source": "flow", "coverage_mode": kwargs["coverage_mode"]}
-
-    resolved = resolve_final_duplicate_project_profile(
-        flow_project_profile=profile,
-        flow_governance_summary=None,
-        final_shortfall_supplement_applied=True,
-        effective_generation_coverage_mode=None,
-        flow_profile_with_scenario_policy_fn=record_policy_profile,
-    )
-
-    assert resolved == {"profile_source": "flow", "coverage_mode": ""}
-    assert calls[0]["source"] is profile
-    assert calls[0]["kwargs"] == {
-        "coverage_mode": "",
-        "disable_scenario_pruning": True,
-        "intent_duplicate_cap": 1_000_000,
-        "relaxed_for_floor_backfill": True,
-    }
-
-
-def test_resolve_final_duplicate_project_profile_policy_result_does_not_share_input() -> None:
-    profile = {"profile_source": "flow", "scenario_policy": {"enabled": True}}
-
-    def record_policy_profile(source: dict[str, object], **_kwargs: object) -> dict[str, object]:
-        return {
-            "profile_source": str(source["profile_source"]),
-            "scenario_policy": dict(source["scenario_policy"]),  # type: ignore[arg-type]
-        }
-
-    resolved = resolve_final_duplicate_project_profile(
-        flow_project_profile=profile,
-        flow_governance_summary={"relaxed_for_floor_backfill": True},
-        final_shortfall_supplement_applied=False,
-        effective_generation_coverage_mode="standard",
-        flow_profile_with_scenario_policy_fn=record_policy_profile,
-    )
-    resolved["scenario_policy"]["enabled"] = False  # type: ignore[index]
-
-    assert resolved is not profile
-    assert resolved["scenario_policy"] is not profile["scenario_policy"]
-    assert profile == {"profile_source": "flow", "scenario_policy": {"enabled": True}}
 
 
 def test_build_review_flow_structure_fields_normalizes_outline_and_duplicate_samples() -> None:

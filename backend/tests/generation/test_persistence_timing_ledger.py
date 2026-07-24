@@ -15,7 +15,6 @@ def test_build_stream_timing_ledger_aggregates_stage_durations_and_payload() -> 
             {"stage": "primary_batches", "duration_ms": 37},
             {"stage": "gap_supplement", "duration_ms": 7},
             {"stage": "review_selection", "duration_ms": 11},
-            {"stage": "final_shortfall_supplement", "duration_ms": 13},
             {"stage": "postprocess_total", "duration_ms": 31},
         ],
         generation_id=42,
@@ -30,7 +29,6 @@ def test_build_stream_timing_ledger_aggregates_stage_durations_and_payload() -> 
     assert ledger.duration_by_stage_ms["primary"] == 37
     assert ledger.duration_by_stage_ms["gap"] == 7
     assert ledger.duration_by_stage_ms["review"] == 11
-    assert ledger.duration_by_stage_ms["final_shortfall"] == 13
     assert ledger.duration_by_stage_ms["postprocess_total"] == 31
     assert ledger.duration_by_stage_ms["client_resolution"] == 0
 
@@ -39,7 +37,7 @@ def test_build_stream_timing_ledger_aggregates_stage_durations_and_payload() -> 
     assert ledger.payload["generation_id"] == 42
     assert ledger.payload["project_id"] == 7
     assert ledger.payload["request_id"] == "req-stream-1"
-    assert ledger.payload["event_count"] == 9
+    assert ledger.payload["event_count"] == 8
     assert ledger.payload["duration_by_stage_ms"] == ledger.duration_by_stage_ms
 
 

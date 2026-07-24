@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .execution_plan_semantic_alignment import analyze_main_smoke_semantic_alignment
+from .streaming_execution_plan_helpers import evaluate_declared_workflow_closure
 from .streaming_execution_plan_ordering import build_execution_orchestration_plan
 
 
@@ -49,10 +51,6 @@ def execution_plan_counts(annotated: list[dict[str, Any]]) -> dict[str, Any]:
         "isolation_count": int(isolation_count),
         "broken_dependency_count": int(broken_dependency_count),
         "execution_group_breakdown": execution_group_breakdown,
-        "generated_bridge_case_count": int(sum(1 for item in cases if bool(item.get("generated_bridge_case")))),
-        "workflow_contract_materialized_case_count": int(
-            sum(1 for item in cases if bool(item.get("workflow_contract_materialized_case")))
-        ),
         "fixture_keys": sorted({_fixture_key(item) for item in cases if _fixture_key(item)}),
     }
 
@@ -68,7 +66,6 @@ def build_execution_plan_metadata_summary(
     workflow_blueprint_source: str = "",
     main_chain_stage_kinds: list[str] | None = None,
     main_chain_incomplete_reason: str = "",
-    derived_workflow_debug: dict[str, Any] | None = None,
     main_chain_excluded_candidates: list[dict[str, Any]] | None = None,
     state_conflicts: list[dict[str, Any]] | None = None,
     selected_stage_state_conflicts: list[dict[str, Any]] | None = None,
@@ -91,6 +88,21 @@ def build_execution_plan_metadata_summary(
 
     plan_counts = execution_plan_counts(cases)
     orchestration_plan = build_execution_orchestration_plan(cases)
+    semantic_analysis = analyze_main_smoke_semantic_alignment(cases)
+    seen_semantic_conflicts = {
+        (str(item.get("case_id") or ""), str(item.get("reason") or ""))
+        for item in semantic_conflict_items
+    }
+    for item in semantic_analysis.get("conflicts") or []:
+        key = (str(item.get("case_id") or ""), str(item.get("reason") or ""))
+        if key not in seen_semantic_conflicts:
+            semantic_conflict_items.append(dict(item))
+            seen_semantic_conflicts.add(key)
+    semantic_warning_items = [dict(item) for item in (semantic_analysis.get("warnings") or [])]
+    workflow_closure = evaluate_declared_workflow_closure(
+        cases,
+        workflow_blueprints=plan_workflow_blueprint_items,
+    )
     main_chain_count = int(plan_counts.get("main_chain_count") or 0)
     independent_count = int(plan_counts.get("independent_count") or 0)
     isolation_count = int(plan_counts.get("isolation_count") or 0)
@@ -107,10 +119,9 @@ def build_execution_plan_metadata_summary(
         "plan_workflow_blueprint_count": int(len(plan_workflow_blueprint_items)),
         "workflow_blueprint_source": workflow_blueprint_source,
         "linear_executable": bool(
-            main_chain_count >= 2
+            workflow_closure.get("closure_satisfied")
             and broken_dependency_count == 0
             and not state_conflict_items
-            and not semantic_conflict_items
         ),
         "linear_scope": "main_smoke_chain_only",
         "main_chain_case_count": int(main_chain_count),
@@ -121,7 +132,13 @@ def build_execution_plan_metadata_summary(
         ],
         "main_chain_stage_kinds": stage_kinds,
         "main_chain_incomplete_reason": str(main_chain_incomplete_reason or ""),
-        "derived_workflow_debug": dict(derived_workflow_debug or {}),
+        "workflow_closure": workflow_closure,
+        "required_stage_ids": list(workflow_closure.get("required_stage_ids") or []),
+        "covered_stage_ids": list(workflow_closure.get("covered_stage_ids") or []),
+        "missing_required_stage_ids": list(workflow_closure.get("missing_required_stage_ids") or []),
+        "required_stage_coverage_complete": not bool(workflow_closure.get("missing_required_stage_ids")),
+        "terminal_state_reachable": bool(workflow_closure.get("terminal_state_reachable")),
+        "workflow_closure_satisfied": bool(workflow_closure.get("closure_satisfied")),
         "main_chain_excluded_candidates": [
             {key: value for key, value in item.items() if key != "signature"}
             for item in excluded_candidates[:50]
@@ -135,13 +152,12 @@ def build_execution_plan_metadata_summary(
         "selected_stage_state_conflicts": selected_stage_state_conflict_items[:50],
         "semantic_conflict_count": int(len(semantic_conflict_items)),
         "semantic_conflicts": semantic_conflict_items[:50],
+        "semantic_warning_count": int(len(semantic_warning_items)),
+        "semantic_warnings": semantic_warning_items[:50],
+        "semantic_diagnostics_only": True,
         "execution_group_breakdown": dict(plan_counts.get("execution_group_breakdown") or {}),
         "execution_group_order": list(orchestration_plan.get("execution_group_order") or []),
         "execution_orchestration_plan": orchestration_plan,
-        "generated_bridge_case_count": int(plan_counts.get("generated_bridge_case_count") or 0),
-        "workflow_contract_materialized_case_count": int(
-            plan_counts.get("workflow_contract_materialized_case_count") or 0
-        ),
         "group_setup": {
             group: setup_map.get(group, "seed_case_dataset()")
             for group in execution_groups

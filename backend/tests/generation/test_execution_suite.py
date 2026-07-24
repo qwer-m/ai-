@@ -318,6 +318,21 @@ def test_execution_suite_without_main_smoke_reports_partial_readiness() -> None:
     assert suite["main_suite_id"] == ""
 
 
+def test_execution_suite_marks_declared_independent_suite_ready_without_main_chain_warning() -> None:
+    cases = _sample_cases()
+    for case in cases:
+        if case["execution_group"] == "main_smoke":
+            case["execution_group"] = "independent_functional"
+
+    suite = build_execution_suite(cases, workflow_absence_declared=True)
+
+    assert suite["linear_executable"] is False
+    assert suite["workflow_absence_declared"] is True
+    assert suite["execution_readiness"] == "independent_ready"
+    assert all("main_smoke" not in warning for warning in suite["warnings"])
+    assert suite["main_suite_id"] == ""
+
+
 def test_execution_suite_orders_side_suites_with_shared_execution_rank() -> None:
     cases = [
         {

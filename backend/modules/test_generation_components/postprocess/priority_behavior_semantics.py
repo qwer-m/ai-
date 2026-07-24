@@ -174,16 +174,6 @@ _GENERIC_GROUP_TOKENS = {
     ),
 }
 
-_BLOCKING_PRIORITY_REASONS = {
-    "main_workflow_blocking",
-    "workflow_blocking",
-    "severe_data_risk",
-    "severe_security_risk",
-    "case_level_release_blocking",
-    "release_blocking_rule_hit",
-    "security_or_data_critical_rule_hit",
-}
-
 _LOW_VALUE_PRIORITY_REASONS = {
     "boundary_or_low_risk_validation",
     "long_tail_or_supplemental",
@@ -195,16 +185,10 @@ _LOW_VALUE_PRIORITY_REASONS = {
     "p2_cap_display_mapping_scenario",
 }
 
-_BLOCKING_PRIORITY_SOURCES = {
-    "hard_guard_promotion",
-    "conflict_resolved_by_high_risk_business_rule",
-}
-
 _DISPLAY_PRIORITY_SOURCES = {
     "pure_ui_non_blocking_p2",
     "execution_plan_non_main_p0_demoted",
     "execution_plan_main_support_step_demoted",
-    "main_path_anchor_demoted_non_blocking",
 }
 
 _MAIN_CHAIN_STAGE_FAMILIES = {
@@ -272,11 +256,34 @@ def _priority_evidence(item: dict[str, Any] | None) -> tuple[set[str], set[str],
 
 
 def has_structured_blocking_priority_evidence(item: dict[str, Any] | None) -> bool:
-    reasons, sources, guards = _priority_evidence(item)
+    """只读模型/工作流原始结构化风险，不回读正文打分产生的 reason/guard。"""
+    if not isinstance(item, dict):
+        return False
+    transition = _transition(item)
+    direct = any(
+        payload.get(field) is True
+        for payload in (item, transition)
+        for field in ("critical", "blocking", "destructive", "business_critical")
+    )
+    semantic = item.get("_semantic")
+    semantic = dict(semantic) if isinstance(semantic, dict) else {}
+    verified_risks = []
+    for risk in semantic.get("risk_declarations") or []:
+        if not isinstance(risk, dict) or risk.get("evidence_verified") is not True:
+            continue
+        try:
+            confidence = float(risk.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        if confidence > 0.0:
+            verified_risks.append(risk)
     return bool(
-        reasons.intersection(_BLOCKING_PRIORITY_REASONS)
-        or sources.intersection(_BLOCKING_PRIORITY_SOURCES)
-        or any(guards.get(key) for key in _BLOCKING_PRIORITY_REASONS | {"case_level_hard_guard"})
+        direct
+        or any(
+            risk.get(field) is True
+            for risk in verified_risks
+            for field in ("critical", "blocking", "destructive")
+        )
     )
 
 

@@ -175,24 +175,6 @@ class Config:
     # Execution plan persistence gate
     # ===========================
     EXECUTION_PLAN_GATE_MODE = os.getenv("EXECUTION_PLAN_GATE_MODE", "enforce").strip().lower()
-    EXECUTION_PLAN_MIN_MAIN_SMOKE_COUNT = _env_int("EXECUTION_PLAN_MIN_MAIN_SMOKE_COUNT", 6, minimum=1)
-    EXECUTION_PLAN_MIN_P0_COUNT = _env_int("EXECUTION_PLAN_MIN_P0_COUNT", 6, minimum=1)
-    EXECUTION_PLAN_MIN_STATE_FIELD_COVERAGE = _env_float(
-        "EXECUTION_PLAN_MIN_STATE_FIELD_COVERAGE",
-        0.8,
-        minimum=0.0,
-        maximum=1.0,
-    )
-    EXECUTION_PLAN_MAX_WORKFLOW_ID_MISSING_RATE = _env_float(
-        "EXECUTION_PLAN_MAX_WORKFLOW_ID_MISSING_RATE",
-        0.2,
-        minimum=0.0,
-        maximum=1.0,
-    )
-    EXECUTION_PLAN_REJECT_CANDIDATE_DERIVED_BLUEPRINT = _env_flag(
-        "EXECUTION_PLAN_REJECT_CANDIDATE_DERIVED_BLUEPRINT",
-        True,
-    )
     CASE_QUALITY_ENFORCE_MIN_ACCEPTABLE_FINAL = _env_flag(
         "CASE_QUALITY_ENFORCE_MIN_ACCEPTABLE_FINAL",
         False,

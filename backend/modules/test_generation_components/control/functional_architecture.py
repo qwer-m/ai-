@@ -300,55 +300,16 @@ def _module_nodes(structure: dict[str, Any]) -> tuple[list[dict[str, Any]], str]
     return [], "none"
 
 
-def _extract_interactions(text: str, modules: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """只保留原文中明确共现的两个已识别模块，不推断隐式业务因果。"""
-    interactions: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    source_text = normalize_document_text(text, preserve_source_form=True)
-    for line in source_text.splitlines():
-        source_line = line.strip()
-        if not source_line:
-            continue
-        current = normalize_document_text(source_line)
-        hit_rows: list[tuple[int, str]] = []
-        for module in modules:
-            aliases = [str(item) for item in (module.get("aliases") or []) if str(item).strip()]
-            positions = [current.find(alias) for alias in aliases if alias in current]
-            if positions:
-                hit_rows.append((min(positions), str(module.get("module_name") or "")))
-        hits = _dedupe_texts([name for _position, name in sorted(hit_rows)], limit=8)
-        if len(hits) != 2:
-            continue
-        source, target = hits
-        if source == target:
-            continue
-        key = f"{source}|{target}|{current}".lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        interactions.append(
-            {
-                "source_module": source,
-                "target_module": target,
-                "trigger": source_line[:220],
-                "evidence": [source_line[:280]],
-                "relation_source": "explicit_module_cooccurrence",
-            }
-        )
-        if len(interactions) >= 24:
-            break
-    return interactions
-
-
 def extract_functional_architecture(requirement_text: str) -> dict[str, Any]:
-    """从通用文档层级和功能证据派生一级模块，不依赖模块名称或文档模板。"""
+    """提取文档结构候选，最终模块与交互由需求语义契约确认。"""
     structure = extract_document_structure(requirement_text)
     selected_nodes, source = _module_nodes(structure)
     structure_nodes = [dict(item) for item in (structure.get("nodes") or []) if isinstance(item, dict)]
     if not selected_nodes:
         return {
-            "version": "functional-architecture-v2",
+            "version": "functional-architecture-candidates-v1",
             "source": "none",
+            "candidate_only": True,
             "confidence": 0.0,
             "functional_modules": [],
             "excluded_modules": [],
@@ -386,12 +347,13 @@ def extract_functional_architecture(requirement_text: str) -> dict[str, Any]:
 
     confidence = min(0.95, 0.72 + 0.04 * len(modules)) if len(modules) >= 2 else 0.58
     return {
-        "version": "functional-architecture-v2",
+        "version": "functional-architecture-candidates-v1",
         "source": source,
+        "candidate_only": True,
         "confidence": round(confidence, 2),
         "functional_modules": modules,
         "excluded_modules": excluded,
-        "module_interactions": _extract_interactions(requirement_text, modules),
+        "module_interactions": [],
         "shared_capabilities": [],
         "document_structure": {
             "version": structure.get("version"),

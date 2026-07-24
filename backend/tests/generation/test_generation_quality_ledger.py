@@ -52,6 +52,19 @@ def test_quality_ledger_compacts_generation_evidence() -> None:
             "generation_coverage_mode": "full_functional_regression",
             "must_cover_rules_count": 3,
             "quality_fix_hints_count": 2,
+            "source_meta": {
+                "requirement_semantic_contract": {
+                    "semantic_contract_version": "requirement-semantic-v1",
+                    "functional_architecture": {
+                        "functional_modules": [
+                            {"module_key": "forum", "module_name": "Forum"}
+                        ],
+                        "module_interactions": [],
+                    },
+                    "workflow_blueprints": [],
+                    "workflow_absence_declared": True,
+                }
+            },
         },
         compression_diag_payload={"compression_ratio": 0.2, "retained_chunk_count": 1},
         context_result={
@@ -82,6 +95,9 @@ def test_quality_ledger_compacts_generation_evidence() -> None:
     assert payload["context"]["current_document_used"] is True
     assert payload["context"]["fusion_mode"] == "snapshot+rag"
     assert payload["control"]["generation_coverage_mode"] == "full_functional_regression"
+    assert payload["control"]["requirement_semantic_contract"]["semantic_contract_version"] == (
+        "requirement-semantic-v1"
+    )
 
 
 def test_quality_ledger_uses_context_source_when_fusion_mode_missing() -> None:
@@ -327,6 +343,52 @@ def test_quality_ledger_treats_flow_outline_missing_as_advisory_when_execution_p
     assert "flow_missing" not in deduction_keys
     assert "judge_rejected" not in deduction_keys
     assert payload["quality_score"] == 100
+    assert payload["quality_remediation"]["primary_action"] == ""
+
+
+def test_quality_ledger_treats_flow_outline_as_advisory_for_declared_independent_suite() -> None:
+    payload = _build_quality_ledger_payload(
+        generation_id=502,
+        request_id="req-independent-suite",
+        mode="multi_pass",
+        stage_counts={},
+        coverage_payload={"coverage_rate": 1.0, "total_rules": 8, "missing_rules": [], "missing_types": {}},
+        convergence_payload={"final_count": 12},
+        generation_summary_payload={
+            "final_count": 12,
+            "min_acceptable_final": 10,
+            "quality_assessment": "medium",
+            "stop_reason": ["coverage_satisfied"],
+        },
+        review_decision_summary_payload={
+            "candidate_total": 15,
+            "retained_total": 12,
+            "final_flow_missing_stage_count": 3,
+            "final_flow_misordered_count": 0,
+            "final_scenario_duplicate_cluster_count": 0,
+            "final_scenario_duplicate_case_count": 0,
+            "final_reasoning_leakage_case_count": 0,
+            "linear_executable": False,
+            "main_chain_case_count": 0,
+            "execution_plan": {
+                "workflow_absence_declared": True,
+                "independent_suite_executable": True,
+                "linear_executable": False,
+                "main_chain_case_count": 0,
+                "main_chain_incomplete_reason": "workflow_absence_declared",
+            },
+        },
+        judge_summary_payload={"total": 12, "rejected_out_count": 0, "pending_out_count": 0},
+        feedback_control_debug_payload={"control_state_applied": True},
+        compression_diag_payload={},
+        context_result={"context_debug": {"current_document_used": True, "realtime_rag_used": True}},
+    )
+
+    inputs = payload["quality_score_inputs"]
+    assert inputs["raw_flow_missing_count"] == 3
+    assert inputs["flow_missing_advisory_count"] == 3
+    assert inputs["flow_missing_count"] == 0
+    assert not any(item["key"] == "flow_missing" for item in payload["quality_score_deductions"])
     assert payload["quality_remediation"]["primary_action"] == ""
 
 

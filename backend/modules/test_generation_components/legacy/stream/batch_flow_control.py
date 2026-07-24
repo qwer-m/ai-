@@ -3,11 +3,6 @@ from __future__ import annotations
 import math
 from typing import Any, Callable
 
-from ...postprocess.module_contract import (
-    apply_functional_module_phase,
-    build_functional_module_batch_plan,
-)
-
 
 def resolve_stream_batch_plan(
     *,
@@ -17,28 +12,28 @@ def resolve_stream_batch_plan(
     start_id: int,
     existing_unique_count: int,
 ) -> dict[str, Any]:
-    resolved_expected_count = int(expected_count or 0)
-    resolved_batch_size = int(batch_size or 0)
+    # start_id 仅保留调用兼容；批次数量只由本轮全局目标和批大小决定。
+    _ = start_id
+    resolved_expected_count = max(0, int(expected_count or 0))
+    resolved_batch_size = max(1, int(batch_size or 25))
     if append:
         needed_to_append = resolved_expected_count - int(existing_unique_count or 0)
-        if needed_to_append > 25:
-            resolved_batch_size = 25
-        else:
-            resolved_batch_size = max(1, needed_to_append)
-    else:
-        resolved_batch_size = 25
-
-    resolved_batch_size = max(1, resolved_batch_size)
+        if needed_to_append > 0:
+            resolved_batch_size = min(resolved_batch_size, needed_to_append)
     auto_extended = bool(append and resolved_expected_count <= int(existing_unique_count or 0))
     if auto_extended:
         resolved_expected_count = int(existing_unique_count or 0) + resolved_batch_size
 
-    total_batches = math.ceil((resolved_expected_count - (int(start_id or 1) - 1)) / resolved_batch_size)
-    if total_batches < 1 and resolved_expected_count > (int(start_id or 1) - 1):
-        total_batches = 1
+    generation_target_count = (
+        max(0, resolved_expected_count - int(existing_unique_count or 0))
+        if append
+        else resolved_expected_count
+    )
+    total_batches = math.ceil(generation_target_count / resolved_batch_size) if generation_target_count else 0
     return {
         "expected_count": int(resolved_expected_count),
         "batch_size": int(resolved_batch_size),
+        "generation_target_count": int(generation_target_count),
         "total_batches": int(total_batches),
         "auto_extended": bool(auto_extended),
     }

@@ -11,13 +11,18 @@ def _workflow_contract(workflow_id: str) -> dict[str, object]:
         "id": workflow_id,
         "source_type": "human_reviewed",
         "trusted": True,
+        "initial_state": "draft",
+        "required_stage_ids": ["submit", "review"],
+        "terminal_states": ["reviewed"],
         "steps": [
             {
+                "id": "submit",
                 "state_in": "draft",
                 "state_out": "submitted",
                 "action": "submit homework",
             },
             {
+                "id": "review",
                 "state_in": "submitted",
                 "state_out": "reviewed",
                 "action": "teacher reviews homework",
@@ -46,7 +51,7 @@ def test_resolve_streaming_control_context_uses_empty_defaults() -> None:
     assert context.workflow_blueprints == []
     assert context.trusted_workflow_contracts == []
     assert context.current_requirement_workflow_blueprints == []
-    assert context.authoritative_workflow_blueprints == []
+    assert context.workflow_absence_declared is False
 
 
 def test_resolve_streaming_control_context_extracts_source_meta_profiles() -> None:
@@ -123,33 +128,35 @@ def test_resolve_streaming_control_context_classifies_workflow_blueprints() -> N
         "current-flow",
         "current-extracted-flow",
     ]
-    assert [item["id"] for item in context.authoritative_workflow_blueprints] == [
-        "trusted-flow",
-        "current-flow",
-        "current-extracted-flow",
-    ]
 
 
-def test_resolve_streaming_control_context_keeps_fallback_blueprint_diagnostic_only() -> None:
-    fallback_blueprint = {
-        "id": "current_requirement_fallback_main_flow",
-        "repository_source": "current_requirement_blueprint",
-        "source_type": "current_requirement_extracted",
-        "fallback": True,
-        "allow_final_materialization": False,
-        "steps": [
-            {"label": "configure", "allow_bridge": False},
-            {"label": "submit", "allow_bridge": False},
-        ],
-    }
-    trusted_contract = _workflow_contract("trusted-flow")
-
+def test_resolve_streaming_control_context_uses_verified_workflow_absence_declaration() -> None:
     context = resolve_streaming_control_context(
-        {"workflow_blueprints": [fallback_blueprint, trusted_contract]}
+        {
+            "source_meta": {
+                "workflow_declaration_status": "applied_independent_only",
+                "workflow_absence_declared": True,
+            }
+        }
     )
 
-    assert [item["id"] for item in context.workflow_blueprints] == ["trusted-flow"]
-    assert [item["id"] for item in context.current_requirement_workflow_blueprints] == [
-        "current_requirement_fallback_main_flow"
-    ]
-    assert [item["id"] for item in context.authoritative_workflow_blueprints] == ["trusted-flow"]
+    assert context.workflow_blueprints == []
+    assert context.workflow_absence_declared is True
+
+
+def test_resolve_streaming_control_context_does_not_infer_workflow_absence_from_legacy_status() -> None:
+    context = resolve_streaming_control_context(
+        {
+            "source_meta": {
+                "current_requirement_blueprint_status": "applied_no_executable_workflow",
+                "requirement_semantic_contract_status": "applied",
+                "requirement_semantic_contract": {
+                    "functional_architecture": {
+                        "functional_modules": [{"id": "forum"}],
+                    }
+                },
+            }
+        }
+    )
+
+    assert context.workflow_absence_declared is False

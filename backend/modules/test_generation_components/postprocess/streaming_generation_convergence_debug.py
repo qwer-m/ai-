@@ -81,7 +81,7 @@ def build_convergence_pruning_debug_fields(
         "low_quality_dropped_examples": [
             dict(item)
             for item in (low_quality_drop_details or [])[:10]
-            if isinstance(item, dict)
+            if isinstance(item, dict) and item.get("diagnostic_only") is not True
         ],
         "postprocess_filter_drop_total": _int_or_zero(postprocess_filter_drop_total),
         "semantic_dedup_dropped_count": _int_or_zero(semantic_dedup_dropped_total),

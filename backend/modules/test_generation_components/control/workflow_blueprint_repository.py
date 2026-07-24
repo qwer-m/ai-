@@ -76,7 +76,6 @@ _GENERIC_MATCH_TERMS = {
     "status",
     "state",
     "user",
-    "课程",
     "页面",
     "按钮",
     "状态",
@@ -203,20 +202,37 @@ def _normalize_edge(raw: Any, *, index: int, workflow_id: str) -> dict[str, Any]
     edge_id = _text(edge.get("id")) or f"step_{index:03d}"
     label = _text(edge.get("label")) or action
     return {
-        **edge,
         "id": edge_id,
         "workflow_id": workflow_id,
         "label": label,
         "action": action,
+        "stage_kind": _text(edge.get("stage_kind") or edge.get("kind")).lower(),
         "state_in": state_in,
         "state_out": state_out,
         "actor": actor,
+        "source_actor_role": _text(edge.get("source_actor_role") or edge.get("actor") or edge.get("role")),
+        "module": _text(edge.get("module")),
+        "assertion": _text(edge.get("assertion") or edge.get("expected_result")),
         "path_type": _text(edge.get("path_type") or "positive").lower(),
+        "required": _bool(edge.get("required"), default=False),
+        "terminal": _bool(edge.get("terminal"), default=False),
+        "critical": _bool(edge.get("critical"), default=False),
         "blocking": _bool(edge.get("blocking"), default=False),
         "destructive": _bool(edge.get("destructive"), default=False),
         "can_advance_main_flow": _bool(edge.get("can_advance_main_flow"), default=True),
-        "allow_bridge": _bool(edge.get("allow_bridge"), default=True),
+        "main_path_step": _bool(edge.get("main_path_step"), default=True),
         "match_keywords": _text_list(edge.get("match_keywords") or edge.get("keywords") or []),
+        "test_steps": _text_list(edge.get("test_steps") or []),
+        "module_candidates": [
+            dict(item) for item in (edge.get("module_candidates") or []) if isinstance(item, dict)
+        ],
+        "required_states": [
+            dict(item) for item in (edge.get("required_states") or []) if isinstance(item, dict)
+        ],
+        "produced_states": [
+            dict(item) for item in (edge.get("produced_states") or []) if isinstance(item, dict)
+        ],
+        "evidence": _text_list(edge.get("evidence") or []),
     }
 
 
@@ -237,6 +253,53 @@ def normalize_workflow_contract(payload: Any) -> dict[str, Any] | None:
             edges.append(edge)
     if len(edges) < 2:
         return None
+    required_stage_ids = _text_list(contract.get("required_stage_ids") or [])
+    if required_stage_ids:
+        required_stage_set = set(required_stage_ids)
+        edges = [
+            {**edge, "required": str(edge.get("id") or "") in required_stage_set}
+            for edge in edges
+        ]
+    else:
+        required_stage_ids = [
+            str(edge.get("id") or "")
+            for edge in edges
+            if bool(edge.get("required")) and str(edge.get("id") or "").strip()
+        ]
+
+    raw_terminal_states = (
+        contract.get("terminal_states")
+        or contract.get("terminal_state")
+        or []
+    )
+    terminal_states = _text_list(
+        raw_terminal_states if isinstance(raw_terminal_states, list) else [raw_terminal_states]
+    )
+    if not terminal_states:
+        terminal_states = [
+            str(edge.get("state_out") or "")
+            for edge in edges
+            if bool(edge.get("terminal")) and str(edge.get("state_out") or "").strip()
+        ]
+    terminal_state_set = set(terminal_states)
+    edges = [
+        {
+            **edge,
+            "terminal": bool(
+                edge.get("terminal")
+                or _text(edge.get("state_out")) in terminal_state_set
+            ),
+        }
+        for edge in edges
+    ]
+    initial_state = _text(contract.get("initial_state"))
+    declaration_errors: list[str] = []
+    if not required_stage_ids:
+        declaration_errors.append("workflow_required_stages_missing")
+    if not initial_state:
+        declaration_errors.append("workflow_initial_state_missing")
+    if not terminal_states:
+        declaration_errors.append("workflow_terminal_states_missing")
     source_type = _text(contract.get("source_type")).lower()
     trusted = _bool(contract.get("trusted"), default=False)
     if source_type not in TRUSTED_WORKFLOW_CONTRACT_SOURCE_TYPES:
@@ -253,6 +316,11 @@ def normalize_workflow_contract(payload: Any) -> dict[str, Any] | None:
         "confidence": _confidence(contract.get("confidence")),
         "actors": _text_list(contract.get("actors") or []),
         "match_terms": _text_list(contract.get("match_terms") or []),
+        "initial_state": initial_state,
+        "terminal_states": terminal_states,
+        "required_stage_ids": required_stage_ids,
+        "closure_declaration_complete": not bool(declaration_errors),
+        "closure_declaration_errors": declaration_errors,
         "commit_state": _text(contract.get("commit_state")),
         "downstream_state": _text(contract.get("downstream_state")),
         "completion_state": _text(contract.get("completion_state")),
@@ -269,6 +337,7 @@ def is_trusted_workflow_contract(payload: Any) -> bool:
         and contract.get("trusted") is True
         and contract.get("repository_source") == WORKFLOW_BLUEPRINT_REPOSITORY_SOURCE
         and contract.get("source_type") in TRUSTED_WORKFLOW_CONTRACT_SOURCE_TYPES
+        and contract.get("closure_declaration_complete") is True
     )
 
 

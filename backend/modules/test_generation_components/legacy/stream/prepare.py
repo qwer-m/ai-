@@ -10,9 +10,11 @@ from .prepare_runtime import (
     resolve_append_existing_state,
     resolve_stream_prepare_runtime,
 )
+from .batch_diagnostic_emitters import persist_gen_diag
 
 
 TestGeneration = LazyAttrProxy("core.db.models", "TestGeneration")
+LogEntry = LazyAttrProxy("core.db.models", "LogEntry")
 MemoryContext = LazyAttrProxy("modules.memory_fabric.contracts.memory_context", "MemoryContext")
 
 
@@ -40,6 +42,15 @@ def merge_current_requirement_blueprint_control_state(*args: Any, **kwargs: Any)
     return call_component(
         "...control.current_requirement_blueprint",
         "merge_current_requirement_blueprint_control_state",
+        *args,
+        **kwargs,
+    )
+
+
+def evaluate_current_requirement_semantic_compilation(*args: Any, **kwargs: Any) -> Any:
+    return call_component(
+        "...control.current_requirement_blueprint",
+        "evaluate_current_requirement_semantic_compilation",
         *args,
         **kwargs,
     )
@@ -385,35 +396,6 @@ class LegacyGenerationStreamPrepareMixin:
                 )
                 return {"abort": True, "generation_timing_events": timing_events}
 
-            blueprint_started = time.perf_counter()
-            feedback_control_state = merge_current_requirement_blueprint_control_state(
-                feedback_control_state,
-                client=client,
-                requirement_text=original_requirement,
-                db=db,
-                project_id=project_id,
-                user_id=user_id,
-            ).to_dict()
-            current_blueprint_meta = dict((feedback_control_state or {}).get("source_meta") or {})
-            current_blueprint_status = str(
-                current_blueprint_meta.get("current_requirement_blueprint_status") or ""
-            )
-            _record_timing_event(
-                "current_requirement_blueprint",
-                blueprint_started,
-                status=current_blueprint_status,
-                count=int(current_blueprint_meta.get("current_requirement_blueprint_count") or 0),
-                step_count=int(current_blueprint_meta.get("current_requirement_blueprint_step_count") or 0),
-                max_tokens=int(current_blueprint_meta.get("current_requirement_blueprint_max_tokens") or 0),
-            )
-            if current_blueprint_status:
-                yield (
-                    "@@STATUS@@:current requirement blueprint "
-                    f"{current_blueprint_status} "
-                    f"(count={current_blueprint_meta.get('current_requirement_blueprint_count', 0)},"
-                    f"steps={current_blueprint_meta.get('current_requirement_blueprint_step_count', 0)})\n"
-                )
-
             compression_decision = requirement_compression_decision(
                 requirement,
                 compress_requested=bool(compress),
@@ -529,6 +511,77 @@ class LegacyGenerationStreamPrepareMixin:
                     before_chars=int(kb_len_before),
                     after_chars=int(len(kb_context or "")),
                 )
+
+        blueprint_started = time.perf_counter()
+        feedback_control_state = merge_current_requirement_blueprint_control_state(
+            feedback_control_state,
+            client=client,
+            requirement_text=original_requirement,
+            db=db,
+            project_id=project_id,
+            user_id=user_id,
+        ).to_dict()
+        current_blueprint_meta = dict((feedback_control_state or {}).get("source_meta") or {})
+        current_blueprint_status = str(
+            current_blueprint_meta.get("current_requirement_blueprint_status") or ""
+        )
+        _record_timing_event(
+            "current_requirement_blueprint",
+            blueprint_started,
+            status=current_blueprint_status,
+            count=int(current_blueprint_meta.get("current_requirement_blueprint_count") or 0),
+            step_count=int(current_blueprint_meta.get("current_requirement_blueprint_step_count") or 0),
+            max_tokens=int(current_blueprint_meta.get("current_requirement_blueprint_max_tokens") or 0),
+        )
+        if current_blueprint_status:
+            yield (
+                "@@STATUS@@:current requirement blueprint "
+                f"{current_blueprint_status} "
+                f"(count={current_blueprint_meta.get('current_requirement_blueprint_count', 0)},"
+                f"steps={current_blueprint_meta.get('current_requirement_blueprint_step_count', 0)})\n"
+            )
+
+        semantic_compilation_gate = evaluate_current_requirement_semantic_compilation(
+            current_blueprint_meta,
+            requirement_text=original_requirement,
+        )
+        if not semantic_compilation_gate.get("passed"):
+            diagnostic_payload = {
+                "kind": "semantic_compilation_abort",
+                "request_id": request_id,
+                "project_id": project_id,
+                "user_id": user_id,
+                **semantic_compilation_gate,
+            }
+            persist_gen_diag(
+                db=db,
+                is_active_db_session=self._is_active_db_session(db),
+                log_entry_model=LogEntry,
+                project_id=project_id,
+                user_id=user_id,
+                payload=diagnostic_payload,
+            )
+            yield f"GEN_DIAG:{json.dumps(diagnostic_payload, ensure_ascii=False)}\n"
+            yield "@@STATUS@@:当前需求语义编译未通过，终止本次生成。\n"
+            yield (
+                f"Error: {semantic_compilation_gate.get('abort_code')} - "
+                f"{semantic_compilation_gate.get('message')}\n"
+            )
+            _record_timing_event(
+                "prepare_total",
+                prepare_started,
+                status="aborted_semantic_compilation_failed",
+                semantic_compile_status=semantic_compilation_gate.get("semantic_compile_status"),
+                workflow_declaration_status=semantic_compilation_gate.get(
+                    "workflow_declaration_status"
+                ),
+            )
+            return {
+                "abort": True,
+                "abort_code": semantic_compilation_gate.get("abort_code"),
+                "semantic_compilation": semantic_compilation_gate,
+                "generation_timing_events": timing_events,
+            }
 
         feedback_control_state = merge_generation_mode_control_state(
             feedback_control_state,

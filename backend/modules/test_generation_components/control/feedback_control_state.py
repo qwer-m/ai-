@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .semantic_contract import MAX_WORKFLOW_STEPS
+
 
 def _normalize_text_list(values: list[Any] | None) -> list[str]:
     output: list[str] = []
@@ -48,11 +50,14 @@ def _normalize_workflow_blueprints(values: Any) -> list[dict[str, Any]]:
         if not isinstance(steps, list) or not steps:
             continue
         normalized_steps: list[dict[str, Any]] = []
-        for index, step in enumerate(steps, start=1):
-            if isinstance(step, dict):
-                normalized_step = dict(step)
-            else:
-                normalized_step = {"label": str(step or "").strip()}
+        declaration_errors: list[str] = []
+        if len(steps) > MAX_WORKFLOW_STEPS:
+            declaration_errors.append("step_limit_exceeded")
+        for index, step in enumerate(steps[:MAX_WORKFLOW_STEPS], start=1):
+            if not isinstance(step, dict):
+                declaration_errors.append(f"step_{index}:not_structured")
+                continue
+            normalized_step = dict(step)
             label = str(
                 normalized_step.get("label")
                 or normalized_step.get("action")
@@ -60,13 +65,74 @@ def _normalize_workflow_blueprints(values: Any) -> list[dict[str, Any]]:
                 or ""
             ).strip()
             if not label:
+                declaration_errors.append(f"step_{index}:label_missing")
                 continue
-            normalized_step["id"] = str(normalized_step.get("id") or f"step_{index:03d}").strip()
+            step_id = str(normalized_step.get("id") or "").strip()
+            state_in = str(normalized_step.get("state_in") or normalized_step.get("source_state") or "").strip()
+            state_out = str(normalized_step.get("state_out") or normalized_step.get("target_state") or "").strip()
+            if not step_id:
+                declaration_errors.append(f"step_{index}:id_missing")
+            if not state_in:
+                declaration_errors.append(f"step_{index}:state_in_missing")
+            if not state_out:
+                declaration_errors.append(f"step_{index}:state_out_missing")
+            if not isinstance(normalized_step.get("required"), bool):
+                declaration_errors.append(f"step_{index}:required_missing")
+            if not isinstance(normalized_step.get("terminal"), bool):
+                declaration_errors.append(f"step_{index}:terminal_missing")
+            normalized_step["id"] = step_id
             normalized_step["label"] = label
             normalized_steps.append(normalized_step)
-        if len(normalized_steps) < 2:
+        if not normalized_steps:
             continue
-        blueprint["steps"] = normalized_steps[:12]
+        blueprint["steps"] = normalized_steps
+        initial_state = str(blueprint.get("initial_state") or "").strip()
+        blueprint["initial_state"] = initial_state
+        if not initial_state:
+            declaration_errors.append("initial_state_missing")
+        required_stage_ids = _normalize_text_list(blueprint.get("required_stage_ids") or [])
+        if not required_stage_ids:
+            required_stage_ids = [
+                str(step.get("id") or "").strip()
+                for step in normalized_steps
+                if step.get("required") is True and str(step.get("id") or "").strip()
+            ]
+        blueprint["required_stage_ids"] = required_stage_ids
+        if not required_stage_ids:
+            declaration_errors.append("required_stage_ids_missing")
+        terminal_states = _normalize_text_list(blueprint.get("terminal_states") or [])
+        if not terminal_states:
+            terminal_states = [
+                str(step.get("state_out") or step.get("target_state") or "").strip()
+                for step in normalized_steps
+                if step.get("terminal") is True
+                and str(step.get("state_out") or step.get("target_state") or "").strip()
+            ]
+        blueprint["terminal_states"] = terminal_states
+        if not terminal_states:
+            declaration_errors.append("terminal_states_missing")
+        explicit_required_ids = {
+            str(step.get("id") or "").strip()
+            for step in normalized_steps
+            if step.get("required") is True and str(step.get("id") or "").strip()
+        }
+        explicit_terminal_states = {
+            str(step.get("state_out") or step.get("target_state") or "").strip()
+            for step in normalized_steps
+            if step.get("terminal") is True
+            and str(step.get("state_out") or step.get("target_state") or "").strip()
+        }
+        if required_stage_ids and set(required_stage_ids) != explicit_required_ids:
+            declaration_errors.append("required_stage_ids_mismatch")
+        if terminal_states and set(terminal_states) != explicit_terminal_states:
+            declaration_errors.append("terminal_states_mismatch")
+        first_state_in = str(
+            normalized_steps[0].get("state_in") or normalized_steps[0].get("source_state") or ""
+        ).strip()
+        if initial_state and first_state_in and initial_state != first_state_in:
+            declaration_errors.append("initial_state_mismatch")
+        blueprint["closure_declaration_complete"] = not declaration_errors
+        blueprint["closure_declaration_errors"] = list(dict.fromkeys(declaration_errors))
         blueprint_id = str(
             blueprint.get("id")
             or blueprint.get("workflow_id")

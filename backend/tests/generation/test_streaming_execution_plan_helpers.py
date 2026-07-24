@@ -1,11 +1,6 @@
 from __future__ import annotations
 
 from modules.testing.test_generation_components.postprocess.streaming_execution_plan_helpers import (
-    default_main_chain_exclusion_token_sets,
-    derive_workflow_blueprint_from_current_cases,
-    derived_workflow_candidate_buckets,
-    derived_workflow_selected_for_closure,
-    derived_workflow_steps_from_selected,
     empty_execution_plan_summary,
     infer_role,
     infer_group,
@@ -13,22 +8,14 @@ from modules.testing.test_generation_components.postprocess.streaming_execution_
     infer_workflow_stage_kind,
     is_core_result_output_anchor,
     is_display_only_workflow_text,
-    is_internal_state_text,
     is_low_value_main_chain_p0,
     MainChainExclusionRecorder,
-    main_chain_closure_status,
-    main_chain_exclusion_reason,
     main_chain_stages_from_blueprints,
-    main_chain_state_overrides_for_current_generation,
-    materialize_workflow_contract_case,
     pattern_match_score,
-    public_contract_module_label,
     selected_stage_state_conflicts,
-    select_derived_workflow_candidates,
     session_key_for_role,
     stage_match_patterns,
     token_hit,
-    workflow_bridge_case,
     workflow_transition_for_case,
     workflow_blueprint_source_label,
 )
@@ -54,264 +41,15 @@ def test_empty_execution_plan_summary_matches_streaming_contract() -> None:
     assert empty_execution_plan_summary() is not empty_execution_plan_summary()
 
 
-def test_default_main_chain_exclusion_token_sets_matches_streaming_config() -> None:
-    token_sets = default_main_chain_exclusion_token_sets()
-
-    assert set(token_sets) == {
-        "analytics_tokens",
-        "destructive_action_tokens",
-        "blocking_negative_tokens",
-        "boundary_capacity_tokens",
-        "display_only_tokens",
-        "downstream_visibility_tokens",
-    }
-    assert token_sets["analytics_tokens"] == {
-        "埋点",
-        "上报",
-        "曝光",
-        "停留时间",
-        "pv",
-        "uv",
-        "tracking",
-        "analytics",
-        "event",
-    }
-    assert token_sets["destructive_action_tokens"] == {
-        "删除",
-        "下架",
-        "撤销",
-        "作废",
-        "取消发布",
-        "delete",
-        "remove",
-        "unpublish",
-        "archive",
-        "deactivate",
-    }
-    assert token_sets["blocking_negative_tokens"] == {
-        "失败",
-        "异常",
-        "超时",
-        "错误",
-        "拒绝",
-        "不通过",
-        "不可点击",
-        "不可操作",
-        "置灰",
-        "阻止",
-        "无法",
-        "不能",
-        "不允许",
-        "不进入",
-        "不生成",
-        "不保存",
-        "failure",
-        "failed",
-        "timeout",
-        "error",
-        "invalid",
-        "blocked",
-        "cannot",
-        "not allowed",
-        "not saved",
-        "返回按钮",
-        "返回上一级",
-        "放弃编辑",
-        "放弃",
-        "back button",
-        "return button",
-        "discard",
-        "abort",
-    }
-    assert token_sets["boundary_capacity_tokens"] == {
-        "边界",
-        "上限",
-        "下限",
-        "最多",
-        "最少",
-        "容量不足",
-        "学不完",
-        "课程设置过少",
-        "时间冲突",
-        "冲突",
-        "boundary",
-        "limit",
-        "capacity",
-        "conflict",
-        "too few",
-        "too many",
-    }
-    assert token_sets["display_only_tokens"] == {
-        "文案",
-        "样式",
-        "布局",
-        "标题",
-        "排序",
-        "筛选",
-        "列表",
-        "卡片",
-        "弹窗",
-        "copy",
-        "style",
-        "layout",
-        "title",
-        "sorting",
-        "filter",
-        "list",
-        "card",
-        "popup",
-        "图标",
-        "时间",
-        "头像",
-        "昵称",
-        "标识",
-        "标签",
-        "按钮",
-        "字段",
-        "icon",
-        "time",
-        "avatar",
-        "nickname",
-        "badge",
-        "label",
-        "tag",
-        "button",
-        "field",
-    }
-    assert token_sets["downstream_visibility_tokens"] == {
-        "新增",
-        "新计划",
-        "同步",
-        "生效",
-        "最新",
-        "进度更新",
-        "状态同步",
-        "new",
-        "created",
-        "sync",
-        "synced",
-        "visible",
-        "effective",
-        "latest",
-        "updated",
-    }
-
-
-def test_default_main_chain_exclusion_token_sets_returns_independent_sets() -> None:
-    first = default_main_chain_exclusion_token_sets()
-    second = default_main_chain_exclusion_token_sets()
-
-    assert first is not second
-    assert first["analytics_tokens"] is not second["analytics_tokens"]
-    first["analytics_tokens"].add("mutated")
-    first["display_only_tokens"].clear()
-
-    fresh = default_main_chain_exclusion_token_sets()
-    assert "mutated" not in second["analytics_tokens"]
-    assert "mutated" not in fresh["analytics_tokens"]
-    assert "文案" in second["display_only_tokens"]
-    assert "文案" in fresh["display_only_tokens"]
-
-
-def _main_chain_exclusion_kwargs() -> dict:
-    token_sets = default_main_chain_exclusion_token_sets()
-    return {
-        "workflow_blueprints_present": True,
-        "analytics_tokens": token_sets["analytics_tokens"],
-        "destructive_action_tokens": token_sets["destructive_action_tokens"],
-        "boundary_capacity_tokens": token_sets["boundary_capacity_tokens"],
-        "blocking_negative_tokens": token_sets["blocking_negative_tokens"],
-        "display_only_tokens": token_sets["display_only_tokens"],
-        "downstream_visibility_tokens": token_sets["downstream_visibility_tokens"],
-    }
-
-
-def test_main_chain_excludes_static_display_goal_even_when_steps_enter_page() -> None:
-    case = {
-        "id": "TC-001",
-        "test_module": "Forum Home content list",
-        "description": "Pinned post displays official icon, title and time",
-        "steps": ["Open forum home", "View the pinned post"],
-        "expected_result": "Official icon, title and time are visible",
-    }
-
-    assert main_chain_exclusion_reason(case, **_main_chain_exclusion_kwargs()) == "display_only"
-
-
-def test_main_chain_excludes_ui_goal_even_when_incidental_entry_supports_blueprint_action() -> None:
-    from modules.test_generation_components.postprocess.execution_plan_action_support import (
-        main_chain_action_support_conflict_reason,
-    )
-
-    case = {
-        "id": "TC-UI",
-        "test_module": "Feedback",
-        "description": "Post button copy and visual style remain unchanged",
-        "preconditions": ["User entered the feedback page"],
-        "steps": ["Open the feedback page", "Observe the post button copy"],
-        "expected_result": "The copy and visual style match the original design",
-    }
-
-    assert main_chain_exclusion_reason(
-        case,
-        step_meta={
-            "stage_kind": "consume",
-            "label": "Open post editor",
-            "action": "Click the post button and enter the editor",
-        },
-        action_support_conflict_fn=main_chain_action_support_conflict_reason,
-        **_main_chain_exclusion_kwargs(),
-    ) == "display_only"
-
-
-def test_main_chain_excludes_return_button_goal() -> None:
-    case = {
-        "id": "TC-002",
-        "test_module": "Post detail navigation",
-        "description": "Post detail return button navigates back to forum home",
-        "steps": ["Open post detail", "Click return button"],
-        "expected_result": "The back button returns to the previous page",
-    }
-
-    assert main_chain_exclusion_reason(case, **_main_chain_exclusion_kwargs()) == "blocking_negative"
-
-
-def test_main_chain_state_overrides_for_current_generation_links_selected_states() -> None:
-    selected_by_stage = [
-        ("entry", "Entry", {"id": "TC-001"}),
-        ("commit", "Commit", {"id": "TC-002"}),
-        ("consume", "Consume", {"id": "TC-003"}),
-    ]
-    stage_meta = {
-        "entry": {"state_in": "", "state_out": "draft"},
-        "commit": {"state_in": "ignored", "state_out": "published"},
-        "consume": {"state_in": "published", "state_out": "published"},
-    }
-
-    overrides = main_chain_state_overrides_for_current_generation(
-        selected_by_stage,
-        stage_meta_by_key=stage_meta,
-        signature_fn=lambda item: str(item.get("id") or ""),
-    )
-
-    assert overrides == {
-        "TC-001": ("initial", "draft"),
-        "TC-002": ("draft", "published"),
-        "TC-003": ("published", "derived_selected_state_003"),
-    }
-
-
 def test_workflow_blueprint_source_label_prefers_current_requirement() -> None:
     assert (
         workflow_blueprint_source_label(
             [{"repository_source": "current_requirement_blueprint"}],
-            [],
         )
         == "current_requirement_blueprint"
     )
-    assert workflow_blueprint_source_label([{"source": "feedback"}], []) == "feedback_control_state"
-    assert workflow_blueprint_source_label([], [{"id": "derived"}]) == "current_generation_cases"
-    assert workflow_blueprint_source_label([], []) == "none"
+    assert workflow_blueprint_source_label([{"source": "feedback"}]) == "feedback_control_state"
+    assert workflow_blueprint_source_label([]) == "none"
 
 
 def test_main_chain_stages_from_blueprints_materializes_stage_meta() -> None:
@@ -339,7 +77,7 @@ def test_main_chain_stages_from_blueprints_materializes_stage_meta() -> None:
     )
 
     assert [stage[0] for stage in stages] == ["open", "submit"]
-    assert stage_match_patterns({"allow_bridge": True, "keywords": ["Save", "Submit"]}) == (
+    assert stage_match_patterns({"keywords": ["Save", "Submit"]}) == (
         ("save",),
         ("submit",),
     )
@@ -370,35 +108,6 @@ def test_workflow_stage_kind_and_phase_infer_action_order() -> None:
     assert infer_workflow_phase("点击进入学习页面") == 10
     assert infer_workflow_stage_kind("预览检查结果") == "preview"
     assert infer_workflow_phase("预览检查结果") == 50
-
-
-def test_main_chain_closure_status_requires_commit_and_downstream_step() -> None:
-    selected = [
-        ("open", "Open entry", {"description": "Open workflow entry"}),
-        ("submit", "Submit form", {"description": "Submit success"}),
-        ("visible", "Downstream visible", {"description": "Downstream page displays latest result"}),
-    ]
-    meta = {
-        "open": {"stage_kind": "entry"},
-        "submit": {"stage_kind": "commit"},
-        "visible": {"stage_kind": "downstream_visibility"},
-    }
-
-    assert main_chain_closure_status(selected, stage_meta_by_key=meta, source="current_generation_cases") == (
-        True,
-        "",
-        ["entry", "commit", "downstream_visibility"],
-    )
-    missing_downstream = selected[:2]
-    assert main_chain_closure_status(
-        missing_downstream,
-        stage_meta_by_key=meta,
-        source="current_generation_cases",
-    ) == (
-        False,
-        "missing_downstream_visibility_or_consume_step",
-        ["entry", "commit"],
-    )
 
 
 def test_selected_stage_state_conflicts_reports_disconnected_state_chain() -> None:
@@ -437,6 +146,9 @@ def test_workflow_transition_for_case_materializes_positive_transition() -> None
             "state_out": "submitted",
             "stage_kind": "commit",
             "action": "Submit form",
+            "path_type": "positive",
+            "can_advance_main_flow": True,
+            "confidence": 0.9,
         },
         workflow_blueprints_present=True,
     )
@@ -454,6 +166,13 @@ def test_workflow_transition_for_case_marks_destructive_or_blocking_negative() -
     transition = workflow_transition_for_case(
         {"description": "Delete draft and trigger timeout"},
         stage_label="Delete draft",
+        step_meta={
+            "path_type": "negative",
+            "destructive": True,
+            "blocking": True,
+            "can_advance_main_flow": False,
+            "confidence": 0.35,
+        },
         destructive_action_tokens=("delete",),
         blocking_negative_tokens=("timeout",),
     )
@@ -463,6 +182,20 @@ def test_workflow_transition_for_case_marks_destructive_or_blocking_negative() -
     assert transition["destructive"] is True
     assert transition["can_advance_main_flow"] is False
     assert transition["state_transition_confidence"] == 0.35
+
+
+def test_workflow_transition_for_case_does_not_infer_contract_from_case_text() -> None:
+    transition = workflow_transition_for_case(
+        {"description": "Delete draft and trigger timeout"},
+        stage_label="Delete draft",
+        destructive_action_tokens=("delete",),
+        blocking_negative_tokens=("timeout",),
+    )
+
+    assert transition["path_type"] == ""
+    assert transition["blocking"] is False
+    assert transition["destructive"] is False
+    assert transition["can_advance_main_flow"] is False
 
 
 def test_display_only_workflow_text_ignores_real_actions_and_downstream_visibility() -> None:
@@ -523,254 +256,7 @@ def test_main_chain_exclusion_recorder_deduplicates_signature_and_reason() -> No
     ]
 
 
-def test_main_chain_exclusion_reason_uses_ordered_guardrails_and_semantic_checker() -> None:
-    assert (
-        main_chain_exclusion_reason(
-            {"description": "查看报表 analytics dashboard"},
-            analytics_tokens=("analytics",),
-        )
-        == "analytics"
-    )
-    assert (
-        main_chain_exclusion_reason(
-            {"description": "列表文案样式检查"},
-            display_only_tokens=("文案", "列表"),
-            downstream_visibility_tokens=("同步",),
-        )
-        == "display_only"
-    )
-    assert (
-        main_chain_exclusion_reason(
-            {"description": "提交成功"},
-            step_meta={"stage_kind": "commit", "label": "提交"},
-            semantic_alignment_fn=lambda _items: [{"reason": "role_action_conflict"}],
-        )
-        == "role_action_conflict"
-    )
-
-
-def test_derived_workflow_candidate_buckets_scores_primary_fallback_and_exclusions() -> None:
-    cases = [
-        {"id": "primary", "priority": "P1", "description": "保存并提交成功，状态更新展示"},
-        {"id": "fallback", "priority": "P2", "description": "打开入口后准备完成"},
-        {"id": "scoring-only", "priority": "P1", "description": "系统自动打分并给出评分结果"},
-        {"id": "learning-only", "priority": "P1", "description": "开始学习并完成课程"},
-        {"id": "excluded", "priority": "P1", "description": "analytics dashboard 保存成功"},
-    ]
-    recorded: list[tuple[str, str]] = []
-
-    primary, fallback = derived_workflow_candidate_buckets(
-        cases,
-        exclusion_reason_fn=lambda item: "analytics" if item.get("id") == "excluded" else "",
-        record_exclusion_fn=lambda item, reason: recorded.append((str(item.get("id") or ""), reason)),
-    )
-
-    assert [item["id"] for _score, _phase, _index, item in primary] == ["primary"]
-    assert primary[0][1] == 60
-    assert [item["id"] for _score, _phase, _index, item in fallback] == ["fallback"]
-    assert fallback[0][1] == 10
-    assert recorded == [("excluded", "analytics")]
-
-
-def test_select_derived_workflow_candidates_uses_primary_floor_and_phase_order() -> None:
-    primary = [
-        (50, 60, 1, {"id": "p2"}),
-        (70, 20, 0, {"id": "p1"}),
-    ]
-    fallback = [
-        (80, 10, 2, {"id": "f1"}),
-    ]
-
-    selected = select_derived_workflow_candidates(primary, fallback, limit=3)
-
-    assert [item["id"] for _score, _phase, _index, item in selected] == ["f1", "p1", "p2"]
-    assert select_derived_workflow_candidates([], fallback) == []
-    assert [item["id"] for _score, _phase, _index, item in select_derived_workflow_candidates([], fallback * 2)] == [
-        "f1",
-        "f1",
-    ]
-
-
-def test_derived_workflow_steps_from_selected_materializes_blueprint_steps() -> None:
-    selected = [
-        (
-            70,
-            60,
-            0,
-            {
-                "id": "TC-1",
-                "description": "保存并提交作文",
-                "test_module": "作文批改",
-                "expected_result": "提交成功并进入审核中",
-                "steps": ["打开作文编辑页", "点击提交"],
-            },
-        ),
-        (
-            65,
-            70,
-            1,
-                {
-                    "id": "TC-2",
-                    "description": "下游页面展示最新状态",
-                    "test_module": "作文圈",
-                    "expected_result": "作文圈展示最新状态",
-                    "steps": ["进入作文圈"],
-                },
-        ),
-    ]
-
-    steps, terminal_state = derived_workflow_steps_from_selected(
-        selected,
-        case_id_fn=lambda item: str(item.get("id") or ""),
-    )
-
-    assert terminal_state == "derived_state_002"
-    assert [step["id"] for step in steps] == ["derived_step_001", "derived_step_002"]
-    assert steps[0]["state_in"] == "initial"
-    assert steps[0]["state_out"] == "derived_state_001"
-    assert steps[1]["state_in"] == "derived_state_001"
-    assert steps[0]["stage_kind"] == "commit"
-    assert steps[1]["stage_kind"] == "downstream_visibility"
-    assert steps[0]["source_case_id"] == "TC-1"
-    assert steps[0]["match_keywords"] == [
-        "保存并提交作文",
-        "作文批改",
-        "提交成功并进入审核中",
-        "打开作文编辑页",
-    ]
-
-
-def test_derived_workflow_selected_for_closure_maps_steps_to_source_cases() -> None:
-    selected = [
-        (70, 60, 0, {"id": "TC-1", "description": "保存提交成功"}),
-        (65, 70, 1, {"id": "TC-2", "description": "下游展示最新状态"}),
-    ]
-    steps = [
-        {"id": "derived_step_001", "label": "提交", "source_case_id": "TC-1"},
-        {"id": "derived_step_002", "label": "展示", "source_case_id": "TC-2"},
-    ]
-
-    selected_for_closure = derived_workflow_selected_for_closure(
-        steps,
-        selected,
-        case_id_fn=lambda item: str(item.get("id") or ""),
-    )
-
-    assert selected_for_closure == [
-        ("derived_step_001", "提交", selected[0][3]),
-        ("derived_step_002", "展示", selected[1][3]),
-    ]
-
-
-def test_derive_workflow_blueprint_from_current_cases_returns_debug_steps_and_blueprint() -> None:
-    cases = [
-        {
-            "id": "TC-entry",
-            "priority": "P2",
-            "test_module": "Workflow entry",
-            "description": "Open workflow entry and prepare scoring task",
-            "steps": ["Open workflow entry", "Prepare scoring data"],
-            "expected_result": "Workflow entry is ready and prepared",
-        },
-        {
-            "id": "TC-submit",
-            "priority": "P1",
-            "test_module": "Scoring workflow",
-            "description": "Submit scoring task successfully",
-            "steps": ["Submit scoring task"],
-            "expected_result": "Scoring task is saved successfully",
-        },
-        {
-            "id": "TC-visible",
-            "priority": "P1",
-            "test_module": "Student result",
-            "description": "Downstream student view shows visible score result",
-            "steps": ["Open student result page"],
-            "expected_result": "Score result is visible and reflected downstream",
-        },
-    ]
-    recorded: list[tuple[str, str]] = []
-
-    result = derive_workflow_blueprint_from_current_cases(
-        cases,
-        exclusion_reason_fn=lambda _item: "",
-        record_exclusion_fn=lambda item, reason: recorded.append((str(item.get("id") or ""), reason)),
-        case_id_fn=lambda item: str(item.get("id") or ""),
-        stage_meta_by_key={},
-        closure_status_fn=main_chain_closure_status,
-    )
-
-    assert recorded == []
-    assert result["incomplete_reason"] == ""
-    assert result["debug"] == {
-        "candidate_total": 3,
-        "action_state_candidate_count": 3,
-        "primary_candidate_count": 2,
-        "fallback_candidate_count": 1,
-        "selected_candidate_count": 3,
-        "closure_reason": "",
-    }
-    blueprint = result["blueprint"]
-    assert blueprint is not None
-    assert blueprint["source"] == "current_generation_cases"
-    assert blueprint["terminal_state"] == "derived_state_003"
-    assert result["terminal_state"] == "derived_state_003"
-    assert [step["source_case_id"] for step in result["steps"]] == [
-        "TC-entry",
-        "TC-submit",
-        "TC-visible",
-    ]
-    assert [step["stage_kind"] for step in result["steps"]] == [
-        "entry",
-        "commit",
-        "downstream_visibility",
-    ]
-
-
-def test_derive_workflow_blueprint_from_current_cases_returns_closure_reason_and_steps() -> None:
-    cases = [
-        {
-            "id": "TC-submit",
-            "priority": "P1",
-            "test_module": "Scoring workflow",
-            "description": "Submit scoring task successfully",
-            "steps": ["Submit scoring task"],
-            "expected_result": "Scoring task is saved successfully",
-        },
-        {
-            "id": "TC-visible",
-            "priority": "P1",
-            "test_module": "Student result",
-            "description": "Downstream student view shows visible score result",
-            "steps": ["Open student result page"],
-            "expected_result": "Score result is visible and reflected downstream",
-        },
-    ]
-
-    result = derive_workflow_blueprint_from_current_cases(
-        cases,
-        exclusion_reason_fn=lambda _item: "",
-        record_exclusion_fn=lambda _item, _reason: None,
-        case_id_fn=lambda item: str(item.get("id") or ""),
-        stage_meta_by_key={},
-        closure_status_fn=main_chain_closure_status,
-    )
-
-    assert result["blueprint"] is None
-    assert result["incomplete_reason"] == "missing_configure_or_entry_step"
-    assert result["debug"] == {
-        "candidate_total": 2,
-        "action_state_candidate_count": 2,
-        "primary_candidate_count": 2,
-        "fallback_candidate_count": 0,
-        "selected_candidate_count": 2,
-        "closure_reason": "missing_configure_or_entry_step",
-    }
-    assert [step["source_case_id"] for step in result["steps"]] == ["TC-submit", "TC-visible"]
-    assert result["stage_kinds"] == ["commit", "downstream_visibility"]
-
-
-def test_role_session_and_public_contract_helpers() -> None:
+def test_role_session_helpers() -> None:
     assert infer_role({"description": "student opens course", "role": ""}) == "business_user"
     assert infer_role({"description": "generic workflow", "role": "content_editor"}) == "content_editor"
     for protocol_role in ("admin", "guest", "authenticated", "anonymous"):
@@ -778,10 +264,6 @@ def test_role_session_and_public_contract_helpers() -> None:
         assert session_key_for_role(protocol_role) == f"{protocol_role}_session"
     assert session_key_for_role("student") == "student_session"
     assert session_key_for_role("content_editor") == "content_editor_session"
-    assert is_internal_state_text("draft_saved_state") is True
-    assert is_internal_state_text("Student main workflow") is False
-    assert public_contract_module_label({"module": "draft_saved_state"}, "student submit") == "业务主链路"
-    assert public_contract_module_label({"module": "Course Center"}, "student submit") == "Course Center"
 
 
 def test_low_value_main_chain_p0_ignores_pending_only_status() -> None:
@@ -833,74 +315,3 @@ def test_infer_group_prefers_existing_structure_before_generic_text() -> None:
         },
         in_main_chain=False,
     ) == "display"
-
-
-def test_materialize_workflow_contract_case_filters_internal_stage_fields() -> None:
-    materialized = materialize_workflow_contract_case(
-        "draft:save",
-        {
-            "label": "保存草稿",
-            "stage_kind": "commit",
-            "module": "draft_saved_state",
-            "domain": "内容处理",
-            "test_steps": ["draft_saved_state", "点击保存草稿"],
-            "actor": "teacher",
-            "main_path_step": False,
-        },
-    )
-
-    assert materialized is not None
-    assert materialized["id"] == "TC-CONTRACT-DRAFT-SAVE"
-    assert materialized["test_module"] == "内容处理"
-    assert materialized["steps"] == ["点击保存草稿"]
-    assert materialized["test_input"] == "保存草稿"
-    assert materialized["expected_result"] == "保存草稿完成，保存结果展示成功状态"
-    assert materialized["priority"] == "P1"
-    assert materialized["role"] == "teacher"
-    assert materialized["workflow_contract_materialized_case"] is True
-
-
-def test_materialize_workflow_contract_case_rejects_internal_label() -> None:
-    assert materialize_workflow_contract_case("draft_state", {"label": "draft_saved_state"}) is None
-
-
-def test_workflow_bridge_case_requires_previous_stage_available() -> None:
-    main_chain_stages = [
-        ("entry", "Open entry", (("open",),)),
-        ("commit", "Submit", (("submit",),)),
-    ]
-    meta_by_key = {
-        "entry": {"allow_bridge": True, "label": "Open entry", "actor": "student"},
-        "commit": {
-            "allow_bridge": True,
-            "label": "Submit form",
-            "state_in": "entry_opened",
-            "state_out": "submitted",
-            "actor": "teacher",
-        },
-    }
-
-    assert (
-        workflow_bridge_case(
-            "commit",
-            stage_meta_by_key=meta_by_key,
-            main_chain_stages=main_chain_stages,
-            selected_stage_keys=set(),
-        )
-        is None
-    )
-    bridge = workflow_bridge_case(
-        "commit",
-        stage_meta_by_key=meta_by_key,
-        main_chain_stages=main_chain_stages,
-        selected_stage_keys={"entry"},
-    )
-
-    assert bridge is not None
-    assert bridge["id"] == "TC-BRIDGE-COMMIT"
-    assert bridge["description"] == "Submit form"
-    assert bridge["preconditions"] == ["entry_opened"]
-    assert bridge["expected_result"] == "submitted"
-    assert bridge["priority"] == "P0"
-    assert bridge["role"] == "teacher"
-    assert bridge["workflow_blueprint_bridge"] is True

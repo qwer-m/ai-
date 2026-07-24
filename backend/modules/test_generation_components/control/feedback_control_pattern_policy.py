@@ -7,6 +7,11 @@ from .feedback_control_sample_access import (
     extract_forbidden_pattern_from_sample as _extract_forbidden_pattern_from_sample,
     sample_value as _sample_value,
 )
+from .reuse_risk_policy import (
+    _REUSE_RISK_DESCRIPTIONS,
+    _REUSE_RISK_PATTERNS,
+    extract_reuse_risks,
+)
 
 
 _UI_LOW_VALUE_PATTERN_TOKENS = (
@@ -37,57 +42,6 @@ _UI_FORBIDDEN_GUARDRAILS = (
     "avoid repetitive list sorting / field display / layout-only checks unless they block workflow",
     "copy/style/layout checks are supplemental only and must not dominate the case set",
 )
-_REUSE_RISK_PATTERNS: dict[str, tuple[str, ...]] = {
-    "wrong_return_target_risk": (
-        "回首页",
-        "回列表",
-        "返回首页",
-        "返回列表",
-        "返回目标",
-        "return home",
-        "return list",
-        "wrong return",
-    ),
-    "legacy_behavior_risk": (
-        "复用",
-        "沿用",
-        "残留",
-        "旧按钮",
-        "旧文案",
-        "旧跳转",
-        "legacy behavior",
-        "legacy button",
-        "obsolete behavior",
-    ),
-    "shared_page_residual_risk": (
-        "共享页面",
-        "共用页面",
-        "原页面",
-        "已有页面",
-        "既有页面",
-        "shared page",
-        "existing page",
-    ),
-    "shared_flow_residual_risk": (
-        "串课文",
-        "串单元",
-        "串逻辑",
-        "串流程",
-        "上下文污染",
-        "原模块",
-        "已有模块",
-        "既有模块",
-        "shared flow",
-        "wrong progression",
-        "context leak",
-    ),
-}
-_REUSE_RISK_DESCRIPTIONS = {
-    "wrong_return_target_risk": "wrong_return_target_risk: verify reused flow returns to the current module target instead of a legacy page.",
-    "legacy_behavior_risk": "legacy_behavior_risk: verify reused module does not retain legacy buttons, copy, or obsolete behaviors.",
-    "shared_page_residual_risk": "shared_page_residual_risk: verify shared page shells do not leak legacy entry or exit behavior into the new module.",
-    "shared_flow_residual_risk": "shared_flow_residual_risk: verify reused flow does not串原模块逻辑、串课文/单元或污染当前上下文。",
-}
 
 
 def _is_ui_low_value_pattern(*parts: Any) -> bool:
@@ -98,14 +52,7 @@ def _is_ui_low_value_pattern(*parts: Any) -> bool:
 
 
 def _extract_reuse_risks(*parts: Any) -> list[str]:
-    merged = " ".join(str(part or "") for part in parts).strip().lower()
-    if not merged:
-        return []
-    output: list[str] = []
-    for risk_key, markers in _REUSE_RISK_PATTERNS.items():
-        if any(marker.lower() in merged for marker in markers):
-            output.append(_REUSE_RISK_DESCRIPTIONS[risk_key])
-    return output
+    return extract_reuse_risks(*parts)
 
 
 def _build_negative_forbidden_patterns(

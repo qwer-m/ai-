@@ -42,6 +42,12 @@ def _execution_plan_closes_required_flow(summary: dict[str, Any]) -> bool:
         if isinstance(summary.get("final_execution_orchestration_plan"), dict)
         else {}
     )
+    independent_suite_executable = bool(
+        summary.get("independent_suite_executable")
+        or execution_plan.get("independent_suite_executable")
+    )
+    if independent_suite_executable:
+        return True
     linear_executable = bool(summary.get("linear_executable") or execution_plan.get("linear_executable"))
     main_chain_case_count = _to_int(
         summary.get("main_chain_case_count")
@@ -594,6 +600,10 @@ def _build_quality_ledger_payload(
     context_source = str((context_result or {}).get("context_source") or "").strip()
     compression_source = str(compression_diag_payload.get("context_source") or "").strip()
     missing_types = coverage_payload.get("missing_types") if isinstance(coverage_payload.get("missing_types"), dict) else {}
+    control_source_meta = dict(feedback_control_debug_payload.get("source_meta") or {})
+    requirement_semantic_contract = dict(
+        control_source_meta.get("requirement_semantic_contract") or {}
+    )
     judge_total = int(
         judge_summary_payload.get("total")
         or judge_summary_payload.get("input_count")
@@ -748,6 +758,8 @@ def _build_quality_ledger_payload(
             "generation_coverage_mode": str(feedback_control_debug_payload.get("generation_coverage_mode") or ""),
             "must_cover_rules_count": int(feedback_control_debug_payload.get("must_cover_rules_count") or 0),
             "quality_fix_hints_count": int(feedback_control_debug_payload.get("quality_fix_hints_count") or 0),
+            # Optimization 等后续产出链必须复用本轮真实契约，不能从公开用例正文反推。
+            "requirement_semantic_contract": requirement_semantic_contract,
         },
         "quality_remediation": quality_remediation_payload,
         "case_quality_gate": case_quality_gate_payload,

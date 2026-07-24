@@ -333,3 +333,140 @@ def test_explicit_json_mode_enables_structured_response_without_json_word(monkey
     assert fake_client.posts[0]["json"]["response_format"] == {"type": "json_object"}
     assert provider.last_response_metadata["response_mode"] == "json"
     assert provider.last_response_metadata["json_response"] is True
+
+
+def test_non_stream_request_uses_call_level_timeout_override(monkeypatch) -> None:
+    fake_client = _FakePostClient(
+        [
+            _FakePostResponse(
+                200,
+                {
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {"role": "assistant", "content": "ok"},
+                        }
+                    ]
+                },
+            )
+        ]
+    )
+    client_kwargs: dict = {}
+
+    def _client_factory(**kwargs):
+        client_kwargs.update(kwargs)
+        return fake_client
+
+    monkeypatch.setattr(
+        "core.ai.providers.openai_compatible_provider.httpx.Client",
+        _client_factory,
+    )
+    provider = OpenAICompatibleProvider(
+        "https://example.test/v1", "sk-test", "model"
+    )
+
+    result = provider.generate(
+        [{"role": "user", "content": "hi"}],
+        "model",
+        max_tokens=100,
+        response_mode="text",
+        request_timeout_seconds=180,
+    )
+
+    assert result == "ok"
+    assert client_kwargs["timeout"].read == 180.0
+    assert client_kwargs["timeout"].connect == 15.0
+    assert client_kwargs["timeout"].write == 30.0
+    assert client_kwargs["timeout"].pool == 15.0
+    assert provider.last_response_metadata["request_timeout_seconds"] == 180.0
+    assert provider.last_response_metadata["request_timeout_source"] == (
+        "call_override"
+    )
+
+
+def test_responses_incomplete_max_output_tokens_returns_partial_without_stream_fallback(
+    monkeypatch,
+) -> None:
+    partial = '{"evidence_facts":['
+    fake_client = _FakePostClient(
+        [
+            _FakePostResponse(
+                200,
+                {
+                    "status": "incomplete",
+                    "incomplete_details": {"reason": "max_output_tokens"},
+                    "output": [
+                        {
+                            "type": "message",
+                            "content": [
+                                {"type": "output_text", "text": partial}
+                            ],
+                        }
+                    ],
+                },
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        "core.ai.providers.openai_compatible_provider.httpx.Client",
+        lambda **kwargs: fake_client,
+    )
+    provider = OpenAICompatibleProvider(
+        "https://example.test/v1/responses",
+        "sk-test",
+        "model",
+    )
+
+    result = provider.generate(
+        [{"role": "user", "content": "只输出 JSON"}],
+        "model",
+        max_tokens=100,
+    )
+
+    assert result == partial
+    assert len(fake_client.posts) == 1
+    assert provider.last_response_metadata["response_status"] == "incomplete"
+    assert provider.last_response_metadata["incomplete_reason"] == (
+        "max_output_tokens"
+    )
+    assert provider.last_response_metadata["finish_reason"] == "length"
+    assert provider.last_response_metadata["content_len"] == len(partial)
+    assert "stream_fallback_content_len" not in provider.last_response_metadata
+
+
+def test_responses_incomplete_without_text_keeps_length_metadata_and_does_not_stream(
+    monkeypatch,
+) -> None:
+    fake_client = _FakePostClient(
+        [
+            _FakePostResponse(
+                200,
+                {
+                    "status": "incomplete",
+                    "incomplete_details": {"reason": "max_output_tokens"},
+                    "output": [],
+                },
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        "core.ai.providers.openai_compatible_provider.httpx.Client",
+        lambda **kwargs: fake_client,
+    )
+    provider = OpenAICompatibleProvider(
+        "https://example.test/v1/responses",
+        "sk-test",
+        "model",
+    )
+
+    result = provider.generate(
+        [{"role": "user", "content": "只输出 JSON"}],
+        "model",
+        max_tokens=100,
+    )
+
+    assert result == ""
+    assert len(fake_client.posts) == 1
+    assert provider.last_response_metadata["finish_reason"] == "length"
+    assert provider.last_response_metadata["content_len"] == 0
+    assert "stream_fallback_content_len" not in provider.last_response_metadata

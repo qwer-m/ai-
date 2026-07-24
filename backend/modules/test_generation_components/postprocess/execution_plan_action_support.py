@@ -35,7 +35,7 @@ _ACTION_SUPPORT_EQUIVALENTS = {
     "configure": ("配置", "设置", "选择", "编辑", "填写"),
     "choose": ("选择",),
     "edit": ("编辑", "修改", "填写", "输入"),
-    "compose": ("发帖", "编辑", "填写", "输入"),
+    "compose": ("编辑", "填写", "输入"),
     "input": ("输入", "填写"),
     "upload": ("上传", "图片"),
     "preview": ("预览", "查看", "详情", "检查"),
@@ -43,7 +43,7 @@ _ACTION_SUPPORT_EQUIVALENTS = {
     "detail": ("详情", "查看"),
     "commit": ("提交", "发布", "保存", "确认"),
     "submit": ("提交", "发布"),
-    "publish": ("发布", "发帖"),
+    "publish": ("发布",),
     "save": ("保存"),
     "display": ("显示", "展示", "可见", "出现"),
     "visible": ("可见", "显示", "展示"),
@@ -133,7 +133,6 @@ _ACTION_SUPPORT_KNOWN_CHINESE_TOKENS = tuple(
             "列表",
             "结果",
             "计划",
-            "课程",
         ]
     )
 )
@@ -290,8 +289,6 @@ def _case_behavior_text(case: dict[str, Any]) -> str:
 
 def main_chain_action_support_conflict_reason(case: dict[str, Any]) -> str:
     """Return a conflict reason when workflow action metadata is not supported by public case text."""
-    if bool(case.get("workflow_contract_materialized_case")):
-        return ""
     action = _text(_state_value(case, "action"))
     label = _text(case.get("main_chain_stage_label"))
     stage_kind = _text(_state_value(case, "stage_kind") or case.get("main_chain_stage_kind")).lower()

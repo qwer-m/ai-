@@ -15,6 +15,9 @@ from modules.testing.test_generation_components.postprocess.execution_plan_valid
     validate_execution_plan,
     validate_main_smoke_semantic_alignment,
 )
+from modules.testing.test_generation_components.postprocess.execution_plan_semantic_alignment import (
+    analyze_main_smoke_semantic_alignment,
+)
 from modules.testing.test_generation_components.postprocess.persistence_gate import (
     evaluate_persistence_gate,
     summarize_persistence_case_quality_gate,
@@ -23,9 +26,15 @@ from modules.testing.test_generation_components.postprocess.case_contract import
     project_persistable_cases,
 )
 from modules.testing.test_generation_components.postprocess.result_postprocess import (
-    filter_invalid_final_cases,
+    retain_structured_case_candidates,
     merge_cases_for_append,
+    prepare_append_existing_cases,
     strip_case_meta_fields,
+)
+from modules.testing.test_generation_components.postprocess.json_processing import (
+    count_unique_test_cases,
+    deduplicate_test_cases,
+    normalize_json_structure,
 )
 from routers.automation import test_generation_generate_routes_impl as generate_routes
 from routers.automation import test_generation_generate_routes_json as generate_json_routes
@@ -48,6 +57,7 @@ def _main_chain_cases() -> list[dict]:
             "priority": "P0",
             "execution_group": "main_smoke",
             "main_chain_step": index,
+            "main_chain_stage": stage_kind,
             "role": "student",
             "session_key": "student_session",
             "expected_result": f"state reaches {target_state}",
@@ -71,10 +81,6 @@ def _main_chain_cases() -> list[dict]:
 def _settings(mode: str) -> SimpleNamespace:
     return SimpleNamespace(
         EXECUTION_PLAN_GATE_MODE=mode,
-        EXECUTION_PLAN_MIN_MAIN_SMOKE_COUNT=6,
-        EXECUTION_PLAN_MIN_P0_COUNT=6,
-        EXECUTION_PLAN_MIN_STATE_FIELD_COVERAGE=0.8,
-        EXECUTION_PLAN_MAX_WORKFLOW_ID_MISSING_RATE=0.2,
         EXECUTION_PLAN_REJECT_CANDIDATE_DERIVED_BLUEPRINT=True,
     )
 
@@ -86,9 +92,24 @@ def _trusted_blueprint() -> dict:
         "source_type": "human_reviewed",
         "repository_source": "workflow_blueprint_repository",
         "trusted": True,
+        "primary": True,
+        "initial_state": "ready",
+        "terminal_states": ["consumed"],
+        "required_stage_ids": [
+            "entry",
+            "configure",
+            "preview",
+            "commit",
+            "downstream_visibility",
+            "consume",
+        ],
         "steps": [
-            {"id": "start", "label": "start", "action": "start", "state_in": "ready", "state_out": "started"},
-            {"id": "commit", "label": "commit", "action": "commit", "state_in": "started", "state_out": "committed"},
+            {"id": "entry", "label": "entry", "action": "open", "state_in": "ready", "state_out": "started", "required": True},
+            {"id": "configure", "label": "configure", "action": "configure", "state_in": "started", "state_out": "configured", "required": True},
+            {"id": "preview", "label": "preview", "action": "preview", "state_in": "configured", "state_out": "preview_ready", "required": True},
+            {"id": "commit", "label": "commit", "action": "save", "state_in": "preview_ready", "state_out": "committed", "required": True},
+            {"id": "downstream_visibility", "label": "visible", "action": "sync", "state_in": "committed", "state_out": "visible", "required": True},
+            {"id": "consume", "label": "consume", "action": "enter", "state_in": "visible", "state_out": "consumed", "required": True, "terminal": True},
         ],
     }
 
@@ -205,6 +226,14 @@ def test_validator_treats_save_and_display_case_as_commit_not_downstream() -> No
             "can_advance_main_flow": True,
             "execution_group": "main_smoke",
             "main_chain_step": index,
+            "main_chain_stage": (
+                "entry",
+                "configure",
+                "preview",
+                "commit",
+                "downstream_visibility",
+                "consume",
+            )[index - 1],
             "role": "student",
             "session_key": "student_session",
             "expected_result": "saved plan is visible" if index == 5 else f"state reaches {target_state}",
@@ -222,7 +251,7 @@ def test_validator_treats_save_and_display_case_as_commit_not_downstream() -> No
     assert result["passed"] is True
     assert result["metrics"]["main_chain_stage_kinds"][3] == "commit"
     assert result["metrics"]["main_chain_stage_kinds"][4] == "downstream_visibility"
-    assert result["metrics"]["commit_downstream_completion_closed"] is True
+    assert result["metrics"]["workflow_closure_satisfied"] is True
 
 
 def test_gate_validation_uses_internal_stage_kind_before_public_projection() -> None:
@@ -243,7 +272,7 @@ def test_gate_validation_uses_internal_stage_kind_before_public_projection() -> 
     assert "workflow_id" not in projected[3]
     assert "main_chain_stage_kind" not in projected[3]
     assert result["passed"] is True
-    assert result["metrics"]["commit_downstream_completion_closed"] is True
+    assert result["metrics"]["workflow_closure_satisfied"] is True
 
 
 def test_validator_accepts_view_as_consume_action() -> None:
@@ -314,8 +343,8 @@ def test_scoring_business_terms_do_not_satisfy_protocol_stage_actions() -> None:
     ]
 
     reasons_by_case: dict[str, set[str]] = {}
-    for conflict in validate_main_smoke_semantic_alignment(cases):
-        reasons_by_case.setdefault(conflict["case_id"], set()).add(conflict["reason"])
+    for warning in analyze_main_smoke_semantic_alignment(cases)["warnings"]:
+        reasons_by_case.setdefault(warning["case_id"], set()).add(warning["reason"])
 
     assert "stage_text_lacks_commit_action" in reasons_by_case["TC-SCORE-COMMIT"]
     assert "stage_text_lacks_downstream_propagation" in reasons_by_case["TC-SCORE-DOWNSTREAM"]
@@ -334,14 +363,14 @@ def test_learning_business_term_does_not_satisfy_consume_protocol_action() -> No
     ]
 
     reasons = {
-        conflict["reason"]
-        for conflict in validate_main_smoke_semantic_alignment(cases)
+        warning["reason"]
+        for warning in analyze_main_smoke_semantic_alignment(cases)["warnings"]
     }
 
     assert "stage_text_lacks_consume_action" in reasons
 
 
-def test_validator_rejects_display_only_and_multi_stage_materialized_main_cases() -> None:
+def test_validator_separates_materialized_conflicts_from_local_semantic_warnings() -> None:
     cases = [
         {
             "id": "TC-UI",
@@ -381,13 +410,18 @@ def test_validator_rejects_display_only_and_multi_stage_materialized_main_cases(
         },
     ]
 
+    analysis = analyze_main_smoke_semantic_alignment(cases)
     reasons_by_case: dict[str, set[str]] = {}
-    for conflict in validate_main_smoke_semantic_alignment(cases):
-        reasons_by_case.setdefault(conflict["case_id"], set()).add(conflict["reason"])
+    for warning in analysis["warnings"]:
+        reasons_by_case.setdefault(warning["case_id"], set()).add(warning["reason"])
 
     assert "display_only_case_used_in_main_chain" in reasons_by_case["TC-UI"]
     assert "case_goal_spans_commit_stage" in reasons_by_case["TC-FULL"]
     assert "commit_case_replays_edit_stage" in reasons_by_case["TC-COMMIT-REPLAY"]
+    assert {
+        item["case_id"] for item in analysis["conflicts"]
+        if item["reason"] == "generated_bridge_case_in_final_main_smoke"
+    } == {"TC-UI", "TC-FULL", "TC-COMMIT-REPLAY"}
 
 
 def test_validator_rejects_generation_490_weak_token_main_chain_mismatches() -> None:
@@ -455,7 +489,7 @@ def test_validator_rejects_generation_490_weak_token_main_chain_mismatches() -> 
         },
     ]
 
-    conflicts = validate_main_smoke_semantic_alignment(cases)
+    conflicts = analyze_main_smoke_semantic_alignment(cases)["warnings"]
     reasons_by_case: dict[str, set[str]] = {}
     for conflict in conflicts:
         reasons_by_case.setdefault(conflict["case_id"], set()).add(conflict["reason"])
@@ -468,7 +502,7 @@ def test_validator_rejects_generation_490_weak_token_main_chain_mismatches() -> 
     )
 
 
-def test_validator_reports_disconnected_state_and_blocking_main_case() -> None:
+def test_validator_reports_disconnected_state_and_non_advancing_main_case() -> None:
     cases = _main_chain_cases()
     cases[2]["workflow_transition"]["source_state"] = "unexpected_state"
     cases[3]["workflow_transition"]["blocking"] = True
@@ -484,7 +518,7 @@ def test_validator_reports_disconnected_state_and_blocking_main_case() -> None:
     assert result["passed"] is False
     assert "state_chain_conflict" in result["failure_reasons"]
     assert "state_not_connected" in reasons
-    assert "blocking_case_in_main_smoke" in reasons
+    assert "blocking_case_in_main_smoke" not in reasons
     assert "non_advancing_case_in_main_smoke" in reasons
 
 
@@ -552,13 +586,13 @@ def test_semantic_alignment_does_not_treat_stage_action_as_module_anchor() -> No
     cases[0]["main_chain_stage_module"] = "评论区"
     reasons = {
         item["reason"]
-        for item in validate_main_smoke_semantic_alignment(cases)
+        for item in analyze_main_smoke_semantic_alignment(cases)["warnings"]
     }
 
     assert "stage_module_not_aligned_with_blueprint" in reasons
 
 
-def test_validator_rejects_stage_labels_that_do_not_match_case_text() -> None:
+def test_validator_rejects_explicit_bridge_and_keeps_body_mismatch_diagnostic() -> None:
     cases = _main_chain_cases()
     cases[1]["description"] = "existing plan list is sorted by course time and status labels"
     cases[1]["expected_result"] = "list rows are sorted and marked completed or in progress"
@@ -576,16 +610,15 @@ def test_validator_rejects_stage_labels_that_do_not_match_case_text() -> None:
     )
 
     reasons = {item["reason"] for item in result["semantic_conflicts"]}
+    warnings = {item["reason"] for item in result["semantic_warnings"]}
     assert result["passed"] is False
     assert "main_smoke_semantic_conflict" in result["failure_reasons"]
-    assert "reset_or_abort_case_in_main_smoke" in reasons
-    assert "stage_text_lacks_configure_action" in reasons
-    assert "passive_list_status_case_used_as_configure" in reasons
+    assert "stage_text_lacks_configure_action" in warnings
+    assert "passive_list_status_case_used_as_configure" in warnings
     assert "generated_bridge_case_in_final_main_smoke" in reasons
-    assert "internal_placeholder_text_in_final_main_smoke" in reasons
 
 
-def test_validator_rejects_workflow_action_not_supported_by_case_text() -> None:
+def test_validator_warns_when_workflow_action_is_weakly_supported() -> None:
     cases = _main_chain_cases()
     cases[3]["description"] = "Course list switches grade version and keeps the previous records"
     cases[3]["test_module"] = "Course list"
@@ -604,9 +637,9 @@ def test_validator_rejects_workflow_action_not_supported_by_case_text() -> None:
         execution_plan={"workflow_blueprint_source": "feedback_control_state"},
     )
 
-    reasons = {item["reason"] for item in result["semantic_conflicts"]}
-    assert result["passed"] is False
-    assert "main_smoke_semantic_conflict" in result["failure_reasons"]
+    reasons = {item["reason"] for item in result["semantic_warnings"]}
+    assert result["passed"] is True
+    assert "main_smoke_semantic_conflict" not in result["failure_reasons"]
     assert "stage_action_not_supported_by_case_text" in reasons
 
 
@@ -627,14 +660,14 @@ def test_validator_rejects_report_history_case_as_completion_sync_without_role_g
         execution_plan={"workflow_blueprint_source": "feedback_control_state"},
     )
 
-    reasons = {item["reason"] for item in result["semantic_conflicts"]}
+    reasons = {item["reason"] for item in result["semantic_warnings"]}
     assert result["passed"] is False
-    assert "main_smoke_semantic_conflict" in result["failure_reasons"]
+    assert "workflow_terminal_state_not_reachable" in result["failure_reasons"]
     assert "student_role_with_management_surface_text" not in reasons
     assert "report_history_case_not_completion_sync" in reasons
 
 
-def test_validator_rejects_conditional_visibility_and_resume_state_in_main_smoke() -> None:
+def test_validator_keeps_conditional_visibility_and_resume_as_warnings() -> None:
     cases = _main_chain_cases()
     cases[4]["description"] = "Only when quiz accuracy is greater than 50%, the review button is visible"
     cases[4]["expected_result"] = "the review button is visible only for the threshold condition"
@@ -647,9 +680,9 @@ def test_validator_rejects_conditional_visibility_and_resume_state_in_main_smoke
         execution_plan={"workflow_blueprint_source": "feedback_control_state"},
     )
 
-    reasons = {item["reason"] for item in result["semantic_conflicts"]}
-    assert result["passed"] is False
-    assert "main_smoke_semantic_conflict" in result["failure_reasons"]
+    reasons = {item["reason"] for item in result["semantic_warnings"]}
+    assert result["passed"] is True
+    assert "main_smoke_semantic_conflict" not in result["failure_reasons"]
     assert "conditional_visibility_case_in_main_smoke" in reasons
     assert "resume_state_case_in_main_smoke" in reasons
 
@@ -659,7 +692,6 @@ def test_validator_rejects_candidate_derived_blueprint_as_strong_proof() -> None
         _main_chain_cases(),
         workflow_blueprints=[],
         execution_plan={"workflow_blueprint_source": "current_generation_cases"},
-        policy=ExecutionPlanValidationPolicy(allow_candidate_blueprint_without_contract=False),
     )
 
     assert result["passed"] is False
@@ -667,16 +699,17 @@ def test_validator_rejects_candidate_derived_blueprint_as_strong_proof() -> None
     assert "untrusted_candidate_derived_blueprint" in result["failure_reasons"]
 
 
-def test_validator_allows_candidate_blueprint_when_no_contract_is_available() -> None:
+def test_validator_rejects_candidate_blueprint_when_no_contract_is_available() -> None:
     result = validate_execution_plan(
         _main_chain_cases(),
         workflow_blueprints=[],
         execution_plan={"workflow_blueprint_source": "current_generation_cases"},
     )
 
-    assert result["passed"] is True
+    assert result["passed"] is False
     assert result["metrics"]["trusted_workflow_contract_count"] == 0
-    assert result["metrics"]["candidate_blueprint_without_contract_allowed"] is True
+    assert "workflow_contract_missing" in result["failure_reasons"]
+    assert "untrusted_candidate_derived_blueprint" in result["failure_reasons"]
 
 
 def test_validator_rejects_priority_pool_blueprint_without_repository_trust() -> None:
@@ -700,6 +733,128 @@ def test_validator_rejects_priority_pool_blueprint_without_repository_trust() ->
     assert "workflow_contract_missing" in result["failure_reasons"]
     assert result["metrics"]["workflow_blueprint_count"] == 1
     assert result["metrics"]["trusted_workflow_contract_count"] == 0
+
+
+def test_validator_accepts_declared_independent_suite_without_workflow() -> None:
+    cases = [
+        {
+            "id": "TC-independent",
+            "description": "Validate forum filter independently",
+            "priority": "P1",
+            "execution_group": "independent_functional",
+        }
+    ]
+
+    result = validate_execution_plan(
+        cases,
+        workflow_blueprints=[],
+        execution_plan={
+            "workflow_blueprint_source": "none",
+            "workflow_absence_declared": True,
+        },
+    )
+
+    assert result["passed"] is True
+    assert result["failure_reasons"] == []
+    assert result["metrics"]["workflow_absence_declared"] is True
+    assert result["metrics"]["independent_suite_executable"] is True
+    assert result["metrics"]["linear_executable"] is False
+
+
+def test_persistence_gate_accepts_declared_independent_suite_without_main_chain() -> None:
+    result = evaluate_persistence_gate(
+        [
+            {
+                "id": "TC-independent",
+                "description": "Validate forum filter independently",
+                "priority": "P1",
+                "execution_group": "independent_functional",
+            }
+        ],
+        workflow_blueprints=[],
+        execution_plan={
+            "workflow_blueprint_source": "none",
+            "workflow_absence_declared": True,
+        },
+        settings=_settings("enforce"),
+    )
+
+    assert result["passed"] is True
+    validation = dict(result.get("execution_plan_validation") or {})
+    assert validation.get("passed") is True
+    assert dict(validation.get("metrics") or {}).get("independent_suite_executable") is True
+
+
+def test_validator_does_not_treat_model_failure_as_declared_independent_suite() -> None:
+    result = validate_execution_plan(
+        [
+            {
+                "id": "TC-independent",
+                "description": "Validate forum filter independently",
+                "priority": "P1",
+                "execution_group": "independent_functional",
+            }
+        ],
+        workflow_blueprints=[],
+        execution_plan={"workflow_blueprint_source": "none"},
+    )
+
+    assert result["passed"] is False
+    assert result["metrics"]["workflow_absence_declared"] is False
+    assert result["metrics"]["independent_suite_executable"] is False
+    assert "workflow_contract_missing" in result["failure_reasons"]
+
+
+def test_validator_rejects_workflow_absence_that_conflicts_with_blueprint() -> None:
+    result = validate_execution_plan(
+        [
+            {
+                "id": "TC-independent",
+                "description": "Validate forum filter independently",
+                "priority": "P1",
+                "execution_group": "independent_functional",
+            }
+        ],
+        workflow_blueprints=[{"id": "invalid-flow", "steps": []}],
+        execution_plan={
+            "workflow_blueprint_source": "none",
+            "workflow_absence_declared": True,
+        },
+    )
+
+    assert result["passed"] is False
+    assert "workflow_absence_conflicts_with_blueprint" in result["failure_reasons"]
+    assert result["metrics"]["independent_suite_executable"] is False
+
+
+def test_validator_rejects_declared_independent_suite_when_main_smoke_exists() -> None:
+    result = validate_execution_plan(
+        _main_chain_cases(),
+        workflow_blueprints=[],
+        execution_plan={
+            "workflow_blueprint_source": "none",
+            "workflow_absence_declared": True,
+        },
+    )
+
+    assert result["passed"] is False
+    assert "workflow_absence_conflicts_with_main_smoke" in result["failure_reasons"]
+    assert result["metrics"]["independent_suite_executable"] is False
+
+
+def test_validator_rejects_empty_declared_independent_suite() -> None:
+    result = validate_execution_plan(
+        [],
+        workflow_blueprints=[],
+        execution_plan={
+            "workflow_blueprint_source": "none",
+            "workflow_absence_declared": True,
+        },
+    )
+
+    assert result["passed"] is False
+    assert "workflow_absence_independent_suite_empty" in result["failure_reasons"]
+    assert result["metrics"]["independent_suite_executable"] is False
 
 
 def test_persistence_gate_shadows_then_enforces_execution_failure() -> None:
@@ -837,8 +992,8 @@ def test_final_case_strip_preserves_formal_priority_and_execution_fields() -> No
     assert "priority_decision_source" not in cases[0]
 
 
-def test_final_filter_blocks_reasoning_leakage_in_test_input() -> None:
-    result = filter_invalid_final_cases(
+def test_candidate_intake_does_not_delete_body_text_before_review() -> None:
+    result = retain_structured_case_candidates(
         [
             {
                 "id": "TC-001",
@@ -851,11 +1006,11 @@ def test_final_filter_blocks_reasoning_leakage_in_test_input() -> None:
         ]
     )
 
-    assert result == []
+    assert [item["id"] for item in result] == ["TC-001"]
 
 
-def test_final_filter_blocks_reasoning_leakage_in_alias_fields() -> None:
-    result = filter_invalid_final_cases(
+def test_candidate_intake_keeps_alias_fields_for_later_contract_normalization() -> None:
+    result = retain_structured_case_candidates(
         [
             {
                 "caseId": "TC-ALIAS",
@@ -868,111 +1023,114 @@ def test_final_filter_blocks_reasoning_leakage_in_alias_fields() -> None:
         ]
     )
 
-    assert result == []
+    assert [item["caseId"] for item in result] == ["TC-ALIAS"]
 
 
-def test_append_merge_semantically_deduplicates_new_cases() -> None:
+def _append_case(
+    case_id: str,
+    *,
+    description: str,
+    module: str = "account",
+    priority: str = "P1",
+) -> dict:
+    return {
+        "id": case_id,
+        "test_module": module,
+        "description": description,
+        "preconditions": ["user is signed in"],
+        "steps": ["perform the declared action"],
+        "test_input": "valid business input",
+        "expected_result": "the declared result is visible",
+        "priority": priority,
+        "priority_final": priority,
+    }
+
+
+def test_append_merge_preserves_baseline_order_ids_and_content() -> None:
     existing = [
-        {
-            "id": "TC-001",
-            "test_module": "学习计划",
-            "description": "查看全部学习计划跳转",
-            "steps": ["点击查看全部学习计划"],
-            "test_input": "存在学习计划",
-            "expected_result": "进入学习计划列表页",
-            "priority": "P1",
-            "priority_final": "P1",
-        }
+        {**_append_case("TC-010", description="load account overview"), "legacy_marker": "keep"},
+        _append_case("TC-003", description="update account nickname"),
     ]
+    baseline_snapshot = json.loads(json.dumps(existing))
     new_cases = [
-        {
-            "id": "TC-002",
-            "test_module": "学习计划",
-            "description": "点击查看全部学习计划后跳转列表",
-            "steps": ["点击查看全部学习计划"],
-            "test_input": "存在学习计划",
-            "expected_result": "进入学习计划列表页",
-            "priority": "P1",
-            "priority_final": "P1",
-        },
-        {
-            "id": "TC-003",
-            "test_module": "学习进度",
-            "description": "学习完成后更新进度",
-            "steps": ["完成一节课"],
-            "test_input": "课程可学习",
-            "expected_result": "学习进度增加",
-            "priority": "P0",
-            "priority_final": "P0",
-        },
+        _append_case("TC-011", description="load account overview"),
+        _append_case("TC-020", description="load account overview with expired session"),
+        _append_case("TC-010", description="export account audit record"),
     ]
-
-    def _dedupe(cases):  # noqa: ANN001, ANN202
-        return [dict(item) for item in cases]
-
-    def _reorder(cases, **kwargs):  # noqa: ANN001, ANN202, ARG001
-        return [dict(item) for item in cases]
 
     merged = merge_cases_for_append(
         existing,
         new_cases,
-        deduplicate_test_cases_fn=_dedupe,
-        reorder_cases_by_closed_loop_fn=_reorder,
+        deduplicate_test_cases_fn=deduplicate_test_cases,
     )
 
-    assert [item["id"] for item in merged] == ["TC-001", "TC-003"]
+    assert existing == baseline_snapshot
+    assert merged[:2] == baseline_snapshot
+    assert [item["id"] for item in merged] == ["TC-010", "TC-003", "TC-020", "TC-011"]
+    assert [item["description"] for item in merged[2:]] == [
+        "load account overview with expired session",
+        "export account audit record",
+    ]
 
 
-def test_append_merge_semantically_deduplicates_alias_cases() -> None:
+def test_append_merge_only_removes_exact_public_duplicates_from_new_cases() -> None:
     existing = [
-        {
-            "id": "TC-001",
-            "test_module": "learning-plan",
-            "description": "view all learning plans",
-            "steps": ["click view all learning plans"],
-            "test_input": "existing plans",
-            "expected_result": "opens learning plan list",
-            "priority": "P1",
-            "priority_final": "P1",
-        }
+        _append_case("TC-001", description="view account details"),
     ]
     new_cases = [
         {
             "caseId": "TC-002",
-            "testModule": "learning-plan",
-            "title": "click view all learning plans and open list",
-            "testSteps": ["click view all learning plans"],
-            "testInput": "existing plans",
-            "expectedResult": "opens learning plan list",
+            "testModule": "account",
+            "title": "view account details",
+            "preconditions": ["user is signed in"],
+            "testSteps": ["perform the declared action"],
+            "testInput": "valid business input",
+            "expectedResult": "the declared result is visible",
             "Priority": "P1",
             "priorityFinal": "P1",
         },
-        {
-            "caseId": "TC-003",
-            "testModule": "learning-progress",
-            "title": "complete lesson updates progress",
-            "testSteps": ["complete one lesson"],
-            "testInput": "available lesson",
-            "expectedResult": "progress increases",
-            "Priority": "P0",
-            "priorityFinal": "P0",
-        },
+        _append_case("TC-003", description="view account details after refresh"),
+        _append_case("TC-004", description="view account details after refresh"),
     ]
-
-    def _dedupe(cases):  # noqa: ANN001, ANN202
-        return [dict(item) for item in cases]
-
-    def _reorder(cases, **kwargs):  # noqa: ANN001, ANN202, ARG001
-        return [dict(item) for item in cases]
 
     merged = merge_cases_for_append(
         existing,
         new_cases,
-        deduplicate_test_cases_fn=_dedupe,
-        reorder_cases_by_closed_loop_fn=_reorder,
+        deduplicate_test_cases_fn=deduplicate_test_cases,
     )
 
     assert [item.get("id") or item.get("caseId") for item in merged] == ["TC-001", "TC-003"]
+
+
+def test_prepare_append_history_does_not_normalize_or_deduplicate_baseline() -> None:
+    first = _append_case("TC-020", description="existing exact behavior")
+    second = _append_case("TC-007", description="existing exact behavior")
+    source = json.dumps([first, second], ensure_ascii=False)
+
+    existing, unique_count, start_id = prepare_append_existing_cases(
+        source,
+        normalize_json_structure_fn=normalize_json_structure,
+        deduplicate_test_cases_fn=deduplicate_test_cases,
+        count_unique_test_cases_fn=count_unique_test_cases,
+    )
+
+    assert existing == [first, second]
+    assert unique_count == 1
+    assert start_id == 21
+
+
+def test_append_validation_never_removes_invalid_historical_case() -> None:
+    historical = {"id": "TC-001", "description": "legacy incomplete row"}
+    invalid_new = {"id": "TC-002", "description": "new incomplete row"}
+    valid_new = _append_case("TC-003", description="new valid row")
+
+    merged = merge_cases_for_append(
+        [historical],
+        [invalid_new, valid_new],
+        deduplicate_test_cases_fn=deduplicate_test_cases,
+    )
+
+    assert merged == [historical, valid_new]
 
 
 class _FakeDb:
@@ -988,6 +1146,104 @@ class _FakeDb:
 
     def commit(self) -> None:
         return None
+
+
+def test_stream_append_persistence_validates_only_new_cases_and_keeps_baseline(monkeypatch) -> None:
+    baseline = [
+        {**_append_case("TC-010", description="historical first"), "legacy_marker": "keep"},
+        _append_case("TC-003", description="historical second"),
+    ]
+    baseline_snapshot = json.loads(json.dumps(baseline))
+    new_cases = [
+        {
+            **_append_case("TC-010", description="new behavior with colliding id"),
+            "execution_group": "main_smoke",
+            "execution_sequence": 1,
+            "main_chain_step": 1,
+            "workflow_id": "append_flow",
+            "source_state": "ready",
+            "target_state": "completed",
+            "action": "run appended behavior",
+            "role": "business_user",
+            "session_key": "business_user_session",
+        },
+    ]
+    existing_entry = SimpleNamespace(
+        id=77,
+        generated_result=json.dumps(baseline, ensure_ascii=False),
+    )
+    gate_inputs: list[list[dict]] = []
+
+    def _fake_stream_postprocess_cases(**kwargs):  # noqa: ANN003, ARG001
+        if False:
+            yield None
+        return {
+            "cases": new_cases,
+            "generation_summary": {"final_count": 1, "min_acceptable_final": 1},
+            "review_decision_summary": {"execution_plan": {}},
+        }
+
+    def _fake_persistence_gate(cases, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001
+        captured = [dict(item) for item in cases]
+        gate_inputs.append(captured)
+        return {
+            "passed": True,
+            "failure_code": "",
+            "cases": captured,
+            "execution_plan_validation": {"passed": True, "failure_reasons": [], "metrics": {}},
+            "quality_gate": {"passed": True, "failed_checks": [], "metrics": {}},
+        }
+
+    monkeypatch.setattr(stream_persist_mod, "stream_postprocess_cases", _fake_stream_postprocess_cases)
+    monkeypatch.setattr(stream_persist_mod, "evaluate_persistence_gate", _fake_persistence_gate)
+    db = _FakeDb()
+    state = {
+        "client": SimpleNamespace(
+            select_model=lambda *args, **kwargs: "test-model",
+            max_tokens=1024,
+        ),
+        "requirement": "append one verified behavior",
+        "project_id": 7,
+        "db": db,
+        "doc_type": "requirement",
+        "compress": False,
+        "expected_count": 1,
+        "overwrite": False,
+        "append": True,
+        "user_id": 9,
+        "original_requirement": "append one verified behavior",
+        "existing_cases": baseline,
+        "existing_entry": existing_entry,
+        "existing_unique_count": 2,
+        "feedback_control_state": {"workflow_blueprints": []},
+        "generation_mode": "single_pass",
+        "multi_pass": False,
+        "request_id": "req-stream-append-baseline-protection",
+    }
+
+    output = list(LegacyGenerationStreamPersistMixin()._stream_persist_phase(state=state))
+
+    assert gate_inputs == [[{**new_cases[0], "id": "TC-011"}]]
+    persisted_cases = json.loads(existing_entry.generated_result)
+    assert baseline == baseline_snapshot
+    assert persisted_cases[:2] == [
+        project_persistable_cases([item])[0]
+        for item in baseline_snapshot
+    ]
+    assert [item["id"] for item in persisted_cases] == ["TC-010", "TC-003", "TC-011"]
+    assert all("execution_group" not in item for item in persisted_cases)
+    execution_suite_logs = [
+        json.loads(item.removeprefix("GEN_DIAG:"))
+        for item in output
+        if isinstance(item, str) and '"kind": "generation_execution_suite"' in item
+    ]
+    assert execution_suite_logs
+    main_suite = next(
+        suite
+        for suite in execution_suite_logs[0]["execution_suite"]["suites"]
+        if suite["execution_group"] == "main_smoke"
+    )
+    assert [item["case_id"] for item in main_suite["cases"]] == ["TC-011"]
 
 
 def test_stream_persistence_enforce_mode_blocks_formal_generation_insert(monkeypatch) -> None:

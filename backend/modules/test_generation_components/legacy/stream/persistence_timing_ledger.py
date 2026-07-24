@@ -42,7 +42,6 @@ def build_stream_timing_ledger(
         "stream_generation_phase": _sum_timing_duration(events, "stream_generation_phase"),
         "gap": _sum_timing_duration(events, "gap_supplement"),
         "review": _sum_timing_duration(events, "review_selection"),
-        "final_shortfall": _sum_timing_duration(events, "final_shortfall_supplement"),
         "postprocess_total": _sum_timing_duration(events, "postprocess_total"),
     }
     if not events:

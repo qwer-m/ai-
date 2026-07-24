@@ -4,7 +4,6 @@ from typing import Any
 
 from .case_access import case_flat_text
 from .postprocess_priority_config import (
-    p0_keywords as _cfg_p0_keywords,
     p1_keywords as _cfg_p1_keywords,
     p2_keywords as _cfg_p2_keywords,
 )
@@ -66,7 +65,6 @@ def _resolve_priority_conflict_to_final(
                 "case_level_release_blocking",
             )
         )
-    p0_keywords = _cfg_p0_keywords()
     p1_keywords = _cfg_p1_keywords()
     p2_keywords = _cfg_p2_keywords()
     explicit_low_value = any(
@@ -83,20 +81,19 @@ def _resolve_priority_conflict_to_final(
         )
     ) or bool(score_result.get("structural_p2_signals"))
     positive_p1_evidence = _has_positive_p1_evidence(score_result, reasons)
-    has_p0_keyword = _contains_any(case_text, p0_keywords)
     has_p1_keyword = _contains_any(case_text, p1_keywords)
     has_p2_keyword = _contains_any(case_text, p2_keywords)
     conflict_reason = f"model={normalized_model},suggested={suggested_priority}"
 
     if pair == {"P0", "P2"}:
-        if case_level_hard_guard or has_p0_keyword:
+        if case_level_hard_guard:
             return _build_priority_decision(
                 priority_final="P0",
                 decision_state="conflict_resolved",
                 decision_source="conflict_resolved_by_high_risk_business_rule",
                 confidence="medium",
                 conflict_reason=conflict_reason,
-                resolution_reason="high_risk_guard_or_keyword",
+                resolution_reason="explicit_structured_high_risk_guard",
             )
         if positive_p1_evidence or has_p1_keyword:
             return _build_priority_decision(

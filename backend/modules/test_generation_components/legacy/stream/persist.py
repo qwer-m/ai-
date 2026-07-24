@@ -22,6 +22,7 @@ from .persistence_status_text import render_stop_reason_text as _render_stop_rea
 from .persistence_timing_events import sanitize_timing_events as _sanitize_timing_events
 from .persistence_timing_ledger import build_stream_timing_ledger
 from .runtime import LazyAttrProxy, call_component, resolve_lazy_attr
+from ...control.semantic_contract import CASE_SEMANTIC_CONTRACT_ABORT_CODE
 
 
 LogEntry = LazyAttrProxy("core.db.models", "LogEntry")
@@ -281,6 +282,28 @@ class LegacyGenerationStreamPersistMixin:
         generation_timing_events = _sanitize_timing_events(state.get("generation_timing_events") or [])
         persisted_generation_id: int | None = None
 
+        if state.get("case_semantic_contract_failed") is True:
+            diagnostic_payload = {
+                "kind": "case_semantic_contract_abort",
+                "abort_code": CASE_SEMANTIC_CONTRACT_ABORT_CODE,
+                "request_id": request_id,
+                "project_id": project_id,
+                "user_id": user_id,
+                "rejected_count": int(state.get("case_semantic_rejection_count") or 0),
+                "accepted_count": int(state.get("case_semantic_accepted_count") or 0),
+                "rejections": list(state.get("case_semantic_rejections") or [])[:20],
+            }
+            error_payload = {
+                "error": CASE_SEMANTIC_CONTRACT_ABORT_CODE,
+                "abort_code": CASE_SEMANTIC_CONTRACT_ABORT_CODE,
+                "message": "模型生成用例未满足结构化语义契约，已在 Review 前中止。",
+                "diagnostic": diagnostic_payload,
+            }
+            yield "@@STATUS@@:模型生成用例缺少有效语义契约，已在 Review 前中止。\n"
+            yield "GEN_DIAG:" + json.dumps(diagnostic_payload, ensure_ascii=False) + "\n"
+            yield json.dumps(error_payload, ensure_ascii=False)
+            return error_payload
+
         try:
             postprocess_result = yield from stream_postprocess_cases(
                 client=client,
@@ -306,6 +329,7 @@ class LegacyGenerationStreamPersistMixin:
                 generation_mode=generation_mode,
                 feedback_control_state=feedback_control_state,
                 requirement_semantics_context=requirement_semantics_context,
+                initial_case_semantic_rejections=state.get("case_semantic_rejections") or [],
             )
 
             postprocess_payload = unpack_stream_postprocess_result(
@@ -374,17 +398,36 @@ class LegacyGenerationStreamPersistMixin:
                 settings=settings,
             )
             persistence_preview = gate_candidate_cases
+            execution_gate_cases = gate_candidate_cases
             if append and existing_entry:
                 persistence_preview = merge_cases_for_append(
                     existing_cases,
                     gate_candidate_cases,
                     deduplicate_test_cases_fn=deduplicate_test_cases,
-                    reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
                 )
-            stream_quality_gate_result = merge_contract_quality_gate(
-                stream_quality_gate_result,
-                summarize_persistable_case_contract(persistence_preview),
-            )
+                baseline_count = len(
+                    [item for item in existing_cases if isinstance(item, dict)]
+                )
+                execution_gate_cases = [
+                    dict(item)
+                    for item in persistence_preview[baseline_count:]
+                    if isinstance(item, dict)
+                ]
+                # 追加只校验新增集；历史基线即使来自旧版本契约也不得被删改。
+                stream_quality_gate_result = summarize_case_quality_gate(
+                    execution_gate_cases
+                )
+                stream_quality_gate_result = merge_contract_quality_gate(
+                    stream_quality_gate_result,
+                    summarize_persistable_case_contract(execution_gate_cases),
+                )
+                stream_quality_gate_result = summarize_persistence_case_quality_gate(
+                    stream_quality_gate_result,
+                    generation_summary=generation_summary_payload,
+                    review_decision_summary=review_decision_summary_payload,
+                    judge_summary=judge_summary_payload,
+                    settings=settings,
+                )
             workflow_blueprints = [
                 dict(item)
                 for item in (feedback_control_state.get("workflow_blueprints") or [])
@@ -392,7 +435,7 @@ class LegacyGenerationStreamPersistMixin:
             ] if isinstance(feedback_control_state, dict) else []
             execution_plan = dict(review_decision_summary_payload.get("execution_plan") or {})
             persistence_gate_result = evaluate_persistence_gate(
-                persistence_preview,
+                execution_gate_cases,
                 workflow_blueprints=workflow_blueprints,
                 execution_plan=execution_plan,
                 generation_mode=generation_mode or ("multi_pass" if multi_pass else "single_pass"),
@@ -473,7 +516,9 @@ class LegacyGenerationStreamPersistMixin:
                 yield f"Error: {failure_code}{failure_detail}\n"
                 return
             gate_passed_cases = (
-                persistence_gate_result.get("cases")
+                persistence_preview
+                if append and existing_entry
+                else persistence_gate_result.get("cases")
                 if isinstance(persistence_gate_result.get("cases"), list)
                 else []
             )
@@ -537,7 +582,10 @@ class LegacyGenerationStreamPersistMixin:
 
                 full_input = (system_prompt or "") + requirement
                 actual_model = _select_generation_model(client, full_input)
-                execution_suite_payload = build_execution_suite(gate_passed_cases)
+                execution_suite_payload = build_execution_suite(
+                    gate_passed_cases,
+                    workflow_absence_declared=execution_plan.get("workflow_absence_declared") is True,
+                )
                 yield add_diagnostic_log(
                     db=db,
                     log_entry_type=LogEntry,

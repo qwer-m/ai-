@@ -1,13 +1,26 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any
 
-from .case_access import case_focus_text, case_id, case_priority, case_signature_text, case_text_field
+from .case_access import case_focus_text, case_id, case_priority, case_text_field
+from .json_repair import deterministic_case_dedup_key
 
 
 def case_signature(case: dict[str, Any]) -> str:
-    return case_signature_text(case)
+    return deterministic_case_dedup_key(case, include_priority=False)
+
+
+def candidate_identity_key(case: dict[str, Any]) -> str:
+    """用本轮 case id 与完整行为摘要标识物理候选，不用文本相似度合并。"""
+    origin_candidate_key = str(case.get("origin_candidate_key") or "").strip()
+    if origin_candidate_key:
+        return origin_candidate_key
+    behavior_key = case_signature(case)
+    digest = hashlib.sha256(behavior_key.encode("utf-8")).hexdigest()[:20]
+    stable_case_id = str(case.get("origin_case_id") or "").strip() or case_id(case)
+    return f"{stable_case_id or 'candidate'}::{digest}"
 
 
 def case_priority_score(case: dict[str, Any]) -> int:
@@ -53,24 +66,3 @@ def review_case_id(case: dict[str, Any]) -> str:
 
 def final_description_dedup_key(case: dict[str, Any]) -> str:
     return re.sub(r"\s+", " ", case_text_field(case, "description")).lower()
-
-
-def dedupe_by_final_description(cases: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], set[str]]:
-    if not isinstance(cases, list):
-        return [], set()
-    kept: list[dict[str, Any]] = []
-    dropped_signatures: set[str] = set()
-    seen: set[str] = set()
-    for case in cases:
-        if not isinstance(case, dict):
-            continue
-        key = final_description_dedup_key(case)
-        if key and key in seen:
-            signature = case_signature(case)
-            if signature:
-                dropped_signatures.add(signature)
-            continue
-        if key:
-            seen.add(key)
-        kept.append(case)
-    return kept, dropped_signatures

@@ -6,37 +6,21 @@ from core.processing.document_structure import extract_document_structure, norma
 
 from .feedback_control_state import FeedbackControlState
 from .functional_architecture import extract_functional_architecture, functional_module_names
+from .requirement_evidence_view import build_requirement_business_evidence_view
+from .semantic_contract import normalize_requirement_semantic_contract
 from ..coverage.coverage_analyzer import extract_flow_outline
 
 
-_DATA_FLOW_PHASES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("entry_capture", ("进入", "上传", "导入", "新建", "采集", "入口", "capture", "upload", "import", "entry", "create")),
-    ("review_confirm", ("复核", "审核", "审批", "确认", "修正", "review", "approve", "confirm", "correct")),
-    ("artifact_list", ("列表", "工作台", "dashboard", "list")),
-    ("artifact_detail", ("详情", "detail")),
-    ("planning", ("计划", "方案", "配置", "plan", "schedule", "config")),
-    ("completion_summary", ("完成", "复盘", "成果", "汇总", "summary", "complete", "completion")),
-    ("report", ("报告", "分享", "report", "share")),
-    ("access_limit", ("额度", "权限", "拦截", "次数", "quota", "permission", "limit", "gate")),
-    ("global_exception", ("全局", "异常", "空状态", "无数据", "exception", "global", "empty")),
-    ("history_recovery", ("历史", "恢复", "重试", "history", "recover", "retry")),
-)
-
-_CROSS_CUTTING_PHASES = {"access_limit", "global_exception", "history_recovery"}
 _MIN_PROJECT_PROFILE_CONFIDENCE = 0.2
 
 
 def _dedupe_texts(values: Any, *, limit: int = 80) -> list[str]:
     output: list[str] = []
     seen: set[str] = set()
-    if not isinstance(values, list):
-        values = []
-    for value in values:
+    for value in values if isinstance(values, list) else []:
         text = str(value or "").strip()
-        if not text:
-            continue
         key = " ".join(text.lower().split())
-        if key in seen:
+        if not text or key in seen:
             continue
         seen.add(key)
         output.append(text)
@@ -49,11 +33,7 @@ def _architecture_scoped_flow_context(
     requirement_text: str,
     functional_architecture: dict[str, Any],
 ) -> str:
-    """将流程识别限定在已选功能模块的结构范围内。
-
-    页面章节、后台章节和已排除模块仍保留在原始需求中供生成模型参考，
-    但不再被误当成必须串行覆盖的用户流程阶段。
-    """
+    """只从结构候选所在章节提取流程证据，不据此决定最终模块归属。"""
     modules = [
         dict(item)
         for item in (functional_architecture.get("functional_modules") or [])
@@ -63,7 +43,7 @@ def _architecture_scoped_flow_context(
     ]
     try:
         confidence = float(functional_architecture.get("confidence") or 0.0)
-    except Exception:
+    except (TypeError, ValueError):
         confidence = 0.0
     if len(modules) < 2 or confidence < 0.7:
         return ""
@@ -75,7 +55,6 @@ def _architecture_scoped_flow_context(
         for item in (structure.get("nodes") or [])
         if isinstance(item, dict) and item.get("path")
     }
-
     scoped_lines: list[str] = []
     allowed_aliases: list[str] = []
     for module in modules:
@@ -94,96 +73,67 @@ def _architecture_scoped_flow_context(
             scoped_lines.extend(str(line) for line in (module.get("features") or []) if str(line).strip())
 
     allowed_aliases = _dedupe_texts(allowed_aliases, limit=80)
-    if allowed_aliases:
-        # 补充文档其他位置对已选模块的同名引用和跨模块交互证据。
-        for line in normalized_requirement.splitlines():
-            current = str(line or "").strip()
-            if current and any(alias in current for alias in allowed_aliases):
-                scoped_lines.append(current)
-
+    for line in normalized_requirement.splitlines():
+        current = str(line or "").strip()
+        if current and any(alias in current for alias in allowed_aliases):
+            scoped_lines.append(current)
     return "\n".join(_dedupe_texts(scoped_lines, limit=600))
 
 
-def _phase_for_label(label: str) -> str:
-    lowered = str(label or "").strip().lower()
-    if not lowered:
-        return ""
-    priority = {
-        "review_confirm": 0,
-        "entry_capture": 1,
-        "artifact_list": 2,
-        "artifact_detail": 3,
-        "planning": 4,
-        "completion_summary": 5,
-        "report": 6,
-        "access_limit": 7,
-        "global_exception": 8,
-        "history_recovery": 9,
+def _empty_flow_outline(*, source: str) -> dict[str, Any]:
+    return {
+        "source": source,
+        "flow_order": [],
+        "document_flow_order": [],
+        "flow_labels": {},
+        "flow_stage_positions": {},
+        "cross_cutting": [],
+        "cross_cutting_labels": {},
+        "data_flow_edges": [],
+        "data_flow_order_applied": False,
     }
-    matches: list[tuple[int, int, str]] = []
-    for phase, tokens in _DATA_FLOW_PHASES:
-        score = sum(len(str(token)) for token in tokens if str(token).lower() in lowered)
-        if score > 0:
-            matches.append((int(score), -int(priority.get(phase, 99)), phase))
-    if matches:
-        matches.sort(reverse=True)
-        return matches[0][2]
-    return ""
 
 
-def _apply_data_flow_order(outline: dict[str, Any]) -> dict[str, Any]:
-    flow_order = [str(item) for item in (outline.get("flow_order") or []) if str(item).strip()]
-    cross_cutting = [str(item) for item in (outline.get("cross_cutting") or []) if str(item).strip()]
-    flow_labels = dict(outline.get("flow_labels") or {})
-    cross_labels = dict(outline.get("cross_cutting_labels") or {})
-    phase_rank = {phase: index for index, (phase, _tokens) in enumerate(_DATA_FLOW_PHASES)}
-    stage_phase: dict[str, str] = {}
-    moved_to_cross: list[str] = []
-    retained_flow: list[str] = []
-    for key in flow_order:
-        label = str(flow_labels.get(key) or key)
-        phase = _phase_for_label(label)
-        if phase:
-            stage_phase[key] = phase
-        if phase in _CROSS_CUTTING_PHASES:
-            moved_to_cross.append(key)
-            cross_labels.setdefault(key, label)
+def _semantic_flow_outline(contract: dict[str, Any]) -> dict[str, Any]:
+    workflows = [
+        dict(item)
+        for item in (contract.get("workflow_blueprints") or [])
+        if isinstance(item, dict) and isinstance(item.get("steps"), list)
+    ]
+    if not workflows:
+        return _empty_flow_outline(source="model_semantic_contract")
+    blueprint = workflows[0]
+    steps = [dict(item) for item in (blueprint.get("steps") or []) if isinstance(item, dict)]
+    flow_order: list[str] = []
+    flow_labels: dict[str, str] = {}
+    for index, step in enumerate(steps, start=1):
+        step_id = str(step.get("id") or f"step_{index:03d}").strip()
+        if not step_id or step_id in flow_labels:
             continue
-        retained_flow.append(key)
-
-    matched = [key for key in retained_flow if stage_phase.get(key)]
-    if len(matched) >= 2:
-        sorted_flow = sorted(
-            enumerate(retained_flow),
-            key=lambda item: (
-                phase_rank.get(stage_phase.get(item[1]) or "", 10_000),
-                item[0],
-            ),
-        )
-        new_flow_order = [key for _index, key in sorted_flow]
-    else:
-        new_flow_order = retained_flow
-
-    new_cross = _dedupe_texts([*cross_cutting, *moved_to_cross])
-    edges: list[dict[str, str]] = []
-    for left, right in zip(new_flow_order, new_flow_order[1:]):
-        edges.append(
+        flow_order.append(step_id)
+        flow_labels[step_id] = str(step.get("label") or step.get("action") or step_id).strip()
+    return {
+        "source": "model_semantic_contract",
+        "workflow_id": str(blueprint.get("workflow_id") or blueprint.get("id") or "").strip(),
+        "flow_order": flow_order,
+        "document_flow_order": list(flow_order),
+        "flow_labels": flow_labels,
+        "flow_stage_positions": {key: index for index, key in enumerate(flow_order)},
+        "cross_cutting": [],
+        "cross_cutting_labels": {},
+        "data_flow_edges": [
             {
                 "from": left,
                 "to": right,
-                "from_label": str(flow_labels.get(left) or left),
-                "to_label": str(flow_labels.get(right) or right),
+                "from_label": flow_labels.get(left, left),
+                "to_label": flow_labels.get(right, right),
             }
-        )
-
-    return {
-        **outline,
-        "flow_order": new_flow_order,
-        "cross_cutting": new_cross,
-        "cross_cutting_labels": cross_labels,
-        "data_flow_edges": edges,
-        "data_flow_phase_rank": stage_phase,
-        "data_flow_order_applied": bool(new_flow_order != flow_order or moved_to_cross),
+            for left, right in zip(flow_order, flow_order[1:])
+        ],
+        "data_flow_order_applied": False,
+        "initial_state": str(blueprint.get("initial_state") or "").strip(),
+        "terminal_states": _dedupe_texts(blueprint.get("terminal_states") or [], limit=8),
+        "required_stage_ids": _dedupe_texts(blueprint.get("required_stage_ids") or [], limit=32),
     }
 
 
@@ -204,10 +154,10 @@ def normalize_project_profile(payload: Any) -> dict[str, Any]:
             str(k): str(v) for k, v in cross_labels.items() if str(k).strip() and str(v).strip()
         },
         "data_flow_edges": [
-            dict(item) for item in (flow_outline.get("data_flow_edges") or payload.get("data_flow_edges") or [])
+            dict(item)
+            for item in (flow_outline.get("data_flow_edges") or payload.get("data_flow_edges") or [])
             if isinstance(item, dict)
         ],
-        "data_flow_phase_rank": dict(flow_outline.get("data_flow_phase_rank") or payload.get("data_flow_phase_rank") or {}),
         "data_flow_order_applied": bool(
             flow_outline.get("data_flow_order_applied") or payload.get("data_flow_order_applied")
         ),
@@ -238,29 +188,30 @@ def normalize_project_profile(payload: Any) -> dict[str, Any]:
         ],
         "shared_capabilities": _dedupe_texts(functional_architecture.get("shared_capabilities") or []),
     }
-    has_structure = bool(flow_order or cross_cutting or functional_modules)
-    raw_confidence = payload.get("confidence")
-    if raw_confidence is None:
-        confidence = 0.7 if has_structure else 0.0
-    else:
-        try:
-            confidence = float(raw_confidence)
-        except Exception:
-            confidence = 0.0
+    semantic_contract = (
+        dict(payload.get("requirement_semantic_contract"))
+        if isinstance(payload.get("requirement_semantic_contract"), dict)
+        else {}
+    )
+    has_structure = bool(flow_order or cross_cutting or functional_modules or semantic_contract)
+    try:
+        confidence = float(payload.get("confidence")) if payload.get("confidence") is not None else (
+            0.7 if has_structure else 0.0
+        )
+    except (TypeError, ValueError):
+        confidence = 0.0
     return {
-        "profile_version": str(payload.get("profile_version") or "project-profile-v2"),
-        "profile_source": str(payload.get("profile_source") or ("document_extracted" if has_structure else "fallback")),
-        "confidence": float(confidence),
+        "profile_version": str(payload.get("profile_version") or "project-profile-v3"),
+        "profile_source": str(payload.get("profile_source") or ("semantic_contract" if semantic_contract else "document_candidates")),
+        "confidence": max(0.0, min(1.0, confidence)),
         "flow_outline": normalized_outline,
         "functional_architecture": normalized_architecture,
+        "document_structure_candidates": dict(payload.get("document_structure_candidates") or {}),
+        "requirement_semantic_contract": semantic_contract,
         "module_order": functional_module_names({"functional_architecture": normalized_architecture}),
-        "ordering_policy": str(payload.get("ordering_policy") or "flow_first_then_cross_cutting"),
-        "scenario_cluster_policy": dict(
-            payload.get("scenario_cluster_policy") or {"default_max_per_scenario": 2}
-        ),
-        "profile_constraints": _dedupe_texts(
-            payload.get("profile_constraints") or ["strategy_only_not_fact_source"]
-        ),
+        "ordering_policy": str(payload.get("ordering_policy") or "semantic_workflow_order"),
+        "scenario_cluster_policy": dict(payload.get("scenario_cluster_policy") or {}),
+        "profile_constraints": _dedupe_texts(payload.get("profile_constraints") or ["strategy_only_not_fact_source"]),
         "strategy_only": True,
     }
 
@@ -272,72 +223,88 @@ def build_project_profile(
     cases: list[dict[str, Any]] | None = None,
     module_order_hint: list[str] | None = None,
     module_order_source: str = "",
+    semantic_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    functional_architecture = extract_functional_architecture(requirement_text)
-    architecture_modules = [
-        str(item.get("module_name") or "").strip()
-        for item in (functional_architecture.get("functional_modules") or [])
-        if isinstance(item, dict) and str(item.get("module_name") or "").strip()
-    ]
-    hint_cases: list[dict[str, Any]] = []
-    for index, module in enumerate(module_order_hint or [], start=1):
-        text = str(module or "").strip()
-        if text:
-            hint_cases.append({"id": f"PROFILE-MODULE-{index:03d}", "test_module": text})
-    candidate_cases = hint_cases or [item for item in (cases or []) if isinstance(item, dict)]
-    architecture_flow_context = _architecture_scoped_flow_context(requirement_text, functional_architecture)
-    outline = _apply_data_flow_order(
-        extract_flow_outline(
+    if semantic_contract is not None:
+        structure_candidates: dict[str, Any] = {}
+        evidence_requirement_text, _ = build_requirement_business_evidence_view(
+            requirement_text
+        )
+        normalized_contract = normalize_requirement_semantic_contract(
+            semantic_contract,
+            requirement_text=evidence_requirement_text,
+            workflow_blueprints=[
+                dict(item)
+                for item in (semantic_contract.get("workflow_blueprints") or [])
+                if isinstance(item, dict)
+            ],
+        )
+        original_status = str(semantic_contract.get("status") or "").strip()
+        graph_publishable = bool(
+            (normalized_contract.get("semantic_graph_validation") or {}).get(
+                "publishable"
+            )
+        )
+        upstream_compile_failed = (
+            semantic_contract.get("semantic_compile_success") is False
+        )
+        if (
+            original_status
+            and original_status not in {"applied", "empty"}
+            and (graph_publishable or upstream_compile_failed)
+        ):
+            normalized_contract["status"] = original_status
+        functional_architecture = dict(normalized_contract.get("functional_architecture") or {})
+        outline = _semantic_flow_outline(normalized_contract)
+        source = "model_semantic_contract"
+        confidence = float(normalized_contract.get("confidence") or 0.0)
+        if not confidence:
+            workflow_confidences = [
+                float(item.get("confidence") or 0.0)
+                for item in (normalized_contract.get("workflow_blueprints") or [])
+                if isinstance(item, dict)
+            ]
+            confidence = max(workflow_confidences or [0.0])
+    else:
+        # 仅供没有模型语义编译阶段的独立分析调用；生产生成会显式传入契约或失败状态。
+        structure_candidates = extract_functional_architecture(requirement_text)
+        normalized_contract = {}
+        functional_architecture = structure_candidates
+        architecture_modules = [
+            str(item.get("module_name") or "").strip()
+            for item in (functional_architecture.get("functional_modules") or [])
+            if isinstance(item, dict) and str(item.get("module_name") or "").strip()
+        ]
+        hint_cases = [
+            {"id": f"PROFILE-MODULE-{index:03d}", "test_module": str(module).strip()}
+            for index, module in enumerate(module_order_hint or [], start=1)
+            if str(module or "").strip()
+        ]
+        candidate_cases = hint_cases or [item for item in (cases or []) if isinstance(item, dict)]
+        architecture_flow_context = _architecture_scoped_flow_context(requirement_text, functional_architecture)
+        outline = extract_flow_outline(
             architecture_flow_context or flow_context_text or requirement_text,
             candidate_cases,
         )
-    )
-    if architecture_flow_context:
-        outline = {
-            **outline,
-            "scope_source": "functional_architecture",
-            "scope_module_count": len(architecture_modules),
-        }
-    if hint_cases and len(outline.get("flow_order") or []) < 2:
-        labels = [str(item.get("test_module") or "").strip() for item in hint_cases]
-        keys = [f"module_{index:03d}" for index in range(1, len(labels) + 1)]
-        outline = {
-            "source": "module_order_hint",
-            "flow_order": keys,
-            "document_flow_order": keys,
-            "flow_labels": dict(zip(keys, labels)),
-            "flow_stage_positions": {key: index for index, key in enumerate(keys)},
-            "cross_cutting": [],
-            "cross_cutting_labels": {},
-            "data_flow_edges": [
-                {
-                    "from": left,
-                    "to": right,
-                    "from_label": labels[index],
-                    "to_label": labels[index + 1],
-                }
-                for index, (left, right) in enumerate(zip(keys, keys[1:]))
-            ],
-            "data_flow_phase_rank": {},
-            "data_flow_order_applied": False,
-        }
-    source = "document_extracted"
-    if hint_cases:
-        source = str(module_order_source or "module_order_hint") or "module_order_hint"
-    elif architecture_modules:
-        source = str(functional_architecture.get("source") or "document_structure")
-    elif not outline.get("flow_order") and not outline.get("cross_cutting"):
-        source = "fallback"
+        if architecture_flow_context:
+            outline = {
+                **outline,
+                "scope_source": "functional_architecture_candidates",
+                "scope_module_count": len(architecture_modules),
+            }
+        source = str(module_order_source or "document_structure_candidates") if hint_cases else str(
+            functional_architecture.get("source") or "document_structure_candidates"
+        )
+        confidence = float(functional_architecture.get("confidence") or (0.7 if outline.get("flow_order") else 0.0))
+
     return normalize_project_profile(
         {
             "profile_source": source,
             "flow_outline": outline,
             "functional_architecture": functional_architecture,
-            "confidence": (
-                0.78
-                if hint_cases
-                else float(functional_architecture.get("confidence") or (0.7 if outline.get("flow_order") else 0.0))
-            ),
+            "document_structure_candidates": structure_candidates,
+            "requirement_semantic_contract": normalized_contract,
+            "confidence": confidence,
         }
     )
 
@@ -346,11 +313,18 @@ def merge_project_profile_control_state(base_state: Any, project_profile: dict[s
     normalized_base = FeedbackControlState.from_any(base_state)
     profile = normalize_project_profile(project_profile or {})
     outline = dict(profile.get("flow_outline") or {})
-    if not profile or not (outline.get("flow_order") or outline.get("cross_cutting")):
+    architecture = dict(profile.get("functional_architecture") or {})
+    has_profile = bool(
+        outline.get("flow_order")
+        or outline.get("cross_cutting")
+        or architecture.get("functional_modules")
+        or architecture.get("module_interactions")
+    )
+    if not profile or not has_profile:
         return normalized_base
     try:
         confidence = float(profile.get("confidence") or 0.0)
-    except Exception:
+    except (TypeError, ValueError):
         confidence = 0.0
     if confidence < _MIN_PROJECT_PROFILE_CONFIDENCE:
         return normalized_base.merge(
@@ -360,8 +334,8 @@ def merge_project_profile_control_state(base_state: Any, project_profile: dict[s
                     "project_profile_gate": {
                         "allowed": False,
                         "reason": "low_project_profile_confidence",
-                        "confidence": float(confidence),
-                        "min_confidence": float(_MIN_PROJECT_PROFILE_CONFIDENCE),
+                        "confidence": confidence,
+                        "min_confidence": _MIN_PROJECT_PROFILE_CONFIDENCE,
                     },
                 }
             }
@@ -374,3 +348,10 @@ def merge_project_profile_control_state(base_state: Any, project_profile: dict[s
             }
         }
     )
+
+
+__all__ = [
+    "build_project_profile",
+    "merge_project_profile_control_state",
+    "normalize_project_profile",
+]

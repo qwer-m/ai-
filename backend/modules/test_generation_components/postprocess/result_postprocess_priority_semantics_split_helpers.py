@@ -28,6 +28,7 @@ from .postprocess_priority_config import (
     usability_degraded_tokens,
 )
 from .case_access import case_steps
+from .priority_behavior_semantics import has_structured_blocking_priority_evidence
 from .result_postprocess_priority_rules import (
     _build_priority_coverage_context,
     _contains_any,
@@ -395,12 +396,7 @@ def score_case_priority(
     p2_cap_exempted = False
     p2_cap_exemption_reasons: list[str] = []
 
-    case_level_hard_guard = bool(
-        (main_workflow_hit and blocking_hit)
-        or severe_data_risk
-        or severe_security_risk
-        or case_level_release_blocking
-    )
+    case_level_hard_guard = has_structured_blocking_priority_evidence(case)
 
     # 覆盖价值豁免：命中缺失/核心/唯一覆盖或主流程+核心规则时，不直接触发 P2 封顶。
     coverage_value_exempt = bool(
@@ -441,14 +437,18 @@ def score_case_priority(
             p2_cap = True
 
     guards = {
-        "main_workflow_blocking": bool(main_workflow_hit and blocking_hit),
-        "workflow_blocking": bool(main_workflow_hit and blocking_hit),
-        "severe_data_risk": bool(severe_data_risk),
-        "severe_security_risk": bool(severe_security_risk),
-        "case_level_release_blocking": bool(case_level_release_blocking),
-        "release_blocking": bool(case_level_release_blocking),
+        "main_workflow_blocking": False,
+        "workflow_blocking": False,
+        "severe_data_risk": False,
+        "severe_security_risk": False,
+        "case_level_release_blocking": False,
+        "release_blocking": False,
         "rule_level_release_blocking_hit": bool(release_rule_hits),
         "case_level_hard_guard": bool(case_level_hard_guard),
+        "text_workflow_blocking_diagnostic": bool(main_workflow_hit and blocking_hit),
+        "text_severe_data_risk_diagnostic": bool(severe_data_risk),
+        "text_severe_security_risk_diagnostic": bool(severe_security_risk),
+        "text_release_blocking_diagnostic": bool(case_level_release_blocking),
     }
     guard_hit = bool(case_level_hard_guard)
 
@@ -497,5 +497,5 @@ def score_case_priority(
         "low_risk_only_covered": bool(low_risk_only_covered),
         "structural_p2_signals": bool(structural_p2_signals),
         "case_level_hard_guard": bool(case_level_hard_guard),
-        "case_level_release_blocking": bool(case_level_release_blocking),
+        "case_level_release_blocking": False,
     }

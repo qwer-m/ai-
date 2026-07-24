@@ -10,7 +10,6 @@ from .streaming_ui_like import is_display_only_final_case
 
 DisplayPredicate = Callable[[dict[str, Any]], bool]
 DescriptionKeyFn = Callable[[dict[str, Any]], str]
-FlowProfileWithScenarioPolicyFn = Callable[..., dict[str, Any]]
 
 
 def _dict_samples(value: Any, *, limit: int) -> list[dict[str, Any]]:
@@ -218,29 +217,6 @@ def final_dedup_priority_summary_fields(summary: dict[str, Any] | None) -> dict[
         "priority_quality_gate_failed": bool(priority_invalid_count > 0),
         "needs_priority_review": bool(payload.get("needs_priority_review")),
     }
-
-
-def resolve_final_duplicate_project_profile(
-    *,
-    flow_project_profile: dict[str, Any],
-    flow_governance_summary: dict[str, Any] | None,
-    final_shortfall_supplement_applied: bool,
-    effective_generation_coverage_mode: Any,
-    flow_profile_with_scenario_policy_fn: FlowProfileWithScenarioPolicyFn,
-) -> dict[str, Any]:
-    if not (
-        bool((flow_governance_summary or {}).get("relaxed_for_floor_backfill"))
-        or bool(final_shortfall_supplement_applied)
-    ):
-        return flow_project_profile
-
-    return flow_profile_with_scenario_policy_fn(
-        flow_project_profile,
-        coverage_mode=str(effective_generation_coverage_mode or ""),
-        disable_scenario_pruning=True,
-        intent_duplicate_cap=1_000_000,
-        relaxed_for_floor_backfill=True,
-    )
 
 
 def build_review_flow_structure_fields(

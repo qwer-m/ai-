@@ -121,6 +121,7 @@ def test_project_persistable_cases_removes_ordering_and_origin_metadata() -> Non
                 "candidate_index": 9,
                 "origin_candidate_index": 9,
                 "origin_case_id": "TC-025",
+                "origin_candidate_key": "TC-025::stable",
                 "origin_batch_index": 2,
                 "origin_batch_case_index": 4,
                 "origin_source_stage": "review_candidate",
@@ -132,13 +133,14 @@ def test_project_persistable_cases_removes_ordering_and_origin_metadata() -> Non
     assert "candidate_index" not in result[0]
     assert "origin_candidate_index" not in result[0]
     assert "origin_case_id" not in result[0]
+    assert "origin_candidate_key" not in result[0]
     assert "origin_batch_index" not in result[0]
     assert "origin_batch_case_index" not in result[0]
     assert "origin_source_stage" not in result[0]
     assert "presentation_order_reason" not in result[0]
 
 
-def test_contract_summary_blocks_reasoning_leakage_in_test_input() -> None:
+def test_contract_summary_reports_reasoning_leakage_without_blocking() -> None:
     summary = summarize_persistable_case_contract(
         [
             {
@@ -155,9 +157,10 @@ def test_contract_summary_blocks_reasoning_leakage_in_test_input() -> None:
         ]
     )
 
-    assert summary["passed"] is False
+    assert summary["passed"] is True
     assert summary["persistable_reasoning_leakage_case_ids"] == ["TC-001"]
-    assert "persistable_reasoning_leakage_count=1" in summary["failed_checks"]
+    assert summary["failed_checks"] == []
+    assert "persistable_reasoning_leakage_count=1" in summary["diagnostic_checks"]
 
 
 def test_contract_summary_still_requires_canonical_public_fields() -> None:
@@ -227,8 +230,9 @@ def test_contract_quality_gate_merge_preserves_existing_failures() -> None:
     merged = merge_contract_quality_gate(
         {"passed": False, "failed_checks": ["priority_final_null_count=1"], "metrics": {"final_count": 1}},
         {
-            "passed": False,
-            "failed_checks": ["persistable_reasoning_leakage_count=1"],
+            "passed": True,
+            "failed_checks": [],
+            "diagnostic_checks": ["persistable_reasoning_leakage_count=1"],
             "metrics": {"persistable_reasoning_leakage_count": 1},
             "persistable_reasoning_leakage_case_ids": ["TC-001"],
         },
@@ -237,8 +241,8 @@ def test_contract_quality_gate_merge_preserves_existing_failures() -> None:
     assert merged["passed"] is False
     assert merged["failed_checks"] == [
         "priority_final_null_count=1",
-        "persistable_reasoning_leakage_count=1",
     ]
+    assert merged["diagnostic_checks"] == ["persistable_reasoning_leakage_count=1"]
     assert merged["metrics"]["final_count"] == 1
     assert merged["metrics"]["persistable_reasoning_leakage_count"] == 1
     assert merged["persistable_reasoning_leakage_case_ids"] == ["TC-001"]

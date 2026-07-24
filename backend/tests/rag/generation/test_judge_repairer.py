@@ -55,7 +55,7 @@ def test_judge_keeps_distinct_general_quota_limit_subflows() -> None:
     }
 
 
-def test_judge_still_rejects_exact_general_quota_duplicate() -> None:
+def test_judge_reports_exact_general_quota_duplicate_without_rejecting() -> None:
     cases = [
         {
             "id": "TC-001",
@@ -78,9 +78,11 @@ def test_judge_still_rejects_exact_general_quota_duplicate() -> None:
     judged = judge_cases(cases, {})
 
     duplicate = next(item for item in judged.cases if item.case_id == "TC-002")
-    assert judged.reject_count == 1
-    assert duplicate.reject_reason == "semantic_duplicate:TC-001"
+    assert judged.reject_count == 0
+    assert duplicate.status == "PASS"
+    assert not duplicate.reject_reason
     assert duplicate.signals.is_semantic_duplicate is True
+    assert "batch_semantic_overlap_diagnostic" in duplicate.signals.notes
 
 
 def test_judge_repairer_does_not_append_untyped_batch_gap_cases() -> None:
@@ -116,7 +118,7 @@ def test_judge_repairer_does_not_append_when_missing_payload_is_empty() -> None:
     assert all(not item.after_case for item in repaired.cases if item.status == "REPAIRABLE")
 
 
-def test_judge_rejects_exact_duplicate_cases_at_batch_level() -> None:
+def test_judge_keeps_same_description_cases_with_different_state_contracts() -> None:
     cases = [
         {
             "id": "TC-001",
@@ -146,13 +148,12 @@ def test_judge_rejects_exact_duplicate_cases_at_batch_level() -> None:
     duplicate = next(item for item in judged.cases if item.case_id == "TC-002")
 
     assert statuses["TC-001"] == "PASS"
-    assert statuses["TC-002"] == "REJECT"
-    assert duplicate.reject_reason == "semantic_duplicate:TC-001"
-    assert duplicate.signals.is_semantic_duplicate is True
-    assert duplicate.signals.duplicate_of_case_id == "TC-001"
+    assert statuses["TC-002"] == "PASS"
+    assert not duplicate.reject_reason
+    assert judged.reject_count == 0
 
 
-def test_judge_rejects_duplicate_case_when_fields_use_aliases() -> None:
+def test_judge_reports_alias_duplicate_without_rejecting() -> None:
     cases = [
         {
             "id": "TC-001",
@@ -179,13 +180,13 @@ def test_judge_rejects_duplicate_case_when_fields_use_aliases() -> None:
     duplicate = next(item for item in judged.cases if item.case_id == "TC-002")
 
     assert statuses["TC-001"] == "PASS"
-    assert statuses["TC-002"] == "REJECT"
-    assert duplicate.reject_reason == "semantic_duplicate:TC-001"
+    assert statuses["TC-002"] == "PASS"
+    assert not duplicate.reject_reason
     assert duplicate.signals.is_semantic_duplicate is True
     assert duplicate.signals.duplicate_of_case_id == "TC-001"
 
 
-def test_judge_rejects_near_duplicate_same_scenario_cases_at_batch_level() -> None:
+def test_judge_keeps_near_duplicate_same_scenario_cases_with_diagnostics() -> None:
     cases = [
         {
             "id": "TC-001",
@@ -218,11 +219,11 @@ def test_judge_rejects_near_duplicate_same_scenario_cases_at_batch_level() -> No
 
     judged = judge_cases(cases, {})
 
-    assert judged.reject_count == 2
+    assert judged.reject_count == 0
     duplicate_rows = [item for item in judged.cases if item.signals.is_semantic_duplicate]
     assert len(duplicate_rows) == 2
-    assert len([item for item in judged.cases if item.status == "PASS"]) == 1
-    assert all(str(item.reject_reason or "").startswith("semantic_duplicate:TC-") for item in duplicate_rows)
+    assert len([item for item in judged.cases if item.status == "PASS"]) == 3
+    assert all(not item.reject_reason for item in duplicate_rows)
 
 
 def test_judge_does_not_collapse_registered_scenarios_across_modules() -> None:
@@ -293,7 +294,7 @@ def test_judge_does_not_use_broad_schedule_registry_families_as_duplicate_rules(
     }
 
 
-def test_judge_rejects_generic_popup_quota_and_refresh_duplicates() -> None:
+def test_judge_reports_generic_popup_and_quota_overlap_without_pruning() -> None:
     cases = [
         {
             "id": "TC-001",
@@ -354,14 +355,15 @@ def test_judge_rejects_generic_popup_quota_and_refresh_duplicates() -> None:
 
     assert frozenset({"TC-001", "TC-002"}) in duplicate_pairs
     assert frozenset({"TC-003", "TC-004"}) in duplicate_pairs
-    assert frozenset({"TC-005", "TC-006"}) in duplicate_pairs
+    assert judged.reject_count == 0
+    assert all(item.status == "PASS" for item in judged.cases)
 
 
 
 
 
 
-def test_judge_marks_generic_automation_template_expected_result_as_pending() -> None:
+def test_judge_records_generic_automation_template_as_diagnostic() -> None:
     cases = [
         {
             "id": "TC-001",
@@ -383,12 +385,13 @@ def test_judge_marks_generic_automation_template_expected_result_as_pending() ->
 
     judged = judge_cases(cases, {})
 
-    assert judged.pending_count == 2
-    assert all(item.pending_reason == "contains_pending_logic" for item in judged.cases)
+    assert judged.pending_count == 0
+    assert all(item.status == "PASS" for item in judged.cases)
+    assert all(item.signals.contains_pending_logic for item in judged.cases)
     assert all(item.signals.vague_or_unconfirmed_hits for item in judged.cases)
 
 
-def test_judge_rejects_generic_title_format_duplicate_and_marks_vague_copy() -> None:
+def test_judge_reports_title_overlap_and_vague_copy_without_pruning() -> None:
     cases = [
         {
             "id": "TC-001",
@@ -432,8 +435,10 @@ def test_judge_rejects_generic_title_format_duplicate_and_marks_vague_copy() -> 
     }
 
     assert frozenset({"TC-001", "TC-002"}) in duplicate_pairs
-    pending_ids = {item.case_id for item in judged.cases if item.pending_reason == "contains_pending_logic"}
+    pending_ids = {item.case_id for item in judged.cases if item.signals.contains_pending_logic}
     assert {"TC-003", "TC-004"}.issubset(pending_ids)
+    assert judged.reject_count == 0
+    assert judged.pending_count == 0
 
 
 
@@ -463,9 +468,11 @@ def test_judge_uses_fact_profile_from_control_state() -> None:
 
     judged = judge_cases(cases, {}, control_state=control_state)
 
-    assert judged.reject_count == 1
-    assert judged.cases[0].reject_reason == "violates_confirmed_fact"
+    assert judged.reject_count == 0
+    assert judged.cases[0].status == "PASS"
+    assert not judged.cases[0].reject_reason
     assert judged.cases[0].signals.confirmed_fact_violations
+    assert "fact_text_conflict_diagnostic" in judged.cases[0].signals.notes
 
 
 def test_judge_does_not_apply_temporal_shutdown_fact_as_global_enter_ban() -> None:
@@ -510,7 +517,7 @@ def test_judge_does_not_apply_temporal_shutdown_fact_as_global_enter_ban() -> No
     assert all(not item.signals.confirmed_fact_violations for item in judged.cases)
 
 
-def test_judge_rejects_positive_access_inside_temporal_shutdown_scope() -> None:
+def test_judge_reports_positive_access_inside_temporal_shutdown_scope() -> None:
     control_state = {
         "source_meta": {
             "fact_profile": {
@@ -529,12 +536,12 @@ def test_judge_rejects_positive_access_inside_temporal_shutdown_scope() -> None:
 
     judged = judge_case(case, {}, control_state=control_state)
 
-    assert judged.status == "REJECT"
-    assert judged.reject_reason == "violates_confirmed_fact"
+    assert judged.status == "PASS"
+    assert not judged.reject_reason
     assert judged.signals.confirmed_fact_violations
 
 
-def test_judge_marks_vague_requirement_defined_copy_as_pending() -> None:
+def test_judge_reports_vague_requirement_defined_copy_without_pending_status() -> None:
     cases = [
         {
             "id": "TC-001",
@@ -548,13 +555,14 @@ def test_judge_marks_vague_requirement_defined_copy_as_pending() -> None:
 
     judged = judge_cases(cases, {})
 
-    assert judged.pending_count == 1
-    assert judged.cases[0].pending_reason == "contains_pending_logic"
+    assert judged.pending_count == 0
+    assert judged.cases[0].status == "PASS"
+    assert judged.cases[0].signals.contains_pending_logic is True
     assert judged.cases[0].signals.vague_or_unconfirmed_hits
     assert judged.cases[0].signals.pending_hits
 
 
-def test_judge_marks_optional_design_copy_as_pending() -> None:
+def test_judge_reports_optional_design_copy_without_pending_status() -> None:
     cases = [
         {
             "id": "TC-001",
@@ -568,11 +576,13 @@ def test_judge_marks_optional_design_copy_as_pending() -> None:
 
     judged = judge_cases(cases, {})
 
-    assert judged.pending_count == 1
+    assert judged.pending_count == 0
+    assert judged.cases[0].status == "PASS"
+    assert judged.cases[0].signals.contains_pending_logic is True
     assert judged.cases[0].signals.vague_or_unconfirmed_hits
 
 
-def test_judge_rejects_generic_filter_refresh_and_readonly_duplicates() -> None:
+def test_judge_keeps_generic_filter_refresh_and_readonly_cases() -> None:
     cases = [
         {
             "id": "TC-001",
@@ -632,15 +642,15 @@ def test_judge_rejects_generic_filter_refresh_and_readonly_duplicates() -> None:
     }
 
     assert frozenset({"TC-001", "TC-002"}) in duplicate_pairs
-    assert frozenset({"TC-003", "TC-004"}) in duplicate_pairs
-    assert frozenset({"TC-005", "TC-006"}) in duplicate_pairs
+    assert judged.reject_count == 0
+    assert all(item.status == "PASS" for item in judged.cases)
 
 
 
 
 
 
-def test_judge_marks_generic_template_expected_result_as_pending() -> None:
+def test_judge_reports_generic_template_expected_result_without_pending_status() -> None:
     cases = [
         {
             "id": "TC-001",
@@ -654,8 +664,9 @@ def test_judge_marks_generic_template_expected_result_as_pending() -> None:
 
     judged = judge_cases(cases, {})
 
-    assert judged.pending_count == 1
-    assert judged.cases[0].pending_reason == "contains_pending_logic"
+    assert judged.pending_count == 0
+    assert judged.cases[0].status == "PASS"
+    assert judged.cases[0].signals.contains_pending_logic is True
     assert judged.cases[0].signals.vague_or_unconfirmed_hits
 
 

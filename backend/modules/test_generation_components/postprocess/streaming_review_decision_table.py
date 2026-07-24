@@ -4,17 +4,17 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .case_access import case_priority
-from .streaming_case_keys import case_signature
+from .streaming_case_keys import candidate_identity_key, case_signature
 
 
 @dataclass(frozen=True)
 class ReviewDecisionTableContext:
-    selection_signatures: set[str]
+    selection_candidate_keys: set[str]
     trace_decisions: dict[str, Any]
-    selected_gate_signatures: set[str]
-    dedup_drop_signatures: set[str]
-    final_signatures: set[str]
-    final_priority_by_signature: dict[str, str]
+    selected_gate_candidate_keys: set[str]
+    dedup_drop_candidate_keys: set[str]
+    final_candidate_keys: set[str]
+    final_priority_by_candidate_key: dict[str, str]
     structure_rows_by_index: dict[int, dict[str, Any]]
 
 
@@ -42,7 +42,6 @@ class ReviewPrioritySummaryFlags:
 @dataclass(frozen=True)
 class ReviewCandidateDropDecision:
     selected_by_review_llm: bool
-    selected_by_review_must_keep: bool
     selected_by_constraint_guard: bool
     review_llm_drop_reason_raw: str
     review_llm_drop_reason: str
@@ -74,23 +73,33 @@ def build_review_decision_table_context(
     parsed_result: list[Any],
     review_case_structure: dict[str, Any],
 ) -> ReviewDecisionTableContext:
-    selection_signatures = {
-        case_signature(item)
+    selection_candidate_keys = {
+        candidate_identity_key(item)
         for item in review_selection_input
         if isinstance(item, dict)
     }
     trace_decisions = dict((review_gate_trace.get("decisions") or {}))
-    selected_gate_signatures = set(
+    selected_gate_candidate_keys = set(
         str(item)
-        for item in (review_gate_trace.get("selected_signatures") or [])
+        for item in (
+            review_gate_trace.get("selected_candidate_keys")
+            or review_gate_trace.get("selected_signatures")
+            or []
+        )
     )
-    dedup_drop_signatures = set(
+    dedup_drop_candidate_keys = set(
         str(item)
-        for item in (review_gate_trace.get("dedup_dropped_signatures") or [])
+        for item in (
+            review_gate_trace.get("dedup_dropped_candidate_keys")
+            or review_gate_trace.get("dedup_dropped_signatures")
+            or []
+        )
     )
-    final_signatures = {case_signature(item) for item in parsed_result if isinstance(item, dict)}
-    final_priority_by_signature = {
-        case_signature(item): case_priority(item)
+    final_candidate_keys = {
+        candidate_identity_key(item) for item in parsed_result if isinstance(item, dict)
+    }
+    final_priority_by_candidate_key = {
+        candidate_identity_key(item): case_priority(item)
         for item in parsed_result
         if isinstance(item, dict)
     }
@@ -100,12 +109,12 @@ def build_review_decision_table_context(
         if isinstance(item, dict)
     }
     return ReviewDecisionTableContext(
-        selection_signatures=selection_signatures,
+        selection_candidate_keys=selection_candidate_keys,
         trace_decisions=trace_decisions,
-        selected_gate_signatures=selected_gate_signatures,
-        dedup_drop_signatures=dedup_drop_signatures,
-        final_signatures=final_signatures,
-        final_priority_by_signature=final_priority_by_signature,
+        selected_gate_candidate_keys=selected_gate_candidate_keys,
+        dedup_drop_candidate_keys=dedup_drop_candidate_keys,
+        final_candidate_keys=final_candidate_keys,
+        final_priority_by_candidate_key=final_priority_by_candidate_key,
         structure_rows_by_index=structure_rows_by_index,
     )
 
@@ -265,7 +274,6 @@ def build_review_candidate_row_diagnostic_fields(
     priority_resolution_reason_value: str,
     score_profile: dict[str, Any],
     selected_by_review_llm: bool,
-    selected_by_review_must_keep: bool,
     selected_by_review_constraints: bool,
     review_constraint_reason: str,
     review_llm_drop_reason_raw: str,
@@ -278,8 +286,6 @@ def build_review_candidate_row_diagnostic_fields(
     has_competition_signal: bool,
     review_llm_applied: bool,
     signature: str,
-    review_must_keep_signatures: set[str],
-    review_must_keep_reason_map: dict[str, Any],
     selected_gate_signatures: set[str],
     retained: bool,
     dropped_stage: str,
@@ -307,7 +313,6 @@ def build_review_candidate_row_diagnostic_fields(
             if str(item).strip()
         ],
         "selected_by_review_llm": bool(selected_by_review_llm),
-        "selected_by_review_must_keep": bool(selected_by_review_must_keep),
         "selected_by_review_constraints": bool(selected_by_review_constraints),
         "review_constraint_reason": review_constraint_reason,
         "review_llm_drop_reason_raw": review_llm_drop_reason_raw,
@@ -320,8 +325,6 @@ def build_review_candidate_row_diagnostic_fields(
         "has_high_signal": bool(has_high_signal),
         "has_competition_signal": bool(has_competition_signal),
         "review_llm_filter_applied": bool(review_llm_applied),
-        "must_keep_candidate": bool(signature in review_must_keep_signatures),
-        "must_keep_reasons": list(review_must_keep_reason_map.get(signature) or []),
         "selected_by_review_gate": bool(signature in selected_gate_signatures),
         "retained_final": bool(retained),
         "dropped_stage": dropped_stage,
@@ -341,25 +344,24 @@ def build_review_candidate_row_diagnostic_fields(
 def resolve_review_candidate_drop_decision(
     *,
     signature: str,
+    candidate_key: str,
     review_llm_applied: bool,
     review_llm_selected_signatures: set[str],
-    review_must_keep_signatures: set[str],
     review_constraint_retained_signatures: set[str],
     review_constraint_reason_map: dict[str, Any],
     review_llm_drop_reason_raw_map: dict[str, Any],
     review_llm_drop_reason_map: dict[str, Any],
     review_llm_drop_reason_source_map: dict[str, Any],
     review_llm_drop_reason_evidence_map: dict[str, Any],
-    selection_signatures: set[str],
+    selection_candidate_keys: set[str],
     append_cap_drop_signatures: set[str],
     final_description_dedup_drop_signatures: set[str],
-    dedup_drop_signatures: set[str],
-    selected_gate_signatures: set[str],
-    final_signatures: set[str],
+    dedup_drop_candidate_keys: set[str],
+    selected_gate_candidate_keys: set[str],
+    final_candidate_keys: set[str],
     gate_reason: str,
 ) -> ReviewCandidateDropDecision:
     selected_by_review_llm = signature in review_llm_selected_signatures if review_llm_applied else True
-    selected_by_review_must_keep = signature in review_must_keep_signatures
     selected_by_constraint_guard = signature in review_constraint_retained_signatures
     review_llm_drop_reason_raw = str(review_llm_drop_reason_raw_map.get(signature) or "")
     review_llm_drop_reason = str(review_llm_drop_reason_map.get(signature) or "")
@@ -377,20 +379,19 @@ def resolve_review_candidate_drop_decision(
         or has_competition_signal
     )
     review_constraint_reason = str(review_constraint_reason_map.get(signature) or "")
-    retained = signature in final_signatures
+    retained = candidate_key in final_candidate_keys
     dropped_stage = ""
     dropped_reason = ""
     if (
         review_llm_applied
         and (not selected_by_review_llm)
         and (not selected_by_constraint_guard)
-        and (not selected_by_review_must_keep)
     ):
         dropped_stage = "review_llm"
         dropped_reason = "drop_not_selected_by_review_llm"
         if review_llm_drop_reason:
             dropped_reason = f"drop_not_selected_by_review_llm:{review_llm_drop_reason}"
-    elif signature not in selection_signatures:
+    elif candidate_key not in selection_candidate_keys:
         dropped_stage = "review_selector"
         if review_constraint_reason == "dropped_by_target_max":
             dropped_reason = "drop_outside_target_window"
@@ -404,13 +405,13 @@ def resolve_review_candidate_drop_decision(
     elif signature in final_description_dedup_drop_signatures:
         dropped_stage = "post_review_dedup_or_reorder"
         dropped_reason = "drop_final_description_duplicate"
-    elif signature in dedup_drop_signatures:
+    elif candidate_key in dedup_drop_candidate_keys:
         dropped_stage = "review_dedup_pre_gate"
         dropped_reason = "drop_dedup_pre_gate"
-    elif signature in selection_signatures and signature not in selected_gate_signatures:
+    elif candidate_key in selection_candidate_keys and candidate_key not in selected_gate_candidate_keys:
         dropped_stage = "review_gate"
         dropped_reason = gate_reason or "drop_review_gate"
-    elif signature in selected_gate_signatures and signature not in final_signatures:
+    elif candidate_key in selected_gate_candidate_keys and candidate_key not in final_candidate_keys:
         dropped_stage = "post_review_dedup_or_reorder"
         dropped_reason = "drop_post_review_dedup_or_reorder"
     elif retained:
@@ -418,7 +419,6 @@ def resolve_review_candidate_drop_decision(
         dropped_reason = "retained"
     return ReviewCandidateDropDecision(
         selected_by_review_llm=selected_by_review_llm,
-        selected_by_review_must_keep=selected_by_review_must_keep,
         selected_by_constraint_guard=selected_by_constraint_guard,
         review_llm_drop_reason_raw=review_llm_drop_reason_raw,
         review_llm_drop_reason=review_llm_drop_reason,

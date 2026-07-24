@@ -3,13 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from .module_contract import enforce_functional_module_contract, summarize_functional_phase_coverage
+from .module_contract import summarize_functional_phase_coverage
 
-from ..coverage.coverage_case_complexity import case_complexity_profile
 from .priority_anchor_rules import (
     enforce_entry_path_p0,
-    enforce_execution_plan_p0_floor,
-    enforce_main_path_p0_anchors,
     enforce_pure_ui_p2,
 )
 from .streaming_case_keys import case_signature
@@ -53,7 +50,7 @@ def assemble_final_cases(
     workflow_blueprints: list[dict[str, Any]],
     trusted_workflow_contracts: list[dict[str, Any]],
     current_requirement_workflow_blueprints: list[dict[str, Any]],
-    authoritative_workflow_blueprints: list[dict[str, Any]],
+    workflow_absence_declared: bool,
     flow_project_profile: dict[str, Any],
     project_profile: dict[str, Any],
     reorder_cases_by_closed_loop_fn: Callable[..., list[dict[str, Any]]],
@@ -70,21 +67,10 @@ def assemble_final_cases(
         parsed_result,
         source_cases=source_seed,
     )
-    contract_cases, _module_contract_summary = enforce_functional_module_contract(
-        _dict_case_items(parsed_result),
-        project_profile=project_profile,
-    )
     cases = reorder_cases_by_closed_loop_fn(
-        contract_cases,
+        _dict_case_items(parsed_result),
         start_id=start_id,
         renumber_ids=True,
-    )
-    cases = enforce_main_path_p0_anchors(
-        cases,
-        coverage_mode=str(effective_generation_coverage_mode or generation_coverage_mode or ""),
-        requirement_text=str(requirement or ""),
-        case_signature_fn=case_signature,
-        case_complexity_profile_fn=case_complexity_profile,
     )
     cases = preserve_review_priority_demotions(
         cases,
@@ -103,7 +89,7 @@ def assemble_final_cases(
         workflow_blueprints=workflow_blueprints,
         trusted_workflow_contracts=trusted_workflow_contracts,
         current_requirement_workflow_blueprints=current_requirement_workflow_blueprints,
-        authoritative_workflow_blueprints=authoritative_workflow_blueprints,
+        workflow_absence_declared=workflow_absence_declared,
     )
     cases, final_order_flow_governance_summary = apply_final_independent_case_ordering(
         cases,
@@ -115,19 +101,11 @@ def assemble_final_cases(
         case_execution_group_fn=_case_execution_group,
         clip_text_fn=_clip_text,
     )
-    cases = enforce_main_path_p0_anchors(
-        cases,
-        coverage_mode=str(effective_generation_coverage_mode or generation_coverage_mode or ""),
-        requirement_text=str(requirement or ""),
-        case_signature_fn=case_signature,
-        case_complexity_profile_fn=case_complexity_profile,
-    )
     cases = preserve_review_priority_demotions(
         cases,
         review_candidate_cases,
         case_signature_fn=case_signature,
     )
-    cases = enforce_execution_plan_p0_floor(cases, min_p0_count=6)
     cases = enforce_entry_path_p0(cases)
     cases = enforce_pure_ui_p2(cases)
     cases = apply_case_source_metadata(

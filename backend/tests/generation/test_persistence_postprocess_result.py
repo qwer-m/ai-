@@ -17,7 +17,10 @@ def test_merge_pre_projection_functional_phase_summary_uses_matching_final_count
                         "module_internal:消息": 2,
                         "cross_module": 2,
                     },
-                    "remaining_deficits": {"cross_module": 1},
+                    "module_counts": {"message": 4},
+                    "interaction_counts": {"reply_notice": 2},
+                    "uncovered_modules": [],
+                    "uncovered_interactions": ["audit_notice"],
                 }
             }
         },
@@ -29,7 +32,10 @@ def test_merge_pre_projection_functional_phase_summary_uses_matching_final_count
         "cross_module": 2,
     }
     assert summary["functional_phase_counts_source"] == "execution_plan_pre_public_projection"
-    assert summary["functional_phase_remaining_deficits"] == {"cross_module": 1}
+    assert summary["functional_module_counts"] == {"message": 4}
+    assert summary["functional_interaction_counts"] == {"reply_notice": 2}
+    assert summary["functional_uncovered_modules"] == []
+    assert summary["functional_uncovered_interactions"] == ["audit_notice"]
 
 
 def test_merge_pre_projection_functional_phase_summary_rejects_stale_counts() -> None:

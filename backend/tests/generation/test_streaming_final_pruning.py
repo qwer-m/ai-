@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from modules.test_generation_components.coverage.coverage_analyzer import analyze_coverage
 from modules.test_generation_components.postprocess.json_validator import reorder_cases_by_closed_loop
-from modules.test_generation_components.postprocess.streaming_case_keys import case_signature
 from modules.test_generation_components.postprocess.streaming_final_pruning import (
     apply_post_judge_final_pruning,
 )
@@ -32,7 +31,7 @@ def _schedule_case(
     }
 
 
-def test_post_judge_final_pruning_applies_quality_dedupe_and_append_cap() -> None:
+def test_post_judge_final_pruning_records_text_quality_diagnostic_without_deleting() -> None:
     duplicate_case = _schedule_case(
         "TC-SCHEDULE-002",
         description="保存课程排课后生成有效记录",
@@ -63,20 +62,22 @@ def test_post_judge_final_pruning_applies_quality_dedupe_and_append_cap() -> Non
             ),
         ],
         low_quality_drop_details=low_quality_drop_details,
-        append_final_cap_count=1,
+        append_final_cap_count=0,
         start_id=10,
         analyze_coverage_fn=analyze_coverage,
         reorder_cases_by_closed_loop_fn=reorder_cases_by_closed_loop,
         rank_case_fn=rank_review_case_for_fill,
     )
 
-    assert result.final_quality_drop_total == 1
-    assert low_quality_drop_details[0]["stage"] == "post_judge_quality_filter"
+    assert result.final_quality_diagnostic_total == 1
+    assert result.final_quality_drop_total == 0
+    assert low_quality_drop_details[0]["stage"] == "post_judge_quality_diagnostic"
     assert low_quality_drop_details[0]["case_id"] == "TC-SCHEDULE-004"
-    assert case_signature(duplicate_case) in result.final_description_dedup_drop_signatures
-    assert result.append_cap_drop_total == 1
-    assert len(result.append_cap_drop_signatures) == 1
-    assert len(result.cases) == 1
+    assert low_quality_drop_details[0]["diagnostic_only"] is True
+    assert result.final_description_dedup_drop_signatures == set()
+    assert result.append_cap_drop_total == 0
+    assert result.append_cap_drop_signatures == set()
+    assert len(result.cases) == 4
     assert result.pre_priority_coverage
-    assert "meta" not in result.cases[0]
-    assert "priority_conflict_reason" not in result.cases[0]
+    assert all("meta" not in case for case in result.cases)
+    assert all("priority_conflict_reason" not in case for case in result.cases)

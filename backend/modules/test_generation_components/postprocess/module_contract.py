@@ -5,18 +5,20 @@ import unicodedata
 from typing import Any
 
 from .case_access import case_flat_text, case_text_field
+from ..control.semantic_contract import normalize_case_semantic
 
 
 FUNCTIONAL_PHASE_FIELDS = (
     "functional_phase",
     "functional_module_anchor",
     "functional_interaction_modules",
+    "functional_interaction_ids",
 )
 
 
 def _key(value: Any) -> str:
     text = unicodedata.normalize("NFKC", str(value or "")).lower()
-    return re.sub(r"[\s\-_/\\:：>]+", "", text)
+    return re.sub(r"[\s\-_/\\:：]+", "", text)
 
 
 def _module_catalog(project_profile: Any) -> list[dict[str, Any]]:
@@ -33,55 +35,50 @@ def _module_catalog(project_profile: Any) -> list[dict[str, Any]]:
     ]
 
 
-def build_functional_module_batch_plan(
-    project_profile: Any,
-    *,
-    expected_count: int,
-) -> list[dict[str, Any]]:
-    """按一级功能模块和跨模块交互分配生成阶段。"""
+def _architecture_interactions(project_profile: Any) -> list[dict[str, Any]]:
     profile = dict(project_profile or {}) if isinstance(project_profile, dict) else {}
     architecture = profile.get("functional_architecture")
     if not isinstance(architecture, dict):
         return []
-    modules = _module_catalog(profile)
-    if not modules:
-        return []
-    phases: list[dict[str, Any]] = [
-        {
-            "phase": "module_internal",
-            "module_name": str(item.get("module_name") or "").strip(),
-            "features": [str(value).strip() for value in (item.get("features") or []) if str(value).strip()],
-        }
-        for item in modules
-    ]
-    interactions = [
+    return [
         dict(item)
         for item in (architecture.get("module_interactions") or [])
         if isinstance(item, dict)
-        and str(item.get("source_module") or "").strip()
-        and str(item.get("target_module") or "").strip()
-        and str(item.get("source_module") or "").strip() != str(item.get("target_module") or "").strip()
+        and str(item.get("interaction_id") or "").strip()
+        and str(item.get("source_module_key") or item.get("source_module") or "").strip()
+        and str(item.get("target_module_key") or item.get("target_module") or "").strip()
         and str(item.get("trigger") or "").strip()
     ]
-    if len(modules) > 1 and interactions:
-        phases.append(
-            {
-                "phase": "cross_module",
-                "module_name": "",
-                "features": [],
-                "interactions": interactions,
-            }
-        )
-    remaining = max(1, int(expected_count or 1))
-    base, extra = divmod(remaining, len(phases))
-    for index, phase in enumerate(phases):
-        phase["target_count"] = max(1, base + (1 if index < extra else 0))
-    return phases
+
+
+def functional_architecture_generation_context(project_profile: Any) -> dict[str, list[dict[str, Any]]]:
+    """返回可供生成链路消费的已核验活动架构，不分配模块配额。"""
+    modules = [
+        dict(item)
+        for item in _module_catalog(project_profile)
+        if item.get("evidence_verified") is True
+    ]
+    active_module_keys = {
+        _key(item.get("module_key"))
+        for item in modules
+        if _key(item.get("module_key"))
+    }
+    interactions = [
+        dict(item)
+        for item in _architecture_interactions(project_profile)
+        if item.get("evidence_verified") is True
+        and _key(item.get("source_module_key")) in active_module_keys
+        and _key(item.get("target_module_key")) in active_module_keys
+    ]
+    return {
+        "functional_modules": modules,
+        "module_interactions": interactions,
+    }
 
 
 def _interaction_modules(phase: dict[str, Any]) -> list[str]:
     modules: list[str] = []
-    for item in (phase.get("interactions") or []):
+    for item in phase.get("interactions") or []:
         if not isinstance(item, dict):
             continue
         for key in ("source_module", "target_module"):
@@ -91,44 +88,46 @@ def _interaction_modules(phase: dict[str, Any]) -> list[str]:
     return modules
 
 
+def _interaction_ids(phase: dict[str, Any]) -> list[str]:
+    return list(
+        dict.fromkeys(
+            str(item.get("interaction_id") or "").strip()
+            for item in (phase.get("interactions") or [])
+            if isinstance(item, dict) and str(item.get("interaction_id") or "").strip()
+        )
+    )
+
+
 def case_matches_functional_phase(case: Any, phase: Any) -> bool:
     if not isinstance(case, dict):
         return False
     current_phase = dict(phase or {}) if isinstance(phase, dict) else {}
     if str(current_phase.get("phase") or "").strip() != "cross_module":
         return True
-    case_text = case_flat_text(
-        case,
-        fields=("test_module", "description", "preconditions", "steps", "test_input", "expected_result"),
-        separator=" ",
-        lower=True,
+    expected_ids = set(_interaction_ids(current_phase))
+    if not expected_ids:
+        return False
+    semantic = normalize_case_semantic(
+        case.get("_semantic"),
+        case_text=case_flat_text(
+            case,
+            fields=("test_module", "description", "preconditions", "steps", "test_input", "expected_result"),
+            separator=" ",
+        ),
     )
-    compact_case_text = _key(case_text)
-    case_module = _key(case_text_field(case, "test_module"))
-    for raw_interaction in (current_phase.get("interactions") or []):
-        if not isinstance(raw_interaction, dict):
-            continue
-        interaction = dict(raw_interaction)
-        source = _key(interaction.get("source_module"))
-        target = _key(interaction.get("target_module"))
-        if not source or not target or source == target:
-            continue
-        source_hit = source in compact_case_text
-        target_hit = case_module == target or target in compact_case_text
-        if source_hit and target_hit:
-            return True
-    return False
+    return bool(expected_ids.intersection(str(item) for item in semantic.get("interaction_ids") or []))
 
 
 def apply_functional_module_phase(
     cases: list[dict[str, Any]],
     phase: Any,
 ) -> list[dict[str, Any]]:
-    """把功能阶段作为内部元数据附着到用例，供评审和补充阶段继续使用。"""
+    """附着契约阶段元数据，不覆盖模型输出的公开模块字段。"""
     current_phase = dict(phase or {}) if isinstance(phase, dict) else {}
     phase_name = str(current_phase.get("phase") or "").strip()
     target_module = str(current_phase.get("module_name") or "").strip()
     interaction_modules = _interaction_modules(current_phase)
+    interaction_ids = _interaction_ids(current_phase)
     output: list[dict[str, Any]] = []
     for raw_case in cases:
         if not isinstance(raw_case, dict):
@@ -140,12 +139,9 @@ def apply_functional_module_phase(
             case["functional_phase"] = phase_name
         if phase_name == "module_internal" and target_module:
             case["functional_module_anchor"] = target_module
-            case["test_module"] = target_module
-            for alias in ("module", "testModule", "所属模块", "功能模块"):
-                if alias in case:
-                    case[alias] = target_module
         elif phase_name == "cross_module":
             case["functional_interaction_modules"] = list(interaction_modules)
+            case["functional_interaction_ids"] = list(interaction_ids)
         output.append(case)
     return output
 
@@ -156,43 +152,8 @@ def functional_phase_key(case: Any) -> str:
     phase = str(case.get("functional_phase") or "").strip()
     if phase == "cross_module":
         return "cross_module"
-    module_name = str(
-        case.get("functional_module_anchor")
-        or case_text_field(case, "test_module")
-        or ""
-    ).strip()
+    module_name = str(case.get("functional_module_anchor") or case_text_field(case, "test_module") or "").strip()
     return f"module_internal:{module_name}" if module_name else ""
-
-
-def _phase_key(phase: dict[str, Any]) -> str:
-    phase_name = str(phase.get("phase") or "").strip()
-    if phase_name == "cross_module":
-        return "cross_module"
-    module_name = str(phase.get("module_name") or "").strip()
-    return f"module_internal:{module_name}" if module_name else ""
-
-
-def _functional_phase_coverage_state(
-    cases: list[dict[str, Any]],
-    *,
-    project_profile: Any,
-    target_count: int,
-) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, int]]:
-    plan = build_functional_module_batch_plan(
-        project_profile,
-        expected_count=max(1, int(target_count or len(cases) or 1)),
-    )
-    phase_targets = {
-        _phase_key(item): int(item.get("target_count") or 0)
-        for item in plan
-        if _phase_key(item)
-    }
-    phase_counts: dict[str, int] = {}
-    for item in cases:
-        key = functional_phase_key(item)
-        if key:
-            phase_counts[key] = int(phase_counts.get(key) or 0) + 1
-    return plan, phase_targets, phase_counts
 
 
 def summarize_functional_phase_coverage(
@@ -201,128 +162,148 @@ def summarize_functional_phase_coverage(
     project_profile: Any,
     target_count: int,
 ) -> dict[str, Any]:
-    plan, phase_targets, phase_counts = _functional_phase_coverage_state(
-        [dict(item) for item in cases if isinstance(item, dict)],
-        project_profile=project_profile,
-        target_count=target_count,
+    """只报告全局架构的实际覆盖，不制造按模块均分的目标或缺口。"""
+    architecture = functional_architecture_generation_context(project_profile)
+    modules = [dict(item) for item in architecture.get("functional_modules") or []]
+    interactions = [dict(item) for item in architecture.get("module_interactions") or []]
+    if not modules:
+        return {
+            "applied": False,
+            "module_counts": {},
+            "interaction_counts": {},
+            "phase_counts": {},
+            "uncovered_modules": [],
+            "uncovered_interactions": [],
+            "uncovered_structured_facts": [],
+        }
+
+    alias_to_module, key_to_module = _module_indexes(modules)
+    module_key_by_name = {
+        str(item.get("module_name") or "").strip(): str(item.get("module_key") or "").strip()
+        for item in modules
+    }
+    interaction_by_id = {
+        _key(item.get("interaction_id")): item
+        for item in interactions
+        if _key(item.get("interaction_id"))
+    }
+    module_counts = {
+        str(item.get("module_key") or "").strip(): 0
+        for item in modules
+        if str(item.get("module_key") or "").strip()
+    }
+    interaction_counts = {
+        str(item.get("interaction_id") or "").strip(): 0
+        for item in interactions
+        if str(item.get("interaction_id") or "").strip()
+    }
+    phase_counts: dict[str, int] = {}
+    for raw_case in cases:
+        if not isinstance(raw_case, dict):
+            continue
+        case = dict(raw_case)
+        semantic = _normalized_case_semantic(case)
+        module_name = _semantic_primary_module(
+            case,
+            alias_to_module=alias_to_module,
+            key_to_module=key_to_module,
+        ) or alias_to_module.get(_key(case_text_field(case, "test_module")), "")
+        module_key = module_key_by_name.get(module_name, "")
+        if module_key:
+            module_counts[module_key] = int(module_counts.get(module_key) or 0) + 1
+
+        valid_interaction_ids: list[str] = []
+        for interaction_id in semantic.get("interaction_ids") or []:
+            interaction = interaction_by_id.get(_key(interaction_id))
+            if not interaction:
+                continue
+            canonical_id = str(interaction.get("interaction_id") or "").strip()
+            if canonical_id and canonical_id not in valid_interaction_ids:
+                valid_interaction_ids.append(canonical_id)
+                interaction_counts[canonical_id] = int(interaction_counts.get(canonical_id) or 0) + 1
+        phase_key = "cross_module" if valid_interaction_ids else (
+            f"module_internal:{module_name}" if module_name else ""
+        )
+        if phase_key:
+            phase_counts[phase_key] = int(phase_counts.get(phase_key) or 0) + 1
+
+    uncovered_modules = [key for key, count in module_counts.items() if int(count or 0) <= 0]
+    uncovered_interactions = [key for key, count in interaction_counts.items() if int(count or 0) <= 0]
+    uncovered_structured_facts = [
+        {
+            "fact_type": "functional_module",
+            "module_key": module_key,
+            "module_name": str(key_to_module.get(_key(module_key)) or ""),
+        }
+        for module_key in uncovered_modules
+    ]
+    uncovered_structured_facts.extend(
+        {
+            "fact_type": "module_interaction",
+            "interaction_id": interaction_id,
+        }
+        for interaction_id in uncovered_interactions
     )
     return {
-        "applied": bool(plan),
-        "phase_targets": phase_targets,
-        "phase_counts": phase_counts,
-        "remaining_deficits": {
-            key: max(0, int(target) - int(phase_counts.get(key) or 0))
-            for key, target in phase_targets.items()
-        },
-    }
-
-
-def rebalance_functional_phase_coverage(
-    selected_cases: list[dict[str, Any]],
-    *,
-    candidate_cases: list[dict[str, Any]],
-    project_profile: Any,
-    target_count: int,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """从已有候选池补回评审阶段丢失的功能阶段，不制造新用例。"""
-    selected = [dict(item) for item in selected_cases if isinstance(item, dict)]
-    candidates = [dict(item) for item in candidate_cases if isinstance(item, dict)]
-    plan, phase_targets, phase_counts = _functional_phase_coverage_state(
-        selected,
-        project_profile=project_profile,
-        target_count=target_count,
-    )
-    if not plan:
-        return selected, {"applied": False, "added_count": 0, "phase_targets": {}, "phase_counts": {}}
-
-    existing_ids = {str(item.get("id") or "").strip() for item in selected if str(item.get("id") or "").strip()}
-    existing_text = {
-        _key(case_flat_text(item, fields=("test_module", "description", "test_input", "expected_result")))
-        for item in selected
-    }
-    added: list[dict[str, Any]] = []
-    for phase in plan:
-        key = _phase_key(phase)
-        deficit = max(0, int(phase_targets.get(key) or 0) - int(phase_counts.get(key) or 0))
-        if deficit <= 0:
-            continue
-        for item in candidates:
-            if deficit <= 0:
-                break
-            if functional_phase_key(item) != key:
-                continue
-            case_id = str(item.get("id") or "").strip()
-            text_key = _key(case_flat_text(item, fields=("test_module", "description", "test_input", "expected_result")))
-            if (case_id and case_id in existing_ids) or (text_key and text_key in existing_text):
-                continue
-            selected.append(dict(item))
-            added.append(dict(item))
-            if case_id:
-                existing_ids.add(case_id)
-            if text_key:
-                existing_text.add(text_key)
-            phase_counts[key] = int(phase_counts.get(key) or 0) + 1
-            deficit -= 1
-
-    return selected, {
         "applied": True,
-        "added_count": int(len(added)),
-        "phase_targets": phase_targets,
+        "requested_case_count": max(0, int(target_count or 0)),
+        "module_counts": module_counts,
+        "interaction_counts": interaction_counts,
         "phase_counts": phase_counts,
-        "remaining_deficits": {
-            key: max(0, int(target) - int(phase_counts.get(key) or 0))
-            for key, target in phase_targets.items()
-        },
+        "uncovered_modules": uncovered_modules,
+        "uncovered_interactions": uncovered_interactions,
+        "uncovered_structured_facts": uncovered_structured_facts,
     }
 
 
-def build_functional_supplement_plan(
-    project_profile: Any,
-    *,
-    current_cases: list[dict[str, Any]],
-    target_count: int,
-    supplement_needed: int,
-    max_batch_size: int = 10,
-    max_batches: int = 4,
-) -> list[dict[str, Any]]:
-    """按最终阶段缺口生成定向补充计划，避免补充用例集中到单一模块。"""
-    phases = build_functional_module_batch_plan(project_profile, expected_count=max(1, int(target_count or 1)))
-    if not phases:
-        return []
-    counts: dict[str, int] = {}
-    for item in current_cases:
-        key = functional_phase_key(item)
-        if key:
-            counts[key] = int(counts.get(key) or 0) + 1
+def _module_indexes(catalog: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str, str]]:
+    aliases: dict[str, str] = {}
+    keys: dict[str, str] = {}
+    for item in catalog:
+        module_name = str(item.get("module_name") or "").strip()
+        module_key = str(item.get("module_key") or "").strip()
+        if module_key:
+            keys[_key(module_key)] = module_name
+        for alias in [module_name, *[str(value) for value in (item.get("aliases") or [])]]:
+            alias_key = _key(alias)
+            if alias_key:
+                aliases.setdefault(alias_key, module_name)
+    return aliases, keys
 
-    remaining = max(1, int(supplement_needed or 1))
-    plan: list[dict[str, Any]] = []
-    ordered = sorted(
-        phases,
-        key=lambda item: (
-            -(max(0, int(item.get("target_count") or 0) - int(counts.get(_phase_key(item)) or 0))),
-            phases.index(item),
+
+def _normalized_case_semantic(case: dict[str, Any]) -> dict[str, Any]:
+    return normalize_case_semantic(
+        case.get("_semantic"),
+        case_text=case_flat_text(
+            case,
+            fields=("test_module", "description", "preconditions", "steps", "test_input", "expected_result"),
+            separator=" ",
         ),
     )
-    for phase in ordered:
-        if remaining <= 0 or len(plan) >= max(1, int(max_batches or 1)):
-            break
-        key = _phase_key(phase)
-        deficit = max(0, int(phase.get("target_count") or 0) - int(counts.get(key) or 0))
-        if deficit <= 0:
-            continue
-        count = min(max(1, int(max_batch_size or 1)), deficit, remaining)
-        plan.append({**dict(phase), "target_count": int(count), "phase_key": key})
-        remaining -= count
-    if remaining > 0 and plan:
-        index = 0
-        while remaining > 0 and len(plan) < max(1, int(max_batches or 1)):
-            phase = ordered[index % len(ordered)]
-            count = min(max(1, int(max_batch_size or 1)), remaining)
-            plan.append({**dict(phase), "target_count": int(count), "phase_key": _phase_key(phase)})
-            remaining -= count
-            index += 1
-    return plan
+
+
+def _semantic_primary_module(
+    case: dict[str, Any],
+    *,
+    alias_to_module: dict[str, str],
+    key_to_module: dict[str, str],
+) -> str:
+    semantic = _normalized_case_semantic(case)
+    candidates = [dict(item) for item in (semantic.get("module_candidates") or []) if isinstance(item, dict)]
+    candidates.sort(
+        key=lambda item: (
+            0 if str(item.get("role") or "") == "primary" else 1,
+            -float(item.get("confidence") or 0.0),
+            str(item.get("module_key") or item.get("module_name") or ""),
+        )
+    )
+    for item in candidates:
+        resolved = key_to_module.get(_key(item.get("module_key"))) or alias_to_module.get(
+            _key(item.get("module_name"))
+        )
+        if resolved:
+            return resolved
+    return ""
 
 
 def enforce_functional_module_contract(
@@ -331,7 +312,7 @@ def enforce_functional_module_contract(
     project_profile: Any,
     inherit_execution_context: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """归一可证明的模块别名，并拒绝无法归属到一级模块目录的用例。"""
+    """仅按精确别名或结构化模块候选归一，不再从正文和前缀猜模块。"""
     catalog = _module_catalog(project_profile)
     if not catalog:
         return [dict(item) for item in cases if isinstance(item, dict)], {
@@ -340,83 +321,53 @@ def enforce_functional_module_contract(
             "normalized_count": 0,
             "rejected_count": 0,
             "rejected_modules": [],
+            "rejected_interaction_count": 0,
+            "rejected_interactions": [],
         }
-
-    alias_to_module: dict[str, str] = {}
-    aliases_by_module: dict[str, list[str]] = {}
-    allowed: list[str] = []
-    for item in catalog:
-        module_name = str(item.get("module_name") or "").strip()
-        allowed.append(module_name)
-        aliases = [module_name, *[str(value) for value in (item.get("aliases") or [])]]
-        alias_keys = [value for value in (_key(alias) for alias in aliases) if value]
-        aliases_by_module[module_name] = alias_keys
-        for alias_key in alias_keys:
-            alias_to_module.setdefault(alias_key, module_name)
-
-    resolved_rows: list[tuple[dict[str, Any], str, str]] = []
+    alias_to_module, key_to_module = _module_indexes(catalog)
+    allowed = [str(item.get("module_name") or "").strip() for item in catalog]
+    architecture = functional_architecture_generation_context(project_profile)
+    interactions_by_id = {
+        _key(item.get("interaction_id")): dict(item)
+        for item in (architecture.get("module_interactions") or [])
+        if isinstance(item, dict) and _key(item.get("interaction_id"))
+    }
+    accepted: list[dict[str, Any]] = []
     rejected_modules: list[str] = []
+    rejected_interactions: list[str] = []
     normalized_count = 0
+    semantic_resolution_count = 0
     for raw_case in cases:
         if not isinstance(raw_case, dict):
             continue
         case = dict(raw_case)
         raw_module = case_text_field(case, "test_module")
-        raw_key = _key(raw_module)
-        resolved = alias_to_module.get(raw_key, "")
-        if not resolved and raw_key:
-            prefix_hits = {
-                module_name
-                for module_name, alias_keys in aliases_by_module.items()
-                if any(len(alias_key) >= 2 and raw_key.startswith(alias_key) for alias_key in alias_keys)
-            }
-            if len(prefix_hits) == 1:
-                resolved = next(iter(prefix_hits))
-        if not resolved:
-            case_text = _key(
-                case_flat_text(
-                    case,
-                    fields=("description", "preconditions", "steps", "test_input", "expected_result"),
-                    separator=" ",
-                )
-            )
-            evidence_hits = {
-                module_name
-                for module_name, alias_keys in aliases_by_module.items()
-                if any(len(alias_key) >= 2 and alias_key in case_text for alias_key in alias_keys)
-            }
-            if len(evidence_hits) == 1:
-                resolved = next(iter(evidence_hits))
-        resolved_rows.append((case, raw_module, resolved))
-
-    if inherit_execution_context:
-        for index, (case, raw_module, resolved) in enumerate(resolved_rows):
-            if resolved:
-                continue
-            is_materialized = bool(
-                case.get("workflow_contract_materialized_case")
-                or case.get("generated_bridge_case")
-                or case.get("workflow_blueprint_bridge")
-            )
-            if not is_materialized:
-                continue
-            inherited = ""
-            for previous in range(index - 1, -1, -1):
-                if resolved_rows[previous][2]:
-                    inherited = resolved_rows[previous][2]
-                    break
-            if not inherited:
-                for following in range(index + 1, len(resolved_rows)):
-                    if resolved_rows[following][2]:
-                        inherited = resolved_rows[following][2]
-                        break
-            if inherited:
-                resolved_rows[index] = (case, raw_module, inherited)
-
-    accepted: list[dict[str, Any]] = []
-    for case, raw_module, resolved in resolved_rows:
+        raw_resolved = alias_to_module.get(_key(raw_module), "")
+        semantic_resolved = _semantic_primary_module(
+            case,
+            alias_to_module=alias_to_module,
+            key_to_module=key_to_module,
+        )
+        if raw_resolved and semantic_resolved and raw_resolved != semantic_resolved:
+            rejected_modules.append(raw_module or "(empty)")
+            continue
+        resolved = semantic_resolved or raw_resolved
+        if semantic_resolved:
+            semantic_resolution_count += 1
         if not resolved:
             rejected_modules.append(raw_module or "(empty)")
+            continue
+        semantic = _normalized_case_semantic(case)
+        declared_interaction_ids = [
+            str(item).strip()
+            for item in (semantic.get("interaction_ids") or [])
+            if str(item).strip()
+        ]
+        unknown_interaction_ids = [
+            item for item in declared_interaction_ids if _key(item) not in interactions_by_id
+        ]
+        if unknown_interaction_ids:
+            rejected_interactions.extend(unknown_interaction_ids)
             continue
         if raw_module != resolved:
             case["test_module"] = resolved
@@ -424,6 +375,26 @@ def enforce_functional_module_contract(
                 if alias in case:
                     case[alias] = resolved
             normalized_count += 1
+        for field in FUNCTIONAL_PHASE_FIELDS:
+            case.pop(field, None)
+        if declared_interaction_ids:
+            canonical_interaction_ids: list[str] = []
+            interaction_modules: list[str] = []
+            for interaction_id in declared_interaction_ids:
+                interaction = interactions_by_id.get(_key(interaction_id)) or {}
+                canonical_id = str(interaction.get("interaction_id") or "").strip()
+                if canonical_id and canonical_id not in canonical_interaction_ids:
+                    canonical_interaction_ids.append(canonical_id)
+                for module_field in ("source_module", "target_module"):
+                    module_name = str(interaction.get(module_field) or "").strip()
+                    if module_name and module_name not in interaction_modules:
+                        interaction_modules.append(module_name)
+            case["functional_phase"] = "cross_module"
+            case["functional_interaction_ids"] = canonical_interaction_ids
+            case["functional_interaction_modules"] = interaction_modules
+        else:
+            case["functional_phase"] = "module_internal"
+            case["functional_module_anchor"] = resolved
         accepted.append(case)
 
     phase_counts: dict[str, int] = {}
@@ -431,12 +402,16 @@ def enforce_functional_module_contract(
         phase_key = functional_phase_key(case)
         if phase_key:
             phase_counts[phase_key] = int(phase_counts.get(phase_key) or 0) + 1
-
     return accepted, {
         "applied": True,
         "allowed_modules": allowed,
-        "normalized_count": int(normalized_count),
-        "rejected_count": int(len(rejected_modules)),
+        "normalized_count": normalized_count,
+        "semantic_resolution_count": semantic_resolution_count,
+        "rejected_count": len(rejected_modules) + len(rejected_interactions),
         "rejected_modules": list(dict.fromkeys(rejected_modules))[:30],
+        "rejected_interaction_count": len(rejected_interactions),
+        "rejected_interactions": list(dict.fromkeys(rejected_interactions))[:30],
         "functional_phase_counts": phase_counts,
+        "execution_context_inheritance_applied": False,
+        "inherit_execution_context_requested": bool(inherit_execution_context),
     }

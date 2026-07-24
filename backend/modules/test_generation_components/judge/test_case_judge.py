@@ -123,36 +123,9 @@ def judge_case(
     )
 
     if signals.contains_pending_logic:
-        return JudgeResult(
-            case_id=case_id,
-            status=JudgeStatus.PENDING,
-            signals=signals,
-            pending_reason="contains_pending_logic",
-            suggested_actions=[
-                RepairAction(
-                    action_type=RepairActionType.ISOLATE_PENDING,
-                    reason="Case contains pending/unconfirmed statements.",
-                    target_case_id=case_id,
-                )
-            ],
-            before_case=before,
-        )
-
+        signals.notes = _dedupe_texts([*signals.notes, "pending_text_diagnostic"])
     if signals.violates_confirmed_fact:
-        return JudgeResult(
-            case_id=case_id,
-            status=JudgeStatus.REJECT,
-            signals=signals,
-            reject_reason="violates_confirmed_fact",
-            suggested_actions=[
-                RepairAction(
-                    action_type=RepairActionType.DROP_CASE,
-                    reason="Case violates confirmed facts or hard flow constraints.",
-                    target_case_id=case_id,
-                )
-            ],
-            before_case=before,
-        )
+        signals.notes = _dedupe_texts([*signals.notes, "fact_text_conflict_diagnostic"])
 
     return JudgeResult(
         case_id=case_id,
@@ -230,8 +203,8 @@ def judge_cases(
         if not isinstance(candidate_case, dict):
             continue
 
-        duplicate_match: tuple[int, JudgeResult, dict[str, Any], float] | None = None
-        for kept_index, kept_item, kept_case in kept_passes:
+        duplicate_match: tuple[JudgeResult, float] | None = None
+        for _kept_index, kept_item, kept_case in kept_passes:
             is_duplicate, similarity = _is_semantic_duplicate_case(
                 candidate_case,
                 kept_case,
@@ -240,56 +213,18 @@ def judge_cases(
             )
             if not is_duplicate:
                 continue
-            if duplicate_match is None or similarity > duplicate_match[3]:
-                duplicate_match = (kept_index, kept_item, kept_case, similarity)
+            if duplicate_match is None or similarity > duplicate_match[1]:
+                duplicate_match = (kept_item, similarity)
 
-        if duplicate_match is None:
-            kept_passes.append((index, item, candidate_case))
-            continue
-
-        kept_index, kept_item, kept_case, similarity = duplicate_match
-        candidate_quality = _case_quality_key(candidate_case, index)
-        kept_quality = _case_quality_key(kept_case, kept_index)
-
-        if candidate_quality > kept_quality:
-            kept_item.status = JudgeStatus.REJECT
-            kept_item.reject_reason = f"semantic_duplicate:{item.case_id}"
-            kept_item.signals.is_semantic_duplicate = True
-            kept_item.signals.duplicate_of_case_id = item.case_id
-            kept_item.signals.duplicate_similarity = round(float(similarity), 4)
-            kept_item.signals.notes = _dedupe_texts([*kept_item.signals.notes, "batch_semantic_duplicate"])
-            kept_item.suggested_actions = [
-                RepairAction(
-                    action_type=RepairActionType.DROP_CASE,
-                    reason="Case is semantically duplicated by a stronger candidate.",
-                    target_case_id=kept_item.case_id,
-                    payload={"duplicate_of_case_id": item.case_id, "similarity": round(float(similarity), 4)},
-                )
-            ]
-            kept_passes = [
-                (
-                    index if existing_index == kept_index else existing_index,
-                    item if existing_index == kept_index else existing_item,
-                    candidate_case if existing_index == kept_index else existing_case,
-                )
-                for existing_index, existing_item, existing_case in kept_passes
-            ]
-            continue
-
-        item.status = JudgeStatus.REJECT
-        item.reject_reason = f"semantic_duplicate:{kept_item.case_id}"
-        item.signals.is_semantic_duplicate = True
-        item.signals.duplicate_of_case_id = kept_item.case_id
-        item.signals.duplicate_similarity = round(float(similarity), 4)
-        item.signals.notes = _dedupe_texts([*item.signals.notes, "batch_semantic_duplicate"])
-        item.suggested_actions = [
-            RepairAction(
-                action_type=RepairActionType.DROP_CASE,
-                reason="Case is semantically duplicated by an already accepted candidate.",
-                target_case_id=item.case_id,
-                payload={"duplicate_of_case_id": kept_item.case_id, "similarity": round(float(similarity), 4)},
+        if duplicate_match is not None:
+            kept_item, similarity = duplicate_match
+            item.signals.is_semantic_duplicate = True
+            item.signals.duplicate_of_case_id = kept_item.case_id
+            item.signals.duplicate_similarity = round(float(similarity), 4)
+            item.signals.notes = _dedupe_texts(
+                [*item.signals.notes, "batch_semantic_overlap_diagnostic"]
             )
-        ]
+        kept_passes.append((index, item, candidate_case))
 
     pass_cases = [
         item.after_case if item.after_case else item.before_case

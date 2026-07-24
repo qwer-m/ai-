@@ -4,13 +4,16 @@ import json
 import re
 from typing import Any, Callable
 
-from .postprocess_priority_config import (
-    invalid_case_quality_markers,
-    quality_check_fields,
-    reasoning_leakage_signals,
+from .priority_anchor_rules import (
+    apply_priority_override,
+    has_explicit_blocking_or_critical,
 )
-from .priority_anchor_rules import apply_priority_override, p0_main_path_anchor
-from .case_access import case_flat_text, case_priority, case_text_field, case_text_parts
+from .case_access import (
+    case_id as case_access_id,
+    case_priority,
+    case_text_field,
+)
+from .case_contract import project_persistable_cases, summarize_persistable_case_contract
 from .result_postprocess_priority_semantics import (
     apply_priority_semantics_to_case,
     apply_priority_semantics_to_cases,
@@ -23,13 +26,16 @@ from .streaming_execution_plan_ordering import (
     assign_presentation_order,
 )
 
-_REASONING_LEAKAGE_SIGNALS = reasoning_leakage_signals()
-
-
-def _case_has_reasoning_leakage(case: dict[str, Any]) -> bool:
-    parts = case_text_parts(case, ("description", "preconditions", "steps", "test_input", "expected_result"))
-    text = "\n".join(parts).lower()
-    return any(str(signal).lower() in text for signal in _REASONING_LEAKAGE_SIGNALS)
+_PRESERVED_PRIORITY_DECISION_SOURCES = {
+    "entry_path_availability_p0",
+    "execution_plan_declared_critical_p0",
+    "execution_plan_final_priority",
+    "execution_plan_main_support_step_demoted",
+    "execution_plan_non_main_p0_demoted",
+    "model_p0_guard_downgrade",
+    "pure_ui_non_blocking_p2",
+    "review_model_p0_demotion_preserved",
+}
 
 
 def _public_priority_signature(case: dict[str, Any]) -> str:
@@ -43,19 +49,11 @@ def _public_priority_signature(case: dict[str, Any]) -> str:
     )
 
 
-def filter_invalid_final_cases(result: Any) -> Any:
-    """Remove invalid cases that must never enter final persistence."""
+def retain_structured_case_candidates(result: Any) -> Any:
+    """Review 前仅保留对象候选，不依据正文词表或模型自评字段删除。"""
     if not isinstance(result, list):
         return result
-    filtered: list[dict[str, Any]] = []
-    for item in result:
-        if not isinstance(item, dict):
-            continue
-        quality = str(item.get(quality_check_fields()[0]) or item.get(quality_check_fields()[1]) or "").strip().lower()
-        if quality in invalid_case_quality_markers() or _case_has_reasoning_leakage(item):
-            continue
-        filtered.append(item)
-    return filtered
+    return [item for item in result if isinstance(item, dict)]
 
 
 def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") -> Any:
@@ -65,32 +63,31 @@ def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") 
     cases = [dict(item) for item in result if isinstance(item, dict)]
     if not cases:
         return []
-    def _public_p0_main_path_anchor(case: dict[str, Any]) -> bool:
-        return p0_main_path_anchor(case)
 
-    forced_priority_by_signature: dict[str, str] = {}
+    forced_priority_by_signature: dict[str, tuple[str, str]] = {}
     for item in cases:
         source = str(item.get("priority_decision_source") or "").strip()
         final_priority = case_priority(item, prefer_final=True)
         is_execution_main_smoke = str(item.get("execution_group") or "").strip() == "main_smoke"
-        if is_execution_main_smoke and final_priority in {"P0", "P1", "P2"}:
-            signature = _public_priority_signature(item)
-            if signature:
-                forced_priority_by_signature[signature] = final_priority
-        elif source in {
-            "main_path_anchor_floor",
-            "main_path_anchor_demoted_non_blocking",
-            "model_p0_guard_downgrade",
-            "execution_plan_final_priority",
-            "execution_plan_main_support_step_demoted",
-        } and final_priority in {"P0", "P1", "P2"}:
-            signature = _public_priority_signature(item)
-            if signature:
-                forced_priority_by_signature[signature] = final_priority
-        elif final_priority == "P0" and _public_p0_main_path_anchor(item):
-            signature = _public_priority_signature(item)
-            if signature:
-                forced_priority_by_signature[signature] = "P0"
+        if final_priority not in {"P0", "P1", "P2"}:
+            continue
+        explicit_risk = has_explicit_blocking_or_critical(item)
+        preserve_source = ""
+        if final_priority == "P0" and explicit_risk:
+            preserve_source = source or "preserved_structured_critical_priority"
+        elif final_priority == "P0":
+            preserve_source = ""
+        elif is_execution_main_smoke:
+            preserve_source = source or "preserved_execution_plan_priority"
+        elif source in _PRESERVED_PRIORITY_DECISION_SOURCES:
+            preserve_source = source
+        elif explicit_risk:
+            preserve_source = source or "preserved_structured_critical_priority"
+        if not preserve_source:
+            continue
+        signature = _public_priority_signature(item)
+        if signature:
+            forced_priority_by_signature[signature] = (final_priority, preserve_source)
     from ..coverage.coverage_analyzer import analyze_coverage
 
     coverage_context = analyze_coverage(str(requirement_text or ""), cases)
@@ -107,15 +104,11 @@ def normalize_final_case_priorities(result: Any, *, requirement_text: str = "") 
         updated = dict(item)
         signature = _public_priority_signature(updated)
         forced_priority = forced_priority_by_signature.get(signature) if forced_priority_by_signature else None
-        if forced_priority in {"P0", "P1", "P2"}:
+        if forced_priority and forced_priority[0] in {"P0", "P1", "P2"}:
             apply_priority_override(
                 updated,
-                priority=forced_priority,
-                source=(
-                    "preserved_execution_plan_priority"
-                    if str(updated.get("execution_group") or "").strip() == "main_smoke"
-                    else "preserved_priority_override"
-                ),
+                priority=forced_priority[0],
+                source=forced_priority[1],
             )
         restored.append(updated)
     return restored
@@ -157,57 +150,72 @@ def strip_case_meta_fields(result: Any) -> Any:
     return cleaned
 
 
-def _semantic_merge_text(value: Any) -> str:
-    text = str(value or "").strip().lower()
-    if not text:
+_CASE_ID_PATTERN = re.compile(r"^TC-(\d+)$", re.IGNORECASE)
+
+
+def _append_case_id_number(case: dict[str, Any]) -> int:
+    match = _CASE_ID_PATTERN.fullmatch(case_access_id(case).strip())
+    return int(match.group(1)) if match else 0
+
+
+def _next_append_start_id(cases: list[dict[str, Any]], *, fallback_count: int = 0) -> int:
+    max_existing_number = max((_append_case_id_number(item) for item in cases), default=0)
+    return max(int(fallback_count or 0), max_existing_number) + 1
+
+
+def _append_public_case(case: dict[str, Any]) -> dict[str, Any]:
+    projected = project_persistable_cases([case])
+    return dict(projected[0]) if projected else {}
+
+
+def _append_exact_public_key(case: dict[str, Any]) -> str:
+    public_case = _append_public_case(case)
+    if not public_case:
         return ""
-    return re.sub(r"[^\w\u4e00-\u9fff]+", "", text)
+    public_case.pop("id", None)
+    return json.dumps(public_case, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _semantic_merge_tokens(case: dict[str, Any]) -> set[str]:
-    text = case_flat_text(
-        case,
-        fields=("test_module", "description", "test_input", "expected_result", "steps"),
-        separator=" ",
-    )
-    normalized = _semantic_merge_text(text)
-    tokens = set(re.findall(r"[a-z0-9_]{2,}", normalized))
-    chinese_text = "".join(re.findall(r"[\u4e00-\u9fff]+", normalized))
-    for size in (2, 3):
-        for index in range(0, max(0, len(chinese_text) - size + 1)):
-            tokens.add(chinese_text[index : index + size])
-    return tokens
-
-
-def _semantic_merge_similarity(left: dict[str, Any], right: dict[str, Any]) -> float:
-    left_tokens = _semantic_merge_tokens(left)
-    right_tokens = _semantic_merge_tokens(right)
-    if not left_tokens or not right_tokens:
-        return 0.0
-    return len(left_tokens & right_tokens) / max(1, len(left_tokens | right_tokens))
-
-
-def _is_append_semantic_duplicate(candidate: dict[str, Any], kept: dict[str, Any]) -> bool:
-    left_module = _semantic_merge_text(case_text_field(candidate, "test_module"))
-    right_module = _semantic_merge_text(case_text_field(kept, "test_module"))
-    if left_module and right_module and left_module != right_module:
-        return False
-    left_desc = _semantic_merge_text(case_text_field(candidate, "description"))
-    right_desc = _semantic_merge_text(case_text_field(kept, "description"))
-    if left_desc and right_desc and (left_desc == right_desc or left_desc in right_desc or right_desc in left_desc):
-        return True
-    return _semantic_merge_similarity(candidate, kept) >= 0.58
-
-
-def _semantic_merge_cases(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    kept: list[dict[str, Any]] = []
-    for item in cases:
+def _valid_new_append_cases(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    valid: list[dict[str, Any]] = []
+    for item in retain_structured_case_candidates(cases):
         if not isinstance(item, dict):
             continue
-        if any(_is_append_semantic_duplicate(item, existed) for existed in kept):
+        public_case = _append_public_case(item)
+        if not public_case:
             continue
-        kept.append(item)
-    return kept
+        if not summarize_persistable_case_contract([public_case]).get("passed"):
+            continue
+        valid.append(dict(item))
+    return valid
+
+
+def _assign_non_conflicting_append_ids(
+    cases: list[dict[str, Any]],
+    *,
+    existing_cases: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    used_ids = {
+        case_access_id(item).strip().casefold()
+        for item in existing_cases
+        if case_access_id(item).strip()
+    }
+    next_number = _next_append_start_id(existing_cases, fallback_count=len(existing_cases))
+    output: list[dict[str, Any]] = []
+    for item in cases:
+        updated = dict(item)
+        current_id = case_access_id(updated).strip()
+        if current_id and current_id.casefold() not in used_ids:
+            used_ids.add(current_id.casefold())
+            output.append(updated)
+            continue
+        while f"tc-{next_number:03d}" in used_ids:
+            next_number += 1
+        updated["id"] = f"TC-{next_number:03d}"
+        used_ids.add(updated["id"].casefold())
+        next_number += 1
+        output.append(updated)
+    return output
 
 
 def prepare_append_existing_cases(
@@ -228,13 +236,13 @@ def prepare_append_existing_cases(
     try:
         parsed = json.loads(existing_generated_result)
         if isinstance(parsed, list):
-            parsed = normalize_json_structure_fn(parsed)
-            if not isinstance(parsed, list):
-                parsed = []
-            parsed = deduplicate_test_cases_fn(parsed)
-            existing_cases = parsed
+            # 追加模式的历史用例是不可变基线：不在读取阶段去重、重排或重编号。
+            existing_cases = [dict(item) for item in parsed if isinstance(item, dict)]
             existing_unique_count = count_unique_test_cases_fn(existing_cases)
-            start_id = existing_unique_count + 1
+            start_id = _next_append_start_id(
+                existing_cases,
+                fallback_count=existing_unique_count,
+            )
     except Exception:
         pass
 
@@ -258,7 +266,7 @@ def finalize_generated_cases(
 
     if isinstance(result, list):
         result = normalize_json_structure_fn(result)
-        result = filter_invalid_final_cases(result)
+        result = retain_structured_case_candidates(result)
         result = deduplicate_test_cases_fn(result)
         result = reorder_cases_by_closed_loop_fn(
             result,
@@ -283,35 +291,40 @@ def merge_cases_for_append(
     new_cases: Any,
     *,
     deduplicate_test_cases_fn: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
-    reorder_cases_by_closed_loop_fn: Callable[..., list[dict[str, Any]]],
 ) -> Any:
-    """Merge append-mode historical cases with new cases before persistence."""
+    """保护历史基线，仅校验和精确去重新增用例后追加。"""
     if not isinstance(new_cases, list):
         return new_cases
 
-    merged_result: list[dict[str, Any]] = []
-    if isinstance(existing_cases, list):
-        merged_result.extend(existing_cases)
-    merged_result.extend(new_cases)
-    merged_result = filter_invalid_final_cases(merged_result)
-    merged_result = deduplicate_test_cases_fn(merged_result)
-    merged_result = _semantic_merge_cases(merged_result)
-    merged_result = reorder_cases_by_closed_loop_fn(
-        merged_result,
-        start_id=1,
-        renumber_ids=True,
+    baseline = [dict(item) for item in (existing_cases or []) if isinstance(item, dict)]
+    valid_new_cases = _valid_new_append_cases(
+        [dict(item) for item in new_cases if isinstance(item, dict)]
     )
-    merged_result = assign_presentation_order(
-        merged_result,
-        presentation_ordered_cases=merged_result,
+    exact_new_cases = [
+        dict(item)
+        for item in deduplicate_test_cases_fn(valid_new_cases)
+        if isinstance(item, dict)
+    ]
+
+    seen_public_keys = {
+        key
+        for key in (_append_exact_public_key(item) for item in baseline)
+        if key
+    }
+    unique_new_cases: list[dict[str, Any]] = []
+    for item in exact_new_cases:
+        key = _append_exact_public_key(item)
+        if not key or key in seen_public_keys:
+            continue
+        seen_public_keys.add(key)
+        unique_new_cases.append(item)
+
+    unique_new_cases = _assign_non_conflicting_append_ids(
+        unique_new_cases,
+        existing_cases=baseline,
     )
-    merged_result = apply_existing_execution_group_ordering(
-        merged_result,
-        start_id=1,
-        renumber_ids=True,
-    )
-    merged_result = strip_case_meta_fields(merged_result)
-    return merged_result
+    # 公开用例顺序不承载执行含义；主链与依赖由 execution suite 单独表达。
+    return [*baseline, *unique_new_cases]
 
 from .result_postprocess_streaming import stream_postprocess_cases
 

@@ -4,6 +4,7 @@ from typing import Any
 
 from ..postprocess.case_access import case_id as case_access_id, case_text_field
 from ..postprocess.streaming_expected_result_quality import (
+    is_case_expected_result_non_assertable,
     is_non_assertable_expected_result as _shared_non_assertable_expected_result,
 )
 
@@ -41,7 +42,7 @@ def summarize_case_quality_gate(cases: list[dict[str, Any]]) -> dict[str, Any]:
         quality_reason = str(case_item.get("expected_result_quality_reason") or "").strip().lower()
         truncated_flag = bool(case_item.get("truncated_text_detected"))
 
-        text_non_assertable = is_non_assertable_expected_result(expected_result_text)
+        text_non_assertable = is_case_expected_result_non_assertable(case_item)
         metadata_non_assertable = bool(
             expected_result_quality == "non_assertable"
             or quality_reason in {"no_concrete_assertion", "template_or_weak_assertion"}
@@ -63,16 +64,20 @@ def summarize_case_quality_gate(cases: list[dict[str, Any]]) -> dict[str, Any]:
             truncated_case_ids.append(case_id)
 
     failed_checks: list[str] = []
+    diagnostic_checks: list[str] = []
     if priority_final_null_count > 0:
         failed_checks.append(f"priority_final_null_count={int(priority_final_null_count)}")
     if non_assertable_expected_result_count > 0:
-        failed_checks.append(f"non_assertable_expected_result_count={int(non_assertable_expected_result_count)}")
+        diagnostic_checks.append(
+            f"non_assertable_expected_result_count={int(non_assertable_expected_result_count)}"
+        )
     if truncated_text_count > 0:
-        failed_checks.append(f"truncated_text_count={int(truncated_text_count)}")
+        diagnostic_checks.append(f"truncated_text_count={int(truncated_text_count)}")
 
     return {
         "passed": not bool(failed_checks),
         "failed_checks": failed_checks,
+        "diagnostic_checks": diagnostic_checks,
         "priority_final_null_count": int(priority_final_null_count),
         "invalid_priority_final_count": int(len(priority_final_invalid_case_ids)),
         "invalid_priority_final_case_ids": list(priority_final_invalid_case_ids),

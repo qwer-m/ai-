@@ -6,91 +6,17 @@ from ..postprocess.case_access import (
     case_priority,
     case_step_lines,
     case_text_field,
+    case_text_list_field,
 )
 from .prompt_orchestration_split_helpers import (
     build_closed_loop_base_prompt,
 )
-
-def _build_closed_loop_snapshot(
-    cases: list[dict[str, Any]],
-    requirement: str,
-    infer_case_kind_fn: Callable[[dict[str, Any]], str],
-) -> tuple[str, list[str], str, str]:
-    module_stats: dict[str, dict[str, int]] = {}
-    module_order: list[str] = []
-    requirement_lower = str(requirement or "").lower()
-    risk_keywords = [
-        "permission",
-        "security",
-        "auth",
-        "performance",
-        "perf",
-        "权限",
-        "安全",
-        "鉴权",
-        "性能",
-    ]
-    risk_required_globally = any(k in requirement_lower for k in risk_keywords)
-
-    for case in cases:
-        if not isinstance(case, dict):
-            continue
-        module = case_text_field(case, "test_module") or "General"
-        if module not in module_stats:
-            module_order.append(module)
-            module_stats[module] = {
-                "total": 0,
-                "happy": 0,
-                "validation": 0,
-                "exception": 0,
-                "risk": 0,
-                "integration": 0,
-            }
-        module_stats[module]["total"] += 1
-        kind = infer_case_kind_fn(case)
-        if kind in ("happy_path", "workflow_entry"):
-            module_stats[module]["happy"] += 1
-        elif kind == "validation_boundary":
-            module_stats[module]["validation"] += 1
-        elif kind == "exception_error":
-            module_stats[module]["exception"] += 1
-        elif kind in ("permission_security", "performance_stability_compat"):
-            module_stats[module]["risk"] += 1
-        elif kind == "integration_cross_module":
-            module_stats[module]["integration"] += 1
-
-    unfinished_modules: list[str] = []
-    unfinished_details: list[str] = []
-    for module in module_order:
-        stat = module_stats[module]
-        missing_parts: list[str] = []
-        if stat["happy"] <= 0:
-            missing_parts.append("Happy Path")
-        if stat["validation"] <= 0:
-            missing_parts.append("Validation/Boundary")
-        if stat["exception"] <= 0:
-            missing_parts.append("Exception/Error")
-        if risk_required_globally and stat["risk"] <= 0:
-            missing_parts.append("Key Risk(Security/Permission/Performance)")
-        if missing_parts:
-            unfinished_modules.append(module)
-            unfinished_details.append(f"   - {module}: missing -> {', '.join(missing_parts)}")
-
-    stats_str = "\n".join(
-        [
-            f"   - {m}: total={v['total']}, happy={v['happy']}, validation={v['validation']}, exception={v['exception']}, risk={v['risk']}, integration={v['integration']}"
-            for m, v in module_stats.items()
-        ]
-    )
-    unfinished_list = ", ".join(unfinished_modules) if unfinished_modules else "None"
-    unfinished_detail_str = (
-        "\n".join(unfinished_details)
-        if unfinished_details
-        else "   - All started modules already satisfy minimum closed-loop."
-    )
-    current_target_module = unfinished_modules[0] if unfinished_modules else "None"
-    return stats_str, unfinished_modules, unfinished_detail_str, current_target_module
-
+from ..postprocess.streaming_review_semantics import (
+    compact_review_contract_context,
+    compact_structured_case_risk,
+    compact_verified_case_semantics,
+)
+from .case_semantic_schema import render_case_semantic_output_contract
 
 def build_append_closed_loop_coverage_instruction(
     *,
@@ -99,33 +25,16 @@ def build_append_closed_loop_coverage_instruction(
     expected_count: int,
     infer_case_kind_fn: Callable[[dict[str, Any]], str],
 ) -> str:
-    """Append-mode coverage instruction that prioritizes unfinished module closure."""
-    stats_str, unfinished_modules, unfinished_detail_str, current_target_module = _build_closed_loop_snapshot(
-        existing_cases,
-        requirement,
-        infer_case_kind_fn,
-    )
-    unfinished_list = ", ".join(unfinished_modules) if unfinished_modules else "None"
+    """追加生成只声明全局增量原则，不从历史分布制造模块配额。"""
+    _ = requirement, infer_case_kind_fn
     return f"""
-# --- APPEND / GAP MODE: 未闭环模块优先补齐 ---
+# --- APPEND MODE: GLOBAL INCREMENT ---
 Current Case Count: {len(existing_cases)}
 Suggested Total (reference only): {expected_count}
-
-MODULE SNAPSHOT:
-{stats_str}
-
-UNFINISHED MODULES (journey order, prioritize filling first):
-{unfinished_list}
-{unfinished_detail_str}
-
-EXECUTION RULES (priority order):
-1. If any unfinished module exists, generate cases ONLY for the earliest unfinished module: {current_target_module}.
-2. In that module, fill order: Happy -> Validation/Boundary -> Exception/Error -> Key Risk.
-3. 未闭环模块优先补齐；先模块内闭环，再全局 non-functional / integration，不要为了 global ratio、matrix gap、batch count 或 exact count 跨模块跳转。
-4. Only after all started modules are closed-loop complete, open the next module in journey order.
-5. Only after main journey modules are closed-loop complete, add global non-functional or cross-module integration.
-6. Same module but different verification aspects are valid and should NOT be treated as duplicate/coupling.
-7. If count pressure conflicts with closure continuity, treat count as a secondary constraint and keep the current module closed-loop first.
+1. Use the complete verified workflow/module/interaction contract from the main prompt.
+2. Generate only evidence-backed behavior not already covered by the historical baseline.
+3. Optimize the whole suite; do not lock generation to one module or force equal module counts.
+4. Keep the reference count soft. Return [] when no meaningful global increment remains.
 """
 
 
@@ -135,31 +44,20 @@ def build_supplement_closed_loop_instruction(
     requirement: str,
     infer_case_kind_fn: Callable[[dict[str, Any]], str],
 ) -> str:
-    """Supplement-mode closed-loop guidance for append-only 补齐."""
-    _, unfinished_modules, unfinished_detail_str, current_target_module = _build_closed_loop_snapshot(
-        all_cases,
-        requirement,
-        infer_case_kind_fn,
-    )
-    unfinished_list = ", ".join(unfinished_modules) if unfinished_modules else "None"
+    """Gap 阶段只声明全局增量原则，不从局部分布推导补齐顺序。"""
+    _ = requirement, infer_case_kind_fn
     return f"""
-未闭环模块（按旅程顺序，优先补齐）: {unfinished_list}
-{unfinished_detail_str}
-当前目标模块: {current_target_module}
-Rules:
-1. If unfinished modules exist, generate cases ONLY for current target module until closed-loop complete.
-2. Current module must be closed-loop before moving to the next module.
-3. In-module order: Happy -> Validation/Boundary -> Exception/Error -> Key Risk.
-4. 未闭环模块优先补齐；先模块内闭环，再全局 non-functional / integration，不要因为 global matrix gap、ratio balancing 或 exact count 而跨模块补齐。
-5. Only after all main modules are closed-loop complete, generate global non-functional/integration supplements.
-6. Keep de-dup strict, but do not treat different aspects in the same module as duplicates.
-7. 数量缺口只作为次级约束，优先保证当前模块闭环连续性。
+Existing candidate count: {len(all_cases)}
+1. Evaluate all verified modules, interactions, workflow stages, states, and explicit risks together.
+2. Generate evidence-backed candidates for unresolved structured gaps only.
+3. Do not prioritize a module merely because it appears first or currently has fewer cases.
+4. Do not force equal module counts; Review will choose the globally best suite.
 """
 
 
-def _dump_cases_for_prompt(cases: list[dict[str, Any]], max_items: int = 60) -> str:
-    """中文注释：把已有用例压缩为 JSON 文本，控制提示词体积。"""
-    payload = [item for item in cases if isinstance(item, dict)][:max(1, int(max_items))]
+def _dump_cases_for_prompt(cases: list[dict[str, Any]]) -> str:
+    """中文注释：完整交付已有用例，避免尾部模块和交互在 Gap 阶段失去去重依据。"""
+    payload = [item for item in cases if isinstance(item, dict)]
     if not payload:
         return "[]"
     import json
@@ -167,34 +65,34 @@ def _dump_cases_for_prompt(cases: list[dict[str, Any]], max_items: int = 60) -> 
     return json.dumps(payload, ensure_ascii=False)
 
 
-def _compact_case_for_review_prompt(case: dict[str, Any]) -> dict[str, Any]:
-    """Keep review prompts stable by excluding postprocess/debug metadata."""
+def _case_for_review_prompt(case: dict[str, Any]) -> dict[str, Any]:
+    """向全局 Review 交付完整公开行为字段和已核验结构化语义。"""
 
-    def _clip(value: Any, limit: int) -> str:
-        text = str(value or "").strip()
-        if len(text) <= limit:
-            return text
-        return text[:limit].rstrip() + "..."
-
-    steps = [_clip(item, 120) for item in case_step_lines(case)[:5]]
-
-    return {
+    semantic_summary = compact_verified_case_semantics(case)
+    review_case = {
         "id": case_access_id(case),
-        "description": _clip(case_text_field(case, "description"), 180),
-        "test_module": _clip(case_text_field(case, "test_module"), 80),
+        "description": case_text_field(case, "description"),
+        "test_module": case_text_field(case, "test_module"),
         "priority": case_priority(case, prefer_final=True),
-        "steps": steps,
-        "test_input": _clip(case_text_field(case, "test_input"), 120),
-        "expected_result": _clip(case_text_field(case, "expected_result"), 220),
+        "preconditions": case_text_list_field(case, "preconditions", split_lines=True),
+        "steps": case_step_lines(case),
+        "test_input": case_text_field(case, "test_input"),
+        "expected_result": case_text_field(case, "expected_result"),
     }
+    if any(semantic_summary.values()):
+        review_case["_semantic"] = semantic_summary
+    structured_risk = compact_structured_case_risk(case)
+    if structured_risk:
+        review_case["structured_risk"] = structured_risk
+    return review_case
 
 
-def _dump_review_cases_for_prompt(cases: list[dict[str, Any]], max_items: int = 120) -> str:
+def _dump_review_cases_for_prompt(cases: list[dict[str, Any]]) -> str:
     payload = [
-        _compact_case_for_review_prompt(item)
+        _case_for_review_prompt(item)
         for item in cases
         if isinstance(item, dict)
-    ][:max(1, int(max_items))]
+    ]
     if not payload:
         return "[]"
     import json
@@ -223,12 +121,10 @@ def _build_coverage_gap_text(
         rule_text = str(item.get("rule_text") or "").strip()
         type_text = ",".join(missing_types) if missing_types else "happy,boundary,exception,risk"
         lines.append(f"- {rule_id} | biz_key={biz_key} | missing_types={type_text} | rule={rule_text}")
-        if len(lines) >= 40:
-            break
 
     if not lines:
         fallback = [str(item).strip() for item in (missing_rules or []) if str(item).strip()]
-        lines = [f"- {rule}" for rule in fallback[:40]]
+        lines = [f"- {rule}" for rule in fallback]
 
     if not lines:
         return "- （未识别到明确缺口，请优先补边界/异常/风险用例）"
@@ -241,6 +137,8 @@ def build_gap_fill_prompt(
     existing_cases: list[dict[str, Any]],
     coverage_result: dict[str, Any] | None = None,
     missing_rules: list[str] | None = None,
+    missing_workflow_stages: list[dict[str, Any]] | None = None,
+    review_contract_context: dict[str, Any] | None = None,
     current_biz_key: str = "",
     pretty_json: bool = False,
 ) -> str:
@@ -248,14 +146,57 @@ def build_gap_fill_prompt(
     requirement_context = str(requirement_context or "").strip() or "(empty)"
     current_biz_key = str(current_biz_key or "").strip() or "unknown"
     missing_rules = [str(item).strip() for item in (missing_rules or []) if str(item).strip()]
-    missing_text = _build_coverage_gap_text(coverage_result=coverage_result, missing_rules=missing_rules)
-    existing_cases_text = _dump_cases_for_prompt(existing_cases, max_items=40)
+    missing_workflow_stages = [
+        {
+            "workflow_id": str(item.get("workflow_id") or "").strip(),
+            "stage_id": str(item.get("stage_id") or "").strip(),
+            "stage_kind": str(item.get("stage_kind") or "").strip(),
+            "stage_order": int(item.get("stage_order") or 0),
+        }
+        for item in (missing_workflow_stages or [])
+        if isinstance(item, dict)
+        and str(item.get("workflow_id") or "").strip()
+        and str(item.get("stage_id") or "").strip()
+    ]
+    coverage_payload = dict(coverage_result or {})
+    generic_gap_present = bool(missing_rules) or any(
+        isinstance(item, dict)
+        and (
+            bool(item.get("missing_types"))
+            or item.get("covered") is False
+        )
+        for item in (coverage_payload.get("rule_diagnostics") or [])
+    )
+    missing_text = _build_coverage_gap_text(
+        coverage_result=coverage_payload,
+        missing_rules=missing_rules,
+    )
+    if missing_workflow_stages and not generic_gap_present:
+        missing_text = (
+            "- Generic rule/type gaps: none. Generate only the exact required "
+            "workflow-stage candidates listed below; do not add generic boundary, "
+            "exception, or risk cases in this attempt."
+        )
+    missing_workflow_stage_text = json.dumps(
+        missing_workflow_stages,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    existing_cases_text = _dump_cases_for_prompt(existing_cases)
+    verified_contract_text = json.dumps(
+        compact_review_contract_context(review_contract_context),
+        ensure_ascii=False,
+    )
+    case_semantic_contract = render_case_semantic_output_contract()
 
     prompt = f"""
 You are the QA Architect Agent.
 你现在处于 GAP FILL 阶段：只补缺失，不允许重写历史用例。
 
 当前 biz_key: {current_biz_key}
+
+【已核验全局契约（唯一允许引用的模块、交互、工作流、阶段和状态 ID）】
+{verified_contract_text}
 
 【Requirement（唯一真源）】
 {requirement_context}
@@ -266,22 +207,29 @@ You are the QA Architect Agent.
 【待补缺口】
 {missing_text}
 
+[EXACT REQUIRED WORKFLOW STAGE GAPS]
+{missing_workflow_stage_text}
+
+When this array is non-empty, generate at least one separate executable candidate for each listed stage in stage_order. Copy the exact workflow_id, stage_id, stage_kind and the matching module/interaction/state declarations from the verified contract. Do not infer stage IDs from prose and do not bypass a matching stage with an empty workflow_stage_candidates array.
+
+These are structured coverage gaps, not per-module quotas.
+
 强约束（必须遵守）：
-1. 对【待补缺口】中每一条 rule_id/missing_types，至少生成 1 条能直接命中 rule 文本的新增用例。
-2. 新用例的 description、steps、expected_result 必须包含该缺口的关键业务对象、动作和可断言结果，不能只写泛化描述。
-3. 只允许生成“新增补齐用例”，不能重写已有用例。
-4. 只补上述 coverage 缺口，不要新增无关规则。
-5. 不允许生成与已有用例验证目标相同的重复项。
-6. 不允许跨 biz_key 引入其他业务逻辑。
-7. 若信息不足，使用“待确认”，不要自行杜撰。
-8. 缺口优先级：exception/risk > boundary > happy。
-9. 若继续生成无法带来新的覆盖增益（规则/类型/风险），直接返回空数组。
+1. 从全局角度同时评估全部待补缺口；输出所有有需求证据、能增加规则/类型/状态/风险覆盖的候选，交由后续统一 Review 选择。
+2. 不要求一条缺口固定对应一条用例，也不按模块或 biz_key 等额分配；允许一条用例覆盖多个相关缺口，也允许一个复杂缺口由多条用例覆盖。
+3. 新用例的 description、steps、expected_result 必须包含对应缺口的业务对象、动作和可断言结果，不能只写泛化描述。
+4. 只允许生成新增候选，不能重写已有用例；不得生成与已有用例验证目标完全相同的重复项。
+5. `_semantic` 只能引用【已核验全局契约】中的精确 ID。无法由契约和 Requirement 共同支持时，不得猜测模块、交互或阶段。
+6. 当前 biz_key 仅是诊断标签，不得用它锁定模块顺序或隐藏其他已核验的全局交互。
+7. 不得因为单条候选不能立即清空聚合缺口就放弃它；只要它能增加一个可核验的覆盖维度，就应进入候选集。
+8. 若不存在任何有证据的新覆盖候选，直接返回空数组。
 
 输出要求：
 - 只返回 JSON 数组，不要输出任何解释。
-- 字段必须是：id, description, test_module, preconditions, steps, test_input, expected_result, priority
 - priority 仅允许 P0/P1/P2
 - 数量为参考结果，不得为了凑数输出低价值或重复用例
+
+{case_semantic_contract}
 """
     if pretty_json:
         prompt += "\n- JSON 请使用 2 空格缩进。\n"
@@ -296,6 +244,7 @@ def build_review_select_prompt(
     target_min_count: int | None = None,
     target_max_count: int | None = None,
     coverage_constraints: dict[str, Any] | None = None,
+    review_contract_context: dict[str, Any] | None = None,
     current_biz_key: str = "",
     pretty_json: bool = False,
 ) -> str:
@@ -306,7 +255,7 @@ def build_review_select_prompt(
     target_count = max(1, int(target_count or 1))
     target_min_count = max(1, int(target_min_count or target_count))
     target_max_count = max(target_min_count, int(target_max_count or target_count))
-    candidate_text = _dump_review_cases_for_prompt(candidate_cases, max_items=120)
+    candidate_text = _dump_review_cases_for_prompt(candidate_cases)
     candidate_ids: list[str] = []
     for item in candidate_cases:
         if not isinstance(item, dict):
@@ -314,8 +263,11 @@ def build_review_select_prompt(
         candidate_id = case_access_id(item)
         if candidate_id:
             candidate_ids.append(candidate_id)
-    candidate_ids = candidate_ids[:200]
     candidate_ids_text = json.dumps(candidate_ids, ensure_ascii=False)
+    review_contract_text = json.dumps(
+        compact_review_contract_context(review_contract_context),
+        ensure_ascii=False,
+    )
     constraints = dict(coverage_constraints or {})
     priority_min = {
         str(key).strip().upper(): int(value)
@@ -358,6 +310,9 @@ Current biz_key: {current_biz_key}
 Requirement (single source of truth):
 {requirement_context}
 
+Verified requirement contract (global workflow/module/interaction/state objective):
+{review_contract_text}
+
 Candidate cases (primary + gap):
 {candidate_text}
 
@@ -367,12 +322,12 @@ Primary objective:
 - Before any compression, satisfy coverage/bucket minima. Do NOT trade coverage for brevity.
 
 Selection priorities (in order):
-1. Preserve cases that help close missing-rule gaps or unresolved coverage types/buckets.
-2. Preserve cases that hit core rules or high-risk paths (boundary, exception, state transition, key workflow, failure path).
-3. Deduplicate only when two cases contribute essentially the same coverage value.
-4. Do NOT remove a case only because wording is similar if it contributes different rule/type coverage.
-5. Soft output window: keep between {target_min_count} and {target_max_count} cases whenever possible.
-6. Target count reference is {target_count}, but it is NOT a hard upper bound. If coverage is still unresolved, keep more.
+1. Preserve all required workflow stages, critical entry points, and declared cross-module interaction closures.
+2. Preserve structured high-risk cases and broad functional/rule coverage.
+3. Deduplicate only when two cases contribute exactly the same validation and structured coverage value.
+4. Treat the output window and target count as soft references after the whole-suite objectives above are satisfied.
+5. Do NOT remove a case only because wording is similar if its module, interaction, workflow stage, state, risk, or rule coverage differs.
+6. Soft output window: keep between {target_min_count} and {target_max_count} cases whenever possible; {target_count} is not a hard upper bound.
 
 Hard coverage constraints (must satisfy before dedup/compression):
 {constraints_text}

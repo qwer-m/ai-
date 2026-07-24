@@ -85,20 +85,33 @@ def normalize_review_llm_reason(reason_text: str) -> str:
 
 
 def map_review_to_candidates(candidates: list[dict[str, Any]], reviewed: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    candidate_map = {case_signature(item): item for item in candidates if isinstance(item, dict)}
+    candidate_map: dict[str, dict[str, Any]] = {}
+    ambiguous_ids: set[str] = set()
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        case_id = review_case_id(item)
+        if not case_id:
+            continue
+        if case_id in candidate_map:
+            ambiguous_ids.add(case_id)
+        else:
+            candidate_map[case_id] = item
+    for case_id in ambiguous_ids:
+        candidate_map.pop(case_id, None)
     mapped: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    seen_ids: set[str] = set()
     for item in reviewed:
         if not isinstance(item, dict):
             continue
-        key = case_signature(item)
-        if key in seen:
+        case_id = review_case_id(item)
+        if not case_id or case_id in seen_ids:
             continue
-        original = candidate_map.get(key)
+        original = candidate_map.get(case_id)
         if original is None:
             continue
         mapped.append(original)
-        seen.add(key)
+        seen_ids.add(case_id)
     return mapped
 
 
@@ -109,12 +122,16 @@ def map_review_selection_with_reasons(
 ) -> tuple[list[dict[str, Any]], set[str], dict[str, str], dict[str, str]]:
     candidate_items = [item for item in candidates if isinstance(item, dict)]
     candidate_by_id: dict[str, dict[str, Any]] = {}
-    candidate_by_signature: dict[str, dict[str, Any]] = {}
+    ambiguous_candidate_ids: set[str] = set()
     for item in candidate_items:
-        candidate_by_signature[case_signature(item)] = item
         case_id = review_case_id(item)
         if case_id:
-            candidate_by_id[case_id] = item
+            if case_id in candidate_by_id:
+                ambiguous_candidate_ids.add(case_id)
+            else:
+                candidate_by_id[case_id] = item
+    for case_id in ambiguous_candidate_ids:
+        candidate_by_id.pop(case_id, None)
 
     selected_cases: list[dict[str, Any]] = []
     selected_signatures: set[str] = set()
