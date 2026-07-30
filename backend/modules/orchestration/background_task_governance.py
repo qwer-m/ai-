@@ -103,6 +103,14 @@ class ThreadPoolItemResult:
     exception: Exception | None = None
 
 
+@dataclass(frozen=True)
+class ThreadPoolMapUpdate:
+    kind: str
+    completed_count: int
+    total_count: int
+    item_result: ThreadPoolItemResult | None = None
+
+
 def _profile(
     *,
     key: str,
@@ -313,6 +321,45 @@ BACKGROUND_TASK_PROFILES: dict[str, BackgroundTaskProfile] = _profiles_by_key(
             status_source="request",
             recommended_runtime="threadpool",
             notes="Bounded coverage-shard model calls inside a streaming generation request.",
+        ),
+        _profile(
+            key="test_generation_semantic_compile_threadpool",
+            category=BackgroundTaskCategory.IN_REQUEST_PARALLEL,
+            owner="test_generation",
+            user_visible=True,
+            durable=False,
+            status_source="request_stream",
+            recommended_runtime="threadpool",
+            notes=(
+                "Single worker used only to keep semantic compilation streams responsive; "
+                "it does not parallelize graph shards."
+            ),
+        ),
+        _profile(
+            key="test_generation_graph_fact_shard_threadpool",
+            category=BackgroundTaskCategory.IN_REQUEST_PARALLEL,
+            owner="test_generation",
+            user_visible=True,
+            durable=False,
+            status_source="request_stream",
+            recommended_runtime="threadpool",
+            notes=(
+                "Bounded two-worker compilation for independent Graph fact shards; "
+                "each worker owns its DB session and AI client."
+            ),
+        ),
+        _profile(
+            key="test_generation_fact_ledger_shard_threadpool",
+            category=BackgroundTaskCategory.IN_REQUEST_PARALLEL,
+            owner="test_generation",
+            user_visible=True,
+            durable=False,
+            status_source="request_stream",
+            recommended_runtime="threadpool",
+            notes=(
+                "Bounded two-worker compilation for independent A1 fact ledger shards; "
+                "each worker owns its DB session and AI client."
+            ),
         ),
         _profile(
             key="pipeline_agent_executor_threadpool",
@@ -654,7 +701,38 @@ def run_governed_threadpool_map(
     business_id: Any | None = None,
     task_logger: logging.Logger | None = None,
 ) -> list[ThreadPoolItemResult]:
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    results = [
+        update.item_result
+        for update in iter_governed_threadpool_map(
+            profile_key=profile_key,
+            items=items,
+            worker=worker,
+            max_workers=max_workers,
+            thread_name_prefix=thread_name_prefix,
+            business_id=business_id,
+            task_logger=task_logger,
+            heartbeat_interval_seconds=0,
+        )
+        if update.kind == "item" and update.item_result is not None
+    ]
+    results.sort(key=lambda item: item.index)
+    return results
+
+
+def iter_governed_threadpool_map(
+    *,
+    profile_key: str,
+    items: Iterable[Any],
+    worker: Callable[[Any], Any],
+    max_workers: int,
+    thread_name_prefix: str | None = None,
+    business_id: Any | None = None,
+    task_logger: logging.Logger | None = None,
+    heartbeat_interval_seconds: float = 10.0,
+) -> Iterable[ThreadPoolMapUpdate]:
+    """逐项交付线程池结果，并在无任务完成时产生可向外转发的心跳。"""
+
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
     profile = _resolve_profile(
         profile_key=profile_key,
@@ -671,50 +749,70 @@ def run_governed_threadpool_map(
         worker_count,
         len(item_list),
     )
-    results: list[ThreadPoolItemResult] = []
-    with ThreadPoolExecutor(
+    executor = ThreadPoolExecutor(
         max_workers=worker_count,
         thread_name_prefix=thread_name_prefix or profile.key,
-    ) as pool:
-        future_to_item = {
-            pool.submit(worker, item): (index, item)
+    )
+    future_to_item = {
+            executor.submit(worker, item): (index, item)
             for index, item in enumerate(item_list)
         }
-        for future in as_completed(future_to_item):
-            index, item = future_to_item[future]
-            try:
-                results.append(
-                    ThreadPoolItemResult(
+    pending = set(future_to_item)
+    completed_count = 0
+    heartbeat_interval = max(0.0, float(heartbeat_interval_seconds or 0.0))
+    try:
+        while pending:
+            done, pending = wait(
+                pending,
+                timeout=heartbeat_interval if heartbeat_interval > 0 else None,
+                return_when=FIRST_COMPLETED,
+            )
+            if not done:
+                yield ThreadPoolMapUpdate(
+                    kind="heartbeat",
+                    completed_count=int(completed_count),
+                    total_count=int(len(item_list)),
+                )
+                continue
+            for future in done:
+                index, item = future_to_item[future]
+                try:
+                    item_result = ThreadPoolItemResult(
                         index=index,
                         item=item,
                         result=future.result(),
                     )
-                )
-            except Exception as exc:
-                logger.exception(
-                    "threadpool_map_item_failed key=%s category=%s business_id=%s index=%s",
-                    profile.key,
-                    profile.category.value,
-                    business_id,
-                    index,
-                )
-                results.append(
-                    ThreadPoolItemResult(
+                except Exception as exc:
+                    logger.exception(
+                        "threadpool_map_item_failed key=%s category=%s business_id=%s index=%s",
+                        profile.key,
+                        profile.category.value,
+                        business_id,
+                        index,
+                    )
+                    item_result = ThreadPoolItemResult(
                         index=index,
                         item=item,
                         exception=exc,
                     )
+                completed_count += 1
+                yield ThreadPoolMapUpdate(
+                    kind="item",
+                    completed_count=int(completed_count),
+                    total_count=int(len(item_list)),
+                    item_result=item_result,
                 )
-    results.sort(key=lambda item: item.index)
-    logger.info(
-        "threadpool_map_finished key=%s category=%s business_id=%s workers=%s items=%s",
-        profile.key,
-        profile.category.value,
-        business_id,
-        worker_count,
-        len(item_list),
-    )
-    return results
+    finally:
+        executor.shutdown(wait=not pending, cancel_futures=bool(pending))
+        logger.info(
+            "threadpool_map_finished key=%s category=%s business_id=%s workers=%s items=%s completed=%s",
+            profile.key,
+            profile.category.value,
+            business_id,
+            worker_count,
+            len(item_list),
+            completed_count,
+        )
 
 
 def create_process_local_worker_thread(

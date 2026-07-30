@@ -87,6 +87,14 @@ class Config:
     VL_MODEL_NAME = os.getenv("VL_MODEL_NAME", "").strip()
     TURBO_MODEL_NAME = os.getenv("TURBO_MODEL_NAME", "").strip()
     MAX_TOKENS = _env_int("MAX_TOKENS", 10000, minimum=1)  # 最大输出token数
+
+    # 测试用例生成的逻辑批次大小，JSON 与 Stream 入口共用同一默认值。
+    TEST_GENERATION_BATCH_SIZE = _env_int(
+        "TEST_GENERATION_BATCH_SIZE",
+        25,
+        minimum=1,
+        maximum=200,
+    )
     
     # ===========================
     # 数据库配置
@@ -139,7 +147,11 @@ class Config:
     # ===========================
     # Stream generation coverage shard flags
     # ===========================
-    GENERATION_STREAM_COVERAGE_SHARDS_ENABLED = _env_flag("GENERATION_STREAM_COVERAGE_SHARDS_ENABLED", False)
+    # 单批达到公共批大小时默认启用内部覆盖分片，避免把 25 条用例压成一次长响应。
+    GENERATION_STREAM_COVERAGE_SHARDS_ENABLED = _env_flag(
+        "GENERATION_STREAM_COVERAGE_SHARDS_ENABLED",
+        True,
+    )
     GENERATION_STREAM_COVERAGE_SHARD_MAX_WORKERS = _env_int(
         "GENERATION_STREAM_COVERAGE_SHARD_MAX_WORKERS",
         2,
@@ -148,7 +160,7 @@ class Config:
     )
     GENERATION_STREAM_COVERAGE_SHARD_MIN_EXPECTED_COUNT = _env_int(
         "GENERATION_STREAM_COVERAGE_SHARD_MIN_EXPECTED_COUNT",
-        60,
+        TEST_GENERATION_BATCH_SIZE,
         minimum=1,
         maximum=500,
     )

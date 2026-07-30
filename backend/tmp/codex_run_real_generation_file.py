@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
 from core.ai.ai_client_impl import get_client_for_user
 from core.db.database import SessionLocal
 from core.db.models import SystemConfig, TestGeneration
+from core.settings.config import settings
 from modules.testing.test_generation import test_generator
 from routers.test_generation_routes.support import parse_requirement_for_generation
 
@@ -30,6 +31,15 @@ from routers.test_generation_routes.support import parse_requirement_for_generat
 PROJECT_ID = int(os.getenv("CODEX_REAL_PROJECT_ID", "2"))
 USER_ID = int(os.getenv("CODEX_REAL_USER_ID", "1"))
 EXPECTED_COUNT = int(os.getenv("CODEX_REAL_EXPECTED_COUNT", "80"))
+BATCH_SIZE = max(
+    1,
+    int(
+        os.getenv(
+            "CODEX_REAL_BATCH_SIZE",
+            str(settings.TEST_GENERATION_BATCH_SIZE),
+        )
+    ),
+)
 OVERWRITE = os.getenv("CODEX_REAL_OVERWRITE", "0").strip().lower() in {
     "1",
     "true",
@@ -103,6 +113,13 @@ def _compact_diag(payload: dict[str, Any]) -> dict[str, Any]:
     common_keys = (
         "kind",
         "batch_index",
+        "total_batches",
+        "batch_target_count",
+        "subshard_target_counts",
+        "accepted_case_count",
+        "shortfall_count",
+        "repair_shard_count",
+        "repair_attempt_count",
         "new_valid_cases_count",
         "duration_ms",
         "response_chars",
@@ -168,8 +185,14 @@ def _compact_diag(payload: dict[str, Any]) -> dict[str, Any]:
                 "requirement_understanding_visual_fact_count",
                 "requirement_understanding_invalid_visual_block_count",
                 "semantic_compile_status",
+                "semantic_compile_mode",
                 "semantic_compile_success",
                 "semantic_compile_attempt_count",
+                "semantic_compile_physical_call_count",
+                "semantic_compile_provider_call_count",
+                "semantic_compile_cache_hit_count",
+                "semantic_compile_cache_miss_count",
+                "semantic_compile_cache_bypass_count",
                 "semantic_compile_candidate_attempt_count",
                 "semantic_compile_candidate_attempt_limit",
                 "semantic_compile_independent_recompile_limit",
@@ -181,11 +204,31 @@ def _compact_diag(payload: dict[str, Any]) -> dict[str, Any]:
                 "semantic_compile_transport_failure_count",
                 "semantic_compile_retry_used",
                 "semantic_compile_attempts",
+                "partition_compile_status",
+                "partition_compile_success",
+                "partition_compile_failed_phase",
+                "partition_compile_failed_shard_id",
+                "partition_compile_fact_shard_count",
+                "partition_compile_completed_fact_shard_count",
+                "partition_compile_relation_fact_count",
+                "partition_compile_relation_shard_count",
+                "partition_compile_completed_relation_shard_count",
+                "partition_compile_workflow_called",
+                "partition_compile_node_count",
+                "partition_compile_edge_count",
+                "partition_compile_control_edge_count",
+                "partition_compile_provider_call_count",
+                "partition_compile_cache_hit_count",
+                "partition_compile_cache_miss_count",
                 "semantic_pipeline_failed_stage",
                 "fact_ledger_compile_status",
                 "fact_ledger_compile_success",
                 "fact_ledger_compile_candidate_attempt_count",
                 "fact_ledger_compile_physical_call_count",
+                "fact_ledger_compile_provider_call_count",
+                "fact_ledger_compile_cache_hit_count",
+                "fact_ledger_compile_cache_miss_count",
+                "fact_ledger_compile_cache_bypass_count",
                 "fact_ledger_compile_chunk_count",
                 "fact_ledger_compile_partition_group_count",
                 "fact_ledger_compile_oversized_partition_group_count",
@@ -198,6 +241,10 @@ def _compact_diag(payload: dict[str, Any]) -> dict[str, Any]:
                 "scope_ledger_compile_success",
                 "scope_ledger_compile_candidate_attempt_count",
                 "scope_ledger_compile_physical_call_count",
+                "scope_ledger_compile_provider_call_count",
+                "scope_ledger_compile_cache_hit_count",
+                "scope_ledger_compile_cache_miss_count",
+                "scope_ledger_compile_cache_bypass_count",
                 "scope_ledger_binding_shard_count",
                 "scope_ledger_binding_oversized_fact_count",
                 "scope_ledger_binding_completed_shard_count",
@@ -226,6 +273,7 @@ def _compact_diag(payload: dict[str, Any]) -> dict[str, Any]:
                     "abort_code",
                     "message",
                     "semantic_compile_status",
+                    "semantic_compile_mode",
                     "semantic_compile_attempt_count",
                     "semantic_compile_candidate_attempt_count",
                     "semantic_compile_candidate_attempt_limit",
@@ -238,9 +286,25 @@ def _compact_diag(payload: dict[str, Any]) -> dict[str, Any]:
                     "semantic_compile_transport_failure_count",
                     "semantic_compile_retry_used",
                     "semantic_compile_attempts",
+                    "partition_compile_status",
+                    "partition_compile_success",
+                    "partition_compile_failed_phase",
+                    "partition_compile_failed_shard_id",
+                    "partition_compile_fact_shard_count",
+                    "partition_compile_completed_fact_shard_count",
+                    "partition_compile_relation_fact_count",
+                    "partition_compile_relation_shard_count",
+                    "partition_compile_completed_relation_shard_count",
+                    "partition_compile_workflow_called",
+                    "partition_compile_node_count",
+                    "partition_compile_edge_count",
+                    "partition_compile_control_edge_count",
                     "semantic_compile_request_timeout_seconds",
                     "semantic_compile_timeout_count",
                     "semantic_compile_stop_reason",
+                    "semantic_compile_final_gate_error_code",
+                    "semantic_compile_final_gate_error_type",
+                    "semantic_compile_final_gate_error_message",
                     "workflow_declaration_status",
                     "workflow_absence_declared",
                     "raw_workflow_candidate_count",
@@ -257,6 +321,10 @@ def _compact_diag(payload: dict[str, Any]) -> dict[str, Any]:
                     "fact_ledger_compile_candidate_attempt_count",
                     "fact_ledger_compile_candidate_attempt_limit",
                     "fact_ledger_compile_physical_call_count",
+                    "fact_ledger_compile_provider_call_count",
+                    "fact_ledger_compile_cache_hit_count",
+                    "fact_ledger_compile_cache_miss_count",
+                    "fact_ledger_compile_cache_bypass_count",
                     "fact_ledger_compile_transport_retry_count",
                     "fact_ledger_compile_transport_failure_count",
                     "fact_ledger_compile_fresh_candidate_used",
@@ -282,6 +350,10 @@ def _compact_diag(payload: dict[str, Any]) -> dict[str, Any]:
                     "scope_ledger_compile_candidate_attempt_count",
                     "scope_ledger_compile_candidate_attempt_limit",
                     "scope_ledger_compile_physical_call_count",
+                    "scope_ledger_compile_provider_call_count",
+                    "scope_ledger_compile_cache_hit_count",
+                    "scope_ledger_compile_cache_miss_count",
+                    "scope_ledger_compile_cache_bypass_count",
                     "scope_ledger_compile_transport_retry_count",
                     "scope_ledger_compile_transport_failure_count",
                     "scope_ledger_compile_stop_reason",
@@ -374,6 +446,7 @@ def main() -> None:
                 "code_version": _code_version(),
                 "before_max_generation_id": before_max_id,
                 "expected_count": EXPECTED_COUNT,
+                "batch_size": BATCH_SIZE,
                 "overwrite": OVERWRITE,
                 "active_config": {
                     "id": getattr(active_config, "id", None),
@@ -439,7 +512,7 @@ def main() -> None:
             doc_type="requirement",
             compress=True,
             expected_count=EXPECTED_COUNT,
-            batch_size=10,
+            batch_size=BATCH_SIZE,
             overwrite=OVERWRITE,
             append=False,
             user_id=USER_ID,
@@ -470,6 +543,12 @@ def main() -> None:
                         payload = {"raw": line[:1000]}
                     if isinstance(payload, dict):
                         request_id = str(payload.get("request_id") or request_id or "")
+                        if payload.get("kind") == "generation_persisted":
+                            persisted_stream_id = payload.get("generation_id")
+                            if isinstance(persisted_stream_id, int):
+                                generation_id_from_stream = persisted_stream_id
+                            elif str(persisted_stream_id or "").isdigit():
+                                generation_id_from_stream = int(persisted_stream_id)
                         _print("GEN_DIAG", _compact_diag(payload))
                 elif "Generation failed" in line or line.startswith("Error:"):
                     _print("STREAM_ERROR", line[:1200])

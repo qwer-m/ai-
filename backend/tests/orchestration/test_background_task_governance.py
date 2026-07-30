@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 
 import pytest
 
@@ -15,6 +16,7 @@ from modules.orchestration.background_task_governance import (
     get_background_task_profile,
     list_background_task_specs,
     list_background_task_profiles,
+    iter_governed_threadpool_map,
     run_governed_threadpool_call,
     run_governed_threadpool_map,
     submit_background_task,
@@ -61,6 +63,28 @@ def test_background_task_profiles_are_classified() -> None:
     assert snapshot_retry_profile.category == BackgroundTaskCategory.IN_REQUEST_PARALLEL
     assert snapshot_retry_profile.durable is False
     assert snapshot_retry_profile.recommended_runtime == "threadpool"
+
+    semantic_compile_profile = get_background_task_profile(
+        "test_generation_semantic_compile_threadpool"
+    )
+    assert semantic_compile_profile.category == BackgroundTaskCategory.IN_REQUEST_PARALLEL
+    assert semantic_compile_profile.durable is False
+    assert semantic_compile_profile.user_visible is True
+    assert semantic_compile_profile.status_source == "request_stream"
+
+    graph_shard_profile = get_background_task_profile(
+        "test_generation_graph_fact_shard_threadpool"
+    )
+    assert graph_shard_profile.category == BackgroundTaskCategory.IN_REQUEST_PARALLEL
+    assert graph_shard_profile.durable is False
+    assert graph_shard_profile.status_source == "request_stream"
+
+    fact_ledger_shard_profile = get_background_task_profile(
+        "test_generation_fact_ledger_shard_threadpool"
+    )
+    assert fact_ledger_shard_profile.category == BackgroundTaskCategory.IN_REQUEST_PARALLEL
+    assert fact_ledger_shard_profile.durable is False
+    assert fact_ledger_shard_profile.status_source == "request_stream"
 
     durable = list_background_task_profiles(BackgroundTaskCategory.DURABLE_JOB)
     assert {item.key for item in durable} >= {
@@ -215,6 +239,32 @@ def test_run_governed_threadpool_map_preserves_order_and_captures_failures() -> 
     assert results[0].result == 30
     assert isinstance(results[1].exception, ValueError)
     assert results[2].result == 10
+
+
+def test_iter_governed_threadpool_map_emits_heartbeat_while_worker_is_pending() -> None:
+    release = threading.Event()
+    timer = threading.Timer(0.05, release.set)
+    timer.start()
+    try:
+        updates = list(
+            iter_governed_threadpool_map(
+                profile_key="test_generation_coverage_shard_threadpool",
+                items=[1],
+                worker=lambda value: (release.wait(1), value)[1],
+                max_workers=1,
+                heartbeat_interval_seconds=0.005,
+            )
+        )
+    finally:
+        release.set()
+        timer.cancel()
+
+    assert updates[0].kind == "heartbeat"
+    assert updates[0].completed_count == 0
+    assert updates[-1].kind == "item"
+    assert updates[-1].completed_count == 1
+    assert updates[-1].item_result is not None
+    assert updates[-1].item_result.result == 1
 
 
 def test_add_fastapi_background_task_wraps_arguments() -> None:

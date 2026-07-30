@@ -54,6 +54,7 @@ def assemble_review_summary_state(
     final_order_flow_governance_summary: dict[str, Any],
     fact_profile: dict[str, Any],
     execution_plan_summary: dict[str, Any],
+    final_semantic_diagnostics: dict[str, Any],
     ui_like_ratio_postprocess_drop_count: int,
     final_description_dedup_drop_signatures: set[str],
     review_llm_applied: bool,
@@ -172,6 +173,7 @@ def assemble_review_summary_state(
         flow_governance_summary=flow_governance_summary,
         execution_plan_summary=execution_plan_summary,
     )
+    review_flow_summary_fields.update(dict(final_semantic_diagnostics or {}))
     review_decision_counts = _summarize_review_decision_counts(
         review_decision_table,
         dropped_rows,

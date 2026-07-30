@@ -41,8 +41,26 @@ def session_key_for_role(role: Any) -> str:
     return f"{_slug(normalized)}_session"
 
 
+def is_automated_actor_role(role: Any) -> bool:
+    """识别明确的系统、服务或智能体执行者。"""
+    normalized = _slug(_text(role), fallback="")
+    if not normalized:
+        return False
+    actor_kinds = ("system", "service", "agent")
+    localized_actor_kinds = ("系统", "服务", "智能体")
+    return bool(
+        normalized in actor_kinds
+        or any(normalized.startswith(f"{kind}_") for kind in actor_kinds)
+        or any(normalized.endswith(f"_{kind}") for kind in actor_kinds)
+        or normalized in localized_actor_kinds
+        or any(normalized.startswith(kind) for kind in localized_actor_kinds)
+        or any(normalized.endswith(kind) for kind in localized_actor_kinds)
+    )
+
+
 __all__ = [
     "CANONICAL_ROLE_SESSION_KEYS",
+    "is_automated_actor_role",
     "normalize_actor_role",
     "session_key_for_role",
 ]

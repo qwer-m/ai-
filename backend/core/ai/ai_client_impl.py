@@ -5,10 +5,15 @@ per-user model configuration without coupling callers to provider details.
 """
 import hashlib
 import json
+import os
 from collections.abc import Mapping
+from urllib.parse import unquote
 from typing import Any, Optional
 from sqlalchemy.orm import Session
 from core.settings.config import settings
+from core.ai.providers.base import (
+    STREAM_HEARTBEAT_CHUNK as PROVIDER_STREAM_HEARTBEAT_CHUNK,
+)
 from core.cache_layer.cache import cache_service
 from core.db.models import SystemConfig
 from core.authn.security import config_encryption
@@ -30,6 +35,9 @@ class AIClient:
 
     _L4_CACHE_KEY_CONTRACT = "ai-client-text-response-v2"
     _L4_CACHE_VALUE_CONTRACT = "ai-client-text-response-v2"
+    _OCR_CACHE_KEY_CONTRACT = "ai-client-ocr-v2"
+    _OCR_CACHE_VALUE_CONTRACT = "ai-client-ocr-v2"
+    STREAM_HEARTBEAT_CHUNK = PROVIDER_STREAM_HEARTBEAT_CHUNK
     _PROVIDER_CACHE_NAMESPACE_ATTR = "_ai_client_cache_namespace_v1"
     _EXPLICIT_COMPLETE_FINISH_REASONS = frozenset(
         {"stop", "tool_calls", "function_call"}
@@ -62,7 +70,8 @@ class AIClient:
         """缓存层会解析 JSON 外形的字符串，AI 客户端边界统一恢复为文本。"""
         if (
             isinstance(value, Mapping)
-            and value.get("cache_contract") == cls._L4_CACHE_VALUE_CONTRACT
+            and value.get("cache_contract")
+            in {cls._L4_CACHE_VALUE_CONTRACT, cls._OCR_CACHE_VALUE_CONTRACT}
             and "text" in value
         ):
             value = value.get("text")
@@ -670,6 +679,10 @@ class AIClient:
         max_tokens: int = None,
         task_type: str = "general",
         model: str = None,
+        request_timeout_seconds: float | None = None,
+        heartbeat_interval_seconds: float | None = None,
+        reasoning_effort: str | None = None,
+        disable_thinking: bool = False,
     ):
         """Generate a streaming model response and collect response metadata."""
         if not self.provider:
@@ -681,7 +694,26 @@ class AIClient:
         messages.append({"role": "user", "content": user_input})
         target_model = model or self.select_model((system_prompt or "") + user_input, task_type)
         output_parts = []
-        for chunk in self.provider.generate_stream(messages, target_model, max_tokens or self.max_tokens):
+        if isinstance(self.provider, OpenAICompatibleProvider):
+            stream = self.provider.generate_stream(
+                messages,
+                target_model,
+                max_tokens or self.max_tokens,
+                request_timeout_seconds=request_timeout_seconds,
+                heartbeat_interval_seconds=heartbeat_interval_seconds,
+                reasoning_effort=reasoning_effort,
+                disable_thinking=disable_thinking,
+            )
+        else:
+            stream = self.provider.generate_stream(
+                messages,
+                target_model,
+                max_tokens or self.max_tokens,
+            )
+        for chunk in stream:
+            if self.is_stream_heartbeat(chunk):
+                yield chunk
+                continue
             output_parts.append(str(chunk or ""))
             yield chunk
         output_text = "".join(output_parts)
@@ -690,6 +722,63 @@ class AIClient:
         self.last_response_metadata.setdefault("input_tokens_estimated", max(1, len(json.dumps(messages, ensure_ascii=False)) // 4))
         self.last_response_metadata.setdefault("output_tokens_estimated", max(0, len(output_text or "") // 4))
         self.last_response_metadata.setdefault("token_estimate_method", "chars_div_4")
+
+    @classmethod
+    def is_stream_heartbeat(cls, value: Any) -> bool:
+        return value == cls.STREAM_HEARTBEAT_CHUNK
+
+    @staticmethod
+    def _image_content_identity(image_path_or_url: str) -> str:
+        """本地图片按内容标识，远程图片保留稳定的 URL 标识。"""
+        source = str(image_path_or_url or "")
+        lowered = source.lower()
+        if lowered.startswith(("http://", "https://")):
+            return f"url:{source}"
+
+        local_path = source
+        if lowered.startswith("file://"):
+            local_path = unquote(source[7:])
+            if (
+                len(local_path) >= 3
+                and local_path[0] in {"/", "\\"}
+                and local_path[1].isalpha()
+                and local_path[2] == ":"
+            ):
+                local_path = local_path[1:]
+
+        if not lowered.startswith(("http://", "https://")):
+            try:
+                if os.path.isfile(local_path):
+                    digest = hashlib.sha256()
+                    with open(local_path, "rb") as image_file:
+                        for chunk in iter(lambda: image_file.read(1024 * 1024), b""):
+                            digest.update(chunk)
+                    return f"sha256:{digest.hexdigest()}"
+            except (OSError, ValueError):
+                pass
+
+        return f"source:{source}"
+
+    @classmethod
+    def _build_ocr_cache_key(
+        cls,
+        image_path_or_url: str,
+        prompt: str,
+        target_model: str,
+    ) -> str:
+        image_identity = cls._image_content_identity(image_path_or_url)
+        return json.dumps(
+            {
+                "contract": cls._OCR_CACHE_KEY_CONTRACT,
+                "image": image_identity,
+                "model": str(target_model or ""),
+                "prompt": str(prompt or ""),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
     def analyze_image(
         self,
         image_path_or_url: str,
@@ -700,17 +789,6 @@ class AIClient:
         """Run OCR or multimodal analysis with optional L2 cache reuse."""
         if not self.provider:
             return "Error: AI Provider not configured."
-        cache_key = f"ocr:{prompt}:{image_path_or_url}:{model or 'default'}"
-        if db:
-            cached = cache_service.get(cache_key, "L2", db)
-            if cached:
-                return cached
-        messages = [
-            {
-                "role": "user",
-                "content": [{"image": image_path_or_url}, {"text": prompt}],
-            }
-        ]
         target_provider = self.provider
         if model:
             target_model = model
@@ -723,9 +801,37 @@ class AIClient:
             target_model = self.vl_model or self.model
         if not target_provider:
             return "Error: AI Provider not configured."
+        cache_key = self._build_ocr_cache_key(
+            image_path_or_url,
+            prompt,
+            target_model,
+        )
+        if db:
+            cached = cache_service.get(cache_key, "L2", db)
+            if cached:
+                return self._cached_text_response(cached)
+        messages = [
+            {
+                "role": "user",
+                "content": [{"image": image_path_or_url}, {"text": prompt}],
+            }
+        ]
         response = target_provider.multimodal_generate(messages, target_model)
         if db and not response.startswith("OCR Error") and not response.startswith("OCR Exception"):
-            cache_service.set(cache_key, response, "L2", db, metadata={"type": "ocr", "model": target_model})
+            cache_service.set(
+                cache_key,
+                {
+                    "cache_contract": self._OCR_CACHE_VALUE_CONTRACT,
+                    "text": response,
+                },
+                "L2",
+                db,
+                metadata={
+                    "type": "ocr",
+                    "model": target_model,
+                    "cache_contract": self._OCR_CACHE_KEY_CONTRACT,
+                },
+            )
         return response
     def compress_context(self, context: str, prompt: str = "Summary:", db: Session = None) -> str:
         """Context compression entrypoint."""

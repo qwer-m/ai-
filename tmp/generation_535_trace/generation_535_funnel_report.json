@@ -1,0 +1,3250 @@
+{
+  "generation_id": 535,
+  "project_id": 2,
+  "request_id": "7dce543950484a08b9012db0612e52c8",
+  "diagnostic_source": "gen_diag",
+  "diagnostic_depth": "full",
+  "persisted_log_id": 25800,
+  "next_persisted_log_id": null,
+  "stage_counts": {
+    "primary": 25,
+    "gap": 4,
+    "review": 27
+  },
+  "gen_diag": {
+    "kind": "gen_diag",
+    "mode": "stream",
+    "doc_type": "requirement",
+    "compress": true,
+    "expected_count": 25,
+    "generated_count": 27,
+    "content_length": 2035,
+    "kb_length": 4029,
+    "model": "glm-5.1",
+    "max_tokens": 10000,
+    "multi_pass": true,
+    "generation_mode": "multi_pass",
+    "context_compression_ratio": 1.0,
+    "context_retained_chunk_count": 4,
+    "context_relevance_distribution": {
+      "sample_size": 4,
+      "high_count": 0,
+      "medium_count": 0,
+      "low_count": 4,
+      "high_ratio": 0.0,
+      "medium_ratio": 0.0,
+      "low_ratio": 1.0,
+      "mean_score": 0.3169,
+      "min_score": 0.3108,
+      "max_score": 0.3317
+    }
+  },
+  "generation_convergence": {
+    "kind": "generation_convergence",
+    "suggested_count": 25,
+    "final_count": 27,
+    "reference_gap": 0,
+    "converged": true,
+    "duplication_rate_estimate": 0.0,
+    "primary_count": 25,
+    "gap_count": 4,
+    "review_count": 27,
+    "candidate_count_before_review": 29,
+    "review_selected_count": 27,
+    "post_review_dedup_drop": 0,
+    "judge_reject_count": 0,
+    "judge_pending_count": 0,
+    "judge_pass_count": 27,
+    "final_input_count": 27,
+    "final_output_count": 27,
+    "final_non_judge_drop_count": 0,
+    "scenario_duplicate_pruned_count": 0,
+    "post_review_dedup_reorder_drop_count": 0,
+    "final_description_dedup_drop_count": 0,
+    "total_dedup_drop_count": 0,
+    "gap_attempts": 1,
+    "gap_remaining_after_attempts": 0,
+    "missing_rules_count": 0,
+    "missing_types_exists": false,
+    "low_quality_dropped_count": 0,
+    "low_quality_dropped_examples": [],
+    "postprocess_filter_drop_total": 0,
+    "semantic_dedup_dropped_count": 0,
+    "governance_hard_drop_count": 0,
+    "duplicate_pruned_count": 0,
+    "invalid_pruned_count": 0,
+    "quality_rejected_count": 0,
+    "review_selector_pruned_count": 2,
+    "valid_unique_candidate_count": 29,
+    "generation_coverage_mode": "core_smoke",
+    "requested_generation_mode": "",
+    "effective_generation_coverage_mode_source": "feedback_control_state",
+    "explicit_generation_mode_override": false,
+    "explicit_expected_count_floor_preserved": false,
+    "expected_count": 25,
+    "expected_count_explicit": true,
+    "recommended_min": 20,
+    "recommended_max": 25,
+    "target_final_count": 25,
+    "soft_min_count": 20,
+    "hard_min_count": 18,
+    "min_acceptable_final": 20,
+    "target_satisfaction_ratio": 1.08,
+    "underfilled": false,
+    "underfill_level": "",
+    "underfill_reason": "",
+    "underfill_root_cause": "",
+    "append_target_count": 0,
+    "append_final_cap_count": 0,
+    "append_cap_drop_count": 0,
+    "flow_governance": {
+      "applied": true,
+      "reason": "",
+      "scenario_policy_registry_version": 1,
+      "scenario_policy_registered_count": 23,
+      "scenario_policy_candidate_count": 0,
+      "scenario_policy_pending_candidate_count": 0,
+      "domain_policy_registered_count": 0,
+      "scenario_policy_domains": {
+        "general": 23
+      },
+      "scenario_policy_sources": {
+        "legacy_coverage_pattern": 21,
+        "legacy_judge_duplicate_policy": 2
+      },
+      "scenario_policy_documents": [],
+      "flow_reordered": true,
+      "flow_order": [
+        "stage:上传交互",
+        "stage:作品",
+        "stage:分享h5",
+        "stage:更新状态",
+        "stage:三大环节",
+        "stage:秘籍获取",
+        "stage:批改反馈",
+        "stage:隐性字数要求",
+        "stage:投稿",
+        "stage:奖励机制",
+        "stage:技术栈"
+      ],
+      "cross_cutting_order": [
+        "stage:权限逻辑",
+        "stage:次数限制",
+        "stage:异常处理"
+      ],
+      "scenario_duplicate_pruned_count": 0,
+      "scenario_duplicate_pruned_indices": [],
+      "scenario_cap_policy": {},
+      "scenario_duplicate_cluster_count": 10,
+      "flow_misordered_count_before": 6,
+      "missing_flow_stage_count": 7,
+      "registry_impact": {
+        "registry_version": 1,
+        "total_policies_available": 23,
+        "candidate_policies_active": 0,
+        "candidate_policies_pending": 0,
+        "primary_domain": "",
+        "scenario_kinds_seen": {
+          "workflow_navigation": 4,
+          "media_preview": 5,
+          "title_format": 2,
+          "save_delete": 3,
+          "permission": 3,
+          "statistics": 3,
+          "sorting_limit": 3,
+          "source_consistency": 2,
+          "semantic": 2
+        },
+        "policies_matched": [
+          {
+            "key": "workflow_navigation",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "media_preview",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "title_format",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "save_delete",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "permission",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "statistics",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "sorting_limit",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "source_consistency",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          }
+        ],
+        "matched_documents": [],
+        "caps_applied": {
+          "workflow_navigation": 2,
+          "media_preview": 1,
+          "title_format": 1,
+          "save_delete": 1,
+          "permission": 1,
+          "statistics": 2,
+          "sorting_limit": 1,
+          "source_consistency": 1
+        },
+        "judge_thresholds_used": {},
+        "cross_module_policies_in_effect": []
+      }
+    },
+    "needs_priority_review": true,
+    "priority_conflict_count": 0,
+    "priority_undetermined_count": 0,
+    "priority_optional_count": 0,
+    "reasons": [
+      "flow_structure_reordered"
+    ],
+    "generation_target_case_range": {
+      "min": 20,
+      "max": 25
+    },
+    "case_semantic_contract": {
+      "enabled": true,
+      "rejected_count": 8,
+      "rejections": [
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 4,
+          "case_id": "TC-004",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-02",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        },
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 5,
+          "case_id": "TC-005",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-02",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        },
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 1,
+          "case_id": "TC-001",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-03",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        },
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 3,
+          "case_id": "TC-003",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-03",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        },
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 5,
+          "case_id": "TC-005",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-03",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        },
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 6,
+          "case_id": "TC-006",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-03",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        },
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 7,
+          "case_id": "TC-007",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-03",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        },
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 9,
+          "case_id": "TC-009",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-03",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        }
+      ]
+    },
+    "multi_pass": true,
+    "generation_mode": "multi_pass"
+  },
+  "review_decision_summary": {
+    "kind": "review_decision_summary",
+    "candidate_total": 29,
+    "retained_total": 27,
+    "dropped_total": 2,
+    "flow_order": [
+      "stage:上传交互",
+      "stage:作品",
+      "stage:分享h5",
+      "stage:更新状态",
+      "stage:三大环节",
+      "stage:秘籍获取",
+      "stage:批改反馈",
+      "stage:隐性字数要求",
+      "stage:投稿",
+      "stage:奖励机制",
+      "stage:技术栈"
+    ],
+    "flow_labels": {
+      "stage:更新状态": "更新状态",
+      "stage:三大环节": "三大环节",
+      "stage:秘籍获取": "秘籍获取",
+      "stage:上传交互": "上传交互",
+      "stage:批改反馈": "批改反馈(四模块)",
+      "stage:隐性字数要求": "隐性字数要求",
+      "stage:作品": "作品详情",
+      "stage:投稿": "投稿流程",
+      "stage:奖励机制": "奖励机制",
+      "stage:分享h5": "分享H5",
+      "stage:技术栈": "技术栈"
+    },
+    "flow_stage_breakdown": {
+      "stage:投稿": 4,
+      "unknown": 18,
+      "stage:作品": 3,
+      "stage:隐性字数要求": 2,
+      "stage:上传交互": 2
+    },
+    "flow_missing_stages": [
+      "stage:分享h5",
+      "stage:更新状态",
+      "stage:三大环节",
+      "stage:秘籍获取",
+      "stage:批改反馈",
+      "stage:奖励机制",
+      "stage:技术栈"
+    ],
+    "flow_missing_stage_count": 7,
+    "flow_misordered_count": 7,
+    "scenario_duplicate_cluster_count": 10,
+    "scenario_duplicate_case_count": 12,
+    "scenario_duplicate_clusters": [
+      {
+        "cluster_id": "SC-001",
+        "scenario_key": "stage:投稿:workflow_navigation:obj:作文_文圈_圈社",
+        "group_type": "scenario",
+        "size": 2,
+        "first_case_id": "TC-001",
+        "candidate_indices": [
+          1,
+          3
+        ]
+      },
+      {
+        "cluster_id": "SC-002",
+        "scenario_key": "stage:投稿:intent:submit:作文_文圈_圈社:toast",
+        "group_type": "intent",
+        "size": 2,
+        "first_case_id": "TC-001",
+        "candidate_indices": [
+          1,
+          2
+        ]
+      },
+      {
+        "cluster_id": "SC-003",
+        "scenario_key": "unknown:permission:obj:课程_程权_权限",
+        "group_type": "scenario",
+        "size": 4,
+        "first_case_id": "TC-004",
+        "candidate_indices": [
+          4,
+          5,
+          7,
+          8
+        ]
+      },
+      {
+        "cluster_id": "SC-004",
+        "scenario_key": "unknown:semantic:课程_程学_学习_习与_与环_环节",
+        "group_type": "scenario",
+        "size": 2,
+        "first_case_id": "TC-006",
+        "candidate_indices": [
+          6,
+          17
+        ]
+      },
+      {
+        "cluster_id": "SC-005",
+        "scenario_key": "unknown:intent:open:课程_程学_学习:toast",
+        "group_type": "intent",
+        "size": 2,
+        "first_case_id": "TC-006",
+        "candidate_indices": [
+          6,
+          9
+        ]
+      },
+      {
+        "cluster_id": "SC-006",
+        "scenario_key": "unknown:intent:open:课程_程学_学习:navigate",
+        "group_type": "intent",
+        "size": 2,
+        "first_case_id": "TC-010",
+        "candidate_indices": [
+          10,
+          11
+        ]
+      },
+      {
+        "cluster_id": "SC-007",
+        "scenario_key": "unknown:intent:open:写作_作秘_秘籍:navigate",
+        "group_type": "intent",
+        "size": 2,
+        "first_case_id": "TC-012",
+        "candidate_indices": [
+          12,
+          21
+        ]
+      },
+      {
+        "cluster_id": "SC-008",
+        "scenario_key": "unknown:sorting_limit:obj:作文_文批_批改",
+        "group_type": "scenario",
+        "size": 2,
+        "first_case_id": "TC-013",
+        "candidate_indices": [
+          13,
+          29
+        ]
+      },
+      {
+        "cluster_id": "SC-009",
+        "scenario_key": "unknown:intent:open:写作_作秘_秘籍:toast",
+        "group_type": "intent",
+        "size": 2,
+        "first_case_id": "TC-022",
+        "candidate_indices": [
+          22,
+          23
+        ]
+      },
+      {
+        "cluster_id": "SC-010",
+        "scenario_key": "stage:上传交互:media_preview:obj:作文_文批_批改",
+        "group_type": "scenario",
+        "size": 2,
+        "first_case_id": "TC-026",
+        "candidate_indices": [
+          26,
+          27
+        ]
+      }
+    ],
+    "final_flow_stage_breakdown": {
+      "unknown": 17,
+      "stage:上传交互": 2,
+      "stage:作品": 2,
+      "stage:隐性字数要求": 2,
+      "stage:投稿": 1
+    },
+    "final_flow_missing_stages": [
+      "stage:分享h5",
+      "stage:更新状态",
+      "stage:三大环节",
+      "stage:秘籍获取",
+      "stage:批改反馈",
+      "stage:奖励机制",
+      "stage:技术栈"
+    ],
+    "final_flow_missing_stage_count": 7,
+    "final_flow_misordered_count": 0,
+    "final_scenario_duplicate_cluster_count": 0,
+    "final_scenario_duplicate_case_count": 0,
+    "final_scenario_duplicate_clusters": [],
+    "final_scenario_duplicate_raw_cluster_count": 10,
+    "final_scenario_duplicate_raw_case_count": 11,
+    "final_order_flow_governance": {
+      "applied": true,
+      "reason": "",
+      "scenario_policy_registry_version": 1,
+      "scenario_policy_registered_count": 23,
+      "scenario_policy_candidate_count": 0,
+      "scenario_policy_pending_candidate_count": 0,
+      "domain_policy_registered_count": 0,
+      "scenario_policy_domains": {
+        "general": 23
+      },
+      "scenario_policy_sources": {
+        "legacy_coverage_pattern": 21,
+        "legacy_judge_duplicate_policy": 2
+      },
+      "scenario_policy_documents": [],
+      "flow_reordered": true,
+      "flow_order": [
+        "stage:上传交互",
+        "stage:作品",
+        "stage:分享h5",
+        "stage:更新状态",
+        "stage:三大环节",
+        "stage:秘籍获取",
+        "stage:批改反馈",
+        "stage:隐性字数要求",
+        "stage:投稿",
+        "stage:奖励机制",
+        "stage:技术栈"
+      ],
+      "cross_cutting_order": [
+        "stage:权限逻辑",
+        "stage:次数限制",
+        "stage:异常处理"
+      ],
+      "scenario_duplicate_pruned_count": 0,
+      "scenario_duplicate_pruned_indices": [],
+      "scenario_cap_policy": {},
+      "scenario_duplicate_cluster_count": 8,
+      "flow_misordered_count_before": 0,
+      "missing_flow_stage_count": 7,
+      "registry_impact": {
+        "registry_version": 1,
+        "total_policies_available": 23,
+        "candidate_policies_active": 0,
+        "candidate_policies_pending": 0,
+        "primary_domain": "",
+        "scenario_kinds_seen": {
+          "permission": 3,
+          "save_delete": 3,
+          "statistics": 3,
+          "media_preview": 4,
+          "workflow_navigation": 2,
+          "semantic": 2,
+          "sorting_limit": 3,
+          "source_consistency": 2,
+          "title_format": 2
+        },
+        "policies_matched": [
+          {
+            "key": "permission",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "save_delete",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "statistics",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "media_preview",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "workflow_navigation",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 2,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": false,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "sorting_limit",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "source_consistency",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          },
+          {
+            "key": "title_format",
+            "domain": "general",
+            "source": "legacy_coverage_pattern",
+            "specific": false,
+            "default_cap": 1,
+            "mode_cap": null,
+            "cross_module": false,
+            "judge_duplicate": true,
+            "judge_threshold": {
+              "score": 0.2,
+              "overlap": 5
+            },
+            "status": "active",
+            "documents": []
+          }
+        ],
+        "matched_documents": [],
+        "caps_applied": {
+          "permission": 1,
+          "save_delete": 1,
+          "statistics": 2,
+          "media_preview": 1,
+          "workflow_navigation": 2,
+          "sorting_limit": 1,
+          "source_consistency": 1,
+          "title_format": 1
+        },
+        "judge_thresholds_used": {},
+        "cross_module_policies_in_effect": []
+      },
+      "execution_orchestration_plan": {
+        "plan_first": true,
+        "planned_case_count": 27,
+        "main_chain_case_count": 3,
+        "side_suite_count": 5,
+        "execution_group_order": [
+          "main_smoke",
+          "permission",
+          "exception",
+          "boundary",
+          "independent_functional",
+          "display"
+        ],
+        "main_chain": [
+          {
+            "case_id": "TC-001",
+            "execution_sequence": 1,
+            "main_chain_step": 1,
+            "stage": "P021_N09",
+            "stage_kind": "commit",
+            "source_state": "未投稿",
+            "target_state": "提交中",
+            "role": "user",
+            "depends_on": []
+          },
+          {
+            "case_id": "TC-002",
+            "execution_sequence": 2,
+            "main_chain_step": 2,
+            "stage": "P021_N10",
+            "stage_kind": "preview",
+            "source_state": "提交中",
+            "target_state": "等待确认",
+            "role": "system",
+            "depends_on": [
+              "TC-001"
+            ]
+          },
+          {
+            "case_id": "TC-003",
+            "execution_sequence": 3,
+            "main_chain_step": 3,
+            "stage": "P021_N11",
+            "stage_kind": "completion_sync",
+            "source_state": "等待确认",
+            "target_state": "审核中",
+            "role": "user",
+            "depends_on": [
+              "TC-002"
+            ]
+          }
+        ],
+        "side_suites": [
+          {
+            "suite_id": "permission_suite",
+            "execution_group": "permission",
+            "rank": 1,
+            "case_ids": [
+              "TC-004",
+              "TC-005",
+              "TC-006"
+            ],
+            "case_count": 3
+          },
+          {
+            "suite_id": "exception_suite",
+            "execution_group": "exception",
+            "rank": 2,
+            "case_ids": [
+              "TC-007"
+            ],
+            "case_count": 1
+          },
+          {
+            "suite_id": "boundary_suite",
+            "execution_group": "boundary",
+            "rank": 3,
+            "case_ids": [
+              "TC-009",
+              "TC-008",
+              "TC-010"
+            ],
+            "case_count": 3
+          },
+          {
+            "suite_id": "independent_functional_suite",
+            "execution_group": "independent_functional",
+            "rank": 4,
+            "case_ids": [
+              "TC-011",
+              "TC-012"
+            ],
+            "case_count": 2
+          },
+          {
+            "suite_id": "display_suite",
+            "execution_group": "display",
+            "rank": 5,
+            "case_ids": [
+              "TC-013",
+              "TC-015",
+              "TC-023",
+              "TC-019",
+              "TC-020",
+              "TC-021",
+              "TC-014",
+              "TC-016",
+              "TC-017",
+              "TC-018",
+              "TC-022",
+              "TC-024",
+              "TC-025",
+              "TC-026",
+              "TC-027"
+            ],
+            "case_count": 15
+          }
+        ]
+      },
+      "execution_group_order": [
+        "main_smoke",
+        "permission",
+        "exception",
+        "boundary",
+        "independent_functional",
+        "display"
+      ]
+    },
+    "final_execution_group_order": [
+      "main_smoke",
+      "permission",
+      "exception",
+      "boundary",
+      "independent_functional",
+      "display"
+    ],
+    "final_execution_orchestration_plan": {
+      "plan_first": true,
+      "planned_case_count": 27,
+      "main_chain_case_count": 3,
+      "side_suite_count": 5,
+      "execution_group_order": [
+        "main_smoke",
+        "permission",
+        "exception",
+        "boundary",
+        "independent_functional",
+        "display"
+      ],
+      "main_chain": [
+        {
+          "case_id": "TC-001",
+          "execution_sequence": 1,
+          "main_chain_step": 1,
+          "stage": "P021_N09",
+          "stage_kind": "commit",
+          "source_state": "未投稿",
+          "target_state": "提交中",
+          "role": "user",
+          "depends_on": []
+        },
+        {
+          "case_id": "TC-002",
+          "execution_sequence": 2,
+          "main_chain_step": 2,
+          "stage": "P021_N10",
+          "stage_kind": "preview",
+          "source_state": "提交中",
+          "target_state": "等待确认",
+          "role": "system",
+          "depends_on": [
+            "TC-001"
+          ]
+        },
+        {
+          "case_id": "TC-003",
+          "execution_sequence": 3,
+          "main_chain_step": 3,
+          "stage": "P021_N11",
+          "stage_kind": "completion_sync",
+          "source_state": "等待确认",
+          "target_state": "审核中",
+          "role": "user",
+          "depends_on": [
+            "TC-002"
+          ]
+        }
+      ],
+      "side_suites": [
+        {
+          "suite_id": "permission_suite",
+          "execution_group": "permission",
+          "rank": 1,
+          "case_ids": [
+            "TC-004",
+            "TC-005",
+            "TC-006"
+          ],
+          "case_count": 3
+        },
+        {
+          "suite_id": "exception_suite",
+          "execution_group": "exception",
+          "rank": 2,
+          "case_ids": [
+            "TC-007"
+          ],
+          "case_count": 1
+        },
+        {
+          "suite_id": "boundary_suite",
+          "execution_group": "boundary",
+          "rank": 3,
+          "case_ids": [
+            "TC-009",
+            "TC-008",
+            "TC-010"
+          ],
+          "case_count": 3
+        },
+        {
+          "suite_id": "independent_functional_suite",
+          "execution_group": "independent_functional",
+          "rank": 4,
+          "case_ids": [
+            "TC-011",
+            "TC-012"
+          ],
+          "case_count": 2
+        },
+        {
+          "suite_id": "display_suite",
+          "execution_group": "display",
+          "rank": 5,
+          "case_ids": [
+            "TC-013",
+            "TC-015",
+            "TC-023",
+            "TC-019",
+            "TC-020",
+            "TC-021",
+            "TC-014",
+            "TC-016",
+            "TC-017",
+            "TC-018",
+            "TC-022",
+            "TC-024",
+            "TC-025",
+            "TC-026",
+            "TC-027"
+          ],
+          "case_count": 15
+        }
+      ]
+    },
+    "fact_profile_source": "requirement_semantics",
+    "fact_profile_confidence": 0.75,
+    "fact_profile_confirmed_count": 8,
+    "fact_profile_forbidden_count": 0,
+    "fact_profile_pending_count": 0,
+    "project_profile_source": "model_semantic_contract",
+    "project_profile_confidence": 0.85,
+    "flow_governance_applied": true,
+    "flow_reordered": true,
+    "flow_governance_reason": "",
+    "scenario_duplicate_pruned_count": 0,
+    "scenario_duplicate_pruned_indices": [],
+    "execution_plan": {
+      "applied": true,
+      "coverage_mode": "core_smoke",
+      "workflow_blueprint_count": 1,
+      "trusted_workflow_contract_count": 0,
+      "current_requirement_blueprint_count": 1,
+      "plan_workflow_blueprint_count": 1,
+      "workflow_blueprint_source": "current_requirement_blueprint",
+      "linear_executable": true,
+      "linear_scope": "main_smoke_chain_only",
+      "main_chain_case_count": 3,
+      "main_chain_stage_order": [
+        "P021_N09",
+        "P021_N10",
+        "P021_N11"
+      ],
+      "main_chain_stage_kinds": [
+        "commit",
+        "preview",
+        "completion_sync"
+      ],
+      "main_chain_incomplete_reason": "",
+      "workflow_closure": {
+        "contract_present": true,
+        "blueprint_id": "WF_C009_001",
+        "declared_workflow_contract": {
+          "id": "WF_C009_001",
+          "workflow_id": "WF_C009_001",
+          "name": "投稿提交与审核流程",
+          "source_type": "current_requirement_extracted",
+          "repository_source": "current_requirement_blueprint",
+          "trusted": false,
+          "confidence": 0.95,
+          "initial_state": "未投稿",
+          "terminal_states": [
+            "审核中"
+          ],
+          "required_stage_ids": [
+            "P021_N09",
+            "P021_N10",
+            "P021_N11"
+          ],
+          "steps": [
+            {
+              "id": "P021_N09",
+              "label": "投稿提交与审核",
+              "action": "用户点击投稿页提交按钮",
+              "stage_kind": "commit",
+              "actor": "user",
+              "state_in": "未投稿",
+              "state_out": "提交中",
+              "required": true,
+              "terminal": false,
+              "critical": true,
+              "blocking": true,
+              "module_candidates": [
+                {
+                  "module_key": "B04",
+                  "module_name": "作文圈社区与审核",
+                  "role": "primary",
+                  "confidence": 1.0,
+                  "evidence": [
+                    "5. 提交按钮，点击后进⾏提交，审核后台可查看并审核，同时⻚⾯出现投稿成功弹窗提⽰"
+                  ],
+                  "evidence_verified": true
+                }
+              ]
+            },
+            {
+              "id": "P021_N10",
+              "label": "投稿成功弹窗",
+              "action": "系统展示投稿成功弹窗",
+              "stage_kind": "preview",
+              "actor": "system",
+              "state_in": "提交中",
+              "state_out": "等待确认",
+              "required": true,
+              "terminal": false,
+              "critical": true,
+              "blocking": true,
+              "module_candidates": [
+                {
+                  "module_key": "B04",
+                  "module_name": "作文圈社区与审核",
+                  "role": "primary",
+                  "confidence": 1.0,
+                  "evidence": [
+                    "5. 提交按钮，点击后进⾏提交，审核后台可查看并审核，同时⻚⾯出现投稿成功弹窗提⽰",
+                    "6. 投稿成功弹窗",
+                    "a. 显⽰说明信息如图"
+                  ],
+                  "evidence_verified": true
+                }
+              ]
+            },
+            {
+              "id": "P021_N11",
+              "label": "投稿成功确认与状态变更",
+              "action": "用户点击【我知道了】按钮确认并变更状态",
+              "stage_kind": "completion_sync",
+              "actor": "user",
+              "state_in": "等待确认",
+              "state_out": "审核中",
+              "required": true,
+              "terminal": true,
+              "critical": true,
+              "blocking": true,
+              "module_candidates": [
+                {
+                  "module_key": "B04",
+                  "module_name": "作文圈社区与审核",
+                  "role": "primary",
+                  "confidence": 1.0,
+                  "evidence": [
+                    "6. 投稿成功弹窗",
+                    "b. 点击【我知道了】按钮，关闭弹窗返回批改详情⻚，同时投稿按钮状态改为审核中的状态"
+                  ],
+                  "evidence_verified": true
+                }
+              ]
+            }
+          ]
+        },
+        "required_stage_ids": [
+          "P021_N09",
+          "P021_N10",
+          "P021_N11"
+        ],
+        "covered_stage_ids": [
+          "P021_N09",
+          "P021_N10",
+          "P021_N11"
+        ],
+        "missing_required_stage_ids": [],
+        "initial_state": "未投稿",
+        "first_source_state": "未投稿",
+        "initial_state_matched": true,
+        "terminal_states": [
+          "审核中"
+        ],
+        "reachable_states": [
+          "审核中",
+          "提交中",
+          "未投稿",
+          "等待确认"
+        ],
+        "terminal_state_reachable": true,
+        "state_connected": true,
+        "state_conflicts": [],
+        "closure_satisfied": true,
+        "failure_reasons": []
+      },
+      "required_stage_ids": [
+        "P021_N09",
+        "P021_N10",
+        "P021_N11"
+      ],
+      "covered_stage_ids": [
+        "P021_N09",
+        "P021_N10",
+        "P021_N11"
+      ],
+      "missing_required_stage_ids": [],
+      "required_stage_coverage_complete": true,
+      "terminal_state_reachable": true,
+      "workflow_closure_satisfied": true,
+      "main_chain_excluded_candidates": [],
+      "independent_case_count": 24,
+      "isolation_case_count": 24,
+      "role_switch_count": 2,
+      "broken_dependency_count": 0,
+      "state_conflict_count": 0,
+      "state_conflicts": [],
+      "selected_stage_state_conflicts": [],
+      "semantic_conflict_count": 0,
+      "semantic_conflicts": [],
+      "semantic_warning_count": 1,
+      "semantic_warnings": [
+        {
+          "case_id": "TC-003",
+          "reason": "stage_action_not_supported_by_case_text",
+          "stage_kind": "completion_sync",
+          "description": "投稿提交与审核流程-完成同步阶段：用户点击投稿成功弹窗的【我知道了】按钮关闭弹窗并返回批改详情页，同时投稿按钮状态改为审核中",
+          "severity": "warning"
+        }
+      ],
+      "semantic_diagnostics_only": true,
+      "execution_group_breakdown": {
+        "boundary": 3,
+        "display": 15,
+        "exception": 1,
+        "independent_functional": 2,
+        "main_smoke": 3,
+        "permission": 3
+      },
+      "execution_group_order": [
+        "main_smoke",
+        "permission",
+        "exception",
+        "boundary",
+        "independent_functional",
+        "display"
+      ],
+      "execution_orchestration_plan": {
+        "plan_first": true,
+        "planned_case_count": 27,
+        "main_chain_case_count": 3,
+        "side_suite_count": 5,
+        "execution_group_order": [
+          "main_smoke",
+          "permission",
+          "exception",
+          "boundary",
+          "independent_functional",
+          "display"
+        ],
+        "main_chain": [
+          {
+            "case_id": "TC-001",
+            "execution_sequence": 1,
+            "main_chain_step": 1,
+            "stage": "P021_N09",
+            "stage_kind": "commit",
+            "source_state": "未投稿",
+            "target_state": "提交中",
+            "role": "user",
+            "depends_on": []
+          },
+          {
+            "case_id": "TC-002",
+            "execution_sequence": 2,
+            "main_chain_step": 2,
+            "stage": "P021_N10",
+            "stage_kind": "preview",
+            "source_state": "提交中",
+            "target_state": "等待确认",
+            "role": "system",
+            "depends_on": [
+              "TC-001"
+            ]
+          },
+          {
+            "case_id": "TC-003",
+            "execution_sequence": 3,
+            "main_chain_step": 3,
+            "stage": "P021_N11",
+            "stage_kind": "completion_sync",
+            "source_state": "等待确认",
+            "target_state": "审核中",
+            "role": "user",
+            "depends_on": [
+              "TC-002"
+            ]
+          }
+        ],
+        "side_suites": [
+          {
+            "suite_id": "permission_suite",
+            "execution_group": "permission",
+            "rank": 1,
+            "case_ids": [
+              "TC-004",
+              "TC-005",
+              "TC-006"
+            ],
+            "case_count": 3
+          },
+          {
+            "suite_id": "exception_suite",
+            "execution_group": "exception",
+            "rank": 2,
+            "case_ids": [
+              "TC-007"
+            ],
+            "case_count": 1
+          },
+          {
+            "suite_id": "boundary_suite",
+            "execution_group": "boundary",
+            "rank": 3,
+            "case_ids": [
+              "TC-008",
+              "TC-009",
+              "TC-010"
+            ],
+            "case_count": 3
+          },
+          {
+            "suite_id": "independent_functional_suite",
+            "execution_group": "independent_functional",
+            "rank": 4,
+            "case_ids": [
+              "TC-011",
+              "TC-012"
+            ],
+            "case_count": 2
+          },
+          {
+            "suite_id": "display_suite",
+            "execution_group": "display",
+            "rank": 5,
+            "case_ids": [
+              "TC-013",
+              "TC-014",
+              "TC-015",
+              "TC-016",
+              "TC-017",
+              "TC-018",
+              "TC-019",
+              "TC-020",
+              "TC-021",
+              "TC-022",
+              "TC-023",
+              "TC-024",
+              "TC-025",
+              "TC-026",
+              "TC-027"
+            ],
+            "case_count": 15
+          }
+        ]
+      },
+      "group_setup": {
+        "boundary": "seed_boundary_dataset()",
+        "display": "seed_display_ready_dataset()",
+        "exception": "enable_fault_injection_for_case()",
+        "independent_functional": "seed_functional_dataset()",
+        "main_smoke": "seed_workflow_blueprint_dataset()",
+        "permission": "seed_permission_state_dataset()"
+      },
+      "group_teardown": {
+        "boundary": "delete_boundary_dataset()",
+        "display": "delete_display_ready_dataset()",
+        "exception": "disable_fault_injection()",
+        "independent_functional": "cleanup_functional_dataset()",
+        "main_smoke": "cleanup_workflow_blueprint_dataset()",
+        "permission": "reset_permission_state_dataset()"
+      },
+      "fixture_keys": [
+        "boundary_dataset",
+        "display_ready_dataset",
+        "fault_injection_case",
+        "independent_functional_dataset",
+        "permission_state_dataset",
+        "workflow_blueprint_chain_seed"
+      ],
+      "global_stage_assignment": {
+        "algorithm": "maximum_weight_bipartite_min_cost_flow_v1",
+        "stage_count": 3,
+        "candidate_edge_count": 3,
+        "selected_case_count": 3,
+        "required_gap_count": 0,
+        "optional_gap_count": 0,
+        "total_score": 615,
+        "selected": [
+          {
+            "stage_key": "P021_N09",
+            "case_id": "TC-010",
+            "score": 205,
+            "text_diagnostic_match_score": 7,
+            "model_stage_confidence": 0.9,
+            "semantic_stage_kind": "commit",
+            "penalties": [],
+            "stage_label": "投稿提交与审核",
+            "required": true
+          },
+          {
+            "stage_key": "P021_N10",
+            "case_id": "TC-011",
+            "score": 205,
+            "text_diagnostic_match_score": 6,
+            "model_stage_confidence": 0.9,
+            "semantic_stage_kind": "preview",
+            "penalties": [],
+            "stage_label": "投稿成功弹窗",
+            "required": true
+          },
+          {
+            "stage_key": "P021_N11",
+            "case_id": "TC-012",
+            "score": 205,
+            "text_diagnostic_match_score": 4,
+            "model_stage_confidence": 0.9,
+            "semantic_stage_kind": "completion_sync",
+            "penalties": [],
+            "stage_label": "投稿成功确认与状态变更",
+            "required": true
+          }
+        ],
+        "gaps": [],
+        "soft_warnings": [],
+        "candidate_soft_warnings": []
+      },
+      "best_assignment": [
+        {
+          "stage_key": "P021_N09",
+          "case_id": "TC-010",
+          "score": 205,
+          "text_diagnostic_match_score": 7,
+          "model_stage_confidence": 0.9,
+          "semantic_stage_kind": "commit",
+          "penalties": [],
+          "stage_label": "投稿提交与审核",
+          "required": true
+        },
+        {
+          "stage_key": "P021_N10",
+          "case_id": "TC-011",
+          "score": 205,
+          "text_diagnostic_match_score": 6,
+          "model_stage_confidence": 0.9,
+          "semantic_stage_kind": "preview",
+          "penalties": [],
+          "stage_label": "投稿成功弹窗",
+          "required": true
+        },
+        {
+          "stage_key": "P021_N11",
+          "case_id": "TC-012",
+          "score": 205,
+          "text_diagnostic_match_score": 4,
+          "model_stage_confidence": 0.9,
+          "semantic_stage_kind": "completion_sync",
+          "penalties": [],
+          "stage_label": "投稿成功确认与状态变更",
+          "required": true
+        }
+      ],
+      "best_assignment_state_conflicts": [],
+      "optional_branch_state_conflicts": [],
+      "publishable_main_chain": true,
+      "workflow_blueprint_contract_complete": true,
+      "primary_workflow_resolution": {
+        "status": "explicit_primary",
+        "primary_workflow_id": "WF_C009_001",
+        "non_primary_workflow_ids": [],
+        "rejected_workflow_ids": []
+      },
+      "primary_workflow_id": "WF_C009_001",
+      "non_primary_workflow_ids": [],
+      "workflow_absence_declared": false,
+      "independent_suite_executable": false,
+      "functional_phase_coverage": {
+        "applied": true,
+        "requested_case_count": 27,
+        "module_counts": {
+          "B01": 0,
+          "B02": 6,
+          "B03": 9,
+          "B04": 5,
+          "B05": 3,
+          "B06": 4,
+          "B07": 0
+        },
+        "interaction_counts": {},
+        "phase_counts": {
+          "module_internal:作文圈社区与审核": 5,
+          "module_internal:课程权限与商品交易": 3,
+          "module_internal:AI作文批改服务": 9,
+          "module_internal:写作秘籍收集系统": 4,
+          "module_internal:课程学习与环节管理": 6
+        },
+        "uncovered_modules": [
+          "B01",
+          "B07"
+        ],
+        "uncovered_interactions": [],
+        "uncovered_structured_facts": [
+          {
+            "fact_type": "functional_module",
+            "module_key": "B01",
+            "module_name": "同步作文课程体系"
+          },
+          {
+            "fact_type": "functional_module",
+            "module_key": "B07",
+            "module_name": "H5分享与外部引流"
+          }
+        ]
+      }
+    },
+    "linear_executable": true,
+    "linear_scope": "main_smoke_chain_only",
+    "main_chain_case_count": 3,
+    "independent_case_count": 24,
+    "isolation_case_count": 24,
+    "broken_dependency_count": 0,
+    "state_conflict_count": 0,
+    "role_switch_count": 2,
+    "final_reasoning_leakage_case_count": 0,
+    "priority_decision_state_breakdown": {
+      "decided": 27,
+      "conflict": 0,
+      "undetermined": 0,
+      "optional": 0,
+      "invalid": 2
+    },
+    "priority_final_breakdown": {
+      "P0": 3,
+      "P1": 8,
+      "P2": 16,
+      "null": 2
+    },
+    "legacy_priority_breakdown": {
+      "P0": 0,
+      "P1": 23,
+      "P2": 6,
+      "UNKNOWN": 0
+    },
+    "priority_conflict_count": 0,
+    "priority_undetermined_count": 0,
+    "priority_optional_count": 0,
+    "priority_invalid_count": 2,
+    "priority_quality_gate_failed": true,
+    "needs_priority_review": true,
+    "invalid_case_count": 0,
+    "reasoning_leakage_case_count": 0,
+    "review_llm_filter_applied": true,
+    "review_input_size": 27,
+    "review_output_size": 27,
+    "review_target_min_count": 25,
+    "review_target_max_count": 25,
+    "review_shortfall_detected": false,
+    "review_shortfall_before_count": 27,
+    "requested_generation_mode": "",
+    "effective_generation_coverage_mode_source": "feedback_control_state",
+    "explicit_generation_mode_override": false,
+    "explicit_expected_count_floor_preserved": false,
+    "review_llm_selected_count": 27,
+    "review_llm_runtime_debug": {
+      "invoked": true,
+      "pool_non_empty": true,
+      "pool_size": 29,
+      "deterministic_noop_skip_eligible": false,
+      "deterministic_noop_preflight_selected_count": 29,
+      "deterministic_noop_preflight_within_target_window": false,
+      "deterministic_noop_preflight_signature_unchanged": true,
+      "deterministic_noop_preflight_dropped_by_max": false,
+      "skip_reason": "",
+      "primary_model": "glm-5.1",
+      "primary_invalid_reason": "",
+      "primary_reason_incomplete": false,
+      "primary_dropped_reason_count": 2,
+      "primary_dropped_reason_payload_count": 2,
+      "primary_reason_coverage_ratio": 1.0,
+      "response_len": 569,
+      "response_preview": "{\n  \"kept_case_ids\": [\n    \"TC-001\",\n    \"TC-002\",\n    \"TC-003\",\n    \"TC-004\",\n    \"TC-005\",\n    \"TC-006\",\n    \"TC-008\",\n    \"TC-009\",\n    \"TC-010\",\n    \"TC-011\",\n    \"TC-012\",\n    \"TC-013\",\n    \"TC-014\",\n    \"TC-015\",\n    \"TC-016\",\n    \"TC-017\",\n    \"TC-018\",\n    \"TC-019\",\n    \"TC-021\",\n    \"TC-022\",\n    \"TC-023\",\n    \"TC-024\",\n    \"TC-025\",\n    \"TC-026\",\n    \"TC-027\",\n    \"TC-028\",\n    \"TC-029\"\n  ],\n  \"dropped\": [\n    {\n      \"case_id\": \"TC-007\",\n      \"reason\": \"duplicate\"\n    },\n    {\n      ",
+      "primary_response_metadata": {
+        "model": "glm-5.1",
+        "wire_api": "chat_completions",
+        "max_tokens": 10000,
+        "response_mode": "auto",
+        "json_response": true,
+        "request_timeout_seconds": 90.0,
+        "request_timeout_source": "default",
+        "http_status": 200,
+        "url_path": "/chat/completions",
+        "reasoning_effort": "low",
+        "response_format": {
+          "type": "json_object"
+        },
+        "thinking": {
+          "type": "disabled"
+        },
+        "finish_reason": "stop",
+        "content_len": 569,
+        "reasoning_len": 0,
+        "message_keys": [
+          "role",
+          "content"
+        ],
+        "input_tokens_estimated": 9435,
+        "output_tokens_estimated": 142,
+        "token_estimate_method": "chars_div_4"
+      },
+      "primary_contract_retry_invoked": false,
+      "primary_contract_retry_model": "",
+      "primary_contract_retry_invalid_reason": "",
+      "primary_contract_retry_response_len": 0,
+      "primary_contract_retry_response_metadata": {},
+      "retry_invoked": false,
+      "retry_reason": "",
+      "retry_model": "",
+      "retry_attempts": [],
+      "fallback_skipped_reason": "",
+      "retry_response_len": 0,
+      "retry_parse_success": false,
+      "retry_mapped_count": 0,
+      "retry_payload_has_selection_signal": false,
+      "parsed_type": "dict",
+      "parsed_len": 2,
+      "mapped_count": 27,
+      "mapped_signature_count": 27,
+      "dropped_reason_count": 2,
+      "dropped_reason_payload_count": 2,
+      "dropped_reason_unmapped_count": 0,
+      "payload_has_selection_signal": true,
+      "final_selected_and_dropped_overlap_count": 0,
+      "final_selected_and_dropped_overlap_case_ids": [],
+      "final_payload_consistent": true,
+      "reason_repair_invoked": false,
+      "reason_repair_model": "",
+      "reason_repair_candidate_count": 0,
+      "reason_repair_response_len": 0,
+      "reason_repair_mapped_count": 0,
+      "reason_repair_invalid_reason": "",
+      "reason_repair_response_metadata": {},
+      "final_source": "primary_llm",
+      "applied": true,
+      "applied_reason": "mapped_valid_payload",
+      "exception": "",
+      "forced_reset_by_fallback": false,
+      "fallback_reason_incomplete": false,
+      "final_reason_incomplete": false,
+      "final_reason_coverage_ratio": 0.5,
+      "prompt_chars": 33726,
+      "prompt_est_tokens": 8432,
+      "candidate_count": 29,
+      "append_target_count": 0,
+      "append_final_cap_count": 0,
+      "primary_duration_ms": 7977,
+      "final_dropped_reason_count": 2,
+      "final_dropped_reason_payload_count": 2,
+      "final_dropped_reason_unmapped_count": 0,
+      "review_candidate_count": 29,
+      "review_input_overflow": false,
+      "global_review_complete": true,
+      "global_review_unaccounted_count": 0,
+      "global_review_unaccounted_case_signatures": [],
+      "global_review_incomplete_reason": "",
+      "full_candidate_set_preserved": false,
+      "required_stage_review_retention": {
+        "applied": false,
+        "reason": "selected_required_stage_assignment_already_complete",
+        "source_coverage": {
+          "active": true,
+          "resolution": {
+            "status": "explicit_primary",
+            "primary_workflow_id": "WF_C009_001",
+            "non_primary_workflow_ids": [],
+            "rejected_workflow_ids": []
+          },
+          "workflow_id": "WF_C009_001",
+          "required_stage_ids": [
+            "P021_N09",
+            "P021_N10",
+            "P021_N11"
+          ],
+          "covered_required_stage_ids": [
+            "P021_N09",
+            "P021_N10",
+            "P021_N11"
+          ],
+          "missing_required_stage_ids": [],
+          "missing_required_stages": [],
+          "selected_required_candidates": [
+            {
+              "workflow_id": "WF_C009_001",
+              "stage_id": "P021_N09",
+              "stage_kind": "commit",
+              "candidate_key": "TC-001::8efb1c186e5fcae8ee7d",
+              "case_signature": "{\"_semantic\":{\"interaction_ids\":[],\"module_candidates\":[{\"confidence\":0.9,\"module_key\":\"B04\",\"module_name\":\"作文圈社区与审核\",\"role\":\"primary\"}],\"precondition_states\":[],\"produced_states\":[{\"confidence\":0.9,\"entity\":\"投稿内容\",\"polarity\":\"positive\",\"scope\":\"entity\",\"source\":\"current_stage\",\"state\":\"已提交\",\"temporal\":\"after_case\"}],\"workflow_stage_candidates\":[{\"confidence\":0.9,\"stage_id\":\"P021_N09\",\"stage_kind\":\"commit\",\"workflow_id\":\"WF_C009_001\"}]},\"description\":\"投稿提交与审核流程-提交阶段：用户在投稿页点击提交按钮后，系统提交内容供审核后台查看并弹出投稿成功弹窗\",\"expected_result\":\"系统提交内容供审核后台查看并审核，同时页面出现投稿成功弹窗提示\",\"preconditions\":[\"用户已登录\",\"用户已完成作文批改并进入投稿页\",\"投稿内容已填写完毕\"],\"steps\":[\"1. 在投稿页确认内容无误\",\"2. 点击投稿页的提交按钮\"],\"structured_risk\":{},\"test_input\":\"点击投稿页提交按钮\",\"test_module\":\"作文圈社区与审核\"}",
+              "case_id": "TC-001"
+            },
+            {
+              "workflow_id": "WF_C009_001",
+              "stage_id": "P021_N10",
+              "stage_kind": "preview",
+              "candidate_key": "TC-002::20fd1f8f0e3b4f334ba4",
+              "case_signature": "{\"_semantic\":{\"interaction_ids\":[],\"module_candidates\":[{\"confidence\":0.9,\"module_key\":\"B04\",\"module_name\":\"作文圈社区与审核\",\"role\":\"primary\"}],\"precondition_states\":[{\"confidence\":0.9,\"entity\":\"投稿内容\",\"polarity\":\"positive\",\"scope\":\"entity\",\"source\":\"previous_stage\",\"state\":\"已提交\",\"temporal\":\"after_previous_stage\"}],\"produced_states\":[],\"workflow_stage_candidates\":[{\"confidence\":0.9,\"stage_id\":\"P021_N10\",\"stage_kind\":\"preview\",\"workflow_id\":\"WF_C009_001\"}]},\"description\":\"投稿提交与审核流程-预览阶段：投稿成功后系统显示投稿成功弹窗，弹窗中展示说明信息\",\"expected_result\":\"投稿成功弹窗在投稿成功后显示，弹窗中展示说明信息\",\"preconditions\":[\"用户已点击投稿页提交按钮\",\"投稿内容已成功提交至审核后台\"],\"steps\":[\"1. 观察投稿提交后的页面状态\",\"2. 查看弹出的投稿成功弹窗内容\"],\"structured_risk\":{},\"test_input\":\"查看投稿成功弹窗\",\"test_module\":\"作文圈社区与审核\"}",
+              "case_id": "TC-002"
+            },
+            {
+              "workflow_id": "WF_C009_001",
+              "stage_id": "P021_N11",
+              "stage_kind": "completion_sync",
+              "candidate_key": "TC-003::a2b586eb4d04d3984297",
+              "case_signature": "{\"_semantic\":{\"interaction_ids\":[],\"module_candidates\":[{\"confidence\":0.9,\"module_key\":\"B04\",\"module_name\":\"作文圈社区与审核\",\"role\":\"primary\"}],\"precondition_states\":[{\"confidence\":0.9,\"entity\":\"投稿成功弹窗\",\"polarity\":\"positive\",\"scope\":\"entity\",\"source\":\"previous_stage\",\"state\":\"已显示\",\"temporal\":\"after_previous_stage\"}],\"produced_states\":[{\"confidence\":0.9,\"entity\":\"投稿按钮\",\"polarity\":\"positive\",\"scope\":\"entity\",\"source\":\"current_stage\",\"state\":\"审核中\",\"temporal\":\"after_case\"}],\"workflow_stage_candidates\":[{\"confidence\":0.9,\"stage_id\":\"P021_N11\",\"stage_kind\":\"completion_sync\",\"workflow_id\":\"WF_C009_001\"}]},\"description\":\"投稿提交与审核流程-完成同步阶段：用户点击投稿成功弹窗的【我知道了】按钮关闭弹窗并返回批改详情页，同时投稿按钮状态改为审核中\",\"expected_result\":\"关闭弹窗并返回批改详情页，同时投稿按钮状态改为审核中\",\"preconditions\":[\"投稿成功弹窗已显示\",\"投稿按钮当前处于非审核中状态\"],\"steps\":[\"1. 在投稿成功弹窗中点击【我知道了】按钮\"],\"structured_risk\":{},\"test_input\":\"点击投稿成功弹窗的【我知道了】按钮\",\"test_module\":\"作文圈社区与审核\"}",
+              "case_id": "TC-003"
+            }
+          ],
+          "candidate_edge_count": 3,
+          "assignment_required_stage_coverage_complete": true,
+          "required_stage_coverage_complete": true,
+          "publishable_main_chain": true,
+          "workflow_blueprint_contract_complete": true,
+          "workflow_blueprint_closure": {
+            "contract_present": true,
+            "blueprint_id": "WF_C009_001",
+            "declared_workflow_contract": {
+              "id": "WF_C009_001",
+              "workflow_id": "WF_C009_001",
+              "name": "投稿提交与审核流程",
+              "source_type": "current_requirement_extracted",
+              "repository_source": "current_requirement_blueprint",
+              "trusted": false,
+              "confidence": 0.95,
+              "initial_state": "未投稿",
+              "terminal_states": [
+                "审核中"
+              ],
+              "required_stage_ids": [
+                "P021_N09",
+                "P021_N10",
+                "P021_N11"
+              ],
+              "steps": [
+                {
+                  "id": "P021_N09",
+                  "label": "投稿提交与审核",
+                  "action": "用户点击投稿页提交按钮",
+                  "stage_kind": "commit",
+                  "actor": "user",
+                  "state_in": "未投稿",
+                  "state_out": "提交中",
+                  "required": true,
+                  "terminal": false,
+                  "critical": true,
+                  "blocking": true,
+                  "module_candidates": [
+                    {
+                      "module_key": "B04",
+                      "module_name": "作文圈社区与审核",
+                      "role": "primary",
+                      "confidence": 1.0,
+                      "evidence": [
+                        "5. 提交按钮，点击后进⾏提交，审核后台可查看并审核，同时⻚⾯出现投稿成功弹窗提⽰"
+                      ],
+                      "evidence_verified": true
+                    }
+                  ]
+                },
+                {
+                  "id": "P021_N10",
+                  "label": "投稿成功弹窗",
+                  "action": "系统展示投稿成功弹窗",
+                  "stage_kind": "preview",
+                  "actor": "system",
+                  "state_in": "提交中",
+                  "state_out": "等待确认",
+                  "required": true,
+                  "terminal": false,
+                  "critical": true,
+                  "blocking": true,
+                  "module_candidates": [
+                    {
+                      "module_key": "B04",
+                      "module_name": "作文圈社区与审核",
+                      "role": "primary",
+                      "confidence": 1.0,
+                      "evidence": [
+                        "5. 提交按钮，点击后进⾏提交，审核后台可查看并审核，同时⻚⾯出现投稿成功弹窗提⽰",
+                        "6. 投稿成功弹窗",
+                        "a. 显⽰说明信息如图"
+                      ],
+                      "evidence_verified": true
+                    }
+                  ]
+                },
+                {
+                  "id": "P021_N11",
+                  "label": "投稿成功确认与状态变更",
+                  "action": "用户点击【我知道了】按钮确认并变更状态",
+                  "stage_kind": "completion_sync",
+                  "actor": "user",
+                  "state_in": "等待确认",
+                  "state_out": "审核中",
+                  "required": true,
+                  "terminal": true,
+                  "critical": true,
+                  "blocking": true,
+                  "module_candidates": [
+                    {
+                      "module_key": "B04",
+                      "module_name": "作文圈社区与审核",
+                      "role": "primary",
+                      "confidence": 1.0,
+                      "evidence": [
+                        "6. 投稿成功弹窗",
+                        "b. 点击【我知道了】按钮，关闭弹窗返回批改详情⻚，同时投稿按钮状态改为审核中的状态"
+                      ],
+                      "evidence_verified": true
+                    }
+                  ]
+                }
+              ]
+            },
+            "required_stage_ids": [
+              "P021_N09",
+              "P021_N10",
+              "P021_N11"
+            ],
+            "covered_stage_ids": [
+              "P021_N09",
+              "P021_N10",
+              "P021_N11"
+            ],
+            "missing_required_stage_ids": [],
+            "initial_state": "未投稿",
+            "first_source_state": "未投稿",
+            "initial_state_matched": true,
+            "terminal_states": [
+              "审核中"
+            ],
+            "reachable_states": [
+              "审核中",
+              "提交中",
+              "未投稿",
+              "等待确认"
+            ],
+            "terminal_state_reachable": true,
+            "state_connected": true,
+            "state_conflicts": [],
+            "closure_satisfied": true,
+            "failure_reasons": []
+          },
+          "candidate_workflow_closure": {
+            "contract_present": true,
+            "blueprint_id": "WF_C009_001",
+            "declared_workflow_contract": {
+              "id": "WF_C009_001",
+              "workflow_id": "WF_C009_001",
+              "name": "投稿提交与审核流程",
+              "source_type": "current_requirement_extracted",
+              "repository_source": "current_requirement_blueprint",
+              "trusted": false,
+              "confidence": 0.95,
+              "initial_state": "未投稿",
+              "terminal_states": [
+                "审核中"
+              ],
+              "required_stage_ids": [
+                "P021_N09",
+                "P021_N10",
+                "P021_N11"
+              ],
+              "steps": [
+                {
+                  "id": "P021_N09",
+                  "label": "投稿提交与审核",
+                  "action": "用户点击投稿页提交按钮",
+                  "stage_kind": "commit",
+                  "actor": "user",
+                  "state_in": "未投稿",
+                  "state_out": "提交中",
+                  "required": true,
+                  "terminal": false,
+                  "critical": true,
+                  "blocking": true,
+                  "module_candidates": [
+                    {
+                      "module_key": "B04",
+                      "module_name": "作文圈社区与审核",
+                      "role": "primary",
+                      "confidence": 1.0,
+                      "evidence": [
+                        "5. 提交按钮，点击后进⾏提交，审核后台可查看并审核，同时⻚⾯出现投稿成功弹窗提⽰"
+                      ],
+                      "evidence_verified": true
+                    }
+                  ]
+                },
+                {
+                  "id": "P021_N10",
+                  "label": "投稿成功弹窗",
+                  "action": "系统展示投稿成功弹窗",
+                  "stage_kind": "preview",
+                  "actor": "system",
+                  "state_in": "提交中",
+                  "state_out": "等待确认",
+                  "required": true,
+                  "terminal": false,
+                  "critical": true,
+                  "blocking": true,
+                  "module_candidates": [
+                    {
+                      "module_key": "B04",
+                      "module_name": "作文圈社区与审核",
+                      "role": "primary",
+                      "confidence": 1.0,
+                      "evidence": [
+                        "5. 提交按钮，点击后进⾏提交，审核后台可查看并审核，同时⻚⾯出现投稿成功弹窗提⽰",
+                        "6. 投稿成功弹窗",
+                        "a. 显⽰说明信息如图"
+                      ],
+                      "evidence_verified": true
+                    }
+                  ]
+                },
+                {
+                  "id": "P021_N11",
+                  "label": "投稿成功确认与状态变更",
+                  "action": "用户点击【我知道了】按钮确认并变更状态",
+                  "stage_kind": "completion_sync",
+                  "actor": "user",
+                  "state_in": "等待确认",
+                  "state_out": "审核中",
+                  "required": true,
+                  "terminal": true,
+                  "critical": true,
+                  "blocking": true,
+                  "module_candidates": [
+                    {
+                      "module_key": "B04",
+                      "module_name": "作文圈社区与审核",
+                      "role": "primary",
+                      "confidence": 1.0,
+                      "evidence": [
+                        "6. 投稿成功弹窗",
+                        "b. 点击【我知道了】按钮，关闭弹窗返回批改详情⻚，同时投稿按钮状态改为审核中的状态"
+                      ],
+                      "evidence_verified": true
+                    }
+                  ]
+                }
+              ]
+            },
+            "required_stage_ids": [
+              "P021_N09",
+              "P021_N10",
+              "P021_N11"
+            ],
+            "covered_stage_ids": [
+              "P021_N09",
+              "P021_N10",
+              "P021_N11"
+            ],
+            "missing_required_stage_ids": [],
+            "initial_state": "未投稿",
+            "first_source_state": "未投稿",
+            "initial_state_matched": true,
+            "terminal_states": [
+              "审核中"
+            ],
+            "reachable_states": [
+              "审核中",
+              "提交中",
+              "未投稿",
+              "等待确认"
+            ],
+            "terminal_state_reachable": true,
+            "state_connected": true,
+            "state_conflicts": [],
+            "closure_satisfied": true,
+            "failure_reasons": []
+          },
+          "selected_stage_state_conflicts": [],
+          "optional_branch_state_conflicts": [],
+          "source_generation_allowed": true,
+          "actionable_stage_ids": [],
+          "failure_reason": ""
+        },
+        "final_coverage": {
+          "active": true,
+          "resolution": {
+            "status": "explicit_primary",
+            "primary_workflow_id": "WF_C009_001",
+            "non_primary_workflow_ids": [],
+            "rejected_workflow_ids": []
+          },
+          "workflow_id": "WF_C009_001",
+          "required_stage_ids": [
+            "P021_N09",
+            "P021_N10",
+            "P021_N11"
+          ],
+          "covered_required_stage_ids": [
+            "P021_N09",
+            "P021_N10",
+            "P021_N11"
+          ],
+          "missing_required_stage_ids": [],
+          "missing_required_stages": [],
+          "selected_required_candidates": [
+            {
+              "workflow_id": "WF_C009_001",
+              "stage_id": "P021_N09",
+              "stage_kind": "commit",
+              "candidate_key": "TC-001::8efb1c186e5fcae8ee7d",
+              "case_signature": "{\"_semantic\":{\"interaction_ids\":[],\"module_candidates\":[{\"confidence\":0.9,\"module_key\":\"B04\",\"module_name\":\"作文圈社区与审核\",\"role\":\"primary\"}],\"precondition_states\":[],\"produced_states\":[{\"confidence\":0.9,\"entity\":\"投稿内容\",\"polarity\":\"positive\",\"scope\":\"entity\",\"source\":\"current_stage\",\"state\":\"已提交\",\"temporal\":\"after_case\"}],\"workflow_stage_candidates\":[{\"confidence\":0.9,\"stage_id\":\"P021_N09\",\"stage_kind\":\"commit\",\"workflow_id\":\"WF_C009_001\"}]},\"description\":\"投稿提交与审核流程-提交阶段：用户在投稿页点击提交按钮后，系统提交内容供审核后台查看并弹出投稿成功弹窗\",\"expected_result\":\"系统提交内容供审核后台查看并审核，同时页面出现投稿成功弹窗提示\",\"preconditions\":[\"用户已登录\",\"用户已完成作文批改并进入投稿页\",\"投稿内容已填写完毕\"],\"steps\":[\"1. 在投稿页确认内容无误\",\"2. 点击投稿页的提交按钮\"],\"structured_risk\":{},\"test_input\":\"点击投稿页提交按钮\",\"test_module\":\"作文圈社区与审核\"}",
+              "case_id": "TC-001"
+            },
+            {
+              "workflow_id": "WF_C009_001",
+              "stage_id": "P021_N10",
+              "stage_kind": "preview",
+              "candidate_key": "TC-002::20fd1f8f0e3b4f334ba4",
+              "case_signature": "{\"_semantic\":{\"interaction_ids\":[],\"module_candidates\":[{\"confidence\":0.9,\"module_key\":\"B04\",\"module_name\":\"作文圈社区与审核\",\"role\":\"primary\"}],\"precondition_states\":[{\"confidence\":0.9,\"entity\":\"投稿内容\",\"polarity\":\"positive\",\"scope\":\"entity\",\"source\":\"previous_stage\",\"state\":\"已提交\",\"temporal\":\"after_previous_stage\"}],\"produced_states\":[],\"workflow_stage_candidates\":[{\"confidence\":0.9,\"stage_id\":\"P021_N10\",\"stage_kind\":\"preview\",\"workflow_id\":\"WF_C009_001\"}]},\"description\":\"投稿提交与审核流程-预览阶段：投稿成功后系统显示投稿成功弹窗，弹窗中展示说明信息\",\"expected_result\":\"投稿成功弹窗在投稿成功后显示，弹窗中展示说明信息\",\"preconditions\":[\"用户已点击投稿页提交按钮\",\"投稿内容已成功提交至审核后台\"],\"steps\":[\"1. 观察投稿提交后的页面状态\",\"2. 查看弹出的投稿成功弹窗内容\"],\"structured_risk\":{},\"test_input\":\"查看投稿成功弹窗\",\"test_module\":\"作文圈社区与审核\"}",
+              "case_id": "TC-002"
+            },
+            {
+              "workflow_id": "WF_C009_001",
+              "stage_id": "P021_N11",
+              "stage_kind": "completion_sync",
+              "candidate_key": "TC-003::a2b586eb4d04d3984297",
+              "case_signature": "{\"_semantic\":{\"interaction_ids\":[],\"module_candidates\":[{\"confidence\":0.9,\"module_key\":\"B04\",\"module_name\":\"作文圈社区与审核\",\"role\":\"primary\"}],\"precondition_states\":[{\"confidence\":0.9,\"entity\":\"投稿成功弹窗\",\"polarity\":\"positive\",\"scope\":\"entity\",\"source\":\"previous_stage\",\"state\":\"已显示\",\"temporal\":\"after_previous_stage\"}],\"produced_states\":[{\"confidence\":0.9,\"entity\":\"投稿按钮\",\"polarity\":\"positive\",\"scope\":\"entity\",\"source\":\"current_stage\",\"state\":\"审核中\",\"temporal\":\"after_case\"}],\"workflow_stage_candidates\":[{\"confidence\":0.9,\"stage_id\":\"P021_N11\",\"stage_kind\":\"completion_sync\",\"workflow_id\":\"WF_C009_001\"}]},\"description\":\"投稿提交与审核流程-完成同步阶段：用户点击投稿成功弹窗的【我知道了】按钮关闭弹窗并返回批改详情页，同时投稿按钮状态改为审核中\",\"expected_result\":\"关闭弹窗并返回批改详情页，同时投稿按钮状态改为审核中\",\"preconditions\":[\"投稿成功弹窗已显示\",\"投稿按钮当前处于非审核中状态\"],\"steps\":[\"1. 在投稿成功弹窗中点击【我知道了】按钮\"],\"structured_risk\":{},\"test_input\":\"点击投稿成功弹窗的【我知道了】按钮\",\"test_module\":\"作文圈社区与审核\"}",
+              "case_id": "TC-003"
+            }
+          ],
+          "candidate_edge_count": 3,
+          "assignment_required_stage_coverage_complete": true,
+          "required_stage_coverage_complete": true,
+          "publishable_main_chain": true,
+          "workflow_blueprint_contract_complete": true,
+          "workflow_blueprint_closure": {
+            "contract_present": true,
+            "blueprint_id": "WF_C009_001",
+            "declared_workflow_contract": {
+              "id": "WF_C009_001",
+              "workflow_id": "WF_C009_001",
+              "name": "投稿提交与审核流程",
+              "source_type": "current_requirement_extracted",
+              "repository_source": "current_requirement_blueprint",
+              "trusted": false,
+              "confidence": 0.95,
+              "initial_state": "未投稿",
+              "terminal_states": [
+                "审核中"
+              ],
+              "required_stage_ids": [
+                "P021_N09",
+                "P021_N10",
+                "P021_N11"
+              ],
+              "steps": [
+                {
+                  "id": "P021_N09",
+                  "label": "投稿提交与审核",
+                  "action": "用户点击投稿页提交按钮",
+                  "stage_kind": "commit",
+                  "actor": "user",
+                  "state_in": "未投稿",
+                  "state_out": "提交中",
+                  "required": true,
+                  "terminal": false,
+                  "critical": true,
+                  "blocking": true,
+                  "module_candidates": [
+                    {
+                      "module_key": "B04",
+                      "module_name": "作文圈社区与审核",
+                      "role": "primary",
+                      "confidence": 1.0,
+                      "evidence": [
+                        "5. 提交按钮，点击后进⾏提交，审核后台可查看并审核，同时⻚⾯出现投稿成功弹窗提⽰"
+                      ],
+                      "evidence_verified": true
+                    }
+                  ]
+                },
+                {
+                  "id": "P021_N10",
+                  "label": "投稿成功弹窗",
+                  "action": "系统展示投稿成功弹窗",
+                  "stage_kind": "preview",
+                  "actor": "system",
+                  "state_in": "提交中",
+                  "state_out": "等待确认",
+                  "required": true,
+                  "terminal": false,
+                  "critical": true,
+                  "blocking": true,
+                  "module_candidates": [
+                    {
+                      "module_key": "B04",
+                      "module_name": "作文圈社区与审核",
+                      "role": "primary",
+                      "confidence": 1.0,
+                      "evidence": [
+                        "5. 提交按钮，点击后进⾏提交，审核后台可查看并审核，同时⻚⾯出现投稿成功弹窗提⽰",
+                        "6. 投稿成功弹窗",
+                        "a. 显⽰说明信息如图"
+                      ],
+                      "evidence_verified": true
+                    }
+                  ]
+                },
+                {
+                  "id": "P021_N11",
+                  "label": "投稿成功确认与状态变更",
+                  "action": "用户点击【我知道了】按钮确认并变更状态",
+                  "stage_kind": "completion_sync",
+                  "actor": "user",
+                  "state_in": "等待确认",
+                  "state_out": "审核中",
+                  "required": true,
+                  "terminal": true,
+                  "critical": true,
+                  "blocking": true,
+                  "module_candidates": [
+                    {
+                      "module_key": "B04",
+                      "module_name": "作文圈社区与审核",
+                      "role": "primary",
+                      "confidence": 1.0,
+                      "evidence": [
+                        "6. 投稿成功弹窗",
+                        "b. 点击【我知道了】按钮，关闭弹窗返回批改详情⻚，同时投稿按钮状态改为审核中的状态"
+                      ],
+                      "evidence_verified": true
+                    }
+                  ]
+                }
+              ]
+            },
+            "required_stage_ids": [
+              "P021_N09",
+              "P021_N10",
+              "P021_N11"
+            ],
+            "covered_stage_ids": [
+              "P021_N09",
+              "P021_N10",
+              "P021_N11"
+            ],
+            "missing_required_stage_ids": [],
+            "initial_state": "未投稿",
+            "first_source_state": "未投稿",
+            "initial_state_matched": true,
+            "terminal_states": [
+              "审核中"
+            ],
+            "reachable_states": [
+              "审核中",
+              "提交中",
+              "未投稿",
+              "等待确认"
+            ],
+            "terminal_state_reachable": true,
+            "state_connected": true,
+            "state_conflicts": [],
+            "closure_satisfied": true,
+            "failure_reasons": []
+          },
+          "candidate_workflow_closure": {
+            "contract_present": true,
+            "blueprint_id": "WF_C009_001",
+            "declared_workflow_contract": {
+              "id": "WF_C009_001",
+              "workflow_id": "WF_C009_001",
+              "name": "投稿提交与审核流程",
+              "source_type": "current_requirement_extracted",
+              "repository_source": "current_requirement_blueprint",
+              "trusted": false,
+              "confidence": 0.95,
+              "initial_state": "未投稿",
+              "terminal_states": [
+                "审核中"
+              ],
+              "required_stage_ids": [
+                "P021_N09",
+                "P021_N10",
+                "P021_N11"
+              ],
+              "steps": [
+                {
+                  "id": "P021_N09",
+                  "label": "投稿提交与审核",
+                  "action": "用户点击投稿页提交按钮",
+                  "stage_kind": "commit",
+                  "actor": "user",
+                  "state_in": "未投稿",
+                  "state_out": "提交中",
+                  "required": true,
+                  "terminal": false,
+                  "critical": true,
+                  "blocking": true,
+                  "module_candidates": [
+                    {
+                      "module_key": "B04",
+                      "module_name": "作文圈社区与审核",
+                      "role": "primary",
+                      "confidence": 1.0,
+                      "evidence": [
+                        "5. 提交按钮，点击后进⾏提交，审核后台可查看并审核，同时⻚⾯出现投稿成功弹窗提⽰"
+                      ],
+                      "evidence_verified": true
+                    }
+                  ]
+                },
+                {
+                  "id": "P021_N10",
+                  "label": "投稿成功弹窗",
+                  "action": "系统展示投稿成功弹窗",
+                  "stage_kind": "preview",
+                  "actor": "system",
+                  "state_in": "提交中",
+                  "state_out": "等待确认",
+                  "required": true,
+                  "terminal": false,
+                  "critical": true,
+                  "blocking": true,
+                  "module_candidates": [
+                    {
+                      "module_key": "B04",
+                      "module_name": "作文圈社区与审核",
+                      "role": "primary",
+                      "confidence": 1.0,
+                      "evidence": [
+                        "5. 提交按钮，点击后进⾏提交，审核后台可查看并审核，同时⻚⾯出现投稿成功弹窗提⽰",
+                        "6. 投稿成功弹窗",
+                        "a. 显⽰说明信息如图"
+                      ],
+                      "evidence_verified": true
+                    }
+                  ]
+                },
+                {
+                  "id": "P021_N11",
+                  "label": "投稿成功确认与状态变更",
+                  "action": "用户点击【我知道了】按钮确认并变更状态",
+                  "stage_kind": "completion_sync",
+                  "actor": "user",
+                  "state_in": "等待确认",
+                  "state_out": "审核中",
+                  "required": true,
+                  "terminal": true,
+                  "critical": true,
+                  "blocking": true,
+                  "module_candidates": [
+                    {
+                      "module_key": "B04",
+                      "module_name": "作文圈社区与审核",
+                      "role": "primary",
+                      "confidence": 1.0,
+                      "evidence": [
+                        "6. 投稿成功弹窗",
+                        "b. 点击【我知道了】按钮，关闭弹窗返回批改详情⻚，同时投稿按钮状态改为审核中的状态"
+                      ],
+                      "evidence_verified": true
+                    }
+                  ]
+                }
+              ]
+            },
+            "required_stage_ids": [
+              "P021_N09",
+              "P021_N10",
+              "P021_N11"
+            ],
+            "covered_stage_ids": [
+              "P021_N09",
+              "P021_N10",
+              "P021_N11"
+            ],
+            "missing_required_stage_ids": [],
+            "initial_state": "未投稿",
+            "first_source_state": "未投稿",
+            "initial_state_matched": true,
+            "terminal_states": [
+              "审核中"
+            ],
+            "reachable_states": [
+              "审核中",
+              "提交中",
+              "未投稿",
+              "等待确认"
+            ],
+            "terminal_state_reachable": true,
+            "state_connected": true,
+            "state_conflicts": [],
+            "closure_satisfied": true,
+            "failure_reasons": []
+          },
+          "selected_stage_state_conflicts": [],
+          "optional_branch_state_conflicts": [],
+          "source_generation_allowed": true,
+          "actionable_stage_ids": [],
+          "failure_reason": ""
+        },
+        "protected_candidate_keys": [
+          "TC-001::8efb1c186e5fcae8ee7d",
+          "TC-002::20fd1f8f0e3b4f334ba4",
+          "TC-003::a2b586eb4d04d3984297"
+        ],
+        "restored_candidate_keys": [],
+        "replaced_candidate_keys": [],
+        "target_max_count": 25,
+        "within_target_max": false
+      },
+      "explicit_floor_backfill_count": 0
+    },
+    "review_constraint_selected_count": 0,
+    "review_llm_drop_reason_breakdown": {
+      "duplicate": 1,
+      "selection_tradeoff_omitted": 1
+    },
+    "review_llm_drop_reason_raw_breakdown": {
+      "duplicate": 1,
+      "coverage_redundant": 1
+    },
+    "review_llm_drop_reason_source_breakdown": {
+      "llm": 1,
+      "deterministic_backfill": 1
+    },
+    "fallback_reason_incomplete": false,
+    "final_reason_incomplete": false,
+    "final_reason_coverage_ratio": 0.5,
+    "fallback_dropped_reason_count": 0,
+    "fallback_dropped_reason_mapped_count": 0,
+    "fallback_dropped_reason_unmapped_count": 0,
+    "fallback_reason_coverage_ratio": 0.0,
+    "llm_reason_coverage_ratio": 0.5,
+    "deterministic_backfill_ratio": 0.5,
+    "reason_source_breakdown": {
+      "primary": 1,
+      "fallback": 0,
+      "backfill": 1
+    },
+    "primary_reason_incomplete": false,
+    "primary_dropped_reason_count": 2,
+    "primary_dropped_reason_payload_count": 2,
+    "primary_reason_coverage_ratio": 1.0,
+    "fallback_with_positive_evidence_count": 0,
+    "fallback_without_positive_evidence_count": 0,
+    "review_llm_pool_count": 29,
+    "candidate_by_pass": {
+      "primary": 25,
+      "gap": 4
+    },
+    "retained_due_to_coverage_value_count": 19,
+    "must_cover_rule_hit_count": 0,
+    "forbidden_pattern_violation_count": 0,
+    "soft_constraint_hit_count": 0,
+    "quality_hint_satisfied_count": 0,
+    "drop_by_review_llm_count": 2,
+    "drop_by_review_selector_count": 0,
+    "drop_by_review_gate_count": 0,
+    "drop_by_pre_gate_dedup_count": 0,
+    "drop_by_post_review_dedup_count": 0,
+    "drop_no_new_signal_count": 0,
+    "drop_rule_cap_count": 0,
+    "drop_ui_like_redundant_count": 0,
+    "drop_ui_like_ratio_cap_count": 0,
+    "drop_outside_target_window_count": 0,
+    "drop_by_rerank_low_signal_count": 0,
+    "dropped_model_priority_p0_p1_count": 0,
+    "dropped_core_rule_hit_count": 0,
+    "dropped_missing_rule_hit_count": 0,
+    "dropped_high_signal_count": 0,
+    "dropped_has_coverage_value_count": 1,
+    "drop_ui_like_ratio_postprocess_count": 0,
+    "drop_final_description_duplicate_count": 0,
+    "multi_pass": true,
+    "generation_mode": "multi_pass",
+    "request_id": "7dce543950484a08b9012db0612e52c8"
+  },
+  "judge_summary": {
+    "kind": "judge_summary",
+    "pass_count": 27,
+    "repairable_count": 1,
+    "raw_repairable_count": 1,
+    "remaining_repairable_count": 0,
+    "unrepaired_repairable_count": 1,
+    "reject_count": 0,
+    "pending_count": 0,
+    "repaired_case_count": 0,
+    "appended_case_count": 0,
+    "confirmed_pass_out_count": 27,
+    "repaired_pass_out_count": 0,
+    "rejected_out_count": 0,
+    "pending_out_count": 0,
+    "fact_violation_count": 0,
+    "core_flow_covered": false,
+    "reuse_risk_covered": true,
+    "fact_profile_source": "requirement_semantics",
+    "fact_profile_confidence": 0.75,
+    "fact_profile_confirmed_count": 8,
+    "fact_profile_forbidden_count": 0,
+    "fact_profile_pending_count": 0,
+    "generation_id": 535,
+    "request_id": "7dce543950484a08b9012db0612e52c8"
+  },
+  "generation_summary": {
+    "kind": "generation_summary",
+    "recommended_range": "20-25",
+    "generation_coverage_mode": "core_smoke",
+    "requested_generation_mode": "",
+    "effective_generation_coverage_mode_source": "feedback_control_state",
+    "explicit_generation_mode_override": false,
+    "explicit_expected_count_floor_preserved": false,
+    "expected_count": 25,
+    "expected_count_explicit": true,
+    "recommended_min": 20,
+    "recommended_max": 25,
+    "target_final_count": 25,
+    "soft_min_count": 20,
+    "hard_min_count": 18,
+    "min_acceptable_final": 20,
+    "target_satisfaction_ratio": 1.08,
+    "underfilled": false,
+    "underfill_level": "",
+    "underfill_reason": "",
+    "underfill_root_cause": "",
+    "final_count": 27,
+    "status": "completed_with_optimal_set",
+    "stop_reason": [
+      "coverage_satisfied",
+      "optimal_case_set_reached"
+    ],
+    "quality_assessment": "high",
+    "needs_priority_review": true,
+    "priority_conflict_count": 0,
+    "priority_undetermined_count": 0,
+    "priority_optional_count": 0,
+    "final_priority_breakdown": {
+      "P0": 3,
+      "P1": 8,
+      "P2": 16
+    },
+    "final_execution_group_breakdown": {
+      "main_smoke": 3,
+      "permission": 3,
+      "exception": 1,
+      "boundary": 3,
+      "independent_functional": 2,
+      "display": 15
+    },
+    "final_module_breakdown_top": {
+      "AI作文批改服务": 9,
+      "课程学习与环节管理": 6,
+      "作文圈社区与审核": 5,
+      "写作秘籍收集系统": 4,
+      "课程权限与商品交易": 3
+    },
+    "final_display_case_count": 1,
+    "final_display_ratio": 0.037,
+    "final_high_priority_ratio": 0.4074,
+    "case_semantic_contract": {
+      "enabled": true,
+      "rejected_count": 8,
+      "rejections": [
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 4,
+          "case_id": "TC-004",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-02",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        },
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 5,
+          "case_id": "TC-005",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-02",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        },
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 1,
+          "case_id": "TC-001",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-03",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        },
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 3,
+          "case_id": "TC-003",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-03",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        },
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 5,
+          "case_id": "TC-005",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-03",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        },
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 6,
+          "case_id": "TC-006",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-03",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        },
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 7,
+          "case_id": "TC-007",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-03",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        },
+        {
+          "source_stage": "stream_primary_generation",
+          "case_index": 9,
+          "case_id": "TC-009",
+          "description": "",
+          "rejection_reasons": [
+            "semantic_object_missing"
+          ],
+          "rejected_semantic_items": [
+            {
+              "item_type": "case_semantic",
+              "reason": "semantic_object_missing"
+            }
+          ],
+          "source_shard_id": "SHARD-03",
+          "source_shard_kind": "independent",
+          "source_shard_attempt": 1
+        }
+      ]
+    },
+    "multi_pass": true,
+    "generation_mode": "multi_pass"
+  },
+  "generation_quality_ledger": {
+    "payload_omitted_due_to_size": true,
+    "original_payload_size_bytes": 467471,
+    "kind": "generation_quality_ledger",
+    "generation_id": 535,
+    "project_id": null,
+    "request_id": "7dce543950484a08b9012db0612e52c8",
+    "source": null,
+    "case_count": null,
+    "execution_readiness": null,
+    "row_count": null,
+    "row_count_total": null,
+    "final_count": 27,
+    "quality_score": 100,
+    "quality_score_grade": "high",
+    "generation_mode": "multi_pass",
+    "quality_assessment": "high",
+    "initial_quality_score": 100,
+    "quality_score_source": "backend_diagnostic_v1",
+    "quality_score_basis": "coverage+review+judge+funnel+context",
+    "quality_score_confidence": "high",
+    "quality_score_deductions": [],
+    "quality_score_inputs": {
+      "coverage_rate": 1.0,
+      "total_rules": 17,
+      "missing_rules_count": 0,
+      "final_count": 27,
+      "candidate_total": 29,
+      "retained_total": 27,
+      "judge_total": 28,
+      "rejected_count": 0,
+      "raw_rejected_count": 0,
+      "pending_count": 0,
+      "raw_pending_count": 0,
+      "semantic_duplicate_reject_count": 0,
+      "filtered_semantic_duplicate_reject_count": 0,
+      "filtered_pending_candidate_count": 0,
+      "repairable_count": 0,
+      "raw_repairable_count": 1,
+      "repaired_pass_count": 0,
+      "unrepaired_repairable_count": 1,
+      "fact_profile_forbidden_count": 0,
+      "fact_violation_count": 0,
+      "raw_flow_missing_count": 7,
+      "flow_missing_advisory_count": 7,
+      "flow_missing_count": 0,
+      "flow_misordered_count": 0,
+      "scenario_duplicate_cluster_count": 0,
+      "scenario_duplicate_case_count": 0,
+      "low_quality_dropped_count": 0,
+      "semantic_dedup_dropped_count": 0,
+      "semantic_dedup_pressure_count": 0,
+      "semantic_dedup_penalty_count": 0,
+      "structure_metric_scope": "final_cases",
+      "manual_quality_profile_applied": false,
+      "manual_quality_profile_version": ""
+    },
+    "manual_delivery": {
+      "omitted_due_to_size": true,
+      "value_type": "dict",
+      "key_count": 1,
+      "kind": null,
+      "generation_id": null,
+      "project_id": null,
+      "request_id": null,
+      "source": null,
+      "case_count": null,
+      "execution_readiness": null,
+      "row_count": null,
+      "row_count_total": null,
+      "final_count": null,
+      "quality_score": null,
+      "quality_score_grade": null
+    },
+    "stop_reason": {
+      "omitted_due_to_size": true,
+      "value_type": "list",
+      "item_count": 2
+    },
+    "coverage": {
+      "omitted_due_to_size": true,
+      "value_type": "dict",
+      "key_count": 7,
+      "kind": null,
+      "generation_id": null,
+      "project_id": null,
+      "request_id": null,
+      "source": null,
+      "case_count": null,
+      "execution_readiness": null,
+      "row_count": null,
+      "row_count_total": null,
+      "final_count": null,
+      "quality_score": null,
+      "quality_score_grade": null
+    },
+    "funnel": {
+      "omitted_due_to_size": true,
+      "value_type": "dict",
+      "key_count": 11,
+      "kind": null,
+      "generation_id": null,
+      "project_id": null,
+      "request_id": null,
+      "source": null,
+      "case_count": null,
+      "execution_readiness": null,
+      "row_count": null,
+      "row_count_total": null,
+      "final_count": null,
+      "quality_score": null,
+      "quality_score_grade": null
+    },
+    "review": {
+      "omitted_due_to_size": true,
+      "value_type": "dict",
+      "key_count": 16,
+      "kind": null,
+      "generation_id": null,
+      "project_id": null,
+      "request_id": null,
+      "source": null,
+      "case_count": null,
+      "execution_readiness": null,
+      "row_count": null,
+      "row_count_total": null,
+      "final_count": null,
+      "quality_score": null,
+      "quality_score_grade": null
+    },
+    "judge": {
+      "omitted_due_to_size": true,
+      "value_type": "dict",
+      "key_count": 11,
+      "kind": null,
+      "generation_id": null,
+      "project_id": null,
+      "request_id": null,
+      "source": null,
+      "case_count": null,
+      "execution_readiness": null,
+      "row_count": null,
+      "row_count_total": null,
+      "final_count": null,
+      "quality_score": null,
+      "quality_score_grade": null
+    },
+    "context": {
+      "omitted_due_to_size": true,
+      "value_type": "dict",
+      "key_count": 7,
+      "kind": null,
+      "generation_id": null,
+      "project_id": null,
+      "request_id": null,
+      "source": null,
+      "case_count": null,
+      "execution_readiness": null,
+      "row_count": null,
+      "row_count_total": null,
+      "final_count": null,
+      "quality_score": null,
+      "quality_score_grade": null
+    },
+    "control": {
+      "omitted_due_to_size": true,
+      "value_type": "dict",
+      "key_count": 5,
+      "kind": null,
+      "generation_id": null,
+      "project_id": null,
+      "request_id": null,
+      "source": null,
+      "case_count": null,
+      "execution_readiness": null,
+      "row_count": null,
+      "row_count_total": null,
+      "final_count": null,
+      "quality_score": null,
+      "quality_score_grade": null
+    },
+    "quality_remediation": {
+      "omitted_due_to_size": true,
+      "value_type": "dict",
+      "key_count": 7,
+      "kind": "quality_remediation",
+      "generation_id": null,
+      "project_id": null,
+      "request_id": null,
+      "source": null,
+      "case_count": null,
+      "execution_readiness": null,
+      "row_count": null,
+      "row_count_total": null,
+      "final_count": null,
+      "quality_score": 100,
+      "quality_score_grade": "high"
+    },
+    "case_quality_gate": {
+      "omitted_due_to_size": true,
+      "value_type": "dict",
+      "key_count": 6,
+      "kind": "case_quality_gate",
+      "generation_id": null,
+      "project_id": null,
+      "request_id": null,
+      "source": null,
+      "case_count": null,
+      "execution_readiness": null,
+      "row_count": null,
+      "row_count_total": null,
+      "final_count": null,
+      "quality_score": null,
+      "quality_score_grade": null
+    },
+    "omitted_keys": [
+      "manual_delivery",
+      "stop_reason",
+      "coverage",
+      "funnel",
+      "review",
+      "judge",
+      "context",
+      "control",
+      "quality_remediation",
+      "case_quality_gate"
+    ]
+  },
+  "generation_timing_ledger": {
+    "kind": "generation_timing_ledger",
+    "schema_version": "1.0",
+    "generation_id": 535,
+    "project_id": 2,
+    "request_id": "7dce543950484a08b9012db0612e52c8",
+    "mode": "multi_pass",
+    "multi_pass": true,
+    "duration_by_stage_ms": {
+      "prepare_total": 2449708,
+      "client_resolution": 1,
+      "linked_final_case_signal": 9,
+      "append_existing_lookup": 0,
+      "snapshot_gate": 0,
+      "hybrid_context": 1210,
+      "feedback_control_state": 299,
+      "current_requirement_blueprint": 2421982,
+      "requirement_compress": 23307,
+      "kb_context_compress": 0,
+      "meta_analysis": 5452,
+      "primary": 155244,
+      "stream_generation_phase": 163643,
+      "gap": 34004,
+      "review": 8083,
+      "postprocess_total": 42884
+    },
+    "event_count": 22,
+    "events": [
+      {
+        "stage": "client_resolution",
+        "duration_ms": 1,
+        "db_available": true,
+        "user_scoped": true
+      },
+      {
+        "stage": "requirement_compression_decision",
+        "duration_ms": 1,
+        "char_count": 16583,
+        "min_chars": 12000,
+        "should_compress": true
+      },
+      {
+        "stage": "linked_final_case_signal",
+        "duration_ms": 9,
+        "linked_final_case_count": 0,
+        "source_doc_count": 0
+      },
+      {
+        "stage": "memory_fabric_init",
+        "duration_ms": 0,
+        "available": true
+      },
+      {
+        "stage": "snapshot_gate",
+        "duration_ms": 0,
+        "active_db_session": true,
+        "proceed": true,
+        "snapshot_wait_result": "gate_disabled_proceed"
+      },
+      {
+        "stage": "hybrid_context",
+        "duration_ms": 1210,
+        "context_source": "snapshot+rag",
+        "kb_chars": 4029,
+        "snapshot_used": true,
+        "realtime_rag_used": true,
+        "abort_generation": false
+      },
+      {
+        "stage": "feedback_control_state",
+        "duration_ms": 299,
+        "workflow_blueprint_count": 0,
+        "linked_final_case_count": 0
+      },
+      {
+        "stage": "requirement_compress",
+        "duration_ms": 23307,
+        "status": "applied",
+        "before_chars": 16583,
+        "after_chars": 2035,
+        "min_chars": 12000
+      },
+      {
+        "stage": "current_requirement_blueprint",
+        "duration_ms": 2421982,
+        "status": "applied_with_workflows",
+        "count": 1,
+        "step_count": 3,
+        "max_tokens": 8192
+      },
+      {
+        "stage": "prepare_total",
+        "duration_ms": 2449708,
+        "status": "completed",
+        "db_available": true,
+        "append": false,
+        "compression_requested": true,
+        "kb_chars": 4029,
+        "context_source": "snapshot+rag"
+      },
+      {
+        "stage": "meta_analysis",
+        "duration_ms": 5452,
+        "system_type": "Mobile App",
+        "complexity": "High"
+      },
+      {
+        "stage": "parallel_shard_attempt",
+        "duration_ms": 30074,
+        "shard_id": "MAIN-CHAIN",
+        "shard_index": 1,
+        "requested_count": 6,
+        "response_case_count": 6,
+        "normalized_case_count": 6,
+        "semantic_rejection_count": 0,
+        "accepted_case_count": 6,
+        "attempt_status": "accepted",
+        "error_codes": "[]",
+        "provider_error": ""
+      },
+      {
+        "stage": "parallel_shard_attempt",
+        "duration_ms": 106420,
+        "shard_id": "SHARD-02",
+        "shard_index": 2,
+        "requested_count": 10,
+        "response_case_count": 11,
+        "normalized_case_count": 9,
+        "semantic_rejection_count": 2,
+        "accepted_case_count": 9,
+        "attempt_status": "underfilled",
+        "error_codes": "['semantic_contract_rejected']",
+        "provider_error": ""
+      },
+      {
+        "stage": "parallel_shard_attempt",
+        "duration_ms": 42368,
+        "shard_id": "SHARD-03",
+        "shard_index": 3,
+        "requested_count": 9,
+        "response_case_count": 11,
+        "normalized_case_count": 5,
+        "semantic_rejection_count": 6,
+        "accepted_case_count": 5,
+        "attempt_status": "underfilled",
+        "error_codes": "['semantic_contract_rejected']",
+        "provider_error": ""
+      },
+      {
+        "stage": "parallel_shard_generation",
+        "duration_ms": 155228,
+        "shard_count": 3,
+        "max_workers": 2,
+        "accepted": true,
+        "outcome_status": "accepted",
+        "fallback_reason": "",
+        "input_case_count": 25,
+        "unique_case_count": 25,
+        "accepted_case_count": 25,
+        "duplicate_rate": 0.0
+      },
+      {
+        "stage": "primary_batches",
+        "duration_ms": 155244,
+        "total_batches": 1,
+        "completed_batches": 3,
+        "batch_size": 25,
+        "expected_count": 25,
+        "early_stop_triggered": false,
+        "early_stop_reason": ""
+      },
+      {
+        "stage": "stream_generation_phase",
+        "duration_ms": 163643,
+        "total_batches": 1,
+        "completed_batches": 3
+      },
+      {
+        "stage": "postprocess_initial_parse_filter",
+        "duration_ms": 17,
+        "primary_count": 25,
+        "input_chars": 40444
+      },
+      {
+        "stage": "gap_supplement_attempt",
+        "duration_ms": 33998,
+        "attempt": 1,
+        "response_chars": 6188,
+        "parsed_case_count": 4,
+        "effective_added_count": 4,
+        "gap_remaining_before": 1,
+        "gap_remaining_after": 0,
+        "generic_gap_before": 1,
+        "generic_gap_after": 0,
+        "stage_gap_before": 0,
+        "stage_gap_after": 0,
+        "minimum_candidate_count": 25,
+        "candidate_count_gap_before": 0,
+        "candidate_count_gap_after": 0,
+        "no_gain_streak": 0,
+        "candidate_set_coverage_gain": "{'coverage_gain_candidate_count': 4, 'coverage_gain_forwarded_count': 4, 'coverage_gain_kept_count': 4, 'coverage_gain_dropped_count': 0, 'coverage_gain_gap_count_before': 1, 'coverage_gain_remaining_gap_count': 0, 'coverage_gain_gap_reduction': 1, 'coverage_gain_detected': True}",
+        "required_stage_gap_reduction": 0,
+        "combined_gap_reduction": 1,
+        "gap_gain_detected": true,
+        "missing_required_stage_ids": "[]",
+        "attempt_status": "parsed",
+        "stop_reason": "coverage_converged"
+      },
+      {
+        "stage": "gap_supplement",
+        "duration_ms": 34004,
+        "attempt_count": 1,
+        "added_count": 4,
+        "remaining_gap_count": 0,
+        "remaining_generic_gap_count": 0,
+        "remaining_required_stage_gap_count": 0,
+        "minimum_candidate_count": 25,
+        "remaining_candidate_count_gap": 0,
+        "module_contract_normalized_count": 0,
+        "module_contract_rejected_count": 0,
+        "stopped_by_provider_error": false,
+        "stopped_by_no_gain": false,
+        "stop_reason": "coverage_converged",
+        "missing_required_stage_ids": "[]"
+      },
+      {
+        "stage": "review_selection",
+        "duration_ms": 8083,
+        "candidate_count": 29,
+        "llm_pool_count": 29,
+        "selected_count": 27,
+        "llm_invoked": true,
+        "llm_applied": true,
+        "llm_skip_reason": ""
+      },
+      {
+        "stage": "postprocess_total",
+        "duration_ms": 42884,
+        "final_count": 27,
+        "candidate_count_before_review": 29,
+        "review_selected_count": 27
+      }
+    ]
+  },
+  "review_detail_export_meta": {
+    "candidate_total": 29,
+    "exported_row_count": 7,
+    "is_truncated": true,
+    "truncation_reason": "detail_limit",
+    "source_summary_available": true,
+    "source_detail_available": true,
+    "detail_row_count_total": 29,
+    "detail_rows_scope": "sampled_due_to_size"
+  },
+  "funnel": {
+    "candidate_total": 29,
+    "review_selected_count": 27,
+    "drop_by_review_llm_count": 2,
+    "drop_by_review_gate_count": 0,
+    "drop_by_pre_gate_dedup_count": 0,
+    "drop_by_post_review_dedup_count": 0,
+    "judge_rejected_or_pending_count": 0,
+    "post_review_non_judge_drop_count": 0,
+    "final_count": 27,
+    "judge_pass_out_count": 27,
+    "judge_repaired_pass_out_count": 0
+  },
+  "dropped_breakdown": {
+    "total": 2,
+    "exported_row_count": 1,
+    "is_truncated": true,
+    "truncation_reason": "detail_limit",
+    "source_summary_available": true,
+    "source_detail_available": true,
+    "by_stage": {
+      "review_llm": 1
+    },
+    "by_reason": {
+      "drop_not_selected_by_review_llm:duplicate": 1
+    },
+    "by_priority_final": {
+      "null": 1
+    },
+    "by_priority_decision_state": {
+      "invalid": 1
+    },
+    "by_priority_legacy": {
+      "P1": 1
+    },
+    "by_priority": {
+      "P1": 1
+    },
+    "by_module_top10": [
+      [
+        "课程权限与商品交易",
+        1
+      ]
+    ],
+    "dropped_case_ids": [
+      "TC-007"
+    ]
+  },
+  "judge_breakdown": {
+    "total": 28,
+    "exported_row_count": 7,
+    "rows_scope": "sampled_due_to_size",
+    "rejected_or_pending_total": 0,
+    "by_status": {
+      "PASS": 7
+    },
+    "by_reason": {},
+    "by_priority": {},
+    "by_priority_final": {},
+    "by_priority_decision_state": {},
+    "by_module_top10": [],
+    "rejected_or_pending_case_ids": []
+  }
+}

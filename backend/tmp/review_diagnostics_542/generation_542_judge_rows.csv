@@ -1,0 +1,11 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,AI作文批改服务,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证普通用户点击批改按钮后进入批改主页的流程,PASS,-,False,False,False
+TC-002,AI作文批改服务,P2,P2,P2,P2,decided,model_semantic_consistent,high,,验证批改作文主页弹窗正常展示UI,PASS,-,False,False,False
+TC-003,AI作文批改服务,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证从系统相册选择照片时支持多选功能,PASS,-,False,False,False
+TC-004,AI作文批改服务,P2,P1,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P1,suggested=P2",验证批改失败记录点击后弹出Toast提示并自动删除该列表记录,PASS,-,True,False,False
+TC-005,AI作文批改服务,P1,P1,P1,P1,decided,model_semantic_consistent,high,,验证开通AI辅导权限的用户在有效期内可无限次批改，且半小时内连续批改超10次触发禁用1小时及Toast提示,PASS,-,True,False,False
+TC-006,AI作文批改服务,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证上传作文图片后内容识别动画的展示与播放,PASS,-,False,False,False
+TC-007,AI作文批改服务,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",验证内容识别动画完成后图片平移动画的展示,PASS,-,False,False,False
+TC-008,AI作文批改服务,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证用户点击【上传作文图片】按钮时弹出系统提示弹窗，可选择拍照或从手机相册选择,PASS,-,False,False,False
+TC-009,AI作文批改服务,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证已上传照片缩略图按上传顺序依次显示，且支持点击缩略图右上角“×”删除,PASS,-,False,False,False
+TC-010,AI作文批改服务,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证用户长按照片缩略图可拖动照片更改其顺序,PASS,-,False,False,False

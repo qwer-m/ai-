@@ -210,20 +210,10 @@ def validate_execution_plan(
     workflow_id_missing_count = sum(1 for item in main_cases if not _text(_state_value(item, "workflow_id")))
     state_conflicts = validate_main_smoke_state_chain(cases)
     semantic_analysis = analyze_main_smoke_semantic_alignment(cases)
-    semantic_diagnostics = list(semantic_analysis.get("conflicts") or [])
-    semantic_conflicts = [
-        item
-        for item in semantic_diagnostics
-        if str(item.get("reason") or "") == "generated_bridge_case_in_final_main_smoke"
-    ]
-    semantic_warnings = [
-        *list(semantic_analysis.get("warnings") or []),
-        *[
-            {**item, "diagnostic_only": True}
-            for item in semantic_diagnostics
-            if item not in semantic_conflicts
-        ],
-    ]
+    # 语义分析已经在统一入口中区分 error 与 warning；阻断级错误不能再次降级为诊断提示。
+    semantic_conflicts = list(semantic_analysis.get("conflicts") or [])
+    semantic_diagnostics = list(semantic_conflicts)
+    semantic_warnings = list(semantic_analysis.get("warnings") or [])
     order_conflicts = validate_execution_group_order(cases)
     resolved_execution_plan = dict(execution_plan or {})
     blueprint_source = _text(resolved_execution_plan.get("workflow_blueprint_source")).lower()

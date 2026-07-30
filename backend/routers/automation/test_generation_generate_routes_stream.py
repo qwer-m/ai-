@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
+from core.settings.config import settings
+
 from .test_generation_generate_routes_runtime import (
     detect_duplicate_document,
     get_current_user,
@@ -28,6 +30,7 @@ async def generate_tests_stream(
     doc_type: str = Form("requirement"),
     compress: bool = Form(False),
     expected_count: int = Form(20),
+    batch_size: int = Form(settings.TEST_GENERATION_BATCH_SIZE),
     enable_sample_pool_feedback: bool = Form(True),
     force: bool = Form(False),
     append: bool = Form(False),
@@ -87,7 +90,7 @@ async def generate_tests_stream(
         doc_type=doc_type,
         compress=compress,
         expected_count=max(1, int(expected_count)),
-        batch_size=10,
+        batch_size=max(1, int(batch_size)),
         overwrite=force,
         append=append,
         user_id=current_user.id,

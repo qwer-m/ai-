@@ -3,6 +3,8 @@ import uuid
 
 from sqlalchemy.orm import Session
 
+from core.settings.config import settings
+
 from .batches import (
     LegacyGenerationStreamBatchesMixin,
 )
@@ -33,7 +35,7 @@ class LegacyGenerationStreamGenerationMixin(
         doc_type: str = "requirement",
         compress: bool = False,
         expected_count: int = 20,
-        batch_size: int = 10,
+        batch_size: int = settings.TEST_GENERATION_BATCH_SIZE,
         overwrite: bool = False,
         append: bool = False,
         user_id: int = None,

@@ -218,6 +218,7 @@ def _build_pre_persistence_failure_diagnostics(
     feedback_control_debug_payload: dict[str, Any],
     compression_diag_payload: dict[str, Any],
     context_result: dict[str, Any],
+    persistence_gate_result: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Persist enough diagnostics to debug a run that is blocked before insertion."""
     diagnostics: list[dict[str, Any]] = []
@@ -327,6 +328,11 @@ def _build_pre_persistence_failure_diagnostics(
         compression_diag_payload=compression_diag_payload,
         context_result=context_result,
         judge_decision_table_payload=judge_decision_table_payload,
+        execution_plan_validation_payload=(
+            dict((persistence_gate_result or {}).get("execution_plan_validation") or {})
+            if isinstance(persistence_gate_result, dict)
+            else {}
+        ),
     )
     add(quality_ledger_payload)
     case_quality_gate_payload = dict(quality_ledger_payload.get("case_quality_gate") or {})

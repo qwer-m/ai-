@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+from core.ai.ai_client import AIClient
+from core.ai.providers.base import STREAM_HEARTBEAT_CHUNK
 from core.ai.providers.openai_compatible_provider import OpenAICompatibleProvider
 
 
@@ -24,6 +26,7 @@ class _FakeStreamResponse:
 class _FakeHttpClient:
     def __init__(self, *, lines: list[str]) -> None:
         self._lines = lines
+        self.stream_requests: list[dict] = []
 
     def __enter__(self):
         return self
@@ -32,6 +35,12 @@ class _FakeHttpClient:
         return None
 
     def stream(self, *args, **kwargs):
+        self.stream_requests.append(
+            {
+                "args": args,
+                "kwargs": kwargs,
+            }
+        )
         return _FakeStreamResponse(self._lines)
 
 
@@ -116,7 +125,7 @@ def test_chat_stream_stops_when_attempt_exceeds_hard_timeout(monkeypatch) -> Non
         "core.ai.providers.openai_compatible_provider.httpx.Client",
         lambda **kwargs: _FakeHttpClient(lines=lines),
     )
-    times = iter([0.0, 2.0])
+    times = iter([0.0, 0.0, 2.0, 2.0])
     monkeypatch.setattr(
         "core.ai.providers.openai_compatible_provider.time.perf_counter",
         lambda: next(times),
@@ -128,6 +137,143 @@ def test_chat_stream_stops_when_attempt_exceeds_hard_timeout(monkeypatch) -> Non
     assert chunks == ["Exception occurred: stream_attempt_timeout_after_1s"]
     assert provider.last_response_metadata["exception_type"] == "StreamAttemptTimeout"
     assert provider.last_response_metadata["stream_attempt_timeout_seconds"] == 1
+
+
+def test_chat_stream_emits_out_of_band_heartbeat_without_polluting_content(
+    monkeypatch,
+) -> None:
+    lines = [
+        _sse({"choices": [{"delta": {"reasoning_content": "internal reasoning"}}]}),
+        _sse({"choices": [{"delta": {"content": "hello"}}]}),
+        "data: [DONE]",
+    ]
+
+    monkeypatch.setattr(
+        "core.ai.providers.openai_compatible_provider.httpx.Client",
+        lambda **kwargs: _FakeHttpClient(lines=lines),
+    )
+    times = iter([0.0, 0.0, 16.0, 16.1, 16.2, 16.3])
+    monkeypatch.setattr(
+        "core.ai.providers.openai_compatible_provider.time.perf_counter",
+        lambda: next(times),
+    )
+
+    provider = OpenAICompatibleProvider(
+        "https://example.test/v1",
+        "sk-test",
+        "glm-5.1",
+    )
+    chunks = list(
+        provider.generate_stream(
+            [{"role": "user", "content": "hi"}],
+            "glm-5.1",
+            request_timeout_seconds=180,
+            heartbeat_interval_seconds=15,
+        )
+    )
+
+    assert chunks == [STREAM_HEARTBEAT_CHUNK, "hello"]
+    assert provider.last_response_metadata["content_len"] == len("hello")
+    assert provider.last_response_metadata["request_timeout_seconds"] == 180.0
+    assert provider.last_response_metadata["request_timeout_source"] == "call_override"
+    assert provider.last_response_metadata["stream_attempt_timeout_seconds"] == 180.0
+    assert provider.last_response_metadata["stream_heartbeat_interval_seconds"] == 15.0
+
+
+def test_chat_stream_sends_thinking_controls_and_observes_hidden_reasoning(
+    monkeypatch,
+) -> None:
+    hidden_reasoning = "internal reasoning"
+    lines = [
+        _sse({"choices": [{"delta": {"reasoning_content": hidden_reasoning}}]}),
+        _sse(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "reasoning_content": "x",
+                            "content": "hello",
+                        }
+                    }
+                ]
+            }
+        ),
+        "data: [DONE]",
+    ]
+    fake_client = _FakeHttpClient(lines=lines)
+    monkeypatch.setattr(
+        "core.ai.providers.openai_compatible_provider.httpx.Client",
+        lambda **kwargs: fake_client,
+    )
+    times = iter([0.0, 0.1, 0.5, 1.0, 1.1, 1.2])
+    monkeypatch.setattr(
+        "core.ai.providers.openai_compatible_provider.time.perf_counter",
+        lambda: next(times),
+    )
+
+    provider = OpenAICompatibleProvider(
+        "https://example.test/v1",
+        "sk-test",
+        "glm-5.1",
+    )
+    chunks = list(
+        provider.generate_stream(
+            [{"role": "user", "content": "hi"}],
+            "glm-5.1",
+            reasoning_effort="low",
+            disable_thinking=True,
+        )
+    )
+
+    payload = fake_client.stream_requests[0]["kwargs"]["json"]
+    assert payload["reasoning_effort"] == "low"
+    assert payload["thinking"] == {"type": "disabled"}
+    assert chunks == ["hello"]
+    assert hidden_reasoning not in "".join(chunks)
+    assert provider.last_response_metadata["reasoning_chars"] == (
+        len(hidden_reasoning) + 1
+    )
+    assert provider.last_response_metadata["first_reasoning_ms"] == 500.0
+    assert provider.last_response_metadata["first_content_ms"] == 1000.0
+    assert provider.last_response_metadata["total_duration_ms"] == 1200.0
+
+
+def test_ai_client_forwards_stream_thinking_controls(monkeypatch) -> None:
+    provider = OpenAICompatibleProvider(
+        "https://example.test/v1",
+        "sk-test",
+        "glm-5.1",
+    )
+    captured: dict = {}
+
+    def _fake_generate_stream(messages, model, max_tokens, **kwargs):
+        captured.update(kwargs)
+        provider.last_response_metadata = {
+            "model": model,
+            "reasoning_chars": 0,
+            "first_reasoning_ms": None,
+            "first_content_ms": 12.5,
+            "total_duration_ms": 20.0,
+        }
+        yield "[]"
+
+    monkeypatch.setattr(provider, "generate_stream", _fake_generate_stream)
+    client = AIClient(provider=provider, init_from_settings=False)
+
+    chunks = list(
+        client.generate_response_stream(
+            "真实需求",
+            "生成用例",
+            task_type="generation",
+            reasoning_effort="low",
+            disable_thinking=True,
+        )
+    )
+
+    assert chunks == ["[]"]
+    assert captured["reasoning_effort"] == "low"
+    assert captured["disable_thinking"] is True
+    assert client.last_response_metadata["first_content_ms"] == 12.5
 
 
 def test_responses_stream_does_not_duplicate_done_or_completed_text(monkeypatch) -> None:

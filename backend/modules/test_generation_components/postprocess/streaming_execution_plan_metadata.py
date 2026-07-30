@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
+from ..control.workflow_typed_state_chain import validate_typed_state_chain
 from .case_access import (
     case_priority as _case_priority,
     case_text_field as _case_text_field,
@@ -109,6 +110,8 @@ def _workflow_blueprint_contract_complete(
         return False
     if not blueprint or not str(blueprint.get("initial_state") or "").strip():
         return False
+    if validate_typed_state_chain(blueprint.get("steps")):
+        return False
     required_ids = blueprint.get("required_stage_ids")
     terminal_states = blueprint.get("terminal_states")
     if not isinstance(required_ids, list) or not any(str(item or "").strip() for item in required_ids):
@@ -138,6 +141,23 @@ def _workflow_blueprint_contract_complete(
         ):
             return False
     return True
+
+
+def _workflow_blueprint_typed_state_chain_issues(
+    plan_workflow_blueprints: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    for workflow_index, blueprint in enumerate(plan_workflow_blueprints):
+        if not isinstance(blueprint, dict):
+            continue
+        issues.extend(
+            {
+                "workflow_index": int(workflow_index),
+                **issue,
+            }
+            for issue in validate_typed_state_chain(blueprint.get("steps"))
+        )
+    return issues
 
 
 def _optional_branch_state_conflicts(
@@ -284,9 +304,27 @@ def _structured_candidate_contract_conflicts(
     step_meta: dict[str, Any],
     candidate: dict[str, Any],
 ) -> list[str]:
+    expected_workflow_id = str(
+        step_meta.get("workflow_id") or step_meta.get("blueprint_id") or ""
+    ).strip()
+    expected_stage_id = str(step_meta.get("id") or step_meta.get("stage_id") or "").strip()
     expected_stage_kind = str(step_meta.get("stage_kind") or "").strip().lower()
+    candidate_workflow_id = str(candidate.get("workflow_id") or "").strip()
+    candidate_stage_id = str(candidate.get("stage_id") or "").strip()
     candidate_stage_kind = str(candidate.get("stage_kind") or "").strip().lower()
     conflicts: list[str] = []
+    exact_step_identity = bool(
+        expected_workflow_id
+        and expected_stage_id
+        and expected_stage_kind
+        and candidate_workflow_id == expected_workflow_id
+        and candidate_stage_id == expected_stage_id
+        and candidate_stage_kind == expected_stage_kind
+    )
+    if expected_workflow_id and candidate_workflow_id != expected_workflow_id:
+        conflicts.append("workflow_id_mismatch")
+    if expected_stage_id and candidate_stage_id != expected_stage_id:
+        conflicts.append("workflow_stage_id_mismatch")
     if not candidate_stage_kind:
         conflicts.append("workflow_stage_kind_missing")
     elif candidate_stage_kind != expected_stage_kind:
@@ -303,10 +341,12 @@ def _structured_candidate_contract_conflicts(
         conflicts.append("workflow_stage_interaction_contract_missing")
     if actual_interactions and not actual_interactions.issubset(declared_interactions):
         conflicts.append("workflow_stage_interaction_contract_mismatch")
-    conflicts.extend(
-        str(conflict.get("reason") or "workflow_typed_state_contract_mismatch")
-        for conflict in typed_state_contract_conflicts(item, step_meta=step_meta)
-    )
+    # typed-state 只在三元组精确命中后应用蓝图权威契约。
+    if exact_step_identity:
+        conflicts.extend(
+            str(conflict.get("reason") or "workflow_typed_state_contract_mismatch")
+            for conflict in typed_state_contract_conflicts(item, step_meta=step_meta)
+        )
     return list(dict.fromkeys(conflicts))
 
 
@@ -322,10 +362,11 @@ def evaluate_required_stage_candidate_coverage(
     """
     candidate_cases = _dict_case_copies(cases)
     declared_blueprints = [
-        dict(item)
-        for item in (workflow_blueprints or [])
-        if isinstance(item, dict) and isinstance(item.get("steps"), list)
+        dict(item) for item in (workflow_blueprints or []) if isinstance(item, dict)
     ]
+    typed_state_chain_issues = _workflow_blueprint_typed_state_chain_issues(
+        declared_blueprints
+    )
     plan_blueprints, resolution = _resolve_primary_workflow_blueprint(declared_blueprints)
     if not plan_blueprints:
         declaration_blocks_main_chain = bool(declared_blueprints)
@@ -343,13 +384,16 @@ def evaluate_required_stage_candidate_coverage(
             "required_stage_coverage_complete": not declaration_blocks_main_chain,
             "publishable_main_chain": False,
             "workflow_blueprint_contract_complete": False,
+            "workflow_blueprint_contract_issues": list(typed_state_chain_issues),
             "workflow_blueprint_closure": {},
             "candidate_workflow_closure": {},
             "selected_stage_state_conflicts": [],
             "source_generation_allowed": False,
             "actionable_stage_ids": [],
             "failure_reason": (
-                str(resolution.get("status") or "workflow_blueprint_invalid")
+                "workflow_blueprint_typed_state_chain_invalid"
+                if typed_state_chain_issues
+                else str(resolution.get("status") or "workflow_blueprint_invalid")
                 if declaration_blocks_main_chain
                 else "workflow_blueprint_missing"
             ),
@@ -627,7 +671,9 @@ def evaluate_required_stage_candidate_coverage(
         and candidate_workflow_closure.get("closure_satisfied") is True
     )
     failure_reason = ""
-    if not workflow_blueprint_contract_complete:
+    if typed_state_chain_issues:
+        failure_reason = "workflow_blueprint_typed_state_chain_invalid"
+    elif not workflow_blueprint_contract_complete:
         failure_reason = "workflow_blueprint_incomplete"
     elif workflow_blueprint_closure.get("closure_satisfied") is not True:
         failure_reason = "workflow_blueprint_closure_invalid"
@@ -691,6 +737,7 @@ def evaluate_required_stage_candidate_coverage(
         "workflow_blueprint_contract_complete": bool(
             workflow_blueprint_contract_complete
         ),
+        "workflow_blueprint_contract_issues": list(typed_state_chain_issues),
         "workflow_blueprint_closure": dict(workflow_blueprint_closure or {}),
         "candidate_workflow_closure": dict(candidate_workflow_closure or {}),
         "selected_stage_state_conflicts": list(selected_stage_state_conflicts),
@@ -708,10 +755,31 @@ def retain_required_stage_assignment(
     workflow_blueprints: list[dict[str, Any]] | None,
     target_max_count: int = 0,
     require_complete_source: bool = True,
+    removal_rank_fn: Callable[[dict[str, Any]], tuple[int, ...]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """保留候选池全局分配选中的必选阶段候选，并在可能时维持数量窗口。"""
     source = _dict_case_copies(source_cases)
     selected = _dict_case_copies(selected_cases)
+
+    def _removable_indices(
+        cases: list[dict[str, Any]],
+        protected_keys: set[str],
+    ) -> list[int]:
+        indices = [
+            index
+            for index, item in enumerate(cases)
+            if _candidate_identity_key(item) not in protected_keys
+        ]
+        if removal_rank_fn is None:
+            return list(reversed(indices))
+        return sorted(
+            indices,
+            key=lambda index: (
+                tuple(removal_rank_fn(cases[index])),
+                -index,
+            ),
+        )
+
     selected_coverage = evaluate_required_stage_candidate_coverage(
         selected,
         workflow_blueprints=workflow_blueprints,
@@ -720,27 +788,53 @@ def retain_required_stage_assignment(
         selected_coverage.get("active") is True
         and selected_coverage.get("required_stage_coverage_complete") is True
     ):
-        selected_protected_keys = sorted(
-            {
-                str(item.get("candidate_key") or "")
-                for item in (
-                    selected_coverage.get("selected_required_candidates") or []
-                )
-                if str(item.get("candidate_key") or "")
-            }
+        selected_protected_key_set = {
+            str(item.get("candidate_key") or "")
+            for item in (
+                selected_coverage.get("selected_required_candidates") or []
+            )
+            if str(item.get("candidate_key") or "")
+        }
+        target_max = max(0, int(target_max_count or 0))
+        excess = max(0, len(selected) - target_max) if target_max else 0
+        removable_indices = _removable_indices(
+            selected,
+            selected_protected_key_set,
         )
-        return selected, {
-            "applied": False,
-            "reason": "selected_required_stage_assignment_already_complete",
+        remove_indices = set(removable_indices[:excess])
+        replaced_keys = [
+            _candidate_identity_key(selected[index])
+            for index in sorted(remove_indices)
+            if _candidate_identity_key(selected[index])
+        ]
+        capped_selected = [
+            item
+            for index, item in enumerate(selected)
+            if index not in remove_indices
+        ]
+        final_coverage = (
+            evaluate_required_stage_candidate_coverage(
+                capped_selected,
+                workflow_blueprints=workflow_blueprints,
+            )
+            if remove_indices
+            else selected_coverage
+        )
+        return capped_selected, {
+            "applied": bool(remove_indices),
+            "reason": (
+                "selected_required_stage_assignment_capped"
+                if remove_indices
+                else "selected_required_stage_assignment_already_complete"
+            ),
             "source_coverage": selected_coverage,
-            "final_coverage": selected_coverage,
-            "protected_candidate_keys": selected_protected_keys,
+            "final_coverage": final_coverage,
+            "protected_candidate_keys": sorted(selected_protected_key_set),
             "restored_candidate_keys": [],
-            "replaced_candidate_keys": [],
-            "target_max_count": int(target_max_count or 0),
+            "replaced_candidate_keys": replaced_keys,
+            "target_max_count": target_max,
             "within_target_max": not bool(
-                int(target_max_count or 0) > 0
-                and len(selected) > int(target_max_count or 0)
+                target_max and len(capped_selected) > target_max
             ),
         }
     coverage = evaluate_required_stage_candidate_coverage(
@@ -823,7 +917,7 @@ def retain_required_stage_assignment(
         excess = len(combined) - target_max
         removable_indices = [
             index
-            for index in range(len(combined) - 1, -1, -1)
+            for index in _removable_indices(combined, set())
             if _source_key_for_case(combined[index]) not in protected_keys
         ]
         remove_indices = set(removable_indices[:excess])
@@ -918,6 +1012,9 @@ def apply_execution_plan_metadata(
     workflow_blueprint_contract_complete = _workflow_blueprint_contract_complete(
         plan_workflow_blueprints
     ) and all(value is not None for value in stage_requirement_by_key.values())
+    typed_state_chain_issues = _workflow_blueprint_typed_state_chain_issues(
+        workflow_blueprints
+    )
     stage_assignment_rows = [
         {
             "stage_key": stage_key,
@@ -1157,7 +1254,9 @@ def apply_execution_plan_metadata(
         and not optional_branch_state_conflicts
         and closure_ok
     )
-    if plan_workflow_blueprints and not workflow_blueprint_contract_complete:
+    if typed_state_chain_issues:
+        main_chain_incomplete_reason = "workflow_blueprint_typed_state_chain_invalid"
+    elif plan_workflow_blueprints and not workflow_blueprint_contract_complete:
         main_chain_incomplete_reason = "workflow_blueprint_incomplete"
     elif required_gap_count:
         main_chain_incomplete_reason = "required_stage_gap"
@@ -1264,6 +1363,7 @@ def apply_execution_plan_metadata(
     summary["optional_branch_state_conflicts"] = list(optional_branch_state_conflicts)
     summary["publishable_main_chain"] = bool(publishable_main_chain)
     summary["workflow_blueprint_contract_complete"] = bool(workflow_blueprint_contract_complete)
+    summary["workflow_blueprint_contract_issues"] = list(typed_state_chain_issues)
     summary["primary_workflow_resolution"] = dict(primary_workflow_resolution)
     summary["primary_workflow_id"] = str(
         primary_workflow_resolution.get("primary_workflow_id") or ""

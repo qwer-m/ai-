@@ -350,6 +350,96 @@ def test_scoring_business_terms_do_not_satisfy_protocol_stage_actions() -> None:
     assert "stage_text_lacks_downstream_propagation" in reasons_by_case["TC-SCORE-DOWNSTREAM"]
 
 
+def test_automated_actor_edit_and_commit_use_declared_action_anchors() -> None:
+    cases = [
+        {
+            "id": "TC-SERVICE-EDIT",
+            "description": "处理服务播放状态计算完成动画",
+            "steps": ["触发处理服务播放状态计算完成动画"],
+            "expected_result": "状态计算完成动画已播放",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "edit",
+            "main_chain_stage_label": "状态计算完成动画展示",
+            "action": "show_state_calculation_animation",
+            "role": "processing_service",
+        },
+        {
+            "id": "TC-SYSTEM-COMMIT",
+            "description": "评分系统计算综合评分",
+            "steps": ["等待评分系统计算综合评分"],
+            "expected_result": "综合评分已产生",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "commit",
+            "main_chain_stage_label": "评分系统计算综合评分",
+            "action": "calculate_overall_score",
+            "role": "system_actor",
+        },
+        {
+            "id": "TC-AGENT-COMMIT",
+            "description": "评语智能体整合分析结果",
+            "steps": ["启动评语智能体整合分析结果"],
+            "expected_result": "分析结果已整合",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "commit",
+            "main_chain_stage_label": "评语智能体整合分析结果",
+            "action": "aggregate_analysis_result",
+            "role": "review_agent",
+        },
+    ]
+
+    analysis = analyze_main_smoke_semantic_alignment(cases)
+    reasons = {
+        warning["reason"]
+        for warning in analysis["warnings"]
+    } | {
+        conflict["reason"]
+        for conflict in analysis["conflicts"]
+    }
+
+    assert "stage_text_lacks_edit_action" not in reasons
+    assert "stage_text_lacks_commit_action" not in reasons
+    assert "case_goal_spans_commit_stage" not in reasons
+    assert "automated_stage_action_anchor_missing" not in reasons
+    assert "automated_stage_action_anchor_not_supported" not in reasons
+
+
+def test_automated_actor_stage_requires_supported_action_or_label_anchor() -> None:
+    cases = [
+        {
+            "id": "TC-SYSTEM-MISSING",
+            "description": "系统完成一次自动处理",
+            "steps": ["等待自动处理"],
+            "expected_result": "自动处理完成",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "commit",
+            "role": "system_actor",
+        },
+        {
+            "id": "TC-AGENT-UNSUPPORTED",
+            "description": "评语智能体生成评语",
+            "steps": ["触发评语生成"],
+            "expected_result": "评语已生成",
+            "execution_group": "main_smoke",
+            "main_chain_stage_kind": "edit",
+            "main_chain_stage_label": "同步课程统计报告",
+            "action": "sync_course_report",
+            "role": "review_agent",
+        },
+    ]
+
+    reasons_by_case = {
+        conflict["case_id"]: conflict["reason"]
+        for conflict in analyze_main_smoke_semantic_alignment(cases)["conflicts"]
+    }
+
+    assert reasons_by_case["TC-SYSTEM-MISSING"] == (
+        "automated_stage_action_anchor_missing"
+    )
+    assert reasons_by_case["TC-AGENT-UNSUPPORTED"] == (
+        "automated_stage_action_anchor_not_supported"
+    )
+
+
 def test_learning_business_term_does_not_satisfy_consume_protocol_action() -> None:
     cases = [
         {
@@ -687,6 +777,28 @@ def test_validator_keeps_conditional_visibility_and_resume_as_warnings() -> None
     assert "resume_state_case_in_main_smoke" in reasons
 
 
+def test_validator_blocks_reset_or_abort_case_in_main_smoke() -> None:
+    cases = _main_chain_cases()
+    cases[2]["description"] = "Exit the workflow and reset all entered values"
+    cases[2]["steps"] = ["Exit the workflow", "Clear all configured values"]
+    cases[2]["expected_result"] = "The workflow returns to the blank initial state"
+
+    result = validate_execution_plan(
+        cases,
+        workflow_blueprints=[_trusted_blueprint()],
+        execution_plan={"workflow_blueprint_source": "feedback_control_state"},
+    )
+
+    reasons = {item["reason"] for item in result["semantic_conflicts"]}
+    assert result["passed"] is False
+    assert "main_smoke_semantic_conflict" in result["failure_reasons"]
+    assert "reset_or_abort_case_in_main_smoke" in reasons
+    assert all(
+        item.get("diagnostic_only") is not True
+        for item in result["semantic_conflicts"]
+    )
+
+
 def test_validator_rejects_candidate_derived_blueprint_as_strong_proof() -> None:
     result = validate_execution_plan(
         _main_chain_cases(),
@@ -939,6 +1051,39 @@ def test_persistence_gate_treats_candidate_insufficient_underfill_as_advisory() 
 
     assert gate["passed"] is True
     assert gate["failure_code"] == ""
+
+
+def test_explicit_expected_count_floor_blocks_underfilled_formal_result() -> None:
+    quality = summarize_persistence_case_quality_gate(
+        {"passed": True, "failed_checks": []},
+        generation_summary={
+            "final_count": 21,
+            "min_acceptable_final": 18,
+            "underfilled": True,
+            "underfill_reason": "valid_candidate_insufficient",
+            "underfill_root_cause": "candidate_insufficient",
+        },
+        review_decision_summary={},
+        judge_summary={"rejected_out_count": 0},
+        expected_count=25,
+        enforce_expected_count_floor=True,
+    )
+
+    assert quality["passed"] is False
+    assert "final_count_below_explicit_expected_count" in quality["failed_checks"]
+    assert quality["metrics"]["explicit_expected_count"] == 25
+    assert quality["metrics"]["explicit_expected_count_shortfall"] == 4
+
+    gate = evaluate_persistence_gate(
+        _main_chain_cases(),
+        workflow_blueprints=[_trusted_blueprint()],
+        execution_plan={"workflow_blueprint_source": "feedback_control_state"},
+        quality_gate=quality,
+        settings=_settings("enforce"),
+    )
+
+    assert gate["passed"] is False
+    assert gate["failure_code"] == "LOW_QUALITY_GENERATED_CASES"
 
 
 def test_persistence_gate_treats_count_shortfall_as_soft_warning() -> None:

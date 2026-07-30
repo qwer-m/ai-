@@ -3,8 +3,16 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from modules.test_generation_components.control.workflow_typed_state_chain import (
+    validate_typed_state_chain,
+)
+from modules.test_generation_components.postprocess.case_contract import (
+    project_persistable_cases,
+)
 from modules.test_generation_components.postprocess.execution_plan_case_state import (
     main_chain_precondition_conflict_reason,
+    typed_precondition_states,
+    typed_produced_states,
     typed_state_contract_conflicts,
 )
 from modules.test_generation_components.postprocess.streaming_execution_plan_metadata import (
@@ -37,6 +45,41 @@ def _verified_state(
         "evidence": [f"{entity}:{state}"],
         "evidence_verified": True,
     }
+
+
+def test_typed_state_chain_validator_reports_malformed_workflow_shapes() -> None:
+    assert validate_typed_state_chain(
+        [{"id": "entry", "required_states": [], "produced_states": []}]
+    ) == []
+    assert validate_typed_state_chain({}) == [
+        {
+            "reason": "workflow_steps_not_array",
+            "step_index": 0,
+            "state_index": 0,
+        }
+    ]
+
+    issues = validate_typed_state_chain(
+        [
+            None,
+            {
+                "id": "submit",
+                "required_states": ["invalid-required-state"],
+                "produced_states": ["invalid-produced-state"],
+            },
+        ]
+    )
+
+    assert [issue["reason"] for issue in issues] == [
+        "workflow_step_not_object",
+        "typed_state_item_not_object",
+        "typed_state_item_not_object",
+    ]
+    assert [issue.get("collection") for issue in issues] == [
+        None,
+        "required_states",
+        "produced_states",
+    ]
 
 
 def _strict_primary_blueprint(
@@ -161,7 +204,7 @@ def _case_for_workflow_stage(
     return normalized
 
 
-def test_typed_state_contract_rejects_stage_only_claim_without_case_states() -> None:
+def test_typed_state_contract_allows_exact_stage_to_inherit_missing_case_states() -> None:
     step_meta = {
         "required_states": [
             {
@@ -185,13 +228,10 @@ def test_typed_state_contract_rejects_stage_only_claim_without_case_states() -> 
 
     conflicts = typed_state_contract_conflicts({"_semantic": {}}, step_meta=step_meta)
 
-    assert {item["reason"] for item in conflicts} == {
-        "case_precondition_states_missing_workflow_contract_state",
-        "case_produced_states_missing_workflow_contract_state",
-    }
+    assert conflicts == []
 
 
-def test_typed_state_contract_requires_source_scope_and_temporal_alignment() -> None:
+def test_typed_state_contract_allows_model_state_from_another_scope_as_addition() -> None:
     step_meta = {
         "required_states": [
             {
@@ -219,8 +259,7 @@ def test_typed_state_contract_requires_source_scope_and_temporal_alignment() -> 
 
     reasons = {item["reason"] for item in typed_state_contract_conflicts(case, step_meta=step_meta)}
 
-    assert "case_precondition_states_missing_workflow_contract_state" in reasons
-    assert "case_precondition_states_not_in_workflow_contract" not in reasons
+    assert reasons == set()
 
 
 def test_typed_state_contract_allows_additional_verified_case_state() -> None:
@@ -252,7 +291,7 @@ def test_typed_state_contract_allows_additional_verified_case_state() -> None:
     ) == []
 
 
-def test_typed_state_temporal_compatibility_is_directional() -> None:
+def test_typed_state_contract_keeps_step_temporal_as_authoritative() -> None:
     expected_during = _verified_state(
         "record",
         "visible",
@@ -276,9 +315,115 @@ def test_typed_state_temporal_compatibility_is_directional() -> None:
         {"_semantic": {"produced_states": [expected_during]}},
         step_meta={"produced_states": [actual_after]},
     )
-    assert [item["reason"] for item in reverse] == [
-        "case_produced_states_missing_workflow_contract_state"
+    assert reverse == []
+
+
+def test_typed_state_contract_rejects_opposite_polarity_but_allows_state_paraphrase() -> None:
+    declared = _verified_state(
+        "record",
+        "visible",
+        source="current_stage",
+        scope="publish_flow",
+        temporal="after_case",
+    )
+    opposite = {**declared, "polarity": "negative"}
+    paraphrased_state = {**declared, "state": "已在前台页面展示"}
+    conflicting_source = {**declared, "source": "external_fixture"}
+
+    polarity_conflicts = typed_state_contract_conflicts(
+        {"_semantic": {"produced_states": [opposite]}},
+        step_meta={"produced_states": [declared]},
+    )
+    paraphrase_conflicts = typed_state_contract_conflicts(
+        {"_semantic": {"produced_states": [paraphrased_state]}},
+        step_meta={"produced_states": [declared]},
+    )
+    source_conflicts = typed_state_contract_conflicts(
+        {"_semantic": {"produced_states": [conflicting_source]}},
+        step_meta={"produced_states": [declared]},
+    )
+
+    assert [item["reason"] for item in polarity_conflicts] == [
+        "case_produced_states_opposite_polarity_workflow_contract_state"
     ]
+    assert paraphrase_conflicts == []
+    assert [item["reason"] for item in source_conflicts] == [
+        "case_produced_states_source_conflicts_workflow_contract_state"
+    ]
+
+
+def test_exact_stage_match_uses_authoritative_states_without_rewriting_case_semantics() -> None:
+    required = _verified_state(
+        "post",
+        "submitted",
+        source="previous_stage",
+        scope="publish_flow",
+        temporal="before_case",
+    )
+    produced = _verified_state(
+        "post",
+        "visible",
+        source="current_stage",
+        scope="publish_flow",
+        temporal="after_case",
+    )
+    addition = _verified_state(
+        "notification",
+        "queued",
+        source="current_stage",
+        scope="publish_flow",
+        temporal="after_case",
+    )
+    step_meta = {
+        "workflow_id": "publish_flow",
+        "id": "visible",
+        "stage_kind": "downstream_visibility",
+        "required_states": [required],
+        "produced_states": [produced],
+    }
+    case = {
+        "id": "raw-visible",
+        "description": "View published post",
+        "test_module": "forum",
+        "preconditions": ["post is submitted"],
+        "steps": ["open published post"],
+        "test_input": "post id",
+        "expected_result": "post is visible",
+        "priority": "P1",
+        "_semantic": {
+            "workflow_stage_candidates": [
+                {
+                    "workflow_id": "publish_flow",
+                    "stage_id": "visible",
+                    "stage_kind": "downstream_visibility",
+                    "confidence": 0.9,
+                    "evidence_verified": True,
+                }
+            ],
+            "precondition_states": [],
+            "produced_states": [addition],
+        }
+    }
+
+    effective_preconditions = typed_precondition_states(case, step_meta=step_meta)
+    effective_produced = typed_produced_states(case, step_meta=step_meta)
+    assert [(item["entity"], item["state"]) for item in effective_preconditions] == [
+        ("post", "submitted")
+    ]
+    assert [(item["entity"], item["state"]) for item in effective_produced] == [
+        ("post", "visible"),
+        ("notification", "queued"),
+    ]
+
+    annotated = annotate_execution_plan_cases(
+        [case],
+        selected_by_stage=[("visible", "View published post", case)],
+        workflow_stage_meta_by_key={"visible": step_meta},
+        workflow_stage_output_state={"visible": "visible"},
+        workflow_blueprints=[{"id": "publish_flow"}],
+    )
+    assert annotated[0]["_semantic"] == case["_semantic"]
+    assert "_semantic" not in project_persistable_cases(annotated)[0]
 
 
 def test_stage_interaction_contract_must_be_covered_by_case_semantics() -> None:
@@ -1358,13 +1503,22 @@ def test_state_conflict_keeps_best_assignment_diagnostic_without_publishing_part
         "precondition_state_not_produced_by_previous_stage"
     )
     assert summary["publishable_main_chain"] is False
-    assert summary["main_chain_incomplete_reason"] == "state_chain_conflict"
+    assert summary["main_chain_incomplete_reason"] == (
+        "workflow_blueprint_typed_state_chain_invalid"
+    )
+    assert summary["workflow_blueprint_contract_complete"] is False
+    assert summary["workflow_blueprint_contract_issues"][0]["reason"] == (
+        "previous_stage_state_not_produced"
+    )
     assert not any(item.get("execution_group") == "main_smoke" for item in annotated)
     assert coverage["assignment_required_stage_coverage_complete"] is True
     assert coverage["required_stage_coverage_complete"] is False
     assert coverage["publishable_main_chain"] is False
-    assert coverage["failure_reason"] == "state_chain_conflict"
-    assert coverage["actionable_stage_ids"] == ["view"]
+    assert coverage["failure_reason"] == (
+        "workflow_blueprint_typed_state_chain_invalid"
+    )
+    assert coverage["source_generation_allowed"] is False
+    assert coverage["actionable_stage_ids"] == []
 
 
 def test_optional_stage_gap_does_not_block_declared_required_chain() -> None:
@@ -1817,7 +1971,7 @@ def _required_stage_coverage_fixture() -> tuple[dict[str, Any], list[dict[str, A
     return blueprint, cases
 
 
-def test_required_stage_candidate_coverage_uses_execution_plan_contract_conflicts() -> None:
+def test_required_stage_candidate_coverage_inherits_exact_step_typed_states() -> None:
     blueprint, cases = _required_stage_coverage_fixture()
     cases[-1]["_semantic"]["produced_states"] = []
 
@@ -1826,9 +1980,9 @@ def test_required_stage_candidate_coverage_uses_execution_plan_contract_conflict
         workflow_blueprints=[blueprint],
     )
 
-    assert coverage["covered_required_stage_ids"] == ["entry", "submit"]
-    assert coverage["missing_required_stage_ids"] == ["visible"]
-    assert coverage["required_stage_coverage_complete"] is False
+    assert coverage["covered_required_stage_ids"] == ["entry", "submit", "visible"]
+    assert coverage["missing_required_stage_ids"] == []
+    assert coverage["required_stage_coverage_complete"] is True
 
     retained, diagnostics = retain_required_stage_assignment(
         cases,
@@ -1837,9 +1991,12 @@ def test_required_stage_candidate_coverage_uses_execution_plan_contract_conflict
         target_max_count=3,
         require_complete_source=True,
     )
-    assert [item["id"] for item in retained] == ["case-entry", "case-submit"]
-    assert diagnostics["applied"] is False
-    assert diagnostics["reason"] == "source_required_stage_assignment_incomplete"
+    assert [item["id"] for item in retained] == [
+        "case-entry",
+        "case-submit",
+        "case-visible",
+    ]
+    assert diagnostics["applied"] is True
 
 
 def test_required_stage_coverage_does_not_generate_for_incomplete_blueprint() -> None:
@@ -1858,6 +2015,84 @@ def test_required_stage_coverage_does_not_generate_for_incomplete_blueprint() ->
     assert coverage["actionable_stage_ids"] == []
     assert coverage["missing_required_stages"] == []
     assert coverage["failure_reason"] == "workflow_blueprint_incomplete"
+
+
+def test_required_stage_coverage_fails_closed_for_invalid_typed_state_chain() -> None:
+    blueprint, cases = _required_stage_coverage_fixture()
+    blueprint["steps"][0]["required_states"] = [
+        {
+            "entity": "post",
+            "state": "draft",
+            "source": "previous_stage",
+            "scope": "publish_flow",
+            "polarity": "positive",
+            "temporal": "after_previous_stage",
+        }
+    ]
+
+    coverage = evaluate_required_stage_candidate_coverage(
+        cases,
+        workflow_blueprints=[blueprint],
+    )
+
+    assert coverage["assignment_required_stage_coverage_complete"] is True
+    assert coverage["workflow_blueprint_contract_complete"] is False
+    assert coverage["source_generation_allowed"] is False
+    assert coverage["actionable_stage_ids"] == []
+    assert coverage["missing_required_stages"] == []
+    assert coverage["failure_reason"] == (
+        "workflow_blueprint_typed_state_chain_invalid"
+    )
+    assert coverage["workflow_blueprint_contract_issues"][0]["reason"] == (
+        "previous_stage_state_without_predecessor"
+    )
+
+
+def test_required_stage_coverage_fails_closed_for_all_typed_state_schema_shapes() -> None:
+    scenarios = (
+        (
+            "steps_not_array",
+            lambda blueprint: blueprint.update({"steps": {}}),
+            "workflow_steps_not_array",
+        ),
+        (
+            "step_not_object",
+            lambda blueprint: blueprint["steps"].__setitem__(1, None),
+            "workflow_step_not_object",
+        ),
+        (
+            "state_not_object",
+            lambda blueprint: blueprint["steps"][0].update(
+                {"required_states": [None]}
+            ),
+            "typed_state_item_not_object",
+        ),
+        (
+            "state_collection_missing",
+            lambda blueprint: blueprint["steps"][0].pop("produced_states"),
+            "typed_state_collection_not_array",
+        ),
+    )
+
+    for scenario, mutate, expected_reason in scenarios:
+        blueprint, cases = _required_stage_coverage_fixture()
+        mutate(blueprint)
+
+        coverage = evaluate_required_stage_candidate_coverage(
+            cases,
+            workflow_blueprints=[blueprint],
+        )
+
+        assert coverage["workflow_blueprint_contract_complete"] is False, scenario
+        assert coverage["required_stage_coverage_complete"] is False, scenario
+        assert coverage["source_generation_allowed"] is False, scenario
+        assert coverage["actionable_stage_ids"] == [], scenario
+        assert coverage["failure_reason"] == (
+            "workflow_blueprint_typed_state_chain_invalid"
+        ), scenario
+        assert coverage["workflow_blueprint_contract_issues"][0]["reason"] == (
+            expected_reason
+        ), scenario
 
 
 def test_required_stage_coverage_does_not_generate_for_invalid_blueprint_closure() -> None:
@@ -1936,6 +2171,50 @@ def test_required_stage_review_retention_replaces_nonprotected_case_within_targe
     assert diagnostics["within_target_max"] is True
 
 
+def test_required_stage_review_retention_removes_lowest_ranked_nonprotected_case() -> None:
+    blueprint, stage_cases = _required_stage_coverage_fixture()
+    low_coverage_case = {
+        "id": "independent-low",
+        "test_module": "forum",
+        "description": "Independent low coverage check",
+        "steps": ["Run low coverage check"],
+        "expected_result": "Low coverage result is observable",
+        "priority": "P2",
+    }
+    unique_coverage_witness = {
+        "id": "independent-unique-witness",
+        "test_module": "forum",
+        "description": "Boundary witness for the only covered limit rule",
+        "steps": ["Exercise the exact boundary"],
+        "expected_result": "The boundary result is observable",
+        "priority": "P1",
+    }
+    full_pool = [*stage_cases, low_coverage_case, unique_coverage_witness]
+    llm_selection = [
+        stage_cases[0],
+        stage_cases[1],
+        low_coverage_case,
+        unique_coverage_witness,
+    ]
+
+    retained, diagnostics = retain_required_stage_assignment(
+        full_pool,
+        llm_selection,
+        workflow_blueprints=[blueprint],
+        target_max_count=4,
+        require_complete_source=True,
+        removal_rank_fn=lambda item: (
+            10 if item.get("id") == "independent-unique-witness" else 0,
+        ),
+    )
+
+    retained_ids = {str(item.get("id") or "") for item in retained}
+    assert "case-visible" in retained_ids
+    assert "independent-unique-witness" in retained_ids
+    assert "independent-low" not in retained_ids
+    assert diagnostics["within_target_max"] is True
+
+
 def test_required_stage_review_retention_keeps_complete_selected_assignment() -> None:
     blueprint, stage_cases = _required_stage_coverage_fixture()
     source_pool = [
@@ -1964,6 +2243,47 @@ def test_required_stage_review_retention_keeps_complete_selected_assignment() ->
         "selected_required_stage_assignment_already_complete"
     )
     assert diagnostics["final_coverage"]["publishable_main_chain"] is True
+
+
+def test_required_stage_review_retention_caps_complete_selection_within_target() -> None:
+    blueprint, stage_cases = _required_stage_coverage_fixture()
+    independent_cases = [
+        {
+            "id": f"independent-{index}",
+            "test_module": "forum",
+            "description": f"Independent forum check {index}",
+            "steps": [f"Run independent forum check {index}"],
+            "expected_result": f"Independent result {index} is observable",
+            "priority": "P2",
+        }
+        for index in (1, 2)
+    ]
+    selected = [*stage_cases, *independent_cases]
+
+    retained, diagnostics = retain_required_stage_assignment(
+        selected,
+        selected,
+        workflow_blueprints=[blueprint],
+        target_max_count=4,
+        require_complete_source=True,
+    )
+    final_coverage = evaluate_required_stage_candidate_coverage(
+        retained,
+        workflow_blueprints=[blueprint],
+    )
+
+    assert len(retained) == 4
+    assert [item["id"] for item in retained] == [
+        "case-entry",
+        "case-submit",
+        "case-visible",
+        "independent-1",
+    ]
+    assert final_coverage["required_stage_coverage_complete"] is True
+    assert diagnostics["applied"] is True
+    assert diagnostics["reason"] == "selected_required_stage_assignment_capped"
+    assert diagnostics["replaced_candidate_keys"]
+    assert diagnostics["within_target_max"] is True
 
 
 def test_required_stage_coverage_is_noop_without_declared_workflow() -> None:

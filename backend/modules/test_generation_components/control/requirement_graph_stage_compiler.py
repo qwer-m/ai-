@@ -46,6 +46,7 @@ IndependentRecompileCodeResolver = Callable[[dict[str, Any]], list[str]]
 
 DEFAULT_GRAPH_STAGE_MAX_TOKENS = 8192
 DEFAULT_GRAPH_STAGE_REQUEST_TIMEOUT_SECONDS = 240.0
+DEFAULT_GRAPH_STAGE_PARTITION_FACT_THRESHOLD = 160
 MAX_GRAPH_STAGE_CANDIDATE_ENVELOPES = 3
 MAX_GRAPH_STAGE_TARGETED_REPAIRS = 1
 MAX_GRAPH_STAGE_INDEPENDENT_RECOMPILES = 1
@@ -90,6 +91,9 @@ _ATTEMPT_EVALUATION_DIAGNOSTIC_KEYS = (
     "frozen_fact_contract_match",
     "frozen_fact_count",
     "evaluated_fact_count",
+    "missing_frozen_fact_ids",
+    "extra_evaluated_fact_ids",
+    "changed_frozen_fact_ids",
     "evaluation_valid",
     "projection_valid",
     "retry_feedback_count",
@@ -408,6 +412,17 @@ def _safe_attempt_evaluation_diagnostics(
     )
     if response_contract_error_code:
         output["response_contract_error_code"] = response_contract_error_code
+    response_contract_error_details = response_contract_error.get("details")
+    response_contract_error_details = (
+        dict(response_contract_error_details)
+        if isinstance(response_contract_error_details, dict)
+        else {}
+    )
+    response_contract_error_field = _diagnostic_code(
+        response_contract_error_details.get("field")
+    )
+    if response_contract_error_field:
+        output["response_contract_error_field"] = response_contract_error_field
     return output
 
 
@@ -595,6 +610,16 @@ def _evaluate_candidate(
         or not isinstance(evaluated_facts, list)
         or evaluated_facts != frozen_facts
     ):
+        frozen_by_id = {
+            str(item.get("fact_id") or ""): item
+            for item in frozen_facts or []
+            if isinstance(item, dict) and str(item.get("fact_id") or "")
+        }
+        evaluated_by_id = {
+            str(item.get("fact_id") or ""): item
+            for item in evaluated_facts or []
+            if isinstance(item, dict) and str(item.get("fact_id") or "")
+        }
         return _candidate_evaluation_failure(
             status="candidate_evaluator_contract_invalid",
             assembled_candidate=assembled,
@@ -608,6 +633,17 @@ def _evaluate_candidate(
                     if isinstance(evaluated_facts, list)
                     else 0
                 ),
+                "missing_frozen_fact_ids": sorted(
+                    set(frozen_by_id) - set(evaluated_by_id)
+                )[:16],
+                "extra_evaluated_fact_ids": sorted(
+                    set(evaluated_by_id) - set(frozen_by_id)
+                )[:16],
+                "changed_frozen_fact_ids": sorted(
+                    fact_id
+                    for fact_id in set(frozen_by_id) & set(evaluated_by_id)
+                    if frozen_by_id[fact_id] != evaluated_by_id[fact_id]
+                )[:16],
             },
         )
 
@@ -774,6 +810,18 @@ def _build_result(
         "semantic_compile_physical_call_count": sum(
             item.physical_call_count for item in envelopes
         ),
+        "semantic_compile_provider_call_count": sum(
+            item.provider_call_count for item in envelopes
+        ),
+        "semantic_compile_cache_hit_count": sum(
+            item.cache_hit_count for item in envelopes
+        ),
+        "semantic_compile_cache_miss_count": sum(
+            item.cache_miss_count for item in envelopes
+        ),
+        "semantic_compile_cache_bypass_count": sum(
+            item.cache_bypass_count for item in envelopes
+        ),
         "semantic_compile_transport_failure_count": sum(
             item.transport_failure_count for item in envelopes
         ),
@@ -830,6 +878,201 @@ def _build_result(
     )
 
 
+def _compile_partitioned_graph_stage(
+    *,
+    client: Any,
+    normalized_scope_ledger: dict[str, Any],
+    candidate_evaluator: CandidateEvaluator,
+    independent_recompile_code_resolver: IndependentRecompileCodeResolver,
+    db: Any,
+    max_tokens: int,
+    task_type: str,
+    request_timeout_seconds: float,
+    isolated_ai_runtime_factory: Callable[[], Any] | None,
+) -> RequirementGraphStageCompilationResult:
+    """编排大规模 Graph 分阶段编译，并在合并后复用原有最终门禁。"""
+
+    from .requirement_graph_partition_compiler import (
+        compile_partitioned_requirement_graph_response,
+    )
+
+    frozen_ledger = copy.deepcopy(normalized_scope_ledger)
+    ledger_fingerprint = str(frozen_ledger.get("fingerprint") or "")
+    partition_result = compile_partitioned_requirement_graph_response(
+        client=client,
+        normalized_scope_ledger=frozen_ledger,
+        db=db,
+        max_tokens=max_tokens,
+        task_type=task_type,
+        request_timeout_seconds=request_timeout_seconds,
+        worker_runtime_factory=isolated_ai_runtime_factory,
+    )
+    envelopes = list(partition_result.envelopes)
+    phase_attempts = [
+        copy.deepcopy(item) for item in partition_result.phase_attempts
+    ]
+    final_evaluation: _CandidateEvaluation | None = None
+    final_status: GraphStageCompileStatus = "contract_invalid"
+    assembled_candidate: dict[str, Any] = {}
+    evaluation: dict[str, Any] = {}
+    final_gate_exception_type = ""
+    final_gate_exception_message = ""
+    if partition_result.success:
+        try:
+            final_evaluation = _evaluate_candidate(
+                json.dumps(
+                    partition_result.response,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+                normalized_scope_ledger=frozen_ledger,
+                candidate_evaluator=candidate_evaluator,
+                independent_recompile_code_resolver=(
+                    independent_recompile_code_resolver
+                ),
+            )
+            final_status = final_evaluation.status
+            if final_evaluation.assembled_candidate:
+                assembled_candidate = copy.deepcopy(
+                    final_evaluation.assembled_candidate
+                )
+            if final_evaluation.evaluation:
+                evaluation = copy.deepcopy(final_evaluation.evaluation)
+            final_attempt = {
+                "phase": "final_gate",
+                "shard_id": "FINAL",
+                "attempt": 1,
+                "candidate_mode": "partitioned_merge",
+                "compilation_mode": "partitioned",
+                "status": final_status,
+                "input_chars": 0,
+                "raw_chars": len(
+                    json.dumps(partition_result.response, ensure_ascii=False)
+                ),
+            }
+            final_attempt.update(
+                _safe_attempt_evaluation_diagnostics(
+                    final_evaluation.diagnostics
+                )
+            )
+            phase_attempts.append(final_attempt)
+        except Exception as exc:  # noqa: BLE001 - final gate 必须返回可持久化诊断
+            final_status = "contract_invalid"
+            final_gate_exception_type = type(exc).__name__
+            final_gate_exception_message = str(exc)[:300]
+            phase_attempts.append(
+                {
+                    "phase": "final_gate",
+                    "shard_id": "FINAL",
+                    "attempt": 1,
+                    "candidate_mode": "partitioned_merge",
+                    "compilation_mode": "partitioned",
+                    "status": "contract_invalid",
+                    "error_code": "graph_partition_final_gate_exception",
+                    "error_type": final_gate_exception_type,
+                    "error_message": final_gate_exception_message,
+                    "input_chars": 0,
+                    "raw_chars": len(
+                        json.dumps(partition_result.response, ensure_ascii=False)
+                    ),
+                }
+            )
+    else:
+        candidate_status = str(partition_result.status or "contract_invalid")
+        final_status = (
+            candidate_status
+            if candidate_status
+            in {
+                "parse_failed",
+                "contract_invalid",
+                "output_truncated",
+                "output_incomplete",
+                "transport_exhausted",
+                "fatal_model_error",
+            }
+            else "contract_invalid"
+        )
+
+    success = final_status == "validated"
+    diagnostics = {
+        "semantic_compile_mode": "partitioned",
+        "semantic_compile_status": final_status,
+        "semantic_compile_success": success,
+        "semantic_compile_envelope_count": len(envelopes),
+        "semantic_compile_attempt_count": len(phase_attempts),
+        "semantic_compile_candidate_attempt_count": (
+            1 if partition_result.success else 0
+        ),
+        "semantic_compile_candidate_attempt_limit": 1,
+        "semantic_compile_physical_call_count": sum(
+            item.physical_call_count for item in envelopes
+        ),
+        "semantic_compile_provider_call_count": sum(
+            item.provider_call_count for item in envelopes
+        ),
+        "semantic_compile_cache_hit_count": sum(
+            item.cache_hit_count for item in envelopes
+        ),
+        "semantic_compile_cache_miss_count": sum(
+            item.cache_miss_count for item in envelopes
+        ),
+        "semantic_compile_cache_bypass_count": sum(
+            item.cache_bypass_count for item in envelopes
+        ),
+        "semantic_compile_transport_failure_count": sum(
+            item.transport_failure_count for item in envelopes
+        ),
+        "semantic_compile_transport_retry_count": sum(
+            item.transport_retry_count for item in envelopes
+        ),
+        "semantic_compile_timeout_count": sum(
+            int(attempt.timed_out)
+            for envelope in envelopes
+            for attempt in envelope.attempts
+        ),
+        "semantic_compile_transport_replays_per_envelope": (
+            MAX_TRANSPORT_REPLAYS_PER_ENVELOPE
+        ),
+        "semantic_compile_retry_used": any(
+            int(item.get("attempt") or 0) > 1 for item in phase_attempts
+        ),
+        "semantic_compile_targeted_repair_limit": 0,
+        "semantic_compile_targeted_repair_used": False,
+        "semantic_compile_targeted_repair_attempt": 0,
+        "semantic_compile_targeted_repair_outcome": "not_applicable",
+        "semantic_compile_independent_recompile_limit": 0,
+        "semantic_compile_independent_recompile_used": False,
+        "semantic_compile_independent_recompile_attempt": 0,
+        "semantic_compile_independent_recompile_trigger_codes": [],
+        "semantic_compile_independent_recompile_outcome": "not_applicable",
+        "semantic_compile_validated_attempt": 1 if success else 0,
+        "semantic_compile_stop_reason": "" if success else final_status,
+        "semantic_compile_attempts": phase_attempts,
+        "semantic_compile_max_tokens": int(max_tokens),
+        "semantic_compile_request_timeout_seconds": float(
+            request_timeout_seconds
+        ),
+        "semantic_compile_scope_ledger_fingerprint": ledger_fingerprint,
+        "semantic_compile_final_gate_error_code": (
+            "graph_partition_final_gate_exception"
+            if final_gate_exception_type
+            else ""
+        ),
+        "semantic_compile_final_gate_error_type": final_gate_exception_type,
+        "semantic_compile_final_gate_error_message": final_gate_exception_message,
+        **copy.deepcopy(partition_result.diagnostics),
+    }
+    if not success:
+        diagnostics.update(_latest_compact_failure_diagnostics(phase_attempts))
+    return RequirementGraphStageCompilationResult(
+        assembled_candidate=(
+            copy.deepcopy(assembled_candidate) if success else {}
+        ),
+        evaluation=copy.deepcopy(evaluation) if success else {},
+        diagnostics=diagnostics,
+    )
+
+
 def compile_requirement_graph_stage(
     *,
     client: Any,
@@ -842,6 +1085,7 @@ def compile_requirement_graph_stage(
     request_timeout_seconds: float = (
         DEFAULT_GRAPH_STAGE_REQUEST_TIMEOUT_SECONDS
     ),
+    isolated_ai_runtime_factory: Callable[[], Any] | None = None,
 ) -> RequirementGraphStageCompilationResult:
     """
     编译独立阶段 B graph/workflow。
@@ -863,6 +1107,24 @@ def compile_requirement_graph_stage(
         raise TypeError("normalized_scope_ledger 必须是对象")
     frozen_ledger = copy.deepcopy(normalized_scope_ledger)
     ledger_fingerprint = str(frozen_ledger.get("fingerprint") or "")
+
+    fact_count = len(frozen_ledger.get("evidence_facts") or [])
+    if fact_count > DEFAULT_GRAPH_STAGE_PARTITION_FACT_THRESHOLD:
+        return _compile_partitioned_graph_stage(
+            client=client,
+            normalized_scope_ledger=frozen_ledger,
+            candidate_evaluator=candidate_evaluator,
+            independent_recompile_code_resolver=(
+                independent_recompile_code_resolver
+            ),
+            db=db,
+            max_tokens=normalized_max_tokens,
+            task_type=str(task_type or "generation"),
+            request_timeout_seconds=normalized_timeout,
+            isolated_ai_runtime_factory=(
+                isolated_ai_runtime_factory
+            ),
+        )
 
     prompt = build_requirement_graph_stage_prompt()
     attempts: list[dict[str, Any]] = []

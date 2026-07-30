@@ -130,7 +130,6 @@ PRIMARY_FLOW_DECLARATION_ERROR_CODES = frozenset(
     }
 )
 UNREPAIRABLE_PRIMARY_FLOW_ERROR_CODES = PRIMARY_FLOW_DECLARATION_ERROR_CODES
-_MAX_FACTS = 320
 _MAX_NODES = 320
 _MAX_EDGES = 640
 MAX_FACT_EVIDENCE_COUNT = 6
@@ -257,14 +256,24 @@ def _ordered_id_list(value: Any, *, limit: int = 64) -> list[str]:
     return output
 
 
-def _declared_ids(values: Any, field: str, *, limit: int) -> set[str]:
+def _declared_ids(
+    values: Any,
+    field: str,
+    *,
+    limit: int | None = None,
+) -> set[str]:
     """保留原始声明注册表，用于区分不存在引用和上游校验失败。"""
 
     if not isinstance(values, list):
         return set()
+    candidates = (
+        values
+        if limit is None
+        else values[: max(1, int(limit))]
+    )
     return {
         identifier
-        for item in values[: max(1, int(limit))]
+        for item in candidates
         if isinstance(item, dict)
         for identifier in [_identifier(item.get(field))]
         if identifier
@@ -431,7 +440,7 @@ def _normalize_facts(
 
     facts: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
-    for index, raw in enumerate(values[:_MAX_FACTS]):
+    for index, raw in enumerate(values):
         path = f"$.evidence_facts[{index}]"
         if not isinstance(raw, dict):
             _append_error(errors, "fact_not_object", path)
@@ -568,14 +577,9 @@ def _normalize_facts(
                 f"{path}.testability",
                 identifier=fact_id,
             )
-    if len(values) > _MAX_FACTS:
-        _append_error(
-            errors,
-            "fact_count_exceeds_limit",
-            "$.evidence_facts",
-            count=len(values),
-        )
-    return sorted(facts, key=lambda item: str(item.get("fact_id")))
+    # 事实顺序由 A1 来源数据流冻结；fact_id 是内容哈希身份，不是业务排序键。
+    # 指纹函数会独立 canonicalize，语义图规范化不能破坏来源邻域。
+    return facts
 
 
 def _normalize_nodes(
@@ -1778,7 +1782,11 @@ def _topology_fingerprint(
                     "testability",
                 )
             }
-            for fact in facts
+            # 发布图保留 A1 来源顺序；只有集合身份指纹按稳定 ID 归一化。
+            for fact in sorted(
+                facts,
+                key=lambda item: str(item.get("fact_id") or ""),
+            )
         ],
         "nodes": [
             {
@@ -1851,7 +1859,7 @@ def normalize_requirement_semantic_graph(
     # 完整图与主流程分离：这里只校验显式 edge_ids 路径，图中的其他分支原样保留。
     workflow_topology_errors: list[dict[str, Any]] = []
     raw_facts = data.get("evidence_facts")
-    declared_fact_ids = _declared_ids(raw_facts, "fact_id", limit=_MAX_FACTS)
+    declared_fact_ids = _declared_ids(raw_facts, "fact_id")
     facts = _normalize_facts(
         raw_facts,
         source_text=source_text,
@@ -2088,6 +2096,7 @@ def project_functional_architecture_from_graph(
     facts_by_id = {str(item.get("fact_id")): item for item in facts}
     nodes_by_id = {str(item.get("node_id")): item for item in nodes}
     owned_features: dict[str, list[str]] = defaultdict(list)
+    owned_fact_ids: dict[str, set[str]] = defaultdict(set)
     child_scope_ids: dict[str, set[str]] = defaultdict(set)
     interaction_scope_ids: set[str] = set()
     for edge in edges:
@@ -2097,6 +2106,14 @@ def project_functional_architecture_from_graph(
             name = _text(capability.get("name"))
             if name and name not in owned_features[scope_id]:
                 owned_features[scope_id].append(name)
+            owned_fact_ids[scope_id].update(
+                str(item)
+                for item in [
+                    *(capability.get("fact_ids") or []),
+                    *(edge.get("fact_ids") or []),
+                ]
+                if str(item).strip()
+            )
         elif edge.get("type") == "contains":
             child_scope_ids[str(edge.get("source_node_id"))].add(
                 str(edge.get("target_node_id"))
@@ -2127,6 +2144,16 @@ def project_functional_architecture_from_graph(
             "module_name": str(node.get("name")),
             "aliases": list(node.get("aliases") or []),
             "features": sorted(owned_features.get(node_id, []), key=_key),
+            "fact_ids": sorted(
+                {
+                    str(item)
+                    for item in [
+                        *(node.get("fact_ids") or []),
+                        *owned_fact_ids.get(node_id, set()),
+                    ]
+                    if str(item).strip()
+                }
+            ),
             "scope_status": str(node.get("scope_status") or "unknown"),
             "scope_depth": int(
                 (graph.get("scope_depths") or {}).get(node_id) or 0

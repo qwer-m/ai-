@@ -4,8 +4,13 @@ import copy
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
+from modules.orchestration.background_task_governance import (
+    iter_governed_threadpool_map,
+)
+
+from .ai_runtime_isolation import AIRuntimeIsolationGuard
 from .model_envelope_call import (
     MAX_TRANSPORT_REPLAYS_PER_ENVELOPE,
     EnvelopeCallResult,
@@ -36,11 +41,12 @@ FactLedgerCompileStatus = Literal[
 
 DEFAULT_FACT_LEDGER_MAX_TOKENS = 8192
 DEFAULT_FACT_LEDGER_REQUEST_TIMEOUT_SECONDS = 180.0
-MAX_FACT_LEDGER_CANDIDATE_ENVELOPES = 2
-MAX_FACT_LEDGER_CHUNKS = 24
+MAX_FACT_LEDGER_CANDIDATE_ENVELOPES = 3
+MAX_FACT_LEDGER_CHUNK_WORKERS = 2
 
 # 分片预算不依赖文档类型或业务词。每条来源按最多两个常见原子事实计入
-# FACT JSON、anchor 和处置声明的固定开销，再只使用输出上限的 60%。
+# FACT JSON、anchor 和处置声明的固定开销。预算估算保持每来源两个事实的
+# 保守密度，同时允许模型输出额度承载多个来源组，减少固定网络往返。
 # 真实输出超过该密度时仍由模型输出上限失败关闭，不通过拆结构组来掩盖。
 FACT_LEDGER_ATOMIC_FACT_SCHEMA_BUDGET_UNITS = 128
 FACT_LEDGER_FACTS_PER_SOURCE_HEADROOM = 2
@@ -49,7 +55,7 @@ FACT_LEDGER_SOURCE_SCHEMA_BUDGET_UNITS = (
     * FACT_LEDGER_FACTS_PER_SOURCE_HEADROOM
 )
 FACT_LEDGER_UTF8_BYTES_PER_BUDGET_UNIT = 3
-FACT_LEDGER_CHUNK_BUDGET_NUMERATOR = 3
+FACT_LEDGER_CHUNK_BUDGET_NUMERATOR = 9
 FACT_LEDGER_CHUNK_BUDGET_DENOMINATOR = 5
 
 
@@ -236,6 +242,72 @@ def _partition_source_evidence_catalog(
     return chunks, chunk_budget_units, oversized_partition_group_count
 
 
+def _build_catalog_chunk_user_input(
+    *,
+    global_source_evidence_catalog: list[dict[str, Any]],
+    global_source_catalog_fingerprint: str,
+    local_source_evidence_catalog: list[dict[str, Any]],
+    local_source_catalog_fingerprint: str,
+    target_evidence_refs: list[str],
+    attempt: int,
+    compilation_mode: str,
+    recompile_reason_codes: list[str],
+) -> str:
+    """
+    构建只携带当前分片目录的模型输入。
+
+    局部目录仅负责缩小模型上下文；全局来源顺序与目录指纹继续作为整次
+    A1 编译身份传播，候选校验和最终合并仍由调用方持有全局目录完成。
+    """
+
+    local_input = build_requirement_fact_ledger_user_input(
+        local_source_evidence_catalog,
+        source_catalog_fingerprint=local_source_catalog_fingerprint,
+        target_evidence_refs=target_evidence_refs,
+        attempt=attempt,
+        compilation_mode=compilation_mode,
+        recompile_reason_codes=recompile_reason_codes,
+    )
+    payload = json.loads(local_input)
+    global_order_by_ref = {
+        str(item.get("ref") or ""): index
+        for index, item in enumerate(global_source_evidence_catalog)
+    }
+    local_refs = {
+        str(item.get("ref") or "")
+        for item in local_source_evidence_catalog
+        if str(item.get("ref") or "")
+    }
+    wire_items = [
+        *list(payload.get("context_source_evidence_catalog") or []),
+        *list(payload.get("target_source_evidence_catalog") or []),
+    ]
+    wire_refs = {
+        str(item.get("ref") or "")
+        for item in wire_items
+        if isinstance(item, dict) and str(item.get("ref") or "")
+    }
+    if wire_refs != local_refs:
+        raise AssertionError("A1 分片模型目录必须与当前局部分片严格一致")
+    for item in wire_items:
+        if not isinstance(item, dict):
+            continue
+        evidence_ref = str(item.get("ref") or "")
+        if evidence_ref not in global_order_by_ref:
+            raise AssertionError("A1 分片模型目录包含全局目录外来源")
+        item["source_order"] = global_order_by_ref[evidence_ref]
+
+    payload["compilation_scope"] = (
+        "whole_catalog"
+        if local_refs == set(global_order_by_ref)
+        else "catalog_shard"
+    )
+    payload["source_catalog_fingerprint"] = str(
+        global_source_catalog_fingerprint
+    )
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
 def _stable_global_fact_identity(
     fact: dict[str, Any],
     *,
@@ -324,11 +396,19 @@ def _merge_chunk_raw_declarations(
                 identity_by_global_id[global_fact_id] = copy.deepcopy(identity)
                 merged_facts_by_id[global_fact_id] = remapped
             else:
-                if str(existing_fact.get("anchor_evidence_ref") or "") != str(
+                existing_anchor = str(
+                    existing_fact.get("anchor_evidence_ref") or ""
+                )
+                candidate_anchor = str(
                     remapped.get("anchor_evidence_ref") or ""
-                ):
-                    error_codes.add("fact_ledger_global_fact_anchor_conflict")
-                    continue
+                )
+                existing_fact["anchor_evidence_ref"] = min(
+                    (existing_anchor, candidate_anchor),
+                    key=lambda item: (
+                        catalog_ref_order.get(item, 10**9),
+                        item,
+                    ),
+                )
                 collapsed_duplicate_count += 1
                 existing_fact["confidence"] = min(
                     float(existing_fact.get("confidence") or 0.0),
@@ -409,7 +489,7 @@ def _merge_chunk_raw_declarations(
                     "fact_ledger_anchored_disposition_mismatch"
                 )
         else:
-            if declared_disposition != "context_only":
+            if declared_disposition not in {"context_only", "fact_backed"}:
                 error_codes.add(
                     "fact_ledger_non_owner_projection_input_invalid"
                 )
@@ -420,7 +500,21 @@ def _merge_chunk_raw_declarations(
         {
             "evidence_facts": sorted(
                 merged_facts_by_id.values(),
-                key=lambda item: str(item.get("fact_id") or ""),
+                # 全局 fact_id 是内容哈希，只用于稳定身份；输出顺序应沿来源目录传播，
+                # 供后续职责分片保留相邻需求的语义局部性。
+                key=lambda item: (
+                    catalog_ref_order.get(
+                        str(item.get("anchor_evidence_ref") or ""),
+                        min(
+                            (
+                                catalog_ref_order.get(str(ref), 10**9)
+                                for ref in item.get("evidence") or []
+                            ),
+                            default=10**9,
+                        ),
+                    ),
+                    str(item.get("fact_id") or ""),
+                ),
             ),
             "source_evidence_dispositions": sorted(
                 merged_dispositions,
@@ -539,6 +633,7 @@ def _compile_catalog_chunk(
     client: Any,
     source_evidence_catalog: list[dict[str, str]],
     source_catalog_fingerprint: str,
+    local_source_evidence_catalog: list[dict[str, str]],
     target_evidence_refs: list[str],
     target_fingerprint: str,
     chunk_index: int,
@@ -564,9 +659,11 @@ def _compile_catalog_chunk(
         compilation_mode = (
             "initial" if attempt == 1 else "independent_recompile"
         )
-        user_input = build_requirement_fact_ledger_user_input(
-            source_evidence_catalog,
-            source_catalog_fingerprint=source_catalog_fingerprint,
+        user_input = _build_catalog_chunk_user_input(
+            global_source_evidence_catalog=source_evidence_catalog,
+            global_source_catalog_fingerprint=source_catalog_fingerprint,
+            local_source_evidence_catalog=local_source_evidence_catalog,
+            local_source_catalog_fingerprint=target_fingerprint,
             target_evidence_refs=target_evidence_refs,
             attempt=attempt,
             compilation_mode=compilation_mode,
@@ -725,6 +822,18 @@ def _result(
         "fact_ledger_compile_physical_call_count": sum(
             item.physical_call_count for item in envelope_results
         ),
+        "fact_ledger_compile_provider_call_count": sum(
+            item.provider_call_count for item in envelope_results
+        ),
+        "fact_ledger_compile_cache_hit_count": sum(
+            item.cache_hit_count for item in envelope_results
+        ),
+        "fact_ledger_compile_cache_miss_count": sum(
+            item.cache_miss_count for item in envelope_results
+        ),
+        "fact_ledger_compile_cache_bypass_count": sum(
+            item.cache_bypass_count for item in envelope_results
+        ),
         "fact_ledger_compile_transport_failure_count": sum(
             item.transport_failure_count for item in envelope_results
         ),
@@ -814,6 +923,7 @@ def compile_requirement_atomic_fact_ledger(
     request_timeout_seconds: float = (
         DEFAULT_FACT_LEDGER_REQUEST_TIMEOUT_SECONDS
     ),
+    worker_runtime_factory: Callable[[], Any] | None = None,
 ) -> RequirementFactLedgerCompilationResult:
     """
     编译独立 A1 原子事实 ledger。
@@ -866,10 +976,16 @@ def compile_requirement_atomic_fact_ledger(
     common_summary: dict[str, Any] = {
         "fact_ledger_compile_chunked": chunk_count > 1,
         "fact_ledger_compile_chunk_count": chunk_count,
-        "fact_ledger_compile_chunk_limit": MAX_FACT_LEDGER_CHUNKS,
         "fact_ledger_compile_chunk_budget_units": chunk_budget_units,
         "fact_ledger_compile_catalog_budget_units": catalog_budget_units,
         "fact_ledger_compile_partition_group_count": partition_group_count,
+        "fact_ledger_compile_wire_source_evidence_count_total": sum(
+            len(chunk.items) for chunk in chunks
+        ),
+        "fact_ledger_compile_wire_source_evidence_count_max": max(
+            (len(chunk.items) for chunk in chunks),
+            default=0,
+        ),
         "fact_ledger_compile_oversized_partition_group_count": (
             oversized_partition_group_count
         ),
@@ -881,33 +997,6 @@ def compile_requirement_atomic_fact_ledger(
         "fact_ledger_compile_collapsed_duplicate_fact_count": 0,
         "fact_ledger_source_evidence_count": len(catalog_items),
     }
-    if chunk_count > MAX_FACT_LEDGER_CHUNKS:
-        common_summary.update(
-            {
-                "fact_ledger_compile_failed_chunk_index": 1,
-                "fact_ledger_compile_global_status": (
-                    "chunk_limit_exceeded"
-                ),
-                "fact_ledger_compile_global_error_codes": [
-                    "fact_ledger_chunk_limit_exceeded"
-                ],
-            }
-        )
-        return _result(
-            status="contract_invalid",
-            normalized_ledger={},
-            attempts=[],
-            envelope_results=[],
-            source_catalog_fingerprint=fingerprint,
-            max_tokens=normalized_max_tokens,
-            request_timeout_seconds=normalized_timeout,
-            fresh_candidate_trigger_codes=[],
-            validated_attempt=0,
-            last_parseable_candidate=last_parseable_candidate,
-            candidate_attempt_limit=candidate_attempt_limit,
-            diagnostic_summary=common_summary,
-        )
-
     attempts: list[dict[str, Any]] = []
     envelope_results: list[EnvelopeCallResult] = []
     fresh_candidate_trigger_codes: list[str] = []
@@ -915,21 +1004,98 @@ def compile_requirement_atomic_fact_ledger(
     chunk_summaries: list[dict[str, Any]] = []
     validated_attempt = 0
 
-    for chunk in chunks:
+    def _compile_with_runtime(
+        *,
+        chunk: _CatalogChunk,
+        execution_client: Any,
+        execution_db: Any,
+    ) -> tuple[int, _CatalogCompilation]:
         target_refs = [str(item.get("ref") or "") for item in chunk.items]
-        compilation = _compile_catalog_chunk(
-            client=client,
+        return chunk.index, _compile_catalog_chunk(
+            client=execution_client,
             source_evidence_catalog=catalog_items,
             source_catalog_fingerprint=fingerprint,
+            local_source_evidence_catalog=list(chunk.items),
             target_evidence_refs=target_refs,
             target_fingerprint=chunk.fingerprint,
             chunk_index=chunk.index,
             chunk_count=chunk_count,
-            db=db,
+            db=execution_db,
             max_tokens=normalized_max_tokens,
             task_type=str(task_type or "generation"),
             request_timeout_seconds=normalized_timeout,
         )
+
+    chunk_compilations: dict[int, _CatalogCompilation] = {}
+    parallel_chunks_enabled = bool(
+        worker_runtime_factory is not None and chunk_count > 1
+    )
+    common_summary.update(
+        {
+            "fact_ledger_compile_parallel_chunks_enabled": (
+                parallel_chunks_enabled
+            ),
+            "fact_ledger_compile_chunk_max_workers": (
+                MAX_FACT_LEDGER_CHUNK_WORKERS
+                if parallel_chunks_enabled
+                else 1
+            ),
+        }
+    )
+    if parallel_chunks_enabled:
+        runtime_isolation = AIRuntimeIsolationGuard(
+            parent_client=client,
+            parent_db=db,
+            error_message=(
+                "A1 fact ledger 分片 worker 禁止共享 provider、AIClient 或 DB Session"
+            ),
+        )
+
+        def _compile_with_isolated_runtime(
+            chunk: _CatalogChunk,
+        ) -> tuple[int, _CatalogCompilation]:
+            assert worker_runtime_factory is not None
+            with worker_runtime_factory() as (worker_client, worker_db):
+                runtime_isolation.claim(
+                    client=worker_client,
+                    db=worker_db,
+                )
+                return _compile_with_runtime(
+                    chunk=chunk,
+                    execution_client=worker_client,
+                    execution_db=worker_db,
+                )
+
+        governed_updates = iter_governed_threadpool_map(
+            profile_key="test_generation_fact_ledger_shard_threadpool",
+            items=chunks,
+            worker=_compile_with_isolated_runtime,
+            max_workers=MAX_FACT_LEDGER_CHUNK_WORKERS,
+            thread_name_prefix="fact-ledger-shard",
+            heartbeat_interval_seconds=0,
+        )
+        for governed_update in governed_updates:
+            governed_result = governed_update.item_result
+            if governed_result is None:
+                continue
+            if governed_result.exception is not None:
+                # 隔离冲突或分片执行异常必须立即关闭本轮，避免继续等待未启动分片。
+                raise governed_result.exception
+            chunk_index, compilation = governed_result.result
+            chunk_compilations[int(chunk_index)] = compilation
+    else:
+        for chunk in chunks:
+            chunk_index, compilation = _compile_with_runtime(
+                chunk=chunk,
+                execution_client=client,
+                execution_db=db,
+            )
+            chunk_compilations[int(chunk_index)] = compilation
+
+    # 并发完成顺序不可影响 A1 账本：只按原 chunk index 归并并执行 fail-close。
+    for chunk in chunks:
+        compilation = chunk_compilations[chunk.index]
+        target_refs = [str(item.get("ref") or "") for item in chunk.items]
         if chunk_count == 1:
             last_parseable_candidate = compilation.last_parseable_candidate
         attempts.extend(compilation.attempts)
@@ -944,6 +1110,8 @@ def compile_requirement_atomic_fact_ledger(
             "chunk_index": chunk.index,
             "status": compilation.status,
             "target_source_evidence_count": len(target_refs),
+            "model_source_evidence_count": len(chunk.items),
+            "global_source_evidence_count": len(catalog_items),
             "budget_units": chunk.budget_units,
             "target_fingerprint": chunk.fingerprint,
             "candidate_attempt_count": len(compilation.attempts),
@@ -951,6 +1119,16 @@ def compile_requirement_atomic_fact_ledger(
             "physical_call_count": sum(
                 item.physical_call_count
                 for item in compilation.envelope_results
+            ),
+            "provider_call_count": sum(
+                item.provider_call_count
+                for item in compilation.envelope_results
+            ),
+            "cache_hit_count": sum(
+                item.cache_hit_count for item in compilation.envelope_results
+            ),
+            "cache_miss_count": sum(
+                item.cache_miss_count for item in compilation.envelope_results
             ),
             "validated_attempt": compilation.validated_attempt,
             "ledger_fingerprint": (
@@ -1143,7 +1321,7 @@ __all__ = [
     "DEFAULT_FACT_LEDGER_REQUEST_TIMEOUT_SECONDS",
     "FactLedgerCompileStatus",
     "MAX_FACT_LEDGER_CANDIDATE_ENVELOPES",
-    "MAX_FACT_LEDGER_CHUNKS",
+    "MAX_FACT_LEDGER_CHUNK_WORKERS",
     "RequirementFactLedgerCompilationResult",
     "compile_requirement_atomic_fact_ledger",
 ]

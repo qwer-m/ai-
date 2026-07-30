@@ -55,12 +55,21 @@ class _ParallelShardClient:
             "output_tokens": 5,
         }
 
-    def generate_response(self, *args, **kwargs):  # noqa: ANN002, ANN003
-        return (
-            f'[{{"id":"{self.case_id}","description":"{self.description}",'
-            '"test_module":"Forum","preconditions":["authenticated user exists"],"steps":["open","submit"],'
-            '"test_input":"valid data","expected_result":"state is updated","priority":"P1"}}]'
-        )
+    def generate_response_stream(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        cases = [
+            {
+                "id": f"{self.case_id}-{index:02d}",
+                "description": f"{self.description} scenario {index}",
+                "test_module": "Forum",
+                "preconditions": ["authenticated user exists"],
+                "steps": ["open", f"submit scenario {index}"],
+                "test_input": f"valid data {index}",
+                "expected_result": f"scenario {index} state is updated",
+                "priority": "P1",
+            }
+            for index in range(1, 14)
+        ]
+        yield json.dumps(cases, ensure_ascii=False)
 
 
 class _ParallelContractClient:
@@ -69,10 +78,12 @@ class _ParallelContractClient:
         self.semantic_module = semantic_module
         self.description = description
         self.last_response_metadata = {"model": "parallel-contract-model"}
+        self.stream_call_count = 0
 
-    def generate_response(self, *args, **kwargs):  # noqa: ANN002, ANN003
+    def generate_response_stream(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        self.stream_call_count += 1
         module_key = self.semantic_module.lower()
-        return json.dumps(
+        yield json.dumps(
             [
                 {
                     "id": "raw-case",
@@ -266,6 +277,7 @@ def test_stream_batches_accepts_parallel_coverage_shards(monkeypatch) -> None:
     shard_clients = [
         _ParallelShardClient("S1-001", "create forum post"),
         _ParallelShardClient("S2-001", "create forum reply"),
+        _ParallelShardClient("S3-001", "create final public batch case"),
     ]
 
     def client_factory(shard):  # noqa: ANN001
@@ -303,14 +315,17 @@ def test_stream_batches_accepts_parallel_coverage_shards(monkeypatch) -> None:
     assert isinstance(final_state, dict)
     assert final_state.get("stream_parallel_shards_used") is True
     assert final_state.get("stream_parallel_shard_result", {}).get("status") == "accepted"
+    assert final_state.get("stream_parallel_shard_result", {}).get(
+        "public_batch_targets"
+    ) == [25, 1]
     assert final_state.get("stream_batch_acceptance_summaries", [])[0].get("source") == "parallel_shards"
-    assert final_state.get("stream_batch_acceptance_summaries", [])[0].get("accepted_count") == 2
+    assert final_state.get("stream_batch_acceptance_summaries", [])[0].get("accepted_count") == 26
     assert "TC-001" in final_state.get("full_content", "")
     assert "TC-002" in final_state.get("full_content", "")
     assert any("parallel_coverage_shard_result" in str(chunk) for chunk in chunks)
 
 
-def test_parallel_module_conflict_falls_back_before_acceptance(monkeypatch) -> None:
+def test_parallel_module_conflict_keeps_successful_shard_and_repairs_only_gap(monkeypatch) -> None:
     _enable_parallel_shards(monkeypatch)
     _patch_two_rule_coverage_plan(monkeypatch)
     profile = {
@@ -365,7 +380,7 @@ def test_parallel_module_conflict_falls_back_before_acceptance(monkeypatch) -> N
         "project_id": 1,
         "db": None,
         "doc_type": "requirement",
-        "expected_count": 26,
+        "expected_count": 25,
         "batch_size": 25,
         "append": False,
         "user_id": 1,
@@ -391,14 +406,21 @@ def test_parallel_module_conflict_falls_back_before_acceptance(monkeypatch) -> N
 
     assert isinstance(final_state, dict)
     result = final_state["stream_parallel_shard_result"]
-    assert final_state["stream_parallel_shards_used"] is False
-    assert result["status"] == "fallback"
-    assert result["fallback_reason"] == "functional_module_contract_rejected"
+    assert final_state["stream_parallel_shards_used"] is True
+    assert result["status"] == "partial"
+    assert result["fallback_reason"] == ""
     assert result["accepted_case_count"] == 1
-    assert result["functional_module_contract"]["module_rejected_case_count"] == 1
+    assert result["repair_shard_count"] == 2
+    assert result["shard_results"][0]["accepted_case_count"] >= 1
+    assert "functional_module_contract_rejected" in result["shard_results"][1]["error_codes"]
+    assert result["shard_results"][0]["raw_response_chars"] > 0
+    assert result["shard_results"][0]["raw_parsed_case_count"] == 2
+    assert result["shard_results"][0]["normalized_case_count"] == 2
+    assert result["shard_results"][0]["semantic_rejection_count"] == 0
+    assert [client.stream_call_count for client in shard_clients] == [2, 2]
 
 
-def test_stream_batches_falls_back_when_parallel_client_unavailable(monkeypatch) -> None:
+def test_stream_batches_reports_failed_shards_without_full_batch_fallback(monkeypatch) -> None:
     _enable_parallel_shards(monkeypatch)
     _patch_two_rule_coverage_plan(monkeypatch)
     module = TestGenerationModule()
@@ -432,7 +454,11 @@ def test_stream_batches_falls_back_when_parallel_client_unavailable(monkeypatch)
 
     assert isinstance(final_state, dict)
     assert final_state.get("stream_parallel_shards_enabled") is True
-    assert final_state.get("stream_parallel_shards_used") is False
-    assert final_state.get("stream_parallel_shard_result", {}).get("status") == "fallback"
-    assert final_state.get("stream_parallel_shard_result", {}).get("fallback_reason") == "parallel_client_unavailable"
-    assert client.stream_prompts
+    assert final_state.get("stream_parallel_shards_used") is True
+    assert final_state.get("stream_parallel_shard_result", {}).get("status") == "failed"
+    assert final_state.get("stream_parallel_shard_result", {}).get("fallback_reason") == ""
+    assert all(
+        "client_unavailable" in item.get("error_codes", [])
+        for item in final_state.get("stream_parallel_shard_result", {}).get("shard_results", [])
+    )
+    assert client.stream_prompts == []

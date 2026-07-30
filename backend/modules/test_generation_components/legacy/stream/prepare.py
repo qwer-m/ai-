@@ -1,11 +1,15 @@
 from typing import Any, Iterator
 import json
 import time
+import traceback
 
 from sqlalchemy.orm import Session
 
+from core.settings.config import settings
+
 from .runtime import LazyAttrProxy, call_component
 from .prepare_runtime import (
+    iter_semantic_compilation_with_heartbeat,
     record_prepare_timing_event,
     resolve_append_existing_state,
     resolve_stream_prepare_runtime,
@@ -20,6 +24,19 @@ MemoryContext = LazyAttrProxy("modules.memory_fabric.contracts.memory_context", 
 
 def get_client_for_user(*args: Any, **kwargs: Any) -> Any:
     return call_component("core.ai.ai_client", "get_client_for_user", *args, **kwargs)
+
+
+def create_db_session() -> Any:
+    return call_component("core.db.database", "SessionLocal")
+
+
+def iter_governed_threadpool_map(*args: Any, **kwargs: Any) -> Any:
+    return call_component(
+        "modules.orchestration.background_task_governance",
+        "iter_governed_threadpool_map",
+        *args,
+        **kwargs,
+    )
 
 
 def init_memory_diag(*args: Any, **kwargs: Any) -> Any:
@@ -97,7 +114,7 @@ class LegacyGenerationStreamPrepareMixin:
         doc_type: str = "requirement",
         compress: bool = False,
         expected_count: int = 20,
-        batch_size: int = 10,
+        batch_size: int = settings.TEST_GENERATION_BATCH_SIZE,
         overwrite: bool = False,
         append: bool = False,
         user_id: int | None = None,
@@ -513,14 +530,81 @@ class LegacyGenerationStreamPrepareMixin:
                 )
 
         blueprint_started = time.perf_counter()
-        feedback_control_state = merge_current_requirement_blueprint_control_state(
-            feedback_control_state,
-            client=client,
-            requirement_text=original_requirement,
-            db=db,
-            project_id=project_id,
-            user_id=user_id,
-        ).to_dict()
+        semantic_compile_result = None
+        try:
+            for semantic_update in iter_semantic_compilation_with_heartbeat(
+                feedback_control_state=feedback_control_state,
+                client=client,
+                requirement_text=original_requirement,
+                db=db,
+                project_id=project_id,
+                user_id=user_id,
+                merge_control_state_fn=merge_current_requirement_blueprint_control_state,
+                create_db_session_fn=create_db_session,
+                get_client_for_user_fn=get_client_for_user,
+                iter_governed_threadpool_map_fn=iter_governed_threadpool_map,
+                heartbeat_interval_seconds=15.0,
+            ):
+                if semantic_update.kind == "heartbeat":
+                    progress = semantic_update.progress
+                    shard_text = f"，分片={progress.shard_id}" if progress.shard_id else ""
+                    attempt_text = f"，尝试={progress.attempt}" if progress.attempt else ""
+                    yield (
+                        "@@STATUS@@:语义编译进行中："
+                        f"阶段={progress.stage}{shard_text}{attempt_text}，"
+                        f"模型调用={progress.completed_model_calls}/"
+                        f"{progress.started_model_calls}\n"
+                    )
+                elif semantic_update.kind == "result":
+                    semantic_compile_result = semantic_update.result
+        except Exception as exc:
+            error_code = str(
+                getattr(exc, "code", "semantic_compilation_worker_exception")
+            )
+            traceback_summary = [
+                {
+                    "file": str(frame.filename).replace("\\", "/").rsplit("/", 1)[-1],
+                    "line": int(frame.lineno),
+                    "function": str(frame.name),
+                }
+                for frame in traceback.extract_tb(exc.__traceback__)[-8:]
+            ]
+            diagnostic_payload = {
+                "kind": "semantic_compilation_worker_exception",
+                "request_id": request_id,
+                "project_id": project_id,
+                "user_id": user_id,
+                "failure_code": error_code,
+                "error_type": type(exc).__name__,
+                "message": str(exc)[:300],
+                "traceback_summary": traceback_summary,
+            }
+            persist_gen_diag(
+                db=db,
+                is_active_db_session=self._is_active_db_session(db),
+                log_entry_model=LogEntry,
+                project_id=project_id,
+                user_id=user_id,
+                payload=diagnostic_payload,
+            )
+            yield f"GEN_DIAG:{json.dumps(diagnostic_payload, ensure_ascii=False)}\n"
+            yield "@@STATUS@@:语义编译异常，已记录失败诊断并终止本次生成。\n"
+            yield f"Error: {error_code} - {str(exc)[:300]}\n"
+            _record_timing_event(
+                "prepare_total",
+                prepare_started,
+                status="aborted_semantic_compilation_exception",
+                semantic_compile_status=error_code,
+            )
+            return {
+                "abort": True,
+                "abort_code": error_code,
+                "semantic_compilation": diagnostic_payload,
+                "generation_timing_events": timing_events,
+            }
+        if semantic_compile_result is None:
+            raise RuntimeError("语义编译 worker 未返回结果")
+        feedback_control_state = semantic_compile_result.to_dict()
         current_blueprint_meta = dict((feedback_control_state or {}).get("source_meta") or {})
         current_blueprint_status = str(
             current_blueprint_meta.get("current_requirement_blueprint_status") or ""

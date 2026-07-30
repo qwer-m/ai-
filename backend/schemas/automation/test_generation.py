@@ -1,6 +1,8 @@
 from pydantic import BaseModel
 from typing import ClassVar, List
 
+from core.settings.config import settings
+
 class TestGenRequest(BaseModel):
     __test__: ClassVar[bool] = False
 
@@ -10,7 +12,7 @@ class TestGenRequest(BaseModel):
     expected_count: int = 20
     enable_sample_pool_feedback: bool = True
     batch_index: int = 0
-    batch_size: int = 20
+    batch_size: int = settings.TEST_GENERATION_BATCH_SIZE
     current_biz_key: str = ""
     only_current_biz: bool = False
     multi_pass: bool = True

@@ -31,7 +31,7 @@ REQUIREMENT_SCOPE_MEMBERSHIP_ASSIGNMENT_VERSION = (
 )
 REQUIREMENT_SCOPE_MEMBERSHIP_INPUT_VERSION = "2"
 REQUIREMENT_SCOPE_BINDING_SHARD_VERSION = "requirement-scope-binding-shard-v2"
-REQUIREMENT_SCOPE_BINDING_INPUT_VERSION = "5"
+REQUIREMENT_SCOPE_BINDING_INPUT_VERSION = "7"
 REQUIREMENT_SCOPE_SOURCE_OUTLINE_VERSION = "requirement-source-outline-v1"
 REQUIREMENT_SCOPE_RESPONSE_FIELDS = frozenset(
     {"boundaries", "fact_bindings"}
@@ -107,7 +107,6 @@ SCOPE_LEDGER_COMPILATION_MODES = frozenset(
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,95}$")
 _FACT_REF_PATTERN = re.compile(r"^F[0-9]{3,}$")
 _MAX_BOUNDARIES = 160
-_MAX_BINDINGS = 320
 _MAX_SUPPORTS_PER_BOUNDARY = 16
 _MAX_FACT_IDS_PER_ITEM = 64
 _MAX_FACT_ROLES_PER_BOUNDARY = (
@@ -733,7 +732,7 @@ def _normalize_fact_bindings(
         return []
     bindings: list[dict[str, Any]] = []
     seen_fact_ids: set[str] = set()
-    for index, raw in enumerate(value[:_MAX_BINDINGS]):
+    for index, raw in enumerate(value):
         path = f"$.fact_bindings[{index}]"
         if not isinstance(raw, dict):
             _append_error(errors, "fact_binding_not_object", path)
@@ -777,14 +776,6 @@ def _normalize_fact_bindings(
                 "scope_ids": scope_ids,
                 "role": role,
             }
-        )
-    if len(value) > _MAX_BINDINGS:
-        _append_error(
-            errors,
-            "fact_binding_count_exceeds_limit",
-            "$.fact_bindings",
-            count=len(value),
-            limit=_MAX_BINDINGS,
         )
     return sorted(bindings, key=lambda item: str(item.get("fact_id")))
 
@@ -1163,6 +1154,7 @@ def _validate_binding_closure(
         fact_id = str(binding.get("fact_id") or "")
         role = str(binding.get("role") or "")
         scope_ids = set(binding.get("scope_ids") or [])
+        fact = facts_by_id.get(fact_id) or {}
         unknown_scope_ids = sorted(scope_ids - set(boundaries_by_id))
         if unknown_scope_ids:
             _append_error(
@@ -1180,6 +1172,20 @@ def _validate_binding_closure(
                     f"{role}_binding_invalid",
                     "$.fact_bindings",
                     identifier=fact_id,
+                    requirement_level=str(
+                        fact.get("requirement_level") or ""
+                    ),
+                    priority=str(fact.get("priority") or ""),
+                    testability=str(fact.get("testability") or ""),
+                    current_role=role,
+                    current_scope_ids=sorted(scope_ids),
+                    allowed_roles=[
+                        "owned_requirement",
+                        "shared_requirement",
+                    ],
+                    allowed_active_scope_ids=sorted(active_ids),
+                    required_scope_count=1,
+                    repair_action="choose_one_active_responsibility_owner",
                 )
         elif role == "shared_requirement":
             if len(scope_ids) < 2 or not scope_ids <= active_ids:
@@ -1188,6 +1194,23 @@ def _validate_binding_closure(
                     "shared_requirement_binding_invalid",
                     "$.fact_bindings",
                     identifier=fact_id,
+                    requirement_level=str(
+                        fact.get("requirement_level") or ""
+                    ),
+                    priority=str(fact.get("priority") or ""),
+                    testability=str(fact.get("testability") or ""),
+                    current_role=role,
+                    current_scope_ids=sorted(scope_ids),
+                    invalid_scope_ids=sorted(scope_ids - active_ids),
+                    allowed_roles=[
+                        "owned_requirement",
+                        "shared_requirement",
+                    ],
+                    allowed_active_scope_ids=sorted(active_ids),
+                    minimum_shared_scope_count=2,
+                    repair_action=(
+                        "choose_supported_active_coowners_or_one_active_owner"
+                    ),
                 )
         elif role == "external_context":
             if scope_ids and not scope_ids <= external_ids:
@@ -1205,10 +1228,46 @@ def _validate_binding_closure(
                     "$.fact_bindings",
                     identifier=fact_id,
                 )
-
-        fact = facts_by_id.get(fact_id) or {}
-        if role == "non_scope_context" and not scope_ids and (
-            _fact_is_required(fact) or fact.get("testability") == "testable"
+        if role == "external_context" and (
+            _fact_is_required(fact)
+            or fact.get("testability") != "non_testable"
+        ):
+            _append_error(
+                errors,
+                "executable_fact_external_context_forbidden",
+                "$.fact_bindings",
+                identifier=fact_id,
+                requirement_level=str(fact.get("requirement_level") or ""),
+                priority=str(fact.get("priority") or ""),
+                testability=str(fact.get("testability") or ""),
+                current_role=role,
+                current_scope_ids=sorted(scope_ids),
+                allowed_roles=["owned_requirement", "shared_requirement"],
+                allowed_active_scope_ids=sorted(active_ids),
+                repair_action="bind_to_active_responsibility_owner",
+            )
+        if role == "non_scope_context" and _fact_is_required(fact):
+            _append_error(
+                errors,
+                "required_fact_non_scope_context_forbidden",
+                "$.fact_bindings",
+                identifier=fact_id,
+            )
+        if (
+            role == "non_scope_context"
+            and fact.get("testability") != "non_testable"
+            and fact.get("requirement_level") != "optional"
+        ):
+            _append_error(
+                errors,
+                "testable_non_scope_context_requires_optional",
+                "$.fact_bindings",
+                identifier=fact_id,
+            )
+        if (
+            role == "non_scope_context"
+            and not scope_ids
+            and fact.get("testability") == "testable"
         ):
             _append_error(
                 errors,
@@ -3007,15 +3066,6 @@ def _normalize_target_fact_ids(
     if not value:
         _append_error(errors, "scope_binding_target_fact_ids_empty", path)
         return []
-    if len(value) > _MAX_BINDINGS:
-        _append_error(
-            errors,
-            "scope_binding_target_fact_ids_exceeds_limit",
-            path,
-            count=len(value),
-            limit=_MAX_BINDINGS,
-        )
-
     frozen_order = {
         str(item.get("fact_id") or ""): index
         for index, item in enumerate(facts)
@@ -3023,7 +3073,7 @@ def _normalize_target_fact_ids(
     }
     output: list[str] = []
     seen: set[str] = set()
-    for index, raw in enumerate(value[:_MAX_BINDINGS]):
+    for index, raw in enumerate(value):
         fact_id = _identifier(raw)
         item_path = f"{path}[{index}]"
         if not fact_id:
@@ -3113,7 +3163,7 @@ def _lower_scope_binding_model_bindings(
     if not isinstance(value, list):
         return value
     lowered: list[Any] = []
-    for index, raw in enumerate(value[:_MAX_BINDINGS]):
+    for index, raw in enumerate(value):
         path = f"$.fact_bindings[{index}]"
         if not isinstance(raw, dict):
             lowered.append(copy.deepcopy(raw))
@@ -3156,15 +3206,41 @@ def _lower_scope_binding_model_bindings(
                 "role": copy.deepcopy(raw.get("role")),
             }
         )
-    if len(value) > _MAX_BINDINGS:
-        _append_error(
-            errors,
-            "fact_binding_count_exceeds_limit",
-            "$.fact_bindings",
-            count=len(value),
-            limit=_MAX_BINDINGS,
-        )
     return lowered
+
+
+def _project_non_scope_context_binding_scope_ids(
+    bindings: list[dict[str, Any]],
+    *,
+    boundaries_by_id: dict[str, dict[str, Any]],
+) -> tuple[int, int]:
+    """移除模型无权附加给非范围上下文的已知活动或外部边界。"""
+
+    allowed_scope_ids = {
+        boundary_id
+        for boundary_id, boundary in boundaries_by_id.items()
+        if boundary.get("decision") in {"not_scope", "ambiguous"}
+    }
+    known_scope_ids = set(boundaries_by_id)
+    projected_binding_count = 0
+    projected_scope_id_count = 0
+    for binding in bindings:
+        if binding.get("role") != "non_scope_context":
+            continue
+        scope_ids = list(binding.get("scope_ids") or [])
+        projected_scope_ids = [
+            scope_id
+            for scope_id in scope_ids
+            if scope_id in allowed_scope_ids or scope_id not in known_scope_ids
+        ]
+        removed_count = len(scope_ids) - len(projected_scope_ids)
+        if removed_count <= 0:
+            continue
+        # 未知 ID 必须保留给闭包校验严格报错；这里只投影已知但越权的关联。
+        binding["scope_ids"] = projected_scope_ids
+        projected_binding_count += 1
+        projected_scope_id_count += removed_count
+    return projected_binding_count, projected_scope_id_count
 
 
 def normalize_requirement_scope_binding_shard(
@@ -3218,6 +3294,14 @@ def normalize_requirement_scope_binding_shard(
     )
     bindings = _normalize_fact_bindings(lowered_bindings, errors)
     target_set = set(targets)
+    target_order = {fact_id: index for index, fact_id in enumerate(targets)}
+    # shard 输出沿冻结 target 顺序归并；模型响应顺序和哈希 ID 均不能改写数据流。
+    bindings.sort(
+        key=lambda item: (
+            target_order.get(str(item.get("fact_id") or ""), 10**9),
+            str(item.get("fact_id") or ""),
+        )
+    )
     binding_ids = {
         str(item.get("fact_id") or "") for item in bindings
     }
@@ -3248,6 +3332,13 @@ def normalize_requirement_scope_binding_shard(
         boundaries=copy.deepcopy(manifest.get("boundaries") or []),
         source_relation_ids=source_relation_ids,
         errors=errors,
+    )
+    (
+        projected_context_binding_count,
+        projected_context_scope_id_count,
+    ) = _project_non_scope_context_binding_scope_ids(
+        bindings,
+        boundaries_by_id=boundaries_by_id,
     )
     _validate_binding_closure(
         facts_by_id=facts_by_id,
@@ -3289,6 +3380,12 @@ def normalize_requirement_scope_binding_shard(
         "fact_binding_count": len(bindings),
         "missing_target_fact_count": len(target_set - binding_ids),
         "extra_fact_binding_count": len(binding_ids - target_set),
+        "projected_non_scope_context_binding_count": int(
+            projected_context_binding_count
+        ),
+        "projected_non_scope_context_scope_id_count": int(
+            projected_context_scope_id_count
+        ),
         "error_codes": sorted(
             {
                 str(item.get("code"))
@@ -3345,9 +3442,9 @@ def normalize_requirement_scope_ledger(
         "source_outline_fingerprint": str(
             source_outline.get("fingerprint") or ""
         ),
-        "evidence_facts": copy.deepcopy(
-            sorted(facts, key=lambda item: str(item.get("fact_id")))
-        ),
+        # A1 已按来源目录形成稳定顺序；A2 只冻结并绑定事实，不得再按哈希 ID
+        # 重排，否则后续图分片会丢失来源邻域。
+        "evidence_facts": copy.deepcopy(facts),
         "boundaries": boundaries,
         "fact_bindings": bindings,
     }
@@ -3416,6 +3513,80 @@ def _scope_compilation_request_metadata(
             if _text(item)
         ],
     )
+
+
+def project_requirement_scope_binding_recompile_feedback(
+    normalized_fact_ledger: dict[str, Any],
+    normalized_binding_shard: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """把 binding 闭包错误投影成不携带旧候选文本的精确重编指令。"""
+
+    frozen = _validated_frozen_fact_ledger(normalized_fact_ledger)
+    _, ref_by_fact_id = _scope_fact_reference_maps(frozen)
+    bindings_by_fact_id = {
+        str(item.get("fact_id") or ""): item
+        for item in normalized_binding_shard.get("fact_bindings") or []
+        if isinstance(item, dict) and str(item.get("fact_id") or "")
+    }
+    feedback: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_error in (normalized_binding_shard.get("errors") or [])[:32]:
+        if not isinstance(raw_error, dict):
+            continue
+        code = _text(raw_error.get("code"))
+        if not code:
+            continue
+        fact_id = _text(raw_error.get("identifier"))
+        binding = bindings_by_fact_id.get(fact_id) or {}
+        item: dict[str, Any] = {"code": code}
+        fact_ref = ref_by_fact_id.get(fact_id, "")
+        if fact_ref:
+            item["fact_ref"] = fact_ref
+        current_role = _text(
+            raw_error.get("current_role") or binding.get("role")
+        )
+        if current_role:
+            item["current_role"] = current_role
+        current_scope_ids = raw_error.get("current_scope_ids")
+        if not isinstance(current_scope_ids, list):
+            current_scope_ids = binding.get("scope_ids")
+        if isinstance(current_scope_ids, list):
+            item["current_scope_ids"] = [
+                _text(scope_id)
+                for scope_id in current_scope_ids
+                if _text(scope_id)
+            ]
+        for field in ("requirement_level", "priority", "testability"):
+            value = _text(raw_error.get(field))
+            if value:
+                item[field] = value
+        for field in (
+            "invalid_scope_ids",
+            "allowed_roles",
+            "allowed_active_scope_ids",
+        ):
+            values = raw_error.get(field)
+            if isinstance(values, list):
+                item[field] = [
+                    _text(value) for value in values if _text(value)
+                ]
+        for field in ("required_scope_count", "minimum_shared_scope_count"):
+            value = raw_error.get(field)
+            if isinstance(value, int) and value > 0:
+                item[field] = value
+        repair_action = _text(raw_error.get("repair_action"))
+        if repair_action:
+            item["repair_action"] = repair_action
+        identity = json.dumps(
+            item,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        if identity not in seen:
+            seen.add(identity)
+            feedback.append(item)
+    return feedback
 
 
 _SCOPE_MODEL_FACT_SCHEMA = (
@@ -3638,9 +3809,12 @@ Rules:
 - Declare active boundaries as in_scope. The compiler derives canonical in_scope_parent or in_scope_leaf from the complete parent graph; never emit derived decisions.
 - Parentage is semantic responsibility nesting, not page containment or list nesting. A child may name only another selected responsibility parent. A separately supported independent responsibility may be a root.
 - Support is the smallest sufficient exact fact index for why the boundary and decision exist, not a requirement inventory. A fact cannot be repeated under two signals in one boundary.
+- Every support.fact_refs item is an opaque compiler token and must be copied byte-for-byte from frozen_fact_table.fact_ref. Never remove leading zeroes, change width or case, abbreviate, renumber, fabricate, or normalize a ref; for example F013 must never become F13.
+- Every support.signal must be copied from the closed signal enum above. Do not substitute a fact kind, node kind, free-form category, or synonym such as constraint when it is not an allowed signal token.
 - member_enumeration can support a parent inventory but cannot by itself establish an active leaf. Every active leaf needs substantive owner-level support.
 - An external participant stays external_context unless the current requirement assigns changed and testable responsibility. Preserve ambiguity; a required ambiguous boundary is invalid.
 - Never output membership_relation_refs, membership_fact_refs, source catalogs, outlines, ledger versions, fingerprints, or raw evidence.
+- Final protocol check: derive K from every frozen_fact_table fact_ref and verify every emitted support.fact_refs item is an exact member of K. Verify every support.signal is an exact member of the declared signal enum. If either check fails, correct the token before returning; never guess a replacement.
 - Use no fixed number, names, depth, document type, product convention, or business vocabulary.
 """.strip()
 
@@ -3782,6 +3956,7 @@ Input protocol:
 - frozen_boundary_manifest and its fingerprint are an immutable model view of validated A2.1 output. membership_relation_refs describe topology only. membership_fact_refs and support.fact_refs use the same exact refs as frozen_fact_table but do not dictate business ownership.
 - target_topology_usage is a compiler-derived index for target facts. It reports explicit_membership_edges and support_scope_ids without converting either into an owner decision.
 - target_fact_refs are the mutually exclusive output ownership set for this shard. Non-target facts remain visible only as global semantic context.
+- recompile_contract_feedback is empty on the initial attempt. On independent_recompile it contains validator-produced violations from the preceding attempt, expressed only with frozen fact_ref and manifest scope IDs; it never contains or authorizes reuse of the preceding candidate.
 - initial and independent_recompile always compile fresh and never inherit a previous candidate.
 
 Exact response grammar (no additional top-level or nested fields):
@@ -3799,7 +3974,10 @@ Rules:
 - A fact may be explicit membership evidence, substantive boundary support, and an owned/shared requirement at the same time. These are independent dimensions and must not be collapsed into a topology-specific binding role.
 - Across the complete binding set, every active leaf must receive an owned_requirement or shared_requirement, and at least one of its substantive support facts must be owned or shared by that same leaf. When such a support fact is a target in this shard, preserve that support-owner closure instead of binding it away from the leaf.
 - external_context binds only declared external boundaries, or uses an empty scope list when no external boundary identity is needed.
-- non_scope_context binds only not_scope or ambiguous boundaries. It cannot silently discard a required or testable target fact with an empty scope list.
+- external_context is allowed only for a fact that is not required/P0 and is explicitly non_testable. Required/P0 or testable facts must bind to active responsibility owners even when they describe an algorithm, provider, implementation, cost, or traffic constraint.
+- On independent_recompile, resolve every recompile_contract_feedback item. executable_fact_external_context_forbidden requires replacing external_context with owned_requirement or evidence-supported shared_requirement and choosing scope_ids only from allowed_active_scope_ids; do not merely move it to non_scope_context.
+- shared_requirement_binding_invalid requires either at least minimum_shared_scope_count evidence-supported IDs from allowed_active_scope_ids, or exactly one active owner with role=owned_requirement. owned_requirement_binding_invalid requires exactly required_scope_count active owner. For a required/P0 or testable fact, neither repair may switch to external_context or non_scope_context.
+- non_scope_context binds only not_scope or ambiguous boundaries. Required/P0 facts cannot use it. A testable fact may use it only when requirement_level is optional, so the graph can preserve it as an explicit out_of_scope disposition; an empty scope list remains forbidden for testable facts.
 - Preserve shared ownership and external participation exactly as supported by the complete frozen fact set. Do not force a local optimum merely because only target facts are emitted.
 - Never output boundaries, evidence_facts, manifest fields, ledger versions, fingerprints, source catalogs, or raw evidence.
 - Use no fixed number, names, depth, document type, product convention, or business vocabulary.
@@ -3815,6 +3993,7 @@ def build_requirement_scope_binding_user_input(
     attempt: int = 1,
     compilation_mode: str = "initial",
     recompile_reason_codes: Any = None,
+    recompile_contract_feedback: Any = None,
 ) -> str:
     """构建 A2.2 输入；所有事实可见，输出所有权仅限 target fact。"""
 
@@ -3877,6 +4056,11 @@ def build_requirement_scope_binding_user_input(
         ),
         "target_fact_fingerprint": target_fingerprint,
         "recompile_reason_codes": reason_codes,
+        "recompile_contract_feedback": copy.deepcopy(
+            recompile_contract_feedback
+            if isinstance(recompile_contract_feedback, list)
+            else []
+        )[:32],
     }
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
@@ -3914,6 +4098,7 @@ __all__ = [
     "normalize_requirement_scope_ledger",
     "normalize_requirement_scope_membership_model_response",
     "project_requirement_scope_ledger",
+    "project_requirement_scope_binding_recompile_feedback",
     "validate_requirement_scope_ledger_projection",
     "validate_requirement_scope_ledger_frozen_shape",
 ]

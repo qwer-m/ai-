@@ -26,6 +26,10 @@ from .flow_structure_governance import (
 )
 from .rule_coverage import analyze_requirement_rule_coverage
 from ..postprocess.case_access import case_id, case_priority, case_steps, case_text_field, case_value
+from ..postprocess.case_fact_relations import (
+    classify_case_fact_relation,
+    verified_case_fact_ids,
+)
 
 
 _DEFAULT_SCENARIO_CAPS: dict[str, int] = default_scenario_caps()
@@ -156,12 +160,67 @@ def analyze_case_structure(
         ("scenario", key, value) for key, value in scenario_groups.items()
     ]
     grouped_candidates.extend(("intent", key, value) for key, value in intent_groups.items())
+    fact_parents = list(range(len(normalized_cases)))
+
+    def _fact_root(index: int) -> int:
+        while fact_parents[index] != index:
+            fact_parents[index] = fact_parents[fact_parents[index]]
+            index = fact_parents[index]
+        return index
+
+    def _fact_union(left: int, right: int) -> None:
+        left_root = _fact_root(left)
+        right_root = _fact_root(right)
+        if left_root != right_root:
+            fact_parents[right_root] = left_root
+
+    containment_relations: list[dict[str, Any]] = []
+    for left_index, left_case in enumerate(normalized_cases):
+        for right_index in range(left_index + 1, len(normalized_cases)):
+            relation = classify_case_fact_relation(
+                left_case,
+                normalized_cases[right_index],
+            )
+            if relation == "duplicate":
+                _fact_union(left_index, right_index)
+            elif relation in {"contains", "contained_by"}:
+                containment_relations.append(
+                    {
+                        "relation": relation,
+                        "case_id": case_id(left_case),
+                        "candidate_index": int(left_index + 1),
+                        "related_case_id": case_id(normalized_cases[right_index]),
+                        "related_candidate_index": int(right_index + 1),
+                        "shared_fact_ids": sorted(
+                            verified_case_fact_ids(left_case)
+                            & verified_case_fact_ids(normalized_cases[right_index])
+                        ),
+                    }
+                )
+    fact_groups: dict[int, list[int]] = {}
+    for index in range(len(normalized_cases)):
+        fact_groups.setdefault(_fact_root(index), []).append(index + 1)
+    for indices in fact_groups.values():
+        if len(indices) <= 1:
+            continue
+        representative = normalized_cases[indices[0] - 1]
+        representative_fact_ids = sorted(verified_case_fact_ids(representative))
+        # 没有已验证 fact_id 时不能伪造空的 fact 簇，否则会绕过场景注册表的
+        # 通用容量策略；普通文本重复继续由 scenario/intent 簇治理。
+        if not representative_fact_ids:
+            continue
+        fact_key = "fact:" + ",".join(representative_fact_ids)
+        grouped_candidates.append(("fact", fact_key, indices))
     seen_cluster_sets: set[tuple[int, ...]] = set()
     for scenario_key, group_type, indices in [
         (key, kind, value)
         for kind, key, value in sorted(
             grouped_candidates,
-            key=lambda item: (item[2][0], 0 if item[0] == "scenario" else 1, item[1]),
+            key=lambda item: (
+                item[2][0],
+                0 if item[0] == "fact" else 1 if item[0] == "scenario" else 2,
+                item[1],
+            ),
         )
     ]:
         if len(indices) <= 1:
@@ -222,6 +281,8 @@ def analyze_case_structure(
         "duplicate_clusters": duplicate_clusters[:50],
         "duplicate_cluster_count": int(len(duplicate_clusters)),
         "duplicate_case_count": int(sum(max(0, int(cluster.get("size") or 0) - 1) for cluster in duplicate_clusters)),
+        "containment_relations": containment_relations[:100],
+        "containment_relation_count": int(len(containment_relations)),
     }
 
 

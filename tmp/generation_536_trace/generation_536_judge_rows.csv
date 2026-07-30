@@ -1,0 +1,8 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,作文圈社区与审核,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证用户在投稿页点击提交按钮后，系统提交内容供审核后台查看并审核，同时页面出现投稿成功弹窗提示,PASS,-,False,False,False
+TC-002,作文圈社区与审核,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证投稿成功后弹窗显示说明信息，投稿成功弹窗在投稿成功后显示,PASS,-,False,False,False
+TC-003,作文圈社区与审核,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证用户点击投稿成功弹窗的【我知道了】按钮关闭弹窗并返回批改详情页，同时投稿按钮状态改为审核中,PASS,-,False,False,False
+TC-004,作文圈社区与审核,P2,P1,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P1,suggested=P2",作品详情页左右分区内容展示验证,PASS,-,False,False,False
+TC-005,作文圈社区与审核,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,作品删除后仅下架公开展示且本地批改记录保留状态回退验证,PASS,-,False,False,False
+TC-006,课程权限与商品交易,P2,P1,P2,P2,decided,p2_cap_guard,high,,验证普通用户在课程列表页第2单元起显示VIP锁，点击后跳转至商品详情页(PDP),PASS,-,False,False,False
+TC-007,课程权限与商品交易,P2,P2,P2,P2,decided,p2_cap_guard,high,,验证SVIP/已购用户点击已更新单元可进入课程环节页，且课程列表页【升级课程】按钮隐藏,PASS,-,False,False,False

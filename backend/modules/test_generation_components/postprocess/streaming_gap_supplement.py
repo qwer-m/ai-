@@ -18,6 +18,7 @@ from .streaming_postprocess_utils import _dict_case_count, _dict_case_items
 class GapSupplementRequest:
     supplement_source: list[dict[str, Any]]
     system_prompt: str
+    target_additional_count: int
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,41 @@ class GapSupplementRunResult:
     module_contract_rejected_count: int
 
 
+def _gap_component_target_counts(
+    *,
+    coverage_primary: dict[str, Any],
+    missing_rules: list[str],
+    missing_workflow_stages: list[dict[str, Any]],
+) -> tuple[int, int, int]:
+    """按结构化缺口计算规则、类型和工作流阶段的目标数量。"""
+    rule_gap_count = len(
+        {
+            str(item).strip()
+            for item in missing_rules
+            if str(item).strip()
+        }
+    )
+    type_gap_count = int(
+        any(
+            isinstance(item, dict) and bool(item.get("missing_types"))
+            for item in (coverage_primary.get("rule_diagnostics") or [])
+        )
+    )
+    workflow_stage_gap_count = len(
+        {
+            (
+                str(item.get("workflow_id") or "").strip(),
+                str(item.get("stage_id") or "").strip(),
+            )
+            for item in missing_workflow_stages
+            if isinstance(item, dict)
+            and str(item.get("workflow_id") or "").strip()
+            and str(item.get("stage_id") or "").strip()
+        }
+    )
+    return rule_gap_count, type_gap_count, workflow_stage_gap_count
+
+
 def build_gap_supplement_request(
     *,
     requirement: str,
@@ -55,6 +91,7 @@ def build_gap_supplement_request(
     missing_workflow_stages: list[dict[str, Any]] | None = None,
     current_biz_key: str,
     review_contract_context: dict[str, Any] | None = None,
+    target_additional_count: int = 0,
     infer_case_kind_fn: Callable[[dict[str, Any]], str],
     build_supplement_closed_loop_instruction_fn: Callable[..., str],
     build_gap_fill_prompt_fn: Callable[..., str],
@@ -79,16 +116,53 @@ def build_gap_supplement_request(
         review_contract_context=dict(review_contract_context or {}),
         pretty_json=False,
     )
+    target_additional_count = max(0, int(target_additional_count or 0))
+    rule_gap_count, type_gap_count, workflow_stage_gap_count = (
+        _gap_component_target_counts(
+            coverage_primary=coverage_primary,
+            missing_rules=missing_rules,
+            missing_workflow_stages=list(missing_workflow_stages or []),
+        )
+    )
+    gap_component_instruction = (
+        "\nGAP_COMPONENT_REQUIREMENTS: "
+        f"rule_gaps={rule_gap_count}; type_gap_groups={type_gap_count}; "
+        f"workflow_stage_gaps={workflow_stage_gap_count}. "
+        "Cover every non-zero component category in this response. A case may satisfy "
+        "multiple compatible components only when the verified requirement evidence supports "
+        "all of them. Do not spend all GAP_TARGET_COUNT slots on workflow-stage candidates "
+        "while a rule or type gap remains, and do not return before each exact workflow stage "
+        "has a contract-valid candidate."
+        if (
+            workflow_stage_gap_count > 0
+            and (rule_gap_count > 0 or type_gap_count > 0)
+        )
+        else ""
+    )
+    gap_target_instruction = (
+        "\nGAP_TARGET_COUNT: return exactly "
+        f"{target_additional_count} additional distinct, contract-valid cases. "
+        "This target is derived from the current uncovered rule, type, workflow, and count gaps. "
+        "It takes precedence over any earlier candidate quantity guidance. "
+        "Prefer one case that covers multiple compatible gaps, and do not produce alternatives "
+        "after the requested target is satisfied."
+        if target_additional_count > 0
+        else ""
+    )
     return GapSupplementRequest(
         supplement_source=supplement_source,
+        target_additional_count=target_additional_count,
         system_prompt=f"""
 {gap_prompt}
+{gap_target_instruction}
+{gap_component_instruction}
 
 CLOSED_LOOP_HINT:
 {closed_loop_instruction}
 
-CANDIDATE_POLICY: return every contract-valid gap candidate. Do not locally select or discard
-candidates by per-case coverage gain; the unified Review stage makes the global selection.
+CANDIDATE_POLICY: return only the smallest high-gain candidate set needed to satisfy
+GAP_TARGET_COUNT. Do not return alternative cases for a gap that is already covered;
+the unified Review stage makes the final global selection.
 """,
     )
 
@@ -148,6 +222,7 @@ def run_gap_supplement_attempts(
     workflow_blueprints: list[dict[str, Any]] | None = None,
     project_profile: dict[str, Any] | None = None,
     include_generic_gaps: bool = True,
+    minimum_candidate_count: int = 0,
 ) -> Generator[str, None, GapSupplementRunResult]:
     gap_started = time.perf_counter()
     yield (
@@ -179,9 +254,17 @@ def run_gap_supplement_attempts(
     missing_workflow_stages = list(
         required_stage_coverage.get("missing_required_stages") or []
     )
+    minimum_candidate_count = max(0, int(minimum_candidate_count or 0))
+    candidate_count_gap = max(
+        0,
+        minimum_candidate_count - _dict_case_count(parsed_result),
+    )
 
     while supplement_attempt < 3 and (
-        missing_rules or has_missing_types or missing_workflow_stages
+        missing_rules
+        or has_missing_types
+        or missing_workflow_stages
+        or candidate_count_gap > 0
     ):
         supplement_attempt += 1
         gap_attempt_started = time.perf_counter()
@@ -190,7 +273,11 @@ def run_gap_supplement_attempts(
             int(coverage_gap_state["gap_count"]) if include_generic_gaps else 0
         )
         stage_gap_before = int(len(missing_workflow_stages))
-        gap_remaining_before = generic_gap_before + stage_gap_before
+        candidate_count_gap_before = int(candidate_count_gap)
+        gap_remaining_before = max(
+            candidate_count_gap_before,
+            generic_gap_before + stage_gap_before,
+        )
         yield f"@@STATUS@@:Gap supplement attempt #{supplement_attempt}...\n"
 
         gap_request = build_gap_supplement_request(
@@ -207,6 +294,7 @@ def run_gap_supplement_attempts(
             missing_workflow_stages=missing_workflow_stages,
             current_biz_key=current_biz_key,
             review_contract_context=review_contract_context,
+            target_additional_count=gap_remaining_before,
             infer_case_kind_fn=infer_case_kind_fn,
             build_supplement_closed_loop_instruction_fn=build_supplement_closed_loop_instruction_fn,
             build_gap_fill_prompt_fn=build_gap_fill_prompt_fn,
@@ -217,6 +305,8 @@ def run_gap_supplement_attempts(
             requirement,
             gap_request.system_prompt,
             task_type="generation",
+            reasoning_effort="low",
+            disable_thinking=True,
         )
         provider_error = None
         for chunk in extra_stream:
@@ -236,6 +326,8 @@ def run_gap_supplement_attempts(
                 response_chars=int(len(extra_content or "")),
                 provider_error=str(provider_error or "")[:200],
                 gap_remaining_before=int(gap_remaining_before),
+                requested_additional_count=int(gap_remaining_before),
+                response_overflow_count=0,
                 generic_gap_before=int(generic_gap_before),
                 stage_gap_before=int(stage_gap_before),
                 attempt_status="provider_error",
@@ -315,11 +407,19 @@ def run_gap_supplement_attempts(
         missing_workflow_stages = list(
             required_stage_coverage.get("missing_required_stages") or []
         )
+        candidate_count_gap = max(
+            0,
+            minimum_candidate_count - _dict_case_count(parsed_result),
+        )
         generic_gap_after = (
             int(coverage_gap_state["gap_count"]) if include_generic_gaps else 0
         )
         stage_gap_after = int(len(missing_workflow_stages))
-        gap_remaining_after = generic_gap_after + stage_gap_after
+        candidate_count_gap_after = int(candidate_count_gap)
+        gap_remaining_after = max(
+            candidate_count_gap_after,
+            generic_gap_after + stage_gap_after,
+        )
         required_stage_gap_reduction = max(
             0,
             stage_gap_before - stage_gap_after,
@@ -331,13 +431,19 @@ def run_gap_supplement_attempts(
         gap_gain_detected = bool(
             required_stage_gap_reduction > 0
             or generic_gap_after < generic_gap_before
+            or candidate_count_gap_after < candidate_count_gap_before
         )
         if not gap_gain_detected:
             gap_no_gain_streak += 1
         else:
             gap_no_gain_streak = 0
         attempt_stop_reason = ""
-        if not missing_rules and not has_missing_types and not missing_workflow_stages:
+        if (
+            not missing_rules
+            and not has_missing_types
+            and not missing_workflow_stages
+            and candidate_count_gap_after <= 0
+        ):
             attempt_stop_reason = "coverage_converged"
             gap_stop_reason = attempt_stop_reason
         elif gap_no_gain_streak >= 2:
@@ -350,12 +456,20 @@ def run_gap_supplement_attempts(
             response_chars=int(len(extra_content or "")),
             parsed_case_count=int(parsed_extra_count),
             effective_added_count=int(effective_added_count),
+            requested_additional_count=int(gap_request.target_additional_count),
+            response_overflow_count=max(
+                0,
+                int(parsed_extra_count) - int(gap_request.target_additional_count),
+            ),
             gap_remaining_before=int(gap_remaining_before),
             gap_remaining_after=int(gap_remaining_after),
             generic_gap_before=int(generic_gap_before),
             generic_gap_after=int(generic_gap_after),
             stage_gap_before=int(stage_gap_before),
             stage_gap_after=int(stage_gap_after),
+            minimum_candidate_count=int(minimum_candidate_count),
+            candidate_count_gap_before=int(candidate_count_gap_before),
+            candidate_count_gap_after=int(candidate_count_gap_after),
             no_gain_streak=int(gap_no_gain_streak),
             candidate_set_coverage_gain=attempt_coverage_diagnostics,
             required_stage_gap_reduction=int(required_stage_gap_reduction),
@@ -380,7 +494,14 @@ def run_gap_supplement_attempts(
     remaining_generic_gap_count = (
         int(coverage_gap_state["gap_count"]) if include_generic_gaps else 0
     )
-    remaining_gap_count = remaining_generic_gap_count + int(len(missing_workflow_stages))
+    remaining_candidate_count_gap = max(
+        0,
+        minimum_candidate_count - _dict_case_count(parsed_result),
+    )
+    remaining_gap_count = max(
+        remaining_candidate_count_gap,
+        remaining_generic_gap_count + int(len(missing_workflow_stages)),
+    )
     added_count = max(0, len(parsed_result) - before_gap)
     record_timing_event_fn(
         "gap_supplement",
@@ -390,6 +511,8 @@ def run_gap_supplement_attempts(
         remaining_gap_count=int(remaining_gap_count),
         remaining_generic_gap_count=int(remaining_generic_gap_count),
         remaining_required_stage_gap_count=int(len(missing_workflow_stages)),
+        minimum_candidate_count=int(minimum_candidate_count),
+        remaining_candidate_count_gap=int(remaining_candidate_count_gap),
         module_contract_normalized_count=int(module_contract_normalized_count),
         module_contract_rejected_count=int(module_contract_rejected_count),
         stopped_by_provider_error=bool(stopped_by_provider_error),

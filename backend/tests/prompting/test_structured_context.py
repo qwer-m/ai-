@@ -342,6 +342,34 @@ def test_control_context_includes_workflow_blueprints() -> None:
                             "stage_kind": "commit",
                             "label": "Submit order",
                             "required": True,
+                            "module_candidates": [
+                                {
+                                    "module_key": "checkout",
+                                    "module_name": "Checkout",
+                                    "role": "primary",
+                                }
+                            ],
+                            "interaction_ids": ["submit_order"],
+                            "required_states": [
+                                {
+                                    "entity": "order",
+                                    "state": "draft",
+                                    "source": "previous_stage",
+                                    "scope": "workflow",
+                                    "polarity": "positive",
+                                    "temporal": "after_previous_stage",
+                                }
+                            ],
+                            "produced_states": [
+                                {
+                                    "entity": "order",
+                                    "state": "submitted",
+                                    "source": "current_stage",
+                                    "scope": "workflow",
+                                    "polarity": "positive",
+                                    "temporal": "after_case",
+                                }
+                            ],
                         },
                         {
                             "id": "verify",
@@ -357,17 +385,47 @@ def test_control_context_includes_workflow_blueprints() -> None:
     )
 
     assert "### WORKFLOW BLUEPRINTS" in output["control_context"]
-    assert "checkout flow: commit / Submit order -> completion_sync / Verify paid status" in output[
-        "control_context"
-    ]
+    assert '"workflow_id":"checkout_flow"' in output["control_context"]
+    assert '"stage_order":["submit","verify"]' in output["control_context"]
+    assert '"stage_by_id":{"submit":{"stage_kind":"commit"' in output["control_context"]
     assert "### GENERATION EXECUTION PLAN" in output["control_context"]
     assert "* Generate main-chain cases first" in output["control_context"]
-    assert "workflow_id=checkout_flow; name=checkout flow" in output["control_context"]
-    assert "  1. stage_id=submit / commit / Submit order" in output["control_context"]
-    assert "  2. stage_id=verify / completion_sync / Verify paid status" in output["control_context"]
+    assert "workflow_id=checkout_flow; name=checkout flow; required_stage_order=submit -> verify" in output[
+        "control_context"
+    ]
     assert "### ACTIVE WORKFLOW SEMANTIC CATALOG" in output["control_context"]
     assert '"workflow_id":"checkout_flow"' in output["control_context"]
+    assert '"module_candidates":[{"module_key":"checkout"' in output["control_context"]
+    assert '"interaction_ids":["submit_order"]' in output["control_context"]
+    assert '"required_states":[{"entity":"order","state":"draft"' in output["control_context"]
+    assert '"produced_states":[{"entity":"order","state":"submitted"' in output["control_context"]
     assert "a workflow_name is never a workflow_id" in output["control_context"]
+    assert (
+        "generate one separate executable main-chain candidate for each required_stage_id"
+        in output["control_context"]
+    )
+    assert (
+        "MUST copy the declared module_key/module_name/role values for module_candidates "
+        "exactly and copy interaction_ids exactly."
+        in output["control_context"]
+    )
+    assert "only case evidence and confidence are newly cited" in output["control_context"]
+    assert (
+        "`_semantic.precondition_states` and `_semantic.produced_states` may be empty; the "
+        "execution plan inherits authoritative required_states and produced_states"
+        in output["control_context"]
+    )
+    assert "Do not copy the catalog's typed-state arrays" in output["control_context"]
+    assert (
+        "additional typed state only when the current case's public fields provide exact evidence"
+        in output["control_context"]
+    )
+    assert (
+        "do not conflict with the matching workflow step's authoritative states"
+        in output["control_context"]
+    )
+    assert "Map required_states to `_semantic.precondition_states`" not in output["control_context"]
+    assert "never translate internal state identifiers" not in output["control_context"]
     assert "permission/security -> exception/recovery -> boundary/state rollback" in output["control_context"]
     assert int(output["control_summary"].get("workflow_blueprint_count") or 0) == 1
     assert int(output["control_summary"].get("generation_execution_plan_blueprint_count") or 0) == 1
@@ -527,10 +585,16 @@ def test_control_context_keeps_complete_publishable_semantic_graph_contract() ->
     assert "### ACTIVE SEMANTIC GRAPH CATALOG" in control_context
     assert '"graph_node_id":"submit_capability"' in control_context
     assert '"graph_relation_ids":["order_owns_submit","submit_to_review"]' in control_context
-    assert '"edge_id":"order_owns_submit","type":"owns"' in control_context
-    assert '"fact_id":"f_review"' in control_context
-    assert '"node_id":"review_capability"' in control_context
-    assert '"edge_id":"order_owns_review"' in control_context
+    assert '"interaction_ids":[]' in control_context
+    assert "graph_relation_ids are workflow topology references" in control_context
+    assert "MUST NEVER be copied into case interaction_ids" in control_context
+    assert '"fact_columns":["fact_id","statement"' in control_context
+    assert '["f_review","Reviewer checks the submitted order"' in control_context
+    assert '"node_columns":["node_id","kind"' in control_context
+    assert '["review_capability","capability","Review order"' in control_context
+    assert '"edge_columns":["edge_id","type"' in control_context
+    assert '["order_owns_submit","owns","order_scope","submit_capability"' in control_context
+    assert '["order_owns_review","owns","order_scope","review_capability"' in control_context
     assert '"primary_flow":{"node_ids":["submit_capability","review_capability"],"edge_ids":["submit_to_review"]}' in control_context
     assert summary["active_semantic_graph_fact_count"] == 2
     assert summary["active_semantic_graph_node_count"] == 3
@@ -590,9 +654,9 @@ def test_control_context_keeps_independent_graph_and_items_beyond_sixty_four() -
     )
 
     assert "### ACTIVE SEMANTIC GRAPH CATALOG" in control_context
-    assert '"fact_id":"f_064"' in control_context
-    assert '"node_id":"node_064"' in control_context
-    assert '"edge_id":"edge_064"' in control_context
+    assert '["f_064","Requirement fact 064"' in control_context
+    assert '["node_064","capability","Capability 064"' in control_context
+    assert '["edge_064","depends_on","node_064","node_000"' in control_context
     assert '"primary_flow":{"node_ids":[],"edge_ids":[]}' in control_context
     assert summary["workflow_blueprint_count"] == 0
     assert summary["active_semantic_graph_fact_count"] == item_count
@@ -677,7 +741,9 @@ def test_control_context_keeps_workflow_steps_beyond_old_twelve_step_limit() -> 
         },
     )
 
-    assert "stage_id=stage_13 / Stage 13" in output["control_context"]
+    assert "required_stage_order=stage_01 -> stage_02" in output["control_context"]
+    assert "stage_13" in output["control_context"]
+    assert "Stage 13" in output["control_context"]
     assert output["control_summary"]["generation_execution_plan_step_count"] == 13
 
 

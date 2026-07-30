@@ -9,10 +9,6 @@ from .execution_plan_validation_tokens import _STATE_FIELD_NAMES
 _UNKNOWN_STATE_SOURCES = {"", "unknown", "unspecified", "uncertain"}
 _PREVIOUS_STAGE_SOURCES = {"previous_stage", "previous_step", "upstream_stage"}
 _NEGATIVE_POLARITIES = {"negative", "negated", "absent", "false", "not"}
-_CURRENT_STAGE_TEMPORAL_ORDER = {
-    "during_case": 1,
-    "after_case": 2,
-}
 
 
 def _text(value: Any) -> str:
@@ -132,6 +128,16 @@ def _verified_semantic_state_items(value: Any) -> list[dict[str, Any]]:
     ]
 
 
+def _state_scope_compatible(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    left_scope = _normalized_token(left.get("scope"))
+    right_scope = _normalized_token(right.get("scope"))
+    return not left_scope or not right_scope or left_scope == right_scope
+
+
+def _state_polarity_is_negative(state: dict[str, Any]) -> bool:
+    return _normalized_token(state.get("polarity")) in _NEGATIVE_POLARITIES
+
+
 def typed_precondition_states(
     case: dict[str, Any] | None,
     *,
@@ -140,8 +146,8 @@ def typed_precondition_states(
     semantic = _semantic_payload(case)
     return _normalized_state_records(
         [
-            *_verified_semantic_state_items(semantic.get("precondition_states")),
             *_state_record_items((step_meta or {}).get("required_states")),
+            *_verified_semantic_state_items(semantic.get("precondition_states")),
         ]
     )
 
@@ -154,38 +160,10 @@ def typed_produced_states(
     semantic = _semantic_payload(case)
     return _normalized_state_records(
         [
-            *_verified_semantic_state_items(semantic.get("produced_states")),
             *_state_record_items((step_meta or {}).get("produced_states")),
+            *_verified_semantic_state_items(semantic.get("produced_states")),
         ]
     )
-
-
-def _typed_state_satisfies(required: dict[str, Any], actual: dict[str, Any]) -> bool:
-    if not _same_typed_state(required, actual):
-        return False
-    for field in ("source", "scope"):
-        expected = str(required.get(field) or "")
-        if expected and expected not in _UNKNOWN_STATE_SOURCES and expected != str(actual.get(field) or ""):
-            return False
-    expected_temporal = str(required.get("temporal") or "")
-    actual_temporal = str(actual.get("temporal") or "")
-    if expected_temporal and expected_temporal not in _UNKNOWN_STATE_SOURCES:
-        if expected_temporal == actual_temporal:
-            return True
-        source = str(required.get("source") or actual.get("source") or "")
-        if source == "current_stage":
-            expected_rank = _CURRENT_STAGE_TEMPORAL_ORDER.get(expected_temporal)
-            actual_rank = _CURRENT_STAGE_TEMPORAL_ORDER.get(actual_temporal)
-            if expected_rank is not None and actual_rank is not None:
-                return actual_rank >= expected_rank
-        if (
-            source in _PREVIOUS_STAGE_SOURCES
-            and expected_temporal == "after_previous_stage"
-            and actual_temporal == "before_case"
-        ):
-            return True
-        return False
-    return True
 
 
 def typed_state_contract_conflicts(
@@ -193,7 +171,7 @@ def typed_state_contract_conflicts(
     *,
     step_meta: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """校验模型声明的实体状态是否覆盖当前 workflow step 的 typed-state 契约。"""
+    """蓝图状态可继承；模型状态只在与同实体权威状态显式矛盾时拒绝。"""
     semantic = _semantic_payload(case)
     actual_preconditions = _normalized_state_records(
         _verified_semantic_state_items(semantic.get("precondition_states"))
@@ -212,20 +190,56 @@ def typed_state_contract_conflicts(
         ("precondition_states", actual_preconditions, declared_preconditions),
         ("produced_states", actual_produced, declared_produced),
     ):
-        for expected in declared:
-            if any(_typed_state_satisfies(expected, observed) for observed in actual):
+        for observed in actual:
+            same_entity = [
+                expected
+                for expected in declared
+                if str(expected.get("entity") or "") == str(observed.get("entity") or "")
+                and _state_scope_compatible(expected, observed)
+            ]
+            if not same_entity:
                 continue
-            conflicts.append(
-                {
-                    "reason": f"case_{semantic_key}_missing_workflow_contract_state",
-                    "entity": str(expected.get("entity") or ""),
-                    "state": str(expected.get("state") or ""),
-                    "source": str(expected.get("source") or ""),
-                    "scope": str(expected.get("scope") or ""),
-                    "polarity": str(expected.get("polarity") or "positive"),
-                    "temporal": str(expected.get("temporal") or ""),
-                }
-            )
+            same_state = [
+                expected
+                for expected in same_entity
+                if str(expected.get("state") or "") == str(observed.get("state") or "")
+            ]
+            if same_state and any(
+                _state_polarity_is_negative(expected)
+                != _state_polarity_is_negative(observed)
+                for expected in same_state
+            ):
+                expected = same_state[0]
+                conflicts.append(
+                    {
+                        "reason": f"case_{semantic_key}_opposite_polarity_workflow_contract_state",
+                        "entity": str(observed.get("entity") or ""),
+                        "state": str(observed.get("state") or ""),
+                        "scope": str(observed.get("scope") or expected.get("scope") or ""),
+                        "expected_polarity": str(expected.get("polarity") or "positive"),
+                        "actual_polarity": str(observed.get("polarity") or "positive"),
+                    }
+                )
+                continue
+            for expected in same_state:
+                expected_source = str(expected.get("source") or "")
+                actual_source = str(observed.get("source") or "")
+                if (
+                    expected_source not in _UNKNOWN_STATE_SOURCES
+                    and actual_source not in _UNKNOWN_STATE_SOURCES
+                    and expected_source != actual_source
+                ):
+                    conflicts.append(
+                        {
+                            "reason": f"case_{semantic_key}_source_conflicts_workflow_contract_state",
+                            "entity": str(observed.get("entity") or ""),
+                            "state": str(observed.get("state") or ""),
+                            "scope": str(observed.get("scope") or expected.get("scope") or ""),
+                            "expected_source": expected_source,
+                            "actual_source": actual_source,
+                        }
+                    )
+                    break
     return conflicts
 
 

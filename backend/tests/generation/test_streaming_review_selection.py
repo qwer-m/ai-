@@ -822,6 +822,31 @@ def test_build_review_selection_constraints_uses_structured_target_without_candi
     assert constraints["constraint_source"] == "generation_target_case_range"
 
 
+def test_build_review_selection_constraints_preserves_explicit_expected_floor() -> None:
+    cases = [
+        _review_case(
+            f"TC-FLOOR-{index:03d}",
+            priority="P1",
+            module="order",
+            description=f"order scenario {index}",
+        )
+        for index in range(1, 26)
+    ]
+
+    constraints = build_review_selection_constraints(
+        cases,
+        reference_count=25,
+        generation_profile={
+            "target_case_range": {"min": 20, "max": 25},
+            "explicit_expected_count_floor": 25,
+        },
+    )
+
+    assert constraints["target_min_count"] == 25
+    assert constraints["target_max_count"] == 25
+    assert constraints["constraint_source"] == "explicit_expected_count"
+
+
 def test_build_review_decision_summary_payload_preserves_summary_counts_and_merge_priority() -> None:
     review_decision_table = [
         {

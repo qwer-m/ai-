@@ -1,0 +1,8 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,作文圈社区与审核,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,投稿提交与审核流程-提交阶段：用户在投稿页点击提交按钮后，系统提交内容供审核后台查看并弹出投稿成功弹窗,PASS,-,False,False,False
+TC-002,作文圈社区与审核,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,投稿提交与审核流程-预览阶段：投稿成功后系统显示投稿成功弹窗，弹窗中展示说明信息,PASS,-,False,False,False
+TC-003,作文圈社区与审核,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,投稿提交与审核流程-完成同步阶段：用户点击投稿成功弹窗的【我知道了】按钮关闭弹窗并返回批改详情页，同时投稿按钮状态改为审核中,PASS,-,False,False,False
+TC-004,作文圈社区与审核,P2,P1,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P1,suggested=P2",作品详情页左右区域展示：左侧原图缩略图/作者/点赞评论，右侧标题/字数/文案/好词好句波浪线/评论区,PASS,-,False,False,False
+TC-005,作文圈社区与审核,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,作品删除逻辑：删除已发布作品后仅下架公开展示，保留本地批改记录，状态回退至未投稿并出现投稿按钮,PASS,-,False,False,False
+TC-006,课程权限与商品交易,P2,P1,P2,P2,decided,p2_cap_guard,high,,普通用户点击第2单元起VIP锁课程跳转商品详情页(PDP),PASS,-,False,False,False
+TC-007,课程权限与商品交易,P2,P1,P2,P2,decided,p2_cap_guard,high,,SVIP用户点击已更新单元进入课程环节页且PDP隐藏升级课程按钮,PASS,-,False,False,False

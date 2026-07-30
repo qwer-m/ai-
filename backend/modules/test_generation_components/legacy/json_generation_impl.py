@@ -2,6 +2,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from core.settings.config import settings
+
 from .json_generation_dependencies import (
     MemoryContext,
     STAGE25_SWITCHES,
@@ -20,6 +22,7 @@ from .json_generation_dependencies import (
     build_supplement_closed_loop_instruction,
     clean_and_parse_json,
     count_unique_test_cases,
+    create_db_session,
     deduplicate_test_cases,
     evaluate_current_requirement_semantic_compilation,
     evaluate_persistence_gate,
@@ -98,7 +101,7 @@ class LegacyGenerationJsonMixin:
         doc_type: str = "requirement",
         compress: bool = False,
         expected_count: int = 20,
-        batch_size: int = 20,
+        batch_size: int = settings.TEST_GENERATION_BATCH_SIZE,
         batch_index: int = 0,
         user_id: int = None,
         current_biz_key: str = "",
@@ -324,6 +327,22 @@ class LegacyGenerationJsonMixin:
                 except Exception:
                     pass
 
+        isolated_ai_runtime_factory = None
+        if isinstance(db, Session) and bool(user_id):
+            def _graph_partition_worker_runtime() -> Any:
+                # 延迟导入，保持 JSON 入口的轻量模块加载契约。
+                from .stream.prepare_runtime import isolated_ai_runtime
+
+                return isolated_ai_runtime(
+                    user_id=int(user_id),
+                    create_db_session_fn=create_db_session,
+                    get_client_for_user_fn=get_client_for_user,
+                )
+
+            isolated_ai_runtime_factory = (
+                _graph_partition_worker_runtime
+            )
+
         feedback_control_state = merge_current_requirement_blueprint_control_state(
             feedback_control_state,
             client=client,
@@ -331,6 +350,9 @@ class LegacyGenerationJsonMixin:
             db=db,
             project_id=project_id,
             user_id=user_id,
+            isolated_ai_runtime_factory=(
+                isolated_ai_runtime_factory
+            ),
         ).to_dict()
         current_blueprint_meta = dict((feedback_control_state or {}).get("source_meta") or {})
         semantic_compilation_gate = evaluate_current_requirement_semantic_compilation(
@@ -426,6 +448,9 @@ class LegacyGenerationJsonMixin:
 
         # Calculate start number for IDs based on batch index
         start_id = batch_index * batch_size + 1
+        generated_before_batch = max(0, int(batch_index)) * max(1, int(batch_size))
+        remaining_target = max(0, int(expected_count or 0) - generated_before_batch)
+        current_batch_target = min(max(1, int(batch_size)), remaining_target)
         stage_logs: list[dict[str, Any]] = []
         stage_counts: dict[str, Any] = {}
         coverage_check_payload: dict[str, Any] | None = None
@@ -451,7 +476,8 @@ class LegacyGenerationJsonMixin:
 BATCH GENERATION INSTRUCTION (workflow-first):
 This is batch #{batch_index + 1}.
 Start the Test Case IDs from {start_id} (e.g., TC-{start_id:03d}).
-Suggested batch size reference: about {batch_size} cases (not a hard target).
+Required valid batch target: {current_batch_target} unique, complete cases. This is the acceptance target, not a soft reference.
+Do not pad the result with duplicate, weakly grounded, or non-assertable cases when evidence cannot support the target.
 If additional cases add no coverage gain, stop instead of padding.
 Prioritize completing the current module closed-loop first; do not cross-module jump for count balancing.
 Return ONLY the JSON array.
@@ -473,6 +499,7 @@ Return ONLY the JSON array.
             prompt_context=prompt_context,
             context_result=context_result if isinstance(context_result, dict) else {},
             requirement=requirement,
+            source_requirement=original_requirement,
             kb_context=kb_context,
             base_prompt=base_prompt,
             system_prompt=system_prompt,

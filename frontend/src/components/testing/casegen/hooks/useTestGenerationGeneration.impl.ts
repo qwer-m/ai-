@@ -16,6 +16,7 @@ import {
   sleep,
 } from './useTestGenerationGeneration.helpers';
 import {
+  DEFAULT_GENERATION_BATCH_SIZE,
   buildGenerationStreamFormData,
   openGenerationStream,
 } from './generationStreamClient';
@@ -201,8 +202,8 @@ export function useTestGenerationGeneration({
     if (shouldAppend) {
       const currentCount = getUniqueCaseCount(existingCases);
       targetExpectedCount = currentCount < expectedCount
-        ? currentCount + Math.min(25, expectedCount - currentCount)
-        : currentCount + Math.min(25, appendCount);
+        ? currentCount + Math.min(DEFAULT_GENERATION_BATCH_SIZE, expectedCount - currentCount)
+        : currentCount + Math.min(DEFAULT_GENERATION_BATCH_SIZE, appendCount);
     }
 
     const safeExpectedCount = Math.max(1, Math.floor(Number(targetExpectedCount) || 1));
@@ -234,6 +235,7 @@ export function useTestGenerationGeneration({
       docType,
       compress,
       expectedCount: safeExpectedCount,
+      batchSize: DEFAULT_GENERATION_BATCH_SIZE,
       force: forceOverride !== undefined ? forceOverride : force,
       appendMode: shouldAppend,
       enableSamplePoolFeedback,

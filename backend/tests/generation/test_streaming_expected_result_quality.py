@@ -104,6 +104,38 @@ def test_expected_result_quality_allows_common_ui_visibility_and_formula_asserti
         assert not is_non_assertable_expected_result(text)
 
 
+def test_expected_result_quality_allows_descriptive_observable_business_results() -> None:
+    texts = [
+        "记录支持替换、删除、添加操作",
+        "详情区域显示完整内容，并显示处理后的数量",
+        "审核中记录显示审核文案，右上角显示审核中状态标识",
+        "不合规记录审核不通过并不予展示",
+        "点击缩略图后进入对应记录的详情页",
+    ]
+
+    for text in texts:
+        assert has_concrete_expected_assertion(text)
+        assert not is_non_assertable_expected_result(text)
+
+
+def test_expected_result_quality_keeps_generic_success_phrases_non_assertable() -> None:
+    texts = [
+        "页面正常显示",
+        "结果符合预期",
+        "功能正常",
+        "显示对应内容",
+        "系统支持操作",
+        "系统支持用户完成相关操作",
+        "页面显示对应的相关内容信息",
+        "系统完成业务处理并正常显示",
+        "操作后系统展示对应结果内容",
+    ]
+
+    for text in texts:
+        assert not has_concrete_expected_assertion(text)
+        assert is_non_assertable_expected_result(text)
+
+
 def test_case_expected_result_quality_uses_only_verified_semantic_anchors() -> None:
     verified_case = {
         "expected_result": "处理完成",

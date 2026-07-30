@@ -202,6 +202,7 @@ def build_prompt_context_intake_diagnostics(
     prompt_context: dict[str, Any] | None,
     context_result: dict[str, Any] | None = None,
     requirement: str = "",
+    source_requirement: str = "",
     kb_context: str = "",
     base_prompt: str = "",
     system_prompt: str = "",
@@ -240,10 +241,55 @@ def build_prompt_context_intake_diagnostics(
     generation_execution_plan_step_count = _safe_int(
         control_summary.get("generation_execution_plan_step_count") or 0
     )
-    requirement_understanding = _extract_requirement_understanding_stats(requirement)
+    generation_scope = str(
+        control_summary.get("generation_scope") or "full"
+    ).strip().lower()
+    if generation_scope not in {"full", "main_chain", "independent"}:
+        generation_scope = "full"
+    input_requirement_understanding = _extract_requirement_understanding_stats(
+        requirement
+    )
+    source_requirement_understanding = _extract_requirement_understanding_stats(
+        source_requirement or requirement
+    )
+    requirement_understanding_used = bool(
+        source_meta.get("requirement_understanding_used")
+    )
+    requirement_understanding = {
+        **source_requirement_understanding,
+        "present_in_user_input": bool(
+            input_requirement_understanding.get("present")
+        ),
+        "semantic_compilation_used": requirement_understanding_used,
+        "projection": (
+            "semantic_contract"
+            if requirement_understanding_used
+            and isinstance(source_meta.get("requirement_semantic_contract"), dict)
+            else (
+                "user_input"
+                if input_requirement_understanding.get("present")
+                else "none"
+            )
+        ),
+    }
+    if requirement_understanding_used:
+        requirement_understanding["visual_fact_count"] = _safe_int(
+            source_meta.get("requirement_understanding_visual_fact_count")
+            or requirement_understanding.get("visual_fact_count")
+            or 0
+        )
+        requirement_understanding["invalid_visual_block_count"] = _safe_int(
+            source_meta.get(
+                "requirement_understanding_invalid_visual_block_count"
+            )
+            or requirement_understanding.get("invalid_visual_block_count")
+            or 0
+        )
 
     section_texts = {
         "requirement_user": str(requirement or ""),
+        # 来源需求只用于核对解析事实是否已投影，不计入真实模型输入。
+        "requirement_source": str(source_requirement or requirement or ""),
         "kb_context": str(kb_context or ""),
         "requirement_context": str(prompt_context.get("requirement_context") or ""),
         "requirement_semantics_context": str(prompt_context.get("requirement_semantics_context") or ""),
@@ -280,12 +326,14 @@ def build_prompt_context_intake_diagnostics(
         risk_flags.append("supplement_context_dominates_requirement")
     if bool(fusion_debug.get("rag_used")) and not rag_sources:
         risk_flags.append("rag_used_without_source_chunks")
-    if len(workflow_blueprints) <= 0:
-        risk_flags.append("workflow_blueprint_missing")
-    elif generation_execution_plan_step_count <= 0 and not generation_execution_plan_in_context:
-        risk_flags.append("generation_execution_plan_missing")
-    elif generation_execution_plan_step_count > 0 and not generation_execution_plan_in_context:
-        risk_flags.append("generation_execution_plan_not_in_control_context")
+    # 独立覆盖分片按设计不携带主链工作流，不应产生“工作流缺失”假告警。
+    if generation_scope != "independent":
+        if len(workflow_blueprints) <= 0:
+            risk_flags.append("workflow_blueprint_missing")
+        elif generation_execution_plan_step_count <= 0 and not generation_execution_plan_in_context:
+            risk_flags.append("generation_execution_plan_missing")
+        elif generation_execution_plan_step_count > 0 and not generation_execution_plan_in_context:
+            risk_flags.append("generation_execution_plan_not_in_control_context")
     if int(len(fact_profile.get("confirmed_facts") or [])) <= 0 and int(len(fact_profile.get("pending_items") or [])) <= 0:
         risk_flags.append("fact_profile_sparse")
     if section_sizes["full_input"]["approx_tokens"] > 20000:
@@ -327,6 +375,7 @@ def build_prompt_context_intake_diagnostics(
         },
         "rag_sources": rag_sources,
         "control": {
+            "generation_scope": generation_scope,
             "workflow_blueprint_count": int(len(workflow_blueprints)),
             "generation_execution_plan_blueprint_count": int(generation_execution_plan_blueprint_count),
             "generation_execution_plan_step_count": int(generation_execution_plan_step_count),
@@ -344,6 +393,12 @@ def build_prompt_context_intake_diagnostics(
             "scoped_rules_count": int(len(prompt_context.get("scoped_rules") or [])),
             "hard_flow_constraints_count": int(len(prompt_context.get("hard_flow_constraints") or [])),
             "reuse_risks_count": int(len(prompt_context.get("reuse_risks") or [])),
+            "active_semantic_graph_fact_count": _safe_int(
+                control_summary.get("active_semantic_graph_fact_count") or 0
+            ),
+            "assigned_active_fact_count": _safe_int(
+                control_summary.get("assigned_active_fact_count") or 0
+            ),
         },
         "requirement_understanding": requirement_understanding,
         "business_scope": {

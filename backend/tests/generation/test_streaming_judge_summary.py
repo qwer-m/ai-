@@ -67,6 +67,7 @@ def test_build_judge_summary_payload_counts_outputs_and_fact_profile() -> None:
 
     payload = build_judge_summary_payload(
         repaired=repaired,
+        input_count=4,
         confirmed_pass_cases=[_case("TC-PASS")],
         repaired_pass_cases=[_case("TC-REPAIR-FIXED")],
         rejected_cases=[_case("TC-REJECT")],
@@ -80,6 +81,11 @@ def test_build_judge_summary_payload_counts_outputs_and_fact_profile() -> None:
         },
     )
 
+    assert payload["total"] == 4
+    assert payload["input_count"] == 4
+    assert payload["decision_count"] == 4
+    assert payload["diagnostic_count"] == 0
+    assert payload["diagnostic_repairable_count"] == 0
     assert payload["pass_count"] == 1
     assert payload["repairable_count"] == 1
     assert payload["raw_repairable_count"] == 1
@@ -99,6 +105,43 @@ def test_build_judge_summary_payload_counts_outputs_and_fact_profile() -> None:
     assert payload["fact_profile_confirmed_count"] == 1
     assert payload["fact_profile_forbidden_count"] == 1
     assert payload["fact_profile_pending_count"] == 1
+
+
+def test_build_judge_summary_separates_batch_diagnostics_from_case_total() -> None:
+    repaired = JudgeBatchResult(
+        cases=[
+            JudgeResult(
+                case_id="TC-PASS",
+                status=JudgeStatus.PASS,
+                signals=JudgeSignalSet(),
+                before_case=_case("TC-PASS"),
+            ),
+            JudgeResult(
+                case_id="AUTO-REUSE-RISK",
+                status=JudgeStatus.REPAIRABLE,
+                signals=JudgeSignalSet(missing_reuse_risk=True),
+            ),
+        ],
+        pass_count=1,
+        repairable_count=1,
+    )
+
+    payload = build_judge_summary_payload(
+        repaired=repaired,
+        input_count=1,
+        confirmed_pass_cases=[_case("TC-PASS")],
+        repaired_pass_cases=[],
+        rejected_cases=[],
+        pending_cases=[],
+        fact_profile={},
+    )
+
+    assert payload["total"] == 1
+    assert payload["input_count"] == 1
+    assert payload["decision_count"] == 2
+    assert payload["diagnostic_count"] == 1
+    assert payload["diagnostic_repairable_count"] == 1
+    assert payload["raw_repairable_count"] == 1
 
 
 def test_build_judge_decision_table_payload_expands_signals_and_case_snapshots() -> None:

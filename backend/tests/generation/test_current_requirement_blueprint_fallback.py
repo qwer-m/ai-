@@ -6,6 +6,7 @@ import pytest
 
 from modules.test_generation_components.control.current_requirement_blueprint import (
     _build_source_quote_catalog,
+    _evaluate_parsed_semantic_candidate,
     _source_evidence_catalog_diagnostic,
     _source_quote_catalog_coverage,
     current_requirement_blueprint_max_tokens,
@@ -501,7 +502,7 @@ def _project_scope_stage_response(
     parent_by_child: dict[str, str] = {}
     membership_fact_ids_by_child: dict[str, set[str]] = {}
     capability_owners: dict[str, dict[str, str]] = {}
-    interaction_scope_ids_by_fact: dict[str, set[str]] = {}
+    relation_scope_ids_by_fact: dict[str, set[str]] = {}
     for edge in edges:
         source_id = str(edge.get("source_node_id") or "")
         target_id = str(edge.get("target_node_id") or "")
@@ -518,9 +519,15 @@ def _project_scope_stage_response(
         if edge_type == "interacts_with":
             interaction_scope_ids = {source_id, target_id} & scope_ids
             for fact_id in edge_fact_ids:
-                interaction_scope_ids_by_fact.setdefault(fact_id, set()).update(
+                relation_scope_ids_by_fact.setdefault(fact_id, set()).update(
                     interaction_scope_ids
                 )
+        # 依赖、约束等关系中的 scope 端点同样是事实的业务归属，不能降级成外部上下文。
+        relation_scope_ids = {source_id, target_id} & scope_ids
+        for fact_id in edge_fact_ids:
+            relation_scope_ids_by_fact.setdefault(fact_id, set()).update(
+                relation_scope_ids
+            )
         endpoints = {source_id, target_id}
         endpoint_scopes = endpoints & scope_ids
         endpoint_capabilities = endpoints & capability_ids
@@ -533,6 +540,67 @@ def _project_scope_stage_response(
         capability_owners.setdefault(capability_id, {})[scope_id] = str(
             edge.get("ownership_role") or "primary"
         )
+
+    for edge in edges:
+        endpoint_scope_ids: set[str] = set()
+        for endpoint_id in {
+            str(edge.get("source_node_id") or ""),
+            str(edge.get("target_node_id") or ""),
+        }:
+            if endpoint_id in scope_ids:
+                endpoint_scope_ids.add(endpoint_id)
+            endpoint_scope_ids.update(capability_owners.get(endpoint_id, {}))
+        for fact_id in edge.get("fact_ids") or []:
+            relation_scope_ids_by_fact.setdefault(
+                str(fact_id or ""), set()
+            ).update(endpoint_scope_ids)
+
+    required_fact_ids = {
+        str(item.get("fact_ref") or "")
+        for item in frozen_facts
+        if isinstance(item, dict)
+        and (
+            str(item.get("requirement_level") or "") == "required"
+            or str(item.get("priority") or "").upper() == "P0"
+        )
+    }
+    contextual_owner_scope_ids_by_fact: dict[str, set[str]] = {}
+    for node in nodes:
+        if str(node.get("kind") or "") in {"scope", "capability"}:
+            continue
+        node_id = str(node.get("node_id") or "")
+        incident_edges = [
+            edge
+            for edge in edges
+            if node_id
+            in {
+                str(edge.get("source_node_id") or ""),
+                str(edge.get("target_node_id") or ""),
+            }
+        ]
+        required_edges = [
+            edge
+            for edge in incident_edges
+            if required_fact_ids
+            & {
+                str(item or "")
+                for item in edge.get("fact_ids") or []
+                if str(item or "")
+            }
+        ]
+        candidate_edges = required_edges or incident_edges
+        adjacent_scope_ids: set[str] = set()
+        for edge in candidate_edges:
+            source_id = str(edge.get("source_node_id") or "")
+            target_id = str(edge.get("target_node_id") or "")
+            other_id = target_id if source_id == node_id else source_id
+            if other_id in scope_ids:
+                adjacent_scope_ids.add(other_id)
+            adjacent_scope_ids.update(capability_owners.get(other_id, {}))
+        for fact_id in node.get("fact_ids") or []:
+            contextual_owner_scope_ids_by_fact.setdefault(
+                str(fact_id or ""), set()
+            ).update(adjacent_scope_ids)
 
     fact_ids = [
         str(item.get("fact_ref") or "")
@@ -583,7 +651,13 @@ def _project_scope_stage_response(
                 }
             )
             continue
-        supporting_scope_ids = set(interaction_scope_ids_by_fact.get(fact_id, set()))
+        supporting_scope_ids = set(
+            relation_scope_ids_by_fact.get(fact_id, set())
+        )
+        if not supporting_scope_ids:
+            supporting_scope_ids = set(
+                contextual_owner_scope_ids_by_fact.get(fact_id, set())
+            )
         if not supporting_scope_ids and fact_id not in contextual_node_fact_ids:
             supporting_scope_ids = {
                 scope_id
@@ -1044,7 +1118,7 @@ def test_semantic_compilation_keeps_middle_of_long_requirement() -> None:
     request_payload = _fact_request_payload(client, 0)
     assert "requirement_source" not in request_payload
     assert request_payload["input_type"] == _FACT_INPUT_TYPE
-    assert request_payload["input_version"] == "4"
+    assert request_payload["input_version"] == "5"
     assert request_payload["attempt"] == 1
     assert request_payload["compilation_policy"] == "fresh_compile"
     assert middle_marker in "".join(
@@ -1345,7 +1419,7 @@ def _semantic_graph_payload() -> dict:
                     "aliases": [],
                     "scope_status": "in_scope",
                     "boundary_status": "resolved",
-                    "fact_ids": ["f_notice"],
+                    "fact_ids": ["f_notice", "f_fixture"],
                     "confidence": 0.94,
                 },
                 {
@@ -1598,6 +1672,27 @@ def test_v2_semantic_graph_is_the_only_model_truth_source() -> None:
         "message_depends_fixture",
         "submit_to_receive",
     ]
+
+
+def test_frozen_a1_facts_survive_b_stage_compressed_evidence_source() -> None:
+    payload = _semantic_payload()
+    frozen_fact_ids = [item["fact_id"] for item in payload["evidence_facts"]]
+
+    result = _evaluate_parsed_semantic_candidate(
+        payload,
+        evidence_source="压缩后的业务结构文本不再包含原始证据字形",
+        project_id=2,
+        user_id=1,
+    )
+
+    assert result["valid"] is True
+    assert result["semantic_contract"]["semantic_graph_validation"][
+        "publishable"
+    ] is True
+    assert sorted(
+        item["fact_id"]
+        for item in result["semantic_contract"]["evidence_facts"]
+    ) == sorted(frozen_fact_ids)
 
 
 @pytest.mark.parametrize(
@@ -3445,6 +3540,7 @@ def test_optional_node_cannot_bridge_a_required_primary_workflow() -> None:
 
 
 def test_primary_flow_transition_must_be_a_required_control_edge() -> None:
+    requirement_text = REQUIREMENT_TEXT + "\nOPTIONAL_DRAFT_SUBMISSION_PATH."
     payload = _semantic_payload()
     payload["evidence_facts"].append(
         {
@@ -3454,7 +3550,7 @@ def test_primary_flow_transition_must_be_a_required_control_edge() -> None:
             "requirement_level": "optional",
             "priority": "unspecified",
             "testability": "testable",
-            "evidence": ["填写内容后提交"],
+            "evidence": ["OPTIONAL_DRAFT_SUBMISSION_PATH."],
             "confidence": 0.9,
         }
     )
@@ -3471,7 +3567,7 @@ def test_primary_flow_transition_must_be_a_required_control_edge() -> None:
 
     blueprints, diagnostics = extract_current_requirement_blueprints(
         client=_ResponseClient(payload),
-        requirement_text=REQUIREMENT_TEXT,
+        requirement_text=requirement_text,
     )
 
     assert blueprints == []
@@ -3691,6 +3787,93 @@ def test_workflow_precondition_cannot_be_produced_by_same_current_stage() -> Non
     assert blueprints == []
     assert diagnostics["typed_state_rejections"][0]["reason"] == (
         "source_not_allowed_for_precondition"
+    )
+
+
+def test_blueprint_normalizer_rejects_previous_stage_state_on_first_step() -> None:
+    payload = _semantic_payload()
+    payload["workflow_blueprints"][0]["steps"][0]["required_states"] = [
+        {
+            "entity": "content",
+            "state": "ready",
+            "source": "previous_stage",
+            "scope": "workflow",
+            "polarity": "positive",
+            "temporal": "after_previous_stage",
+            "fact_ids": ["f_entry"],
+            "confidence": 0.9,
+        }
+    ]
+    diagnostics: dict = {}
+
+    blueprints = normalize_current_requirement_blueprint_payload(
+        payload,
+        requirement_text=REQUIREMENT_TEXT,
+        normalization_diagnostics=diagnostics,
+    )
+
+    assert blueprints == []
+    assert "typed_state_chain_invalid" in diagnostics["workflow_rejections"][0][
+        "reasons"
+    ]
+    assert diagnostics["workflow_consistency_rejections"][-1]["reason"] == (
+        "previous_stage_state_without_predecessor"
+    )
+
+
+def test_blueprint_normalizer_rejects_unproduced_previous_stage_state() -> None:
+    payload = _semantic_payload()
+    required = payload["workflow_blueprints"][0]["steps"][2]["required_states"][0]
+    required.update(
+        {
+            "entity": "content",
+            "state": "reviewed",
+            "source": "previous_stage",
+            "scope": "workflow",
+            "polarity": "positive",
+            "temporal": "after_previous_stage",
+        }
+    )
+    diagnostics: dict = {}
+
+    blueprints = normalize_current_requirement_blueprint_payload(
+        payload,
+        requirement_text=REQUIREMENT_TEXT,
+        normalization_diagnostics=diagnostics,
+    )
+
+    assert blueprints == []
+    issue = diagnostics["workflow_consistency_rejections"][-1]
+    assert issue["reason"] == "previous_stage_state_not_produced"
+    assert issue["required_state_identity"] == [
+        "content",
+        "reviewed",
+        "workflow",
+        "positive",
+    ]
+
+
+def test_blueprint_normalizer_accepts_matching_previous_stage_state() -> None:
+    payload = _semantic_payload()
+    required = payload["workflow_blueprints"][0]["steps"][2]["required_states"][0]
+    required.update(
+        {
+            "entity": "content",
+            "state": "submitted",
+            "source": "previous_stage",
+            "scope": "workflow",
+            "polarity": "positive",
+            "temporal": "after_previous_stage",
+        }
+    )
+
+    blueprints = normalize_current_requirement_blueprint_payload(
+        payload,
+        requirement_text=REQUIREMENT_TEXT,
+    )
+
+    assert blueprints[0]["steps"][2]["required_states"][0]["state"] == (
+        "submitted"
     )
 
 

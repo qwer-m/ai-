@@ -13,12 +13,28 @@ def _status_text(value: Any) -> str:
 def build_judge_summary_payload(
     *,
     repaired: Any,
+    input_count: int,
     confirmed_pass_cases: list[Any],
     repaired_pass_cases: list[Any],
     rejected_cases: list[Any],
     pending_cases: list[Any],
     fact_profile: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    case_input_count = max(0, int(input_count or 0))
+    decision_items = list(repaired.cases or [])
+    decision_count = len(decision_items)
+    diagnostic_items = [
+        item
+        for item in decision_items
+        if not (
+            isinstance(getattr(item, "before_case", None), dict)
+            and getattr(item, "before_case", None)
+        )
+        and not (
+            isinstance(getattr(item, "after_case", None), dict)
+            and getattr(item, "after_case", None)
+        )
+    ]
     raw_repairable_count = int(repaired.repairable_count or 0)
     repaired_pass_out_count = int(len(repaired_pass_cases))
     unrepaired_repairable_count = max(0, raw_repairable_count - repaired_pass_out_count)
@@ -31,6 +47,18 @@ def build_judge_summary_payload(
         )
     )
     return {
+        # total/input_count 只统计真实输入用例；批次级缺口使用无 before/after 的诊断决策单独计数。
+        "total": case_input_count,
+        "input_count": case_input_count,
+        "decision_count": int(decision_count),
+        "diagnostic_count": int(len(diagnostic_items)),
+        "diagnostic_repairable_count": int(
+            sum(
+                1
+                for item in diagnostic_items
+                if _status_text(getattr(item, "status", "")).upper() == "REPAIRABLE"
+            )
+        ),
         "pass_count": int(repaired.pass_count or 0),
         "repairable_count": raw_repairable_count,
         "raw_repairable_count": raw_repairable_count,

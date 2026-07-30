@@ -34,6 +34,13 @@ _CORE_DIAG_KEYS = (
     "quality_score_grade",
 )
 
+_QUALITY_LEDGER_DEDUCTION_KEYS = (
+    "key",
+    "label",
+    "count",
+    "points",
+)
+
 _EXECUTION_SUITE_TOP_KEYS = (
     "kind",
     "version",
@@ -92,6 +99,10 @@ _FEEDBACK_CONTROL_SOURCE_META_KEYS = (
     "fact_ledger_compile_candidate_attempt_count",
     "fact_ledger_compile_candidate_attempt_limit",
     "fact_ledger_compile_physical_call_count",
+    "fact_ledger_compile_provider_call_count",
+    "fact_ledger_compile_cache_hit_count",
+    "fact_ledger_compile_cache_miss_count",
+    "fact_ledger_compile_cache_bypass_count",
     "fact_ledger_compile_transport_retry_count",
     "fact_ledger_compile_transport_failure_count",
     "fact_ledger_compile_transport_replays_per_envelope",
@@ -133,6 +144,10 @@ _FEEDBACK_CONTROL_SOURCE_META_KEYS = (
     "scope_ledger_compile_candidate_attempt_count",
     "scope_ledger_compile_candidate_attempt_limit",
     "scope_ledger_compile_physical_call_count",
+    "scope_ledger_compile_provider_call_count",
+    "scope_ledger_compile_cache_hit_count",
+    "scope_ledger_compile_cache_miss_count",
+    "scope_ledger_compile_cache_bypass_count",
     "scope_ledger_compile_transport_retry_count",
     "scope_ledger_compile_transport_failure_count",
     "scope_ledger_compile_transport_replays_per_envelope",
@@ -166,16 +181,21 @@ _FEEDBACK_CONTROL_SOURCE_META_KEYS = (
     "scope_ledger_membership_relation_count",
     "scope_ledger_explicit_fact_membership_count",
     "scope_ledger_binding_shard_count",
-    "scope_ledger_binding_shard_limit",
     "scope_ledger_binding_shard_budget_units",
     "scope_ledger_binding_oversized_fact_count",
     "scope_ledger_binding_completed_shard_count",
     "scope_ledger_binding_failed_shard_index",
+    "scope_ledger_binding_projected_context_scope_id_count",
     "scope_ledger_binding_shard_summaries",
     "semantic_compile_status",
+    "semantic_compile_mode",
     "semantic_compile_success",
     "semantic_compile_envelope_count",
     "semantic_compile_physical_call_count",
+    "semantic_compile_provider_call_count",
+    "semantic_compile_cache_hit_count",
+    "semantic_compile_cache_miss_count",
+    "semantic_compile_cache_bypass_count",
     "semantic_compile_attempt_count",
     "semantic_compile_candidate_attempt_count",
     "semantic_compile_candidate_attempt_limit",
@@ -193,6 +213,22 @@ _FEEDBACK_CONTROL_SOURCE_META_KEYS = (
     "semantic_compile_timeout_count",
     "semantic_compile_stop_reason",
     "semantic_compile_attempts",
+    "partition_compile_status",
+    "partition_compile_success",
+    "partition_compile_failed_phase",
+    "partition_compile_failed_shard_id",
+    "partition_compile_fact_shard_count",
+    "partition_compile_completed_fact_shard_count",
+    "partition_compile_relation_fact_count",
+    "partition_compile_relation_shard_count",
+    "partition_compile_completed_relation_shard_count",
+    "partition_compile_workflow_called",
+    "partition_compile_node_count",
+    "partition_compile_edge_count",
+    "partition_compile_control_edge_count",
+    "partition_compile_provider_call_count",
+    "partition_compile_cache_hit_count",
+    "partition_compile_cache_miss_count",
     "workflow_declaration_status",
     "workflow_absence_declared",
     "raw_workflow_candidate_count",
@@ -280,6 +316,8 @@ _SCOPE_LEDGER_BINDING_SHARD_SUMMARY_KEYS = (
     "physical_call_count",
     "validated_attempt",
     "binding_count",
+    "projected_non_scope_context_binding_count",
+    "projected_non_scope_context_scope_id_count",
     "payload_fingerprint",
 )
 
@@ -293,12 +331,18 @@ _SCOPE_LEDGER_SOURCE_TOPOLOGY_KEYS = (
 
 _SEMANTIC_COMPILE_ATTEMPT_KEYS = (
     "attempt",
+    "phase",
+    "shard_id",
     "candidate_mode",
     "semantic_attempt",
     "compilation_mode",
     "independent_recompile",
     "status",
     "raw_chars",
+    "input_chars",
+    "error_code",
+    "error_type",
+    "response_termination",
     "contract_status",
     "request_input_chars",
     "system_prompt_chars",
@@ -537,7 +581,7 @@ def _compact_feedback_control_source_meta(value: Any) -> dict[str, Any]:
                         item,
                         keys=_SEMANTIC_COMPILE_ATTEMPT_KEYS,
                     )
-                    for item in attempts[:4]
+                    for item in attempts[:40]
                 )
                 if attempt
             ]
@@ -603,6 +647,34 @@ def _compact_payload_for_log(payload: dict[str, Any], *, original_size_bytes: in
     omitted_keys: list[str] = []
     for key, value in payload.items():
         if key in compact:
+            continue
+        if (
+            payload.get("kind") == "generation_quality_ledger"
+            and key == "quality_score_deductions"
+            and isinstance(value, list)
+        ):
+            # 扣分原因是质量分可解释性的核心证据，体积压缩时仍完整保留标量项。
+            compact[key] = [
+                _compact_selected_fields(
+                    item,
+                    keys=_QUALITY_LEDGER_DEDUCTION_KEYS,
+                )
+                for item in value[:20]
+                if isinstance(item, dict)
+            ]
+            continue
+        if (
+            payload.get("kind") == "generation_quality_ledger"
+            and key == "quality_score_inputs"
+            and isinstance(value, dict)
+        ):
+            compact[key] = {
+                child_key: child_value
+                for child_key, child_value in value.items()
+                if _is_scalar(child_value)
+            }
+            if len(compact[key]) < len(value):
+                omitted_keys.append(key)
             continue
         if (
             key == "source_meta"

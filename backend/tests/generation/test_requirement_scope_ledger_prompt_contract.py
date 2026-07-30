@@ -380,6 +380,9 @@ def test_selection_prompt_limits_boundaries_to_substantive_responsibilities() ->
     assert "Never output membership_relation_refs" in prompt
     assert "Declare active boundaries as in_scope" in prompt
     assert "derives canonical in_scope_parent or in_scope_leaf" in prompt
+    assert "copied byte-for-byte from frozen_fact_table.fact_ref" in prompt
+    assert "F013 must never become F13" in prompt
+    assert "exact member of the declared signal enum" in prompt
 
 
 def test_membership_prompt_freezes_selection_and_requires_scalar_proof() -> None:
@@ -535,6 +538,7 @@ def test_non_scope_context_may_bind_inactive_boundary() -> None:
                 "EV_bbbbbbbbbbbb",
             ),
         ]
+        facts[-1]["requirement_level"] = "optional"
         payload["boundaries"].append(
             {
                 "boundary_id": "BOUNDARY_INACTIVE",
@@ -566,6 +570,61 @@ def test_non_scope_context_may_bind_inactive_boundary() -> None:
         }
 
 
+def test_external_context_rejects_required_or_testable_fact() -> None:
+    payload = _ledger()
+    external_fact = _fact(
+        "FACT_EXTERNAL_CONTEXT",
+        "外部服务的背景说明。",
+        "EV_bbbbbbbbbbbb",
+    )
+    external_fact["requirement_level"] = "optional"
+    facts = [*_base_facts(), external_fact]
+    payload["boundaries"].append(
+        {
+            "boundary_id": "BOUNDARY_EXTERNAL",
+            "label": "外部服务",
+            "decision": "external_context",
+            "parent_boundary_id": "",
+            "membership_relation_ids": [],
+            "membership_fact_ids": [],
+            "support": [],
+        }
+    )
+    payload["fact_bindings"].append(
+        {
+            "fact_id": "FACT_EXTERNAL_CONTEXT",
+            "scope_ids": ["BOUNDARY_EXTERNAL"],
+            "role": "external_context",
+        }
+    )
+
+    executable = _normalize(payload, facts=facts)
+
+    assert "executable_fact_external_context_forbidden" in {
+        item["code"] for item in executable["errors"]
+    }
+    executable_error = next(
+        item
+        for item in executable["errors"]
+        if item["code"] == "executable_fact_external_context_forbidden"
+    )
+    assert executable_error["current_role"] == "external_context"
+    assert executable_error["current_scope_ids"] == ["BOUNDARY_EXTERNAL"]
+    assert executable_error["allowed_roles"] == [
+        "owned_requirement",
+        "shared_requirement",
+    ]
+    assert executable_error["allowed_active_scope_ids"]
+    assert executable_error["repair_action"] == (
+        "bind_to_active_responsibility_owner"
+    )
+
+    external_fact["testability"] = "non_testable"
+    contextual = _normalize(payload, facts=facts)
+
+    assert contextual["valid"] is True, contextual["errors"]
+
+
 def test_model_cannot_override_frozen_facts_or_injected_versions() -> None:
     payload = _ledger()
     payload.update(
@@ -586,6 +645,23 @@ def test_model_cannot_override_frozen_facts_or_injected_versions() -> None:
     assert {
         item["path"] for item in normalized["errors"]
     } >= {"$.ledger_version", "$.fact_ledger_fingerprint", "$.evidence_facts"}
+
+
+def test_scope_ledger_preserves_frozen_fact_source_order() -> None:
+    facts = list(reversed(_base_facts()))
+    frozen = _normalized_fact_ledger(facts)
+
+    normalized = normalize_requirement_scope_ledger(
+        _ledger(),
+        normalized_fact_ledger=frozen,
+        source_evidence_catalog=CATALOG,
+    )
+
+    assert normalized["valid"] is True, normalized["errors"]
+    assert [item["fact_id"] for item in normalized["evidence_facts"]] == [
+        "FACT_MESSAGE_PARTITION",
+        "FACT_PARENT_MEMBERSHIP",
+    ]
 
 
 def _boundary_manifest(
@@ -1251,8 +1327,9 @@ def test_selection_membership_and_binding_inputs_use_distinct_frozen_contracts()
     )
     projected_fact_table = _scope_model_fact_table(frozen)
     assert selection_input["input_version"] == "1"
-    assert membership_input["input_version"] == "1"
-    assert binding_input["input_version"] == "5"
+    assert membership_input["input_version"] == "2"
+    assert binding_input["input_version"] == "7"
+    assert binding_input["recompile_contract_feedback"] == []
     assert all(
         item["frozen_fact_table"] == projected_fact_table
         for item in (selection_input, membership_input, binding_input)
@@ -1313,11 +1390,11 @@ def test_selection_membership_and_binding_inputs_use_distinct_frozen_contracts()
     )
     assert binding_input["target_topology_usage"] == [
         {
-            "fact_ref": _scope_fact_ref_by_id(frozen)[fact_ids[0]],
-            "explicit_membership_edges": [],
-            "support_scope_ids": ["SCOPE_MESSAGE"],
-        }
-    ]
+                "fact_ref": _scope_fact_ref_by_id(frozen)[fact_ids[0]],
+                "explicit_membership_edges": [],
+                "support_scope_ids": ["SCOPE_CURRENT"],
+            }
+        ]
     assert membership_input["frozen_source_outline"] == (
         binding_input["frozen_source_outline"]
     )
@@ -1616,6 +1693,149 @@ def test_binding_shard_rejects_boundary_mutation_and_scope_unknown() -> None:
     assert normalized["valid"] is False
     assert "scope_binding_response_field_unknown" in codes
     assert "fact_binding_scope_unknown" in codes
+
+
+def test_binding_shard_projects_known_active_ids_from_non_scope_context() -> None:
+    facts = _base_facts()
+    facts[0]["requirement_level"] = "optional"
+    facts[0]["testability"] = "non_testable"
+    frozen = _normalized_fact_ledger(facts)
+    manifest = _boundary_manifest(frozen)
+    target = "FACT_PARENT_MEMBERSHIP"
+    fact_ref = _scope_fact_ref_by_id(frozen)[target]
+
+    result = normalize_requirement_scope_binding_shard(
+        {
+            "fact_bindings": [
+                {
+                    "fact_ref": fact_ref,
+                    "scope_ids": ["SCOPE_CURRENT"],
+                    "role": "non_scope_context",
+                }
+            ]
+        },
+        frozen,
+        manifest,
+        [target],
+        CATALOG,
+    )
+
+    assert result["valid"] is True, result["errors"]
+    assert result["fact_bindings"] == [
+        {
+            "fact_id": target,
+            "scope_ids": [],
+            "role": "non_scope_context",
+        }
+    ]
+    assert result["diagnostics"][
+        "projected_non_scope_context_binding_count"
+    ] == 1
+    assert result["diagnostics"][
+        "projected_non_scope_context_scope_id_count"
+    ] == 1
+
+
+def test_non_scope_projection_keeps_unknown_ids_and_testability_guards() -> None:
+    frozen = _normalized_fact_ledger()
+    manifest = _boundary_manifest(frozen)
+    target = "FACT_PARENT_MEMBERSHIP"
+    fact_ref = _scope_fact_ref_by_id(frozen)[target]
+
+    unknown = normalize_requirement_scope_binding_shard(
+        {
+            "fact_bindings": [
+                {
+                    "fact_ref": fact_ref,
+                    "scope_ids": ["SCOPE_UNKNOWN"],
+                    "role": "non_scope_context",
+                }
+            ]
+        },
+        frozen,
+        manifest,
+        [target],
+        CATALOG,
+    )
+    projected_required = normalize_requirement_scope_binding_shard(
+        {
+            "fact_bindings": [
+                {
+                    "fact_ref": fact_ref,
+                    "scope_ids": ["SCOPE_CURRENT"],
+                    "role": "non_scope_context",
+                }
+            ]
+        },
+        frozen,
+        manifest,
+        [target],
+        CATALOG,
+    )
+
+    assert "fact_binding_scope_unknown" in {
+        item["code"] for item in unknown["errors"]
+    }
+    assert unknown["fact_bindings"][0]["scope_ids"] == ["SCOPE_UNKNOWN"]
+    assert "testable_fact_without_scope_or_external_context" in {
+        item["code"] for item in projected_required["errors"]
+    }
+
+
+def test_scope_ledger_preserves_bindings_beyond_previous_global_limit() -> None:
+    fact_count = 321
+    catalog = [
+        {
+            "ref": f"EV_{index:012x}",
+            "quote": f"工作台支持处理第 {index} 项独立业务要求",
+        }
+        for index in range(1, fact_count + 1)
+    ]
+    facts = [
+        {
+            **_fact(
+                f"FACT_SCALE_{index:04d}",
+                item["quote"],
+                item["ref"],
+            ),
+            "anchor_evidence_ref": item["ref"],
+        }
+        for index, item in enumerate(catalog, start=1)
+    ]
+    frozen = _normalized_fact_ledger(facts, source_catalog=catalog)
+    boundary = {
+        "boundary_id": "SCOPE_WORKSPACE",
+        "label": "业务工作台",
+        "decision": "in_scope_leaf",
+        "parent_boundary_id": "",
+        "membership_relation_ids": [],
+        "membership_fact_ids": [],
+        "support": [
+            {
+                "signal": "purpose",
+                "fact_ids": [str(facts[0]["fact_id"])],
+            }
+        ],
+    }
+    result = normalize_requirement_scope_ledger(
+        {
+            "boundaries": [boundary],
+            "fact_bindings": [
+                {
+                    "fact_id": str(fact["fact_id"]),
+                    "scope_ids": ["SCOPE_WORKSPACE"],
+                    "role": "owned_requirement",
+                }
+                for fact in facts
+            ],
+        },
+        normalized_fact_ledger=frozen,
+        source_evidence_catalog=catalog,
+    )
+
+    assert result["valid"] is True, result["errors"]
+    assert len(result["fact_bindings"]) == fact_count
+    assert result["diagnostics"]["fact_binding_count"] == fact_count
 
 
 @pytest.mark.parametrize("old_role", ["parent_membership", "boundary_support"])

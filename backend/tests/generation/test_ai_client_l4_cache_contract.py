@@ -247,6 +247,14 @@ def test_complete_response_hits_l4_and_restores_sanitized_metadata(
     assert len(provider.calls) == 1
     assert len(cache.set_calls) == 1
     assert second.response_metadata["cached"] is True
+    assert first.physical_call_count == 1
+    assert first.provider_call_count == 1
+    assert first.cache_hit_count == 0
+    assert first.cache_miss_count == 1
+    assert second.physical_call_count == 1
+    assert second.provider_call_count == 0
+    assert second.cache_hit_count == 1
+    assert second.cache_miss_count == 0
     for key in (
         "finish_reason",
         "response_status",

@@ -161,6 +161,8 @@ def summarize_persistence_case_quality_gate(
     review_decision_summary: dict[str, Any] | None = None,
     judge_summary: dict[str, Any] | None = None,
     settings: Any = None,
+    expected_count: int = 0,
+    enforce_expected_count_floor: bool = False,
 ) -> dict[str, Any]:
     """Merge final-batch quality signals into the pre-persistence gate payload."""
     quality = dict(structure_quality_gate or {})
@@ -208,6 +210,14 @@ def summarize_persistence_case_quality_gate(
         max_role_mismatch=max_role_mismatch,
         enforce_min_acceptable_final=enforce_min_acceptable_final,
     )
+    explicit_expected_count = max(0, _to_int(expected_count))
+    if (
+        enforce_expected_count_floor
+        and explicit_expected_count > 0
+        and final_count < explicit_expected_count
+        and "final_count_below_explicit_expected_count" not in failed_checks
+    ):
+        failed_checks.append("final_count_below_explicit_expected_count")
 
     metrics = build_case_quality_metrics(
         final_count=final_count,
@@ -220,6 +230,14 @@ def summarize_persistence_case_quality_gate(
         quantity_shortfall_advisory=quantity_shortfall_advisory,
         existing_metrics=dict(quality.get("metrics") or {}),
     )
+    metrics["explicit_expected_count"] = int(explicit_expected_count)
+    metrics["explicit_expected_count_floor_enforced"] = bool(
+        enforce_expected_count_floor and explicit_expected_count > 0
+    )
+    metrics["explicit_expected_count_shortfall"] = max(
+        0,
+        explicit_expected_count - final_count,
+    ) if enforce_expected_count_floor else 0
     quality["failed_checks"] = failed_checks
     quality["passed"] = not bool(failed_checks)
     quality["metrics"] = metrics

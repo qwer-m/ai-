@@ -71,7 +71,23 @@ def test_base_prompt_requires_structured_case_semantic_contract() -> None:
     assert "entity | case | module | workflow | cross_module | global | unknown" in prompt
     assert "positive | negative | unknown" in prompt
     assert "before_case | after_previous_stage | during_case | after_case | historical | unknown" in prompt
-    assert "copy that stage contract's entity, state, source, scope, polarity, and temporal exactly" in prompt
+    assert "MUST provide the exact workflow_id, stage_id, stage_kind" in prompt
+    assert (
+        "Copy the declared module_key, module_name, and role values for module_candidates "
+        "exactly, and copy interaction_ids exactly"
+    ) in prompt
+    assert "cite module candidate evidence and confidence from the current case" in prompt
+    assert (
+        "They may be [] for a declared workflow stage because the execution plan inherits "
+        "authoritative required_states and produced_states from the matching workflow step."
+    ) in prompt
+    assert "Do not copy the workflow catalog's typed-state arrays" in prompt
+    assert (
+        "Declare an additional typed state only when this case's public fields provide exact evidence"
+    ) in prompt
+    assert "must not conflict with the matching workflow step's authoritative states" in prompt
+    assert "copy that stage contract's entity" not in prompt
+    assert "never translate internal state identifiers" not in prompt
 
 
 def test_base_prompt_uses_structured_targets_without_fixed_coverage_templates() -> None:

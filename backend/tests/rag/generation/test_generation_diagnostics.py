@@ -331,6 +331,90 @@ def test_build_prompt_context_intake_diagnostics_flags_missing_generation_execut
     assert "generation_execution_plan_missing" in payload["risk_flags"]
 
 
+def test_prompt_context_intake_separates_compressed_input_from_understanding_source():
+    source_requirement = (
+        "用户完成内容提交。\n\n"
+        "[Requirement Understanding]\n"
+        '{"version":"requirement-understanding-v1","visual_fact_count":4,'
+        '"invalid_visual_block_count":0,"aligned_evidence":[]}'
+    )
+    payload = build_prompt_context_intake_diagnostics(
+        prompt_context={
+            "requirement_context": "用户完成内容提交。",
+            "control_context": "### ACTIVE SEMANTIC GRAPH CATALOG\n{}",
+            "control_summary": {
+                "generation_scope": "independent",
+                "assigned_active_fact_count": 3,
+            },
+            "feedback_control_state": {
+                "source_meta": {
+                    "requirement_understanding_used": True,
+                    "requirement_understanding_visual_fact_count": 4,
+                    "requirement_understanding_invalid_visual_block_count": 0,
+                    "requirement_semantic_contract": {"status": "validated"},
+                }
+            },
+        },
+        context_result={},
+        requirement="用户完成内容提交。",
+        source_requirement=source_requirement,
+    )
+
+    understanding = payload["requirement_understanding"]
+    assert understanding["present"] is True
+    assert understanding["present_in_user_input"] is False
+    assert understanding["semantic_compilation_used"] is True
+    assert understanding["projection"] == "semantic_contract"
+    assert understanding["visual_fact_count"] == 4
+    assert payload["control"]["assigned_active_fact_count"] == 3
+    assert payload["section_sizes"]["requirement_user"]["chars"] == len(
+        "用户完成内容提交。"
+    )
+    assert payload["section_sizes"]["requirement_source"]["chars"] == len(
+        source_requirement
+    )
+
+
+def test_build_prompt_context_intake_diagnostics_ignores_main_plan_for_independent_scope():
+    payload = build_prompt_context_intake_diagnostics(
+        prompt_context={
+            "requirement_context": "User must complete save before previewing the result.",
+            "control_context": (
+                "### WORKFLOW BLUEPRINTS\n"
+                "* Owned by the main-chain shard; do not generate workflow stages here."
+            ),
+            "control_summary": {
+                "generation_scope": "independent",
+                "generation_execution_plan_blueprint_count": 0,
+                "generation_execution_plan_step_count": 0,
+            },
+            "feedback_control_state": {
+                "workflow_blueprints": [
+                    {
+                        "name": "save flow",
+                        "steps": [
+                            {"id": "save", "label": "Save result"},
+                            {"id": "preview", "label": "Preview result"},
+                        ],
+                    }
+                ],
+                "source_meta": {
+                    "fact_profile": {
+                        "confirmed_facts": ["save before preview"],
+                        "pending_items": [],
+                    }
+                },
+            },
+        },
+        context_result={},
+        requirement="User saves and previews result.",
+    )
+
+    assert payload["control"]["generation_scope"] == "independent"
+    assert "workflow_blueprint_missing" not in payload["risk_flags"]
+    assert "generation_execution_plan_missing" not in payload["risk_flags"]
+
+
 def test_build_final_context_trace_rag_only_success():
     trace = build_final_context_trace(
         project_id=1001,

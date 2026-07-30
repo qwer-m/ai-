@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import re
 import unicodedata
-from typing import Any
+from typing import Any, Callable
 
 from .requirement_semantic_graph import (
     adapt_workflows_from_semantic_graph,
@@ -14,9 +14,19 @@ from .requirement_semantic_graph import (
 
 REQUIREMENT_SEMANTIC_CONTRACT_VERSION = "requirement-semantic-v2"
 LEGACY_REQUIREMENT_SEMANTIC_CONTRACT_VERSION = "requirement-semantic-v1"
-CASE_SEMANTIC_CONTRACT_VERSION = "case-semantic-v1"
+CASE_SEMANTIC_CONTRACT_VERSION = "case-semantic-v2"
 CASE_SEMANTIC_CONTRACT_ABORT_CODE = "CASE_SEMANTIC_CONTRACT_FAILED"
 MAX_WORKFLOW_STEPS = 16
+WORKFLOW_STAGE_KIND_VALUES = (
+    "entry",
+    "configure",
+    "edit",
+    "preview",
+    "commit",
+    "downstream_visibility",
+    "consume",
+    "completion_sync",
+)
 
 STATE_SOURCE_VALUES = (
     "previous_stage",
@@ -220,6 +230,35 @@ def _key(value: Any) -> str:
     return re.sub(r"[^a-z0-9_\-\u4e00-\u9fff]+", "", text)
 
 
+def _is_cjk_component(value: str) -> bool:
+    """保留 PDF/OCR 中未被 NFKC 合并的中日韩部首与兼容字形。"""
+
+    codepoint = ord(value)
+    return any(
+        start <= codepoint <= end
+        for start, end in (
+            (0x2E80, 0x2EFF),  # CJK Radicals Supplement
+            (0x2F00, 0x2FDF),  # Kangxi Radicals
+            (0x31C0, 0x31EF),  # CJK Strokes
+            (0xF900, 0xFAFF),  # CJK Compatibility Ideographs
+            (0x2F800, 0x2FA1F),  # CJK Compatibility Ideographs Supplement
+        )
+    )
+
+
+def _evidence_key(value: Any) -> str:
+    """生成证据匹配键，同时保留解析器可能输出的 CJK 组件字形。"""
+
+    text = unicodedata.normalize("NFKC", _text(value)).lower()
+    return "".join(
+        character
+        for character in text
+        if character.isalnum()
+        or character in "_-"
+        or _is_cjk_component(character)
+    )
+
+
 def _slug(value: Any, *, fallback: str) -> str:
     text = unicodedata.normalize("NFKC", _text(value))
     text = re.sub(r"[^a-zA-Z0-9_\-\u4e00-\u9fff]+", "_", text).strip("_")
@@ -282,10 +321,10 @@ def _enum_token(value: Any) -> str:
 
 def evidence_supported(evidence: list[str], source_text: str) -> bool:
     """只验证证据是否来自当前输入，不通过关键词猜测语义。"""
-    source = _key(source_text)
+    source = _evidence_key(source_text)
     if not source:
         return False
-    evidence_keys = [_key(item) for item in evidence]
+    evidence_keys = [_evidence_key(item) for item in evidence]
     return bool(evidence_keys) and all(
         len(item_key) >= 2
         and item_key not in _GENERIC_EVIDENCE_KEYS
@@ -370,6 +409,7 @@ def normalize_typed_state(
     *,
     source_text: str = "",
     state_role: str = "",
+    evidence_validator: Callable[[list[str], str], bool] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
@@ -399,7 +439,10 @@ def normalize_typed_state(
         "polarity": polarity,
         "temporal": temporal,
         "evidence": evidence,
-        "evidence_verified": evidence_supported(evidence, source_text),
+        "evidence_verified": (evidence_validator or evidence_supported)(
+            evidence,
+            source_text,
+        ),
         "confidence": _confidence(value.get("confidence")),
     }
     if "fact_ids" in value:
@@ -416,6 +459,7 @@ def normalize_typed_states(
     rejected_semantic_items: list[dict[str, Any]] | None = None,
     item_type: str = "typed_state",
     state_role: str = "",
+    evidence_validator: Callable[[list[str], str], bool] | None = None,
 ) -> list[dict[str, Any]]:
     if not isinstance(values, list):
         if values not in (None, "") and rejected_semantic_items is not None:
@@ -430,6 +474,7 @@ def normalize_typed_states(
             value,
             source_text=source_text,
             state_role=state_role,
+            evidence_validator=evidence_validator,
         )
         if not state:
             if rejected_semantic_items is not None:
@@ -658,6 +703,9 @@ def normalize_module_candidates(
     module_catalog: list[dict[str, Any]] | None = None,
     limit: int = 8,
     rejected_semantic_items: list[dict[str, Any]] | None = None,
+    evidence_validator: Callable[[list[str], str], bool] | None = None,
+    exact_catalog_identity: bool = False,
+    test_module_evidence: str = "",
 ) -> list[dict[str, Any]]:
     modules_by_key: dict[str, dict[str, Any]] = {}
     modules_by_name: dict[str, dict[str, Any]] = {}
@@ -693,7 +741,9 @@ def normalize_module_candidates(
         item = dict(raw)
         module_key = _text(item.get("module_key"))
         module_name = _text(item.get("module_name"))
-        referenced = modules_by_key.get(_key(module_key)) or modules_by_name.get(_key(module_name))
+        referenced_by_key = modules_by_key.get(_key(module_key))
+        referenced_by_name = modules_by_name.get(_key(module_name))
+        referenced = referenced_by_key or referenced_by_name
         if module_catalog is not None and not referenced:
             if rejected_semantic_items is not None:
                 rejected_semantic_items.append(
@@ -705,6 +755,29 @@ def normalize_module_candidates(
                     }
                 )
             continue
+        if exact_catalog_identity and module_catalog is not None:
+            exact_identity = bool(
+                module_key
+                and module_name
+                and referenced_by_key
+                and referenced_by_name
+                and _text(referenced_by_key.get("module_key")) == module_key
+                and _text(referenced_by_key.get("module_name")) == module_name
+                and _text(referenced_by_name.get("module_key")) == module_key
+                and _text(referenced_by_name.get("module_name")) == module_name
+            )
+            if not exact_identity:
+                if rejected_semantic_items is not None:
+                    rejected_semantic_items.append(
+                        {
+                            "item_type": "module_candidate",
+                            "item_index": index,
+                            "identifier": module_key or module_name,
+                            "reason": "module_identity_not_exact",
+                        }
+                    )
+                continue
+            referenced = referenced_by_key
         if referenced:
             module_key = _text(referenced.get("module_key"))
             module_name = _text(referenced.get("module_name"))
@@ -723,7 +796,21 @@ def normalize_module_candidates(
         role = raw_role if raw_role in MODULE_ROLES else ""
         confidence = _confidence(item.get("confidence"))
         evidence = _text_list(item.get("evidence"))
-        evidence_verified = evidence_supported(evidence, source_text)
+        evidence_verified = (evidence_validator or evidence_supported)(
+            evidence,
+            source_text,
+        )
+        verified_test_module = _text(test_module_evidence)
+        if (
+            not evidence_verified
+            and exact_catalog_identity
+            and referenced
+            and verified_test_module
+            and verified_test_module == _text(referenced.get("module_name"))
+        ):
+            # test_module 是独立公共字段，只在结构化模块身份与活动目录精确一致时作为证据。
+            evidence = [verified_test_module]
+            evidence_verified = True
         if not role or confidence <= 0 or not evidence_verified:
             if rejected_semantic_items is not None:
                 reason = (
@@ -771,7 +858,13 @@ def normalize_module_candidates(
     return output
 
 
-def _normalize_module(value: Any, *, index: int, source_text: str) -> dict[str, Any]:
+def _normalize_module(
+    value: Any,
+    *,
+    index: int,
+    source_text: str,
+    evidence_validator: Callable[[list[str], str], bool] | None = None,
+) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
     module_name = _text(value.get("module_name"))
@@ -786,12 +879,20 @@ def _normalize_module(value: Any, *, index: int, source_text: str) -> dict[str, 
         "features": _text_list(value.get("features"), limit=16),
         "scope_status": _enum(value.get("scope_status"), SCOPE_STATUSES),
         "evidence": evidence,
-        "evidence_verified": evidence_supported(evidence, source_text),
+        "evidence_verified": (evidence_validator or evidence_supported)(
+            evidence,
+            source_text,
+        ),
         "confidence": _confidence(value.get("confidence")),
     }
 
 
-def normalize_functional_architecture(value: Any, *, source_text: str = "") -> dict[str, Any]:
+def normalize_functional_architecture(
+    value: Any,
+    *,
+    source_text: str = "",
+    evidence_validator: Callable[[list[str], str], bool] | None = None,
+) -> dict[str, Any]:
     architecture = dict(value or {}) if isinstance(value, dict) else {}
     raw_modules = architecture.get("functional_modules") or []
     modules: list[dict[str, Any]] = []
@@ -824,7 +925,12 @@ def normalize_functional_architecture(value: Any, *, source_text: str = "") -> d
                 }
             )
             continue
-        module = _normalize_module(raw, index=index, source_text=source_text)
+        module = _normalize_module(
+            raw,
+            index=index,
+            source_text=source_text,
+            evidence_validator=evidence_validator,
+        )
         if not module:
             rejected_semantic_items.append(
                 {
@@ -877,7 +983,12 @@ def normalize_functional_architecture(value: Any, *, source_text: str = "") -> d
     ):
         if index > _MAX_MODULES:
             break
-        module = _normalize_module(raw, index=index, source_text=source_text)
+        module = _normalize_module(
+            raw,
+            index=index,
+            source_text=source_text,
+            evidence_validator=evidence_validator,
+        )
         if not module:
             rejected_semantic_items.append(
                 {
@@ -996,7 +1107,7 @@ def normalize_functional_architecture(value: Any, *, source_text: str = "") -> d
             )
             continue
         evidence = _text_list(raw_evidence)
-        if not evidence_supported(evidence, source_text):
+        if not (evidence_validator or evidence_supported)(evidence, source_text):
             rejected_semantic_items.append(
                 {
                     "item_type": "module_interaction",
@@ -1136,9 +1247,14 @@ def normalize_workflow_stage_candidates(
 
 def _active_requirement_semantic_catalogs(
     requirement_contract: Any,
-) -> tuple[list[dict[str, Any]] | None, dict[str, dict[str, Any]] | None, dict[tuple[str, str], dict[str, Any]] | None]:
+) -> tuple[
+    list[dict[str, Any]] | None,
+    dict[str, dict[str, Any]] | None,
+    dict[str, dict[str, Any]] | None,
+    dict[tuple[str, str], dict[str, Any]] | None,
+]:
     if not isinstance(requirement_contract, dict):
-        return None, None, None
+        return None, None, None, None
     architecture = requirement_contract.get("functional_architecture")
     architecture = architecture if isinstance(architecture, dict) else {}
     modules = [
@@ -1150,6 +1266,11 @@ def _active_requirement_semantic_catalogs(
         _key(item.get("interaction_id")): dict(item)
         for item in (architecture.get("module_interactions") or [])
         if isinstance(item, dict) and _key(item.get("interaction_id"))
+    }
+    facts = {
+        _key(item.get("fact_id")): dict(item)
+        for item in (requirement_contract.get("evidence_facts") or [])
+        if isinstance(item, dict) and _key(item.get("fact_id"))
     }
     stages: dict[tuple[str, str], dict[str, Any]] = {}
     for workflow in requirement_contract.get("workflow_blueprints") or []:
@@ -1164,13 +1285,57 @@ def _active_requirement_semantic_catalogs(
             stage_id = _text(step.get("id"))
             if stage_id:
                 stages[(_key(workflow_id), _key(stage_id))] = dict(step)
-    return modules, interactions, stages
+    return modules, facts, interactions, stages
+
+
+def _case_semantic_item_rejection_reasons(
+    rejected_semantic_items: list[dict[str, Any]],
+    *,
+    normalized_fact_ids: list[str],
+    normalized_workflow_stages: list[dict[str, Any]],
+) -> list[str]:
+    """把字段级诊断划分为阻断项和可安全剥离的可选状态项。
+
+    用例 typed state 本来就是可选投影；当用例已经引用活动事实或精确匹配的
+    工作流阶段时，执行计划会从权威契约读取状态。此时模型额外输出的单个无效
+    state 可以删除，但不能因此丢弃整条用例。没有这些权威锚点时仍保持严格拒绝，
+    避免仅靠公开文本反推或补造状态语义。
+    """
+
+    optional_state_types = {"precondition_state", "produced_state"}
+    # 结构/枚举错误说明模型没有遵守契约，仍需 repair；只剥离不会改变
+    # 权威执行计划含义的证据投影失败或重复项。
+    safely_prunable_reasons = {"evidence_unverified", "duplicate"}
+    has_authoritative_anchor = bool(
+        normalized_fact_ids or normalized_workflow_stages
+    )
+    rejection_reasons: list[str] = []
+    for item in rejected_semantic_items:
+        item_type = str(item.get("item_type") or "")
+        reason = str(item.get("reason") or "semantic_item_invalid")
+        if (
+            item_type in optional_state_types
+            and reason in safely_prunable_reasons
+            and has_authoritative_anchor
+        ):
+            item["disposition"] = "pruned_optional_item"
+            continue
+        if item_type in {
+            "module_candidate",
+            "fact_id",
+            "interaction_id",
+            "workflow_stage_candidate",
+            *optional_state_types,
+        }:
+            rejection_reasons.append(f"{item_type}:{reason}")
+    return rejection_reasons
 
 
 def validate_case_semantic_contract(
     value: Any,
     *,
     case_text: str = "",
+    case_test_module: str = "",
     requirement_contract: Any = None,
 ) -> dict[str, Any]:
     """校验本轮模型生成用例的结构化语义，禁止再由公开字段反推语义。"""
@@ -1249,7 +1414,7 @@ def validate_case_semantic_contract(
                     }
                 )
 
-    modules, interactions_by_id, stages_by_key = _active_requirement_semantic_catalogs(
+    modules, facts_by_id, interactions_by_id, stages_by_key = _active_requirement_semantic_catalogs(
         requirement_contract
     )
     normalized_modules = normalize_module_candidates(
@@ -1257,9 +1422,50 @@ def validate_case_semantic_contract(
         source_text=case_text,
         module_catalog=modules,
         rejected_semantic_items=rejected_semantic_items,
+        exact_catalog_identity=modules is not None,
+        test_module_evidence=case_test_module,
     )
     if not normalized_modules:
         rejection_reasons.append("module_candidates:no_verified_candidate")
+
+    raw_fact_ids = value.get("fact_ids")
+    normalized_fact_ids: list[str] = []
+    if isinstance(raw_fact_ids, list):
+        seen_facts: set[str] = set()
+        for index, raw_fact_id in enumerate(raw_fact_ids, start=1):
+            fact_id = _text(raw_fact_id)
+            marker = _key(fact_id)
+            if not fact_id:
+                rejected_semantic_items.append(
+                    {
+                        "item_type": "fact_id",
+                        "item_index": index,
+                        "reason": "fact_id_missing",
+                    }
+                )
+                continue
+            if facts_by_id is not None and marker not in facts_by_id:
+                rejected_semantic_items.append(
+                    {
+                        "item_type": "fact_id",
+                        "item_index": index,
+                        "identifier": fact_id,
+                        "reason": "fact_reference_not_active",
+                    }
+                )
+                continue
+            if marker in seen_facts:
+                rejected_semantic_items.append(
+                    {
+                        "item_type": "fact_id",
+                        "item_index": index,
+                        "identifier": fact_id,
+                        "reason": "duplicate",
+                    }
+                )
+                continue
+            seen_facts.add(marker)
+            normalized_fact_ids.append(fact_id[:80])
 
     raw_interaction_ids = value.get("interaction_ids")
     normalized_interaction_ids: list[str] = []
@@ -1403,22 +1609,18 @@ def validate_case_semantic_contract(
         state_role="produced",
     )
 
-    invalid_semantic_item_types = {
-        "module_candidate",
-        "interaction_id",
-        "workflow_stage_candidate",
-        "precondition_state",
-        "produced_state",
-    }
-    for item in rejected_semantic_items:
-        item_type = str(item.get("item_type") or "")
-        reason = str(item.get("reason") or "semantic_item_invalid")
-        if item_type in invalid_semantic_item_types:
-            rejection_reasons.append(f"{item_type}:{reason}")
+    rejection_reasons.extend(
+        _case_semantic_item_rejection_reasons(
+            rejected_semantic_items,
+            normalized_fact_ids=normalized_fact_ids,
+            normalized_workflow_stages=normalized_workflow_stages,
+        )
+    )
 
     semantic = {
         "version": CASE_SEMANTIC_CONTRACT_VERSION,
         "module_candidates": normalized_modules,
+        "fact_ids": normalized_fact_ids,
         "interaction_ids": normalized_interaction_ids,
         "workflow_stage_candidates": normalized_workflow_stages,
         "precondition_states": normalized_preconditions,
@@ -1460,6 +1662,7 @@ def normalize_case_semantic(value: Any, *, case_text: str = "") -> dict[str, Any
         rejected_semantic_items.append(
             {"item_type": "module_candidate", "reason": "required_collection_missing"}
         )
+    fact_ids = _text_list(value.get("fact_ids"), limit=32)
     interaction_ids = _text_list(value.get("interaction_ids"), limit=16)
     normalized = {
         "version": CASE_SEMANTIC_CONTRACT_VERSION,
@@ -1468,6 +1671,7 @@ def normalize_case_semantic(value: Any, *, case_text: str = "") -> dict[str, Any
             source_text=case_text,
             rejected_semantic_items=rejected_semantic_items,
         ),
+        "fact_ids": fact_ids,
         "interaction_ids": interaction_ids,
         "workflow_stage_candidates": normalize_workflow_stage_candidates(
             value.get("workflow_stage_candidates"),
@@ -1559,6 +1763,7 @@ def normalize_requirement_semantic_contract(
     *,
     requirement_text: str,
     workflow_blueprints: list[dict[str, Any]] | None = None,
+    evidence_validator: Callable[[list[str], str], bool] | None = None,
 ) -> dict[str, Any]:
     data = dict(payload or {}) if isinstance(payload, dict) else {}
     graph_declared = "evidence_facts" in data or "semantic_graph" in data
@@ -1567,7 +1772,7 @@ def normalize_requirement_semantic_contract(
         graph_result = normalize_requirement_semantic_graph(
             data,
             source_text=requirement_text,
-            evidence_validator=evidence_supported,
+            evidence_validator=evidence_validator or evidence_supported,
         )
         graph_result = _preserve_rejected_graph_validation(
             graph_result,
@@ -1663,6 +1868,7 @@ __all__ = [
     "STATE_TEMPORALS",
     "STATE_TEMPORAL_VALUES",
     "TYPED_STATE_REQUIRED_FIELDS",
+    "WORKFLOW_STAGE_KIND_VALUES",
     "empty_requirement_semantic_contract",
     "evidence_supported",
     "graph_typed_state_identity_rejections",

@@ -36,14 +36,39 @@ def build_case_semantic_retry_instruction(rejections: list[dict[str, Any]]) -> s
         "item_reason_counts": dict(item_reason_counts.most_common(16)),
         "missing_field_counts": dict(missing_field_counts.most_common(16)),
     }
+    semantic_skeleton = {
+        "_semantic": {
+            "module_candidates": [
+                {
+                    "module_key": "<exact active module key>",
+                    "module_name": "<exact active module name>",
+                    "role": "<exact active role>",
+                    "evidence": [
+                        "<complete verbatim value of this case description, steps, or expected_result>"
+                    ],
+                    "confidence": 0.8,
+                }
+            ],
+            "fact_ids": [],
+            "interaction_ids": [],
+            "workflow_stage_candidates": [],
+            "precondition_states": [],
+            "produced_states": [],
+        }
+    }
     return f"""
 # --- CASE SEMANTIC CONTRACT RETRY ---
 The previous cases were rejected by the strict case-semantic gate.
 Field-level feedback: {json.dumps(summary, ensure_ascii=False, separators=(",", ":"))}
 Regenerate complete case objects, not patches.
 For every module candidate, workflow stage candidate, precondition state, and produced state, include every required field shown in CASE OUTPUT CONTRACT.
-`evidence` must be an array containing an exact quote from that same case's public fields. `confidence` must be a positive number.
+`evidence` must be an array containing one complete public-field value copied verbatim from that same case; prefer description, steps, or expected_result. Do not shorten, summarize, or paraphrase evidence. `confidence` must be a positive number.
 Keep IDs aligned to the active requirement contract. Do not invent semantics and do not omit `_semantic`.
+Every regenerated case must contain all six `_semantic` arrays. Start from this minimal shape, replace placeholders with active-contract values and current-case evidence, and add fact, workflow, or state candidates only when the active contract requires them:
+{json.dumps(semantic_skeleton, ensure_ascii=False, separators=(",", ":"))}
+`_semantic.module_candidates` must remain non-empty. Copy every directly verified active fact ID into `_semantic.fact_ids`; use [] only when no active fact applies. The other arrays may be empty only when the active contract does not apply.
+For a required workflow stage, copy workflow_id, stage_id, and stage_kind exactly from the active workflow catalog and copy one complete value of this case's description, steps, or expected_result verbatim into workflow_stage_candidates[].evidence. Never replace stage evidence with a summary.
+Before returning, validate every regenerated case separately. Never output a case with `_semantic` missing or with any of its six arrays omitted.
 """.strip()
 
 
@@ -74,8 +99,10 @@ def build_required_stage_coverage_instruction(coverage: dict[str, Any] | None) -
 The accepted candidate set still misses these exact required workflow stages:
 {json.dumps(missing_stages, ensure_ascii=False, separators=(",", ":"))}
 Before generating independent cases, generate contract-valid candidates for these stages in stage_order.
-Copy workflow_id, stage_id, stage_kind, module_candidates, interaction_ids, required_states, and produced_states from the matching ACTIVE WORKFLOW SEMANTIC CATALOG entries.
-Each stage needs its own executable candidate. Do not infer IDs from case text and do not use an empty workflow_stage_candidates array for a matching required stage.
+Copy workflow_id, stage_id, and stage_kind exactly from the matching ACTIVE WORKFLOW SEMANTIC CATALOG entries. For module_candidates, copy the declared module_key, module_name, and role values exactly while citing evidence and confidence from the current case; copy interaction_ids exactly.
+Each required stage needs its own executable candidate. Do not infer IDs from case text and do not use an empty workflow_stage_candidates array for a matching required stage.
+`_semantic.precondition_states` and `_semantic.produced_states` may be empty; the execution plan inherits authoritative required_states and produced_states from the matching workflow step. Do not copy the catalog's typed-state arrays into the candidate.
+Declare an additional typed state only when the current case's public fields provide exact evidence for it. Use canonical entity, state, source, scope, polarity, and temporal values, and do not conflict with the matching workflow step's authoritative states.
 """.strip()
 
 
@@ -198,6 +225,10 @@ def build_stream_batch_token_usage(
         "token_unavailable_reason": token_unavailable_reason,
         "estimate_method": estimate_method,
         "model": str(metadata.get("model") or getattr(client, "model", "") or ""),
+        "reasoning_chars": max(0, _metadata_int(metadata, "reasoning_chars")),
+        "first_reasoning_ms": metadata.get("first_reasoning_ms"),
+        "first_content_ms": metadata.get("first_content_ms"),
+        "provider_total_duration_ms": metadata.get("total_duration_ms"),
         "duration_ms": int(duration_ms or 0),
         "response_chars": int(response_chars if response_chars is not None else len(output_text or "")),
         "attempt_status": str(attempt_status or ""),

@@ -373,7 +373,7 @@ def _compile_budget_split(
     return compile_requirement_atomic_fact_ledger(
         client=client,
         source_evidence_catalog=catalog,
-        max_tokens=1024,
+        max_tokens=340,
         request_timeout_seconds=120,
     )
 
@@ -400,7 +400,15 @@ def test_valid_response_freezes_refs_quotes_and_three_fingerprints() -> None:
     assert result["fact_ledger_version"] == REQUIREMENT_FACT_LEDGER_VERSION
     assert result["source_catalog_fingerprint"] == CATALOG_FINGERPRINT
     assert result["raw_declarations"]["evidence_facts"][0]["evidence"] == [
-        "EV_bbbbbbbbbbbb"
+        "EV_aaaaaaaaaaaa"
+    ]
+    assert [
+        item["fact_id"] for item in result["raw_declarations"]["evidence_facts"]
+    ] == ["FACT_SUBMIT", "FACT_PERMISSION", "FACT_COMPLETE"]
+    assert [item["fact_id"] for item in result["evidence_facts"]] == [
+        "FACT_SUBMIT",
+        "FACT_PERMISSION",
+        "FACT_COMPLETE",
     ]
     facts_by_id = {
         item["fact_id"]: item for item in result["evidence_facts"]
@@ -1106,7 +1114,92 @@ def test_source_centered_model_wire_requires_complete_target_manifest() -> None:
     result = _normalize_model(missing_target)
 
     assert result["valid"] is False
-    assert "source_evidence_disposition_missing" in _error_codes(result)
+    assert {
+        "source_record_manifest_length_mismatch",
+        "source_record_manifest_ref_set_mismatch",
+        "source_evidence_disposition_missing",
+    }.issubset(_error_codes(result))
+
+
+def test_source_centered_model_wire_rejects_placeholder_ref() -> None:
+    wire = _model_wire_payload(_valid_response())
+    wire["source_evidence_records"][1]["evidence_ref"] = "EV_..."
+
+    result = _normalize_model(wire)
+
+    assert result["valid"] is False
+    assert {
+        "source_record_evidence_ref_invalid",
+        "source_record_manifest_ref_set_mismatch",
+    }.issubset(_error_codes(result))
+
+
+def test_source_centered_model_wire_rejects_duplicate_ref_at_same_length() -> None:
+    wire = _model_wire_payload(_valid_response())
+    wire["source_evidence_records"][1]["evidence_ref"] = CATALOG[0]["ref"]
+
+    result = _normalize_model(wire)
+
+    assert result["valid"] is False
+    assert "source_record_manifest_length_mismatch" not in _error_codes(result)
+    assert {
+        "source_record_evidence_ref_duplicate",
+        "source_record_manifest_ref_set_mismatch",
+    }.issubset(_error_codes(result))
+
+
+def test_shard_wire_rejects_context_owner_records_without_silent_filter() -> None:
+    wire = _model_wire_payload(_valid_response())
+    context_record = wire["source_evidence_records"][2]
+    context_record["owned_facts"] = [
+        {
+            **copy.deepcopy(
+                wire["source_evidence_records"][0]["owned_facts"][0]
+            ),
+            "fact_id": "FACT_CONTEXT_OWNER_MUST_BE_IGNORED",
+            "statement": "上下文来源不能在当前分片取得事实所有权",
+            "evidence": [CATALOG[2]["ref"]],
+        }
+    ]
+    target_refs = [CATALOG[0]["ref"], CATALOG[1]["ref"]]
+
+    result = normalize_requirement_fact_model_response(
+        wire,
+        source_evidence_catalog=CATALOG,
+        source_catalog_fingerprint=CATALOG_FINGERPRINT,
+        target_evidence_refs=target_refs,
+        shard_mode=True,
+    )
+
+    assert result["valid"] is False
+    assert {
+        "source_record_manifest_length_mismatch",
+        "source_record_evidence_ref_not_target",
+        "source_record_manifest_ref_set_mismatch",
+        "fact_target_owner_mismatch",
+    }.issubset(_error_codes(result))
+
+
+def test_same_length_context_record_does_not_hide_missing_target_record() -> None:
+    wire = _model_wire_payload(_valid_response())
+    wire["source_evidence_records"].pop(1)
+    target_refs = [CATALOG[0]["ref"], CATALOG[1]["ref"]]
+
+    result = normalize_requirement_fact_model_response(
+        wire,
+        source_evidence_catalog=CATALOG,
+        source_catalog_fingerprint=CATALOG_FINGERPRINT,
+        target_evidence_refs=target_refs,
+        shard_mode=True,
+    )
+
+    assert result["valid"] is False
+    assert "source_record_manifest_length_mismatch" not in _error_codes(result)
+    assert {
+        "source_record_evidence_ref_not_target",
+        "source_record_manifest_ref_set_mismatch",
+        "source_evidence_disposition_missing",
+    }.issubset(_error_codes(result))
 
 
 def test_source_centered_support_target_projects_context_without_model_role() -> None:
@@ -1170,7 +1263,10 @@ def test_prompt_is_atomic_generic_and_has_no_scope_or_workflow_output() -> None:
     assert "never borrow a token" in prompt
     assert "Never infer priority" in prompt
     assert "source_evidence_records" in prompt
-    assert "exactly one source_evidence_record for every target_source_evidence_catalog item" in prompt
+    assert "exactly one source_evidence_record for every target_evidence_refs item" in prompt
+    assert "array length must exactly equal the target_evidence_refs array length" in prompt
+    assert "evidence_ref set must exactly equal target_evidence_refs" in prompt
+    assert "Never use a placeholder, ellipsis, abbreviation, shortened prefix" in prompt
     assert "smallest source_order" in prompt
     assert "anchor_evidence_ref" in prompt
     assert "Never output anchor_evidence_ref, fact_ids, or disposition yourself" in prompt
@@ -1184,10 +1280,13 @@ def test_prompt_is_atomic_generic_and_has_no_scope_or_workflow_output() -> None:
     final_owner_check = prompt.split(
         "Final owner check (perform immediately before returning):", 1
     )[1]
-    assert "T = every target_source_evidence_catalog ref" in final_owner_check
+    assert "T = every target_evidence_refs value" in final_owner_check
     assert "R = every emitted source record evidence_ref" in final_owner_check
     assert "O = target refs whose own record contains one or more owned_facts" in final_owner_check
-    assert "R equals T with no omission or duplicate" in final_owner_check
+    assert (
+        "R equals T with no omission, addition, placeholder, abbreviation, "
+        "or duplicate"
+    ) in final_owner_check
     assert "Do not emit any source disposition" in final_owner_check
     assert "Every emitted FACT must be nested in exactly one SOURCE_RECORD" in final_owner_check
     assert "directly declared only by a context item" in final_owner_check
@@ -1228,7 +1327,10 @@ def test_user_input_contains_only_catalog_and_fresh_compile_metadata() -> None:
     )
     payload = json.loads(raw)
 
-    assert payload["input_version"] == "4"
+    assert payload["input_version"] == "5"
+    assert payload["target_evidence_refs"] == [
+        item["ref"] for item in CATALOG
+    ]
     assert payload["target_source_evidence_catalog"] == [
         {**item, "source_order": index}
         for index, item in enumerate(CATALOG)
@@ -1240,7 +1342,6 @@ def test_user_input_contains_only_catalog_and_fresh_compile_metadata() -> None:
     assert "previous_candidate" not in payload
     assert "retry_context" not in payload
     assert "source_evidence_catalog" not in payload
-    assert "target_evidence_refs" not in payload
 
 
 def test_shard_wire_keeps_global_context_order_and_places_target_catalog_last() -> None:
@@ -1253,6 +1354,7 @@ def test_shard_wire_keeps_global_context_order_and_places_target_catalog_last() 
     payload = json.loads(raw)
 
     assert list(payload)[-1] == "target_source_evidence_catalog"
+    assert payload["target_evidence_refs"] == [target_ref]
     assert payload["context_source_evidence_catalog"] == [
         {**CATALOG[0], "source_order": 0},
         {**CATALOG[2], "source_order": 2},
@@ -1345,7 +1447,7 @@ def test_compiler_rejects_legacy_flat_model_response_without_compatibility() -> 
 
     assert result.success is False
     assert result.status == "contract_invalid"
-    assert len(client.calls) == 2
+    assert len(client.calls) == 3
     assert {
         "fact_ledger_response_field_unknown",
         "fact_model_response_field_missing",
@@ -1424,7 +1526,7 @@ def test_fatal_model_error_stops_without_replay_or_fresh_candidate() -> None:
     assert result.diagnostics["fact_ledger_compile_transport_retry_count"] == 0
 
 
-def test_fresh_invalid_candidate_never_starts_a_third_candidate() -> None:
+def test_second_invalid_candidate_starts_one_last_independent_compile() -> None:
     invalid = _valid_response()
     invalid["fact_bindings"] = []
     client = _ScriptedClient(
@@ -1435,9 +1537,30 @@ def test_fresh_invalid_candidate_never_starts_a_third_candidate() -> None:
 
     result = _compile(client)
 
+    assert result.success is True
+    assert result.status == "validated"
+    assert len(client.calls) == 3
+    assert _request_payload(client.calls[2])["attempt"] == 3
+    assert _request_payload(client.calls[2])["compilation_mode"] == (
+        "independent_recompile"
+    )
+
+
+def test_repeated_invalid_candidates_stop_at_bounded_limit() -> None:
+    invalid = _valid_response()
+    invalid["fact_bindings"] = []
+    client = _ScriptedClient(
+        _json_response(invalid),
+        _json_response(invalid),
+        _json_response(invalid),
+        _json_response(_valid_response()),
+    )
+
+    result = _compile(client)
+
     assert result.success is False
     assert result.status == "contract_invalid"
-    assert len(client.calls) == 2
+    assert len(client.calls) == 3
     assert result.normalized_ledger == {}
 
 
@@ -1492,9 +1615,14 @@ def test_budget_partition_never_splits_a_partition_group() -> None:
         )
     }
     assert normalized["valid"] is True
-    assert chunk_budget == 600
-    assert group_chunk_indexes == {2}
-    assert [item["ref"] for item in chunks[1].items] == [
+    assert chunk_budget == 1800
+    assert len(group_chunk_indexes) == 1
+    group_chunk = next(
+        chunk for chunk in chunks if chunk.index in group_chunk_indexes
+    )
+    group_chunk_refs = [item["ref"] for item in group_chunk.items]
+    first_group_ref_index = group_chunk_refs.index("EV_000000000002")
+    assert group_chunk_refs[first_group_ref_index : first_group_ref_index + 2] == [
         "EV_000000000002",
         "EV_000000000003",
     ]
@@ -1526,7 +1654,7 @@ def test_oversized_partition_group_is_one_independent_shard() -> None:
     chunks, chunk_budget, oversized_count = (
         fact_ledger_compiler._partition_source_evidence_catalog(
             normalized["items"],
-            max_tokens=600,
+            max_tokens=200,
         )
     )
 
@@ -1541,7 +1669,7 @@ def test_oversized_partition_group_is_one_independent_shard() -> None:
     assert chunks[1].budget_units > chunk_budget
 
 
-def test_budget_partition_uses_full_catalog_and_mutually_exclusive_targets() -> None:
+def test_budget_partition_sends_only_local_catalog_and_keeps_global_validation() -> None:
     catalog = _budget_split_catalog()
     client = _AdaptiveClient(
         lambda payload, _call_index: _json_response(
@@ -1555,6 +1683,11 @@ def test_budget_partition_uses_full_catalog_and_mutually_exclusive_targets() -> 
     assert len(client.calls) == 2
     requests = [_request_payload(call) for call in client.calls]
     assert all(item["compilation_scope"] == "catalog_shard" for item in requests)
+    assert all(
+        item["source_catalog_fingerprint"]
+        == fingerprint_source_evidence_catalog(catalog)
+        for item in requests
+    )
     target_groups = [_request_target_refs(item) for item in requests]
     context_groups = [_request_context_refs(item) for item in requests]
     assert [ref for group in target_groups for ref in group] == [
@@ -1567,22 +1700,37 @@ def test_budget_partition_uses_full_catalog_and_mutually_exclusive_targets() -> 
         context_groups,
         strict=True,
     ):
-        assert set(targets).isdisjoint(contexts)
-        assert sorted(
-            [*targets, *contexts],
-            key=lambda ref: next(
-                item["source_order"]
-                for item in [
-                    *request["target_source_evidence_catalog"],
-                    *request["context_source_evidence_catalog"],
-                ]
-                if item["ref"] == ref
-            ),
-        ) == [item["ref"] for item in catalog]
+        assert contexts == []
+        assert [
+            item["source_order"]
+            for item in request["target_source_evidence_catalog"]
+        ] == [
+            next(
+                index
+                for index, catalog_item in enumerate(catalog)
+                if catalog_item["ref"] == target_ref
+            )
+            for target_ref in targets
+        ]
     assert result.diagnostics["fact_ledger_compile_chunk_count"] == 2
-    assert result.diagnostics["fact_ledger_compile_candidate_attempt_limit"] == 4
+    assert result.diagnostics[
+        "fact_ledger_compile_wire_source_evidence_count_total"
+    ] == len(catalog)
+    assert result.diagnostics[
+        "fact_ledger_compile_wire_source_evidence_count_max"
+    ] < len(catalog)
+    assert result.diagnostics["fact_ledger_compile_candidate_attempt_limit"] == 6
     assert result.diagnostics["fact_ledger_compile_physical_call_count"] == 2
     assert result.diagnostics["fact_ledger_compile_fresh_candidate_used"] is False
+    assert all(
+        item["model_source_evidence_count"]
+        == item["target_source_evidence_count"]
+        for item in result.diagnostics["fact_ledger_compile_chunk_summaries"]
+    )
+    assert all(
+        item["global_source_evidence_count"] == len(catalog)
+        for item in result.diagnostics["fact_ledger_compile_chunk_summaries"]
+    )
     fact_ids = [
         item["fact_id"]
         for item in result.raw_declarations["evidence_facts"]
@@ -1600,6 +1748,56 @@ def test_budget_partition_uses_full_catalog_and_mutually_exclusive_targets() -> 
     assert validate_requirement_fact_ledger_fingerprints(
         result.normalized_ledger
     )["valid"] is True
+    assert result.normalized_ledger["source_catalog_fingerprint"] == (
+        fingerprint_source_evidence_catalog(catalog)
+    )
+
+
+def test_local_catalog_does_not_relax_global_target_manifest_validation() -> None:
+    catalog = _budget_split_catalog()
+    first_ref = catalog[0]["ref"]
+
+    def respond(payload: dict[str, Any], _call_index: int) -> str:
+        response = _model_wire_payload(_local_chunk_response(payload))
+        if first_ref not in _request_target_refs(payload):
+            response["source_evidence_records"][0]["evidence_ref"] = first_ref
+        return json.dumps(response, ensure_ascii=False)
+
+    client = _AdaptiveClient(respond)
+    result = _compile_budget_split(client, catalog)
+
+    assert result.success is False
+    assert result.status == "contract_invalid"
+    assert result.normalized_ledger == {}
+    assert result.diagnostics["fact_ledger_compile_failed_chunk_index"] == 2
+    assert {
+        "source_record_evidence_ref_not_target",
+        "source_record_manifest_ref_set_mismatch",
+    }.issubset(
+        set(
+            result.diagnostics[
+                "fact_ledger_compile_fresh_candidate_trigger_codes"
+            ]
+        )
+    )
+
+
+def test_merged_fact_order_follows_source_catalog_not_global_hash_id() -> None:
+    merged, error_codes, _ = (
+        fact_ledger_compiler._merge_chunk_raw_declarations(
+            [{"raw_declarations": _valid_response()}],
+            source_evidence_catalog=CATALOG,
+        )
+    )
+
+    assert error_codes == ()
+    assert [
+        item["anchor_evidence_ref"] for item in merged["evidence_facts"]
+    ] == [
+        "EV_aaaaaaaaaaaa",
+        "EV_bbbbbbbbbbbb",
+        "EV_bbbbbbbbbbbb",
+    ]
 
 
 def test_cross_target_fact_has_one_owner_and_rebuilds_later_disposition() -> None:
@@ -1781,7 +1979,7 @@ def test_merge_rejects_anchored_non_owner_projection_input() -> None:
     assert "fact_ledger_anchored_disposition_mismatch" in error_codes
 
 
-def test_same_global_fact_with_different_anchors_fails_closed() -> None:
+def test_same_global_fact_with_different_anchors_uses_earliest_owner() -> None:
     catalog = _budget_split_catalog()
     first_ref = catalog[0]["ref"]
     later_ref = catalog[2]["ref"]
@@ -1799,15 +1997,22 @@ def test_same_global_fact_with_different_anchors_fails_closed() -> None:
 
     result = _compile_budget_split(_AdaptiveClient(respond), catalog)
 
-    assert result.success is False
-    assert result.status == "contract_invalid"
-    assert result.normalized_ledger == {}
-    assert result.diagnostics["fact_ledger_compile_global_status"] == (
-        "merge_invalid"
-    )
-    assert "fact_ledger_global_fact_anchor_conflict" in result.diagnostics[
-        "fact_ledger_compile_global_error_codes"
-    ]
+    assert result.success is True
+    assert result.status == "validated"
+    assert result.diagnostics["fact_ledger_compile_global_status"] == "validated"
+    assert result.diagnostics[
+        "fact_ledger_compile_collapsed_duplicate_fact_count"
+    ] == 1
+    merged_fact = result.raw_declarations["evidence_facts"][0]
+    assert merged_fact["anchor_evidence_ref"] == first_ref
+    dispositions = {
+        item["evidence_ref"]: item["disposition"]
+        for item in result.raw_declarations[
+            "source_evidence_dispositions"
+        ]
+    }
+    assert dispositions[first_ref] == "fact_backed"
+    assert dispositions[later_ref] == "context_only"
 
 
 def test_target_anchor_allows_earlier_context_as_supporting_evidence() -> None:
@@ -1866,7 +2071,7 @@ def test_second_shard_cannot_hide_earlier_owner_as_seventh_evidence_ref() -> Non
     catalog = [
         {
             "ref": "EV_000000000001",
-            "quote": "前置需求上下文" * 190,
+            "quote": "前置需求上下文" * 400,
         },
         *[
             {
@@ -1894,7 +2099,7 @@ def test_second_shard_cannot_hide_earlier_owner_as_seventh_evidence_ref() -> Non
     result = compile_requirement_atomic_fact_ledger(
         client=client,
         source_evidence_catalog=catalog,
-        max_tokens=3500,
+        max_tokens=1200,
         request_timeout_seconds=120,
     )
 
@@ -1902,7 +2107,7 @@ def test_second_shard_cannot_hide_earlier_owner_as_seventh_evidence_ref() -> Non
     assert result.success is False
     assert result.status == "contract_invalid"
     assert result.normalized_ledger == {}
-    assert len(client.calls) == 3
+    assert len(client.calls) == 4
     assert result.diagnostics["fact_ledger_compile_failed_chunk_index"] == 2
     assert "fact_evidence_count_exceeds_limit" in result.diagnostics[
         "fact_ledger_compile_fresh_candidate_trigger_codes"
@@ -1969,7 +2174,7 @@ def test_chunk_failure_discards_every_previously_validated_partial_ledger() -> N
     assert result.success is False
     assert result.status == "parse_failed"
     assert result.normalized_ledger == {}
-    assert len(client.calls) == 3
+    assert len(client.calls) == 4
     assert result.diagnostics["fact_ledger_compile_completed_chunk_count"] == 1
     assert result.diagnostics["fact_ledger_compile_failed_chunk_index"] == 2
 
@@ -2086,23 +2291,66 @@ def test_all_context_chunks_are_local_valid_but_global_ledger_fails_closed() -> 
     ]
 
 
-def test_chunk_limit_preflight_stops_before_any_model_call(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    catalog = _budget_split_catalog()
+def test_large_catalog_is_fully_compiled_without_a_fixed_chunk_ceiling() -> None:
+    catalog = _budget_split_catalog(count=50)
     client = _AdaptiveClient(
-        lambda _payload, _call_index: pytest.fail("preflight 后不应调用模型")
+        lambda payload, _call_index: _json_response(
+            _local_chunk_response(payload)
+        )
     )
-    monkeypatch.setattr(fact_ledger_compiler, "MAX_FACT_LEDGER_CHUNKS", 1)
 
     result = _compile_budget_split(client, catalog)
 
-    assert result.success is False
-    assert result.normalized_ledger == {}
-    assert client.calls == []
-    assert result.diagnostics["fact_ledger_compile_global_status"] == (
-        "chunk_limit_exceeded"
+    chunk_count = result.diagnostics["fact_ledger_compile_chunk_count"]
+    assert result.success is True
+    assert chunk_count > 24
+    assert len(client.calls) == chunk_count
+    assert result.diagnostics["fact_ledger_compile_completed_chunk_count"] == (
+        chunk_count
     )
+    assert result.diagnostics["fact_ledger_compile_global_status"] == "validated"
+
+
+def test_fact_ledger_preserves_owners_beyond_previous_global_fact_limit() -> None:
+    fact_count = 321
+    catalog = [
+        {
+            "ref": f"EV_{index:012x}",
+            "quote": f"第 {index} 条独立原子需求",
+        }
+        for index in range(1, fact_count + 1)
+    ]
+    payload = {
+        "evidence_facts": [
+            _fact(
+                f"FACT_{index:04d}",
+                f"系统处理第 {index} 条独立原子需求",
+                [item["ref"]],
+            )
+            for index, item in enumerate(catalog, start=1)
+        ],
+        "source_evidence_dispositions": [
+            {
+                "evidence_ref": item["ref"],
+                "disposition": "fact_backed",
+            }
+            for item in catalog
+        ],
+    }
+
+    result = normalize_requirement_fact_ledger(
+        payload,
+        source_evidence_catalog=catalog,
+        source_catalog_fingerprint=fingerprint_source_evidence_catalog(catalog),
+    )
+
+    assert result["valid"] is True
+    assert len(result["raw_declarations"]["evidence_facts"]) == fact_count
+    assert len(result["evidence_facts"]) == fact_count
+    assert result["diagnostics"]["fact_count"] == fact_count
+    assert result["raw_declarations"]["source_evidence_dispositions"][-1][
+        "fact_ids"
+    ]
 
 
 def test_stable_fact_identity_orders_ev_refs_by_catalog_manifest() -> None:

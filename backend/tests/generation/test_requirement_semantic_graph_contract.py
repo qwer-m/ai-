@@ -39,6 +39,13 @@ SOURCE = """
 """
 
 
+def test_evidence_supported_preserves_cjk_ocr_component_characters() -> None:
+    source = "技法巩固\n结果⻚\n继续下一步"
+
+    assert evidence_supported(["结果⻚"], source) is True
+    assert evidence_supported(["结果"], source) is False
+
+
 def _fact(
     fact_id: str,
     statement: str,
@@ -228,6 +235,16 @@ def test_graph_is_publishable_and_projects_compatibility_architecture() -> None:
         "s_process",
     ]
     assert architecture["functional_modules"][0]["features"] == ["接收批次请求"]
+    assert architecture["functional_modules"][0]["fact_ids"] == [
+        "f_interaction",
+        "f_receive",
+        "f_scope",
+    ]
+    assert architecture["functional_modules"][1]["fact_ids"] == [
+        "f_execute",
+        "f_interaction",
+        "f_scope",
+    ]
     assert architecture["module_interactions"][0]["source_module_key"] == "s_ingress"
     assert architecture["module_interactions"][0]["target_module_key"] == "s_process"
 
@@ -1280,7 +1297,7 @@ def test_required_p0_unresolved_boundary_blocks_publish() -> None:
     assert "required_node_boundary_unresolved" in _error_codes(result)
 
 
-def test_graph_canonicalization_is_collection_order_independent() -> None:
+def test_graph_fingerprint_is_order_independent_without_reordering_facts() -> None:
     first = _payload()
     second = copy.deepcopy(first)
     expected_primary_flow = copy.deepcopy(first["semantic_graph"]["primary_flow"])
@@ -1296,7 +1313,12 @@ def test_graph_canonicalization_is_collection_order_independent() -> None:
     assert first_result["semantic_graph"]["primary_flow"] == expected_primary_flow
     assert second_result["semantic_graph"]["primary_flow"] == expected_primary_flow
     assert first_result["topology_fingerprint"] == second_result["topology_fingerprint"]
-    assert first_result["evidence_facts"] == second_result["evidence_facts"]
+    assert [item["fact_id"] for item in first_result["evidence_facts"]] == [
+        item["fact_id"] for item in first["evidence_facts"]
+    ]
+    assert [item["fact_id"] for item in second_result["evidence_facts"]] == [
+        item["fact_id"] for item in second["evidence_facts"]
+    ]
     assert first_result["semantic_graph"] == second_result["semantic_graph"]
 
 

@@ -832,6 +832,7 @@ def parse_optimization_patch(
             validation = validate_case_semantic_contract(
                 case.get("_semantic"),
                 case_text=case_text,
+                case_test_module=str(case.get("test_module") or "").strip(),
                 requirement_contract=requirement_contract,
             )
             if not validation.get("valid"):

@@ -78,6 +78,7 @@ def _build_initial_quality_score(
     feedback_control_debug_payload: dict[str, Any],
     context_result: dict[str, Any],
     judge_decision_table_payload: list[dict[str, Any]] | None = None,
+    execution_plan_validation_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Score the generated batch from persisted pipeline diagnostics.
 
@@ -119,6 +120,19 @@ def _build_initial_quality_score(
         "final_scenario_duplicate_case_count",
         "scenario_duplicate_case_count",
     )
+    final_semantic_diagnostics_available = bool(
+        review_decision_summary_payload.get("final_semantic_diagnostics_available")
+    )
+    final_semantic_duplicate_cluster_count = _to_int(
+        review_decision_summary_payload.get("final_semantic_duplicate_cluster_count")
+    )
+    final_semantic_duplicate_case_count = _to_int(
+        review_decision_summary_payload.get("final_semantic_duplicate_case_count")
+    )
+    final_semantic_dedup_dropped_count = _to_int(
+        review_decision_summary_payload.get("final_semantic_dedup_dropped_count")
+        or convergence_payload.get("final_semantic_dedup_dropped_count")
+    )
     final_reasoning_leakage_case_count = _to_int(
         review_decision_summary_payload.get("final_reasoning_leakage_case_count")
     )
@@ -139,6 +153,21 @@ def _build_initial_quality_score(
     ):
         tolerated_semantic_prune = max(3, int(round(float(candidate_total) * 0.08)))
         semantic_penalty_count = max(0, semantic_pressure_count - tolerated_semantic_prune)
+
+    execution_validation = dict(execution_plan_validation_payload or {})
+    execution_metrics = (
+        dict(execution_validation.get("metrics") or {})
+        if isinstance(execution_validation.get("metrics"), dict)
+        else {}
+    )
+    semantic_conflict_count = _to_int(
+        execution_metrics.get("semantic_conflict_count")
+        or len(execution_validation.get("semantic_conflicts") or [])
+    )
+    semantic_warning_count = _to_int(
+        execution_metrics.get("semantic_warning_count")
+        or len(execution_validation.get("semantic_warnings") or [])
+    )
 
     judge_total = _to_int(
         judge_summary_payload.get("total")
@@ -239,6 +268,18 @@ def _build_initial_quality_score(
     add_deduction("flow_missing", "流程缺失", flow_missing_count, min(25, flow_missing_count * 5))
     add_deduction("flow_misordered", "流程顺序异常", flow_misordered_count, min(25, flow_misordered_count * 3))
     add_deduction("scenario_duplicates", "重复意图", scenario_duplicate_case_count or scenario_duplicate_cluster_count, min(25, scenario_duplicate_case_count * 0.75 + scenario_duplicate_cluster_count * 1.5))
+    add_deduction(
+        "final_semantic_duplicates",
+        "最终集合未解决语义重复",
+        final_semantic_duplicate_case_count,
+        min(30, final_semantic_duplicate_case_count * 3),
+    )
+    add_deduction(
+        "final_semantic_dedup",
+        "最终集合语义去重压力",
+        final_semantic_dedup_dropped_count,
+        min(10, final_semantic_dedup_dropped_count * 0.5),
+    )
     add_deduction("judge_rejected", "判定拒绝", rejected_count, min(30, rejected_count * 3))
     add_deduction("judge_pending", "待确认逻辑", pending_count, min(15, pending_count * 1.5))
     add_deduction("judge_repairable", "最终残留可修复问题", repairable_count, min(8, repairable_count * 1))
@@ -246,6 +287,18 @@ def _build_initial_quality_score(
     add_deduction("fact_pending", "命中待确认事实", fact_pending_count, min(12, fact_pending_count * 1.5))
     add_deduction("low_quality_dropped", "低质量用例被过滤", low_quality_dropped_count, min(20, low_quality_dropped_count * 3))
     add_deduction("semantic_dedup", "语义去重压力", semantic_penalty_count, min(10, semantic_penalty_count * 0.5))
+    add_deduction(
+        "main_chain_semantic_conflict",
+        "主链语义冲突",
+        semantic_conflict_count,
+        min(40, semantic_conflict_count * 20),
+    )
+    add_deduction(
+        "main_chain_semantic_warning",
+        "主链语义警告",
+        semantic_warning_count,
+        min(10, semantic_warning_count),
+    )
     if manual_delivery_metrics.get("applied"):
         manual_delivery_metrics["scoring_mode"] = "advisory"
     if candidate_total > 0 and retained_total <= 0:
@@ -260,6 +313,8 @@ def _build_initial_quality_score(
     total_deduction = sum(float(item["points"]) for item in deductions)
     score = _clamp_score(100 - total_deduction)
     score_basis = "coverage+review+judge+funnel+context"
+    if execution_validation:
+        score_basis = f"{score_basis}+execution_plan"
     if manual_delivery_metrics.get("applied"):
         score_basis = f"{score_basis}+manual_profile_advisory"
     if score >= 85:
@@ -297,10 +352,16 @@ def _build_initial_quality_score(
         "flow_misordered_count": flow_misordered_count,
         "scenario_duplicate_cluster_count": scenario_duplicate_cluster_count,
         "scenario_duplicate_case_count": scenario_duplicate_case_count,
+        "final_semantic_diagnostics_available": bool(final_semantic_diagnostics_available),
+        "final_semantic_duplicate_cluster_count": final_semantic_duplicate_cluster_count,
+        "final_semantic_duplicate_case_count": final_semantic_duplicate_case_count,
+        "final_semantic_dedup_dropped_count": final_semantic_dedup_dropped_count,
         "low_quality_dropped_count": low_quality_dropped_count,
         "semantic_dedup_dropped_count": semantic_dedup_dropped_count,
         "semantic_dedup_pressure_count": semantic_pressure_count,
         "semantic_dedup_penalty_count": semantic_penalty_count,
+        "main_chain_semantic_conflict_count": semantic_conflict_count,
+        "main_chain_semantic_warning_count": semantic_warning_count,
         "structure_metric_scope": (
             "final_cases"
             if "final_flow_misordered_count" in review_decision_summary_payload
@@ -330,7 +391,16 @@ def _build_initial_quality_score(
         "quality_score_grade": grade,
         "quality_score_source": "backend_diagnostic_v1",
         "quality_score_basis": score_basis,
-        "quality_score_confidence": "high" if total_rules > 0 and judge_total > 0 else "medium",
+        "quality_score_confidence": (
+            "high"
+            if (
+                total_rules > 0
+                and judge_total > 0
+                and semantic_conflict_count <= 0
+                and final_semantic_diagnostics_available
+            )
+            else "medium"
+        ),
         "quality_score_deductions": deductions[:20],
         "quality_score_inputs": quality_score_inputs,
         "manual_delivery": manual_delivery_metrics,
@@ -359,7 +429,14 @@ def _build_case_quality_gate_payload(
         or judge_reject_clusters.get("rejected_total")
     )
     rejected_count = _to_int(score_inputs.get("rejected_count"), raw_rejected_count)
-    final_duplicate_count = _to_int(review_decision_summary_payload.get("final_scenario_duplicate_case_count"))
+    if bool(review_decision_summary_payload.get("final_semantic_diagnostics_available")):
+        final_duplicate_count = _to_int(
+            review_decision_summary_payload.get("final_semantic_duplicate_case_count")
+        )
+    else:
+        final_duplicate_count = _to_int(
+            review_decision_summary_payload.get("final_scenario_duplicate_case_count")
+        )
     final_misordered_count = _to_int(review_decision_summary_payload.get("final_flow_misordered_count"))
     reasoning_leak_count = _to_int(review_decision_summary_payload.get("final_reasoning_leakage_case_count"))
     role_mismatch_count = _to_int(
@@ -590,6 +667,7 @@ def _build_quality_ledger_payload(
     compression_diag_payload: dict[str, Any],
     context_result: dict[str, Any],
     judge_decision_table_payload: list[dict[str, Any]] | None = None,
+    execution_plan_validation_payload: dict[str, Any] | None = None,
     build_case_quality_failures_fn: Callable[..., Any],
     build_case_quality_metrics_fn: Callable[..., Any],
     is_candidate_insufficient_underfill_fn: Callable[..., Any],
@@ -624,6 +702,7 @@ def _build_quality_ledger_payload(
         feedback_control_debug_payload=feedback_control_debug_payload,
         context_result=context_result,
         judge_decision_table_payload=judge_decision_table_payload,
+        execution_plan_validation_payload=execution_plan_validation_payload,
     )
     judge_reject_clusters = _cluster_judge_reject_reasons(judge_decision_table_payload)
     case_quality_gate_payload = _build_case_quality_gate_payload(
@@ -652,6 +731,21 @@ def _build_quality_ledger_payload(
         "final_count": int(generation_summary_payload.get("final_count") or convergence_payload.get("final_count") or 0),
         "quality_assessment": quality_assessment,
         **score_payload,
+        "execution_plan_quality": {
+            "passed": bool((execution_plan_validation_payload or {}).get("passed")),
+            "semantic_conflict_count": int(
+                ((execution_plan_validation_payload or {}).get("metrics") or {}).get(
+                    "semantic_conflict_count", 0
+                )
+            ),
+            "semantic_warning_count": int(
+                ((execution_plan_validation_payload or {}).get("metrics") or {}).get(
+                    "semantic_warning_count", 0
+                )
+            ),
+        }
+        if execution_plan_validation_payload
+        else {},
         "stop_reason": list(generation_summary_payload.get("stop_reason") or []),
         "coverage": {
             "coverage_rate": float(coverage_payload.get("coverage_rate") or 0.0),
@@ -712,6 +806,26 @@ def _build_quality_ledger_payload(
             "final_scenario_duplicate_case_count": int(
                 review_decision_summary_payload.get("final_scenario_duplicate_case_count") or 0
             ),
+            "final_semantic_diagnostics_available": bool(
+                review_decision_summary_payload.get("final_semantic_diagnostics_available")
+            ),
+            "final_semantic_duplicate_cluster_count": int(
+                review_decision_summary_payload.get("final_semantic_duplicate_cluster_count") or 0
+            ),
+            "final_semantic_duplicate_case_count": int(
+                review_decision_summary_payload.get("final_semantic_duplicate_case_count") or 0
+            ),
+            "final_semantic_dedup_dropped_count": int(
+                review_decision_summary_payload.get("final_semantic_dedup_dropped_count") or 0
+            ),
+            "final_semantic_containment_count": int(
+                review_decision_summary_payload.get("final_semantic_containment_count") or 0
+            ),
+            "final_semantic_relation_samples": [
+                dict(item)
+                for item in (review_decision_summary_payload.get("final_semantic_relation_samples") or [])[:20]
+                if isinstance(item, dict)
+            ],
             "fact_profile_forbidden_count": int(
                 review_decision_summary_payload.get("fact_profile_forbidden_count") or 0
             ),

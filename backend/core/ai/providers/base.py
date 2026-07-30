@@ -4,6 +4,9 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Generator, List, Optional
 
 
+STREAM_HEARTBEAT_CHUNK = "\x00ai_stream_heartbeat\x00"
+
+
 class BaseModelProvider(ABC):
     @abstractmethod
     def generate(
@@ -20,6 +23,10 @@ class BaseModelProvider(ABC):
         messages: List[Dict[str, str]],
         model: str,
         max_tokens: Optional[int] = None,
+        request_timeout_seconds: Optional[float] = None,
+        heartbeat_interval_seconds: Optional[float] = None,
+        reasoning_effort: Optional[str] = None,
+        disable_thinking: bool = False,
     ) -> Generator[str, None, None]:
         pass
 

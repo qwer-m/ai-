@@ -126,6 +126,7 @@ def normalize_json_structure(
         semantic_validation = validate_case_semantic_contract(
             item.get("_semantic"),
             case_text=case_text,
+            case_test_module=test_module,
             requirement_contract=requirement_semantic_contract,
         )
         if require_case_semantic_contract and not semantic_validation.get("valid"):

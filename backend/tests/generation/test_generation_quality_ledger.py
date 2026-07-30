@@ -100,6 +100,63 @@ def test_quality_ledger_compacts_generation_evidence() -> None:
     )
 
 
+def test_quality_ledger_deducts_blocking_main_chain_semantic_conflict() -> None:
+    payload = _build_quality_ledger_payload(
+        generation_id=541,
+        request_id="req-semantic-conflict",
+        mode="multi_pass",
+        stage_counts={"primary": 80, "gap": 0, "review": 80},
+        coverage_payload={
+            "coverage_rate": 1.0,
+            "total_rules": 10,
+            "missing_rules": [],
+            "missing_types": {},
+        },
+        convergence_payload={"final_count": 80},
+        generation_summary_payload={"final_count": 80, "stop_reason": []},
+        review_decision_summary_payload={
+            "candidate_total": 80,
+            "retained_total": 80,
+            "final_scenario_duplicate_case_count": 0,
+            "final_flow_misordered_count": 0,
+        },
+        judge_summary_payload={"total": 80, "pass_count": 80},
+        feedback_control_debug_payload={"control_state_applied": True},
+        compression_diag_payload={},
+        context_result={
+            "context_debug": {
+                "current_document_used": True,
+                "realtime_rag_used": True,
+            }
+        },
+        execution_plan_validation_payload={
+            "passed": False,
+            "metrics": {
+                "semantic_conflict_count": 1,
+                "semantic_warning_count": 2,
+            },
+            "semantic_conflicts": [
+                {"reason": "reset_or_abort_case_in_main_smoke"}
+            ],
+        },
+    )
+
+    deduction_keys = {
+        item["key"] for item in payload["quality_score_deductions"]
+    }
+    assert "main_chain_semantic_conflict" in deduction_keys
+    assert "main_chain_semantic_warning" in deduction_keys
+    assert payload["quality_score"] == 78
+    assert payload["quality_score_basis"].endswith("+execution_plan")
+    assert payload["quality_score_confidence"] == "medium"
+    assert payload["quality_score_inputs"]["main_chain_semantic_conflict_count"] == 1
+    assert payload["execution_plan_quality"] == {
+        "passed": False,
+        "semantic_conflict_count": 1,
+        "semantic_warning_count": 2,
+    }
+
+
 def test_quality_ledger_uses_context_source_when_fusion_mode_missing() -> None:
     payload = _build_quality_ledger_payload(
         generation_id=461,
@@ -834,3 +891,88 @@ def test_quality_ledger_exposes_actionable_remediation_for_critical_score() -> N
     compact = _compact_quality_ledger(payload)
     assert compact["quality_primary_action"] == "cover_missing_rules"
     assert "reduce_semantic_duplicates" in compact["quality_action_ids"]
+
+
+def test_quality_ledger_uses_final_shared_semantic_metrics_independently() -> None:
+    payload = _build_quality_ledger_payload(
+        generation_id=542,
+        request_id="req-final-semantic",
+        mode="multi_pass",
+        stage_counts={"primary": 80, "gap": 0, "review": 80},
+        coverage_payload={
+            "coverage_rate": 1.0,
+            "total_rules": 10,
+            "missing_rules": [],
+            "missing_types": {},
+        },
+        convergence_payload={"final_count": 77},
+        generation_summary_payload={"final_count": 77, "stop_reason": []},
+        review_decision_summary_payload={
+            "candidate_total": 80,
+            "retained_total": 77,
+            "final_scenario_duplicate_cluster_count": 0,
+            "final_scenario_duplicate_case_count": 0,
+            "final_semantic_diagnostics_available": True,
+            "final_semantic_duplicate_cluster_count": 3,
+            "final_semantic_duplicate_case_count": 2,
+            "final_semantic_dedup_dropped_count": 3,
+            "final_semantic_containment_count": 1,
+        },
+        judge_summary_payload={"total": 80, "pass_count": 80},
+        feedback_control_debug_payload={"control_state_applied": True},
+        compression_diag_payload={},
+        context_result={
+            "context_debug": {
+                "current_document_used": True,
+                "realtime_rag_used": True,
+            }
+        },
+    )
+
+    deduction_by_key = {
+        item["key"]: item for item in payload["quality_score_deductions"]
+    }
+    assert deduction_by_key["final_semantic_duplicates"]["count"] == 2
+    assert deduction_by_key["final_semantic_dedup"]["count"] == 3
+    assert "scenario_duplicates" not in deduction_by_key
+    assert payload["quality_score"] == 92
+    assert payload["quality_score_confidence"] == "high"
+    assert (
+        payload["case_quality_gate"]["metrics"]["final_scenario_duplicate_case_count"]
+        == 2
+    )
+    assert payload["review"]["final_semantic_dedup_dropped_count"] == 3
+
+
+def test_quality_ledger_semantic_confidence_is_not_high_when_final_scan_missing() -> None:
+    payload = _build_quality_ledger_payload(
+        generation_id=543,
+        request_id="req-no-final-semantic-scan",
+        mode="multi_pass",
+        stage_counts={"primary": 25, "gap": 0, "review": 25},
+        coverage_payload={
+            "coverage_rate": 1.0,
+            "total_rules": 10,
+            "missing_rules": [],
+            "missing_types": {},
+        },
+        convergence_payload={"final_count": 25},
+        generation_summary_payload={"final_count": 25, "stop_reason": []},
+        review_decision_summary_payload={
+            "candidate_total": 25,
+            "retained_total": 25,
+            "final_scenario_duplicate_case_count": 0,
+        },
+        judge_summary_payload={"total": 25, "pass_count": 25},
+        feedback_control_debug_payload={"control_state_applied": True},
+        compression_diag_payload={},
+        context_result={
+            "context_debug": {
+                "current_document_used": True,
+                "realtime_rag_used": True,
+            }
+        },
+    )
+
+    assert payload["quality_score_confidence"] == "medium"
+    assert payload["quality_score_inputs"]["final_semantic_diagnostics_available"] is False

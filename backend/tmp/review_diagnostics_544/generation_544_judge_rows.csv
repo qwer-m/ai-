@@ -1,0 +1,11 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,AI作文批改服务,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证用户进入AI作文批改主页，页面正常加载并展示批改入口,PASS,-,False,False,False
+TC-002,AI作文批改服务,P2,P2,P2,P2,decided,model_semantic_consistent,high,,验证内容识别动画结束后中央图片平移至右侧并展示第一模块内容，全部模块加载完成后显示“精细化批改已完成”提示2秒后自动消失,PASS,-,False,False,False
+TC-003,AI作文批改服务,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证AI辅导权限用户在有效期内可无限次批改，但半小时内连续批改超10次后禁用1小时并弹出Toast提示,PASS,-,True,False,False
+TC-004,AI作文批改服务,P2,P1,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P1,suggested=P2",验证内容识别动画播放完成后，触发图片平移动画展示及批改完成提示,PASS,-,False,False,False
+TC-005,AI作文批改服务,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证点击【上传作文图片】按钮弹出系统提示弹窗可选择拍照或从手机相册选择，且相册支持多选照片,PASS,-,False,False,False
+TC-006,AI作文批改服务,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证上传作文图片后照片居中播放内容识别动画5-10秒，完成后图片平移至右侧并展示第一模块内容,PASS,-,False,False,False
+TC-007,AI作文批改服务,P2,P1,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P1,suggested=P2",验证【去批改】按钮上方显示当前主题剩余批改次数，次数为0时点击弹出Toast“当前主题作文批改次数已用完”,PASS,-,True,False,False
+TC-008,AI作文批改服务,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,验证我的作文列表本地保存上限20条（剔除已发布作品），超过20条后最早的未发布记录被自动剔除,PASS,-,True,False,False
+TC-009,AI作文批改服务,P1,P1,P1,P1,decided,model_semantic_consistent,high,,验证我的作文列表按时间倒序排列，每条记录展示照片缩略图、作文名、总评价、主题名称和批改日期,PASS,-,False,False,False
+TC-010,AI作文批改服务,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",验证上传作文图片后系统播放内容识别动画5-10秒，期间显示转圈动画和“精细化批改中……”提示,PASS,-,False,False,False

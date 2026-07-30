@@ -20,6 +20,10 @@ def get_client_for_user(*args: Any, **kwargs: Any) -> Any:
     return _call_component("core.ai.ai_client", "get_client_for_user", *args, **kwargs)
 
 
+def create_db_session() -> Any:
+    return _call_component("core.db.database", "SessionLocal")
+
+
 def TestGeneration(*args: Any, **kwargs: Any) -> Any:
     return _call_component("core.db.models", "TestGeneration", *args, **kwargs)
 

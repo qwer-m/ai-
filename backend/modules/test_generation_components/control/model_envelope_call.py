@@ -245,15 +245,44 @@ class EnvelopeCallResult:
     raw_text: str
     response_metadata: dict[str, Any]
     attempts: tuple[EnvelopeCallAttempt, ...]
+    cache_lookup_enabled: bool
     physical_call_count: int
     transport_failure_count: int
     transport_retry_count: int
+
+    @property
+    def cache_hit_count(self) -> int:
+        if not self.cache_lookup_enabled:
+            return 0
+        return sum(
+            int(attempt.metadata.get("cached") is True)
+            for attempt in self.attempts
+        )
+
+    @property
+    def cache_miss_count(self) -> int:
+        if not self.cache_lookup_enabled:
+            return 0
+        return max(0, int(self.physical_call_count) - self.cache_hit_count)
+
+    @property
+    def cache_bypass_count(self) -> int:
+        return 0 if self.cache_lookup_enabled else int(self.physical_call_count)
+
+    @property
+    def provider_call_count(self) -> int:
+        """真实进入 provider 的调用数；缓存命中不计入。"""
+        return max(0, int(self.physical_call_count) - self.cache_hit_count)
 
     def to_diagnostic(self) -> dict[str, Any]:
         return {
             "envelope_id": self.envelope_id,
             "status": self.status,
             "physical_call_count": int(self.physical_call_count),
+            "provider_call_count": int(self.provider_call_count),
+            "cache_hit_count": int(self.cache_hit_count),
+            "cache_miss_count": int(self.cache_miss_count),
+            "cache_bypass_count": int(self.cache_bypass_count),
             "transport_failure_count": int(self.transport_failure_count),
             "transport_retry_count": int(self.transport_retry_count),
             "attempts": [item.to_diagnostic() for item in self.attempts],
@@ -346,6 +375,7 @@ def invoke_model_envelope(
                 raw_text=raw_text,
                 response_metadata=diagnostic_metadata,
                 attempts=tuple(attempts),
+                cache_lookup_enabled=db is not None,
                 physical_call_count=len(attempts),
                 transport_failure_count=transport_failure_count,
                 transport_retry_count=transport_retry_count,
@@ -393,6 +423,7 @@ def invoke_model_envelope(
             raw_text=raw_text,
             response_metadata=diagnostic_metadata,
             attempts=tuple(attempts),
+            cache_lookup_enabled=db is not None,
             physical_call_count=len(attempts),
             transport_failure_count=transport_failure_count,
             transport_retry_count=transport_retry_count,

@@ -18,6 +18,7 @@ NON_ASSERTABLE_EXPECTED_PHRASES = (
     "需求说",
     "按规则",
     "正常展示",
+    "正常显示",
     "正常跳转",
     "正常更新",
     "符合预期",
@@ -40,6 +41,14 @@ NON_ASSERTABLE_EXPECTED_PHRASES = (
     "执行成功且结果正确",
 )
 
+_REDEEMABLE_NON_ASSERTABLE_EXPECTED_PHRASES = {
+    "对应内容",
+    "正常展示",
+    "正常显示",
+    "正常跳转",
+    "正常更新",
+}
+
 TRUNCATED_TEXT_ENDINGS = (
     "或显",
     "对应内",
@@ -59,6 +68,7 @@ _BUSINESS_ASSERTION_PREDICATES = (
     "完成",
     "展示",
     "显示",
+    "渲染",
     "出现",
     "保留",
     "更新",
@@ -67,10 +77,29 @@ _BUSINESS_ASSERTION_PREDICATES = (
     "保存",
     "创建",
     "新增",
+    "增加",
+    "减少",
+    "删除",
+    "替换",
+    "添加",
     "跳转",
     "进入",
     "enter",
     "返回",
+    "打开",
+    "关闭",
+    "弹出",
+    "退出",
+    "切换",
+    "复制",
+    "点亮",
+    "选中",
+    "放大",
+    "拖动",
+    "播放",
+    "加载",
+    "通过",
+    "下架",
     "置灰",
     "禁用",
     "隐藏",
@@ -187,7 +216,7 @@ _BUSINESS_STATE_ANCHOR_TOKENS = (
 
 _ASSERTION_RELATION_RE = re.compile(
     r"(?:等于|变为|变成|保持|处于|包含|不包含|存在|不存在|可见|不可见|可编辑|只读|一致|相同|"
-    r"位于|介于|匹配|在[^，,；;]{1,40}之间|equals?|matches?|becomes?|remains?|between|"
+    r"位于|介于|匹配|均围绕|直接相关|在[^，,；;]{1,40}之间|equals?|matches?|becomes?|remains?|between|"
     r"editable|read[ -]?only|is\s+(?:set\s+to|absent|present)|={1,3})",
     flags=re.IGNORECASE,
 )
@@ -203,13 +232,56 @@ _ENGLISH_COPULA_ASSERTION_RE = re.compile(
 )
 
 _NEGATIVE_STATE_RE = re.compile(
-    r"(?:无|未|没有|不得|不能|不可|\bno\b|\bnot\b|\bwithout\b)",
+    r"(?:无|未|没有|不得|不能|不可|不会|不予|"
+    r"不(?=显示|展示|渲染|出现|包含|保留|通过|允许|可见|存在|增加|更新)|"
+    r"\bno\b|\bnot\b|\bwithout\b)",
     flags=re.IGNORECASE,
+)
+
+_TRANSITION_ASSERTION_PREDICATES = (
+    "跳转",
+    "进入",
+    "返回",
+    "打开",
+    "关闭",
+    "弹出",
+    "退出",
+    "切换",
+    "变为",
+    "变成",
+    "navigates",
+    "redirects",
+    "opens",
+    "becomes",
+)
+
+_GENERIC_ASSERTION_RESIDUE_TOKENS = (
+    "系统",
+    "页面",
+    "用户",
+    "操作",
+    "业务",
+    "处理",
+    "对应",
+    "相关",
+    "结果",
+    "内容",
+    "信息",
+    "正常",
+    "完成",
 )
 
 
 def _non_assertable_phrase_hit(text: str) -> bool:
     return any(phrase in text for phrase in NON_ASSERTABLE_EXPECTED_PHRASES)
+
+
+def _hard_non_assertable_phrase_hit(text: str) -> bool:
+    return any(
+        phrase in text
+        for phrase in NON_ASSERTABLE_EXPECTED_PHRASES
+        if phrase not in _REDEEMABLE_NON_ASSERTABLE_EXPECTED_PHRASES
+    )
 
 
 def _has_concrete_value(text: str) -> bool:
@@ -219,6 +291,15 @@ def _has_concrete_value(text: str) -> bool:
 def _has_business_assertion_predicate(text: str) -> bool:
     lowered = str(text or "").lower()
     return any(token.lower() in lowered for token in _BUSINESS_ASSERTION_PREDICATES)
+
+
+def _assertion_predicate_kind_count(text: str) -> int:
+    lowered = str(text or "").lower()
+    return sum(
+        1
+        for token in set(_BUSINESS_ASSERTION_PREDICATES)
+        if token and token.lower() in lowered
+    )
 
 
 def _has_business_state_anchor(text: str) -> bool:
@@ -239,17 +320,72 @@ def _has_assertion_subject(text: str) -> bool:
     return len(residue) >= 2
 
 
-def _assertion_predicate_count(text: str) -> int:
-    lowered = str(text or "").lower()
-    return sum(1 for token in set(_BUSINESS_ASSERTION_PREDICATES) if token.lower() in lowered)
-
-
 def _has_assertion_relation(text: str) -> bool:
     return bool(
         _ASSERTION_RELATION_RE.search(text)
         or _COPULA_ASSERTION_RE.search(text)
         or _ENGLISH_COPULA_ASSERTION_RE.search(text)
     )
+
+
+def _has_transition_assertion_predicate(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(token.lower() in lowered for token in _TRANSITION_ASSERTION_PREDICATES)
+
+
+def _has_capability_operation_set(text: str) -> bool:
+    normalized = str(text or "")
+    if not any(token in normalized for token in ("支持", "可进行", "可以")):
+        return False
+    return normalized.count("、") >= 2
+
+
+def _has_enumerated_assertion_items(text: str) -> bool:
+    normalized = str(text or "")
+    if normalized.count("、") < 2 or not _has_business_assertion_predicate(normalized):
+        return False
+    specific_items = 0
+    for item in normalized.split("、"):
+        if _has_specific_assertion_subject(item):
+            specific_items += 1
+    return specific_items >= 2
+
+
+def _has_specific_assertion_subject(text: str) -> bool:
+    residue = str(text or "").strip().lower()
+    removable = sorted(
+        {
+            *_BUSINESS_ASSERTION_PREDICATES,
+            *_BUSINESS_STATE_ANCHOR_TOKENS,
+            *_GENERIC_ASSERTION_RESIDUE_TOKENS,
+        },
+        key=len,
+        reverse=True,
+    )
+    for token in removable:
+        residue = residue.replace(token.lower(), " ")
+    residue = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", residue)
+    return len(residue) >= 2
+
+
+def _has_parallel_specific_assertions(text: str) -> bool:
+    clauses = [
+        part.strip()
+        for part in re.split(r"[；;。.!！,，\n]+", str(text or ""))
+        if part.strip()
+    ]
+    if len(clauses) < 2:
+        return False
+    concrete_count = 0
+    for clause in clauses:
+        if _non_assertable_phrase_hit(clause):
+            continue
+        if not _has_business_assertion_predicate(clause):
+            continue
+        if not _has_specific_assertion_subject(clause):
+            continue
+        concrete_count += 1
+    return concrete_count >= 2
 
 
 def _verified_semantic_assertion_terms(semantic: Any) -> tuple[str, ...]:
@@ -288,12 +424,15 @@ def _is_concrete_business_assertion_clause(text: str) -> bool:
     if not clause:
         return False
     has_value = _has_concrete_value(clause)
-    has_anchor = _has_business_state_anchor(clause)
     has_relation = _has_assertion_relation(clause)
     has_negative_state = bool(_NEGATIVE_STATE_RE.search(clause))
     has_subject = _has_assertion_subject(clause)
+    has_transition = _has_transition_assertion_predicate(clause)
+    # “正常显示/符合预期”等模板话术不能仅凭业务主语或状态锚点升级为可断言结果。
+    if _hard_non_assertable_phrase_hit(clause) and not (has_value or has_negative_state):
+        return False
     if _non_assertable_phrase_hit(clause) and not (
-        has_value or has_negative_state or (has_anchor and has_subject)
+        has_value or has_negative_state or has_transition
     ):
         return False
     if not (_has_business_assertion_predicate(clause) or has_relation):
@@ -304,9 +443,18 @@ def _is_concrete_business_assertion_clause(text: str) -> bool:
         return has_subject
     if has_negative_state:
         return has_subject
-    if _assertion_predicate_count(clause) >= 2:
+    if has_transition:
         return has_subject
-    return bool(has_anchor and has_subject)
+    if _has_capability_operation_set(clause):
+        return has_subject
+    if _has_enumerated_assertion_items(clause):
+        return has_subject
+    if (
+        _assertion_predicate_kind_count(clause) >= 2
+        and _has_specific_assertion_subject(clause)
+    ):
+        return has_subject
+    return False
 
 
 def _business_assertion_clause_count(text: str) -> int:
@@ -383,11 +531,12 @@ def has_concrete_expected_assertion(text: str, semantic: Any = None) -> bool:
     if _has_formula_or_algorithm_assertion(normalized):
         return True
     if _is_concrete_business_assertion_clause(normalized):
-        if _has_assertion_relation(normalized):
-            return True
-        if _assertion_predicate_count(normalized) >= 2 or _NEGATIVE_STATE_RE.search(normalized):
-            return True
-    if _business_assertion_clause_count(normalized) >= 2:
+        return True
+    # 多分句结果只要包含一个独立、具体且可观察的断言即可验收；其他弱描述仍由
+    # ambiguous/template 检查单独拦截，避免把“正常显示”本身当成断言。
+    if _business_assertion_clause_count(normalized) >= 1:
+        return True
+    if _has_parallel_specific_assertions(normalized):
         return True
     return False
 

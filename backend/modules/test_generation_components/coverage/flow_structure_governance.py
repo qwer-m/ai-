@@ -174,12 +174,18 @@ def govern_cases_by_flow_structure(
         indices = [int(item) for item in (cluster.get("candidate_indices") or []) if int(item or 0) > 0]
         if disable_category_pruning:
             continue
-        max_keep = intent_duplicate_cap if group_type == "intent" else _scenario_max_keep(
-            scenario_key,
-            default_max=max_per_scenario,
-            project_profile=project_profile,
-            default_scenario_caps=default_scenario_caps,
-            scenario_caps_by_mode=scenario_caps_by_mode,
+        max_keep = (
+            1
+            if group_type == "fact"
+            else intent_duplicate_cap
+            if group_type == "intent"
+            else _scenario_max_keep(
+                scenario_key,
+                default_max=max_per_scenario,
+                project_profile=project_profile,
+                default_scenario_caps=default_scenario_caps,
+                scenario_caps_by_mode=scenario_caps_by_mode,
+            )
         )
         cap_policy_used[
             _scenario_kind_from_key(

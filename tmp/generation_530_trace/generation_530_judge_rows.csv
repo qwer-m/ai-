@@ -1,0 +1,10 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,写作秘籍与技法收集,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,秘籍列表分类TAB切换，默认选中全部类型，点击TAB切换不同类型列表,PASS,-,False,False,False
+TC-002,写作秘籍与技法收集,P2,P2,P2,P2,decided,model_semantic_consistent,high,,获得蒙层点击右上角关闭按钮退出蒙层,PASS,-,False,False,False
+TC-003,写作秘籍与技法收集,P2,P2,P2,P2,decided,model_semantic_consistent,high,,收集数据弹窗显示已收集数/总数秘籍数量,PASS,-,False,False,False
+TC-004,写作秘籍与技法收集,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,用户完成课程最后环节至少获1星后解锁写作秘籍，秘籍状态变为已获得,PASS,-,False,False,False
+TC-005,写作秘籍与技法收集,P2,P1,P2,P2,decided,p2_cap_guard,high,,"未获得的写作秘籍图标置灰显示，点击时弹出toast提示""完成本课学习可获得""",PASS,-,False,False,False
+TC-006,写作秘籍与技法收集,P2,P2,P2,P2,decided,p2_cap_guard,high,,写作技法学习与秘籍查看完整工作流：完成课程最后环节获1星→秘籍状态变为已获得→点击已获得秘籍打开详情弹窗→查看技法知识点和示例,PASS,-,False,False,False
+TC-007,写作秘籍与技法收集,P2,P1,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P1,suggested=P2",已获得的秘籍在列表中点亮，点击可打开秘籍详情弹窗,PASS,-,False,False,False
+TC-008,写作秘籍与技法收集,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",在秘籍详情弹窗中查看技法知识点和示例，回顾课程价值,PASS,-,False,False,False
+TC-009,写作秘籍与技法收集,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,已获得秘籍详情弹窗点击技法来源跳转至对应课程环节列表页,PASS,-,False,False,False

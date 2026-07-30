@@ -63,6 +63,53 @@ def test_add_diagnostic_log_compacts_oversized_payload_without_breaking_json() -
     assert "steps" not in compact_case
 
 
+def test_quality_ledger_compaction_preserves_deductions_and_scalar_inputs() -> None:
+    payload = {
+        "kind": "generation_quality_ledger",
+        "generation_id": 530,
+        "quality_score": 97,
+        "quality_score_grade": "high",
+        "quality_score_deductions": [
+            {
+                "key": "fact_pending",
+                "label": "命中待确认事实",
+                "count": 2,
+                "points": 3.0,
+            }
+        ],
+        "quality_score_inputs": {
+            "final_count": 75,
+            "fact_profile_pending_count": 2,
+            "nested_debug": {"large": "x" * 70000},
+        },
+        "control": {"large_graph": "y" * 70000},
+    }
+
+    line = add_diagnostic_log(
+        db=None,
+        log_entry_type=object,
+        project_id=2,
+        user_id=1,
+        payload=payload,
+    )
+
+    assert len(line.encode("utf-8")) <= _MAX_GEN_DIAG_MESSAGE_BYTES
+    fitted = json.loads(line.split(":", 1)[1])
+    assert fitted["payload_omitted_due_to_size"] is True
+    assert fitted["quality_score_deductions"] == [
+        {
+            "key": "fact_pending",
+            "label": "命中待确认事实",
+            "count": 2,
+            "points": 3.0,
+        }
+    ]
+    assert fitted["quality_score_inputs"] == {
+        "final_count": 75,
+        "fact_profile_pending_count": 2,
+    }
+
+
 def test_feedback_control_compaction_preserves_semantic_compilation_evidence() -> None:
     attempt = {
         "attempt": 1,

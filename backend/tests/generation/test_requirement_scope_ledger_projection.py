@@ -64,7 +64,13 @@ def _fact_declarations() -> list[dict[str, object]]:
             "EV_222222222222",
         ),
         _fact("F_OWN", "消息区支持用户查看消息。", "EV_333333333333"),
-        _fact("F_EXTERNAL", "外部发送方提供消息数据。", "EV_444444444444"),
+        _fact(
+            "F_EXTERNAL",
+            "外部发送方提供消息数据。",
+            "EV_444444444444",
+            requirement_level="optional",
+            testability="non_testable",
+        ),
         _fact(
             "F_NOT_SCOPE",
             "旧版入口不属于本次范围。",

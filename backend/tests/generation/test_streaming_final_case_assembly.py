@@ -104,3 +104,43 @@ def test_assemble_final_cases_backfills_review_candidate_source_order_after_renu
     assert result.cases[0]["origin_candidate_index"] == 1
     assert result.cases[0]["origin_case_id"] == "TC-RAW-009"
     assert result.cases[0]["origin_source_stage"] == "review_candidate"
+
+
+def test_assemble_final_cases_runs_full_collection_semantic_dedup_before_plan() -> None:
+    duplicate = _case("TC-099", "schedule save success creates record")
+    duplicate["test_input"] = "same schedule payload"
+    duplicate["expected_result"] = "schedule record is created"
+    duplicate_copy = dict(duplicate)
+    duplicate_copy["id"] = "TC-199"
+    distinct = _case("TC-150", "schedule save failure exposes validation reason")
+
+    result = assemble_final_cases(
+        parsed_result=[duplicate, distinct, duplicate_copy],
+        requirement="course schedule must support save success and save failure validation",
+        start_id=10,
+        effective_generation_coverage_mode="standard_regression",
+        generation_coverage_mode="standard_regression",
+        review_candidate_cases=[],
+        review_selected_count=3,
+        workflow_blueprints=[],
+        trusted_workflow_contracts=[],
+        current_requirement_workflow_blueprints=[],
+        workflow_absence_declared=False,
+        flow_project_profile={},
+        project_profile={},
+        reorder_cases_by_closed_loop_fn=_reorder,
+        govern_cases_by_flow_structure_fn=lambda _requirement, cases, **_kwargs: (
+            list(cases),
+            {"applied": True, "flow_reordered": False},
+        ),
+        analyze_case_structure_fn=lambda _requirement, cases, **_kwargs: {
+            "rows": [{"case_id": item.get("id")} for item in cases if isinstance(item, dict)]
+        },
+    )
+
+    assert result.final_count == 2
+    assert result.semantic_dedup_dropped_count == 1
+    assert result.semantic_duplicate_count == 1
+    assert result.post_review_dedup_drop == 1
+    assert [item["id"] for item in result.cases] == ["TC-010", "TC-011"]
+    assert result.semantic_relation_samples[0]["action"] == "drop_duplicate"

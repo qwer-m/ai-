@@ -23,6 +23,7 @@ from .requirement_scope_ledger import (
     normalize_requirement_scope_boundary_selection_model_response,
     normalize_requirement_scope_ledger,
     normalize_requirement_scope_membership_model_response,
+    project_requirement_scope_binding_recompile_feedback,
     project_requirement_scope_ledger,
 )
 
@@ -48,13 +49,12 @@ _CandidateStatus = Literal[
 DEFAULT_SCOPE_LEDGER_MAX_TOKENS = 4096
 DEFAULT_SCOPE_LEDGER_REQUEST_TIMEOUT_SECONDS = 180.0
 MAX_SCOPE_LEDGER_CANDIDATE_ENVELOPES = 2
-MAX_SCOPE_BINDING_SHARDS = 16
 
 # 分片只根据实际 JSON 身份长度和输出上限计算，不依赖文档类型或业务词。
 SCOPE_BINDING_SCHEMA_BUDGET_UNITS = 96
 SCOPE_BINDING_UTF8_BYTES_PER_BUDGET_UNIT = 3
-SCOPE_BINDING_BUDGET_NUMERATOR = 1
-SCOPE_BINDING_BUDGET_DENOMINATOR = 2
+SCOPE_BINDING_BUDGET_NUMERATOR = 2
+SCOPE_BINDING_BUDGET_DENOMINATOR = 1
 
 
 @dataclass(frozen=True)
@@ -471,6 +471,9 @@ def _compile_unit(
     max_tokens: int,
     task_type: str,
     request_timeout_seconds: float,
+    recompile_feedback_projector: (
+        Callable[[dict[str, Any]], list[dict[str, Any]]] | None
+    ) = None,
 ) -> _CompilationUnit:
     attempts: list[dict[str, Any]] = []
     envelope_results: list[EnvelopeCallResult] = []
@@ -479,6 +482,7 @@ def _compile_unit(
     normalized_payload: dict[str, Any] = {}
     validated_attempt = 0
     last_parseable_candidate: _ParseableCandidateSnapshot | None = None
+    recompile_contract_feedback: list[dict[str, Any]] = []
 
     for attempt in range(1, MAX_SCOPE_LEDGER_CANDIDATE_ENVELOPES + 1):
         if attempt > 1 and not fresh_candidate_trigger_codes:
@@ -487,13 +491,18 @@ def _compile_unit(
         compilation_mode = (
             "initial" if attempt == 1 else "independent_recompile"
         )
-        user_input = user_input_builder(
-            attempt=attempt,
-            compilation_mode=compilation_mode,
-            recompile_reason_codes=(
+        user_input_kwargs: dict[str, Any] = {
+            "attempt": attempt,
+            "compilation_mode": compilation_mode,
+            "recompile_reason_codes": (
                 fresh_candidate_trigger_codes if attempt > 1 else []
             ),
-        )
+        }
+        if recompile_feedback_projector is not None:
+            user_input_kwargs["recompile_contract_feedback"] = (
+                recompile_contract_feedback if attempt > 1 else []
+            )
+        user_input = user_input_builder(**user_input_kwargs)
         envelope = invoke_model_envelope(
             client=client,
             envelope_id=f"{envelope_prefix}-{candidate_mode}",
@@ -593,6 +602,13 @@ def _compile_unit(
             fresh_candidate_trigger_codes = list(
                 evaluation.retry_reason_codes
             )
+            if (
+                recompile_feedback_projector is not None
+                and evaluation.normalized_payload
+            ):
+                recompile_contract_feedback = recompile_feedback_projector(
+                    evaluation.normalized_payload
+                )
 
     return _CompilationUnit(
         status=final_status,
@@ -669,6 +685,18 @@ def _result(
         "scope_ledger_compile_candidate_attempt_limit": candidate_attempt_limit,
         "scope_ledger_compile_physical_call_count": sum(
             item.physical_call_count for item in envelope_results
+        ),
+        "scope_ledger_compile_provider_call_count": sum(
+            item.provider_call_count for item in envelope_results
+        ),
+        "scope_ledger_compile_cache_hit_count": sum(
+            item.cache_hit_count for item in envelope_results
+        ),
+        "scope_ledger_compile_cache_miss_count": sum(
+            item.cache_miss_count for item in envelope_results
+        ),
+        "scope_ledger_compile_cache_bypass_count": sum(
+            item.cache_bypass_count for item in envelope_results
         ),
         "scope_ledger_compile_transport_failure_count": sum(
             item.transport_failure_count for item in envelope_results
@@ -768,7 +796,6 @@ def _result(
             or 0
         ),
         "scope_ledger_binding_shard_count": len(binding_shards),
-        "scope_ledger_binding_shard_limit": MAX_SCOPE_BINDING_SHARDS,
         "scope_ledger_binding_shard_budget_units": int(binding_budget_units),
         "scope_ledger_binding_oversized_fact_count": int(
             oversized_binding_fact_count
@@ -781,6 +808,14 @@ def _result(
         ),
         "scope_ledger_binding_shard_summaries": list(
             binding_shard_summaries
+        ),
+        "scope_ledger_binding_projected_context_scope_id_count": sum(
+            int(
+                item.get("projected_non_scope_context_scope_id_count")
+                or 0
+            )
+            for item in binding_shard_summaries
+            if isinstance(item, dict)
         ),
         "scope_ledger_fingerprint": (
             str(published_ledger.get("fingerprint") or "") if success else ""
@@ -881,7 +916,8 @@ def compile_requirement_scope_ledger(
         normalized_fact_ledger,
     )
     frozen_facts = list(normalized_fact_ledger.get("evidence_facts") or [])
-    fact_ids = sorted(str(item.get("fact_id") or "") for item in frozen_facts)
+    # binding 分片沿 A1 冻结来源顺序传播；哈希 fact_id 仅用于身份与集合校验。
+    fact_ids = [str(item.get("fact_id") or "") for item in frozen_facts]
 
     attempts: list[dict[str, Any]] = []
     envelope_results: list[EnvelopeCallResult] = []
@@ -1077,15 +1113,10 @@ def compile_requirement_scope_ledger(
             max_tokens=normalized_max_tokens,
         )
     )
-    if (
-        oversized_binding_fact_count > 0
-        or len(binding_shards) > MAX_SCOPE_BINDING_SHARDS
-    ):
+    if oversized_binding_fact_count > 0:
         error_codes = []
         if oversized_binding_fact_count > 0:
             error_codes.append("scope_binding_item_capacity_exceeded")
-        if len(binding_shards) > MAX_SCOPE_BINDING_SHARDS:
-            error_codes.append("scope_binding_shard_limit_exceeded")
         return _result(
             status="capacity_exceeded",
             normalized_ledger={},
@@ -1154,6 +1185,12 @@ def compile_requirement_scope_ledger(
             max_tokens=normalized_max_tokens,
             task_type=str(task_type or "generation"),
             request_timeout_seconds=normalized_timeout,
+            recompile_feedback_projector=lambda normalized_shard: (
+                project_requirement_scope_binding_recompile_feedback(
+                    normalized_fact_ledger,
+                    normalized_shard,
+                )
+            ),
         )
         attempts.extend(unit.attempts)
         envelope_results.extend(unit.envelope_results)
@@ -1178,9 +1215,30 @@ def compile_requirement_scope_ledger(
             "physical_call_count": sum(
                 item.physical_call_count for item in unit.envelope_results
             ),
+            "provider_call_count": sum(
+                item.provider_call_count for item in unit.envelope_results
+            ),
+            "cache_hit_count": sum(
+                item.cache_hit_count for item in unit.envelope_results
+            ),
+            "cache_miss_count": sum(
+                item.cache_miss_count for item in unit.envelope_results
+            ),
             "validated_attempt": unit.validated_attempt,
             "binding_count": int(
                 unit_diagnostics.get("fact_binding_count") or 0
+            ),
+            "projected_non_scope_context_binding_count": int(
+                unit_diagnostics.get(
+                    "projected_non_scope_context_binding_count"
+                )
+                or 0
+            ),
+            "projected_non_scope_context_scope_id_count": int(
+                unit_diagnostics.get(
+                    "projected_non_scope_context_scope_id_count"
+                )
+                or 0
             ),
             "payload_fingerprint": (
                 str(unit.normalized_payload.get("fingerprint") or "")
@@ -1223,7 +1281,7 @@ def compile_requirement_scope_ledger(
         completed_binding_shards += 1
 
     merged_fact_ids = [str(item.get("fact_id") or "") for item in merged_bindings]
-    if sorted(merged_fact_ids) != fact_ids or len(set(merged_fact_ids)) != len(
+    if merged_fact_ids != fact_ids or len(set(merged_fact_ids)) != len(
         merged_fact_ids
     ):
         return _result(
@@ -1322,7 +1380,6 @@ def compile_requirement_scope_ledger(
 __all__ = [
     "DEFAULT_SCOPE_LEDGER_MAX_TOKENS",
     "DEFAULT_SCOPE_LEDGER_REQUEST_TIMEOUT_SECONDS",
-    "MAX_SCOPE_BINDING_SHARDS",
     "MAX_SCOPE_LEDGER_CANDIDATE_ENVELOPES",
     "RequirementScopeLedgerCompilationResult",
     "ScopeLedgerCompileStatus",

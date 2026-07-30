@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from typing import Any, Callable, Iterator
 
@@ -55,8 +56,181 @@ from .streaming_review_selection import (
 )
 from .streaming_reasoning_quality import reasoning_leakage_hits as _reasoning_leakage_hits
 from .streaming_text_match import CaseGovernanceMatcher
+from .case_fact_relations import (
+    build_case_semantic_identity,
+    compare_case_semantic_identity,
+    deduplicate_cases_by_semantic_identity,
+    normalize_case_semantic_text,
+)
 from .module_contract import enforce_functional_module_contract
 from ..control.semantic_contract import resolve_case_semantic_gate
+
+
+def deduplicate_streaming_candidates(
+    cases: list[dict[str, Any]],
+    *,
+    structural_deduplicate_fn: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """统一执行结构判重和语义判重，保证后续数量缺口基于真实唯一候选计算。"""
+
+    structurally_unique = _dict_case_items(
+        structural_deduplicate_fn(_dict_case_items(cases))
+    )
+    candidate_groups: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+    for case in structurally_unique:
+        identity = build_case_semantic_identity(case)
+        has_contract_anchor = bool(
+            identity.fact_ids
+            or identity.interaction_ids
+            or identity.workflow_stages
+            or identity.precondition_states
+            or identity.produced_states
+        )
+        if has_contract_anchor:
+            group_key = ("contract_anchored",)
+        elif identity.module_keys:
+            group_key = ("module_keys", *sorted(identity.module_keys))
+        else:
+            module_name = normalize_case_semantic_text(case.get("test_module"))
+            group_key = ("display_module", module_name or "unscoped")
+        candidate_groups.setdefault(group_key, []).append(case)
+
+    kept_cases: list[dict[str, Any]] = []
+    for group_cases in candidate_groups.values():
+        semantic_result = deduplicate_cases_by_semantic_identity(group_cases)
+        kept_cases.extend(_dict_case_items(semantic_result.cases))
+
+    # 分组只限定缺口计算阶段的保守比较范围，最终顺序仍沿用原候选顺序。
+    positions_by_id = {
+        str(case.get("id") or "").strip(): index
+        for index, case in enumerate(structurally_unique)
+        if str(case.get("id") or "").strip()
+    }
+
+    def _source_position(case: dict[str, Any]) -> int:
+        case_id = str(case.get("id") or "").strip()
+        if case_id in positions_by_id:
+            return positions_by_id[case_id]
+        for index, source_case in enumerate(structurally_unique):
+            if source_case == case:
+                return index
+        return len(structurally_unique)
+
+    return sorted(kept_cases, key=_source_position)
+
+
+def _coverage_dimension_keys(coverage: dict[str, Any]) -> set[tuple[str, str]]:
+    """提取已覆盖的规则与类型维度，供集合级闭环比较使用。"""
+    dimensions: set[tuple[str, str]] = set()
+    for item in coverage.get("rule_diagnostics") or []:
+        if not isinstance(item, dict) or item.get("covered") is not True:
+            continue
+        rule_id = str(item.get("rule_id") or "").strip()
+        if not rule_id:
+            continue
+        for case_type in item.get("coverage_types") or []:
+            normalized_type = str(case_type or "").strip().lower()
+            if normalized_type:
+                dimensions.add((rule_id, normalized_type))
+    return dimensions
+
+
+def _merge_case_semantic_annotations(
+    coverage_witness: dict[str, Any],
+    contract_candidate: dict[str, Any],
+) -> dict[str, Any]:
+    """保留覆盖见证的公开行为，同时合并重复候选中的结构化契约锚点。"""
+    merged = dict(coverage_witness)
+    witness_semantic = dict(coverage_witness.get("_semantic") or {})
+    contract_semantic = dict(contract_candidate.get("_semantic") or {})
+    for key, value in contract_semantic.items():
+        if isinstance(value, list):
+            combined = list(witness_semantic.get(key) or [])
+            seen = {
+                json.dumps(item, ensure_ascii=False, sort_keys=True, default=str)
+                for item in combined
+            }
+            for item in value:
+                marker = json.dumps(
+                    item,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    default=str,
+                )
+                if marker not in seen:
+                    combined.append(item)
+                    seen.add(marker)
+            witness_semantic[key] = combined
+        elif key not in witness_semantic or witness_semantic.get(key) in (None, ""):
+            witness_semantic[key] = value
+    if witness_semantic:
+        merged["_semantic"] = witness_semantic
+    retained_id = str(contract_candidate.get("id") or "").strip()
+    if retained_id:
+        merged["id"] = retained_id
+    if contract_candidate.get("hit_must_cover_rule") is True:
+        merged["hit_must_cover_rule"] = True
+    return merged
+
+
+def preserve_coverage_witnesses_after_semantic_dedup(
+    *,
+    requirement: str,
+    source_cases: list[dict[str, Any]],
+    deduplicated_cases: list[dict[str, Any]],
+    analyze_coverage_fn: Callable[[str, list[dict[str, Any]]], dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """语义判重不得破坏原集合已经满足的规则/类型覆盖维度。"""
+    source = _dict_case_items(source_cases)
+    retained = [dict(item) for item in _dict_case_items(deduplicated_cases)]
+    if not source or not retained or len(retained) >= len(source):
+        return retained
+
+    source_dimensions = _coverage_dimension_keys(
+        analyze_coverage_fn(requirement, source)
+    )
+    retained_dimensions = _coverage_dimension_keys(
+        analyze_coverage_fn(requirement, retained)
+    )
+    missing_dimensions = source_dimensions - retained_dimensions
+    if not missing_dimensions:
+        return retained
+
+    dropped_candidates = [
+        dict(item)
+        for item in source
+        if not any(item == kept for kept in retained)
+    ]
+    for witness in dropped_candidates:
+        witness_dimensions = _coverage_dimension_keys(
+            analyze_coverage_fn(requirement, [witness])
+        )
+        if not witness_dimensions.intersection(missing_dimensions):
+            continue
+        for index, contract_candidate in enumerate(retained):
+            relation = compare_case_semantic_identity(
+                witness,
+                contract_candidate,
+            )
+            if relation.relation not in {"duplicate", "contains", "contained_by"}:
+                continue
+            merged_candidate = _merge_case_semantic_annotations(
+                witness,
+                contract_candidate,
+            )
+            trial = [*retained]
+            trial[index] = merged_candidate
+            trial_dimensions = _coverage_dimension_keys(
+                analyze_coverage_fn(requirement, trial)
+            )
+            if len(source_dimensions - trial_dimensions) >= len(missing_dimensions):
+                continue
+            retained = trial
+            missing_dimensions = source_dimensions - trial_dimensions
+            break
+        if not missing_dimensions:
+            break
+    return retained
 
 
 def stream_postprocess_cases(
@@ -131,6 +305,23 @@ def stream_postprocess_cases(
         if isinstance(item, dict)
     ]
 
+    def _deduplicate_generation_candidates(
+        cases: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        structurally_unique = _dict_case_items(
+            deduplicate_test_cases_fn(_dict_case_items(cases))
+        )
+        deduplicated = deduplicate_streaming_candidates(
+            cases,
+            structural_deduplicate_fn=deduplicate_test_cases_fn,
+        )
+        return preserve_coverage_witnesses_after_semantic_dedup(
+            requirement=requirement,
+            source_cases=structurally_unique,
+            deduplicated_cases=deduplicated,
+            analyze_coverage_fn=analyze_coverage,
+        )
+
     def _generated_case_normalizer(source_stage: str) -> Callable[[Any], Any]:
         if not require_case_semantic_contract:
             return normalize_json_structure_fn
@@ -166,7 +357,7 @@ def stream_postprocess_cases(
         requirement=requirement,
         clean_and_parse_json_fn=clean_and_parse_json_fn,
         normalize_json_structure_fn=primary_case_normalizer,
-        deduplicate_test_cases_fn=deduplicate_test_cases_fn,
+        deduplicate_test_cases_fn=_deduplicate_generation_candidates,
         analyze_coverage_fn=analyze_coverage,
         record_timing_event_fn=_record_timing_event,
     )
@@ -216,7 +407,7 @@ def stream_postprocess_cases(
                 existing_cases=existing_cases,
                 clean_and_parse_json_fn=clean_and_parse_json_fn,
                 normalize_json_structure_fn=rescue_case_normalizer,
-                deduplicate_test_cases_fn=deduplicate_test_cases_fn,
+                deduplicate_test_cases_fn=_deduplicate_generation_candidates,
                 count_unique_test_cases_fn=count_unique_test_cases_fn,
                 analyze_coverage_fn=analyze_coverage,
             )
@@ -235,7 +426,7 @@ def stream_postprocess_cases(
 
     # 模块和交互是执行计划候选资格的一部分，必须先于阶段闭环评估。
     parsed_result = normalize_json_structure_fn(parsed_result)
-    parsed_result = deduplicate_test_cases_fn(parsed_result)
+    parsed_result = _deduplicate_generation_candidates(parsed_result)
     parsed_result, module_contract_summary = enforce_functional_module_contract(
         _dict_case_items(parsed_result),
         project_profile=project_profile,
@@ -262,6 +453,14 @@ def stream_postprocess_cases(
         and required_stage_coverage.get("required_stage_coverage_complete") is not True
         and required_stage_coverage.get("missing_required_stages")
     )
+    minimum_candidate_count = (
+        max(0, int(expected_count or 0))
+        if not append
+        else 0
+    )
+    candidate_count_floor_needed = bool(
+        minimum_candidate_count > _dict_case_count(parsed_result)
+    )
     stage_counts["required_stage_source_generation_allowed"] = int(
         required_stage_coverage.get("source_generation_allowed") is True
     )
@@ -273,7 +472,7 @@ def stream_postprocess_cases(
         and required_stage_coverage.get("source_generation_allowed") is not True
     )
 
-    if generic_gap_needed or stage_repair_needed:
+    if generic_gap_needed or stage_repair_needed or candidate_count_floor_needed:
         gap_result = yield from _run_gap_supplement_attempts(
             client=client,
             requirement=requirement,
@@ -295,13 +494,14 @@ def stream_postprocess_cases(
             build_gap_fill_prompt_fn=build_gap_fill_prompt,
             clean_and_parse_json_fn=clean_and_parse_json_fn,
             normalize_json_structure_fn=gap_case_normalizer,
-            deduplicate_test_cases_fn=deduplicate_test_cases_fn,
+            deduplicate_test_cases_fn=_deduplicate_generation_candidates,
             analyze_coverage_fn=analyze_coverage,
             resolve_coverage_gap_state_fn=_resolve_coverage_gap_state,
             record_timing_event_fn=_record_timing_event,
             workflow_blueprints=workflow_blueprints,
             project_profile=project_profile,
             include_generic_gaps=generic_gap_enabled,
+            minimum_candidate_count=minimum_candidate_count,
         )
         parsed_result = gap_result.cases
         coverage_primary = gap_result.coverage_primary
@@ -352,7 +552,7 @@ def stream_postprocess_cases(
         build_review_select_prompt_fn=build_review_select_prompt,
         clean_and_parse_json_fn=clean_and_parse_json_fn,
         normalize_json_structure_fn=normalize_json_structure_fn,
-        deduplicate_test_cases_fn=deduplicate_test_cases_fn,
+        deduplicate_test_cases_fn=_deduplicate_generation_candidates,
         analyze_coverage_fn=analyze_coverage,
         score_case_priority_fn=score_case_priority,
         record_timing_event_fn=_record_timing_event,
@@ -368,7 +568,7 @@ def stream_postprocess_cases(
     stage_counts["functional_phase_recovered"] = 0
 
     parsed_result = normalize_json_structure_fn(parsed_result)
-    parsed_result = deduplicate_test_cases_fn(parsed_result)
+    parsed_result = _deduplicate_generation_candidates(parsed_result)
     parsed_result = reorder_cases_by_closed_loop_fn(parsed_result, start_id=start_id, renumber_ids=True)
     parsed_result = _apply_coverage_priority_semantics(
         requirement,
@@ -475,6 +675,15 @@ def stream_postprocess_cases(
     final_independent_case_structure = final_assembly.final_independent_case_structure
     final_count = final_assembly.final_count
     post_review_dedup_drop = final_assembly.post_review_dedup_drop
+    final_semantic_diagnostics = {
+        "final_semantic_diagnostics_available": True,
+        "final_semantic_duplicate_cluster_count": int(final_assembly.semantic_duplicate_count),
+        "final_semantic_duplicate_case_count": int(final_assembly.semantic_unresolved_duplicate_count),
+        "final_semantic_dedup_dropped_count": int(final_assembly.semantic_dedup_dropped_count),
+        "final_semantic_containment_count": int(final_assembly.semantic_containment_count),
+        "final_semantic_relation_samples": list(final_assembly.semantic_relation_samples),
+        "final_semantic_dropped_case_ids": list(final_assembly.semantic_dropped_case_ids),
+    }
 
     review_summary_state = _assemble_review_summary_state(
         requirement=requirement,
@@ -490,6 +699,7 @@ def stream_postprocess_cases(
         final_order_flow_governance_summary=final_order_flow_governance_summary,
         fact_profile=fact_profile,
         execution_plan_summary=execution_plan_summary,
+        final_semantic_diagnostics=final_semantic_diagnostics,
         ui_like_ratio_postprocess_drop_count=ui_like_ratio_postprocess_drop_count,
         final_description_dedup_drop_signatures=final_description_dedup_drop_signatures,
         review_llm_applied=review_stage_result.review_llm_applied,
@@ -574,6 +784,8 @@ def stream_postprocess_cases(
     coverage = final_generation_report.coverage
     generation_summary = final_generation_report.generation_summary
     convergence_debug = final_generation_report.convergence_debug
+    convergence_debug.update(final_semantic_diagnostics)
+    generation_summary.update(final_semantic_diagnostics)
     stage_counts["case_semantic_rejected"] = int(len(case_semantic_rejections))
     semantic_contract_diagnostics = {
         "enabled": bool(require_case_semantic_contract),

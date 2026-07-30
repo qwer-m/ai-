@@ -507,6 +507,148 @@ def test_generic_evidence_cannot_verify_case_semantics() -> None:
     assert "module_candidates:no_verified_candidate" in validation["rejection_reasons"]
 
 
+def test_strict_case_semantic_gate_binds_exact_test_module_as_module_evidence() -> None:
+    case = _case()
+    case["test_module"] = "消息中心"
+    case["_semantic"] = {
+        "module_candidates": [
+            {
+                "module_key": "message",
+                "module_name": "消息中心",
+                "role": "primary",
+                "confidence": 0.9,
+                "evidence": ["未出现在用例正文中的模块证据"],
+            }
+        ],
+        "interaction_ids": [],
+        "workflow_stage_candidates": [],
+        "precondition_states": [],
+        "produced_states": [],
+    }
+    rejections: list[dict] = []
+
+    normalized = normalize_json_structure(
+        [case],
+        require_case_semantic_contract=True,
+        requirement_semantic_contract=_strict_requirement_contract(),
+        semantic_rejections=rejections,
+    )
+
+    assert len(normalized) == 1
+    assert normalized[0]["_semantic"]["module_candidates"][0]["evidence"] == [
+        "消息中心"
+    ]
+    assert rejections == []
+
+
+def test_strict_case_semantic_gate_does_not_bind_mismatched_test_module() -> None:
+    semantic = {
+        "module_candidates": [
+            {
+                "module_key": "message",
+                "module_name": "消息中心",
+                "role": "primary",
+                "confidence": 0.9,
+                "evidence": ["未出现在用例正文中的模块证据"],
+            }
+        ],
+        "interaction_ids": [],
+        "workflow_stage_candidates": [],
+        "precondition_states": [],
+        "produced_states": [],
+    }
+
+    validation = validate_case_semantic_contract(
+        semantic,
+        case_text="打开消息列表并检查通知",
+        case_test_module="内容工作台",
+        requirement_contract=_strict_requirement_contract(),
+    )
+
+    assert validation["valid"] is False
+    assert "module_candidates:no_verified_candidate" in validation["rejection_reasons"]
+    assert any(
+        item.get("item_type") == "module_candidate"
+        and item.get("reason") == "evidence_unverified"
+        for item in validation["rejected_semantic_items"]
+    )
+
+
+def test_strict_case_semantic_gate_rejects_unknown_module_key_with_active_name() -> None:
+    semantic = {
+        "module_candidates": [
+            {
+                "module_key": "invented_message",
+                "module_name": "消息中心",
+                "role": "primary",
+                "confidence": 0.9,
+                "evidence": ["消息中心"],
+            }
+        ],
+        "interaction_ids": [],
+        "workflow_stage_candidates": [],
+        "precondition_states": [],
+        "produced_states": [],
+    }
+
+    validation = validate_case_semantic_contract(
+        semantic,
+        case_text="消息中心",
+        case_test_module="消息中心",
+        requirement_contract=_strict_requirement_contract(),
+    )
+
+    assert validation["valid"] is False
+    assert "module_candidates:no_verified_candidate" in validation["rejection_reasons"]
+    assert any(
+        item.get("item_type") == "module_candidate"
+        and item.get("reason") == "module_identity_not_exact"
+        for item in validation["rejected_semantic_items"]
+    )
+
+
+def test_strict_case_semantic_gate_rejects_extra_module_not_bound_by_test_module() -> None:
+    semantic = {
+        "module_candidates": [
+            {
+                "module_key": "message",
+                "module_name": "消息中心",
+                "role": "primary",
+                "confidence": 0.9,
+                "evidence": ["未出现在用例正文中的消息模块证据"],
+            },
+            {
+                "module_key": "content",
+                "module_name": "内容工作台",
+                "role": "related",
+                "confidence": 0.8,
+                "evidence": ["未出现在用例正文中的内容模块证据"],
+            },
+        ],
+        "interaction_ids": [],
+        "workflow_stage_candidates": [],
+        "precondition_states": [],
+        "produced_states": [],
+    }
+
+    validation = validate_case_semantic_contract(
+        semantic,
+        case_text="打开消息列表并检查通知",
+        case_test_module="消息中心",
+        requirement_contract=_strict_requirement_contract(),
+    )
+
+    assert validation["valid"] is False
+    assert len(validation["semantic"]["module_candidates"]) == 1
+    assert validation["semantic"]["module_candidates"][0]["module_key"] == "message"
+    assert any(
+        item.get("item_type") == "module_candidate"
+        and item.get("identifier") == "content"
+        and item.get("reason") == "evidence_unverified"
+        for item in validation["rejected_semantic_items"]
+    )
+
+
 def test_requirement_semantic_schema_does_not_accept_architecture_or_collection_aliases() -> None:
     payload = {
         "architecture": _contract_payload()["functional_architecture"],

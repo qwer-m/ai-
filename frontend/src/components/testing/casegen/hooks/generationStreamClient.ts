@@ -1,5 +1,7 @@
 import { api, getAuthHeaders } from '../../../../utils/api';
 
+export const DEFAULT_GENERATION_BATCH_SIZE = 25;
+
 type GenerationStreamFormDataInput = {
   projectId: number;
   isText: boolean;
@@ -9,6 +11,7 @@ type GenerationStreamFormDataInput = {
   docType: string;
   compress: boolean;
   expectedCount: number;
+  batchSize: number;
   force: boolean;
   appendMode: boolean;
   enableSamplePoolFeedback: boolean;
@@ -23,6 +26,7 @@ export function buildGenerationStreamFormData({
   docType,
   compress,
   expectedCount,
+  batchSize,
   force,
   appendMode,
   enableSamplePoolFeedback,
@@ -32,6 +36,7 @@ export function buildGenerationStreamFormData({
   formData.append('doc_type', isText ? 'requirement' : docType);
   formData.append('compress', String(compress));
   formData.append('expected_count', String(expectedCount));
+  formData.append('batch_size', String(batchSize));
   formData.append('force', String(force));
   formData.append('enable_sample_pool_feedback', String(enableSamplePoolFeedback));
   if (appendMode) formData.append('append', 'true');

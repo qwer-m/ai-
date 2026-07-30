@@ -1,4 +1,8 @@
-import { cleanStreamingContent, parseMultipleJsonArrays } from '../../../test-generation/streamContent';
+import {
+  cleanStreamingContent,
+  extractTerminalStreamError,
+  parseMultipleJsonArrays,
+} from '../../../test-generation/streamContent';
 import {
   deduplicateStandardCases,
   normalizeStandardCases,
@@ -43,7 +47,11 @@ export function assembleFinalGeneratedCases({
     throw new Error('Generation result is empty; check model config, quota, or network and retry.');
   }
 
-  const errorMatches = Array.from(cleaned.matchAll(/(?:^|\r?\n)Error:\s*([^\r\n]+)/g));
+  const terminalError = extractTerminalStreamError(rawText);
+  if (terminalError) {
+    throw new Error(`生成失败：${terminalError}`);
+  }
+
   let parsedCases: any[] = [];
   try {
     parsedCases = parseMultipleJsonArrays(rawText);
@@ -66,15 +74,6 @@ export function assembleFinalGeneratedCases({
     }
 
     if (validCases.length === 0) {
-      if (errorMatches.length > 0) {
-        const lastError = errorMatches[errorMatches.length - 1]?.[1] || '';
-        throw new Error(
-          lastError
-            ? `Generation failed: ${lastError}`
-            : 'Generation failed: backend returned an error',
-        );
-      }
-
       throw Array.isArray(parsedCases) && parsedCases.length === 0
         ? new Error('Generation result is an empty array, please retry')
         : new Error('Generation result is not an array of case objects; ensure the model returns a JSON array of objects');

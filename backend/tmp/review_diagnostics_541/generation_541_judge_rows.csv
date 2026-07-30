@@ -1,0 +1,11 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,他人作品与社区互动,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",首次进入他人作品页弹出投稿规则弹窗，滑动到底部激活【我知道了】按钮,PASS,-,False,False,False
+TC-002,他人作品与社区互动,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",他人作品列表为空时，展示缺省空状态页面,PASS,-,False,False,False
+TC-003,他人作品与社区互动,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",他人作品列表空状态展示缺省图和文案，点击去投稿打开投稿说明弹窗,PASS,-,False,False,False
+TC-004,他人作品与社区互动,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",点击他人作品列表内容进入作品详情页，展示论坛内容与点赞回复数,PASS,-,False,False,False
+TC-005,他人作品与社区互动,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,点击投稿规则弹窗激活后的【我知道了】按钮，跳转至我的作文页面,PASS,-,False,False,False
+TC-006,他人作品与社区互动,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,他人作品列表展示用户头像框、昵称、作文名称、点赞数和回复数,PASS,-,False,False,False
+TC-007,他人作品与社区互动,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,作品详情页点击赞执行点赞，点击回复打开回复窗口,PASS,-,False,False,False
+TC-008,他人作品与社区互动,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",点击右上角文案按钮打开投稿说明弹窗，点击弹窗去投稿跳转我的作文页,PASS,-,False,False,False
+TC-009,他人作品与社区互动,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",已发布状态显示发布文案，点击后直接跳转至对应他人作文的作品页,PASS,-,False,False,False
+TC-010,他人作品与社区互动,P2,P2,P2,P2,decided,model_semantic_consistent,high,,作品图片显示原图时展示缩略图并可放大，不显示原图时展示固定图片和作文名称,PASS,-,False,False,False

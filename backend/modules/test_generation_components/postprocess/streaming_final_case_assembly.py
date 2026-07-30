@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from .case_fact_relations import deduplicate_cases_by_semantic_identity
 from .module_contract import summarize_functional_phase_coverage
 
 from .priority_anchor_rules import (
@@ -36,6 +37,12 @@ class FinalCaseAssemblyResult:
     final_independent_case_structure: dict[str, Any]
     final_count: int
     post_review_dedup_drop: int
+    semantic_dedup_dropped_count: int
+    semantic_duplicate_count: int
+    semantic_containment_count: int
+    semantic_unresolved_duplicate_count: int
+    semantic_relation_samples: list[dict[str, Any]]
+    semantic_dropped_case_ids: list[str]
 
 
 def assemble_final_cases(
@@ -79,6 +86,13 @@ def assemble_final_cases(
     )
     cases = reorder_cases_by_closed_loop_fn(
         _dict_case_items(cases),
+        start_id=start_id,
+        renumber_ids=True,
+    )
+    # 所有分批、补缺和 Review 合并完成后，再对完整最终集合执行同一语义判重。
+    semantic_dedup = deduplicate_cases_by_semantic_identity(_dict_case_items(cases))
+    cases = reorder_cases_by_closed_loop_fn(
+        _dict_case_items(semantic_dedup.cases),
         start_id=start_id,
         renumber_ids=True,
     )
@@ -138,6 +152,12 @@ def assemble_final_cases(
         final_independent_case_structure=dict(final_structure_state.get("final_independent_case_structure") or {}),
         final_count=int(final_count or 0),
         post_review_dedup_drop=max(0, int(review_selected_count or 0) - int(final_count or 0)),
+        semantic_dedup_dropped_count=int(semantic_dedup.dropped_count),
+        semantic_duplicate_count=int(semantic_dedup.duplicate_count),
+        semantic_containment_count=int(semantic_dedup.containment_count),
+        semantic_unresolved_duplicate_count=int(semantic_dedup.unresolved_duplicate_count),
+        semantic_relation_samples=list(semantic_dedup.relation_samples),
+        semantic_dropped_case_ids=list(semantic_dedup.dropped_case_ids),
     )
 
 

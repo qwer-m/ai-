@@ -1,0 +1,10 @@
+﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
+TC-001,写作秘籍与技法收集,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",已获得秘籍在列表中点亮显示，点击打开秘籍详情弹窗,PASS,-,False,False,False
+TC-002,写作秘籍与技法收集,P2,P1,P2,P2,decided,p2_cap_guard,high,,完成课程最后环节至少获1星后，秘籍状态从未获得变为已获得,PASS,-,False,False,False
+TC-003,写作秘籍与技法收集,P2,P2,P2,P2,decided,model_semantic_consistent,high,,写作秘籍列表页收集数据弹窗显示已收集数/总数秘籍数量统计,PASS,-,False,False,False
+TC-004,写作秘籍与技法收集,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,完成课程最后环节至少获1星后获得写作秘籍，弹出获得蒙层,PASS,-,False,False,False
+TC-005,写作秘籍与技法收集,P1,P1,P1,P1,undetermined,conflict_resolved_by_core_business_rule,medium,"model=P1,suggested=P2",查看已获得秘籍详情弹窗内容，包含技法类型、说明文案、例句及来源跳转,PASS,-,False,False,False
+TC-006,写作秘籍与技法收集,P2,P1,P2,P2,decided,p2_cap_guard,high,,点击未获得的秘籍条目toast提示完成本课学习可获得,PASS,-,False,False,False
+TC-007,写作秘籍与技法收集,P2,P1,P2,P2,decided,p2_cap_guard,high,,课程更新中状态：秘籍列表末尾常驻显示'敬请期待'提示卡片,PASS,-,False,False,False
+TC-008,写作秘籍与技法收集,P2,P1,P2,P2,decided,p2_cap_guard,high,,写作秘籍列表页点击未获得秘籍条目弹出未获得提示弹窗，弹窗内技法图片置灰、显示提示文案且不展示说明文案,PASS,-,False,False,False
+TC-009,写作秘籍与技法收集,P2,P1,P2,P2,decided,p2_cap_guard,high,,写作技法学习与秘籍查看完整闭环流程验证：完成课程最后环节至少获1星→秘籍列表中该技法从置灰变为点亮状态→点击点亮秘籍条目打开详情弹窗→弹窗展示技法类型、说明文案和例句内容,PASS,-,False,False,False

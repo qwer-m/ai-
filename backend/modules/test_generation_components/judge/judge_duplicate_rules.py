@@ -15,6 +15,7 @@ from ..coverage.coverage_case_classifier import (
     classify_case_intent_signature,
 )
 from ..postprocess.case_access import case_priority, case_steps, case_text_field
+from ..postprocess.case_fact_relations import compare_case_semantic_identity
 
 from .judge_text_utils import _normalize_text
 
@@ -246,6 +247,12 @@ def _is_semantic_duplicate_case(
     primary_domain: str = "",
     include_domain_specific: bool = False,
 ) -> tuple[bool, float]:
+    semantic_relation = compare_case_semantic_identity(candidate, existed)
+    if semantic_relation.relation == "duplicate":
+        return True, float(semantic_relation.confidence)
+    if semantic_relation.conflicts:
+        # 结构化阶段、状态或触发时机已经明确不一致时，不允许正文相似度覆盖该差异。
+        return False, 0.0
     candidate_desc = _normalize_text(case_text_field(candidate, "description"))
     existed_desc = _normalize_text(case_text_field(existed, "description"))
     if candidate_desc and existed_desc and candidate_desc == existed_desc:

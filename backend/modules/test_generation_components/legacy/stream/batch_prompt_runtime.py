@@ -19,13 +19,6 @@ def build_recent_history_context(history_summaries: list[str]) -> str:
                     """
 
 
-def append_history_to_testcase_context(testcase_context: str, history_summaries: list[str]) -> str:
-    if not history_summaries:
-        return testcase_context
-    complete_history = "\n".join(history_summaries)
-    return f"{testcase_context}\n\n[本轮已生成摘要]\n{complete_history}"
-
-
 def build_stream_batch_system_prompt(
     *,
     base_prompt: str,
@@ -51,8 +44,6 @@ def build_stream_batch_system_prompt(
 
                 {coverage_plan_lite}
 
-                {shard_instruction}
-
                 {architecture_instruction}
 
                 # --- GENERATION STRATEGY ---
@@ -77,11 +68,14 @@ def build_stream_batch_system_prompt(
                 - Verify the visual appearance matches the description/image.
                 - Do NOT skip visual details just because they are not "functional actions".
 
-                BATCH GENERATION INSTRUCTION (quality-first):
+                BATCH GENERATION INSTRUCTION (quality-first, count-explicit):
                 This is batch {batch_index + 1} of {total_batches}.
                 Start the Test Case IDs from {next_case_id} (e.g., TC-{next_case_id:03d}).
-                Reference count: about {need} cases. This is NOT a quota.
-                Generate fewer cases if additional cases would be:
+                Accepted batch target: exactly {need} additional contract-valid, non-duplicate cases.
+                Return exactly {need} cases when that many grounded coverage goals remain.
+                If fewer than {need} meaningful cases remain, return every remaining grounded case;
+                the backend will report an explicit underfill instead of silently treating the batch as complete.
+                Never pad the batch with cases that are:
                 - duplicate of existing validation goals
                 - weakly grounded in requirement evidence
                 - non-assertable
@@ -96,6 +90,15 @@ def build_stream_batch_system_prompt(
                 5. description, test_module, preconditions, steps, test_input, expected_result, and priority must all be present and non-empty.
                 6. Do not use placeholders such as "as configured", "符合预期", "执行成功", TBD, or TODO.
                 7. Derive every field from the current Requirement; the backend will reject incomplete cases instead of filling them with templates.
+
+                {shard_instruction}
+
+                FINAL PER-CASE STRUCTURE CHECK (MANDATORY):
+                - Validate every returned case object separately; one valid case does not satisfy the contract for another case.
+                - Every case MUST contain `_semantic.module_candidates`, `_semantic.fact_ids`, `_semantic.interaction_ids`, `_semantic.workflow_stage_candidates`, `_semantic.precondition_states`, and `_semantic.produced_states`.
+                - Copy every directly verified active fact ID into `_semantic.fact_ids`; the same atomic behavior must reuse the same fact ID across batches and modules, while a combined case uses the union of its verified fact IDs.
+                - All six values MUST be arrays, and module_candidates MUST be non-empty. Never return a case with `_semantic` missing or partially populated.
+                - For semantic evidence, copy one complete public-field value from that same case verbatim; prefer description, steps, or expected_result. Never shorten, summarize, or paraphrase evidence.
 
                 If no meaningful incremental cases remain, return [].
 
@@ -114,6 +117,7 @@ def build_functional_architecture_instruction(*, project_profile: dict) -> str:
             {
                 "module_key": str(item.get("module_key") or ""),
                 "module_name": str(item.get("module_name") or ""),
+                "role": str(item.get("role") or ""),
                 "aliases": list(item.get("aliases") or []),
                 "features": list(item.get("features") or []),
                 "evidence": list(item.get("evidence") or []),
@@ -140,7 +144,7 @@ RULES:
 1. Every batch may generate cases for any verified module or interaction above.
 2. Allocate cases by evidence, workflow complexity, business rules, and uncovered value. Uneven module counts are expected; never split the reference count equally.
 3. test_module must exactly match a verified module_name. Pages, controls, states, risks, and test types are not modules.
-4. Every case must declare its primary module through _semantic.module_candidates. Cross-module cases must also use only verified interaction_id values in _semantic.interaction_ids.
+4. Every case must declare its primary module through _semantic.module_candidates and copy its directly verified active fact IDs into _semantic.fact_ids. Cross-module cases must also use only verified interaction_id values in _semantic.interaction_ids.
 5. Cover module-internal behavior and cross-module behavior only when supported by their structured evidence. Do not infer module ownership or interaction direction from body keywords.
 6. Do not generate out-of-scope or future-phase features. If no meaningful global increment remains, return [].
 """

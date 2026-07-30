@@ -185,6 +185,7 @@ def _build_quality_ledger_payload(
     compression_diag_payload: dict[str, Any],
     context_result: dict[str, Any],
     judge_decision_table_payload: list[dict[str, Any]] | None = None,
+    execution_plan_validation_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return _build_quality_ledger_payload_impl(
         generation_id=generation_id,
@@ -200,6 +201,7 @@ def _build_quality_ledger_payload(
         compression_diag_payload=compression_diag_payload,
         context_result=context_result,
         judge_decision_table_payload=judge_decision_table_payload,
+        execution_plan_validation_payload=execution_plan_validation_payload,
         build_case_quality_failures_fn=build_case_quality_failures,
         build_case_quality_metrics_fn=build_case_quality_metrics,
         is_candidate_insufficient_underfill_fn=is_candidate_insufficient_underfill,
@@ -396,6 +398,13 @@ class LegacyGenerationStreamPersistMixin:
                 review_decision_summary=review_decision_summary_payload,
                 judge_summary=judge_summary_payload,
                 settings=settings,
+                expected_count=int(expected_count or 0),
+                # 全量回归已有候选不足的告警契约；普通显式批量请求则必须达到请求数量。
+                enforce_expected_count_floor=(
+                    not append
+                    and str(generation_mode or "").strip().lower()
+                    != "full_functional_regression"
+                ),
             )
             persistence_preview = gate_candidate_cases
             execution_gate_cases = gate_candidate_cases
@@ -427,6 +436,8 @@ class LegacyGenerationStreamPersistMixin:
                     review_decision_summary=review_decision_summary_payload,
                     judge_summary=judge_summary_payload,
                     settings=settings,
+                    expected_count=int(expected_count or 0),
+                    enforce_expected_count_floor=False,
                 )
             workflow_blueprints = [
                 dict(item)
@@ -477,6 +488,7 @@ class LegacyGenerationStreamPersistMixin:
                     feedback_control_debug_payload=feedback_control_debug_payload,
                     compression_diag_payload=compression_diag_payload,
                     context_result=context_result if isinstance(context_result, dict) else {},
+                    persistence_gate_result=persistence_gate_result,
                 )
                 for diag_payload in pre_failure_diagnostics:
                     yield add_diagnostic_log(
@@ -625,6 +637,11 @@ class LegacyGenerationStreamPersistMixin:
                     compression_diag_payload=compression_diag_payload,
                     context_result=context_result if isinstance(context_result, dict) else {},
                     judge_decision_table_payload=judge_decision_table_payload,
+                    execution_plan_validation_payload=(
+                        dict(persistence_gate_result.get("execution_plan_validation") or {})
+                        if isinstance(persistence_gate_result, dict)
+                        else {}
+                    ),
                 )
                 post_persist_payloads = build_stream_post_persist_diagnostic_payloads(
                     generation_id=persisted_generation_id,

@@ -22,6 +22,7 @@ import time
 from typing import Any, Dict, Optional
 
 import redis
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.settings.config import settings
@@ -85,6 +86,17 @@ class CacheService:
     def __init__(self, cache_dir: str = ".cache"):
         # 初始化 Redis（主 L1）
         self.redis_client = None
+        self._redis_disabled_until = 0.0
+        try:
+            self.redis_failure_cooldown_seconds = max(
+                1.0,
+                min(
+                    300.0,
+                    float(os.getenv("CACHE_REDIS_FAILURE_COOLDOWN_SECONDS", "30")),
+                ),
+            )
+        except (TypeError, ValueError):
+            self.redis_failure_cooldown_seconds = 30.0
         try:
             redis_url = str(getattr(settings, "REDIS_URL", "") or "").strip()
             if redis_url:
@@ -151,6 +163,25 @@ class CacheService:
         """计算键内容的 SHA256 哈希值。"""
         return hashlib.sha256(key_content.encode("utf-8")).hexdigest()
 
+    def _redis_ready(self) -> bool:
+        """Redis 连接存在且不处于短时故障冷却窗口。"""
+        return bool(
+            self.redis_client
+            and time.monotonic()
+            >= float(getattr(self, "_redis_disabled_until", 0.0) or 0.0)
+        )
+
+    def _mark_redis_failure(self, operation: str, exc: Exception) -> None:
+        """单次 Redis 故障后短时熔断，避免每个分片重复等待同一超时。"""
+        cooldown = float(
+            getattr(self, "redis_failure_cooldown_seconds", 30.0) or 30.0
+        )
+        self._redis_disabled_until = time.monotonic() + max(1.0, cooldown)
+        print(
+            f"Redis cache {operation} failed, continue lower levels "
+            f"for {int(max(1.0, cooldown))}s: {exc}"
+        )
+
     def get(self, key_content: str, level: str, db: Session = None) -> Optional[Any]:
         """
         获取缓存值
@@ -161,8 +192,14 @@ class CacheService:
         cache_key = f"{level}:{key_hash}"
 
         # 1. Redis
-        if self.redis_client:
-            val = self.redis_client.get(cache_key)
+        if self._redis_ready():
+            try:
+                val = self.redis_client.get(cache_key)
+            except redis.RedisError as exc:
+                # Redis 是 L1 加速层；瞬时读超时不能阻断后续本地 L1/MySQL
+                # 查询，更不能冒充为模型 transport failure。
+                self._mark_redis_failure("read", exc)
+                val = None
             if val is not None:
                 try:
                     return json.loads(val)
@@ -200,9 +237,11 @@ class CacheService:
         else:
             str_val = str(value)
 
-        if self.redis_client:
+        if self._redis_ready():
             try:
                 self.redis_client.set(cache_key, str_val, ex=ttl)
+            except redis.RedisError as exc:
+                self._mark_redis_failure("write", exc)
             except Exception:
                 pass
 
@@ -232,12 +271,12 @@ class CacheService:
         self.set_l1(cache_key, value, level)
 
         if db:
+            meta_str = json.dumps(metadata, ensure_ascii=False) if metadata else None
             entry = (
                 db.query(CacheEntry)
                 .filter(CacheEntry.key_hash == key_hash, CacheEntry.cache_level == level)
                 .first()
             )
-            meta_str = json.dumps(metadata, ensure_ascii=False) if metadata else None
             if entry:
                 entry.value = str_val
                 entry.metadata_info = meta_str
@@ -252,6 +291,28 @@ class CacheService:
                 )
             try:
                 db.commit()
+            except IntegrityError:
+                # 同一模型请求可能由多个进程同时完成。唯一键冲突表示另一进程
+                # 已先写入相同缓存，此处回读胜出记录并幂等更新，避免把正常竞争
+                # 记录成缓存故障。
+                db.rollback()
+                winner = (
+                    db.query(CacheEntry)
+                    .filter(CacheEntry.key_hash == key_hash)
+                    .first()
+                )
+                if winner is None or str(winner.cache_level or "") != str(level):
+                    print(
+                        "Cache write failed: key hash conflict across cache levels"
+                    )
+                    return
+                winner.value = str_val
+                winner.metadata_info = meta_str
+                try:
+                    db.commit()
+                except Exception as e:
+                    print(f"Cache write failed after concurrent insert: {e}")
+                    db.rollback()
             except Exception as e:
                 print(f"Cache write failed: {e}")
                 db.rollback()

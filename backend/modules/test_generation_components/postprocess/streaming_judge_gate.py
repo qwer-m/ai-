@@ -54,6 +54,7 @@ def run_streaming_judge_gate(
         confirmed_pass_cases, repaired_pass_cases, rejected_cases, pending_cases = training_gate_fn(repaired)
         judge_summary_payload = build_judge_summary_payload_fn(
             repaired=repaired,
+            input_count=len(result_cases),
             confirmed_pass_cases=confirmed_pass_cases,
             repaired_pass_cases=repaired_pass_cases,
             rejected_cases=rejected_cases,

@@ -18,7 +18,10 @@ from .streaming_review_reason_repair import (
     apply_reason_repair_for_dropped_cases as _apply_reason_repair_for_dropped_cases,
 )
 from .streaming_review_retry import default_review_llm_runtime_debug as _default_review_llm_runtime_debug
-from .streaming_review_selection import resolve_review_llm_drop_reason_maps as _resolve_review_llm_drop_reason_maps
+from .streaming_review_selection import (
+    rank_review_case_for_fill as _rank_review_case_for_fill,
+    resolve_review_llm_drop_reason_maps as _resolve_review_llm_drop_reason_maps,
+)
 from .streaming_global_review_selection import (
     finalize_global_review_selection as _finalize_global_review_selection,
 )
@@ -108,11 +111,16 @@ def run_streaming_review_stage(
         review_started = time.perf_counter()
         yield "@@STATUS@@:[multi-pass] Stage 3/3 review selection started...\n"
 
+        review_profile = dict(generation_coverage_profile or {})
+        if not append and int(expected_count or 0) > 0:
+            review_profile["explicit_expected_count_floor"] = int(
+                reference_count_effective or expected_count
+            )
         review_preflight = _prepare_review_preflight(
             requirement=requirement,
             parsed_result=_dict_case_items(parsed_result),
             reference_count_effective=reference_count_effective,
-            generation_coverage_profile=generation_coverage_profile,
+            generation_coverage_profile=review_profile,
             append_target_count=append_target_count,
             append_final_cap_count=append_final_cap_count,
             analyze_coverage_fn=analyze_coverage_fn,
@@ -250,6 +258,11 @@ def run_streaming_review_stage(
                 ),
                 target_max_count=int(review_target_max_count or 0),
                 require_complete_source=True,
+                removal_rank_fn=lambda item: _rank_review_case_for_fill(
+                    item,
+                    coverage_context=review_candidate_coverage_context,
+                    rule_diagnostics=review_candidate_rule_diagnostics,
+                ),
             )
             source_by_key = {
                 _candidate_identity_key(item): item
@@ -287,6 +300,55 @@ def run_streaming_review_stage(
                 )
         review_llm_runtime_debug["required_stage_review_retention"] = dict(
             required_stage_retention or {}
+        )
+        explicit_floor_backfilled_signatures: set[str] = set()
+        explicit_floor_shortfall = max(
+            0,
+            int(review_target_min_count or 0) - len(selected_from_llm_pool),
+        )
+        if review_llm_applied and explicit_floor_shortfall > 0:
+            selected_candidate_keys = {
+                _candidate_identity_key(item)
+                for item in _dict_case_items(selected_from_llm_pool)
+                if _candidate_identity_key(item)
+            }
+            fill_candidates = [
+                dict(item)
+                for item in _dict_case_items(llm_pool_cases)
+                if _candidate_identity_key(item) not in selected_candidate_keys
+            ]
+            fill_candidates.sort(
+                key=lambda item: tuple(
+                    -value
+                    for value in _rank_review_case_for_fill(
+                        item,
+                        coverage_context=review_candidate_coverage_context,
+                        rule_diagnostics=review_candidate_rule_diagnostics,
+                    )
+                )
+                + (_candidate_identity_key(item),)
+            )
+            floor_backfill_cases = fill_candidates[:explicit_floor_shortfall]
+            selected_from_llm_pool.extend(floor_backfill_cases)
+            explicit_floor_backfilled_signatures = {
+                _signature(item)
+                for item in floor_backfill_cases
+                if _signature(item)
+            }
+            review_constraint_retained_signatures.update(
+                explicit_floor_backfilled_signatures
+            )
+            review_constraint_reason_map.update(
+                {
+                    signature: "explicit_expected_count_floor"
+                    for signature in explicit_floor_backfilled_signatures
+                }
+            )
+            for signature in explicit_floor_backfilled_signatures:
+                review_llm_drop_reason_raw_map.pop(signature, None)
+                review_llm_drop_reason_raw_origin_map.pop(signature, None)
+        review_llm_runtime_debug["explicit_floor_backfill_count"] = int(
+            len(explicit_floor_backfilled_signatures)
         )
         review_llm_drop_reason_map, review_llm_drop_reason_source_map, review_llm_drop_reason_evidence_map = (
             _resolve_review_llm_drop_reason_maps(

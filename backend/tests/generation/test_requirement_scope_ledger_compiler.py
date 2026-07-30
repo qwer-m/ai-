@@ -14,7 +14,6 @@ from modules.test_generation_components.control.requirement_scope_ledger import 
     normalize_requirement_scope_boundary_manifest,
 )
 from modules.test_generation_components.control.requirement_scope_ledger_compiler import (
-    MAX_SCOPE_BINDING_SHARDS,
     RequirementScopeLedgerCompilationResult,
     _partition_binding_targets,
     compile_requirement_scope_ledger,
@@ -588,7 +587,7 @@ def test_binding_shards_share_global_view_and_partition_targets_exactly() -> Non
     fact_ledger = _normalized_fact_ledger()
     client = _success_client()
 
-    result = _compile(client, fact_ledger=fact_ledger, max_tokens=640)
+    result = _compile(client, fact_ledger=fact_ledger, max_tokens=160)
 
     assert result.success is True
     selection_input = _payload(client.calls[0])
@@ -604,7 +603,7 @@ def test_binding_shards_share_global_view_and_partition_targets_exactly() -> Non
     assert "frozen_source_outline" not in selection_input
     assert "frozen_boundary_selection" not in selection_input
     assert "frozen_boundary_manifest" not in selection_input
-    assert membership_input["input_version"] == "1"
+    assert membership_input["input_version"] == "2"
     assert membership_input["membership_assignment_version"] == (
         "requirement-scope-membership-assignment-v1"
     )
@@ -616,7 +615,7 @@ def test_binding_shards_share_global_view_and_partition_targets_exactly() -> Non
     assert "frozen_boundary_selection" in membership_input
     assert "frozen_boundary_manifest" not in membership_input
     assert all(
-        item["input_version"] == "5"
+        item["input_version"] == "7"
         and item["binding_shard_version"]
         == "requirement-scope-binding-shard-v2"
         and item["frozen_fact_table"] == projected_fact_table
@@ -689,7 +688,7 @@ def test_binding_shard_count_is_derived_from_output_budget() -> None:
     compact_client = _success_client()
     roomy_client = _success_client()
 
-    compact = _compile(compact_client, max_tokens=640)
+    compact = _compile(compact_client, max_tokens=160)
     roomy = _compile(roomy_client, max_tokens=4096)
 
     assert compact.success is True
@@ -700,7 +699,7 @@ def test_binding_shard_count_is_derived_from_output_budget() -> None:
         roomy.diagnostics["scope_ledger_binding_shard_count"]
     )
     assert compact.diagnostics["scope_ledger_binding_shard_budget_units"] == 320
-    assert roomy.diagnostics["scope_ledger_binding_shard_budget_units"] == 2048
+    assert roomy.diagnostics["scope_ledger_binding_shard_budget_units"] == 8192
 
 
 def test_second_binding_shard_failure_clears_all_partial_output() -> None:
@@ -714,7 +713,7 @@ def test_second_binding_shard_failure_clears_all_partial_output() -> None:
         _binding_response,
     )
 
-    result = _compile(client, max_tokens=640)
+    result = _compile(client, max_tokens=160)
 
     assert result.success is False
     assert result.status == "contract_invalid"
@@ -799,6 +798,96 @@ def test_parse_or_contract_failure_uses_one_independent_fresh_candidate(
     assert fresh_input["recompile_reason_codes"]
     assert "previous_candidate" not in fresh_input
     assert len(phase_attempts) == 2
+
+
+def test_binding_recompile_receives_exact_validator_feedback() -> None:
+    def invalid_external_binding(call: dict[str, Any]) -> str:
+        payload = _payload(call)
+        return _json_response(
+            {
+                "fact_bindings": [
+                    {
+                        "fact_ref": fact_ref,
+                        "scope_ids": [],
+                        "role": "external_context",
+                    }
+                    for fact_ref in payload["target_fact_refs"]
+                ]
+            }
+        )
+
+    client = _ScriptedClient(
+        _json_response(_boundary_selection_model_response()),
+        _membership_response,
+        invalid_external_binding,
+        _binding_response,
+    )
+
+    result = _compile(client)
+
+    assert result.success is True, result.diagnostics
+    retry_input = _payload(client.calls[3])
+    assert retry_input["compilation_mode"] == "independent_recompile"
+    assert retry_input["recompile_reason_codes"] == [
+        "executable_fact_external_context_forbidden"
+    ]
+    feedback = retry_input["recompile_contract_feedback"]
+    assert {item["fact_ref"] for item in feedback} == set(
+        retry_input["target_fact_refs"]
+    )
+    assert all(
+        item["code"] == "executable_fact_external_context_forbidden"
+        and item["current_role"] == "external_context"
+        and item["current_scope_ids"] == []
+        and item["allowed_roles"]
+        == ["owned_requirement", "shared_requirement"]
+        and item["allowed_active_scope_ids"]
+        and item["repair_action"] == "bind_to_active_responsibility_owner"
+        for item in feedback
+    )
+    assert "previous_candidate" not in retry_input
+
+
+def test_shared_binding_recompile_feedback_exposes_active_scope_contract() -> None:
+    def invalid_shared_binding(call: dict[str, Any]) -> str:
+        payload = _payload(call)
+        return _json_response(
+            {
+                "fact_bindings": [
+                    {
+                        "fact_ref": fact_ref,
+                        "scope_ids": [],
+                        "role": "shared_requirement",
+                    }
+                    for fact_ref in payload["target_fact_refs"]
+                ]
+            }
+        )
+
+    client = _ScriptedClient(
+        _json_response(_boundary_selection_model_response()),
+        _membership_response,
+        invalid_shared_binding,
+        _binding_response,
+    )
+
+    result = _compile(client)
+
+    assert result.success is True, result.diagnostics
+    feedback = _payload(client.calls[3])["recompile_contract_feedback"]
+    assert feedback
+    assert all(
+        item["code"] == "shared_requirement_binding_invalid"
+        and item["current_role"] == "shared_requirement"
+        and item["current_scope_ids"] == []
+        and item["minimum_shared_scope_count"] == 2
+        and item["allowed_roles"]
+        == ["owned_requirement", "shared_requirement"]
+        and item["allowed_active_scope_ids"]
+        and item["repair_action"]
+        == "choose_supported_active_coowners_or_one_active_owner"
+        for item in feedback
+    )
 
 
 @pytest.mark.parametrize(
@@ -1049,7 +1138,7 @@ def test_binding_capacity_uses_manifest_relationships_not_all_boundaries() -> No
     fact_id = "FACT_A1_000000000000000000000001"
     boundary_ids = [
         f"SCOPE_{index:03d}_{'LONG_ID_SEGMENT_' * 4}"
-        for index in range(160)
+        for index in range(400)
     ]
     manifest = {
         "fact_ledger_fingerprint": "f" * 64,
@@ -1088,7 +1177,7 @@ def test_known_extreme_shared_binding_runs_as_a_single_fact_shard() -> None:
     fact_id = "FACT_A1_000000000000000000000001"
     boundary_ids = [
         f"SCOPE_{index:03d}_{'LONG_ID_SEGMENT_' * 4}"
-        for index in range(160)
+        for index in range(400)
     ]
     manifest = {
         "fact_ledger_fingerprint": "f" * 64,
@@ -1119,10 +1208,27 @@ def test_known_extreme_shared_binding_runs_as_a_single_fact_shard() -> None:
     assert shards[0].budget_units > shard_budget_units
 
 
-def test_binding_shard_upper_limit_is_enforced_before_partial_execution() -> None:
+def test_binding_shards_have_no_fixed_global_count_ceiling() -> None:
+    previous_shard_limit = 16
     fact_ledger, boundary_payload, source_evidence_catalog = _single_scope_fixture(
-        MAX_SCOPE_BINDING_SHARDS + 1
+        previous_shard_limit + 1
     )
+
+    def binding_response(call: dict[str, Any]) -> str:
+        payload = _payload(call)
+        return _json_response(
+            {
+                "fact_bindings": [
+                    {
+                        "fact_ref": fact_ref,
+                        "scope_ids": ["SCOPE_WORKSPACE"],
+                        "role": "owned_requirement",
+                    }
+                    for fact_ref in payload["target_fact_refs"]
+                ]
+            }
+        )
+
     client = _ScriptedClient(
         _json_response(
             _boundary_selection_model_response(
@@ -1131,28 +1237,27 @@ def test_binding_shard_upper_limit_is_enforced_before_partial_execution() -> Non
             )
         ),
         _membership_response,
-        "binding-must-not-run",
+        binding_response,
     )
 
     result = _compile(
         client,
         fact_ledger=fact_ledger,
         source_evidence_catalog=source_evidence_catalog,
-        max_tokens=230,
+        max_tokens=58,
     )
 
-    assert result.success is False
-    assert result.status == "capacity_exceeded"
-    assert result.normalized_ledger == {}
-    assert result.projection == {}
-    assert len(client.calls) == 2
+    assert result.success is True, result.diagnostics
+    assert result.status == "validated"
+    assert len(client.calls) == previous_shard_limit + 3
     assert result.diagnostics["scope_ledger_binding_shard_count"] == (
-        MAX_SCOPE_BINDING_SHARDS + 1
+        previous_shard_limit + 1
     )
+    assert result.diagnostics[
+        "scope_ledger_binding_completed_shard_count"
+    ] == previous_shard_limit + 1
     assert result.diagnostics["scope_ledger_binding_oversized_fact_count"] == 0
-    assert result.diagnostics["scope_ledger_compile_global_error_codes"] == [
-        "scope_binding_shard_limit_exceeded"
-    ]
+    assert result.diagnostics["scope_ledger_compile_global_error_codes"] == []
 
 
 def _walk_keys(value: Any) -> list[str]:

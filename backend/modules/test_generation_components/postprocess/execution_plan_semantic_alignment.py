@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from ..control.actor_roles import is_automated_actor_role
 from .case_access import (
     case_id as case_access_id,
     case_text_field,
@@ -253,6 +254,27 @@ def _blueprint_stage_module_text(case: dict[str, Any]) -> str:
     return _flatten_semantic_value(case.get("main_chain_stage_module"))
 
 
+def _automated_stage_action_anchor_conflict_reason(case: dict[str, Any]) -> str:
+    """系统自动阶段不强制用户动作词，但 action/label 必须能在用例中找到语义锚点。"""
+    action_label_text = " ".join(
+        value
+        for value in (
+            _text(_state_value(case, "action")),
+            _text(case.get("main_chain_stage_label")),
+        )
+        if value
+    )
+    if not action_label_text:
+        return "automated_stage_action_anchor_missing"
+    stage_tokens = _semantic_anchor_tokens(action_label_text)
+    if not stage_tokens:
+        return "automated_stage_action_anchor_missing"
+    case_tokens = _semantic_anchor_tokens(_case_semantic_text(case))
+    if not case_tokens or not (stage_tokens & case_tokens):
+        return "automated_stage_action_anchor_not_supported"
+    return ""
+
+
 def main_chain_blueprint_semantic_conflict_reason(case: dict[str, Any]) -> str:
     """Return a conflict when the public case object drifts away from blueprint stage anchors."""
     stage_text = _blueprint_stage_text(case)
@@ -311,6 +333,9 @@ def _collect_main_smoke_semantic_findings(cases: Any) -> list[dict[str, Any]]:
     for case in main_cases:
         stage_kind = _stage_kind(case)
         text = _case_semantic_text(case)
+        automated_actor = is_automated_actor_role(
+            case.get("role") or case.get("source_actor_role")
+        )
         if not text:
             _add_semantic_conflict(
                 conflicts,
@@ -335,9 +360,10 @@ def _collect_main_smoke_semantic_findings(cases: Any) -> list[dict[str, Any]]:
                 _text(case.get("steps")),
             ]
         )
-        if stage_kind in {"entry", "consume", "configure", "edit"} and token_hit(
-            goal_action_text,
-            _COMMIT_ACTION_TOKENS,
+        if (
+            not automated_actor
+            and stage_kind in {"entry", "consume", "configure", "edit"}
+            and token_hit(goal_action_text, _COMMIT_ACTION_TOKENS)
         ):
             _add_semantic_conflict(
                 conflicts,
@@ -346,7 +372,8 @@ def _collect_main_smoke_semantic_findings(cases: Any) -> list[dict[str, Any]]:
                 stage_kind=stage_kind,
             )
         if (
-            stage_kind == "commit"
+            not automated_actor
+            and stage_kind == "commit"
             and token_hit(goal_action_text, _ATOMIC_EDIT_ACTION_TOKENS)
             and token_hit(goal_action_text, _ATOMIC_PREP_NAVIGATION_TOKENS)
         ):
@@ -403,7 +430,11 @@ def _collect_main_smoke_semantic_findings(cases: Any) -> list[dict[str, Any]]:
                 stage_kind=stage_kind,
             )
 
-        action_support_reason = main_chain_action_support_conflict_reason(case)
+        action_support_reason = (
+            _automated_stage_action_anchor_conflict_reason(case)
+            if automated_actor
+            else main_chain_action_support_conflict_reason(case)
+        )
         if action_support_reason:
             _add_semantic_conflict(
                 conflicts,
@@ -437,7 +468,7 @@ def _collect_main_smoke_semantic_findings(cases: Any) -> list[dict[str, Any]]:
                     stage_kind=stage_kind,
                 )
         elif stage_kind == "edit":
-            if not _has_any_text(text, _EDIT_REQUIRED_TOKENS):
+            if not automated_actor and not _has_any_text(text, _EDIT_REQUIRED_TOKENS):
                 _add_semantic_conflict(
                     conflicts,
                     case=case,
@@ -453,7 +484,7 @@ def _collect_main_smoke_semantic_findings(cases: Any) -> list[dict[str, Any]]:
                     stage_kind=stage_kind,
                 )
         elif stage_kind == "commit":
-            if not _has_any_text(text, _COMMIT_REQUIRED_TOKENS):
+            if not automated_actor and not _has_any_text(text, _COMMIT_REQUIRED_TOKENS):
                 _add_semantic_conflict(
                     conflicts,
                     case=case,

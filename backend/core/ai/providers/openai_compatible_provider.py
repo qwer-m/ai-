@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from core.ai.providers.base import BaseModelProvider
+from core.ai.providers.base import BaseModelProvider, STREAM_HEARTBEAT_CHUNK
 
 
 class OpenAICompatibleProvider(BaseModelProvider):
@@ -59,14 +59,21 @@ class OpenAICompatibleProvider(BaseModelProvider):
             return "environment"
         return "default"
 
-    def _stream_attempt_timeout_seconds(self) -> float:
+    def _stream_attempt_timeout_seconds(
+        self,
+        total_override: float | None = None,
+    ) -> float:
         override = getattr(self, "stream_attempt_timeout_seconds", None)
         raw = str(
-            override
-            if override not in (None, "")
-            else os.getenv(
-                "OPENAI_COMPAT_STREAM_ATTEMPT_TIMEOUT_SECONDS",
-                os.getenv("AI_STREAM_ATTEMPT_TIMEOUT_SECONDS", "360"),
+            total_override
+            if total_override not in (None, "")
+            else (
+                override
+                if override not in (None, "")
+                else os.getenv(
+                    "OPENAI_COMPAT_STREAM_ATTEMPT_TIMEOUT_SECONDS",
+                    os.getenv("AI_STREAM_ATTEMPT_TIMEOUT_SECONDS", "360"),
+                )
             )
         ).strip()
         try:
@@ -416,7 +423,17 @@ class OpenAICompatibleProvider(BaseModelProvider):
             )
             return f"Exception occurred: {str(e)}"
 
-    def generate_stream(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None):
+    def generate_stream(
+        self,
+        messages: List[Dict[str, str]],
+        model: str,
+        max_tokens: Optional[int] = None,
+        request_timeout_seconds: Optional[float] = None,
+        heartbeat_interval_seconds: Optional[float] = None,
+        reasoning_effort: Optional[str] = None,
+        disable_thinking: bool = False,
+    ):
+        request_started_at = time.perf_counter()
         target_model = model or self.model
         resolved_max_tokens = self._normalize_max_tokens(max_tokens, target_model)
 
@@ -440,22 +457,50 @@ class OpenAICompatibleProvider(BaseModelProvider):
             }
             if resolved_max_tokens:
                 payload["max_tokens"] = resolved_max_tokens
+            if reasoning_effort:
+                payload["reasoning_effort"] = str(reasoning_effort)
+            if disable_thinking:
+                payload["thinking"] = {"type": "disabled"}
 
         url_path = "/responses" if self.wire_api == "responses" else "/chat/completions"
+        http_timeout = self._http_timeout(request_timeout_seconds)
+        stream_attempt_timeout = self._stream_attempt_timeout_seconds(
+            request_timeout_seconds
+        )
+        try:
+            heartbeat_interval = max(0.0, float(heartbeat_interval_seconds or 0.0))
+        except (TypeError, ValueError):
+            heartbeat_interval = 0.0
         self.last_response_metadata = {
             "model": target_model,
             "wire_api": self.wire_api,
             "max_tokens": resolved_max_tokens,
             "stream": True,
             "url_path": url_path,
+            "request_timeout_seconds": float(http_timeout.read or 0.0),
+            "request_timeout_source": self._http_timeout_source(
+                request_timeout_seconds
+            ),
+            "stream_attempt_timeout_seconds": float(stream_attempt_timeout),
+            "stream_heartbeat_interval_seconds": float(heartbeat_interval),
+            "reasoning_effort": payload.get("reasoning_effort"),
+            "thinking": payload.get("thinking"),
+            "reasoning_chars": 0,
+            "first_reasoning_ms": None,
+            "first_content_ms": None,
+            "total_duration_ms": 0,
         }
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
 
+        emitted_chars = 0
+        reasoning_chars = 0
+        first_reasoning_ms: float | None = None
+        first_content_ms: float | None = None
         try:
-            with httpx.Client(**self._http_client_kwargs(timeout=self._http_timeout())) as client:
+            with httpx.Client(**self._http_client_kwargs(timeout=http_timeout)) as client:
                 with client.stream("POST", url, headers=headers, json=payload) as resp:
                     self.last_response_metadata["http_status"] = resp.status_code
                     if resp.status_code != 200:
@@ -470,11 +515,11 @@ class OpenAICompatibleProvider(BaseModelProvider):
                         return
 
                     emitted_text = False
-                    emitted_chars = 0
                     stream_started_at = time.perf_counter()
-                    stream_attempt_timeout = self._stream_attempt_timeout_seconds()
+                    last_heartbeat_at = stream_started_at
                     for line in resp.iter_lines():
-                        if stream_attempt_timeout > 0 and (time.perf_counter() - stream_started_at) > stream_attempt_timeout:
+                        now = time.perf_counter()
+                        if stream_attempt_timeout > 0 and (now - stream_started_at) > stream_attempt_timeout:
                             timeout_seconds = int(stream_attempt_timeout)
                             self.last_response_metadata.update(
                                 {
@@ -486,6 +531,12 @@ class OpenAICompatibleProvider(BaseModelProvider):
                             )
                             yield f"Exception occurred: stream_attempt_timeout_after_{timeout_seconds}s"
                             return
+                        if (
+                            heartbeat_interval > 0
+                            and (now - last_heartbeat_at) >= heartbeat_interval
+                        ):
+                            last_heartbeat_at = now
+                            yield STREAM_HEARTBEAT_CHUNK
                         if not line or line.strip() == "":
                             continue
                         if line.startswith("data: "):
@@ -496,15 +547,35 @@ class OpenAICompatibleProvider(BaseModelProvider):
                                 data = json.loads(data_str)
                                 if self.wire_api == "responses":
                                     event_type = str(data.get("type") or "")
+                                    if "reasoning" in event_type:
+                                        reasoning = data.get("delta") or data.get("text") or ""
+                                        if reasoning:
+                                            if first_reasoning_ms is None:
+                                                first_reasoning_ms = max(
+                                                    0.0,
+                                                    (now - request_started_at) * 1000,
+                                                )
+                                            reasoning_chars += len(str(reasoning))
+                                        continue
                                     if event_type == "response.output_text.delta":
                                         delta = data.get("delta") or ""
                                         if delta:
+                                            if first_content_ms is None:
+                                                first_content_ms = max(
+                                                    0.0,
+                                                    (now - request_started_at) * 1000,
+                                                )
                                             emitted_text = True
                                             emitted_chars += len(str(delta))
                                             yield str(delta)
                                     elif event_type == "response.output_text.done":
                                         done_text = data.get("text") or ""
                                         if done_text and not emitted_text:
+                                            if first_content_ms is None:
+                                                first_content_ms = max(
+                                                    0.0,
+                                                    (now - request_started_at) * 1000,
+                                                )
                                             emitted_text = True
                                             emitted_chars += len(str(done_text))
                                             yield str(done_text)
@@ -513,6 +584,11 @@ class OpenAICompatibleProvider(BaseModelProvider):
                                             data.get("response") if isinstance(data.get("response"), dict) else data
                                         )
                                         if text and not emitted_text:
+                                            if first_content_ms is None:
+                                                first_content_ms = max(
+                                                    0.0,
+                                                    (now - request_started_at) * 1000,
+                                                )
                                             emitted_text = True
                                             emitted_chars += len(str(text))
                                             yield text
@@ -534,17 +610,40 @@ class OpenAICompatibleProvider(BaseModelProvider):
 
                                     reasoning = delta.get("reasoning_content") or ""
                                     if reasoning:
-                                        continue
+                                        if first_reasoning_ms is None:
+                                            first_reasoning_ms = max(
+                                                0.0,
+                                                (now - request_started_at) * 1000,
+                                            )
+                                        reasoning_chars += len(str(reasoning))
 
                                     if content:
+                                        if first_content_ms is None:
+                                            first_content_ms = max(
+                                                0.0,
+                                                (now - request_started_at) * 1000,
+                                            )
                                         emitted_text = True
                                         emitted_chars += len(str(content))
                                         yield content
                                         continue
 
                                     msg = choice0.get("message", {}) or {}
+                                    message_reasoning = msg.get("reasoning_content") or ""
+                                    if message_reasoning:
+                                        if first_reasoning_ms is None:
+                                            first_reasoning_ms = max(
+                                                0.0,
+                                                (now - request_started_at) * 1000,
+                                            )
+                                        reasoning_chars += len(str(message_reasoning))
                                     msg_content = msg.get("content") or ""
                                     if msg_content and not emitted_text:
+                                        if first_content_ms is None:
+                                            first_content_ms = max(
+                                                0.0,
+                                                (now - request_started_at) * 1000,
+                                            )
                                         emitted_text = True
                                         emitted_chars += len(str(msg_content))
                                         yield msg_content
@@ -552,21 +651,39 @@ class OpenAICompatibleProvider(BaseModelProvider):
 
                                     text = choice0.get("text") or ""
                                     if text and not emitted_text:
+                                        if first_content_ms is None:
+                                            first_content_ms = max(
+                                                0.0,
+                                                (now - request_started_at) * 1000,
+                                            )
                                         emitted_text = True
                                         emitted_chars += len(str(text))
                                         yield text
                             except json.JSONDecodeError:
                                 pass
-                    self.last_response_metadata["content_len"] = emitted_chars
         except Exception as e:
             self.last_response_metadata.update(
                 {
                     "exception_type": type(e).__name__,
                     "exception": str(e)[:500],
-                    "content_len": 0,
+                    "content_len": emitted_chars,
                 }
             )
             yield f"Exception occurred: {str(e)}"
+        finally:
+            total_duration_ms = max(
+                0.0,
+                (time.perf_counter() - request_started_at) * 1000,
+            )
+            self.last_response_metadata.update(
+                {
+                    "content_len": emitted_chars,
+                    "reasoning_chars": reasoning_chars,
+                    "first_reasoning_ms": first_reasoning_ms,
+                    "first_content_ms": first_content_ms,
+                    "total_duration_ms": total_duration_ms,
+                }
+            )
 
     def multimodal_generate(self, messages: List[Dict[str, Any]], model: str) -> str:
         target_model = model or self.model

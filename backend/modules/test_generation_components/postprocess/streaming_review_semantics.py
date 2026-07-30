@@ -42,6 +42,11 @@ def compact_verified_case_semantics(case: dict[str, Any]) -> dict[str, Any]:
             "module_candidates",
             ("module_key", "module_name", "role"),
         ),
+        "fact_ids": [
+            str(item).strip()
+            for item in (semantic.get("fact_ids") or [])
+            if isinstance(item, str) and str(item).strip()
+        ],
         "interaction_ids": [
             str(item).strip()
             for item in (semantic.get("interaction_ids") or [])

@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any, Callable, Iterable
 
 from ..coverage.coverage_case_complexity import case_complexity_profile
-from .case_access import case_flat_text, case_priority
+from .case_access import case_priority
+from .case_fact_relations import compare_case_semantic_identity
 from .result_postprocess_priority_semantics import score_case_priority
 from .streaming_case_keys import (
     candidate_identity_key,
@@ -27,8 +28,6 @@ from .streaming_review_selection_summary import (
     summarize_review_llm_drop_diagnostics,
     summarize_review_signal_counts,
 )
-from .streaming_rule_keys import extract_rule_keys
-from .streaming_semantic_text import jaccard_similarity, semantic_signature, semantic_tokenize
 
 ReviewRankFn = Callable[..., tuple[int, ...]]
 CoverageAnalyzeFn = Callable[[str, list[dict[str, Any]]], dict[str, Any]]
@@ -244,15 +243,12 @@ def resolve_review_llm_drop_reason_maps(
     candidate_items = _dict_case_items(pool_cases)
     selected_items = _dict_case_items(selected_cases)
     selected_signatures = {case_signature(item) for item in selected_items if case_signature(item)}
-    semantic_duplicate_threshold = 0.82
-
     selected_entries: list[dict[str, Any]] = []
     selected_by_bucket: dict[str, list[dict[str, Any]]] = {}
     for item in selected_items:
         signature = case_signature(item)
         if not signature:
             continue
-        rule_keys = list(extract_rule_keys(item))
         selected_rank = rank_review_case_for_fill(
             item,
             coverage_context=coverage_context,
@@ -262,10 +258,7 @@ def resolve_review_llm_drop_reason_maps(
             "signature": signature,
             "case_id": review_case_id(item),
             "bucket": case_coverage_bucket(item),
-            "semantic_signature": semantic_signature(item, rule_keys),
-            "semantic_tokens": semantic_tokenize(
-                case_flat_text(item, ("description", "expected_result", "test_input", "steps"), separator=" ")
-            ),
+            "case": item,
             "rank_tuple": tuple(int(x) for x in selected_rank),
         }
         selected_entries.append(entry)
@@ -386,6 +379,30 @@ def resolve_review_llm_drop_reason_maps(
                 }
             continue
 
+        duplicate_match: dict[str, Any] | None = None
+        duplicate_relation = None
+        for selected_entry in selected_entries:
+            selected_case = selected_entry.get("case")
+            if not isinstance(selected_case, dict):
+                continue
+            relation = compare_case_semantic_identity(item, selected_case)
+            if relation.relation != "duplicate":
+                continue
+            if duplicate_relation is None or relation.confidence >= duplicate_relation.confidence:
+                duplicate_match = selected_entry
+                duplicate_relation = relation
+        if duplicate_match is not None and duplicate_relation is not None:
+            resolved_map[signature] = "duplicate"
+            source_map[signature] = "deterministic_backfill"
+            evidence_map[signature] = {
+                **base_evidence,
+                "duplicate_of_case_id": str(duplicate_match.get("case_id") or ""),
+                "duplicate_bucket": str(duplicate_match.get("bucket") or ""),
+                "similarity": round(float(duplicate_relation.confidence), 4),
+                "semantic_relation_reasons": list(duplicate_relation.reasons),
+            }
+            continue
+
         if (
             bucket_selected
             and not has_coverage_signal
@@ -396,42 +413,6 @@ def resolve_review_llm_drop_reason_maps(
             resolved_map[signature] = "coverage_redundant"
             source_map[signature] = "deterministic_backfill"
             evidence_map[signature] = dict(base_evidence)
-            continue
-
-        rule_keys = list(extract_rule_keys(item))
-        semantic_sig = semantic_signature(item, rule_keys)
-        semantic_tokens = semantic_tokenize(
-            " ".join(
-                [
-                    str(item.get("description") or ""),
-                    str(item.get("expected_result") or ""),
-                    str(item.get("test_input") or ""),
-                    " ".join([str(x) for x in item.get("steps", [])]) if isinstance(item.get("steps"), list) else "",
-                ]
-            )
-        )
-        duplicate_match: dict[str, Any] | None = None
-        duplicate_similarity = 0.0
-        for selected_entry in selected_entries:
-            selected_signature = str(selected_entry.get("semantic_signature") or "")
-            selected_tokens = set(selected_entry.get("semantic_tokens") or set())
-            similarity = jaccard_similarity(semantic_tokens, selected_tokens)
-            if semantic_sig and semantic_sig == selected_signature:
-                duplicate_match = selected_entry
-                duplicate_similarity = 1.0
-                break
-            if similarity >= semantic_duplicate_threshold and similarity >= duplicate_similarity:
-                duplicate_match = selected_entry
-                duplicate_similarity = float(similarity)
-        if duplicate_match:
-            resolved_map[signature] = "duplicate"
-            source_map[signature] = "deterministic_backfill"
-            evidence_map[signature] = {
-                **base_evidence,
-                "duplicate_of_case_id": str(duplicate_match.get("case_id") or ""),
-                "duplicate_bucket": str(duplicate_match.get("bucket") or ""),
-                "similarity": round(float(duplicate_similarity), 4),
-            }
             continue
 
         if (

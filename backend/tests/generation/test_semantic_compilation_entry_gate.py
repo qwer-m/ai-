@@ -472,6 +472,71 @@ def test_stream_entry_aborts_before_test_case_generation(monkeypatch) -> None:
     assert any("SEMANTIC_COMPILATION_FAILED" in chunk for chunk in chunks)
 
 
+def test_stream_entry_persists_semantic_worker_exception_before_abort(monkeypatch) -> None:
+    client = _SemanticClient()
+    persisted: list[dict] = []
+    monkeypatch.setattr(
+        stream_prepare,
+        "resolve_stream_prepare_runtime",
+        lambda **kwargs: PrepareRuntimeState(
+            client=client,
+            request_id="stream-worker-exception",
+            original_requirement=REQUIREMENT_TEXT,
+            compression_decision={},
+            linked_final_case_signal={},
+            memory_diag={},
+            memory_fabric=None,
+            memory_ctx=None,
+        ),
+    )
+    monkeypatch.setattr(
+        stream_prepare,
+        "resolve_append_existing_state",
+        lambda **kwargs: AppendExistingState(
+            start_id=1,
+            existing_cases=[],
+            existing_entry=None,
+            existing_unique_count=0,
+        ),
+    )
+
+    def _raise_worker_exception(**kwargs):  # noqa: ANN003, ARG001
+        raise RuntimeError("final gate crashed")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(
+        stream_prepare,
+        "iter_semantic_compilation_with_heartbeat",
+        _raise_worker_exception,
+    )
+    monkeypatch.setattr(
+        stream_prepare,
+        "persist_gen_diag",
+        lambda **kwargs: persisted.append(dict(kwargs["payload"])),
+    )
+
+    chunks = list(
+        _StreamHarness()._stream_prepare_phase(
+            client=client,
+            request_id="stream-worker-exception",
+            requirement=REQUIREMENT_TEXT,
+            project_id=7,
+            db=None,
+            user_id=9,
+        )
+    )
+
+    assert client.case_generation_calls == 0
+    assert persisted[0]["kind"] == "semantic_compilation_worker_exception"
+    assert persisted[0]["request_id"] == "stream-worker-exception"
+    assert persisted[0]["failure_code"] == "semantic_compilation_worker_exception"
+    assert persisted[0]["error_type"] == "RuntimeError"
+    assert persisted[0]["message"] == "final gate crashed"
+    assert persisted[0]["traceback_summary"]
+    assert any("semantic_compilation_worker_exception" in chunk for chunk in chunks)
+    assert any("final gate crashed" in chunk for chunk in chunks)
+
+
 def _run_json_abort(monkeypatch, db: _RecordingDb) -> tuple[dict, _SemanticClient]:
     client = _SemanticClient()
     monkeypatch.setattr(

@@ -5,7 +5,7 @@ import json
 import os
 import re
 import unicodedata
-from typing import Any
+from typing import Any, Callable
 
 from .actor_roles import normalize_actor_role
 from .feedback_control_state import FeedbackControlState
@@ -18,6 +18,7 @@ from .model_envelope_call import safe_error_preview as _safe_error_preview
 from .semantic_contract import (
     MAX_WORKFLOW_STEPS,
     REQUIREMENT_SEMANTIC_CONTRACT_VERSION,
+    WORKFLOW_STAGE_KIND_VALUES,
     canonicalize_requirement_semantic_candidate,
     empty_requirement_semantic_contract,
     evidence_supported,
@@ -29,6 +30,7 @@ from .semantic_contract import (
 )
 from .requirement_semantic_graph import UNREPAIRABLE_PRIMARY_FLOW_ERROR_CODES
 from .requirement_evidence_view import build_requirement_business_evidence_view
+from .workflow_typed_state_chain import validate_typed_state_chain
 
 
 CURRENT_REQUIREMENT_BLUEPRINT_REPOSITORY_SOURCE = "current_requirement_blueprint"
@@ -60,16 +62,7 @@ _SUCCESSFUL_WORKFLOW_DECLARATION_STATUSES = {
     WORKFLOW_DECLARATION_INDEPENDENT_ONLY,
 }
 
-_ALLOWED_STAGE_KINDS = {
-    "entry",
-    "configure",
-    "edit",
-    "preview",
-    "commit",
-    "downstream_visibility",
-    "consume",
-    "completion_sync",
-}
+_ALLOWED_STAGE_KINDS = set(WORKFLOW_STAGE_KIND_VALUES)
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
@@ -678,6 +671,7 @@ def _normalize_current_requirement_workflow_step(
     active_interactions: dict[str, dict[str, Any]],
     seen_step_ids: set[str],
     semantic_graph_mode: bool = False,
+    evidence_validator: Callable[[list[str], str], bool] | None = None,
 ) -> tuple[
     dict[str, Any] | None,
     list[str],
@@ -742,7 +736,7 @@ def _normalize_current_requirement_workflow_step(
         reasons.append(f"{prefix}state_invalid")
 
     evidence = _list_text(raw_step.get("evidence"), limit=6)
-    if not evidence_supported(evidence, requirement_text):
+    if not (evidence_validator or evidence_supported)(evidence, requirement_text):
         reasons.append(f"{prefix}evidence_unverified")
 
     module_candidates: list[dict[str, Any]] = []
@@ -754,6 +748,7 @@ def _normalize_current_requirement_workflow_step(
             raw_module_candidates,
             source_text=requirement_text,
             module_catalog=module_catalog,
+            evidence_validator=evidence_validator,
         )
         if (
             len(module_candidates) != len(raw_module_candidates)
@@ -929,6 +924,7 @@ def _normalize_current_requirement_workflow_step(
             rejected_semantic_items=state_rejections,
             item_type=item_type,
             state_role=state_role,
+            evidence_validator=evidence_validator,
         )
         typed_state_rejections.extend(
             _safe_typed_state_rejections(
@@ -1069,6 +1065,7 @@ def normalize_current_requirement_blueprint_payload(
     project_id: int | None = None,
     user_id: int | None = None,
     normalization_diagnostics: dict[str, Any] | None = None,
+    evidence_validator: Callable[[list[str], str], bool] | None = None,
 ) -> list[dict[str, Any]]:
     contract_payload = _contract_payload(payload)
     semantic_graph_mode = bool(
@@ -1083,6 +1080,7 @@ def normalize_current_requirement_blueprint_payload(
                 if isinstance(contract_payload.get("workflow_blueprints"), list)
                 else []
             ),
+            evidence_validator=evidence_validator,
         )
         contract_payload = {
             **contract_payload,
@@ -1099,6 +1097,7 @@ def normalize_current_requirement_blueprint_payload(
     normalized_architecture = normalize_functional_architecture(
         architecture,
         source_text=requirement_text,
+        evidence_validator=evidence_validator,
     )
     module_catalog = [
         dict(item)
@@ -1204,6 +1203,7 @@ def normalize_current_requirement_blueprint_payload(
                 active_interactions=active_interactions,
                 seen_step_ids=seen_step_ids,
                 semantic_graph_mode=semantic_graph_mode,
+                evidence_validator=evidence_validator,
             )
             rejection_reasons.extend(step_reasons)
             typed_state_rejections.extend(step_typed_state_rejections)
@@ -1219,6 +1219,23 @@ def normalize_current_requirement_blueprint_payload(
                 }
             )
             continue
+
+        typed_state_chain_issues = validate_typed_state_chain(normalized_steps)
+        if typed_state_chain_issues:
+            rejection_reasons.append("typed_state_chain_invalid")
+            workflow_consistency_rejections.extend(
+                {
+                    "workflow_index": int(bp_index),
+                    "reason": str(issue.get("reason") or "typed_state_chain_invalid"),
+                    "field_path": (
+                        f"$.workflow_blueprints[{bp_index - 1}].steps["
+                        f"{int(issue.get('step_index') or 0)}].required_states["
+                        f"{int(issue.get('state_index') or 0)}]"
+                    ),
+                    **issue,
+                }
+                for issue in typed_state_chain_issues
+            )
 
         explicit_required_ids = [str(step.get("id") or "") for step in normalized_steps if step["required"]]
         raw_required_stage_ids = raw_blueprint.get("required_stage_ids")
@@ -2206,6 +2223,10 @@ def _evaluate_parsed_semantic_candidate(
                 "semantic_graph_rejections": graph_rejections,
             },
         }
+    # A1 已经基于完整 source catalog 验证并冻结事实证据。B 阶段只规范化
+    # Graph/workflow，不再用压缩后的 evidence_source 删除冻结事实；调用方随后
+    # 会对 evidence_facts 做完整等值校验，模型仍无权增删或改写事实。
+    frozen_fact_evidence_validator = lambda evidence, _source: bool(evidence)
     declaration_present, raw_workflow_declaration = _canonical_workflow_declaration(parsed)
     normalization_diagnostics: dict[str, Any] = {}
     if not declaration_present:
@@ -2213,6 +2234,7 @@ def _evaluate_parsed_semantic_candidate(
             _contract_payload(parsed),
             requirement_text=evidence_source,
             workflow_blueprints=[],
+            evidence_validator=frozen_fact_evidence_validator,
         )
         return {
             "valid": False,
@@ -2229,6 +2251,7 @@ def _evaluate_parsed_semantic_candidate(
             _contract_payload(parsed),
             requirement_text=evidence_source,
             workflow_blueprints=[],
+            evidence_validator=frozen_fact_evidence_validator,
         )
         return {
             "valid": False,
@@ -2248,6 +2271,7 @@ def _evaluate_parsed_semantic_candidate(
             _contract_payload(parsed),
             requirement_text=evidence_source,
             workflow_blueprints=raw_workflow_declaration,
+            evidence_validator=frozen_fact_evidence_validator,
         )
         graph_validation = dict(
             graph_contract.get("semantic_graph_validation") or {}
@@ -2309,6 +2333,9 @@ def _evaluate_parsed_semantic_candidate(
         project_id=project_id,
         user_id=user_id,
         normalization_diagnostics=normalization_diagnostics,
+        evidence_validator=(
+            frozen_fact_evidence_validator if graph_declared else None
+        ),
     )
     raw_workflow_count = int(len(raw_workflow_declaration))
     normalized_workflow_count = int(len(blueprints))
@@ -2514,7 +2541,23 @@ def evaluate_current_requirement_semantic_compilation(
         "passed": passed,
         "abort_code": "" if passed else SEMANTIC_COMPILATION_ABORT_CODE,
         "semantic_compile_status": compile_status or "missing_compile_status",
+        "semantic_compile_mode": _text(meta.get("semantic_compile_mode")),
         "semantic_compile_attempt_count": int(meta.get("semantic_compile_attempt_count") or 0),
+        "semantic_compile_physical_call_count": int(
+            meta.get("semantic_compile_physical_call_count") or 0
+        ),
+        "semantic_compile_provider_call_count": int(
+            meta.get("semantic_compile_provider_call_count") or 0
+        ),
+        "semantic_compile_cache_hit_count": int(
+            meta.get("semantic_compile_cache_hit_count") or 0
+        ),
+        "semantic_compile_cache_miss_count": int(
+            meta.get("semantic_compile_cache_miss_count") or 0
+        ),
+        "semantic_compile_cache_bypass_count": int(
+            meta.get("semantic_compile_cache_bypass_count") or 0
+        ),
         "semantic_compile_candidate_attempt_count": int(
             meta.get("semantic_compile_candidate_attempt_count") or 0
         ),
@@ -2554,12 +2597,69 @@ def evaluate_current_requirement_semantic_compilation(
         "semantic_compile_stop_reason": _text(
             meta.get("semantic_compile_stop_reason")
         )[:120],
+        "semantic_compile_final_gate_error_code": _text(
+            meta.get("semantic_compile_final_gate_error_code")
+        )[:120],
+        "semantic_compile_final_gate_error_type": _text(
+            meta.get("semantic_compile_final_gate_error_type")
+        )[:120],
+        "semantic_compile_final_gate_error_message": _text(
+            meta.get("semantic_compile_final_gate_error_message")
+        )[:300],
         "semantic_compile_retry_used": bool(meta.get("semantic_compile_retry_used")),
         "semantic_compile_attempts": [
             dict(item)
             for item in (meta.get("semantic_compile_attempts") or [])
             if isinstance(item, dict)
         ],
+        "partition_compile_status": _text(
+            meta.get("partition_compile_status")
+        ),
+        "partition_compile_success": bool(
+            meta.get("partition_compile_success")
+        ),
+        "partition_compile_failed_phase": _text(
+            meta.get("partition_compile_failed_phase")
+        ),
+        "partition_compile_failed_shard_id": _text(
+            meta.get("partition_compile_failed_shard_id")
+        ),
+        "partition_compile_fact_shard_count": int(
+            meta.get("partition_compile_fact_shard_count") or 0
+        ),
+        "partition_compile_completed_fact_shard_count": int(
+            meta.get("partition_compile_completed_fact_shard_count") or 0
+        ),
+        "partition_compile_relation_fact_count": int(
+            meta.get("partition_compile_relation_fact_count") or 0
+        ),
+        "partition_compile_relation_shard_count": int(
+            meta.get("partition_compile_relation_shard_count") or 0
+        ),
+        "partition_compile_completed_relation_shard_count": int(
+            meta.get("partition_compile_completed_relation_shard_count") or 0
+        ),
+        "partition_compile_workflow_called": bool(
+            meta.get("partition_compile_workflow_called")
+        ),
+        "partition_compile_node_count": int(
+            meta.get("partition_compile_node_count") or 0
+        ),
+        "partition_compile_edge_count": int(
+            meta.get("partition_compile_edge_count") or 0
+        ),
+        "partition_compile_control_edge_count": int(
+            meta.get("partition_compile_control_edge_count") or 0
+        ),
+        "partition_compile_provider_call_count": int(
+            meta.get("partition_compile_provider_call_count") or 0
+        ),
+        "partition_compile_cache_hit_count": int(
+            meta.get("partition_compile_cache_hit_count") or 0
+        ),
+        "partition_compile_cache_miss_count": int(
+            meta.get("partition_compile_cache_miss_count") or 0
+        ),
         "workflow_declaration_status": declaration_status or WORKFLOW_DECLARATION_MISSING,
         "workflow_absence_declared": bool(meta.get("workflow_absence_declared")) if passed else False,
         "raw_workflow_candidate_count": int(meta.get("raw_workflow_candidate_count") or 0),
@@ -2626,6 +2726,18 @@ def evaluate_current_requirement_semantic_compilation(
         "fact_ledger_compile_physical_call_count": int(
             meta.get("fact_ledger_compile_physical_call_count") or 0
         ),
+        "fact_ledger_compile_provider_call_count": int(
+            meta.get("fact_ledger_compile_provider_call_count") or 0
+        ),
+        "fact_ledger_compile_cache_hit_count": int(
+            meta.get("fact_ledger_compile_cache_hit_count") or 0
+        ),
+        "fact_ledger_compile_cache_miss_count": int(
+            meta.get("fact_ledger_compile_cache_miss_count") or 0
+        ),
+        "fact_ledger_compile_cache_bypass_count": int(
+            meta.get("fact_ledger_compile_cache_bypass_count") or 0
+        ),
         "fact_ledger_compile_transport_retry_count": int(
             meta.get("fact_ledger_compile_transport_retry_count") or 0
         ),
@@ -2658,6 +2770,12 @@ def evaluate_current_requirement_semantic_compilation(
         ),
         "fact_ledger_compile_chunk_count": int(
             meta.get("fact_ledger_compile_chunk_count") or 0
+        ),
+        "fact_ledger_compile_parallel_chunks_enabled": bool(
+            meta.get("fact_ledger_compile_parallel_chunks_enabled")
+        ),
+        "fact_ledger_compile_chunk_max_workers": int(
+            meta.get("fact_ledger_compile_chunk_max_workers") or 0
         ),
         "fact_ledger_compile_chunk_limit": int(
             meta.get("fact_ledger_compile_chunk_limit") or 0
@@ -2701,6 +2819,9 @@ def evaluate_current_requirement_semantic_compilation(
                     "candidate_attempt_count",
                     "envelope_count",
                     "physical_call_count",
+                    "provider_call_count",
+                    "cache_hit_count",
+                    "cache_miss_count",
                     "validated_attempt",
                     "ledger_fingerprint",
                     "fact_count",
@@ -2732,6 +2853,18 @@ def evaluate_current_requirement_semantic_compilation(
         ),
         "scope_ledger_compile_physical_call_count": int(
             meta.get("scope_ledger_compile_physical_call_count") or 0
+        ),
+        "scope_ledger_compile_provider_call_count": int(
+            meta.get("scope_ledger_compile_provider_call_count") or 0
+        ),
+        "scope_ledger_compile_cache_hit_count": int(
+            meta.get("scope_ledger_compile_cache_hit_count") or 0
+        ),
+        "scope_ledger_compile_cache_miss_count": int(
+            meta.get("scope_ledger_compile_cache_miss_count") or 0
+        ),
+        "scope_ledger_compile_cache_bypass_count": int(
+            meta.get("scope_ledger_compile_cache_bypass_count") or 0
         ),
         "scope_ledger_compile_transport_retry_count": int(
             meta.get("scope_ledger_compile_transport_retry_count") or 0
@@ -2856,9 +2989,6 @@ def evaluate_current_requirement_semantic_compilation(
         "scope_ledger_binding_shard_count": int(
             meta.get("scope_ledger_binding_shard_count") or 0
         ),
-        "scope_ledger_binding_shard_limit": int(
-            meta.get("scope_ledger_binding_shard_limit") or 0
-        ),
         "scope_ledger_binding_shard_budget_units": int(
             meta.get("scope_ledger_binding_shard_budget_units") or 0
         ),
@@ -2870,6 +3000,12 @@ def evaluate_current_requirement_semantic_compilation(
         ),
         "scope_ledger_binding_failed_shard_index": int(
             meta.get("scope_ledger_binding_failed_shard_index") or 0
+        ),
+        "scope_ledger_binding_projected_context_scope_id_count": int(
+            meta.get(
+                "scope_ledger_binding_projected_context_scope_id_count"
+            )
+            or 0
         ),
         "scope_ledger_binding_shard_summaries": [
             {
@@ -2883,8 +3019,13 @@ def evaluate_current_requirement_semantic_compilation(
                     "candidate_attempt_count",
                     "envelope_count",
                     "physical_call_count",
+                    "provider_call_count",
+                    "cache_hit_count",
+                    "cache_miss_count",
                     "validated_attempt",
                     "binding_count",
+                    "projected_non_scope_context_binding_count",
+                    "projected_non_scope_context_scope_id_count",
                     "payload_fingerprint",
                 )
                 if item.get(key) not in (None, "")
@@ -2966,6 +3107,7 @@ def extract_current_requirement_blueprints(
     db: Any = None,
     project_id: int | None = None,
     user_id: int | None = None,
+    isolated_ai_runtime_factory: Callable[[], Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """按 A1 原子事实、A2 职责账本、B 语义图三阶段编译当前需求。"""
 
@@ -3042,6 +3184,7 @@ def extract_current_requirement_blueprints(
         max_tokens=max_tokens,
         task_type="generation",
         request_timeout_seconds=float(request_timeout_seconds),
+        worker_runtime_factory=isolated_ai_runtime_factory,
     )
     diagnostics.update(fact_result.diagnostics)
     if not fact_result.success:
@@ -3088,6 +3231,9 @@ def extract_current_requirement_blueprints(
         max_tokens=max_tokens,
         task_type="generation",
         request_timeout_seconds=float(request_timeout_seconds),
+        isolated_ai_runtime_factory=(
+            isolated_ai_runtime_factory
+        ),
     )
     diagnostics.update(graph_result.diagnostics)
     attempts = diagnostics.get("semantic_compile_attempts") or []
@@ -3244,6 +3390,7 @@ def merge_current_requirement_blueprint_control_state(
     db: Any = None,
     project_id: int | None = None,
     user_id: int | None = None,
+    isolated_ai_runtime_factory: Callable[[], Any] | None = None,
 ) -> FeedbackControlState:
     state = FeedbackControlState.from_any(control_state)
     if _has_current_requirement_semantic_contract(state, requirement_text=requirement_text):
@@ -3263,6 +3410,9 @@ def merge_current_requirement_blueprint_control_state(
         db=db,
         project_id=project_id,
         user_id=user_id,
+        isolated_ai_runtime_factory=(
+            isolated_ai_runtime_factory
+        ),
     )
     current_state = FeedbackControlState(
         workflow_blueprints=blueprints,
