@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from core.processing.utils import log_to_db
-from core.db.models import UITestCase
+from core.db.model_defs import UITestCase
 from core.processing.workflow import WorkflowKind, WorkflowStage, log_workflow_trace
 from modules.automation_components.repositories.ui_automation_repository import UIAutomationRepository
 from modules.automation_components.services.ui_automation_export_service import UIAutomationExportService
@@ -126,7 +125,6 @@ class UIAutomationService:
                     "status": row.status,
                     "created_at": row.created_at,
                     "automation_type": row.automation_type,
-                    "quality_score": row.quality_score,
                 }
                 for row in rows
             ],
@@ -136,6 +134,16 @@ class UIAutomationService:
         row = self.repo.get_execution(execution_id=execution_id, user_id=user_id)
         if not row:
             return "not_found", None
+        evaluation_run = self.repo.get_latest_evaluation_run(
+            execution_id=row.id,
+            project_id=row.project_id,
+            user_id=user_id,
+        )
+        evaluation_artifact = None
+        if evaluation_run is not None:
+            value = (evaluation_run.run_context or {}).get("artifacts", {}).get("automation_evaluation")
+            if isinstance(value, dict):
+                evaluation_artifact = dict(value)
         return (
             "ok",
             {
@@ -145,22 +153,18 @@ class UIAutomationService:
                 "execution_result": row.execution_result,
                 "status": row.status,
                 "screenshot_paths": row.screenshot_paths,
-                "quality_score": row.quality_score,
-                "evaluation_result": row.evaluation_result,
+                "evaluation": {
+                    "run_id": evaluation_run.id,
+                    "artifact": evaluation_artifact,
+                }
+                if evaluation_artifact is not None
+                else None,
                 "created_at": row.created_at,
                 "automation_type": row.automation_type,
                 "url": row.url,
                 "app_info": row.app_info,
             },
         )
-
-    def generate_script(self, *, payload: dict[str, Any], user_id: int, token: str) -> tuple[str, dict[str, Any] | None]:
-        project_id = int(payload.get("project_id") or 0)
-        project = self.repo.get_owned_project(project_id=project_id, user_id=user_id)
-        if not project:
-            return "project_not_found", None
-        script = self._generate_ai_script(payload=payload, user_id=user_id, token=token)
-        return self.save_script(payload={**payload, "script": script}, user_id=user_id)
 
     def save_script(self, *, payload: dict[str, Any], user_id: int) -> tuple[str, dict[str, Any] | None]:
         """将已验证成功或模型生成的隐藏脚本固化到桌面项目和用例库。"""
@@ -290,32 +294,4 @@ class UIAutomationService:
         result["operation"] = operation
         result["export"] = export
         return "ok", result
-
-    def run_ui_automation(self, *, payload: dict[str, Any], user_id: int, token: str) -> tuple[str, dict[str, Any] | None]:
-        project_id = int(payload.get("project_id") or 0)
-        if not self.has_owned_project(project_id=project_id, user_id=user_id):
-            return "project_not_found", None
-
-        operation = self._operation(payload)
-        log_to_db(self._db, project_id, "system", f"开始执行UI自动化: {operation['name']}", user_id=user_id)
-        status, generated = self.generate_script(payload=payload, user_id=user_id, token=token)
-        if status != "ok" or not generated:
-            return status, generated
-        execute_payload = {
-            **payload,
-            "script": generated["script"],
-            "operation_name": operation["name"],
-            "operation_steps": operation["steps"],
-        }
-        status, result = self.execute_script_direct(payload=execute_payload, user_id=user_id, token=token)
-        if status != "ok" or not result:
-            return status, result
-        log_to_db(
-            self._db,
-            project_id,
-            "system",
-            f"UI自动化执行完成，结果: {result.get('status', 'unknown')}",
-            user_id=user_id,
-        )
-        return "ok", {"script": generated["script"], "operation": operation, "export": generated["export"], "result": result}
 

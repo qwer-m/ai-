@@ -109,38 +109,12 @@ body.ui-overhaul-v4 .dashboard-log-mini-btn {
 }
 
 body.ui-overhaul-v4 .project-page-shell,
-body.ui-overhaul-v4 .test-generation-shell,
 body.ui-overhaul-v4 .evaluation-shell,
 body.ui-overhaul-v4 .knowledge-base-shell,
-body.ui-overhaul-v4 .api-testing-shell,
 body.ui-overhaul-v4 .api-automation-shell {
   gap: 14px !important;
   width: 100%;
   min-height: 100%;
-}
-
-body.ui-overhaul-v4 .api-testing-shell {
-  border: 1px solid var(--fd-border);
-  border-radius: 16px;
-  background: linear-gradient(180deg, var(--fd-surface) 0%, var(--fd-surface-soft) 100%);
-  overflow: hidden;
-}
-
-body.ui-overhaul-v4 .api-testing-tabs-head {
-  background: color-mix(in srgb, var(--fd-surface-soft) 86%, transparent) !important;
-  border-bottom: 1px solid var(--fd-border) !important;
-}
-
-body.ui-overhaul-v4 .api-testing-tabs-head .nav-link {
-  font-weight: 600;
-  color: var(--fd-text-soft);
-  border: 1px solid transparent;
-}
-
-body.ui-overhaul-v4 .api-testing-tabs-head .nav-link.active {
-  color: var(--fd-text);
-  background: var(--fd-surface);
-  border-color: var(--fd-border) var(--fd-border) var(--fd-surface);
 }
 
 body.ui-overhaul-v4 .knowledge-base-shell {
@@ -169,22 +143,10 @@ body.ui-overhaul-v4 .knowledge-doc-col.is-drag-after .doc-card {
   box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--fd-primary) 60%, transparent);
 }
 
-body.ui-overhaul-v4 .test-generation-header,
-body.ui-overhaul-v4 .test-generation-input,
-body.ui-overhaul-v4 .test-generation-config,
-body.ui-overhaul-v4 .test-generation-result,
 body.ui-overhaul-v4 .ui-section-card,
 body.ui-overhaul-v4 .knowledge-toolbar-card,
 body.ui-overhaul-v4 .knowledge-content-area {
   border-radius: 16px !important;
-}
-
-body.ui-overhaul-v4 .test-generation-result-head {
-  min-height: 62px;
-}
-
-body.ui-overhaul-v4 .test-generation-result-content {
-  line-height: 1.48;
 }
 
 body.ui-overhaul-v4 .evaluation-shell .bento-card,

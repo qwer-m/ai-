@@ -21,7 +21,6 @@ from modules.knowledge_base_components.retrieval.pipeline.recall_pipeline_helper
     _normalize_chunk_key,
     _compose_where,
     _count_raw_result_rows,
-    _classify_lane_error,
     _extract_chunks_from_result,
     _apply_min_max_scores,
 )
@@ -38,8 +37,6 @@ def _sanitize_doc_types(doc_types: Optional[list[str]]) -> list[str]:
         aliases = [key]
         if key in {"testcase", "test_case"}:
             aliases.extend(["test_case", "testcase"])
-        elif key == "supplement":
-            aliases.extend(["supplement", "evaluation_report", "agent_learning"])
         elif key == "requirement":
             aliases.extend(["requirement", "product_requirement", "incomplete"])
 
@@ -57,15 +54,6 @@ def _build_lane_where(project_id: int, chunk_source: str, doc_types: Optional[li
         {"project_id": project_id},
         {"is_summary": chunk_source == "summary"},
     ]
-    cleaned_types = _sanitize_doc_types(doc_types)
-    if cleaned_types:
-        clauses.append({"doc_type": {"$in": cleaned_types}})
-    return _compose_where(clauses)
-
-
-def _build_project_where(project_id: int, doc_types: Optional[list[str]] = None) -> dict:
-    """构造 lane 降级 where。"""
-    clauses: list[dict] = [{"project_id": project_id}]
     cleaned_types = _sanitize_doc_types(doc_types)
     if cleaned_types:
         clauses.append({"doc_type": {"$in": cleaned_types}})
@@ -158,25 +146,22 @@ def _search_lane(
     doc_types: Optional[list[str]] = None,
 ) -> dict:
     """
-    执行单路召回，并返回 chunks + reason。
+    执行单路精准召回，并返回 chunks + reason。
 
     reason 语义：
     - ok
     - no_hit
-    - network_error
-    - embedding_failed
+
+    检索异常不改变过滤范围，记录当前 lane 后保留原异常向上抛出。
     """
     where_precise = _build_lane_where(project_id=project_id, chunk_source=chunk_source, doc_types=doc_types)
-    where_project = _build_project_where(project_id=project_id, doc_types=doc_types)
     lane_debug: dict[str, Any] = {
         "executed": True,
         "where_filter": where_precise,
-        "fallback_where_filter": where_project,
         "raw_result_count": 0,
         "usable_result_count": 0,
         "error": "",
         "error_stage": "",
-        "fallback_used": False,
         "query_embedding_status": "unknown",
     }
 
@@ -202,44 +187,16 @@ def _search_lane(
             "error": None,
             "lane_debug": lane_debug,
         }
-    except Exception as precise_error:
-        # 中文注释：精准 where 查询失败时，降级到 project where 兜底。
-        lane_debug["error_stage"] = "precise"
-        lane_debug["error"] = str(precise_error)
-        try:
-            result = vector_store.search(
-                query=query,
-                n_results=top_k,
-                where=where_project,
-                raise_on_error=True,
-            )
-            lane_debug["fallback_used"] = True
-            lane_debug["raw_result_count"] = _count_raw_result_rows(result)
-            chunks = _extract_chunks_from_result(
-                result=result,
-                query=query,
-                query_source=query_source,
-                expected_chunk_source=chunk_source,
-            )
-            lane_debug["usable_result_count"] = len(chunks)
-            lane_debug["query_embedding_status"] = "fallback"
-            return {
-                "chunks": chunks,
-                "reason": "ok" if chunks else "no_hit",
-                "error": None,
-                "lane_debug": lane_debug,
-            }
-        except Exception as fallback_error:
-            reason = _classify_lane_error(fallback_error)
-            lane_debug["error_stage"] = "fallback"
-            lane_debug["error"] = str(fallback_error or precise_error)
-            lane_debug["query_embedding_status"] = "failed"
-            return {
-                "chunks": [],
-                "reason": reason,
-                "error": str(fallback_error or precise_error),
-                "lane_debug": lane_debug,
-            }
+    except Exception:
+        # 中文注释：过滤、网络、向量化或存储故障都必须保留原始异常，禁止扩大召回边界掩盖问题。
+        logger.exception(
+            "rag_lane_search_failed project_id=%s query_source=%s chunk_source=%s where=%s",
+            project_id,
+            query_source,
+            chunk_source,
+            where_precise,
+        )
+        raise
 
 
 def _merge_routes_preserve_best(current: dict, incoming: dict) -> dict:

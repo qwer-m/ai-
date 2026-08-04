@@ -76,26 +76,6 @@ export function StandardApiTestingRequestSettingsTab({
           </div>
         )}
 
-        <SettingRow title="Follow original HTTP Method (保持原 HTTP 方法)" description="重定向时保持原 HTTP 方法，而不是默认的 GET 方法。">
-          <Form.Check type="switch" checked={requestSettings.followOriginalHttpMethod} onChange={(e) => setRequestSettings({ ...requestSettings, followOriginalHttpMethod: e.target.checked })} />
-        </SettingRow>
-
-        <SettingRow title="Follow Authorization header (保持 Authorization 头)" description="重定向时保留 Authorization 头。">
-          <Form.Check type="switch" checked={requestSettings.followAuthorizationHeader} onChange={(e) => setRequestSettings({ ...requestSettings, followAuthorizationHeader: e.target.checked })} />
-        </SettingRow>
-
-        <SettingRow title="Remove referer header on redirect (重定向时移除 Referer 头)" description="发生重定向时移除 Referer 头。">
-          <Form.Check type="switch" checked={requestSettings.removeRefererHeader} onChange={(e) => setRequestSettings({ ...requestSettings, removeRefererHeader: e.target.checked })} />
-        </SettingRow>
-
-        <SettingRow title="Enable strict HTTP parser (启用严格 HTTP 解析)" description="限制包含无效 HTTP 头的响应。">
-          <Form.Check type="switch" checked={requestSettings.strictHttpParser} onChange={(e) => setRequestSettings({ ...requestSettings, strictHttpParser: e.target.checked })} />
-        </SettingRow>
-
-        <SettingRow title="Encode URL automatically (自动编码 URL)" description="自动编码 URL 路径、查询参数和认证字段。">
-          <Form.Check type="switch" checked={requestSettings.encodeUrl} onChange={(e) => setRequestSettings({ ...requestSettings, encodeUrl: e.target.checked })} />
-        </SettingRow>
-
         <SettingRow title="Disable cookie jar (禁用 Cookie Jar)" description="防止此请求使用的 Cookie 被存储到 Cookie Jar 中。">
           <Form.Check type="switch" checked={requestSettings.disableCookieJar} onChange={(e) => setRequestSettings({ ...requestSettings, disableCookieJar: e.target.checked })} />
         </SettingRow>
@@ -111,41 +91,6 @@ export function StandardApiTestingRequestSettingsTab({
           </div>
         </SettingRow>
 
-        <h6 className="mb-3 mt-4 text-secondary">Advanced (高级)</h6>
-
-        <SettingRow title="Use server cipher suite during handshake (握手时使用服务器加密套件)" description="在握手过程中使用服务器的加密套件顺序，而不是客户端的。">
-          <Form.Check type="switch" checked={requestSettings.useServerCipherSuite} onChange={(e) => setRequestSettings({ ...requestSettings, useServerCipherSuite: e.target.checked })} />
-        </SettingRow>
-
-        <div className="mb-3 pb-3 border-bottom">
-          <div className="mb-2">
-            <div className="small fw-bold">TLS/SSL protocols disabled during handshake (握手期间禁用的 TLS/SSL 协议)</div>
-            <div className="text-muted standard-api-setting-desc">
-              指定在握手期间禁用的 SSL 和 TLS 协议版本。所有其他协议将被启用。
-            </div>
-          </div>
-          <Form.Control
-            size="sm"
-            value={requestSettings.disabledSSLProtocols}
-            onChange={(e) => setRequestSettings({ ...requestSettings, disabledSSLProtocols: e.target.value })}
-          />
-        </div>
-
-        <div className="mb-3 pb-3 border-bottom">
-          <div className="mb-2">
-            <div className="small fw-bold">Cipher suite selection (加密套件选择)</div>
-            <div className="text-muted standard-api-setting-desc">
-              SSL 服务器配置文件用于建立安全连接的加密套件顺序。
-            </div>
-          </div>
-          <Form.Control
-            as="textarea"
-            size="sm"
-            placeholder="Enter cipher suites"
-            value={requestSettings.cipherSuites}
-            onChange={(e) => setRequestSettings({ ...requestSettings, cipherSuites: e.target.value })}
-          />
-        </div>
       </div>
     </div>
   );

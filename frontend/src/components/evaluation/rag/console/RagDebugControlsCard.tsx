@@ -13,8 +13,8 @@ type Props = {
   setDatasetId: (v: number | null) => void;
   sampleId: number | null;
   setSampleId: (v: number | null) => void;
-  limit: number;
-  setLimit: (v: number) => void;
+  topK: number;
+  setTopK: (v: number) => void;
   maxTokens: number;
   setMaxTokens: (v: number) => void;
   retrievalMode: 'vector' | 'keyword' | 'hybrid' | 'bm25';
@@ -63,8 +63,8 @@ export function RagDebugControlsCard({
   setDatasetId,
   sampleId,
   setSampleId,
-  limit,
-  setLimit,
+  topK,
+  setTopK,
   maxTokens,
   setMaxTokens,
   retrievalMode,
@@ -204,7 +204,7 @@ export function RagDebugControlsCard({
               <div className="small fw-bold text-secondary mb-2 rag-console-advanced-title">生成</div>
               <div className="row g-2">
                 <div className="col-6"><Form.Label className="small text-muted mb-1">max_tokens</Form.Label><Form.Control className="rag-console-control" type="number" value={maxTokens} onChange={(e) => setMaxTokens(Number(e.target.value))} /></div>
-                <div className="col-6"><Form.Label className="small text-muted mb-1">top_k</Form.Label><Form.Control className="rag-console-control" type="number" value={limit} onChange={(e) => setLimit(Number(e.target.value))} /></div>
+                <div className="col-6"><Form.Label className="small text-muted mb-1">top_k</Form.Label><Form.Control className="rag-console-control" type="number" value={topK} onChange={(e) => setTopK(Number(e.target.value))} /></div>
                 <div className="col-12"><Form.Label className="small text-muted mb-1">LLM 模型</Form.Label><Form.Control className="rag-console-control" value={llmModel} onChange={(e) => setLlmModel(e.target.value)} placeholder="例如 glm-4.7" /></div>
               </div>
             </div>

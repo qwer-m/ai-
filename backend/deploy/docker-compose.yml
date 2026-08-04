@@ -30,7 +30,6 @@ services:
       start_period: 20s
     volumes:
       - .:/app
-      - ./archive_data:/app/archive_data # For archiving task
 
   # Celery Worker
   worker:
@@ -58,9 +57,8 @@ services:
       retries: 3
     volumes:
       - .:/app
-      - ./archive_data:/app/archive_data
 
-  # Celery Beat (Scheduler for Archiving)
+  # Celery Beat
   beat:
     build: .
     image: ai_test_platform:latest

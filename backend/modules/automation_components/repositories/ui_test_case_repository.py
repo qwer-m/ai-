@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from core.db.models import Project, UITestCase
+from core.db.model_defs import Project, UITestCase
 
 
 class UITestCaseRepository:

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from core.authn.auth import get_current_user
 from core.db.database import get_db
-from core.db.models import User
+from core.db.model_defs import User
 from modules.automation_components.services.api_automation_service import APIAutomationService
 from schemas.automation.api_testing import APIRequest
 

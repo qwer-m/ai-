@@ -95,32 +95,6 @@ class Project(Base):
     # 层级关系 (自关联)
     children = relationship("Project", backref=backref('parent', remote_side=[id]))
 
-class TestGeneration(Base):
-    """
-    测试生成记录模型 (Test Generation Model)
-    
-    记录用户输入的测试需求和AI生成的测试用例原始结果。
-    """
-    __tablename__ = "test_generations"
-
-    # 主键ID
-    id = Column(Integer, primary_key=True, index=True)
-    
-    # 关联用户ID
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
-
-    # 关联的项目ID
-    project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)
-    
-    # 测试需求文本
-    requirement_text = Column(LONGTEXT, nullable=True, comment="原始需求文本")
-    
-    # 生成的测试用例结果
-    generated_result = Column(LONGTEXT, nullable=True, comment="AI生成的测试用例内容")
-    
-    # 创建时间
-    created_at = Column(DateTime, server_default=func.now())
-
 class UIExecution(Base):
     """
     UI自动化执行记录模型 (UI Execution Model)
@@ -159,12 +133,6 @@ class UIExecution(Base):
     
     # 截图路径列表 (JSON)
     screenshot_paths = Column(JSON, nullable=True, comment="执行过程中的截图路径列表")
-    
-    # 质量评分 (0-10)
-    quality_score = Column(Float, nullable=True, comment="自动化脚本质量评分")
-    
-    # 评估结果
-    evaluation_result = Column(Text, nullable=True, comment="详细的评估报告")
     
     # 执行结果
     execution_result = Column(Text, nullable=True, comment="脚本执行的stdout/stderr")
@@ -236,61 +204,6 @@ class APIExecution(Base):
 
     # 结构化报告 (JSON)
     structured_report = Column(JSON, nullable=True, comment="结构化的测试报告数据")
-    
-    # 创建时间
-    created_at = Column(DateTime, server_default=func.now())
-
-class Evaluation(Base):
-    """
-    测试评估模型 (Evaluation Model)
-    
-    用于存储对生成的测试用例质量的评估结果。
-    """
-    __tablename__ = "evaluations"
-
-    # 主键ID
-    id = Column(Integer, primary_key=True, index=True)
-    
-    # 关联用户ID
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
-
-    # 关联的项目ID
-    project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)
-    
-    # 评估的测试用例内容
-    test_case_content = Column(Text, nullable=False, comment="被评估的测试用例内容")
-    
-    # 评估结果
-    evaluation_result = Column(Text, nullable=True, comment="AI生成的评估报告")
-    
-    # 创建时间
-    created_at = Column(DateTime, server_default=func.now())
-
-class TestGenerationComparison(Base):
-    """
-    测试用例修改对比模型 (Test Generation Comparison Model)
-    
-    记录AI生成的用例与用户人工修改后用例的差异，用于RLHF或模型优化。
-    """
-    __tablename__ = "test_generation_comparisons"
-
-    # 主键ID
-    id = Column(Integer, primary_key=True, index=True)
-    
-    # 关联用户ID
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
-
-    # 关联的项目ID
-    project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)
-    
-    # 生成的测试用例
-    generated_test_case = Column(LONGTEXT, nullable=False, comment="AI原始生成的用例")
-    
-    # 修改后的测试用例
-    modified_test_case = Column(LONGTEXT, nullable=False, comment="用户修改后的用例")
-    
-    # AI对比分析结果
-    comparison_result = Column(LONGTEXT, nullable=True, comment="差异分析结果")
     
     # 创建时间
     created_at = Column(DateTime, server_default=func.now())

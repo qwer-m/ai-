@@ -1,2 +1,0 @@
-﻿run_id,positive_total_in_pool,negative_total_in_pool,positive_retrieved_raw,negative_retrieved_raw,positive_after_diversity,negative_after_diversity,positive_after_quota_merge,negative_after_quota_merge,positive_final_selected,negative_final_selected
-387,8,13,4,1,4,1,4,1,4,1

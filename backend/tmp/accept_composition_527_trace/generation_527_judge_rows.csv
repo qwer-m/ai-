@@ -1,9 +1,0 @@
-﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
-TC-001,课程列表页,P2,P1,P2,P2,decided,p2_cap_guard,high,,普通用户点击非第一单元课程时VIP锁定拦截并跳转商品详情页,PASS,-,False,False,False
-TC-002,课程列表页,P2,P1,P2,P2,decided,p2_cap_guard,high,,商品详情页展示购买单课69.9元与开通SVIP免费学两个入口,PASS,-,False,False,False
-TC-003,课程列表页,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,课程列表页点击错题本入口跳转同步作文错题本列表页,PASS,-,False,False,False
-TC-004,课程列表页,P2,P2,P2,P2,decided,model_semantic_consistent,high,,会员用户点击未更新课程显示待更新图标并toast提示,PASS,-,False,False,False
-TC-005,课程列表页,P1,P1,P1,P1,decided,model_p1_with_positive_evidence,medium,,首页热门推荐点击乐乐作文卡片进入同步作文课程列表页,PASS,-,False,False,False
-TC-006,课程列表页,P2,P1,P2,P2,decided,p2_cap_guard,high,,已开通用户在课程列表页不显示升级课程按钮,PASS,-,False,False,False
-TC-007,课程列表页,P1,P1,P1,P1,decided,model_semantic_consistent,high,,商品详情页购买单课直接进入支付流程,PASS,-,False,False,False
-TC-008,课程列表页,P2,P1,P2,P2,decided,p2_cap_guard,high,,商品详情页开通SVIP免费学跳转会员中心SVIP页签,PASS,-,False,False,False

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { normalizeDoc } from "./types";
 import { fetchKnowledgeList } from "./knowledgeBaseApi";
+import type { KnowledgeListResponse } from "./knowledgeBaseApi";
 import type { Doc } from "./types";
 
 type UseKnowledgeBaseStateParams = {
@@ -33,7 +34,7 @@ export type UseKnowledgeBaseStateResult = {
     type: string,
     start: string,
     end: string,
-  ) => Promise<any>;
+  ) => Promise<KnowledgeListResponse | null>;
 };
 
 const sessionKey = (projectId: number | null, suffix: string) =>
@@ -92,7 +93,7 @@ export function useKnowledgeBaseState({
     type: string,
     start: string,
     end: string,
-  ) => {
+  ): Promise<KnowledgeListResponse | null> => {
     setLoading(true);
     try {
       const data = await fetchKnowledgeList({

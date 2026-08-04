@@ -1,4 +1,4 @@
-from core.ai.ai_client_impl import AIClient
+from core.ai.ai_client import AIClient
 
 
 def test_local_image_cache_identity_uses_content_instead_of_temp_path(tmp_path):

@@ -1,4 +1,4 @@
-import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from "react";
+import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type {
   AuthApiKey,
   AuthBasicCredentials,
@@ -9,8 +9,9 @@ import type {
   RawType,
   RequestSettings,
   ResponseTab,
-  TestResult,
+  RunSubTab,
 } from "./utils/types";
+import type { DetailedCookie, ResponseFormat, ResponseViewMode } from "./ResponsePanel.types";
 
 export type StandardApiTestingRequestWorkspaceProps = {
   showSidebar: boolean;
@@ -40,13 +41,8 @@ export type StandardApiTestingRequestWorkspaceProps = {
   handleSendRequest: () => void;
   handleSaveInterfaceClick: () => void;
   handleSaveEnv: () => void;
-  mode: "natural" | "structured";
-  setMode: Dispatch<SetStateAction<"natural" | "structured">>;
-  requirement: string;
-  setRequirement: Dispatch<SetStateAction<string>>;
-  handleRun: () => void;
-  runSubTab: string;
-  setRunSubTab: (key: string) => void;
+  runSubTab: RunSubTab;
+  setRunSubTab: Dispatch<SetStateAction<RunSubTab>>;
   queryParams: KeyValueItem[];
   setQueryParams: Dispatch<SetStateAction<KeyValueItem[]>>;
   headers: KeyValueItem[];
@@ -102,7 +98,7 @@ export type StandardApiTestingRequestWorkspaceProps = {
   handleBodyScroll: (e: React.UIEvent<HTMLTextAreaElement>) => void;
   responseTab: ResponseTab;
   setResponseTab: Dispatch<SetStateAction<ResponseTab>>;
-  responseDetailedCookies: Record<string, string>;
+  responseDetailedCookies: Record<string, DetailedCookie>;
   responseCookies: Record<string, string>;
   responseHeaders: Record<string, string>;
   sentHeaders: Record<string, string>;
@@ -110,15 +106,13 @@ export type StandardApiTestingRequestWorkspaceProps = {
   responseStatus: number | null;
   responseTime: number | null;
   responseBody: string | null;
-  responseFormat: "JSON" | "XML" | "HTML" | "JavaScript" | "Raw" | "Hex" | "Base64";
-  setResponseFormat: Dispatch<SetStateAction<"JSON" | "XML" | "HTML" | "JavaScript" | "Raw" | "Hex" | "Base64">>;
-  responseViewMode: "json" | "html" | "headers";
-  setResponseViewMode: Dispatch<SetStateAction<"json" | "html" | "headers">>;
+  responseFormat: ResponseFormat;
+  setResponseFormat: Dispatch<SetStateAction<ResponseFormat>>;
+  responseViewMode: ResponseViewMode;
+  setResponseViewMode: Dispatch<SetStateAction<ResponseViewMode>>;
   aiAnalysis: string | null;
-  testResult: TestResult | null;
   handleAnalyzeResponse: () => void;
   isAnalyzing: boolean;
   scriptTests: { name: string; passed: boolean; error?: string }[];
-  renderDashboard: (report: NonNullable<TestResult["structured_report"]>) => ReactNode;
   onOpenCookieManager: () => void;
 };

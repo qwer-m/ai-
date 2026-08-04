@@ -9,7 +9,7 @@ from modules.knowledge_base_components.ports.vector_store_port import VectorStor
 
 
 class ChromaVectorStore(VectorStorePort):
-    """Compatibility wrapper over the existing chroma client."""
+    """Chroma 客户端的向量存储端口实现。"""
 
     def __init__(self, client=None) -> None:
         self._client = client or chroma_client
@@ -25,19 +25,12 @@ class ChromaVectorStore(VectorStorePort):
         where: dict[str, Any] | None = None,
         raise_on_error: bool = False,
     ) -> dict[str, Any]:
-        try:
-            return self._client.search(
-                query=query,
-                n_results=n_results,
-                where=where,
-                raise_on_error=raise_on_error,
-            )
-        except TypeError:
-            return self._client.search(
-                query=query,
-                n_results=n_results,
-                where=where,
-            )
+        return self._client.search(
+            query=query,
+            n_results=n_results,
+            where=where,
+            raise_on_error=raise_on_error,
+        )
 
     def search_by_metadata(
         self,
@@ -46,45 +39,29 @@ class ChromaVectorStore(VectorStorePort):
         n_results: int,
         raise_on_error: bool = False,
     ) -> dict[str, Any]:
-        try:
-            return self._client.search_by_metadata(
-                where=where,
-                n_results=n_results,
-                raise_on_error=raise_on_error,
-            )
-        except TypeError:
-            return self._client.search_by_metadata(where=where, n_results=n_results)
+        return self._client.search_by_metadata(
+            where=where,
+            n_results=n_results,
+            raise_on_error=raise_on_error,
+        )
 
     def add_document(
         self,
         *,
         doc_id: str,
-        content: str,
         metadata: dict[str, Any],
-        chunks: list[dict[str, Any]] | None = None,
+        chunks: list[dict[str, Any]],
         raise_on_error: bool = False,
     ) -> None:
-        try:
-            self._client.add_document(
-                doc_id=doc_id,
-                content=content,
-                metadata=metadata,
-                chunks=chunks,
-                raise_on_error=raise_on_error,
-            )
-        except TypeError:
-            self._client.add_document(
-                doc_id=doc_id,
-                content=content,
-                metadata=metadata,
-                chunks=chunks,
-            )
+        self._client.add_document(
+            doc_id=doc_id,
+            metadata=metadata,
+            chunks=chunks,
+            raise_on_error=raise_on_error,
+        )
 
     def delete_document(self, doc_id: str, *, raise_on_error: bool = False) -> None:
-        try:
-            self._client.delete_document(doc_id, raise_on_error=raise_on_error)
-        except TypeError:
-            self._client.delete_document(doc_id)
+        self._client.delete_document(doc_id, raise_on_error=raise_on_error)
 
 
 def get_vector_store(client=None) -> VectorStorePort:

@@ -30,7 +30,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from core.db.database import SessionLocal  # noqa: E402
-from core.db.models import KnowledgeDocument  # noqa: E402
+from core.db.model_defs import KnowledgeDocument  # noqa: E402
 from core.cache_layer.chroma_client import chroma_client  # noqa: E402
 from modules.knowledge_base_components.context.context_helpers import _run_retrieval_once  # noqa: E402
 
@@ -178,7 +178,7 @@ def _run_single_case(
                     "doc_id": str(item.get("doc_id") or ""),
                     "doc_type": _doc_type_label(item.get("doc_type")),
                     "final_score": round(
-                        _safe_float(item.get("final_score") or item.get("rerank_score") or item.get("score"), 0.0),
+                        _safe_float(item.get("final_score") or item.get("score"), 0.0),
                         4,
                     ),
                     "chunk_part_index": (
@@ -201,7 +201,7 @@ def _run_single_case(
                     "doc_type": _doc_type_label(item.get("doc_type")),
                     "selection_reason": item.get("selection_reason"),
                     "final_score": round(
-                        _safe_float(item.get("final_score") or item.get("rerank_score") or item.get("score"), 0.0),
+                        _safe_float(item.get("final_score") or item.get("score"), 0.0),
                         4,
                     ),
                 }

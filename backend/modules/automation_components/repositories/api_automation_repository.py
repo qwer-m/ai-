@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from core.db.models import APIExecution, Project, StandardInterface
+from core.db.model_defs import APIExecution, Project, StandardInterface
 
 
 class APIAutomationRepository:

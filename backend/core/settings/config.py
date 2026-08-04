@@ -26,13 +26,6 @@ load_dotenv(os.path.join(os.path.dirname(_BACKEND_DIR), ".env"))
 _logger = logging.getLogger(__name__)
 
 
-def _env_flag(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _env_int(name: str, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
@@ -88,14 +81,6 @@ class Config:
     TURBO_MODEL_NAME = os.getenv("TURBO_MODEL_NAME", "").strip()
     MAX_TOKENS = _env_int("MAX_TOKENS", 10000, minimum=1)  # 最大输出token数
 
-    # 测试用例生成的逻辑批次大小，JSON 与 Stream 入口共用同一默认值。
-    TEST_GENERATION_BATCH_SIZE = _env_int(
-        "TEST_GENERATION_BATCH_SIZE",
-        25,
-        minimum=1,
-        maximum=200,
-    )
-    
     # ===========================
     # 数据库配置
     # ===========================
@@ -115,16 +100,6 @@ class Config:
         DATABASE_URL = f"mysql+pymysql://{DB_USER_ENCODED}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
 
     # ===========================
-    # UI自动化配置
-    # ===========================
-    HEADLESS_MODE = True  # 是否启用无头模式（无界面运行浏览器）
-    
-    # ===========================
-    # API测试配置
-    # ===========================
-    DEFAULT_TIMEOUT = 10  # API测试默认超时时间（秒）
-
-    # ===========================
     # Redis配置（用于健康检查）
     # ===========================
     REDIS_URL = os.getenv("REDIS_URL", "").strip()
@@ -136,62 +111,12 @@ class Config:
     # ===========================
     # 安全配置
     # ===========================
-    ENABLE_DIAGNOSTIC_ROUTES = _env_flag("ENABLE_DIAGNOSTIC_ROUTES", IS_DEVELOPMENT)
     SECRET_KEY = os.getenv("SECRET_KEY")
     if not SECRET_KEY:
         if ENV in {"prod", "production"}:
             raise RuntimeError("SECRET_KEY environment variable is required in production")
         SECRET_KEY = "dev-secret-key-change-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days
-
-    # ===========================
-    # Stream generation coverage shard flags
-    # ===========================
-    # 单批达到公共批大小时默认启用内部覆盖分片，避免把 25 条用例压成一次长响应。
-    GENERATION_STREAM_COVERAGE_SHARDS_ENABLED = _env_flag(
-        "GENERATION_STREAM_COVERAGE_SHARDS_ENABLED",
-        True,
-    )
-    GENERATION_STREAM_COVERAGE_SHARD_MAX_WORKERS = _env_int(
-        "GENERATION_STREAM_COVERAGE_SHARD_MAX_WORKERS",
-        2,
-        minimum=1,
-        maximum=4,
-    )
-    GENERATION_STREAM_COVERAGE_SHARD_MIN_EXPECTED_COUNT = _env_int(
-        "GENERATION_STREAM_COVERAGE_SHARD_MIN_EXPECTED_COUNT",
-        TEST_GENERATION_BATCH_SIZE,
-        minimum=1,
-        maximum=500,
-    )
-    GENERATION_STREAM_COVERAGE_SHARD_MIN_RULES = _env_int(
-        "GENERATION_STREAM_COVERAGE_SHARD_MIN_RULES",
-        8,
-        minimum=1,
-        maximum=100,
-    )
-    GENERATION_STREAM_COVERAGE_SHARD_DUPLICATE_RATE_ABORT = _env_float(
-        "GENERATION_STREAM_COVERAGE_SHARD_DUPLICATE_RATE_ABORT",
-        0.25,
-        minimum=0.0,
-        maximum=1.0,
-    )
-    GENERATION_STREAM_COVERAGE_SHARD_MIN_UNIQUE_RATIO = _env_float(
-        "GENERATION_STREAM_COVERAGE_SHARD_MIN_UNIQUE_RATIO",
-        0.45,
-        minimum=0.0,
-        maximum=1.0,
-    )
-
-    # ===========================
-    # Execution plan persistence gate
-    # ===========================
-    EXECUTION_PLAN_GATE_MODE = os.getenv("EXECUTION_PLAN_GATE_MODE", "enforce").strip().lower()
-    CASE_QUALITY_ENFORCE_MIN_ACCEPTABLE_FINAL = _env_flag(
-        "CASE_QUALITY_ENFORCE_MIN_ACCEPTABLE_FINAL",
-        False,
-    )
-
 
 # 创建配置实例
 settings = Config()

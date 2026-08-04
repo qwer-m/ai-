@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from core.db.models import UITestCase
+from core.db.model_defs import UITestCase
 from modules.automation_components.services.ui_automation_export_service import UIAutomationExportService
 from modules.automation_components.services.ui_test_case_service import UITestCaseService
 

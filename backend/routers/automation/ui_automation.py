@@ -7,22 +7,19 @@ import requests
 import subprocess
 import tempfile
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from core.authn.auth import get_current_user
+from core.authn.auth import get_current_user, oauth2_scheme
 from core.authn.diagnostic_access import validate_outbound_http_url
 from core.db.database import get_db
-from core.db.models import User
+from core.db.model_defs import User
 from modules.automation_components.services.ui_automation_service import UIAutomationService
 from modules.automation_components.services.ui_test_case_import_service import UITestCaseImportService
 from modules.testing.ui_automation import ui_automator
 from schemas.automation.ui_automation import UIRequest, UIScriptConvertRequest
 
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
 router = APIRouter(
     prefix="/ui-automation",
@@ -43,18 +40,12 @@ class DetectResponse(BaseModel):
 
 def _detect_appium_server() -> str | None:
     configured = os.environ.get("APPIUM_SERVER_URL", "http://127.0.0.1:4723").rstrip("/")
-    roots = [configured]
-    if configured.endswith("/wd/hub"):
-        roots.append(configured[: -len("/wd/hub")])
-    else:
-        roots.append(f"{configured}/wd/hub")
-    for root in dict.fromkeys(roots):
-        try:
-            response = requests.get(f"{root}/status", timeout=2)
-            if response.ok:
-                return root
-        except requests.RequestException:
-            continue
+    try:
+        response = requests.get(f"{configured}/status", timeout=2)
+        if response.ok:
+            return configured
+    except requests.RequestException:
+        pass
     return None
 
 
@@ -124,18 +115,6 @@ async def detect_environment(request: DetectRequest, current_user: User = Depend
     return DetectResponse(success=False, message="未知的自动化类型")
 
 
-@router.get("/app-info")
-def get_current_app_info(
-    device_id: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
-):
-    _ = current_user
-    result = ui_automator.get_current_app_info(device_id)
-    if "error" in result:
-        raise HTTPException(status_code=500, detail=result["error"])
-    return result
-
-
 @router.get("/history")
 def list_ui_automation_history(
     project_id: int,
@@ -146,52 +125,6 @@ def list_ui_automation_history(
     if status == "project_not_found":
         raise HTTPException(status_code=404, detail="Project not found")
     return history
-
-
-@router.get("/device-screenshot")
-def get_android_device_screenshot(
-    device_id: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
-):
-    """返回 Android 设备当前真实画面，用于 AI 执行期间的中心预览。"""
-    _ = current_user
-    try:
-        if not device_id:
-            devices = subprocess.run(
-                ["adb", "devices"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                check=False,
-            )
-            device_id = next(
-                (
-                    columns[0]
-                    for line in devices.stdout.splitlines()[1:]
-                    if len(columns := line.split()) >= 2 and columns[1] == "device"
-                ),
-                None,
-            )
-        if not device_id:
-            raise HTTPException(status_code=409, detail="未检测到已连接的 Android 设备")
-        result = subprocess.run(
-            ["adb", "-s", device_id, "exec-out", "screencap", "-p"],
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
-        if result.returncode != 0 or not result.stdout.startswith(b"\x89PNG\r\n\x1a\n"):
-            detail = result.stderr.decode("utf-8", errors="replace").strip() or "ADB 未返回有效 PNG 画面"
-            raise HTTPException(status_code=502, detail=detail)
-        return Response(
-            content=result.stdout,
-            media_type="image/png",
-            headers={"Cache-Control": "no-store, max-age=0", "X-Android-Device": device_id},
-        )
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=503, detail="本地未安装 ADB 工具") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(status_code=504, detail="获取 Android 设备画面超时") from exc
 
 
 @router.get("/{execution_id}")
@@ -286,26 +219,6 @@ async def ai_locate_element(
                 pass
 
 
-@router.post("/generate")
-def generate_ui_script_only(
-    req: UIRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    token: str = Depends(oauth2_scheme),
-):
-    try:
-        status, result = UIAutomationService(db).generate_script(
-            payload=req.model_dump(),
-            user_id=current_user.id,
-            token=token,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    if status == "project_not_found":
-        raise HTTPException(status_code=404, detail="Project not found")
-    return result
-
-
 @router.post("/natural-run")
 def run_ui_from_natural_language(
     req: UIRequest,
@@ -373,26 +286,6 @@ def execute_ui_script_direct(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if status == "project_not_found":
-        raise HTTPException(status_code=404, detail="Project not found")
-    return result
-
-
-@router.post("/")
-def run_ui_automation(
-    req: UIRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    token: str = Depends(oauth2_scheme),
-):
-    try:
-        status, result = UIAutomationService(db).run_ui_automation(
-            payload=req.model_dump(),
-            user_id=current_user.id,
-            token=token,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
     if status == "project_not_found":
         raise HTTPException(status_code=404, detail="Project not found")
     return result

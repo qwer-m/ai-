@@ -3,8 +3,6 @@
 body.ui-overhaul-v4 .project-page-shell,
 body.ui-overhaul-v4 .evaluation-shell,
 body.ui-overhaul-v4 .knowledge-base-shell,
-body.ui-overhaul-v4 .test-generation-shell,
-body.ui-overhaul-v4 .api-testing-shell,
 body.ui-overhaul-v4 .api-automation-shell {
   color: var(--fd-text);
 }

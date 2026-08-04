@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from core.settings.config import settings
 from core.db.database import Base
-from core.db.models import KnowledgeDocument
+from core.db.model_defs import KnowledgeDocument
 
 def check_documents():
     """检查数据库中的文档"""

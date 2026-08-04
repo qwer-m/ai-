@@ -26,7 +26,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.settings.config import settings
-from core.db.models import CacheEntry
+from core.db.model_defs import CacheEntry
 
 
 class _MemoryL1Cache:

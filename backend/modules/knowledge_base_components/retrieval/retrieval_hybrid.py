@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from core.db.models import KnowledgeDocument
+from core.db.model_defs import KnowledgeDocument
 from modules.knowledge_base_components.repositories.knowledge_document_repository import (
     KnowledgeDocumentRepository,
 )

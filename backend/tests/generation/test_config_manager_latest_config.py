@@ -4,8 +4,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from core.db.models import SystemConfig, User
-from core.ai.ai_client_impl import get_client_for_user
+from core.db.model_defs import SystemConfig, User
+from core.ai.ai_client import get_client_for_user
 from core.settings.config_manager import ConfigManager
 
 

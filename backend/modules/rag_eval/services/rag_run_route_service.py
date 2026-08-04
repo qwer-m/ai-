@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from core.db.models import Project, RagDatasetSample, RagEvalRun, RagEvalSampleResult
+from core.db.model_defs import Project, RagDatasetSample, RagEvalRun, RagEvalSampleResult
 from modules.rag_eval.repositories.rag_eval_repo import get_run, list_run_sample_results
 from modules.rag_eval.services.rag_eval_compare_service import compare_runs
 from modules.rag_eval.services.rag_eval_service import resume_eval_run, start_eval_run, stop_eval_run

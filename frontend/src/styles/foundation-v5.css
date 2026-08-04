@@ -159,68 +159,6 @@ body.ui-overhaul-v4 .dashboard-shell .text-secondary {
   border-bottom: 1px solid color-mix(in srgb, #ffffff 26%, transparent);
 }
 
-.inline-status-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-radius: var(--fd-radius-md);
-  border: 1px solid transparent;
-  background: var(--fd-surface-soft);
-  color: var(--fd-text);
-  box-shadow: var(--fd-shadow-sm);
-}
-
-.inline-status-compact {
-  padding: 8px 12px;
-}
-
-.inline-status-icon {
-  width: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.inline-status-text {
-  white-space: pre-wrap;
-}
-
-.inline-status-spin {
-  animation: inline-spin 1s linear infinite;
-}
-
-.inline-status-loading {
-  border-color: color-mix(in srgb, var(--fd-primary) 30%, var(--fd-border));
-  background: color-mix(in srgb, var(--fd-primary) 12%, var(--fd-surface-soft));
-}
-
-.inline-status-info {
-  border-color: color-mix(in srgb, #0ea5e9 28%, var(--fd-border));
-  background: color-mix(in srgb, #0ea5e9 10%, var(--fd-surface-soft));
-}
-
-.inline-status-success {
-  border-color: color-mix(in srgb, var(--fd-success) 30%, var(--fd-border));
-  background: color-mix(in srgb, var(--fd-success) 12%, var(--fd-surface-soft));
-}
-
-.inline-status-warning,
-.inline-status-error {
-  border-color: color-mix(in srgb, var(--fd-danger) 28%, var(--fd-border));
-  background: color-mix(in srgb, var(--fd-danger) 12%, var(--fd-surface-soft));
-}
-
-@keyframes inline-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

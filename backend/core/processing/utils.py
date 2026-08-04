@@ -17,7 +17,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 # Use string import or lazy import if circular dependency occurs
 # But here we assume no circular dependency for LogEntry
-from core.db.models import LogEntry
+from core.db.model_defs import LogEntry
 
 # Configure logger
 # 全局日志配置 (Global Logger Configuration)

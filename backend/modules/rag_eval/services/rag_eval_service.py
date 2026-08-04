@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.ai.ai_client import get_client_for_user
 from core.db.database import SessionLocal
-from core.db.models import RagDataset, RagDatasetSample, RagEvalRun, RagEvalSampleResult
+from core.db.model_defs import RagDataset, RagDatasetSample, RagEvalRun, RagEvalSampleResult
 from modules.orchestration.background_task_governance import (
     BackgroundTaskKind,
     submit_background_task,

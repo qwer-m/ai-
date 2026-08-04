@@ -1,4 +1,0 @@
-﻿run_id,positive_total_in_pool,negative_total_in_pool,positive_retrieved_raw,negative_retrieved_raw,positive_after_diversity,negative_after_diversity,positive_after_quota_merge,negative_after_quota_merge,positive_final_selected,negative_final_selected
-370,8,13,8,13,5,0,5,0,5,0
-371,8,13,8,13,5,0,5,0,5,0
-372,8,13,8,13,5,0,5,0,5,0

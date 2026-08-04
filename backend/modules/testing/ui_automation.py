@@ -15,7 +15,7 @@ from PIL import Image
 from sqlalchemy.orm import Session
 
 from core.ai.ai_client import get_client_for_user
-from core.db.models import UIExecution
+from core.db.model_defs import UIExecution
 from core.processing.utils import extract_code_block, run_script_file, run_temp_script
 from modules.testing.ui_automation_prompts import (
     build_ai_locate_function,
@@ -504,36 +504,35 @@ class UIAutomationModule:
                 execution.screenshot_paths = screenshot_paths
                 db.commit()
 
-                if status in {"success", "failed"}:
+                evaluation_run_id = None
+                if status in {"success", "failed"} and project_id and user_id:
                     try:
-                        from modules.testing.evaluation import evaluator
+                        from modules.agent_platform.automation_evaluation import (
+                            execute_automation_evaluation,
+                        )
 
-                        eval_result = evaluator.evaluate_ui_automation(
-                            script,
-                            result_text,
+                        evaluation_run, _ = execute_automation_evaluation(
                             db=db,
                             project_id=project_id,
                             user_id=user_id,
+                            evaluation_type="ui",
+                            script=script,
+                            execution_result=result_text,
+                            project_context=task_description,
+                            source_execution_id=execution.id,
                         )
-                        execution.evaluation_result = eval_result
-
-                        score = 5.0
-                        if "Score: " in eval_result:
-                            try:
-                                score_part = eval_result.split("Score: ")[1].split("/")[0].strip()
-                                score = float(score_part)
-                            except Exception:
-                                pass
-                        execution.quality_score = score
-                        db.commit()
+                        evaluation_run_id = evaluation_run.id
                     except Exception as ev_e:
                         print(f"Auto-evaluation failed: {ev_e}")
+            else:
+                evaluation_run_id = None
 
             return {
                 "status": status,
                 "stdout": stdout,
                 "stderr": stderr,
                 "execution_id": execution.id if db else None,
+                "evaluation_run_id": evaluation_run_id,
                 "screenshot_paths": screenshot_paths,
                 "device_readiness": device_readiness,
                 "foreground_app": foreground_app,

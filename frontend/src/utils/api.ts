@@ -1,8 +1,8 @@
-﻿export class APIError extends Error {
+﻿class APIError extends Error {
   status: number;
-  data: any;
+  data: unknown;
 
-  constructor(message: string, status: number, data: any) {
+  constructor(message: string, status: number, data: unknown) {
     super(message);
     this.status = status;
     this.data = data;
@@ -16,11 +16,15 @@ function handleUnauthorized() {
   window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
 }
 
-function extractErrorMessage(data: any, statusText?: string): string {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function extractErrorMessage(data: unknown, statusText?: string): string {
   const fallback = statusText || 'Request failed';
   if (data === undefined || data === null) return fallback;
   if (typeof data === 'string') return data.trim() || fallback;
-  if (typeof data !== 'object') return String(data);
+  if (!isRecord(data)) return String(data);
 
   const directCandidates = [data.error_message, data.error, data.message, data.msg];
   for (const candidate of directCandidates) {
@@ -29,7 +33,7 @@ function extractErrorMessage(data: any, statusText?: string): string {
 
   const detail = data.detail;
   if (typeof detail === 'string' && detail.trim()) return detail.trim();
-  if (detail && typeof detail === 'object') {
+  if (isRecord(detail)) {
     const detailCandidates = [
       detail.error_message,
       detail.error,
@@ -55,38 +59,33 @@ function extractErrorMessage(data: any, statusText?: string): string {
   }
 }
 
-export function getAuthHeaders(): Record<string, string> {
+function getAuthToken(): string | null {
   const token = localStorage.getItem('token');
-  // Check if token is valid (simple check)
-  if (token && token.trim().length > 0) {
-      return { 'Authorization': `Bearer ${token}` };
-  }
-  return {};
+  return token?.trim() || null;
 }
 
 function buildRequestConfig(options: RequestInit = {}, includeJsonContentType = true): RequestInit {
-  const authHeaders = getAuthHeaders();
-  const defaultHeaders: Record<string, string> = includeJsonContentType
-    ? {
-      'Content-Type': 'application/json',
-      ...authHeaders,
-    }
-    : {
-      ...authHeaders,
-    };
-
-  const config: RequestInit = {
-    ...options,
-    headers: {
-      ...defaultHeaders,
-      ...options.headers,
-    },
-  };
-
-  if (options.body instanceof FormData) {
-    delete (config.headers as any)['Content-Type'];
+  const headers = new Headers(options.headers);
+  const token = getAuthToken();
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
   }
-  return config;
+  if (options.body instanceof FormData) {
+    headers.delete('Content-Type');
+  } else if (includeJsonContentType && options.body !== undefined && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  return { ...options, headers };
+}
+
+function parseResponseText(rawText: string): unknown {
+  if (!rawText) return null;
+  try {
+    const parsed: unknown = JSON.parse(rawText);
+    return parsed;
+  } catch {
+    return rawText;
+  }
 }
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
@@ -99,34 +98,16 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
         handleUnauthorized();
     }
 
-    const contentType = response.headers.get('content-type') || '';
     const rawText = await response.text();
-    let data: any = null;
-    if (rawText) {
-      const shouldTryJson = contentType.includes('application/json') || contentType.includes('+json');
-      if (shouldTryJson) {
-        try {
-          data = JSON.parse(rawText);
-        } catch {
-          data = rawText;
-        }
-      } else {
-        try {
-          data = JSON.parse(rawText);
-        } catch {
-          data = rawText;
-        }
-      }
-    }
+    const data = parseResponseText(rawText);
 
     if (!response.ok) {
       const message = extractErrorMessage(data, response.statusText);
       throw new APIError(message, response.status, data);
     }
     
-    // Check for application-level error in 200 OK response (common in some backends)
-    if (data && typeof data === 'object' && data.error) {
-        throw new APIError(data.error, 200, data);
+    if (isRecord(data) && data.error) {
+      throw new APIError(extractErrorMessage(data), 200, data);
     }
 
     return data as T;
@@ -148,14 +129,7 @@ async function requestRaw(url: string, options: RequestInit = {}): Promise<Respo
   if (!response.ok) {
     const contentType = response.headers.get('content-type') || '';
     const rawText = await response.text();
-    let data: any = null;
-    if (rawText) {
-      try {
-        data = JSON.parse(rawText);
-      } catch {
-        data = rawText;
-      }
-    }
+    const data = parseResponseText(rawText);
     const message =
       contentType.includes('application/json')
         ? extractErrorMessage(data, response.statusText)
@@ -169,8 +143,8 @@ async function requestRaw(url: string, options: RequestInit = {}): Promise<Respo
 
 export const api = {
   get: <T>(url: string) => request<T>(url, { method: 'GET' }),
-  post: <T>(url: string, body: any) => request<T>(url, { method: 'POST', body: JSON.stringify(body) }),
-  put: <T>(url: string, body: any) => request<T>(url, { method: 'PUT', body: JSON.stringify(body) }),
+  post: <T>(url: string, body: unknown) => request<T>(url, { method: 'POST', body: JSON.stringify(body) }),
+  put: <T>(url: string, body: unknown) => request<T>(url, { method: 'PUT', body: JSON.stringify(body) }),
   delete: <T>(url: string) => request<T>(url, { method: 'DELETE' }),
   upload: <T>(url: string, formData: FormData) => {
       return request<T>(url, {
@@ -180,13 +154,14 @@ export const api = {
   },
   raw: (url: string, options: RequestInit = {}) => requestRaw(url, options),
   getBlob: (url: string, options: RequestInit = {}) => requestRaw(url, { ...options, method: options.method || 'GET' }).then((r) => r.blob()),
-  postBlob: (url: string, body: any, options: RequestInit = {}) => requestRaw(url, {
-    ...options,
-    method: 'POST',
-    body: JSON.stringify(body),
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  }).then((r) => r.blob()),
+  postBlob: (url: string, body: unknown, options: RequestInit = {}) => {
+    const headers = new Headers(options.headers);
+    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+    return requestRaw(url, {
+      ...options,
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers,
+    }).then((response) => response.blob());
+  },
 };

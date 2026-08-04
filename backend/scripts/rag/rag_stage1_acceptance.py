@@ -104,7 +104,7 @@ def poll_parse_status(
     client: httpx.Client,
     base_url: str,
     token: str,
-    document_global_id: int,
+    document_id: int,
     timeout_sec: int = 120,
     interval_sec: float = 1.5,
 ) -> dict:
@@ -115,7 +115,7 @@ def poll_parse_status(
 
     while time.time() < deadline:
         resp = client.get(
-            f"{base_url}/api/knowledge/{document_global_id}/parse-status",
+            f"{base_url}/api/knowledge/{document_id}/parse-status",
             headers=headers,
         )
         resp.raise_for_status()
@@ -260,12 +260,12 @@ def run_acceptance(args: argparse.Namespace) -> int:
                 )
                 print(" upload:", json.dumps(upload_result, ensure_ascii=False))
 
-                doc_id = int(upload_result["global_id"])
+                doc_id = int(upload_result["id"])
                 status_result = poll_parse_status(
                     client=client,
                     base_url=args.base_url.rstrip("/"),
                     token=args.token,
-                    document_global_id=doc_id,
+                    document_id=doc_id,
                     timeout_sec=timeout,
                     interval_sec=args.interval,
                 )

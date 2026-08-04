@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.db.models import UITestCase
+from core.db.model_defs import UITestCase
 from modules.automation_components.repositories.ui_test_case_repository import UITestCaseRepository
 from modules.automation_components.services.ui_automation_export_service import UIAutomationExportService
 

@@ -1,5 +1,5 @@
 from core.db.database import SessionLocal
-from core.db.models import Project
+from core.db.model_defs import Project
 
 # 获取数据库会话
 db = SessionLocal()

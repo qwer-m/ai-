@@ -2,7 +2,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from core.db.models import KnowledgeDocument
+from core.db.model_defs import KnowledgeDocument
 from modules.knowledge_base_components.repositories.knowledge_document_repository import (
     KnowledgeDocumentRepository,
 )
@@ -58,8 +58,8 @@ def build_knowledge_list_response(
 
 def build_knowledge_detail_response(doc: KnowledgeDocument, linked_docs: list[KnowledgeDocument]) -> dict:
     return {
-        "id": doc.project_specific_id or doc.id,
-        "global_id": doc.id,
+        "id": doc.id,
+        "display_id": doc.project_specific_id,
         "filename": doc.filename,
         "doc_type": doc.doc_type,
         "created_at": _to_iso(doc.created_at),
@@ -80,8 +80,8 @@ def build_parse_status_response(
     task_status: Optional[dict] = None,
 ) -> dict:
     response = {
-        "id": doc.project_specific_id or doc.id,
-        "global_id": doc.id,
+        "id": doc.id,
+        "display_id": doc.project_specific_id,
         "parse_status": doc.parse_status,
         "parse_error": doc.parse_error,
         "parsed_at": _to_iso(doc.parsed_at),
@@ -105,8 +105,8 @@ def build_parse_status_response(
 def build_upload_knowledge_response(doc: KnowledgeDocument, enqueue_result: dict) -> dict:
     response = {
         "success": True,
-        "id": doc.project_specific_id or doc.id,
-        "global_id": doc.id,
+        "id": doc.id,
+        "display_id": doc.project_specific_id,
         "filename": doc.filename,
         "doc_type": doc.doc_type,
         "created_at": _to_iso(doc.created_at),

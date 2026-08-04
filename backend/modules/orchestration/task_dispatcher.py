@@ -26,11 +26,6 @@ class TaskDispatchResult:
     queue: str = "celery"
     error: str = ""
 
-    @property
-    def id(self) -> str:
-        """Compatibility property for existing task-result call sites."""
-        return self.task_id
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "queued": self.queued,

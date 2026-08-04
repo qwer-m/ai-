@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Any, Optional
 
 class UIRequest(BaseModel):
     url: str
@@ -20,4 +20,4 @@ class UIAutoEvalRequest(BaseModel):
     script: str
     execution_result: str
     project_id: int
-    journey_json: Optional[str] = None
+    journey_json: dict[str, Any] | None = None

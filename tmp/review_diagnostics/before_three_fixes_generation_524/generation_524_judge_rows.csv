@@ -1,3 +1,0 @@
-﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
-TC-006,官方区,P2,P2,P2,P2,optional,uncertain_requirement_guard,low,,验证官方区页面背景主色调已调整，帖子卡片和导航栏UI样式已按新设计稿更新（美术风格升级）,PENDING,contains_pending_logic,False,True,False
-TC-012,反馈区,P2,P2,P2,P2,decided,p2_cap_guard,high,,验证反馈区发帖/回帖每日基础5次限制，超出后阻止操作,REJECT,semantic_duplicate:TC-013,False,False,False

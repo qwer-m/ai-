@@ -9,7 +9,7 @@ from datetime import datetime
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, aliased
 
-from core.db.models import KnowledgeDocument, Project
+from core.db.model_defs import KnowledgeDocument, Project
 
 
 USER_MANAGED_DOC_TYPES = (
@@ -19,9 +19,6 @@ USER_MANAGED_DOC_TYPES = (
     "product_requirement",
     "incomplete",
 )
-OPTIONAL_USER_VISIBLE_DOC_TYPES = ("evaluation_report",)
-
-
 class KnowledgeDocumentRepository:
     """Session-backed repository for KnowledgeDocument."""
 
@@ -45,19 +42,6 @@ class KnowledgeDocumentRepository:
 
     def get_by_id(self, doc_id: int) -> Optional[KnowledgeDocument]:
         return self.db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
-
-    def get_by_project_specific_id(self, project_specific_id: int) -> Optional[KnowledgeDocument]:
-        return (
-            self.db.query(KnowledgeDocument)
-            .filter(KnowledgeDocument.project_specific_id == project_specific_id)
-            .first()
-        )
-
-    def get_by_id_or_project_specific_id(self, doc_id: int) -> Optional[KnowledgeDocument]:
-        doc = self.get_by_id(doc_id)
-        if doc:
-            return doc
-        return self.get_by_project_specific_id(doc_id)
 
     def find_duplicate_by_hash(
         self,
@@ -128,31 +112,6 @@ class KnowledgeDocumentRepository:
             .first()
         )
 
-    def get_owned_by_project_specific_id(
-        self,
-        *,
-        project_specific_id: int,
-        user_id: int,
-    ) -> Optional[KnowledgeDocument]:
-        return (
-            self.db.query(KnowledgeDocument)
-            .join(Project, Project.id == KnowledgeDocument.project_id)
-            .filter(KnowledgeDocument.project_specific_id == project_specific_id, Project.user_id == user_id)
-            .order_by(KnowledgeDocument.created_at.desc(), KnowledgeDocument.id.desc())
-            .first()
-        )
-
-    def get_owned_by_id_or_project_specific_id(
-        self,
-        *,
-        doc_id: int,
-        user_id: int,
-    ) -> Optional[KnowledgeDocument]:
-        doc = self.get_owned_by_id(doc_id=doc_id, user_id=user_id)
-        if doc:
-            return doc
-        return self.get_owned_by_project_specific_id(project_specific_id=doc_id, user_id=user_id)
-
     def list_linked_test_cases_for_sources(
         self,
         *,
@@ -200,60 +159,6 @@ class KnowledgeDocumentRepository:
         if limit is not None:
             query = query.limit(max(1, int(limit)))
         return query.all()
-
-    def list_project_docs_for_snapshot(
-        self,
-        *,
-        project_id: int,
-        max_docs: int,
-    ) -> list[KnowledgeDocument]:
-        return (
-            self.db.query(KnowledgeDocument)
-            .filter(KnowledgeDocument.project_id == project_id)
-            .order_by(KnowledgeDocument.created_at.asc(), KnowledgeDocument.id.asc())
-            .limit(max(1, int(max_docs)))
-            .all()
-        )
-
-    def list_project_doc_snapshot_fingerprints(
-        self,
-        *,
-        project_id: int,
-        max_docs: int,
-    ) -> list:
-        return (
-            self.db.query(
-                KnowledgeDocument.id,
-                KnowledgeDocument.filename,
-                KnowledgeDocument.content_hash,
-                KnowledgeDocument.doc_type,
-                KnowledgeDocument.user_id,
-                func.length(KnowledgeDocument.summary).label("summary_length"),
-                func.length(KnowledgeDocument.content).label("content_length"),
-            )
-            .filter(KnowledgeDocument.project_id == project_id)
-            .order_by(KnowledgeDocument.created_at.asc(), KnowledgeDocument.id.asc())
-            .limit(max(1, int(max_docs)))
-            .all()
-        )
-
-    def list_project_doc_contents_by_ids(
-        self,
-        *,
-        project_id: int,
-        doc_ids: Iterable[int],
-    ) -> list:
-        cleaned_doc_ids = [int(value) for value in doc_ids if value is not None]
-        if not cleaned_doc_ids:
-            return []
-        return (
-            self.db.query(KnowledgeDocument.id, KnowledgeDocument.content)
-            .filter(
-                KnowledgeDocument.project_id == project_id,
-                KnowledgeDocument.id.in_(cleaned_doc_ids),
-            )
-            .all()
-        )
 
     def list_project_docs_ordered_by_id(self, *, project_id: int) -> list[KnowledgeDocument]:
         return (
@@ -344,7 +249,6 @@ class KnowledgeDocumentRepository:
         search: str | None = None,
         doc_type: str | None = None,
         include_linked_test_cases: bool = False,
-        include_evaluation_reports: bool = False,
         include_internal_artifacts: bool = False,
         start_date: str | None = None,
         end_date: str | None = None,
@@ -352,10 +256,7 @@ class KnowledgeDocumentRepository:
         query = self.db.query(KnowledgeDocument).filter(KnowledgeDocument.project_id == project_id)
 
         if not include_internal_artifacts:
-            visible_types = list(USER_MANAGED_DOC_TYPES)
-            if include_evaluation_reports:
-                visible_types.extend(OPTIONAL_USER_VISIBLE_DOC_TYPES)
-            query = query.filter(KnowledgeDocument.doc_type.in_(visible_types))
+            query = query.filter(KnowledgeDocument.doc_type.in_(USER_MANAGED_DOC_TYPES))
 
         if search:
             query = query.filter(KnowledgeDocument.filename.like(f"%{search}%"))
@@ -370,9 +271,6 @@ class KnowledgeDocumentRepository:
                     KnowledgeDocument.source_doc_id.isnot(None),
                 )
             )
-
-        if not include_evaluation_reports:
-            query = query.filter(KnowledgeDocument.doc_type != "evaluation_report")
 
         if start_date:
             try:

@@ -1,76 +1,81 @@
-﻿export type LinkedDoc = {
+export type LinkedDocumentRecord = {
   id: number;
-  global_id: number;
+  display_id: number;
+  filename: string;
+  content_preview: string;
+};
+
+export type KnowledgeDocumentRecord = {
+  id: number;
+  display_id: number;
+  filename: string;
+  doc_type: string | null;
+  created_at: string | null;
+  file_size: number;
+  source_doc_id: number | null;
+  source_doc_name: string | null;
+  linked_test_cases: LinkedDocumentRecord[];
+  content_preview: string;
+};
+
+export type LinkedDoc = {
+  id: number;
+  display_id: number;
   filename: string;
   content_preview: string;
 };
 
 export type Doc = {
   id: number;
-  global_id: number;
+  display_id: number;
   filename: string;
   doc_type: string;
   created_at: string;
-  file_size?: number;
-  source_doc_id?: number | null;
-  source_doc_name?: string | null;
-  linked_test_cases?: LinkedDoc[];
-  content_preview?: string;
-  isNew?: boolean;
+  file_size: number;
+  source_doc_id: number | null;
+  source_doc_name: string | null;
+  linked_test_cases: LinkedDoc[];
+  content_preview: string;
   _isLinked?: boolean;
 };
 
 export type DragTarget = {
   index: number;
-  position: 'before' | 'after';
+  position: "before" | "after";
 };
 
 export const docTypeMap: Record<string, string> = {
-  requirement: '需求文档',
-  test_case: '测试用例',
-  prototype: '原型图',
-  product_requirement: '产品需求',
-  incomplete: '残缺文档',
-  evaluation_report: '评估报告',
+  requirement: "需求文档",
+  test_case: "测试用例",
+  prototype: "原型图",
+  product_requirement: "产品需求",
+  incomplete: "残缺文档",
 };
 
 export const docTypeColor: Record<string, string> = {
-  requirement: 'primary',
-  test_case: 'success',
-  prototype: 'info',
-  product_requirement: 'primary',
-  incomplete: 'warning',
-  evaluation_report: 'secondary',
+  requirement: "primary",
+  test_case: "success",
+  prototype: "info",
+  product_requirement: "primary",
+  incomplete: "warning",
 };
 
-const normalizeLinkedDoc = (raw: any): LinkedDoc => {
-  const globalId = Number(raw?.global_id ?? raw?.id ?? 0);
-  const localId = Number(raw?.id ?? globalId);
-  return {
-    id: localId,
-    global_id: globalId,
-    filename: String(raw?.filename ?? ''),
-    content_preview: String(raw?.content_preview ?? ''),
-  };
-};
+const normalizeLinkedDoc = (record: LinkedDocumentRecord): LinkedDoc => ({
+  id: record.id,
+  display_id: record.display_id,
+  filename: record.filename,
+  content_preview: record.content_preview,
+});
 
-export const normalizeDoc = (raw: any): Doc => {
-  const globalId = Number(raw?.global_id ?? raw?.id ?? 0);
-  const localId = Number(raw?.project_specific_id ?? raw?.id ?? globalId);
-  const linkedDocs = Array.isArray(raw?.linked_test_cases) ? raw.linked_test_cases.map(normalizeLinkedDoc) : [];
-
-  return {
-    id: localId,
-    global_id: globalId,
-    filename: String(raw?.filename ?? ''),
-    doc_type: String(raw?.doc_type ?? ''),
-    created_at: String(raw?.created_at ?? ''),
-    file_size: raw?.file_size != null ? Number(raw.file_size) : undefined,
-    source_doc_id: raw?.source_doc_id != null ? Number(raw.source_doc_id) : null,
-    source_doc_name: raw?.source_doc_name != null ? String(raw.source_doc_name) : null,
-    linked_test_cases: linkedDocs,
-    content_preview: raw?.content_preview != null ? String(raw.content_preview) : undefined,
-    isNew: Boolean(raw?.isNew),
-    _isLinked: Boolean(raw?._isLinked),
-  };
-};
+export const normalizeDoc = (record: KnowledgeDocumentRecord): Doc => ({
+  id: record.id,
+  display_id: record.display_id,
+  filename: record.filename,
+  doc_type: record.doc_type ?? "",
+  created_at: record.created_at ?? "",
+  file_size: record.file_size,
+  source_doc_id: record.source_doc_id,
+  source_doc_name: record.source_doc_name,
+  linked_test_cases: record.linked_test_cases.map(normalizeLinkedDoc),
+  content_preview: record.content_preview,
+});

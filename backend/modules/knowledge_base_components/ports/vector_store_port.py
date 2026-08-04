@@ -34,9 +34,8 @@ class VectorStorePort(Protocol):
         self,
         *,
         doc_id: str,
-        content: str,
         metadata: dict[str, Any],
-        chunks: list[dict[str, Any]] | None = None,
+        chunks: list[dict[str, Any]],
         raise_on_error: bool = False,
     ) -> None:
         ...

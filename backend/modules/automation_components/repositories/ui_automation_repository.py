@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from core.db.models import Project, UIExecution, UITestCase
+from core.db.model_defs import AgentRun, AgentWorkflowDefinition, Project, UIExecution, UITestCase
 
 
 class UIAutomationRepository:
@@ -37,6 +37,30 @@ class UIAutomationRepository:
         return (
             self.db.query(UIExecution)
             .filter(UIExecution.id == execution_id, UIExecution.user_id == user_id)
+            .first()
+        )
+
+    def get_latest_evaluation_run(
+        self,
+        *,
+        execution_id: int,
+        project_id: int,
+        user_id: int,
+    ) -> AgentRun | None:
+        return (
+            self.db.query(AgentRun)
+            .join(
+                AgentWorkflowDefinition,
+                AgentWorkflowDefinition.id == AgentRun.workflow_definition_id,
+            )
+            .filter(
+                AgentRun.project_id == project_id,
+                AgentRun.user_id == user_id,
+                AgentRun.status == "success",
+                AgentWorkflowDefinition.workflow_key == "ui_automation_evaluation",
+                AgentRun.input_payload["source_execution_id"].as_integer() == execution_id,
+            )
+            .order_by(AgentRun.id.desc())
             .first()
         )
 

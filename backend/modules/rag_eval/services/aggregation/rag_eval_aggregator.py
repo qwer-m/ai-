@@ -4,7 +4,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from core.db.models import RagDataset, RagDatasetSample, RagEvalRun, RagEvalSampleResult
+from core.db.model_defs import RagDataset, RagDatasetSample, RagEvalRun, RagEvalSampleResult
 from modules.rag_eval.metrics.metrics_generation import aggregate_generation_metrics
 from modules.rag_eval.metrics.metrics_retrieval import aggregate_metrics_by_tag, aggregate_retrieval_metrics
 

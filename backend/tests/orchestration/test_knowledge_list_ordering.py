@@ -8,7 +8,6 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from routers.system import common
 from modules.knowledge_base_components.repositories.knowledge_document_repository import (
-    OPTIONAL_USER_VISIBLE_DOC_TYPES,
     USER_MANAGED_DOC_TYPES,
     KnowledgeDocumentRepository,
 )
@@ -79,7 +78,7 @@ def test_list_knowledge_orders_by_display_order(monkeypatch):
     monkeypatch.setattr(
         common,
         "_serialize_doc",
-        lambda doc, source_name_map, linked_map: {"global_id": doc.id},
+        lambda doc, source_name_map, linked_map: {"id": doc.id},
     )
     monkeypatch.setattr(
         common,
@@ -98,7 +97,7 @@ def test_list_knowledge_orders_by_display_order(monkeypatch):
         current_user=current_user,
     )
 
-    assert [item["global_id"] for item in result["documents"]] == [2, 1]
+    assert [item["id"] for item in result["documents"]] == [2, 1]
     assert query.order_by_args
     assert "display_order" in str(query.order_by_args[0])
 
@@ -117,7 +116,7 @@ def test_list_knowledge_clamps_page_after_deletion(monkeypatch):
     monkeypatch.setattr(
         common,
         "_serialize_doc",
-        lambda doc, source_name_map, linked_map: {"global_id": doc.id},
+        lambda doc, source_name_map, linked_map: {"id": doc.id},
     )
     monkeypatch.setattr(
         common,
@@ -138,7 +137,7 @@ def test_list_knowledge_clamps_page_after_deletion(monkeypatch):
 
     assert result["pagination"]["page"] == 2
     assert result["pagination"]["total_pages"] == 2
-    assert [item["global_id"] for item in result["documents"]] == [9]
+    assert [item["id"] for item in result["documents"]] == [9]
 
 
 def _doc_type_in_values(query: _FakeQuery) -> tuple[str, ...]:
@@ -164,18 +163,4 @@ def test_paginated_knowledge_list_hides_internal_artifacts_by_default():
     )
 
     assert set(_doc_type_in_values(query)) == set(USER_MANAGED_DOC_TYPES)
-
-
-def test_paginated_knowledge_list_can_include_user_visible_evaluation_reports():
-    query = _FakeQuery([])
-    db = _FakeDB(query)
-
-    KnowledgeDocumentRepository(db).list_project_documents_paginated(
-        project_id=45,
-        page=1,
-        page_size=8,
-        include_evaluation_reports=True,
-    )
-
-    assert set(_doc_type_in_values(query)) == set(USER_MANAGED_DOC_TYPES + OPTIONAL_USER_VISIBLE_DOC_TYPES)
 

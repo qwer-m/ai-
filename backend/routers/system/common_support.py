@@ -6,7 +6,7 @@ from typing import Any, Optional
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from core.db.models import KnowledgeDocument, Project
+from core.db.model_defs import KnowledgeDocument, Project
 from modules.knowledge_base_components.repositories.knowledge_document_repository import (
     KnowledgeDocumentRepository,
 )
@@ -88,8 +88,8 @@ def _to_iso(dt: Any) -> Optional[str]:
 
 def _serialize_linked_doc(doc: KnowledgeDocument) -> dict:
     return {
-        "id": doc.project_specific_id or doc.id,
-        "global_id": doc.id,
+        "id": doc.id,
+        "display_id": doc.project_specific_id,
         "filename": doc.filename,
         "content_preview": (doc.content or "")[:180],
     }
@@ -102,8 +102,8 @@ def _serialize_doc(
 ) -> dict:
     content = doc.content or ""
     return {
-        "id": doc.project_specific_id or doc.id,
-        "global_id": doc.id,
+        "id": doc.id,
+        "display_id": doc.project_specific_id,
         "filename": doc.filename,
         "doc_type": doc.doc_type,
         "created_at": _to_iso(doc.created_at),
@@ -124,13 +124,12 @@ def _get_owned_project(project_id: int, user_id: int, db: Session) -> Optional[P
     return ProjectRepository(db).get_owned_project(project_id=project_id, user_id=user_id)
 
 
-def _get_owned_doc_by_id_or_project_specific_id(
+def _get_owned_doc(
     doc_id: int,
     user_id: int,
     db: Session,
 ) -> Optional[KnowledgeDocument]:
-    repo = KnowledgeDocumentRepository(db)
-    return repo.get_owned_by_id_or_project_specific_id(doc_id=doc_id, user_id=user_id)
+    return KnowledgeDocumentRepository(db).get_owned_by_id(doc_id=doc_id, user_id=user_id)
 
 
 def extract_error_text(err: Any) -> str:

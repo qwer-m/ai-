@@ -394,35 +394,6 @@ class DynamicEmbeddingFunction(EmbeddingFunction):
             raise e
 
 
-class DashScopeEmbeddingFunction(DynamicEmbeddingFunction):
-    """Backward-compatible DashScope embedding wrapper."""
-
-    def __init__(self, api_key: str, model: str | None = None):
-        self.api_key = api_key
-        super().__init__(
-            build_embedding_provider_config(
-                provider="dashscope",
-                api_key=api_key,
-                model=model or str(dashscope.TextEmbedding.Models.text_embedding_v1),
-            )
-        )
-
-    def name(self) -> str:
-        return "dashscope-text-embedding-v1"
-
-    @staticmethod
-    def build_from_config(config: dict) -> "DashScopeEmbeddingFunction":
-        DashScopeEmbeddingFunction.validate_config(config)
-        api_key_env = str((config or {}).get("api_key_env") or "DASHSCOPE_API_KEY")
-        api_key = str(os.getenv(api_key_env) or settings.DASHSCOPE_API_KEY or "")
-        return DashScopeEmbeddingFunction(api_key, model=str((config or {}).get("model") or ""))
-
-    @staticmethod
-    def validate_config(config: dict) -> None:
-        if not isinstance(config, dict):
-            raise ValueError("DashScopeEmbeddingFunction config must be a dict")
-
-
 def _normalize_embedding_provider(raw_provider: str | None) -> str:
     provider = str(raw_provider or "local").strip().lower()
     if provider in {"local", "default", "chroma", "chroma_default"}:
@@ -474,7 +445,7 @@ def select_embedding_function(
         selected_provider = "dashscope" if config.api_key else "local"
     if selected_provider == "dashscope":
         if config.api_key:
-            return DashScopeEmbeddingFunction(config.api_key, model=config.model), "dashscope"
+            return DynamicEmbeddingFunction(config), "dashscope"
         logger.warning("EMBEDDING_PROVIDER=dashscope but DASHSCOPE_API_KEY is empty; falling back to local")
     if selected_provider == "openai_compatible":
         if config.base_url and config.model:
@@ -672,47 +643,35 @@ class ChromaClient:
     def add_document(
         self,
         doc_id: str,
-        content: str,
-        metadata: dict | None = None,
-        chunks: list[dict] | None = None,
+        metadata: dict,
+        chunks: list[dict],
         raise_on_error: bool = False,
     ):
         """
         将文档写入向量库。
 
-        分块写入策略：
-        - 若传入 chunks：直接使用业务分块结果（每项可携带 chunk 级 metadata）；
-        - 若未传入 chunks：退回语义分块兜底（向后兼容旧调用）；
-        - metadata 内强制写入 doc_id，便于后续按文档删除。
+        写入已由上游按业务类型生成的分块，metadata 内强制写入 doc_id，
+        便于后续按文档删除。
         """
         if not self.collection:
             return
+        if not chunks:
+            raise ValueError(f"Chroma 写入分块不能为空：doc_id={doc_id}")
 
         def _do_add():
             chunk_payloads: list[tuple[str, dict]] = []
-            if chunks:
-                for item in chunks:
-                    if isinstance(item, dict):
-                        text = str(item.get("chunk_text") or item.get("text") or "").strip()
-                        chunk_meta = item.get("metadata") or {}
-                        if not isinstance(chunk_meta, dict):
-                            chunk_meta = {}
-                    else:
-                        text = str(item or "").strip()
+            for item in chunks:
+                if isinstance(item, dict):
+                    text = str(item.get("chunk_text") or item.get("text") or "").strip()
+                    chunk_meta = item.get("metadata") or {}
+                    if not isinstance(chunk_meta, dict):
                         chunk_meta = {}
-                    if not text:
-                        continue
-                    chunk_payloads.append((text, dict(chunk_meta)))
-            else:
-                max_chars = 2000
-                semantic_chunks = split_semantic_text(
-                    text=content or "",
-                    max_chars=max_chars,
-                    min_chars=max(120, int(max_chars * 0.2)),
-                )
-                if not semantic_chunks and content:
-                    semantic_chunks = [str(content)[:max_chars]]
-                chunk_payloads = [(chunk_text, {}) for chunk_text in semantic_chunks if str(chunk_text or "").strip()]
+                else:
+                    text = str(item or "").strip()
+                    chunk_meta = {}
+                if not text:
+                    continue
+                chunk_payloads.append((text, dict(chunk_meta)))
 
             if not chunk_payloads:
                 return
@@ -738,8 +697,8 @@ class ChromaClient:
 
             ids = [f"{doc_id}_{i}" for i in range(len(chunk_payloads))]
 
-            base_metadata = metadata.copy() if metadata else {}
-            # 兼容双索引：优先保留显式传入的“原文 doc_id”，避免被 summary 索引前缀覆盖。
+            base_metadata = metadata.copy()
+            # 摘要索引沿用原文 doc_id，索引自身仍使用独立前缀。
             base_metadata["doc_id"] = str(base_metadata.get("doc_id") or doc_id)
             base_metadata = _sanitize_metadata(base_metadata)
             chunk_total = len(chunk_payloads)
@@ -753,7 +712,6 @@ class ChromaClient:
                 merged.setdefault("chunk_index", idx)
                 merged.setdefault("chunk_total", chunk_total)
                 merged.setdefault("source_doc_name", merged.get("filename"))
-                # 中文注释：新元数据字段默认允许为空，保证历史调用不报错。
                 merged.setdefault("module", None)
                 merged.setdefault("biz_key", None)
                 merged.setdefault("requirement_id", None)

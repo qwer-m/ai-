@@ -110,7 +110,7 @@ def test_json_shaped_cache_hit_preserves_generate_response_text_contract(monkeyp
         },
     )
     monkeypatch.setattr(
-        "core.ai.ai_client_impl.cache_service.get",
+        "core.ai.ai_client.cache_service.get",
         lambda *args, **kwargs: cached_value,
     )
 
@@ -139,7 +139,7 @@ def test_empty_json_array_cache_hit_is_not_treated_as_cache_miss(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        "core.ai.ai_client_impl.cache_service.get",
+        "core.ai.ai_client.cache_service.get",
         lambda *args, **kwargs: cached_value,
     )
 

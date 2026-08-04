@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from core.ai.ai_client import get_client_for_user
-from core.db.models import StandardInterface
+from core.db.model_defs import StandardInterface
 from modules.testing_components.repositories.standard_interface_repository import (
     StandardInterfaceRepository,
 )

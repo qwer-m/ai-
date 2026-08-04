@@ -21,6 +21,12 @@ chroma_db/
 .env
 .env.*
 backend/tmp/review_diagnostics/
+/backend/tmp/
+/backend/tmp_logs/
+/backend/archive_data/
+/backend/celery_broker/
+/backend/scripts/rag/reports/
+/tmp/
 
 # IDE
 .vscode/

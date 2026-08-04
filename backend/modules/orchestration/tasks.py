@@ -1,10 +1,7 @@
 """
 Celery 任务模块。
 
-当前包含：
-1. 测试用例生成任务（原有能力）。
-2. 知识库离线解析任务（阶段1核心链路）。
-3. 日志与历史数据维护任务（原有能力）。
+当前包含知识库、评测、Agent 工作流和维护任务。
 """
 
 from __future__ import annotations
@@ -20,13 +17,6 @@ from modules.orchestration.task_names import TaskName
 
 logger = logging.getLogger(__name__)
 
-from modules.orchestration.tasks_split_helpers import (
-    _is_retryable_snapshot_error,
-    generate_test_cases_task,
-    build_context_snapshot_task,
-)
-
-
 def _session_local():
     from core.db.database import SessionLocal
 
@@ -40,15 +30,9 @@ def _knowledge_base() -> Any:
 
 
 def _log_entry_model():
-    from core.db.models import LogEntry
+    from core.db.model_defs import LogEntry
 
     return LogEntry
-
-
-def _stage25_switches():
-    from modules.domain.stage25_switches import STAGE25_SWITCHES
-
-    return STAGE25_SWITCHES
 
 
 def _run_index_consistency_audit(*args: Any, **kwargs: Any) -> Any:
@@ -63,30 +47,24 @@ def _cleanup_offline_file(*args: Any, **kwargs: Any) -> Any:
     return cleanup_offline_file(*args, **kwargs)
 
 
-def run_compare_background_job(*args: Any, **kwargs: Any) -> Any:
-    from modules.testing.evaluation_compare_background import run_compare_background_job as real_run_compare_background_job
-
-    return real_run_compare_background_job(*args, **kwargs)
-
-
 def execute_eval_run(*args: Any, **kwargs: Any) -> Any:
     from modules.rag_eval.services.rag_eval_service import execute_eval_run as real_execute_eval_run
 
     return real_execute_eval_run(*args, **kwargs)
 
 
-def run_pipeline_worker(*args: Any, **kwargs: Any) -> Any:
-    from modules.orchestration_components.pipeline_runtime.runner import run_pipeline_worker as real_run_pipeline_worker
+def run_agent_workflow(*args: Any, **kwargs: Any) -> Any:
+    from modules.agent_platform.runtime import run_agent_workflow as real_run_agent_workflow
 
-    return real_run_pipeline_worker(*args, **kwargs)
+    return real_run_agent_workflow(*args, **kwargs)
 
 
-def recover_expired_pipeline_runs(*args: Any, **kwargs: Any) -> Any:
-    from modules.orchestration_components.pipeline_runtime.recovery import (
-        recover_expired_pipeline_runs as real_recover_expired_pipeline_runs,
+def recover_expired_agent_runs(*args: Any, **kwargs: Any) -> Any:
+    from modules.agent_platform.recovery import (
+        recover_expired_agent_runs as real_recover_expired_agent_runs,
     )
 
-    return real_recover_expired_pipeline_runs(*args, **kwargs)
+    return real_recover_expired_agent_runs(*args, **kwargs)
 
 @celery_app.task(
     bind=True,
@@ -220,9 +198,6 @@ def audit_knowledge_index_consistency_task(
     """
     db = _session_local()()
     try:
-        if not _stage25_switches().index_audit_enabled:
-            return {"enabled": False, "message": "index_audit_disabled"}
-
         self.update_state(
             state="STARTED",
             meta={"status": "知识库索引一致性巡检中", "project_id": project_id},
@@ -252,41 +227,6 @@ def audit_knowledge_index_consistency_task(
 
 @celery_app.task(
     bind=True,
-    name=TaskName.COMPARE_TEST_CASES.value,
-    soft_time_limit=900,
-    time_limit=960,
-)
-def compare_test_cases_task(
-    self,
-    comparison_id: int,
-    generated_test_case: str,
-    modified_test_case: str,
-    project_id: int,
-    user_id: int,
-    generation_id: int | None = None,
-    requirement_text: str = "",
-    upload_persist: dict | None = None,
-):
-    """Run a persisted test-case comparison job through Celery."""
-    self.update_state(
-        state="STARTED",
-        meta={"status": "test_case_compare_running", "comparison_id": comparison_id},
-    )
-    run_compare_background_job(
-        comparison_id=comparison_id,
-        generated_test_case=generated_test_case,
-        modified_test_case=modified_test_case,
-        project_id=project_id,
-        user_id=user_id,
-        generation_id=generation_id,
-        requirement_text=requirement_text,
-        upload_persist=dict(upload_persist or {}),
-    )
-    return {"comparison_id": comparison_id, "status": "completed"}
-
-
-@celery_app.task(
-    bind=True,
     name=TaskName.RUN_RAG_EVAL.value,
     soft_time_limit=3600,
     time_limit=3660,
@@ -303,34 +243,33 @@ def run_rag_eval_task(self, run_id: int, user_id: int):
 
 @celery_app.task(
     bind=True,
-    name=TaskName.RUN_PIPELINE.value,
+    name=TaskName.RUN_AGENT_WORKFLOW.value,
     soft_time_limit=3600,
     time_limit=3660,
 )
-def run_pipeline_task(self, run_id: int, start_stage: str):
-    """Run a persisted orchestration pipeline through Celery."""
+def run_agent_workflow_task(self, run_id: int):
+    """通过 Celery 执行一次持久化 Agent 工作流。"""
     task_id = getattr(getattr(self, "request", None), "id", None)
     self.update_state(
         state="STARTED",
         meta={
-            "status": "pipeline_running",
+            "status": "agent_run_running",
             "run_id": run_id,
-            "start_stage": start_stage,
             "task_id": task_id,
         },
     )
-    run_pipeline_worker(run_id=run_id, start_stage=start_stage, task_id=task_id)
-    return {"run_id": run_id, "status": "completed"}
+    result = run_agent_workflow(run_id=run_id, task_id=task_id)
+    return {"run_id": run_id, **result}
 
 
-@celery_app.task(bind=True, name=TaskName.RECOVER_EXPIRED_PIPELINE_RUNS.value)
-def recover_expired_pipeline_runs_task(self, limit: int = 20):
-    """Requeue expired running pipeline runs through the governed dispatcher."""
+@celery_app.task(bind=True, name=TaskName.RECOVER_EXPIRED_AGENT_RUNS.value)
+def recover_expired_agent_runs_task(self, limit: int = 20):
+    """重新投递租约已过期的 Agent Run。"""
     self.update_state(
         state="STARTED",
-        meta={"status": "pipeline_recovery_running", "limit": limit},
+        meta={"status": "agent_run_recovery_running", "limit": limit},
     )
-    return recover_expired_pipeline_runs(limit=limit)
+    return recover_expired_agent_runs(limit=limit)
 
 
 @celery_app.task(bind=True, name=TaskName.CLEANUP_LOGS.value)
@@ -338,7 +277,7 @@ def cleanup_logs_task(self, retention_hours: int = 72):
     """清理过期日志。"""
     from datetime import datetime, timedelta
 
-    from core.db.models import LogEntry
+    from core.db.model_defs import LogEntry
 
     db = _session_local()()
     cutoff_date = datetime.utcnow() - timedelta(hours=retention_hours)
@@ -351,70 +290,6 @@ def cleanup_logs_task(self, retention_hours: int = 72):
         )
         db.commit()
         return {"deleted_logs": deleted_count}
-    except Exception as e:
-        db.rollback()
-        raise e
-    finally:
-        db.close()
-
-
-@celery_app.task(bind=True, name=TaskName.ARCHIVE_OLD_DATA.value)
-def archive_old_data_task(self, retention_days: int = 30):
-    """归档并清理过期日志与测试生成记录。"""
-    from datetime import datetime, timedelta
-    import os
-
-    from core.db.models import LogEntry, TestGeneration
-
-    db = _session_local()()
-    cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
-    archive_dir = "archive_data"
-    os.makedirs(archive_dir, exist_ok=True)
-
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    report = {"archived_logs": 0, "archived_tests": 0, "status": "success"}
-
-    try:
-        logs = db.query(LogEntry).filter(LogEntry.created_at < cutoff_date).all()
-        if logs:
-            log_data = [
-                {
-                    "id": l.id,
-                    "project_id": l.project_id,
-                    "type": l.log_type,
-                    "msg": l.message,
-                    "created_at": str(l.created_at),
-                }
-                for l in logs
-            ]
-            with open(os.path.join(archive_dir, f"logs_{timestamp}.json"), "w", encoding="utf-8") as f:
-                json.dump(log_data, f, ensure_ascii=False, indent=2)
-
-            for l in logs:
-                db.delete(l)
-            report["archived_logs"] = len(logs)
-
-        tests = db.query(TestGeneration).filter(TestGeneration.created_at < cutoff_date).all()
-        if tests:
-            test_data = [
-                {
-                    "id": t.id,
-                    "project_id": t.project_id,
-                    "requirement": t.requirement_text[:100] + "...",
-                    "result_preview": (t.generated_result or "")[:100],
-                    "created_at": str(t.created_at),
-                }
-                for t in tests
-            ]
-            with open(os.path.join(archive_dir, f"tests_{timestamp}.json"), "w", encoding="utf-8") as f:
-                json.dump(test_data, f, ensure_ascii=False, indent=2)
-
-            for t in tests:
-                db.delete(t)
-            report["archived_tests"] = len(tests)
-
-        db.commit()
-        return report
     except Exception as e:
         db.rollback()
         raise e

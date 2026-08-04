@@ -21,21 +21,23 @@ def cleanup_project_test_data(db: Any, project_id: int | None) -> None:
     if not project_id:
         return
 
-    from core.db.models import (
+    from core.db.model_defs import (
         APIExecution,
-        Evaluation,
+        AgentApproval,
+        AgentDefinition,
+        AgentNodeRun,
+        AgentRun,
+        AgentRunEvent,
+        AgentToolBinding,
+        AgentToolDefinition,
+        AgentWorkflowDefinition,
         KnowledgeDocument,
         LogEntry,
-        PipelineRun,
         Project,
-        ProjectContextSnapshot,
-        ProjectPipelineConfig,
         RagEvalRun,
         RagEvalSampleResult,
         RecallMetric,
         StandardInterface,
-        TestGeneration,
-        TestGenerationComparison,
         UIErrorOperation,
         UIExecution,
         UITestCase,
@@ -46,16 +48,34 @@ def cleanup_project_test_data(db: Any, project_id: int | None) -> None:
         db.query(UIErrorOperation).filter(UIErrorOperation.project_id == pid).delete(synchronize_session=False)
         db.query(UIExecution).filter(UIExecution.project_id == pid).delete(synchronize_session=False)
         db.query(APIExecution).filter(APIExecution.project_id == pid).delete(synchronize_session=False)
-        db.query(Evaluation).filter(Evaluation.project_id == pid).delete(synchronize_session=False)
-        db.query(TestGenerationComparison).filter(TestGenerationComparison.project_id == pid).delete(
-            synchronize_session=False
-        )
         db.query(LogEntry).filter(LogEntry.project_id == pid).delete(synchronize_session=False)
         db.query(RecallMetric).filter(RecallMetric.project_id == pid).delete(synchronize_session=False)
         db.query(StandardInterface).filter(StandardInterface.project_id == pid).delete(synchronize_session=False)
         db.query(UITestCase).filter(UITestCase.project_id == pid).delete(synchronize_session=False)
-        db.query(PipelineRun).filter(PipelineRun.project_id == pid).delete(synchronize_session=False)
-        db.query(ProjectPipelineConfig).filter(ProjectPipelineConfig.project_id == pid).delete(
+        agent_run_ids = db.query(AgentRun.id).filter(AgentRun.project_id == pid)
+        agent_ids = db.query(AgentDefinition.id).filter(AgentDefinition.project_id == pid)
+        tool_ids = db.query(AgentToolDefinition.id).filter(AgentToolDefinition.project_id == pid)
+        db.query(AgentApproval).filter(AgentApproval.run_id.in_(agent_run_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(AgentRunEvent).filter(AgentRunEvent.run_id.in_(agent_run_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(AgentNodeRun).filter(AgentNodeRun.run_id.in_(agent_run_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(AgentRun).filter(AgentRun.id.in_(agent_run_ids)).delete(synchronize_session=False)
+        db.query(AgentToolBinding).filter(
+            (AgentToolBinding.agent_definition_id.in_(agent_ids))
+            | (AgentToolBinding.tool_definition_id.in_(tool_ids))
+        ).delete(synchronize_session=False)
+        db.query(AgentWorkflowDefinition).filter(
+            AgentWorkflowDefinition.project_id == pid
+        ).delete(synchronize_session=False)
+        db.query(AgentDefinition).filter(AgentDefinition.id.in_(agent_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(AgentToolDefinition).filter(AgentToolDefinition.id.in_(tool_ids)).delete(
             synchronize_session=False
         )
         run_ids = [row[0] for row in db.query(RagEvalRun.id).filter(RagEvalRun.project_id == pid).all()]
@@ -64,10 +84,6 @@ def cleanup_project_test_data(db: Any, project_id: int | None) -> None:
                 synchronize_session=False
             )
             db.query(RagEvalRun).filter(RagEvalRun.id.in_(run_ids)).delete(synchronize_session=False)
-        db.query(ProjectContextSnapshot).filter(ProjectContextSnapshot.project_id == pid).delete(
-            synchronize_session=False
-        )
-        db.query(TestGeneration).filter(TestGeneration.project_id == pid).delete(synchronize_session=False)
         db.query(KnowledgeDocument).filter(KnowledgeDocument.project_id == pid).update(
             {KnowledgeDocument.source_doc_id: None},
             synchronize_session=False,

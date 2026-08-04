@@ -12,11 +12,6 @@ body.theme-dark.ui-overhaul-v4 .panel-card {
   box-shadow: 0 16px 30px rgba(2, 6, 23, 0.44);
 }
 
-body.theme-dark.ui-overhaul-v4 .test-generation-input .nav-link.active,
-body.theme-dark.ui-overhaul-v4 .test-generation-config .nav-link.active {
-  color: #b9cae1 !important;
-}
-
 body.ui-overhaul-v4 .panel-card-head {
   display: flex;
   align-items: center;
@@ -63,33 +58,6 @@ body.ui-overhaul-v4 .panel-card-primary-action {
 
 body.ui-overhaul-v4 .evaluation-shell .evaluation-testcase-card .panel-card-primary-action {
   margin-top: 8px;
-}
-
-body.ui-overhaul-v4 .test-generation-input .nav-pills,
-body.ui-overhaul-v4 .test-generation-config .nav-pills {
-  background: color-mix(in srgb, var(--fd-surface-soft) 92%, transparent) !important;
-  border: 1px solid color-mix(in srgb, var(--fd-border) 90%, transparent);
-}
-
-body.ui-overhaul-v4 .test-generation-input .nav-link,
-body.ui-overhaul-v4 .test-generation-config .nav-link {
-  border-radius: 999px !important;
-  min-height: 34px;
-}
-
-body.ui-overhaul-v4 .test-generation-input .nav-link.active,
-body.ui-overhaul-v4 .test-generation-config .nav-link.active {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--fd-primary) 94%, #1d4ed8), color-mix(in srgb, var(--fd-primary-2) 78%, #5b718f)) !important;
-  color: #fff !important;
-}
-
-body.ui-overhaul-v4 .test-generation-input-body,
-body.ui-overhaul-v4 .test-generation-result-content {
-  scrollbar-gutter: stable;
-}
-
-body.ui-overhaul-v4 .test-generation-result-head {
-  background: color-mix(in srgb, var(--fd-surface-soft) 86%, transparent) !important;
 }
 
 body.ui-overhaul-v4 .automation-eval-card .form-text {
@@ -149,7 +117,6 @@ body.ui-overhaul-v4 .evaluation-shell .evaluation-testcase-card .panel-card-prim
   float: none !important;
 }
 
-body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='api-gen'] .test-generation-shell,
 body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval'] .evaluation-shell,
 body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-testcase'] .evaluation-shell,
 body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-rag'] .evaluation-shell,

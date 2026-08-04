@@ -1,11 +1,9 @@
 ﻿import { useState } from 'react';
-import { Modal } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import '../../theme.css';
 import '../../App.css';
 import { ConfigModal } from '../shared/ConfigModal';
 import { LogPanel } from '../shared/LogPanel';
-import { PipelineOrchestration } from './PipelineOrchestration';
 import { dashboardNavItems, getDashboardLabelByKey } from '../dashboard/model/dashboardNavigation';
 import { DashboardContent } from '../dashboard/DashboardContent';
 import { DashboardSidebar } from '../dashboard/DashboardSidebar';
@@ -17,10 +15,9 @@ import { useNavigate } from 'react-router-dom';
 export const Dashboard = () => {
   const { logout, user } = useAuth();
   const navigate = useNavigate();
-  const [showPipelineModal, setShowPipelineModal] = useState(false);
   const [openProjectCreateSignal, setOpenProjectCreateSignal] = useState(0);
 
-  const controller = useDashboardController() as any;
+  const controller = useDashboardController();
 
   const handleLogout = () => {
     logout();
@@ -59,7 +56,6 @@ export const Dashboard = () => {
             healthError={controller.healthError}
             health={controller.health}
             onSelectProject={controller.setProjectId}
-            onOpenPipeline={() => setShowPipelineModal(true)}
             onCreateProject={handleOpenCreateProject}
             onOpenConfig={controller.handleOpenConfig}
             onLogout={handleLogout}
@@ -71,24 +67,16 @@ export const Dashboard = () => {
             projects={controller.projects}
             projectsLoading={controller.projectsLoading}
             projectsError={controller.projectsError}
-            logs={controller.logs}
             onUserLog={(msg) => controller.handleLog(msg, 'user')}
             onSystemLog={(msg) => controller.handleLog(msg, 'system')}
             onProjectRefresh={controller.fetchProjects}
             onSelectProject={controller.setProjectId}
-            onConfigError={controller.openConfigWithError}
             evalGenerated={controller.evalGenerated}
             setEvalGenerated={controller.setEvalGenerated}
             evalModified={controller.evalModified}
             setEvalModified={controller.setEvalModified}
             evalResult={controller.evalResult}
             setEvalResult={controller.setEvalResult}
-            recallRetrieved={controller.recallRetrieved}
-            setRecallRetrieved={controller.setRecallRetrieved}
-            recallRelevant={controller.recallRelevant}
-            setRecallRelevant={controller.setRecallRelevant}
-            recallResult={controller.recallResult}
-            setRecallResult={controller.setRecallResult}
             uiEvalScript={controller.uiEvalScript}
             setUiEvalScript={controller.setUiEvalScript}
             uiEvalExec={controller.uiEvalExec}
@@ -101,10 +89,6 @@ export const Dashboard = () => {
             setApiEvalExec={controller.setApiEvalExec}
             apiEvalOutput={controller.apiEvalOutput}
             setApiEvalOutput={controller.setApiEvalOutput}
-            shouldAutoEval={controller.shouldAutoEval}
-            setShouldAutoEval={controller.setShouldAutoEval}
-            onTestGenerated={controller.handleTestGenerated}
-            onGenerationComplete={controller.handleGenerationComplete}
             openProjectCreateSignal={openProjectCreateSignal}
           />
         </div>
@@ -119,21 +103,6 @@ export const Dashboard = () => {
           onClear={controller.clearLogs}
         />
       </div>
-
-      <Modal show={showPipelineModal} onHide={() => setShowPipelineModal(false)} size="xl" centered>
-        <Modal.Header closeButton>
-          <Modal.Title>全局编排</Modal.Title>
-        </Modal.Header>
-        <Modal.Body className="p-0 dashboard-pipeline-modal-body">
-          <PipelineOrchestration
-            key={`pipeline-modal-${controller.projectId ?? 'none'}`}
-            projectId={controller.projectId}
-            onLog={(msg) => {
-              void controller.handleLog(msg, 'user');
-            }}
-          />
-        </Modal.Body>
-      </Modal>
 
       <ConfigModal
         show={controller.showConfig}

@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Optional, List, Dict
+from pydantic import BaseModel, Field
+from typing import Literal, Optional, List, Dict
 
 class APIRequest(BaseModel):
     requirement: str
@@ -18,13 +18,13 @@ class APITestEvalRequest(BaseModel):
 class ProxyRequest(BaseModel):
     method: str
     url: str
-    headers: Dict[str, str] = {}
-    params: Dict[str, str] = {}
-    cookies: Dict[str, str] = {}
+    headers: Dict[str, str] = Field(default_factory=dict)
+    params: Dict[str, str] = Field(default_factory=dict)
+    cookies: Dict[str, str] = Field(default_factory=dict)
     body: Optional[str] = None
     is_base64_body: bool = False
-    timeout: int = 30
+    timeout_ms: int = Field(default=0, ge=0, le=600_000)
     verify_ssl: bool = True
     follow_redirects: bool = True
-    max_redirects: int = 20
-    http_version: str = "HTTP/1.1"
+    max_redirects: int = Field(default=20, ge=0, le=100)
+    http_version: Literal["HTTP/1.x", "HTTP/2"] = "HTTP/1.x"

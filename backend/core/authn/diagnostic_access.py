@@ -17,15 +17,6 @@ _METADATA_HOSTS = {
 }
 
 
-def ensure_diagnostic_routes_enabled() -> None:
-    if settings.ENABLE_DIAGNOSTIC_ROUTES:
-        return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Diagnostic routes are disabled in the current environment",
-    )
-
-
 def _resolve_host_ips(hostname: str) -> set[str]:
     try:
         infos = socket.getaddrinfo(hostname, None)

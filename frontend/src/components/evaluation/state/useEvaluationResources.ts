@@ -1,10 +1,16 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   fetchEvaluationHistory,
-  fetchGenerationHistory,
-  parseLatestPrefixedJson,
+  fetchAgentRunHistory,
 } from './evaluationService';
-import type { EvaluationView, LoadingType, ToastMessage } from './types';
+import type {
+  EvaluationHistoryPoint,
+  EvaluationRunRecord,
+  EvaluationView,
+  LoadingType,
+  QualityReport,
+  ToastMessage,
+} from './types';
 
 const EVALUATION_DRAFT_DB = 'ai-test-platform-evaluation-drafts';
 const EVALUATION_DRAFT_FILE_STORE = 'compare-files';
@@ -56,9 +62,8 @@ async function loadEvaluationDraftFile(projectId: number | null): Promise<File |
 
 type UseEvaluationResourcesParams = {
   projectId: number | null;
-  logs: any[];
   view: EvaluationView;
-  evalResult: string | null;
+  evalResult: QualityReport | null;
 };
 
 /**
@@ -67,85 +72,46 @@ type UseEvaluationResourcesParams = {
  */
 export function useEvaluationResources({
   projectId,
-  logs,
   view,
   evalResult,
 }: UseEvaluationResourcesParams) {
-  const toNumberOrNull = (value: unknown): number | null => {
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string' && value.trim() !== '') {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-    return null;
-  };
-
   /**
    * 历史趋势图只保留可绘制的点，避免后端某些历史项没有指标时把整张图“拉空”。
    */
-  const normalizeHistory = (list: any[]): any[] => {
-    if (!Array.isArray(list)) return [];
-    return list
-      .map((item) => {
-        const precision = toNumberOrNull(item?.precision);
-        const recall = toNumberOrNull(item?.recall);
-        const f1Score = toNumberOrNull(item?.f1_score);
-        const semanticSimilarity = toNumberOrNull(item?.semantic_similarity);
-        return {
-          ...item,
-          precision,
-          recall,
-          f1_score: f1Score,
-          semantic_similarity: semanticSimilarity,
-        };
-      })
-      .filter((item) =>
+  const normalizeHistory = (list: EvaluationHistoryPoint[]): EvaluationHistoryPoint[] => (
+    list.filter((item) =>
         item.precision !== null
         || item.recall !== null
         || item.f1_score !== null
         || item.semantic_similarity !== null,
-      );
-  };
+    )
+  );
 
   const [loading, setLoading] = useState<LoadingType>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [uploadedCompareFilename, setUploadedCompareFilename] = useState('');
-  const [loadedCompareFilename, setLoadedCompareFilename] = useState('');
-  const [showSupplement, setShowSupplement] = useState(false);
-  const [supplementText, setSupplementText] = useState('');
-  const [supplementImages, setSupplementImages] = useState<File[]>([]);
-
-  const [history, setHistory] = useState<any[]>([]);
-  const [genHistory, setGenHistory] = useState<any[]>([]);
-  const [selectedGenerationId, setSelectedGenerationId] = useState<number | null>(null);
-  const [historySourceKey, setHistorySourceKey] = useState('');
-  const [historySourceTitle, setHistorySourceTitle] = useState('');
-  const [savedDocId, setSavedDocId] = useState<number | null>(null);
-  const [lastSavedContent, setLastSavedContent] = useState('');
+  const [uploadedReferenceFilename, setUploadedReferenceFilename] = useState('');
+  const [loadedReferenceFilename, setLoadedReferenceFilename] = useState('');
+  const [history, setHistory] = useState<EvaluationHistoryPoint[]>([]);
+  const [runHistory, setRunHistory] = useState<EvaluationRunRecord[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [toastMsg, setToastMsg] = useState<ToastMessage | null>(null);
 
   const [uiEvalJourney, setUiEvalJourney] = useState('');
   const [apiEvalSpec, setApiEvalSpec] = useState('');
 
-  const latestDiag = useMemo(() => parseLatestPrefixedJson<any>(logs, 'GEN_DIAG:'), [logs]);
-  const latestQm = useMemo(() => parseLatestPrefixedJson<any>(logs, 'GEN_QM:'), [logs]);
-
   useEffect(() => {
     let cancelled = false;
-    setSavedDocId(null);
-    setSupplementText('');
-    setLastSavedContent('');
-    setSelectedGenerationId(null);
-    setHistorySourceKey('');
-    setHistorySourceTitle('');
+    setHistory([]);
+    setRunHistory([]);
+    setSelectedRunId(null);
     setFile(null);
-    setUploadedCompareFilename('');
-    setLoadedCompareFilename('');
+    setUploadedReferenceFilename('');
+    setLoadedReferenceFilename('');
     void loadEvaluationDraftFile(projectId)
       .then((storedFile) => {
         if (cancelled || !storedFile) return;
         setFile(storedFile);
-        setUploadedCompareFilename(storedFile.name || '');
+        setUploadedReferenceFilename(storedFile.name || '');
       })
       .catch(() => {});
     return () => {
@@ -165,12 +131,8 @@ export function useEvaluationResources({
     if (!projectId) return;
 
     void fetchEvaluationHistory(projectId)
-      .then((res: any) => {
-        if (Array.isArray(res?.history)) {
-          setHistory(normalizeHistory(res.history));
-          return;
-        }
-        setHistory([]);
+      .then((res) => {
+        setHistory(normalizeHistory(res.history));
       })
       .catch(() => {
         setHistory([]);
@@ -178,18 +140,12 @@ export function useEvaluationResources({
   }, [projectId, evalResult]);
 
   useEffect(() => {
-    if (!projectId || view !== 'testcase') return;
+    if (!projectId || (view !== 'root' && view !== 'testcase')) return;
 
-    void fetchGenerationHistory(projectId)
-      .then((res: any) => {
-        if (Array.isArray(res)) {
-          setGenHistory(res);
-          return;
-        }
-        setGenHistory([]);
-      })
+    void fetchAgentRunHistory(projectId)
+      .then(setRunHistory)
       .catch(() => {
-        setGenHistory([]);
+        setRunHistory([]);
       });
   }, [projectId, view]);
 
@@ -198,39 +154,21 @@ export function useEvaluationResources({
     setLoading,
     file,
     setFile: setPersistentFile,
-    uploadedCompareFilename,
-    setUploadedCompareFilename,
-    loadedCompareFilename,
-    setLoadedCompareFilename,
-    showSupplement,
-    setShowSupplement,
-    supplementText,
-    setSupplementText,
-    supplementImages,
-    setSupplementImages,
+    uploadedReferenceFilename,
+    setUploadedReferenceFilename,
+    loadedReferenceFilename,
+    setLoadedReferenceFilename,
     history,
     setHistory,
-    genHistory,
-    setGenHistory,
-    selectedGenerationId,
-    setSelectedGenerationId,
-    historySourceKey,
-    setHistorySourceKey,
-    historySourceTitle,
-    setHistorySourceTitle,
-    savedDocId,
-    setSavedDocId,
-    lastSavedContent,
-    setLastSavedContent,
+    runHistory,
+    setRunHistory,
+    selectedRunId,
+    setSelectedRunId,
     toastMsg,
     setToastMsg,
-    latestDiag,
-    latestQm,
     uiEvalJourney,
     setUiEvalJourney,
     apiEvalSpec,
     setApiEvalSpec,
   };
 }
-
-export type EvaluationResources = ReturnType<typeof useEvaluationResources>;

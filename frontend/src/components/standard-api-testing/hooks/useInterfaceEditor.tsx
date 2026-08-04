@@ -1,10 +1,9 @@
 import { useState, type Dispatch, type ReactElement, type SetStateAction } from 'react';
 import { api } from '../../../utils/api';
-import type { SavedInterface, TestResult } from '../utils/types';
+import { parseSavedInterface } from '../utils/interfaceContract';
+import type { SavedInterface, StandardInterfaceUpdate } from '../utils/types';
 
 type KVRow = { key: string; value: string; desc: string };
-type TestTypes = { functional: boolean; boundary: boolean; security: boolean };
-type ModeType = 'natural' | 'structured';
 type BodyMode = 'none' | 'form-data' | 'x-www-form-urlencoded' | 'raw' | 'binary' | 'graphql';
 type RawType = 'Text' | 'JavaScript' | 'JSON' | 'HTML' | 'XML';
 
@@ -17,9 +16,6 @@ type SaveForm = {
 type InterfaceDraft = {
   apiPath: string;
   method: string;
-  requirement: string;
-  mode: ModeType;
-  testTypes: TestTypes;
   headers: KVRow[];
   params: KVRow[];
   bodyMode: BodyMode;
@@ -40,12 +36,6 @@ type UseInterfaceEditorParams = {
   setApiPath: Dispatch<SetStateAction<string>>;
   method: string;
   setMethod: Dispatch<SetStateAction<string>>;
-  requirement: string;
-  setRequirement: Dispatch<SetStateAction<string>>;
-  mode: ModeType;
-  setMode: Dispatch<SetStateAction<ModeType>>;
-  testTypes: TestTypes;
-  setTestTypes: Dispatch<SetStateAction<TestTypes>>;
   headers: KVRow[];
   setHeaders: Dispatch<SetStateAction<KVRow[]>>;
   queryParams: KVRow[];
@@ -63,12 +53,11 @@ type UseInterfaceEditorParams = {
   setResponseStatus: Dispatch<SetStateAction<number | null>>;
   setResponseTime: Dispatch<SetStateAction<number | null>>;
   setResponseBody: Dispatch<SetStateAction<string | null>>;
-  setResponseHeaders: Dispatch<SetStateAction<any>>;
-  setResponseCookies: Dispatch<SetStateAction<any>>;
-  setTestResult: Dispatch<SetStateAction<TestResult | null>>;
-  updateInterface: (id: number, updates: any) => Promise<void>;
+  setResponseHeaders: Dispatch<SetStateAction<Record<string, string>>>;
+  setResponseCookies: Dispatch<SetStateAction<Record<string, string>>>;
+  updateInterface: (id: number, updates: StandardInterfaceUpdate) => Promise<void>;
   fetchInterfaces: () => Promise<void> | void;
-  translateError: (error: any) => Promise<string>;
+  translateError: (error: unknown) => Promise<string>;
   onLog: (msg: string) => void;
 };
 
@@ -83,12 +72,6 @@ export function useInterfaceEditor(params: UseInterfaceEditorParams) {
     setApiPath,
     method,
     setMethod,
-    requirement,
-    setRequirement,
-    mode,
-    setMode,
-    testTypes,
-    setTestTypes,
     headers,
     setHeaders,
     queryParams,
@@ -108,7 +91,6 @@ export function useInterfaceEditor(params: UseInterfaceEditorParams) {
     setResponseBody,
     setResponseHeaders,
     setResponseCookies,
-    setTestResult,
     updateInterface,
     fetchInterfaces,
     translateError,
@@ -193,7 +175,7 @@ export function useInterfaceEditor(params: UseInterfaceEditorParams) {
     if (editingTargetId) {
       const target = savedInterfaces.find((item) => item.id === editingTargetId);
       if (target) {
-        const updates: any = {
+        const updates: StandardInterfaceUpdate = {
           name: saveForm.name,
           description: saveForm.description,
           parent_id: saveForm.parentId,
@@ -207,7 +189,7 @@ export function useInterfaceEditor(params: UseInterfaceEditorParams) {
       }
     }
 
-    const payload = {
+    const payload: StandardInterfaceUpdate = {
       name: saveForm.name,
       description: saveForm.description,
       project_id: projectId,
@@ -221,9 +203,6 @@ export function useInterfaceEditor(params: UseInterfaceEditorParams) {
       raw_type: rawType,
       body_content: bodyContent,
       test_config: {
-        testTypes,
-        mode,
-        requirement,
         pre_script: preRequestScript,
         post_script: postResponseScript,
       },
@@ -232,11 +211,11 @@ export function useInterfaceEditor(params: UseInterfaceEditorParams) {
 
     try {
       if (selectedId) {
-        await api.put(`/api/standard/interfaces/${selectedId}`, payload);
+        await updateInterface(selectedId, payload);
         onLog('接口已更新');
       } else {
-        const res = await api.post<SavedInterface>('/api/standard/interfaces', payload);
-        if (res) setSelectedId(res.id);
+        const res = await api.post<unknown>('/api/standard/interfaces', payload);
+        setSelectedId(parseSavedInterface(res).id);
         onLog('接口已保存');
       }
       setShowSaveModal(false);
@@ -261,9 +240,6 @@ export function useInterfaceEditor(params: UseInterfaceEditorParams) {
         [selectedId]: {
           apiPath,
           method,
-          requirement,
-          mode,
-          testTypes,
           headers,
           params: queryParams,
           bodyMode,
@@ -281,23 +257,17 @@ export function useInterfaceEditor(params: UseInterfaceEditorParams) {
     setResponseBody(null);
     setResponseHeaders({});
     setResponseCookies({});
-    setTestResult(null);
     setSelectedId(item.id);
 
     const draft = drafts[item.id];
     if (draft) {
       setApiPath((draft.baseUrl || '') + (draft.apiPath || ''));
       setMethod(draft.method ?? item.method ?? 'POST');
-      setRequirement(draft.requirement ?? item.requirement ?? item.testConfig?.requirement ?? '');
-      setMode(draft.mode ?? item.mode ?? item.testConfig?.mode ?? 'natural');
       setPreRequestScript(
         draft.preRequestScript ?? item.preScript ?? item.testConfig?.pre_script ?? '',
       );
       setPostResponseScript(
         draft.postResponseScript ?? item.postScript ?? item.testConfig?.post_script ?? '',
-      );
-      setTestTypes(
-        draft.testTypes ?? item.testConfig?.testTypes ?? { functional: true, boundary: false, security: false },
       );
       setHeaders(draft.headers ?? item.headers ?? [{ key: '', value: '', desc: '' }]);
       setQueryParams(draft.params ?? item.params ?? [{ key: '', value: '', desc: '' }]);
@@ -309,11 +279,8 @@ export function useInterfaceEditor(params: UseInterfaceEditorParams) {
 
     setApiPath((item.baseUrl || '') + (item.apiPath || ''));
     setMethod(item.method || 'POST');
-    setRequirement(item.requirement || item.testConfig?.requirement || '');
-    setMode(item.mode || item.testConfig?.mode || 'natural');
     setPreRequestScript(item.preScript || item.testConfig?.pre_script || '');
     setPostResponseScript(item.postScript || item.testConfig?.post_script || '');
-    setTestTypes(item.testConfig?.testTypes || { functional: true, boundary: false, security: false });
     setHeaders(item.headers || [{ key: '', value: '', desc: '' }]);
     setQueryParams(item.params || [{ key: '', value: '', desc: '' }]);
     setBodyMode((item.bodyMode as BodyMode) || 'raw');

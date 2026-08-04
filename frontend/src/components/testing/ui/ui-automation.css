@@ -101,8 +101,7 @@
 .ui-automation-side-card,
 .ui-automation-report-summary,
 .ui-automation-report-shot,
-.ui-automation-report-analysis,
-.ui-automation-script-card {
+.ui-automation-report-analysis {
   border: 1px solid var(--fd-border) !important;
   border-radius: 14px;
   background: var(--fd-surface);

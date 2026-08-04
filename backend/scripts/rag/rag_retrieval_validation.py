@@ -30,7 +30,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from core.db.database import SessionLocal  # noqa: E402
-from core.db.models import KnowledgeDocument  # noqa: E402
+from core.db.model_defs import KnowledgeDocument  # noqa: E402
 from core.cache_layer.chroma_client import chroma_client  # noqa: E402
 from modules.knowledge_base_components.context.context_helpers import _run_retrieval_once  # noqa: E402
 

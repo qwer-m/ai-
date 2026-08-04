@@ -27,15 +27,6 @@ def _relative_backend_path(path: Path) -> str:
     return path.relative_to(Path(__file__).resolve().parents[2]).as_posix()
 
 
-def _generation_route_module_names() -> list[str]:
-    backend_root = Path(__file__).resolve().parents[2]
-    route_dir = backend_root / "routers" / "automation"
-    return sorted(
-        f"routers.automation.{path.stem}"
-        for path in route_dir.glob("test_generation_generate_routes*.py")
-    )
-
-
 def _assert_imports_do_not_load_celery_runtime(modules: list[str]) -> None:
     backend_root = Path(__file__).resolve().parents[2]
     leaked_modules = [
@@ -66,27 +57,6 @@ def _assert_imports_do_not_load_celery_runtime(modules: list[str]) -> None:
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-
-
-def test_pipeline_layers_do_not_depend_on_router_pipeline_routes_namespace() -> None:
-    files = [
-        "routers/orchestration/pipeline.py",
-        "routers/orchestration/pipeline_runtime.py",
-        "modules/orchestration_components/services/pipeline_run_service.py",
-        "modules/orchestration_components/pipeline_runtime/schemas.py",
-        "modules/orchestration_components/pipeline_runtime/schema_compat.py",
-        "modules/orchestration_components/pipeline_runtime/support.py",
-        "modules/orchestration_components/pipeline_runtime/dispatcher.py",
-        "modules/orchestration_components/pipeline_runtime/recovery.py",
-        "modules/orchestration_components/pipeline_runtime/runner.py",
-        "modules/orchestration_components/pipeline_runtime/stage_ops.py",
-        "modules/orchestration_components/pipeline_runtime/agent_ops.py",
-        "modules/orchestration_components/pipeline_runtime/agent_decision.py",
-        "modules/orchestration_components/pipeline_runtime/agent_ops_impl.py",
-    ]
-    for rel in files:
-        content = _read_backend_file(rel)
-        assert "routers.pipeline_routes" not in content, f"unexpected coupling found in {rel}"
 
 
 def test_knowledge_detail_route_keeps_get_and_delete_contract() -> None:
@@ -158,14 +128,14 @@ def test_governance_and_route_imports_do_not_initialize_celery_runtime() -> None
             "routers.system.common",
             "routers.orchestration.evaluation_execute_routes",
         ]
-        + _generation_route_module_names()
     )
 
 
-def test_celery_tasks_do_not_import_pipeline_router_runtime() -> None:
+def test_celery_tasks_do_not_import_http_routes() -> None:
     content = _read_backend_file("modules/orchestration/tasks.py")
 
-    assert "routers.orchestration.pipeline_runtime" not in content
+    assert "from routers" not in content
+    assert "import routers" not in content
 
 
 def test_process_background_entrypoints_are_governed() -> None:
@@ -208,16 +178,7 @@ def test_in_request_threadpool_usage_is_explicitly_reviewed() -> None:
 
 
 def test_fastapi_run_in_threadpool_is_only_request_scoped_offload() -> None:
-    allowed = {
-        (
-            "routers/automation/test_generation_generate_routes_estimate.py",
-            "test_generator.estimate_test_count",
-        ),
-        (
-            "routers/automation/test_generation_generate_routes_file.py",
-            "test_generator.generate_test_cases_json",
-        ),
-    }
+    allowed: set[tuple[str, str]] = set()
 
     def _call_name(node: ast.AST) -> str:
         if isinstance(node, ast.Name):
@@ -263,219 +224,86 @@ def test_fastapi_run_in_threadpool_is_only_request_scoped_offload() -> None:
     assert actual <= allowed
 
 
-def test_generation_generate_routes_impl_stays_thin_aggregator() -> None:
-    impl = _read_backend_file("routers/automation/test_generation_generate_routes_impl.py")
-    split_helpers = _read_backend_file("routers/automation/test_generation_generate_routes_split_helpers.py")
-
-    assert "@router.post" not in impl
-    assert "router.include_router" in impl
-    assert "test_generator." not in impl
-    assert "parse_requirement_for_generation" not in impl
-    assert split_helpers.strip() == "from .test_generation_generate_routes_impl import *  # noqa: F401,F403"
-
-
-def test_generation_route_imports_do_not_initialize_db_or_cache_runtime() -> None:
+def test_obsolete_generation_chain_is_removed() -> None:
     backend_root = Path(__file__).resolve().parents[2]
-    modules = _generation_route_module_names()
-    forbidden_loaded_modules = [
-        "core.ai.ai_client",
-        "core.authn.auth",
-        "core.db.database",
-        "core.db.models",
-        "core.processing.utils",
-        "core.processing.workflow",
-        "core.cache_layer.cache",
-        "modules.domain.knowledge_base",
-        "modules.orchestration.context_orchestrator",
-        "modules.testing.test_generation",
-        "routers.test_generation_routes.support",
+    removed_paths = [
+        "modules/testing/test_generation.py",
+        "modules/test_generation_components/legacy_generation_impl.py",
+        "modules/test_generation_components/legacy",
+        "routers/automation/test_generation.py",
+        "routers/automation/test_generation_generate_routes.py",
+        "routers/automation/test_generation_generate_routes_impl.py",
+        "modules/testing/manual_quality_profile.py",
+        "modules/testing/case_fact_relations.py",
+        "modules/testing/coverage/coverage_case_classifier.py",
+        "modules/testing/coverage/coverage_case_complexity.py",
+        "modules/testing/coverage/domain_gate.py",
+        "modules/testing/coverage/flow_outline.py",
+        "modules/testing/coverage/flow_structure_governance.py",
+        "modules/testing/coverage/scenario_registry.py",
+        "modules/testing/coverage/scenario_registry_data.json",
+        "core/db/model_defs/testing_patterns.py",
+        "modules/testing/evaluation.py",
+        "modules/testing/evaluation_compare_background.py",
+        "modules/testing/evaluation_artifacts.py",
+        "modules/test_generation_components/coverage",
+        "modules/testing/coverage",
+        "modules/testing_components/repositories/evaluation_artifact_repository.py",
+        "modules/orchestration_components/services/evaluation_history_service.py",
+        "modules/orchestration_components/repositories/evaluation_history_repository.py",
     ]
-    probe = "\n".join(
-        [
-            "import importlib, sys",
-            f"modules = {modules!r}",
-            f"forbidden = {forbidden_loaded_modules!r}",
-            "for name in modules:",
-            "    importlib.import_module(name)",
-            "loaded = [name for name in forbidden if name in sys.modules]",
-            "if loaded:",
-            "    raise SystemExit('loaded heavy route runtime modules: ' + ', '.join(loaded))",
-        ]
-    )
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(backend_root)
-    result = subprocess.run(
-        [sys.executable, "-c", probe],
-        cwd=str(backend_root),
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    output = result.stdout + result.stderr
-    assert "Successfully connected to MySQL" not in output
-    assert "Redis connected:" not in output
-    assert "Local L1 cache backend:" not in output
+    assert all(not (backend_root / path).exists() for path in removed_paths)
+
+    config_content = _read_backend_file("core/settings/config.py")
+    obsolete_settings = [
+        "TEST_GENERATION_BATCH_SIZE",
+        "GENERATION_STREAM_COVERAGE_SHARD",
+        "CASE_QUALITY_ENFORCE_MIN_ACCEPTABLE_FINAL",
+    ]
+    assert all(name not in config_content for name in obsolete_settings)
 
 
-def test_pipeline_stage_ops_import_does_not_initialize_execution_backends() -> None:
+def test_standard_api_request_does_not_use_diagnostic_route() -> None:
     backend_root = Path(__file__).resolve().parents[2]
-    forbidden_loaded_modules = [
-        "core.db.database",
-        "core.cache_layer.cache",
-        "modules.testing.api_testing",
-        "modules.testing.evaluation",
-        "modules.testing.test_generation",
-        "modules.testing.ui_automation",
-    ]
-    probe = "\n".join(
-        [
-            "import importlib, sys",
-            "importlib.import_module('modules.orchestration_components.pipeline_runtime.stage_ops')",
-            f"forbidden = {forbidden_loaded_modules!r}",
-            "loaded = [name for name in forbidden if name in sys.modules]",
-            "if loaded:",
-            "    raise SystemExit('loaded pipeline stage execution backends: ' + ', '.join(loaded))",
-        ]
-    )
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(backend_root)
-    result = subprocess.run(
-        [sys.executable, "-c", probe],
-        cwd=str(backend_root),
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    main_content = _read_backend_file("main.py")
+    standard_api_content = _read_backend_file("modules/testing/standard_api.py")
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    output = result.stdout + result.stderr
-    assert "Successfully connected to MySQL" not in output
-    assert "Redis connected:" not in output
-    assert "Local L1 cache backend:" not in output
+    assert not (backend_root / "routers/system/diagnostics/debug.py").exists()
+    assert "debug_router" not in main_content
+    assert '@router.post("/request")' in standard_api_content
+    assert "ENABLE_DIAGNOSTIC_ROUTES" not in _read_backend_file("core/settings/config.py")
 
 
-def test_pipeline_dispatcher_and_recovery_imports_are_lightweight() -> None:
-    backend_root = Path(__file__).resolve().parents[2]
-    forbidden_loaded_modules = [
-        "core.db.database",
-        "core.db.models",
-        "core.cache_layer.cache",
-        "modules.orchestration_components.repositories.pipeline_runtime_repository",
-        "modules.orchestration_components.pipeline_runtime.runner",
-        "modules.orchestration_components.pipeline_runtime.schema_compat",
-        "modules.orchestration_components.pipeline_runtime.support",
-    ]
-    probe = "\n".join(
-        [
-            "import importlib, sys",
-            "for name in [",
-            "    'modules.orchestration_components.pipeline_runtime.dispatcher',",
-            "    'modules.orchestration_components.pipeline_runtime.recovery',",
-            "]:",
-            "    importlib.import_module(name)",
-            f"forbidden = {forbidden_loaded_modules!r}",
-            "loaded = [name for name in forbidden if name in sys.modules]",
-            "if loaded:",
-            "    raise SystemExit('loaded pipeline dispatch runtime modules: ' + ', '.join(loaded))",
-        ]
-    )
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(backend_root)
-    result = subprocess.run(
-        [sys.executable, "-c", probe],
-        cwd=str(backend_root),
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+def test_evaluation_history_does_not_write_back_to_knowledge_base() -> None:
+    route_content = _read_backend_file("routers/orchestration/evaluation_history_routes.py")
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    output = result.stdout + result.stderr
-    assert "Successfully connected to MySQL" not in output
-    assert "Redis connected:" not in output
-    assert "Local L1 cache backend:" not in output
-
-
-def test_pipeline_runner_does_not_run_schema_compat_at_import_time() -> None:
-    source = _read_backend_file("modules/orchestration_components/pipeline_runtime/runner.py")
-    tree = ast.parse(source)
-    top_level_calls: list[str] = []
-    for node in tree.body:
-        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
-            continue
-        func = node.value.func
-        if isinstance(func, ast.Name):
-            top_level_calls.append(func.id)
-        elif isinstance(func, ast.Attribute):
-            top_level_calls.append(func.attr)
-
-    assert "ensure_pipeline_table" not in top_level_calls
-
-
-def test_pipeline_runner_import_is_lightweight() -> None:
-    backend_root = Path(__file__).resolve().parents[2]
-    forbidden_loaded_modules = [
-        "core.db.database",
-        "core.db.models",
-        "core.processing.workflow",
-        "core.cache_layer.cache",
-        "modules.orchestration_components.pipeline_runtime.agent_ops",
-        "modules.orchestration_components.pipeline_runtime.schema_compat",
-        "modules.orchestration_components.pipeline_runtime.support",
-        "modules.orchestration_components.repositories.pipeline_runtime_repository",
-    ]
-    probe = "\n".join(
-        [
-            "import importlib, sys",
-            "importlib.import_module('modules.orchestration_components.pipeline_runtime.runner')",
-            f"forbidden = {forbidden_loaded_modules!r}",
-            "loaded = [name for name in forbidden if name in sys.modules]",
-            "if loaded:",
-            "    raise SystemExit('loaded pipeline runner runtime modules: ' + ', '.join(loaded))",
-        ]
-    )
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(backend_root)
-    result = subprocess.run(
-        [sys.executable, "-c", probe],
-        cwd=str(backend_root),
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    output = result.stdout + result.stderr
-    assert "Successfully connected to MySQL" not in output
-    assert "Redis connected:" not in output
-    assert "Local L1 cache backend:" not in output
+    assert '"/evaluation/history/{project_id}"' in route_content
+    assert '"/evaluation/latest-supplement/{project_id}"' not in route_content
+    assert '"/evaluation/save-knowledge"' not in route_content
+    assert "AgentPlatformRepository" in route_content
+    assert "KnowledgeDocument" not in route_content
+    assert "knowledge_base" not in route_content
 
 
 def test_celery_task_registration_import_is_lightweight() -> None:
     backend_root = Path(__file__).resolve().parents[2]
     forbidden_loaded_modules = [
         "core.db.database",
-        "core.db.models",
+        "core.db.model_defs",
         "core.cache_layer.cache",
         "modules.domain.knowledge_base",
         "modules.knowledge_base_components.document.index_audit",
         "modules.knowledge_base_components.document.offline_parse",
-        "modules.orchestration_components.pipeline_runtime.runner",
-        "modules.orchestration_components.pipeline_runtime.recovery",
+        "modules.agent_platform.runtime",
+        "modules.agent_platform.recovery",
         "modules.rag_eval.services.rag_eval_service",
         "modules.testing.evaluation_compare_background",
-        "modules.testing.test_generation",
     ]
     probe = "\n".join(
         [
             "import importlib, sys",
-            "for name in ['modules.orchestration.tasks_split_helpers', 'modules.orchestration.tasks']:",
+            "for name in ['modules.orchestration.tasks']:",
             "    importlib.import_module(name)",
             f"forbidden = {forbidden_loaded_modules!r}",
             "loaded = [name for name in forbidden if name in sys.modules]",

@@ -60,6 +60,9 @@ def get_relevant_context_impl(
         last_outcome = exec_result.get("last_outcome")
         last_error = str(exec_result.get("last_error") or "")
 
+        if not debug:
+            return str((last_outcome or {}).get("context_text") or "")
+
         payload = build_success_payload(
             question=question,
             limit=limit,
@@ -69,9 +72,6 @@ def get_relevant_context_impl(
             last_error=last_error,
             last_outcome=last_outcome,
         )
-
-        if not debug:
-            return str(payload.get("context") or "")
         return payload
     except Exception as e:
         error_payload = build_error_payload(

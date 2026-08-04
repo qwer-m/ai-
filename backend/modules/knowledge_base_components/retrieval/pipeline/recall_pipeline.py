@@ -31,7 +31,6 @@ from .recall_pipeline_helpers import (
     _sanitize_doc_types,
     _search_lane,
     _build_lane_where,
-    _build_project_where,
     _apply_min_max_scores,
     _dedupe_chunks_exact,
     _dedupe_chunks_by_containment,
@@ -167,12 +166,10 @@ def recall_chunks(
         recall_lanes[lane_key] = lane_output.get("lane_debug") or {
             "executed": True,
             "where_filter": _build_lane_where(project_id=project_id, chunk_source=chunk_source, doc_types=sanitized_doc_types),
-            "fallback_where_filter": _build_project_where(project_id=project_id, doc_types=sanitized_doc_types),
             "raw_result_count": len(lane_chunks),
             "usable_result_count": len(lane_chunks),
             "error": str(lane_output.get("error") or ""),
             "error_stage": "",
-            "fallback_used": False,
             "query_embedding_status": "unknown",
         }
 
@@ -229,12 +226,10 @@ def recall_chunks(
         recall_lanes[lane_key] = {
             "executed": False,
             "where_filter": {},
-            "fallback_where_filter": {},
             "raw_result_count": 0,
             "usable_result_count": 0,
             "error": "",
             "error_stage": "",
-            "fallback_used": False,
             "query_embedding_status": "disabled",
         }
 
@@ -252,8 +247,6 @@ def recall_chunks(
 
     if any(status == "success" for status in vector_statuses):
         query_embedding_status = "success"
-    elif any(status == "fallback" for status in vector_statuses):
-        query_embedding_status = "fallback"
     elif any(status == "failed" for status in vector_statuses):
         query_embedding_status = "failed"
     else:

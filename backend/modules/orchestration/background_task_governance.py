@@ -1,17 +1,10 @@
-"""Lightweight governance helpers for non-Celery background work.
-
-This module does not move work between runtimes. It standardizes metadata and
-logging around existing background execution styles so later migrations can be
-made from evidence instead of ad hoc call sites.
-"""
+"""Celery 后台任务的统一注册、投递与状态契约。"""
 
 from __future__ import annotations
 
-import logging
-import threading
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
 from modules.orchestration.task_names import TaskName
 
@@ -21,30 +14,20 @@ if TYPE_CHECKING:
 
 class BackgroundTaskCategory(str, Enum):
     DURABLE_JOB = "durable_job"
-    BEST_EFFORT_HOOK = "best_effort_hook"
-    IN_REQUEST_PARALLEL = "in_request_parallel"
     SCHEDULED_JOB = "scheduled_job"
-    PROCESS_LOCAL_WORKER = "process_local_worker"
 
 
 class BackgroundTaskKind(str, Enum):
-    TEST_GENERATION = "test_generation"
     KNOWLEDGE_DOCUMENT_PARSE = "knowledge_document_parse"
-    CONTEXT_SNAPSHOT_REBUILD = "context_snapshot_rebuild"
     KNOWLEDGE_INDEX_AUDIT = "knowledge_index_audit"
     CLEANUP_LOGS = "cleanup_logs"
-    ARCHIVE_OLD_DATA = "archive_old_data"
-    PIPELINE_RUN = "pipeline_run"
-    PIPELINE_RUN_RECOVERY = "pipeline_run_recovery"
+    AGENT_RUN = "agent_run"
+    AGENT_RUN_RECOVERY = "agent_run_recovery"
     RAG_EVAL_RUN = "rag_eval_run"
-    TEST_CASE_COMPARE = "test_case_compare"
 
 
 class TaskBackend(str, Enum):
     CELERY = "celery"
-    FASTAPI_BACKGROUND_TASKS = "fastapi_background_tasks"
-    PROCESS_LOCAL_WORKER = "process_local_worker"
-    THREADPOOL = "threadpool"
 
 
 @dataclass(frozen=True)
@@ -93,22 +76,6 @@ class BackgroundTaskProfile:
             "recommended_runtime": self.recommended_runtime,
             "notes": self.notes,
         }
-
-
-@dataclass(frozen=True)
-class ThreadPoolItemResult:
-    index: int
-    item: Any
-    result: Any = None
-    exception: Exception | None = None
-
-
-@dataclass(frozen=True)
-class ThreadPoolMapUpdate:
-    kind: str
-    completed_count: int
-    total_count: int
-    item_result: ThreadPoolItemResult | None = None
 
 
 def _profile(
@@ -200,16 +167,6 @@ def _validate_background_task_registry(
 BACKGROUND_TASK_PROFILES: dict[str, BackgroundTaskProfile] = _profiles_by_key(
     (
         _profile(
-            key="celery_test_generation",
-            category=BackgroundTaskCategory.DURABLE_JOB,
-            owner="orchestration",
-            user_visible=True,
-            durable=True,
-            status_source="/api/tasks/{task_id}",
-            recommended_runtime="celery",
-            notes="Long-running test generation with queue state and retry boundary.",
-        ),
-        _profile(
             key="celery_knowledge_parse",
             category=BackgroundTaskCategory.DURABLE_JOB,
             owner="knowledge_base",
@@ -218,16 +175,6 @@ BACKGROUND_TASK_PROFILES: dict[str, BackgroundTaskProfile] = _profiles_by_key(
             status_source="/api/knowledge/{doc_id}/parse-status",
             recommended_runtime="celery",
             notes="Document parse status is also persisted on KnowledgeDocument.",
-        ),
-        _profile(
-            key="celery_context_snapshot",
-            category=BackgroundTaskCategory.DURABLE_JOB,
-            owner="knowledge_base",
-            user_visible=False,
-            durable=True,
-            status_source="project_context_snapshots",
-            recommended_runtime="celery",
-            notes="Async prewarm task; generation falls back to RAG when not ready.",
         ),
         _profile(
             key="celery_knowledge_index_audit",
@@ -250,34 +197,24 @@ BACKGROUND_TASK_PROFILES: dict[str, BackgroundTaskProfile] = _profiles_by_key(
             notes="Scheduled log cleanup task triggered by Celery Beat.",
         ),
         _profile(
-            key="celery_archive_old_data",
-            category=BackgroundTaskCategory.SCHEDULED_JOB,
-            owner="maintenance",
-            user_visible=False,
-            durable=True,
-            status_source="/api/tasks/{task_id}",
-            recommended_runtime="celery",
-            notes="Scheduled archival task triggered by Celery Beat.",
-        ),
-        _profile(
-            key="pipeline_run_worker",
+            key="agent_run_worker",
             category=BackgroundTaskCategory.DURABLE_JOB,
-            owner="orchestration_pipeline",
+            owner="agent_platform",
             user_visible=True,
             durable=True,
-            status_source="pipeline_runs",
+            status_source="agent_runs",
             recommended_runtime="celery",
-            notes="Pipeline execution is queued through Celery and state is persisted on pipeline_runs.",
+            notes="Agent 工作流由 Celery 调度，状态持久化到 agent_runs 与 agent_node_runs。",
         ),
         _profile(
-            key="pipeline_run_recovery",
+            key="agent_run_recovery",
             category=BackgroundTaskCategory.SCHEDULED_JOB,
-            owner="orchestration_pipeline",
+            owner="agent_platform",
             user_visible=False,
             durable=True,
-            status_source="pipeline_runs",
+            status_source="agent_runs",
             recommended_runtime="celery",
-            notes="Scheduled scanner that requeues expired running pipeline runs through the governed dispatcher.",
+            notes="定时扫描租约过期的 Agent Run，并通过统一调度器重新投递。",
         ),
         _profile(
             key="rag_eval_run_worker",
@@ -289,113 +226,12 @@ BACKGROUND_TASK_PROFILES: dict[str, BackgroundTaskProfile] = _profiles_by_key(
             recommended_runtime="celery",
             notes="Supports stop/resume through persisted cursor and stop_requested fields.",
         ),
-        _profile(
-            key="evaluation_compare_background",
-            category=BackgroundTaskCategory.DURABLE_JOB,
-            owner="evaluation",
-            user_visible=True,
-            durable=True,
-            status_source="test_generation_comparisons",
-            recommended_runtime="celery",
-            notes=(
-                "Request returns a running artifact; execution is queued through "
-                "Celery and result is persisted on TestGenerationComparison."
-            ),
-        ),
-        _profile(
-            key="test_generation_estimate_threadpool",
-            category=BackgroundTaskCategory.IN_REQUEST_PARALLEL,
-            owner="test_generation",
-            user_visible=False,
-            durable=False,
-            status_source="request",
-            recommended_runtime="threadpool",
-            notes="Used to keep a request responsive; no standalone lifecycle.",
-        ),
-        _profile(
-            key="test_generation_coverage_shard_threadpool",
-            category=BackgroundTaskCategory.IN_REQUEST_PARALLEL,
-            owner="test_generation",
-            user_visible=False,
-            durable=False,
-            status_source="request",
-            recommended_runtime="threadpool",
-            notes="Bounded coverage-shard model calls inside a streaming generation request.",
-        ),
-        _profile(
-            key="test_generation_semantic_compile_threadpool",
-            category=BackgroundTaskCategory.IN_REQUEST_PARALLEL,
-            owner="test_generation",
-            user_visible=True,
-            durable=False,
-            status_source="request_stream",
-            recommended_runtime="threadpool",
-            notes=(
-                "Single worker used only to keep semantic compilation streams responsive; "
-                "it does not parallelize graph shards."
-            ),
-        ),
-        _profile(
-            key="test_generation_graph_fact_shard_threadpool",
-            category=BackgroundTaskCategory.IN_REQUEST_PARALLEL,
-            owner="test_generation",
-            user_visible=True,
-            durable=False,
-            status_source="request_stream",
-            recommended_runtime="threadpool",
-            notes=(
-                "Bounded two-worker compilation for independent Graph fact shards; "
-                "each worker owns its DB session and AI client."
-            ),
-        ),
-        _profile(
-            key="test_generation_fact_ledger_shard_threadpool",
-            category=BackgroundTaskCategory.IN_REQUEST_PARALLEL,
-            owner="test_generation",
-            user_visible=True,
-            durable=False,
-            status_source="request_stream",
-            recommended_runtime="threadpool",
-            notes=(
-                "Bounded two-worker compilation for independent A1 fact ledger shards; "
-                "each worker owns its DB session and AI client."
-            ),
-        ),
-        _profile(
-            key="pipeline_agent_executor_threadpool",
-            category=BackgroundTaskCategory.IN_REQUEST_PARALLEL,
-            owner="orchestration_pipeline",
-            user_visible=False,
-            durable=False,
-            status_source="pipeline_runs",
-            recommended_runtime="threadpool",
-            notes="Bounded parallel rule checks inside a durable pipeline run worker.",
-        ),
-        _profile(
-            key="snapshot_sync_retry_threadpool",
-            category=BackgroundTaskCategory.IN_REQUEST_PARALLEL,
-            owner="test_generation",
-            user_visible=False,
-            durable=False,
-            status_source="request",
-            recommended_runtime="threadpool",
-            notes="Bounded synchronous retry with timeout inside generation gate.",
-        ),
     )
 )
 
 
 BACKGROUND_TASK_SPECS: dict[BackgroundTaskKind, BackgroundTaskSpec] = _specs_by_kind(
     (
-        _spec(
-            kind=BackgroundTaskKind.TEST_GENERATION,
-            backend=TaskBackend.CELERY,
-            category=BackgroundTaskCategory.DURABLE_JOB,
-            business_type="test_generation",
-            profile_key="celery_test_generation",
-            task_name=TaskName.GENERATE_TEST_CASES,
-            default_reason="generate_tests_async",
-        ),
         _spec(
             kind=BackgroundTaskKind.KNOWLEDGE_DOCUMENT_PARSE,
             backend=TaskBackend.CELERY,
@@ -404,15 +240,6 @@ BACKGROUND_TASK_SPECS: dict[BackgroundTaskKind, BackgroundTaskSpec] = _specs_by_
             profile_key="celery_knowledge_parse",
             task_name=TaskName.PARSE_KNOWLEDGE_DOCUMENT,
             default_reason="offline_parse",
-        ),
-        _spec(
-            kind=BackgroundTaskKind.CONTEXT_SNAPSHOT_REBUILD,
-            backend=TaskBackend.CELERY,
-            category=BackgroundTaskCategory.DURABLE_JOB,
-            business_type="context_snapshot",
-            profile_key="celery_context_snapshot",
-            task_name=TaskName.BUILD_CONTEXT_SNAPSHOT,
-            default_reason="snapshot_rebuild",
         ),
         _spec(
             kind=BackgroundTaskKind.KNOWLEDGE_INDEX_AUDIT,
@@ -433,31 +260,22 @@ BACKGROUND_TASK_SPECS: dict[BackgroundTaskKind, BackgroundTaskSpec] = _specs_by_
             default_reason="scheduled_cleanup",
         ),
         _spec(
-            kind=BackgroundTaskKind.ARCHIVE_OLD_DATA,
-            backend=TaskBackend.CELERY,
-            category=BackgroundTaskCategory.SCHEDULED_JOB,
-            business_type="maintenance",
-            profile_key="celery_archive_old_data",
-            task_name=TaskName.ARCHIVE_OLD_DATA,
-            default_reason="scheduled_archive",
-        ),
-        _spec(
-            kind=BackgroundTaskKind.PIPELINE_RUN,
+            kind=BackgroundTaskKind.AGENT_RUN,
             backend=TaskBackend.CELERY,
             category=BackgroundTaskCategory.DURABLE_JOB,
-            business_type="pipeline_run",
-            profile_key="pipeline_run_worker",
-            task_name=TaskName.RUN_PIPELINE,
-            default_reason="pipeline_run_worker",
+            business_type="agent_run",
+            profile_key="agent_run_worker",
+            task_name=TaskName.RUN_AGENT_WORKFLOW,
+            default_reason="agent_run_worker",
         ),
         _spec(
-            kind=BackgroundTaskKind.PIPELINE_RUN_RECOVERY,
+            kind=BackgroundTaskKind.AGENT_RUN_RECOVERY,
             backend=TaskBackend.CELERY,
             category=BackgroundTaskCategory.SCHEDULED_JOB,
-            business_type="pipeline_run",
-            profile_key="pipeline_run_recovery",
-            task_name=TaskName.RECOVER_EXPIRED_PIPELINE_RUNS,
-            default_reason="scheduled_pipeline_run_recovery",
+            business_type="agent_run",
+            profile_key="agent_run_recovery",
+            task_name=TaskName.RECOVER_EXPIRED_AGENT_RUNS,
+            default_reason="scheduled_agent_run_recovery",
         ),
         _spec(
             kind=BackgroundTaskKind.RAG_EVAL_RUN,
@@ -467,15 +285,6 @@ BACKGROUND_TASK_SPECS: dict[BackgroundTaskKind, BackgroundTaskSpec] = _specs_by_
             profile_key="rag_eval_run_worker",
             task_name=TaskName.RUN_RAG_EVAL,
             default_reason="rag_eval_run_worker",
-        ),
-        _spec(
-            kind=BackgroundTaskKind.TEST_CASE_COMPARE,
-            backend=TaskBackend.CELERY,
-            category=BackgroundTaskCategory.DURABLE_JOB,
-            business_type="test_case_compare",
-            profile_key="evaluation_compare_background",
-            task_name=TaskName.COMPARE_TEST_CASES,
-            default_reason="evaluation_compare_background",
         ),
     )
 )
@@ -564,320 +373,3 @@ def list_background_task_profiles(
         for profile in BACKGROUND_TASK_PROFILES.values()
         if profile.category.value == category_value
     ]
-
-
-def _resolve_profile(
-    *,
-    profile_key: str,
-    fallback_category: BackgroundTaskCategory,
-) -> BackgroundTaskProfile:
-    return BACKGROUND_TASK_PROFILES.get(
-        profile_key,
-        BackgroundTaskProfile(
-            key=profile_key,
-            category=fallback_category,
-            owner="unknown",
-            user_visible=False,
-            durable=False,
-            status_source="unknown",
-            recommended_runtime=fallback_category.value,
-        ),
-    )
-
-
-def wrap_background_callable(
-    *,
-    profile_key: str,
-    category: BackgroundTaskCategory,
-    target: Callable[..., Any],
-    business_id: Any | None = None,
-    task_logger: logging.Logger | None = None,
-) -> Callable[..., Any]:
-    profile = _resolve_profile(profile_key=profile_key, fallback_category=category)
-    logger = task_logger or logging.getLogger(__name__)
-
-    def _wrapped(*args: Any, **kwargs: Any) -> Any:
-        logger.info(
-            "background_task_started key=%s category=%s business_id=%s runtime=%s",
-            profile.key,
-            profile.category.value,
-            business_id,
-            profile.recommended_runtime,
-        )
-        try:
-            result = target(*args, **kwargs)
-        except Exception:
-            logger.exception(
-                "background_task_failed key=%s category=%s business_id=%s runtime=%s",
-                profile.key,
-                profile.category.value,
-                business_id,
-                profile.recommended_runtime,
-            )
-            raise
-        logger.info(
-            "background_task_finished key=%s category=%s business_id=%s runtime=%s",
-            profile.key,
-            profile.category.value,
-            business_id,
-            profile.recommended_runtime,
-        )
-        return result
-
-    return _wrapped
-
-
-def run_governed_threadpool_call(
-    *,
-    profile_key: str,
-    target: Callable[..., Any],
-    args: Iterable[Any] = (),
-    kwargs: Mapping[str, Any] | None = None,
-    timeout: float | None = None,
-    max_workers: int = 1,
-    thread_name_prefix: str | None = None,
-    business_id: Any | None = None,
-    task_logger: logging.Logger | None = None,
-) -> Any:
-    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-
-    profile = _resolve_profile(
-        profile_key=profile_key,
-        fallback_category=BackgroundTaskCategory.IN_REQUEST_PARALLEL,
-    )
-    logger = task_logger or logging.getLogger(__name__)
-    worker_count = max(1, int(max_workers or 1))
-    logger.info(
-        "threadpool_task_started key=%s category=%s business_id=%s workers=%s timeout=%s",
-        profile.key,
-        profile.category.value,
-        business_id,
-        worker_count,
-        timeout,
-    )
-    wrapped = wrap_background_callable(
-        profile_key=profile.key,
-        category=BackgroundTaskCategory.IN_REQUEST_PARALLEL,
-        target=target,
-        business_id=business_id,
-        task_logger=logger,
-    )
-    executor = ThreadPoolExecutor(
-        max_workers=worker_count,
-        thread_name_prefix=thread_name_prefix or profile.key,
-    )
-    future = executor.submit(wrapped, *tuple(args), **dict(kwargs or {}))
-    try:
-        result = future.result(timeout=timeout)
-    except FutureTimeoutError:
-        future.cancel()
-        logger.warning(
-            "threadpool_task_timeout key=%s category=%s business_id=%s timeout=%s",
-            profile.key,
-            profile.category.value,
-            business_id,
-            timeout,
-        )
-        raise
-    finally:
-        executor.shutdown(wait=False, cancel_futures=True)
-    logger.info(
-        "threadpool_task_finished key=%s category=%s business_id=%s workers=%s",
-        profile.key,
-        profile.category.value,
-        business_id,
-        worker_count,
-    )
-    return result
-
-
-def run_governed_threadpool_map(
-    *,
-    profile_key: str,
-    items: Iterable[Any],
-    worker: Callable[[Any], Any],
-    max_workers: int,
-    thread_name_prefix: str | None = None,
-    business_id: Any | None = None,
-    task_logger: logging.Logger | None = None,
-) -> list[ThreadPoolItemResult]:
-    results = [
-        update.item_result
-        for update in iter_governed_threadpool_map(
-            profile_key=profile_key,
-            items=items,
-            worker=worker,
-            max_workers=max_workers,
-            thread_name_prefix=thread_name_prefix,
-            business_id=business_id,
-            task_logger=task_logger,
-            heartbeat_interval_seconds=0,
-        )
-        if update.kind == "item" and update.item_result is not None
-    ]
-    results.sort(key=lambda item: item.index)
-    return results
-
-
-def iter_governed_threadpool_map(
-    *,
-    profile_key: str,
-    items: Iterable[Any],
-    worker: Callable[[Any], Any],
-    max_workers: int,
-    thread_name_prefix: str | None = None,
-    business_id: Any | None = None,
-    task_logger: logging.Logger | None = None,
-    heartbeat_interval_seconds: float = 10.0,
-) -> Iterable[ThreadPoolMapUpdate]:
-    """逐项交付线程池结果，并在无任务完成时产生可向外转发的心跳。"""
-
-    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-
-    profile = _resolve_profile(
-        profile_key=profile_key,
-        fallback_category=BackgroundTaskCategory.IN_REQUEST_PARALLEL,
-    )
-    logger = task_logger or logging.getLogger(__name__)
-    item_list = list(items)
-    worker_count = max(1, int(max_workers or 1))
-    logger.info(
-        "threadpool_map_started key=%s category=%s business_id=%s workers=%s items=%s",
-        profile.key,
-        profile.category.value,
-        business_id,
-        worker_count,
-        len(item_list),
-    )
-    executor = ThreadPoolExecutor(
-        max_workers=worker_count,
-        thread_name_prefix=thread_name_prefix or profile.key,
-    )
-    future_to_item = {
-            executor.submit(worker, item): (index, item)
-            for index, item in enumerate(item_list)
-        }
-    pending = set(future_to_item)
-    completed_count = 0
-    heartbeat_interval = max(0.0, float(heartbeat_interval_seconds or 0.0))
-    try:
-        while pending:
-            done, pending = wait(
-                pending,
-                timeout=heartbeat_interval if heartbeat_interval > 0 else None,
-                return_when=FIRST_COMPLETED,
-            )
-            if not done:
-                yield ThreadPoolMapUpdate(
-                    kind="heartbeat",
-                    completed_count=int(completed_count),
-                    total_count=int(len(item_list)),
-                )
-                continue
-            for future in done:
-                index, item = future_to_item[future]
-                try:
-                    item_result = ThreadPoolItemResult(
-                        index=index,
-                        item=item,
-                        result=future.result(),
-                    )
-                except Exception as exc:
-                    logger.exception(
-                        "threadpool_map_item_failed key=%s category=%s business_id=%s index=%s",
-                        profile.key,
-                        profile.category.value,
-                        business_id,
-                        index,
-                    )
-                    item_result = ThreadPoolItemResult(
-                        index=index,
-                        item=item,
-                        exception=exc,
-                    )
-                completed_count += 1
-                yield ThreadPoolMapUpdate(
-                    kind="item",
-                    completed_count=int(completed_count),
-                    total_count=int(len(item_list)),
-                    item_result=item_result,
-                )
-    finally:
-        executor.shutdown(wait=not pending, cancel_futures=bool(pending))
-        logger.info(
-            "threadpool_map_finished key=%s category=%s business_id=%s workers=%s items=%s completed=%s",
-            profile.key,
-            profile.category.value,
-            business_id,
-            worker_count,
-            len(item_list),
-            completed_count,
-        )
-
-
-def create_process_local_worker_thread(
-    *,
-    profile_key: str,
-    target: Callable[..., Any],
-    args: Iterable[Any] = (),
-    kwargs: Mapping[str, Any] | None = None,
-    name: str,
-    business_id: Any | None = None,
-    daemon: bool = True,
-    task_logger: logging.Logger | None = None,
-) -> threading.Thread:
-    wrapped = wrap_background_callable(
-        profile_key=profile_key,
-        category=BackgroundTaskCategory.PROCESS_LOCAL_WORKER,
-        target=target,
-        business_id=business_id,
-        task_logger=task_logger,
-    )
-    return threading.Thread(
-        target=wrapped,
-        args=tuple(args),
-        kwargs=dict(kwargs or {}),
-        daemon=daemon,
-        name=name,
-    )
-
-
-def add_fastapi_background_task(
-    background_tasks: Any,
-    *,
-    profile_key: str,
-    target: Callable[..., Any],
-    args: Iterable[Any] = (),
-    kwargs: Mapping[str, Any] | None = None,
-    business_id: Any | None = None,
-    task_logger: logging.Logger | None = None,
-) -> None:
-    wrapped = wrap_background_callable(
-        profile_key=profile_key,
-        category=BackgroundTaskCategory.BEST_EFFORT_HOOK,
-        target=target,
-        business_id=business_id,
-        task_logger=task_logger,
-    )
-    background_tasks.add_task(wrapped, *tuple(args), **dict(kwargs or {}))
-
-
-def add_best_effort_background_task(
-    background_tasks: Any,
-    *,
-    profile_key: str,
-    target: Callable[..., Any],
-    args: Iterable[Any] = (),
-    kwargs: Mapping[str, Any] | None = None,
-    business_id: Any | None = None,
-    task_logger: logging.Logger | None = None,
-) -> None:
-    add_fastapi_background_task(
-        background_tasks,
-        profile_key=profile_key,
-        target=target,
-        args=args,
-        kwargs=kwargs,
-        business_id=business_id,
-        task_logger=task_logger,
-    )

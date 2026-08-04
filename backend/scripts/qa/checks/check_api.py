@@ -11,7 +11,7 @@ try:
         data = response.json()
         print(f"Total documents: {len(data.get('documents', []))}")
         for doc in data.get('documents', []):
-            print(f"ID: {doc.get('id')}, GlobalID: {doc.get('global_id')}, Type: {doc.get('doc_type')}, Filename: {doc.get('filename')}")
+            print(f"ID: {doc.get('id')}, DisplayID: {doc.get('display_id')}, Type: {doc.get('doc_type')}, Filename: {doc.get('filename')}")
             preview = doc.get('content_preview')
             print(f"Preview length: {len(preview) if preview else 0}")
             if preview:

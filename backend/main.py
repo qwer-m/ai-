@@ -28,7 +28,7 @@ from sqlalchemy import text, desc
 
 # 核心基础设施
 from core.db.database import get_db, SessionLocal
-from core.db.models import LogEntry, SystemConfig
+from core.db.model_defs import LogEntry, SystemConfig
 from core.processing.utils import logger, log_to_db
 from core.settings.config import settings
 from core.ai.ai_client import ai_client
@@ -43,16 +43,14 @@ from routers.automation.ui_test_cases import router as ui_test_cases_router
 
 # 当前重构后路由
 from routers.system.projects import router as projects_router
-from routers.automation.test_generation import router as test_gen_router
 from routers.automation.ui_automation import router as ui_auto_router
 from routers.automation.api_automation import router as api_auto_router
 from routers.system.common import router as common_router
-from routers.system.diagnostics.debug import router as debug_router
 from routers.system.tasks import router as tasks_router
 from routers.system.logs import router as logs_router
 from routers.system.config import router as config_router
 from routers.orchestration.evaluation import router as evaluation_router
-from routers.orchestration.pipeline import router as pipeline_router
+from routers.orchestration.agents import router as agents_router
 from routers.rag.rag_datasets import router as rag_datasets_router
 from routers.rag.rag_runs import router as rag_runs_router
 from routers.rag.rag_eval import router as rag_eval_router
@@ -137,16 +135,14 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(standard_api_router, prefix="/api")
 app.include_router(ui_test_cases_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
-app.include_router(test_gen_router, prefix="/api")
 app.include_router(ui_auto_router, prefix="/api")
 app.include_router(api_auto_router, prefix="/api")
 app.include_router(common_router, prefix="/api")
-app.include_router(debug_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
 app.include_router(logs_router, prefix="/api")
 app.include_router(config_router, prefix="/api")
 app.include_router(evaluation_router, prefix="/api")
-app.include_router(pipeline_router, prefix="/api")
+app.include_router(agents_router, prefix="/api")
 app.include_router(rag_datasets_router, prefix="/api")
 app.include_router(rag_runs_router, prefix="/api")
 app.include_router(rag_eval_router, prefix="/api")

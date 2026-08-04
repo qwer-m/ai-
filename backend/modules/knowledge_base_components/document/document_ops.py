@@ -4,13 +4,13 @@
 
 
 from typing import Optional
-import logging
 
 from sqlalchemy.orm import Session
 
-from core.cache_layer.chroma_client import chroma_client as _default_chroma_client
-from core.db.models import KnowledgeDocument
+from core.cache_layer.chroma_client import chroma_client
+from core.db.model_defs import KnowledgeDocument
 from modules.knowledge_base_components.document.document_index_service import (
+    build_document_index_chunks,
     delete_document_indexes,
     upsert_document_indexes,
 )
@@ -26,52 +26,7 @@ INDEXABLE_DOC_TYPES = (
     "requirement",
     "product_requirement",
     "incomplete",
-    "evaluation_report",
-    "agent_learning",
 )
-
-logger = logging.getLogger(__name__)
-# Compatibility seam for tests and legacy monkeypatching.
-chroma_client = _default_chroma_client
-
-
-def _trigger_snapshot_rebuild_async(
-    module,
-    *,
-    project_id: int,
-    user_id: Optional[int],
-    reason: str,
-    db: Session,
-) -> None:
-    """
-    中文注释：文档变更后触发 snapshot 后台重建。
-    该动作为“尽力触发”，不得影响当前主流程。
-    """
-    try:
-        result = module.enqueue_context_snapshot_rebuild(
-            project_id=project_id,
-            db=db,
-            user_id=user_id,
-            force_rebuild=False,
-            rebuild_reason_hint=reason,
-        )
-        logger.info(
-            "snapshot_rebuild_triggered project_id=%s user_id=%s reason=%s queued=%s queue_reason=%s",
-            project_id,
-            user_id,
-            reason,
-            bool((result or {}).get("queued")),
-            (result or {}).get("reason"),
-        )
-    except Exception as e:
-        logger.warning(
-            "snapshot_rebuild_trigger_failed project_id=%s user_id=%s reason=%s error=%s",
-            project_id,
-            user_id,
-            reason,
-            e,
-        )
-
 
 def add_document_impl(
     module,
@@ -121,9 +76,7 @@ def add_document_impl(
         display_order=new_order,
     )
     repo.add(doc)
-    repo.commit()
-    repo.refresh(doc)
-
+    db.flush()
     module.reindex_project_specific_ids(doc_type, project_id, db)
     repo.refresh(doc)
 
@@ -134,6 +87,18 @@ def add_document_impl(
         pass
 
     if doc_type in INDEXABLE_DOC_TYPES:
+        raw_chunks, module_hint, biz_key = build_document_index_chunks(
+            content=content,
+            doc_type=doc_type,
+        )
+        summary_chunks = []
+        if summary and summary != content:
+            summary_chunks, _, _ = build_document_index_chunks(
+                content=summary,
+                doc_type=doc_type,
+                default_module=module_hint,
+                default_biz_key=biz_key,
+            )
         upsert_document_indexes(
             doc_id=doc.id,
             content=content,
@@ -154,16 +119,11 @@ def add_document_impl(
                 "user_id": user_id,
                 "is_summary": True,
             },
+            chunks=raw_chunks,
+            summary_chunks=summary_chunks,
             client=chroma_client,
         )
 
-    _trigger_snapshot_rebuild_async(
-        module,
-        project_id=project_id,
-        user_id=user_id,
-        reason="document_added",
-        db=db,
-    )
     return doc
 
 
@@ -177,7 +137,7 @@ def update_document_impl(
 ):
     """Update a document and rebuild affected indexes."""
     repo = KnowledgeDocumentRepository(db)
-    doc = repo.get_by_id_or_project_specific_id(doc_id)
+    doc = repo.get_by_id(doc_id)
     if not doc:
         return None
 
@@ -214,6 +174,18 @@ def update_document_impl(
 
     if content_changed and doc.doc_type in INDEXABLE_DOC_TYPES:
         summary_text = str(doc.summary or "").strip()
+        raw_chunks, module_hint, biz_key = build_document_index_chunks(
+            content=content,
+            doc_type=str(doc.doc_type or ""),
+        )
+        summary_chunks = []
+        if summary_text and summary_text != content:
+            summary_chunks, _, _ = build_document_index_chunks(
+                content=summary_text,
+                doc_type=str(doc.doc_type or ""),
+                default_module=module_hint,
+                default_biz_key=biz_key,
+            )
         upsert_document_indexes(
             doc_id=doc.id,
             content=content,
@@ -234,16 +206,11 @@ def update_document_impl(
                 "user_id": getattr(doc, "user_id", None),
                 "is_summary": True,
             },
+            chunks=raw_chunks,
+            summary_chunks=summary_chunks,
             client=chroma_client,
         )
 
-    _trigger_snapshot_rebuild_async(
-        module,
-        project_id=project_id,
-        user_id=getattr(doc, "user_id", None),
-        reason="document_updated",
-        db=db,
-    )
     return doc
 
 
@@ -252,13 +219,11 @@ def delete_document_impl(module, doc_id: int, db: Session):
     repo = KnowledgeDocumentRepository(db)
     doc = repo.get_by_id(doc_id)
     if not doc:
-        doc = repo.get_by_project_specific_id(doc_id)
-    if not doc:
         return False
 
     doc_type = doc.doc_type
     project_id = doc.project_id
-    doc_global_id = doc.id
+    deleted_doc_id = doc.id
 
     linked_docs = repo.list_linked_by_source(doc.id)
     for linked_doc in linked_docs:
@@ -268,14 +233,7 @@ def delete_document_impl(module, doc_id: int, db: Session):
     repo.commit()
 
     module.reindex_project_specific_ids(doc_type, project_id, db)
-    delete_document_indexes(doc_global_id, client=chroma_client)
-    _trigger_snapshot_rebuild_async(
-        module,
-        project_id=project_id,
-        user_id=getattr(doc, "user_id", None),
-        reason="document_deleted",
-        db=db,
-    )
+    delete_document_indexes(deleted_doc_id, client=chroma_client)
     return True
 
 

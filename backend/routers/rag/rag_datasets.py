@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from core.authn.auth import get_current_user
 from core.db.database import get_db
-from core.db.models import User
+from core.db.model_defs import User
 from modules.rag_eval.services.rag_dataset_management_service import RagDatasetManagementService
 from schemas.rag.rag_dataset import (
     RagDatasetCreate,

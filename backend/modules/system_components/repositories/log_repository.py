@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from core.db.models import LogEntry
+from core.db.model_defs import LogEntry
 
 
 class LogRepository:

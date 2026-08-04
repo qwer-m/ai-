@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from core.db.models import RagDataset, RagDatasetSample
+from core.db.model_defs import RagDataset, RagDatasetSample
 from modules.rag_eval.repositories.rag_dataset_management_repository import (
     RagDatasetManagementRepository,
 )

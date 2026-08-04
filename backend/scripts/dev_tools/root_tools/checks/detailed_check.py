@@ -61,10 +61,6 @@ def detailed_check():
         project_count = result.fetchone()[0]
         print(f"   projects表记录数: {project_count}")
         
-        result = conn.execute(text("SELECT COUNT(*) FROM test_generations;"))
-        test_gen_count = result.fetchone()[0]
-        print(f"   test_generations表记录数: {test_gen_count}")
-        
         # 检查projects表数据
         print("\n6. 查看projects表数据:")
         result = conn.execute(text("SELECT id, name FROM projects;"))

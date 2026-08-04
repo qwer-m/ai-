@@ -1,179 +1,51 @@
-﻿import { useEffect, useState, type ChangeEvent, type ClipboardEvent } from 'react';
-import { Button, Col, Form, Row, Spinner } from 'react-bootstrap';
-import {
-  learnFromEvaluationCasePairFileRequest,
-  learnFromEvaluationCasePairRequest,
-  parseQualityReport,
-} from './state/evaluationService';
-import type { DefectAnalysis, LoadingType } from './state/types';
+import { Button, Col, Form, Row } from 'react-bootstrap';
+import type {
+  EvaluationHistoryPoint,
+  EvaluationRunRecord,
+  LoadingType,
+  QualityReport,
+} from './state/types';
 import { TestCaseEvaluationReport } from './TestCaseEvaluationReport';
 
 type Props = {
   evalGenerated: string;
-  setEvalGenerated: (v: string) => void;
   evalModified: string;
   setEvalModified: (v: string) => void;
-  evalResult: string | null;
+  evalResult: QualityReport | null;
   loading: LoadingType;
-  genHistory: any[];
-  selectedGenerationId: number | null;
-  onSelectGenerationId: (id: number | null) => void;
-  onLoadGenerationById: (id: number) => void;
+  runHistory: EvaluationRunRecord[];
+  selectedRunId: number | null;
+  onSelectRunId: (id: number | null) => void;
+  onLoadRunById: (id: number) => void;
   onFileChange: (file: File | null) => void;
-  uploadedCompareFilename: string;
-  compareFile: File | null;
-  loadedCompareFilename: string;
-  onCompare: () => void;
+  uploadedReferenceFilename: string;
+  loadedReferenceFilename: string;
+  onEvaluate: () => void;
   onInvalidateEvaluation: () => void;
-  history: any[];
-  showSupplement: boolean;
-  setShowSupplement: (next: boolean) => void;
-  supplementText: string;
-  setSupplementText: (v: string) => void;
-  supplementImages: File[];
-  setSupplementImages: (files: File[]) => void;
-  savedDocId: number | null;
-  lastSavedContent: string;
-  handleSupplementPaste: (e: ClipboardEvent<HTMLTextAreaElement>) => void;
-  handleSupplementFilesChange: (e: ChangeEvent<HTMLInputElement>) => void;
-  onSaveKnowledge: (defectAnalysis: DefectAnalysis) => Promise<void>;
-  savingKnowledge: boolean;
-  projectId: number | null;
+  history: EvaluationHistoryPoint[];
 };
 
 export function TestCaseCoveragePanel({
   evalGenerated,
-  setEvalGenerated,
   evalModified,
   setEvalModified,
   evalResult,
   loading,
-  genHistory,
-  selectedGenerationId,
-  onSelectGenerationId,
-  onLoadGenerationById,
+  runHistory,
+  selectedRunId,
+  onSelectRunId,
+  onLoadRunById,
   onFileChange,
-  uploadedCompareFilename,
-  compareFile,
-  loadedCompareFilename,
-  onCompare,
+  uploadedReferenceFilename,
+  loadedReferenceFilename,
+  onEvaluate,
   onInvalidateEvaluation,
   history,
-  showSupplement,
-  setShowSupplement,
-  supplementText,
-  setSupplementText,
-  supplementImages,
-  setSupplementImages,
-  savedDocId,
-  lastSavedContent,
-  handleSupplementPaste,
-  handleSupplementFilesChange,
-  onSaveKnowledge,
-  savingKnowledge,
-  projectId,
 }: Props) {
-  const [learning, setLearning] = useState(false);
-  const [learningMessage, setLearningMessage] = useState('');
-  const [casePairLearningApplied, setCasePairLearningApplied] = useState(false);
-  const hasFinalCasesInput = Boolean(evalModified.trim() || compareFile);
-  const hasEvaluationResult = Boolean(evalResult && String(evalResult).trim());
-  const currentReport = evalResult ? parseQualityReport(evalResult) : null;
-  const evaluationRunning = currentReport?.analysisStatus === 'running';
-  const compareDisabled = loading === 'eval' || evaluationRunning;
-  const compareLabel = loading === 'eval'
-    ? '提交评估中...'
-    : evaluationRunning
-      ? '模型后台评估中...'
-      : '开始评估质量（含召回率/精准率/缺陷分析）';
-
-  useEffect(() => {
-    setCasePairLearningApplied(false);
-  }, [evalResult, evalGenerated, evalModified, compareFile, selectedGenerationId]);
-
-  const requestLearning = (dryRun: boolean) => {
-    if (compareFile) {
-      const formData = new FormData();
-      formData.append('project_id', String(projectId));
-      formData.append('generated_cases', evalGenerated);
-      formData.append('final_cases', evalModified);
-      if (selectedGenerationId) formData.append('generation_id', String(selectedGenerationId));
-      formData.append('include_negative_samples', 'true');
-      formData.append('dry_run', String(dryRun));
-      formData.append('file', compareFile);
-      return learnFromEvaluationCasePairFileRequest(formData);
-    }
-    return learnFromEvaluationCasePairRequest({
-      project_id: Number(projectId),
-      generated_cases: evalGenerated,
-      final_cases: evalModified,
-      generation_id: selectedGenerationId,
-      include_negative_samples: true,
-      dry_run: dryRun,
-    });
-  };
-
-  const handleLearnFromEvaluation = async () => {
-    if (!projectId) {
-      window.alert('请先选择项目。');
-      return;
-    }
-    if (!evalGenerated.trim()) {
-      window.alert('请先提供生成的测试用例。');
-      return;
-    }
-    if (!hasFinalCasesInput) {
-      window.alert('\u8bf7\u5148\u63d0\u4f9b\u7528\u6237\u4fee\u6539\u540e\u7684\u6d4b\u8bd5\u7528\u4f8b\u7ec8\u7a3f\uff0c\u6216\u4e0a\u4f20\u7ec8\u7a3f\u6587\u4ef6\u3002');
-      return;
-    }
-
-    setLearning(true);
-    setLearningMessage('正在预览样本池学习结果...');
-    try {
-      const preview = await requestLearning(true);
-      const diagnostics = preview?.derived?.diagnostics || preview?.diagnostics || {};
-      const positiveCount = Number(diagnostics.positive_sample_count || 0);
-      const positiveCandidateCount = Number(diagnostics.positive_candidate_count || positiveCount);
-      const negativeCount = Number(diagnostics.negative_sample_count || 0);
-      const extensionCount = Number(diagnostics.manual_business_extension_count || 0);
-      const totalCount = positiveCount + negativeCount;
-      if (totalCount <= 0) {
-        const generatedCaseCount = Number(diagnostics.generated_case_count || 0);
-        const finalCaseCount = Number(diagnostics.final_case_count || 0);
-        const fileMeta = preview?.file_parse || {};
-        const fileInfo = fileMeta?.filename ? `文件：${fileMeta.filename}；` : '';
-        setLearningMessage(
-          `未抽取到可写入样本池的学习样本。${fileInfo}生成侧解析 ${generatedCaseCount} 条，终稿侧解析 ${finalCaseCount} 条。`,
-        );
-        return;
-      }
-
-      const confirmed = window.confirm(
-        `本次将写入样本池：正向模式 ${positiveCount} 条，异常模式 ${negativeCount} 条，人工业务扩展 ${extensionCount} 条。\n` +
-          `终稿候选 ${positiveCandidateCount} 条已先按模块/风险/场景聚合，不会逐条全量入池。\n\n` +
-          '异常样本仅来自明确质量失败的 AI-only 用例；人工终稿中的需求外补充会作为正向业务扩展。\n\n是否确认写入？',
-      );
-      if (!confirmed) {
-        setLearningMessage('已取消写入样本池。');
-        return;
-      }
-
-      setLearningMessage('正在写入样本池...');
-      const applied = await requestLearning(false);
-      const appliedDiagnostics = applied?.derived?.diagnostics || diagnostics;
-      const appliedPositiveCount = Number(appliedDiagnostics.positive_sample_count || positiveCount);
-      const appliedNegativeCount = Number(appliedDiagnostics.negative_sample_count || negativeCount);
-      const poolCount = Number(applied?.sample_pool_count || 0);
-      setCasePairLearningApplied(true);
-      setLearningMessage(
-        `已写入样本池：正向模式 ${appliedPositiveCount} 条，异常模式 ${appliedNegativeCount} 条；当前样本池 ${poolCount} 条。`,
-      );
-    } catch (err) {
-      setLearningMessage(`写入样本池失败：${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setLearning(false);
-    }
-  };
+  const evaluateDisabled = loading === 'eval';
+  const evaluateLabel = loading === 'eval'
+    ? '评测中...'
+    : '开始评估质量（含召回率/精准率/缺陷分析）';
 
   return (
     <div className="col-span-12 evaluation-testcase-stack">
@@ -188,10 +60,7 @@ export function TestCaseCoveragePanel({
                   rows={10}
                   className="input-pro bg-light"
                   value={evalGenerated}
-                  onChange={(e) => {
-                    setEvalGenerated(e.target.value);
-                    onInvalidateEvaluation();
-                  }}
+                  readOnly
                 />
               </Form.Group>
             </Col>
@@ -220,21 +89,21 @@ export function TestCaseCoveragePanel({
                 <Form.Select
                   size="sm"
                   className="input-pro bg-white"
-                  value={selectedGenerationId ? String(selectedGenerationId) : ''}
+                  value={selectedRunId ? String(selectedRunId) : ''}
                   onChange={(e) => {
                     const id = Number(e.target.value);
-                    onSelectGenerationId(id || null);
-                    if (id) onLoadGenerationById(id);
+                    onSelectRunId(id || null);
+                    if (id) onLoadRunById(id);
                   }}
                 >
                   <option value="">-- 选择历史记录 --</option>
-                  {genHistory.map((h: any) => {
-                    const rawTitle = (h.history_title || (h.requirement_text || '').split(/[\n|]/)[0]).trim();
+                  {runHistory.map((h) => {
+                    const rawTitle = ((h.requirement_text || '').split(/[\n|]/)[0]).trim();
                     const displayTitle = rawTitle.length > 20 ? `${rawTitle.substring(0, 20)}...` : rawTitle;
-                    const hasComparison = h?.has_comparison !== false;
+                    const hasEvaluation = h.has_evaluation;
                     return (
-                      <option key={h.id} value={h.id}>
-                        {displayTitle} ({new Date(h.created_at).toLocaleString()}){hasComparison ? '' : ' - 暂无质量评估'}
+                      <option key={h.run_id} value={h.run_id}>
+                        {displayTitle} ({new Date(h.created_at).toLocaleString()}){hasEvaluation ? '' : ' - 暂无质量评估'}
                       </option>
                     );
                   })}
@@ -255,14 +124,14 @@ export function TestCaseCoveragePanel({
                     onInvalidateEvaluation();
                   }}
                 />
-                {uploadedCompareFilename ? (
+                {uploadedReferenceFilename ? (
                   <div className="small text-muted mt-1">
-                    当前上传文件：{uploadedCompareFilename}
+                    当前上传文件：{uploadedReferenceFilename}
                   </div>
                 ) : null}
-                {loadedCompareFilename ? (
+                {loadedReferenceFilename ? (
                   <div className="small text-muted mt-1">
-                    已从历史加载对比文件内容：{loadedCompareFilename}
+                    已从历史加载人工参考内容：{loadedReferenceFilename}
                   </div>
                 ) : null}
               </Form.Group>
@@ -273,45 +142,16 @@ export function TestCaseCoveragePanel({
       </div>
 
       <div className="evaluation-testcase-action-row d-flex flex-column flex-md-row flex-wrap gap-2">
-        <Button className="btn-pro-primary flex-fill panel-card-primary-action" disabled={compareDisabled} onClick={onCompare}>
-          {compareLabel}
+        <Button className="btn-pro-primary flex-fill panel-card-primary-action" disabled={evaluateDisabled} onClick={onEvaluate}>
+          {evaluateLabel}
         </Button>
-        <Button
-          variant={hasEvaluationResult ? 'outline-primary' : 'outline-secondary'}
-          className="flex-fill"
-          disabled={casePairLearningApplied || learning || loading === 'eval' || evaluationRunning || !hasEvaluationResult || !evalGenerated.trim() || !hasFinalCasesInput}
-          onClick={handleLearnFromEvaluation}
-        >
-          {learning ? (
-            <>
-              <Spinner animation="border" size="sm" className="me-2" />
-              {'样本池学习中...'}
-            </>
-          ) : (
-            casePairLearningApplied ? '已写入样本池' : '从本次评估写入样本池（先预览）'
-          )}
-        </Button>
-        {learningMessage ? <div className="small text-muted text-center w-100">{learningMessage}</div> : null}
       </div>
 
       {evalResult ? (
         <div className="evaluation-testcase-report-wrap">
           <TestCaseEvaluationReport
-            projectId={projectId}
             evalResult={evalResult}
             history={history}
-            showSupplement={showSupplement}
-            setShowSupplement={setShowSupplement}
-            supplementText={supplementText}
-            setSupplementText={setSupplementText}
-            supplementImages={supplementImages}
-            setSupplementImages={setSupplementImages}
-            savedDocId={savedDocId}
-            lastSavedContent={lastSavedContent}
-            handleSupplementPaste={handleSupplementPaste}
-            handleSupplementFilesChange={handleSupplementFilesChange}
-            handleSaveKnowledge={onSaveKnowledge}
-            savingKnowledge={savingKnowledge}
           />
         </div>
       ) : null}

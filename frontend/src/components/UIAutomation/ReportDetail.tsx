@@ -1,34 +1,17 @@
 ﻿import React from 'react';
 import { Card, Badge, Button, Row, Col } from 'react-bootstrap';
 import { FaCheckCircle, FaBug, FaRobot, FaClock } from 'react-icons/fa';
+import type { UIExecutionDetail } from './responseContracts';
 
 interface ReportDetailProps {
-    execution: any;
+    execution: UIExecutionDetail;
     onReRun: () => void;
 }
 
 export const ReportDetail: React.FC<ReportDetailProps> = ({ execution, onReRun }) => {
-    if (!execution) {
-        return null;
-    }
-
-    const { status, screenshot_paths = [], quality_score, evaluation_result, created_at, task_description } = execution;
-
-    let evalData: { raw?: string; [key: string]: unknown } = {};
-    try {
-        if (typeof evaluation_result === 'string') {
-            const jsonMatch = evaluation_result.match(/```json\n([\s\S]*?)\n```/);
-            if (jsonMatch) {
-                evalData = JSON.parse(jsonMatch[1]);
-            } else {
-                evalData = { raw: evaluation_result };
-            }
-        } else {
-            evalData = evaluation_result || {};
-        }
-    } catch {
-        evalData = { raw: evaluation_result };
-    }
+    const { status, screenshot_paths = [], evaluation, created_at, task_description } = execution;
+    const evalData = evaluation?.artifact?.result;
+    const qualityScore = typeof evalData?.overall_score === 'number' ? evalData.overall_score : null;
 
     return (
         <div className="ui-automation-report-detail h-100 overflow-auto p-3">
@@ -47,7 +30,7 @@ export const ReportDetail: React.FC<ReportDetailProps> = ({ execution, onReRun }
                             </div>
                         </div>
                         <div className="text-end">
-                            <div className="display-6 fw-bold text-primary mb-0">{quality_score ? quality_score.toFixed(1) : 'N/A'}</div>
+                            <div className="display-6 fw-bold text-primary mb-0">{qualityScore !== null ? qualityScore.toFixed(1) : 'N/A'}</div>
                             <div className="small text-muted">质量评分</div>
                             <Button size="sm" variant="outline-primary" className="mt-2" onClick={onReRun}>
                                 重新运行脚本
@@ -85,7 +68,7 @@ export const ReportDetail: React.FC<ReportDetailProps> = ({ execution, onReRun }
                             <FaRobot className="me-2 text-info" /> AI 评估
                         </Card.Header>
                         <Card.Body className="small">
-                            {evalData.raw ? <div className="ui-automation-prewrap">{evalData.raw}</div> : <pre className="mb-0">{JSON.stringify(evalData, null, 2)}</pre>}
+                            {evalData ? <pre className="mb-0">{JSON.stringify(evalData, null, 2)}</pre> : <div className="text-muted">暂无 Agent 评测结果</div>}
                         </Card.Body>
                     </Card>
                 </Col>

@@ -1,6 +1,5 @@
 ﻿import { Button, Form } from 'react-bootstrap';
-import { parseApiReport } from './state/evaluationService';
-import type { LoadingType } from './state/types';
+import type { AutomationEvaluationReport, LoadingType } from './state/types';
 
 type Props = {
   showUi: boolean;
@@ -12,7 +11,7 @@ type Props = {
   setUiEvalJourney: (v: string) => void;
   uiEvalExec: string;
   setUiEvalExec: (v: string) => void;
-  uiEvalOutput: string | null;
+  uiEvalOutput: AutomationEvaluationReport | null;
   onEvaluateUi: () => void;
   apiEvalScript: string;
   setApiEvalScript: (v: string) => void;
@@ -20,9 +19,106 @@ type Props = {
   setApiEvalSpec: (v: string) => void;
   apiEvalExec: string;
   setApiEvalExec: (v: string) => void;
-  apiEvalOutput: string | null;
+  apiEvalOutput: AutomationEvaluationReport | null;
   onEvaluateApi: () => void;
 };
+
+const STATUS_LABELS = {
+  success: { label: '成功', className: 'text-bg-success' },
+  failed: { label: '失败', className: 'text-bg-danger' },
+  unknown: { label: '未知', className: 'text-bg-secondary' },
+} as const;
+
+function ReportItems({ items, emptyText }: { items: string[]; emptyText: string }) {
+  if (items.length === 0) return <div className="text-muted">{emptyText}</div>;
+  return (
+    <ul className="mb-0 ps-3">
+      {items.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
+    </ul>
+  );
+}
+
+function AutomationEvaluationReportView({ report }: { report: AutomationEvaluationReport }) {
+  const status = STATUS_LABELS[report.execution_status];
+  const coverageRate = report.coverage.rate === null
+    ? '无基准'
+    : `${(report.coverage.rate * 100).toFixed(1)}%`;
+
+  return (
+    <div className="mt-3 alert alert-light border small automation-eval-output">
+      <div className="d-flex align-items-center justify-content-between border-bottom pb-2 mb-3">
+        <h6 className="mb-0">Agent 评测报告</h6>
+        <span className={`badge ${status.className}`}>{status.label}</span>
+      </div>
+
+      <div className="row g-0 border-bottom pb-3 mb-3 text-center">
+        <div className="col-6 border-end">
+          <div className="fw-bold fs-5">{report.overall_score.toFixed(1)}</div>
+          <div className="x-small text-muted">总分 / 10</div>
+        </div>
+        <div className="col-6">
+          <div className="fw-bold fs-5">{coverageRate}</div>
+          <div className="x-small text-muted">覆盖率</div>
+        </div>
+      </div>
+
+      <section className="mb-3">
+        <div className="fw-semibold mb-1">总结</div>
+        <div>{report.summary}</div>
+      </section>
+
+      <section className="mb-3">
+        <div className="fw-semibold mb-2">评测维度</div>
+        <div className="table-responsive">
+          <table className="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th scope="col">维度</th>
+                <th scope="col" className="text-nowrap">得分</th>
+                <th scope="col">分析</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.criteria.map((criterion, index) => (
+                <tr key={`${criterion.key}-${index}`}>
+                  <th scope="row" className="text-nowrap">{criterion.name}</th>
+                  <td>{criterion.score.toFixed(1)}</td>
+                  <td>{criterion.analysis}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="mb-3">
+        <div className="fw-semibold mb-1">覆盖分析</div>
+        {report.coverage.explanation ? <div className="mb-2">{report.coverage.explanation}</div> : null}
+        <div className="row g-3">
+          <div className="col-12 col-lg-6">
+            <div className="x-small text-muted mb-1">已覆盖</div>
+            <ReportItems items={report.coverage.covered_items} emptyText="暂无已覆盖项" />
+          </div>
+          <div className="col-12 col-lg-6">
+            <div className="x-small text-muted mb-1">未覆盖</div>
+            <ReportItems items={report.coverage.missing_items} emptyText="暂无未覆盖项" />
+          </div>
+        </div>
+      </section>
+
+      <div className="row g-3">
+        <section className="col-12 col-lg-6">
+          <div className="fw-semibold mb-1">风险</div>
+          <ReportItems items={report.risks} emptyText="暂无已识别风险" />
+        </section>
+        <section className="col-12 col-lg-6">
+          <div className="fw-semibold mb-1">建议</div>
+          <ReportItems items={report.recommendations} emptyText="暂无改进建议" />
+        </section>
+      </div>
+    </div>
+  );
+}
 
 export function AutomationEvaluationPanels({
   showUi,
@@ -88,11 +184,7 @@ export function AutomationEvaluationPanels({
           <Button className="btn-pro-primary w-100 mt-auto panel-card-primary-action" disabled={loading === 'ui'} onClick={onEvaluateUi}>
             {loading === 'ui' ? '评估中...' : '开始评估'}
           </Button>
-          {uiEvalOutput ? (
-            <div className="mt-3 alert alert-light border small automation-eval-output automation-eval-prewrap">
-              {uiEvalOutput}
-            </div>
-          ) : null}
+          {uiEvalOutput ? <AutomationEvaluationReportView report={uiEvalOutput} /> : null}
         </div>
       ) : null}
 
@@ -135,58 +227,10 @@ export function AutomationEvaluationPanels({
             />
           </Form.Group>
 
-          <div className="d-flex gap-2 mb-3">
-            <div className="form-check form-switch">
-              <input className="form-check-input" type="checkbox" id="checkSimilarity" defaultChecked />
-              <label className="form-check-label small" htmlFor="checkSimilarity">语义相似度</label>
-            </div>
-            <div className="form-check form-switch">
-              <input className="form-check-input" type="checkbox" id="checkLLMJudge" defaultChecked />
-              <label className="form-check-label small" htmlFor="checkLLMJudge">LLM 评审打分</label>
-            </div>
-            <div className="form-check form-switch">
-              <input className="form-check-input" type="checkbox" id="checkCost" />
-              <label className="form-check-label small" htmlFor="checkCost">成本/性能分析</label>
-            </div>
-          </div>
-
           <Button className="btn-pro-primary w-100 mt-auto panel-card-primary-action" disabled={loading === 'api'} onClick={onEvaluateApi}>
             {loading === 'api' ? '多维评估中...' : '开始评估'}
           </Button>
-          {apiEvalOutput ? (
-            <div className="mt-3 alert alert-light border small automation-eval-output">
-              {(() => {
-                const report = parseApiReport(apiEvalOutput);
-                if (!report) return <div className="automation-eval-prewrap">{apiEvalOutput}</div>;
-                return (
-                  <div>
-                    <h6 className="border-bottom pb-2 mb-2">评估报告</h6>
-                    <div className="row g-2 mb-3">
-                      <div className="col-4">
-                        <div className="p-2 bg-white border rounded text-center">
-                          <div className="fw-bold text-primary">{report.similarity ?? '-'}</div>
-                          <div className="x-small text-muted">语义相似度</div>
-                        </div>
-                      </div>
-                      <div className="col-4">
-                        <div className="p-2 bg-white border rounded text-center">
-                          <div className="fw-bold text-success">{report.score ?? '-'}</div>
-                          <div className="x-small text-muted">LLM 评分</div>
-                        </div>
-                      </div>
-                      <div className="col-4">
-                        <div className="p-2 bg-white border rounded text-center">
-                          <div className="fw-bold text-info">{report.coverage ?? '-'}%</div>
-                          <div className="x-small text-muted">API 覆盖率</div>
-                        </div>
-                      </div>
-                    </div>
-                    <div><strong>分析:</strong> {report.analysis}</div>
-                  </div>
-                );
-              })()}
-            </div>
-          ) : null}
+          {apiEvalOutput ? <AutomationEvaluationReportView report={apiEvalOutput} /> : null}
         </div>
       ) : null}
     </>

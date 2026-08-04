@@ -67,11 +67,6 @@ class _FakeModule:
         self.reindex_calls.append((doc_type, project_id))
 
 
-class _FakeDispatcher:
-    def chunk(self, doc_type, content):
-        return []
-
-
 def _doc(doc_id, *, project_specific_id, content, status="success"):
     return SimpleNamespace(
         id=doc_id,
@@ -107,9 +102,6 @@ def test_offline_parse_covers_same_filename_document_and_removes_pending(monkeyp
     monkeypatch.setattr(offline_parse, "validate_parsed_content", lambda content: None)
     monkeypatch.setattr(offline_parse, "cleanup_offline_file", lambda file_path: cleaned.append(file_path))
     monkeypatch.setattr(offline_parse, "is_vector_store_ready", lambda: True)
-    monkeypatch.setattr(offline_parse, "BusinessChunkerDispatcher", _FakeDispatcher)
-    monkeypatch.setattr(offline_parse, "extract_biz_key", lambda content, module_hint: "讲错题")
-
     def fake_summary(module, *, doc, db, user_id=None):
         doc.summary = f"摘要::{doc.content}"
         return doc.summary

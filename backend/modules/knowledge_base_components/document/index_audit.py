@@ -5,13 +5,12 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from core.db.models import KnowledgeDocument
+from core.db.model_defs import KnowledgeDocument
 from modules.knowledge_base_components.adapters.chroma_vector_store import get_vector_store
 from modules.knowledge_base_components.document.document_ops import INDEXABLE_DOC_TYPES
 from modules.knowledge_base_components.repositories.knowledge_document_repository import (
     KnowledgeDocumentRepository,
 )
-from modules.domain.stage25_switches import STAGE25_SWITCHES
 
 
 def _has_summary_index(doc: KnowledgeDocument) -> bool:
@@ -25,9 +24,8 @@ def _fetch_chroma_metas(doc_id: int, *, vector_store) -> list[dict[str, Any]]:
         return []
 
     normalized: list[dict[str, Any]] = []
-    # Compatibility: legacy summary index may use doc_id={id}_summary.
-    legacy_keys = [str(doc_id), f"{doc_id}_summary"]
-    for key in legacy_keys:
+    index_keys = [str(doc_id), f"{doc_id}_summary"]
+    for key in index_keys:
         try:
             result = vector_store.search_by_metadata(
                 where={"doc_id": key},
@@ -54,9 +52,6 @@ def run_index_consistency_audit(
     limit: int = 5000,
 ) -> dict[str, Any]:
     """Audit DB/chroma consistency for raw/summary indexes."""
-    if not STAGE25_SWITCHES.index_audit_enabled:
-        return {"enabled": False, "message": "index_audit_disabled"}
-
     repo = KnowledgeDocumentRepository(db)
     vector_store = get_vector_store()
     docs = repo.list_for_index_audit(project_id=project_id, user_id=user_id, limit=limit)

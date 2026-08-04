@@ -23,7 +23,7 @@ type NavGroup = {
 };
 
 const SIDEBAR_GROUPS: NavGroup[] = [
-  { key: 'core', label: '核心流程', itemKeys: ['api-gen', 'kb', 'proj'] },
+  { key: 'core', label: '核心流程', itemKeys: ['agent-generation', 'kb', 'proj'] },
   { key: 'automation', label: '自动化执行', itemKeys: ['ui-exec-ui', 'api', 'ui-exec-api'] },
   { key: 'quality', label: '质量与诊断', itemKeys: ['eval'] },
 ];

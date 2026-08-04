@@ -1,4 +1,4 @@
-import type { SavedInterface } from './types';
+import type { BodyMode, RawType, SavedInterface } from './types';
 
 type ExternalHeader = {
   key?: string;
@@ -71,9 +71,9 @@ function parseRequestBody(
   headers: Array<{ key: string; value: string; desc: string }>,
 ) {
   // 统一把外部集合里的 body 结构映射到平台内部结构。
-  let bodyMode = 'none';
+  let bodyMode: BodyMode = 'none';
   let bodyContent = '';
-  let rawType = 'JSON';
+  let rawType: RawType = 'JSON';
 
   if (!req.body) {
     return { bodyMode, bodyContent, rawType };
@@ -177,7 +177,6 @@ export function parsePostmanItems(items: ExternalCollectionItem[], parentId: num
       bodyMode: body.bodyMode,
       rawType: body.rawType,
       bodyContent: body.bodyContent,
-      testTypes: { functional: true, boundary: false, security: false },
     });
   });
 
@@ -217,9 +216,6 @@ export async function importInterfaceItemsToBackend({
       payload.raw_type = item.rawType ?? 'JSON';
       payload.body_content = item.bodyContent ?? '';
       payload.test_config = {
-        requirement: item.requirement ?? '',
-        mode: item.mode ?? 'natural',
-        testTypes: item.testTypes ?? { functional: true, boundary: false, security: false },
         pre_script: item.preScript ?? '',
         post_script: item.postScript ?? '',
       };
@@ -261,12 +257,6 @@ export async function importFilesFromCollections({
           null,
         );
         importCount += await importParsedItems(parsed, rootParentId);
-      } else if (Array.isArray(data)) {
-        // 兼容：直接传 items 数组
-        const parsed = parsePostmanItems(data as ExternalCollectionItem[], null);
-        if (parsed.length > 0) {
-          importCount += await importParsedItems(parsed, rootParentId);
-        }
       } else {
         onUnsupportedFormat(file.name);
       }

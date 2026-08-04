@@ -2,7 +2,6 @@ from core.processing.semantic_chunking import semantic_head, split_semantic_text
 from pathlib import Path
 
 from core.cache_layer.chroma_client import ChromaClient, _is_chroma_store_corrupted
-from modules.knowledge_base_components.snapshot.snapshot_chunking import split_snapshot_sources_by_limit
 
 
 class _FakeCollection:
@@ -51,21 +50,16 @@ def test_semantic_head_avoids_mid_sentence_cut():
     assert clipped.endswith("。")
 
 
-def test_chroma_add_document_uses_semantic_splitter(monkeypatch):
-    import core.cache_layer.chroma_client as chroma_module
-
-    monkeypatch.setattr(
-        chroma_module,
-        "split_semantic_text",
-        lambda text, max_chars, min_chars: ["语义片段A。", "语义片段B。"],
-    )
-
+def test_chroma_add_document_writes_explicit_business_chunks():
     client = object.__new__(ChromaClient)
     client.collection = _FakeCollection()
     client.add_document(
         doc_id="42",
-        content="任意输入文本",
         metadata={"project_id": 7},
+        chunks=[
+            {"chunk_text": "语义片段A。", "metadata": {"module": "开户"}},
+            {"chunk_text": "语义片段B。", "metadata": {"module": "审批"}},
+        ],
     )
 
     assert len(client.collection.calls) == 1
@@ -75,49 +69,19 @@ def test_chroma_add_document_uses_semantic_splitter(monkeypatch):
     assert all(str(meta.get("doc_id")) == "42" for meta in payload["metadatas"])
 
 
-def test_chroma_add_document_keeps_explicit_metadata_doc_id(monkeypatch):
-    import core.cache_layer.chroma_client as chroma_module
-
-    monkeypatch.setattr(
-        chroma_module,
-        "split_semantic_text",
-        lambda text, max_chars, min_chars: ["summary 片段。"],
-    )
-
+def test_chroma_add_document_keeps_explicit_metadata_doc_id():
     client = object.__new__(ChromaClient)
     client.collection = _FakeCollection()
     client.add_document(
         doc_id="42_summary",
-        content="任意输入文本",
         metadata={"project_id": 7, "doc_id": 42, "is_summary": True},
+        chunks=[{"chunk_text": "summary 片段。", "metadata": {}}],
     )
 
     payload = client.collection.calls[0]
     assert payload["ids"] == ["42_summary_0"]
     assert str(payload["metadatas"][0].get("doc_id")) == "42"
     assert bool(payload["metadatas"][0].get("is_summary")) is True
-
-
-def test_snapshot_split_sources_by_limit_semantic_segments():
-    long_text = " ".join([f"步骤{i}：先校验额度再处理状态。" for i in range(1, 150)])
-    sources = [
-        {
-            "doc_id": 1,
-            "filename": "交易规则",
-            "text": long_text,
-        }
-    ]
-    batches, extra_truncated = split_snapshot_sources_by_limit(
-        sources=sources,
-        input_soft_limit=2600,
-        batch_max_docs=10,
-    )
-
-    flat = [item for batch in batches for item in batch]
-    assert extra_truncated == 0
-    assert len(flat) >= 2
-    assert all(item.get("text") for item in flat)
-    assert any("[seg " in str(item.get("filename") or "") for item in flat)
 
 
 def test_chroma_corruption_detection_covers_hnsw_errors():

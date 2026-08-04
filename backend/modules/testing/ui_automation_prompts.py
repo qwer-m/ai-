@@ -110,33 +110,12 @@ def ai_locate_element(screenshot_path, element_description):
 
 
 def tap_visual_element(driver, screenshot_path, element_description):
-    import os
-    import re
-    import requests
-
     x, y = ai_locate_element(screenshot_path, element_description)
     platform_name = str((getattr(driver, "capabilities", None) or {{}}).get("platformName") or "").lower()
     if platform_name == "ios":
         driver.execute_script("mobile: tap", {{"x": x, "y": y}})
         return (x, y)
 
-    server_url = os.environ.get("APPIUM_SERVER_URL", "http://127.0.0.1:4723").rstrip("/")
-    status_response = requests.get(f"{{server_url}}/status", timeout=10)
-    status_response.raise_for_status()
-    status_payload = status_response.json()
-    status_value = status_payload.get("value") or status_payload
-    version = str((status_value.get("build") or {{}}).get("version") or "2")
-    version_match = re.match(r"(\d+)", version)
-    major_version = int(version_match.group(1)) if version_match else 2
-    if major_version < 2:
-        legacy_base = server_url if server_url.endswith("/wd/hub") else f"{{server_url}}/wd/hub"
-        response = requests.post(
-            f"{{legacy_base}}/session/{{driver.session_id}}/touch/perform",
-            json={{"actions": [{{"action": "tap", "options": {{"x": x, "y": y}}}}]}},
-            timeout=15,
-        )
-        response.raise_for_status()
-    else:
-        driver.execute_script("mobile: clickGesture", {{"x": x, "y": y}})
+    driver.execute_script("mobile: clickGesture", {{"x": x, "y": y}})
     return (x, y)
 """

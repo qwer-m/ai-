@@ -11,10 +11,10 @@ type Props = {
   datasets: RagDatasetRow[];
 };
 
-const PRESET_KEY = 'rag_debug_console_preset_v1';
+const PRESET_KEY = 'rag_debug_console_preset_v2';
 
 const DEFAULTS = {
-  limit: 5,
+  topK: 5,
   maxTokens: 1800,
   llmModel: '',
   retrievalMode: 'hybrid' as 'vector' | 'keyword' | 'hybrid' | 'bm25',
@@ -32,7 +32,7 @@ const DEFAULTS = {
 
 export function RagSingleDebugPanel({ projectId, onLog, datasets }: Props) {
   const [query, setQuery] = useState('');
-  const [limit, setLimit] = useState(DEFAULTS.limit);
+  const [topK, setTopK] = useState(DEFAULTS.topK);
   const [maxTokens, setMaxTokens] = useState(DEFAULTS.maxTokens);
   const [llmModel, setLlmModel] = useState(DEFAULTS.llmModel);
   const [retrievalMode, setRetrievalMode] = useState(DEFAULTS.retrievalMode);
@@ -64,7 +64,7 @@ export function RagSingleDebugPanel({ projectId, onLog, datasets }: Props) {
       if (!raw) return;
       const preset = JSON.parse(raw);
       if (!preset || typeof preset !== 'object') return;
-      if (typeof preset.limit === 'number') setLimit(preset.limit);
+      if (typeof preset.topK === 'number') setTopK(preset.topK);
       if (typeof preset.maxTokens === 'number') setMaxTokens(preset.maxTokens);
       if (typeof preset.llmModel === 'string') setLlmModel(preset.llmModel);
       if (['vector', 'keyword', 'hybrid', 'bm25'].includes(String(preset.retrievalMode))) {
@@ -130,7 +130,7 @@ export function RagSingleDebugPanel({ projectId, onLog, datasets }: Props) {
       const data = await ragSingleDebugRequest({
         project_id: projectId,
         query: query.trim(),
-        limit: Math.max(1, Math.min(20, Number(limit) || 5)),
+        top_k: Math.max(1, Math.min(20, Number(topK) || 5)),
         max_tokens: Math.max(128, Math.min(8000, Number(maxTokens) || 1800)),
         llm_model: llmModel.trim() || undefined,
         retrieval_mode: retrievalMode,
@@ -158,7 +158,7 @@ export function RagSingleDebugPanel({ projectId, onLog, datasets }: Props) {
 
   const onSavePreset = () => {
     const preset = {
-      limit,
+      topK,
       maxTokens,
       llmModel,
       retrievalMode,
@@ -178,7 +178,7 @@ export function RagSingleDebugPanel({ projectId, onLog, datasets }: Props) {
   };
 
   const onResetPreset = () => {
-    setLimit(DEFAULTS.limit);
+    setTopK(DEFAULTS.topK);
     setMaxTokens(DEFAULTS.maxTokens);
     setLlmModel(DEFAULTS.llmModel);
     setRetrievalMode(DEFAULTS.retrievalMode);
@@ -260,8 +260,8 @@ export function RagSingleDebugPanel({ projectId, onLog, datasets }: Props) {
         setDatasetId={setDatasetId}
         sampleId={sampleId}
         setSampleId={setSampleId}
-        limit={limit}
-        setLimit={setLimit}
+        topK={topK}
+        setTopK={setTopK}
         maxTokens={maxTokens}
         setMaxTokens={setMaxTokens}
         retrievalMode={retrievalMode}

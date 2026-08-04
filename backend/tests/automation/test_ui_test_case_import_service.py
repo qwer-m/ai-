@@ -5,7 +5,7 @@ from io import BytesIO
 import openpyxl
 
 from modules.automation_components.services.ui_test_case_import_service import UITestCaseImportService
-from modules.test_generation_components.services.final_case_parsing import parse_test_cases_payload
+from modules.automation_components.services.test_case_file_parser import parse_test_cases_payload
 
 
 def test_csv_scans_metadata_before_real_header_and_preserves_multiline_steps() -> None:

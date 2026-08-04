@@ -12,11 +12,10 @@ from uuid import uuid4
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
-from core.db.models import KnowledgeDocument
-from core.processing.biz_key_extractor import extract_biz_key
-from core.processing.business_chunking import BusinessChunkerDispatcher, Chunk
+from core.db.model_defs import KnowledgeDocument
 from core.processing.file_processing import parse_file_path
 from modules.knowledge_base_components.document.document_index_service import (
+    build_document_index_chunks,
     delete_document_indexes,
     is_vector_store_ready,
     upsert_document_indexes,
@@ -56,44 +55,6 @@ def _resolve_offline_upload_dir() -> Path:
 
 # 避免工作目录变化导致文件落到 backend 之外。
 OFFLINE_UPLOAD_DIR = _resolve_offline_upload_dir()
-
-
-def _to_chroma_chunk_payloads(
-    chunks: list[Chunk],
-    *,
-    default_module: str | None,
-    default_biz_key: str,
-) -> list[dict]:
-    """Convert chunking output to Chroma add_document payload chunks."""
-    payloads: list[dict] = []
-    for item in chunks:
-        chunk_text = str(getattr(item, "text", "") or "").strip()
-        if not chunk_text:
-            continue
-        module_value = str(getattr(item, "module", "") or "").strip() or default_module
-        biz_key_value = str(getattr(item, "biz_key", "") or "").strip() or default_biz_key
-        requirement_id = str(getattr(item, "requirement_id", "") or "").strip() or None
-        test_case_id = str(getattr(item, "test_case_id", "") or "").strip() or None
-
-        related_ids: list[str] = []
-        if requirement_id:
-            related_ids.append(requirement_id)
-        if test_case_id:
-            related_ids.append(test_case_id)
-
-        payloads.append(
-            {
-                "chunk_text": chunk_text,
-                "metadata": {
-                    "module": module_value,
-                    "biz_key": biz_key_value,
-                    "requirement_id": requirement_id,
-                    "test_case_id": test_case_id,
-                    "related_ids": related_ids,
-                },
-            }
-        )
-    return payloads
 
 
 def _build_storage_name(filename: str) -> str:
@@ -148,9 +109,7 @@ def create_pending_document_impl(
         retry_count=0,
     )
     repo.add(doc)
-    repo.commit()
-    repo.refresh(doc)
-
+    db.flush()
     module.reindex_project_specific_ids(doc_type, project_id, db)
     repo.refresh(doc)
     return doc
@@ -313,31 +272,16 @@ def parse_document_offline_impl(
         if has_injection_flag(doc.filename, "chroma_fail", doc_id):
             raise RuntimeError("offline parse injected failure: chroma_fail")
 
-        dispatcher = BusinessChunkerDispatcher()
-        raw_chunk_objects = dispatcher.chunk(str(doc.doc_type or ""), content)
-        if not raw_chunk_objects:
-            raw_chunk_objects = [Chunk(text=content)]
-
-        module_hint = next(
-            (str(c.module).strip() for c in raw_chunk_objects if getattr(c, "module", None)),
-            None,
-        )
-        module_hint = module_hint or None
-        doc_biz_key = extract_biz_key(content, module_hint or "")
-
-        raw_chunks = _to_chroma_chunk_payloads(
-            raw_chunk_objects,
-            default_module=module_hint,
-            default_biz_key=doc_biz_key,
+        raw_chunks, module_hint, doc_biz_key = build_document_index_chunks(
+            content=content,
+            doc_type=str(doc.doc_type or ""),
         )
 
         summary_chunks = None
         if summary and summary != content:
-            summary_chunk_objects = dispatcher.chunk(str(doc.doc_type or ""), summary)
-            if not summary_chunk_objects:
-                summary_chunk_objects = [Chunk(text=summary, module=module_hint, biz_key=doc_biz_key)]
-            summary_chunks = _to_chroma_chunk_payloads(
-                summary_chunk_objects,
+            summary_chunks, _, _ = build_document_index_chunks(
+                content=summary,
+                doc_type=str(doc.doc_type or ""),
                 default_module=module_hint,
                 default_biz_key=doc_biz_key,
             )

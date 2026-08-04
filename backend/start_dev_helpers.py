@@ -264,18 +264,12 @@ def ensure_database_schema(current_dir: str) -> bool:
         "migrations",
         "init_db.py",
     )
-    legacy_script = os.path.join(current_dir, "init_db.py")
-
     if os.path.exists(module_script):
         db_check_cmd = [sys.executable, "-m", "scripts.dev_tools.root_tools.migrations.init_db"]
         db_check_target = "scripts.dev_tools.root_tools.migrations.init_db"
-    elif os.path.exists(legacy_script):
-        db_check_cmd = [sys.executable, legacy_script]
-        db_check_target = legacy_script
     else:
-        print("[ERROR] Database schema script not found. Checked:")
+        print("[ERROR] Database schema script not found:")
         print(f"  - {module_script}")
-        print(f"  - {legacy_script}")
         return False
 
     try:

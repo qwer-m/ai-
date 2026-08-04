@@ -1,0 +1,19 @@
+Successfully connected to MySQL database: ai_test_platform
+Redis connected: 127.0.0.1:6379/0
+Local L1 cache backend: memory
+Application startup: Redis pool initialized (应用启动: Redis 连接池已初始化)
+Loaded active AI config: openai / glm-5.1
+INFO:     127.0.0.1:54122 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64287 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64282 - "POST /api/standard/request HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64282 - "POST /api/debug/request HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:61451 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63736 - "GET /api/config/test-stream?provider=openai&model=x&api_key=should_not_be_accepted HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60642 - "GET /api/config/test-stream HTTP/1.1" 422 Unprocessable Entity
+INFO:     127.0.0.1:60643 - "POST /api/config/test-stream HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:60644 - "POST /api/config/test-stream HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:60645 - "GET /api/standard/interfaces?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60646 - "GET /api/ui-automation/6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58945 - "GET /api/ui-automation/history?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58946 - "GET /api/ui-automation/6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65318 - "GET /api/ui-automation/6 HTTP/1.1" 200 OK

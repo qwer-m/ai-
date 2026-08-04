@@ -117,7 +117,6 @@ body.theme-dark.ui-overhaul-v4 .dashboard-content-host {
 /* Main containers / cards use deep gray material without colored overlays. */
 body.theme-dark.ui-overhaul-v4 .dashboard-main-surface,
 body.theme-dark.ui-overhaul-v4 .dashboard-sidebar-surface,
-body.theme-dark.ui-overhaul-v4 .workbench-header-card,
 body.theme-dark.ui-overhaul-v4 .glass-panel,
 body.theme-dark.ui-overhaul-v4 .bento-card,
 body.theme-dark.ui-overhaul-v4 .panel-card,
@@ -129,30 +128,15 @@ body.theme-dark.ui-overhaul-v4 .modal-content,
 body.theme-dark.ui-overhaul-v4 .modal-header,
 body.theme-dark.ui-overhaul-v4 .modal-body,
 body.theme-dark.ui-overhaul-v4 .modal-footer,
-body.theme-dark.ui-overhaul-v4 .test-generation-header,
-body.theme-dark.ui-overhaul-v4 .test-generation-input,
-body.theme-dark.ui-overhaul-v4 .test-generation-config,
-body.theme-dark.ui-overhaul-v4 .test-generation-result,
-body.theme-dark.ui-overhaul-v4 .test-generation-upload-zone,
-body.theme-dark.ui-overhaul-v4 .test-generation-result-head,
-body.theme-dark.ui-overhaul-v4 .test-generation-result-subhead,
-body.theme-dark.ui-overhaul-v4 .test-generation-related-cases,
 body.theme-dark.ui-overhaul-v4 .knowledge-base-shell,
 body.theme-dark.ui-overhaul-v4 .knowledge-toolbar-card,
 body.theme-dark.ui-overhaul-v4 .knowledge-content-area,
-body.theme-dark.ui-overhaul-v4 .api-testing-shell,
 body.theme-dark.ui-overhaul-v4 .api-automation-shell,
-body.theme-dark.ui-overhaul-v4 .ai-model-shell,
-body.theme-dark.ui-overhaul-v4 .pipeline-workbench .panel-card,
 body.theme-dark.ui-overhaul-v4 .evaluation-report-panel,
 body.theme-dark.ui-overhaul-v4 .evaluation-report-kpi,
 body.theme-dark.ui-overhaul-v4 .evaluation-report-chart-wrap,
 body.theme-dark.ui-overhaul-v4 .evaluation-report-defect-group,
 body.theme-dark.ui-overhaul-v4 .evaluation-report-summary,
-body.theme-dark.ui-overhaul-v4 .pipeline-check-group,
-body.theme-dark.ui-overhaul-v4 .pipeline-monitor-card .pipeline-history-scroll,
-body.theme-dark.ui-overhaul-v4 .pipeline-monitor-card .pipeline-trace-scroll,
-body.theme-dark.ui-overhaul-v4 .pipeline-monitor-card .form-control[readonly],
 body.theme-dark.ui-overhaul-v4 .api-automation-shell .api-automation-card,
 body.theme-dark.ui-overhaul-v4 .api-automation-shell .api-automation-card .bg-light,
 body.theme-dark.ui-overhaul-v4 .rag-console,
@@ -234,8 +218,6 @@ body.theme-dark.ui-overhaul-v4 .nav-pills .nav-link.active,
 body.theme-dark.ui-overhaul-v4 .nav-pills .show > .nav-link,
 body.theme-dark.ui-overhaul-v4 .nav-tabs .nav-link.active,
 body.theme-dark.ui-overhaul-v4 .nav-tabs .show > .nav-link,
-body.theme-dark.ui-overhaul-v4 .api-testing-workbench .api-testing-tab-link.active,
-body.theme-dark.ui-overhaul-v4 .api-testing-workbench .show > .api-testing-tab-link,
 body.theme-dark.ui-overhaul-v4 .dashboard-log-tabs .dashboard-log-tab-link.active,
 body.theme-dark.ui-overhaul-v4 .dashboard-log-tabs .show > .dashboard-log-tab-link {
   background: #232b36 !important;
@@ -250,10 +232,7 @@ body.theme-dark.ui-overhaul-v4 .table-light > :not(caption) > * > *,
 body.theme-dark.ui-overhaul-v4 .card-header,
 body.theme-dark.ui-overhaul-v4 .modal-header,
 body.theme-dark.ui-overhaul-v4 .dashboard-log-header,
-body.theme-dark.ui-overhaul-v4 .dashboard-log-toolbar,
-body.theme-dark.ui-overhaul-v4 .test-generation-result-head,
-body.theme-dark.ui-overhaul-v4 .test-generation-result-subhead,
-body.theme-dark.ui-overhaul-v4 .api-testing-workbench .api-testing-tabs-head {
+body.theme-dark.ui-overhaul-v4 .dashboard-log-toolbar {
   background: #151b23 !important;
   background-image: none !important;
   border-color: #232a33 !important;
@@ -376,27 +355,6 @@ body.theme-dark .dashboard-shell .form-select:disabled {
   opacity: 1 !important;
 }
 
-body.theme-dark .pipeline-workbench .pipeline-hero-card h5,
-body.theme-dark .pipeline-workbench .pipeline-input-body h6,
-body.theme-dark .pipeline-workbench .pipeline-monitor-card h6,
-body.theme-dark .pipeline-workbench .pipeline-monitor-body .pipeline-table th,
-body.theme-dark .pipeline-workbench .pipeline-input-body .form-label,
-body.theme-dark .pipeline-workbench .pipeline-monitor-body .form-label {
-  color: #b9cae1 !important;
-}
-
-body.theme-dark .pipeline-workbench .pipeline-hero-card .text-muted,
-body.theme-dark .pipeline-workbench .pipeline-monitor-body td.small,
-body.theme-dark .pipeline-workbench .pipeline-monitor-body .small.text-muted,
-body.theme-dark .pipeline-workbench .pipeline-monitor-body .text-muted {
-  color: #8ea3be !important;
-}
-
-body.theme-dark .dashboard-pipeline-modal-body,
-body.theme-dark .dashboard-pipeline-modal-body .pipeline-workbench {
-  color: #9fb3cc !important;
-}
-
 /* RAG readability fallback: override hard-coded dark-slate text on dark surfaces. */
 body.theme-dark .rag-console .rag-console-kv b,
 body.theme-dark .rag-console .rag-console-advanced-title,
@@ -418,11 +376,8 @@ body.theme-dark .rag-console .rag-console-context {
 /* Fallback: same neutral card material for dark pages that don't mount ui-overhaul-v4 class. */
 body.theme-dark .ui-section-card,
 body.theme-dark .ui-kpi-card,
-body.theme-dark .api-testing-shell,
 body.theme-dark .api-automation-shell,
-body.theme-dark .ai-model-shell,
 body.theme-dark .api-automation-shell .api-automation-card,
-body.theme-dark .pipeline-workbench .panel-card,
 body.theme-dark .evaluation-report-panel,
 body.theme-dark .evaluation-report-kpi,
 body.theme-dark .evaluation-report-chart-wrap,
@@ -479,32 +434,4 @@ body.theme-dark .config-modal-btn--secondary:hover {
   background: #1a212c !important;
   border-color: #3a4860 !important;
   color: #b6c7df !important;
-}
-
-/* RAG debug panel has dedicated dark styles with purple hover accents: neutralize them. */
-body.theme-dark.ui-overhaul-v4 .rag-debug-panel-root .tg-priority-actions .btn-outline-primary:hover,
-body.theme-dark.ui-overhaul-v4 .rag-debug-panel-root .tg-priority-actions .btn-outline-primary:focus-visible,
-body.theme-dark.ui-overhaul-v4 .rag-debug-panel-root .tg-priority-actions .btn-outline-secondary:hover,
-body.theme-dark.ui-overhaul-v4 .rag-debug-panel-root .tg-priority-actions .btn-outline-secondary:focus-visible,
-body.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-primary:hover,
-body.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-primary:focus-visible,
-body.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-secondary:hover,
-body.theme-dark .rag-debug-panel-root .tg-priority-actions .btn-outline-secondary:focus-visible {
-  color: #c0d0e6 !important;
-  border-color: #3a4860 !important;
-  background: #1a212c !important;
-  box-shadow: none !important;
-}
-
-body.theme-dark.ui-overhaul-v4 .rag-debug-panel-root .table thead th,
-body.theme-dark .rag-debug-panel-root .table thead th {
-  background: #151b23 !important;
-  border-color: #232a33 !important;
-  color: #c0d0e6 !important;
-}
-
-body.theme-dark.ui-overhaul-v4 .rag-debug-panel-root .rag-debug-card,
-body.theme-dark .rag-debug-panel-root .rag-debug-card {
-  background: linear-gradient(180deg, #1b212a 0%, #151a21 100%) !important;
-  border-color: #232a33 !important;
 }

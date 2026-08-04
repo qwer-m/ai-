@@ -7,12 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from core.processing.file_processing import parse_file_bytes
-from modules.test_generation_components.postprocess.case_access import (
+from modules.testing.case_access import (
     case_step_lines,
     case_text_field,
     case_text_list_field,
 )
-from modules.test_generation_components.services.final_case_parsing import (
+from modules.automation_components.services.test_case_file_parser import (
     parse_test_cases_payload,
     parse_test_cases_spreadsheet_bytes,
 )

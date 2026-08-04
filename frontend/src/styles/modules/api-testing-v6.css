@@ -1,33 +1,26 @@
 /* API Testing / API Automation 模块样式 v6 */
 
-body.ui-overhaul-v4 .api-testing-shell,
-body.ui-overhaul-v4 .api-automation-shell,
-body.ui-overhaul-v4 .ai-model-shell {
+body.ui-overhaul-v4 .api-automation-shell {
   border-radius: 16px !important;
 }
 
-body.ui-overhaul-v4 .api-testing-shell .nav-tabs,
 body.ui-overhaul-v4 .api-automation-shell .nav-tabs {
   gap: 4px;
 }
 
-body.ui-overhaul-v4 .api-testing-shell .nav-link,
 body.ui-overhaul-v4 .api-automation-shell .nav-link {
   border-radius: 10px 10px 0 0;
   font-weight: 600;
 }
 
-body.ui-overhaul-v4 .api-testing-shell .nav-link.active,
 body.ui-overhaul-v4 .api-automation-shell .nav-link.active {
   border-color: var(--fd-border) var(--fd-border) var(--fd-surface) !important;
 }
 
-body.ui-overhaul-v4 .api-testing-shell .table-responsive,
 body.ui-overhaul-v4 .api-automation-shell .table-responsive {
   border-radius: 12px;
 }
 
-body.ui-overhaul-v4 .api-testing-shell .btn,
 body.ui-overhaul-v4 .api-automation-shell .btn {
   min-height: 34px;
 }

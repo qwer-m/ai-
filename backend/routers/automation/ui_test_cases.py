@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from core.db.database import get_db
-from core.db.models import User
+from core.db.model_defs import User
 from core.authn.auth import get_current_user
 from modules.automation_components.services.ui_test_case_service import UITestCaseService
 
@@ -34,6 +34,8 @@ class UITestCaseUpdate(BaseModel):
     target_config: Optional[str] = None
 
 class UITestCaseResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     project_id: int
     name: str
@@ -47,13 +49,9 @@ class UITestCaseResponse(BaseModel):
     code_path: Optional[str] = None
     children: List['UITestCaseResponse'] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
-
-UITestCaseResponse.update_forward_refs()
+UITestCaseResponse.model_rebuild()
 
 @router.get("", response_model=List[UITestCaseResponse])
-@router.get("/", response_model=List[UITestCaseResponse], include_in_schema=False)
 def get_test_cases(project_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Get all test cases for a project in a flat list (frontend handles tree) 
@@ -68,7 +66,6 @@ def get_test_cases(project_id: int, db: Session = Depends(get_db), current_user:
     return rows
 
 @router.post("", response_model=UITestCaseResponse)
-@router.post("/", response_model=UITestCaseResponse, include_in_schema=False)
 def create_test_case(item: UITestCaseCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
         status, db_item = UITestCaseService(db).create_case(

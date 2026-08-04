@@ -1,288 +1,109 @@
+from __future__ import annotations
+
 import os
 import secrets
 import sys
+
 from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session
+
+import core.db.model_defs  # noqa: F401
+from core.authn.auth import get_password_hash
+from core.db.database import Base
+from core.db.model_defs import Project, User
 from core.settings.config import settings
-from core.db.models import *
 
-"""
-数据库初始化脚本 (Database Initialization Script)
 
-该脚本用于：
-1. 检查并创建 MySQL 数据库 (如果不存在)。
-2. 创建所有定义在 `core.db.models` 中的数据表。
-3. 执行轻量级的数据迁移 (检查并添加缺失的列)。
-
-用法:
-python init_db.py
-"""
-
-def init_db():
-    # First, let's manually create database if not exists for MySQL
-    if "mysql" in settings.DATABASE_URL:
-        try:
-            # Construct a connection string to the server root (no db selected)
-            root_url = f"mysql+pymysql://{settings.DB_USER_ENCODED}:{settings.DB_PASSWORD}@{settings.DB_HOST}:{settings.DB_PORT}/mysql"
-            root_engine = create_engine(root_url, connect_args={"connect_timeout": 3})
-            
-            with root_engine.connect() as conn:
-                conn.execute(text(f"CREATE DATABASE IF NOT EXISTS {settings.DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"))
-                print(f"Database '{settings.DB_NAME}' checked/created.")
-        except Exception as e:
-            print(f"Error creating database: {e}")
-            return False
-    
-    # Now create engine with the correct database URL
-    from core.db.database import Base
-    
-    # Create engine with the correct database URL
-    database_url = settings.DATABASE_URL
-    if "mysql" in database_url and "charset=" not in database_url:
-        database_url = f"{database_url}?charset=utf8mb4"
-    
-    engine = create_engine(
-        database_url, 
-        pool_pre_ping=True, 
-        connect_args={"connect_timeout": 3, "charset": "utf8mb4"}
-    )
-    
-    # 2. Create Tables
-    print("Creating tables...")
+def _ensure_mysql_database() -> bool:
+    if "mysql" not in settings.DATABASE_URL:
+        return True
     try:
-        Base.metadata.create_all(bind=engine)
-        print("Tables created successfully.")
-        
-        # Check and add 'summary' column if missing (Migration logic)
-        with engine.connect() as conn:
-            try:
-                # This query works for MySQL to check column existence
-                check_col = text(f"SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '{settings.DB_NAME}' AND TABLE_NAME = 'knowledge_documents' AND COLUMN_NAME = 'summary'")
-                result = conn.execute(check_col).scalar()
-                
-                if result == 0:
-                    print("Adding 'summary' column to knowledge_documents...")
-                    conn.execute(text("ALTER TABLE knowledge_documents ADD COLUMN summary TEXT NULL"))
-                    conn.commit()
-                    print("Column added.")
-                
-                # Check for structured_report in api_executions
-                check_col_api = text(f"SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '{settings.DB_NAME}' AND TABLE_NAME = 'api_executions' AND COLUMN_NAME = 'structured_report'")
-                result_api = conn.execute(check_col_api).scalar()
-                
-                if result_api == 0:
-                    print("Adding 'structured_report' column to api_executions...")
-                    conn.execute(text("ALTER TABLE api_executions ADD COLUMN structured_report JSON NULL"))
-                    conn.commit()
-                    print("Column added.")
-                
-                # Check for email in users
-                check_col_user = text(f"SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '{settings.DB_NAME}' AND TABLE_NAME = 'users' AND COLUMN_NAME = 'email'")
-                result_user = conn.execute(check_col_user).scalar()
-                
-                if result_user == 0:
-                    print("Adding 'email' and 'is_active' columns to users...")
-                    conn.execute(text("ALTER TABLE users ADD COLUMN email VARCHAR(100) NULL"))
-                    conn.execute(text("ALTER TABLE users ADD COLUMN is_active TINYINT(1) DEFAULT 1"))
-                    conn.commit()
-                    print("Columns added to users.")
-                
-                # Check for user_id in other tables
-                tables_to_check = [
-                    "projects", "test_generations", "ui_executions", "ui_error_operations",
-                    "api_executions", "evaluations", "test_generation_comparisons",
-                    "operation_logs", "recall_metrics", "knowledge_documents", "system_configs"
-                ]
-                
-                for table in tables_to_check:
-                    try:
-                        check_col = text(f"SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '{settings.DB_NAME}' AND TABLE_NAME = '{table}' AND COLUMN_NAME = 'user_id'")
-                        result = conn.execute(check_col).scalar()
-                        
-                        if result == 0:
-                            print(f"Adding 'user_id' column to {table}...")
-                            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN user_id INT NULL"))
-                            # Add FK constraint if possible, might fail if data exists but user_id is null? No, null is fine.
-                            # But we need to make sure foreign key name is unique.
-                            conn.execute(text(f"ALTER TABLE {table} ADD CONSTRAINT fk_{table}_users FOREIGN KEY (user_id) REFERENCES users(id)"))
-                            conn.commit()
-                            print(f"Column added to {table}.")
-                    except Exception as e:
-                        print(f"Failed to migrate {table}: {e}")
-
-                # 阶段1：知识库离线解析状态字段增量迁移（兼容旧库，不影响已有读写）。
-                kb_columns = [
-                    ("parse_status", "VARCHAR(20) NOT NULL DEFAULT 'success'"),
-                    ("parse_error", "TEXT NULL"),
-                    ("parsed_at", "DATETIME NULL"),
-                    ("task_id", "VARCHAR(64) NULL"),
-                    ("retry_count", "INT NOT NULL DEFAULT 0"),
-                ]
-                for col_name, col_type in kb_columns:
-                    check_col_kb = text(
-                        f"SELECT COUNT(*) FROM information_schema.COLUMNS "
-                        f"WHERE TABLE_SCHEMA = '{settings.DB_NAME}' "
-                        f"AND TABLE_NAME = 'knowledge_documents' "
-                        f"AND COLUMN_NAME = '{col_name}'"
-                    )
-                    result_kb = conn.execute(check_col_kb).scalar()
-                    if result_kb == 0:
-                        print(f"Adding '{col_name}' column to knowledge_documents...")
-                        conn.execute(text(f"ALTER TABLE knowledge_documents ADD COLUMN {col_name} {col_type}"))
-                        conn.commit()
-                        print(f"Column '{col_name}' added.")
-
-                # 为状态轮询接口补充索引，避免 parse_status/task_id 查询退化为全表扫描。
-                kb_indexes = [
-                    ("idx_knowledge_documents_parse_status", "parse_status"),
-                    ("idx_knowledge_documents_task_id", "task_id"),
-                ]
-                for idx_name, idx_col in kb_indexes:
-                    check_idx = text(
-                        f"SELECT COUNT(*) FROM information_schema.STATISTICS "
-                        f"WHERE TABLE_SCHEMA = '{settings.DB_NAME}' "
-                        f"AND TABLE_NAME = 'knowledge_documents' "
-                        f"AND INDEX_NAME = '{idx_name}'"
-                    )
-                    idx_exists = conn.execute(check_idx).scalar()
-                    if idx_exists == 0:
-                        print(f"Creating index '{idx_name}' on knowledge_documents({idx_col})...")
-                        conn.execute(text(f"CREATE INDEX {idx_name} ON knowledge_documents({idx_col})"))
-                        conn.commit()
-                        print(f"Index '{idx_name}' created.")
-
-                # 阶段2：项目级上下文快照表补列（兼容旧库手工建表场景）。
-                snapshot_columns = [
-                    ("user_id", "INT NULL"),
-                    ("snapshot_text", "LONGTEXT NULL"),
-                    ("snapshot_version", "INT NOT NULL DEFAULT 0"),
-                    ("snapshot_fingerprint", "VARCHAR(64) NULL"),
-                    ("corpus_hash", "VARCHAR(64) NULL"),
-                    ("source_doc_count", "INT NOT NULL DEFAULT 0"),
-                    ("source_fingerprints", "LONGTEXT NULL"),
-                    ("build_status", "VARCHAR(20) NOT NULL DEFAULT 'pending'"),
-                    ("build_error", "TEXT NULL"),
-                    ("last_build_latency_ms", "FLOAT NULL"),
-                    ("rebuild_reason", "VARCHAR(30) NULL"),
-                    ("incremental_merge_count", "INT NOT NULL DEFAULT 0"),
-                    ("last_built_at", "DATETIME NULL"),
-                    ("last_used_at", "DATETIME NULL"),
-                    ("last_full_built_at", "DATETIME NULL"),
-                ]
-                for col_name, col_type in snapshot_columns:
-                    check_col_snapshot = text(
-                        f"SELECT COUNT(*) FROM information_schema.COLUMNS "
-                        f"WHERE TABLE_SCHEMA = '{settings.DB_NAME}' "
-                        f"AND TABLE_NAME = 'project_context_snapshots' "
-                        f"AND COLUMN_NAME = '{col_name}'"
-                    )
-                    snapshot_col_exists = conn.execute(check_col_snapshot).scalar()
-                    if snapshot_col_exists == 0:
-                        print(f"Adding '{col_name}' column to project_context_snapshots...")
-                        conn.execute(text(f"ALTER TABLE project_context_snapshots ADD COLUMN {col_name} {col_type}"))
-                        conn.commit()
-                        print(f"Column '{col_name}' added to project_context_snapshots.")
-
-                snapshot_indexes = [
-                    ("idx_project_context_snapshots_corpus_hash", "corpus_hash"),
-                    ("idx_project_context_snapshots_build_status", "build_status"),
-                    ("idx_project_context_snapshots_fingerprint", "snapshot_fingerprint"),
-                ]
-                for idx_name, idx_col in snapshot_indexes:
-                    check_snapshot_idx = text(
-                        f"SELECT COUNT(*) FROM information_schema.STATISTICS "
-                        f"WHERE TABLE_SCHEMA = '{settings.DB_NAME}' "
-                        f"AND TABLE_NAME = 'project_context_snapshots' "
-                        f"AND INDEX_NAME = '{idx_name}'"
-                    )
-                    idx_exists = conn.execute(check_snapshot_idx).scalar()
-                    if idx_exists == 0:
-                        print(f"Creating index '{idx_name}' on project_context_snapshots({idx_col})...")
-                        conn.execute(text(f"CREATE INDEX {idx_name} ON project_context_snapshots({idx_col})"))
-                        conn.commit()
-                        print(f"Index '{idx_name}' created.")
-
-                # 质量评估对比需要保存完整生成用例、终稿和模型评测结果。
-                # MySQL TEXT 只有 64KB，中文 JSON/CSV 很容易超限，这里统一升级为 LONGTEXT。
-                comparison_text_columns = [
-                    ("generated_test_case", "LONGTEXT NOT NULL", "AI原始生成的用例"),
-                    ("modified_test_case", "LONGTEXT NOT NULL", "用户修改后的用例"),
-                    ("comparison_result", "LONGTEXT NULL", "差异分析结果"),
-                ]
-                for col_name, col_type, col_comment in comparison_text_columns:
-                    check_comparison_col = text(
-                        f"SELECT DATA_TYPE FROM information_schema.COLUMNS "
-                        f"WHERE TABLE_SCHEMA = '{settings.DB_NAME}' "
-                        f"AND TABLE_NAME = 'test_generation_comparisons' "
-                        f"AND COLUMN_NAME = '{col_name}'"
-                    )
-                    data_type = conn.execute(check_comparison_col).scalar()
-                    if data_type and str(data_type).lower() != "longtext":
-                        print(f"Upgrading test_generation_comparisons.{col_name} to LONGTEXT...")
-                        conn.execute(
-                            text(
-                                "ALTER TABLE test_generation_comparisons "
-                                f"MODIFY COLUMN {col_name} {col_type} COMMENT '{col_comment}'"
-                            )
-                        )
-                        conn.commit()
-                        print(f"Column test_generation_comparisons.{col_name} upgraded.")
-            except Exception as e:
-                print(f"Migration check failed (might be non-MySQL or other error): {e}")
-
-    except Exception as e:
-        print(f"Error creating tables: {e}")
+        root_url = (
+            f"mysql+pymysql://{settings.DB_USER_ENCODED}:{settings.DB_PASSWORD}"
+            f"@{settings.DB_HOST}:{settings.DB_PORT}/mysql"
+        )
+        root_engine = create_engine(root_url, connect_args={"connect_timeout": 3})
+        with root_engine.begin() as connection:
+            connection.execute(
+                text(
+                    f"CREATE DATABASE IF NOT EXISTS `{settings.DB_NAME}` "
+                    "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                )
+            )
+        return True
+    except Exception as exc:
+        print(f"创建数据库失败：{exc}")
         return False
 
-    # Create Default Project
-    from sqlalchemy.orm import Session
-    from core.authn.auth import get_password_hash
-    from core.db.models import Project, User
-    
-    with Session(engine) as session:
-        admin_username = os.getenv("ADMIN_USERNAME", "admin")
-        admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
-        admin_password = os.getenv("ADMIN_PASSWORD")
 
-        # Create Default User if not exists
-        default_user = session.query(User).filter(User.username == admin_username).first()
-        if not default_user:
-            if not admin_password:
-                admin_password = secrets.token_urlsafe(16)
-                print("Warning: ADMIN_PASSWORD is not set. Generated temporary admin password:")
-                print(admin_password)
-            default_user = User(
-                username=admin_username, 
-                email=admin_email,
-                hashed_password=get_password_hash(admin_password),
-                is_active=True
+def _build_engine():
+    database_url = settings.DATABASE_URL
+    if "mysql" in database_url and "charset=" not in database_url:
+        separator = "&" if "?" in database_url else "?"
+        database_url = f"{database_url}{separator}charset=utf8mb4"
+    connect_args = {"connect_timeout": 3}
+    if "mysql" in database_url:
+        connect_args["charset"] = "utf8mb4"
+    return create_engine(database_url, pool_pre_ping=True, connect_args=connect_args)
+
+
+def _ensure_default_records(engine) -> None:
+    with Session(engine) as session:
+        username = os.getenv("ADMIN_USERNAME", "admin")
+        email = os.getenv("ADMIN_EMAIL", "admin@example.com")
+        password = os.getenv("ADMIN_PASSWORD")
+        user = session.query(User).filter(User.username == username).first()
+        if user is None:
+            password = password or secrets.token_urlsafe(16)
+            user = User(
+                username=username,
+                email=email,
+                hashed_password=get_password_hash(password),
+                is_active=True,
             )
-            session.add(default_user)
+            session.add(user)
             session.commit()
-            print(f"Default User '{admin_username}' created.")
-        else:
-             if admin_password:
-                 default_user.hashed_password = get_password_hash(admin_password)
-                 session.commit()
-                 print(f"Default User '{admin_username}' password updated from ADMIN_PASSWORD.")
-             else:
-                 print(f"Default User '{admin_username}' exists. Password unchanged (ADMIN_PASSWORD not provided).")
-            
-        default_project = session.query(Project).filter(
-            Project.name == "Default Project",
-            Project.user_id == default_user.id
-        ).first()
-        if not default_project:
-            default_project = Project(
-                name="Default Project", 
-                description="Default project for initial setup",
-                user_id=default_user.id
+            session.refresh(user)
+            print(f"已创建默认用户：{username}")
+            if not os.getenv("ADMIN_PASSWORD"):
+                print(f"一次性临时密码：{password}")
+        elif password:
+            user.hashed_password = get_password_hash(password)
+            user.is_active = True
+            session.commit()
+
+        project = (
+            session.query(Project)
+            .filter(Project.name == "Default Project", Project.user_id == user.id)
+            .first()
+        )
+        if project is None:
+            session.add(
+                Project(
+                    name="Default Project",
+                    description="Default project for initial setup",
+                    user_id=user.id,
+                )
             )
-            session.add(default_project)
             session.commit()
-            print("Default Project created.")
-    
-    return True
+            print("已创建默认项目")
+
+
+def init_db() -> bool:
+    """按当前 ORM 元数据初始化全新数据库，不修补旧表结构。"""
+
+    if not _ensure_mysql_database():
+        return False
+    try:
+        engine = _build_engine()
+        Base.metadata.create_all(bind=engine)
+        _ensure_default_records(engine)
+        print("数据库初始化完成")
+        return True
+    except Exception as exc:
+        print(f"数据库初始化失败：{exc}")
+        return False
+
 
 if __name__ == "__main__":
     sys.exit(0 if init_db() else 1)
-

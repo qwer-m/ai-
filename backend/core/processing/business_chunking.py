@@ -310,53 +310,6 @@ class TestCaseChunker:
         return results
 
 
-class SupplementChunker:
-    """补充说明/评估报告分块：按问题项切分。"""
-
-    _ITEM_START_RE = re.compile(r"^\s*(?:\d+(?:\.\d+)?[\.、)]|[-*\u2022])\s+")
-
-    def chunk(self, text: str) -> list[Chunk]:
-        lines = _non_empty_lines(text)
-        if not lines:
-            return []
-
-        blocks: list[list[str]] = []
-        current: list[str] = []
-        for line in lines:
-            if self._ITEM_START_RE.match(line) and current:
-                blocks.append(current)
-                current = [line]
-            else:
-                current.append(line)
-        if current:
-            blocks.append(current)
-
-        if len(blocks) <= 1:
-            fallback = SemanticChunker().chunk(text)
-            module_hint = _extract_first_module_hint(text)
-            for item in fallback:
-                item.module = module_hint
-                item.biz_key = extract_biz_key(item.text, module_hint or "")
-            logger.debug("SupplementChunker fallback semantic_chunks=%s", len(fallback))
-            return fallback
-
-        module_hint = _extract_first_module_hint(text)
-        results: list[Chunk] = []
-        for block in blocks:
-            block_text = _safe_join(block)
-            if not block_text:
-                continue
-            results.append(
-                Chunk(
-                    text=block_text,
-                    module=module_hint,
-                    biz_key=extract_biz_key(block_text, module_hint or ""),
-                )
-            )
-        logger.debug("SupplementChunker items=%s", len(results))
-        return results
-
-
 class BusinessChunkerDispatcher:
     """按文档类型分发业务切分器。"""
 
@@ -365,15 +318,12 @@ class BusinessChunkerDispatcher:
         self._chunkers = {
             "requirement": RequirementChunker(),
             "testcase": TestCaseChunker(),
-            "supplement": SupplementChunker(),
         }
 
     def _normalize_doc_type(self, doc_type: str) -> str:
         lowered = str(doc_type or "").strip().lower()
         if lowered in {"test_case", "testcase", "test-case"}:
             return "testcase"
-        if lowered in {"supplement", "evaluation_report", "feedback", "review", "agent_learning"}:
-            return "supplement"
         if lowered in {"requirement", "product_requirement", "incomplete"}:
             return "requirement"
         return "fallback"
