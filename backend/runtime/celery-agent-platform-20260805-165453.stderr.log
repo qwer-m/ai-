@@ -1,0 +1,233 @@
+[2026-08-05 16:54:54,045: INFO/MainProcess] Connected to redis://localhost:6379/0
+[2026-08-05 16:54:54,051: INFO/MainProcess] mingle: searching for neighbors
+[2026-08-05 16:54:55,073: INFO/MainProcess] mingle: all alone
+[2026-08-05 16:54:55,114: INFO/MainProcess] celery@DESKTOP-F86RMFU ready.
+[2026-08-05 16:58:29,367: INFO/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[b36b84ee-99a9-401a-8f4a-c5302d28da0d] received
+[2026-08-05 16:58:29,834: WARNING/MainProcess] Successfully connected to MySQL database: ai_test_platform
+[2026-08-05 16:58:31,279: INFO/MainProcess] Using Default Embedding Function (provider=local; may require local model download)
+[2026-08-05 16:58:31,281: INFO/MainProcess] ChromaDB initialized at D:\Qoder\测试开发平台\backend\chroma_db
+[2026-08-05 16:58:31,306: WARNING/MainProcess] Redis connected: 127.0.0.1:6379/0
+[2026-08-05 16:58:31,307: WARNING/MainProcess] Local L1 cache backend: memory
+[2026-08-05 16:59:46,925: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:00:59,078: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:01:48,031: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:03:48,898: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 504 Gateway Time-out"
+[2026-08-05 17:05:14,127: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:06:15,426: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:07:06,647: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:08:10,279: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:09:10,388: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:09:50,786: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:11:24,811: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:11:51,855: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:12:52,412: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:13:34,875: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:14:55,590: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:15:54,271: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:16:24,110: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:16:24,163: ERROR/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[b36b84ee-99a9-401a-8f4a-c5302d28da0d] raised unexpected: ModelBehaviorError('Invalid JSON when parsing {\n  "test_cases": [\n    {\n      "case_id": "TC-001",\n      "title": "游客用户点击批改操作权限拦截",\n      "module": "商业化与权限管控",\n      "priority": "P0",\n      "preconditions": [\n        "当前用户为游客状态（未登录）"\n      ],\n      "steps": [\n        {\n          "action": "游客用户点击批改操作",\n          "expected": "未执行批改操作，跳转至登录页"\n        }\n      ],\n      "tags": [\n        "权限管控",\n        "游客用户"\n      ]\n    },\n    {\n      "case_id": "TC-002",\n      "title": "已购买用户消耗免费批改次数",\n      "module": "商业化与权限管控",\n      "priority": "P0",\n      "preconditions": [\n        "用户已购买",\n        "当前主题拥有2次免费批改次数"\n      ],\n      "steps": [\n        {\n          "action": "用户对当前主题执行批改操作",\n          "expected": "成功执行批改操作，当前主题剩余免费批改次数为1次"\n        }\n      ],\n      "tags": [\n        "生命周期",\n        "免费次数"\n      ]\n    },\n    {\n      "case_id": "TC-003",\n      "title": "已购买用户免费批改次数耗尽后消耗批改券",\n      "module": "商业化与权限管控",\n      "priority": "P0",\n      "preconditions": [\n        "用户已购买",\n        "当前主题免费批改次数已消耗完毕",\n        "账户拥有批改券"\n      ],\n      "steps": [\n        {\n          "action": "用户对当前主题执行批改操作",\n          "expected": "成功执行批改操作，账户扣除1张批改券"\n        }\n      ],\n      "tags": [\n        "生命周期",\n        "批改券"\n      ]\n    },\n    {\n      "case_id": "TC-004",\n      "title": "已购买用户免费次数耗尽且无批改券时批改拦截",\n      "module": "商业化与权限管控",\n      "priority": "P0",\n      "preconditions": [\n        "用户已购买",\n        "当前主题免费批改次数已消耗完毕",\n        "账户无批改券"\n      ],\n      "steps": [\n        {\n          "action": "用户对当前主题执行批改操作",\n          "expected": "不执行批改操作，拦截批改请求"\n        }\n      ],\n      "tags": [\n        "边界条件",\n        "批改券"\n      ]\n    },\n    {\n      "case_id": "TC-005",\n      "title": "VIP会员用户学习VIP课程权限",\n      "module": "商业化与权限管控",\n      "priority": "P0",\n      "preconditions": [\n        "用户已开通VIP或SVIP会员"\n      ],\n      "steps": [\n        {\n          "action": "用户进入VIP课程学习",\n          "expected": "成功进入课程学习"\n        }\n      ],\n      "tags": [\n        "权限管控",\n        "VIP会员"\n      ]\n    },\n    {\n      "case_id": "TC-006",\n      "title": "非VIP用户学习VIP课程权限拦截",\n      "module": "商业化与权限管控",\n      "priority": "P1",\n      "preconditions": [\n        "用户未开通VIP或SVIP会员"\n      ],\n      "steps": [\n        {\n          "action": "用户尝试进入VIP课程学习",\n          "expected": "无法进入课程学习，展示VIP锁"\n        }\n      ],\n      "tags": [\n        "权限管控",\n        "普通用户"\n      ]\n    },\n    {\n      "case_id": "TC-007",\n      "title": "批改券跨主题使用验证",\n      "module": "商业化与权限管控",\n      "priority": "P1",\n      "preconditions": [\n        "用户已购买",\n        "主题A免费批改次数已消耗完毕",\n        "主题B免费批改次数已消耗完毕",\n        "账户拥有批改券"\n      ],\n      "steps": [\n        {\n          "action": "用户对主题A使用批改券执行批改操作"\n        },\n        {\n          "action": "用户对主题B使用批改券执行批改操作",\n          "expected": "主题A和主题B均成功执行批改操作，批改券在不同主题下均可正常消耗"\n        }\n      ],\n      "tags": [\n        "批改券",\n        "跨主题"\n      ]\n    }\n  ]\n} for TypeAdapter(test_case_generator_output); 1 validation error for test_case_generator_output\ntest_cases.6.steps.0.expected\n  Field required [type=missing, input_value={\'action\': \'用户对主...券执行批改操作\'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing')
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\celery\app\trace.py", line 479, in trace_task
+    R = retval = fun(*args, **kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\celery\app\trace.py", line 779, in __protected_call__
+    return self.run(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\orchestration\tasks.py", line 261, in run_agent_workflow_task
+    result = run_agent_workflow(run_id=run_id, task_id=task_id)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\orchestration\tasks.py", line 59, in run_agent_workflow
+    return real_run_agent_workflow(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 612, in run_agent_workflow
+    executed = _execute_node_with_retry(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 199, in _execute_node_with_retry
+    return _execute_node(repo, run, node, dependency_outputs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 501, in _execute_node
+    output, sdk_state = _execute_agent_map(
+                        ^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 317, in _execute_agent_map
+    result = run_agent(
+             ^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\sdk_adapter.py", line 335, in run_agent
+    result = Runner.run_sync(
+             ^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run.py", line 355, in run_sync
+    return runner.run_sync(
+           ^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run.py", line 1717, in run_sync
+    return default_loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\Python311\Lib\asyncio\base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run.py", line 1313, in run
+    turn_result = await model_task
+                  ^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run_internal\run_loop.py", line 1877, in run_single_turn
+    return await get_single_step_result_from_response(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run_internal\turn_resolution.py", line 2487, in get_single_step_result_from_response
+    return await execute_tools_and_side_effects(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run_internal\turn_resolution.py", line 884, in execute_tools_and_side_effects
+    final_output = output_schema.validate_json(potential_final_output_text)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\agent_output.py", line 140, in validate_json
+    validated = _json.validate_json(
+                ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\util\_json.py", line 35, in validate_json
+    raise ModelBehaviorError(
+agents.exceptions.ModelBehaviorError: Invalid JSON when parsing {
+  "test_cases": [
+    {
+      "case_id": "TC-001",
+      "title": "游客用户点击批改操作权限拦截",
+      "module": "商业化与权限管控",
+      "priority": "P0",
+      "preconditions": [
+        "当前用户为游客状态（未登录）"
+      ],
+      "steps": [
+        {
+          "action": "游客用户点击批改操作",
+          "expected": "未执行批改操作，跳转至登录页"
+        }
+      ],
+      "tags": [
+        "权限管控",
+        "游客用户"
+      ]
+    },
+    {
+      "case_id": "TC-002",
+      "title": "已购买用户消耗免费批改次数",
+      "module": "商业化与权限管控",
+      "priority": "P0",
+      "preconditions": [
+        "用户已购买",
+        "当前主题拥有2次免费批改次数"
+      ],
+      "steps": [
+        {
+          "action": "用户对当前主题执行批改操作",
+          "expected": "成功执行批改操作，当前主题剩余免费批改次数为1次"
+        }
+      ],
+      "tags": [
+        "生命周期",
+        "免费次数"
+      ]
+    },
+    {
+      "case_id": "TC-003",
+      "title": "已购买用户免费批改次数耗尽后消耗批改券",
+      "module": "商业化与权限管控",
+      "priority": "P0",
+      "preconditions": [
+        "用户已购买",
+        "当前主题免费批改次数已消耗完毕",
+        "账户拥有批改券"
+      ],
+      "steps": [
+        {
+          "action": "用户对当前主题执行批改操作",
+          "expected": "成功执行批改操作，账户扣除1张批改券"
+        }
+      ],
+      "tags": [
+        "生命周期",
+        "批改券"
+      ]
+    },
+    {
+      "case_id": "TC-004",
+      "title": "已购买用户免费次数耗尽且无批改券时批改拦截",
+      "module": "商业化与权限管控",
+      "priority": "P0",
+      "preconditions": [
+        "用户已购买",
+        "当前主题免费批改次数已消耗完毕",
+        "账户无批改券"
+      ],
+      "steps": [
+        {
+          "action": "用户对当前主题执行批改操作",
+          "expected": "不执行批改操作，拦截批改请求"
+        }
+      ],
+      "tags": [
+        "边界条件",
+        "批改券"
+      ]
+    },
+    {
+      "case_id": "TC-005",
+      "title": "VIP会员用户学习VIP课程权限",
+      "module": "商业化与权限管控",
+      "priority": "P0",
+      "preconditions": [
+        "用户已开通VIP或SVIP会员"
+      ],
+      "steps": [
+        {
+          "action": "用户进入VIP课程学习",
+          "expected": "成功进入课程学习"
+        }
+      ],
+      "tags": [
+        "权限管控",
+        "VIP会员"
+      ]
+    },
+    {
+      "case_id": "TC-006",
+      "title": "非VIP用户学习VIP课程权限拦截",
+      "module": "商业化与权限管控",
+      "priority": "P1",
+      "preconditions": [
+        "用户未开通VIP或SVIP会员"
+      ],
+      "steps": [
+        {
+          "action": "用户尝试进入VIP课程学习",
+          "expected": "无法进入课程学习，展示VIP锁"
+        }
+      ],
+      "tags": [
+        "权限管控",
+        "普通用户"
+      ]
+    },
+    {
+      "case_id": "TC-007",
+      "title": "批改券跨主题使用验证",
+      "module": "商业化与权限管控",
+      "priority": "P1",
+      "preconditions": [
+        "用户已购买",
+        "主题A免费批改次数已消耗完毕",
+        "主题B免费批改次数已消耗完毕",
+        "账户拥有批改券"
+      ],
+      "steps": [
+        {
+          "action": "用户对主题A使用批改券执行批改操作"
+        },
+        {
+          "action": "用户对主题B使用批改券执行批改操作",
+          "expected": "主题A和主题B均成功执行批改操作，批改券在不同主题下均可正常消耗"
+        }
+      ],
+      "tags": [
+        "批改券",
+        "跨主题"
+      ]
+    }
+  ]
+} for TypeAdapter(test_case_generator_output); 1 validation error for test_case_generator_output
+test_cases.6.steps.0.expected
+  Field required [type=missing, input_value={'action': '用户对主...券执行批改操作'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing

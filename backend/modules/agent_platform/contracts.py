@@ -23,13 +23,31 @@ NodeRunStatus = Literal[
 ]
 
 
+class AgentMapConfig(BaseModel):
+    """Agent 映射节点配置：逐项执行、逐项落盘并汇总结果。"""
+
+    items_key: str = Field(default="items", min_length=1, max_length=120)
+    output_key: str = Field(default="items", min_length=1, max_length=120)
+    max_items: int = Field(default=100, ge=1, le=500)
+    allow_empty: bool = False
+
+
 class WorkflowNode(BaseModel):
     node_key: str = Field(min_length=1, max_length=160)
-    node_type: Literal["agent", "tool"]
+    node_type: Literal["agent", "agent_map", "tool"]
     reference_key: str = Field(min_length=1, max_length=200)
     depends_on: list[str] = Field(default_factory=list)
     max_attempts: int = Field(default=1, ge=1, le=5)
     input_mapping: dict[str, str] = Field(default_factory=dict)
+    map_config: AgentMapConfig | None = None
+
+    @model_validator(mode="after")
+    def validate_map_config(self) -> "WorkflowNode":
+        if self.node_type == "agent_map" and self.map_config is None:
+            raise ValueError("agent_map 节点必须配置 map_config")
+        if self.node_type != "agent_map" and self.map_config is not None:
+            raise ValueError("只有 agent_map 节点可以配置 map_config")
+        return self
 
 
 class WorkflowGraph(BaseModel):
@@ -113,10 +131,20 @@ class WorkflowDefinitionCreate(BaseModel):
     version: int = Field(default=1, ge=1)
 
 
+class AgentRunExecutionLimits(BaseModel):
+    """单次 Agent Run 的调用额度；请求值只能收紧平台上限。"""
+
+    max_requests: int | None = Field(default=None, ge=1)
+    max_input_tokens: int | None = Field(default=None, ge=1)
+    max_output_tokens: int | None = Field(default=None, ge=1)
+    max_total_tokens: int | None = Field(default=None, ge=1)
+
+
 class AgentRunCreate(BaseModel):
     project_id: int
     workflow_key: str = Field(min_length=1, max_length=120)
     input_payload: dict[str, Any] = Field(default_factory=dict)
+    execution_limits: AgentRunExecutionLimits | None = None
 
 
 class AgentToolBindingRequest(BaseModel):

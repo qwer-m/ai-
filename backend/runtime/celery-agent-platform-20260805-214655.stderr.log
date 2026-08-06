@@ -1,0 +1,11 @@
+[2026-08-05 21:46:56,366: INFO/MainProcess] Connected to redis://localhost:6379/0
+[2026-08-05 21:46:56,374: INFO/MainProcess] mingle: searching for neighbors
+[2026-08-05 21:46:57,401: INFO/MainProcess] mingle: all alone
+[2026-08-05 21:46:57,429: INFO/MainProcess] celery@DESKTOP-F86RMFU ready.
+[2026-08-05 21:46:57,433: INFO/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[0d42fa50-777d-4423-8e62-b2d2c7bb4af3] received
+[2026-08-05 21:46:59,781: WARNING/MainProcess] Successfully connected to MySQL database: ai_test_platform
+[2026-08-05 21:47:01,266: INFO/MainProcess] Using Default Embedding Function (provider=local; may require local model download)
+[2026-08-05 21:47:01,268: INFO/MainProcess] ChromaDB initialized at D:\Qoder\测试开发平台\backend\chroma_db
+[2026-08-05 21:47:01,304: WARNING/MainProcess] Redis connected: 127.0.0.1:6379/0
+[2026-08-05 21:47:01,305: WARNING/MainProcess] Local L1 cache backend: memory
+[2026-08-05 21:47:01,345: INFO/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[0d42fa50-777d-4423-8e62-b2d2c7bb4af3] succeeded in 3.9060000000172295s: {'run_id': 46, 'status': 'not_claimed'}

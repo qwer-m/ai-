@@ -121,6 +121,7 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
           requirement: requirement.trim(),
           requirement_doc_id: requirementDocId,
           case_budget: Math.max(1, Math.min(200, Number(caseBudget) || 20)),
+          batch_case_limit: 8,
         },
       });
       setActiveRun(response.run);

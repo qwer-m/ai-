@@ -1,10 +1,8 @@
 import logging
 import os
-import shutil
 import json
 import ipaddress
 from dataclasses import dataclass
-from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
 from urllib.parse import urlparse
@@ -53,12 +51,12 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CHROMA_PATH = BACKEND_ROOT / "chroma_db"
 DEFAULT_EMBED_BATCH_SIZE = _env_int("DASHSCOPE_EMBED_BATCH_SIZE", 25, minimum=1)
 DEFAULT_EMBED_MAX_CHARS = _env_int("DASHSCOPE_EMBED_MAX_CHARS", 2000, minimum=128, maximum=2048)
-_RUNTIME_AUTO_RECOVER = str(os.getenv("CHROMA_RUNTIME_AUTO_RECOVER", "true")).strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
+DEFAULT_HNSW_BATCH_SIZE = _env_int("CHROMA_HNSW_BATCH_SIZE", 100, minimum=2)
+DEFAULT_HNSW_SYNC_THRESHOLD = _env_int(
+    "CHROMA_HNSW_SYNC_THRESHOLD",
+    100000 if os.name == "nt" else 1000,
+    minimum=DEFAULT_HNSW_BATCH_SIZE,
+)
 _HNSW_LOAD_ERROR_SIGNALS = (
     "error loading hnsw index",
     "error creating hnsw segment reader",
@@ -167,20 +165,6 @@ def _is_chroma_store_corrupted(error: Exception) -> bool:
         or "database disk image is malformed" in message
         or any(signal in message for signal in _HNSW_LOAD_ERROR_SIGNALS)
     )
-
-
-def _backup_corrupted_store(path: Path) -> Path | None:
-    """
-    备份损坏目录后重建，避免服务直接不可用。
-
-    设计取舍：优先保证服务可恢复，再保留损坏现场用于排查。
-    """
-    if not path.exists():
-        return None
-
-    backup = path.with_name(f"{path.name}_corrupt_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}")
-    shutil.move(str(path), str(backup))
-    return backup
 
 
 @dataclass(frozen=True)
@@ -514,89 +498,32 @@ class ChromaClient:
         self.collection = None
         self.embedding_fn = None
         self.persist_path = _resolve_persist_path(persist_path)
-        self._runtime_recovering = False
-        self._runtime_auto_recover = bool(_RUNTIME_AUTO_RECOVER)
-
         try:
             self._init_client()
             logger.info("ChromaDB initialized at %s", self.persist_path)
         except Exception as e:
             if _is_chroma_store_corrupted(e):
-                try:
-                    backup_path = _backup_corrupted_store(self.persist_path)
-                    logger.error(
-                        "Chroma 持久化目录疑似损坏，已备份为 %s，准备重建。原始错误: %s",
-                        backup_path,
-                        e,
-                    )
-                    self._init_client()
-                    logger.info("ChromaDB recovered at %s", self.persist_path)
-                    return
-                except Exception as recover_error:
-                    logger.error("ChromaDB recover failed: %s", recover_error)
+                logger.error(
+                    "Chroma 持久化目录疑似损坏，已停止自动重置。"
+                    "请从 MySQL 持久化文档执行完整索引重建后再恢复服务。原始错误: %s",
+                    e,
+                )
 
             logger.error("Failed to initialize ChromaDB: %s", e)
 
     def _try_runtime_recover(self, *, operation: str, error: Exception) -> bool:
-        """运行时遇到索引损坏错误时，尝试备份并重建。"""
-        if not self._runtime_auto_recover:
-            return False
-        if self._runtime_recovering:
-            return False
-        if not _is_chroma_store_corrupted(error):
-            return False
-
-        self._runtime_recovering = True
-        try:
-            # 先尝试只重建 collection，避免直接动底层 sqlite 文件导致锁冲突。
-            embedding_fn = getattr(self, "embedding_fn", None)
-            if self.client is not None and embedding_fn is not None:
-                try:
-                    self.client.delete_collection(name="knowledge_base")
-                except Exception:
-                    pass
-                try:
-                    self.collection = self.client.get_or_create_collection(
-                        name="knowledge_base",
-                        embedding_function=embedding_fn,
-                    )
-                    logger.info("ChromaDB runtime recovered by collection reset during %s", operation)
-                    return True
-                except Exception as reset_error:
-                    logger.error("Chroma collection reset failed during %s: %s", operation, reset_error)
-
-            try:
-                backup_path = _backup_corrupted_store(self.persist_path)
-                logger.error(
-                    "Chroma runtime store error during %s; backed up %s, reinitializing. err=%s",
-                    operation,
-                    backup_path,
-                    error,
-                )
-                self._init_client()
-                logger.info("ChromaDB runtime recovered at %s", self.persist_path)
-                return True
-            except PermissionError:
-                fresh_path = self.persist_path.with_name(
-                    f"{self.persist_path.name}_rebuild_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-                )
-                logger.error(
-                    "Chroma backup blocked by file lock during %s; switching to fresh path %s",
-                    operation,
-                    fresh_path,
-                )
-                self.persist_path = fresh_path
-                self._init_client()
-                logger.info("ChromaDB runtime recovered on fresh path %s", self.persist_path)
-                return True
-        except Exception as recover_error:
-            logger.error("ChromaDB runtime recover failed during %s: %s", operation, recover_error)
-            return False
-        finally:
-            self._runtime_recovering = False
+        """损坏时只报告失败，禁止在业务请求内删除或切换活动索引库。"""
+        if _is_chroma_store_corrupted(error):
+            logger.error(
+                "ChromaDB %s 检测到索引损坏，已拒绝自动删除 collection；"
+                "请执行完整重建。err=%s",
+                operation,
+                error,
+            )
+        return False
 
     def _run_with_recover(self, operation: str, func, *, raise_on_error: bool = False, default=None):
-        """执行 Chroma 操作，遇到 HNSW/索引损坏时自动自愈并重试一次。"""
+        """执行 Chroma 操作；损坏时显式失败，不在请求内破坏或重置索引。"""
         try:
             return func()
         except Exception as first_error:
@@ -638,6 +565,12 @@ class ChromaClient:
         self.collection = self.client.get_or_create_collection(
             name="knowledge_base",
             embedding_function=self.embedding_fn,
+            # Windows 下 chroma-hnswlib 1.5.x 的本地快照可能只写 metadata
+            # 而缺少二进制段；提高同步阈值后由 SQLite 日志在启动时重放。
+            metadata={
+                "hnsw:batch_size": DEFAULT_HNSW_BATCH_SIZE,
+                "hnsw:sync_threshold": DEFAULT_HNSW_SYNC_THRESHOLD,
+            },
         )
 
     def add_document(

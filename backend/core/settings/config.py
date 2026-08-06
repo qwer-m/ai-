@@ -80,6 +80,17 @@ class Config:
     VL_MODEL_NAME = os.getenv("VL_MODEL_NAME", "").strip()
     TURBO_MODEL_NAME = os.getenv("TURBO_MODEL_NAME", "").strip()
     MAX_TOKENS = _env_int("MAX_TOKENS", 10000, minimum=1)  # 最大输出token数
+    # Agent Run 默认采用平台硬上限；调用方只能申请更低额度，不能绕过平台上限。
+    AGENT_RUN_MAX_REQUESTS = _env_int("AGENT_RUN_MAX_REQUESTS", 80, minimum=1)
+    AGENT_RUN_MAX_INPUT_TOKENS = _env_int(
+        "AGENT_RUN_MAX_INPUT_TOKENS", 300000, minimum=1
+    )
+    AGENT_RUN_MAX_OUTPUT_TOKENS = _env_int(
+        "AGENT_RUN_MAX_OUTPUT_TOKENS", 120000, minimum=1
+    )
+    AGENT_RUN_MAX_TOTAL_TOKENS = _env_int(
+        "AGENT_RUN_MAX_TOTAL_TOKENS", 400000, minimum=1
+    )
 
     # ===========================
     # 数据库配置

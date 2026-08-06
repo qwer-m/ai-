@@ -1,5 +1,6 @@
 from core.processing.semantic_chunking import semantic_head, split_semantic_text
 from pathlib import Path
+import pytest
 
 from core.cache_layer.chroma_client import ChromaClient, _is_chroma_store_corrupted
 
@@ -21,11 +22,6 @@ class _FakeCollection:
 class _FailQueryCollection:
     def query(self, query_texts, n_results, where):
         raise RuntimeError("Error loading hnsw index")
-
-
-class _SuccessQueryCollection:
-    def query(self, query_texts, n_results, where):
-        return {"documents": [["ok"]], "metadatas": [[{}]], "distances": [[0.1]]}
 
 
 def test_split_semantic_text_prefers_sentence_boundaries():
@@ -89,18 +85,11 @@ def test_chroma_corruption_detection_covers_hnsw_errors():
     assert _is_chroma_store_corrupted(Exception("Error loading hnsw index")) is True
 
 
-def test_chroma_search_runtime_recover_retries_after_hnsw_error(monkeypatch):
-    import core.cache_layer.chroma_client as chroma_module
-
+def test_chroma_search_rejects_destructive_runtime_recovery():
     client = object.__new__(ChromaClient)
     client.client = object()
     client.collection = _FailQueryCollection()
     client.persist_path = Path(".")
-    client._runtime_auto_recover = True
-    client._runtime_recovering = False
 
-    monkeypatch.setattr(chroma_module, "_backup_corrupted_store", lambda path: path)
-    monkeypatch.setattr(client, "_init_client", lambda: setattr(client, "collection", _SuccessQueryCollection()))
-
-    result = client.search(query="workflow case", n_results=3, where={"doc_type": "x"}, raise_on_error=True)
-    assert result.get("documents") == [["ok"]]
+    with pytest.raises(RuntimeError, match="Error loading hnsw index"):
+        client.search(query="workflow case", n_results=3, where={"doc_type": "x"}, raise_on_error=True)

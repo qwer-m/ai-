@@ -1,0 +1,82 @@
+[2026-08-06 04:39:59,665: INFO/MainProcess] Connected to redis://localhost:6379/0
+[2026-08-06 04:39:59,672: INFO/MainProcess] mingle: searching for neighbors
+[2026-08-06 04:40:00,697: INFO/MainProcess] mingle: all alone
+[2026-08-06 04:40:00,731: INFO/MainProcess] celery@DESKTOP-F86RMFU ready.
+[2026-08-06 04:40:44,721: INFO/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[47bed844-a114-45cf-b8d8-b4159624cbd6] received
+[2026-08-06 04:40:46,613: WARNING/MainProcess] Successfully connected to MySQL database: ai_test_platform
+[2026-08-06 04:40:47,715: INFO/MainProcess] Using Default Embedding Function (provider=local; may require local model download)
+[2026-08-06 04:40:47,718: INFO/MainProcess] ChromaDB initialized at D:\Qoder\测试开发平台\backend\chroma_db
+[2026-08-06 04:40:47,750: WARNING/MainProcess] Redis connected: 127.0.0.1:6379/0
+[2026-08-06 04:40:47,751: WARNING/MainProcess] Local L1 cache backend: memory
+[2026-08-06 04:42:02,017: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-06 04:44:02,625: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 504 Gateway Time-out"
+[2026-08-06 04:46:04,113: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 504 Gateway Time-out"
+[2026-08-06 04:48:06,566: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 504 Gateway Time-out"
+[2026-08-06 04:48:06,613: ERROR/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[47bed844-a114-45cf-b8d8-b4159624cbd6] raised unexpected: OpenAIError('<html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><center>stgw</center>\r\n</body>\r\n</html>')
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\celery\app\trace.py", line 479, in trace_task
+    R = retval = fun(*args, **kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\celery\app\trace.py", line 779, in __protected_call__
+    return self.run(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\orchestration\tasks.py", line 261, in run_agent_workflow_task
+    result = run_agent_workflow(run_id=run_id, task_id=task_id)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\orchestration\tasks.py", line 59, in run_agent_workflow
+    return real_run_agent_workflow(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 712, in run_agent_workflow
+    executed = _execute_node_with_retry(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 251, in _execute_node_with_retry
+    return _execute_node(repo, run, node, dependency_outputs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 604, in _execute_node
+    result = run_agent(
+             ^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\sdk_adapter.py", line 434, in run_agent
+    result = Runner.run_sync(
+             ^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run.py", line 355, in run_sync
+    return runner.run_sync(
+           ^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run.py", line 1717, in run_sync
+    return default_loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\Python311\Lib\asyncio\base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run.py", line 1313, in run
+    turn_result = await model_task
+                  ^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run_internal\run_loop.py", line 1859, in run_single_turn
+    new_response = await get_new_response(
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run_internal\run_loop.py", line 1980, in get_new_response
+    new_response = await get_response_with_retry(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run_internal\model_retry.py", line 446, in get_response_with_retry
+    response = await get_response()
+               ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\models\openai_chatcompletions.py", line 214, in get_response
+    response = await self._fetch_response(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\models\openai_chatcompletions.py", line 619, in _fetch_response
+    ret = await self._get_client().chat.completions.create(**create_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\openai\resources\chat\completions\completions.py", line 2907, in create
+    return await self._post(
+           ^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\openai\_base_client.py", line 1992, in post
+    return await self.request(cast_to, opts, stream=stream, stream_cls=stream_cls)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\openai\_base_client.py", line 1777, in request
+    raise self._make_status_error_from_response(err.response) from None
+openai.OpenAIError: <html>
+<head><title>504 Gateway Time-out</title></head>
+<body>
+<center><h1>504 Gateway Time-out</h1></center>
+<hr><center>stgw</center>
+</body>
+</html>

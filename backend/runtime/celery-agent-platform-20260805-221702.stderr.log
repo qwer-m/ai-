@@ -1,0 +1,15 @@
+[2026-08-05 22:17:03,026: INFO/MainProcess] Connected to redis://localhost:6379/0
+[2026-08-05 22:17:03,030: INFO/MainProcess] mingle: searching for neighbors
+[2026-08-05 22:17:04,058: INFO/MainProcess] mingle: all alone
+[2026-08-05 22:17:04,091: INFO/MainProcess] celery@DESKTOP-F86RMFU ready.
+[2026-08-05 22:19:06,896: INFO/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[87055808-e497-4a53-a809-e39f80967095] received
+[2026-08-05 22:19:08,886: WARNING/MainProcess] Successfully connected to MySQL database: ai_test_platform
+[2026-08-05 22:19:09,981: INFO/MainProcess] Using Default Embedding Function (provider=local; may require local model download)
+[2026-08-05 22:19:09,983: INFO/MainProcess] ChromaDB initialized at D:\Qoder\测试开发平台\backend\chroma_db
+[2026-08-05 22:19:10,012: WARNING/MainProcess] Redis connected: 127.0.0.1:6379/0
+[2026-08-05 22:19:10,013: WARNING/MainProcess] Local L1 cache backend: memory
+[2026-08-05 22:21:02,512: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 22:22:22,401: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 22:23:05,272: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 22:23:46,673: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 22:23:46,701: INFO/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[87055808-e497-4a53-a809-e39f80967095] succeeded in 279.7960000000021s: {'run_id': 54, 'status': 'cancelled'}

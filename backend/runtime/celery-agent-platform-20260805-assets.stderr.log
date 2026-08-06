@@ -1,0 +1,40 @@
+[2026-08-05 16:07:44,769: INFO/MainProcess] Connected to redis://localhost:6379/0
+[2026-08-05 16:07:44,775: INFO/MainProcess] mingle: searching for neighbors
+[2026-08-05 16:07:45,797: INFO/MainProcess] mingle: all alone
+[2026-08-05 16:07:45,830: INFO/MainProcess] celery@DESKTOP-F86RMFU ready.
+[2026-08-05 16:10:19,161: INFO/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[a4628a56-b820-4a40-96c9-4c46815d6531] received
+[2026-08-05 16:10:19,596: WARNING/MainProcess] Successfully connected to MySQL database: ai_test_platform
+[2026-08-05 16:10:20,894: INFO/MainProcess] Using Default Embedding Function (provider=local; may require local model download)
+[2026-08-05 16:10:20,896: INFO/MainProcess] ChromaDB initialized at D:\Qoder\测试开发平台\backend\chroma_db
+[2026-08-05 16:10:20,928: WARNING/MainProcess] Redis connected: 127.0.0.1:6379/0
+[2026-08-05 16:10:20,929: WARNING/MainProcess] Local L1 cache backend: memory
+[2026-08-05 16:10:58,141: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 16:10:58,839: ERROR/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[a4628a56-b820-4a40-96c9-4c46815d6531] raised unexpected: ValueError('生成批次未找到唯一归属的需求证据: document_id=239, module=课程学习环节')
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\celery\app\trace.py", line 479, in trace_task
+    R = retval = fun(*args, **kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\celery\app\trace.py", line 779, in __protected_call__
+    return self.run(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\orchestration\tasks.py", line 261, in run_agent_workflow_task
+    result = run_agent_workflow(run_id=run_id, task_id=task_id)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\orchestration\tasks.py", line 59, in run_agent_workflow
+    return real_run_agent_workflow(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 612, in run_agent_workflow
+    executed = _execute_node_with_retry(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 199, in _execute_node_with_retry
+    return _execute_node(repo, run, node, dependency_outputs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 552, in _execute_node
+    output = tool_registry.resolve(tool.handler_key)(execution_context, tool_input)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\test_generation_batching.py", line 653, in prepare_test_case_batches
+    module_evidence, evidence_chunks = _select_module_evidence(
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\test_generation_batching.py", line 555, in _select_module_evidence
+    raise ValueError(
+ValueError: 生成批次未找到唯一归属的需求证据: document_id=239, module=课程学习环节

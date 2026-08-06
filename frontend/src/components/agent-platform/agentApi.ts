@@ -5,6 +5,7 @@ import type {
   AgentDefinition,
   AgentNodeRun,
   AgentRun,
+  AgentRunExecutionLimits,
   AgentRunEvent,
   AgentTool,
   AgentWorkflow,
@@ -124,7 +125,7 @@ function parseAgentTool(value: unknown, path: string): AgentTool {
 function parseWorkflowNode(value: unknown, path: string): WorkflowNode {
   const object = readObject(value, path);
   const nodeType = readString(object.node_type, `${path}.node_type`);
-  if (nodeType !== 'agent' && nodeType !== 'tool') {
+  if (nodeType !== 'agent' && nodeType !== 'agent_map' && nodeType !== 'tool') {
     throw new Error(`${path}.node_type 包含未知节点类型: ${nodeType}`);
   }
   return {
@@ -134,6 +135,9 @@ function parseWorkflowNode(value: unknown, path: string): WorkflowNode {
     depends_on: readStringArray(object.depends_on, `${path}.depends_on`),
     max_attempts: readNumber(object.max_attempts, `${path}.max_attempts`),
     input_mapping: readStringMap(object.input_mapping, `${path}.input_mapping`),
+    map_config: object.map_config == null
+      ? null
+      : readObject(object.map_config, `${path}.map_config`),
   };
 }
 
@@ -164,7 +168,7 @@ function parseAgentWorkflow(value: unknown, path: string): AgentWorkflow {
 function parseAgentNodeRun(value: unknown, path: string): AgentNodeRun {
   const object = readObject(value, path);
   const nodeType = readString(object.node_type, `${path}.node_type`);
-  if (nodeType !== 'agent' && nodeType !== 'tool') {
+  if (nodeType !== 'agent' && nodeType !== 'agent_map' && nodeType !== 'tool') {
     throw new Error(`${path}.node_type 包含未知节点类型: ${nodeType}`);
   }
   return {
@@ -294,6 +298,7 @@ export const createAgentRun = (payload: {
   project_id: number;
   workflow_key: string;
   input_payload: Record<string, unknown>;
+  execution_limits?: AgentRunExecutionLimits;
 }): Promise<{ run: AgentRun }> => api.post<unknown>('/api/agents/runs', payload).then((response) =>
   parseRunEnvelope(response, '创建 Agent 运行响应'),
 );

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 MAX_PARSE_ERROR_LENGTH = 2000
@@ -40,27 +39,6 @@ def safe_error_message(error: Any) -> str:
     if len(text) > MAX_PARSE_ERROR_LENGTH:
         return text[:MAX_PARSE_ERROR_LENGTH] + "..."
     return text
-
-
-def _doc_id_in_env(env_name: str, doc_id: int) -> bool:
-    raw = (os.getenv(env_name) or "").strip()
-    if not raw:
-        return False
-    if raw == "*":
-        return True
-    for token in raw.split(","):
-        token = token.strip()
-        if token.isdigit() and int(token) == doc_id:
-            return True
-    return False
-
-
-def has_injection_flag(filename: str, flag: str, doc_id: int) -> bool:
-    """联调注入点：文件名或环境变量命中即触发。"""
-    lowered = (filename or "").lower()
-    if f"__kbtest_{flag}__" in lowered:
-        return True
-    return _doc_id_in_env(f"KB_PARSE_INJECT_{flag.upper()}_DOC_IDS", doc_id)
 
 
 def validate_parsed_content(content: str) -> None:

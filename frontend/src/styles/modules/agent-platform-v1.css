@@ -182,6 +182,40 @@
   overflow-wrap: anywhere;
 }
 
+.agent-quota-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.agent-quota-metric {
+  display: grid;
+  gap: 5px;
+  padding: 9px;
+  background: var(--fd-surface-soft);
+  border: 1px solid var(--agent-border);
+  border-radius: 6px;
+}
+
+.agent-quota-metric > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.agent-quota-metric progress {
+  width: 100%;
+  height: 7px;
+  accent-color: var(--bs-primary);
+}
+
+.agent-quota-metric small {
+  color: var(--fd-text-muted);
+  font-size: 11px;
+}
+
 .agent-history-list button {
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr);
@@ -282,6 +316,10 @@
   }
 
   .agent-form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-quota-panel {
     grid-template-columns: 1fr;
   }
 }

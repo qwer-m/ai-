@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
 from modules.knowledge_base_components.document import document_ops
+from modules.knowledge_base_components.document.document_index_service import (
+    _clean_content_text,
+)
 
 
 class _FakeQuery:
@@ -12,6 +15,12 @@ class _FakeQuery:
 
     def first(self):
         return self._doc
+
+
+def test_index_content_cleanup_removes_invisible_controls_but_preserves_layout() -> None:
+    content = "模块标题\x01\n字段\t说明\x7f"
+
+    assert _clean_content_text(content) == "模块标题 \n字段\t说明 "
 
 
 class _FakeDB:

@@ -1,0 +1,7 @@
+Successfully connected to MySQL database: ai_test_platform
+Redis connected: 127.0.0.1:6379/0
+Local L1 cache backend: memory
+Application startup: Redis pool initialized (应用启动: Redis 连接池已初始化)
+Loaded active AI config: openai / glm-5.1
+INFO:     127.0.0.1:50213 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60184 - "GET /api/health HTTP/1.1" 200 OK

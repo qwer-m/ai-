@@ -1,0 +1,219 @@
+[2026-08-05 17:24:23,043: INFO/MainProcess] Connected to redis://localhost:6379/0
+[2026-08-05 17:24:23,048: INFO/MainProcess] mingle: searching for neighbors
+[2026-08-05 17:24:24,081: INFO/MainProcess] mingle: all alone
+[2026-08-05 17:24:24,116: INFO/MainProcess] celery@DESKTOP-F86RMFU ready.
+[2026-08-05 17:26:27,930: INFO/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[f24dfcc8-0e8b-41f5-a2be-bae982ca258d] received
+[2026-08-05 17:26:28,566: WARNING/MainProcess] Successfully connected to MySQL database: ai_test_platform
+[2026-08-05 17:26:30,750: INFO/MainProcess] Using Default Embedding Function (provider=local; may require local model download)
+[2026-08-05 17:26:30,751: INFO/MainProcess] ChromaDB initialized at D:\Qoder\测试开发平台\backend\chroma_db
+[2026-08-05 17:26:30,764: WARNING/MainProcess] Redis connected: 127.0.0.1:6379/0
+[2026-08-05 17:26:30,765: WARNING/MainProcess] Local L1 cache backend: memory
+[2026-08-05 17:28:07,744: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:29:09,296: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:30:19,285: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:31:25,787: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:32:42,055: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:33:21,401: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:33:59,540: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:34:25,520: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:35:22,422: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:36:03,073: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:36:56,087: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:37:33,799: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:38:26,235: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:39:10,393: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:39:51,734: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:41:08,605: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:41:52,975: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:43:01,389: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:43:45,499: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:44:12,421: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:44:44,223: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:46:03,908: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:46:39,474: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:47:45,018: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:48:31,734: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:48:59,878: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:49:40,088: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:50:29,960: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:51:00,881: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:51:54,215: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:52:42,345: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:54:17,671: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:55:44,849: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:56:18,225: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:56:52,465: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 17:58:54,037: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 504 Gateway Time-out"
+[2026-08-05 17:59:40,373: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:00:23,217: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:02:24,798: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 504 Gateway Time-out"
+[2026-08-05 18:03:36,814: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:04:56,107: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:05:37,846: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:06:23,510: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:07:05,671: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:08:52,209: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:10:00,742: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:11:09,430: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:12:09,532: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:13:01,961: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:14:22,746: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:16:24,564: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 504 Gateway Time-out"
+[2026-08-05 18:17:59,664: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:19:33,402: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:20:33,651: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:21:08,417: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:21:57,468: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:22:56,304: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:24:59,654: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 504 Gateway Time-out"
+[2026-08-05 18:26:03,537: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:27:28,077: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:27:28,256: ERROR/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[f24dfcc8-0e8b-41f5-a2be-bae982ca258d] raised unexpected: ModelBehaviorError('Invalid JSON when parsing {\n  "gaps": [\n    {\n      "gap_id": "GAP-001",\n      "coverage_intent": "验证普通用户在课程列表页点击第一单元可正常试学",\n      "evidence_reference": [\n        {\n          "document_id": 239,\n          "chunk_index": 2,\n          "biz_key": "heading*有你_真好_写人_抒情@page=3"\n        }\n      ],\n      "evidence_quote": "第一个单元为试学,可正常点击进入学习"\n    },\n    {\n      "gap_id": "GAP-002",\n      "coverage_intent": "验证会员用户点击未更新课程或无内容章节时显示待更新图标及toast提示",\n      "evidence_reference": [\n        {\n          "document_id": 239,\n          "chunk_index": 2,\n          "biz_key": "heading*有你_真好_写人_抒情@page=3"\n        }\n      ],\n      "evidence_quote": "未更新的课程,有“待更新”图标,点击后有toast提示:即将更新,敬请期待"\n    },\n    {\n      "gap_id": "GAP-003",\n      "coverage_intent": "验证课程模块中“写什么”部分包含单元写作要求的纯文案展示",\n      "evidence_reference": [\n        {\n          "document_id": 239,\n          "chunk_index": 3,\n          "biz_key": "heading*c_星星数量_已获得_总@page=4"\n        }\n      ],\n      "evidence_quote": "单元写作要求:纯文案,显示当前主题的要求说明"\n    },\n    {\n      "gap_id": "GAP-004",\n      "coverage_intent": "验证在课程环节页点击未获得的技法区域弹出toast提示",\n      "evidence_reference": [\n        {\n          "document_id": 239,\n          "chunk_index": 3,\n          "biz_key": "heading*c_星星数量_已获得_总@page=4"\n        }\n      ],\n      "evidence_quote": "未获得:弹出toast提示“完成本课所有环节即可获得”"\n    },\n    {\n      "gap_id": "GAP-005",\n      "coverage_intent": "验证点击下载资料按钮可打开下载方式选择弹窗及弹窗名称显示",\n      "evidence_reference": [\n        {\n          "document_id": 239,\n          "chunk_index": 23,\n          "biz_key": "heading*下载资料@page=24"\n        }\n      ],\n      "evidence_quote": "点击右上⻆【下载资料】按钮,打开下载方式选择弹窗(与原逻辑相同),弹窗名称显示单元名称和作文主题名称"\n    }\n  ]\n} for TypeAdapter(test_case_coverage_gap_auditor_output); 10 validation errors for test_case_coverage_gap_auditor_output\ngaps.0.evidence_ref\n  Field required [type=missing, input_value={\'gap_id\': \'GAP-001\', \'co...常点击进入学习\'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing\ngaps.0.evidence_reference\n  Extra inputs are not permitted [type=extra_forbidden, input_value=[{\'document_id\': 239, \'ch..._写人_抒情@page=3\'}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden\ngaps.1.evidence_ref\n  Field required [type=missing, input_value={\'gap_id\': \'GAP-002\', \'co...将更新,敬请期待\'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing\ngaps.1.evidence_reference\n  Extra inputs are not permitted [type=extra_forbidden, input_value=[{\'document_id\': 239, \'ch..._写人_抒情@page=3\'}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden\ngaps.2.evidence_ref\n  Field required [type=missing, input_value={\'gap_id\': \'GAP-003\', \'co...主题的要求说明\'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing\ngaps.2.evidence_reference\n  Extra inputs are not permitted [type=extra_forbidden, input_value=[{\'document_id\': 239, \'ch..._已获得_总@page=4\'}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden\ngaps.3.evidence_ref\n  Field required [type=missing, input_value={\'gap_id\': \'GAP-004\', \'co...环节即可获得”\'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing\ngaps.3.evidence_reference\n  Extra inputs are not permitted [type=extra_forbidden, input_value=[{\'document_id\': 239, \'ch..._已获得_总@page=4\'}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden\ngaps.4.evidence_ref\n  Field required [type=missing, input_value={\'gap_id\': \'GAP-005\', \'co...和作文主题名称\'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing\ngaps.4.evidence_reference\n  Extra inputs are not permitted [type=extra_forbidden, input_value=[{\'document_id\': 239, \'ch...*下载资料@page=24\'}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden')
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\celery\app\trace.py", line 479, in trace_task
+    R = retval = fun(*args, **kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\celery\app\trace.py", line 779, in __protected_call__
+    return self.run(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\orchestration\tasks.py", line 261, in run_agent_workflow_task
+    result = run_agent_workflow(run_id=run_id, task_id=task_id)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\orchestration\tasks.py", line 59, in run_agent_workflow
+    return real_run_agent_workflow(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 613, in run_agent_workflow
+    executed = _execute_node_with_retry(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 200, in _execute_node_with_retry
+    return _execute_node(repo, run, node, dependency_outputs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 502, in _execute_node
+    output, sdk_state = _execute_agent_map(
+                        ^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 318, in _execute_agent_map
+    result = run_agent(
+             ^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\sdk_adapter.py", line 335, in run_agent
+    result = Runner.run_sync(
+             ^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run.py", line 355, in run_sync
+    return runner.run_sync(
+           ^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run.py", line 1717, in run_sync
+    return default_loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\Python311\Lib\asyncio\base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run.py", line 1313, in run
+    turn_result = await model_task
+                  ^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run_internal\run_loop.py", line 1877, in run_single_turn
+    return await get_single_step_result_from_response(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run_internal\turn_resolution.py", line 2487, in get_single_step_result_from_response
+    return await execute_tools_and_side_effects(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run_internal\turn_resolution.py", line 884, in execute_tools_and_side_effects
+    final_output = output_schema.validate_json(potential_final_output_text)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\agent_output.py", line 140, in validate_json
+    validated = _json.validate_json(
+                ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\util\_json.py", line 35, in validate_json
+    raise ModelBehaviorError(
+agents.exceptions.ModelBehaviorError: Invalid JSON when parsing {
+  "gaps": [
+    {
+      "gap_id": "GAP-001",
+      "coverage_intent": "验证普通用户在课程列表页点击第一单元可正常试学",
+      "evidence_reference": [
+        {
+          "document_id": 239,
+          "chunk_index": 2,
+          "biz_key": "heading*有你_真好_写人_抒情@page=3"
+        }
+      ],
+      "evidence_quote": "第一个单元为试学,可正常点击进入学习"
+    },
+    {
+      "gap_id": "GAP-002",
+      "coverage_intent": "验证会员用户点击未更新课程或无内容章节时显示待更新图标及toast提示",
+      "evidence_reference": [
+        {
+          "document_id": 239,
+          "chunk_index": 2,
+          "biz_key": "heading*有你_真好_写人_抒情@page=3"
+        }
+      ],
+      "evidence_quote": "未更新的课程,有“待更新”图标,点击后有toast提示:即将更新,敬请期待"
+    },
+    {
+      "gap_id": "GAP-003",
+      "coverage_intent": "验证课程模块中“写什么”部分包含单元写作要求的纯文案展示",
+      "evidence_reference": [
+        {
+          "document_id": 239,
+          "chunk_index": 3,
+          "biz_key": "heading*c_星星数量_已获得_总@page=4"
+        }
+      ],
+      "evidence_quote": "单元写作要求:纯文案,显示当前主题的要求说明"
+    },
+    {
+      "gap_id": "GAP-004",
+      "coverage_intent": "验证在课程环节页点击未获得的技法区域弹出toast提示",
+      "evidence_reference": [
+        {
+          "document_id": 239,
+          "chunk_index": 3,
+          "biz_key": "heading*c_星星数量_已获得_总@page=4"
+        }
+      ],
+      "evidence_quote": "未获得:弹出toast提示“完成本课所有环节即可获得”"
+    },
+    {
+      "gap_id": "GAP-005",
+      "coverage_intent": "验证点击下载资料按钮可打开下载方式选择弹窗及弹窗名称显示",
+      "evidence_reference": [
+        {
+          "document_id": 239,
+          "chunk_index": 23,
+          "biz_key": "heading*下载资料@page=24"
+        }
+      ],
+      "evidence_quote": "点击右上⻆【下载资料】按钮,打开下载方式选择弹窗(与原逻辑相同),弹窗名称显示单元名称和作文主题名称"
+    }
+  ]
+} for TypeAdapter(test_case_coverage_gap_auditor_output); 10 validation errors for test_case_coverage_gap_auditor_output
+gaps.0.evidence_ref
+  Field required [type=missing, input_value={'gap_id': 'GAP-001', 'co...常点击进入学习'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+gaps.0.evidence_reference
+  Extra inputs are not permitted [type=extra_forbidden, input_value=[{'document_id': 239, 'ch..._写人_抒情@page=3'}], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+gaps.1.evidence_ref
+  Field required [type=missing, input_value={'gap_id': 'GAP-002', 'co...将更新,敬请期待'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+gaps.1.evidence_reference
+  Extra inputs are not permitted [type=extra_forbidden, input_value=[{'document_id': 239, 'ch..._写人_抒情@page=3'}], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+gaps.2.evidence_ref
+  Field required [type=missing, input_value={'gap_id': 'GAP-003', 'co...主题的要求说明'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+gaps.2.evidence_reference
+  Extra inputs are not permitted [type=extra_forbidden, input_value=[{'document_id': 239, 'ch..._已获得_总@page=4'}], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+gaps.3.evidence_ref
+  Field required [type=missing, input_value={'gap_id': 'GAP-004', 'co...环节即可获得”'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+gaps.3.evidence_reference
+  Extra inputs are not permitted [type=extra_forbidden, input_value=[{'document_id': 239, 'ch..._已获得_总@page=4'}], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+gaps.4.evidence_ref
+  Field required [type=missing, input_value={'gap_id': 'GAP-005', 'co...和作文主题名称'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+gaps.4.evidence_reference
+  Extra inputs are not permitted [type=extra_forbidden, input_value=[{'document_id': 239, 'ch...*下载资料@page=24'}], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden

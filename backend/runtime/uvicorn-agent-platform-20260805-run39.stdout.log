@@ -1,0 +1,36 @@
+Successfully connected to MySQL database: ai_test_platform
+Redis connected: 127.0.0.1:6379/0
+Local L1 cache backend: memory
+Application startup: Redis pool initialized (应用启动: Redis 连接池已初始化)
+Loaded active AI config: openai / glm-5.1
+INFO:     127.0.0.1:55948 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49672 - "GET /api/agents/catalog?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49673 - "POST /api/agents/runs HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:55468 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57912 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50927 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60754 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53957 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54541 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63043 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50888 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63723 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59434 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50825 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57427 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59308 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55850 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65082 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56303 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55004 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53000 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60935 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52081 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65142 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56922 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65281 - "GET /api/agents/runs/39/events?limit=2000 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55925 - "POST /api/agents/runs/39/retry HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:65384 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51577 - "GET /api/agents/runs/39 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60345 - "GET /api/agents/runs/39/events?limit=2000 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61167 - "POST /api/agents/runs/39/cancel HTTP/1.1" 200 OK

@@ -1,5 +1,12 @@
 export type RunStatus = 'pending' | 'running' | 'waiting_approval' | 'success' | 'failed' | 'cancelled';
 
+export type AgentRunExecutionLimits = {
+  max_requests?: number;
+  max_input_tokens?: number;
+  max_output_tokens?: number;
+  max_total_tokens?: number;
+};
+
 export type AgentDefinition = {
   id: number;
   project_id: number;
@@ -35,11 +42,12 @@ export type AgentTool = {
 
 export type WorkflowNode = {
   node_key: string;
-  node_type: 'agent' | 'tool';
+  node_type: 'agent' | 'agent_map' | 'tool';
   reference_key: string;
   depends_on: string[];
   max_attempts: number;
   input_mapping: Record<string, string>;
+  map_config: Record<string, unknown> | null;
 };
 
 export type AgentWorkflow = {
@@ -63,7 +71,7 @@ export type AgentWorkflow = {
 export type AgentNodeRun = {
   id: number;
   node_key: string;
-  node_type: 'agent' | 'tool';
+  node_type: 'agent' | 'agent_map' | 'tool';
   status: RunStatus;
   attempt: number;
   input_payload: Record<string, unknown>;

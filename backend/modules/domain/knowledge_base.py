@@ -67,7 +67,10 @@ class KnowledgeBaseModule:
             client = get_client_for_user(user_id, db)
             summary = client.compress_context(
                 content,
-                prompt="请将以下文档压缩为适合测试用例生成的精炼摘要，保留关键实体、流程、约束、字段、边界与异常规则。输出纯文本。",
+                prompt=(
+                    "请忠实压缩以下文档，保留标题层级、关键实体、明确事实、"
+                    "先后关系、约束、数值和例外。不按任何下游任务改写事实，不补充原文未声明内容，输出纯文本。"
+                ),
                 db=db,
             )
             if (

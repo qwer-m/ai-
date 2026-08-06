@@ -27,6 +27,9 @@ INDEXABLE_DOC_TYPES = (
     "product_requirement",
     "incomplete",
 )
+from modules.knowledge_base_components.document.document_asset_service import (
+    delete_document_assets,
+)
 
 def add_document_impl(
     module,
@@ -229,6 +232,7 @@ def delete_document_impl(module, doc_id: int, db: Session):
     for linked_doc in linked_docs:
         linked_doc.source_doc_id = None
 
+    delete_document_assets(int(deleted_doc_id))
     repo.delete(doc)
     repo.commit()
 

@@ -48,6 +48,7 @@ def _raise_result_error(reason: str) -> None:
         "definition_not_found": (404, "智能体或工具定义不存在"),
         "version_exists": (409, "相同版本已存在"),
         "run_not_retryable": (409, "当前运行状态不可重试"),
+        "run_version_mismatch": (409, "运行版本已变化，不能混用旧节点结果，请新建 Run"),
     }
     if reason.startswith("unknown_node_reference:"):
         raise HTTPException(status_code=422, detail=f"工作流引用不存在: {reason.split(':', 1)[1]}")

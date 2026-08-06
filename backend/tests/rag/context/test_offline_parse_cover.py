@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import hashlib
 
 from modules.knowledge_base_components.document import offline_parse
 
@@ -86,7 +87,7 @@ def _doc(doc_id, *, project_specific_id, content, status="success"):
     )
 
 
-def test_offline_parse_covers_same_filename_document_and_removes_pending(monkeypatch, tmp_path):
+def test_offline_parse_keeps_same_filename_documents_independent(monkeypatch, tmp_path):
     existing = _doc(11, project_specific_id=6, content="旧内容")
     pending = _doc(230, project_specific_id=20, content="", status="pending")
     db = _FakeDB([existing, pending])
@@ -98,20 +99,20 @@ def test_offline_parse_covers_same_filename_document_and_removes_pending(monkeyp
     upload_file.write_bytes(b"not used")
 
     monkeypatch.setattr(offline_parse, "KnowledgeDocumentRepository", _FakeRepo)
-    monkeypatch.setattr(offline_parse, "parse_file_path", lambda file_path: "新内容")
+    monkeypatch.setattr(offline_parse, "parse_file_path", lambda file_path, **kwargs: "新内容")
+    monkeypatch.setattr(
+        offline_parse,
+        "prepare_document_assets",
+        lambda **kwargs: {"manifest": {}, "document_text": ""},
+    )
     monkeypatch.setattr(offline_parse, "validate_parsed_content", lambda content: None)
     monkeypatch.setattr(offline_parse, "cleanup_offline_file", lambda file_path: cleaned.append(file_path))
     monkeypatch.setattr(offline_parse, "is_vector_store_ready", lambda: True)
-    def fake_summary(module, *, doc, db, user_id=None):
-        doc.summary = f"摘要::{doc.content}"
-        return doc.summary
+    def fake_reindex(doc):
+        indexed.append(doc.id)
+        return {"indexed_raw": True, "indexed_summary": False}
 
-    def fake_upsert(**kwargs):
-        indexed.append(kwargs)
-        return True, True
-
-    monkeypatch.setattr(offline_parse, "ensure_document_summary", fake_summary)
-    monkeypatch.setattr(offline_parse, "upsert_document_indexes", fake_upsert)
+    monkeypatch.setattr(offline_parse, "reindex_document_from_persisted_content", fake_reindex)
 
     result = offline_parse.parse_document_offline_impl(
         module,
@@ -122,15 +123,14 @@ def test_offline_parse_covers_same_filename_document_and_removes_pending(monkeyp
         task_id="task-1",
     )
 
-    assert result["status"] == "covered"
-    assert result["document_id"] == existing.id
-    assert result["covered_pending_doc_id"] == pending.id
-    assert existing.content == "新内容"
-    assert existing.content_hash == "hash::新内容"
-    assert existing.parse_status == "success"
-    assert db.docs == {existing.id: existing}
-    assert db.deleted == [pending]
-    assert indexed[0]["doc_id"] == existing.id
-    assert indexed[0]["metadata"]["doc_id"] == existing.id
-    assert module.reindex_calls == [("requirement", 8)]
+    assert result == {"status": "success", "document_id": pending.id}
+    assert existing.content == "旧内容"
+    assert existing.content_hash == "hash::旧内容"
+    assert pending.content == "新内容"
+    assert pending.content_hash == hashlib.sha256(b"not used").hexdigest()
+    assert pending.parse_status == "success"
+    assert db.docs == {existing.id: existing, pending.id: pending}
+    assert db.deleted == []
+    assert indexed == [pending.id]
+    assert module.reindex_calls == []
     assert cleaned == [str(upload_file)]

@@ -56,65 +56,6 @@ class SemanticChunker:
         return [Chunk(text=item.strip()) for item in chunks if str(item or "").strip()]
 
 
-class RequirementChunker:
-    """需求文档分块：按业务规则编号切分。"""
-
-    _RULE_START_RE = re.compile(
-        r"^\s*(?:\d+(?:\.\d+){0,3}[\.、)]|R(?:EQ)?[-_ ]?\d+|[-*\u2022])\s+",
-        flags=re.I,
-    )
-    _REQ_ID_RE = re.compile(r"\b(?:REQ|R)[-_ ]?\d+\b", flags=re.I)
-
-    def chunk(self, text: str) -> list[Chunk]:
-        lines = _non_empty_lines(text)
-        if not lines:
-            return []
-
-        blocks: list[list[str]] = []
-        current: list[str] = []
-        for line in lines:
-            is_rule_start = bool(self._RULE_START_RE.match(line))
-            if is_rule_start and current:
-                blocks.append(current)
-                current = [line]
-            else:
-                current.append(line)
-        if current:
-            blocks.append(current)
-
-        # 中文注释：若没识别出规则边界，退回语义分块兜底。
-        if len(blocks) <= 1:
-            fallback = SemanticChunker().chunk(text)
-            module_hint = _extract_first_module_hint(text)
-            for item in fallback:
-                chunk_module = _extract_first_module_hint(item.text) or module_hint
-                item.module = chunk_module
-                item.biz_key = extract_biz_key(item.text, chunk_module or "")
-            logger.debug("RequirementChunker fallback semantic_chunks=%s", len(fallback))
-            return fallback
-
-        results: list[Chunk] = []
-        module_hint = _extract_first_module_hint(text)
-        for block in blocks:
-            block_text = _safe_join(block)
-            if not block_text:
-                continue
-            req_match = self._REQ_ID_RE.search(block_text[:160])
-            requirement_id = req_match.group(0).upper().replace(" ", "") if req_match else None
-            block_module = _extract_first_module_hint(block_text) or module_hint
-            results.append(
-                Chunk(
-                    text=block_text,
-                    module=block_module,
-                    biz_key=extract_biz_key(block_text, block_module or ""),
-                    requirement_id=requirement_id,
-                )
-            )
-
-        logger.debug("RequirementChunker rules=%s", len(results))
-        return results
-
-
 class TestCaseChunker:
     """测试用例分块：保证单条用例不被拆分。"""
 
@@ -316,7 +257,8 @@ class BusinessChunkerDispatcher:
     def __init__(self) -> None:
         self._fallback = SemanticChunker()
         self._chunkers = {
-            "requirement": RequirementChunker(),
+            # 需求文档使用通用语义分块，业务模块和规则编号由 Agent 判断。
+            "requirement": SemanticChunker(),
             "testcase": TestCaseChunker(),
         }
 

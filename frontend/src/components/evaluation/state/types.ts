@@ -43,7 +43,6 @@ export type GeneratedTestCase = {
     action: string;
     expected: string;
   }>;
-  expected_result: string;
   tags: string[];
 };
 

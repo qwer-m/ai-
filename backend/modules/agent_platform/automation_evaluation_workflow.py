@@ -152,7 +152,7 @@ BUILTIN_AGENT_SPECS: tuple[dict[str, Any], ...] = (
         ),
         "model": "",
         "output_schema": EVALUATION_SCHEMA,
-        "runtime_config": {"model_route": "main", "max_turns": 8, "tool_keys": []},
+        "runtime_config": {"model_route": "main", "max_turns": 1, "tool_keys": []},
     },
     {
         "agent_key": "api_automation_evaluator",
@@ -174,7 +174,7 @@ BUILTIN_AGENT_SPECS: tuple[dict[str, Any], ...] = (
         ),
         "model": "",
         "output_schema": EVALUATION_SCHEMA,
-        "runtime_config": {"model_route": "main", "max_turns": 8, "tool_keys": []},
+        "runtime_config": {"model_route": "main", "max_turns": 1, "tool_keys": []},
     },
 )
 

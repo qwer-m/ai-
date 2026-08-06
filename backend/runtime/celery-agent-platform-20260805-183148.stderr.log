@@ -1,0 +1,203 @@
+[2026-08-05 18:31:49,455: INFO/MainProcess] Connected to redis://localhost:6379/0
+[2026-08-05 18:31:49,460: INFO/MainProcess] mingle: searching for neighbors
+[2026-08-05 18:31:50,491: INFO/MainProcess] mingle: all alone
+[2026-08-05 18:31:50,525: INFO/MainProcess] celery@DESKTOP-F86RMFU ready.
+[2026-08-05 18:32:17,756: INFO/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[524ff87b-b113-43ab-b6dd-feec68e87767] received
+[2026-08-05 18:32:18,174: WARNING/MainProcess] Successfully connected to MySQL database: ai_test_platform
+[2026-08-05 18:32:19,522: INFO/MainProcess] Using Default Embedding Function (provider=local; may require local model download)
+[2026-08-05 18:32:19,524: INFO/MainProcess] ChromaDB initialized at D:\Qoder\测试开发平台\backend\chroma_db
+[2026-08-05 18:32:19,536: WARNING/MainProcess] Redis connected: 127.0.0.1:6379/0
+[2026-08-05 18:32:19,537: WARNING/MainProcess] Local L1 cache backend: memory
+[2026-08-05 18:33:28,649: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:34:12,052: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:35:16,681: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:36:38,377: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:37:17,321: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:38:34,738: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:39:11,656: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:39:27,039: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:39:59,410: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:40:42,027: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:41:58,080: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:42:41,993: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:43:29,491: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:43:43,691: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:44:35,486: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:45:25,814: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:46:52,095: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:47:33,843: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:48:04,988: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:49:18,172: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:50:09,861: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:50:53,873: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:52:00,734: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:52:22,052: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:54:15,338: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:54:58,795: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:56:53,184: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:57:58,057: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:58:57,880: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:59:22,827: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 18:59:48,463: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 19:00:25,732: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 19:01:47,968: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 19:02:22,956: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 19:03:36,522: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 19:04:18,833: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 19:05:11,986: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 19:06:32,831: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 19:07:21,920: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 19:08:19,330: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 19:09:12,012: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 19:10:09,806: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 19:11:10,432: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 19:11:10,487: ERROR/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[524ff87b-b113-43ab-b6dd-feec68e87767] raised unexpected: ModelBehaviorError('Invalid JSON when parsing {\n  "test_cases": [\n    {\n      "case_id": "TC-001",\n      "title": "验证非线性解锁初始随意进入环节学习",\n      "module": "课程学习与环节互动",\n      "priority": "P0",\n      "preconditions": "用户进入单元课程页，各环节均为未完成已解锁",\n      "steps": [\n        {\n          "action": "点击审题立意课程框",\n          "expected": "进入对应课程环节，审题立意环节状态显示为未完成已解锁（未获得星星）"\n        }\n      ],\n      "tags": [\n        "非线性解锁",\n        "未完成已解锁"\n      ]\n    },\n    {\n      "case_id": "TC-002",\n      "title": "验证完成审题立意环节答题获得星星",\n      "module": "课程学习与环节互动",\n      "priority": "P0",\n      "preconditions": "进入对应课程环节，审题立意环节状态显示为未完成已解锁（未获得星星）",\n      "steps": [\n        {\n          "action": "点击审题立意视频关卡并完成关卡答题",\n          "expected": "获得星星，审题立意环节状态变更为已完成"\n        }\n      ],\n      "tags": [\n        "审题立意",\n        "获得星星",\n        "已完成"\n      ]\n    },\n    {\n      "case_id": "TC-003",\n      "title": "验证完成写作技法与技法巩固答题获得星星",\n      "module": "课程学习与环节互动",\n      "priority": "P0",\n      "preconditions": "获得星星，审题立意环节状态变更为已完成",\n      "steps": [\n        {\n          "action": "点击写作技法视频关卡并完成关卡答题",\n          "expected": "获得星星，写作技法环节状态变更为已完成"\n        },\n        {\n          "action": "点击技法巩固答题图标并完成答题",\n          "expected": "获得星星，技法巩固环节状态变更为已完成"\n        }\n      ],\n      "tags": [\n        "写作技法",\n        "技法巩固",\n        "获得星星",\n        "已完成"\n      ]\n    },\n    {\n      "case_id": "TC-004",\n      "title": "验证技法说明未获得与已获得状态显示",\n      "module": "课程学习与环节互动",\n      "priority": "P1",\n      "preconditions": "用户进入单元课程页，怎么写环节为未完成已解锁",\n      "steps": [\n        {\n          "action": "点击技法区域",\n          "expected": "技法图标置灰，显示文案“完成本课学习可收集写作秘籍”"\n        },\n        {\n          "action": "完成本课学习（至少获得一颗星）后点击技法区域",\n          "expected": "技法图标点亮，显示技法描述文案"\n        }\n      ],\n      "tags": [\n        "技法说明",\n        "状态显示"\n      ]\n    }\n  ]\n} for TypeAdapter(test_case_module_curator_output); 4 validation errors for test_case_module_curator_output\ntest_cases.0.preconditions\n  Input should be a valid array [type=list_type, input_value=\'用户进入单元课程...为未完成已解锁\', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/list_type\ntest_cases.1.preconditions\n  Input should be a valid array [type=list_type, input_value=\'进入对应课程环节...（未获得星星）\', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/list_type\ntest_cases.2.preconditions\n  Input should be a valid array [type=list_type, input_value=\'获得星星，审题立...态变更为已完成\', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/list_type\ntest_cases.3.preconditions\n  Input should be a valid array [type=list_type, input_value=\'用户进入单元课程...为未完成已解锁\', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/list_type')
+Traceback (most recent call last):
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\celery\app\trace.py", line 479, in trace_task
+    R = retval = fun(*args, **kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\celery\app\trace.py", line 779, in __protected_call__
+    return self.run(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\orchestration\tasks.py", line 261, in run_agent_workflow_task
+    result = run_agent_workflow(run_id=run_id, task_id=task_id)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\orchestration\tasks.py", line 59, in run_agent_workflow
+    return real_run_agent_workflow(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 613, in run_agent_workflow
+    executed = _execute_node_with_retry(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 200, in _execute_node_with_retry
+    return _execute_node(repo, run, node, dependency_outputs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 502, in _execute_node
+    output, sdk_state = _execute_agent_map(
+                        ^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\runtime.py", line 318, in _execute_agent_map
+    result = run_agent(
+             ^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\backend\modules\agent_platform\sdk_adapter.py", line 335, in run_agent
+    result = Runner.run_sync(
+             ^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run.py", line 355, in run_sync
+    return runner.run_sync(
+           ^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run.py", line 1717, in run_sync
+    return default_loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\Python311\Lib\asyncio\base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run.py", line 1313, in run
+    turn_result = await model_task
+                  ^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run_internal\run_loop.py", line 1877, in run_single_turn
+    return await get_single_step_result_from_response(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run_internal\turn_resolution.py", line 2487, in get_single_step_result_from_response
+    return await execute_tools_and_side_effects(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\run_internal\turn_resolution.py", line 884, in execute_tools_and_side_effects
+    final_output = output_schema.validate_json(potential_final_output_text)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\agent_output.py", line 140, in validate_json
+    validated = _json.validate_json(
+                ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Qoder\测试开发平台\.venv\Lib\site-packages\agents\util\_json.py", line 35, in validate_json
+    raise ModelBehaviorError(
+agents.exceptions.ModelBehaviorError: Invalid JSON when parsing {
+  "test_cases": [
+    {
+      "case_id": "TC-001",
+      "title": "验证非线性解锁初始随意进入环节学习",
+      "module": "课程学习与环节互动",
+      "priority": "P0",
+      "preconditions": "用户进入单元课程页，各环节均为未完成已解锁",
+      "steps": [
+        {
+          "action": "点击审题立意课程框",
+          "expected": "进入对应课程环节，审题立意环节状态显示为未完成已解锁（未获得星星）"
+        }
+      ],
+      "tags": [
+        "非线性解锁",
+        "未完成已解锁"
+      ]
+    },
+    {
+      "case_id": "TC-002",
+      "title": "验证完成审题立意环节答题获得星星",
+      "module": "课程学习与环节互动",
+      "priority": "P0",
+      "preconditions": "进入对应课程环节，审题立意环节状态显示为未完成已解锁（未获得星星）",
+      "steps": [
+        {
+          "action": "点击审题立意视频关卡并完成关卡答题",
+          "expected": "获得星星，审题立意环节状态变更为已完成"
+        }
+      ],
+      "tags": [
+        "审题立意",
+        "获得星星",
+        "已完成"
+      ]
+    },
+    {
+      "case_id": "TC-003",
+      "title": "验证完成写作技法与技法巩固答题获得星星",
+      "module": "课程学习与环节互动",
+      "priority": "P0",
+      "preconditions": "获得星星，审题立意环节状态变更为已完成",
+      "steps": [
+        {
+          "action": "点击写作技法视频关卡并完成关卡答题",
+          "expected": "获得星星，写作技法环节状态变更为已完成"
+        },
+        {
+          "action": "点击技法巩固答题图标并完成答题",
+          "expected": "获得星星，技法巩固环节状态变更为已完成"
+        }
+      ],
+      "tags": [
+        "写作技法",
+        "技法巩固",
+        "获得星星",
+        "已完成"
+      ]
+    },
+    {
+      "case_id": "TC-004",
+      "title": "验证技法说明未获得与已获得状态显示",
+      "module": "课程学习与环节互动",
+      "priority": "P1",
+      "preconditions": "用户进入单元课程页，怎么写环节为未完成已解锁",
+      "steps": [
+        {
+          "action": "点击技法区域",
+          "expected": "技法图标置灰，显示文案“完成本课学习可收集写作秘籍”"
+        },
+        {
+          "action": "完成本课学习（至少获得一颗星）后点击技法区域",
+          "expected": "技法图标点亮，显示技法描述文案"
+        }
+      ],
+      "tags": [
+        "技法说明",
+        "状态显示"
+      ]
+    }
+  ]
+} for TypeAdapter(test_case_module_curator_output); 4 validation errors for test_case_module_curator_output
+test_cases.0.preconditions
+  Input should be a valid array [type=list_type, input_value='用户进入单元课程...为未完成已解锁', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.12/v/list_type
+test_cases.1.preconditions
+  Input should be a valid array [type=list_type, input_value='进入对应课程环节...（未获得星星）', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.12/v/list_type
+test_cases.2.preconditions
+  Input should be a valid array [type=list_type, input_value='获得星星，审题立...态变更为已完成', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.12/v/list_type
+test_cases.3.preconditions
+  Input should be a valid array [type=list_type, input_value='用户进入单元课程...为未完成已解锁', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.12/v/list_type

@@ -1,0 +1,19 @@
+[2026-08-05 22:50:59,318: INFO/MainProcess] Connected to redis://localhost:6379/0
+[2026-08-05 22:50:59,324: INFO/MainProcess] mingle: searching for neighbors
+[2026-08-05 22:51:00,354: INFO/MainProcess] mingle: all alone
+[2026-08-05 22:51:00,386: INFO/MainProcess] celery@DESKTOP-F86RMFU ready.
+[2026-08-05 22:52:42,181: INFO/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[31460404-8083-47b6-8cec-2d2d36ab7be1] received
+[2026-08-05 22:52:44,098: WARNING/MainProcess] Successfully connected to MySQL database: ai_test_platform
+[2026-08-05 22:52:45,270: INFO/MainProcess] Using Default Embedding Function (provider=local; may require local model download)
+[2026-08-05 22:52:45,272: INFO/MainProcess] ChromaDB initialized at D:\Qoder\测试开发平台\backend\chroma_db
+[2026-08-05 22:52:45,303: WARNING/MainProcess] Redis connected: 127.0.0.1:6379/0
+[2026-08-05 22:52:45,303: WARNING/MainProcess] Local L1 cache backend: memory
+[2026-08-05 22:54:45,465: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 22:56:34,715: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 22:58:35,327: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 504 Gateway Time-out"
+[2026-08-05 23:00:29,453: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 23:02:12,200: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 23:02:50,140: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 23:03:34,877: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 23:04:14,631: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 23:04:14,669: INFO/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[31460404-8083-47b6-8cec-2d2d36ab7be1] succeeded in 692.4840000000258s: {'run_id': 57, 'status': 'cancelled'}

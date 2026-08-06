@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import inspect
+import json
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -16,6 +19,7 @@ class ToolExecutionContext:
     run_input: dict[str, Any]
     artifacts: dict[str, Any] = field(default_factory=dict)
     executed_tools: list[str] = field(default_factory=list)
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
 ToolHandler = Callable[[ToolExecutionContext, dict[str, Any]], dict[str, Any]]
@@ -66,6 +70,10 @@ from .test_case_evaluation_workflow import (  # noqa: E402
     BUILTIN_WORKFLOW_SPECS as TEST_CASE_EVALUATION_WORKFLOW_SPECS,
     register_test_case_evaluation_tools,
 )
+from .document_agent_tools import (  # noqa: E402
+    BUILTIN_TOOL_SPECS as DOCUMENT_AGENT_TOOL_SPECS,
+    register_document_agent_tools,
+)
 
 BUILTIN_AGENT_SPECS = (
     *TEST_GENERATION_AGENT_SPECS,
@@ -73,6 +81,7 @@ BUILTIN_AGENT_SPECS = (
     *TEST_CASE_EVALUATION_AGENT_SPECS,
 )
 BUILTIN_TOOL_SPECS = (
+    *DOCUMENT_AGENT_TOOL_SPECS,
     *TEST_GENERATION_TOOL_SPECS,
     *AUTOMATION_EVALUATION_TOOL_SPECS,
     *TEST_CASE_EVALUATION_TOOL_SPECS,
@@ -83,6 +92,33 @@ BUILTIN_WORKFLOW_SPECS = (
     *TEST_CASE_EVALUATION_WORKFLOW_SPECS,
 )
 
+register_document_agent_tools(tool_registry)
 register_test_generation_tools(tool_registry)
 register_automation_evaluation_tools(tool_registry)
 register_test_case_evaluation_tools(tool_registry)
+
+
+def runtime_registry_signature() -> str:
+    """生成 Web 与 Worker 都可独立计算的运行时注册指纹。"""
+
+    handler_sources: dict[str, str] = {}
+    for key in tool_registry.keys():
+        handler = tool_registry.resolve(key)
+        try:
+            source = inspect.getsource(handler)
+        except (OSError, TypeError):
+            source = f"{handler.__module__}.{handler.__qualname__}"
+        handler_sources[key] = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    payload = {
+        "agents": BUILTIN_AGENT_SPECS,
+        "tools": BUILTIN_TOOL_SPECS,
+        "workflows": BUILTIN_WORKFLOW_SPECS,
+        "handlers": handler_sources,
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()

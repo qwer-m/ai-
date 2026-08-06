@@ -45,9 +45,50 @@ function JsonView({ value }: { value: unknown }) {
   return <pre className="agent-json-view mb-0">{JSON.stringify(value ?? {}, null, 2)}</pre>;
 }
 
+type QuotaMetric = {
+  key: string;
+  label: string;
+  charged: number;
+  actual: number;
+  limit: number;
+};
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function numericValue(record: Record<string, unknown>, key: string): number {
+  const value = Number(record[key] ?? 0);
+  return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function quotaMetrics(runContext: Record<string, unknown>): QuotaMetric[] {
+  const limits = objectValue(runContext.execution_limits);
+  const usage = objectValue(runContext.usage);
+  const charged = objectValue(runContext.quota_usage);
+  const definitions = [
+    ['requests', '请求', 'attempted_requests', 'max_requests'],
+    ['input', '输入 Token', 'input_tokens', 'max_input_tokens'],
+    ['output', '输出 Token', 'output_tokens', 'max_output_tokens'],
+    ['total', '总 Token', 'total_tokens', 'max_total_tokens'],
+  ] as const;
+  return definitions.map(([key, label, usageKey, limitKey]) => ({
+    key,
+    label,
+    charged: numericValue(charged, usageKey) || numericValue(usage, usageKey),
+    actual: numericValue(usage, usageKey),
+    limit: numericValue(limits, limitKey),
+  })).filter((item) => item.limit > 0);
+}
+
 export function AgentWorkspace({ projectId, onLog }: Props) {
   const controller = useAgentWorkspace({ projectId, onLog });
   const runBusy = controller.activeRun && ['pending', 'running'].includes(controller.activeRun.status);
+  const activeQuotaMetrics = controller.activeRun
+    ? quotaMetrics(controller.activeRun.run_context)
+    : [];
 
   if (!projectId) {
     return <div className="agent-workspace-empty">请先选择项目</div>;
@@ -240,6 +281,23 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                 </div>
                 {controller.activeRun.error_message && (
                   <div className="agent-run-error">{controller.activeRun.error_message}</div>
+                )}
+                {activeQuotaMetrics.length > 0 && (
+                  <div className="agent-quota-panel" aria-label="Agent Run 额度使用情况">
+                    {activeQuotaMetrics.map((metric) => {
+                      const percent = Math.min(100, (metric.charged / metric.limit) * 100);
+                      return (
+                        <div className="agent-quota-metric" key={metric.key}>
+                          <div>
+                            <strong>{metric.label}</strong>
+                            <span>{metric.charged.toLocaleString()} / {metric.limit.toLocaleString()}</span>
+                          </div>
+                          <progress value={percent} max={100} />
+                          <small>模型实际回报：{metric.actual.toLocaleString()}</small>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
                 <JsonView value={controller.activeRun.output_payload} />
               </>

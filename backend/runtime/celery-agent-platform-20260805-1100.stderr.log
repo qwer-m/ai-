@@ -1,0 +1,33 @@
+[2026-08-05 10:48:36,713: INFO/MainProcess] Connected to redis://localhost:6379/0
+[2026-08-05 10:48:36,723: INFO/MainProcess] mingle: searching for neighbors
+[2026-08-05 10:48:37,742: INFO/MainProcess] mingle: all alone
+[2026-08-05 10:48:37,768: INFO/MainProcess] celery@DESKTOP-F86RMFU ready.
+[2026-08-05 10:50:17,684: INFO/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[2c056dc3-dd8b-44b1-bec4-672344e36635] received
+[2026-08-05 10:50:18,072: WARNING/MainProcess] Successfully connected to MySQL database: ai_test_platform
+[2026-08-05 10:50:19,232: INFO/MainProcess] Using Default Embedding Function (provider=local; may require local model download)
+[2026-08-05 10:50:19,233: INFO/MainProcess] ChromaDB initialized at D:\Qoder\测试开发平台\backend\chroma_db
+[2026-08-05 10:50:20,619: WARNING/MainProcess] Redis connected: 127.0.0.1:6379/0
+[2026-08-05 10:50:20,619: WARNING/MainProcess] Local L1 cache backend: memory
+[2026-08-05 10:51:16,739: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 10:52:07,189: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 10:52:50,088: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 10:53:42,801: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 10:55:39,616: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 10:56:45,353: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 10:57:40,573: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 10:58:37,309: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 10:59:50,338: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 11:00:32,636: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 11:01:09,283: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 11:01:59,539: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 11:03:00,526: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 11:03:40,151: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 11:05:28,527: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 11:06:19,927: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 11:07:18,938: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 11:08:46,404: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 11:09:48,429: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 11:10:09,048: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 11:10:51,771: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 11:11:58,359: INFO/MainProcess] HTTP Request: POST https://new-api.leleketang.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-08-05 11:11:58,694: INFO/MainProcess] Task modules.orchestration.tasks.run_agent_workflow_task[2c056dc3-dd8b-44b1-bec4-672344e36635] succeeded in 1301.015000000014s: {'run_id': 36, 'status': 'success'}

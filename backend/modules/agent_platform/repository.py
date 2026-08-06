@@ -143,32 +143,52 @@ class AgentPlatformRepository:
         user_id: int,
         limit: int,
     ) -> list[AgentRun]:
-        return (
-            self.db.query(AgentRun)
-            .filter(
-                AgentRun.project_id == project_id,
-                AgentRun.user_id == user_id,
+        # 先只排序轻量主键，避免 MySQL 对包含大 run_context JSON 的整行做 filesort。
+        ordered_ids = [
+            int(row[0])
+            for row in (
+                self.db.query(AgentRun.id)
+                .filter(
+                    AgentRun.project_id == project_id,
+                    AgentRun.user_id == user_id,
+                )
+                .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
+                .limit(limit)
+                .all()
             )
-            .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
-            .limit(limit)
+        ]
+        if not ordered_ids:
+            return []
+        rows = (
+            self.db.query(AgentRun)
+            .filter(AgentRun.id.in_(ordered_ids))
             .all()
         )
+        by_id = {int(row.id): row for row in rows}
+        return [by_id[run_id] for run_id in ordered_ids if run_id in by_id]
 
     def list_node_runs(self, *, run_id: int) -> list[AgentNodeRun]:
-        return (
+        # JSON 输入/输出可能很大，让 MySQL 对整行做 filesort 会耗尽 sort_buffer。
+        # 利用 run_id 索引无排序读取，再在 Python 中按主键稳定排序。
+        rows = (
             self.db.query(AgentNodeRun)
             .filter(AgentNodeRun.run_id == run_id)
-            .order_by(AgentNodeRun.id.asc())
             .all()
         )
+        return sorted(rows, key=lambda item: int(item.id or 0))
 
     def latest_node_run(self, *, run_id: int, node_key: str) -> AgentNodeRun | None:
-        return (
-            self.db.query(AgentNodeRun)
+        # 只对轻量主键排序，避免历史节点的大 JSON 进入 MySQL filesort。
+        latest_id = (
+            self.db.query(AgentNodeRun.id)
             .filter(AgentNodeRun.run_id == run_id, AgentNodeRun.node_key == node_key)
             .order_by(AgentNodeRun.attempt.desc(), AgentNodeRun.id.desc())
-            .first()
+            .limit(1)
+            .scalar()
         )
+        if latest_id is None:
+            return None
+        return self.db.get(AgentNodeRun, int(latest_id))
 
     def next_node_attempt(self, *, run_id: int, node_key: str) -> int:
         maximum = (
@@ -203,12 +223,27 @@ class AgentPlatformRepository:
         payload: dict[str, Any],
         node_run_id: int | None = None,
     ) -> AgentRunEvent:
-        sequence = int(
-            self.db.query(func.max(AgentRunEvent.sequence))
-            .filter(AgentRunEvent.run_id == run_id)
+        # 同一个 Run 的 Worker、取消和重试请求可能来自不同事务。
+        # 先锁定 Run 行，再分配连续序号，避免并发读取到相同的 max(sequence)。
+        locked_run_id = (
+            self.db.query(AgentRun.id)
+            .filter(AgentRun.id == run_id)
+            .with_for_update()
             .scalar()
-            or 0
-        ) + 1
+        )
+        if locked_run_id is None:
+            raise ValueError(f"agent_run_not_found:{run_id}")
+        # 聚合 MAX 在 MySQL REPEATABLE READ 下仍可能读取事务旧快照。
+        # 对最新事件做锁定读，确保等待并发事务提交后看到当前序号。
+        latest_sequence = (
+            self.db.query(AgentRunEvent.sequence)
+            .filter(AgentRunEvent.run_id == run_id)
+            .order_by(AgentRunEvent.sequence.desc())
+            .limit(1)
+            .with_for_update()
+            .scalar()
+        )
+        sequence = int(latest_sequence or 0) + 1
         event = AgentRunEvent(
             run_id=run_id,
             node_run_id=node_run_id,

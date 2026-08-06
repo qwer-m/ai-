@@ -13,6 +13,7 @@ from core.db.model_defs import (
     AgentToolBinding,
     AgentWorkflowDefinition,
 )
+from core.settings.config import settings
 from .contracts import (
     AgentDefinitionCreate,
     AgentRunCreate,
@@ -22,6 +23,28 @@ from .contracts import (
 )
 from .repository import AgentPlatformRepository
 from .seed import seed_builtin_definitions
+from .registry import runtime_registry_signature
+
+
+def _resolved_execution_limits(request: AgentRunCreate) -> dict[str, int]:
+    """调用方只能降低额度，平台环境变量始终是不可绕过的上限。"""
+
+    requested = request.execution_limits
+    platform_limits = {
+        "max_requests": int(settings.AGENT_RUN_MAX_REQUESTS),
+        "max_input_tokens": int(settings.AGENT_RUN_MAX_INPUT_TOKENS),
+        "max_output_tokens": int(settings.AGENT_RUN_MAX_OUTPUT_TOKENS),
+        "max_total_tokens": int(settings.AGENT_RUN_MAX_TOTAL_TOKENS),
+    }
+    if requested is None:
+        return platform_limits
+    values = requested.model_dump()
+    return {
+        key: min(platform_value, int(values[key]))
+        if values.get(key) is not None
+        else platform_value
+        for key, platform_value in platform_limits.items()
+    }
 
 
 class AgentPlatformService:
@@ -95,7 +118,7 @@ class AgentPlatformService:
         if not self._owned_project(project_id=request.project_id, user_id=user_id):
             return None, "project_not_found"
         for node in request.definition.nodes:
-            if node.node_type == "agent":
+            if node.node_type in {"agent", "agent_map"}:
                 exists = self.repo.get_agent(
                     project_id=request.project_id,
                     agent_key=node.reference_key,
@@ -188,7 +211,19 @@ class AgentPlatformService:
             workflow_definition_id=workflow.id,
             status="pending",
             input_payload=request.input_payload,
-            run_context={"node_outputs": {}, "artifacts": {}},
+            run_context={
+                "node_outputs": {},
+                "artifacts": {},
+                "execution_limits": _resolved_execution_limits(request),
+                "usage": {
+                    "attempted_requests": 0,
+                    "requests": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "total_tokens": 0,
+                },
+                "runtime_registry_signature": runtime_registry_signature(),
+            },
             output_payload={},
         )
         self.db.add(run)
@@ -220,26 +255,34 @@ class AgentPlatformService:
         return self.repo.get_owned_run(run_id=run_id, user_id=user_id)
 
     def retry_run(self, *, run_id: int, user_id: int) -> tuple[AgentRun | None, str]:
-        source = self.repo.get_owned_run(run_id=run_id, user_id=user_id)
-        if source is None:
+        run = self.repo.get_owned_run(run_id=run_id, user_id=user_id)
+        if run is None:
             return None, "run_not_found"
-        if source.status in {"pending", "running", "waiting_approval"}:
+        if run.status in {"pending", "running", "waiting_approval"}:
             return None, "run_not_retryable"
-        run = AgentRun(
-            user_id=source.user_id,
-            project_id=source.project_id,
-            workflow_definition_id=source.workflow_definition_id,
-            status="pending",
-            input_payload=source.input_payload or {},
-            run_context={"node_outputs": {}, "artifacts": {}},
-            output_payload={},
-            parent_run_id=source.id,
+        expected_signature = str(
+            (run.run_context or {}).get("runtime_registry_signature") or ""
+        )
+        if not expected_signature or expected_signature != runtime_registry_signature():
+            return None, "run_version_mismatch"
+        run.status = "pending"
+        run.error_message = ""
+        run.output_payload = {}
+        run.task_id = None
+        run.claim_token = None
+        run.heartbeat_at = None
+        run.lease_expires_at = None
+        run.finished_at = None
+        self.repo.append_event(
+            run_id=run.id,
+            event_type="run_retry_requested",
+            payload={"user_id": user_id},
         )
         self.db.add(run)
         self.db.commit()
         self.db.refresh(run)
         self._start_worker(run.id)
-        return run, "created"
+        return run, "retried"
 
     def cancel_run(self, *, run_id: int, user_id: int) -> tuple[AgentRun | None, str]:
         run = self.repo.get_owned_run(run_id=run_id, user_id=user_id)
