@@ -1,6 +1,20 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
+
+
+def _serialize_utc_datetime(value: Any) -> Any:
+    """执行时间在数据库中以无时区 UTC 保存，对外补齐明确时区。"""
+
+    if value is None or not isinstance(value, datetime):
+        return value
+    aware_value = (
+        value.replace(tzinfo=timezone.utc)
+        if value.tzinfo is None
+        else value.astimezone(timezone.utc)
+    )
+    return aware_value.isoformat().replace("+00:00", "Z")
 
 
 def serialize_agent(value: Any) -> dict[str, Any]:
@@ -61,14 +75,15 @@ def serialize_node_run(value: Any) -> dict[str, Any]:
         "id": value.id,
         "node_key": value.node_key,
         "node_type": value.node_type,
+        "agent_definition_id": value.agent_definition_id,
         "status": value.status,
         "attempt": value.attempt,
         "input_payload": value.input_payload or {},
         "output_payload": value.output_payload or {},
         "sdk_state": value.sdk_state or {},
         "error_message": value.error_message or "",
-        "started_at": value.started_at,
-        "finished_at": value.finished_at,
+        "started_at": _serialize_utc_datetime(value.started_at),
+        "finished_at": _serialize_utc_datetime(value.finished_at),
         "created_at": value.created_at,
     }
 
@@ -104,8 +119,10 @@ def serialize_run(
     node_runs: list[Any] | None = None,
     approvals: list[Any] | None = None,
 ) -> dict[str, Any]:
+    run_attempt = int(dict(value.run_context or {}).get("run_attempt") or 1)
     return {
         "id": value.id,
+        "run_attempt": max(1, run_attempt),
         "project_id": value.project_id,
         "workflow_definition_id": value.workflow_definition_id,
         "status": value.status,
@@ -117,8 +134,34 @@ def serialize_run(
         "parent_run_id": value.parent_run_id,
         "task_id": value.task_id,
         "created_at": value.created_at,
-        "started_at": value.started_at,
-        "finished_at": value.finished_at,
+        "started_at": _serialize_utc_datetime(value.started_at),
+        "finished_at": _serialize_utc_datetime(value.finished_at),
         "nodes": [serialize_node_run(item) for item in (node_runs or [])],
         "approvals": [serialize_approval(item) for item in (approvals or [])],
+    }
+
+
+def serialize_run_summary(value: Any) -> dict[str, Any]:
+    """工作台初始化只需要活动状态，不传输节点和运行产物大字段。"""
+
+    loaded_context = dict(getattr(value, "__dict__", {}).get("run_context") or {})
+    run_attempt = int(loaded_context.get("run_attempt") or 1)
+    return {
+        "id": value.id,
+        "run_attempt": max(1, run_attempt),
+        "project_id": value.project_id,
+        "workflow_definition_id": value.workflow_definition_id,
+        "status": value.status,
+        "current_node_key": value.current_node_key,
+        "input_payload": value.input_payload or {},
+        "run_context": {},
+        "output_payload": {},
+        "error_message": value.error_message or "",
+        "parent_run_id": value.parent_run_id,
+        "task_id": value.task_id,
+        "created_at": value.created_at,
+        "started_at": _serialize_utc_datetime(value.started_at),
+        "finished_at": _serialize_utc_datetime(value.finished_at),
+        "nodes": [],
+        "approvals": [],
     }

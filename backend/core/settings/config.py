@@ -80,16 +80,49 @@ class Config:
     VL_MODEL_NAME = os.getenv("VL_MODEL_NAME", "").strip()
     TURBO_MODEL_NAME = os.getenv("TURBO_MODEL_NAME", "").strip()
     MAX_TOKENS = _env_int("MAX_TOKENS", 10000, minimum=1)  # 最大输出token数
-    # Agent Run 默认采用平台硬上限；调用方只能申请更低额度，不能绕过平台上限。
+    # 额度按每个已激活 Agent 实例独立计算；Run 级只累计用量，不共享一份阻断额度。
+    # 当前按需求临时放开单实例 token 上限；仍按 Agent 实例独立记账，可由环境变量覆盖。
     AGENT_RUN_MAX_REQUESTS = _env_int("AGENT_RUN_MAX_REQUESTS", 80, minimum=1)
     AGENT_RUN_MAX_INPUT_TOKENS = _env_int(
-        "AGENT_RUN_MAX_INPUT_TOKENS", 300000, minimum=1
+        "AGENT_RUN_MAX_INPUT_TOKENS", 2000000, minimum=1
     )
     AGENT_RUN_MAX_OUTPUT_TOKENS = _env_int(
-        "AGENT_RUN_MAX_OUTPUT_TOKENS", 120000, minimum=1
+        "AGENT_RUN_MAX_OUTPUT_TOKENS", 800000, minimum=1
     )
     AGENT_RUN_MAX_TOTAL_TOKENS = _env_int(
-        "AGENT_RUN_MAX_TOTAL_TOKENS", 400000, minimum=1
+        "AGENT_RUN_MAX_TOTAL_TOKENS", 2800000, minimum=1
+    )
+    # 上游模型网关在高并发下更容易排队超时；允许部署侧限制映射节点的实际并发。
+    AGENT_MAP_MAX_CONCURRENCY = _env_int(
+        "AGENT_MAP_MAX_CONCURRENCY", 6, minimum=1, maximum=16
+    )
+    # 并发映射发生局部慢请求时保留最小吞吐，避免整个阶段退化为串行。
+    AGENT_MAP_MIN_CONCURRENCY = _env_int(
+        "AGENT_MAP_MIN_CONCURRENCY", 2, minimum=1, maximum=16
+    )
+    # 累计多个上游压力信号后再降一级并发，单个离群请求不应拖慢整个批次。
+    AGENT_MAP_CONCURRENCY_PRESSURE_FAILURES = _env_int(
+        "AGENT_MAP_CONCURRENCY_PRESSURE_FAILURES", 2, minimum=1, maximum=10
+    )
+    # 上游压力降载后，连续成功达到该数量再恢复一级并发，避免立即回冲。
+    AGENT_MAP_CONCURRENCY_RECOVERY_SUCCESSES = _env_int(
+        "AGENT_MAP_CONCURRENCY_RECOVERY_SUCCESSES", 6, minimum=1, maximum=100
+    )
+    # map 首轮请求优先快速失败并换路重试；后续尝试仍使用 Agent 自身完整超时。
+    AGENT_MAP_FIRST_ATTEMPT_TIMEOUT_SECONDS = _env_float(
+        "AGENT_MAP_FIRST_ATTEMPT_TIMEOUT_SECONDS", 120.0, minimum=10.0, maximum=600.0
+    )
+    # 单次真实运行需覆盖分批来源分析、生成和多轮独立终审，保留一小时整轮边界。
+    AGENT_RUN_DEADLINE_SECONDS = _env_int(
+        "AGENT_RUN_DEADLINE_SECONDS", 3600, minimum=60, maximum=3600
+    )
+    # 运行租约只用于识别失联执行器，必须明显短于整轮执行预算。
+    AGENT_RUN_LEASE_SECONDS = _env_int(
+        "AGENT_RUN_LEASE_SECONDS", 120, minimum=30, maximum=600
+    )
+    # 每个用户、项目和工作流只保留有限数量的终态运行，避免节点与事件历史无限增长。
+    AGENT_RUN_HISTORY_LIMIT = _env_int(
+        "AGENT_RUN_HISTORY_LIMIT", 1, minimum=1, maximum=20
     )
 
     # ===========================

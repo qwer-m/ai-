@@ -457,8 +457,8 @@ class AIClient:
         if isinstance(review_meta, dict):
             review_follow_main = bool(review_meta.get("follow_main", True))
             review_model_name = str(review_meta.get("model_name") or "").strip()
-            if not review_follow_main and review_model_name:
-                client.review_model = review_model_name
+            client.review_model = review_model_name
+            if not review_follow_main and client.review_model:
                 review_provider_name = str(review_meta.get("provider") or "").strip().lower()
                 review_api_key = cls._decrypt_metadata_key(review_meta.get("api_key"))
                 review_base_url = str(review_meta.get("base_url") or "").strip() or None

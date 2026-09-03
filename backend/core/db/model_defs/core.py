@@ -225,8 +225,8 @@ class LogEntry(Base):
     # 关联的项目ID
     project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)
     
-    # 日志类型：user（用户操作日志）、system（系统日志）
-    log_type = Column(String(20), nullable=False, comment="日志类型 (user/system)")
+    # 日志类型：user（用户操作）、system（系统）、clear_marker（清空水位）
+    log_type = Column(String(20), nullable=False, comment="日志类型")
     
     # 日志内容
     message = Column(Text, nullable=False, comment="日志详情")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from core.db.database import SessionLocal
 from modules.orchestration.background_task_governance import (
@@ -9,6 +10,26 @@ from modules.orchestration.background_task_governance import (
 )
 from modules.orchestration.task_dispatcher import TaskDispatchResult
 from .repository import AgentPlatformRepository
+
+
+def _can_fail_unclaimed_run(run: Any) -> bool:
+    """只有尚未被任何执行器认领的待运行任务可由投递失败终止。"""
+
+    return (
+        str(getattr(run, "status", "") or "") == "pending"
+        and not getattr(run, "task_id", None)
+        and not getattr(run, "claim_token", None)
+    )
+
+
+def _can_record_dispatched_task(run: Any, task_id: str) -> bool:
+    """避免迟到的投递结果覆盖另一个执行器已经持有的租约。"""
+
+    status = str(getattr(run, "status", "") or "")
+    claim_token = str(getattr(run, "claim_token", "") or "")
+    return (status == "pending" and not claim_token) or (
+        status == "running" and claim_token == task_id
+    )
 
 
 def start_agent_run_worker(run_id: int) -> TaskDispatchResult:
@@ -23,7 +44,17 @@ def start_agent_run_worker(run_id: int) -> TaskDispatchResult:
             repo = AgentPlatformRepository(db)
             run = repo.get_run(run_id=run_id)
             if run is not None:
-                run.task_id = result.task_id
+                if _can_record_dispatched_task(run, result.task_id):
+                    run.task_id = result.task_id
+                else:
+                    repo.append_event(
+                        run_id=run.id,
+                        event_type="run_dispatch_task_id_ignored",
+                        payload={
+                            "status": str(run.status or ""),
+                            "task_id": result.task_id,
+                        },
+                    )
                 db.add(run)
                 db.commit()
         finally:
@@ -35,9 +66,23 @@ def start_agent_run_worker(run_id: int) -> TaskDispatchResult:
             repo = AgentPlatformRepository(db)
             run = repo.get_run(run_id=run_id)
             if run is not None:
-                run.status = "failed"
-                run.error_message = f"任务投递失败: {type(exc).__name__}: {exc}"
-                run.finished_at = datetime.utcnow()
+                error_message = f"任务投递失败: {type(exc).__name__}: {exc}"
+                if _can_fail_unclaimed_run(run):
+                    run.status = "failed"
+                    run.error_message = error_message
+                    run.finished_at = datetime.utcnow()
+                    event_type = "run_dispatch_failed"
+                else:
+                    event_type = "run_dispatch_failure_ignored"
+                repo.append_event(
+                    run_id=run.id,
+                    event_type=event_type,
+                    payload={
+                        "status": str(run.status or ""),
+                        "error_type": type(exc).__name__,
+                        "message": str(exc)[:1000],
+                    },
+                )
                 db.add(run)
                 db.commit()
         finally:

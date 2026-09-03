@@ -33,7 +33,7 @@ class _FakeRepo:
         return None
 
     def find_duplicate_by_hash(self, **kwargs):
-        return None
+        raise AssertionError("上传解析不应查找或复用既有文档")
 
     def commit(self):
         self.db.commit_count += 1
@@ -87,16 +87,18 @@ def _doc(doc_id, *, project_specific_id, content, status="success"):
     )
 
 
-def test_offline_parse_keeps_same_filename_documents_independent(monkeypatch, tmp_path):
+def test_offline_parse_keeps_every_upload_independent(monkeypatch, tmp_path):
     existing = _doc(11, project_specific_id=6, content="旧内容")
     pending = _doc(230, project_specific_id=20, content="", status="pending")
+    duplicate_hash = hashlib.sha256(b"same source bytes").hexdigest()
+    existing.content_hash = duplicate_hash
     db = _FakeDB([existing, pending])
     module = _FakeModule()
     indexed = []
     cleaned = []
 
     upload_file = tmp_path / "upload.pdf"
-    upload_file.write_bytes(b"not used")
+    upload_file.write_bytes(b"same source bytes")
 
     monkeypatch.setattr(offline_parse, "KnowledgeDocumentRepository", _FakeRepo)
     monkeypatch.setattr(offline_parse, "parse_file_path", lambda file_path, **kwargs: "新内容")
@@ -125,9 +127,9 @@ def test_offline_parse_keeps_same_filename_documents_independent(monkeypatch, tm
 
     assert result == {"status": "success", "document_id": pending.id}
     assert existing.content == "旧内容"
-    assert existing.content_hash == "hash::旧内容"
+    assert existing.content_hash == duplicate_hash
     assert pending.content == "新内容"
-    assert pending.content_hash == hashlib.sha256(b"not used").hexdigest()
+    assert pending.content_hash == duplicate_hash
     assert pending.parse_status == "success"
     assert db.docs == {existing.id: existing, pending.id: pending}
     assert db.deleted == []

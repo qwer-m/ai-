@@ -131,7 +131,7 @@ export function CloudTab({
           <Form.Group className="config-field">
             <Form.Label>服务商</Form.Label>
             <Form.Select value={turboProvider} onChange={(e) => onTurboProviderChange(e.target.value)}>
-              <option value="follow_main">跟随主模型（文本模型）</option>
+              <option value="follow_main">沿用主模型服务商与凭据</option>
               <option value="dashscope">DashScope (阿里云灵积)</option>
               <option value="deepseek">DeepSeek</option>
               <option value="openai">OpenAI (兼容服务)</option>
@@ -176,7 +176,7 @@ export function CloudTab({
           <Form.Group className="config-field">
             <Form.Label>服务商</Form.Label>
             <Form.Select value={reviewProvider} onChange={(e) => onReviewProviderChange(e.target.value)}>
-              <option value="follow_main">跟随主模型（文本模型）</option>
+              <option value="follow_main">沿用主模型服务商与凭据</option>
               <option value="dashscope">DashScope (阿里云灵积)</option>
               <option value="deepseek">DeepSeek</option>
               <option value="openai">OpenAI (兼容服务)</option>
@@ -221,7 +221,7 @@ export function CloudTab({
           <Form.Group className="config-field">
             <Form.Label>服务商</Form.Label>
             <Form.Select value={vlProvider} onChange={(e) => onVlProviderChange(e.target.value)}>
-              <option value="follow_main">跟随主模型（文本模型）</option>
+              <option value="follow_main">沿用主模型服务商与凭据</option>
               <option value="dashscope">DashScope (阿里云灵积)</option>
               <option value="deepseek">DeepSeek</option>
               <option value="openai">OpenAI (兼容服务)</option>

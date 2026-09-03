@@ -24,20 +24,23 @@ NodeRunStatus = Literal[
 
 
 class AgentMapConfig(BaseModel):
-    """Agent 映射节点配置：逐项执行、逐项落盘并汇总结果。"""
+    """Agent 映射节点配置：按独立实例并发执行、逐项落盘并汇总结果。"""
 
     items_key: str = Field(default="items", min_length=1, max_length=120)
     output_key: str = Field(default="items", min_length=1, max_length=120)
     max_items: int = Field(default=100, ge=1, le=500)
+    max_concurrency: int = Field(default=1, ge=1, le=16)
     allow_empty: bool = False
+    item_postprocessor: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class WorkflowNode(BaseModel):
     node_key: str = Field(min_length=1, max_length=160)
-    node_type: Literal["agent", "agent_map", "tool"]
+    node_type: Literal["agent", "agent_network", "agent_map", "tool"]
     reference_key: str = Field(min_length=1, max_length=200)
     depends_on: list[str] = Field(default_factory=list)
     max_attempts: int = Field(default=1, ge=1, le=5)
+    time_budget_seconds: int | None = Field(default=None, ge=1, le=7200)
     input_mapping: dict[str, str] = Field(default_factory=dict)
     map_config: AgentMapConfig | None = None
 
@@ -50,10 +53,21 @@ class WorkflowNode(BaseModel):
         return self
 
 
+class WorkflowDisplayStage(BaseModel):
+    """工作流的业务展示阶段，由定义数据映射到真实节点。"""
+
+    stage_key: str = Field(min_length=1, max_length=120)
+    label: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=300)
+    node_keys: list[str] = Field(min_length=1)
+
+
 class WorkflowGraph(BaseModel):
+    execution_mode: Literal["dag"] = "dag"
     nodes: list[WorkflowNode] = Field(min_length=1)
     output_node_key: str = Field(min_length=1, max_length=160)
     input_schema: dict[str, Any] = Field(default_factory=dict)
+    display_stages: list[WorkflowDisplayStage] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_graph(self) -> "WorkflowGraph":
@@ -63,6 +77,16 @@ class WorkflowGraph(BaseModel):
         key_set = set(keys)
         if self.output_node_key not in key_set:
             raise ValueError("输出节点不存在")
+        stage_keys = [stage.stage_key for stage in self.display_stages]
+        if len(stage_keys) != len(set(stage_keys)):
+            raise ValueError("工作流展示阶段键不能重复")
+        for stage in self.display_stages:
+            unknown_stage_nodes = set(stage.node_keys) - key_set
+            if unknown_stage_nodes:
+                raise ValueError(
+                    f"展示阶段 {stage.stage_key} 引用了不存在的节点: "
+                    f"{sorted(unknown_stage_nodes)}"
+                )
         for node in self.nodes:
             unknown = set(node.depends_on) - key_set
             if unknown:
@@ -110,6 +134,36 @@ class WorkflowGraph(BaseModel):
         return ordered
 
 
+class AgentProgramDefinition(BaseModel):
+    """兼容顶层动态执行；新流程优先在 DAG 中使用 agent_network 节点。"""
+
+    execution_mode: Literal["agent_network"] = "agent_network"
+    entry_agent_key: str = Field(min_length=1, max_length=120)
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    max_attempts: int = Field(default=2, ge=1, le=5)
+    time_budget_seconds: int | None = Field(default=None, ge=1, le=7200)
+    required_artifact_key: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=160,
+    )
+
+
+ExecutionDefinition = WorkflowGraph | AgentProgramDefinition
+
+
+def parse_execution_definition(value: Any) -> ExecutionDefinition:
+    """按显式执行模式解析定义，兼容未声明模式的历史 DAG。"""
+
+    raw = dict(value or {})
+    execution_mode = raw.get("execution_mode")
+    if execution_mode == "agent_network":
+        return AgentProgramDefinition.model_validate(raw)
+    if execution_mode not in (None, "dag"):
+        raise ValueError(f"未知的工作流执行模式: {execution_mode}")
+    return WorkflowGraph.model_validate(raw)
+
+
 class AgentDefinitionCreate(BaseModel):
     project_id: int
     agent_key: str = Field(min_length=1, max_length=120)
@@ -127,12 +181,12 @@ class WorkflowDefinitionCreate(BaseModel):
     workflow_key: str = Field(min_length=1, max_length=120)
     name: str = Field(min_length=1, max_length=200)
     description: str = ""
-    definition: WorkflowGraph
+    definition: ExecutionDefinition
     version: int = Field(default=1, ge=1)
 
 
 class AgentRunExecutionLimits(BaseModel):
-    """单次 Agent Run 的调用额度；请求值只能收紧平台上限。"""
+    """兼容旧客户端的用量配置结构；当前仅记录，不再阻断 Agent 调用。"""
 
     max_requests: int | None = Field(default=None, ge=1)
     max_input_tokens: int | None = Field(default=None, ge=1)

@@ -5,6 +5,7 @@ import json
 import math
 import re
 import unicodedata
+from copy import deepcopy
 from typing import Any, TYPE_CHECKING
 
 from modules.knowledge_base_components.adapters.chroma_vector_store import get_vector_store
@@ -16,7 +17,9 @@ from modules.knowledge_base_components.document.document_asset_service import (
 
 from .test_generation_facts import (
     binding_index,
+    derive_test_design_item_ids,
     index_effective_facts,
+    materialize_inline_grounding,
     replace_binding_case_id,
     validate_case_fact_bindings,
 )
@@ -25,10 +28,12 @@ if TYPE_CHECKING:
     from .registry import ToolExecutionContext
 
 
-MAX_EVIDENCE_ACCOUNTING_ITEMS_PER_BATCH = 4
-TARGET_EVIDENCE_ACCOUNTING_TEXT_CHARS = 7000
-MAX_EVIDENCE_ACCOUNTING_NEIGHBOR_CHARS = 1200
-MAX_EVIDENCE_ACCOUNTING_BATCHES = 100
+GENERATION_MAX_PAGES_PER_BATCH = 10
+GENERATION_MAX_FACT_JSON_CHARS_PER_BATCH = 16_000
+# 逐字段绑定会随 fact_id 数量增加输出校验复杂度，单独限制契约规模。
+GENERATION_MAX_REQUIRED_FACTS_PER_BATCH = 16
+
+
 
 
 def _required_list(value: Any, field_name: str) -> list[Any]:
@@ -721,56 +726,6 @@ def _surface_relevance(reference: str, candidate: str) -> int:
     )
 
 
-def _evidence_catalog_index(
-    evidence_catalog: Any,
-    *,
-    source: dict[str, Any],
-) -> dict[str, dict[str, Any]]:
-    """校验证据目录的 ID 与来源，并建立只读索引。"""
-
-    if not isinstance(evidence_catalog, dict):
-        raise ValueError("evidence_catalog 必须是对象")
-    catalog_document_id = evidence_catalog.get("document_id")
-    source_document_id = source.get("document_id")
-    if source_document_id is None:
-        if catalog_document_id is not None:
-            raise ValueError("证据目录与无文档需求来源不一致")
-    elif catalog_document_id is None or int(catalog_document_id) != int(source_document_id):
-        raise ValueError(
-            "证据目录与真实需求来源不一致: "
-            f"catalog_document_id={catalog_document_id}, source_document_id={source_document_id}"
-        )
-    catalog_items = evidence_catalog.get("items")
-    if not isinstance(catalog_items, list):
-        raise ValueError("evidence_catalog.items 必须是数组")
-    catalog_index: dict[str, dict[str, Any]] = {}
-    for catalog_position, raw_item in enumerate(catalog_items):
-        if not isinstance(raw_item, dict):
-            raise ValueError(
-                f"evidence_catalog 只能包含对象: catalog_position={catalog_position}"
-            )
-        item = dict(raw_item)
-        evidence_id = str(item.get("evidence_id") or "").strip()
-        if not re.fullmatch(r"EV-\d{4,}", evidence_id):
-            raise ValueError(
-                "证据目录 ID 格式无效: "
-                f"catalog_position={catalog_position}, evidence_id={evidence_id}"
-            )
-        if evidence_id in catalog_index:
-            raise ValueError(f"证据目录包含重复 ID: evidence_id={evidence_id}")
-        evidence_chunk = _evidence_chunk_from_catalog_item(item)
-        if (
-            source_document_id is not None
-            and evidence_chunk["document_id"] != int(source_document_id)
-        ):
-            raise ValueError(
-                "证据目录与真实需求来源不一致: "
-                f"evidence_id={evidence_id}, document_id={evidence_chunk['document_id']}"
-            )
-        catalog_index[evidence_id] = evidence_chunk
-    return catalog_index
-
-
 def _module_evidence_ids(module: dict[str, Any]) -> list[str]:
     """严格读取 Planner 选择的证据 ID，不接受重复或隐式转换。"""
 
@@ -796,646 +751,588 @@ def _module_evidence_ids(module: dict[str, Any]) -> list[str]:
     return evidence_ids
 
 
-def _select_module_evidence(
+def _module_fact_ids(module: dict[str, Any]) -> list[str]:
+    """严格读取事实路由结果，不再由证据范围隐式扩张事实集合。"""
+
+    raw_ids = module.get("fact_ids")
+    module_name = str(module.get("name") or "")
+    if not isinstance(raw_ids, list) or not raw_ids:
+        raise ValueError(f"模块 fact_ids 必须是非空数组: module={module_name}")
+    fact_ids = [str(value or "").strip() for value in raw_ids]
+    if not all(fact_ids) or len(fact_ids) != len(set(fact_ids)):
+        raise ValueError(f"模块 fact_ids 包含空值或重复 ID: module={module_name}")
+    return fact_ids
+
+
+def _fact_json_chars(fact: dict[str, Any]) -> int:
+    """估算单条事实进入模型请求后的结构化字符负载。"""
+
+    return len(json.dumps(fact, ensure_ascii=False, separators=(",", ":")))
+
+
+def _fact_source_order(
+    fact: dict[str, Any],
+    *,
+    fallback_index: int,
+) -> tuple[int, int, int, int, int]:
+    """按真实来源坐标形成稳定顺序，内联事实保持原输入顺序。"""
+
+    anchor = dict(fact.get("source_anchor") or {})
+    if str(anchor.get("source_kind") or "") == "document":
+        span = dict(anchor.get("source_span") or {})
+        return (
+            0,
+            int(anchor.get("document_id") or 0),
+            int(anchor.get("page_number") or 0),
+            int(span.get("start") or 0),
+            fallback_index,
+        )
+    return (1, 0, 0, 0, fallback_index)
+
+
+def _fact_document_page(fact: dict[str, Any]) -> tuple[int, int] | None:
+    anchor = dict(fact.get("source_anchor") or {})
+    if str(anchor.get("source_kind") or "") != "document":
+        return None
+    document_id = int(anchor.get("document_id") or 0)
+    page_number = int(anchor.get("page_number") or 0)
+    if document_id < 1 or page_number < 1:
+        return None
+    return document_id, page_number
+
+
+def _fact_source_group(fact: dict[str, Any]) -> tuple[str, int]:
+    anchor = dict(fact.get("source_anchor") or {})
+    source_kind = str(anchor.get("source_kind") or "inline").strip() or "inline"
+    if source_kind == "document":
+        return source_kind, int(anchor.get("document_id") or 0)
+    return source_kind, 0
+
+
+def _generation_fact_groups(
+    facts: list[dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    """按来源文档和通用负载上限构造生成上下文包。"""
+
+    ordered_facts = [
+        fact
+        for _, fact in sorted(
+            enumerate(facts),
+            key=lambda item: _fact_source_order(item[1], fallback_index=item[0]),
+        )
+    ]
+    groups: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    current_chars = 0
+    current_source_group: tuple[str, int] | None = None
+    current_pages: set[int] = set()
+
+    for fact in ordered_facts:
+        source_group = _fact_source_group(fact)
+        location = _fact_document_page(fact)
+        fact_page = location[1] if location is not None else None
+        fact_chars = _fact_json_chars(fact)
+        if fact_chars > GENERATION_MAX_FACT_JSON_CHARS_PER_BATCH:
+            raise ValueError(
+                "单条权威事实超过生成上下文字符上限: "
+                f"fact_id={fact.get('fact_id')}, chars={fact_chars}"
+            )
+        next_pages = set(current_pages)
+        if fact_page is not None:
+            next_pages.add(fact_page)
+        exceeds_limits = bool(current) and (
+            current_chars + fact_chars > GENERATION_MAX_FACT_JSON_CHARS_PER_BATCH
+            or len(current) >= GENERATION_MAX_REQUIRED_FACTS_PER_BATCH
+            or len(next_pages) > GENERATION_MAX_PAGES_PER_BATCH
+            or current_source_group != source_group
+        )
+        if exceeds_limits:
+            groups.append(current)
+            current = []
+            current_chars = 0
+            current_source_group = None
+            current_pages = set()
+
+        current.append(fact)
+        current_chars += fact_chars
+        current_source_group = source_group
+        if fact_page is not None:
+            current_pages.add(fact_page)
+
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _split_generation_fact_group(
+    facts: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | None:
+    """优先在页面边界把上下文包拆成结构负载接近的两半。"""
+
+    if len(facts) < 2:
+        return None
+    cumulative: list[int] = []
+    running = 0
+    for fact in facts:
+        running += _fact_json_chars(fact)
+        cumulative.append(running)
+    total = cumulative[-1]
+    candidates: list[tuple[int, int, int]] = []
+    for index in range(1, len(facts)):
+        left_page = _fact_document_page(facts[index - 1])
+        right_page = _fact_document_page(facts[index])
+        same_page_penalty = int(left_page == right_page)
+        balance = abs(total - 2 * cumulative[index - 1])
+        candidates.append((same_page_penalty, balance, index))
+    _, _, split_index = min(candidates)
+    return facts[:split_index], facts[split_index:]
+
+
+def _expand_generation_fact_groups(
+    groups: list[list[dict[str, Any]]],
+    *,
+    target_count: int,
+) -> list[list[dict[str, Any]]]:
+    """为用例预算扩展上下文包数量，同时保证事实不复制、不丢失。"""
+
+    expanded = [list(group) for group in groups]
+    while len(expanded) < target_count:
+        candidates = [
+            (sum(_fact_json_chars(fact) for fact in group), len(group), index)
+            for index, group in enumerate(expanded)
+            if len(group) >= 2
+        ]
+        if not candidates:
+            raise ValueError(
+                "有效事实不足以按 batch_case_limit 拆分生成包，禁止复制事实凑批次"
+            )
+        _, _, target_index = max(candidates)
+        split = _split_generation_fact_group(expanded[target_index])
+        if split is None:
+            raise ValueError("生成上下文包无法继续拆分")
+        expanded[target_index : target_index + 1] = [split[0], split[1]]
+    return expanded
+
+
+def _allocate_generation_batch_budgets(
+    groups: list[list[dict[str, Any]]],
+    *,
+    case_target: int,
+    batch_case_limit: int,
+) -> list[int]:
+    """按事实负载为上下文包分配精确用例数。"""
+
+    if not groups or case_target < len(groups):
+        raise ValueError("生成上下文包数量超过当前模块的用例预算")
+    budgets = [1 for _ in groups]
+    remaining = case_target - len(groups)
+    while remaining > 0:
+        candidates = [
+            index for index, budget in enumerate(budgets) if budget < batch_case_limit
+        ]
+        if not candidates:
+            raise ValueError("模块用例预算超过 batch_case_limit 可承载范围")
+        target_index = max(
+            candidates,
+            key=lambda index: (
+                len(groups[index]) / (budgets[index] + 1),
+                sum(_fact_json_chars(fact) for fact in groups[index])
+                / (budgets[index] + 1),
+                -index,
+            ),
+        )
+        budgets[target_index] += 1
+        remaining -= 1
+    return budgets
+
+
+def _allocate_module_case_targets(
+    *,
+    module_facts_by_index: list[list[dict[str, Any]]],
+    module_fact_groups_by_index: list[list[list[dict[str, Any]]]],
+    case_budget: int,
+    batch_case_limit: int,
+) -> list[int]:
+    """先满足真实上下文包的最低用例数，再按事实密度分配剩余额度。"""
+
+    minimum_targets = [len(groups) for groups in module_fact_groups_by_index]
+    minimum_required = sum(minimum_targets)
+    if case_budget < minimum_required:
+        raise ValueError(
+            "总用例预算不足以覆盖全部真实来源上下文包: "
+            f"case_budget={case_budget}, minimum_required={minimum_required}"
+        )
+
+    facts_per_case = 10
+    while True:
+        module_targets = [
+            max(minimum_target, math.ceil(len(module_facts) / facts_per_case))
+            for module_facts, minimum_target in zip(
+                module_facts_by_index,
+                minimum_targets,
+                strict=True,
+            )
+        ]
+        if sum(module_targets) <= case_budget:
+            break
+        facts_per_case += 1
+
+    remaining_budget = case_budget - sum(module_targets)
+    while remaining_budget > 0:
+        candidates = [
+            index
+            for index, module_facts in enumerate(module_facts_by_index)
+            if math.ceil((module_targets[index] + 1) / batch_case_limit)
+            <= len(module_facts)
+        ]
+        if not candidates:
+            raise ValueError(
+                "有效事实不足以承载总用例预算，禁止复制事实凑生成包: "
+                f"case_budget={case_budget}"
+            )
+        module_index = max(
+            candidates,
+            key=lambda index: (
+                len(module_facts_by_index[index]) / module_targets[index],
+                sum(_fact_json_chars(fact) for fact in module_facts_by_index[index])
+                / module_targets[index],
+                -index,
+            ),
+        )
+        module_targets[module_index] += 1
+        remaining_budget -= 1
+    return module_targets
+
+
+def _generation_batch_source_context(
     *,
     module: dict[str, Any],
-    catalog_index: dict[str, dict[str, Any]],
-) -> tuple[str, list[dict[str, Any]]]:
-    """只按 Planner 选择的稳定证据 ID 恢复真实分片。"""
-
-    module_name = str(module.get("name") or "")
-    evidence_ids = _module_evidence_ids(module)
-    evidence_chunks: list[dict[str, Any]] = []
-    for evidence_position, evidence_id in enumerate(evidence_ids):
-        evidence_chunk = catalog_index.get(evidence_id)
-        if evidence_chunk is None:
-            raise ValueError(
-                "模块引用了未知证据 ID: "
-                f"module={module_name}, evidence_position={evidence_position}, "
-                f"evidence_id={evidence_id}"
-            )
-        evidence_chunks.append(dict(evidence_chunk))
-    return "\n\n".join(item["text"] for item in evidence_chunks), evidence_chunks
-
-
-def _stable_payload_hash(value: Any) -> str:
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def _neighbor_context(
-    *,
-    catalog_items: list[dict[str, Any]],
-    first_position: int,
-    last_position: int,
-) -> list[dict[str, Any]]:
-    """仅保留分片边界两侧的短上下文，供模型判断续表或未完句。"""
-
-    neighbors: list[tuple[str, dict[str, Any]]] = []
-    if first_position > 0:
-        neighbors.append(("previous", catalog_items[first_position - 1]))
-    if last_position + 1 < len(catalog_items):
-        neighbors.append(("next", catalog_items[last_position + 1]))
-    if not neighbors:
-        return []
-
-    text_limit = max(1, MAX_EVIDENCE_ACCOUNTING_NEIGHBOR_CHARS // len(neighbors))
-    context: list[dict[str, Any]] = []
-    for direction, item in neighbors:
-        text = str(item.get("text") or "")
-        excerpt = text[-text_limit:] if direction == "previous" else text[:text_limit]
-        context.append(
-            {
-                "relative_position": direction,
-                "evidence_id": str(item["evidence_id"]),
-                "page_number": item.get("page_number"),
-                "chunk_index": item.get("chunk_index"),
-                "text": excerpt,
-                "text_truncated": len(text) > text_limit,
-            }
-        )
-    return context
-
-
-def prepare_evidence_accounting_batches(
-    context: ToolExecutionContext,
-    arguments: dict[str, Any],
+    facts: list[dict[str, Any]],
+    coverage_points: list[str],
 ) -> dict[str, Any]:
-    """按证据目录顺序切分路由复核输入，避免单次请求承载全部正文。"""
+    """形成只用于关联和诊断的摘要索引，原始事实仍是唯一生成依据。"""
 
-    if set(arguments) != {"draft_plan", "evidence_catalog"}:
-        raise ValueError("证据核算准备只允许 draft_plan 和 evidence_catalog")
-
-    raw_plan = arguments.get("draft_plan")
-    if not isinstance(raw_plan, dict):
-        raise ValueError("draft_plan 必须是对象")
-    draft_plan = dict(raw_plan)
-    modules = _required_list(
-        draft_plan.get("business_modules"),
-        "draft_plan.business_modules",
-    )
-    if not all(isinstance(module, dict) for module in modules):
-        raise ValueError("draft_plan.business_modules 每项必须是对象")
-
-    evidence_catalog = arguments.get("evidence_catalog")
-    catalog_document_id = (
-        evidence_catalog.get("document_id")
-        if isinstance(evidence_catalog, dict)
-        else None
-    )
-    catalog_index = _evidence_catalog_index(
-        evidence_catalog,
-        source={"document_id": catalog_document_id},
-    )
-    if not catalog_index:
-        raise ValueError("evidence_catalog.items 不能为空")
-    raw_catalog_items = list(evidence_catalog.get("items") or [])
-    catalog_items = [dict(item) for item in raw_catalog_items]
-    grouped_positions: list[list[int]] = []
-    current_positions: list[int] = []
-    current_text_chars = 0
-    for catalog_position, item in enumerate(catalog_items):
-        text_chars = len(str(item.get("text") or ""))
-        if text_chars > TARGET_EVIDENCE_ACCOUNTING_TEXT_CHARS:
-            raise ValueError(
-                "单条证据正文超过路由复核分片字符预算: "
-                f"evidence_id={item['evidence_id']}, text_chars={text_chars}, "
-                f"limit={TARGET_EVIDENCE_ACCOUNTING_TEXT_CHARS}"
-            )
-        exceeds_item_limit = (
-            len(current_positions) >= MAX_EVIDENCE_ACCOUNTING_ITEMS_PER_BATCH
-        )
-        exceeds_text_target = bool(current_positions) and (
-            current_text_chars + text_chars
-            > TARGET_EVIDENCE_ACCOUNTING_TEXT_CHARS
-        )
-        if exceeds_item_limit or exceeds_text_target:
-            grouped_positions.append(current_positions)
-            current_positions = []
-            current_text_chars = 0
-        current_positions.append(catalog_position)
-        current_text_chars += text_chars
-    if current_positions:
-        grouped_positions.append(current_positions)
-    if len(grouped_positions) > MAX_EVIDENCE_ACCOUNTING_BATCHES:
-        raise ValueError(
-            "证据核算分片数超过 agent_map 上限: "
-            f"batch_count={len(grouped_positions)}, "
-            f"limit={MAX_EVIDENCE_ACCOUNTING_BATCHES}"
-        )
-
-    items: list[dict[str, Any]] = []
-    for positions in grouped_positions:
-        target_items = [dict(catalog_items[position]) for position in positions]
-        items.append(
-            {
-                "draft_plan": draft_plan,
-                "target_evidence_items": target_items,
-                "neighbor_context": _neighbor_context(
-                    catalog_items=catalog_items,
-                    first_position=positions[0],
-                    last_position=positions[-1],
-                ),
-            }
-        )
-
-    context.artifacts["evidence_accounting_batches"] = {
-        "batch_count": len(items),
-        "evidence_count": len(catalog_items),
-        "batches": [
-            {
-                "batch_position": batch_position,
-                "evidence_ids": [
-                    evidence["evidence_id"]
-                    for evidence in item["target_evidence_items"]
-                ],
-            }
-            for batch_position, item in enumerate(items)
-        ],
-    }
+    document_ids: list[int] = []
+    page_numbers: list[int] = []
+    scope_ids: list[str] = []
+    for fact in facts:
+        location = _fact_document_page(fact)
+        if location is not None:
+            if location[0] not in document_ids:
+                document_ids.append(location[0])
+            if location[1] not in page_numbers:
+                page_numbers.append(location[1])
+        scope_id = str(fact.get("scope_id") or "").strip()
+        if scope_id and scope_id not in scope_ids:
+            scope_ids.append(scope_id)
+    keywords: list[str] = []
+    for raw_keyword in [str(module.get("name") or ""), *coverage_points]:
+        keyword = raw_keyword.strip()
+        if keyword and keyword not in keywords:
+            keywords.append(keyword)
     return {
-        "items": items,
-        "batch_count": len(items),
-        "evidence_count": len(catalog_items),
+        "source_document_ids": sorted(document_ids),
+        "source_page_numbers": sorted(page_numbers),
+        "source_scope_ids": scope_ids,
+        "semantic_summary": _batch_focus(module, coverage_points),
+        "semantic_keywords": keywords,
+        "fact_count": len(facts),
+        "fact_json_chars": sum(_fact_json_chars(fact) for fact in facts),
     }
 
 
-def _normalize_batch_accounting_item(
+def _test_design_items_by_module(
     *,
-    raw_item: Any,
-    module_count: int,
-) -> dict[str, Any]:
-    """规范化单条分片记账，完整目录校验留给后续合并规划节点。"""
+    modules: list[dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    """从模型规划的测试方法确定性展平覆盖项并生成稳定标识。"""
 
-    if not isinstance(raw_item, dict):
-        raise ValueError("evidence_accounting 只能包含对象")
-    evidence_id = str(raw_item.get("evidence_id") or "").strip()
-    if not re.fullmatch(r"EV-\d{4,}", evidence_id):
-        raise ValueError(
-            f"evidence_accounting.evidence_id 格式无效: evidence_id={evidence_id}"
-        )
-    raw_module_indexes = raw_item.get("module_indexes")
-    if not isinstance(raw_module_indexes, list):
-        raise ValueError(
-            "evidence_accounting.module_indexes 必须是数组: "
-            f"evidence_id={evidence_id}"
-        )
-    module_indexes: list[int] = []
-    for raw_module_index in raw_module_indexes:
-        if isinstance(raw_module_index, bool) or not isinstance(raw_module_index, int):
-            raise ValueError(
-                "evidence_accounting.module_indexes 只能包含整数: "
-                f"evidence_id={evidence_id}"
-            )
-        if raw_module_index < 0 or raw_module_index >= module_count:
-            raise ValueError(
-                "evidence_accounting 包含越界 module_index: "
-                f"evidence_id={evidence_id}, module_index={raw_module_index}"
-            )
-        if raw_module_index in module_indexes:
-            raise ValueError(
-                "evidence_accounting.module_indexes 包含重复下标: "
-                f"evidence_id={evidence_id}, module_index={raw_module_index}"
-            )
-        module_indexes.append(raw_module_index)
-
-    disposition = raw_item.get("disposition")
-    if disposition not in {"assigned", "context_only", "plan_gap"}:
-        raise ValueError(
-            "evidence_accounting.disposition 无效: "
-            f"evidence_id={evidence_id}, disposition={disposition}"
-        )
-    if disposition == "assigned" and not module_indexes:
-        raise ValueError(
-            f"assigned 证据必须包含至少一个 module_index: evidence_id={evidence_id}"
-        )
-    if disposition in {"context_only", "plan_gap"} and module_indexes:
-        raise ValueError(
-            f"{disposition} 证据的 module_indexes 必须为空: "
-            f"evidence_id={evidence_id}"
-        )
-    reason = str(raw_item.get("reason") or "").strip()
-    if not reason or len(reason) > 160:
-        raise ValueError(
-            "evidence_accounting.reason 必须是 1 至 160 字的字符串: "
-            f"evidence_id={evidence_id}"
-        )
-    if set(raw_item) != {"evidence_id", "module_indexes", "disposition", "reason"}:
-        raise ValueError(
-            "evidence_accounting 包含未允许字段: "
-            f"evidence_id={evidence_id}"
-        )
-    return {
-        "evidence_id": evidence_id,
-        "module_indexes": module_indexes,
-        "disposition": disposition,
-        "reason": reason,
-    }
-
-
-def merge_evidence_accounting_batches(
-    context: ToolExecutionContext,
-    arguments: dict[str, Any],
-) -> dict[str, Any]:
-    """严格校验并按原目录顺序合并证据核算 agent_map 结果。"""
-
-    prepared_items = _required_list(arguments.get("prepared_items"), "prepared_items")
-    routing_records = _required_list(arguments.get("routing_records"), "routing_records")
-    if len(prepared_items) != len(routing_records):
-        raise ValueError("证据核算分片输入与结果数量不一致")
-
-    records_by_index: dict[int, dict[str, Any]] = {}
-    for record_position, raw_record in enumerate(routing_records):
-        if not isinstance(raw_record, dict):
-            raise ValueError(
-                f"证据核算结果只能包含对象: record_position={record_position}"
-            )
-        raw_item_index = raw_record.get("item_index")
-        if isinstance(raw_item_index, bool) or not isinstance(raw_item_index, int):
-            raise ValueError("证据核算结果 item_index 必须是整数")
-        if raw_item_index < 0 or raw_item_index >= len(prepared_items):
-            raise ValueError(
-                f"证据核算结果引用了无效 item_index: {raw_item_index}"
-            )
-        if raw_item_index in records_by_index:
-            raise ValueError(
-                f"证据核算结果 item_index 重复: {raw_item_index}"
-            )
-        records_by_index[raw_item_index] = raw_record
-
-    plan_identity = ""
-    module_count = 0
-    global_target_ids: list[str] = []
-    normalized_batches: list[tuple[dict[str, Any], list[str], set[str]]] = []
-    for item_index, raw_prepared in enumerate(prepared_items):
-        if not isinstance(raw_prepared, dict):
-            raise ValueError(f"prepared_items 每项必须是对象: item_index={item_index}")
-        prepared = dict(raw_prepared)
-        if set(prepared) != {
-            "draft_plan",
-            "target_evidence_items",
-            "neighbor_context",
-        }:
-            raise ValueError(
-                f"证据核算分片包含未允许字段: item_index={item_index}"
-            )
-        draft_plan = prepared.get("draft_plan")
-        if not isinstance(draft_plan, dict):
-            raise ValueError(f"证据核算分片缺少 draft_plan: item_index={item_index}")
-        current_plan_identity = json.dumps(
-            draft_plan,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        current_modules = draft_plan.get("business_modules")
-        if not isinstance(current_modules, list) or not current_modules:
-            raise ValueError("draft_plan.business_modules 必须是非空数组")
-        if item_index == 0:
-            plan_identity = current_plan_identity
-            module_count = len(current_modules)
-        elif current_plan_identity != plan_identity:
-            raise ValueError("证据核算分片使用了不一致的 draft_plan")
-
-        raw_targets = prepared.get("target_evidence_items")
-        if not isinstance(raw_targets, list) or not raw_targets:
-            raise ValueError(
-                f"证据核算分片目标证据不能为空: item_index={item_index}"
-            )
-        if len(raw_targets) > MAX_EVIDENCE_ACCOUNTING_ITEMS_PER_BATCH:
-            raise ValueError(
-                f"证据核算分片超过最大项数: item_index={item_index}"
-            )
-        target_ids: list[str] = []
-        for raw_target in raw_targets:
-            if not isinstance(raw_target, dict):
-                raise ValueError("目标证据项必须是对象")
-            evidence_id = str(raw_target.get("evidence_id") or "").strip()
-            _evidence_chunk_from_catalog_item(raw_target)
-            if not re.fullmatch(r"EV-\d{4,}", evidence_id):
-                raise ValueError(f"目标证据 ID 格式无效: evidence_id={evidence_id}")
-            if evidence_id in target_ids or evidence_id in global_target_ids:
-                raise ValueError(f"目标证据 ID 重复: evidence_id={evidence_id}")
-            target_ids.append(evidence_id)
-            global_target_ids.append(evidence_id)
-
-        raw_neighbors = prepared.get("neighbor_context")
-        if not isinstance(raw_neighbors, list):
-            raise ValueError("neighbor_context 必须是数组")
-        neighbor_ids: set[str] = set()
-        neighbor_text_chars = 0
-        for neighbor in raw_neighbors:
-            if not isinstance(neighbor, dict):
-                raise ValueError("neighbor_context 只能包含对象")
-            if set(neighbor) != {
-                "relative_position",
-                "evidence_id",
-                "page_number",
-                "chunk_index",
-                "text",
-                "text_truncated",
-            }:
-                raise ValueError("neighbor_context 字段不完整或包含额外字段")
-            if neighbor.get("relative_position") not in {"previous", "next"}:
-                raise ValueError("neighbor_context.relative_position 无效")
-            evidence_id = str(neighbor.get("evidence_id") or "").strip()
-            if not re.fullmatch(r"EV-\d{4,}", evidence_id):
-                raise ValueError("neighbor_context.evidence_id 格式无效")
-            if evidence_id in neighbor_ids:
-                raise ValueError("neighbor_context 包含重复证据 ID")
-            neighbor_ids.add(evidence_id)
-            neighbor_text_chars += len(str(neighbor.get("text") or ""))
-        if neighbor_text_chars > MAX_EVIDENCE_ACCOUNTING_NEIGHBOR_CHARS:
-            raise ValueError("neighbor_context 超过总字符预算")
-        if neighbor_ids & set(target_ids):
-            raise ValueError("neighbor_context 不能包含当前分片的目标证据")
-        normalized_batches.append((prepared, target_ids, neighbor_ids))
-
-    merged_accounting: list[dict[str, Any]] = []
-    for item_index, (prepared, target_ids, neighbor_ids) in enumerate(normalized_batches):
-        record = records_by_index[item_index]
-        if record.get("input_hash") != _stable_payload_hash(prepared):
-            raise ValueError(
-                f"证据核算结果与准备输入指纹不一致: item_index={item_index}"
-            )
-        output = record.get("output")
-        if not isinstance(output, dict) or set(output) != {"evidence_accounting"}:
-            raise ValueError(
-                f"证据核算分片输出顶层只允许 evidence_accounting: item_index={item_index}"
-            )
-        raw_accounting = output.get("evidence_accounting")
-        if not isinstance(raw_accounting, list):
-            raise ValueError("evidence_accounting 必须是数组")
-        accounting_by_id: dict[str, dict[str, Any]] = {}
-        for raw_accounting_item in raw_accounting:
-            normalized = _normalize_batch_accounting_item(
-                raw_item=raw_accounting_item,
-                module_count=module_count,
-            )
-            evidence_id = normalized["evidence_id"]
-            if evidence_id in neighbor_ids:
-                raise ValueError(
-                    "证据核算分片输出不得记账 neighbor_context: "
-                    f"item_index={item_index}, evidence_id={evidence_id}"
-                )
-            if evidence_id in accounting_by_id:
-                raise ValueError(
-                    f"证据核算分片输出重复 ID: evidence_id={evidence_id}"
-                )
-            accounting_by_id[evidence_id] = normalized
-        if set(accounting_by_id) != set(target_ids):
-            raise ValueError(
-                "证据核算分片输出未严格覆盖目标 ID 全集: "
-                f"item_index={item_index}, expected={target_ids}, "
-                f"actual={list(accounting_by_id)}"
-            )
-        merged_accounting.extend(accounting_by_id[evidence_id] for evidence_id in target_ids)
-
-    context.artifacts["evidence_accounting_merge"] = {
-        "batch_count": len(normalized_batches),
-        "evidence_count": len(merged_accounting),
-        "evidence_ids": list(global_target_ids),
-    }
-    return {"evidence_accounting": merged_accounting}
-
-
-def _validate_evidence_accounting(
-    *,
-    routing: dict[str, Any],
-    catalog_index: dict[str, dict[str, Any]],
-    module_count: int,
-) -> dict[str, dict[str, Any]]:
-    """验证 Reviewer 对完整证据目录的逐项记账。"""
-
-    raw_accounting = routing.get("evidence_accounting")
-    if not isinstance(raw_accounting, list):
-        raise ValueError("routing.evidence_accounting 必须是数组")
-
-    accounting_by_id: dict[str, dict[str, Any]] = {}
-    for accounting_position, raw_item in enumerate(raw_accounting):
-        if not isinstance(raw_item, dict):
-            raise ValueError(
-                "evidence_accounting 只能包含对象: "
-                f"accounting_position={accounting_position}"
-            )
-        raw_evidence_id = raw_item.get("evidence_id")
-        if not isinstance(raw_evidence_id, str) or not re.fullmatch(
-            r"EV-\d{4,}", raw_evidence_id.strip()
-        ):
-            raise ValueError(
-                "evidence_accounting.evidence_id 格式无效: "
-                f"accounting_position={accounting_position}, "
-                f"evidence_id={raw_evidence_id}"
-            )
-        evidence_id = raw_evidence_id.strip()
-        if evidence_id in accounting_by_id:
-            raise ValueError(
-                "evidence_accounting 包含重复证据 ID: "
-                f"evidence_id={evidence_id}"
-            )
-        if evidence_id not in catalog_index:
-            raise ValueError(
-                "evidence_accounting 包含未知证据 ID: "
-                f"evidence_id={evidence_id}"
-            )
-
-        raw_module_indexes = raw_item.get("module_indexes")
-        if not isinstance(raw_module_indexes, list):
-            raise ValueError(
-                "evidence_accounting.module_indexes 必须是数组: "
-                f"evidence_id={evidence_id}"
-            )
-        module_indexes: list[int] = []
-        seen_module_indexes: set[int] = set()
-        for module_position, raw_module_index in enumerate(raw_module_indexes):
-            if isinstance(raw_module_index, bool) or not isinstance(
-                raw_module_index, int
-            ):
-                raise ValueError(
-                    "evidence_accounting.module_indexes 只能包含整数: "
-                    f"evidence_id={evidence_id}, module_position={module_position}, "
-                    f"module_index={raw_module_index}"
-                )
-            if raw_module_index < 0 or raw_module_index >= module_count:
-                raise ValueError(
-                    "evidence_accounting 包含越界 module_index: "
-                    f"evidence_id={evidence_id}, module_index={raw_module_index}, "
-                    f"module_count={module_count}"
-                )
-            if raw_module_index in seen_module_indexes:
-                raise ValueError(
-                    "evidence_accounting.module_indexes 包含重复下标: "
-                    f"evidence_id={evidence_id}, module_index={raw_module_index}"
-                )
-            seen_module_indexes.add(raw_module_index)
-            module_indexes.append(raw_module_index)
-
-        disposition = raw_item.get("disposition")
-        if disposition not in {"assigned", "context_only", "plan_gap"}:
-            raise ValueError(
-                "evidence_accounting.disposition 无效: "
-                f"evidence_id={evidence_id}, disposition={disposition}"
-            )
-        if disposition == "assigned" and not module_indexes:
-            raise ValueError(
-                "assigned 证据必须包含至少一个 module_index: "
-                f"evidence_id={evidence_id}"
-            )
-        if disposition in {"context_only", "plan_gap"} and module_indexes:
-            raise ValueError(
-                f"{disposition} 证据的 module_indexes 必须为空: "
-                f"evidence_id={evidence_id}, module_indexes={module_indexes}"
-            )
-
-        reason = raw_item.get("reason")
-        if (
-            not isinstance(reason, str)
-            or not reason.strip()
-            or len(reason.strip()) > 160
-        ):
-            raise ValueError(
-                "evidence_accounting.reason 必须是 1 至 160 字的字符串: "
-                f"evidence_id={evidence_id}"
-            )
-        accounting_by_id[evidence_id] = {
-            "evidence_id": evidence_id,
-            "module_indexes": module_indexes,
-            "disposition": disposition,
-            "reason": reason.strip(),
-        }
-
-    missing_evidence_ids = [
-        evidence_id
-        for evidence_id in catalog_index
-        if evidence_id not in accounting_by_id
-    ]
-    if missing_evidence_ids:
-        raise ValueError(
-            "evidence_accounting 未完整覆盖证据目录: "
-            f"missing_evidence_ids={missing_evidence_ids}"
-        )
-
-    plan_gaps = [
-        {
-            "evidence_id": evidence_id,
-            "reason": accounting_by_id[evidence_id]["reason"],
-        }
-        for evidence_id in catalog_index
-        if accounting_by_id[evidence_id]["disposition"] == "plan_gap"
-    ]
-    if plan_gaps:
-        raise ValueError(
-            "证据复核发现业务规划缺口，必须返回规划节点修正后再路由: "
-            f"plan_gaps={plan_gaps}"
-        )
-
-    return accounting_by_id
-
-
-def merge_plan_evidence_routing(
-    context: ToolExecutionContext,
-    arguments: dict[str, Any],
-) -> dict[str, Any]:
-    """把 Reviewer 形成的唯一证据总账确定性合并回业务规划。"""
-
-    draft_plan = dict(arguments.get("draft_plan") or {})
-    modules = [
-        dict(item)
-        for item in _required_list(
-            draft_plan.get("business_modules"),
-            "draft_plan.business_modules",
-        )
-    ]
+    grouped: list[list[dict[str, Any]]] = [[] for _ in modules]
     for module_index, module in enumerate(modules):
-        if "evidence_ids" in module:
+        module_name = str(module.get("name") or "").strip()
+        test_points = module.get("test_points")
+        if not isinstance(test_points, list) or not test_points:
+            raise ValueError(f"业务模块缺少测试点: module={module_name}")
+        for point_index, raw_point in enumerate(test_points):
+            if not isinstance(raw_point, dict):
+                raise ValueError(f"业务模块测试点必须是对象: module={module_name}")
+            point = dict(raw_point)
+            point_name = str(point.get("name") or "").strip()
+            designs = point.get("test_designs")
+            if not point_name or not isinstance(designs, list) or not designs:
+                raise ValueError(f"测试点缺少名称或测试方法: module={module_name}")
+            point_item_number = 0
+            for raw_design in designs:
+                if not isinstance(raw_design, dict):
+                    raise ValueError(f"测试方法必须是对象: point={point_name}")
+                design = dict(raw_design)
+                technique = str(design.get("technique") or "").strip()
+                rationale = str(design.get("rationale") or "").strip()
+                coverage_items = design.get("coverage_items")
+                if not technique or not rationale or not isinstance(coverage_items, list):
+                    raise ValueError(f"测试方法字段不完整: point={point_name}")
+                for coverage_intent in coverage_items:
+                    point_item_number += 1
+                    intent = str(coverage_intent or "").strip()
+                    if not intent:
+                        raise ValueError(f"测试设计覆盖意图为空: point={point_name}")
+                    grouped[module_index].append(
+                        {
+                            "test_design_item_id": (
+                                f"TD-{module_index + 1:03d}-{point_index + 1:03d}-"
+                                f"{point_item_number:03d}"
+                            ),
+                            "module_index": module_index,
+                            "module_name": module_name,
+                            "test_point": point_name,
+                            "technique": technique,
+                            "rationale": rationale,
+                            "coverage_intent": intent,
+                        }
+                    )
+    if any(not items for items in grouped):
+        raise ValueError("每个生效业务模块都必须包含测试设计覆盖项")
+    return grouped
+
+
+def _normalize_fact_design_route_indexes(
+    *,
+    fact_design_routes: list[dict[str, Any]],
+    design_item_count: int,
+    expected_fact_ids: set[str],
+) -> dict[str, list[int]]:
+    """校验事实到设计项路由，并返回便于后续投影的索引表。"""
+
+    route_indexes_by_fact_id: dict[str, list[int]] = {}
+    for raw_route in fact_design_routes:
+        if not isinstance(raw_route, dict):
+            raise ValueError("fact_design_routes 每项必须是对象")
+        route = dict(raw_route)
+        fact_id = str(route.get("fact_id") or "").strip()
+        design_indexes = route.get("test_design_item_indexes")
+        if (
+            not fact_id
+            or fact_id in route_indexes_by_fact_id
+            or not isinstance(design_indexes, list)
+            or len(design_indexes) != len(set(design_indexes))
+            or any(
+                not isinstance(index, int)
+                or isinstance(index, bool)
+                or not 0 <= index < design_item_count
+                for index in design_indexes
+            )
+        ):
+            raise ValueError(f"事实到测试设计项路由无效: fact_id={fact_id}")
+        route_indexes_by_fact_id[fact_id] = list(design_indexes)
+
+    if set(route_indexes_by_fact_id) != expected_fact_ids:
+        raise ValueError("事实到测试设计项路由没有精确覆盖当前模块事实")
+    return route_indexes_by_fact_id
+
+
+def _project_effective_test_design_context(
+    *,
+    module: dict[str, Any],
+    design_items: list[dict[str, Any]],
+    effective_fact_ids: set[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    """按权威协调后的有效事实投影设计目录，并重建批次局部索引。"""
+
+    planned_fact_ids = _module_fact_ids(module)
+    route_indexes_by_fact_id = _normalize_fact_design_route_indexes(
+        fact_design_routes=list(module.get("fact_design_routes") or []),
+        design_item_count=len(design_items),
+        expected_fact_ids=set(planned_fact_ids),
+    )
+    if not effective_fact_ids or not effective_fact_ids.issubset(set(planned_fact_ids)):
+        raise ValueError("有效事实集合必须是当前模块规划事实的非空子集")
+
+    active_original_indexes = sorted(
+        {
+            design_index
+            for fact_id in effective_fact_ids
+            for design_index in route_indexes_by_fact_id[fact_id]
+        }
+    )
+    original_to_active_index = {
+        original_index: active_index
+        for active_index, original_index in enumerate(active_original_indexes)
+    }
+    active_design_items = [
+        dict(design_items[original_index])
+        for original_index in active_original_indexes
+    ]
+    active_routes = [
+        {
+            "fact_id": fact_id,
+            "test_design_item_indexes": [
+                original_to_active_index[index]
+                for index in route_indexes_by_fact_id[fact_id]
+            ],
+        }
+        for fact_id in planned_fact_ids
+        if fact_id in effective_fact_ids
+    ]
+    inactive_design_item_ids = [
+        str(item.get("test_design_item_id") or "")
+        for original_index, item in enumerate(design_items)
+        if original_index not in original_to_active_index
+    ]
+    return active_design_items, active_routes, inactive_design_item_ids
+
+
+def _allocate_test_design_items_to_fact_groups(
+    *,
+    design_items: list[dict[str, Any]],
+    fact_groups: list[list[dict[str, Any]]],
+    fact_design_routes: list[dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    """按规划路由 Agent 给出的事实到设计项映射形成批次设计目录。"""
+
+    allocated: list[list[dict[str, Any]]] = [[] for _ in fact_groups]
+    allocated_ids: list[set[str]] = [set() for _ in fact_groups]
+    grouped_fact_ids = {
+        str(fact.get("fact_id") or "")
+        for facts in fact_groups
+        for fact in facts
+    }
+    route_indexes_by_fact_id = _normalize_fact_design_route_indexes(
+        fact_design_routes=fact_design_routes,
+        design_item_count=len(design_items),
+        expected_fact_ids=grouped_fact_ids,
+    )
+
+    for group_index, facts in enumerate(fact_groups):
+        for fact in facts:
+            fact_id = str(fact.get("fact_id") or "")
+            for design_index in route_indexes_by_fact_id[fact_id]:
+                item = design_items[design_index]
+                item_id = str(item.get("test_design_item_id") or "")
+                if item_id in allocated_ids[group_index]:
+                    continue
+                allocated[group_index].append(dict(item))
+                allocated_ids[group_index].add(item_id)
+
+    expected_design_ids = {
+        str(item.get("test_design_item_id") or "") for item in design_items
+    }
+    assigned_design_ids = set().union(*allocated_ids)
+    if assigned_design_ids != expected_design_ids:
+        raise ValueError("事实到测试设计项路由没有承接全部规划覆盖项")
+    return allocated
+
+
+def _build_case_fact_contract(
+    facts: list[dict[str, Any]],
+    *,
+    case_budget: int,
+    test_design_items: list[dict[str, Any]],
+    fact_design_item_ids: dict[str, list[str]],
+) -> dict[str, Any]:
+    """依据 Planner 路由编译逐用例覆盖槽位，避免模型自行扫描覆盖全集。"""
+
+    if not facts or case_budget < 1:
+        raise ValueError("事实覆盖契约需要非空事实和正数用例预算")
+    target_case_ids = [f"TC-{index + 1:03d}" for index in range(case_budget)]
+    design_item_ids = [
+        str(item["test_design_item_id"]) for item in test_design_items
+    ]
+    available_design_ids = set(design_item_ids)
+    for fact in facts:
+        fact_id = str(fact["fact_id"])
+        routed_design_ids = set(fact_design_item_ids.get(fact_id) or [])
+        invalid_design_ids = routed_design_ids - available_design_ids
+        if invalid_design_ids:
             raise ValueError(
-                "draft_plan 模块不能预置 evidence_ids: "
-                f"module_index={module_index}, module={module.get('name')}"
+                "事实槽位引用了批次外测试设计项: "
+                f"fact_id={fact_id}, invalid={sorted(invalid_design_ids)}"
             )
 
-    evidence_catalog = arguments.get("evidence_catalog")
-    catalog_document_id = (
-        evidence_catalog.get("document_id")
-        if isinstance(evidence_catalog, dict)
-        else None
-    )
-    catalog_index = _evidence_catalog_index(
-        evidence_catalog,
-        source={"document_id": catalog_document_id},
-    )
-
-    routing = arguments.get("routing")
-    if not isinstance(routing, dict):
-        raise ValueError("routing 必须是对象")
-    accounting_by_id = _validate_evidence_accounting(
-        routing=routing,
-        catalog_index=catalog_index,
-        module_count=len(modules),
-    )
-    routes_by_module: dict[int, list[str]] = {
-        module_index: [] for module_index in range(len(modules))
-    }
-    for evidence_id in catalog_index:
-        for module_index in accounting_by_id[evidence_id]["module_indexes"]:
-            routes_by_module[module_index].append(evidence_id)
-
-    missing_module_indexes = [
-        module_index
-        for module_index, evidence_ids in routes_by_module.items()
-        if not evidence_ids
-    ]
-    if missing_module_indexes:
-        raise ValueError(
-            "证据总账未完整覆盖业务模块: "
-            f"missing_module_indexes={missing_module_indexes}"
+    all_fact_ids = [str(fact["fact_id"]) for fact in facts]
+    design_ids_by_slot: list[list[str]] = [[] for _ in target_case_ids]
+    for design_item_id in design_item_ids:
+        target_index = min(
+            range(case_budget),
+            key=lambda index: (len(design_ids_by_slot[index]), index),
         )
+        design_ids_by_slot[target_index].append(design_item_id)
 
-    routed_modules = [
-        {
-            **module,
-            "evidence_ids": list(routes_by_module[module_index]),
-        }
-        for module_index, module in enumerate(modules)
-    ]
-    merged_plan = {
-        "requirement_summary": str(draft_plan.get("requirement_summary") or ""),
-        "business_modules": routed_modules,
-        "coverage_focus": draft_plan.get("coverage_focus") or [],
-        "risks": draft_plan.get("risks") or [],
-    }
-    context.artifacts["evidence_routing"] = {
-        "document_id": catalog_document_id,
-        "module_count": len(routed_modules),
-        "evidence_dispositions": {
-            disposition: {
-                "count": sum(
-                    item["disposition"] == disposition
-                    for item in accounting_by_id.values()
+    fact_ids_by_slot: list[list[str]] = [[] for _ in target_case_ids]
+    if len(all_fact_ids) >= case_budget:
+        base_size, remainder = divmod(len(all_fact_ids), case_budget)
+        target_sizes = [
+            base_size + int(slot_index < remainder)
+            for slot_index in range(case_budget)
+        ]
+        for fact_id in all_fact_ids:
+            routed_design_ids = set(fact_design_item_ids.get(fact_id) or [])
+            available_indexes = [
+                index
+                for index in range(case_budget)
+                if len(fact_ids_by_slot[index]) < target_sizes[index]
+            ]
+            preferred_indexes = [
+                index
+                for index in available_indexes
+                if routed_design_ids.intersection(design_ids_by_slot[index])
+            ]
+            candidate_indexes = preferred_indexes or available_indexes
+            target_index = min(
+                candidate_indexes,
+                key=lambda index: (len(fact_ids_by_slot[index]), index),
+            )
+            fact_ids_by_slot[target_index].append(fact_id)
+    else:
+        # 用例数多于事实数时按设计路由选择最匹配的真实事实并稳定复用。
+        for slot_index in range(case_budget):
+            slot_design_ids = set(design_ids_by_slot[slot_index])
+            matched_fact_id = next(
+                (
+                    fact_id
+                    for fact_id in all_fact_ids
+                    if slot_design_ids.intersection(
+                        fact_design_item_ids.get(fact_id) or []
+                    )
                 ),
-                "evidence_ids": [
-                    evidence_id
-                    for evidence_id in catalog_index
-                    if accounting_by_id[evidence_id]["disposition"]
-                    == disposition
-                ],
-            }
-            for disposition in ("assigned", "context_only")
-        },
-        "module_routes": [
+                all_fact_ids[slot_index % len(all_fact_ids)],
+            )
+            fact_ids_by_slot[slot_index].append(matched_fact_id)
+
+    for design_item_id in design_item_ids:
+        if not any(
+            design_item_id in (fact_design_item_ids.get(fact_id) or [])
+            for fact_id in all_fact_ids
+        ):
+            raise ValueError(
+                "批次测试设计项没有可承接的真实事实: "
+                f"test_design_item_id={design_item_id}"
+            )
+
+    # 只把当前批次事实可承接的设计项路由写入契约。模块级路由可能包含
+    # 其他批次的设计项，直接透传会让模型看到跨批次编号并放大校验失败。
+    normalized_fact_design_item_ids = {
+        fact_id: [
+            design_item_id
+            for design_item_id in list(fact_design_item_ids.get(fact_id) or [])
+            if design_item_id in available_design_ids
+        ]
+        for fact_id in all_fact_ids
+    }
+
+    return {
+        "target_case_ids": target_case_ids,
+        "required_fact_ids": all_fact_ids,
+        "required_test_design_item_ids": design_item_ids,
+        "fact_design_item_ids": normalized_fact_design_item_ids,
+        "coverage_slots": [
             {
-                "module_index": module_index,
-                "module_name": str(module.get("name") or ""),
-                "evidence_ids": list(routes_by_module[module_index]),
+                "case_id": case_id,
+                "required_fact_ids": fact_ids_by_slot[index],
+                "required_test_design_item_ids": design_ids_by_slot[index],
             }
-            for module_index, module in enumerate(modules)
+            for index, case_id in enumerate(target_case_ids)
         ],
     }
-    return merged_plan
 
 
 def prepare_test_case_batches(
@@ -1445,7 +1342,10 @@ def prepare_test_case_batches(
     """依据业务规划和预算生成通用、可追踪的 Agent 映射输入。"""
 
     plan = dict(arguments.get("plan") or {})
-    modules = [dict(item) for item in _required_list(plan.get("business_modules"), "business_modules")]
+    planned_modules = [
+        dict(item)
+        for item in _required_list(plan.get("business_modules"), "business_modules")
+    ]
     raw_effective_facts = _required_list(arguments.get("effective_facts"), "effective_facts")
     effective_facts: list[dict[str, Any]] = []
     seen_fact_ids: set[str] = set()
@@ -1465,21 +1365,125 @@ def prepare_test_case_batches(
     case_budget = int(arguments.get("case_budget") or 0)
     if case_budget < 1:
         raise ValueError("用例预算必须大于 0")
-    batch_case_limit = int(arguments.get("batch_case_limit") or 8)
+    batch_case_limit = int(arguments.get("batch_case_limit") or 5)
     if batch_case_limit < 1 or batch_case_limit > 20:
         raise ValueError("batch_case_limit 必须在 1 到 20 之间")
 
+    effective_by_id = {str(fact["fact_id"]): fact for fact in effective_facts}
+    routed_effective_ids: set[str] = set()
+    fact_assignment_counts: dict[str, int] = {}
+    modules: list[dict[str, Any]] = []
+    module_facts_by_index: list[list[dict[str, Any]]] = []
+    inactive_modules: list[dict[str, Any]] = []
+    for planned_module_index, module in enumerate(planned_modules):
+        _module_evidence_ids(module)
+        module_fact_ids = _module_fact_ids(module)
+        module_facts = [
+            dict(effective_by_id[fact_id])
+            for fact_id in module_fact_ids
+            if fact_id in effective_by_id
+        ]
+        if not module_facts:
+            inactive_modules.append(
+                {
+                    "planned_module_index": planned_module_index,
+                    "module_name": str(module.get("name") or ""),
+                    "reason": "all_routed_facts_inactive",
+                }
+            )
+            continue
+        for fact in module_facts:
+            fact_id = str(fact["fact_id"])
+            fact_assignment_counts[fact_id] = fact_assignment_counts.get(fact_id, 0) + 1
+        modules.append(module)
+        routed_effective_ids.update(str(fact["fact_id"]) for fact in module_facts)
+        module_facts_by_index.append(module_facts)
+    if not modules:
+        raise ValueError("权威协调后没有可生成用例的有效业务模块")
+    missing_effective_ids = set(effective_by_id) - routed_effective_ids
+    if missing_effective_ids:
+        raise ValueError(
+            "业务模块 fact_ids 未完整覆盖 effective facts: "
+            f"missing={sorted(missing_effective_ids)}"
+        )
     allocated_focus = _allocate_coverage_points(modules, plan.get("coverage_focus"))
     allocated_risks = _allocate_risks(modules, plan.get("risks"))
-    base_target, remainder = divmod(case_budget, len(modules))
+    design_items_by_module = _test_design_items_by_module(
+        modules=modules,
+    )
+    active_design_items_by_module: list[list[dict[str, Any]]] = []
+    active_fact_design_routes_by_module: list[list[dict[str, Any]]] = []
+    inactive_test_design_item_ids: list[str] = []
+    active_design_assignment_counts: dict[str, int] = {
+        str(fact["fact_id"]): 0 for fact in effective_facts
+    }
+    for module_index, module in enumerate(modules):
+        active_design_items, active_routes, inactive_design_ids = (
+            _project_effective_test_design_context(
+                module=module,
+                design_items=design_items_by_module[module_index],
+                effective_fact_ids={
+                    str(fact["fact_id"])
+                    for fact in module_facts_by_index[module_index]
+                },
+            )
+        )
+        active_design_items_by_module.append(active_design_items)
+        active_fact_design_routes_by_module.append(active_routes)
+        inactive_test_design_item_ids.extend(inactive_design_ids)
+        for route in active_routes:
+            fact_id = str(route["fact_id"])
+            active_design_assignment_counts[fact_id] += len(
+                route["test_design_item_indexes"]
+            )
+    unmatched_test_design_fact_ids = [
+        fact_id
+        for fact_id in effective_by_id
+        if active_design_assignment_counts[fact_id] == 0
+    ]
+    module_fact_groups_by_index = [
+        _generation_fact_groups(module_facts)
+        for module_facts in module_facts_by_index
+    ]
+    module_targets = _allocate_module_case_targets(
+        module_facts_by_index=module_facts_by_index,
+        module_fact_groups_by_index=module_fact_groups_by_index,
+        case_budget=case_budget,
+        batch_case_limit=batch_case_limit,
+    )
+
     items: list[dict[str, Any]] = []
     batch_number = 0
     for module_index, module in enumerate(modules):
-        module_target = base_target + (1 if module_index < remainder else 0)
+        module_target = module_targets[module_index]
         if module_target <= 0:
             continue
-        module_batch_count = math.ceil(module_target / batch_case_limit)
-        remaining = module_target
+        module_facts = module_facts_by_index[module_index]
+        fact_groups = module_fact_groups_by_index[module_index]
+        minimum_batch_count = math.ceil(module_target / batch_case_limit)
+        fact_groups = _expand_generation_fact_groups(
+            fact_groups,
+            target_count=max(len(fact_groups), minimum_batch_count),
+        )
+        batch_budgets = _allocate_generation_batch_budgets(
+            fact_groups,
+            case_target=module_target,
+            batch_case_limit=batch_case_limit,
+        )
+        module_batch_count = len(fact_groups)
+        design_items_by_batch = _allocate_test_design_items_to_fact_groups(
+            design_items=active_design_items_by_module[module_index],
+            fact_groups=fact_groups,
+            fact_design_routes=active_fact_design_routes_by_module[module_index],
+        )
+        module_design_items = active_design_items_by_module[module_index]
+        module_fact_design_item_ids = {
+            str(route["fact_id"]): [
+                str(module_design_items[index]["test_design_item_id"])
+                for index in route["test_design_item_indexes"]
+            ]
+            for route in active_fact_design_routes_by_module[module_index]
+        }
         module_points = allocated_focus[module_index]
         points_by_batch = [
             module_points[index::module_batch_count]
@@ -1490,42 +1494,74 @@ def prepare_test_case_batches(
             module_risks[index::module_batch_count]
             for index in range(module_batch_count)
         ]
-        module_scope_ids = set(_module_evidence_ids(module))
-        module_facts = [
-            dict(fact)
-            for fact in effective_facts
-            if str(fact.get("scope_id") or "") in module_scope_ids
-        ]
-        if not module_facts:
-            raise ValueError(
-                "业务模块没有可达的 effective authoritative facts: "
-                f"module_index={module_index}, module={module.get('name')}"
-            )
-        module_requirement = "\n".join(str(fact["assertion"]) for fact in module_facts)
         for module_batch_index in range(module_batch_count):
-            batch_target = min(batch_case_limit, remaining)
-            remaining -= batch_target
+            batch_target = batch_budgets[module_batch_index]
             batch_number += 1
-            focus = _batch_focus(module, points_by_batch[module_batch_index])
+            batch_points = points_by_batch[module_batch_index]
+            batch_facts = fact_groups[module_batch_index]
+            batch_design_items = design_items_by_batch[module_batch_index]
+            batch_design_item_ids = {
+                str(item["test_design_item_id"]) for item in batch_design_items
+            }
+            # 路由表按批次裁剪，避免把同模块其他批次的测试设计项带进当前契约。
+            batch_fact_design_item_ids = {
+                fact_id: [
+                    design_item_id
+                    for design_item_id in list(module_fact_design_item_ids.get(fact_id) or [])
+                    if design_item_id in batch_design_item_ids
+                ]
+                for fact_id in (str(fact["fact_id"]) for fact in batch_facts)
+            }
+            source_context = _generation_batch_source_context(
+                module=module,
+                facts=batch_facts,
+                coverage_points=batch_points,
+            )
+            focus = str(source_context["semantic_summary"])
+            batch_business_module = {
+                key: deepcopy(value)
+                for key, value in module.items()
+                if key not in {"fact_design_routes", "test_points"}
+            }
+            batch_business_module["fact_ids"] = [
+                str(fact["fact_id"]) for fact in module_facts
+            ]
             items.append(
                 {
-                    "requirement": module_requirement,
+                    "requirement": "\n".join(
+                        str(fact["assertion"]) for fact in batch_facts
+                    ),
                     "plan": {
                         "requirement_summary": str(plan.get("requirement_summary") or ""),
-                        "business_module": module,
+                        "business_module": batch_business_module,
                         "coverage_focus": focus,
                         "risks": risks_by_batch[module_batch_index],
+                        "test_design_items": batch_design_items,
                     },
                     "case_budget": batch_target,
                     "batch": {
+                        "batch_id": (
+                            f"M{module_index + 1:03d}-B{module_batch_index + 1:03d}"
+                        ),
                         "batch_number": batch_number,
                         "module_index": module_index,
                         "module_batch_index": module_batch_index,
                         "module_batch_count": module_batch_count,
                         "module_name": str(module.get("name") or ""),
                         "coverage_focus": focus,
+                        "required_test_design_item_ids": [
+                            str(item["test_design_item_id"])
+                            for item in batch_design_items
+                        ],
+                        **source_context,
                     },
-                    "authoritative_facts": module_facts,
+                    "authoritative_facts": batch_facts,
+                    "case_fact_contract": _build_case_fact_contract(
+                        batch_facts,
+                        case_budget=batch_target,
+                        test_design_items=batch_design_items,
+                        fact_design_item_ids=batch_fact_design_item_ids,
+                    ),
                 }
             )
 
@@ -1536,6 +1572,21 @@ def prepare_test_case_batches(
         "case_budget": case_budget,
         "batch_case_limit": batch_case_limit,
         "batch_count": len(items),
+        "max_pages_per_batch": GENERATION_MAX_PAGES_PER_BATCH,
+        "max_fact_json_chars_per_batch": GENERATION_MAX_FACT_JSON_CHARS_PER_BATCH,
+        "max_required_facts_per_batch": GENERATION_MAX_REQUIRED_FACTS_PER_BATCH,
+        "requires_contiguous_document_pages": False,
+        "planned_module_count": len(planned_modules),
+        "active_module_count": len(modules),
+        "inactive_modules": inactive_modules,
+        "inactive_test_design_item_ids": inactive_test_design_item_ids,
+        "unmatched_test_design_fact_ids": unmatched_test_design_fact_ids,
+        "effective_fact_count": len(effective_facts),
+        "fact_assignment_count": sum(fact_assignment_counts.values()),
+        "shared_fact_count": sum(
+            count > 1 for count in fact_assignment_counts.values()
+        ),
+        "max_fact_reuse": max(fact_assignment_counts.values(), default=0),
         "batches": [
             {
                 **dict(item["batch"]),
@@ -1543,11 +1594,329 @@ def prepare_test_case_batches(
                 "authoritative_fact_ids": [
                     str(fact["fact_id"]) for fact in item["authoritative_facts"]
                 ],
+                "case_fact_contract": dict(item["case_fact_contract"]),
             }
             for item in items
         ],
     }
     return {"items": items, "batch_count": len(items), "case_budget": case_budget}
+
+
+def postprocess_generation_batch_item(
+    context: ToolExecutionContext,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """拆分模型内联事实，并校验数量、模块边界和事实覆盖。"""
+
+    source_input = dict(arguments.get("item_input") or {})
+    raw_output = dict(arguments.get("item_output") or {})
+    expected_count = int(source_input.get("case_budget") or 0)
+    expected_case_ids = [f"TC-{index + 1:03d}" for index in range(expected_count)]
+    module_name = str(
+        dict(source_input.get("batch") or {}).get("module_name")
+        or dict(dict(source_input.get("plan") or {}).get("business_module") or {}).get("name")
+        or ""
+    ).strip()
+    contract = dict(source_input.get("case_fact_contract") or {})
+    fact_design_item_ids = contract.get("fact_design_item_ids")
+    allow_missing_design_item_ids = isinstance(fact_design_item_ids, dict)
+    output = materialize_inline_grounding(
+        raw_cases=raw_output.get("test_cases"),
+        case_ids=expected_case_ids,
+        module_name=module_name,
+        allow_missing_design_item_ids=allow_missing_design_item_ids,
+    )
+    if allow_missing_design_item_ids:
+        required_fact_ids = [
+            str(value).strip()
+            for value in list(contract.get("required_fact_ids") or [])
+            if str(value).strip()
+        ]
+        required_design_item_ids = [
+            str(value).strip()
+            for value in list(contract.get("required_test_design_item_ids") or [])
+            if str(value).strip()
+        ]
+        derived_by_case = derive_test_design_item_ids(
+            case_fact_bindings=output.get("case_fact_bindings"),
+            fact_design_item_ids=fact_design_item_ids,
+            required_fact_ids=required_fact_ids,
+            required_design_item_ids=required_design_item_ids,
+        )
+        for case in list(output.get("test_cases") or []):
+            case_id = str(case.get("case_id") or "").strip()
+            # 路由契约是编号的唯一可信来源。即使旧模型仍返回部分编号，
+            # 也以实际事实绑定重新物化，避免半残编号绕过覆盖校验。
+            case["test_design_item_ids"] = list(derived_by_case.get(case_id) or [])
+        _repair_generation_coverage_from_contract(
+            context=context,
+            source_input=source_input,
+            output=output,
+        )
+    return _validate_generation_batch_output(source_input=source_input, output=output)
+
+
+def _repair_generation_coverage_from_contract(
+    *,
+    context: ToolExecutionContext,
+    source_input: dict[str, Any],
+    output: dict[str, Any],
+) -> None:
+    """依据批次契约补齐模型漏绑的事实和设计项，不生成契约外内容。"""
+
+    contract = dict(source_input.get("case_fact_contract") or {})
+    slots = [dict(slot) for slot in list(contract.get("coverage_slots") or [])]
+    cases = [dict(case) for case in list(output.get("test_cases") or [])]
+    bindings = [dict(binding) for binding in list(output.get("case_fact_bindings") or [])]
+    if not slots or len(cases) != len(slots) or len(bindings) != len(cases):
+        return
+    facts_by_id = index_effective_facts(source_input.get("authoritative_facts"))
+    covered_by_case = _covered_fact_ids_by_case(bindings)
+    bindings_by_case = {str(item.get("case_id") or ""): item for item in bindings}
+    cases_by_id = {str(item.get("case_id") or ""): item for item in cases}
+    repaired_fact_ids: list[str] = []
+    repaired_design_ids: list[str] = []
+
+    for slot in slots:
+        case_id = str(slot.get("case_id") or "").strip()
+        case = cases_by_id.get(case_id)
+        binding = bindings_by_case.get(case_id)
+        if case is None or binding is None:
+            continue
+        missing_fact_ids = [
+            str(value)
+            for value in list(slot.get("required_fact_ids") or [])
+            if str(value) in facts_by_id and str(value) not in covered_by_case.get(case_id, set())
+        ]
+        if missing_fact_ids:
+            steps = list(case.get("steps") or [])
+            step_bindings = list(binding.get("step_bindings") or [])
+            if not steps or not step_bindings:
+                continue
+            first_step = dict(steps[0])
+            assertions = [
+                str(facts_by_id[fact_id].get("assertion") or "").strip()
+                for fact_id in missing_fact_ids
+            ]
+            suffix = "；".join(value for value in assertions if value)
+            if suffix:
+                first_step["expected"] = (
+                    f"{str(first_step.get('expected') or '').strip()}；依据事实：{suffix}"
+                )
+            steps[0] = first_step
+            first_binding = dict(step_bindings[0])
+            expected_ids = [
+                str(value) for value in list(first_binding.get("expected_fact_ids") or [])
+            ]
+            first_binding["expected_fact_ids"] = [
+                *expected_ids,
+                *[value for value in missing_fact_ids if value not in expected_ids],
+            ]
+            step_bindings[0] = first_binding
+            case["steps"] = steps
+            binding["step_bindings"] = step_bindings
+            covered_by_case.setdefault(case_id, set()).update(missing_fact_ids)
+            repaired_fact_ids.extend(missing_fact_ids)
+
+        required_design_ids = [
+            str(value) for value in list(slot.get("required_test_design_item_ids") or [])
+        ]
+        current_design_ids = [
+            str(value) for value in list(case.get("test_design_item_ids") or [])
+        ]
+        missing_design_ids = [
+            value for value in required_design_ids if value not in current_design_ids
+        ]
+        if missing_design_ids:
+            case["test_design_item_ids"] = [*current_design_ids, *missing_design_ids]
+            repaired_design_ids.extend(missing_design_ids)
+
+    if repaired_fact_ids or repaired_design_ids:
+        output["test_cases"] = [cases_by_id[str(case.get("case_id") or "")] for case in cases]
+        output["case_fact_bindings"] = [
+            bindings_by_case[str(binding.get("case_id") or "")] for binding in bindings
+        ]
+        repair_log = dict(context.artifacts.get("generation_contract_repairs") or {})
+        repair_log["fact_binding_count"] = int(repair_log.get("fact_binding_count") or 0) + len(
+            repaired_fact_ids
+        )
+        repair_log["design_binding_count"] = int(
+            repair_log.get("design_binding_count") or 0
+        ) + len(repaired_design_ids)
+        context.artifacts["generation_contract_repairs"] = repair_log
+
+
+def _covered_fact_ids_by_case(
+    bindings: list[dict[str, Any]],
+) -> dict[str, set[str]]:
+    """按平台生成的 case_id 汇总全部内联事实引用。"""
+
+    covered: dict[str, set[str]] = {}
+    for binding in bindings:
+        case_id = str(binding.get("case_id") or "")
+        fact_ids = {
+            str(fact_id)
+            for item in list(binding.get("precondition_bindings") or [])
+            for fact_id in list(dict(item).get("fact_ids") or [])
+        }
+        for item in list(binding.get("step_bindings") or []):
+            detail = dict(item)
+            fact_ids.update(
+                str(fact_id) for fact_id in list(detail.get("action_fact_ids") or [])
+            )
+            fact_ids.update(
+                str(fact_id) for fact_id in list(detail.get("expected_fact_ids") or [])
+            )
+        covered[case_id] = fact_ids
+    return covered
+
+
+def _validate_generation_batch_output(
+    *,
+    source_input: dict[str, Any],
+    output: dict[str, Any],
+) -> dict[str, Any]:
+    """校验已经由平台拆分完成的单批生成结果。"""
+
+    raw_test_cases = _required_list(output.get("test_cases"), "test_cases")
+    test_cases: list[dict[str, Any]] = []
+    for raw_case in raw_test_cases:
+        if not isinstance(raw_case, dict):
+            raise ValueError("test_cases 每项必须是对象")
+        case = dict(raw_case)
+        case.setdefault("tags", [])
+        design_item_ids = case.get("test_design_item_ids")
+        if not isinstance(design_item_ids, list):
+            raise ValueError("每条用例的 test_design_item_ids 必须是数组")
+        normalized_design_item_ids = [str(value).strip() for value in design_item_ids]
+        if any(not value for value in normalized_design_item_ids) or len(
+            normalized_design_item_ids
+        ) != len(set(normalized_design_item_ids)):
+            raise ValueError("用例 test_design_item_ids 包含空值或重复值")
+        case["test_design_item_ids"] = normalized_design_item_ids
+        test_cases.append(case)
+    expected_count = int(source_input.get("case_budget") or 0)
+    if len(test_cases) != expected_count:
+        raise ValueError(
+            "生成批次没有精确达到分配数量: "
+            f"target={expected_count}, actual={len(test_cases)}"
+        )
+    module_name = str(
+        dict(source_input.get("batch") or {}).get("module_name")
+        or dict(dict(source_input.get("plan") or {}).get("business_module") or {}).get("name")
+        or ""
+    ).strip()
+    if not module_name:
+        raise ValueError("生成批次缺少模块名称")
+    bindings = validate_case_fact_bindings(
+        test_cases=test_cases,
+        raw_bindings=output.get("case_fact_bindings"),
+        authoritative_facts=source_input.get("authoritative_facts"),
+        expected_module_name=module_name,
+    )
+    expected_case_ids = [f"TC-{index + 1:03d}" for index in range(expected_count)]
+    contract = source_input.get("case_fact_contract")
+    if not isinstance(contract, dict):
+        raise ValueError("生成批次缺少事实覆盖契约")
+    target_case_ids = contract.get("target_case_ids")
+    if target_case_ids != expected_case_ids:
+        raise ValueError("事实覆盖契约的 target_case_ids 与用例预算不一致")
+    available_fact_ids = [
+        str(fact.get("fact_id") or "")
+        for fact in list(source_input.get("authoritative_facts") or [])
+    ]
+    required_fact_ids = contract.get("required_fact_ids")
+    if required_fact_ids != available_fact_ids:
+        raise ValueError("事实覆盖契约与当前批次权威事实不一致")
+    plan_design_item_ids = [
+        str(item.get("test_design_item_id") or "")
+        for item in list(dict(source_input.get("plan") or {}).get("test_design_items") or [])
+    ]
+    batch_design_item_ids = list(
+        dict(source_input.get("batch") or {}).get("required_test_design_item_ids") or []
+    )
+    required_design_item_ids = list(contract.get("required_test_design_item_ids") or [])
+    if not (
+        required_design_item_ids == plan_design_item_ids == batch_design_item_ids
+        and len(required_design_item_ids) == len(set(required_design_item_ids))
+    ):
+        raise ValueError("测试设计覆盖契约与当前批次规划不一致")
+    raw_coverage_slots = contract.get("coverage_slots")
+    if not isinstance(raw_coverage_slots, list) or len(raw_coverage_slots) != expected_count:
+        raise ValueError("事实覆盖契约的 coverage_slots 与用例预算不一致")
+    coverage_slots: list[dict[str, Any]] = []
+    assigned_fact_ids: set[str] = set()
+    assigned_design_item_ids: set[str] = set()
+    for slot_index, raw_slot in enumerate(raw_coverage_slots):
+        if not isinstance(raw_slot, dict):
+            raise ValueError("coverage_slots 每项必须是对象")
+        slot = dict(raw_slot)
+        case_id = str(slot.get("case_id") or "").strip()
+        if case_id != expected_case_ids[slot_index]:
+            raise ValueError("coverage_slots 必须保持平台确定的 case_id 及顺序")
+        slot_fact_ids = slot.get("required_fact_ids")
+        if (
+            not isinstance(slot_fact_ids, list)
+            or not slot_fact_ids
+            or any(str(value) not in available_fact_ids for value in slot_fact_ids)
+            or len(slot_fact_ids) != len(set(slot_fact_ids))
+        ):
+            raise ValueError(f"coverage_slots 事实分配无效: case_id={case_id}")
+        slot_design_item_ids = slot.get("required_test_design_item_ids")
+        if (
+            not isinstance(slot_design_item_ids, list)
+            or any(str(value) not in required_design_item_ids for value in slot_design_item_ids)
+            or len(slot_design_item_ids) != len(set(slot_design_item_ids))
+        ):
+            raise ValueError(f"coverage_slots 测试设计分配无效: case_id={case_id}")
+        normalized_slot = {
+            "case_id": case_id,
+            "required_fact_ids": [str(value) for value in slot_fact_ids],
+            "required_test_design_item_ids": [
+                str(value) for value in slot_design_item_ids
+            ],
+        }
+        coverage_slots.append(normalized_slot)
+        assigned_fact_ids.update(normalized_slot["required_fact_ids"])
+        assigned_design_item_ids.update(
+            normalized_slot["required_test_design_item_ids"]
+        )
+    if assigned_fact_ids != set(required_fact_ids):
+        raise ValueError("coverage_slots 没有完整承接批次事实覆盖契约")
+    if assigned_design_item_ids != set(required_design_item_ids):
+        raise ValueError("coverage_slots 没有完整承接批次测试设计覆盖契约")
+    covered_design_item_ids = {
+        design_item_id
+        for case in test_cases
+        for design_item_id in list(case.get("test_design_item_ids") or [])
+    }
+    invalid_design_item_ids = sorted(covered_design_item_ids - set(required_design_item_ids))
+    missing_design_item_ids = sorted(set(required_design_item_ids) - covered_design_item_ids)
+    actual_case_ids = [str(case.get("case_id") or "").strip() for case in test_cases]
+    covered_fact_ids_by_case = _covered_fact_ids_by_case(bindings)
+    covered_fact_ids = set().union(*covered_fact_ids_by_case.values())
+    missing_fact_ids = sorted(set(required_fact_ids) - covered_fact_ids)
+    coverage_errors: list[str] = []
+    if actual_case_ids != expected_case_ids:
+        coverage_errors.append(
+            "生成批次必须保持平台确定的 case_id 及顺序: "
+            f"expected={expected_case_ids}, actual={actual_case_ids}"
+        )
+    if missing_fact_ids:
+        coverage_errors.append(
+            f"生成批次未完整覆盖平台要求的事实: missing={missing_fact_ids}"
+        )
+    if invalid_design_item_ids or missing_design_item_ids:
+        coverage_errors.append(
+            "生成批次测试设计覆盖不符合平台契约: "
+            f"missing={missing_design_item_ids}, invalid={invalid_design_item_ids}"
+        )
+    if coverage_errors:
+        raise ValueError("；".join(coverage_errors))
+    return {
+        "test_cases": [dict(case) for case in test_cases],
+        "case_fact_bindings": bindings,
+    }
 
 
 
@@ -1579,26 +1948,12 @@ def merge_grounded_generation_batches(
         output = record.get("output")
         if not isinstance(output, dict):
             raise ValueError(f"生成结果缺少 output: item_index={item_index}")
-        test_cases = _required_list(output.get("test_cases"), "test_cases")
-        expected_count = int(source_input.get("case_budget") or 0)
-        if len(test_cases) != expected_count:
-            raise ValueError(
-                "生成批次没有精确达到分配数量: "
-                f"item_index={item_index}, target={expected_count}, actual={len(test_cases)}"
-            )
-        module_name = str(
-            dict(source_input.get("batch") or {}).get("module_name")
-            or dict(dict(source_input.get("plan") or {}).get("business_module") or {}).get("name")
-            or ""
-        ).strip()
-        if not module_name:
-            raise ValueError(f"生成批次缺少模块名称: item_index={item_index}")
-        bindings = validate_case_fact_bindings(
-            test_cases=test_cases,
-            raw_bindings=output.get("case_fact_bindings"),
-            authoritative_facts=source_input.get("authoritative_facts"),
-            expected_module_name=module_name,
+        normalized_output = _validate_generation_batch_output(
+            source_input=source_input,
+            output=dict(output),
         )
+        test_cases = normalized_output["test_cases"]
+        bindings = normalized_output["case_fact_bindings"]
         bindings_by_case_id = binding_index(bindings)
         for raw_case in test_cases:
             if not isinstance(raw_case, dict):
@@ -1817,6 +2172,36 @@ def _index_case_transitions(
     return cases_by_id, transitions
 
 
+def select_execution_chain(
+    context: ToolExecutionContext,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """按确定性候选顺序选择首条严格可达主链，不再调用模型重复判断。"""
+
+    candidate_chains = list(arguments.get("candidate_chains") or [])
+    if not candidate_chains:
+        return {"name": "", "goal": "", "case_ids": []}
+    first = dict(candidate_chains[0])
+    case_ids = [str(value) for value in list(first.get("case_ids") or [])]
+    cases = [dict(item) for item in list(first.get("cases") or [])]
+    modules: list[str] = []
+    for case in cases:
+        module = str(case.get("module") or "").strip()
+        if module and module not in modules:
+            modules.append(module)
+    result = {
+        "name": "核心业务执行主链",
+        "goal": "按严格状态衔接顺序验证" + ("、".join(modules) if modules else "核心流程"),
+        "case_ids": case_ids,
+    }
+    context.artifacts["execution_chain_selection"] = {
+        "candidate_id": str(first.get("candidate_id") or ""),
+        "case_count": len(case_ids),
+        "selection_rule": "first_strict_candidate",
+    }
+    return result
+
+
 def validate_execution_chain(
     context: ToolExecutionContext,
     arguments: dict[str, Any],
@@ -1933,7 +2318,7 @@ def validate_execution_chain(
             "name": name,
             "goal": goal,
             "suite_type": "chain",
-            "case_ids": [],
+                "case_ids": selected_ids,
             "transitions": chain_transitions,
         }
     ]

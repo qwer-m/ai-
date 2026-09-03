@@ -72,6 +72,28 @@ def search_document(context: ToolExecutionContext, arguments: dict[str, Any]) ->
     return {"document_id": int(document.id), "results": results}
 
 
+def _public_layout_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """只暴露 Agent 引用正文所需的稳定版式字段，隔离解析层内部元数据。"""
+
+    public_blocks: list[dict[str, Any]] = []
+    for block in blocks:
+        item = {
+            "block_id": str(block.get("block_id") or ""),
+            "type": str(block.get("type") or ""),
+            "text": str(block.get("text") or ""),
+            "bbox": dict(block.get("bbox") or {}),
+            "source": str(block.get("source") or ""),
+        }
+        source_span = block.get("source_span")
+        if isinstance(source_span, dict):
+            item["source_span"] = {
+                "start": int(source_span.get("start") or 0),
+                "end": int(source_span.get("end") or 0),
+            }
+        public_blocks.append(item)
+    return public_blocks
+
+
 def get_page_text(context: ToolExecutionContext, arguments: dict[str, Any]) -> dict[str, Any]:
     document = _owned_document(context, arguments.get("document_id"))
     page_number = int(arguments.get("page_number") or 0)
@@ -79,7 +101,9 @@ def get_page_text(context: ToolExecutionContext, arguments: dict[str, Any]) -> d
         "document_id": int(document.id),
         "page_number": page_number,
         "text": document_page_text(int(document.id), page_number),
-        "layout_blocks": document_page_layout(int(document.id), page_number),
+        "layout_blocks": _public_layout_blocks(
+            document_page_layout(int(document.id), page_number)
+        ),
     }
 
 
@@ -207,6 +231,15 @@ BUILTIN_TOOL_SPECS: tuple[dict[str, Any], ...] = (
                                 "additionalProperties": False,
                             },
                             "source": {"type": "string", "enum": ["pdf_text", "pdf_image"]},
+                            "source_span": {
+                                "type": "object",
+                                "properties": {
+                                    "start": {"type": "integer", "minimum": 0},
+                                    "end": {"type": "integer", "minimum": 1},
+                                },
+                                "required": ["start", "end"],
+                                "additionalProperties": False,
+                            },
                         },
                         "required": ["block_id", "type", "text", "bbox", "source"],
                         "additionalProperties": False,

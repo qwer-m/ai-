@@ -348,6 +348,7 @@ BUILTIN_WORKFLOW_SPECS: tuple[dict[str, Any], ...] = (
         "name": "测试用例 Agent 评测",
         "description": "使用当前需求和真实的两版用例产出结构化对比产物。",
         "definition": {
+            "execution_mode": "dag",
             "input_schema": INPUT_SCHEMA,
             "nodes": [
                 {

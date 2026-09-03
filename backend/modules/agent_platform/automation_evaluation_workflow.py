@@ -219,6 +219,7 @@ def _workflow_spec(
         "name": name,
         "description": description,
         "definition": {
+            "execution_mode": "dag",
             "input_schema": _workflow_input_schema(evaluation_type, extra_property),
             "nodes": [
                 {

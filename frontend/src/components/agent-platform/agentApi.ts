@@ -6,12 +6,14 @@ import type {
   AgentNodeRun,
   AgentRun,
   AgentRunExecutionLimits,
-  AgentRunEvent,
   AgentTool,
   AgentWorkflow,
   RequirementDocumentOption,
+  RequirementDocumentParseStatus,
+  RequirementDocumentUpload,
   RunStatus,
   WorkflowNode,
+  WorkflowDisplayStage,
 } from './types';
 
 type JsonObject = Record<string, unknown>;
@@ -87,7 +89,7 @@ function parseAgentDefinition(value: unknown, path: string): AgentDefinition {
   const object = readObject(value, path);
   return {
     id: readNumber(object.id, `${path}.id`),
-    project_id: readNumber(object.project_id, `${path}.project_id`),
+    project_id: readNullableNumber(object.project_id, `${path}.project_id`),
     agent_key: readString(object.agent_key, `${path}.agent_key`),
     name: readString(object.name, `${path}.name`),
     description: readString(object.description, `${path}.description`),
@@ -125,7 +127,8 @@ function parseAgentTool(value: unknown, path: string): AgentTool {
 function parseWorkflowNode(value: unknown, path: string): WorkflowNode {
   const object = readObject(value, path);
   const nodeType = readString(object.node_type, `${path}.node_type`);
-  if (nodeType !== 'agent' && nodeType !== 'agent_map' && nodeType !== 'tool') {
+  if (nodeType !== 'agent' && nodeType !== 'agent_network'
+    && nodeType !== 'agent_map' && nodeType !== 'tool') {
     throw new Error(`${path}.node_type 包含未知节点类型: ${nodeType}`);
   }
   return {
@@ -134,6 +137,9 @@ function parseWorkflowNode(value: unknown, path: string): WorkflowNode {
     reference_key: readString(object.reference_key, `${path}.reference_key`),
     depends_on: readStringArray(object.depends_on, `${path}.depends_on`),
     max_attempts: readNumber(object.max_attempts, `${path}.max_attempts`),
+    time_budget_seconds: object.time_budget_seconds == null
+      ? null
+      : readNumber(object.time_budget_seconds, `${path}.time_budget_seconds`),
     input_mapping: readStringMap(object.input_mapping, `${path}.input_mapping`),
     map_config: object.map_config == null
       ? null
@@ -141,9 +147,66 @@ function parseWorkflowNode(value: unknown, path: string): WorkflowNode {
   };
 }
 
+function parseWorkflowDisplayStage(value: unknown, path: string): WorkflowDisplayStage {
+  const object = readObject(value, path);
+  return {
+    stage_key: readString(object.stage_key, `${path}.stage_key`),
+    label: readString(object.label, `${path}.label`),
+    description: readString(object.description, `${path}.description`),
+    node_keys: readStringArray(object.node_keys, `${path}.node_keys`),
+  };
+}
+
 function parseAgentWorkflow(value: unknown, path: string): AgentWorkflow {
   const object = readObject(value, path);
   const definition = readObject(object.definition, `${path}.definition`);
+  const executionMode = definition.execution_mode == null
+    ? 'dag'
+    : readString(definition.execution_mode, `${path}.definition.execution_mode`);
+  if (executionMode !== 'dag' && executionMode !== 'agent_network') {
+    throw new Error(`${path}.definition.execution_mode 包含未知执行模式: ${executionMode}`);
+  }
+  const parsedDefinition = executionMode === 'agent_network'
+    ? {
+        execution_mode: 'agent_network' as const,
+        entry_agent_key: readString(
+          definition.entry_agent_key,
+          `${path}.definition.entry_agent_key`,
+        ),
+        input_schema: readObject(definition.input_schema, `${path}.definition.input_schema`),
+        max_attempts: readNumber(definition.max_attempts, `${path}.definition.max_attempts`),
+        time_budget_seconds: definition.time_budget_seconds == null
+          ? null
+          : readNumber(
+              definition.time_budget_seconds,
+              `${path}.definition.time_budget_seconds`,
+            ),
+        required_artifact_key: definition.required_artifact_key == null
+          ? null
+          : readString(
+              definition.required_artifact_key,
+              `${path}.definition.required_artifact_key`,
+            ),
+      }
+    : {
+        execution_mode: 'dag' as const,
+        nodes: readArray(definition.nodes, `${path}.definition.nodes`).map((node, index) =>
+          parseWorkflowNode(node, `${path}.definition.nodes[${index}]`),
+        ),
+        output_node_key: readString(
+          definition.output_node_key,
+          `${path}.definition.output_node_key`,
+        ),
+        input_schema: readObject(definition.input_schema, `${path}.definition.input_schema`),
+        display_stages: definition.display_stages == null
+          ? []
+          : readArray(definition.display_stages, `${path}.definition.display_stages`).map(
+              (stage, index) => parseWorkflowDisplayStage(
+                stage,
+                `${path}.definition.display_stages[${index}]`,
+              ),
+            ),
+      };
   return {
     id: readNumber(object.id, `${path}.id`),
     project_id: readNumber(object.project_id, `${path}.project_id`),
@@ -153,13 +216,7 @@ function parseAgentWorkflow(value: unknown, path: string): AgentWorkflow {
     version: readNumber(object.version, `${path}.version`),
     enabled: readBoolean(object.enabled, `${path}.enabled`),
     builtin: readBoolean(object.builtin, `${path}.builtin`),
-    definition: {
-      nodes: readArray(definition.nodes, `${path}.definition.nodes`).map((node, index) =>
-        parseWorkflowNode(node, `${path}.definition.nodes[${index}]`),
-      ),
-      output_node_key: readString(definition.output_node_key, `${path}.definition.output_node_key`),
-      input_schema: readObject(definition.input_schema, `${path}.definition.input_schema`),
-    },
+    definition: parsedDefinition,
     created_at: readString(object.created_at, `${path}.created_at`),
     updated_at: readString(object.updated_at, `${path}.updated_at`),
   };
@@ -168,13 +225,18 @@ function parseAgentWorkflow(value: unknown, path: string): AgentWorkflow {
 function parseAgentNodeRun(value: unknown, path: string): AgentNodeRun {
   const object = readObject(value, path);
   const nodeType = readString(object.node_type, `${path}.node_type`);
-  if (nodeType !== 'agent' && nodeType !== 'agent_map' && nodeType !== 'tool') {
+  if (nodeType !== 'agent' && nodeType !== 'agent_network'
+    && nodeType !== 'agent_map' && nodeType !== 'tool') {
     throw new Error(`${path}.node_type 包含未知节点类型: ${nodeType}`);
   }
   return {
     id: readNumber(object.id, `${path}.id`),
     node_key: readString(object.node_key, `${path}.node_key`),
     node_type: nodeType,
+    agent_definition_id: readNullableNumber(
+      object.agent_definition_id,
+      `${path}.agent_definition_id`,
+    ),
     status: readRunStatus(object.status, `${path}.status`),
     attempt: readNumber(object.attempt, `${path}.attempt`),
     input_payload: readObject(object.input_payload, `${path}.input_payload`),
@@ -209,6 +271,7 @@ function parseAgentRun(value: unknown, path: string): AgentRun {
   const object = readObject(value, path);
   return {
     id: readNumber(object.id, `${path}.id`),
+    run_attempt: readNumber(object.run_attempt, `${path}.run_attempt`),
     project_id: readNumber(object.project_id, `${path}.project_id`),
     workflow_definition_id: readNumber(object.workflow_definition_id, `${path}.workflow_definition_id`),
     status: readRunStatus(object.status, `${path}.status`),
@@ -228,19 +291,6 @@ function parseAgentRun(value: unknown, path: string): AgentRun {
     approvals: readArray(object.approvals, `${path}.approvals`).map((approval, index) =>
       parseAgentApproval(approval, `${path}.approvals[${index}]`),
     ),
-  };
-}
-
-function parseAgentRunEvent(value: unknown, path: string): AgentRunEvent {
-  const object = readObject(value, path);
-  return {
-    id: readNumber(object.id, `${path}.id`),
-    run_id: readNumber(object.run_id, `${path}.run_id`),
-    node_run_id: readNullableNumber(object.node_run_id, `${path}.node_run_id`),
-    sequence: readNumber(object.sequence, `${path}.sequence`),
-    event_type: readString(object.event_type, `${path}.event_type`),
-    payload: readObject(object.payload, `${path}.payload`),
-    created_at: readString(object.created_at, `${path}.created_at`),
   };
 }
 
@@ -264,49 +314,42 @@ function parseRunEnvelope(value: unknown, path: string): { run: AgentRun } {
   return { run: parseAgentRun(object.run, `${path}.run`) };
 }
 
+function parseOptionalRunEnvelope(value: unknown, path: string): { run: AgentRun | null } {
+  const object = readObject(value, path);
+  return {
+    run: object.run == null ? null : parseAgentRun(object.run, `${path}.run`),
+  };
+}
+
 export const getAgentCatalog = async (projectId: number): Promise<AgentCatalog> =>
   parseCatalog(await api.get<unknown>(`/api/agents/catalog?project_id=${projectId}`));
-
-export const listAgentRuns = async (projectId: number, limit = 50): Promise<{ items: AgentRun[] }> => {
-  const response = readObject(
-    await api.get<unknown>(`/api/agents/runs?project_id=${projectId}&limit=${limit}`),
-    'Agent 运行列表响应',
-  );
-  return {
-    items: readArray(response.items, 'Agent 运行列表响应.items').map((run, index) =>
-      parseAgentRun(run, `Agent 运行列表响应.items[${index}]`),
-    ),
-  };
-};
 
 export const getAgentRun = async (runId: number): Promise<{ run: AgentRun }> =>
   parseRunEnvelope(await api.get<unknown>(`/api/agents/runs/${runId}`), 'Agent 运行详情响应');
 
-export const getAgentRunEvents = async (runId: number): Promise<{ items: AgentRunEvent[] }> => {
-  const response = readObject(
-    await api.get<unknown>(`/api/agents/runs/${runId}/events?limit=1000`),
-    'Agent 运行事件响应',
+export const getActiveAgentRun = async (projectId: number): Promise<{ run: AgentRun | null }> =>
+  parseOptionalRunEnvelope(
+    await api.get<unknown>(`/api/agents/runs/active?project_id=${projectId}`),
+    '当前 Agent 运行响应',
   );
-  return {
-    items: readArray(response.items, 'Agent 运行事件响应.items').map((event, index) =>
-      parseAgentRunEvent(event, `Agent 运行事件响应.items[${index}]`),
-    ),
-  };
-};
 
 export const createAgentRun = (payload: {
   project_id: number;
   workflow_key: string;
   input_payload: Record<string, unknown>;
   execution_limits?: AgentRunExecutionLimits;
-}): Promise<{ run: AgentRun }> => api.post<unknown>('/api/agents/runs', payload).then((response) =>
-  parseRunEnvelope(response, '创建 Agent 运行响应'),
-);
-
-export const retryAgentRun = (runId: number): Promise<{ run: AgentRun }> =>
-  api.post<unknown>(`/api/agents/runs/${runId}/retry`, {}).then((response) =>
-    parseRunEnvelope(response, '重试 Agent 运行响应'),
-  );
+}): Promise<{ run: AgentRun; status: 'created' | 'already_active' }> =>
+  api.post<unknown>('/api/agents/runs', payload).then((response) => {
+    const object = readObject(response, '创建 Agent 运行响应');
+    const status = readString(object.status, '创建 Agent 运行响应.status');
+    if (status !== 'created' && status !== 'already_active') {
+      throw new Error(`创建 Agent 运行响应.status 包含未知状态: ${status}`);
+    }
+    return {
+      run: parseAgentRun(object.run, '创建 Agent 运行响应.run'),
+      status,
+    };
+  });
 
 export const cancelAgentRun = async (runId: number): Promise<{ run: AgentRun; status: string }> => {
   const response = readObject(
@@ -316,6 +359,19 @@ export const cancelAgentRun = async (runId: number): Promise<{ run: AgentRun; st
   return {
     run: parseAgentRun(response.run, '取消 Agent 运行响应.run'),
     status: readString(response.status, '取消 Agent 运行响应.status'),
+  };
+};
+
+export const resetAgentRunAttempt = async (
+  runId: number,
+): Promise<{ run: AgentRun; status: string }> => {
+  const response = readObject(
+    await api.post<unknown>(`/api/agents/runs/${runId}/reset-attempt`, {}),
+    '重置 Agent 执行次数响应',
+  );
+  return {
+    run: parseAgentRun(response.run, '重置 Agent 执行次数响应.run'),
+    status: readString(response.status, '重置 Agent 执行次数响应.status'),
   };
 };
 
@@ -334,22 +390,85 @@ export const decideAgentApproval = async (
   };
 };
 
-export const listRequirementDocuments = async (projectId: number): Promise<RequirementDocumentOption[]> => {
-  const response = readObject(
-    await api.get<unknown>(
-      `/api/knowledge-list?project_id=${projectId}&doc_type=requirement&page=1&page_size=200`,
-    ),
-    '需求文档列表响应',
-  );
-  return readArray(response.documents, '需求文档列表响应.documents').map((value, index) => {
+type RequirementDocumentPage = {
+  documents: RequirementDocumentOption[];
+  totalPages: number;
+};
+
+const parseRequirementDocumentPage = (value: unknown): RequirementDocumentPage => {
+  const response = readObject(value, '需求文档列表响应');
+  const pagination = readObject(response.pagination, '需求文档列表响应.pagination');
+  const documents = readArray(response.documents, '需求文档列表响应.documents').map((item, index) => {
     const path = `需求文档列表响应.documents[${index}]`;
-    const document = readObject(value, path);
+    const document = readObject(item, path);
     return {
       id: readNumber(document.id, `${path}.id`),
       filename: readString(document.filename, `${path}.filename`),
       doc_type: readString(document.doc_type, `${path}.doc_type`),
       content_preview: readString(document.content_preview, `${path}.content_preview`),
       linked_test_case_count: readArray(document.linked_test_cases, `${path}.linked_test_cases`).length,
+      parse_status: readString(document.parse_status, `${path}.parse_status`) as RequirementDocumentOption['parse_status'],
+      parse_error: readNullableString(document.parse_error, `${path}.parse_error`),
     };
   });
+  return {
+    documents,
+    totalPages: readNumber(pagination.total_pages, '需求文档列表响应.pagination.total_pages'),
+  };
+};
+
+export const listRequirementDocuments = async (projectId: number): Promise<RequirementDocumentOption[]> => {
+  const pageSize = 200;
+  const firstPage = parseRequirementDocumentPage(await api.get<unknown>(
+    `/api/knowledge-list?project_id=${projectId}&doc_type=requirement&page=1&page_size=${pageSize}`,
+  ));
+  if (firstPage.totalPages <= 1) return firstPage.documents;
+  const remainingPages = await Promise.all(
+    Array.from({ length: firstPage.totalPages - 1 }, (_, index) => index + 2).map(async (page) =>
+      parseRequirementDocumentPage(await api.get<unknown>(
+        `/api/knowledge-list?project_id=${projectId}&doc_type=requirement&page=${page}&page_size=${pageSize}`,
+      )).documents,
+    ),
+  );
+  return [firstPage.documents, ...remainingPages].flat();
+};
+
+export const getRequirementDocumentParseStatus = async (
+  documentId: number,
+): Promise<RequirementDocumentParseStatus> => {
+  const response = readObject(
+    await api.get<unknown>(`/api/knowledge/${documentId}/parse-status`),
+    '需求文档解析状态响应',
+  );
+  return {
+    id: readNumber(response.id, '需求文档解析状态响应.id'),
+    parse_status: readString(
+      response.parse_status,
+      '需求文档解析状态响应.parse_status',
+    ) as RequirementDocumentOption['parse_status'],
+    parse_error: readNullableString(response.parse_error, '需求文档解析状态响应.parse_error'),
+  };
+};
+
+export const uploadRequirementDocument = async (
+  projectId: number,
+  file: File,
+): Promise<RequirementDocumentUpload> => {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('project_id', String(projectId));
+  form.append('doc_type', 'requirement');
+  const response = readObject(
+    await api.upload<unknown>('/api/upload-knowledge', form),
+    '上传需求文档响应',
+  );
+  return {
+    success: readBoolean(response.success, '上传需求文档响应.success'),
+    id: readNumber(response.id, '上传需求文档响应.id'),
+    filename: readString(response.filename, '上传需求文档响应.filename'),
+    parse_status: readString(
+      response.parse_status,
+      '上传需求文档响应.parse_status',
+    ) as RequirementDocumentOption['parse_status'],
+  };
 };

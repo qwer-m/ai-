@@ -1,47 +1,67 @@
 from __future__ import annotations
 
 import hashlib
-import json
+import math
 from types import SimpleNamespace
 
 import pytest
 from jsonschema import validate
 
 from modules.agent_platform.test_generation_batching import (
-    MAX_EVIDENCE_ACCOUNTING_BATCHES,
-    MAX_EVIDENCE_ACCOUNTING_NEIGHBOR_CHARS,
-    MAX_EVIDENCE_ACCOUNTING_ITEMS_PER_BATCH,
-    TARGET_EVIDENCE_ACCOUNTING_TEXT_CHARS,
+    GENERATION_MAX_FACT_JSON_CHARS_PER_BATCH,
+    GENERATION_MAX_PAGES_PER_BATCH,
+    GENERATION_MAX_REQUIRED_FACTS_PER_BATCH,
     _allocate_coverage_points,
     _allocate_risks,
+    _allocate_test_design_items_to_fact_groups,
     _batch_focus,
+    _build_case_fact_contract,
     _build_evidence_catalog_from_fragments,
     _coverage_points,
-    _evidence_catalog_index,
     _raw_chunk_fragments,
-    _select_module_evidence,
     build_planning_evidence_catalog,
-    merge_evidence_accounting_batches,
     merge_grounded_generation_batches,
-    merge_plan_evidence_routing,
-    prepare_evidence_accounting_batches,
+    postprocess_generation_batch_item,
     prepare_test_case_batches,
 )
-from modules.agent_platform.test_generation_workflow import BATCH_PLAN_SCHEMA
+from modules.agent_platform.test_generation_workflow import (
+    BATCH_PLAN_SCHEMA,
+    GENERATION_BATCH_ITEM_SCHEMA,
+    GROUNDING_SCHEMA,
+    MODEL_GROUNDING_SCHEMA,
+)
 
 
-def _authoritative_fact(*, fact_id: str, scope_id: str, assertion: str) -> dict:
+def _authoritative_fact(
+    *,
+    fact_id: str,
+    scope_id: str,
+    assertion: str,
+    page_number: int | None = None,
+) -> dict:
+    source_anchor = {
+        "source_kind": "inline",
+        "requirement_sha256": "a" * 64,
+        "source_offset_start": 0,
+        "source_offset_end": len(assertion),
+        "quote": assertion,
+    }
+    if page_number is not None:
+        source_anchor = {
+            "source_kind": "document",
+            "document_id": 1,
+            "page_number": page_number,
+            "block_id": f"P{page_number:04d}-T0001",
+            "source_span": {"start": 0, "end": len(assertion)},
+            "quote": assertion,
+            "asset_source_sha256": "b" * 64,
+            "page_image_sha256": "c" * 64,
+        }
     return {
         "fact_id": fact_id,
         "assertion": assertion,
         "scope_id": scope_id,
-        "source_anchor": {
-            "source_kind": "inline",
-            "requirement_sha256": "a" * 64,
-            "source_offset_start": 0,
-            "source_offset_end": len(assertion),
-            "quote": assertion,
-        },
+        "source_anchor": source_anchor,
         "status": "effective",
         "value_policy": "exact",
         "governed_values": [],
@@ -49,19 +69,50 @@ def _authoritative_fact(*, fact_id: str, scope_id: str, assertion: str) -> dict:
     }
 
 
+def _test_points(name: str = "核心流程") -> list[dict]:
+    return [
+        {
+            "name": name,
+            "objective": f"验证{name}",
+            "test_designs": [
+                {
+                    "technique": "场景法",
+                    "rationale": "覆盖需求明确声明的业务流程",
+                    "coverage_items": [name],
+                }
+            ],
+        }
+    ]
+
+
+def _fact_design_routes(fact_ids: list[str]) -> list[dict]:
+    return [
+        {"fact_id": fact_id, "test_design_item_indexes": [0]}
+        for fact_id in fact_ids
+    ]
+
+
 def _business_modules() -> list[dict]:
     return [
         {
             "name": "课程学习",
             "objective": "支持课程进入、学习内容展示和学习进度更新。",
+            "actors": ["用户"],
             "lifecycle": "未学习->学习中->已完成",
+            "test_points": _test_points("课程学习"),
             "evidence_ids": ["EV-0001"],
+            "fact_ids": ["F-001"],
+            "fact_design_routes": _fact_design_routes(["F-001"]),
         },
         {
             "name": "作品审核",
             "objective": "支持作品投稿、审核、发布和退回。",
+            "actors": ["用户"],
             "lifecycle": "未投稿->审核中->已发布/已退回",
+            "test_points": _test_points("作品审核"),
             "evidence_ids": ["EV-0002"],
+            "fact_ids": ["F-002"],
+            "fact_design_routes": _fact_design_routes(["F-002"]),
         },
     ]
 
@@ -75,6 +126,7 @@ def _generated_case(case_id: str, title: str, module: str) -> dict:
         "preconditions": [],
         "steps": [{"action": "执行需求动作", "expected": "需求结果可验证"}],
         "tags": ["主流程"],
+        "test_design_item_ids": [],
     }
 
 
@@ -88,6 +140,152 @@ def _generated_binding(case_id: str, fact_id: str) -> dict:
                 "action_fact_ids": [fact_id],
                 "expected_fact_ids": [fact_id],
             }
+        ],
+    }
+
+
+def _inline_grounding_output(
+    output: dict,
+    *,
+    include_tags: bool = True,
+) -> dict:
+    bindings_by_case_id = {
+        binding["case_id"]: binding for binding in output["case_fact_bindings"]
+    }
+    inline_cases: list[dict] = []
+    for case in output["test_cases"]:
+        binding = bindings_by_case_id[case["case_id"]]
+        preconditions_by_index = {
+            item["precondition_index"]: item
+            for item in binding["precondition_bindings"]
+        }
+        steps_by_index = {
+            item["step_index"]: item for item in binding["step_bindings"]
+        }
+        inline_case = {
+            "title": case["title"],
+            "priority": case["priority"],
+            "preconditions": [
+                {
+                    "text": text,
+                    "fact_ids": preconditions_by_index[index]["fact_ids"],
+                }
+                for index, text in enumerate(case["preconditions"])
+            ],
+            "steps": [
+                {
+                    "action": step["action"],
+                    "expected": step["expected"],
+                    "fact_bindings": {
+                        "action": steps_by_index[index]["action_fact_ids"],
+                        "expected": steps_by_index[index]["expected_fact_ids"],
+                    },
+                }
+                for index, step in enumerate(case["steps"])
+            ],
+            "test_design_item_ids": list(case["test_design_item_ids"]),
+        }
+        if include_tags:
+            inline_case["tags"] = list(case.get("tags") or [])
+        inline_cases.append(inline_case)
+    return {"test_cases": inline_cases}
+
+
+def test_design_items_follow_relevant_facts_across_batch_boundaries() -> None:
+    design_items = [
+        {
+            "test_design_item_id": "TD-001-001-001",
+            "module_index": 0,
+            "module_name": "订单处理",
+            "test_point": "支付与积分",
+            "technique": "场景法",
+            "rationale": "覆盖订单支付到积分发放的完整流程",
+            "coverage_intent": "订单支付成功后发放积分",
+        },
+        {
+            "test_design_item_id": "TD-001-002-001",
+            "module_index": 0,
+            "module_name": "订单处理",
+            "test_point": "订单查询",
+            "technique": "等价类",
+            "rationale": "覆盖不同订单状态的查询结果",
+            "coverage_intent": "订单列表按状态筛选",
+        },
+    ]
+    fact_groups = [
+        [
+            _authoritative_fact(
+                fact_id="F-001",
+                scope_id="EV-0001",
+                assertion="订单支持在线支付",
+            )
+        ],
+        [
+            _authoritative_fact(
+                fact_id="F-002",
+                scope_id="EV-0002",
+                assertion="支付完成后向用户发放积分",
+            )
+        ],
+        [
+            _authoritative_fact(
+                fact_id="F-003",
+                scope_id="EV-0003",
+                assertion="订单列表支持按订单状态筛选",
+            )
+        ],
+        [
+            _authoritative_fact(
+                fact_id="F-004",
+                scope_id="EV-0004",
+                assertion="导出订单入口不再提供",
+            )
+        ],
+    ]
+
+    allocated = _allocate_test_design_items_to_fact_groups(
+        design_items=design_items,
+        fact_groups=fact_groups,
+        fact_design_routes=[
+            {"fact_id": "F-001", "test_design_item_indexes": [0]},
+            {"fact_id": "F-002", "test_design_item_indexes": [0]},
+            {"fact_id": "F-003", "test_design_item_indexes": [1]},
+            {"fact_id": "F-004", "test_design_item_indexes": []},
+        ],
+    )
+
+    allocated_ids = [
+        [item["test_design_item_id"] for item in group]
+        for group in allocated
+    ]
+    assert allocated_ids == [
+        ["TD-001-001-001"],
+        ["TD-001-001-001"],
+        ["TD-001-002-001"],
+        [],
+    ]
+    assert all(len(group) == len(set(group)) for group in allocated_ids)
+
+
+def _case_fact_contract(case_count: int, *fact_ids: str) -> dict:
+    target_case_ids = [f"TC-{index:03d}" for index in range(1, case_count + 1)]
+    facts_by_case = [[] for _ in target_case_ids]
+    for index, fact_id in enumerate(fact_ids):
+        facts_by_case[index % case_count].append(fact_id)
+    for index, assigned in enumerate(facts_by_case):
+        if not assigned:
+            assigned.append(fact_ids[index % len(fact_ids)])
+    return {
+        "target_case_ids": target_case_ids,
+        "required_fact_ids": list(fact_ids),
+        "required_test_design_item_ids": [],
+        "coverage_slots": [
+            {
+                "case_id": case_id,
+                "required_fact_ids": facts_by_case[index],
+                "required_test_design_item_ids": [],
+            }
+            for index, case_id in enumerate(target_case_ids)
         ],
     }
 
@@ -106,6 +304,7 @@ def test_merge_grounded_generation_batches_reindexes_and_keeps_fact_bindings() -
             "case_budget": 1,
             "batch": {"module_name": module},
             "authoritative_facts": [fact],
+            "case_fact_contract": _case_fact_contract(1, "FACT-001"),
         },
         {
             "requirement": fact["assertion"],
@@ -113,6 +312,7 @@ def test_merge_grounded_generation_batches_reindexes_and_keeps_fact_bindings() -
             "case_budget": 1,
             "batch": {"module_name": module},
             "authoritative_facts": [fact],
+            "case_fact_contract": _case_fact_contract(1, "FACT-001"),
         },
     ]
     records = [
@@ -184,6 +384,298 @@ def test_merge_grounded_generation_batches_rejects_underfilled_batch() -> None:
                     }
                 ],
                 "case_budget": 2,
+            },
+        )
+
+
+def test_generation_item_postprocessor_rejects_wrong_count_and_normalizes_bindings() -> None:
+    module = "课程学习"
+    fact = _authoritative_fact(
+        fact_id="FACT-001",
+        scope_id="EV-0001",
+        assertion="用户可以进入课程并看到课程内容",
+    )
+    item_input = {
+        "plan": {"business_module": {"name": module}},
+        "case_budget": 1,
+        "batch": {"module_name": module},
+        "authoritative_facts": [fact],
+        "case_fact_contract": _case_fact_contract(1, "FACT-001"),
+    }
+    valid_output = {
+        "test_cases": [_generated_case("TC-001", "进入课程", module)],
+        "case_fact_bindings": [_generated_binding("TC-001", "FACT-001")],
+    }
+
+    inline_output = _inline_grounding_output(valid_output)
+    validate(instance=inline_output, schema=MODEL_GROUNDING_SCHEMA)
+    normalized = postprocess_generation_batch_item(
+        SimpleNamespace(artifacts={}),
+        {
+            "item_input": item_input,
+            "item_output": inline_output,
+        },
+    )
+    assert normalized == valid_output
+    validate(instance=normalized, schema=GROUNDING_SCHEMA)
+
+    normalized_without_tags = postprocess_generation_batch_item(
+        SimpleNamespace(artifacts={}),
+        {
+            "item_input": item_input,
+            "item_output": _inline_grounding_output(
+                valid_output,
+                include_tags=False,
+            ),
+        },
+    )
+    assert normalized_without_tags["test_cases"][0]["tags"] == []
+
+    with pytest.raises(ValueError, match="模型用例数量与平台编号契约不一致"):
+        postprocess_generation_batch_item(
+            SimpleNamespace(artifacts={}),
+            {
+                "item_input": item_input,
+                "item_output": {
+                    "test_cases": _inline_grounding_output(valid_output)["test_cases"]
+                    * 2,
+                },
+            },
+        )
+
+
+def test_generation_item_postprocessor_derives_design_ids_from_fact_bindings() -> None:
+    module = "课程学习"
+    design_id = "TD-001-001-001"
+    fact = _authoritative_fact(
+        fact_id="FACT-001",
+        scope_id="EV-0001",
+        assertion="用户可以进入课程并看到课程内容",
+    )
+    case = _generated_case("TC-001", "进入课程", module)
+    case["test_design_item_ids"] = []
+    inline_output = _inline_grounding_output(
+        {
+            "test_cases": [case],
+            "case_fact_bindings": [_generated_binding("TC-001", "FACT-001")],
+        }
+    )
+    inline_output["test_cases"][0].pop("test_design_item_ids")
+    item_input = {
+        "plan": {
+            "business_module": {"name": module},
+            "test_design_items": [{"test_design_item_id": design_id}],
+        },
+        "case_budget": 1,
+        "batch": {
+            "module_name": module,
+            "required_test_design_item_ids": [design_id],
+        },
+        "authoritative_facts": [fact],
+        "case_fact_contract": {
+            "target_case_ids": ["TC-001"],
+            "required_fact_ids": ["FACT-001"],
+            "required_test_design_item_ids": [design_id],
+            "fact_design_item_ids": {"FACT-001": [design_id]},
+            "coverage_slots": [
+                {
+                    "case_id": "TC-001",
+                    "required_fact_ids": ["FACT-001"],
+                    "required_test_design_item_ids": [design_id],
+                }
+            ],
+        },
+    }
+
+    normalized = postprocess_generation_batch_item(
+        SimpleNamespace(artifacts={}),
+        {"item_input": item_input, "item_output": inline_output},
+    )
+
+    assert normalized["test_cases"][0]["test_design_item_ids"] == [design_id]
+
+
+def test_generation_item_postprocessor_requires_planned_test_design_coverage() -> None:
+    module = "课程学习"
+    fact = _authoritative_fact(
+        fact_id="FACT-001",
+        scope_id="EV-0001",
+        assertion="用户可以进入课程并看到课程内容",
+    )
+    missing_fact = _authoritative_fact(
+        fact_id="FACT-002",
+        scope_id="EV-0001",
+        assertion="课程入口支持返回课程列表",
+    )
+    design_item = {
+        "test_design_item_id": "TD-001-001-001",
+        "module_index": 0,
+        "module_name": module,
+        "test_point": "课程入口",
+        "technique": "场景法",
+        "rationale": "覆盖课程入口主流程",
+        "coverage_intent": "用户进入课程并看到课程内容",
+    }
+    item_input = {
+        "plan": {
+            "business_module": {"name": module},
+            "test_design_items": [design_item],
+        },
+        "case_budget": 1,
+        "batch": {
+            "module_name": module,
+            "required_test_design_item_ids": ["TD-001-001-001"],
+        },
+        "authoritative_facts": [fact, missing_fact],
+        "case_fact_contract": {
+            **_case_fact_contract(1, "FACT-001", "FACT-002"),
+            "required_test_design_item_ids": ["TD-001-001-001"],
+            "coverage_slots": [
+                {
+                    "case_id": "TC-001",
+                    "required_fact_ids": ["FACT-001", "FACT-002"],
+                    "required_test_design_item_ids": ["TD-001-001-001"],
+                }
+            ],
+        },
+    }
+    case = _generated_case("TC-001", "进入课程", module)
+    output = {
+        "test_cases": [case],
+        "case_fact_bindings": [_generated_binding("TC-001", "FACT-001")],
+    }
+
+    with pytest.raises(ValueError) as exc_info:
+        postprocess_generation_batch_item(
+            SimpleNamespace(artifacts={}),
+            {
+                "item_input": item_input,
+                "item_output": _inline_grounding_output(output),
+            },
+        )
+    feedback = str(exc_info.value)
+    assert "生成批次未完整覆盖平台要求的事实" in feedback
+    assert "FACT-002" in feedback
+    assert "生成批次测试设计覆盖不符合平台契约" in feedback
+    assert "TD-001-001-001" in feedback
+
+    case["test_design_item_ids"] = ["TD-001-001-001"]
+    output["case_fact_bindings"][0]["step_bindings"][0]["expected_fact_ids"].append(
+        "FACT-002"
+    )
+    normalized = postprocess_generation_batch_item(
+        SimpleNamespace(artifacts={}),
+        {
+            "item_input": item_input,
+            "item_output": _inline_grounding_output(output),
+        },
+    )
+    assert normalized["test_cases"][0]["test_design_item_ids"] == [
+        "TD-001-001-001"
+    ]
+
+
+def test_generation_item_postprocessor_accepts_multiple_grounded_cases() -> None:
+    module = "课程学习"
+    facts = [
+        _authoritative_fact(
+            fact_id="FACT-001",
+            scope_id="EV-0001",
+            assertion="用户可以进入课程",
+        ),
+        _authoritative_fact(
+            fact_id="FACT-002",
+            scope_id="EV-0001",
+            assertion="课程展示学习内容",
+        ),
+    ]
+    output = {
+        "test_cases": [
+            _generated_case("TC-001", "进入课程", module),
+            _generated_case("TC-002", "查看课程内容", module),
+        ],
+        "case_fact_bindings": [
+            _generated_binding("TC-001", "FACT-001"),
+            _generated_binding("TC-002", "FACT-002"),
+        ],
+    }
+
+    normalized = postprocess_generation_batch_item(
+        SimpleNamespace(artifacts={}),
+        {
+            "item_input": {
+                "plan": {"business_module": {"name": module}},
+                "case_budget": 2,
+                "batch": {"module_name": module},
+                "authoritative_facts": facts,
+                "case_fact_contract": _case_fact_contract(2, "FACT-001", "FACT-002"),
+            },
+            "item_output": _inline_grounding_output(output),
+        },
+    )
+
+    assert normalized == output
+
+    regrouped_output = {
+        **output,
+        "case_fact_bindings": [
+            {
+                **_generated_binding("TC-001", "FACT-001"),
+                "step_bindings": [
+                    {
+                        "step_index": 0,
+                        "action_fact_ids": ["FACT-001", "FACT-002"],
+                        "expected_fact_ids": ["FACT-001", "FACT-002"],
+                    }
+                ],
+            },
+            _generated_binding("TC-002", "FACT-001"),
+        ],
+    }
+    regrouped = postprocess_generation_batch_item(
+        SimpleNamespace(artifacts={}),
+        {
+            "item_input": {
+                "plan": {"business_module": {"name": module}},
+                "case_budget": 2,
+                "batch": {"module_name": module},
+                "authoritative_facts": facts,
+                "case_fact_contract": _case_fact_contract(
+                    2,
+                    "FACT-001",
+                    "FACT-002",
+                ),
+            },
+            "item_output": _inline_grounding_output(regrouped_output),
+        },
+    )
+    assert regrouped["case_fact_bindings"] == regrouped_output[
+        "case_fact_bindings"
+    ]
+
+    invalid_output = {
+        **output,
+        "case_fact_bindings": [
+            _generated_binding("TC-001", "FACT-001"),
+            _generated_binding("TC-002", "FACT-001"),
+        ],
+    }
+    with pytest.raises(ValueError, match="未完整覆盖平台要求的事实"):
+        postprocess_generation_batch_item(
+            SimpleNamespace(artifacts={}),
+            {
+                "item_input": {
+                    "plan": {"business_module": {"name": module}},
+                    "case_budget": 2,
+                    "batch": {"module_name": module},
+                    "authoritative_facts": facts,
+                    "case_fact_contract": _case_fact_contract(
+                        2,
+                        "FACT-001",
+                        "FACT-002",
+                    ),
+                },
+                "item_output": _inline_grounding_output(invalid_output),
             },
         )
 
@@ -270,12 +762,14 @@ def test_coverage_focus_keeps_parenthesized_enumeration_complete() -> None:
                 "name": "内容记录",
                 "objective": "展示历史记录与个人内容。",
                 "lifecycle": None,
+                "test_points": _test_points("内容记录"),
                 "evidence_ids": ["EV-0001"],
             },
             {
                 "name": "访客拦截",
                 "objective": "拦截访客访问并引导登录。",
                 "lifecycle": None,
+                "test_points": _test_points("访客拦截"),
                 "evidence_ids": ["EV-0002"],
             },
         ],
@@ -303,6 +797,8 @@ def test_risks_are_assigned_uniquely_and_ambiguous_risk_is_not_injected() -> Non
 
 def test_batch_plan_contract_accepts_evidence_ids_and_empty_risks() -> None:
     module = _business_modules()[0]
+    module.pop("fact_design_routes")
+    module.pop("test_points")
 
     validate(
         instance={
@@ -310,6 +806,7 @@ def test_batch_plan_contract_accepts_evidence_ids_and_empty_risks() -> None:
             "business_module": {**module, "actors": ["用户"]},
             "coverage_focus": _batch_focus(module, []),
             "risks": [],
+            "test_design_items": [],
         },
         schema=BATCH_PLAN_SCHEMA,
     )
@@ -389,70 +886,13 @@ def test_evidence_catalog_ids_and_fields_are_stable_for_input_order() -> None:
     }
 
 
-def test_catalog_rejects_duplicate_ids() -> None:
-    catalog = _catalog(
-        _fragment(chunk_index=1, page_number=2, text="课程学习真实正文。"),
-        _fragment(chunk_index=2, page_number=3, text="作品审核真实正文。"),
-    )
-    catalog["items"][1]["evidence_id"] = "EV-0001"
-
-    with pytest.raises(ValueError, match="证据目录包含重复 ID"):
-        _evidence_catalog_index(catalog, source={"document_id": 41})
-
-
-def test_module_rejects_unknown_evidence_id() -> None:
-    catalog_index = _evidence_catalog_index(
-        _catalog(_fragment(chunk_index=1, page_number=2, text="课程学习真实正文。")),
-        source={"document_id": 41},
-    )
-
-    with pytest.raises(ValueError, match="未知证据 ID"):
-        _select_module_evidence(
-            module={"name": "课程学习", "evidence_ids": ["EV-9999"]},
-            catalog_index=catalog_index,
-        )
-
-
-def test_module_rejects_duplicate_evidence_ids() -> None:
-    catalog_index = _evidence_catalog_index(
-        _catalog(_fragment(chunk_index=1, page_number=2, text="课程学习真实正文。")),
-        source={"document_id": 41},
-    )
-
-    with pytest.raises(ValueError, match="模块 evidence_ids 包含重复 ID"):
-        _select_module_evidence(
-            module={"name": "课程学习", "evidence_ids": ["EV-0001", "EV-0001"]},
-            catalog_index=catalog_index,
-        )
-
-
-def test_modules_restore_only_the_fragments_selected_by_ids() -> None:
-    course = _fragment(chunk_index=1, page_number=2, text="课程学习真实正文。")
-    review = _fragment(chunk_index=7, page_number=8, text="作品审核真实正文。")
-    catalog = _catalog(review, course)
-    catalog_index = _evidence_catalog_index(catalog, source={"document_id": 41})
-
-    course_text, course_chunks = _select_module_evidence(
-        module={"name": "课程学习", "evidence_ids": ["EV-0001"]},
-        catalog_index=catalog_index,
-    )
-    review_text, review_chunks = _select_module_evidence(
-        module={"name": "作品审核", "evidence_ids": ["EV-0002"]},
-        catalog_index=catalog_index,
-    )
-
-    assert course_text == course["text"]
-    assert review_text == review["text"]
-    assert [item["page_number"] for item in course_chunks] == [2]
-    assert [item["page_number"] for item in review_chunks] == [8]
-
-
 def test_prepare_batches_routes_cross_module_evidence_only_by_ids() -> None:
     course = _fragment(chunk_index=1, page_number=2, text="课程学习真实正文。")
     review = _fragment(chunk_index=7, page_number=8, text="作品审核真实正文。")
 
+    context = SimpleNamespace(artifacts={})
     result = prepare_test_case_batches(
-        SimpleNamespace(artifacts={}),
+        context,
         {
             "plan": {
                 "requirement_summary": "课程学习与作品审核。",
@@ -462,14 +902,20 @@ def test_prepare_batches_routes_cross_module_evidence_only_by_ids() -> None:
                         "objective": "完成课程学习",
                         "actors": ["用户"],
                         "lifecycle": None,
+                        "test_points": _test_points("课程学习"),
                         "evidence_ids": ["EV-0001"],
+                        "fact_ids": ["F-001"],
+                        "fact_design_routes": _fact_design_routes(["F-001"]),
                     },
                     {
                         "name": "作品审核",
                         "objective": "完成作品审核",
                         "actors": ["用户"],
                         "lifecycle": None,
+                        "test_points": _test_points("作品审核"),
                         "evidence_ids": ["EV-0002"],
+                        "fact_ids": ["F-002"],
+                        "fact_design_routes": _fact_design_routes(["F-002"]),
                     },
                 ],
                 "coverage_focus": [],
@@ -500,718 +946,656 @@ def test_prepare_batches_routes_cross_module_evidence_only_by_ids() -> None:
         "F-001",
         "F-002",
     ]
+    assert [
+        item["plan"]["test_design_items"][0]["test_design_item_id"]
+        for item in result["items"]
+    ] == ["TD-001-001-001", "TD-002-001-001"]
+    assert [
+        item["case_fact_contract"]["required_test_design_item_ids"]
+        for item in result["items"]
+    ] == [["TD-001-001-001"], ["TD-002-001-001"]]
 
 
-def test_same_evidence_id_can_be_reused_across_batches() -> None:
-    shared = _fragment(chunk_index=3, page_number=4, text="共享真实正文。")
-    catalog_index = _evidence_catalog_index(
-        _catalog(shared),
-        source={"document_id": 41},
+def test_prepare_batches_removes_modules_whose_routed_facts_became_inactive() -> None:
+    effective_fact = _authoritative_fact(
+        fact_id="F-NEW",
+        scope_id="EV-0002",
+        assertion="新规则替代旧规则后继续生效",
     )
-    module = {"name": "共享模块", "evidence_ids": ["EV-0001"]}
+    context = SimpleNamespace(artifacts={})
 
-    assert _select_module_evidence(
-        module=module,
-        catalog_index=catalog_index,
-    ) == _select_module_evidence(
-        module=module,
-        catalog_index=catalog_index,
-    )
-
-
-def _draft_plan() -> dict:
-    return {
-        "requirement_summary": "课程学习与作品审核。",
-        "business_modules": [
-            {
-                "name": "课程学习",
-                "objective": "完成课程学习",
-                "actors": ["用户"],
-                "lifecycle": None,
+    result = prepare_test_case_batches(
+        context,
+        {
+            "plan": {
+                "requirement_summary": "旧规则已被新规则替代。",
+                "business_modules": [
+                    {
+                        "name": "旧规则模块",
+                        "objective": "仅承载已经失效的旧规则",
+                        "actors": ["用户"],
+                        "lifecycle": None,
+                        "test_points": _test_points("旧规则"),
+                        "evidence_ids": ["EV-0001"],
+                        "fact_ids": ["F-OLD"],
+                        "fact_design_routes": _fact_design_routes(["F-OLD"]),
+                    },
+                    {
+                        "name": "当前规则模块",
+                        "objective": "覆盖当前有效规则",
+                        "actors": ["用户"],
+                        "lifecycle": None,
+                        "test_points": _test_points("当前规则"),
+                        "evidence_ids": ["EV-0002"],
+                        "fact_ids": ["F-NEW"],
+                        "fact_design_routes": _fact_design_routes(["F-NEW"]),
+                    },
+                ],
+                "coverage_focus": [],
+                "risks": [],
             },
-            {
-                "name": "作品审核",
-                "objective": "完成作品审核",
-                "actors": ["用户"],
-                "lifecycle": "待审核->已发布",
+            "effective_facts": [effective_fact],
+            "case_budget": 1,
+            "batch_case_limit": 1,
+        },
+    )
+
+    assert result["items"][0]["batch"]["module_name"] == "当前规则模块"
+    assert context.artifacts["generation_batch_plan"]["planned_module_count"] == 2
+    assert context.artifacts["generation_batch_plan"]["active_module_count"] == 1
+    assert context.artifacts["generation_batch_plan"]["inactive_modules"] == [{
+        "planned_module_index": 0,
+        "module_name": "旧规则模块",
+        "reason": "all_routed_facts_inactive",
+    }]
+
+
+def test_prepare_batches_removes_designs_only_supported_by_inactive_facts() -> None:
+    effective_fact = _authoritative_fact(
+        fact_id="F-NEW",
+        scope_id="EV-0001",
+        assertion="新规则替代旧规则后继续生效",
+    )
+    context = SimpleNamespace(artifacts={})
+
+    result = prepare_test_case_batches(
+        context,
+        {
+            "plan": {
+                "requirement_summary": "同一模块内旧规则已被新规则替代。",
+                "business_modules": [
+                    {
+                        "name": "规则管理",
+                        "objective": "覆盖当前有效规则",
+                        "actors": ["用户"],
+                        "lifecycle": None,
+                        "test_points": [
+                            {
+                                "name": "规则切换",
+                                "objective": "验证规则切换后的行为",
+                                "test_designs": [
+                                    {
+                                        "technique": "场景法",
+                                        "rationale": "分别覆盖旧规则和当前规则",
+                                        "coverage_items": [
+                                            "旧规则",
+                                            "当前规则",
+                                            "新旧规则共用校验",
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                        "evidence_ids": ["EV-0001"],
+                        "fact_ids": ["F-OLD", "F-NEW"],
+                        "fact_design_routes": [
+                            {
+                                "fact_id": "F-OLD",
+                                "test_design_item_indexes": [0, 2],
+                            },
+                            {
+                                "fact_id": "F-NEW",
+                                "test_design_item_indexes": [1, 2],
+                            },
+                        ],
+                    }
+                ],
+                "coverage_focus": [],
+                "risks": [],
             },
-        ],
-        "coverage_focus": ["覆盖课程学习", "覆盖作品审核"],
-        "risks": ["审核状态不一致"],
-    }
-
-
-def _routing_catalog() -> dict:
-    return _catalog(
-        _fragment(chunk_index=1, page_number=2, text="课程学习真实正文。"),
-        _fragment(chunk_index=7, page_number=8, text="作品审核真实正文。"),
-        _fragment(chunk_index=9, page_number=10, text="需求文档通用背景。"),
+            "effective_facts": [effective_fact],
+            "case_budget": 1,
+            "batch_case_limit": 1,
+        },
     )
 
-
-def _reviewed_routing(
-    routes: list[dict],
-    *,
-    accounting: list[dict] | None = None,
-) -> dict:
-    if accounting is None:
-        module_indexes_by_id = {
-            "EV-0001": [],
-            "EV-0002": [],
-            "EV-0003": [],
-        }
-        for route in routes:
-            module_index = route.get("module_index")
-            for evidence_id in route.get("evidence_ids") or []:
-                if evidence_id in module_indexes_by_id:
-                    module_indexes_by_id[evidence_id].append(module_index)
-        accounting = [
-            {
-                "evidence_id": evidence_id,
-                "module_indexes": module_indexes,
-                "disposition": "assigned" if module_indexes else "context_only",
-                "reason": (
-                    "直接支持已列出的业务模块"
-                    if module_indexes
-                    else "仅提供需求整体背景，不直接支持任一模块"
-                ),
-            }
-            for evidence_id, module_indexes in module_indexes_by_id.items()
-        ]
-    return {"evidence_accounting": accounting}
+    item = result["items"][0]
+    assert item["plan"]["business_module"]["fact_ids"] == ["F-NEW"]
+    assert "test_points" not in item["plan"]["business_module"]
+    assert [
+        design["test_design_item_id"]
+        for design in item["plan"]["test_design_items"]
+    ] == ["TD-001-001-002", "TD-001-001-003"]
+    assert item["case_fact_contract"]["required_test_design_item_ids"] == [
+        "TD-001-001-002",
+        "TD-001-001-003",
+    ]
+    assert context.artifacts["generation_batch_plan"][
+        "inactive_test_design_item_ids"
+    ] == ["TD-001-001-001"]
 
 
-def _map_record(item_index: int, prepared: dict, output: dict) -> dict:
-    encoded = json.dumps(
-        prepared,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return {
-        "item_index": item_index,
-        "input_hash": hashlib.sha256(encoded).hexdigest(),
-        "output": output,
-    }
+def test_prepare_batches_keeps_fact_without_matching_planned_design() -> None:
+    facts = [
+        _authoritative_fact(
+            fact_id="F-SHOW",
+            scope_id="EV-0001",
+            assertion="展示处理结果",
+        ),
+        _authoritative_fact(
+            fact_id="F-REMOVED",
+            scope_id="EV-0001",
+            assertion="导出入口不再提供",
+        ),
+    ]
+    context = SimpleNamespace(artifacts={})
 
-
-def test_prepare_evidence_accounting_batches_obeys_text_and_item_budgets() -> None:
-    catalog = _catalog(
-        *[
-            _fragment(
-                chunk_index=index,
-                page_number=index,
-                text=str(index) * 1800,
-            )
-            for index in range(1, 10)
-        ]
+    result = prepare_test_case_batches(
+        context,
+        {
+            "plan": {
+                "requirement_summary": "功能保留展示，同时下线导出入口。",
+                "business_modules": [
+                    {
+                        "name": "结果展示",
+                        "objective": "展示处理结果",
+                        "actors": ["用户"],
+                        "lifecycle": None,
+                        "test_points": _test_points("结果展示"),
+                        "evidence_ids": ["EV-0001"],
+                        "fact_ids": ["F-SHOW", "F-REMOVED"],
+                        "fact_design_routes": [
+                            {
+                                "fact_id": "F-SHOW",
+                                "test_design_item_indexes": [0],
+                            },
+                            {
+                                "fact_id": "F-REMOVED",
+                                "test_design_item_indexes": [],
+                            },
+                        ],
+                    }
+                ],
+                "coverage_focus": [],
+                "risks": [],
+            },
+            "effective_facts": facts,
+            "case_budget": 1,
+            "batch_case_limit": 1,
+        },
     )
 
-    result = prepare_evidence_accounting_batches(
+    item = result["items"][0]
+    assert item["case_fact_contract"]["required_fact_ids"] == [
+        "F-SHOW",
+        "F-REMOVED",
+    ]
+    assert item["case_fact_contract"]["required_test_design_item_ids"] == [
+        "TD-001-001-001"
+    ]
+    assert context.artifacts["generation_batch_plan"][
+        "unmatched_test_design_fact_ids"
+    ] == ["F-REMOVED"]
+
+
+def test_prepare_batches_distributes_large_module_facts_without_duplication() -> None:
+    facts = [
+        _authoritative_fact(
+            fact_id=f"F-{index:03d}",
+            scope_id="EV-0001",
+            assertion=f"真实规则 {index}",
+        )
+        for index in range(1, 61)
+    ]
+    context = SimpleNamespace(artifacts={})
+    result = prepare_test_case_batches(
+        context,
+        {
+            "plan": {
+                "requirement_summary": "大模块真实需求",
+                "business_modules": [
+                    {
+                        "name": "大模块",
+                        "objective": "覆盖全部真实规则",
+                        "actors": ["用户"],
+                        "lifecycle": None,
+                        "test_points": _test_points("全部真实规则"),
+                        "evidence_ids": ["EV-0001"],
+                        "fact_ids": [fact["fact_id"] for fact in facts],
+                        "fact_design_routes": _fact_design_routes(
+                            [fact["fact_id"] for fact in facts]
+                        ),
+                    }
+                ],
+                "coverage_focus": [],
+                "risks": [],
+            },
+            "effective_facts": facts,
+            "case_budget": 8,
+            "batch_case_limit": 5,
+        },
+    )
+
+    assert result["batch_count"] == math.ceil(
+        len(facts) / GENERATION_MAX_REQUIRED_FACTS_PER_BATCH
+    )
+    assert sum(item["case_budget"] for item in result["items"]) == 8
+    assert all(1 <= item["case_budget"] <= 5 for item in result["items"])
+    assigned_ids = [
+        fact["fact_id"]
+        for item in result["items"]
+        for fact in item["authoritative_facts"]
+    ]
+    assert sorted(assigned_ids) == sorted(fact["fact_id"] for fact in facts)
+    assert len(assigned_ids) == len(set(assigned_ids))
+    assert context.artifacts["generation_batch_plan"]["effective_fact_count"] == 60
+    assert context.artifacts["generation_batch_plan"]["fact_assignment_count"] == 60
+    assert context.artifacts["generation_batch_plan"]["shared_fact_count"] == 0
+    assert context.artifacts["generation_batch_plan"]["max_fact_reuse"] == 1
+    assert max(item["batch"]["fact_json_chars"] for item in result["items"]) <= (
+        GENERATION_MAX_FACT_JSON_CHARS_PER_BATCH
+    )
+    assert max(item["batch"]["fact_count"] for item in result["items"]) <= (
+        GENERATION_MAX_REQUIRED_FACTS_PER_BATCH
+    )
+    assert all(item["batch"]["semantic_keywords"] == ["大模块"] for item in result["items"])
+    for item in result["items"]:
+        validate(instance=item, schema=GENERATION_BATCH_ITEM_SCHEMA)
+
+
+def test_prepare_batches_builds_exact_batch_fact_contract() -> None:
+    heavy_facts = [
+        _authoritative_fact(
+            fact_id=f"F-{index:03d}",
+            scope_id="EV-0001",
+            assertion=f"重来源规则 {index}",
+            page_number=1,
+        )
+        for index in range(1, 47)
+    ]
+    light_facts = [
+        _authoritative_fact(
+            fact_id=f"F-{index:03d}",
+            scope_id="EV-0001",
+            assertion=f"轻来源规则 {index}",
+        )
+        for index in range(47, 51)
+    ]
+
+    result = prepare_test_case_batches(
         SimpleNamespace(artifacts={}),
         {
-            "draft_plan": _draft_plan(),
-            "evidence_catalog": catalog,
+            "plan": {
+                "requirement_summary": "不同来源负载差异明显的真实需求",
+                "business_modules": [
+                    {
+                        "name": "规则管理",
+                        "objective": "覆盖全部规则",
+                        "actors": ["用户"],
+                        "lifecycle": None,
+                        "test_points": _test_points("全部规则"),
+                        "evidence_ids": ["EV-0001"],
+                        "fact_ids": [
+                            fact["fact_id"] for fact in [*heavy_facts, *light_facts]
+                        ],
+                        "fact_design_routes": _fact_design_routes(
+                            [
+                                fact["fact_id"]
+                                for fact in [*heavy_facts, *light_facts]
+                            ]
+                        ),
+                    }
+                ],
+                "coverage_focus": [],
+                "risks": [],
+            },
+            "effective_facts": [*heavy_facts, *light_facts],
+            "case_budget": 10,
+            "batch_case_limit": 5,
+        },
+    )
+
+    assert result["batch_count"] == (
+        math.ceil(len(heavy_facts) / GENERATION_MAX_REQUIRED_FACTS_PER_BATCH)
+        + math.ceil(len(light_facts) / GENERATION_MAX_REQUIRED_FACTS_PER_BATCH)
+    )
+    assert sum(item["case_budget"] for item in result["items"]) == 10
+    assert all(
+        item["batch"]["fact_count"] <= GENERATION_MAX_REQUIRED_FACTS_PER_BATCH
+        for item in result["items"]
+    )
+    assigned_ids = [
+        fact["fact_id"]
+        for item in result["items"]
+        for fact in item["authoritative_facts"]
+    ]
+    assert assigned_ids == [fact["fact_id"] for fact in [*heavy_facts, *light_facts]]
+    for item in result["items"]:
+        contract = item["case_fact_contract"]
+        assert contract["target_case_ids"] == [
+            f"TC-{index:03d}" for index in range(1, item["case_budget"] + 1)
+        ]
+        assert contract["required_fact_ids"] == [
+            fact["fact_id"] for fact in item["authoritative_facts"]
+        ]
+        slots = contract["coverage_slots"]
+        assert [slot["case_id"] for slot in slots] == contract["target_case_ids"]
+        assigned_fact_ids = [
+            fact_id for slot in slots for fact_id in slot["required_fact_ids"]
+        ]
+        assert len(assigned_fact_ids) == len(set(assigned_fact_ids))
+        assert set(assigned_fact_ids) == set(contract["required_fact_ids"])
+        assert max(len(slot["required_fact_ids"]) for slot in slots) - min(
+            len(slot["required_fact_ids"]) for slot in slots
+        ) <= 1
+        assert {
+            design_item_id
+            for slot in slots
+            for design_item_id in slot["required_test_design_item_ids"]
+        } == set(contract["required_test_design_item_ids"])
+
+
+def test_case_fact_contract_groups_facts_by_existing_design_routes() -> None:
+    facts = [
+        {"fact_id": fact_id}
+        for fact_id in ["F-A1", "F-B1", "F-C1", "F-A2", "F-B2", "F-C2"]
+    ]
+    design_items = [
+        {"test_design_item_id": design_id}
+        for design_id in ["TD-001", "TD-002", "TD-003"]
+    ]
+    fact_design_item_ids = {
+        "F-A1": ["TD-001"],
+        "F-A2": ["TD-001"],
+        "F-B1": ["TD-002"],
+        "F-B2": ["TD-002"],
+        "F-C1": ["TD-003"],
+        "F-C2": ["TD-003"],
+    }
+
+    contract = _build_case_fact_contract(
+        facts,
+        case_budget=3,
+        test_design_items=design_items,
+        fact_design_item_ids=fact_design_item_ids,
+    )
+
+    assert contract["coverage_slots"] == [
+        {
+            "case_id": "TC-001",
+            "required_fact_ids": ["F-A1", "F-A2"],
+            "required_test_design_item_ids": ["TD-001"],
+        },
+        {
+            "case_id": "TC-002",
+            "required_fact_ids": ["F-B1", "F-B2"],
+            "required_test_design_item_ids": ["TD-002"],
+        },
+        {
+            "case_id": "TC-003",
+            "required_fact_ids": ["F-C1", "F-C2"],
+            "required_test_design_item_ids": ["TD-003"],
+        },
+    ]
+
+
+def test_prepare_batches_limits_input_payload_and_output_binding_complexity() -> None:
+    facts = [
+        _authoritative_fact(
+            fact_id=f"F-{index:03d}",
+            scope_id="EV-0001",
+            assertion=f"短规则 {index}",
+        )
+        for index in range(1, 34)
+    ]
+
+    context = SimpleNamespace(artifacts={})
+    result = prepare_test_case_batches(
+        context,
+        {
+            "plan": {
+                "requirement_summary": "短事实集合",
+                "business_modules": [
+                    {
+                        "name": "规则管理",
+                        "objective": "覆盖全部短规则",
+                        "actors": ["用户"],
+                        "lifecycle": None,
+                        "test_points": _test_points("全部短规则"),
+                        "evidence_ids": ["EV-0001"],
+                        "fact_ids": [fact["fact_id"] for fact in facts],
+                        "fact_design_routes": _fact_design_routes(
+                            [fact["fact_id"] for fact in facts]
+                        ),
+                    }
+                ],
+                "coverage_focus": [],
+                "risks": [],
+            },
+            "effective_facts": facts,
+            "case_budget": 3,
+            "batch_case_limit": 5,
         },
     )
 
     assert result["batch_count"] == 3
-    assert result["evidence_count"] == 9
-    assert [
-        [item["evidence_id"] for item in batch["target_evidence_items"]]
-        for batch in result["items"]
-    ] == [
-        ["EV-0001", "EV-0002", "EV-0003"],
-        ["EV-0004", "EV-0005", "EV-0006"],
-        ["EV-0007", "EV-0008", "EV-0009"],
-    ]
-    for batch in result["items"]:
-        assert len(batch["target_evidence_items"]) <= MAX_EVIDENCE_ACCOUNTING_ITEMS_PER_BATCH
-        assert sum(
-            len(item["text"]) for item in batch["target_evidence_items"]
-        ) <= TARGET_EVIDENCE_ACCOUNTING_TEXT_CHARS
-        assert batch["draft_plan"] == _draft_plan()
-        assert set(batch) == {
-            "draft_plan",
-            "target_evidence_items",
-            "neighbor_context",
-        }
-
-    middle_neighbors = result["items"][1]["neighbor_context"]
-    assert [item["relative_position"] for item in middle_neighbors] == [
-        "previous",
-        "next",
-    ]
-    assert [item["evidence_id"] for item in middle_neighbors] == [
-        "EV-0003",
-        "EV-0007",
-    ]
-    assert [item["page_number"] for item in middle_neighbors] == [3, 7]
-    assert [item["chunk_index"] for item in middle_neighbors] == [3, 7]
-    assert middle_neighbors[0]["text"] == "3" * 600
-    assert middle_neighbors[1]["text"] == "7" * 600
-    assert all(item["text_truncated"] is True for item in middle_neighbors)
-    assert sum(len(item["text"]) for item in middle_neighbors) == (
-        MAX_EVIDENCE_ACCOUNTING_NEIGHBOR_CHARS
+    assert sum(item["case_budget"] for item in result["items"]) == 3
+    assert max(len(item["authoritative_facts"]) for item in result["items"]) <= (
+        GENERATION_MAX_REQUIRED_FACTS_PER_BATCH
     )
-    assert result["items"][0]["target_evidence_items"] == catalog["items"][:3]
-
-
-def test_prepare_evidence_accounting_batches_keeps_four_short_targets_per_batch() -> None:
-    catalog = _catalog(
-        *[
-            _fragment(chunk_index=index, page_number=index, text=f"证据{index}")
-            for index in range(1, 6)
-        ]
+    assert all(
+        item["batch"]["fact_json_chars"] <= GENERATION_MAX_FACT_JSON_CHARS_PER_BATCH
+        for item in result["items"]
     )
-
-    result = prepare_evidence_accounting_batches(
-        SimpleNamespace(artifacts={}),
-        {
-            "draft_plan": _draft_plan(),
-            "evidence_catalog": catalog,
-        },
-    )
-
-    assert [len(item["target_evidence_items"]) for item in result["items"]] == [4, 1]
+    assert context.artifacts["generation_batch_plan"][
+        "max_required_facts_per_batch"
+    ] == GENERATION_MAX_REQUIRED_FACTS_PER_BATCH
 
 
-def test_prepare_evidence_accounting_batches_rejects_upstream_forwarding() -> None:
-    catalog = _routing_catalog()
-
-    with pytest.raises(ValueError, match="只允许 draft_plan 和 evidence_catalog"):
-        prepare_evidence_accounting_batches(
-            SimpleNamespace(artifacts={}),
-            {
-                "draft_plan": _draft_plan(),
-                "evidence_catalog": catalog,
-                "upstream_assignments": [],
-            },
+def test_prepare_batches_rejects_case_budget_below_binding_complexity_minimum() -> None:
+    facts = [
+        _authoritative_fact(
+            fact_id=f"F-{index:03d}",
+            scope_id="EV-0001",
+            assertion=f"短规则 {index}",
         )
-
-
-def test_prepare_evidence_accounting_batches_rejects_oversized_single_item() -> None:
-    catalog = _catalog(
-        _fragment(
-            chunk_index=1,
-            page_number=1,
-            text="x" * (TARGET_EVIDENCE_ACCOUNTING_TEXT_CHARS + 1),
-        ),
-        _fragment(chunk_index=2, page_number=2, text="第二个模块证据"),
-    )
-
-    with pytest.raises(ValueError, match="单条证据正文超过"):
-        prepare_evidence_accounting_batches(
-            SimpleNamespace(artifacts={}),
-            {
-                "draft_plan": _draft_plan(),
-                "evidence_catalog": catalog,
-            },
-        )
-
-
-def test_prepare_evidence_accounting_batches_rejects_agent_map_overflow() -> None:
-    catalog = _catalog(
-        *[
-            _fragment(chunk_index=index, page_number=index, text=f"证据{index}")
-            for index in range(
-                1,
-                MAX_EVIDENCE_ACCOUNTING_BATCHES
-                * MAX_EVIDENCE_ACCOUNTING_ITEMS_PER_BATCH
-                + 2,
-            )
-        ]
-    )
-
-    with pytest.raises(ValueError, match="分片数超过 agent_map 上限"):
-        prepare_evidence_accounting_batches(
-            SimpleNamespace(artifacts={}),
-            {
-                "draft_plan": _draft_plan(),
-                "evidence_catalog": catalog,
-            },
-        )
-
-
-def _prepared_accounting_fixture() -> dict:
-    catalog = _routing_catalog()
-    return prepare_evidence_accounting_batches(
-        SimpleNamespace(artifacts={}),
-        {
-            "draft_plan": _draft_plan(),
-            "evidence_catalog": catalog,
-        },
-    )
-
-
-def _accounting_output(prepared: dict) -> dict:
-    return {
-        "evidence_accounting": [
-            {
-                "evidence_id": target["evidence_id"],
-                "module_indexes": (
-                    []
-                    if target["evidence_id"] == "EV-0003"
-                    else [(int(target["evidence_id"].split("-")[1]) - 1) % 2]
-                ),
-                "disposition": (
-                    "context_only"
-                    if target["evidence_id"] == "EV-0003"
-                    else "assigned"
-                ),
-                "reason": (
-                    "仅作为全局背景"
-                    if target["evidence_id"] == "EV-0003"
-                    else "Reviewer 直接判断支持已有模块"
-                ),
-            }
-            for target in prepared["target_evidence_items"]
-        ]
-    }
-
-
-def test_merge_evidence_accounting_batches_binds_records_and_catalog_order() -> None:
-    catalog = _catalog(
-        *[
-            _fragment(chunk_index=index, page_number=index, text=f"证据{index}")
-            for index in range(1, 6)
-        ]
-    )
-    prepared = prepare_evidence_accounting_batches(
-        SimpleNamespace(artifacts={}),
-        {
-            "draft_plan": _draft_plan(),
-            "evidence_catalog": catalog,
-        },
-    )["items"]
-    records = [
-        _map_record(index, item, _accounting_output(item))
-        for index, item in enumerate(prepared)
+        for index in range(1, GENERATION_MAX_REQUIRED_FACTS_PER_BATCH + 2)
     ]
 
-    merged = merge_evidence_accounting_batches(
-        SimpleNamespace(artifacts={}),
-        {
-            "prepared_items": prepared,
-            "routing_records": list(reversed(records)),
-        },
-    )
-
-    assert [item["evidence_id"] for item in merged["evidence_accounting"]] == [
-        "EV-0001",
-        "EV-0002",
-        "EV-0003",
-        "EV-0004",
-        "EV-0005",
-    ]
-
-
-def test_merge_evidence_accounting_batches_rejects_input_hash_mismatch() -> None:
-    prepared = _prepared_accounting_fixture()["items"]
-    record = _map_record(0, prepared[0], _accounting_output(prepared[0]))
-    record["input_hash"] = "0" * 64
-
-    with pytest.raises(ValueError, match="输入指纹不一致"):
-        merge_evidence_accounting_batches(
-            SimpleNamespace(artifacts={}),
-            {"prepared_items": prepared, "routing_records": [record]},
-        )
-
-
-def test_merge_evidence_accounting_batches_rejects_forwarded_fields() -> None:
-    prepared = _prepared_accounting_fixture()["items"]
-    prepared[0]["upstream_assignments"] = []
-    record = _map_record(0, prepared[0], _accounting_output(prepared[0]))
-
-    with pytest.raises(ValueError, match="包含未允许字段"):
-        merge_evidence_accounting_batches(
-            SimpleNamespace(artifacts={}),
-            {"prepared_items": prepared, "routing_records": [record]},
-        )
-
-
-def test_merge_evidence_accounting_batches_rejects_neighbor_output() -> None:
-    catalog = _catalog(
-        *[
-            _fragment(chunk_index=index, page_number=index, text=f"证据{index}")
-            for index in range(1, 6)
-        ]
-    )
-    prepared = prepare_evidence_accounting_batches(
-        SimpleNamespace(artifacts={}),
-        {
-            "draft_plan": _draft_plan(),
-            "evidence_catalog": catalog,
-        },
-    )["items"]
-    output = _accounting_output(prepared[0])
-    output["evidence_accounting"].append(
-        {
-            "evidence_id": prepared[0]["neighbor_context"][0]["evidence_id"],
-            "module_indexes": [],
-            "disposition": "context_only",
-            "reason": "错误输出了只读邻接项",
-        }
-    )
-    records = [
-        _map_record(0, prepared[0], output),
-        _map_record(1, prepared[1], _accounting_output(prepared[1])),
-    ]
-
-    with pytest.raises(ValueError, match="不得记账 neighbor_context"):
-        merge_evidence_accounting_batches(
-            SimpleNamespace(artifacts={}),
-            {"prepared_items": prepared, "routing_records": records},
-        )
-
-
-def test_merge_evidence_accounting_batches_requires_exact_target_set() -> None:
-    prepared = _prepared_accounting_fixture()["items"]
-    output = _accounting_output(prepared[0])
-    output["evidence_accounting"].pop()
-
-    with pytest.raises(ValueError, match="未严格覆盖目标 ID 全集"):
-        merge_evidence_accounting_batches(
+    with pytest.raises(ValueError, match="case_budget=1, minimum_required=2"):
+        prepare_test_case_batches(
             SimpleNamespace(artifacts={}),
             {
-                "prepared_items": prepared,
-                "routing_records": [_map_record(0, prepared[0], output)],
-            },
-        )
-
-
-def test_merge_plan_evidence_routing_attaches_ids_by_module_index() -> None:
-    context = SimpleNamespace(artifacts={})
-
-    merged = merge_plan_evidence_routing(
-        context,
-        {
-            "draft_plan": _draft_plan(),
-            "evidence_catalog": _routing_catalog(),
-            "routing": _reviewed_routing(
-                [
-                    {"module_index": 1, "evidence_ids": ["EV-0002"]},
-                    {"module_index": 0, "evidence_ids": ["EV-0001"]},
-                ]
-            ),
-        },
-    )
-
-    assert merged["business_modules"][0]["evidence_ids"] == ["EV-0001"]
-    assert merged["business_modules"][1]["evidence_ids"] == ["EV-0002"]
-    assert merged["requirement_summary"] == "课程学习与作品审核。"
-    assert merged["coverage_focus"] == ["覆盖课程学习", "覆盖作品审核"]
-    assert merged["risks"] == ["审核状态不一致"]
-    assert context.artifacts["evidence_routing"] == {
-        "document_id": 41,
-        "module_count": 2,
-        "evidence_dispositions": {
-            "assigned": {
-                "count": 2,
-                "evidence_ids": ["EV-0001", "EV-0002"],
-            },
-            "context_only": {
-                "count": 1,
-                "evidence_ids": ["EV-0003"],
-            },
-        },
-        "module_routes": [
-            {
-                "module_index": 0,
-                "module_name": "课程学习",
-                "evidence_ids": ["EV-0001"],
-            },
-            {
-                "module_index": 1,
-                "module_name": "作品审核",
-                "evidence_ids": ["EV-0002"],
-            },
-        ],
-    }
-
-
-def test_merge_plan_evidence_routing_normalizes_ids_by_catalog_order() -> None:
-    context = SimpleNamespace(artifacts={})
-    routes = [
-        {"module_index": 0, "evidence_ids": ["EV-0002", "EV-0001"]},
-        {"module_index": 1, "evidence_ids": ["EV-0002"]},
-    ]
-
-    merged = merge_plan_evidence_routing(
-        context,
-        {
-            "draft_plan": _draft_plan(),
-            "evidence_catalog": _routing_catalog(),
-            "routing": _reviewed_routing(routes),
-        },
-    )
-
-    assert merged["business_modules"][0]["evidence_ids"] == [
-        "EV-0001",
-        "EV-0002",
-    ]
-    assert context.artifacts["evidence_routing"]["module_routes"][0][
-        "evidence_ids"
-    ] == ["EV-0001", "EV-0002"]
-
-
-def test_merge_plan_evidence_routing_rejects_module_without_assigned_evidence() -> None:
-    with pytest.raises(ValueError, match="证据总账未完整覆盖业务模块"):
-        merge_plan_evidence_routing(
-            SimpleNamespace(artifacts={}),
-            {
-                "draft_plan": _draft_plan(),
-                "evidence_catalog": _routing_catalog(),
-                "routing": _reviewed_routing(
-                    [
-                        {"module_index": 0, "evidence_ids": ["EV-0001"]},
-                        {"module_index": 1, "evidence_ids": []},
-                    ]
-                ),
-            },
-        )
-
-
-def test_merge_plan_evidence_routing_rejects_incomplete_module_coverage() -> None:
-    with pytest.raises(ValueError, match="未完整覆盖业务模块"):
-        merge_plan_evidence_routing(
-            SimpleNamespace(artifacts={}),
-            {
-                "draft_plan": _draft_plan(),
-                "evidence_catalog": _routing_catalog(),
-                "routing": _reviewed_routing(
-                    [
-                        {"module_index": 0, "evidence_ids": ["EV-0001"]}
-                    ]
-                ),
-            },
-        )
-
-
-@pytest.mark.parametrize(
-    ("accounting", "message"),
-    [
-        (
-            [
-                {
-                    "evidence_id": "EV-0001",
-                    "module_indexes": [0],
-                    "disposition": "assigned",
-                    "reason": "直接支持模块",
-                },
-                {
-                    "evidence_id": "EV-0002",
-                    "module_indexes": [1],
-                    "disposition": "assigned",
-                    "reason": "直接支持模块",
-                },
-            ],
-            "未完整覆盖证据目录",
-        ),
-        (
-            [
-                {
-                    "evidence_id": "EV-0001",
-                    "module_indexes": [0],
-                    "disposition": "assigned",
-                    "reason": "直接支持模块",
-                },
-                {
-                    "evidence_id": "EV-0001",
-                    "module_indexes": [0],
-                    "disposition": "assigned",
-                    "reason": "重复记账",
-                },
-                {
-                    "evidence_id": "EV-0002",
-                    "module_indexes": [1],
-                    "disposition": "assigned",
-                    "reason": "直接支持模块",
-                },
-            ],
-            "包含重复证据 ID",
-        ),
-        (
-            [
-                {
-                    "evidence_id": "EV-0001",
-                    "module_indexes": [0],
-                    "disposition": "assigned",
-                    "reason": "直接支持模块",
-                },
-                {
-                    "evidence_id": "EV-0002",
-                    "module_indexes": [1],
-                    "disposition": "assigned",
-                    "reason": "直接支持模块",
-                },
-                {
-                    "evidence_id": "EV-9999",
-                    "module_indexes": [],
-                    "disposition": "context_only",
-                    "reason": "目录外证据",
-                },
-            ],
-            "包含未知证据 ID",
-        ),
-    ],
-)
-def test_merge_plan_evidence_routing_requires_exact_catalog_accounting(
-    accounting: list[dict],
-    message: str,
-) -> None:
-    with pytest.raises(ValueError, match=message):
-        merge_plan_evidence_routing(
-            SimpleNamespace(artifacts={}),
-            {
-                "draft_plan": _draft_plan(),
-                "evidence_catalog": _routing_catalog(),
-                "routing": _reviewed_routing(
-                    [
-                        {"module_index": 0, "evidence_ids": ["EV-0001"]},
-                        {"module_index": 1, "evidence_ids": ["EV-0002"]},
+                "plan": {
+                    "requirement_summary": "输出绑定复杂度超过单包上限",
+                    "business_modules": [
+                        {
+                            "name": "规则管理",
+                            "objective": "覆盖全部短规则",
+                            "actors": ["用户"],
+                            "lifecycle": None,
+                            "test_points": _test_points("复杂规则"),
+                            "evidence_ids": ["EV-0001"],
+                            "fact_ids": [fact["fact_id"] for fact in facts],
+                            "fact_design_routes": _fact_design_routes(
+                                [fact["fact_id"] for fact in facts]
+                            ),
+                        }
                     ],
-                    accounting=accounting,
-                ),
+                    "coverage_focus": [],
+                    "risks": [],
+                },
+                "effective_facts": facts,
+                "case_budget": 1,
+                "batch_case_limit": 5,
             },
         )
 
 
-@pytest.mark.parametrize(
-    ("module_indexes", "message"),
-    [
-        ([2], "包含越界 module_index"),
-        ([0, 0], "包含重复下标"),
-        (["0"], "只能包含整数"),
-    ],
-)
-def test_merge_plan_evidence_routing_validates_accounted_module_indexes(
-    module_indexes: list,
-    message: str,
-) -> None:
-    accounting = _reviewed_routing(
-        [
-            {"module_index": 0, "evidence_ids": ["EV-0001"]},
-            {"module_index": 1, "evidence_ids": ["EV-0002"]},
-        ]
-    )["evidence_accounting"]
-    accounting[0]["module_indexes"] = module_indexes
-
-    with pytest.raises(ValueError, match=message):
-        merge_plan_evidence_routing(
-            SimpleNamespace(artifacts={}),
-            {
-                "draft_plan": _draft_plan(),
-                "evidence_catalog": _routing_catalog(),
-                "routing": _reviewed_routing(
-                    [
-                        {"module_index": 0, "evidence_ids": ["EV-0001"]},
-                        {"module_index": 1, "evidence_ids": ["EV-0002"]},
-                    ],
-                    accounting=accounting,
-                ),
-            },
+def test_prepare_batches_rejects_budget_below_real_context_minimum() -> None:
+    facts = [
+        _authoritative_fact(
+            fact_id=f"F-{page_number:03d}",
+            scope_id="EV-0001",
+            assertion=f"第 {page_number} 页规则",
+            page_number=page_number,
         )
-
-
-@pytest.mark.parametrize("reason", ["  ", "证" * 161])
-def test_merge_plan_evidence_routing_validates_accounting_reason(reason: str) -> None:
-    routes = [
-        {"module_index": 0, "evidence_ids": ["EV-0001"]},
-        {"module_index": 1, "evidence_ids": ["EV-0002"]},
+        for page_number in range(1, GENERATION_MAX_PAGES_PER_BATCH + 2)
     ]
-    accounting = _reviewed_routing(routes)["evidence_accounting"]
-    accounting[2]["reason"] = reason
-
-    with pytest.raises(ValueError, match="reason 必须是 1 至 160 字的字符串"):
-        merge_plan_evidence_routing(
-            SimpleNamespace(artifacts={}),
-            {
-                "draft_plan": _draft_plan(),
-                "evidence_catalog": _routing_catalog(),
-                "routing": _reviewed_routing(routes, accounting=accounting),
-            },
-        )
-
-
-@pytest.mark.parametrize(
-    ("disposition", "module_indexes", "message"),
-    [
-        ("assigned", [], "assigned 证据必须包含至少一个 module_index"),
-        ("context_only", [0], "context_only 证据的 module_indexes 必须为空"),
-        ("plan_gap", [0], "plan_gap 证据的 module_indexes 必须为空"),
-        ("ignored", [], "disposition 无效"),
-    ],
-)
-def test_merge_plan_evidence_routing_validates_disposition_contract(
-    disposition: str,
-    module_indexes: list[int],
-    message: str,
-) -> None:
-    routes = [
-        {"module_index": 0, "evidence_ids": ["EV-0001"]},
-        {"module_index": 1, "evidence_ids": ["EV-0002"]},
-    ]
-    accounting = _reviewed_routing(routes)["evidence_accounting"]
-    accounting[2].update(
-        {
-            "disposition": disposition,
-            "module_indexes": module_indexes,
-        }
-    )
-
-    with pytest.raises(ValueError, match=message):
-        merge_plan_evidence_routing(
-            SimpleNamespace(artifacts={}),
-            {
-                "draft_plan": _draft_plan(),
-                "evidence_catalog": _routing_catalog(),
-                "routing": _reviewed_routing(routes, accounting=accounting),
-            },
-        )
-
-
-def test_merge_plan_evidence_routing_blocks_plan_gap_with_reason() -> None:
-    routes = [
-        {"module_index": 0, "evidence_ids": ["EV-0001"]},
-        {"module_index": 1, "evidence_ids": ["EV-0002"]},
-    ]
-    accounting = _reviewed_routing(routes)["evidence_accounting"]
-    accounting[2].update(
-        {
-            "disposition": "plan_gap",
-            "module_indexes": [],
-            "reason": "该证据描述独立可测试能力，但当前规划没有对应模块",
-        }
-    )
 
     with pytest.raises(
         ValueError,
-        match="业务规划缺口.*EV-0003.*当前规划没有对应模块",
+        match="case_budget=1, minimum_required=2",
     ):
-        merge_plan_evidence_routing(
+        prepare_test_case_batches(
             SimpleNamespace(artifacts={}),
             {
-                "draft_plan": _draft_plan(),
-                "evidence_catalog": _routing_catalog(),
-                "routing": _reviewed_routing(routes, accounting=accounting),
+                "plan": {
+                    "requirement_summary": "跨页规则",
+                    "business_modules": [
+                        {
+                            "name": "规则管理",
+                            "objective": "覆盖全部跨页规则",
+                            "actors": ["用户"],
+                            "lifecycle": None,
+                            "test_points": _test_points("跨页规则"),
+                            "evidence_ids": ["EV-0001"],
+                            "fact_ids": [fact["fact_id"] for fact in facts],
+                            "fact_design_routes": _fact_design_routes(
+                                [fact["fact_id"] for fact in facts]
+                            ),
+                        }
+                    ],
+                    "coverage_focus": [],
+                    "risks": [],
+                },
+                "effective_facts": facts,
+                "case_budget": 1,
+                "batch_case_limit": 5,
             },
         )
 
 
-def test_merge_plan_evidence_routing_rejects_prefilled_draft_ids() -> None:
-    draft_plan = _draft_plan()
-    draft_plan["business_modules"][0]["evidence_ids"] = ["EV-0001"]
-
-    with pytest.raises(ValueError, match="不能预置 evidence_ids"):
-        merge_plan_evidence_routing(
-            SimpleNamespace(artifacts={}),
-            {
-                "draft_plan": draft_plan,
-                "evidence_catalog": _routing_catalog(),
-                "routing": _reviewed_routing([]),
-            },
+def test_prepare_batches_keeps_semantic_page_bundles_and_exact_case_budget() -> None:
+    pages = [1, 2, 3, 20, 21, 22]
+    facts = [
+        _authoritative_fact(
+            fact_id=f"F-{index:03d}",
+            scope_id="EV-0001",
+            assertion=f"第 {page_number} 页真实规则 {index}",
+            page_number=page_number,
         )
+        for index, page_number in enumerate(
+            [page for page in pages for _ in range(2)],
+            start=1,
+        )
+    ]
+    context = SimpleNamespace(artifacts={})
+
+    result = prepare_test_case_batches(
+        context,
+        {
+            "plan": {
+                "requirement_summary": "跨页课程需求",
+                "business_modules": [
+                    {
+                        "name": "课程学习",
+                        "objective": "覆盖课程进入和内容展示",
+                        "actors": ["用户"],
+                        "lifecycle": None,
+                        "test_points": _test_points("语义连续规则"),
+                        "evidence_ids": ["EV-0001"],
+                        "fact_ids": [fact["fact_id"] for fact in facts],
+                        "fact_design_routes": _fact_design_routes(
+                            [fact["fact_id"] for fact in facts]
+                        ),
+                    }
+                ],
+                "coverage_focus": ["课程学习：进入课程", "课程学习：查看内容"],
+                "risks": [],
+            },
+            "effective_facts": facts,
+            "case_budget": 6,
+            "batch_case_limit": 3,
+        },
+    )
+
+    assert result["batch_count"] == 2
+    assert sum(item["case_budget"] for item in result["items"]) == 6
+    assert [item["batch"]["source_page_numbers"] for item in result["items"]] == [
+        [1, 2, 3],
+        [20, 21, 22],
+    ]
+    assert all(
+        len(item["batch"]["source_page_numbers"]) <= GENERATION_MAX_PAGES_PER_BATCH
+        for item in result["items"]
+    )
+    assert {
+        fact_id
+        for item in result["items"]
+        for fact_id in item["batch"]["source_scope_ids"]
+    } == {"EV-0001"}
+    assert context.artifacts["generation_batch_plan"]["batch_count"] == 2
+
+
+def test_prepare_batches_compacts_non_contiguous_pages_within_load_limits() -> None:
+    facts = [
+        _authoritative_fact(
+            fact_id=f"F-{index:03d}",
+            scope_id="EV-0001",
+            assertion=f"第 {page_number} 页真实规则 {index}",
+            page_number=page_number,
+        )
+        for index, page_number in enumerate([4, 4, 5, 5, 24, 24, 25, 25], start=1)
+    ]
+    context = SimpleNamespace(artifacts={})
+
+    result = prepare_test_case_batches(
+        context,
+        {
+            "plan": {
+                "requirement_summary": "包含两个非连续页面区间的需求",
+                "business_modules": [
+                    {
+                        "name": "规则管理",
+                        "objective": "覆盖全部真实规则",
+                        "actors": ["用户"],
+                        "lifecycle": None,
+                        "test_points": _test_points("非连续规则"),
+                        "evidence_ids": ["EV-0001"],
+                        "fact_ids": [fact["fact_id"] for fact in facts],
+                        "fact_design_routes": _fact_design_routes(
+                            [fact["fact_id"] for fact in facts]
+                        ),
+                    }
+                ],
+                "coverage_focus": [],
+                "risks": [],
+            },
+            "effective_facts": facts,
+            "case_budget": 4,
+            "batch_case_limit": 5,
+        },
+    )
+
+    assert result["batch_count"] == 1
+    assert [item["batch"]["source_page_numbers"] for item in result["items"]] == [
+        [4, 5, 24, 25],
+    ]
+    assert sum(item["case_budget"] for item in result["items"]) == 4
+    assert context.artifacts["generation_batch_plan"][
+        "requires_contiguous_document_pages"
+    ] is False
 
 
 def test_authoritative_facts_cannot_replace_empty_module_scope_ids() -> None:
@@ -1227,7 +1611,10 @@ def test_authoritative_facts_cannot_replace_empty_module_scope_ids() -> None:
                             "objective": "进入课程并查看学习内容",
                             "actors": ["用户"],
                             "lifecycle": None,
+                            "test_points": _test_points("证据约束"),
                             "evidence_ids": [],
+                            "fact_ids": ["F-001"],
+                            "fact_design_routes": _fact_design_routes(["F-001"]),
                         }
                     ],
                     "coverage_focus": ["进入课程"],
@@ -1259,7 +1646,10 @@ def test_batch_fails_when_evidence_ids_are_empty() -> None:
                             "objective": "进入课程并查看学习内容",
                             "actors": ["用户"],
                             "lifecycle": None,
+                            "test_points": _test_points("事实约束"),
                             "evidence_ids": [],
+                            "fact_ids": ["F-001"],
+                            "fact_design_routes": _fact_design_routes(["F-001"]),
                         }
                     ],
                     "coverage_focus": [],

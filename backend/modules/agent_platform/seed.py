@@ -8,7 +8,7 @@ from core.db.model_defs import (
     AgentToolDefinition,
     AgentWorkflowDefinition,
 )
-from .contracts import WorkflowGraph
+from .contracts import parse_execution_definition
 from .registry import (
     BUILTIN_AGENT_SPECS,
     BUILTIN_TOOL_SPECS,
@@ -19,7 +19,7 @@ from .repository import AgentPlatformRepository
 
 
 def seed_builtin_definitions(*, db: Session, project_id: int, user_id: int) -> None:
-    """把内置模板写入项目数据，运行时只读取数据库定义。"""
+    """同步全局内置模板，并保留项目覆盖定义。"""
 
     repo = AgentPlatformRepository(db)
     active_tool_keys = {str(spec["tool_key"]) for spec in BUILTIN_TOOL_SPECS}
@@ -44,10 +44,22 @@ def seed_builtin_definitions(*, db: Session, project_id: int, user_id: int) -> N
         ):
             binding.enabled = False
             db.add(binding)
+    # 旧版本曾把内置定义复制到每个项目；统一停用这些副本，运行时回退到全局模板。
     for agent in (
         db.query(AgentDefinition)
         .filter(
-            AgentDefinition.project_id == project_id,
+            AgentDefinition.project_id.is_not(None),
+            AgentDefinition.builtin.is_(True),
+            AgentDefinition.enabled.is_(True),
+        )
+        .all()
+    ):
+        agent.enabled = False
+        db.add(agent)
+    for agent in (
+        db.query(AgentDefinition)
+        .filter(
+            AgentDefinition.project_id.is_(None),
             AgentDefinition.builtin.is_(True),
             AgentDefinition.agent_key.notin_(active_agent_keys),
         )
@@ -95,19 +107,45 @@ def seed_builtin_definitions(*, db: Session, project_id: int, user_id: int) -> N
         tools_by_key[row.tool_key] = row
 
     for spec in BUILTIN_AGENT_SPECS:
-        row = repo.get_agent(
-            project_id=project_id,
-            agent_key=str(spec["agent_key"]),
-            enabled_only=False,
+        agent_key = str(spec["agent_key"])
+        target_version = int(spec.get("version") or 1)
+        existing_versions = (
+            db.query(AgentDefinition)
+            .filter(
+                AgentDefinition.project_id.is_(None),
+                AgentDefinition.agent_key == agent_key,
+                AgentDefinition.builtin.is_(True),
+            )
+            .all()
+        )
+        for existing in existing_versions:
+            existing.enabled = int(existing.version or 1) == target_version
+            db.add(existing)
+            if not existing.enabled:
+                for binding in (
+                    db.query(AgentToolBinding)
+                    .filter(AgentToolBinding.agent_definition_id == existing.id)
+                    .all()
+                ):
+                    binding.enabled = False
+                    db.add(binding)
+        row = next(
+            (
+                existing
+                for existing in existing_versions
+                if int(existing.version or 1) == target_version
+            ),
+            None,
         )
         if row is None:
             row = AgentDefinition(
-                project_id=project_id,
+                project_id=None,
                 user_id=user_id,
                 agent_key=spec["agent_key"],
-                version=1,
+                version=target_version,
                 builtin=True,
             )
+        # 内置定义以代码为事实源；同版本也要同步，避免 Worker 长期执行旧配置。
         row.name = spec["name"]
         row.description = spec["description"]
         row.instructions = spec["instructions"]
@@ -127,6 +165,9 @@ def seed_builtin_definitions(*, db: Session, project_id: int, user_id: int) -> N
         for binding in existing_bindings:
             binding.enabled = False
             db.add(binding)
+        # 全局模板的工具按执行项目动态解析，不绑定某个项目的工具记录。
+        if row.project_id is None:
+            continue
         for tool_key in requested_tool_keys:
             tool = tools_by_key.get(str(tool_key))
             if tool is None:
@@ -148,23 +189,41 @@ def seed_builtin_definitions(*, db: Session, project_id: int, user_id: int) -> N
             db.add(binding)
 
     for spec in BUILTIN_WORKFLOW_SPECS:
-        graph = WorkflowGraph.model_validate(spec["definition"])
-        row = repo.get_workflow(
-            project_id=project_id,
-            workflow_key=str(spec["workflow_key"]),
-            enabled_only=False,
+        execution = parse_execution_definition(spec["definition"])
+        workflow_key = str(spec["workflow_key"])
+        target_version = int(spec.get("version") or 1)
+        existing_versions = (
+            db.query(AgentWorkflowDefinition)
+            .filter(
+                AgentWorkflowDefinition.project_id == project_id,
+                AgentWorkflowDefinition.workflow_key == workflow_key,
+                AgentWorkflowDefinition.builtin.is_(True),
+            )
+            .all()
+        )
+        for existing in existing_versions:
+            existing.enabled = int(existing.version or 1) == target_version
+            db.add(existing)
+        row = next(
+            (
+                existing
+                for existing in existing_versions
+                if int(existing.version or 1) == target_version
+            ),
+            None,
         )
         if row is None:
             row = AgentWorkflowDefinition(
                 project_id=project_id,
                 user_id=user_id,
                 workflow_key=spec["workflow_key"],
-                version=1,
+                version=target_version,
                 builtin=True,
             )
+        # 工作流节点与恢复边界也必须跟随当前代码，不能保留同版本旧图。
         row.name = spec["name"]
         row.description = spec["description"]
-        row.definition = graph.model_dump()
+        row.definition = execution.model_dump()
         row.enabled = True
         db.add(row)
     db.commit()

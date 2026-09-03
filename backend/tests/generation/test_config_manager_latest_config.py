@@ -82,7 +82,7 @@ def test_missing_user_config_returns_unconfigured_ai_client() -> None:
         db.close()
 
 
-def test_user_config_follow_main_ignores_stale_review_and_global_turbo_models() -> None:
+def test_user_config_follow_main_reuses_credentials_with_independent_review_model() -> None:
     db = _make_session()
     manager = ConfigManager()
     try:
@@ -108,9 +108,10 @@ def test_user_config_follow_main_ignores_stale_review_and_global_turbo_models() 
 
         client = get_client_for_user(1, db)
 
-        assert client.review_model == ""
+        assert client.review_model == "deepseek-v4-flash"
+        assert client.review_provider is None
         assert client.turbo_model == ""
-        assert client.select_model("req", "review") == "glm-5.1"
+        assert client.select_model("req", "review") == "deepseek-v4-flash"
         assert client.select_model("req", "compression") == "glm-5.1"
     finally:
         db.close()

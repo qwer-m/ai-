@@ -23,6 +23,22 @@ from modules.agent_platform.test_generation_workflow import (
 )
 
 
+def _test_points(name: str) -> list[dict]:
+    return [
+        {
+            "name": name,
+            "objective": f"验证{name}",
+            "test_designs": [
+                {
+                    "technique": "场景法",
+                    "rationale": "覆盖需求声明的核心流程",
+                    "coverage_items": [name],
+                }
+            ],
+        }
+    ]
+
+
 def _cases() -> list[dict]:
     return [
         {
@@ -38,6 +54,7 @@ def _cases() -> list[dict]:
                 }
             ],
             "tags": ["主流程"],
+            "test_design_item_ids": [],
         },
         {
             "case_id": "TC-002",
@@ -52,6 +69,7 @@ def _cases() -> list[dict]:
                 }
             ],
             "tags": ["异常路径"],
+            "test_design_item_ids": [],
         },
     ]
 
@@ -168,7 +186,7 @@ def test_agent_case_schema_rejects_redundant_expected_result() -> None:
         validate(instance=case, schema=CASE_SCHEMA)
 
 
-def test_planner_schema_forbids_evidence_ids() -> None:
+def test_planner_schema_defers_evidence_ids_to_scope_router() -> None:
     plan = {
         "requirement_summary": "用户可以进入课程学习。",
         "business_modules": [
@@ -177,6 +195,7 @@ def test_planner_schema_forbids_evidence_ids() -> None:
                 "objective": "验证课程进入与学习",
                 "actors": ["用户"],
                 "lifecycle": None,
+                "test_points": _test_points("课程进入与学习"),
             }
         ],
         "coverage_focus": ["课程进入"],
@@ -200,14 +219,24 @@ def test_merged_plan_schema_requires_catalog_ids_for_every_module() -> None:
         "objective": "验证课程进入与学习",
         "actors": ["用户"],
         "lifecycle": None,
+        "test_points": _test_points("课程进入与学习"),
         "evidence_ids": ["EV-0001"],
+        "fact_ids": ["F-001"],
+        "fact_design_routes": [
+            {"fact_id": "F-001", "test_design_item_indexes": [0]}
+        ],
     }
     second_module = {
         "name": "页面布局",
         "objective": "核验真实页图布局",
         "actors": ["用户"],
         "lifecycle": None,
+        "test_points": _test_points("页面布局"),
         "evidence_ids": ["EV-0002"],
+        "fact_ids": ["F-002"],
+        "fact_design_routes": [
+            {"fact_id": "F-002", "test_design_item_indexes": [0]}
+        ],
     }
 
     validate(
@@ -263,7 +292,7 @@ def test_native_persistence_writes_run_artifact_only() -> None:
                                 "name": "项目创建主链",
                                 "goal": "验证项目创建与重复名称约束",
                                 "suite_type": "chain",
-                                "case_ids": [],
+                                "case_ids": ["TC-001", "TC-002"],
                                 "transitions": [
                                     {
                                         "case_id": "TC-001",
@@ -279,14 +308,20 @@ def test_native_persistence_writes_run_artifact_only() -> None:
                             }
                         ],
                     },
+                    "final_review": {
+                        "phase": "final_review",
+                        "approved": True,
+                        "summary": "独立终审通过",
+                        "differences": [],
+                    },
                 },
             )
-        assert result["run_id"] == context.run_id
         assert context.artifacts["test_generation"]["run_id"] == context.run_id
         assert context.artifacts["test_generation"]["test_cases"] == _cases()
         assert context.artifacts["test_generation"]["case_fact_bindings"] == _case_fact_bindings()
         assert context.artifacts["test_generation"]["execution_plan"]["main_chain_suite_id"] == "FLOW-001"
-        assert result["persisted_count"] == 2
+        assert result["status"] == "completed"
+        assert result["persisted_artifact_key"] == "test_generation"
     finally:
         db.rollback()
         db.close()
@@ -294,14 +329,26 @@ def test_native_persistence_writes_run_artifact_only() -> None:
 
 def test_registry_contains_only_native_platform_tools() -> None:
     expected_testing_tools = {
+        "testing.build_generation_audit_summary",
+        "testing.merge_final_review_batches",
+        "testing.merge_final_review_repairs",
         "testing.merge_grounded_generation_batches",
-        "testing.merge_plan_evidence_routing",
         "testing.persist_automation_evaluation",
         "testing.persist_test_case_evaluation",
         "testing.persist_test_cases",
         "testing.prepare_execution_chain",
+        "testing.prepare_final_review_batches",
+        "testing.prepare_final_review_rechecks",
+        "testing.prepare_final_review_repairs",
+        "testing.prepare_global_final_review",
+        "testing.prepare_terminal_final_review_repairs",
         "testing.prepare_test_case_batches",
         "testing.resolve_requirement_evidence",
+        "testing.select_execution_chain",
+        "testing.submit_business_plan",
+        "testing.submit_generation_batch",
+        "testing.submit_scenario_design_guidance",
+        "testing.validate_scenario_design_guidance",
         "testing.validate_execution_chain",
         "testing.validate_test_cases",
     }

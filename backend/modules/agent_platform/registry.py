@@ -28,14 +28,23 @@ ToolHandler = Callable[[ToolExecutionContext, dict[str, Any]], dict[str, Any]]
 class ToolRegistry:
     def __init__(self) -> None:
         self._handlers: dict[str, ToolHandler] = {}
+        self._parallel_safe_handlers: set[str] = set()
 
-    def register(self, handler_key: str, handler: ToolHandler) -> None:
+    def register(
+        self,
+        handler_key: str,
+        handler: ToolHandler,
+        *,
+        parallel_safe: bool = False,
+    ) -> None:
         key = str(handler_key or "").strip()
         if not key:
             raise ValueError("工具处理器键不能为空")
         if key in self._handlers:
             raise ValueError(f"工具处理器重复注册: {key}")
         self._handlers[key] = handler
+        if parallel_safe:
+            self._parallel_safe_handlers.add(key)
 
     def resolve(self, handler_key: str) -> ToolHandler:
         key = str(handler_key or "").strip()
@@ -46,6 +55,14 @@ class ToolRegistry:
 
     def keys(self) -> list[str]:
         return sorted(self._handlers)
+
+    def is_parallel_safe(self, handler_key: str) -> bool:
+        key = str(handler_key or "").strip()
+        self.resolve(key)
+        return key in self._parallel_safe_handlers
+
+    def parallel_safe_keys(self) -> list[str]:
+        return sorted(self._parallel_safe_handlers)
 
 
 tool_registry = ToolRegistry()
@@ -114,6 +131,7 @@ def runtime_registry_signature() -> str:
         "tools": BUILTIN_TOOL_SPECS,
         "workflows": BUILTIN_WORKFLOW_SPECS,
         "handlers": handler_sources,
+        "parallel_safe_handlers": tool_registry.parallel_safe_keys(),
     }
     encoded = json.dumps(
         payload,

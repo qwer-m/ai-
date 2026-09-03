@@ -18,6 +18,7 @@ from modules.agent_platform.serialization import (
     serialize_agent,
     serialize_event,
     serialize_run,
+    serialize_run_summary,
     serialize_tool,
     serialize_workflow,
 )
@@ -48,6 +49,7 @@ def _raise_result_error(reason: str) -> None:
         "definition_not_found": (404, "智能体或工具定义不存在"),
         "version_exists": (409, "相同版本已存在"),
         "run_not_retryable": (409, "当前运行状态不可重试"),
+        "run_attempt_reset_forbidden": (409, "运行进行中，不能重置执行次数"),
         "run_version_mismatch": (409, "运行版本已变化，不能混用旧节点结果，请新建 Run"),
     }
     if reason.startswith("unknown_node_reference:"):
@@ -157,6 +159,17 @@ def list_runs(
     return {"items": [_run_payload(service, row) for row in rows]}
 
 
+@router.get("/runs/active")
+def get_active_run(
+    project_id: int = Query(gt=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = _service(db)
+    run = service.get_active_run(project_id=project_id, user_id=current_user.id)
+    return {"run": serialize_run_summary(run) if run is not None else None}
+
+
 @router.post("/runs", status_code=202)
 def create_run(
     request: AgentRunCreate,
@@ -167,7 +180,7 @@ def create_run(
     value, reason = service.create_run(request=request, user_id=current_user.id)
     if value is None:
         _raise_result_error(reason)
-    return {"run": _run_payload(service, value)}
+    return {"run": _run_payload(service, value), "status": reason}
 
 
 @router.get("/runs/{run_id}")
@@ -223,6 +236,19 @@ def cancel_run(
 ):
     service = _service(db)
     value, reason = service.cancel_run(run_id=run_id, user_id=current_user.id)
+    if value is None:
+        _raise_result_error(reason)
+    return {"run": _run_payload(service, value), "status": reason}
+
+
+@router.post("/runs/{run_id}/reset-attempt")
+def reset_run_attempt(
+    run_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = _service(db)
+    value, reason = service.reset_run_attempt(run_id=run_id, user_id=current_user.id)
     if value is None:
         _raise_result_error(reason)
     return {"run": _run_payload(service, value), "status": reason}

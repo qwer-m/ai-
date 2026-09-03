@@ -208,24 +208,7 @@ def parse_document_offline_impl(
 
     source_bytes = Path(file_path).read_bytes()
     content_hash = hashlib.sha256(source_bytes).hexdigest()
-    # 原文件指纹是文档身份，不再用会随解析器变化的派生正文去重。
-    existing = repo.find_duplicate_by_hash(
-        project_id=doc.project_id,
-        content_hash=content_hash,
-        exclude_doc_id=doc.id,
-    )
-    if existing and not force:
-        doc.parse_status = "failed"
-        doc.parse_error = f"duplicate document detected: existing file '{existing.filename}'"
-        doc.parsed_at = datetime.utcnow()
-        repo.commit()
-        cleanup_offline_file(file_path)
-        return {
-            "status": "duplicate",
-            "document_id": doc.id,
-            "existing_doc_id": existing.id,
-            "existing_filename": existing.filename,
-        }
+    # 每次上传都是独立文档输入；内容指纹仅用于资产一致性校验，不用于复用或拦截。
 
     asset_result = prepare_document_assets(
         document_id=int(doc.id),

@@ -25,6 +25,7 @@ backend/tmp/review_diagnostics/
 /backend/tmp_logs/
 /backend/archive_data/
 /backend/celery_broker/
+/backend/runtime/
 /backend/scripts/rag/reports/
 /tmp/
 

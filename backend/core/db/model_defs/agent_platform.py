@@ -14,7 +14,7 @@ from ._shared import (
 
 
 class AgentDefinition(Base):
-    """项目内可版本化的智能体定义。"""
+    """全局内置模板或项目覆盖定义。"""
 
     __tablename__ = "agent_definitions"
     __table_args__ = (
@@ -28,7 +28,8 @@ class AgentDefinition(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    # NULL 表示全局内置模板；非 NULL 表示项目覆盖定义。
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True, index=True)
     agent_key = Column(String(120), nullable=False, index=True)
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=False, default="")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import socket
 import subprocess
@@ -7,6 +8,41 @@ import sys
 import time
 import urllib.error
 import urllib.request
+
+
+def _decode_command_output(output: bytes | str | None) -> str:
+    """容错解码 Windows 命令输出，避免系统代码页导致启动器崩溃。"""
+
+    if output is None:
+        return ""
+    if isinstance(output, str):
+        return output
+    if not output:
+        return ""
+
+    encodings: list[str] = []
+    if output.startswith((b"\xff\xfe", b"\xfe\xff")) or b"\x00" in output:
+        encodings.extend(["utf-16", "utf-16le"])
+    encodings.extend(
+        [
+            "utf-8-sig",
+            "cp936",
+            "mbcs",
+            sys.getfilesystemencoding() or "utf-8",
+        ]
+    )
+
+    seen: set[str] = set()
+    for encoding in encodings:
+        if encoding in seen:
+            continue
+        seen.add(encoding)
+        try:
+            return output.decode(encoding)
+        except (LookupError, UnicodeDecodeError):
+            continue
+
+    return output.decode("utf-8", errors="replace")
 
 
 def cleanup_celery_beat_schedule(schedule_dir: str) -> None:
@@ -34,10 +70,11 @@ def kill_process_on_port(port: int) -> None:
     """Terminate any Windows process that is listening on the given port."""
     try:
         cmd = f"netstat -ano | findstr :{port}"
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        result = subprocess.run(cmd, shell=True, capture_output=True)
 
-        if result.returncode == 0 and result.stdout:
-            lines = result.stdout.strip().split("\n")
+        output = _decode_command_output(getattr(result, "stdout", None))
+        if result.returncode == 0 and output:
+            lines = output.strip().split("\n")
             pids_to_kill = set()
 
             for line in lines:
@@ -57,20 +94,223 @@ def kill_process_on_port(port: int) -> None:
         print(f"Warning: Failed to cleanup port {port}: {e}")
 
 
+def _windows_process_snapshot() -> list[dict[str, object]]:
+    """读取 Windows 进程树，供启动器清理同项目的旧服务实例。"""
+
+    if os.name != "nt":
+        return []
+    command = (
+        "Get-CimInstance Win32_Process | "
+        "Select-Object ProcessId,ParentProcessId,Name,CommandLine | "
+        "ConvertTo-Json -Compress"
+    )
+    for shell_name in ("powershell", "pwsh"):
+        try:
+            result = subprocess.run(
+                [shell_name, "-NoProfile", "-NonInteractive", "-Command", command],
+                capture_output=True,
+                timeout=15,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        output = _decode_command_output(getattr(result, "stdout", None))
+        if result.returncode != 0 or not output.strip():
+            continue
+        try:
+            payload = json.loads(output)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            payload = [payload]
+        if not isinstance(payload, list):
+            continue
+        snapshot: list[dict[str, object]] = []
+        for raw in payload:
+            if not isinstance(raw, dict):
+                continue
+            try:
+                process_id = int(raw.get("ProcessId") or 0)
+                parent_id = int(raw.get("ParentProcessId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if process_id > 0:
+                snapshot.append(
+                    {
+                        "pid": process_id,
+                        "parent_pid": parent_id,
+                        "name": str(raw.get("Name") or ""),
+                        "command_line": str(raw.get("CommandLine") or ""),
+                    }
+                )
+        return snapshot
+    return []
+
+
+def cleanup_project_service_processes(
+    root_dir: str,
+    *,
+    exclude_pids: set[int] | None = None,
+) -> list[int]:
+    """只终止同一项目启动的旧 API/Worker/Beat/前端进程树。
+
+    仅按端口清理会漏掉没有监听端口的 Celery worker/beat，导致多套实例
+    竞争同一队列。这里先按项目根目录和服务命令识别启动根进程，再递归
+    终止其子树；调用方可排除当前启动器进程。
+    """
+
+    if os.name != "nt":
+        return []
+    snapshot = _windows_process_snapshot()
+    if not snapshot:
+        return []
+    excluded = {int(pid) for pid in (exclude_pids or set()) if int(pid) > 0}
+    normalized_root = os.path.normcase(os.path.abspath(root_dir)).replace("/", "\\").rstrip("\\")
+    processes = {int(item["pid"]): item for item in snapshot}
+    parent_map: dict[int, list[int]] = {}
+    for item in snapshot:
+        pid = int(item["pid"])
+        parent_map.setdefault(int(item["parent_pid"]), []).append(pid)
+
+    def normalized_command(item: dict[str, object]) -> str:
+        return os.path.normcase(str(item.get("command_line") or "")).replace("/", "\\")
+
+    def is_project_service(item: dict[str, object]) -> bool:
+        """只识别真实服务命令，避免把包含关键字的诊断 shell 一并终止。"""
+
+        command_line = normalized_command(item)
+        process_name = str(item.get("name") or "").casefold()
+        if process_name in {"powershell.exe", "pwsh.exe", "cmd.exe"}:
+            return False
+        if normalized_root not in command_line:
+            return False
+        if not process_name.endswith(("python.exe", "node.exe")):
+            return False
+        full_start_script = f"{normalized_root}\\backend\\start_dev.py"
+        if full_start_script in command_line and "-c" not in command_line:
+            return True
+        if "-m celery" in command_line and "celery_worker.celery_app" in command_line:
+            return True
+        if "-m uvicorn" in command_line and "main:app" in command_line:
+            return True
+        return process_name.endswith("node.exe") and "vite" in command_line
+
+    root_pids: set[int] = set()
+    for pid, item in processes.items():
+        if is_project_service(item):
+            root_pids.add(pid)
+
+    # 有些 Python 启动器的命令行只有 `python.exe start_dev.py`，不会带项目绝对路径。
+    # 但它启动的 API/Worker 命令会带项目路径；沿服务进程向上回溯即可准确找到这类
+    # 启动器，并整棵终止，避免旧启动器在清理后再次拉起旧版本 Worker。
+    for service_pid in tuple(root_pids):
+        parent_pid = int(processes.get(service_pid, {}).get("parent_pid") or 0)
+        visited: set[int] = set()
+        while parent_pid and parent_pid not in visited:
+            visited.add(parent_pid)
+            parent = processes.get(parent_pid)
+            if parent is None:
+                break
+            parent_command = normalized_command(parent)
+            parent_name = str(parent.get("name") or "").casefold()
+            if (
+                parent_name.endswith("python.exe")
+                and "start_dev.py" in parent_command
+            ):
+                root_pids.add(parent_pid)
+            parent_pid = int(parent.get("parent_pid") or 0)
+
+    # 找到启动器根进程后，纳入其命令行不含项目路径的全局 Python 子进程。
+    targets = set(root_pids)
+    pending = list(root_pids)
+    while pending:
+        parent_pid = pending.pop()
+        for child_pid in parent_map.get(parent_pid, []):
+            if child_pid not in targets:
+                targets.add(child_pid)
+                pending.append(child_pid)
+    targets.difference_update(excluded)
+    if not targets:
+        return []
+
+    # taskkill /T 会递归清理子树，只对最上层 PID 执行一次，避免重复报错。
+    top_level = sorted(
+        pid for pid in targets if int(processes.get(pid, {}).get("parent_pid") or 0) not in targets
+    )
+    cleaned: list[int] = []
+    for pid in top_level:
+        print(f"Stopping previous project service tree (PID {pid})...")
+        try:
+            result = subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True,
+                timeout=15,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0:
+            cleaned.append(pid)
+    return cleaned
+
+
 def wait_for_backend_ready(port: int, timeout_seconds: int = 90) -> bool:
-    """Wait for the backend health endpoint to start responding."""
+    """等待 API 完成数据库和 Redis 健康检查。"""
     health_url = f"http://127.0.0.1:{port}/api/health"
     deadline = time.time() + timeout_seconds
 
     while time.time() < deadline:
         try:
             with urllib.request.urlopen(health_url, timeout=2) as resp:
-                if 200 <= resp.status < 500:
+                if resp.status != 200:
+                    time.sleep(0.5)
+                    continue
+                payload = json.loads(resp.read().decode("utf-8"))
+                if payload.get("status") == "ok":
                     return True
-        except (urllib.error.URLError, TimeoutError, ConnectionError):
+        except (urllib.error.URLError, TimeoutError, ConnectionError, ValueError, json.JSONDecodeError):
             pass
         time.sleep(0.5)
 
+    return False
+
+
+def wait_for_celery_worker_ready(
+    python_executable: str,
+    *,
+    cwd: str,
+    env: dict[str, str],
+    timeout_seconds: int = 45,
+) -> bool:
+    """等待当前项目的 Celery worker 对 broker 返回 pong。"""
+
+    command = [
+        python_executable,
+        "-m",
+        "celery",
+        "-A",
+        "celery_worker.celery_app",
+        "inspect",
+        "ping",
+        "--timeout=2",
+    ]
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            result = subprocess.run(
+                command,
+                cwd=cwd,
+                env=env,
+                capture_output=True,
+                timeout=6,
+            )
+            output = (
+                f"{_decode_command_output(getattr(result, 'stdout', None))}\n"
+                f"{_decode_command_output(getattr(result, 'stderr', None))}"
+            ).lower()
+            if result.returncode == 0 and "pong" in output:
+                return True
+        except (OSError, subprocess.SubprocessError):
+            pass
+        time.sleep(1)
     return False
 
 
@@ -104,25 +344,7 @@ def _list_wsl_distros() -> list[str]:
 
 
 def _decode_wsl_stdout(stdout: bytes) -> str:
-    if not stdout:
-        return ""
-
-    encodings: list[str] = []
-    if stdout.startswith((b"\xff\xfe", b"\xfe\xff")) or b"\x00" in stdout:
-        encodings.extend(["utf-16", "utf-16le"])
-    encodings.extend(["utf-8-sig", sys.getfilesystemencoding() or "utf-8"])
-
-    seen: set[str] = set()
-    for encoding in encodings:
-        if encoding in seen:
-            continue
-        seen.add(encoding)
-        try:
-            return stdout.decode(encoding).replace("\x00", "")
-        except UnicodeDecodeError:
-            continue
-
-    return stdout.decode("utf-8", errors="replace").replace("\x00", "")
+    return _decode_command_output(stdout).replace("\x00", "")
 
 
 def _clean_wsl_distro_name(name: str) -> str:
@@ -140,7 +362,6 @@ def _probe_wsl_ready(distro: str) -> bool:
             proc = subprocess.run(
                 ["wsl", "-d", distro, "-e", "bash", "-lc", "echo WSL_OK"],
                 capture_output=True,
-                text=True,
                 timeout=timeout_seconds,
             )
             if proc.returncode == 0:
@@ -163,12 +384,12 @@ def _get_wsl_ip(distro: str) -> str | None:
         proc = subprocess.run(
             ["wsl", "-d", distro, "-e", "bash", "-lc", "hostname -I"],
             capture_output=True,
-            text=True,
             timeout=20,
         )
         if proc.returncode != 0:
             return None
-        ips = [item.strip() for item in proc.stdout.split() if item.strip()]
+        output = _decode_command_output(getattr(proc, "stdout", None))
+        ips = [item.strip() for item in output.split() if item.strip()]
         for ip in ips:
             if ip.count(".") == 3 and all(part.isdigit() for part in ip.split(".")):
                 return ip
@@ -194,7 +415,6 @@ def _ensure_wsl_redis_running(distro: str, port: int) -> bool:
         proc = subprocess.run(
             ["wsl", "-d", distro, "-e", "bash", "-lc", bash_cmd],
             capture_output=True,
-            text=True,
             timeout=20,
         )
         return proc.returncode == 0
@@ -277,14 +497,13 @@ def ensure_database_schema(current_dir: str) -> bool:
             db_check_cmd,
             cwd=current_dir,
             capture_output=True,
-            text=True,
             timeout=120,
         )
         if result.returncode != 0:
             print("[ERROR] Database schema check failed:")
             print(f"Command: {' '.join(db_check_cmd)}")
-            print(result.stdout)
-            print(result.stderr)
+            print(_decode_command_output(getattr(result, "stdout", None)))
+            print(_decode_command_output(getattr(result, "stderr", None)))
             return False
 
         print(f"Database schema checked via {db_check_target}.")
