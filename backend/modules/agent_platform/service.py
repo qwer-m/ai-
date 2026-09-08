@@ -29,6 +29,9 @@ from .context_compression import (
     context_compression_max_tokens,
 )
 from .repository import AgentPlatformRepository
+from .lifecycle import ACTIVE_RUN_STATUSES, TERMINAL_RUN_STATUSES, transition_run
+from .results import persisted_test_generation_result
+from .sources import SOURCE_ARTIFACT_KEY, SourceSnapshot, assert_same_source, persisted_source_snapshot
 from .retention import prune_terminal_run_history
 from .seed import seed_builtin_definitions
 from .registry import runtime_registry_signature
@@ -59,6 +62,7 @@ def _initial_run_context(
     *,
     execution_limits: dict[str, int],
     run_attempt: int = 1,
+    source: SourceSnapshot | None = None,
 ) -> dict[str, Any]:
     """创建全新的运行上下文，禁止重用旧节点输出和旧尝试状态。"""
 
@@ -66,7 +70,7 @@ def _initial_run_context(
         raise ValueError("运行执行次数必须从 1 开始")
     return {
         "run_attempt": run_attempt,
-        "artifacts": {},
+        "artifacts": {SOURCE_ARTIFACT_KEY: source.to_dict()} if source is not None else {},
         "execution_limits": dict(execution_limits),
         "quota_mode": "per_agent_instance",
         "agent_instance_quota_usage": {},
@@ -85,12 +89,14 @@ def _normalize_workflow_input(
     workflow_key: str,
     input_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """为生成工作流补齐压缩配置，同时保留旧客户端字段。"""
+    """在输入边界归一化旧客户端字段，内部仅使用正式字段。"""
 
     normalized = dict(input_payload or {})
     if str(workflow_key or "").strip() != "test_generation":
         return normalized
-    # 中文注释：新客户端可显式关闭；未传值时默认启用，旧 compress 仍可控制默认值。
+    legacy_compression = normalized.pop("compress", None)
+    if normalized.get("enable_context_compression") is None and legacy_compression is not None:
+        normalized["enable_context_compression"] = legacy_compression
     normalized["enable_context_compression"] = context_compression_enabled(
         normalized,
         default=True,
@@ -99,6 +105,52 @@ def _normalize_workflow_input(
         normalized,
     )
     return normalized
+
+
+def _has_restorable_repair_state(state: Any) -> bool:
+    """只迁移已绑定输入且具备明确修复方式的状态，输入一致性由运行时复验。"""
+
+    if not isinstance(state, dict):
+        return False
+    input_hash = state.get("input_hash")
+    if not isinstance(input_hash, str) or not input_hash.strip():
+        return False
+    repair_context = state.get("repair_context")
+    if not isinstance(repair_context, dict):
+        return False
+    if repair_context.get("mode") == "minimal_patch":
+        return isinstance(repair_context.get("candidate_output"), dict)
+    validation_feedback = repair_context.get("validation_feedback")
+    return (
+        repair_context.get("mode") == "full_regeneration"
+        and isinstance(validation_feedback, str)
+        and bool(validation_feedback.strip())
+    )
+
+
+def _has_restorable_node_repair_state(node: Any, node_run: AgentNodeRun) -> bool:
+    state = dict(node_run.sdk_state or {})
+    if node.node_type in {"agent", "agent_network"}:
+        return _has_restorable_repair_state(state)
+    if node.node_type != "agent_map" or node.map_config is None:
+        return False
+    raw_items = dict(node_run.input_payload or {}).get(node.map_config.items_key)
+    if not isinstance(raw_items, list):
+        return False
+    item_states = state.get("items")
+    candidates = list(item_states) if isinstance(item_states, list) else []
+    candidates.append(state.get("failed_item"))
+    for candidate in candidates:
+        if not _has_restorable_repair_state(candidate):
+            continue
+        index = candidate.get("item_index")
+        if (
+            type(index) is int
+            and 0 <= index < len(raw_items)
+            and isinstance(raw_items[index], dict)
+        ):
+            return True
+    return False
 
 
 def _restorable_node_runs(
@@ -127,6 +179,9 @@ def _restorable_node_runs(
         if node_run is None:
             continue
         if node_run.status == "success":
+            checkpoints.append(node_run)
+            continue
+        if _has_restorable_node_repair_state(node, node_run):
             checkpoints.append(node_run)
             continue
         if node.node_type != "agent_map":
@@ -352,23 +407,20 @@ class AgentPlatformService:
             validate(instance=request.input_payload, schema=execution.input_schema)
         except ValidationError as exc:
             return None, f"invalid_run_input:{exc.message}"
-        # 锁定工作流定义，使多标签页或并发请求的查重与创建保持原子性。
-        self.db.query(AgentWorkflowDefinition.id).filter(
-            AgentWorkflowDefinition.id == workflow.id,
-        ).with_for_update().one()
+        self.repo.lock_run_creation(project_id=request.project_id, user_id=user_id)
         input_payload = _normalize_workflow_input(
             request.workflow_key,
             dict(request.input_payload or {}),
         )
-        requirement_doc_id = input_payload.get("requirement_doc_id")
+        try:
+            source = self.repo.resolve_source_snapshot(project_id=request.project_id, input_payload=input_payload)
+        except ValueError as exc:
+            return None, f"invalid_run_input:{exc}"
         active_run = self.repo.get_active_run_for_source(
             project_id=request.project_id,
             user_id=user_id,
-            workflow_definition_id=workflow.id,
-            requirement_doc_id=(
-                None if requirement_doc_id is None else int(requirement_doc_id)
-            ),
-            requirement=str(input_payload.get("requirement") or ""),
+            workflow_key=request.workflow_key,
+            source=source,
         )
         if active_run is not None:
             self.db.commit()
@@ -382,6 +434,7 @@ class AgentPlatformService:
             input_payload=input_payload,
             run_context=_initial_run_context(
                 execution_limits=_resolved_execution_limits(request),
+                source=source,
             ),
             output_payload={},
         )
@@ -401,6 +454,7 @@ class AgentPlatformService:
         project_id: int,
         user_id: int,
         limit: int,
+        workflow_key: str | None = None,
     ) -> list[AgentRun] | None:
         if not self._owned_project(project_id=project_id, user_id=user_id):
             return None
@@ -408,6 +462,7 @@ class AgentPlatformService:
             project_id=project_id,
             user_id=user_id,
             limit=limit,
+            workflow_key=workflow_key,
         )
 
     def get_active_run(self, *, project_id: int, user_id: int) -> AgentRun | None:
@@ -418,28 +473,108 @@ class AgentPlatformService:
     def get_run(self, *, run_id: int, user_id: int) -> AgentRun | None:
         return self.repo.get_owned_run(run_id=run_id, user_id=user_id)
 
+    def get_generation_reuse_candidate(
+        self,
+        *,
+        project_id: int,
+        user_id: int,
+        workflow_key: str,
+        requirement_doc_id: int,
+    ) -> tuple[dict[str, Any] | None, str]:
+        if not self._owned_project(project_id=project_id, user_id=user_id):
+            return None, "project_not_found"
+        document = self.repo.get_project_document(
+            project_id=project_id,
+            document_id=requirement_doc_id,
+        )
+        if document is None:
+            return None, "document_not_found"
+        workflow = self.repo.get_workflow(
+            project_id=project_id,
+            workflow_key=workflow_key,
+        )
+        if workflow is None:
+            return None, "workflow_not_found"
+        try:
+            run = self.repo.get_latest_successful_run_for_source(
+                project_id=project_id, user_id=user_id,
+                workflow_key=workflow_key, requirement_doc_id=requirement_doc_id,
+            )
+        except ValueError as exc:
+            return None, f"invalid_run_input:{exc}"
+        if run is None:
+            return None, "not_found"
+
+        artifact = persisted_test_generation_result(run)
+        source = persisted_source_snapshot(run)
+        test_cases = artifact.get("test_cases") if isinstance(artifact, dict) else []
+        return {
+            "run_id": int(run.id),
+            "source_filename": source.filename if source else "",
+            "case_count": len(test_cases) if isinstance(test_cases, list) else 0,
+        }, "found"
+
+    def get_test_case_export_data(
+        self,
+        *,
+        run_id: int,
+        user_id: int,
+    ) -> tuple[dict[str, Any] | None, str]:
+        run = self.repo.get_owned_run(run_id=run_id, user_id=user_id)
+        if run is None:
+            return None, "run_not_found"
+        artifact = persisted_test_generation_result(run)
+        raw_cases = artifact.get("test_cases") if artifact is not None else None
+        if not isinstance(raw_cases, list) or not raw_cases:
+            return None, "run_result_not_found"
+        if not all(isinstance(test_case, dict) for test_case in raw_cases):
+            return None, "run_result_invalid"
+
+        source = persisted_source_snapshot(run)
+        return {
+            "test_cases": [dict(test_case) for test_case in raw_cases],
+            "source_filename": source.filename if source else "",
+        }, "found"
+
     def retry_run(self, *, run_id: int, user_id: int) -> tuple[AgentRun | None, str]:
         run = self.repo.get_owned_run(run_id=run_id, user_id=user_id)
         if run is None:
             return None, "run_not_found"
-        if run.status in {"pending", "running", "waiting_approval"}:
+        if run.status in ACTIVE_RUN_STATUSES:
             return None, "run_not_retryable"
         expected_signature = str(
             (run.run_context or {}).get("runtime_registry_signature") or ""
         )
         if not expected_signature or expected_signature != runtime_registry_signature():
             return None, "run_version_mismatch"
+        try:
+            source = persisted_source_snapshot(run)
+            current_source = self.repo.resolve_source_snapshot(project_id=run.project_id, input_payload=run.input_payload)
+            if current_source is not None:
+                if source is None:
+                    return None, "run_source_snapshot_missing"
+                assert_same_source(source, current_source)
+        except ValueError:
+            return None, "run_source_changed"
         if self._start_worker is None:
             raise RuntimeError("Agent Run 未配置后台执行器")
         workflow = self.db.get(AgentWorkflowDefinition, run.workflow_definition_id)
         if workflow is None:
             return None, "workflow_not_found"
+        self.repo.lock_run_creation(project_id=run.project_id, user_id=user_id)
+        active_run = self.repo.get_active_run_for_source(
+            project_id=run.project_id, user_id=user_id,
+            workflow_key=workflow.workflow_key, source=source,
+        )
+        if active_run is not None:
+            return None, "run_source_already_active"
         execution = parse_execution_definition(workflow.definition)
         execution_limits = dict((run.run_context or {}).get("execution_limits") or {})
         parent_attempt = int(dict(run.run_context or {}).get("run_attempt") or 1)
         retry_context = _initial_run_context(
             execution_limits=execution_limits,
             run_attempt=max(1, parent_attempt) + 1,
+            source=source,
         )
         checkpoints = (
             _restorable_node_runs(
@@ -456,6 +591,8 @@ class AgentPlatformService:
             retry_context["artifacts"] = deepcopy(
                 dict((run.run_context or {}).get("artifacts") or {})
             )
+            if source is not None:
+                retry_context["artifacts"][SOURCE_ARTIFACT_KEY] = source.to_dict()
         retry = AgentRun(
             user_id=run.user_id,
             project_id=run.project_id,
@@ -469,10 +606,23 @@ class AgentPlatformService:
         self.db.add(retry)
         self.db.flush()
         partial_map_count = 0
+        repair_node_count = 0
+        nodes_by_key = (
+            {node.node_key: node for node in execution.nodes}
+            if isinstance(execution, WorkflowGraph)
+            else {}
+        )
         for checkpoint in checkpoints:
             restored_status = "success" if checkpoint.status == "success" else "failed"
             if restored_status == "failed":
-                partial_map_count += 1
+                node = nodes_by_key[checkpoint.node_key]
+                if _has_restorable_node_repair_state(node, checkpoint):
+                    repair_node_count += 1
+                if node.node_type == "agent_map" and node.map_config is not None:
+                    completed = dict(checkpoint.output_payload or {}).get(
+                        node.map_config.output_key
+                    )
+                    partial_map_count += int(isinstance(completed, list) and bool(completed))
             self.db.add(
                 AgentNodeRun(
                     run_id=retry.id,
@@ -481,12 +631,13 @@ class AgentPlatformService:
                     agent_definition_id=checkpoint.agent_definition_id,
                     tool_definition_id=checkpoint.tool_definition_id,
                     status=restored_status,
-                    attempt=1,
+                    # 继承检查点尚未在本次运行执行，不能消耗新运行的节点重试预算。
+                    attempt=0,
                     input_payload=deepcopy(checkpoint.input_payload or {}),
                     output_payload=deepcopy(checkpoint.output_payload or {}),
                     sdk_state=_restored_checkpoint_sdk_state(checkpoint),
                     error_message=(
-                        "" if restored_status == "success" else "从父运行恢复部分映射结果"
+                        "" if restored_status == "success" else "从父运行恢复执行检查点"
                     ),
                     started_at=datetime.utcnow(),
                     finished_at=datetime.utcnow(),
@@ -497,6 +648,7 @@ class AgentPlatformService:
             "restored_node_count": len(checkpoints),
             "restored_success_count": successful_output_count,
             "restored_partial_map_count": partial_map_count,
+            "restored_repair_node_count": repair_node_count,
         }
         self.repo.append_event(
             run_id=run.id,
@@ -514,22 +666,17 @@ class AgentPlatformService:
         return retry, "retried"
 
     def cancel_run(self, *, run_id: int, user_id: int) -> tuple[AgentRun | None, str]:
-        run = self.repo.get_owned_run(run_id=run_id, user_id=user_id)
+        run = self.repo.get_run_for_update(run_id=run_id, user_id=user_id)
         if run is None:
             return None, "run_not_found"
-        if run.status in {"success", "failed", "cancelled"}:
+        if run.status in TERMINAL_RUN_STATUSES:
             return run, "already_finished"
-        run.status = "cancelled"
-        run.finished_at = datetime.utcnow()
-        run.claim_token = None
-        run.heartbeat_at = None
-        run.lease_expires_at = None
-        self.repo.append_event(
-            run_id=run.id,
+        transition_run(
+            self.repo, run, "cancelled",
             event_type="run_cancelled",
             payload={"user_id": user_id},
+            actor_user_id=user_id,
         )
-        self.db.add(run)
         self.db.commit()
         prune_terminal_run_history(self.repo, run)
         return run, "cancelled"
@@ -545,7 +692,7 @@ class AgentPlatformService:
         run = self.repo.get_owned_run(run_id=run_id, user_id=user_id)
         if run is None:
             return None, "run_not_found"
-        if run.status in {"pending", "running", "waiting_approval"}:
+        if run.status in ACTIVE_RUN_STATUSES:
             return None, "run_attempt_reset_forbidden"
         context = deepcopy(dict(run.run_context or {}))
         previous_attempt = max(1, int(context.get("run_attempt") or 1))
@@ -580,26 +727,37 @@ class AgentPlatformService:
         )
         if approval is None:
             return None, "approval_not_found"
+        run = self.repo.get_run_for_update(run_id=approval.run_id, user_id=user_id)
+        if run is None:
+            return None, "run_not_found"
+        self.db.refresh(approval)
+        if run.status != "waiting_approval":
+            return None, "approval_run_not_waiting"
         if approval.status != "pending":
             return approval, "already_decided"
+        if decision.approved and self._start_worker is None:
+            raise RuntimeError("Agent Run 未配置后台执行器")
         approval.status = "approved" if decision.approved else "rejected"
         approval.decision_payload = {"reason": decision.reason}
         approval.decided_at = datetime.utcnow()
         approval.decided_by_user_id = user_id
-        run = self.repo.get_run(run_id=approval.run_id)
-        if run is None:
-            return None, "run_not_found"
         if decision.approved:
-            run.status = "pending"
-            run.task_id = None
+            transition_run(
+                self.repo, run, "pending", event_type="approval_approved",
+                payload={"approval_id": approval.id, "user_id": user_id},
+                actor_user_id=user_id, node_run_id=approval.node_run_id,
+            )
             self.db.add(approval)
             self.db.add(run)
             self.db.commit()
             self._start_worker(run.id)
             return approval, "approved"
-        run.status = "failed"
-        run.error_message = f"审批拒绝: {decision.reason}".strip()
-        run.finished_at = datetime.utcnow()
+        transition_run(
+            self.repo, run, "failed", event_type="approval_rejected",
+            payload={"approval_id": approval.id, "user_id": user_id},
+            error_message=f"审批拒绝: {decision.reason}".strip(),
+            actor_user_id=user_id, node_run_id=approval.node_run_id,
+        )
         node_run = self.db.get(AgentNodeRun, approval.node_run_id)
         if node_run is not None:
             node_run.status = "failed"

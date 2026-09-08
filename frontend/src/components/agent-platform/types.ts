@@ -129,6 +129,7 @@ export type AgentRun = {
   input_payload: Record<string, unknown>;
   run_context: Record<string, unknown>;
   output_payload: Record<string, unknown>;
+  test_generation_result: Record<string, unknown> | null;
   error_message: string;
   parent_run_id: number | null;
   task_id: string | null;
@@ -166,4 +167,10 @@ export type RequirementDocumentParseStatus = {
   id: number;
   parse_status: RequirementDocumentOption['parse_status'];
   parse_error: string | null;
+};
+
+export type GenerationReuseCandidate = {
+  run_id: number;
+  source_filename: string;
+  case_count: number;
 };

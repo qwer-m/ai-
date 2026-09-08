@@ -44,18 +44,6 @@ def seed_builtin_definitions(*, db: Session, project_id: int, user_id: int) -> N
         ):
             binding.enabled = False
             db.add(binding)
-    # 旧版本曾把内置定义复制到每个项目；统一停用这些副本，运行时回退到全局模板。
-    for agent in (
-        db.query(AgentDefinition)
-        .filter(
-            AgentDefinition.project_id.is_not(None),
-            AgentDefinition.builtin.is_(True),
-            AgentDefinition.enabled.is_(True),
-        )
-        .all()
-    ):
-        agent.enabled = False
-        db.add(agent)
     for agent in (
         db.query(AgentDefinition)
         .filter(
@@ -79,7 +67,6 @@ def seed_builtin_definitions(*, db: Session, project_id: int, user_id: int) -> N
         workflow.enabled = False
         db.add(workflow)
 
-    tools_by_key: dict[str, AgentToolDefinition] = {}
     for spec in BUILTIN_TOOL_SPECS:
         tool_registry.resolve(str(spec["handler_key"]))
         row = repo.get_tool(
@@ -104,7 +91,6 @@ def seed_builtin_definitions(*, db: Session, project_id: int, user_id: int) -> N
         row.enabled = True
         db.add(row)
         db.flush()
-        tools_by_key[row.tool_key] = row
 
     for spec in BUILTIN_AGENT_SPECS:
         agent_key = str(spec["agent_key"])
@@ -155,38 +141,6 @@ def seed_builtin_definitions(*, db: Session, project_id: int, user_id: int) -> N
         row.enabled = True
         db.add(row)
         db.flush()
-
-        requested_tool_keys = list((row.runtime_config or {}).get("tool_keys") or [])
-        existing_bindings = (
-            db.query(AgentToolBinding)
-            .filter(AgentToolBinding.agent_definition_id == row.id)
-            .all()
-        )
-        for binding in existing_bindings:
-            binding.enabled = False
-            db.add(binding)
-        # 全局模板的工具按执行项目动态解析，不绑定某个项目的工具记录。
-        if row.project_id is None:
-            continue
-        for tool_key in requested_tool_keys:
-            tool = tools_by_key.get(str(tool_key))
-            if tool is None:
-                raise ValueError(f"内置智能体引用了未知工具: {tool_key}")
-            binding = (
-                db.query(AgentToolBinding)
-                .filter(
-                    AgentToolBinding.agent_definition_id == row.id,
-                    AgentToolBinding.tool_definition_id == tool.id,
-                )
-                .first()
-            )
-            if binding is None:
-                binding = AgentToolBinding(
-                    agent_definition_id=row.id,
-                    tool_definition_id=tool.id,
-                )
-            binding.enabled = True
-            db.add(binding)
 
     for spec in BUILTIN_WORKFLOW_SPECS:
         execution = parse_execution_definition(spec["definition"])

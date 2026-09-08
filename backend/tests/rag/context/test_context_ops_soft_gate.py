@@ -62,7 +62,6 @@ def test_context_ops_low_relevance_soft_gate_keeps_context(monkeypatch):
     monkeypatch.setattr(context_ops, "rerank_chunks", lambda **kwargs: list(chunks))
 
     result = context_ops.get_relevant_context_impl(
-        module=None,
         query="开户流程和审批规则有哪些",
         project_id=1,
         limit=3,

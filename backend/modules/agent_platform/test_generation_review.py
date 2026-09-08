@@ -7,9 +7,13 @@ from typing import Any, TYPE_CHECKING
 
 from .test_generation_facts import (
     binding_index,
+    bound_fact_ids,
     materialize_inline_grounding,
+    test_input_text,
     validate_case_fact_bindings,
 )
+from .output_repair import OutputRepairError, repairable_output
+from .test_generation_repair import REVIEW_REPAIR_STRATEGY
 
 if TYPE_CHECKING:
     from .registry import ToolExecutionContext
@@ -19,13 +23,26 @@ REVIEW_MAX_CASES_PER_BATCH = 10
 REVIEW_MAX_JSON_CHARS_PER_BATCH = 70000
 REPAIR_MAX_CASES_PER_BATCH = 1
 STATE_COHERENCE_REPAIR_CATEGORIES = {"state_coherence"}
-GLOBAL_REVIEW_VISIBLE_FIELD_PATHS = {
-    "title",
-    "module",
-    "priority",
-    "first_action",
-    "last_expected",
+GLOBAL_REVIEW_CASE_INDEX_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "case_id": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1},
+        "module": {"type": "string", "minLength": 1},
+        "priority": {"type": "string", "minLength": 1},
+        "test_input": {"type": "string"},
+        "first_action": {"type": "string"},
+        "last_expected": {"type": "string"},
+    },
+    "additionalProperties": False,
 }
+# 索引投影、工具契约和允许审查的字段使用同一份定义。
+GLOBAL_REVIEW_CASE_INDEX_SCHEMA["required"] = list(
+    GLOBAL_REVIEW_CASE_INDEX_SCHEMA["properties"]
+)
+GLOBAL_REVIEW_VISIBLE_FIELD_PATHS = set(
+    GLOBAL_REVIEW_CASE_INDEX_SCHEMA["properties"]
+) - {"case_id"}
 
 
 def _required_list(value: Any, field_name: str) -> list[Any]:
@@ -59,6 +76,7 @@ def _case_business_signature(case: dict[str, Any]) -> str:
             " ".join(str(value or "").split())
             for value in list(case.get("preconditions") or [])
         ],
+        "test_input": " ".join(str(case.get("test_input") or "").split()),
         "steps": [
             {
                 "action": " ".join(str(dict(step).get("action") or "").split()),
@@ -70,15 +88,6 @@ def _case_business_signature(case: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _binding_fact_ids(binding: dict[str, Any]) -> set[str]:
-    fact_ids: set[str] = set()
-    for item in list(binding.get("precondition_bindings") or []):
-        fact_ids.update(str(value) for value in list(dict(item).get("fact_ids") or []))
-    for item in list(binding.get("step_bindings") or []):
-        detail = dict(item)
-        fact_ids.update(str(value) for value in list(detail.get("action_fact_ids") or []))
-        fact_ids.update(str(value) for value in list(detail.get("expected_fact_ids") or []))
-    return fact_ids
 
 
 def _difference_fact_ids(
@@ -96,6 +105,8 @@ def _difference_fact_ids(
     if binding is None:
         raise ValueError(f"终审批次缺少用例事实绑定: case_id={case_id}")
     path = str(field_path or "").strip()
+    if path == "test_input":
+        return list(binding.get("test_input_fact_ids") or [])
     precondition_match = re.fullmatch(r"preconditions\[(\d+)](?:\..+)?", path)
     if precondition_match:
         index = int(precondition_match.group(1))
@@ -123,7 +134,7 @@ def _difference_fact_ids(
                 *list(step_binding.get("expected_fact_ids") or []),
             }
         )
-    return sorted(_binding_fact_ids(binding))
+    return sorted(bound_fact_ids(binding))
 
 
 def _has_repeated_fact_obligation(
@@ -345,7 +356,7 @@ def _batch_audit(
     covered_fact_ids = {
         fact_id
         for binding in bindings
-        for fact_id in _binding_fact_ids(binding)
+        for fact_id in bound_fact_ids(binding)
     }
     covered_group_count = sum(
         bool(set(fact_ids) & covered_fact_ids) for fact_ids in fact_groups.values()
@@ -759,6 +770,10 @@ def _inline_repair_cases(
             raise ValueError(f"修复输入前置条件绑定不完整: case_id={case_id}")
         if set(step_bindings) != set(range(len(steps))):
             raise ValueError(f"修复输入步骤绑定不完整: case_id={case_id}")
+        case["test_input"] = {
+            "text": test_input_text(case.get("test_input")),
+            "fact_ids": list(binding.get("test_input_fact_ids") or []),
+        }
         case["preconditions"] = [
             {
                 "text": _required_text(value, f"{case_id}.preconditions[{index}]"),
@@ -925,7 +940,7 @@ def prepare_final_review_repairs(
                     *(
                         fact_id
                         for binding in target_bindings
-                        for fact_id in _binding_fact_ids(binding)
+                        for fact_id in bound_fact_ids(binding)
                     ),
                 }
             )
@@ -1034,6 +1049,7 @@ def prepare_final_review_repairs(
     return {"items": items, "repair_batch_count": len(items)}
 
 
+@repairable_output(REVIEW_REPAIR_STRATEGY)
 def postprocess_final_review_repair_item(
     context: ToolExecutionContext,
     arguments: dict[str, Any],
@@ -1056,7 +1072,10 @@ def postprocess_final_review_repair_item(
     original_bindings = source_input.get("case_fact_bindings")
     first_case = dict(original_cases[0]) if original_cases else {}
     first_precondition = next(iter(list(first_case.get("preconditions") or [])), None)
-    if not isinstance(first_precondition, dict) and isinstance(original_bindings, list):
+    if (
+        not isinstance(first_precondition, dict)
+        or not isinstance(first_case.get("test_input"), dict)
+    ) and isinstance(original_bindings, list):
         original_raw_cases = _inline_repair_cases(
             test_cases=original_cases,
             bindings=[dict(binding) for binding in original_bindings],
@@ -1086,6 +1105,7 @@ def postprocess_final_review_repair_item(
         "title",
         "priority",
         "preconditions",
+        "test_input",
         "steps",
         "tags",
         "test_design_item_ids",
@@ -1175,7 +1195,7 @@ def _validate_final_review_repair_output(
         authoritative_facts=source_input.get("authoritative_facts"),
         expected_module_name=next(iter(module_names)),
     )
-    covered = {fact_id for binding in bindings for fact_id in _binding_fact_ids(binding)}
+    covered = {fact_id for binding in bindings for fact_id in bound_fact_ids(binding)}
     required = {str(value) for value in list(source_input.get("required_fact_ids") or [])}
     facts_by_id = {
         str(fact.get("fact_id") or ""): dict(fact)
@@ -1233,7 +1253,11 @@ def _validate_final_review_repair_output(
             if fact_id in facts_by_id
         )
         detail_suffix = f"；事实断言: {missing_details}" if missing_details else ""
-        raise ValueError(f"修复批次仍未覆盖要求事实: {missing}{detail_suffix}")
+        raise OutputRepairError(
+            f"修复批次仍未覆盖要求事实: {missing}{detail_suffix}",
+            strategy_key=REVIEW_REPAIR_STRATEGY,
+            details={"missing_fact_ids": missing},
+        )
     required_design_item_ids = {
         _required_text(item.get("test_design_item_id"), "test_design_item_id")
         for item in list(source_input.get("test_design_items") or [])
@@ -1250,9 +1274,14 @@ def _validate_final_review_repair_output(
         covered_design_item_ids - required_design_item_ids
     )
     if missing_design_item_ids or invalid_design_item_ids:
-        raise ValueError(
+        raise OutputRepairError(
             "修复批次测试设计覆盖不符合平台契约: "
-            f"missing={missing_design_item_ids}, invalid={invalid_design_item_ids}"
+            f"missing={missing_design_item_ids}, invalid={invalid_design_item_ids}",
+            strategy_key=REVIEW_REPAIR_STRATEGY,
+            details={
+                "missing_test_design_item_ids": missing_design_item_ids,
+                "invalid_test_design_item_ids": invalid_design_item_ids,
+            },
         )
     return {"test_cases": repaired_cases, "case_fact_bindings": bindings}
 
@@ -1711,14 +1740,17 @@ def prepare_global_final_review(
     for raw_case in list(generation.get("test_cases") or []):
         case = dict(raw_case)
         steps = [dict(step) for step in list(case.get("steps") or [])]
+        summary_fields = {
+            "test_input": test_input_text(case.get("test_input")),
+            "first_action": str((steps[0] if steps else {}).get("action") or ""),
+            "last_expected": str((steps[-1] if steps else {}).get("expected") or ""),
+        }
         case_index.append(
             {
-                "case_id": _required_text(case.get("case_id"), "case_id"),
-                "title": _required_text(case.get("title"), "title"),
-                "module": _required_text(case.get("module"), "module"),
-                "priority": _required_text(case.get("priority"), "priority"),
-                "first_action": str((steps[0] if steps else {}).get("action") or ""),
-                "last_expected": str((steps[-1] if steps else {}).get("expected") or ""),
+                field: summary_fields[field]
+                if field in summary_fields
+                else _required_text(case.get(field), field)
+                for field in GLOBAL_REVIEW_CASE_INDEX_SCHEMA["properties"]
             }
         )
     return {

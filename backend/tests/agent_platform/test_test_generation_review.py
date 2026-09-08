@@ -44,6 +44,7 @@ def _case(case_id: str, title: str, expected: str) -> dict:
         "module": "投稿流程",
         "priority": "P0",
         "preconditions": ["用户已登录"],
+        "test_input": "角色=已登录用户",
         "steps": [{"action": "点击投稿按钮", "expected": expected}],
         "tags": ["投稿"],
         "test_design_item_ids": [],
@@ -54,6 +55,7 @@ def _binding(case_id: str, fact_id: str) -> dict:
     return {
         "case_id": case_id,
         "precondition_bindings": [{"precondition_index": 0, "fact_ids": [fact_id]}],
+        "test_input_fact_ids": [fact_id],
         "step_bindings": [
             {
                 "step_index": 0,
@@ -87,6 +89,10 @@ def _inline_repair_output(cases: list[dict], bindings: list[dict]) -> dict:
                     }
                     for index, text in enumerate(case["preconditions"])
                 ],
+                "test_input": {
+                    "text": case["test_input"],
+                    "fact_ids": binding["test_input_fact_ids"],
+                },
                 "steps": [
                     {
                         "action": step["action"],
@@ -1088,12 +1094,16 @@ def test_final_review_repair_defers_unchanged_output_to_recheck() -> None:
     binding = _binding("TC-001", "F-001")
     source_input = {
         "test_cases": [
-            {
-                **case,
-                "preconditions": [
-                    {"text": "用户已登录", "fact_ids": ["F-001"]}
-                ],
-                "steps": [
+                {
+                    **case,
+                    "preconditions": [
+                        {"text": "用户已登录", "fact_ids": ["F-001"]}
+                    ],
+                    "test_input": {
+                        "text": case["test_input"],
+                        "fact_ids": ["F-001"],
+                    },
+                    "steps": [
                     {
                         "action": "点击投稿按钮",
                         "expected": "显示失败提示",

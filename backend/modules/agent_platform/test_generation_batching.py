@@ -17,12 +17,15 @@ from modules.knowledge_base_components.document.document_asset_service import (
 
 from .test_generation_facts import (
     binding_index,
+    bound_fact_ids,
     derive_test_design_item_ids,
     index_effective_facts,
     materialize_inline_grounding,
     replace_binding_case_id,
     validate_case_fact_bindings,
 )
+from .output_repair import OutputRepairError, repairable_output
+from .test_generation_repair import GENERATION_REPAIR_STRATEGY
 
 if TYPE_CHECKING:
     from .registry import ToolExecutionContext
@@ -1602,6 +1605,7 @@ def prepare_test_case_batches(
     return {"items": items, "batch_count": len(items), "case_budget": case_budget}
 
 
+@repairable_output(GENERATION_REPAIR_STRATEGY)
 def postprocess_generation_batch_item(
     context: ToolExecutionContext,
     arguments: dict[str, Any],
@@ -1648,102 +1652,9 @@ def postprocess_generation_batch_item(
             # 路由契约是编号的唯一可信来源。即使旧模型仍返回部分编号，
             # 也以实际事实绑定重新物化，避免半残编号绕过覆盖校验。
             case["test_design_item_ids"] = list(derived_by_case.get(case_id) or [])
-        _repair_generation_coverage_from_contract(
-            context=context,
-            source_input=source_input,
-            output=output,
-        )
     return _validate_generation_batch_output(source_input=source_input, output=output)
 
 
-def _repair_generation_coverage_from_contract(
-    *,
-    context: ToolExecutionContext,
-    source_input: dict[str, Any],
-    output: dict[str, Any],
-) -> None:
-    """依据批次契约补齐模型漏绑的事实和设计项，不生成契约外内容。"""
-
-    contract = dict(source_input.get("case_fact_contract") or {})
-    slots = [dict(slot) for slot in list(contract.get("coverage_slots") or [])]
-    cases = [dict(case) for case in list(output.get("test_cases") or [])]
-    bindings = [dict(binding) for binding in list(output.get("case_fact_bindings") or [])]
-    if not slots or len(cases) != len(slots) or len(bindings) != len(cases):
-        return
-    facts_by_id = index_effective_facts(source_input.get("authoritative_facts"))
-    covered_by_case = _covered_fact_ids_by_case(bindings)
-    bindings_by_case = {str(item.get("case_id") or ""): item for item in bindings}
-    cases_by_id = {str(item.get("case_id") or ""): item for item in cases}
-    repaired_fact_ids: list[str] = []
-    repaired_design_ids: list[str] = []
-
-    for slot in slots:
-        case_id = str(slot.get("case_id") or "").strip()
-        case = cases_by_id.get(case_id)
-        binding = bindings_by_case.get(case_id)
-        if case is None or binding is None:
-            continue
-        missing_fact_ids = [
-            str(value)
-            for value in list(slot.get("required_fact_ids") or [])
-            if str(value) in facts_by_id and str(value) not in covered_by_case.get(case_id, set())
-        ]
-        if missing_fact_ids:
-            steps = list(case.get("steps") or [])
-            step_bindings = list(binding.get("step_bindings") or [])
-            if not steps or not step_bindings:
-                continue
-            first_step = dict(steps[0])
-            assertions = [
-                str(facts_by_id[fact_id].get("assertion") or "").strip()
-                for fact_id in missing_fact_ids
-            ]
-            suffix = "；".join(value for value in assertions if value)
-            if suffix:
-                first_step["expected"] = (
-                    f"{str(first_step.get('expected') or '').strip()}；依据事实：{suffix}"
-                )
-            steps[0] = first_step
-            first_binding = dict(step_bindings[0])
-            expected_ids = [
-                str(value) for value in list(first_binding.get("expected_fact_ids") or [])
-            ]
-            first_binding["expected_fact_ids"] = [
-                *expected_ids,
-                *[value for value in missing_fact_ids if value not in expected_ids],
-            ]
-            step_bindings[0] = first_binding
-            case["steps"] = steps
-            binding["step_bindings"] = step_bindings
-            covered_by_case.setdefault(case_id, set()).update(missing_fact_ids)
-            repaired_fact_ids.extend(missing_fact_ids)
-
-        required_design_ids = [
-            str(value) for value in list(slot.get("required_test_design_item_ids") or [])
-        ]
-        current_design_ids = [
-            str(value) for value in list(case.get("test_design_item_ids") or [])
-        ]
-        missing_design_ids = [
-            value for value in required_design_ids if value not in current_design_ids
-        ]
-        if missing_design_ids:
-            case["test_design_item_ids"] = [*current_design_ids, *missing_design_ids]
-            repaired_design_ids.extend(missing_design_ids)
-
-    if repaired_fact_ids or repaired_design_ids:
-        output["test_cases"] = [cases_by_id[str(case.get("case_id") or "")] for case in cases]
-        output["case_fact_bindings"] = [
-            bindings_by_case[str(binding.get("case_id") or "")] for binding in bindings
-        ]
-        repair_log = dict(context.artifacts.get("generation_contract_repairs") or {})
-        repair_log["fact_binding_count"] = int(repair_log.get("fact_binding_count") or 0) + len(
-            repaired_fact_ids
-        )
-        repair_log["design_binding_count"] = int(
-            repair_log.get("design_binding_count") or 0
-        ) + len(repaired_design_ids)
-        context.artifacts["generation_contract_repairs"] = repair_log
 
 
 def _covered_fact_ids_by_case(
@@ -1751,24 +1662,10 @@ def _covered_fact_ids_by_case(
 ) -> dict[str, set[str]]:
     """按平台生成的 case_id 汇总全部内联事实引用。"""
 
-    covered: dict[str, set[str]] = {}
-    for binding in bindings:
-        case_id = str(binding.get("case_id") or "")
-        fact_ids = {
-            str(fact_id)
-            for item in list(binding.get("precondition_bindings") or [])
-            for fact_id in list(dict(item).get("fact_ids") or [])
-        }
-        for item in list(binding.get("step_bindings") or []):
-            detail = dict(item)
-            fact_ids.update(
-                str(fact_id) for fact_id in list(detail.get("action_fact_ids") or [])
-            )
-            fact_ids.update(
-                str(fact_id) for fact_id in list(detail.get("expected_fact_ids") or [])
-            )
-        covered[case_id] = fact_ids
-    return covered
+    return {
+        str(binding.get("case_id") or ""): bound_fact_ids(binding)
+        for binding in bindings
+    }
 
 
 def _validate_generation_batch_output(
@@ -1912,7 +1809,16 @@ def _validate_generation_batch_output(
             f"missing={missing_design_item_ids}, invalid={invalid_design_item_ids}"
         )
     if coverage_errors:
-        raise ValueError("；".join(coverage_errors))
+        raise OutputRepairError(
+            "；".join(coverage_errors),
+            strategy_key=GENERATION_REPAIR_STRATEGY,
+            details={
+                "missing_fact_ids": missing_fact_ids,
+                "missing_test_design_item_ids": missing_design_item_ids,
+                "invalid_test_design_item_ids": invalid_design_item_ids,
+                "case_ids": expected_case_ids if actual_case_ids != expected_case_ids else [],
+            },
+        )
     return {
         "test_cases": [dict(case) for case in test_cases],
         "case_fact_bindings": bindings,

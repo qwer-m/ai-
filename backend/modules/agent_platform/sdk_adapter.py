@@ -6,6 +6,7 @@ import hashlib
 import json
 import mimetypes
 import re
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal
 
@@ -231,6 +232,26 @@ class StructuredOutputJSONError(ModelBehaviorError):
             f"智能体{category}: 第 {json_error.lineno} 行第 {json_error.colno} 列; "
             f"{json_error.msg}; chars={len(output_text)}; "
             f"sha256={self.diagnostic['output_sha256']}"
+        )
+
+
+class OutputPostprocessingError(ModelBehaviorError):
+    """保留被业务校验拒绝的完整候选，供运行时诊断和定向修复。"""
+
+    def __init__(
+        self, *, output: dict[str, Any], postprocessor: str, cause: Exception,
+        message_prefix: str = "Agent 输出后处理校验失败",
+    ) -> None:
+        self.candidate_output = deepcopy(output)
+        output_text = json.dumps(output, ensure_ascii=False, sort_keys=True, default=str)
+        self.diagnostic = {
+            "postprocessor": postprocessor,
+            "validation_message": str(cause)[:4000],
+            "output_chars": len(output_text),
+            "output_sha256": hashlib.sha256(output_text.encode("utf-8")).hexdigest(),
+        }
+        super().__init__(
+            f"{message_prefix}: postprocessor={postprocessor}; {cause}"
         )
 
 
@@ -1032,12 +1053,12 @@ def _postprocess_agent_output(
         return dict(
             handler(
                 execution_context,
-                {"input_payload": input_payload, "output": output},
+                {"input_payload": deepcopy(input_payload), "output": deepcopy(output)},
             )
         )
     except Exception as exc:
-        raise ModelBehaviorError(
-            f"Agent 输出后处理校验失败: postprocessor={postprocessor}; {exc}"
+        raise OutputPostprocessingError(
+            output=output, postprocessor=postprocessor, cause=exc,
         ) from exc
 
 

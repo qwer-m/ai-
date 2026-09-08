@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from core.authn.auth import get_current_user
@@ -14,6 +14,10 @@ from modules.agent_platform.contracts import (
     WorkflowDefinitionCreate,
 )
 from modules.agent_platform.dispatcher import start_agent_run_worker
+from modules.agent_platform.excel_export import (
+    build_test_cases_excel,
+    test_cases_export_filename,
+)
 from modules.agent_platform.serialization import (
     serialize_agent,
     serialize_event,
@@ -45,12 +49,19 @@ def _raise_result_error(reason: str) -> None:
         "project_not_found": (404, "项目不存在"),
         "workflow_not_found": (404, "工作流不存在"),
         "run_not_found": (404, "运行记录不存在"),
+        "run_result_not_found": (409, "当前运行尚无可导出的测试用例"),
+        "run_result_invalid": (500, "当前运行的测试用例产物格式异常"),
+        "document_not_found": (404, "需求文档不存在"),
         "approval_not_found": (404, "审批记录不存在"),
+        "approval_run_not_waiting": (409, "运行不在待审批状态，不能继续此审批"),
         "definition_not_found": (404, "智能体或工具定义不存在"),
         "version_exists": (409, "相同版本已存在"),
         "run_not_retryable": (409, "当前运行状态不可重试"),
+        "run_source_already_active": (409, "同一需求来源已有运行正在执行，请等待完成或取消后再续跑"),
         "run_attempt_reset_forbidden": (409, "运行进行中，不能重置执行次数"),
         "run_version_mismatch": (409, "运行版本已变化，不能混用旧节点结果，请新建 Run"),
+        "run_source_changed": (409, "需求文档已变化，请重新生成，不能续跑旧任务"),
+        "run_source_snapshot_missing": (409, "旧运行缺少来源快照，不能安全恢复，请重新生成"),
     }
     if reason.startswith("unknown_node_reference:"):
         raise HTTPException(status_code=422, detail=f"工作流引用不存在: {reason.split(':', 1)[1]}")
@@ -145,6 +156,7 @@ def create_workflow(
 def list_runs(
     project_id: int = Query(gt=0),
     limit: int = Query(default=50, ge=1, le=200),
+    workflow_key: str | None = Query(default=None, min_length=1, max_length=120),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -153,6 +165,7 @@ def list_runs(
         project_id=project_id,
         user_id=current_user.id,
         limit=limit,
+        workflow_key=workflow_key,
     )
     if rows is None:
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -168,6 +181,25 @@ def get_active_run(
     service = _service(db)
     run = service.get_active_run(project_id=project_id, user_id=current_user.id)
     return {"run": serialize_run_summary(run) if run is not None else None}
+
+
+@router.get("/runs/reuse-candidate")
+def get_generation_reuse_candidate(
+    project_id: int = Query(gt=0),
+    requirement_doc_id: int = Query(gt=0),
+    workflow_key: str = Query(default="test_generation", min_length=1, max_length=120),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    candidate, reason = _service(db).get_generation_reuse_candidate(
+        project_id=project_id,
+        user_id=current_user.id,
+        workflow_key=workflow_key,
+        requirement_doc_id=requirement_doc_id,
+    )
+    if reason not in {"found", "not_found"}:
+        _raise_result_error(reason)
+    return {"candidate": candidate}
 
 
 @router.post("/runs", status_code=202)
@@ -194,6 +226,33 @@ def get_run(
     if run is None:
         raise HTTPException(status_code=404, detail="运行记录不存在")
     return {"run": _run_payload(service, run)}
+
+
+@router.get("/runs/{run_id}/test-cases.xlsx")
+def export_run_test_cases(
+    run_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    export_data, reason = _service(db).get_test_case_export_data(
+        run_id=run_id,
+        user_id=current_user.id,
+    )
+    if export_data is None:
+        _raise_result_error(reason)
+    excel_bytes = build_test_cases_excel(export_data["test_cases"])
+    _display_name, disposition = test_cases_export_filename(
+        str(export_data.get("source_filename") or ""),
+        run_id,
+    )
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": disposition,
+            "Content-Length": str(len(excel_bytes)),
+        },
+    )
 
 
 @router.get("/runs/{run_id}/events")

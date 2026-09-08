@@ -13,7 +13,14 @@ from jsonschema import validate as validate_json_schema
 from pydantic import ValidationError
 
 from core.db.database import SessionLocal
-from core.db.model_defs import AgentDefinition, AgentNodeRun, AgentRun, AgentToolDefinition
+from core.db.model_defs import (
+    AgentDefinition,
+    AgentNodeRun,
+    AgentRun,
+    AgentToolDefinition,
+    AgentWorkflowDefinition,
+    KnowledgeDocument,
+)
 from modules.agent_platform.contracts import (
     AgentProgramDefinition,
     AgentRunCreate,
@@ -32,7 +39,11 @@ from modules.agent_platform.registry import (
 from modules.agent_platform.document_agent_tools import _public_layout_blocks
 from modules.agent_platform import sdk_adapter
 from modules.agent_platform.runtime import _node_input
-from modules.agent_platform.repository import AgentPlatformRepository
+from modules.agent_platform.repository import (
+    AgentPlatformRepository,
+    _terminal_run_ids_to_delete,
+)
+from modules.agent_platform.sources import historical_source_snapshot
 from modules.agent_platform.serialization import serialize_node_run, serialize_run_summary
 from modules.agent_platform.service import _initial_run_context, _resolved_execution_limits
 from modules.agent_platform.service import _restorable_node_runs, _restored_checkpoint_sdk_state
@@ -190,19 +201,42 @@ def test_run_history_pruning_does_not_load_large_run_payloads() -> None:
     queried_entities: list[tuple[object, ...]] = []
 
     class Query:
+        def __init__(self, entities: tuple[object, ...]) -> None:
+            self.entities = entities
+
         def filter(self, *args: object) -> "Query":
             return self
 
         def order_by(self, *args: object) -> "Query":
             return self
 
-        def all(self) -> list[tuple[int, datetime]]:
-            return [(3, datetime(2026, 8, 27, 10, 32, 51))]
+        def all(self) -> list[tuple[object, ...]]:
+            if self.entities == (AgentWorkflowDefinition.id,):
+                return [(16,)]
+            if len(self.entities) == 8 and self.entities[:4] == (
+                AgentRun.id,
+                AgentRun.finished_at,
+                AgentRun.input_payload,
+                AgentRun.status,
+            ):
+                return [(
+                    3,
+                    datetime(2026, 8, 27, 10, 32, 51),
+                    {"requirement_doc_id": 239},
+                    "success",
+                    None, None, None, None,
+                )]
+            raise AssertionError(f"未预期的查询字段: {self.entities}")
 
     class Database:
+        def get(self, model: object, row_id: int) -> SimpleNamespace | None:
+            assert model is AgentWorkflowDefinition
+            assert row_id == 16
+            return SimpleNamespace(workflow_key="test_generation")
+
         def query(self, *entities: object) -> Query:
             queried_entities.append(entities)
-            return Query()
+            return Query(entities)
 
     repository = AgentPlatformRepository(Database())
 
@@ -215,7 +249,51 @@ def test_run_history_pruning_does_not_load_large_run_payloads() -> None:
     )
 
     assert deleted_ids == []
-    assert queried_entities == [(AgentRun.id, AgentRun.finished_at)]
+    assert all(
+        not (len(entities) == 1 and entities[0] is AgentRun)
+        for entities in queried_entities
+    )
+    assert any(entities[:4] == (
+        AgentRun.id,
+        AgentRun.finished_at,
+        AgentRun.input_payload,
+        AgentRun.status,
+    ) for entities in queried_entities)
+
+
+def test_document_run_without_snapshot_cannot_infer_historical_source() -> None:
+    assert historical_source_snapshot({"requirement_doc_id": 300}) is None
+
+
+def test_successful_regeneration_only_replaces_same_source_runs() -> None:
+    finished_at = datetime(2026, 9, 3, 12, 0, 0)
+    rows = [
+        (12, finished_at, "document-sha256:same", "success"),
+        (11, finished_at, "document-sha256:other", "success"),
+        (10, finished_at, "document-sha256:same", "success"),
+        (9, finished_at, "document-sha256:same", "failed"),
+    ]
+
+    assert _terminal_run_ids_to_delete(
+        rows,
+        keep_run_id=12,
+        limit=1,
+    ) == [10, 9]
+
+
+def test_failed_regeneration_keeps_successful_reusable_result() -> None:
+    finished_at = datetime(2026, 9, 3, 12, 0, 0)
+    rows = [
+        (13, finished_at, "document-sha256:same", "failed"),
+        (12, finished_at, "document-sha256:same", "success"),
+        (9, finished_at, "document-sha256:same", "failed"),
+    ]
+
+    assert _terminal_run_ids_to_delete(
+        rows,
+        keep_run_id=13,
+        limit=1,
+    ) == [9]
 
 
 def test_run_summary_does_not_serialize_large_runtime_fields() -> None:
@@ -2658,6 +2736,8 @@ def test_case_generator_uses_inline_fact_bindings_without_model_owned_indexes() 
     assert "不要输出 case_id 和 module" in generator["instructions"]
     assert "平台会根据数组位置确定性拆分绑定" in generator["instructions"]
     assert "前置条件和 expected 的 fact_ids 均禁止空数组" in generator["instructions"]
+    assert "非空 test_input 必须绑定至少一个支持其输入的事实" in generator["instructions"]
+    assert 'test_input 必须为 {"text":"","fact_ids":[]}' in generator["instructions"]
     assert "中性操作可以使用空数组" in generator["instructions"]
     assert "case_budget 是本包必须精确生成的用例数量，可以大于 1" in generator["instructions"]
     assert "preconditions 每项只能包含 text 和 fact_ids" in generator["instructions"]
@@ -2700,7 +2780,7 @@ def test_case_generator_uses_inline_fact_bindings_without_model_owned_indexes() 
 
     projection = generator["runtime_config"]["input_projection"]
     assert generator["runtime_config"]["input_projection_version"] == (
-        "generation-model-v5-dynamic-scenario-design"
+        "generation-model-v6-test-input"
     )
     assert "requirement" not in projection
     assert "fact_ids" not in projection["plan"]["business_module"]
@@ -2893,6 +2973,10 @@ def test_case_generator_rejects_detached_or_missing_step_fact_bindings() -> None
                 "title": "未获得技法时查看秘籍",
                 "priority": "P0",
                 "preconditions": [],
+                "test_input": {
+                    "text": "技法状态=未获得",
+                    "fact_ids": ["DOC259-P0025-259-002"],
+                },
                 "steps": [legacy_step],
                 "tags": [],
                 "test_design_item_ids": [],

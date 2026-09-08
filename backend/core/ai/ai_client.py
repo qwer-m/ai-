@@ -506,16 +506,6 @@ class AIClient:
                 client.vl_provider = vision_provider
         client._set_cache_namespace(cls._config_cache_namespace(config))
         return client
-    def update_provider(self, provider: BaseModelProvider, model_name: str = None):
-        """Replace the active provider and optionally update the model name."""
-        incoming_namespace = self._provider_cache_namespace(provider)
-        self._provider = provider
-        self._set_cache_namespace(
-            incoming_namespace or self._cache_namespace
-        )
-        if model_name:
-            self.model = model_name
-
     def replace_runtime_from(self, other: "AIClient") -> None:
         """Replace all runtime model routes from another configured client."""
         self._provider = other.provider

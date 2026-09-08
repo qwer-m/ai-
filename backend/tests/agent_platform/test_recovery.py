@@ -19,8 +19,8 @@ class _FakeDb:
             status="running",
             task_id="old-task",
             claim_token="old-claim",
-            heartbeat_at=object(),
-            lease_expires_at=object(),
+            heartbeat_at=datetime.utcnow() - timedelta(hours=1),
+            lease_expires_at=datetime.utcnow() - timedelta(minutes=1),
             error_message="旧错误",
             run_context={},
             finished_at=None,
@@ -51,9 +51,21 @@ class _FakeRepository:
     def __init__(self, db: _FakeDb) -> None:
         self.db = db
         self.events: list[dict[str, object]] = []
+        self.node_finalizations: list[dict[str, object]] = []
 
     def append_event(self, **event) -> None:
         self.events.append(event)
+
+    def get_run_for_update(self, *, run_id: int):
+        return self.db.get(recovery.AgentRun, run_id)
+
+    def list_approvals(self, *, run_id: int) -> list:
+        assert run_id == self.db.run.id
+        return []
+
+    def finalize_unfinished_node_runs(self, **arguments) -> int:
+        self.node_finalizations.append(arguments)
+        return 0
 
 
 def test_recovery_orders_only_run_ids_before_loading_large_json_rows(monkeypatch) -> None:
@@ -81,6 +93,7 @@ def test_recovery_orders_only_run_ids_before_loading_large_json_rows(monkeypatch
     assert repository.events == [
         {
             "run_id": 27,
+            "node_run_id": None,
             "event_type": "run_recovered",
             "payload": {"reason": "expired_lease"},
         }
@@ -88,6 +101,7 @@ def test_recovery_orders_only_run_ids_before_loading_large_json_rows(monkeypatch
     assert db.commit_count == 1
     assert dispatched == [27]
     assert db.closed is True
+    assert repository.node_finalizations == []
 
 
 def test_recovery_marks_run_failed_when_global_deadline_has_expired(monkeypatch) -> None:
@@ -120,9 +134,16 @@ def test_recovery_marks_run_failed_when_global_deadline_has_expired(monkeypatch)
     assert repository.events == [
         {
             "run_id": 27,
+            "node_run_id": None,
             "event_type": "run_recovery_deadline_expired",
             "payload": {"reason": "deadline_expired"},
         }
     ]
     assert pruned_run_ids == [27]
     assert dispatched == []
+    assert repository.node_finalizations == [{
+        "run_id": 27,
+        "status": "failed",
+        "finished_at": db.run.finished_at,
+        "error_message": db.run.error_message,
+    }]

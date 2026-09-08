@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Badge, Button, Form, Spinner } from 'react-bootstrap';
+import { Badge, Button, Form, Modal, Spinner } from 'react-bootstrap';
 import {
   FaBan,
   FaCheck,
   FaClock,
+  FaDownload,
   FaFileAlt,
   FaPlay,
   FaRobot,
@@ -65,6 +66,36 @@ const parseStatusLabel = {
 
 function JsonView({ value }: { value: unknown }) {
   return <pre className="agent-json-view mb-0">{JSON.stringify(value ?? {}, null, 2)}</pre>;
+}
+
+function localizedGeneratedCases(cases: Record<string, unknown>[]): Record<string, unknown> {
+  return {
+    测试用例: cases.map((testCase) => {
+      const actions: unknown[] = [];
+      const expectedResults: unknown[] = [];
+      const steps = Array.isArray(testCase.steps) ? testCase.steps : [];
+
+      for (const step of steps) {
+        if (step && typeof step === 'object' && !Array.isArray(step)) {
+          const stepValue = step as Record<string, unknown>;
+          actions.push(stepValue.action);
+          expectedResults.push(stepValue.expected);
+        } else {
+          actions.push(step);
+        }
+      }
+
+      return {
+        用例编号: testCase.case_id,
+        用例标题: testCase.title,
+        测试模块: testCase.module,
+        前置条件: testCase.preconditions,
+        执行步骤: actions,
+        预期结果: expectedResults,
+        用例级别: testCase.priority,
+      };
+    }),
+  };
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
@@ -191,6 +222,21 @@ function friendlyErrorMessage(value: string): string {
   return message.length > 220 ? `${message.slice(0, 220)}…` : message;
 }
 
+function AgentErrorDetails({ message, className }: { message: string; className: string }) {
+  const summary = friendlyErrorMessage(message);
+  return (
+    <div className={className} role="alert">
+      <div>{summary}</div>
+      {summary !== message.trim() && (
+        <details className="agent-error-details">
+          <summary>错误详情</summary>
+          <pre>{message}</pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function agentRole(nodeRun: AgentNodeRun, agent: AgentDefinition | undefined): string {
   const subagentKeys = agent?.runtime_config.subagent_keys;
   if (nodeRun.node_type === 'agent_map' && Array.isArray(subagentKeys) && subagentKeys.length > 0) {
@@ -264,9 +310,7 @@ function instanceStatusVariant(value: unknown): string {
 
 function generatedCases(run: AgentRun | null): Record<string, unknown>[] {
   if (!run) return [];
-  const outputArtifacts = objectValue(objectValue(run.output_payload).artifacts);
-  const contextArtifacts = objectValue(objectValue(run.run_context).artifacts);
-  const artifact = objectValue(outputArtifacts.test_generation ?? contextArtifacts.test_generation);
+  const artifact = objectValue(run.test_generation_result);
   const cases = Array.isArray(artifact.test_cases) ? artifact.test_cases : [];
   return cases.map(objectValue);
 }
@@ -291,6 +335,7 @@ function configuredWorkflowNodes(workflow: AgentWorkflow | null): WorkflowNode[]
 
 export function AgentWorkspace({ projectId, onLog }: Props) {
   const controller = useAgentWorkspace({ projectId, onLog });
+  const [selectedStageKey, setSelectedStageKey] = useState<string | null>(null);
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
   const [clockMs, setClockMs] = useState(() => Date.now());
 
@@ -309,8 +354,16 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
     !controller.activeRun
     || ['pending', 'running', 'waiting_approval'].includes(controller.activeRun.status)
     || controller.activeRun.run_attempt === 1
-    || controller.resettingAttempt,
+    || controller.resettingAttempt
+    || controller.submitting,
   );
+  const retryAvailable = Boolean(controller.activeRun
+    && ['failed', 'cancelled'].includes(controller.activeRun.status));
+  const retryTitle = controller.uploading
+    ? '需求文档正在上传，请等待上传完成'
+    : controller.resettingAttempt
+      ? '正在重置执行次数，请稍候'
+      : `沿用 Run #${controller.activeRun?.id} 的原需求、${controller.activeRun?.input_payload.case_budget} 条用例数量及压缩设置，恢复已完成任务并继续执行`;
   const resetAttemptTitle = !controller.activeRun
     ? '当前没有可重置的运行'
     : ['pending', 'running', 'waiting_approval'].includes(controller.activeRun.status)
@@ -335,6 +388,15 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
   const hierarchyStages = controller.selectedWorkflow?.definition.execution_mode === 'dag'
     ? controller.selectedWorkflow.definition.display_stages
     : [];
+  const currentNodeStage = controller.activeRun?.current_node_key
+    ? hierarchyStages.find((stage) => stage.node_keys.includes(controller.activeRun?.current_node_key ?? ''))
+    : undefined;
+  const selectedStage = hierarchyStages.find((stage) => stage.stage_key === selectedStageKey)
+    ?? currentNodeStage
+    ?? hierarchyStages[0];
+  const visibleAgentRuns = selectedStage
+    ? agentRuns.filter((nodeRun) => selectedStage.node_keys.includes(nodeRun.node_key))
+    : agentRuns;
   const selectedWorkflowNode = workflowNodes.find(
     (node) => node.node_key === selectedNodeRun?.node_key,
   );
@@ -354,13 +416,23 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
   const hierarchyConfigured = hierarchyStages.length > 0;
 
   useEffect(() => {
+    const currentNodeKey = controller.activeRun?.current_node_key;
+    const currentStage = currentNodeKey
+      ? hierarchyStages.find((stage) => stage.node_keys.includes(currentNodeKey))
+      : undefined;
+    setSelectedStageKey(currentStage?.stage_key ?? hierarchyStages[0]?.stage_key ?? null);
+  }, [controller.selectedWorkflow?.id, controller.activeRun?.id]);
+
+  useEffect(() => {
+    setSelectedNodeKey(null);
+  }, [controller.activeRun?.id]);
+
+  useEffect(() => {
     setSelectedNodeKey((current) => {
-      const runningAgent = agentRuns.find((node) => node.status === 'running');
-      if (runningAgent) return runningAgent.node_key;
       if (current && agentRuns.some((node) => node.node_key === current)) return current;
-      return agentRuns.at(-1)?.node_key ?? null;
+      return null;
     });
-  }, [agentRuns, controller.activeRun?.id]);
+  }, [agentRuns]);
 
   useEffect(() => {
     if (!runBusy) return undefined;
@@ -454,8 +526,23 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                 }
                 title={runBusy ? '已有生成任务正在等待或执行' : '开始生成测试用例'}
               >
-                {controller.submitting ? <Spinner size="sm" /> : <FaPlay />} 开始生成
+                {controller.submitting && !controller.retrying
+                  ? <Spinner size="sm" aria-hidden="true" /> : <FaPlay aria-hidden="true" />} 开始生成
               </Button>
+              {retryAvailable && (
+                <Button
+                  className="agent-run-button"
+                  variant="outline-primary"
+                  onClick={() => void controller.retryRun()}
+                  disabled={controller.submitting || controller.uploading || controller.resettingAttempt}
+                  aria-busy={controller.retrying}
+                  title={retryTitle}
+                >
+                  {controller.retrying
+                    ? <Spinner size="sm" aria-hidden="true" /> : <FaUndo aria-hidden="true" />}
+                  {' '}{controller.retrying ? '正在续跑' : '继续失败任务'}
+                </Button>
+              )}
             </div>
           </article>
 
@@ -505,7 +592,17 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
               {hierarchyStages.map((stage, index) => {
                 const stageState = stageStatus(controller.activeRun, stage.node_keys);
                 return (
-                  <div className={`agent-hierarchy-stage is-${stageState}`} key={stage.stage_key}>
+                  <button
+                    type="button"
+                    className={`agent-hierarchy-stage is-${stageState}${selectedStage?.stage_key === stage.stage_key ? ' is-selected' : ''}`}
+                    key={stage.stage_key}
+                    onClick={() => {
+                      setSelectedStageKey(stage.stage_key);
+                      setSelectedNodeKey(null);
+                    }}
+                    aria-pressed={selectedStage?.stage_key === stage.stage_key}
+                    aria-controls="agent-stage-node-list"
+                  >
                     <span className="agent-hierarchy-index">{index + 1}</span>
                     <div>
                       <strong>{stage.label}</strong>
@@ -514,21 +611,33 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                     <Badge bg={businessStageVariant[stageState]}>
                       {businessStageLabel[stageState]}
                     </Badge>
-                  </div>
+                  </button>
                 );
               })}
             </div>
           )}
 
+          {controller.activeRun?.error_message && (
+            <AgentErrorDetails
+              className="agent-run-error"
+              message={controller.activeRun.error_message}
+            />
+          )}
+
           {controller.activeRun && agentRuns.length > 0 ? (
             <>
-              {controller.activeRun.error_message && (
-                <div className="agent-run-error" role="alert">
-                  {friendlyErrorMessage(controller.activeRun.error_message)}
-                </div>
-              )}
-              <div className="agent-node-list">
-            {agentRuns.map((nodeRun, index) => {
+              <span className="visually-hidden" aria-live="polite">
+                {selectedStage
+                  ? `${selectedStage.label}阶段已激活 ${visibleAgentRuns.length} 个智能体`
+                  : `本次运行已激活 ${visibleAgentRuns.length} 个智能体`}
+              </span>
+              {visibleAgentRuns.length > 0 ? (
+                <div
+                  className="agent-node-list"
+                  id="agent-stage-node-list"
+                  aria-label={selectedStage ? `${selectedStage.label}阶段的智能体` : '本次运行的智能体'}
+                >
+            {visibleAgentRuns.map((nodeRun, index) => {
               const agent = nodeRun.agent_definition_id
                 ? controller.catalog.agents.find(
                   (item) => item.id === nodeRun.agent_definition_id,
@@ -551,9 +660,9 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                   type="button"
                   className={selectedNodeKey === nodeRun.node_key ? 'agent-node-row is-selected' : 'agent-node-row'}
                   key={nodeRun.node_key}
-                  onClick={() => setSelectedNodeKey((current) => current === nodeRun.node_key ? null : nodeRun.node_key)}
-                  aria-expanded={selectedNodeKey === nodeRun.node_key}
-                  aria-controls={selectedNodeKey === nodeRun.node_key ? 'agent-node-inspector' : undefined}
+                  onClick={() => setSelectedNodeKey(nodeRun.node_key)}
+                  aria-haspopup="dialog"
+                  aria-controls={selectedNodeKey === nodeRun.node_key ? 'agent-node-detail-dialog' : undefined}
                 >
                   <span className="agent-node-index">{index + 1}</span>
                   <span className="agent-node-copy">
@@ -575,19 +684,101 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                 </button>
               );
             })}
-              </div>
-
-              {selectedNodeRun && (
-            <div className="agent-node-inspector" id="agent-node-inspector">
-              <div className="agent-node-inspector-heading">
-                <div>
-                  <span>{agentRole(selectedNodeRun, selectedAgent)}</span>
-                  <h4>{selectedAgent?.name || selectedNodeRun.node_key}</h4>
                 </div>
-                <Button variant="link" size="sm" onClick={() => setSelectedNodeKey(null)} aria-label="关闭节点详情">
-                  <FaTimes />
-                </Button>
+              ) : (
+                <div className="agent-stage-empty" id="agent-stage-node-list" role="status">
+                  <strong>{selectedStage?.label || '当前阶段'}尚未激活智能体</strong>
+                  <span>该阶段执行到 Agent 节点后会在这里展示真实运行记录。</span>
+                </div>
+              )}
+
+              {(controller.activeRun.approvals ?? []).filter((item) => item.status === 'pending').map((approval) => (
+                <div className="agent-approval agent-current-approval" key={approval.id}>
+                  <strong>审批 #{approval.id}</strong>
+                  <JsonView value={approval.request_payload} />
+                  <div>
+                    <Button size="sm" variant="success" onClick={() => void controller.decideApproval(approval.id, true)}>
+                      <FaCheck /> 通过
+                    </Button>
+                    <Button size="sm" variant="outline-danger" onClick={() => void controller.decideApproval(approval.id, false)}>
+                      <FaTimes /> 拒绝
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </>
+          ) : (
+            <div className="agent-runtime-empty" id="agent-stage-node-list">
+              <FaRobot />
+              <strong>{controller.activeRun ? 'Agent 尚未激活' : '尚未启动生成'}</strong>
+              <span>{controller.activeRun
+                ? '本次生成正在执行确定性准备工作；只有实际调用 Agent 后才会出现在这里。'
+                : '上传需求并点击“开始生成”后，这里会按实际激活顺序展示 Agent。'}</span>
+            </div>
+          )}
+          </article>
+        </section>
+
+        <section className="agent-card agent-cases-section">
+          <div className="agent-section-heading">
+            <div>
+              <h3>生成的测试用例</h3>
+              <p>这里展示已由平台校验并持久化的最终用例，不展示中间候选结果</p>
+            </div>
+            <div className="agent-active-run-tools">
+              <Button
+                size="sm"
+                variant="outline-secondary"
+                onClick={() => void controller.exportTestCases()}
+                disabled={cases.length === 0 || controller.exporting}
+                title="导出当前已持久化的测试用例"
+              >
+                {controller.exporting ? <Spinner size="sm" /> : <FaDownload />} 导出 Excel
+              </Button>
+              <Badge bg={cases.length > 0 ? 'primary' : 'secondary'}>{cases.length} 条</Badge>
+            </div>
+          </div>
+
+          {cases.length > 0 ? (
+            <div className="agent-cases-json" aria-label="最终测试用例 JSON">
+              <JsonView value={localizedGeneratedCases(cases)} />
+            </div>
+          ) : (
+            <div className="agent-cases-empty">
+              <FaRobot />
+              <strong>尚无可展示的最终用例</strong>
+              <span>{retryAvailable
+                ? `本次生成${controller.activeRun?.status === 'cancelled' ? '已取消' : '失败'}，尚无最终用例。`
+                : '选择需求并启动生成后，最终用例会在这里逐条展示。'}</span>
+            </div>
+          )}
+        </section>
+      </main>
+
+      <Modal
+        id="agent-node-detail-dialog"
+        show={Boolean(selectedNodeRun)}
+        onHide={() => setSelectedNodeKey(null)}
+        centered
+        scrollable
+        size="xl"
+        dialogClassName="agent-node-detail-dialog"
+        aria-labelledby="agent-node-detail-title"
+        autoFocus
+        enforceFocus
+        restoreFocus
+      >
+        {selectedNodeRun && (
+          <>
+            <Modal.Header closeButton closeLabel="关闭智能体详情">
+              <div className="agent-node-detail-heading">
+                <span>{agentRole(selectedNodeRun, selectedAgent)}</span>
+                <Modal.Title as="h2" id="agent-node-detail-title">
+                  {selectedAgent?.name || selectedNodeRun.node_key}
+                </Modal.Title>
               </div>
+            </Modal.Header>
+            <Modal.Body className="agent-node-detail-body">
               <p>{selectedAgent?.description || '该 Agent 由本次生成按需激活。'}</p>
               <div className="agent-definition-grid">
                 <div>
@@ -643,9 +834,10 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                 </div>
               )}
               {selectedNodeRun.error_message && (
-                <div className="agent-node-friendly-error">
-                  {friendlyErrorMessage(selectedNodeRun.error_message)}
-                </div>
+                <AgentErrorDetails
+                  className="agent-node-friendly-error"
+                  message={selectedNodeRun.error_message}
+                />
               )}
               <details className="agent-technical-details">
                 <summary>查看技术详情</summary>
@@ -673,67 +865,50 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                     <JsonView value={selectedNodeRun.sdk_state} />
                   </details>
                 )}
-                {selectedNodeRun.error_message && (
-                  <details>
-                    <summary>原始错误</summary>
-                    <JsonView value={{ error: selectedNodeRun.error_message }} />
-                  </details>
-                )}
               </details>
-            </div>
-              )}
+            </Modal.Body>
+          </>
+        )}
+      </Modal>
 
-              {(controller.activeRun.approvals ?? []).filter((item) => item.status === 'pending').map((approval) => (
-                <div className="agent-approval agent-current-approval" key={approval.id}>
-                  <strong>审批 #{approval.id}</strong>
-                  <JsonView value={approval.request_payload} />
-                  <div>
-                    <Button size="sm" variant="success" onClick={() => void controller.decideApproval(approval.id, true)}>
-                      <FaCheck /> 通过
-                    </Button>
-                    <Button size="sm" variant="outline-danger" onClick={() => void controller.decideApproval(approval.id, false)}>
-                      <FaTimes /> 拒绝
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </>
-          ) : (
-            <div className="agent-runtime-empty">
-              <FaRobot />
-              <strong>{controller.activeRun ? 'Agent 尚未激活' : '尚未启动生成'}</strong>
-              <span>{controller.activeRun
-                ? '本次生成正在执行确定性准备工作；只有实际调用 Agent 后才会出现在这里。'
-                : '上传需求并点击“开始生成”后，这里会按实际激活顺序展示 Agent。'}</span>
-            </div>
-          )}
-          </article>
-        </section>
-
-        <section className="agent-card agent-cases-section">
-          <div className="agent-section-heading">
-            <div>
-              <h3>生成的测试用例</h3>
-              <p>这里展示已由平台校验并持久化的最终用例，不展示中间候选结果</p>
-            </div>
-            <Badge bg={cases.length > 0 ? 'primary' : 'secondary'}>{cases.length} 条</Badge>
+      <Modal
+        show={controller.showReusePrompt}
+        onHide={controller.dismissReusePrompt}
+        centered
+        backdrop="static"
+      >
+        <Modal.Header closeButton>
+          <Modal.Title>已存在生成结果</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p className="mb-2">
+            检测到相同内容的需求文档已生成
+            {' '}{controller.reuseCandidate?.case_count ?? 0} 条测试用例。
+          </p>
+          <div className="text-muted small">
+            来源：{controller.reuseCandidate?.source_filename || '原需求文档'}
+            {controller.reuseCandidate?.run_id
+              ? ` · Run #${controller.reuseCandidate.run_id}`
+              : ''}
           </div>
-
-          {cases.length > 0 ? (
-            <div className="agent-cases-json" aria-label="最终测试用例 JSON">
-              <JsonView value={{ test_cases: cases }} />
-            </div>
-          ) : (
-            <div className="agent-cases-empty">
-              <FaRobot />
-              <strong>尚无可展示的最终用例</strong>
-              <span>{controller.activeRun?.status === 'failed'
-                ? '本次生成执行失败，失败事件已写入底部实时日志；重新点击“开始生成”会创建全新运行。'
-                : '选择需求并启动生成后，最终用例会在这里逐条展示。'}</span>
-            </div>
-          )}
-        </section>
-      </main>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button
+            variant="outline-secondary"
+            onClick={() => void controller.regenerateGeneration()}
+            disabled={controller.submitting}
+          >
+            <FaUndo /> 重新生成并替换
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => void controller.reuseExistingGeneration()}
+            disabled={controller.submitting}
+          >
+            <FaCheck /> 复用已有结果
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 }

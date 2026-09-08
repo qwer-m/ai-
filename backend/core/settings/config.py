@@ -15,12 +15,9 @@
 import os
 import urllib.parse
 import logging
-from dotenv import load_dotenv
+from .environment import load_environment
 
-# 优先加载后端目录下 .env，其次加载仓库根目录 .env
-_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-load_dotenv(os.path.join(_BACKEND_DIR, ".env"))
-load_dotenv(os.path.join(os.path.dirname(_BACKEND_DIR), ".env"))
+load_environment()
 
 
 _logger = logging.getLogger(__name__)
@@ -120,7 +117,7 @@ class Config:
     AGENT_RUN_LEASE_SECONDS = _env_int(
         "AGENT_RUN_LEASE_SECONDS", 120, minimum=30, maximum=600
     )
-    # 每个用户、项目和工作流只保留有限数量的终态运行，避免节点与事件历史无限增长。
+    # 每个需求来源只保留有限数量的终态运行；不同需求文档必须各自保留可复用结果。
     AGENT_RUN_HISTORY_LIMIT = _env_int(
         "AGENT_RUN_HISTORY_LIMIT", 1, minimum=1, maximum=20
     )

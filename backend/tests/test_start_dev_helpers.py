@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import uuid
 
+from dotenv import dotenv_values
 import pytest
 
 import start_dev_helpers
@@ -104,27 +110,52 @@ def test_cleanup_project_service_processes_stops_root_trees_once(monkeypatch) ->
     ]
 
 
-def test_wait_for_celery_worker_ready_retries_until_pong(monkeypatch) -> None:
-    responses = iter(
-        [
-            SimpleNamespace(returncode=1, stdout="", stderr="No nodes replied"),
-            SimpleNamespace(returncode=0, stdout='-> worker@local: pong', stderr=""),
-        ]
+@pytest.mark.skipif(
+    os.name != "nt" or os.getenv("RUN_LIVE_CELERY_TESTS") != "1",
+    reason="Windows 设置 RUN_LIVE_CELERY_TESTS=1 后验证真实隔离 Celery Worker",
+)
+@pytest.mark.parametrize("use_project_venv", [False, True], ids=["current-python", "project-venv"])
+def test_worker_ready_handshake_with_real_isolated_worker(tmp_path, use_project_venv) -> None:
+    backend_dir = Path(__file__).resolve().parents[1]
+    root_dir = backend_dir.parent
+    executable = root_dir / ".venv" / "Scripts" / "python.exe" if use_project_venv else Path(sys.executable)
+    if not executable.is_file():
+        pytest.skip("当前项目没有可验证的 Python 虚拟环境")
+    identity = f"startup-readiness-{uuid.uuid4().hex}"
+    ready_file = tmp_path / "ready.json"
+    log_file = tmp_path / "worker.log"
+    env = start_dev_helpers._build_runtime_env(str(backend_dir), str(root_dir))
+    for directory in (backend_dir, root_dir):
+        for key, value in dotenv_values(directory / ".env").items():
+            if value is not None:
+                env.setdefault(key, value)
+    env[start_dev_helpers.CELERY_WORKER_READY_FILE_ENV] = str(ready_file)
+    command = start_dev_helpers._build_celery_command(str(executable)) + [
+        f"--queues={identity}",
+        f"--hostname={identity}@%h",
+        "--without-mingle",
+        "--without-gossip",
+    ]
+    with log_file.open("wb") as log:
+        process = subprocess.Popen(
+            command, cwd=backend_dir, env=env, stdout=log, stderr=subprocess.STDOUT,
+        )
+        try:
+            assert start_dev_helpers.wait_for_celery_worker_ready(
+                process, ready_file=str(ready_file),
+            ), log_file.read_text(encoding="utf-8", errors="replace")
+            receipt = json.loads(ready_file.read_text(encoding="utf-8"))
+            assert process.pid in (receipt["pid"], receipt["parent_pid"])
+            assert receipt["hostname"].startswith(identity + "@")
+        finally:
+            if process.poll() is None:
+                # 仅终止本测试创建的进程树，同时关闭虚拟环境包装进程及真实子进程。
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                    capture_output=True, check=True,
+                )
+            process.wait(timeout=10)
+    assert not start_dev_helpers.wait_for_celery_worker_ready(
+        process, ready_file=str(ready_file), timeout_seconds=1,
     )
-    commands: list[list[str]] = []
-
-    def fake_run(command, **kwargs):
-        commands.append(list(command))
-        return next(responses)
-
-    monkeypatch.setattr(start_dev_helpers.subprocess, "run", fake_run)
-    monkeypatch.setattr(start_dev_helpers.time, "sleep", lambda _seconds: None)
-
-    assert start_dev_helpers.wait_for_celery_worker_ready(
-        r"D:\Qoder\测试开发平台\.venv\Scripts\python.exe",
-        cwd=r"D:\Qoder\测试开发平台\backend",
-        env={},
-        timeout_seconds=2,
-    ) is True
-    assert len(commands) == 2
-    assert commands[0][-1] == "--timeout=2"
+    assert " received" not in log_file.read_text(encoding="utf-8", errors="replace")

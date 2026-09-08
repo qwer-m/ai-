@@ -27,6 +27,13 @@ from modules.agent_platform.sdk_adapter import (
     ToolOutputValidationError,
 )
 from modules.agent_platform.registry import ToolExecutionContext
+from modules.agent_platform.retry_policy import RetryAttemptState, content_attempt_budget
+from modules.agent_platform.output_repair import OutputRepairError
+from modules.agent_platform.test_generation_repair import (
+    GENERATION_REPAIR_STRATEGY,
+    REVIEW_REPAIR_STRATEGY,
+    planning_repair_targets,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -129,6 +136,9 @@ class _FakeDB:
     def flush(self) -> None:
         return None
 
+    def refresh(self, value: Any, **options: Any) -> None:
+        self.repo.refresh(value)
+
     def rollback(self) -> None:
         self.rollback_count += 1
 
@@ -167,9 +177,9 @@ class _FakeRepository:
         return int(latest.attempt if latest is not None else 0) + 1
 
     def get_agent(self, *, project_id: int, agent_key: str) -> Any:
-        return SimpleNamespace(id=9, name="真实调用智能体")
+        return SimpleNamespace(id=9, name="真实调用智能体", runtime_config={})
 
-    def list_agent_tools(self, agent_definition_id: int) -> list[Any]:
+    def list_agent_tools(self, agent_definition_id: int, *, project_id: int | None = None) -> list[Any]:
         return []
 
     def append_event(
@@ -440,22 +450,15 @@ def test_planning_route_repair_targets_only_invalid_scope() -> None:
         ]
     }
 
-    context = runtime._planning_route_repair_target_context(
-        item_input=item_input,
-        candidate=candidate,
-        validation_feedback="规划路由模块映射无效: scope_id=EV-0002",
+    context = planning_repair_targets(
+        item_input, candidate, {"scope_ids": ["EV-0002"]},
     )
 
-    assert context == {
-        "route_repair_targets": [
-            {
-                "scope_id": "EV-0002",
-                "missing_fact_ids": [],
-                "invalid_fact_ids": ["F-003"],
-            }
-        ],
-        "protected_scope_ids": ["EV-0001"],
-    }
+    assert context["route_repair_targets"] == [{"scope_id": "EV-0002"}]
+    assert context["protected_scope_ids"] == ["EV-0001"]
+    assert context["protected_collections"] == [{
+        "field": "routes", "identity_key": "scope_id", "protected_ids": ["EV-0001"],
+    }]
 
 
 def test_agent_map_input_projection_keeps_raw_item_separate() -> None:
@@ -759,6 +762,9 @@ def test_standard_agent_retries_504_as_new_node_attempt(monkeypatch: pytest.Monk
         "node_key": "plan",
         "failed_attempt": 1,
         "next_attempt": 2,
+        "repair_mode": "none",
+        "has_repair_candidate": False,
+        "candidate_rejection_reason": "",
     }
     assert run.run_context["usage"] == {
         "attempted_requests": 2,
@@ -982,7 +988,7 @@ def test_tool_agent_reserves_all_possible_sdk_turns_within_quota(
         output_schema={},
         runtime_config={"max_turns": 2, "max_output_tokens": 100},
     )
-    repo.list_agent_tools = lambda _agent_id: [
+    repo.list_agent_tools = lambda _agent_id, *, project_id: [
         SimpleNamespace(
             tool_key="lookup",
             name="查询",
@@ -1029,15 +1035,17 @@ def test_timeout_and_connection_errors_are_retryable() -> None:
     assert runtime._is_retryable_agent_error(ConnectionError("连接中断"))
     assert runtime._agent_retry_feedback(TimeoutError("读取超时")) is None
     assert runtime._agent_retry_feedback(ConnectionError("连接中断")) is None
-    assert runtime._agent_map_attempt_limit(
+    assert runtime._agent_retry_decision(
+        RetryAttemptState(attempt=1),
         exc=TimeoutError("读取超时"),
         configured_max_attempts=2,
-    ) == 4
+    ).attempt_limit == 4
     assert not runtime._is_retryable_agent_error(_HTTPError(400, "请求错误"))
-    assert runtime._agent_map_attempt_limit(
+    assert not runtime._agent_retry_decision(
+        RetryAttemptState(attempt=1),
         exc=_HTTPError(400, "请求错误"),
         configured_max_attempts=2,
-    ) == 2
+    ).can_retry
 
 
 def test_agent_map_first_attempt_uses_shorter_timeout_and_retry_restores_budget(
@@ -1068,11 +1076,12 @@ def test_agent_map_first_attempt_uses_shorter_timeout_and_retry_restores_budget(
 def test_model_structured_output_error_is_retryable() -> None:
     error = ModelBehaviorError("结构化输出缺少必填字段")
     assert runtime._is_retryable_agent_error(error)
-    assert runtime._agent_map_attempt_limit(
+    assert runtime._agent_retry_decision(
+        RetryAttemptState(attempt=1),
         exc=error,
         configured_max_attempts=2,
-    ) == 2
-    assert runtime._agent_content_attempt_budget(
+    ).attempt_limit == 2
+    assert content_attempt_budget(
         failure_kind="tool_arguments_validation",
         configured_max_attempts=2,
     ) == 3
@@ -1107,6 +1116,10 @@ def test_agent_map_item_retry_feedback_explains_missing_fact_relocation() -> Non
         "agent_map 单项结果校验失败: 修复批次仍未覆盖要求事实: "
         "['DOC269-P0004-F002']"
     )
+    error.__cause__ = OutputRepairError(
+        "事实覆盖差异", strategy_key=REVIEW_REPAIR_STRATEGY,
+        details={"missing_fact_ids": ["DOC269-P0004-F002"]},
+    )
 
     feedback = runtime._agent_map_item_retry_feedback(
         previous_feedback=None,
@@ -1127,12 +1140,14 @@ def test_agent_map_item_retry_feedback_explains_missing_fact_relocation() -> Non
 
 
 def test_generation_retry_feedback_includes_missing_fact_assertion() -> None:
+    error = ModelBehaviorError("生成校验失败")
+    error.__cause__ = OutputRepairError(
+        "事实覆盖差异", strategy_key=GENERATION_REPAIR_STRATEGY,
+        details={"missing_fact_ids": ["DOC269-P0006-F269-035"]},
+    )
     feedback = runtime._agent_map_item_retry_feedback(
         previous_feedback=None,
-        exc=ModelBehaviorError(
-            "agent_map 单项结果校验失败: 生成批次未完整覆盖平台要求的事实: "
-            "missing=['DOC269-P0006-F269-035']"
-        ),
+        exc=error,
         item_input={
             "authoritative_facts": [
                 {
@@ -1148,12 +1163,14 @@ def test_generation_retry_feedback_includes_missing_fact_assertion() -> None:
 
 
 def test_generation_retry_feedback_includes_missing_design_intent() -> None:
+    error = ModelBehaviorError("生成校验失败")
+    error.__cause__ = OutputRepairError(
+        "测试设计覆盖差异", strategy_key=GENERATION_REPAIR_STRATEGY,
+        details={"missing_test_design_item_ids": ["TD-003-003-002"]},
+    )
     feedback = runtime._agent_map_item_retry_feedback(
         previous_feedback="上次输出未通过平台校验：旧错误 TD-OLD",
-        exc=ModelBehaviorError(
-            "agent_map 单项结果校验失败: 生成批次测试设计覆盖不符合平台契约: "
-            "missing=['TD-003-003-002'], invalid=[]"
-        ),
+        exc=error,
         item_input={
             "plan": {
                 "test_design_items": [
@@ -1201,25 +1218,26 @@ def test_final_review_retry_feedback_accumulates_requirements_and_missing_fact()
             }
         ],
     }
+    first_error = ModelBehaviorError("终审修复校验失败")
+    first_error.__cause__ = OutputRepairError("修复校验失败", strategy_key=REVIEW_REPAIR_STRATEGY)
+    second_error = ModelBehaviorError("终审事实覆盖差异")
+    second_error.__cause__ = OutputRepairError(
+        "事实覆盖差异", strategy_key=REVIEW_REPAIR_STRATEGY,
+        details={"missing_fact_ids": ["DOC269-P0008-F0016"]},
+    )
     first_feedback = runtime._agent_map_item_retry_feedback(
         previous_feedback=None,
-        exc=ModelBehaviorError(
-            "agent_map 单项结果校验失败: 终审修复未产生任何实质变化"
-        ),
+        exc=first_error,
         item_input=item_input,
     )
     second_feedback = runtime._agent_map_item_retry_feedback(
         previous_feedback=first_feedback,
-        exc=ModelBehaviorError(
-            "agent_map 单项结果校验失败: 修复批次仍未覆盖要求事实: "
-            "['DOC269-P0008-F0016']"
-        ),
+        exc=second_error,
         item_input=item_input,
     )
 
     assert first_feedback is not None
     assert "明确区分有作品与无作品状态" in first_feedback
-    assert "不能原样返回" in first_feedback
     assert second_feedback is not None
     assert "明确区分有作品与无作品状态" in second_feedback
     assert "DOC269-P0008-F0016=缺省状态显示缺省图" in second_feedback
@@ -1280,10 +1298,15 @@ def test_parallel_agent_map_stops_repeating_identical_invalid_output(
         )
 
     def postprocess(**_arguments: Any) -> dict[str, Any]:
-        raise ModelBehaviorError(
+        error = ModelBehaviorError(
             "agent_map 单项结果校验失败: 修复批次仍未覆盖要求事实: "
             "['DOC269-P0004-F002']"
         )
+        error.__cause__ = OutputRepairError(
+            "事实覆盖差异", strategy_key=REVIEW_REPAIR_STRATEGY,
+            details={"missing_fact_ids": ["DOC269-P0004-F002"]},
+        )
+        raise error
 
     monkeypatch.setattr(runtime, "_run_parallel_agent_instance", execute_instance)
     monkeypatch.setattr(runtime, "_postprocess_agent_map_output", postprocess)
@@ -1357,11 +1380,11 @@ def test_structured_output_errors_have_stable_failure_categories_and_budgets() -
             "postprocessor=testing.postprocess_generation_batch_item; 事实覆盖不完整"
         )
     ) == "postprocess_validation"
-    assert runtime._agent_content_attempt_budget(
+    assert content_attempt_budget(
         failure_kind="output_degeneration",
         configured_max_attempts=2,
     ) == 3
-    assert runtime._agent_content_attempt_budget(
+    assert content_attempt_budget(
         failure_kind="output_validation",
         configured_max_attempts=2,
     ) == 2
@@ -1463,7 +1486,7 @@ def test_structured_output_retry_feedback_deduplicates_required_fields() -> None
     assert "其余 1 个结构错误未展开" in feedback
 
 
-def test_generation_repair_context_targets_only_contract_slots_named_by_feedback() -> None:
+def test_generation_repair_context_targets_only_structured_contract_differences() -> None:
     candidate = {
         "test_cases": [
             {"title": "用例一"},
@@ -1495,7 +1518,11 @@ def test_generation_repair_context_targets_only_contract_slots_named_by_feedback
 
     repair = runtime._agent_map_repair_context(
         result=SimpleNamespace(output=candidate),
-        validation_feedback="生成批次未完整覆盖平台要求的事实: missing=['F-002']",
+        exc=OutputRepairError(
+            "覆盖差异", strategy_key=GENERATION_REPAIR_STRATEGY,
+            details={"missing_fact_ids": ["F-002"]},
+        ),
+        validation_feedback="文案不包含任何事实编号，定位只依赖结构化差异",
         item_input=item_input,
     )
 
@@ -1540,6 +1567,7 @@ def test_generation_repair_restores_every_protected_case_slot() -> None:
                 }
             ],
             "protected_case_ids": ["TC-001", "TC-003"],
+            "protected_collections": [{"field": "test_cases", "protected_indexes": [0, 2]}],
         },
     )
 
@@ -1590,7 +1618,7 @@ def test_container_type_damage_uses_full_regeneration_without_candidate() -> Non
     assert "candidate_output" not in repair
     assert repair["candidate_rejection"]["reason"] == "container_type_mismatch"
     assert runtime._agent_failure_kind(validation_error) == "output_degeneration"
-    assert runtime._agent_content_attempt_budget(
+    assert content_attempt_budget(
         failure_kind=runtime._agent_failure_kind(validation_error),
         configured_max_attempts=2,
     ) == 3
@@ -1646,10 +1674,11 @@ def test_wrapped_tool_arguments_error_is_retryable_model_output_failure() -> Non
 
     assert runtime._is_retryable_agent_error(error)
     assert runtime._agent_failure_kind(error) == "json_syntax"
-    assert runtime._agent_map_attempt_limit(
+    assert runtime._agent_retry_decision(
+        RetryAttemptState(attempt=1),
         exc=error,
         configured_max_attempts=2,
-    ) == 2
+    ).attempt_limit == 3
     assert "工具参数不是合法 JSON" in str(runtime._agent_retry_feedback(error))
     diagnostic = runtime._agent_error_diagnostic(error)
     assert diagnostic is not None
@@ -1662,10 +1691,11 @@ def test_wrapped_tool_argument_schema_error_is_retryable_model_output_failure() 
 
     assert runtime._is_retryable_agent_error(error)
     assert runtime._agent_failure_kind(error) == "tool_arguments_validation"
-    assert runtime._agent_map_attempt_limit(
+    assert runtime._agent_retry_decision(
+        RetryAttemptState(attempt=1),
         exc=error,
         configured_max_attempts=2,
-    ) == 2
+    ).attempt_limit == 3
     feedback = runtime._agent_retry_feedback(error)
     assert "authoritative_facts" in str(feedback)
     assert "Failed validating" not in str(feedback)
@@ -1708,24 +1738,31 @@ def test_agent_retry_feedback_prioritizes_field_validation_error() -> None:
 
 
 def test_server_output_schema_capability_error_uses_two_attempt_budget() -> None:
-    error = _HTTPError(400, "This response_format type is unavailable now.")
+    error = BadRequestError(
+        "This response_format type is unavailable now.",
+        response=Response(400, request=Request("POST", "https://example.test/v1/chat/completions")),
+        body={"message": "This response_format type is unavailable now."},
+    )
 
     assert runtime._is_server_output_schema_unsupported(error)
     assert runtime._is_retryable_agent_error(error)
-    assert runtime._agent_map_attempt_limit(
+    assert runtime._agent_failure_kind(error) == "server_schema_unsupported"
+    assert runtime._agent_retry_decision(
+        RetryAttemptState(attempt=1),
         exc=error,
         configured_max_attempts=1,
-    ) == 2
+    ).attempt_limit == 2
     transient = BadRequestError(
         "400001 We encountered some issues",
         response=Response(400, request=Request("POST", "https://example.test/v1/chat/completions")),
         body={"code": 400001},
     )
     assert not runtime._is_server_output_schema_unsupported(transient)
-    assert runtime._agent_map_attempt_limit(
+    assert runtime._agent_retry_decision(
+        RetryAttemptState(attempt=1),
         exc=transient,
         configured_max_attempts=2,
-    ) == 4
+    ).attempt_limit == 4
     assert runtime._agent_failure_kind(transient) == "upstream_transient"
     assert runtime._is_concurrency_pressure_failure("upstream_transient") is True
     assert runtime._is_concurrency_pressure_failure("upstream_server") is True
@@ -2185,7 +2222,7 @@ def test_agent_map_switches_route_after_mixed_json_and_timeout_failures(
 
 
 def test_route_health_count_recovers_from_legacy_mixed_failure_state() -> None:
-    assert runtime._persisted_route_health_failure_count(
+    assert RetryAttemptState.restore(
         {
             "transient_failure_count": 1,
             "content_failure_counts": {
@@ -2193,7 +2230,7 @@ def test_route_health_count_recovers_from_legacy_mixed_failure_state() -> None:
                 "output_validation": 2,
             },
         }
-    ) == 4
+    ).route_health_failure_count == 4
 
 
 def test_agent_map_prioritizes_due_retry_before_untouched_items(
@@ -2310,7 +2347,7 @@ def test_parallel_agent_instance_loads_its_own_bound_tools(
         runtime,
         "AgentPlatformRepository",
         lambda db: SimpleNamespace(
-            list_agent_tools=lambda definition_id: bound_tools,
+            list_agent_tools=lambda definition_id, *, project_id: bound_tools,
         ),
     )
 
@@ -3270,7 +3307,7 @@ def test_agent_map_stops_before_next_item_after_run_is_cancelled(
             run=run,
             node=node,
             node_run=node_run,
-            definition=SimpleNamespace(name="真实调用智能体"),
+            definition=SimpleNamespace(name="真实调用智能体", runtime_config={}),
             model_metadata={"name": "test-model", "route": "main", "source": "测试模型路由"},
             tools=[],
             execution_context=ToolExecutionContext(
@@ -3293,7 +3330,6 @@ def test_agent_map_stops_before_next_item_after_run_is_cancelled(
     assert len(node_run.output_payload["items"]) == 1
     assert [item["event_type"] for item in repo.events] == [
         "map_item_started",
-        "map_item_completed",
         "node_cancelled",
     ]
     assert not any(
@@ -3407,7 +3443,7 @@ def test_standard_agent_refreshes_cancellation_before_model_call(
     repo = _FakeRepository(run)
     calls = 0
 
-    def list_agent_tools(_: int) -> list[Any]:
+    def list_agent_tools(_: int, *, project_id: int | None = None) -> list[Any]:
         run.status = "cancelled"
         return []
 

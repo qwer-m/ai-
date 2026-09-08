@@ -85,7 +85,7 @@ def add_document_impl(
 
     summary = ""
     try:
-        summary = ensure_document_summary(module, doc=doc, db=db, user_id=user_id)
+        summary = ensure_document_summary(doc=doc, db=db, user_id=user_id)
     except Exception:
         pass
 
@@ -171,7 +171,7 @@ def update_document_impl(
     repo.refresh(doc)
 
     try:
-        ensure_document_summary(module, doc=doc, db=db, user_id=getattr(doc, "user_id", None))
+        ensure_document_summary(doc=doc, db=db, user_id=getattr(doc, "user_id", None))
     except Exception:
         pass
 

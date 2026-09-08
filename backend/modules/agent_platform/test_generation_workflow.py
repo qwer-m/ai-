@@ -9,6 +9,17 @@ import unicodedata
 from typing import Any, TYPE_CHECKING
 
 from core.db.model_defs import KnowledgeDocument
+from .test_generation_facts import bound_fact_ids, test_input_text
+from .sources import SOURCE_ARTIFACT_KEY, SourceSnapshot, assert_same_source
+from .output_repair import OutputRepairError, repairable_output
+from .test_generation_repair import (
+    GENERATION_OUTPUT_REPAIR,
+    GENERATION_REPAIR_STRATEGY,
+    PLANNING_OUTPUT_REPAIR,
+    PLANNING_REPAIR_STRATEGY,
+    REVIEW_OUTPUT_REPAIR,
+    REVIEW_REPAIR_STRATEGY,
+)
 from modules.knowledge_base_components.document.document_asset_service import (
     load_document_manifest,
 )
@@ -36,6 +47,7 @@ from .test_generation_semantics import (
     prepare_source_semantics,
 )
 from .test_generation_review import (
+    GLOBAL_REVIEW_CASE_INDEX_SCHEMA,
     merge_final_review_batches,
     merge_final_review_recheck_records,
     merge_final_review_repairs,
@@ -64,6 +76,7 @@ CASE_SCHEMA: dict[str, Any] = {
             "type": "array",
             "items": {"type": "string", "minLength": 1},
         },
+        "test_input": {"type": "string"},
         "steps": {
             "type": "array",
             "minItems": 1,
@@ -93,6 +106,7 @@ CASE_SCHEMA: dict[str, Any] = {
         "module",
         "priority",
         "preconditions",
+        "test_input",
         "steps",
         "tags",
         "test_design_item_ids",
@@ -783,6 +797,15 @@ MODEL_INLINE_CASE_SCHEMA: dict[str, Any] = {
             "type": "array",
             "items": MODEL_GROUNDED_TEXT_SCHEMA,
         },
+        "test_input": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "fact_ids": OPTIONAL_FACT_ID_LIST_SCHEMA,
+            },
+            "required": ["text", "fact_ids"],
+            "additionalProperties": False,
+        },
         "steps": {
             "type": "array",
             "minItems": 1,
@@ -816,6 +839,7 @@ MODEL_INLINE_CASE_SCHEMA: dict[str, Any] = {
         "title",
         "priority",
         "preconditions",
+        "test_input",
         "steps",
         "test_design_item_ids",
     ],
@@ -851,6 +875,7 @@ CASE_FACT_BINDING_SCHEMA: dict[str, Any] = {
                 "additionalProperties": False,
             },
         },
+        "test_input_fact_ids": OPTIONAL_FACT_ID_LIST_SCHEMA,
         "step_bindings": {
             "type": "array",
             "minItems": 1,
@@ -866,7 +891,12 @@ CASE_FACT_BINDING_SCHEMA: dict[str, Any] = {
             },
         },
     },
-    "required": ["case_id", "precondition_bindings", "step_bindings"],
+    "required": [
+        "case_id",
+        "precondition_bindings",
+        "test_input_fact_ids",
+        "step_bindings",
+    ],
     "additionalProperties": False,
 }
 
@@ -1609,26 +1639,7 @@ GLOBAL_FINAL_REVIEW_INPUT_SCHEMA: dict[str, Any] = {
         "case_index": {
             "type": "array",
             "minItems": 1,
-            "items": {
-                "type": "object",
-                "properties": {
-                    "case_id": {"type": "string", "minLength": 1},
-                    "title": {"type": "string", "minLength": 1},
-                    "module": {"type": "string", "minLength": 1},
-                    "priority": {"type": "string", "minLength": 1},
-                    "first_action": {"type": "string"},
-                    "last_expected": {"type": "string"},
-                },
-                "required": [
-                    "case_id",
-                    "title",
-                    "module",
-                    "priority",
-                    "first_action",
-                    "last_expected",
-                ],
-                "additionalProperties": False,
-            },
+            "items": GLOBAL_REVIEW_CASE_INDEX_SCHEMA,
         },
         "batch_review": FINAL_REVIEW_OUTPUT_SCHEMA,
         "audit_summary": GENERATION_AUDIT_SCHEMA,
@@ -2150,6 +2161,11 @@ def resolve_requirement_evidence(
             "page_count": 0,
         }
 
+    saved_source = context.artifacts.get(SOURCE_ARTIFACT_KEY)
+    actual_source = SourceSnapshot.from_dict(source)
+    if saved_source is not None:
+        assert_same_source(SourceSnapshot.from_dict(saved_source), actual_source)
+    context.artifacts[SOURCE_ARTIFACT_KEY] = actual_source.to_dict()
     evidence_catalog = build_planning_evidence_catalog(
         source=source,
         requirement=requirement,
@@ -2872,6 +2888,23 @@ def _normalize_planning_scope_route(
     prepared: dict[str, Any],
     raw_output: dict[str, Any],
 ) -> dict[str, Any]:
+    """将当前范围的校验差异绑定到真实 scope，供修复策略准确定位。"""
+
+    try:
+        return _validate_planning_scope_route(prepared=prepared, raw_output=raw_output)
+    except ValueError as exc:
+        raise OutputRepairError(
+            str(exc),
+            strategy_key=PLANNING_REPAIR_STRATEGY,
+            details={"scope_ids": [str(prepared.get("scope_id") or "")]},
+        ) from exc
+
+
+def _validate_planning_scope_route(
+    *,
+    prepared: dict[str, Any],
+    raw_output: dict[str, Any],
+) -> dict[str, Any]:
     """依据单项真实输入规范化路由，并完成可在当前项修复的确定性校验。"""
 
     output = deepcopy(raw_output)
@@ -3026,29 +3059,40 @@ def _normalize_planning_scope_route_batch(
         routes_by_scope_id[scope_id] = route
 
     normalized_routes: list[dict[str, Any]] = []
+    route_errors: list[OutputRepairError] = []
     for raw_scope in scopes:
         scope = dict(raw_scope or {})
         scope_id = str(scope.get("scope_id") or "")
         route = routes_by_scope_id.get(scope_id)
         if route is None:
             raise ValueError(f"规划路由批次遗漏 scope_id: {scope_id}")
-        normalized_routes.append(
-            _normalize_planning_scope_route(
+        try:
+            normalized_routes.append(_normalize_planning_scope_route(
                 prepared={
                     "scope_id": scope_id,
                     "facts": deepcopy(list(scope.get("facts") or [])),
                     "business_modules": deepcopy(module_catalog),
                 },
                 raw_output=route,
-            )
-        )
+            ))
+        except OutputRepairError as exc:
+            route_errors.append(exc)
     if set(routes_by_scope_id) != {
         str(dict(scope).get("scope_id") or "") for scope in scopes
     }:
         raise ValueError("规划路由批次引用输入外 scope_id")
+    if route_errors:
+        raise OutputRepairError(
+            "；".join(str(error) for error in route_errors),
+            strategy_key=PLANNING_REPAIR_STRATEGY,
+            details={
+                "scope_ids": [scope_id for error in route_errors for scope_id in error.details["scope_ids"]],
+            },
+        )
     return {"routes": normalized_routes}
 
 
+@repairable_output(PLANNING_REPAIR_STRATEGY)
 def postprocess_planning_scope_routing_item(
     context: ToolExecutionContext,
     arguments: dict[str, Any],
@@ -3660,14 +3704,7 @@ def build_generation_audit_summary(
         for fact in authoritative_facts
         if str(fact.get("status") or "") == "effective"
     }
-    covered_fact_ids: set[str] = set()
-    for binding in bindings:
-        for item in list(binding.get("precondition_bindings") or []):
-            covered_fact_ids.update(str(value) for value in list(dict(item).get("fact_ids") or []))
-        for item in list(binding.get("step_bindings") or []):
-            detail = dict(item)
-            covered_fact_ids.update(str(value) for value in list(detail.get("action_fact_ids") or []))
-            covered_fact_ids.update(str(value) for value in list(detail.get("expected_fact_ids") or []))
+    covered_fact_ids = set().union(*(bound_fact_ids(binding) for binding in bindings))
     invalid_fact_ids = sorted(covered_fact_ids - effective_fact_ids)
     uncovered_fact_ids = sorted(effective_fact_ids - covered_fact_ids)
     case_ids = [str(item.get("case_id") or "") for item in test_cases]
@@ -3805,6 +3842,7 @@ def validate_generated_test_cases(
         case_id = _required_text(raw_case.get("case_id"), f"第 {index} 条 case_id")
         title = _required_text(raw_case.get("title"), f"第 {index} 条 title")
         module = _required_text(raw_case.get("module"), f"第 {index} 条 module")
+        test_input = test_input_text(raw_case.get("test_input"))
         priority = str(raw_case.get("priority") or "").strip().upper()
         if priority not in priority_counts:
             raise ValueError(f"第 {index} 条 priority 只能是 P0、P1 或 P2")
@@ -3858,6 +3896,7 @@ def validate_generated_test_cases(
                     _required_text(item, f"第 {index} 条用例前置条件")
                     for item in preconditions
                 ],
+                "test_input": test_input,
                 "steps": steps,
                 "tags": [
                     _required_text(item, f"第 {index} 条用例标签")
@@ -5665,12 +5704,16 @@ BUILTIN_AGENT_SPECS: tuple[dict[str, Any], ...] = (
             "所有文本使用中文，协议名、字段名等专有名词除外。"
             "必须在生成用例的同一次调用中完成逐字段事实绑定，不再依赖后置 Agent 修改或补造事实。"
             "事实引用必须与业务字段内联：preconditions 每项只能包含 text 和 fact_ids；"
+            "test_input 固定为仅包含 text 和 fact_ids 的对象，text 应列出执行该用例所需的角色、业务参数、"
+            "配置值或边界值，不得把操作步骤或预期结果复制为测试输入；fact_ids 必须直接支持这些输入。"
+            "用例无需额外输入时，test_input 必须为 {\"text\":\"\",\"fact_ids\":[]}，不要为填列重复前置条件。"
             "steps 每项固定为 action、expected、fact_bindings 三个字段，其中 action 和 expected 是非空字符串，"
             "fact_bindings 固定为仅包含 action、expected 两个数组的对象。"
             "示例：{\"action\":\"点击提交\",\"expected\":\"显示提交成功\","
             "\"fact_bindings\":{\"action\":[\"FACT-001\"],\"expected\":[\"FACT-002\"]}}。"
             "不要输出 case_fact_bindings、precondition_index 或 step_index；平台会根据数组位置确定性拆分绑定。"
-            "前置条件和 expected 的 fact_ids 均禁止空数组；若找不到至少一个直接支持它们的输入 fact_id，"
+            "前置条件和 expected 的 fact_ids 均禁止空数组；非空 test_input 必须绑定至少一个支持其输入的事实；"
+            "若找不到至少一个直接支持业务内容的输入 fact_id，"
             "必须删除或改写该字段，禁止保留无事实绑定的预期，也禁止为绑定而补造事实。"
             "action 仅在需求明确声明该操作时绑定对应事实；查看、观察、读取等为执行测试而引入的中性操作"
             "可以使用空数组，禁止把只支持预期结果的事实机械挂到 action。"
@@ -5680,7 +5723,7 @@ BUILTIN_AGENT_SPECS: tuple[dict[str, Any], ...] = (
             "完成分析后必须且只能调用一次 submit_generation_batch 工具提交结果，不得用正文返回 JSON。"
             "工具参数顶层只能包含 test_cases，不得输出说明、统计或运行元数据。"
             "test_cases 的值必须直接是 JSON 数组，禁止使用 json.dumps 或其他方式将数组二次序列化为字符串。"
-            "test_cases 每项必须且只能包含 title、priority、preconditions、steps、tags；"
+            "test_cases 每项必须且只能包含 title、priority、preconditions、test_input、steps、tags；"
             "tags 必须是字符串数组且可以省略，test_design_item_ids 不由模型输出。"
             "禁止在用例顶层输出 expected_result 或 expected，也禁止使用 step、description、module_name "
             "等别名替代用例字段。"
@@ -5697,7 +5740,7 @@ BUILTIN_AGENT_SPECS: tuple[dict[str, Any], ...] = (
             "max_output_tokens": 12000,
             # 生成模型只接收当前批次的语义字段；原始锚点和全量契约保留在
             # node input，供平台后处理、哈希和审计使用。
-            "input_projection_version": "generation-model-v5-dynamic-scenario-design",
+            "input_projection_version": "generation-model-v6-test-input",
             "input_projection": {
                 "plan": {
                     "requirement_summary": True,
@@ -5831,10 +5874,12 @@ BUILTIN_AGENT_SPECS: tuple[dict[str, Any], ...] = (
             "repair_cycle 大于1表示上一轮局部修补未通过复审，此时必须根据 differences 重新检查整批 case 边界和"
             "事实分配，优先做结构重组，不得重复上一轮的表面文字修改。"
             "case_id 仅用于补丁定位且必须输出；module 是只读字段，禁止在补丁中输出。"
-            "每个前置条件使用 text、fact_ids 内联表达；每一步固定包含 action、expected、fact_bindings，"
+            "每个前置条件使用 text、fact_ids 内联表达；test_input 使用 text、fact_ids 内联表达，"
+            "用于记录执行用例所需的角色、业务参数、配置值或边界值；无需额外输入时 text 为空字符串且 fact_ids 为空数组；"
+            "每一步固定包含 action、expected、fact_bindings，"
             "action 和 expected 是非空字符串，fact_bindings 仅包含 action、expected 两个事实 ID 数组，"
             "禁止在 fact_bindings 中输出 action_fact_ids 或 expected_fact_ids；"
-            "所有事实引用都必须来自当前 authoritative_facts 中的生效事实。前置条件和 expected 必须绑定事实；"
+            "所有事实引用都必须来自当前 authoritative_facts 中的生效事实。前置条件、非空 test_input 和 expected 必须绑定事实；"
             "action 仅在需求明确声明该操作时绑定事实，为执行测试引入的中性查看、观察、读取动作允许为空数组。"
             "不要输出 case_fact_bindings、precondition_index 或 step_index，平台会根据数组位置确定性拆分绑定。"
             "required_fact_ids 是修复前已通过的批次级确定性覆盖义务，必须在修复后的绑定中全部得到覆盖；"
@@ -5849,7 +5894,7 @@ BUILTIN_AGENT_SPECS: tuple[dict[str, Any], ...] = (
             "test_design_items 是当前批次允许引用的测试设计覆盖项；修复后所有用例的 test_design_item_ids 合集"
             "必须完整覆盖这些编号，不得引用输入外编号。"
             "最终 JSON 顶层只能包含 case_patches，不得输出 test_cases、说明、统计或修复摘要。"
-            "每个补丁只能包含 case_id 以及确实需要替换的 title、priority、preconditions、steps、tags、"
+            "每个补丁只能包含 case_id 以及确实需要替换的 title、priority、preconditions、test_input、steps、tags、"
             "test_design_item_ids 字段；省略字段由平台保持原值。修改步骤或前置条件时必须完整输出该字段的新数组。"
         ),
         "model": "",
@@ -5931,7 +5976,6 @@ BUILTIN_WORKFLOW_SPECS = (
                         "maximum": 32768,
                     },
                     # 中文注释：兼容旧客户端传入的压缩开关，规范值由服务层解析。
-                    "compress": {"type": "boolean"},
                 },
                 "required": [
                     "requirement",
@@ -6791,6 +6835,9 @@ BUILTIN_WORKFLOW_SPECS = (
 
 
 def register_test_generation_tools(registry: ToolRegistry) -> None:
+    registry.register_repair_strategy(GENERATION_REPAIR_STRATEGY, GENERATION_OUTPUT_REPAIR)
+    registry.register_repair_strategy(PLANNING_REPAIR_STRATEGY, PLANNING_OUTPUT_REPAIR)
+    registry.register_repair_strategy(REVIEW_REPAIR_STRATEGY, REVIEW_OUTPUT_REPAIR)
     registry.register(
         "testing.submit_business_plan",
         submit_business_plan,

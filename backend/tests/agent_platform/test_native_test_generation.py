@@ -47,6 +47,7 @@ def _cases() -> list[dict]:
             "module": "项目管理",
             "priority": "P0",
             "preconditions": ["管理员已登录"],
+            "test_input": "项目名称=秋季课程",
             "steps": [
                 {
                     "action": "输入唯一项目名称并提交",
@@ -62,6 +63,7 @@ def _cases() -> list[dict]:
             "module": "项目管理",
             "priority": "P1",
             "preconditions": ["项目创建成功且出现在项目列表中"],
+            "test_input": "项目名称=秋季课程",
             "steps": [
                 {
                     "action": "再次提交相同项目名称",
@@ -82,6 +84,7 @@ def _case_fact_bindings() -> list[dict]:
                 {"precondition_index": index, "fact_ids": ["FACT-001"]}
                 for index, _ in enumerate(case["preconditions"])
             ],
+            "test_input_fact_ids": ["FACT-001"],
             "step_bindings": [
                 {
                     "step_index": index,

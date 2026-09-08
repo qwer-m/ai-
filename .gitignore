@@ -28,6 +28,8 @@ backend/tmp/review_diagnostics/
 /backend/runtime/
 /backend/scripts/rag/reports/
 /tmp/
+/outputs/
+/.playwright-mcp/
 
 # IDE
 .vscode/

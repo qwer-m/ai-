@@ -10,6 +10,7 @@ from core.db.model_defs import AgentRun
 from core.settings.config import settings
 from .dispatcher import start_agent_run_worker
 from .repository import AgentPlatformRepository
+from .lifecycle import transition_run
 from .retention import prune_terminal_run_history
 
 
@@ -38,22 +39,25 @@ def recover_expired_agent_runs(*, limit: int = 20) -> dict[str, Any]:
             .limit(max(1, int(limit)))
         ).all()
         for run_id in expired_run_ids:
-            run = db.get(AgentRun, int(run_id))
+            run = repo.get_run_for_update(run_id=int(run_id))
             if run is None or run.status != "running":
+                db.rollback()
+                continue
+            # 选出候选后执行器可能已续租，必须在行锁内再次确认。
+            if run.lease_expires_at is not None and run.lease_expires_at >= now:
+                db.rollback()
+                continue
+            if run.lease_expires_at is None and (run.heartbeat_at is None or run.heartbeat_at >= stale_before):
+                db.rollback()
                 continue
             run_context = dict(run.run_context or {})
             raw_deadline = str(run_context.get("deadline_at") or "").strip()
             deadline = datetime.fromisoformat(raw_deadline) if raw_deadline else None
             if deadline is not None and deadline <= now:
-                run.status = "failed"
                 run.task_id = None
-                run.claim_token = None
-                run.heartbeat_at = None
-                run.lease_expires_at = None
-                run.finished_at = now
-                run.error_message = "Agent Run 在执行器失联期间已超过总执行时限"
-                repo.append_event(
-                    run_id=run.id,
+                transition_run(
+                    repo, run, "failed", now=now,
+                    error_message="Agent Run 在执行器失联期间已超过总执行时限",
                     event_type="run_recovery_deadline_expired",
                     payload={"reason": "deadline_expired"},
                 )
@@ -62,14 +66,8 @@ def recover_expired_agent_runs(*, limit: int = 20) -> dict[str, Any]:
                 prune_terminal_run_history(repo, run)
                 expired.append(run.id)
                 continue
-            run.status = "pending"
-            run.task_id = None
-            run.claim_token = None
-            run.heartbeat_at = None
-            run.lease_expires_at = None
-            run.error_message = ""
-            repo.append_event(
-                run_id=run.id,
+            transition_run(
+                repo, run, "pending", now=now,
                 event_type="run_recovered",
                 payload={"reason": "expired_lease"},
             )

@@ -8,6 +8,7 @@ import type {
   AgentRunExecutionLimits,
   AgentTool,
   AgentWorkflow,
+  GenerationReuseCandidate,
   RequirementDocumentOption,
   RequirementDocumentParseStatus,
   RequirementDocumentUpload,
@@ -279,6 +280,9 @@ function parseAgentRun(value: unknown, path: string): AgentRun {
     input_payload: readObject(object.input_payload, `${path}.input_payload`),
     run_context: readObject(object.run_context, `${path}.run_context`),
     output_payload: readObject(object.output_payload, `${path}.output_payload`),
+    test_generation_result: object.test_generation_result === null
+      ? null
+      : readObject(object.test_generation_result, `${path}.test_generation_result`),
     error_message: readString(object.error_message, `${path}.error_message`),
     parent_run_id: readNullableNumber(object.parent_run_id, `${path}.parent_run_id`),
     task_id: readNullableString(object.task_id, `${path}.task_id`),
@@ -321,17 +325,67 @@ function parseOptionalRunEnvelope(value: unknown, path: string): { run: AgentRun
   };
 }
 
+function parseGenerationReuseCandidate(
+  value: unknown,
+): { candidate: GenerationReuseCandidate | null } {
+  const response = readObject(value, '生成结果复用检查响应');
+  if (response.candidate == null) return { candidate: null };
+  const candidate = readObject(response.candidate, '生成结果复用检查响应.candidate');
+  return {
+    candidate: {
+      run_id: readNumber(candidate.run_id, '生成结果复用检查响应.candidate.run_id'),
+      source_filename: readString(
+        candidate.source_filename,
+        '生成结果复用检查响应.candidate.source_filename',
+      ),
+      case_count: readNumber(
+        candidate.case_count,
+        '生成结果复用检查响应.candidate.case_count',
+      ),
+    },
+  };
+}
+
 export const getAgentCatalog = async (projectId: number): Promise<AgentCatalog> =>
   parseCatalog(await api.get<unknown>(`/api/agents/catalog?project_id=${projectId}`));
 
 export const getAgentRun = async (runId: number): Promise<{ run: AgentRun }> =>
   parseRunEnvelope(await api.get<unknown>(`/api/agents/runs/${runId}`), 'Agent 运行详情响应');
 
+export const exportAgentRunTestCases = async (runId: number): Promise<Blob> =>
+  api.getBlob(`/api/agents/runs/${runId}/test-cases.xlsx`);
+
 export const getActiveAgentRun = async (projectId: number): Promise<{ run: AgentRun | null }> =>
   parseOptionalRunEnvelope(
     await api.get<unknown>(`/api/agents/runs/active?project_id=${projectId}`),
     '当前 Agent 运行响应',
   );
+
+export const getLatestAgentRun = async (
+  projectId: number,
+  workflowKey: string,
+): Promise<{ run: AgentRun | null }> => {
+  const response = readObject(
+    await api.get<unknown>(`/api/agents/runs?project_id=${projectId}`
+      + `&workflow_key=${encodeURIComponent(workflowKey)}&limit=1`),
+    '最近 Agent 运行响应',
+  );
+  const items = readArray(response.items, '最近 Agent 运行响应.items');
+  return {
+    run: items.length > 0 ? parseAgentRun(items[0], '最近 Agent 运行响应.items[0]') : null,
+  };
+};
+
+export const getGenerationReuseCandidate = async (
+  projectId: number,
+  requirementDocumentId: number,
+  workflowKey: string,
+): Promise<{ candidate: GenerationReuseCandidate | null }> =>
+  parseGenerationReuseCandidate(await api.get<unknown>(
+    `/api/agents/runs/reuse-candidate?project_id=${projectId}`
+      + `&requirement_doc_id=${requirementDocumentId}`
+      + `&workflow_key=${encodeURIComponent(workflowKey)}`,
+  ));
 
 export const createAgentRun = (payload: {
   project_id: number;
@@ -361,6 +415,12 @@ export const cancelAgentRun = async (runId: number): Promise<{ run: AgentRun; st
     status: readString(response.status, '取消 Agent 运行响应.status'),
   };
 };
+
+export const retryAgentRun = async (runId: number): Promise<{ run: AgentRun }> =>
+  parseRunEnvelope(
+    await api.post<unknown>(`/api/agents/runs/${runId}/retry`, {}),
+    '继续 Agent 运行响应',
+  );
 
 export const resetAgentRunAttempt = async (
   runId: number,

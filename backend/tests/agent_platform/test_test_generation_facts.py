@@ -44,6 +44,7 @@ def _case() -> dict:
         "module": "内容管理",
         "priority": "P0",
         "preconditions": ["已进入编辑状态"],
+        "test_input": "内容=课程介绍",
         "steps": [
             {"action": "提交内容", "expected": "内容进入已保存状态"},
         ],
@@ -57,6 +58,7 @@ def _binding(*, fact_id: str = "F-001") -> dict:
         "precondition_bindings": [
             {"precondition_index": 0, "fact_ids": [fact_id]},
         ],
+        "test_input_fact_ids": [fact_id],
         "step_bindings": [
             {
                 "step_index": 0,
@@ -76,6 +78,10 @@ def test_materialize_inline_grounding_derives_ids_modules_and_indexes() -> None:
                 "preconditions": [
                     {"text": "已进入编辑状态", "fact_ids": ["F-001"]}
                 ],
+                "test_input": {
+                    "text": "内容=课程介绍",
+                    "fact_ids": ["F-001"],
+                },
                 "steps": [
                     {
                         "action": "填写内容",
@@ -109,6 +115,7 @@ def test_materialize_inline_grounding_derives_ids_modules_and_indexes() -> None:
             "module": "内容管理",
             "priority": "P0",
             "preconditions": ["已进入编辑状态"],
+            "test_input": "内容=课程介绍",
             "steps": [
                 {"action": "填写内容", "expected": "内容可编辑"},
                 {"action": "提交内容", "expected": "内容进入已保存状态"},
@@ -120,6 +127,7 @@ def test_materialize_inline_grounding_derives_ids_modules_and_indexes() -> None:
     assert result["case_fact_bindings"][0]["precondition_bindings"] == [
         {"precondition_index": 0, "fact_ids": ["F-001"]}
     ]
+    assert result["case_fact_bindings"][0]["test_input_fact_ids"] == ["F-001"]
     assert [
         item["step_index"]
         for item in result["case_fact_bindings"][0]["step_bindings"]
@@ -187,6 +195,19 @@ def test_validate_case_fact_bindings_rejects_unbound_expected() -> None:
     binding["step_bindings"][0]["expected_fact_ids"] = []
 
     with pytest.raises(ValueError, match="必须绑定至少一个生效事实"):
+        validate_case_fact_bindings(
+            test_cases=[_case()],
+            raw_bindings=[binding],
+            authoritative_facts=[_fact("F-001")],
+            expected_module_name="内容管理",
+        )
+
+
+def test_validate_case_fact_bindings_rejects_unbound_test_input() -> None:
+    binding = _binding()
+    binding["test_input_fact_ids"] = []
+
+    with pytest.raises(ValueError, match="TC-001.test_input必须绑定至少一个生效事实"):
         validate_case_fact_bindings(
             test_cases=[_case()],
             raw_bindings=[binding],

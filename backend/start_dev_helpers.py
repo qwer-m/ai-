@@ -9,6 +9,31 @@ import time
 import urllib.error
 import urllib.request
 
+from celery.signals import worker_ready
+
+
+CELERY_WORKER_READY_FILE_ENV = "AI_TEST_PLATFORM_WORKER_READY_FILE"
+
+
+@worker_ready.connect(weak=False)
+def _notify_celery_worker_ready(sender: object, **_kwargs: object) -> None:
+    """通过本次启动独占的文件通知父进程，避免繁忙 solo 阻塞控制命令。"""
+
+    ready_file = os.environ.get(CELERY_WORKER_READY_FILE_ENV)
+    if not ready_file:
+        return
+    temporary_file = ready_file + ".tmp"
+    with open(temporary_file, "w", encoding="utf-8") as stream:
+        json.dump(
+            {
+                "pid": os.getpid(),
+                "parent_pid": os.getppid(),
+                "hostname": str(getattr(sender, "hostname", "")),
+            },
+            stream,
+        )
+    os.replace(temporary_file, ready_file)
+
 
 def _decode_command_output(output: bytes | str | None) -> str:
     """容错解码 Windows 命令输出，避免系统代码页导致启动器崩溃。"""
@@ -274,43 +299,30 @@ def wait_for_backend_ready(port: int, timeout_seconds: int = 90) -> bool:
 
 
 def wait_for_celery_worker_ready(
-    python_executable: str,
+    process: subprocess.Popen,
     *,
-    cwd: str,
-    env: dict[str, str],
+    ready_file: str,
     timeout_seconds: int = 45,
 ) -> bool:
-    """等待当前项目的 Celery worker 对 broker 返回 pong。"""
+    """等待当前启动进程的 worker_ready 握手，不依赖任务池处理 ping。"""
 
-    command = [
-        python_executable,
-        "-m",
-        "celery",
-        "-A",
-        "celery_worker.celery_app",
-        "inspect",
-        "ping",
-        "--timeout=2",
-    ]
-    deadline = time.time() + timeout_seconds
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return False
         try:
-            result = subprocess.run(
-                command,
-                cwd=cwd,
-                env=env,
-                capture_output=True,
-                timeout=6,
-            )
-            output = (
-                f"{_decode_command_output(getattr(result, 'stdout', None))}\n"
-                f"{_decode_command_output(getattr(result, 'stderr', None))}"
-            ).lower()
-            if result.returncode == 0 and "pong" in output:
-                return True
-        except (OSError, subprocess.SubprocessError):
+            with open(ready_file, encoding="utf-8") as stream:
+                receipt = json.load(stream)
+        except FileNotFoundError:
             pass
-        time.sleep(1)
+        else:
+            # Windows 虚拟环境可能由包装进程启动真正的 Python 子进程。
+            return (
+                isinstance(receipt, dict)
+                and process.pid in (receipt.get("pid"), receipt.get("parent_pid"))
+                and process.poll() is None
+            )
+        time.sleep(0.1)
     return False
 
 
@@ -607,6 +619,7 @@ def _build_celery_command(python_executable: str) -> list[str]:
         "worker",
         "--loglevel=info",
         "--pool=solo",
+        "--include=start_dev_helpers",
     ]
 
 

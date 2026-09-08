@@ -110,7 +110,7 @@ async def lifespan(app: FastAPI):
         active_config = config_manager.get_active_config(db)
         if active_config:
             new_client = ai_client.from_config(active_config)
-            ai_client.update_provider(new_client.provider, new_client.model)
+            ai_client.replace_runtime_from(new_client)
             print(f"Loaded active AI config: {active_config.provider} / {active_config.model_name}")
         else:
             print("No active AI config found in DB, using settings.py defaults.")

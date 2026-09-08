@@ -3,12 +3,17 @@
 import os
 import subprocess
 import sys
+import tempfile
 import time
 
-from dotenv import load_dotenv
+if __package__:
+    from .core.settings.environment import load_environment
+else:
+    from core.settings.environment import load_environment
 
 try:
     from .start_dev_helpers import (
+        CELERY_WORKER_READY_FILE_ENV,
         _build_beat_command,
         _build_celery_command,
         _build_runtime_env,
@@ -24,6 +29,7 @@ try:
     )
 except ImportError:
     from start_dev_helpers import (
+        CELERY_WORKER_READY_FILE_ENV,
         _build_beat_command,
         _build_celery_command,
         _build_runtime_env,
@@ -59,8 +65,7 @@ def main() -> None:
         print("[ERROR] Please run the launcher from the real project directory, not a copied shortcut workspace.")
         return
     os.chdir(current_dir)
-    load_dotenv(os.path.join(current_dir, ".env"))
-    load_dotenv(os.path.join(root_dir, ".env"))
+    load_environment()
     runtime_env = _build_runtime_env(current_dir, root_dir)
     print(f"Resolved runtime home: {runtime_env['USERPROFILE']}")
 
@@ -124,6 +129,18 @@ def main() -> None:
         for process in (frontend_process, beat_process, celery_process, uvicorn_process):
             _stop_process(process)
 
+    def _start_celery_worker() -> None:
+        nonlocal celery_process
+        # 每次启动使用独占握手目录，防止重启时误读前一个进程的就绪状态。
+        with tempfile.TemporaryDirectory(prefix="celery-ready-", dir=beat_runtime_dir) as ready_dir:
+            ready_file = os.path.join(ready_dir, "ready.json")
+            worker_env = runtime_env.copy()
+            worker_env[CELERY_WORKER_READY_FILE_ENV] = ready_file
+            celery_process = subprocess.Popen(celery_cmd, cwd=app_dir, env=worker_env)
+            print("Waiting for Celery worker startup readiness...")
+            if not wait_for_celery_worker_ready(celery_process, ready_file=ready_file):
+                raise RuntimeError("Celery worker startup readiness was not confirmed.")
+
     try:
         # 启动顺序固定为 API -> Worker -> Beat -> Frontend，只有依赖就绪后才对外提供入口。
         print(f"Starting FastAPI Server in {app_dir}...")
@@ -136,15 +153,7 @@ def main() -> None:
         print("Backend is ready.")
 
         print(f"Starting Celery Worker in {app_dir}...")
-        celery_process = subprocess.Popen(celery_cmd, cwd=app_dir, env=runtime_env.copy())
-        print("Waiting for Celery worker heartbeat...")
-        if not wait_for_celery_worker_ready(
-            sys.executable,
-            cwd=app_dir,
-            env=runtime_env.copy(),
-            timeout_seconds=45,
-        ):
-            raise RuntimeError("Celery worker did not answer ping; Beat and frontend were not started.")
+        _start_celery_worker()
         print("Celery worker is ready.")
 
         print(f"Starting Celery Beat in {app_dir}...")
@@ -189,14 +198,7 @@ def main() -> None:
             if celery_process.poll() is not None:
                 print(f"Celery worker stopped (code {celery_process.returncode}). Restarting after readiness check...")
                 time.sleep(3)
-                celery_process = subprocess.Popen(celery_cmd, cwd=app_dir, env=runtime_env.copy())
-                if not wait_for_celery_worker_ready(
-                    sys.executable,
-                    cwd=app_dir,
-                    env=runtime_env.copy(),
-                    timeout_seconds=45,
-                ):
-                    raise RuntimeError("Celery worker restart did not answer ping.")
+                _start_celery_worker()
                 print("Celery worker restarted and is ready.")
 
             if beat_process.poll() is not None:

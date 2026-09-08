@@ -13,20 +13,12 @@
 
 import os
 import gc
-from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
-from dotenv import load_dotenv, set_key
+from dotenv import set_key
+from core.settings.environment import BACKEND_ENV_PATH, load_environment
 from core.processing.utils import logger
 
-_CORE_DIR = Path(__file__).resolve().parent
-_BACKEND_DIR = _CORE_DIR.parent
-_PROJECT_DIR = _BACKEND_DIR.parent
-_BACKEND_ENV_PATH = _BACKEND_DIR / ".env"
-_PROJECT_ENV_PATH = _PROJECT_DIR / ".env"
-
-# Load backend/.env first, then project root .env, independent of current working directory.
-load_dotenv(_BACKEND_ENV_PATH)
-load_dotenv(_PROJECT_ENV_PATH)
+load_environment()
 
 
 def _strip_quotes(value: str) -> str:
@@ -106,7 +98,7 @@ def initialize_encryption_key() -> ConfigEncryption:
         key = Fernet.generate_key().decode()
 
         # Persist to backend/.env to avoid cwd-dependent writes.
-        env_path = _BACKEND_ENV_PATH
+        env_path = BACKEND_ENV_PATH
         if not env_path.exists():
             env_path.touch()
 

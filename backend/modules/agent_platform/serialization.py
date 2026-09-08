@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from .results import persisted_test_generation_result
 
 
 def _serialize_utc_datetime(value: Any) -> Any:
@@ -130,6 +131,7 @@ def serialize_run(
         "input_payload": value.input_payload or {},
         "run_context": value.run_context or {},
         "output_payload": value.output_payload or {},
+        "test_generation_result": persisted_test_generation_result(value),
         "error_message": value.error_message or "",
         "parent_run_id": value.parent_run_id,
         "task_id": value.task_id,
@@ -156,6 +158,7 @@ def serialize_run_summary(value: Any) -> dict[str, Any]:
         "input_payload": value.input_payload or {},
         "run_context": {},
         "output_payload": {},
+        "test_generation_result": None,
         "error_message": value.error_message or "",
         "parent_run_id": value.parent_run_id,
         "task_id": value.task_id,

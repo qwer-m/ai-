@@ -45,12 +45,10 @@ def context_compression_enabled(
     *,
     default: bool = True,
 ) -> bool:
-    """读取压缩开关，兼容历史 ``compress`` 参数。"""
+    """读取已经在输入边界归一化的压缩开关。"""
 
     values = dict(payload or {})
     canonical = values.get("enable_context_compression")
-    if canonical is None:
-        canonical = values.get("compress")
     if canonical is None:
         return bool(default)
     if isinstance(canonical, str):

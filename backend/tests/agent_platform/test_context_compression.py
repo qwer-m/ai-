@@ -9,11 +9,10 @@ from modules.agent_platform.context_compression import (
 from modules.agent_platform.test_generation_semantics import _compression_model_catalog
 
 
-def test_context_compression_switch_defaults_on_and_honors_legacy_alias() -> None:
+def test_context_compression_switch_uses_canonical_field() -> None:
     assert context_compression_enabled({}) is True
     assert context_compression_enabled({"enable_context_compression": False}) is False
-    assert context_compression_enabled({"compress": False}) is False
-    assert context_compression_enabled({"compress": "true"}) is True
+    assert context_compression_enabled({"compress": False}) is True
 
 
 def test_enabled_compression_preserves_authoritative_ids_and_records_candidates() -> None:

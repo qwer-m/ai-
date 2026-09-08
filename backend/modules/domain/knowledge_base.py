@@ -44,50 +44,6 @@ from modules.knowledge_base_components.repositories.knowledge_document_repositor
 class KnowledgeBaseModule:
     """知识库统一门面。"""
 
-    def _ensure_summary(
-        self, doc: KnowledgeDocument, db: Session, user_id: Optional[int] = None
-    ) -> str:
-        """
-        为长文档生成可复用摘要。
-
-        业务目的：在不损失关键信息的前提下，降低后续检索和上下文拼接成本。
-        """
-        if not doc:
-            return ""
-        if doc.summary and str(doc.summary).strip():
-            return doc.summary
-
-        content = doc.content or ""
-        if len(content) < 12000:
-            return content
-
-        try:
-            from core.ai.ai_client import get_client_for_user
-
-            client = get_client_for_user(user_id, db)
-            summary = client.compress_context(
-                content,
-                prompt=(
-                    "请忠实压缩以下文档，保留标题层级、关键实体、明确事实、"
-                    "先后关系、约束、数值和例外。不按任何下游任务改写事实，不补充原文未声明内容，输出纯文本。"
-                ),
-                db=db,
-            )
-            if (
-                summary
-                and isinstance(summary, str)
-                and not summary.startswith("Error")
-                and not summary.startswith("Exception")
-            ):
-                doc.summary = summary
-                db.commit()
-                db.refresh(doc)
-                return summary
-        except Exception:
-            pass
-
-        return content
-
     def calculate_hash(self, content: str) -> str:
         """计算内容哈希，用于去重判定。"""
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
@@ -315,7 +271,6 @@ class KnowledgeBaseModule:
         - debug=True：返回包含检索治理调试信息的结构化结果。
         """
         return get_relevant_context_impl(
-            self,
             query,
             project_id,
             limit,
@@ -334,7 +289,7 @@ class KnowledgeBaseModule:
         max_docs: Optional[int] = 50,
     ) -> str:
         """全量上下文门面。"""
-        return get_all_context_impl(self, db, project_id, user_id, max_docs)
+        return get_all_context_impl(db, project_id, user_id, max_docs)
 
     def update_document(
         self, doc_id: int, filename: str, content: str, doc_type: str, db: Session

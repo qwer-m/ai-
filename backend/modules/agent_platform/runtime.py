@@ -40,12 +40,23 @@ from .contracts import (
 )
 from .registry import ToolExecutionContext, runtime_registry_signature, tool_registry
 from .repository import AgentPlatformRepository
+from .lifecycle import release_run_lease, renew_run_lease, transition_run
 from .retention import prune_terminal_run_history
+from .sources import assert_same_source, persisted_source_snapshot
+from .output_repair import OutputRepairError, restore_protected_output
+from .retry_policy import (
+    CONCURRENCY_PRESSURE_FAILURE_KINDS as _CONCURRENCY_PRESSURE_FAILURE_KINDS,
+    MODEL_ROUTE_HEALTH_FAILURE_KINDS as _MODEL_ROUTE_HEALTH_FAILURE_KINDS,
+    RetryAttemptState,
+    RetryDecision,
+)
 from .sdk_adapter import (
+    OutputPostprocessingError,
     StructuredOutputJSONError,
     StructuredOutputValidationError,
     ToolArgumentsValidationError,
     ToolOutputValidationError,
+    _postprocess_agent_output,
     resolve_agent_model_metadata,
     run_agent,
     run_agent_async,
@@ -54,17 +65,6 @@ from .sdk_adapter import (
 
 RUN_LEASE_SECONDS = int(settings.AGENT_RUN_LEASE_SECONDS)
 RUN_HEARTBEAT_SECONDS = max(10, RUN_LEASE_SECONDS // 4)
-_TRANSIENT_AGENT_MAP_MAX_ATTEMPTS = 4
-_MODEL_CONTENT_FAILURE_KINDS = frozenset(
-    {
-        "empty_output",
-        "json_syntax",
-        "output_degeneration",
-        "tool_arguments_validation",
-        "output_validation",
-        "model_behavior",
-    }
-)
 _AGENT_MAP_DIAGNOSTIC_ATTEMPT_LIMIT = 3
 _AGENT_MAP_DIAGNOSTIC_TEXT_LIMIT = 120_000
 _AGENT_MAP_REPAIR_CANDIDATE_TEXT_LIMIT = 30_000
@@ -77,23 +77,6 @@ _STRUCTURED_OUTPUT_DEGENERATION_REASONS = frozenset(
     }
 )
 _ORIGINAL_RUN_AGENT = run_agent
-
-
-def _list_agent_tools_for_project(
-    repo: Any,
-    agent_definition_id: int,
-    project_id: int,
-) -> list[Any]:
-    """兼容旧仓储替身，同时让全局模板按执行项目解析工具。"""
-
-    method = repo.list_agent_tools
-    try:
-        supports_project = "project_id" in inspect.signature(method).parameters
-    except (TypeError, ValueError):
-        supports_project = False
-    if supports_project:
-        return method(agent_definition_id, project_id=project_id)
-    return method(agent_definition_id)
 
 
 class _RunCancelled(RuntimeError):
@@ -249,9 +232,7 @@ def _mark_node_cancelled(
             {"node_key": node_run.node_key, "attempt": node_run.attempt},
             node_run=node_run,
         )
-    run.heartbeat_at = None
-    run.lease_expires_at = None
-    run.claim_token = None
+    release_run_lease(run)
     repo.db.add(node_run)
     repo.db.add(run)
     repo.commit()
@@ -262,19 +243,33 @@ def _renew_run_lease(run_id: int) -> str | None:
 
     heartbeat_db = SessionLocal()
     try:
-        active_run = heartbeat_db.get(AgentRun, run_id)
+        active_run = AgentPlatformRepository(heartbeat_db).get_run_for_update(run_id=run_id)
         if active_run is None:
             return None
         if active_run.status != "running":
             return str(active_run.status)
         now = _now()
-        active_run.heartbeat_at = now
-        active_run.lease_expires_at = now + timedelta(seconds=RUN_LEASE_SECONDS)
+        renew_run_lease(active_run, now=now, lease_seconds=RUN_LEASE_SECONDS)
         heartbeat_db.add(active_run)
         heartbeat_db.commit()
         return "running"
     finally:
         heartbeat_db.close()
+
+
+def _renew_progress_lease(repo: AgentPlatformRepository, run: AgentRun) -> None:
+    """进度提交只刷新租约字段并持有行锁，避免旧会话续租已取消或重新认领的运行。"""
+    claim_token = run.claim_token
+    repo.db.refresh(
+        run,
+        attribute_names=["status", "claim_token", "heartbeat_at", "lease_expires_at"],
+        with_for_update=True,
+    )
+    if run.status == "cancelled":
+        raise _RunCancelled(f"Agent Run {run.id} 已取消")
+    if run.status != "running" or run.claim_token != claim_token:
+        raise RuntimeError(f"Agent Run {run.id} 已不属于当前执行器")
+    renew_run_lease(run, now=_now(), lease_seconds=RUN_LEASE_SECONDS)
 
 
 def _current_run_status(run_id: int) -> str | None:
@@ -338,7 +333,7 @@ def _claim_run(
     run_id: int,
     task_id: str | None,
 ) -> AgentRun | None:
-    run = repo.get_run(run_id=run_id)
+    run = repo.get_run_for_update(run_id=run_id)
     if run is None or run.status not in {"pending", "running"}:
         return None
     now = _now()
@@ -349,7 +344,7 @@ def _claim_run(
         and run.task_id != task_id
     ):
         return None
-    run.status = "running"
+    transition_run(repo, run, "running", event_type="run_started", payload={"task_id": task_id or ""}, now=now)
     run.task_id = task_id
     run.claim_token = task_id or f"agent-run-{run_id}-{int(now.timestamp())}"
     run.started_at = run.started_at or now
@@ -361,10 +356,8 @@ def _claim_run(
     run_context["stage_deadline_at"] = deadline_at.isoformat()
     run_context["remaining_seconds"] = max(0, int((deadline_at - now).total_seconds()))
     run.run_context = run_context
-    run.heartbeat_at = now
-    run.lease_expires_at = now + timedelta(seconds=RUN_LEASE_SECONDS)
+    renew_run_lease(run, now=now, lease_seconds=RUN_LEASE_SECONDS)
     repo.db.add(run)
-    _event(repo, run, "run_started", {"task_id": task_id or ""})
     repo.commit()
     repo.refresh(run)
     return run
@@ -422,6 +415,11 @@ def _approval_allows_execution(
     if latest is not None and latest.status == "rejected":
         raise PermissionError("工具执行审批已拒绝")
     if latest is None:
+        locked_run = repo.get_run_for_update(run_id=run.id)
+        if locked_run is None or locked_run.status == "cancelled":
+            raise _RunCancelled(f"Agent Run {run.id} 已取消")
+        if locked_run.status != "running":
+            raise RuntimeError("运行已不在执行状态，不能创建审批")
         approval = AgentApproval(
             run_id=run.id,
             node_run_id=node_run.id,
@@ -436,14 +434,11 @@ def _approval_allows_execution(
         repo.db.add(approval)
         repo.db.flush()
         node_run.status = "waiting_approval"
-        run.status = "waiting_approval"
         run.current_node_key = node.node_key
-        _event(
-            repo,
-            run,
-            "approval_requested",
-            {"approval_id": approval.id, "tool_key": tool.tool_key},
-            node_run=node_run,
+        transition_run(
+            repo, run, "waiting_approval", event_type="approval_requested",
+            payload={"approval_id": approval.id, "tool_key": tool.tool_key},
+            node_run_id=node_run.id,
         )
         repo.commit()
     return False
@@ -575,6 +570,15 @@ def _agent_map_output_diagnostic(
     """留存后处理拒绝的模型正文，供真实失败复盘。"""
 
     output_text = str(getattr(result, "final_text", "") or "")
+    if not output_text:
+        candidate = getattr(result, "output", None)
+        if not isinstance(candidate, dict):
+            candidate = next((
+                current.candidate_output for current in _exception_chain(exc)
+                if isinstance(getattr(current, "candidate_output", None), dict)
+            ), None)
+        if isinstance(candidate, dict):
+            output_text = json.dumps(candidate, ensure_ascii=False, sort_keys=True, default=str)
     encoded = output_text.encode("utf-8")
     return {
         "item_attempt": item_attempt,
@@ -596,6 +600,23 @@ def _recent_agent_map_diagnostics(state: dict[str, Any] | None) -> list[dict[str
     return diagnostics[-_AGENT_MAP_DIAGNOSTIC_ATTEMPT_LIMIT:]
 
 
+def _restored_agent_retry_context(
+    state: dict[str, Any], input_payload: dict[str, Any],
+) -> tuple[str | None, dict[str, Any] | None]:
+    """恢复修复上下文前验证输入身份，防止把旧候选用于不同任务。"""
+
+    feedback = str(state.get("retry_feedback") or "").strip() or None
+    repair = state.get("repair_context")
+    if repair is not None:
+        if not isinstance(repair, dict) or state.get("input_hash") != _payload_hash(input_payload):
+            raise ValueError("Agent 修复检查点与当前输入不一致")
+        if repair.get("mode") not in {"minimal_patch", "full_regeneration"}:
+            raise ValueError("Agent 修复检查点模式无效")
+        if repair.get("mode") == "minimal_patch" and not isinstance(repair.get("candidate_output"), dict):
+            raise ValueError("Agent 修复检查点缺少完整候选")
+    return feedback, deepcopy(repair)
+
+
 def _agent_map_repair_context(
     *,
     result: Any | None,
@@ -607,8 +628,8 @@ def _agent_map_repair_context(
 
     if not validation_feedback:
         return None
-    candidate = getattr(result, "output", None)
-    if not isinstance(candidate, dict) and exc is not None:
+    candidate = None
+    if exc is not None:
         candidate = next(
             (
                 getattr(current, "candidate_output", None)
@@ -617,6 +638,8 @@ def _agent_map_repair_context(
             ),
             None,
         )
+    if not isinstance(candidate, dict):
+        candidate = getattr(result, "output", None)
     if not isinstance(candidate, dict):
         return None
     rejection = _candidate_structure_rejection(candidate=candidate, exc=exc)
@@ -641,171 +664,37 @@ def _agent_map_repair_context(
                 "candidate_limit": _AGENT_MAP_REPAIR_CANDIDATE_TEXT_LIMIT,
             },
         )
-    target_context = _generation_repair_target_context(
-        item_input=item_input,
-        candidate=candidate,
-        validation_feedback=validation_feedback,
-    )
-    route_target_context = _planning_route_repair_target_context(
-        item_input=item_input,
-        candidate=candidate,
-        validation_feedback=validation_feedback,
-    )
-    if not target_context:
-        target_context = route_target_context
-    targeted_instruction = (
-        "repair_targets 已按事实覆盖契约定位到允许修改的用例槽位。"
-        "只能修改这些槽位；protected_case_ids 对应的用例必须逐字段保持不变。"
-        if target_context
-        else ""
-    )
-    if route_target_context and target_context == route_target_context:
-        targeted_instruction = (
-            "route_repair_targets 已按路由校验差异定位到允许修改的 scope。"
-            "只能修正这些 scope 的 assignments；protected_scope_ids 对应的 scope 必须保持不变。"
+    strategy_error = _output_repair_error(exc)
+    target_context: dict[str, Any] = {}
+    if strategy_error is not None:
+        strategy = tool_registry.resolve_repair_strategy(strategy_error.strategy_key)
+        target_context = strategy.build_context(
+            dict(item_input or {}), candidate, strategy_error.details,
         )
+    targeted_instruction = str(target_context.pop("instruction", "") or "")
     return {
         "mode": "minimal_patch",
         "instruction": (
             "candidate_output 是上一版未通过校验的完整结构化结果。"
             "必须以它为基线，仅修正 validation_feedback 指出的字段；"
-            "保留其他用例、字段和事实绑定，不得从头重写或删除已覆盖事实。"
+            "保留未被要求修改的内容，不得从头重写。"
             f"{targeted_instruction}"
             "最终仍返回原输出契约要求的完整 JSON，不得输出本修复上下文。"
         ),
         "validation_feedback": validation_feedback,
         "candidate_output": deepcopy(candidate),
+        **({"strategy_key": strategy_error.strategy_key} if strategy_error else {}),
         **target_context,
     }
 
 
-def _generation_repair_target_context(
-    *,
-    item_input: dict[str, Any] | None,
-    candidate: dict[str, Any],
-    validation_feedback: str,
-) -> dict[str, Any]:
-    """从批次事实契约定位需要修补的槽位，避免模型重写整包有效用例。"""
-
-    source = dict(item_input or {})
-    contract = source.get("case_fact_contract")
-    raw_cases = candidate.get("test_cases")
-    if not isinstance(contract, dict) or not isinstance(raw_cases, list):
-        return {}
-    raw_slots = contract.get("coverage_slots")
-    if not isinstance(raw_slots, list) or len(raw_slots) != len(raw_cases):
-        return {}
-
-    feedback = str(validation_feedback or "")
-    targets: list[dict[str, Any]] = []
-    protected_case_ids: list[str] = []
-    for array_index, raw_slot in enumerate(raw_slots):
-        if not isinstance(raw_slot, dict):
-            return {}
-        slot = dict(raw_slot)
-        case_id = str(slot.get("case_id") or "").strip()
-        fact_ids = [str(value) for value in list(slot.get("required_fact_ids") or [])]
-        design_item_ids = [
-            str(value)
-            for value in list(slot.get("required_test_design_item_ids") or [])
-        ]
-        referenced_fact_ids = [value for value in fact_ids if value in feedback]
-        referenced_design_item_ids = [
-            value for value in design_item_ids if value in feedback
-        ]
-        case_referenced = bool(case_id and case_id in feedback)
-        if referenced_fact_ids or referenced_design_item_ids or case_referenced:
-            targets.append(
-                {
-                    "case_id": case_id,
-                    "test_cases_array_index": array_index,
-                    "missing_fact_ids": referenced_fact_ids,
-                    "missing_test_design_item_ids": referenced_design_item_ids,
-                }
-            )
-        elif case_id:
-            protected_case_ids.append(case_id)
-
-    if not targets or len(targets) >= len(raw_slots):
-        return {}
-    return {
-        "repair_targets": targets,
-        "protected_case_ids": protected_case_ids,
-    }
-
-
-def _planning_route_repair_target_context(
-    *,
-    item_input: dict[str, Any] | None,
-    candidate: dict[str, Any],
-    validation_feedback: str,
-) -> dict[str, Any]:
-    """从路由校验差异定位 scope，避免重生成整个路由批次。"""
-
-    source = dict(item_input or {})
-    raw_scopes = source.get("scopes")
-    scopes = [dict(scope) for scope in list(raw_scopes or []) if isinstance(scope, dict)]
-    if not scopes and source.get("scope_id"):
-        scopes = [source]
-    if not scopes:
-        return {}
-
-    raw_routes = candidate.get("routes")
-    if isinstance(raw_routes, list):
-        routes_by_scope_id = {
-            str(route.get("scope_id") or "").strip(): dict(route)
-            for route in raw_routes
-            if isinstance(route, dict) and str(route.get("scope_id") or "").strip()
-        }
-    else:
-        routes_by_scope_id = {
-            str(candidate.get("scope_id") or "").strip(): candidate
-        }
-
-    feedback = str(validation_feedback or "")
-    targets: list[dict[str, Any]] = []
-    protected_scope_ids: list[str] = []
-    for scope in scopes:
-        scope_id = str(scope.get("scope_id") or "").strip()
-        expected_fact_ids = {
-            str(fact.get("fact_id") or "").strip()
-            for fact in list(scope.get("facts") or [])
-            if isinstance(fact, dict) and str(fact.get("fact_id") or "").strip()
-        }
-        route = routes_by_scope_id.get(scope_id, {})
-        assignments = list(route.get("assignments") or [])
-        actual_fact_ids = {
-            str(assignment.get("fact_id") or "").strip()
-            for assignment in assignments
-            if isinstance(assignment, dict) and str(assignment.get("fact_id") or "").strip()
-        }
-        invalid_fact_ids = [
-            str(assignment.get("fact_id") or "").strip()
-            for assignment in assignments
-            if isinstance(assignment, dict)
-            and (
-                not isinstance(assignment.get("module_routes"), list)
-                or not assignment.get("module_routes")
-            )
-        ]
-        missing_fact_ids = sorted(expected_fact_ids - actual_fact_ids)
-        if missing_fact_ids or invalid_fact_ids or (scope_id and scope_id in feedback):
-            targets.append(
-                {
-                    "scope_id": scope_id,
-                    "missing_fact_ids": missing_fact_ids,
-                    "invalid_fact_ids": sorted(set(invalid_fact_ids)),
-                }
-            )
-        elif scope_id:
-            protected_scope_ids.append(scope_id)
-
-    if not targets or len(targets) >= len(scopes):
-        return {}
-    return {
-        "route_repair_targets": targets,
-        "protected_scope_ids": protected_scope_ids,
-    }
+def _output_repair_error(exc: Exception | None) -> OutputRepairError | None:
+    if exc is None:
+        return None
+    return next(
+        (error for error in _exception_chain(exc) if isinstance(error, OutputRepairError)),
+        None,
+    )
 
 
 def _restore_protected_repair_slots(
@@ -813,39 +702,16 @@ def _restore_protected_repair_slots(
     item_output: dict[str, Any],
     repair_context: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """在平台侧恢复禁止修改的用例槽位，不能只依赖模型遵守提示词。"""
+    """执行领域策略声明的通用保护规则，运行时不解释具体业务字段。"""
 
-    output = deepcopy(item_output)
-    context = dict(repair_context or {})
-    if context.get("mode") != "minimal_patch":
-        return output
-    targets = list(context.get("repair_targets") or [])
-    candidate = context.get("candidate_output")
-    if not targets or not isinstance(candidate, dict):
-        return output
-    candidate_cases = candidate.get("test_cases")
-    output_cases = output.get("test_cases")
-    if (
-        not isinstance(candidate_cases, list)
-        or not isinstance(output_cases, list)
-        or len(candidate_cases) != len(output_cases)
-    ):
-        return output
-    target_indexes = {
-        int(dict(target).get("test_cases_array_index"))
-        for target in targets
-        if isinstance(target, dict)
-        and isinstance(dict(target).get("test_cases_array_index"), int)
-    }
-    if not target_indexes or any(
-        index < 0 or index >= len(candidate_cases) for index in target_indexes
-    ):
-        return output
-    output["test_cases"] = [
-        deepcopy(output_case if index in target_indexes else candidate_cases[index])
-        for index, output_case in enumerate(output_cases)
-    ]
-    return output
+    try:
+        return restore_protected_output(item_output, dict(repair_context or {}))
+    except ValueError as exc:
+        raise OutputPostprocessingError(
+            output=item_output,
+            postprocessor="platform.repair_protection",
+            cause=exc,
+        ) from exc
 
 
 def _candidate_structure_rejection(
@@ -1380,13 +1246,6 @@ def _is_server_output_schema_unsupported(exc: Exception) -> bool:
     )
 
 
-def _is_empty_structured_output(exc: Exception) -> bool:
-    """识别推理额度耗尽后没有生成结构化正文的模型行为。"""
-
-    model_error = _model_behavior_error(exc)
-    return model_error is not None and "结构化输出正文为空" in str(model_error)
-
-
 def _exception_chain(exc: Exception) -> tuple[BaseException, ...]:
     """返回异常及其 cause/context，识别 SDK 对业务异常的外层包装。"""
 
@@ -1442,13 +1301,13 @@ def _agent_failure_kind(exc: Exception) -> str:
         return "connection"
     if isinstance(exc, RateLimitError):
         return "rate_limit"
+    if _is_server_output_schema_unsupported(exc):
+        return "server_schema_unsupported"
     if isinstance(exc, BadRequestError):
         normalized_message = message.lower()
         if "400001" in normalized_message or "try again" in normalized_message:
             return "upstream_transient"
         return "upstream_bad_request"
-    if _is_server_output_schema_unsupported(exc):
-        return "server_schema_unsupported"
     if tool_output_error is not None:
         return "tool_contract_violation"
     if model_error is not None:
@@ -1460,7 +1319,7 @@ def _agent_failure_kind(exc: Exception) -> str:
             if _structured_output_degeneration_rejection(exc) is not None:
                 return "output_degeneration"
             return "output_validation"
-        if message.startswith(
+        if isinstance(model_error, OutputPostprocessingError) or message.startswith(
             "agent_map 单项结果校验失败: postprocessor="
         ):
             return "postprocess_validation"
@@ -1481,26 +1340,6 @@ def _agent_failure_kind(exc: Exception) -> str:
     return "unknown"
 
 
-_CONCURRENCY_PRESSURE_FAILURE_KINDS = frozenset(
-    {
-        "timeout",
-        "connection",
-        "rate_limit",
-        "upstream_transient",
-        "upstream_server",
-    }
-)
-
-_MODEL_ROUTE_HEALTH_FAILURE_KINDS = frozenset(
-    {
-        *_CONCURRENCY_PRESSURE_FAILURE_KINDS,
-        "empty_output",
-        "json_syntax",
-        "output_degeneration",
-    }
-)
-
-
 def _is_concurrency_pressure_failure(failure_kind: str) -> bool:
     """只把可能由上游负载放大的失败用于并发降载。"""
 
@@ -1511,27 +1350,6 @@ def _is_model_route_health_failure(failure_kind: str) -> bool:
     """识别应促使单个映射项切换模型路由的可重试失败。"""
 
     return failure_kind in _MODEL_ROUTE_HEALTH_FAILURE_KINDS
-
-
-def _persisted_route_health_failure_count(item_state: dict[str, Any]) -> int:
-    """读取路由健康失败累计值，并兼容升级前已持久化的节点状态。"""
-
-    explicit_count = item_state.get("route_health_failure_count")
-    if explicit_count is not None:
-        return max(0, int(explicit_count or 0))
-    content_counts = {
-        str(key): int(value)
-        for key, value in dict(item_state.get("content_failure_counts") or {}).items()
-    }
-    structural_count = sum(
-        count
-        for failure_kind, count in content_counts.items()
-        if _is_model_route_health_failure(failure_kind)
-    )
-    return max(
-        0,
-        int(item_state.get("transient_failure_count") or 0) + structural_count,
-    )
 
 
 def _agent_map_retry_delay(*, item_attempt: int, instance_id: str) -> float:
@@ -1763,113 +1581,100 @@ def _agent_map_item_retry_feedback(
     exc: Exception,
     item_input: dict[str, Any],
 ) -> str | None:
-    """为事实覆盖失败补充可执行的迁移信息，而不是只反馈事实编号。"""
+    """领域补充说明由错误源头声明的策略生成，网络错误保留已有反馈。"""
 
     feedback = _preserved_agent_retry_feedback(previous_feedback, exc)
-    message = str(_model_behavior_error(exc) or exc)
-    requirements = [
-        str(value).strip()
-        for value in list(item_input.get("repair_requirements") or [])
-        if str(value).strip()
-    ]
-    if requirements:
-        requirement_instruction = "本次输出必须落实以下终审要求：" + "；".join(
-            requirements
-        )
-        if "终审修复未产生任何实质变化" in message:
-            requirement_instruction = (
-                "本次输出必须实际修改目标用例，不能原样返回；"
-                + requirement_instruction
-            )
-        feedback = _merge_agent_retry_feedback(
-            feedback,
-            requirement_instruction,
-        )
-
-    missing_design_items = [
-        dict(item)
-        for item in list(dict(item_input.get("plan") or {}).get("test_design_items") or [])
-        if str(dict(item).get("test_design_item_id") or "") in message
-    ]
-    if missing_design_items:
-        design_details = "；".join(
-            f"{str(item.get('test_design_item_id') or '').strip()}="
-            f"{str(item.get('coverage_intent') or '').strip()}"
-            for item in missing_design_items
-        )
-        feedback = _merge_agent_retry_feedback(
-            feedback,
-            (
-                "本次修复必须在语义匹配的用例中实际落实并引用以下测试设计项，"
-                "不能只移动或删除其他已覆盖编号："
-                f"{design_details}"
-            ),
-        )
-    if not any(
-        marker in message
-        for marker in (
-            "修复批次仍未覆盖要求事实",
-            "生成批次未完整覆盖平台要求的事实",
-        )
-    ):
+    strategy_error = _output_repair_error(exc)
+    if strategy_error is None:
         return feedback
-    missing_facts = [
-        dict(fact)
-        for fact in list(item_input.get("authoritative_facts") or [])
-        if str(dict(fact).get("fact_id") or "") in message
-    ]
-    if not missing_facts:
-        return feedback
-    details = "；".join(
-        f"{str(fact.get('fact_id') or '').strip()}="
-        f"{str(fact.get('assertion') or '').strip()}"
-        for fact in missing_facts
+    strategy = tool_registry.resolve_repair_strategy(strategy_error.strategy_key)
+    return _merge_agent_retry_feedback(
+        feedback, strategy.feedback(item_input, strategy_error.details),
     )
-    instruction = (
-        "本次修复必须覆盖且不能删除以下有效事实；如果需要改写原承载字段，"
-        "必须把事实迁移到目标用例集合中语义匹配的用例、前置条件或步骤，并保留事实绑定："
-        f"{details}"
+
+
+def _agent_retry_decision(
+    state: RetryAttemptState, *, exc: Exception, configured_max_attempts: int,
+) -> RetryDecision:
+    return state.record_failure(
+        failure_kind=_agent_failure_kind(exc),
+        retryable=_is_retryable_agent_error(exc),
+        is_content_error=_model_behavior_error(exc) is not None,
+        configured_max_attempts=configured_max_attempts,
     )
-    return _merge_agent_retry_feedback(feedback, instruction)
 
 
-def _agent_map_attempt_limit(*, exc: Exception, configured_max_attempts: int) -> int:
-    """基础设施瞬时错误允许更长退避，模型内容错误仍遵循工作流配置。"""
-
-    if _is_server_output_schema_unsupported(exc):
-        return max(configured_max_attempts, 2)
-    if _model_behavior_error(exc) is not None:
-        return configured_max_attempts
-    if _is_retryable_agent_error(exc):
-        return max(configured_max_attempts, _TRANSIENT_AGENT_MAP_MAX_ATTEMPTS)
-    return configured_max_attempts
-
-
-def _agent_content_attempt_budget(
+def _agent_failure_recovery(
     *,
-    failure_kind: str,
-    configured_max_attempts: int,
-) -> int:
-    """结构化输出退化允许三次独立生成，其余类别遵循工作流配置。"""
+    decision: RetryDecision,
+    result: Any,
+    exc: Exception,
+    item_input: dict[str, Any],
+    item_attempt: int,
+    previous_feedback: str | None,
+    previous_repair_context: dict[str, Any] | None,
+    validation_diagnostics: list[dict[str, Any]],
+) -> tuple[Exception, bool, str | None, dict[str, Any] | None, list[dict[str, Any]]]:
+    """各执行器使用同一候选历史决定最小修补、完整重生成和终止。"""
 
-    if failure_kind in {
-        "json_syntax",
-        "output_degeneration",
-        "tool_arguments_validation",
-    }:
-        return max(configured_max_attempts, 3)
-    return configured_max_attempts
+    feedback = _agent_map_item_retry_feedback(
+        previous_feedback=previous_feedback, exc=exc, item_input=item_input,
+    )
+    diagnostics = list(validation_diagnostics)
+    if _model_behavior_error(exc) is None:
+        return exc, decision.can_retry, feedback, previous_repair_context, diagnostics
+    diagnostic = _agent_map_output_diagnostic(
+        result=result, item_attempt=item_attempt, exc=exc,
+    )
+    candidate_validated = result is not None or isinstance(_model_behavior_error(exc), OutputPostprocessingError)
+    # 只有结构校验通过的候选才进入最小修补重复检测，结构退化按独立生成预算处理。
+    candidate_hash = (
+        diagnostic.get("output_text_sha256")
+        if candidate_validated and diagnostic.get("output_text_chars") else None
+    )
+    repeated_output = bool(candidate_hash) and any(
+        previous.get("output_text_sha256") == candidate_hash for previous in diagnostics
+    )
+    diagnostics = [*diagnostics, diagnostic][-_AGENT_MAP_DIAGNOSTIC_ATTEMPT_LIMIT:]
+    if repeated_output:
+        mode = str(dict(previous_repair_context or {}).get("mode") or "")
+        if decision.repeated_output_action(mode) == "full_regeneration":
+            repair = _full_regeneration_context(
+                validation_feedback=feedback or str(exc),
+                candidate_rejection={
+                    "reason": "repeated_invalid_after_minimal_patch",
+                    "repeated_output_sha256": candidate_hash,
+                },
+            )
+            return exc, True, feedback, repair, diagnostics
+        stop_reason = "完整重生成后仍未修正" if mode == "full_regeneration" else "重试预算已耗尽"
+        duplicate_error = ModelBehaviorError(
+            f"智能体返回完全相同的无效结果，{stop_reason}，已停止重复调用；原校验错误：{exc}"
+        )
+        duplicate_error.__cause__ = exc
+        return duplicate_error, False, feedback, previous_repair_context, diagnostics
+    repair = _agent_map_repair_context(
+        result=result, exc=exc, validation_feedback=feedback, item_input=item_input,
+    )
+    return exc, decision.can_retry, feedback, repair or previous_repair_context, diagnostics
 
 
 def _postprocess_agent_map_output(
     *,
     config: Any,
+    definition: Any,
     execution_context: ToolExecutionContext,
     item_input: dict[str, Any],
     item_output: dict[str, Any],
 ) -> dict[str, Any]:
     """在映射项落盘前执行数据驱动的规范化与校验。"""
 
+    item_output = _postprocess_agent_output(
+        agent_definition=definition,
+        execution_context=execution_context,
+        input_payload=item_input,
+        output=item_output,
+    )
     handler_key = str(getattr(config, "item_postprocessor", None) or "").strip()
     if not handler_key:
         return dict(item_output)
@@ -1884,8 +1689,9 @@ def _postprocess_agent_map_output(
         )
     except Exception as exc:
         # 后处理失败说明本次模型结果不可用，按模型行为错误执行该映射项的独立重试。
-        raise ModelBehaviorError(
-            f"agent_map 单项结果校验失败: postprocessor={handler_key}; {exc}"
+        raise OutputPostprocessingError(
+            output=item_output, postprocessor=handler_key, cause=exc,
+            message_prefix="agent_map 单项结果校验失败",
         ) from exc
     if not isinstance(normalized, dict):
         raise ModelBehaviorError(
@@ -1954,69 +1760,42 @@ def _execute_node_with_retry(
             latest.error_message = _persistent_error_message(exc)
             latest.finished_at = _now()
             latest_sdk_state = dict(latest.sdk_state or {})
-            capability_changed = False
-            if (
-                _is_server_output_schema_unsupported(exc)
-                and not latest_sdk_state.get("server_output_schema_disabled")
-            ):
-                latest_sdk_state["server_output_schema_disabled"] = True
-                capability_changed = True
-            elif (
-                _is_empty_structured_output(exc)
-                and not latest_sdk_state.get("model_thinking_disabled")
-            ):
-                latest_sdk_state["model_thinking_disabled"] = True
-                capability_changed = True
-            retry_feedback = _agent_retry_feedback(exc)
+            retry_state = RetryAttemptState.restore(latest_sdk_state)
+            retry_state.attempt = latest.attempt
+            decision = _agent_retry_decision(
+                retry_state, exc=exc, configured_max_attempts=node.max_attempts,
+            )
+            exc, can_retry, retry_feedback, repair_context, diagnostics = _agent_failure_recovery(
+                decision=decision,
+                result=None,
+                exc=exc,
+                item_attempt=latest.attempt,
+                item_input=dict(latest.input_payload or {}),
+                previous_feedback=latest_sdk_state.get("retry_feedback"),
+                previous_repair_context=latest_sdk_state.get("repair_context"),
+                validation_diagnostics=_recent_agent_map_diagnostics(latest_sdk_state),
+            )
+            latest_sdk_state.update(retry_state.checkpoint())
+            latest_sdk_state["retry_exhausted"] = not can_retry
             if retry_feedback:
                 latest_sdk_state["retry_feedback"] = retry_feedback
+            if repair_context is not None:
+                latest_sdk_state["repair_context"] = repair_context
+                latest_sdk_state["input_hash"] = _payload_hash(latest.input_payload or {})
+            if diagnostics:
+                latest_sdk_state["validation_diagnostics"] = diagnostics
             error_diagnostic = _agent_error_diagnostic(exc)
             if error_diagnostic:
                 latest_sdk_state["error_diagnostic"] = error_diagnostic
-            failure_kind = _agent_failure_kind(exc)
-            content_failure_counts = {
-                str(key): int(value)
-                for key, value in dict(
-                    latest_sdk_state.get("content_failure_counts") or {}
-                ).items()
-            }
-            if capability_changed:
-                latest_sdk_state["capability_fallback_count"] = (
-                    int(latest_sdk_state.get("capability_fallback_count") or 0) + 1
-                )
-            elif _model_behavior_error(exc) is not None:
-                content_failure_counts[failure_kind] = (
-                    content_failure_counts.get(failure_kind, 0) + 1
-                )
-                latest_sdk_state["content_failure_counts"] = content_failure_counts
-                latest_sdk_state["content_failure_count"] = sum(
-                    content_failure_counts.values()
-                )
-            elif _is_retryable_agent_error(exc):
-                latest_sdk_state["transient_failure_count"] = (
-                    int(latest_sdk_state.get("transient_failure_count") or 0) + 1
-                )
             latest.sdk_state = latest_sdk_state
-            retryable = _is_retryable_agent_error(exc)
-            if capability_changed:
-                can_retry = True
-            elif _model_behavior_error(exc) is not None:
-                can_retry = (
-                    int(content_failure_counts.get(failure_kind) or 0)
-                    < node.max_attempts
-                )
-            else:
-                can_retry = retryable and (
-                    int(latest_sdk_state.get("transient_failure_count") or 0)
-                    < _TRANSIENT_AGENT_MAP_MAX_ATTEMPTS
-                )
+            latest.error_message = _persistent_error_message(exc)
             failed_event_payload = {
                 "node_key": node.node_key,
                 "node_type": node.node_type,
                 "attempt": latest.attempt,
-                "retryable": retryable,
+                "retryable": decision.retryable,
                 "error_type": type(exc).__name__,
-                "failure_kind": failure_kind,
+                "failure_kind": decision.failure_kind,
                 "message": str(exc)[:1000],
             }
             if error_diagnostic:
@@ -2037,13 +1816,14 @@ def _execute_node_with_retry(
                         "node_key": node.node_key,
                         "failed_attempt": latest.attempt,
                         "next_attempt": latest.attempt + 1,
+                        **_repair_retry_event_fields(latest_sdk_state.get("repair_context")),
                     },
                     node_run=latest,
                 )
             repo.db.add(latest)
             repo.commit()
             if not can_retry:
-                raise
+                raise exc
 
             run = active_run
             time.sleep(min(2 ** (latest.attempt - 1), 4))
@@ -2058,6 +1838,7 @@ async def _run_parallel_agent_instance(
     request_timeout_seconds: float,
     retry_feedback: str | None = None,
     disable_server_output_schema: bool = False,
+    disable_model_thinking: bool = False,
     model_route_override: str | None = None,
 ) -> Any:
     """使用独立数据库会话和 SDK 上下文执行一个并发 Agent 实例。"""
@@ -2076,10 +1857,9 @@ async def _run_parallel_agent_instance(
             run_input=deepcopy(execution_context.run_input),
             artifacts=deepcopy(execution_context.artifacts),
         )
-        worker_tools = _list_agent_tools_for_project(
-            AgentPlatformRepository(worker_db),
+        worker_tools = AgentPlatformRepository(worker_db).list_agent_tools(
             worker_definition.id,
-            execution_context.project_id,
+            project_id=execution_context.project_id,
         )
         return await run_agent_async(
             db=worker_db,
@@ -2090,7 +1870,9 @@ async def _run_parallel_agent_instance(
             request_timeout_seconds=request_timeout_seconds,
             retry_feedback=retry_feedback,
             disable_server_output_schema=disable_server_output_schema,
+            disable_model_thinking=disable_model_thinking,
             model_route_override=model_route_override,
+            skip_output_postprocessor=True,
         )
     finally:
         worker_db.close()
@@ -2205,28 +1987,12 @@ async def _execute_agent_map_parallel_async(
     ready = deque(index for index in range(total_count) if index not in completed_by_index)
     retry_ready: deque[int] = deque()
     ready_at = {index: 0.0 for index in ready}
-    attempts = {index: 0 for index in range(total_count)}
-    content_failure_counts_by_index = {
-        index: {
-            str(key): int(value)
-            for key, value in dict(
-                item_states_by_index.get(index, {}).get("content_failure_counts") or {}
-            ).items()
-        }
+    retry_states_by_index = {
+        index: RetryAttemptState.restore(item_states_by_index.get(index, {}))
         for index in range(total_count)
     }
-    transient_failure_counts_by_index = {
-        index: int(
-            item_states_by_index.get(index, {}).get("transient_failure_count") or 0
-        )
-        for index in range(total_count)
-    }
-    route_health_failure_counts_by_index = {
-        index: _persisted_route_health_failure_count(
-            item_states_by_index.get(index, {})
-        )
-        for index in range(total_count)
-    }
+    for index in ready:
+        retry_states_by_index[index].require_retry_budget(configured_max_attempts=node.max_attempts)
     retry_history_by_index = {
         index: [
             dict(entry)
@@ -2251,20 +2017,27 @@ async def _execute_agent_map_parallel_async(
         _agent_transient_fallback_config(definition)
     )
     if transient_fallback_route:
-        for index, failure_count in route_health_failure_counts_by_index.items():
-            if failure_count >= transient_fallback_threshold:
+        for index, retry_state in retry_states_by_index.items():
+            if retry_state.route_health_failure_count >= transient_fallback_threshold:
                 fallback_route_by_index.setdefault(index, transient_fallback_route)
-    retry_feedback_by_index: dict[int, str] = {}
-    repair_context_by_index: dict[int, dict[str, Any]] = {}
+    restored_retry_contexts = {
+        index: _restored_agent_retry_context(item_states_by_index.get(index, {}), raw_items[index])
+        for index in ready
+    }
+    retry_feedback_by_index = {
+        index: feedback for index, (feedback, _) in restored_retry_contexts.items() if feedback
+    }
+    repair_context_by_index = {
+        index: repair for index, (_, repair) in restored_retry_contexts.items() if repair is not None
+    }
     configured_schema_fallback = bool(
         dict(getattr(definition, "runtime_config", {}) or {}).get(
             "disable_server_output_schema"
         )
     )
-    disable_server_output_schema_by_index: set[int] = (
-        set(range(total_count)) if configured_schema_fallback else set()
-    )
-    schema_capability_fallback_by_index: set[int] = set()
+    if configured_schema_fallback:
+        for retry_state in retry_states_by_index.values():
+            retry_state.server_output_schema_disabled = True
     fatal_error: Exception | None = None
     cancellation_requested = False
 
@@ -2272,7 +2045,16 @@ async def _execute_agent_map_parallel_async(
         return [completed_by_index[index] for index in sorted(completed_by_index)]
 
     def ordered_states() -> list[dict[str, Any]]:
-        return [item_states_by_index[index] for index in sorted(item_states_by_index)]
+        states = []
+        for index in sorted(item_states_by_index):
+            state = dict(item_states_by_index[index])
+            state.update(retry_states_by_index[index].checkpoint())
+            if index not in completed_by_index:
+                state["input_hash"] = _payload_hash(raw_items[index])
+                state["retry_feedback"] = retry_feedback_by_index.get(index)
+                state["repair_context"] = deepcopy(repair_context_by_index.get(index))
+            states.append(state)
+        return states
 
     def current_output() -> dict[str, Any]:
         return {
@@ -2329,10 +2111,13 @@ async def _execute_agent_map_parallel_async(
         )
 
     def persist_progress() -> None:
+        try:
+            _renew_progress_lease(repo, run)
+        except _RunCancelled:
+            _mark_node_cancelled(repo, run, node_run, output_payload=current_output(), sdk_state=current_sdk_state())
+            raise
         node_run.output_payload = current_output()
         node_run.sdk_state = current_sdk_state()
-        run.heartbeat_at = _now()
-        run.lease_expires_at = _now() + timedelta(seconds=RUN_LEASE_SECONDS)
         repo.db.add(node_run)
         repo.db.add(run)
         repo.commit()
@@ -2423,7 +2208,7 @@ async def _execute_agent_map_parallel_async(
                 previous_state.get("instance_id")
                 or f"{node.node_key}-instance-{index + 1:03d}"
             )
-            item_attempt = int(previous_state.get("item_attempt") or attempts[index] or 1)
+            item_attempt = int(previous_state.get("item_attempt") or retry_states_by_index[index].attempt or 1)
             item_states_by_index[index] = {
                 **previous_state,
                 "status": "cancelled",
@@ -2483,8 +2268,8 @@ async def _execute_agent_map_parallel_async(
                 index = take_ready_index()
                 if index is None:
                     break
-                attempts[index] += 1
-                item_attempt = attempts[index]
+                retry_states_by_index[index].attempt += 1
+                item_attempt = retry_states_by_index[index].attempt
                 raw_item_input = dict(raw_items[index])
                 item_input, projection_diagnostics = _project_agent_map_input(
                     definition=definition,
@@ -2572,21 +2357,10 @@ async def _execute_agent_map_parallel_async(
                     item_states_by_index[index]["retry_history"] = list(
                         retry_history_by_index[index]
                     )
-                if transient_failure_counts_by_index[index]:
-                    item_states_by_index[index]["transient_failure_count"] = (
-                        transient_failure_counts_by_index[index]
-                    )
-                if route_health_failure_counts_by_index[index]:
-                    item_states_by_index[index]["route_health_failure_count"] = (
-                        route_health_failure_counts_by_index[index]
-                    )
+                item_states_by_index[index].update(retry_states_by_index[index].checkpoint())
                 if index in fallback_route_by_index:
                     item_states_by_index[index]["model_route_override"] = (
                         fallback_route_by_index[index]
-                    )
-                if content_failure_counts_by_index[index]:
-                    item_states_by_index[index]["content_failure_counts"] = dict(
-                        content_failure_counts_by_index[index]
                     )
                 if validation_diagnostics:
                     item_states_by_index[index]["validation_diagnostics"] = (
@@ -2600,9 +2374,8 @@ async def _execute_agent_map_parallel_async(
                         instance_id=instance_id,
                         request_timeout_seconds=request_timeout,
                         retry_feedback=retry_feedback_by_index.get(index),
-                        disable_server_output_schema=(
-                            index in disable_server_output_schema_by_index
-                        ),
+                        disable_server_output_schema=retry_states_by_index[index].server_output_schema_disabled,
+                        disable_model_thinking=retry_states_by_index[index].model_thinking_disabled,
                         model_route_override=fallback_route_by_index.get(index),
                     )
                 )
@@ -2651,6 +2424,7 @@ async def _execute_agent_map_parallel_async(
                     request_diagnostics,
                 ) = pending.pop(task)
                 item_input = dict(raw_items[index])
+                repair_context = repair_context_by_index.get(index)
                 result = None
                 postprocessing_output = False
                 try:
@@ -2671,6 +2445,7 @@ async def _execute_agent_map_parallel_async(
                     )
                     normalized_output = _postprocess_agent_map_output(
                         config=config,
+                        definition=definition,
                         execution_context=execution_context,
                         item_input=item_input,
                         item_output=guarded_output,
@@ -2700,21 +2475,10 @@ async def _execute_agent_map_parallel_async(
                         item_states_by_index[index]["retry_history"] = list(
                             retry_history_by_index[index]
                         )
-                    if transient_failure_counts_by_index[index]:
-                        item_states_by_index[index]["transient_failure_count"] = (
-                            transient_failure_counts_by_index[index]
-                        )
-                    if route_health_failure_counts_by_index[index]:
-                        item_states_by_index[index]["route_health_failure_count"] = (
-                            route_health_failure_counts_by_index[index]
-                        )
+                    item_states_by_index[index].update(retry_states_by_index[index].checkpoint())
                     if index in fallback_route_by_index:
                         item_states_by_index[index]["model_route_override"] = (
                             fallback_route_by_index[index]
-                        )
-                    if content_failure_counts_by_index[index]:
-                        item_states_by_index[index]["content_failure_counts"] = dict(
-                            content_failure_counts_by_index[index]
                         )
                     if validation_diagnostics:
                         item_states_by_index[index]["validation_diagnostics"] = (
@@ -2750,17 +2514,17 @@ async def _execute_agent_map_parallel_async(
                             reason="success_recovery",
                         )
                 except Exception as exc:
-                    failure_kind = _agent_failure_kind(exc)
+                    retry_state = retry_states_by_index[index]
+                    decision = _agent_retry_decision(
+                        retry_state, exc=exc, configured_max_attempts=node.max_attempts,
+                    )
+                    failure_kind = decision.failure_kind
                     failure_counts[failure_kind] = failure_counts.get(failure_kind, 0) + 1
-                    retryable = _is_retryable_agent_error(exc)
-                    if retryable and _model_behavior_error(exc) is None:
-                        transient_failure_counts_by_index[index] += 1
+                    retryable = decision.retryable
                     if retryable and _is_model_route_health_failure(failure_kind):
-                        route_health_failure_counts_by_index[index] += 1
                         if (
                             transient_fallback_route
-                            and route_health_failure_counts_by_index[index]
-                            >= transient_fallback_threshold
+                            and retry_state.route_health_failure_count >= transient_fallback_threshold
                         ):
                             fallback_route_by_index[index] = transient_fallback_route
                     if retryable and _is_concurrency_pressure_failure(failure_kind):
@@ -2778,129 +2542,27 @@ async def _execute_agent_map_parallel_async(
                                 failure_kind=failure_kind,
                             )
                     error_diagnostic = _agent_error_diagnostic(exc)
-                    attempt_limit = _agent_map_attempt_limit(
-                        exc=exc,
-                        configured_max_attempts=node.max_attempts,
-                    )
-                    if _model_behavior_error(exc) is not None:
-                        content_failure_counts = content_failure_counts_by_index[index]
-                        content_failure_counts[failure_kind] = (
-                            content_failure_counts.get(failure_kind, 0) + 1
-                        )
-                        content_attempt_budget = _agent_content_attempt_budget(
-                            failure_kind=failure_kind,
-                            configured_max_attempts=node.max_attempts,
-                        )
-                        remaining_content_attempts = max(
-                            0,
-                            content_attempt_budget
-                            - content_failure_counts[failure_kind],
-                        )
-                        attempt_limit = max(
-                            attempt_limit,
-                            item_attempt + remaining_content_attempts,
-                        )
-                    if (
-                        _model_behavior_error(exc) is not None
-                        and index in schema_capability_fallback_by_index
-                    ):
-                        attempt_limit = max(attempt_limit, node.max_attempts + 1)
-                    current_retry_feedback = _agent_map_item_retry_feedback(
-                        previous_feedback=retry_feedback_by_index.get(index),
+                    attempt_limit = decision.attempt_limit
+                    exc, can_retry, current_retry_feedback, next_repair_context, validation_diagnostics = _agent_failure_recovery(
+                        decision=decision,
+                        result=result if postprocessing_output else None,
                         exc=exc,
                         item_input=item_input,
+                        item_attempt=item_attempt,
+                        previous_feedback=retry_feedback_by_index.get(index),
+                        previous_repair_context=repair_context_by_index.get(index),
+                        validation_diagnostics=_recent_agent_map_diagnostics(item_states_by_index.get(index)),
                     )
                     if current_retry_feedback:
                         retry_feedback_by_index[index] = current_retry_feedback
-                    if _is_server_output_schema_unsupported(exc):
-                        disable_server_output_schema_by_index.add(index)
-                        schema_capability_fallback_by_index.add(index)
-                    validation_diagnostics = _recent_agent_map_diagnostics(
-                        item_states_by_index.get(index)
-                    )
-                    postprocess_diagnostic_recorded = bool(
-                        result is not None
-                        and postprocessing_output
-                        and _model_behavior_error(exc) is not None
-                    )
-                    diagnostic_recorded = bool(
-                        postprocess_diagnostic_recorded or error_diagnostic
-                    )
-                    if postprocess_diagnostic_recorded:
-                        output_diagnostic = _agent_map_output_diagnostic(
-                            result=result,
-                            item_attempt=item_attempt,
-                            exc=exc,
-                        )
-                        repeated_output = any(
-                            diagnostic.get("output_text_sha256")
-                            == output_diagnostic["output_text_sha256"]
-                            for diagnostic in validation_diagnostics
-                        )
-                        validation_diagnostics.append(output_diagnostic)
-                        validation_diagnostics = validation_diagnostics[
-                            -_AGENT_MAP_DIAGNOSTIC_ATTEMPT_LIMIT:
-                        ]
-                        repeated_output_escalated = False
-                        if repeated_output:
-                            previous_repair_mode = str(
-                                dict(repair_context or {}).get("mode") or ""
-                            )
-                            if (
-                                previous_repair_mode != "full_regeneration"
-                                and item_attempt < attempt_limit
-                            ):
-                                repair_context_by_index[index] = (
-                                    _full_regeneration_context(
-                                        validation_feedback=(
-                                            current_retry_feedback or str(exc)
-                                        ),
-                                        candidate_rejection={
-                                            "reason": (
-                                                "repeated_invalid_after_minimal_patch"
-                                            ),
-                                            "repeated_output_sha256": (
-                                                output_diagnostic[
-                                                    "output_text_sha256"
-                                                ]
-                                            ),
-                                        },
-                                    )
-                                )
-                                retryable = True
-                                repeated_output_escalated = True
-                            else:
-                                duplicate_error = ModelBehaviorError(
-                                    "智能体在完整重生成后仍返回完全相同的无效结果，"
-                                    "已停止重复调用；"
-                                    f"原校验错误：{exc}"
-                                )
-                                duplicate_error.__cause__ = exc
-                                exc = duplicate_error
-                                retryable = False
-                                attempt_limit = item_attempt
-                        if not repeated_output_escalated:
-                            repair_context = _agent_map_repair_context(
-                                result=result,
-                                exc=exc,
-                                validation_feedback=current_retry_feedback,
-                                item_input=item_input,
-                            )
-                            if repair_context is not None:
-                                repair_context_by_index[index] = repair_context
-                    elif _model_behavior_error(exc) is not None:
-                        repair_context = _agent_map_repair_context(
-                            result=None,
-                            exc=exc,
-                            validation_feedback=current_retry_feedback,
-                            item_input=item_input,
-                        )
-                        if repair_context is not None:
-                            repair_context_by_index[index] = repair_context
+                    retry_state.retry_exhausted = not can_retry
+                    if next_repair_context is not None:
+                        repair_context_by_index[index] = next_repair_context
+                    diagnostic_recorded = bool(validation_diagnostics or error_diagnostic)
                     item_states_by_index[index] = {
                         "item_index": index,
                         "instance_id": instance_id,
-                        "status": "retrying" if retryable and item_attempt < attempt_limit else "failed",
+                        "status": "retrying" if can_retry else "failed",
                         "item_attempt": item_attempt,
                         "error_type": type(exc).__name__,
                         "failure_kind": failure_kind,
@@ -2922,14 +2584,7 @@ async def _execute_agent_map_parallel_async(
                     item_states_by_index[index]["retry_history"] = list(
                         retry_history_by_index[index]
                     )
-                    if transient_failure_counts_by_index[index]:
-                        item_states_by_index[index]["transient_failure_count"] = (
-                            transient_failure_counts_by_index[index]
-                        )
-                    if route_health_failure_counts_by_index[index]:
-                        item_states_by_index[index]["route_health_failure_count"] = (
-                            route_health_failure_counts_by_index[index]
-                        )
+                    item_states_by_index[index].update(retry_state.checkpoint())
                     if index in fallback_route_by_index:
                         item_states_by_index[index]["model_route_override"] = (
                             fallback_route_by_index[index]
@@ -2937,10 +2592,6 @@ async def _execute_agent_map_parallel_async(
                     if validation_diagnostics:
                         item_states_by_index[index]["validation_diagnostics"] = (
                             validation_diagnostics
-                        )
-                    if content_failure_counts_by_index[index]:
-                        item_states_by_index[index]["content_failure_counts"] = dict(
-                            content_failure_counts_by_index[index]
                         )
                     if error_diagnostic:
                         item_states_by_index[index]["error_diagnostic"] = error_diagnostic
@@ -2966,7 +2617,7 @@ async def _execute_agent_map_parallel_async(
                         failed_event_payload,
                         node_run=node_run,
                     )
-                    if retryable and item_attempt < attempt_limit and fatal_error is None:
+                    if can_retry and fatal_error is None:
                         retry_delay = _agent_map_retry_delay(
                             item_attempt=item_attempt,
                             instance_id=instance_id,
@@ -3110,6 +2761,7 @@ def _execute_agent_map(
         for key, value in dict(previous_state.get("failure_counts") or {}).items()
     }
     item_states = list(previous_state.get("items") or [])
+    failed_item_state = deepcopy(dict(previous_state.get("failed_item") or {}))
     total_count = len(raw_items)
 
     def current_output() -> dict[str, Any]:
@@ -3127,6 +2779,7 @@ def _execute_agent_map(
             "attempted_requests": attempted_requests,
             "failure_counts": failure_counts,
             "items": item_states,
+            **({"failed_item": failed_item_state} if failed_item_state else {}),
         }
 
     for index in range(len(completed), total_count):
@@ -3136,21 +2789,30 @@ def _execute_agent_map(
         task_label = _agent_map_item_label(item_input, item_index=index)
         result = None
         normalized_output: dict[str, Any] | None = None
-        retry_feedback: str | None = None
-        repair_context: dict[str, Any] | None = None
-        disable_server_output_schema = bool(
+        previous_failed_item = dict(previous_state.get("failed_item") or {})
+        if previous_failed_item.get("item_index") != index:
+            previous_failed_item = {}
+        retry_feedback, repair_context = _restored_agent_retry_context(
+            previous_failed_item,
+            base_item_input,
+        )
+        validation_diagnostics = _recent_agent_map_diagnostics(previous_failed_item)
+        retry_state = RetryAttemptState.restore(previous_failed_item)
+        retry_state.require_retry_budget(configured_max_attempts=node.max_attempts)
+        if bool(
             dict(getattr(definition, "runtime_config", {}) or {}).get(
                 "disable_server_output_schema"
             )
-        )
-        content_failure_counts: dict[str, int] = {}
-        schema_capability_fallback_used = False
-        for item_attempt in range(
-            1,
-            _TRANSIENT_AGENT_MAP_MAX_ATTEMPTS
-            + node.max_attempts * len(_MODEL_CONTENT_FAILURE_KINDS)
-            + 2,
         ):
+            retry_state.server_output_schema_disabled = True
+        transient_fallback_route, transient_fallback_threshold = _agent_transient_fallback_config(definition)
+        model_route_override = str(previous_failed_item.get("model_route_override") or "") or None
+        if transient_fallback_route and retry_state.route_health_failure_count >= transient_fallback_threshold:
+            model_route_override = transient_fallback_route
+        retry_history = [dict(entry) for entry in previous_failed_item.get("retry_history") or []][-10:]
+        while True:
+            retry_state.attempt += 1
+            item_attempt = retry_state.attempt
             item_input, projection_diagnostics = _project_agent_map_input(
                 definition=definition,
                 raw_item=base_item_input,
@@ -3173,6 +2835,7 @@ def _execute_agent_map(
                     sdk_state=current_sdk_state(),
                 )
                 raise _RunCancelled(f"Agent Run {run.id} 已取消")
+            _renew_progress_lease(repo, run)
             _event(
                 repo,
                 run,
@@ -3191,8 +2854,6 @@ def _execute_agent_map(
                 },
                 node_run=node_run,
             )
-            run.heartbeat_at = _now()
-            run.lease_expires_at = _now() + timedelta(seconds=RUN_LEASE_SECONDS)
             repo.db.add(run)
             repo.db.commit()
             try:
@@ -3214,7 +2875,15 @@ def _execute_agent_map(
                     input_payload=item_input,
                     request_timeout_seconds=request_timeout,
                     retry_feedback=retry_feedback,
-                    disable_server_output_schema=disable_server_output_schema,
+                    disable_server_output_schema=retry_state.server_output_schema_disabled,
+                    disable_model_thinking=retry_state.model_thinking_disabled,
+                    model_route_override=model_route_override,
+                    skip_output_postprocessor=True,
+                )
+                aggregate_usage = _sum_usage(aggregate_usage, result.usage)
+                _record_agent_usage(
+                    repo=repo, run=run, node_run=node_run, current=result.usage,
+                    reservation=reservation, quota_scope_key=instance_id,
                 )
                 guarded_output = _restore_protected_repair_slots(
                     item_output=dict(result.output),
@@ -3222,6 +2891,7 @@ def _execute_agent_map(
                 )
                 normalized_output = _postprocess_agent_map_output(
                     config=config,
+                    definition=definition,
                     execution_context=execution_context,
                     # 后处理必须使用完整原始输入，尤其是 source_anchor 和事实坐标。
                     item_input=deepcopy(base_item_input),
@@ -3229,59 +2899,38 @@ def _execute_agent_map(
                 )
                 break
             except Exception as exc:
-                failure_kind = _agent_failure_kind(exc)
+                decision = _agent_retry_decision(
+                    retry_state, exc=exc, configured_max_attempts=node.max_attempts,
+                )
+                failure_kind = decision.failure_kind
                 failure_counts[failure_kind] = failure_counts.get(failure_kind, 0) + 1
-                retryable = _is_retryable_agent_error(exc)
                 error_diagnostic = _agent_error_diagnostic(exc)
-                attempt_limit = _agent_map_attempt_limit(
-                    exc=exc,
-                    configured_max_attempts=node.max_attempts,
-                )
-                if _model_behavior_error(exc) is not None:
-                    content_failure_counts[failure_kind] = (
-                        content_failure_counts.get(failure_kind, 0) + 1
-                    )
-                    content_attempt_budget = _agent_content_attempt_budget(
-                        failure_kind=failure_kind,
-                        configured_max_attempts=node.max_attempts,
-                    )
-                    remaining_content_attempts = max(
-                        0,
-                        content_attempt_budget
-                        - content_failure_counts[failure_kind],
-                    )
-                    attempt_limit = max(
-                        attempt_limit,
-                        item_attempt + remaining_content_attempts,
-                    )
-                if (
-                    _model_behavior_error(exc) is not None
-                    and schema_capability_fallback_used
-                ):
-                    attempt_limit = max(attempt_limit, node.max_attempts + 1)
-                retry_feedback = _agent_map_item_retry_feedback(
-                    previous_feedback=retry_feedback,
-                    exc=exc,
-                    item_input=base_item_input,
-                )
-                candidate_repair_context = _agent_map_repair_context(
+                exc, can_retry, retry_feedback, repair_context, validation_diagnostics = _agent_failure_recovery(
+                    decision=decision,
                     result=result,
                     exc=exc,
-                    validation_feedback=retry_feedback,
                     item_input=base_item_input,
+                    item_attempt=item_attempt,
+                    previous_feedback=retry_feedback,
+                    previous_repair_context=repair_context,
+                    validation_diagnostics=validation_diagnostics,
                 )
-                if candidate_repair_context is not None:
-                    repair_context = candidate_repair_context
-                if _is_server_output_schema_unsupported(exc):
-                    disable_server_output_schema = True
-                    schema_capability_fallback_used = True
+                retry_state.retry_exhausted = not can_retry
+                if transient_fallback_route and retry_state.route_health_failure_count >= transient_fallback_threshold:
+                    model_route_override = transient_fallback_route
+                retry_history = [*retry_history, {
+                    "item_attempt": item_attempt,
+                    "failure_kind": failure_kind,
+                    "error_type": type(exc).__name__,
+                    "message": str(exc)[:1000],
+                }][-10:]
                 failed_event_payload = {
                     "node_key": node.node_key,
                     "item_index": index,
                     "item_number": index + 1,
                     "item_total": total_count,
                     "item_attempt": item_attempt,
-                    "retryable": retryable,
+                    "retryable": decision.retryable,
                     "error_type": type(exc).__name__,
                     "failure_kind": failure_kind,
                     "message": str(exc)[:1000],
@@ -3313,7 +2962,13 @@ def _execute_agent_map(
                         "error_type": type(exc).__name__,
                         "failure_kind": failure_kind,
                         "task_label": task_label,
-                        "content_failure_counts": dict(content_failure_counts),
+                        **retry_state.checkpoint(),
+                        "model_route_override": model_route_override,
+                        "retry_history": retry_history,
+                        "input_hash": _payload_hash(base_item_input),
+                        "retry_feedback": retry_feedback,
+                        "repair_context": deepcopy(repair_context),
+                        "validation_diagnostics": validation_diagnostics,
                         **(
                             {"error_diagnostic": error_diagnostic}
                             if error_diagnostic
@@ -3322,9 +2977,10 @@ def _execute_agent_map(
                     },
                 }
                 repo.db.add(node_run)
+                failed_item_state = deepcopy(node_run.sdk_state["failed_item"])
                 repo.db.commit()
-                if not retryable or item_attempt >= attempt_limit:
-                    raise
+                if not can_retry:
+                    raise exc
                 _event(
                     repo,
                     run,
@@ -3333,7 +2989,7 @@ def _execute_agent_map(
                         "node_key": node.node_key,
                         "item_index": index,
                         "next_attempt": item_attempt + 1,
-                        "max_attempts": attempt_limit,
+                        "max_attempts": decision.attempt_limit,
                         "has_validation_feedback": bool(retry_feedback),
                         **_repair_retry_event_fields(repair_context),
                     },
@@ -3344,15 +3000,7 @@ def _execute_agent_map(
         if result is None or normalized_output is None:
             raise RuntimeError(f"agent_map 映射项未产生结果: node={node.node_key}, index={index}")
 
-        aggregate_usage = _sum_usage(aggregate_usage, result.usage)
-        _record_agent_usage(
-            repo=repo,
-            run=run,
-            node_run=node_run,
-            current=result.usage,
-            reservation=reservation,
-            quota_scope_key=instance_id,
-        )
+        failed_item_state = {}
         item_states.append(
             {
                 "item_index": index,
@@ -3364,11 +3012,10 @@ def _execute_agent_map(
                 "reservation": reservation,
                 "tool_calls": result.tool_calls,
                 "task_label": task_label,
-                **(
-                    {"content_failure_counts": dict(content_failure_counts)}
-                    if content_failure_counts
-                    else {}
-                ),
+                "validation_diagnostics": validation_diagnostics,
+                **retry_state.checkpoint(),
+                "model_route_override": model_route_override,
+                "retry_history": retry_history,
             }
         )
         completed.append(
@@ -3378,6 +3025,11 @@ def _execute_agent_map(
                 "output": normalized_output,
             }
         )
+        try:
+            _renew_progress_lease(repo, run)
+        except _RunCancelled:
+            _mark_node_cancelled(repo, run, node_run, output_payload=current_output(), sdk_state=current_sdk_state())
+            raise
         node_run.output_payload = {
             config.output_key: completed,
             "completed_count": len(completed),
@@ -3402,8 +3054,6 @@ def _execute_agent_map(
             },
             node_run=node_run,
         )
-        run.heartbeat_at = _now()
-        run.lease_expires_at = _now() + timedelta(seconds=RUN_LEASE_SECONDS)
         repo.db.add(node_run)
         repo.db.add(run)
         repo.db.commit()
@@ -3446,8 +3096,7 @@ def _execute_node(
     node: WorkflowNode,
     dependency_outputs: dict[str, dict[str, Any]],
 ) -> tuple[AgentNodeRun, dict[str, Any]] | None:
-    if _refresh_run_is_cancelled(repo, run):
-        raise _RunCancelled(f"Agent Run {run.id} 已取消")
+    _renew_progress_lease(repo, run)
     _ensure_run_deadline(run, node_key=node.node_key)
     run_context = deepcopy(run.run_context or {})
     global_deadline = _deadline_value(run_context.get("deadline_at"))
@@ -3479,12 +3128,11 @@ def _execute_node(
     else:
         attempt = repo.next_node_attempt(run_id=run.id, node_key=node.node_key)
         previous_sdk_state = dict(previous.sdk_state or {}) if previous is not None else {}
-        attempt_limit = (
-            node.max_attempts + _TRANSIENT_AGENT_MAP_MAX_ATTEMPTS + 2
-            if node.node_type in {"agent", "agent_network"}
-            else node.max_attempts
-        )
-        if attempt > attempt_limit:
+        if node.node_type in {"agent", "agent_network"}:
+            RetryAttemptState.restore(previous_sdk_state).require_retry_budget(
+                configured_max_attempts=node.max_attempts,
+            )
+        elif attempt > node.max_attempts:
             raise RuntimeError(f"节点 {node.node_key} 已耗尽重试次数")
         node_input = _node_input(run, node, dependency_outputs)
         node_run = AgentNodeRun(
@@ -3503,8 +3151,6 @@ def _execute_node(
         repo.db.add(node_run)
         repo.db.flush()
     run.current_node_key = node.node_key
-    run.heartbeat_at = _now()
-    run.lease_expires_at = _now() + timedelta(seconds=RUN_LEASE_SECONDS)
     _event(
         repo,
         run,
@@ -3541,6 +3187,7 @@ def _execute_node(
             node_input=node_input,
         )
         if reusable is not None:
+            _renew_progress_lease(repo, run)
             source_node_run, output, cache_version, input_hash = reusable
             node_run.sdk_state = {
                 "result_cache": {
@@ -3593,7 +3240,7 @@ def _execute_node(
         }
         repo.db.add(node_run)
         repo.commit()
-        tools = _list_agent_tools_for_project(repo, definition.id, run.project_id)
+        tools = repo.list_agent_tools(definition.id, project_id=run.project_id)
         if node.node_type == "agent_map":
             output, sdk_state = _execute_agent_map(
                 repo=repo,
@@ -3616,43 +3263,29 @@ def _execute_node(
                 definition=definition,
                 raw_item=node_input,
             )
-            disable_server_output_schema = bool(
+            retry_state = RetryAttemptState.restore(
+                dict(previous.sdk_state or {}) if previous is not None else {},
+            )
+            if bool(
                 dict(getattr(definition, "runtime_config", {}) or {}).get(
                     "disable_server_output_schema"
                 )
-                or (
-                    previous is not None
-                    and dict(previous.sdk_state or {}).get("server_output_schema_disabled")
-                )
+            ):
+                retry_state.server_output_schema_disabled = True
+            retry_feedback, repair_context = _restored_agent_retry_context(
+                dict(previous.sdk_state or {}) if previous is not None else {}, node_input,
             )
-            disable_model_thinking = bool(
-                previous is not None
-                and dict(previous.sdk_state or {}).get("model_thinking_disabled")
-            )
-            retry_feedback = (
-                str(dict(previous.sdk_state or {}).get("retry_feedback") or "").strip()
-                if previous is not None
-                else ""
-            ) or None
+            if repair_context is not None:
+                model_input["_platform_repair"] = deepcopy(repair_context)
             node_run.sdk_state = {
                 **dict(node_run.sdk_state or {}),
-                "server_output_schema_disabled": disable_server_output_schema,
-                "model_thinking_disabled": disable_model_thinking,
-                "capability_fallback_count": int(
-                    dict(previous.sdk_state or {}).get("capability_fallback_count") or 0
-                ) if previous is not None else 0,
-                "content_failure_count": int(
-                    dict(previous.sdk_state or {}).get("content_failure_count") or 0
-                ) if previous is not None else 0,
-                "content_failure_counts": {
-                    str(key): int(value)
-                    for key, value in dict(
-                        dict(previous.sdk_state or {}).get("content_failure_counts") or {}
-                    ).items()
-                } if previous is not None else {},
-                "transient_failure_count": int(
-                    dict(previous.sdk_state or {}).get("transient_failure_count") or 0
-                ) if previous is not None else 0,
+                "retry_feedback": retry_feedback,
+                "repair_context": deepcopy(repair_context),
+                "input_hash": _payload_hash(node_input),
+                "validation_diagnostics": _recent_agent_map_diagnostics(
+                    dict(previous.sdk_state or {}) if previous is not None else {},
+                ),
+                **retry_state.checkpoint(),
             }
             repo.db.add(node_run)
             repo.commit()
@@ -3677,8 +3310,8 @@ def _execute_node(
                     node_key=node.node_key,
                 ),
                 retry_feedback=retry_feedback,
-                disable_server_output_schema=disable_server_output_schema,
-                disable_model_thinking=disable_model_thinking,
+                disable_server_output_schema=retry_state.server_output_schema_disabled,
+                disable_model_thinking=retry_state.model_thinking_disabled,
                 # 投影后的输入只供模型使用；后处理统一在本层用完整原始输入执行一次。
                 skip_output_postprocessor=True,
             )
@@ -3690,38 +3323,22 @@ def _execute_node(
                 reservation=reservation,
                 quota_scope_key=f"{node.node_key}-instance-001",
             )
-            output = dict(result.output)
-            output_postprocessor = str(
-                dict(getattr(definition, "runtime_config", {}) or {}).get(
-                    "output_postprocessor"
-                )
-                or ""
-            ).strip()
-            if output_postprocessor:
-                handler = tool_registry.resolve(output_postprocessor)
-                try:
-                    output = dict(
-                        handler(
-                            execution_context,
-                            {
-                                "input_payload": deepcopy(node_input),
-                                "output": deepcopy(output),
-                            },
-                        )
-                    )
-                except Exception as exc:
-                    # 输出后处理属于模型行为校验，失败时必须走节点级显式重试。
-                    raise ModelBehaviorError(
-                        f"Agent 输出后处理校验失败: postprocessor={output_postprocessor}; {exc}"
-                    ) from exc
+            output = _postprocess_agent_output(
+                agent_definition=definition,
+                execution_context=execution_context,
+                input_payload=node_input,
+                output=_restore_protected_repair_slots(
+                    item_output=dict(result.output), repair_context=repair_context,
+                ),
+            )
             node_run.sdk_state = {
                 "last_agent_name": result.last_agent_name,
                 "model": model_metadata,
                 "usage": result.usage,
                 "tool_calls": result.tool_calls,
-                "server_output_schema_disabled": disable_server_output_schema,
-                "model_thinking_disabled": disable_model_thinking,
+                **retry_state.checkpoint(),
                 "input_projection": projection_diagnostics,
+                "validation_diagnostics": _recent_agent_map_diagnostics(node_run.sdk_state),
             }
         cache_config = _agent_result_cache_config(definition)
         if cache_config is not None:
@@ -3774,6 +3391,7 @@ def _execute_node(
         )
         raise _RunCancelled(f"Agent Run {run.id} 已取消")
 
+    _renew_progress_lease(repo, run)
     # Agent 调用期间会实时更新 usage；完成节点时从最新上下文合并，避免旧快照覆盖额度账本。
     latest_run_context = deepcopy(run.run_context or {})
     latest_run_context["artifacts"] = execution_context.artifacts
@@ -3803,10 +3421,12 @@ def run_agent_workflow(
     owns_session = db is None
     active_db = db or SessionLocal()
     repo = AgentPlatformRepository(active_db)
+    claimed_token: str | None = None
     try:
         run = _claim_run(repo, run_id, task_id)
         if run is None:
             return {"status": "not_claimed", "run_id": run_id}
+        claimed_token = run.claim_token
         expected_signature = str(
             (run.run_context or {}).get("runtime_registry_signature") or ""
         )
@@ -3815,6 +3435,13 @@ def run_agent_workflow(
             raise RuntimeError(
                 "Agent Worker 运行时代码与创建 Run 的服务版本不一致，请重启 Worker 后重试"
             )
+        # 重试可能跳过已成功的来源节点，排队期间的文档变化也必须在恢复前拒绝。
+        source = persisted_source_snapshot(run)
+        current_source = repo.resolve_source_snapshot(project_id=run.project_id, input_payload=run.input_payload)
+        if current_source is not None:
+            if source is None:
+                raise ValueError("运行缺少需求来源快照，请重新生成")
+            assert_same_source(source, current_source)
         from core.db.model_defs import AgentWorkflowDefinition
 
         workflow = repo.db.get(AgentWorkflowDefinition, run.workflow_definition_id)
@@ -3875,21 +3502,22 @@ def run_agent_workflow(
                 _, output = executed
                 dependency_outputs[node.node_key] = output
 
-        if _refresh_run_is_cancelled(repo, run):
-            return {"status": "cancelled", "run_id": run.id}
+        run = repo.get_run_for_update(run_id=run.id)
+        if run is None:
+            return {"status": "not_found", "run_id": run_id}
+        if run.status != "running":
+            return {"status": run.status, "run_id": run.id}
+        if run.claim_token != claimed_token:
+            return {"status": "not_claimed", "run_id": run.id}
         final_output = dependency_outputs[output_node_key]
         run.output_payload = {
             "result": final_output,
             "artifacts": dict((run.run_context or {}).get("artifacts") or {}),
         }
-        run.status = "success"
-        run.current_node_key = None
-        run.finished_at = _now()
-        run.heartbeat_at = None
-        run.lease_expires_at = None
-        run.claim_token = None
-        _event(repo, run, "run_completed", {"output_node_key": output_node_key})
-        repo.db.add(run)
+        transition_run(
+            repo, run, "success", event_type="run_completed",
+            payload={"output_node_key": output_node_key}, now=_now(),
+        )
         repo.commit()
         prune_terminal_run_history(repo, run)
         return {"status": "success", "run_id": run.id}
@@ -3898,9 +3526,9 @@ def run_agent_workflow(
         return {"status": "cancelled", "run_id": run_id}
     except Exception as exc:
         repo.db.rollback()
-        run = repo.get_run(run_id=run_id)
+        run = repo.get_run_for_update(run_id=run_id)
         if run is not None:
-            if _refresh_run_is_cancelled(repo, run):
+            if run.status == "cancelled":
                 latest = (
                     repo.latest_node_run(run_id=run.id, node_key=run.current_node_key)
                     if run.current_node_key
@@ -3909,6 +3537,8 @@ def run_agent_workflow(
                 if latest is not None and latest.status == "running":
                     _mark_node_cancelled(repo, run, latest)
                 return {"status": "cancelled", "run_id": run.id}
+            if run.status != "running" or run.claim_token != claimed_token:
+                raise
             latest = (
                 repo.latest_node_run(run_id=run.id, node_key=run.current_node_key)
                 if run.current_node_key
@@ -3919,22 +3549,15 @@ def run_agent_workflow(
                 latest.error_message = _persistent_error_message(exc)
                 latest.finished_at = _now()
                 repo.db.add(latest)
-            run.status = "failed"
-            run.error_message = _persistent_error_message(exc)
-            run.finished_at = _now()
-            run.heartbeat_at = None
-            run.lease_expires_at = None
-            run.claim_token = None
-            _event(
-                repo,
-                run,
-                "run_failed",
-                {
+            transition_run(
+                repo, run, "failed", event_type="run_failed",
+                error_message=_persistent_error_message(exc), now=_now(),
+                payload={
                     "error_type": type(exc).__name__,
                     "failure_kind": _agent_failure_kind(exc),
                     "message": str(exc)[:1000],
                 },
-                node_run=latest,
+                node_run_id=latest.id if latest is not None else None,
             )
             repo.db.add(run)
             repo.commit()

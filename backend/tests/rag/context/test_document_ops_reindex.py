@@ -39,8 +39,7 @@ class _FakeDB:
 
 
 class _FakeModule:
-    def __init__(self, summary_text):
-        self.summary_text = summary_text
+    def __init__(self):
         self.reindex_calls = []
 
     def calculate_hash(self, content: str) -> str:
@@ -48,10 +47,6 @@ class _FakeModule:
 
     def reindex_project_specific_ids(self, doc_type, project_id, db):
         self.reindex_calls.append((doc_type, project_id))
-
-    def _ensure_summary(self, doc, db, user_id):
-        doc.summary = self.summary_text
-        return self.summary_text
 
 
 class _FakeChroma:
@@ -80,10 +75,11 @@ def _build_doc():
     )
 
 
-def test_update_document_reindexes_raw_and_summary(monkeypatch):
+def test_update_short_document_clears_old_summary_and_reindexes_raw(monkeypatch):
     doc = _build_doc()
+    doc.summary = "old summary"
     db = _FakeDB(doc)
-    module = _FakeModule(summary_text="summary text for updated content")
+    module = _FakeModule()
     fake_chroma = _FakeChroma()
     monkeypatch.setattr(document_ops, "chroma_client", fake_chroma)
 
@@ -98,10 +94,10 @@ def test_update_document_reindexes_raw_and_summary(monkeypatch):
 
     assert result is doc
     assert fake_chroma.delete_calls == ["12", "12_summary"]
-    assert len(fake_chroma.add_calls) == 2
+    assert len(fake_chroma.add_calls) == 1
+    assert doc.summary is None
 
     raw_call = fake_chroma.add_calls[0]
-    summary_call = fake_chroma.add_calls[1]
 
     assert raw_call["doc_id"] == "12"
     assert raw_call["chunks"]
@@ -110,43 +106,12 @@ def test_update_document_reindexes_raw_and_summary(monkeypatch):
     assert raw_call["metadata"]["is_summary"] is False
     assert raw_call["metadata"]["user_id"] == 101
 
-    assert summary_call["doc_id"] == "12_summary"
-    assert summary_call["chunks"]
-    assert "summary text for updated content" in "".join(
-        item["chunk_text"] for item in summary_call["chunks"]
-    )
-    assert summary_call["metadata"]["doc_id"] == 12
-    assert summary_call["metadata"]["is_summary"] is True
-    assert summary_call["metadata"]["user_id"] == 101
-    assert summary_call["metadata"]["filename"] == "new.md (Summary)"
-
-
-def test_update_document_skips_summary_index_when_same_as_content(monkeypatch):
-    doc = _build_doc()
-    db = _FakeDB(doc)
-    module = _FakeModule(summary_text="updated content")
-    fake_chroma = _FakeChroma()
-    monkeypatch.setattr(document_ops, "chroma_client", fake_chroma)
-
-    document_ops.update_document_impl(
-        module=module,
-        doc_id=12,
-        filename="new.md",
-        content="updated content",
-        doc_type="requirement",
-        db=db,
-    )
-
-    assert fake_chroma.delete_calls == ["12", "12_summary"]
-    assert len(fake_chroma.add_calls) == 1
-    assert fake_chroma.add_calls[0]["metadata"]["is_summary"] is False
-
 
 def test_add_document_covers_same_identity_instead_of_creating_duplicate(monkeypatch):
     existing = _build_doc()
     existing.filename = "requirement.pdf"
     db = _FakeDB(existing)
-    module = _FakeModule(summary_text="summary text for replacement content")
+    module = _FakeModule()
     fake_chroma = _FakeChroma()
 
     class _CoverRepo:

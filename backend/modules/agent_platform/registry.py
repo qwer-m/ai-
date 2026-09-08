@@ -8,6 +8,9 @@ from typing import Any, Callable
 
 from sqlalchemy.orm import Session
 
+from . import lifecycle, output_repair, retry_policy, sources
+from .output_repair import OutputRepairStrategy
+
 
 @dataclass
 class ToolExecutionContext:
@@ -29,6 +32,7 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._handlers: dict[str, ToolHandler] = {}
         self._parallel_safe_handlers: set[str] = set()
+        self._repair_strategies: dict[str, OutputRepairStrategy] = {}
 
     def register(
         self,
@@ -63,6 +67,20 @@ class ToolRegistry:
 
     def parallel_safe_keys(self) -> list[str]:
         return sorted(self._parallel_safe_handlers)
+
+    def register_repair_strategy(self, key: str, strategy: OutputRepairStrategy) -> None:
+        if not key or key in self._repair_strategies:
+            raise ValueError(f"修复策略键为空或重复注册: {key}")
+        self._repair_strategies[key] = strategy
+
+    def resolve_repair_strategy(self, key: str) -> OutputRepairStrategy:
+        strategy = self._repair_strategies.get(key)
+        if strategy is None:
+            raise KeyError(f"未注册修复策略: {key}")
+        return strategy
+
+    def repair_strategy_keys(self) -> list[str]:
+        return sorted(self._repair_strategies)
 
 
 tool_registry = ToolRegistry()
@@ -126,12 +144,26 @@ def runtime_registry_signature() -> str:
         except (OSError, TypeError):
             source = f"{handler.__module__}.{handler.__qualname__}"
         handler_sources[key] = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    repair_sources: dict[str, dict[str, str]] = {}
+    for key in tool_registry.repair_strategy_keys():
+        strategy = tool_registry.resolve_repair_strategy(key)
+        repair_sources[key] = {
+            name: hashlib.sha256(
+                inspect.getsource(inspect.getmodule(getattr(strategy, name))).encode("utf-8")
+            ).hexdigest()
+            for name in ("build_context", "feedback")
+        }
     payload = {
         "agents": BUILTIN_AGENT_SPECS,
         "tools": BUILTIN_TOOL_SPECS,
         "workflows": BUILTIN_WORKFLOW_SPECS,
         "handlers": handler_sources,
         "parallel_safe_handlers": tool_registry.parallel_safe_keys(),
+        "repair_strategies": repair_sources,
+        "execution_policies": {
+            module.__name__: hashlib.sha256(inspect.getsource(module).encode("utf-8")).hexdigest()
+            for module in (lifecycle, output_repair, retry_policy, sources)
+        },
     }
     encoded = json.dumps(
         payload,

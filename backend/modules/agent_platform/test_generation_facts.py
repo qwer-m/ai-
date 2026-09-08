@@ -3,6 +3,24 @@ from __future__ import annotations
 from typing import Any
 
 
+def test_input_text(value: Any) -> str:
+    """测试输入必须显式提供；空字符串表示不需要额外输入。"""
+
+    if not isinstance(value, str):
+        raise ValueError("test_input必须是字符串，无需额外输入时使用空字符串")
+    return value.strip()
+
+
+def bound_fact_ids(binding: dict[str, Any]) -> set[str]:
+    """统一读取用例各业务字段绑定的事实，供路由、覆盖审计和终审使用。"""
+
+    groups = [binding.get("test_input_fact_ids") or []]
+    groups.extend(item.get("fact_ids") or [] for item in binding.get("precondition_bindings") or [])
+    for step in binding.get("step_bindings") or []:
+        groups.extend([step.get("action_fact_ids") or [], step.get("expected_fact_ids") or []])
+    return {str(fact_id).strip() for group in groups for fact_id in group}
+
+
 def materialize_inline_grounding(
     *,
     raw_cases: Any,
@@ -37,6 +55,10 @@ def materialize_inline_grounding(
         preconditions = raw_case.get("preconditions")
         if not isinstance(preconditions, list):
             raise ValueError(f"{case_id}.preconditions必须是数组")
+        raw_test_input = raw_case.get("test_input")
+        if not isinstance(raw_test_input, dict):
+            raise ValueError(f"{case_id}.test_input必须是对象")
+        test_input = test_input_text(raw_test_input.get("text"))
         steps = raw_case.get("steps")
         if not isinstance(steps, list) or not steps:
             raise ValueError(f"{case_id}.steps必须是非空数组")
@@ -99,6 +121,7 @@ def materialize_inline_grounding(
                 "module": module_name,
                 "priority": raw_case.get("priority"),
                 "preconditions": normalized_preconditions,
+                "test_input": test_input,
                 "steps": normalized_steps,
                 "tags": list(raw_tags),
                 "test_design_item_ids": list(design_item_ids),
@@ -108,6 +131,7 @@ def materialize_inline_grounding(
             {
                 "case_id": case_id,
                 "precondition_bindings": precondition_bindings,
+                "test_input_fact_ids": raw_test_input.get("fact_ids"),
                 "step_bindings": step_bindings,
             }
         )
@@ -205,23 +229,7 @@ def derive_test_design_item_ids(
         case_id = str(binding.get("case_id") or "").strip()
         if not case_id or case_id in derived:
             raise ValueError(f"事实绑定包含空或重复 case_id: {case_id}")
-        fact_ids: list[str] = []
-        for raw_precondition in list(binding.get("precondition_bindings") or []):
-            if not isinstance(raw_precondition, dict):
-                continue
-            for raw_fact_id in list(dict(raw_precondition).get("fact_ids") or []):
-                fact_id = str(raw_fact_id or "").strip()
-                if fact_id and fact_id not in fact_ids:
-                    fact_ids.append(fact_id)
-        for raw_step in list(binding.get("step_bindings") or []):
-            if not isinstance(raw_step, dict):
-                continue
-            step = dict(raw_step)
-            for field_name in ("action_fact_ids", "expected_fact_ids"):
-                for raw_fact_id in list(step.get(field_name) or []):
-                    fact_id = str(raw_fact_id or "").strip()
-                    if fact_id and fact_id not in fact_ids:
-                        fact_ids.append(fact_id)
+        fact_ids = bound_fact_ids(binding)
         unknown_fact_ids = sorted(
             fact_id for fact_id in fact_ids if fact_id not in normalized_routes
         )
@@ -332,6 +340,19 @@ def validate_case_fact_bindings(
             continue
 
         case_errors: list[str] = []
+        try:
+            input_text = test_input_text(case.get("test_input"))
+            test_input_fact_ids = _validate_fact_ids(
+                binding.get("test_input_fact_ids"),
+                facts_by_id=facts_by_id,
+                field_name=f"{case_id}.test_input",
+                allow_empty=not input_text,
+            )
+            if not input_text and test_input_fact_ids:
+                raise ValueError(f"{case_id}.test_input为空时不得绑定事实")
+        except ValueError as exc:
+            case_errors.append(str(exc))
+            test_input_fact_ids = []
         preconditions = list(case.get("preconditions") or [])
         normalized_preconditions: list[dict[str, Any]] = []
         try:
@@ -418,6 +439,7 @@ def validate_case_fact_bindings(
             {
                 "case_id": case_id,
                 "precondition_bindings": normalized_preconditions,
+                "test_input_fact_ids": test_input_fact_ids,
                 "step_bindings": normalized_steps,
             }
         )

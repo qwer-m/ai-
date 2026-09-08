@@ -10,7 +10,7 @@ def prune_terminal_run_history(
     repo: AgentPlatformRepository,
     run: AgentRun,
 ) -> None:
-    """按工作流清理旧终态运行，清理失败不改变已经提交的运行结果。"""
+    """按来源清理终态运行；失败运行不得删除可复用的成功结果。"""
 
     try:
         deleted_ids = repo.prune_terminal_run_history(

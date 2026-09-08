@@ -124,6 +124,7 @@ def _generated_case(case_id: str, title: str, module: str) -> dict:
         "module": module,
         "priority": "P0",
         "preconditions": [],
+        "test_input": "角色=用户",
         "steps": [{"action": "执行需求动作", "expected": "需求结果可验证"}],
         "tags": ["主流程"],
         "test_design_item_ids": [],
@@ -134,6 +135,7 @@ def _generated_binding(case_id: str, fact_id: str) -> dict:
     return {
         "case_id": case_id,
         "precondition_bindings": [],
+        "test_input_fact_ids": [fact_id],
         "step_bindings": [
             {
                 "step_index": 0,
@@ -172,6 +174,10 @@ def _inline_grounding_output(
                 }
                 for index, text in enumerate(case["preconditions"])
             ],
+            "test_input": {
+                "text": case["test_input"],
+                "fact_ids": binding["test_input_fact_ids"],
+            },
             "steps": [
                 {
                     "action": step["action"],
