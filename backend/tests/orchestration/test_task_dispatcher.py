@@ -21,27 +21,27 @@ def test_enqueue_task_returns_unified_dispatch_result(monkeypatch) -> None:
     )
 
     result = enqueue_task(
-        TaskName.GENERATE_TEST_CASES,
-        kwargs={"project_id": 7},
-        business_type="test_generation",
+        TaskName.RUN_AGENT_WORKFLOW,
+        kwargs={"run_id": 7},
+        business_type="agent_run",
         business_id=7,
-        reason="generate_tests_async",
+        reason="agent_run_worker",
     )
 
     assert runtime.calls == [
         {
-            "task_name": "modules.orchestration.tasks.generate_test_cases_task",
-            "kwargs": {"project_id": 7},
+            "task_name": "modules.orchestration.tasks.run_agent_workflow_task",
+            "kwargs": {"run_id": 7},
         }
     ]
-    assert result.id == "task-123"
+    assert result.task_id == "task-123"
     assert result.to_dict() == {
         "queued": True,
         "status": "PENDING",
         "task_id": "task-123",
-        "task_name": "modules.orchestration.tasks.generate_test_cases_task",
-        "reason": "generate_tests_async",
-        "business_type": "test_generation",
+        "task_name": "modules.orchestration.tasks.run_agent_workflow_task",
+        "reason": "agent_run_worker",
+        "business_type": "agent_run",
         "business_id": 7,
         "queue": "celery",
         "error": "",

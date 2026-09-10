@@ -1,2 +1,0 @@
-﻿run_id,selected_count,positive_selected,negative_selected,retrieval_hit_count,fallback,preferred_patterns_count,forbidden_patterns_count,final_prompt_preferred_nonempty,final_prompt_forbidden_nonempty
-389,5,2,1,5,none,2,1,True,True

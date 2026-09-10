@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from core.db.models import RagDatasetSample, RagEvalRun, RagEvalSampleResult
+from core.db.model_defs import RagDatasetSample, RagEvalRun, RagEvalSampleResult
 
 
 def compare_runs(db: Session, run_a_id: int, run_b_id: int, user_id: int) -> dict[str, Any]:

@@ -12,10 +12,11 @@ import httpx
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from core.ai.ai_client import DashScopeProvider, OpenAICompatibleProvider, ai_client
+from core.ai.ai_client import ai_client
+from core.ai.providers import DashScopeProvider, OpenAICompatibleProvider
 from core.authn.security import config_encryption
 from core.settings.config_manager import config_manager
-from core.db.models import SystemConfig
+from core.db.model_defs import SystemConfig
 from core.processing.utils import logger
 
 def normalize_provider(provider: str) -> str:
@@ -43,7 +44,7 @@ def extract_target_nodes(metadata: dict[str, Any]) -> dict[str, Any]:
     targets = metadata.get("targets")
     if isinstance(targets, dict):
         return targets
-    return metadata
+    return {}
 
 
 def normalize_tesseract_path(raw_path: Optional[str]) -> str:
@@ -170,10 +171,4 @@ def validate_tesseract_path(path_value: Optional[str]) -> dict[str, Any]:
 def decrypt_stored_key(raw_value: Optional[str]) -> str:
     if not raw_value:
         return ""
-    value = str(raw_value)
-    if value.startswith("gAAAA"):
-        try:
-            return config_encryption.decrypt(value)
-        except Exception:
-            return ""
-    return value
+    return config_encryption.decrypt(str(raw_value))

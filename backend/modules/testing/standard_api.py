@@ -1,14 +1,17 @@
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Any, Dict, List, Optional
 
 from datetime import datetime
 
 from core.authn.auth import get_current_user
 from core.db.database import get_db
-from core.db.models import User
+from core.db.model_defs import User
 from modules.testing_components.services.standard_interface_service import StandardInterfaceService
+from modules.testing_components.services.api_request_execution_service import ApiRequestExecutionService
+from schemas.automation.api_testing import ProxyRequest
 
 """
 标准接口管理模块 (Standard API Management)
@@ -24,6 +27,20 @@ from modules.testing_components.services.standard_interface_service import Stand
 """
 
 router = APIRouter(prefix="/standard", tags=["Standard API Testing"])
+
+
+@router.post("/request")
+async def execute_request(
+    request: ProxyRequest,
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    try:
+        return await ApiRequestExecutionService().execute(request)
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"接口请求失败: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 class InterfaceBase(BaseModel):
     """接口基础模型"""
@@ -65,14 +82,13 @@ class InterfaceUpdate(BaseModel):
     test_config: Optional[Dict[str, Any]] = None
 
 class InterfaceResponse(InterfaceBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     user_id: Optional[int]
     created_at: datetime
     updated_at: datetime
     
-    class Config:
-        from_attributes = True
-
 @router.get("/interfaces", response_model=List[InterfaceResponse])
 def get_interfaces(project_id: Optional[int] = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """

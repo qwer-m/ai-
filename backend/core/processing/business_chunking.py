@@ -41,9 +41,6 @@ def _extract_first_module_hint(text: str) -> str | None:
         m = re.search(r"(?:模块|功能模块|模块名称)\s*[:：]\s*([^\n]{1,40})", line, flags=re.I)
         if m:
             return m.group(1).strip()
-        if len(line) <= 30:
-            return line
-        break
     return None
 
 
@@ -57,63 +54,6 @@ class SemanticChunker:
             min_chars=400,
         )
         return [Chunk(text=item.strip()) for item in chunks if str(item or "").strip()]
-
-
-class RequirementChunker:
-    """需求文档分块：按业务规则编号切分。"""
-
-    _RULE_START_RE = re.compile(
-        r"^\s*(?:\d+(?:\.\d+){0,3}[\.、)]|R(?:EQ)?[-_ ]?\d+|[-*\u2022])\s+",
-        flags=re.I,
-    )
-    _REQ_ID_RE = re.compile(r"\b(?:REQ|R)[-_ ]?\d+\b", flags=re.I)
-
-    def chunk(self, text: str) -> list[Chunk]:
-        lines = _non_empty_lines(text)
-        if not lines:
-            return []
-
-        blocks: list[list[str]] = []
-        current: list[str] = []
-        for line in lines:
-            is_rule_start = bool(self._RULE_START_RE.match(line))
-            if is_rule_start and current:
-                blocks.append(current)
-                current = [line]
-            else:
-                current.append(line)
-        if current:
-            blocks.append(current)
-
-        # 中文注释：若没识别出规则边界，退回语义分块兜底。
-        if len(blocks) <= 1:
-            fallback = SemanticChunker().chunk(text)
-            module_hint = _extract_first_module_hint(text)
-            for item in fallback:
-                item.module = module_hint
-                item.biz_key = extract_biz_key(item.text, module_hint or "")
-            logger.debug("RequirementChunker fallback semantic_chunks=%s", len(fallback))
-            return fallback
-
-        results: list[Chunk] = []
-        module_hint = _extract_first_module_hint(text)
-        for block in blocks:
-            block_text = _safe_join(block)
-            if not block_text:
-                continue
-            req_match = self._REQ_ID_RE.search(block_text[:160])
-            requirement_id = req_match.group(0).upper().replace(" ", "") if req_match else None
-            results.append(
-                Chunk(
-                    text=block_text,
-                    module=module_hint,
-                    biz_key=extract_biz_key(block_text, module_hint or ""),
-                    requirement_id=requirement_id,
-                )
-            )
-
-        logger.debug("RequirementChunker rules=%s", len(results))
-        return results
 
 
 class TestCaseChunker:
@@ -311,70 +251,21 @@ class TestCaseChunker:
         return results
 
 
-class SupplementChunker:
-    """补充说明/评估报告分块：按问题项切分。"""
-
-    _ITEM_START_RE = re.compile(r"^\s*(?:\d+(?:\.\d+)?[\.、)]|[-*\u2022])\s+")
-
-    def chunk(self, text: str) -> list[Chunk]:
-        lines = _non_empty_lines(text)
-        if not lines:
-            return []
-
-        blocks: list[list[str]] = []
-        current: list[str] = []
-        for line in lines:
-            if self._ITEM_START_RE.match(line) and current:
-                blocks.append(current)
-                current = [line]
-            else:
-                current.append(line)
-        if current:
-            blocks.append(current)
-
-        if len(blocks) <= 1:
-            fallback = SemanticChunker().chunk(text)
-            module_hint = _extract_first_module_hint(text)
-            for item in fallback:
-                item.module = module_hint
-                item.biz_key = extract_biz_key(item.text, module_hint or "")
-            logger.debug("SupplementChunker fallback semantic_chunks=%s", len(fallback))
-            return fallback
-
-        module_hint = _extract_first_module_hint(text)
-        results: list[Chunk] = []
-        for block in blocks:
-            block_text = _safe_join(block)
-            if not block_text:
-                continue
-            results.append(
-                Chunk(
-                    text=block_text,
-                    module=module_hint,
-                    biz_key=extract_biz_key(block_text, module_hint or ""),
-                )
-            )
-        logger.debug("SupplementChunker items=%s", len(results))
-        return results
-
-
 class BusinessChunkerDispatcher:
     """按文档类型分发业务切分器。"""
 
     def __init__(self) -> None:
         self._fallback = SemanticChunker()
         self._chunkers = {
-            "requirement": RequirementChunker(),
+            # 需求文档使用通用语义分块，业务模块和规则编号由 Agent 判断。
+            "requirement": SemanticChunker(),
             "testcase": TestCaseChunker(),
-            "supplement": SupplementChunker(),
         }
 
     def _normalize_doc_type(self, doc_type: str) -> str:
         lowered = str(doc_type or "").strip().lower()
         if lowered in {"test_case", "testcase", "test-case"}:
             return "testcase"
-        if lowered in {"supplement", "evaluation_report", "feedback", "review", "agent_learning"}:
-            return "supplement"
         if lowered in {"requirement", "product_requirement", "incomplete"}:
             return "requirement"
         return "fallback"

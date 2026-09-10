@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from core.db.models import RagDataset, RagDatasetSample
+from core.db.model_defs import RagDataset, RagDatasetSample
 
 
 class RagDatasetManagementRepository:

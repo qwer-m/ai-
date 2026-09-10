@@ -1,5 +1,4 @@
-import type { ReactNode } from "react";
-import type { ResponseTab, TestResult } from "./utils/types";
+import type { ResponseTab } from "./utils/types";
 
 export type ResponseViewMode = "json" | "html" | "headers";
 
@@ -12,25 +11,31 @@ export type ResponseFormat =
   | "Hex"
   | "Base64";
 
+export type DetailedCookie = {
+  value: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  expires: number | null;
+};
+
 export type ResponsePanelProps = {
   loading: boolean;
   responseTab: ResponseTab;
   setResponseTab: (tab: ResponseTab) => void;
-  responseDetailedCookies: any;
-  responseCookies: any;
-  responseHeaders: any;
-  sentHeaders: any;
-  sentCookies: any;
+  responseDetailedCookies: Record<string, DetailedCookie>;
+  responseCookies: Record<string, string>;
+  responseHeaders: Record<string, string>;
+  sentHeaders: Record<string, string>;
+  sentCookies: Record<string, string>;
   responseStatus: number | null;
   responseTime: number | null;
-  responseBody: any;
+  responseBody: string | null;
   responseFormat: ResponseFormat;
   setResponseFormat: (value: ResponseFormat) => void;
   responseViewMode: ResponseViewMode;
   setResponseViewMode: (value: ResponseViewMode) => void;
   aiAnalysis: string | null;
-  testResult: TestResult | null;
-  renderDashboard: (report: NonNullable<TestResult["structured_report"]>) => ReactNode;
   handleAnalyzeResponse: () => void;
   isAnalyzing: boolean;
   scriptTests: { name: string; passed: boolean; error?: string }[];

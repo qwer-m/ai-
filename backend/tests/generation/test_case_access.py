@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from modules.test_generation_components.postprocess.case_access import (
+from modules.testing.case_access import (
     case_field_alias_key_set,
     case_field_aliases,
     case_fields,

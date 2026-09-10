@@ -7,7 +7,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from core.db.database import engine
-from core.db.models import TestGenerationComparison
 
 def clean_dirty_data():
     print("Running version 5.0 - 动态全库全字段深度扫描")
@@ -17,7 +16,7 @@ def clean_dirty_data():
     from sqlalchemy import String, Text, JSON, types
     from sqlalchemy.sql import cast
     from sqlalchemy.dialects.mysql import LONGTEXT
-    import core.db.models as models_module
+    import core.db.model_defs as models_module
     from core.db.database import Base
     
     # 1. 动态获取所有 ORM 模型

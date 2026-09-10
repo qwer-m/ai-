@@ -4,7 +4,7 @@
 该脚本用于将系统中无归属 (user_id=None) 的数据记录归属到默认管理员账户 (admin)。
 主要功能：
 1. 检查或创建默认管理员账户 (admin)。
-2. 扫描所有关键业务表 (Project, TestGeneration, UIExecution 等)。
+2. 扫描所有关键业务表 (Project, AgentRun, UIExecution 等)。
 3. 将所有 user_id 为 NULL 的记录更新为管理员的 user_id。
 
 使用场景：
@@ -21,7 +21,7 @@ sys.path.append(os.getcwd())
 
 from sqlalchemy.orm import Session
 from core.db.database import engine
-from core.db.models import User, Project, TestGeneration, UIExecution, UIErrorOperation, APIExecution, Evaluation, TestGenerationComparison, LogEntry, RecallMetric, KnowledgeDocument, SystemConfig
+from core.db.model_defs import User, Project, UIExecution, UIErrorOperation, APIExecution, LogEntry, RecallMetric, KnowledgeDocument, SystemConfig
 from core.authn.auth import get_password_hash
 
 def assign_data_to_admin():
@@ -71,12 +71,9 @@ def assign_data_to_admin():
         # List of models to update
         models_to_update = [
             Project,
-            TestGeneration,
             UIExecution,
             UIErrorOperation,
             APIExecution,
-            Evaluation,
-            TestGenerationComparison,
             LogEntry,
             RecallMetric,
             KnowledgeDocument,

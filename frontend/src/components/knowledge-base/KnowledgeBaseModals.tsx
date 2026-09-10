@@ -78,7 +78,7 @@ export function ManageRelationModal({
             <div className="list-group list-group-flush">
               {candidates.map((c) => (
                 <div
-                  key={c.global_id}
+                  key={c.id}
                   className={`list-group-item d-flex align-items-center justify-content-between action-hover-bg ${c._isLinked ? 'bg-light' : ''}`}
                 >
                   <div className="d-flex align-items-center gap-3 flex-grow-1">

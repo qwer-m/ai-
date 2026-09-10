@@ -32,7 +32,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from core.cache_layer.chroma_client import chroma_client
 from core.db.database import SessionLocal
-from core.db.models import KnowledgeDocument
+from core.db.model_defs import KnowledgeDocument
 from core.processing.biz_key_extractor import extract_biz_key
 from core.processing.business_chunking import BusinessChunkerDispatcher, Chunk
 from modules.knowledge_base_components.document.document_ops import INDEXABLE_DOC_TYPES
@@ -203,7 +203,6 @@ def rebuild_documents(
 
                 chroma_client.add_document(
                     doc_id=str(doc.id),
-                    content=content,
                     metadata=_base_metadata(
                         doc=doc,
                         module_hint=module_hint,
@@ -217,7 +216,6 @@ def rebuild_documents(
                 if has_summary:
                     chroma_client.add_document(
                         doc_id=f"{doc.id}_summary",
-                        content=summary,
                         metadata=_base_metadata(
                             doc=doc,
                             module_hint=module_hint,

@@ -19,12 +19,19 @@ def build_web_system_prompt(req_context_prompt: str) -> str:
 
             Requirements:
             1. Use Playwright's async API with proper setup and teardown for browser control.
-            2. Do NOT use traditional element positioning methods (CSS selectors, XPath, etc.).
-            3. Instead, use AI-driven image recognition for all element interactions.
-            4. Handle potential errors gracefully.
-            5. Print "TEST PASSED" if successful, "TEST FAILED" otherwise.
-            6. Include proper asyncio.run() to execute the main function.
-            7. Return ONLY the python code.
+            2. Use Page Object Model. Define one or more classes whose names end with `Page`.
+               Put locators, page actions, screenshots, waits, and page-level assertions inside
+               those classes. The test entrypoint may only create browser resources, instantiate
+               Page Objects, call business methods, and perform final cleanup; do not place
+               Playwright locators or direct click/fill calls in main().
+            3. Do NOT use traditional element positioning methods (CSS selectors, XPath, etc.).
+            4. Instead, use the provided `ai_locate_element(screenshot_path, element_description)`
+               function for all element interactions. Capture a real screenshot before each
+               semantic lookup, then click the returned original-image pixel coordinate.
+            5. Handle potential errors gracefully.
+            6. Print "TEST PASSED" if successful, "TEST FAILED" otherwise.
+            7. Include proper asyncio.run() to execute the main function.
+            8. Return ONLY the python code.
 
             IMPORTANT:
             - After every major action (click, fill, navigate), print JSON logs.
@@ -40,12 +47,25 @@ def build_app_system_prompt(req_context_prompt: str) -> str:
 
             Requirements:
             1. Use Appium Python Client with proper setup and teardown for device control.
-            2. Do NOT use traditional element positioning methods (ID, XPath, accessibility ID, etc.).
-            3. Instead, use AI-driven image recognition for all element interactions.
-            4. Handle potential errors gracefully.
-            5. Print "TEST PASSED" if successful, "TEST FAILED" otherwise.
-            6. For Android, use UiAutomator2 driver; for iOS, use XCUITest driver.
-            7. Return ONLY the python code.
+               Read the server from `APPIUM_SERVER_URL`, the Android device id from
+               `ANDROID_DEVICE_ID`, and `newCommandTimeout` from
+               `APPIUM_NEW_COMMAND_TIMEOUT` (default 900 seconds). Use `noReset=true`.
+            2. Use Page Object Model. Define one or more classes whose names end with `Page`.
+               Put native/visual locators, page actions, waits, screenshots, and page-level
+               assertions inside those classes. The test entrypoint may only create the driver,
+               instantiate Page Objects, call business methods, and quit the driver; do not place
+               find_element, coordinate taps, or direct visual-location calls in main().
+            3. Do NOT use traditional element positioning methods (ID, XPath, accessibility ID, etc.).
+            4. Instead, use the provided
+               `tap_visual_element(driver, screenshot_path, element_description)` function for
+               all element interactions. Capture a real screenshot before each semantic lookup.
+               Do not use AppiumBy.IMAGE, template image matching, or hard-coded coordinates.
+            5. Handle potential errors gracefully.
+            6. Print "TEST PASSED" if successful, "TEST FAILED" otherwise.
+            7. For Android, use UiAutomator2 driver; for iOS, use XCUITest driver.
+            8. Capture a final screenshot after the page-level assertion and print its path as
+               JSON: {{"type": "screenshot", "path": "...", "stage": "final"}}.
+            9. Return ONLY the python code.
             """
 
 
@@ -87,4 +107,15 @@ def ai_locate_element(screenshot_path, element_description):
     except Exception as e:
         print(f"AI Location Error: {{str(e)}}")
         raise
+
+
+def tap_visual_element(driver, screenshot_path, element_description):
+    x, y = ai_locate_element(screenshot_path, element_description)
+    platform_name = str((getattr(driver, "capabilities", None) or {{}}).get("platformName") or "").lower()
+    if platform_name == "ios":
+        driver.execute_script("mobile: tap", {{"x": x, "y": y}})
+        return (x, y)
+
+    driver.execute_script("mobile: clickGesture", {{"x": x, "y": y}})
+    return (x, y)
 """

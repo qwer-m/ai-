@@ -6,7 +6,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from core.db.models import User
+from core.db.model_defs import User
 
 
 class UserRepository:

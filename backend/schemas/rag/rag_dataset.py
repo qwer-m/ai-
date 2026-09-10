@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RagDatasetCreate(BaseModel):
@@ -25,6 +25,8 @@ class RagDatasetUpdate(BaseModel):
 class RagDatasetOut(BaseModel):
     """数据集响应。"""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     type: str
@@ -32,10 +34,6 @@ class RagDatasetOut(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     sample_count: int = 0
-
-    class Config:
-        from_attributes = True
-
 
 class RagSampleCreate(BaseModel):
     """创建样本请求。"""
@@ -70,6 +68,8 @@ class RagSampleUpdate(BaseModel):
 class RagSampleOut(BaseModel):
     """样本响应。"""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     dataset_id: int
     query: str
@@ -84,10 +84,6 @@ class RagSampleOut(BaseModel):
     enabled: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
-
 
 class RagDatasetImportResponse(BaseModel):
     """数据集导入响应。"""

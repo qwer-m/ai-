@@ -8,9 +8,11 @@ Redis 连接池配置模块 (Redis Pool Configuration)
 import logging
 import os
 from redis import ConnectionPool
+from core.settings.environment import load_environment
 
 
 logger = logging.getLogger(__name__)
+load_environment()
 
 
 def _env_int(name: str, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:

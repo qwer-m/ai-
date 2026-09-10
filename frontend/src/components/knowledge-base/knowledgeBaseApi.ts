@@ -1,6 +1,6 @@
 import { api } from "../../utils/api";
 import { normalizeDoc } from "./types";
-import type { Doc } from "./types";
+import type { Doc, KnowledgeDocumentRecord } from "./types";
 
 export type KnowledgeListFilters = {
   projectId: number;
@@ -11,11 +11,34 @@ export type KnowledgeListFilters = {
   end: string;
 };
 
-export const trackOperation = (action: string, metadata: object) => {
-  console.log(`[AUDIT] Action: ${action}`, metadata, new Date().toISOString());
+export type KnowledgeListResponse = {
+  documents: KnowledgeDocumentRecord[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total: number;
+    total_pages: number;
+  };
 };
 
-export const buildKnowledgeListUrl = ({
+export type KnowledgeDocumentDetailResponse = {
+  id: number;
+  filename: string;
+  content: string;
+};
+
+export type UploadKnowledgeDocumentResponse = {
+  success: boolean;
+  id: number;
+  filename: string;
+};
+
+export type KnowledgeMutationResponse = {
+  success: boolean;
+  error?: string;
+};
+
+const buildKnowledgeListUrl = ({
   projectId,
   page,
   search,
@@ -23,65 +46,63 @@ export const buildKnowledgeListUrl = ({
   start,
   end,
 }: KnowledgeListFilters) => {
-  let url = `/api/knowledge-list?project_id=${projectId}&page=${page}&page_size=8`;
-  if (search) url += `&search=${encodeURIComponent(search)}`;
-  if (type) url += `&doc_type=${encodeURIComponent(type)}`;
-  if (start) url += `&start_date=${encodeURIComponent(start)}`;
-  if (end) url += `&end_date=${encodeURIComponent(end)}`;
-  return url;
+  const params = new URLSearchParams({
+    project_id: String(projectId),
+    page: String(page),
+    page_size: "8",
+  });
+  if (search) params.set("search", search);
+  if (type) params.set("doc_type", type);
+  if (start) params.set("start_date", start);
+  if (end) params.set("end_date", end);
+  return `/api/knowledge-list?${params.toString()}`;
 };
 
-export const fetchKnowledgeList = async (filters: KnowledgeListFilters) => {
-  return api.get<any>(buildKnowledgeListUrl(filters));
-};
+export const fetchKnowledgeList = (filters: KnowledgeListFilters) =>
+  api.get<KnowledgeListResponse>(buildKnowledgeListUrl(filters));
 
-export const fetchKnowledgeDoc = async (globalId: number) => {
-  return api.get<any>(`/api/knowledge/${globalId}`);
-};
+export const fetchKnowledgeDoc = (documentId: number) =>
+  api.get<KnowledgeDocumentDetailResponse>(`/api/knowledge/${documentId}`);
 
-export const uploadKnowledgeDocument = async (uploadData: FormData) => {
-  return api.upload<any>("/api/upload-knowledge", uploadData);
-};
+export const uploadKnowledgeDocument = (uploadData: FormData) =>
+  api.upload<UploadKnowledgeDocumentResponse>("/api/upload-knowledge", uploadData);
 
-export const deleteKnowledgeDocument = async (globalId: number) => {
-  return api.delete<any>(`/api/knowledge/${globalId}`);
-};
+export const deleteKnowledgeDocument = (documentId: number) =>
+  api.delete<KnowledgeMutationResponse>(`/api/knowledge/${documentId}`);
 
-export const moveKnowledgeDocument = async (payload: {
+export const moveKnowledgeDocument = (payload: {
   project_id: number;
   doc_id: number;
   anchor_doc_id: number;
   position: "before" | "after";
-}) => {
-  return api.post("/api/knowledge/move", payload);
-};
+}) => api.post<KnowledgeMutationResponse>("/api/knowledge/move", payload);
 
-export const updateKnowledgeRelation = async (payload: {
+export const updateKnowledgeRelation = (payload: {
   doc_id: number;
   source_doc_id: number;
-}) => {
-  return api.post<any>("/api/knowledge/update-relation", payload);
-};
+}) => api.post<KnowledgeMutationResponse>("/api/knowledge/update-relation", payload);
 
 export const fetchAllTestCaseCandidates = async (projectId: number): Promise<Doc[]> => {
   const pageSize = 200;
   let currentPage = 1;
-  let totalPagesToFetch = 1;
-  const allDocs: Doc[] = [];
+  let totalPages = 1;
+  const allDocuments: Doc[] = [];
 
-  while (currentPage <= totalPagesToFetch) {
-    const data = await api.get<any>(
-      `/api/knowledge-list?project_id=${projectId}&doc_type=test_case&include_linked_test_cases=true&page=${currentPage}&page_size=${pageSize}`,
-    );
+  while (currentPage <= totalPages) {
+    const params = new URLSearchParams({
+      project_id: String(projectId),
+      doc_type: "test_case",
+      include_linked_test_cases: "true",
+      page: String(currentPage),
+      page_size: String(pageSize),
+    });
+    const response = await api.get<KnowledgeListResponse>(`/api/knowledge-list?${params.toString()}`);
+    const pageDocuments = response.documents.map(normalizeDoc);
 
-    const pageDocs = Array.isArray(data?.documents) ? data.documents.map(normalizeDoc) : [];
-    allDocs.push(...pageDocs);
-    totalPagesToFetch = Math.max(1, Number(data?.pagination?.total_pages || 1));
+    allDocuments.push(...pageDocuments);
+    totalPages = Math.max(1, response.pagination.total_pages);
     currentPage += 1;
-    if (pageDocs.length === 0 && currentPage > totalPagesToFetch) break;
   }
 
-  const dedup = new Map<number, Doc>();
-  for (const doc of allDocs) dedup.set(doc.global_id, doc);
-  return Array.from(dedup.values());
+  return Array.from(new Map(allDocuments.map((document) => [document.id, document])).values());
 };

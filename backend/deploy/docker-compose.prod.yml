@@ -24,7 +24,6 @@ services:
         condition: service_healthy
     volumes:
       - .:/app
-      - ./archive_data:/app/archive_data
 
   worker:
     build: .
@@ -45,7 +44,6 @@ services:
       - redis
     volumes:
       - .:/app
-      - ./archive_data:/app/archive_data
 
   beat:
     build: .

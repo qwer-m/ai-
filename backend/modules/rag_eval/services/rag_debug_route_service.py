@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from core.ai.ai_client import get_client_for_user
-from core.db.models import Project, RagDataset, RagDatasetSample
+from core.db.model_defs import Project, RagDataset, RagDatasetSample
 from modules.rag_eval.analysis.debug_display import resolve_debug_display_fields
 from modules.rag_eval.services.rag_retrieval_service import run_retrieval_debug
 
@@ -94,7 +94,7 @@ class RagDebugRouteService:
             user_id=user_id,
             config={
                 "retrieval": {
-                    "top_k": int(payload.get("limit") or 5),
+                    "top_k": int(payload.get("top_k") or 5),
                     "retrieval_mode": str(payload.get("retrieval_mode") or "hybrid"),
                     "recall_top_k": payload.get("recall_top_k"),
                     "rerank_top_n": payload.get("rerank_top_n"),

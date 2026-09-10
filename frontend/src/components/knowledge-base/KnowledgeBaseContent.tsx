@@ -70,7 +70,7 @@ export function KnowledgeBaseContent({
 
             return (
               <div
-                key={doc.global_id}
+                key={doc.id}
                 draggable
                 onDragStart={(e) => onDragStart(e, index, doc)}
                 onDragOver={(e) => onItemDragOver(e, index)}
@@ -131,10 +131,10 @@ export function KnowledgeBaseContent({
                         <div className="d-flex flex-wrap gap-1">
                           {doc.linked_test_cases.map((ld) => (
                             <OverlayTrigger
-                              key={ld.global_id}
+                              key={ld.id}
                               placement="top"
                               overlay={
-                                <Popover id={`popover-${ld.global_id}`}>
+                                <Popover id={`popover-${ld.id}`}>
                                   <Popover.Header as="h3" className="fs-6">
                                     {ld.filename}
                                   </Popover.Header>

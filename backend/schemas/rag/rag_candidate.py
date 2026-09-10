@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RagCandidateGenerateFilters(BaseModel):
@@ -53,6 +53,8 @@ class RagCandidateRejectRequest(BaseModel):
 class RagCandidateOut(BaseModel):
     """候选列表输出。"""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     source_type: str
     source_id: int
@@ -69,10 +71,6 @@ class RagCandidateOut(BaseModel):
     notes: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-
-    class Config:
-        from_attributes = True
-
 
 class RagCandidateListPage(BaseModel):
     """候选分页输出。"""

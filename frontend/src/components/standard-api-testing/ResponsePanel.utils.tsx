@@ -1,4 +1,3 @@
-import { Badge } from 'react-bootstrap';
 import type { ResponseFormat } from './ResponsePanel.types';
 
 export const responseFormatOptions: Array<{
@@ -94,7 +93,7 @@ export function CookieTable({
   rows,
   detailed = false,
 }: {
-  rows: Array<[string, any]>;
+  rows: Array<[string, string | import('./ResponsePanel.types').DetailedCookie]>;
   detailed?: boolean;
 }) {
   return detailed ? (
@@ -107,11 +106,10 @@ export function CookieTable({
           <th className="border-0">路径 (Path)</th>
           <th className="border-0">过期时间 (Expires)</th>
           <th className="border-0">Secure</th>
-          <th className="border-0">HttpOnly</th>
         </tr>
       </thead>
       <tbody>
-        {rows.map(([key, value]) => (
+        {rows.map(([key, value]) => typeof value === 'string' ? null : (
           <tr key={key}>
             <td className="ps-3 text-secondary standard-api-table-key">
               {key}
@@ -123,7 +121,6 @@ export function CookieTable({
             <td className="text-dark">{value.path}</td>
             <td className="text-dark">{value.expires ? new Date(value.expires * 1000).toLocaleString() : 'Session'}</td>
             <td className="text-dark">{value.secure ? 'Yes' : 'No'}</td>
-            <td className="text-dark">{value.httpOnly ? 'Yes' : 'No'}</td>
           </tr>
         ))}
       </tbody>
@@ -156,8 +153,4 @@ export function ResponseStatusBadge({ status }: { status: number | null }) {
       {status || '---'}
     </span>
   );
-}
-
-export function ResponseCountBadge({ count }: { count: number }) {
-  return <Badge bg="secondary">{count}</Badge>;
 }

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from modules.test_generation_components.postprocess.case_access import (
+from modules.testing.case_access import (
     case_id as case_access_id,
     case_field_aliases,
     case_steps,

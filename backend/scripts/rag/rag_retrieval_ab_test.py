@@ -26,7 +26,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from core.authn.auth import get_current_user  # noqa: E402
 from core.db.database import SessionLocal  # noqa: E402
-from core.db.models import KnowledgeDocument, Project  # noqa: E402
+from core.db.model_defs import KnowledgeDocument, Project  # noqa: E402
 from main import app  # noqa: E402
 
 
@@ -94,7 +94,7 @@ def _extract_top3(debug_payload: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "filename": item.get("filename"),
                 "query_source": item.get("query_source"),
-                "final_score": _safe_float(item.get("final_score") or item.get("rerank_score"), 0.0),
+                "final_score": _safe_float(item.get("final_score"), 0.0),
             }
         )
     return result

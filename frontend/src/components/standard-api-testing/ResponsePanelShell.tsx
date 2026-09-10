@@ -19,8 +19,6 @@ export function ResponsePanelShell({
   responseViewMode,
   setResponseViewMode,
   aiAnalysis,
-  testResult,
-  renderDashboard,
   handleAnalyzeResponse,
   isAnalyzing,
   scriptTests,
@@ -56,8 +54,6 @@ export function ResponsePanelShell({
           sentHeaders={sentHeaders}
           sentCookies={sentCookies}
           aiAnalysis={aiAnalysis}
-          testResult={testResult}
-          renderDashboard={renderDashboard}
           handleAnalyzeResponse={handleAnalyzeResponse}
           isAnalyzing={isAnalyzing}
           scriptTests={scriptTests}

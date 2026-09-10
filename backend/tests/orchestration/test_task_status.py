@@ -61,10 +61,10 @@ def test_build_parse_status_response_includes_business_task_status() -> None:
     }
 
 
-def test_build_parse_status_response_keeps_legacy_fields_without_task() -> None:
+def test_build_parse_status_response_without_task() -> None:
     doc = SimpleNamespace(
         id=100,
-        project_specific_id=None,
+        project_specific_id=9,
         parse_status="pending",
         parse_error="",
         parsed_at=None,
@@ -76,7 +76,7 @@ def test_build_parse_status_response_keeps_legacy_fields_without_task() -> None:
 
     assert set(response) == {
         "id",
-        "global_id",
+        "display_id",
         "parse_status",
         "parse_error",
         "parsed_at",
@@ -85,7 +85,7 @@ def test_build_parse_status_response_keeps_legacy_fields_without_task() -> None:
         "task_state",
     }
     assert response["id"] == 100
-    assert response["global_id"] == 100
+    assert response["display_id"] == 9
     assert response["task_id"] is None
     assert response["task_state"] is None
 
@@ -114,7 +114,7 @@ def test_build_parse_status_response_preserves_unknown_runtime_error() -> None:
 
     assert set(response) == {
         "id",
-        "global_id",
+        "display_id",
         "parse_status",
         "parse_error",
         "parsed_at",

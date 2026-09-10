@@ -118,7 +118,7 @@ def build_retrieval_from_eval_config(config: Mapping[str, Any]) -> tuple[int, in
     advanced_cfg = dict(root.get("advanced") or {})
 
     merged_top_level = {**retrieval_cfg, **root}
-    top_k = _to_int(merged_top_level.get("top_k") or merged_top_level.get("limit"), 5, 1, 20)
+    top_k = _to_int(merged_top_level.get("top_k"), 5, 1, 20)
     max_tokens = _to_int(
         (context_cfg.get("max_tokens") if context_cfg.get("max_tokens") is not None else root.get("max_tokens")),
         1800,

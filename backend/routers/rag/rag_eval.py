@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from core.authn.auth import get_current_user
 from core.db.database import get_db
-from core.db.models import User
+from core.db.model_defs import User
 from modules.rag_eval.services.rag_debug_route_service import RagDebugRouteService
 from schemas.rag.rag_eval import RagSamplePromoteRequest, RagSamplePromoteResponse
 
@@ -16,7 +16,7 @@ router = APIRouter(tags=["RAG Eval"])
 class RagSingleDebugRequest(BaseModel):
     project_id: int
     query: str = Field(..., min_length=1)
-    limit: int = 5
+    top_k: int = 5
     max_tokens: int = 1800
     llm_model: str | None = None
     retrieval_mode: str = "hybrid"

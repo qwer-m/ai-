@@ -77,7 +77,7 @@ def _prepare_rerank_candidates(chunks: list[dict]) -> tuple[list[dict], dict]:
             item["metadata"] = {}
 
         has_score = False
-        for key in ("final_score", "fusion_score", "rerank_score", "score", "vector_score"):
+        for key in ("final_score", "fusion_score", "score", "vector_score"):
             value = item.get(key)
             if value is None:
                 continue
@@ -181,21 +181,28 @@ def _run_retrieval_once(
     selected_chunks = (compressed.get("selected_chunks") or [])[: max(1, int(limit))]
     context_text = _format_context_chunks(selected_chunks)
 
-    if not selected_chunks and reranked_chunks:
-        fallback_count = max(1, min(int(limit), 2))
-        fallback_chunks = [dict(x) for x in reranked_chunks[:fallback_count]]
-        for chunk in fallback_chunks:
-            chunk["selection_reason"] = "soft_gate_fallback_round"
-        selected_chunks = fallback_chunks
-        context_text = _format_context_chunks(selected_chunks)
-        compressed_stats = dict(compressed.get("stats") or {})
-        compressed_stats["soft_gate_fallback_applied"] = True
-        compressed_stats["soft_gate_fallback_count"] = len(fallback_chunks)
-        compressed = {
-            **compressed,
-            "selected_chunks": selected_chunks,
-            "stats": compressed_stats,
-        }
+    compressed_stats = dict(compressed.get("stats") or {})
+    empty_context_reason = ""
+    if not selected_chunks:
+        if not rerank_candidates:
+            empty_context_reason = "no_valid_recall_candidates"
+        elif not reranked_chunks:
+            empty_context_reason = "no_reranked_candidates"
+        elif not diverse_candidates:
+            empty_context_reason = "no_diverse_candidates"
+        elif int(compressed_stats.get("deduped_count") or 0) == 0:
+            empty_context_reason = "all_candidates_rejected_by_compressor"
+        else:
+            empty_context_reason = "compressor_selected_no_context"
+
+    # 中文注释：压缩器拒绝候选时保持空上下文，诊断原因由实际阶段计数推导，不回填低相关片段。
+    compressed_stats["empty_context"] = not bool(selected_chunks)
+    compressed_stats["empty_context_reason"] = empty_context_reason
+    compressed = {
+        **compressed,
+        "selected_chunks": selected_chunks,
+        "stats": compressed_stats,
+    }
 
     low_gate_stats = {
         "mode": "soft",

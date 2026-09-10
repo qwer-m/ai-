@@ -10,38 +10,6 @@ body.ui-overhaul-v4 .dashboard-content-container-normal {
   width: 100%;
 }
 
-body.ui-overhaul-v4 .workbench-header-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 16px 18px;
-  border: 1px solid color-mix(in srgb, var(--fd-primary) 20%, var(--fd-border));
-  border-radius: 16px;
-  background:
-    radial-gradient(760px 220px at 2% -20%, color-mix(in srgb, var(--fd-primary) 12%, transparent), transparent 66%),
-    linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 98%, transparent), color-mix(in srgb, var(--fd-surface-soft) 90%, transparent));
-  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
-}
-
-body.theme-dark.ui-overhaul-v4 .workbench-header-card {
-  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.4);
-}
-
-body.ui-overhaul-v4 .workbench-title {
-  font-family: var(--fd-font-heading);
-  font-size: 1.24rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  color: var(--fd-text);
-}
-
-body.ui-overhaul-v4 .workbench-subtitle {
-  color: var(--fd-text-soft);
-  font-size: 0.92rem;
-  line-height: 1.5;
-}
-
 body.ui-overhaul-v4 .workbench-meta-list {
   display: flex;
   align-items: center;
@@ -83,10 +51,6 @@ body.ui-overhaul-v4 .workbench-meta-pill.is-info {
 
 body.ui-overhaul-v4 .workbench-shell .knowledge-toolbar-card,
 body.ui-overhaul-v4 .workbench-shell .rag-console,
-body.ui-overhaul-v4 .workbench-shell .test-generation-header,
-body.ui-overhaul-v4 .workbench-shell .test-generation-input,
-body.ui-overhaul-v4 .workbench-shell .test-generation-config,
-body.ui-overhaul-v4 .workbench-shell .test-generation-result,
 body.ui-overhaul-v4 .workbench-shell .evaluation-testcase-card,
 body.ui-overhaul-v4 .workbench-shell .evaluation-overview-card,
 body.ui-overhaul-v4 .workbench-shell .knowledge-content-area {
@@ -94,8 +58,7 @@ body.ui-overhaul-v4 .workbench-shell .knowledge-content-area {
 }
 
 body.ui-overhaul-v4 .workbench-shell .knowledge-content-area,
-body.ui-overhaul-v4 .workbench-shell .rag-console,
-body.ui-overhaul-v4 .workbench-shell .test-generation-result {
+body.ui-overhaul-v4 .workbench-shell .rag-console {
   box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
 }
 
@@ -108,27 +71,10 @@ body.ui-overhaul-v4 .evaluation-overview-grid .ui-kpi-card {
 }
 
 body.theme-dark.ui-overhaul-v4 .workbench-shell .knowledge-content-area,
-body.theme-dark.ui-overhaul-v4 .workbench-shell .rag-console,
-body.theme-dark.ui-overhaul-v4 .workbench-shell .test-generation-result {
+body.theme-dark.ui-overhaul-v4 .workbench-shell .rag-console {
   box-shadow: 0 16px 34px rgba(2, 6, 23, 0.44);
 }
 
 body.ui-overhaul-v4 .workbench-shell .table-responsive {
   background: color-mix(in srgb, var(--fd-surface) 96%, transparent);
-}
-
-@media (max-width: 991px) {
-  body.ui-overhaul-v4 .workbench-header-card {
-    flex-direction: column;
-    align-items: flex-start;
-    padding: 14px;
-  }
-
-  body.ui-overhaul-v4 .workbench-title {
-    font-size: 1.08rem;
-  }
-
-  body.ui-overhaul-v4 .workbench-subtitle {
-    font-size: 0.86rem;
-  }
 }

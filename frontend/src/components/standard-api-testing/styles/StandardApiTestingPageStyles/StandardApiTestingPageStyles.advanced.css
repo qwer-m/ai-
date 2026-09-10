@@ -42,11 +42,6 @@
         max-width: 200px;
       }
 
-      .standard-api-shell .standard-api-error-trace {
-        white-space: pre-wrap;
-        background: var(--sat-surface);
-      }
-
       .standard-api-shell .standard-api-env-modal-body {
         min-height: 400px;
       }

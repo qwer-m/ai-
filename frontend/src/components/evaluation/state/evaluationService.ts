@@ -1,8 +1,17 @@
-﻿import { api } from '../../../utils/api';
-import type { ParsedApiReport, ParsedQualityReport } from './types';
-import type { RagRetrieveContextDebugRequest } from '../rag/shared/types';
-
-export const maxSupplementImages = 10;
+import { api } from '../../../utils/api';
+import type {
+  AgentRunStatus,
+  AutomationEvaluationReport,
+  DefectAnalysis,
+  EvaluationHistoryPoint,
+  EvaluationRunRecord,
+  QualityMetrics,
+  QualityReport,
+  QualityReportPayload,
+  RequirementBaseline,
+  TestEvaluationArtifact,
+  TestGenerationArtifact,
+} from './types';
 
 export function getErrorText(error: unknown): string {
   if (!error) return '';
@@ -35,170 +44,299 @@ export async function translateError(error: unknown): Promise<string> {
   }
 }
 
-export function pickLatestByPrefix(logs: any[], prefix: string) {
-  const matches = (Array.isArray(logs) ? logs : []).filter(
-    (x: any) => typeof x?.message === 'string' && x.message.startsWith(prefix),
-  );
-  if (matches.length === 0) return null;
-
-  let best = matches[0];
-  let bestTime = new Date(best?.created_at || 0).getTime() || 0;
-  for (let i = 1; i < matches.length; i += 1) {
-    const t = new Date(matches[i]?.created_at || 0).getTime() || 0;
-    if (t >= bestTime) {
-      best = matches[i];
-      bestTime = t;
-    }
-  }
-  return best;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function parseJsonSafely<T>(raw: string): T | null {
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const actualKeys = Object.keys(value);
+  return actualKeys.length === keys.length
+    && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function isRatio(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+function isTextList(value: unknown): value is string[] {
+  return Array.isArray(value)
+    && value.every((item) => typeof item === 'string' && item.length > 0 && item.length <= 300);
+}
+
+function isQualityMetrics(value: unknown): value is QualityMetrics {
+  if (!isRecord(value) || !hasExactKeys(value, ['precision', 'recall', 'f1_score', 'semantic_similarity'])) {
+    return false;
+  }
+  return isRatio(value.precision)
+    && isRatio(value.recall)
+    && isRatio(value.f1_score)
+    && isRatio(value.semantic_similarity);
+}
+
+function isDefectAnalysis(value: unknown): value is DefectAnalysis {
+  if (!isRecord(value) || !hasExactKeys(value, ['missing_points', 'hallucinations', 'modifications'])) {
+    return false;
+  }
+  return isTextList(value.missing_points)
+    && isTextList(value.hallucinations)
+    && isTextList(value.modifications);
+}
+
+function isRequirementBaseline(value: unknown): value is RequirementBaseline {
+  const keys = [
+    'requirement_points',
+    'ai_requirement_gaps',
+    'human_requirement_gaps',
+    'ai_unanchored_points',
+    'human_added_value',
+    'both_missing_points',
+    'covered_by_both',
+    'generated_coverage_count',
+    'modified_coverage_count',
+    'generated_coverage_rate',
+    'modified_coverage_rate',
+    'summary',
+  ];
+  if (!isRecord(value) || !hasExactKeys(value, keys)) return false;
+  return isTextList(value.requirement_points)
+    && isTextList(value.ai_requirement_gaps)
+    && isTextList(value.human_requirement_gaps)
+    && isTextList(value.ai_unanchored_points)
+    && isTextList(value.human_added_value)
+    && isTextList(value.both_missing_points)
+    && isTextList(value.covered_by_both)
+    && isNonNegativeInteger(value.generated_coverage_count)
+    && isNonNegativeInteger(value.modified_coverage_count)
+    && isRatio(value.generated_coverage_rate)
+    && isRatio(value.modified_coverage_rate)
+    && typeof value.summary === 'string'
+    && value.summary.length > 0
+    && value.summary.length <= 500;
+}
+
+function isQualityReportPayload(value: unknown): value is QualityReportPayload {
+  if (!isRecord(value) || !hasExactKeys(value, ['metrics', 'defect_analysis', 'requirement_baseline', 'summary'])) {
+    return false;
+  }
+  return isQualityMetrics(value.metrics)
+    && isDefectAnalysis(value.defect_analysis)
+    && isRequirementBaseline(value.requirement_baseline)
+    && typeof value.summary === 'string'
+    && value.summary.length > 0
+    && value.summary.length <= 1000;
+}
+
+/** 校验 Agent Artifact 中的结构化质量评测结果。 */
+export function normalizeQualityReport(payload: unknown): QualityReport | null {
+  if (!isQualityReportPayload(payload)) return null;
+  return {
+    metrics: payload.metrics,
+    defectAnalysis: payload.defect_analysis,
+    requirementBaseline: payload.requirement_baseline,
+    summary: payload.summary,
+  };
+}
+
+function isScore(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 10;
+}
+
+/** 严格校验自动化评测 Agent 的结构化报告，不兼容旧字段或 JSON 字符串。 */
+export function normalizeAutomationEvaluationReport(payload: unknown): AutomationEvaluationReport | null {
+  const reportKeys = [
+    'summary',
+    'overall_score',
+    'execution_status',
+    'criteria',
+    'coverage',
+    'risks',
+    'recommendations',
+  ];
+  if (!isRecord(payload) || !hasExactKeys(payload, reportKeys)) return null;
+  if (typeof payload.summary !== 'string' || payload.summary.length === 0) return null;
+  if (!isScore(payload.overall_score)) return null;
+  if (
+    typeof payload.execution_status !== 'string'
+    || !['success', 'failed', 'unknown'].includes(payload.execution_status)
+  ) return null;
+  if (!Array.isArray(payload.criteria) || payload.criteria.length !== 5) return null;
+
+  const criteria = payload.criteria.map((item) => {
+    if (!isRecord(item) || !hasExactKeys(item, ['key', 'name', 'score', 'analysis'])) return null;
+    if (
+      typeof item.key !== 'string' || item.key.length === 0
+      || typeof item.name !== 'string' || item.name.length === 0
+      || !isScore(item.score)
+      || typeof item.analysis !== 'string' || item.analysis.length === 0
+    ) return null;
+    return {
+      key: item.key,
+      name: item.name,
+      score: item.score,
+      analysis: item.analysis,
+    };
+  });
+  if (criteria.some((item) => item === null)) return null;
+
+  const coverage = payload.coverage;
+  if (!isRecord(coverage) || !hasExactKeys(coverage, ['rate', 'covered_items', 'missing_items', 'explanation'])) {
     return null;
   }
-}
-
-export function parseLatestPrefixedJson<T>(logs: any[], prefix: string): T | null {
-  const latest = pickLatestByPrefix(logs, prefix);
-  if (!latest || typeof latest.message !== 'string') return null;
-  return parseJsonSafely<T>(latest.message.slice(prefix.length));
-}
-
-/**
- * 质量评估报告可能是纯 JSON，也可能被 ```json 代码块包裹。
- * 这里做兼容解析，保证历史接口格式波动时前端仍可稳定展示。
- */
-export function parseQualityReport(rawText: string): ParsedQualityReport {
-  let jsonStr = rawText.trim();
-  const block = jsonStr.match(/```json\s*([\s\S]*?)\s*```/) || jsonStr.match(/```\s*([\s\S]*?)\s*```/);
-  if (block?.[1]) jsonStr = block[1];
-
-  const firstOpen = jsonStr.indexOf('{');
-  const lastClose = jsonStr.lastIndexOf('}');
-  if (firstOpen === -1 || lastClose === -1) return null;
-
-  const payload = parseJsonSafely<any>(jsonStr.substring(firstOpen, lastClose + 1));
-  if (!payload) return null;
+  if (
+    coverage.rate !== null
+    && (typeof coverage.rate !== 'number' || !Number.isFinite(coverage.rate) || coverage.rate < 0 || coverage.rate > 1)
+  ) return null;
+  if (!Array.isArray(coverage.covered_items) || !coverage.covered_items.every((item) => typeof item === 'string')) return null;
+  if (!Array.isArray(coverage.missing_items) || !coverage.missing_items.every((item) => typeof item === 'string')) return null;
+  if (typeof coverage.explanation !== 'string') return null;
+  if (!Array.isArray(payload.risks) || !payload.risks.every((item) => typeof item === 'string' && item.length > 0)) return null;
+  if (!Array.isArray(payload.recommendations) || !payload.recommendations.every((item) => typeof item === 'string' && item.length > 0)) return null;
 
   return {
-    analysisStatus: payload.analysis_status || undefined,
-    analysisMode: payload.analysis_mode || undefined,
-    isFinalEvaluation: payload.is_final_evaluation,
-    comparisonId: payload.comparison_id,
-    metrics: payload.metrics || {},
-    defectAnalysis: payload.defect_analysis || {},
-    requirementBaseline: payload.requirement_baseline || payload.requirementBaseline || undefined,
-    progress: payload.progress || undefined,
-    partialChunkResults: Array.isArray(payload.partial_chunk_results) ? payload.partial_chunk_results : undefined,
-    summary: payload.summary || '',
+    summary: payload.summary,
+    overall_score: payload.overall_score,
+    execution_status: payload.execution_status as AutomationEvaluationReport['execution_status'],
+    criteria: criteria as AutomationEvaluationReport['criteria'],
+    coverage: {
+      rate: coverage.rate as number | null,
+      covered_items: [...coverage.covered_items] as string[],
+      missing_items: [...coverage.missing_items] as string[],
+      explanation: coverage.explanation,
+    },
+    risks: [...payload.risks] as string[],
+    recommendations: [...payload.recommendations] as string[],
   };
 }
 
-export function parseApiReport(rawText: string): ParsedApiReport {
-  const jsonStr = rawText.match(/\{[\s\S]*\}/)?.[0];
-  if (!jsonStr) return null;
+type AgentNodeRunResponse = {
+  id: number;
+  node_key: string;
+  node_type: 'agent' | 'tool';
+  status: AgentRunStatus;
+  attempt: number;
+  input_payload: Record<string, unknown>;
+  output_payload: Record<string, unknown>;
+  sdk_state: Record<string, unknown>;
+  error_message: string;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+};
 
-  const payload = parseJsonSafely<any>(jsonStr);
-  if (!payload) return null;
+type AgentApprovalResponse = {
+  id: number;
+  run_id: number;
+  node_run_id: number;
+  status: 'pending' | 'approved' | 'rejected';
+  request_payload: Record<string, unknown>;
+  decision_payload: Record<string, unknown>;
+  requested_at: string;
+  decided_at: string | null;
+};
 
+type AgentRunResponse = {
+  id: number;
+  project_id: number;
+  workflow_definition_id: number;
+  status: AgentRunStatus;
+  current_node_key: string | null;
+  input_payload: Record<string, unknown>;
+  run_context: {
+    node_outputs: Record<string, unknown>;
+    artifacts: Record<string, unknown> & {
+      test_generation?: TestGenerationArtifact;
+      test_evaluation?: TestEvaluationArtifact;
+    };
+  };
+  output_payload: Record<string, unknown>;
+  error_message: string;
+  parent_run_id: number | null;
+  task_id: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  nodes: AgentNodeRunResponse[];
+  approvals: AgentApprovalResponse[];
+};
+
+type AgentRunListResponse = { items: AgentRunResponse[] };
+type AgentRunDetailResponse = { run: AgentRunResponse };
+type EvaluationHistoryResponse = { history: EvaluationHistoryPoint[] };
+
+export async function fetchEvaluationHistory(projectId: number): Promise<EvaluationHistoryResponse> {
+  return api.get<EvaluationHistoryResponse>(`/api/evaluation/history/${projectId}`);
+}
+
+function toEvaluationRunRecord(run: AgentRunResponse): EvaluationRunRecord | null {
+  const testGenerationArtifact = run.run_context.artifacts.test_generation;
+  if (!testGenerationArtifact) return null;
+  const evaluationArtifact = run.run_context.artifacts.test_evaluation ?? null;
   return {
-    similarity: payload.similarity,
-    score: payload.score,
-    coverage: payload.coverage,
-    analysis: payload.analysis,
+    run_id: run.id,
+    project_id: run.project_id,
+    status: run.status,
+    current_node_key: run.current_node_key,
+    parent_run_id: run.parent_run_id,
+    requirement_text: testGenerationArtifact.requirement,
+    case_count: testGenerationArtifact.case_count,
+    test_cases: testGenerationArtifact.test_cases,
+    created_at: run.created_at,
+    started_at: run.started_at,
+    finished_at: run.finished_at,
+    has_evaluation: Boolean(evaluationArtifact),
+    evaluation_artifact: evaluationArtifact,
   };
 }
 
-export async function fetchLatestSupplement(projectId: number, sourceKey?: string) {
-  const query = sourceKey ? `?source_key=${encodeURIComponent(sourceKey)}` : '';
-  return api.get<any>(`/api/evaluation/latest-supplement/${projectId}${query}`);
+export async function fetchAgentRunHistory(projectId: number): Promise<EvaluationRunRecord[]> {
+  const response = await api.get<AgentRunListResponse>(`/api/agents/runs?project_id=${projectId}&limit=200`);
+  return response.items
+    .map(toEvaluationRunRecord)
+    .filter((record): record is EvaluationRunRecord => record !== null);
 }
 
-export async function fetchEvaluationHistory(projectId: number) {
-  return api.get<any>(`/api/evaluation/history/${projectId}`);
+export async function fetchAgentRunBundle(runId: number) {
+  const response = await api.get<AgentRunDetailResponse>(`/api/agents/runs/${runId}`);
+  const run = toEvaluationRunRecord(response.run);
+  const evaluationArtifact = run?.evaluation_artifact ?? null;
+  return {
+    run,
+    evaluation_artifact: evaluationArtifact,
+    evaluation_status: evaluationArtifact ? 'found' as const : 'missing' as const,
+  };
 }
 
-export async function fetchGenerationHistory(projectId: number) {
-  return api.get<any>(`/api/test-generations?project_id=${projectId}`);
+export async function fetchAgentRunStatus(runId: number): Promise<AgentRunResponse> {
+  const response = await api.get<AgentRunDetailResponse>(`/api/agents/runs/${runId}`);
+  return response.run;
 }
 
-export async function fetchGenerationDetail(id: number) {
-  return api.get<any>(`/api/test-generations/${id}`);
+export async function evaluateTestCasesRequest(formData: FormData): Promise<AgentRunDetailResponse> {
+  return api.upload<AgentRunDetailResponse>('/api/evaluate-test-cases', formData);
 }
 
-export async function fetchGenerationBundle(id: number) {
-  return api.get<any>(`/api/test-generations/${id}/bundle`);
-}
-
-export async function compareTestCasesRequest(formData: FormData) {
-  return api.upload<any>('/api/compare-test-cases', formData);
-}
-
-export async function fetchCompareTestCaseResult(comparisonId: number) {
-  return api.get<any>(`/api/compare-test-cases/${comparisonId}`);
-}
-
-export async function learnFromEvaluationCasePairRequest(payload: {
-  project_id: number;
-  generated_cases: unknown;
-  final_cases: unknown;
-  generation_id?: number | null;
-  include_negative_samples?: boolean;
-  dry_run?: boolean;
-}) {
-  return api.post<any>('/api/test-generations/learn-from-evaluation', payload);
-}
-
-export async function learnFromEvaluationCasePairFileRequest(formData: FormData) {
-  return api.upload<any>('/api/test-generations/learn-from-evaluation-file', formData);
-}
-
-export async function buildLearningCandidatesFromEvaluationRequest(payload: {
-  project_id: number;
-  evaluation_result: unknown;
-}) {
-  return api.post<any>('/api/test-generations/learning-candidates/from-evaluation', payload);
-}
-
-export async function applyLearningCandidatesRequest(payload: {
-  project_id: number;
-  candidates: any[];
-  dry_run?: boolean;
-}) {
-  return api.post<any>('/api/test-generations/learning-candidates/apply', payload);
-}
+type AutomationEvaluationResponse = {
+  result: unknown;
+  run_id: number;
+  status: string;
+};
 
 export async function evaluateUiRequest(payload: Record<string, unknown>) {
-  return api.post<any>('/api/evaluate-ui-automation', payload);
+  return api.post<AutomationEvaluationResponse>('/api/evaluate-ui-automation', payload);
 }
 
 export async function evaluateApiRequest(payload: Record<string, unknown>) {
-  return api.post<any>('/api/evaluate-api-test', payload);
-}
-
-export async function fetchProjectLogs(projectId: number) {
-  return api.get<any[]>(`/api/logs/${projectId}`);
-}
-
-export async function saveKnowledgeRequest(formData: FormData) {
-  return api.upload<any>('/api/evaluation/save-knowledge', formData);
-}
-
-export async function retrieveRagContextDebugRequest(payload: RagRetrieveContextDebugRequest) {
-  return api.post<any>('/api/knowledge/retrieve-context', {
-    ...payload,
-    // 中文注释：RAG 校验页固定开启 debug，便于观察召回/重排/压缩链路细节。
-    debug: true,
-  });
+  return api.post<AutomationEvaluationResponse>('/api/evaluate-api-test', payload);
 }
 
 export async function ragSingleDebugRequest(payload: {
   project_id: number;
   query: string;
-  limit?: number;
+  top_k?: number;
   max_tokens?: number;
   llm_model?: string;
   retrieval_mode?: 'vector' | 'keyword' | 'hybrid' | 'bm25';
@@ -222,10 +360,6 @@ export async function listRagDatasets() {
 
 export async function createRagDataset(payload: { name: string; type: string; description?: string }) {
   return api.post<any>('/api/rag/datasets', payload);
-}
-
-export async function updateRagDataset(datasetId: number, payload: { name?: string; type?: string; description?: string }) {
-  return api.put<any>(`/api/rag/datasets/${datasetId}`, payload);
 }
 
 export async function deleteRagDataset(datasetId: number) {

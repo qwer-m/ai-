@@ -1,35 +1,4 @@
-﻿/* 工作台重构 v13：API 测试 + 实时日志体验统一 */
-
-body.ui-overhaul-v4 .api-testing-workbench {
-  border: 1px solid color-mix(in srgb, var(--fd-border) 86%, transparent) !important;
-  border-radius: 16px !important;
-  background:
-    radial-gradient(780px 280px at 100% -20%, color-mix(in srgb, var(--fd-primary) 10%, transparent), transparent 64%),
-    linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 98%, #f7fbff), color-mix(in srgb, var(--fd-surface-soft) 86%, transparent)) !important;
-  box-shadow: 0 12px 26px color-mix(in srgb, var(--fd-shadow) 10%, transparent);
-}
-
-body.ui-overhaul-v4 .api-testing-workbench .api-testing-tabs-head {
-  border-bottom-color: color-mix(in srgb, var(--fd-border) 84%, transparent) !important;
-  background: color-mix(in srgb, var(--fd-surface-soft) 88%, transparent) !important;
-  padding-top: 10px !important;
-}
-
-body.ui-overhaul-v4 .api-testing-workbench .api-testing-tab-link {
-  border-radius: 11px 11px 0 0 !important;
-  border: 1px solid transparent !important;
-  color: var(--fd-text-soft) !important;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-}
-
-body.ui-overhaul-v4 .api-testing-workbench .api-testing-tab-link.active,
-body.ui-overhaul-v4 .api-testing-workbench .show > .api-testing-tab-link {
-  color: var(--fd-text) !important;
-  background: color-mix(in srgb, var(--fd-surface) 95%, transparent) !important;
-  border-color: color-mix(in srgb, var(--fd-border) 88%, transparent) color-mix(in srgb, var(--fd-border) 88%, transparent) color-mix(in srgb, var(--fd-surface) 95%, transparent) !important;
-  box-shadow: 0 8px 14px color-mix(in srgb, var(--fd-shadow) 8%, transparent);
-}
+﻿/* 工作台重构 v13：实时日志体验统一 */
 
 body.ui-overhaul-v4 .dashboard-log-shell {
   border-top: 1px solid color-mix(in srgb, var(--fd-border) 90%, transparent) !important;
@@ -135,29 +104,6 @@ body.ui-overhaul-v4 .dashboard-log-stream-body .text-break {
   }
 }
 
-body.theme-dark.ui-overhaul-v4 .api-testing-workbench {
-  border-color: color-mix(in srgb, var(--fd-border) 95%, transparent) !important;
-  background:
-    radial-gradient(780px 280px at 100% -20%, color-mix(in srgb, var(--fd-primary) 24%, transparent), transparent 66%),
-    linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 95%, #101827), color-mix(in srgb, var(--fd-surface-soft) 90%, #0d1627)) !important;
-  box-shadow: 0 16px 30px rgba(2, 6, 23, 0.48);
-}
-
-body.theme-dark.ui-overhaul-v4 .api-testing-workbench .api-testing-tabs-head {
-  border-bottom-color: color-mix(in srgb, var(--fd-border) 94%, transparent) !important;
-  background: color-mix(in srgb, var(--fd-surface-soft) 92%, #0d1627) !important;
-}
-
-body.theme-dark.ui-overhaul-v4 .api-testing-workbench .api-testing-tab-link {
-  color: color-mix(in srgb, var(--fd-text-soft) 90%, #c5d2e4) !important;
-}
-
-body.theme-dark.ui-overhaul-v4 .api-testing-workbench .api-testing-tab-link.active,
-body.theme-dark.ui-overhaul-v4 .api-testing-workbench .show > .api-testing-tab-link {
-  color: color-mix(in srgb, var(--fd-text) 88%, #b9cae1) !important;
-  background: color-mix(in srgb, var(--fd-surface) 92%, #111827) !important;
-}
-
 body.theme-dark.ui-overhaul-v4 .dashboard-log-shell {
   background: linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 94%, #0f172a), color-mix(in srgb, var(--fd-surface-soft) 92%, #0b1220));
   box-shadow: 0 -14px 26px rgba(2, 6, 23, 0.42);
@@ -199,17 +145,10 @@ body.theme-dark.ui-overhaul-v4 .dashboard-topbar-surface {
 /* Dark mode: cards use deep gray material, remove purple-tinted large-card gradients. */
 body.theme-dark.ui-overhaul-v4 .dashboard-main-surface,
 body.theme-dark.ui-overhaul-v4 .dashboard-sidebar-surface,
-body.theme-dark.ui-overhaul-v4 .workbench-header-card,
-body.theme-dark.ui-overhaul-v4 .api-testing-shell,
 body.theme-dark.ui-overhaul-v4 .api-automation-shell,
-body.theme-dark.ui-overhaul-v4 .api-testing-workbench,
 body.theme-dark.ui-overhaul-v4 .knowledge-base-shell,
 body.theme-dark.ui-overhaul-v4 .knowledge-toolbar-card,
 body.theme-dark.ui-overhaul-v4 .knowledge-content-area,
-body.theme-dark.ui-overhaul-v4 .test-generation-header,
-body.theme-dark.ui-overhaul-v4 .test-generation-input,
-body.theme-dark.ui-overhaul-v4 .test-generation-config,
-body.theme-dark.ui-overhaul-v4 .test-generation-result,
 body.theme-dark.ui-overhaul-v4 .evaluation-shell .ui-section-card,
 body.theme-dark.ui-overhaul-v4 .evaluation-shell .automation-eval-card,
 body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-surface,

@@ -2,7 +2,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from core.db.models import LogEntry, StandardInterface
+from core.db.model_defs import LogEntry, StandardInterface
 from core.processing.workflow import WorkflowKind
 from modules.domain.knowledge_base import knowledge_base
 

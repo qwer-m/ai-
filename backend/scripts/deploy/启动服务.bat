@@ -5,16 +5,19 @@ cd /d "%~dp0"
 for %%I in ("%~dp0..\..") do set "ROOT_DIR=%%~fI"
 set "PYTHON_EXE=%ROOT_DIR%\.venv\Scripts\python.exe"
 if not exist "!PYTHON_EXE!" (
-    set "PYTHON_EXE=python"
+    echo [ERROR] Project virtual environment not found: !PYTHON_EXE!
+    echo [ERROR] Run the root launcher once to create .venv and install dependencies.
+    pause
+    exit /b 1
 )
 
-REM Fallback check: virtualenv python may be corrupted and fail with Windows error 9020.
-REM Verify executable first; if it fails, fallback to system python in PATH.
+REM Do not mix global Python with the project runtime.
 "!PYTHON_EXE!" -V >nul 2>&1
 if errorlevel 1 (
-    echo [WARN] Python executable check failed: !PYTHON_EXE!
-    echo [WARN] Fallback to system python from PATH.
-    set "PYTHON_EXE=python"
+    echo [ERROR] Project virtual environment Python is unavailable: !PYTHON_EXE!
+    echo [ERROR] Recreate .venv before starting the platform.
+    pause
+    exit /b 1
 )
 
 echo Using Python: !PYTHON_EXE!

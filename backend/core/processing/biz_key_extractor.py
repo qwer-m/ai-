@@ -1,110 +1,59 @@
 from __future__ import annotations
 
+import hashlib
 import re
+import unicodedata
 from typing import Optional
 
 
-# 中文注释：模块名归一化映射，优先输出可过滤的稳定 token。
-_MODULE_HINTS = {
-    "机构": "org",
-    "门店": "shop",
-    "课程": "course",
-    "订单": "order",
-    "教材": "material",
-    "用户": "user",
-    "权限": "auth",
-    "支付": "payment",
-    "库存": "inventory",
-    "测试": "test",
-}
-
-_ACTION_HINTS = {
-    "关闭": "close",
-    "停用": "disable",
-    "禁用": "disable",
-    "创建": "create",
-    "新建": "create",
-    "新增": "create",
-    "修改": "update",
-    "编辑": "update",
-    "调整": "update",
-    "切换": "switch",
-    "删除": "delete",
-    "绑定": "bind",
-    "解绑": "unbind",
-    "导入": "import",
-    "导出": "export",
-}
-
-_ENTITY_HINTS = {
-    "机构": "org",
-    "门店": "shop",
-    "课程": "course",
-    "订单": "order",
-    "教材": "material",
-    "用户": "user",
-    "权限": "permission",
-    "账号": "account",
-    "用例": "testcase",
-    "需求": "requirement",
-}
+_MAX_KEY_PART_LENGTH = 48
 
 
-def _tokenize(text: str, limit: int = 8) -> list[str]:
-    tokens = re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z][A-Za-z0-9_]{1,}", text or "")
-    out: list[str] = []
-    seen: set[str] = set()
-    for token in tokens:
-        key = token.lower().strip()
-        if not key or key in seen:
+def _normalize_key_part(value: object, *, fallback: str = "", max_length: int = _MAX_KEY_PART_LENGTH) -> str:
+    """把任意语言的结构名称归一化为稳定键，不依赖业务词表。"""
+    raw = unicodedata.normalize("NFKC", str(value or "")).strip().lower()
+    if not raw:
+        return fallback
+    normalized = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "_", raw).strip("_")
+    if not normalized:
+        return fallback
+    limit = max(16, int(max_length or _MAX_KEY_PART_LENGTH))
+    if len(normalized) <= limit:
+        return normalized
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:10]
+    return f"{normalized[: limit - 11].rstrip('_')}_{digest}"
+
+
+def _first_content_heading(text: str) -> str:
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
             continue
-        seen.add(key)
-        out.append(key)
-        if len(out) >= max(1, int(limit)):
-            break
-    return out
+        # 中文注释：只剥离通用编号/Markdown 标记，保留原始业务名称。
+        line = re.sub(r"^#{1,6}\s*", "", line)
+        line = re.sub(r"^\d+(?:\.\d+)*\s*[.、):：-]?\s*", "", line)
+        return line
+    return ""
 
 
 def _normalize_module_token(module: Optional[str]) -> str:
-    raw = str(module or "").strip()
-    if not raw:
-        return "general"
-    for key, value in _MODULE_HINTS.items():
-        if key in raw:
-            return value
-    # 中文注释：兜底把英文/数字 token 规整成可索引字符串。
-    lowered = re.sub(r"[^a-zA-Z0-9]+", "_", raw).strip("_").lower()
-    return lowered[:32] or "general"
-
-
-def _find_first_hint(text: str, mapping: dict[str, str]) -> str:
-    source = str(text or "")
-    for key, value in mapping.items():
-        if key in source:
-            return value
-    return ""
+    return _normalize_key_part(module, fallback="general")
 
 
 def extract_biz_key(text: str, module: str) -> str:
     """
-    从文档文本中提取业务主键。
+    从文档结构中提取业务主键。
 
     规则：
-    1. 优先从标题/首句中抽动作 + 实体；
-    2. 输出格式：module*entity*action；
-    3. 无法命中时，退化为 module + 前3个 token。
+    1. 有显式模块时直接使用模块名，保证同模块数据稳定聚合；
+    2. 无显式模块时使用首个标题，避免所有未知中文模块落入 general；
+    3. 仅做 Unicode/标点归一化，不猜测具体领域、动作或实体。
     """
-    raw = str(text or "").strip()
-    title_or_head = (raw.splitlines()[0] if raw else "")[:120]
-
     module_token = _normalize_module_token(module)
-    action = _find_first_hint(title_or_head, _ACTION_HINTS) or _find_first_hint(raw[:300], _ACTION_HINTS)
-    entity = _find_first_hint(title_or_head, _ENTITY_HINTS) or _find_first_hint(raw[:300], _ENTITY_HINTS)
+    if module_token != "general":
+        return f"module*{module_token}"
 
-    if action and entity:
-        return f"{module_token}*{entity}*{action}"
-
-    tokens = _tokenize(f"{title_or_head}\n{raw[:300]}", limit=6)
-    fallback = "_".join(tokens[:3]) if tokens else "unknown"
-    fallback = re.sub(r"[^a-zA-Z0-9_\u4e00-\u9fff]+", "_", fallback).strip("_") or "unknown"
-    return f"{module_token}*{fallback}"
+    heading_token = _normalize_key_part(_first_content_heading(text), fallback="")
+    if heading_token:
+        return f"heading*{heading_token}"
+    return "general"

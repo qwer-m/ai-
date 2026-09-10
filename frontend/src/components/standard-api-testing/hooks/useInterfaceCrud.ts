@@ -1,6 +1,7 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 import { api } from '../../../utils/api';
-import type { SavedInterface } from '../utils/types';
+import { parseSavedInterface, parseSavedInterfaceList } from '../utils/interfaceContract';
+import type { SavedInterface, StandardInterfaceUpdate } from '../utils/types';
 
 type KVRow = { key: string; value: string; desc: string };
 type BodyMode = 'none' | 'form-data' | 'x-www-form-urlencoded' | 'raw' | 'binary' | 'graphql';
@@ -18,33 +19,8 @@ type UseInterfaceCrudParams = {
   bodyMode: BodyMode;
   rawType: RawType;
   bodyContent: string;
-  translateError: (error: any) => Promise<string>;
+  translateError: (error: unknown) => Promise<string>;
 };
-
-function mapApiInterfaceToSaved(i: any): SavedInterface {
-  return {
-    id: i.id,
-    type: i.type,
-    name: i.name,
-    description: i.description,
-    parentId: i.parent_id,
-    isOpen: false,
-    baseUrl: i.base_url,
-    apiPath: i.api_path,
-    method: i.method,
-    headers: i.headers,
-    params: i.params,
-    bodyMode: i.body_mode,
-    rawType: i.raw_type,
-    bodyContent: i.body_content,
-    testConfig: i.test_config,
-    requirement: i.test_config?.requirement,
-    mode: i.test_config?.mode,
-    testTypes: i.test_config?.testTypes,
-    preScript: i.test_config?.pre_script,
-    postScript: i.test_config?.post_script,
-  };
-}
 
 export function useInterfaceCrud({
   projectId,
@@ -66,10 +42,8 @@ export function useInterfaceCrud({
       const url = projectId
         ? `/api/standard/interfaces?project_id=${projectId}`
         : '/api/standard/interfaces';
-      const res = await api.get<any[]>(url);
-      if (res) {
-        setSavedInterfaces(res.map(mapApiInterfaceToSaved));
-      }
+      const res = await api.get<unknown>(url);
+      setSavedInterfaces(parseSavedInterfaceList(res));
     } catch (error) {
       console.error('Failed to fetch interfaces:', error);
     }
@@ -112,7 +86,7 @@ export function useInterfaceCrud({
       }
 
       try {
-        const res = await api.post<any>('/api/standard/interfaces', {
+        const res = await api.post<unknown>('/api/standard/interfaces', {
           name: selectedId === null && apiPath ? apiPath.split('/').pop() || 'New Request' : 'New Request',
           type: 'request',
           project_id: projectId,
@@ -126,8 +100,7 @@ export function useInterfaceCrud({
           body_content: selectedId === null && bodyContent ? bodyContent : '',
         });
 
-        if (!res) return null;
-        const newItem = mapApiInterfaceToSaved(res);
+        const newItem = parseSavedInterface(res);
         setSavedInterfaces((prev) => [...prev, newItem]);
 
         if (parentId) {
@@ -161,29 +134,19 @@ export function useInterfaceCrud({
 
   // 通用更新器：先乐观更新，再写后端，失败时回滚。
   const updateInterface = useCallback(
-    async (id: number, updates: any) => {
-      setSavedInterfaces((prev) =>
-        prev.map((item) => {
-          if (item.id !== id) return item;
-          const next = { ...item };
-          if (updates.parent_id !== undefined) next.parentId = updates.parent_id;
-          if (updates.name !== undefined) next.name = updates.name;
-          if (updates.base_url !== undefined) next.baseUrl = updates.base_url;
-          if (updates.method !== undefined) next.method = updates.method;
-          if (updates.api_path !== undefined) next.apiPath = updates.api_path;
-          if (updates.description !== undefined) next.description = updates.description;
-          return next;
-        }),
-      );
-
+    async (id: number, updates: StandardInterfaceUpdate) => {
       try {
-        await api.put(`/api/standard/interfaces/${id}`, updates);
+        const response = await api.put<unknown>(`/api/standard/interfaces/${id}`, updates);
+        const saved = parseSavedInterface(response);
+        setSavedInterfaces((prev) => prev.map((item) => (
+          item.id === id ? { ...saved, isOpen: item.isOpen } : item
+        )));
       } catch (error) {
         console.error('Update failed', error);
-        await fetchInterfaces();
+        throw error;
       }
     },
-    [fetchInterfaces, setSavedInterfaces],
+    [setSavedInterfaces],
   );
 
   return {

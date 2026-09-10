@@ -151,7 +151,7 @@ def select_diverse_chunks(
     min_doc_need = max(1, int(min_docs))
 
     def _row_score(row: dict[str, Any]) -> float:
-        for key in ("final_score", "fusion_score", "rerank_score", "score"):
+        for key in ("final_score", "fusion_score", "score"):
             value = row.get(key)
             if value is None:
                 continue

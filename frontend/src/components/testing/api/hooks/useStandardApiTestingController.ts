@@ -29,8 +29,7 @@ export function useStandardApiTestingController({ projectId, onLog }: StandardAP
 
   const layout = useApiTestingLayout();
   const environment = useApiTestingEnvironment({ apiPath, inputRef });
-  const request: any = useApiTestingRequest({
-    projectId,
+  const request = useApiTestingRequest({
     onLog,
     apiPath,
     savedEnvs: environment.savedEnvs,
@@ -75,12 +74,6 @@ export function useStandardApiTestingController({ projectId, onLog }: StandardAP
     setApiPath,
     method: request.method,
     setMethod: request.setMethod,
-    requirement: request.requirement,
-    setRequirement: request.setRequirement,
-    mode: request.mode,
-    setMode: request.setMode,
-    testTypes: request.testTypes,
-    setTestTypes: request.setTestTypes,
     headers: request.headers,
     setHeaders: request.setHeaders,
     queryParams: request.queryParams,
@@ -100,7 +93,6 @@ export function useStandardApiTestingController({ projectId, onLog }: StandardAP
     setResponseBody: request.setResponseBody,
     setResponseHeaders: request.setResponseHeaders,
     setResponseCookies: request.setResponseCookies,
-    setTestResult: request.setTestResult,
     updateInterface,
     fetchInterfaces,
     translateError,
@@ -139,18 +131,11 @@ export function useStandardApiTestingController({ projectId, onLog }: StandardAP
   });
 
   return {
-    mode: request.mode,
-    setMode: request.setMode,
-    requirement: request.requirement,
-    setRequirement: request.setRequirement,
     apiPath,
     setApiPath,
     method: request.method,
     setMethod: request.setMethod,
-    testTypes: request.testTypes,
-    setTestTypes: request.setTestTypes,
     loading: request.loading,
-    testResult: request.testResult,
     responseStatus: request.responseStatus,
     responseTime: request.responseTime,
     responseBody: request.responseBody,
@@ -264,7 +249,6 @@ export function useStandardApiTestingController({ projectId, onLog }: StandardAP
     handleSendRequest: request.handleSendRequest,
     handleSaveInterfaceClick,
     handleSaveEnv: environment.handleSaveEnv,
-    handleRun: request.handleRun,
     savedInterfaces,
     selectedId,
     setSelectedId,

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from modules.domain.stage25_switches import STAGE25_SWITCHES
 from modules.knowledge_base_components.context.context_helpers import _normalize_retrieval_options
-from modules.knowledge_base_components.retrieval.retrieval_profile import build_retrieval_profile
 from modules.knowledge_base_components.retrieval.retrieval_retry import (
     STABILITY_CONFIG,
     build_final_chunk_debug,
@@ -167,24 +165,6 @@ def build_success_payload(
             "gate_after_candidate_count": int(low_relevance_gate_stats.get("post_candidate_count") or 0),
             "per_doc_selected_chunk_counts": diversity_stats.get("per_doc_counts") or {},
             "doc_coverage_triggered": bool(diversity_stats.get("doc_coverage_triggered")),
-            "retrieval_profile": (
-                build_retrieval_profile(
-                    question=question,
-                    recall_debug=recall_result.get("debug", {}) or {},
-                    reranked_chunks=reranked_chunks,
-                    selected_chunks=selected_chunks,
-                    raw_chunks=recall_result.get("chunks") or [],
-                    compressor_stats=compressed.get("stats") or {},
-                    attempts=attempt_records,
-                    final_status=final_status,
-                    final_failure_reason=final_failure_reason,
-                )
-                if STAGE25_SWITCHES.retrieval_profile_enabled
-                else {}
-            ),
-            "stage25_switches": STAGE25_SWITCHES.to_dict()
-            if STAGE25_SWITCHES.include_switches_in_debug
-            else {},
         },
     }
 
@@ -237,24 +217,6 @@ def build_error_payload(
             "doc_coverage_triggered": False,
             "rerank_stage": _default_outcome(limit, retrieval_options)["rerank_stage"],
             "retrieval_tuning": _normalize_retrieval_options(limit, retrieval_options),
-            "retrieval_profile": (
-                build_retrieval_profile(
-                    question=question,
-                    recall_debug={},
-                    reranked_chunks=[],
-                    selected_chunks=[],
-                    raw_chunks=[],
-                    compressor_stats={},
-                    attempts=attempt_records,
-                    final_status="failed_after_retry",
-                    final_failure_reason=error_text,
-                )
-                if STAGE25_SWITCHES.retrieval_profile_enabled
-                else {}
-            ),
-            "stage25_switches": STAGE25_SWITCHES.to_dict()
-            if STAGE25_SWITCHES.include_switches_in_debug
-            else {},
         },
     }
 

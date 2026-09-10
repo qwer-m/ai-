@@ -20,10 +20,12 @@ from modules.knowledge_base_components.retrieval.pipeline.recall_pipeline import
     recall_chunks,
 )
 from modules.knowledge_base_components.retrieval.reranker import rerank_chunks
+from modules.knowledge_base_components.document.document_summary_service import (
+    ensure_document_summary,
+)
 
 
 def get_relevant_context_impl(
-    module,
     query: str,
     project_id: int,
     limit: int = 5,
@@ -60,6 +62,9 @@ def get_relevant_context_impl(
         last_outcome = exec_result.get("last_outcome")
         last_error = str(exec_result.get("last_error") or "")
 
+        if not debug:
+            return str((last_outcome or {}).get("context_text") or "")
+
         payload = build_success_payload(
             question=question,
             limit=limit,
@@ -69,9 +74,6 @@ def get_relevant_context_impl(
             last_error=last_error,
             last_outcome=last_outcome,
         )
-
-        if not debug:
-            return str(payload.get("context") or "")
         return payload
     except Exception as e:
         error_payload = build_error_payload(
@@ -85,7 +87,6 @@ def get_relevant_context_impl(
 
 
 def get_all_context_impl(
-    module,
     db: Session,
     project_id: int,
     user_id: Optional[int] = None,
@@ -99,7 +100,7 @@ def get_all_context_impl(
     )
     context = ""
     for doc in docs:
-        content_to_use = module._ensure_summary(doc, db, user_id)
+        content_to_use = ensure_document_summary(doc=doc, db=db, user_id=user_id)
         context += f"""--- Document: {doc.filename} ({doc.doc_type}) ---
 {content_to_use}
 

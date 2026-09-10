@@ -55,7 +55,7 @@ def test_raw_sql():
         # 测试5：检查ORM查询问题
         print("\n5. 测试ORM查询:")
         from sqlalchemy.orm import Session
-        from core.db.models import KnowledgeDocument
+        from core.db.model_defs import KnowledgeDocument
         
         with Session(engine) as session:
             # 测试ORM查询

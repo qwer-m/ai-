@@ -1,6 +1,6 @@
 from core.ai.ai_client import ai_client, get_client_for_user
 from sqlalchemy.orm import Session
-from core.db.models import APIExecution
+from core.db.model_defs import APIExecution
 from core.processing.utils import extract_code_block, run_temp_script
 from core.ai.prompt_loader import prompt_loader
 import subprocess

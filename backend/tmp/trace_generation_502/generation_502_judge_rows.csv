@@ -1,3 +1,0 @@
-﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
-TC-003,作文区,P2,P0,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P0,suggested=P2",作文论坛详情-不展示原文图片时只显示作文标题,REJECT,semantic_duplicate:TC-001,False,False,False
-TC-032,论坛首页,P2,P2,P2,P2,decided,p2_cap_guard,high,,地域和学校信息获取不到时不展示,PENDING,contains_pending_logic,False,True,False

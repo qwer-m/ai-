@@ -6,7 +6,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from core.db.models import Project, StandardInterface
+from core.db.model_defs import Project, StandardInterface
 
 
 class StandardInterfaceRepository:

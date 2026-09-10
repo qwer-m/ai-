@@ -1,0 +1,22 @@
+
+> frontend@0.0.0 dev
+> vite --host 0.0.0.0 --host 127.0.0.1 --port 5173
+
+[2m16:10:55[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m Re-optimizing dependencies because lockfile has changed
+
+  [32m[1mVITE[22m v7.3.0[39m  [2mready in [0m[1m347[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5173[22m/[39m
+[2m16:19:26[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/shared/ConfigModal.tsx[22m
+[2m16:22:24[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/shared/ConfigModal.tsx[22m
+[2m16:26:05[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/shared/ConfigModal.tsx[22m
+[2m16:55:56[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/shared/ConfigModal.tsx[22m
+[2m16:57:30[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/contexts/AuthContext.tsx, /src/components/auth-pages/ForgotPassword.tsx, /src/components/auth-pages/Register.tsx, /src/components/auth-pages/Login.tsx, /src/components/pages/Dashboard.tsx, /src/components/shared/ConfigModal.tsx, /src/components/shared/ConfigModalQuotaRing.tsx[22m
+[2m16:57:41[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/contexts/AuthContext.tsx, /src/components/auth-pages/ForgotPassword.tsx, /src/components/auth-pages/Register.tsx, /src/components/auth-pages/Login.tsx, /src/components/pages/Dashboard.tsx, /src/components/shared/ConfigModal.tsx, /src/components/shared/ConfigModalQuotaRing.tsx[22m
+[2m16:58:00[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/contexts/AuthContext.tsx, /src/components/auth-pages/ForgotPassword.tsx, /src/components/auth-pages/Register.tsx, /src/components/auth-pages/Login.tsx, /src/components/pages/Dashboard.tsx, /src/components/shared/ConfigModal.tsx, /src/components/shared/ConfigModalQuotaRing.tsx[22m
+[2m16:58:16[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/contexts/AuthContext.tsx, /src/components/auth-pages/ForgotPassword.tsx, /src/components/auth-pages/Register.tsx, /src/components/auth-pages/Login.tsx, /src/components/pages/Dashboard.tsx, /src/components/shared/ConfigModal.tsx, /src/components/shared/ConfigModalQuotaRing.tsx[22m
+[2m16:58:42[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/contexts/AuthContext.tsx, /src/components/auth-pages/ForgotPassword.tsx, /src/components/auth-pages/Register.tsx, /src/components/auth-pages/Login.tsx, /src/components/pages/Dashboard.tsx, /src/components/shared/ConfigModal.tsx, /src/components/shared/ConfigModalQuotaRing.tsx[22m
+[2m16:59:06[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/contexts/AuthContext.tsx, /src/components/auth-pages/ForgotPassword.tsx, /src/components/auth-pages/Register.tsx, /src/components/auth-pages/Login.tsx, /src/components/pages/Dashboard.tsx, /src/components/shared/ConfigModal.tsx, /src/components/shared/ConfigModalQuotaRing.tsx[22m
+[2m17:05:53[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/contexts/AuthContext.tsx, /src/components/auth-pages/ForgotPassword.tsx, /src/components/auth-pages/Register.tsx, /src/components/auth-pages/Login.tsx, /src/components/pages/Dashboard.tsx, /src/components/shared/ConfigModal.tsx, /src/components/shared/ConfigModalQuotaRing.tsx[22m
+[2m17:50:41[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/shared/ConfigModal.tsx[22m
+[2m17:51:31[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/shared/ConfigModal.tsx[22m

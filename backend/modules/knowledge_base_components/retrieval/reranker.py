@@ -108,13 +108,11 @@ def rerank_chunks(
         item = dict(chunk)
         base_score, bonus_score, final_score = _score_components(item, keywords)
 
-        # 兼容旧字段 rerank_score，同时补充更细粒度调试字段。
         item["base_score"] = base_score
         item["bonus_score"] = bonus_score
         item["final_score"] = final_score
-        item["rerank_score"] = final_score
 
         scored.append(item)
 
-    scored.sort(key=lambda x: float(x.get("final_score") or x.get("rerank_score") or 0.0), reverse=True)
+    scored.sort(key=lambda x: float(x.get("final_score") or 0.0), reverse=True)
     return scored[: max(1, int(top_k))]

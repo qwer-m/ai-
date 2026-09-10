@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
-from modules.knowledge_base_components import document_ops
+from modules.knowledge_base_components.document import document_ops
+from modules.knowledge_base_components.document.document_index_service import (
+    _clean_content_text,
+)
 
 
 class _FakeQuery:
@@ -12,6 +15,12 @@ class _FakeQuery:
 
     def first(self):
         return self._doc
+
+
+def test_index_content_cleanup_removes_invisible_controls_but_preserves_layout() -> None:
+    content = "模块标题\x01\n字段\t说明\x7f"
+
+    assert _clean_content_text(content) == "模块标题 \n字段\t说明 "
 
 
 class _FakeDB:
@@ -30,8 +39,7 @@ class _FakeDB:
 
 
 class _FakeModule:
-    def __init__(self, summary_text):
-        self.summary_text = summary_text
+    def __init__(self):
         self.reindex_calls = []
 
     def calculate_hash(self, content: str) -> str:
@@ -40,17 +48,13 @@ class _FakeModule:
     def reindex_project_specific_ids(self, doc_type, project_id, db):
         self.reindex_calls.append((doc_type, project_id))
 
-    def _ensure_summary(self, doc, db, user_id):
-        doc.summary = self.summary_text
-        return self.summary_text
-
 
 class _FakeChroma:
     def __init__(self):
         self.delete_calls = []
         self.add_calls = []
 
-    def delete_document(self, doc_id):
+    def delete_document(self, doc_id, *, raise_on_error=False):
         self.delete_calls.append(str(doc_id))
 
     def add_document(self, **kwargs):
@@ -71,10 +75,11 @@ def _build_doc():
     )
 
 
-def test_update_document_reindexes_raw_and_summary(monkeypatch):
+def test_update_short_document_clears_old_summary_and_reindexes_raw(monkeypatch):
     doc = _build_doc()
+    doc.summary = "old summary"
     db = _FakeDB(doc)
-    module = _FakeModule(summary_text="summary text for updated content")
+    module = _FakeModule()
     fake_chroma = _FakeChroma()
     monkeypatch.setattr(document_ops, "chroma_client", fake_chroma)
 
@@ -89,51 +94,24 @@ def test_update_document_reindexes_raw_and_summary(monkeypatch):
 
     assert result is doc
     assert fake_chroma.delete_calls == ["12", "12_summary"]
-    assert len(fake_chroma.add_calls) == 2
+    assert len(fake_chroma.add_calls) == 1
+    assert doc.summary is None
 
     raw_call = fake_chroma.add_calls[0]
-    summary_call = fake_chroma.add_calls[1]
 
     assert raw_call["doc_id"] == "12"
-    assert raw_call["content"] == "updated content"
+    assert raw_call["chunks"]
+    assert "updated content" in "".join(item["chunk_text"] for item in raw_call["chunks"])
     assert raw_call["metadata"]["doc_id"] == 12
     assert raw_call["metadata"]["is_summary"] is False
     assert raw_call["metadata"]["user_id"] == 101
-
-    assert summary_call["doc_id"] == "12_summary"
-    assert summary_call["content"] == "summary text for updated content"
-    assert summary_call["metadata"]["doc_id"] == 12
-    assert summary_call["metadata"]["is_summary"] is True
-    assert summary_call["metadata"]["user_id"] == 101
-    assert summary_call["metadata"]["filename"] == "new.md (Summary)"
-
-
-def test_update_document_skips_summary_index_when_same_as_content(monkeypatch):
-    doc = _build_doc()
-    db = _FakeDB(doc)
-    module = _FakeModule(summary_text="updated content")
-    fake_chroma = _FakeChroma()
-    monkeypatch.setattr(document_ops, "chroma_client", fake_chroma)
-
-    document_ops.update_document_impl(
-        module=module,
-        doc_id=12,
-        filename="new.md",
-        content="updated content",
-        doc_type="requirement",
-        db=db,
-    )
-
-    assert fake_chroma.delete_calls == ["12", "12_summary"]
-    assert len(fake_chroma.add_calls) == 1
-    assert fake_chroma.add_calls[0]["metadata"]["is_summary"] is False
 
 
 def test_add_document_covers_same_identity_instead_of_creating_duplicate(monkeypatch):
     existing = _build_doc()
     existing.filename = "requirement.pdf"
     db = _FakeDB(existing)
-    module = _FakeModule(summary_text="summary text for replacement content")
+    module = _FakeModule()
     fake_chroma = _FakeChroma()
 
     class _CoverRepo:
@@ -152,12 +130,6 @@ def test_add_document_covers_same_identity_instead_of_creating_duplicate(monkeyp
 
         def get_by_id(self, doc_id):
             return self.db._doc if doc_id == self.db._doc.id else None
-
-        def get_by_project_specific_id(self, project_specific_id):
-            return None
-
-        def get_by_id_or_project_specific_id(self, doc_id):
-            return self.get_by_id(doc_id) or self.get_by_project_specific_id(doc_id)
 
         def commit(self):
             self.db.commit()
@@ -192,7 +164,7 @@ def test_add_document_covers_same_identity_instead_of_creating_duplicate(monkeyp
     assert fake_chroma.add_calls[0]["metadata"]["doc_id"] == 12
 
 
-def test_delete_document_prefers_global_id_over_project_specific_id(monkeypatch):
+def test_delete_document_uses_document_id(monkeypatch):
     target = SimpleNamespace(
         id=11,
         project_specific_id=6,
@@ -200,23 +172,12 @@ def test_delete_document_prefers_global_id_over_project_specific_id(monkeypatch)
         doc_type="requirement",
         user_id=101,
     )
-    wrong_doc = SimpleNamespace(
-        id=102,
-        project_specific_id=11,
-        project_id=8,
-        doc_type="requirement",
-        user_id=101,
-    )
-
     class _DeleteRepo:
         def __init__(self, db):
             self.deleted = db.deleted
 
         def get_by_id(self, doc_id):
             return target if doc_id == 11 else None
-
-        def get_by_project_specific_id(self, project_specific_id):
-            return wrong_doc if project_specific_id == 11 else None
 
         def list_linked_by_source(self, source_doc_id):
             return []
@@ -234,14 +195,9 @@ def test_delete_document_prefers_global_id_over_project_specific_id(monkeypatch)
     class _DeleteModule:
         def __init__(self):
             self.reindex_calls = []
-            self.snapshot_calls = []
 
         def reindex_project_specific_ids(self, doc_type, project_id, db):
             self.reindex_calls.append((doc_type, project_id))
-
-        def enqueue_context_snapshot_rebuild(self, **kwargs):
-            self.snapshot_calls.append(kwargs)
-            return {"queued": True}
 
     deleted_indexes = []
     monkeypatch.setattr(document_ops, "KnowledgeDocumentRepository", _DeleteRepo)
@@ -252,7 +208,6 @@ def test_delete_document_prefers_global_id_over_project_specific_id(monkeypatch)
 
     assert document_ops.delete_document_impl(module, 11, db) is True
     assert db.deleted == [target]
-    assert wrong_doc not in db.deleted
     assert deleted_indexes == [11]
     assert module.reindex_calls == [("requirement", 8)]
 

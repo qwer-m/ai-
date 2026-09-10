@@ -2,6 +2,7 @@ import { useCallback, type Dispatch, type DragEvent, type MouseEvent, type SetSt
 import { api } from '../../../../utils/api';
 import { computeDragOverPosition, planInterfaceDrop, type DragOverPosition } from '../../../standard-api-testing/utils/dragTree';
 import { importFilesFromCollections, importInterfaceItemsToBackend } from '../../../standard-api-testing/utils/importExport';
+import { parseSavedInterface } from '../../../standard-api-testing/utils/interfaceContract';
 import type { SavedInterface } from '../../../standard-api-testing/utils/types';
 
 type UseApiTestingInterfaceTreeParams = {
@@ -31,7 +32,7 @@ type UseApiTestingInterfaceTreeParams = {
   createInterface: (targetParentId?: number | null) => Promise<SavedInterface | null>;
   updateInterface: (id: number, updates: Record<string, unknown>) => Promise<void>;
   handleLoadInterface: (item: SavedInterface) => void;
-  translateError: (error: any) => Promise<string>;
+  translateError: (error: unknown) => Promise<string>;
   onLog: (msg: string) => void;
 };
 
@@ -236,17 +237,14 @@ export function useApiTestingInterfaceTree({
       return;
     }
 
-    setSavedInterfaces((prev) => prev.map((item) => (item.id === renamingId ? { ...item, name: renamingName } : item)));
-
     try {
-      await api.put(`/api/standard/interfaces/${renamingId}`, { name: renamingName });
+      await updateInterface(renamingId, { name: renamingName });
     } catch (error) {
       console.error('Rename failed', error);
-      await fetchInterfaces();
     } finally {
       setRenamingId(null);
     }
-  }, [fetchInterfaces, renamingId, renamingName, setSavedInterfaces]);
+  }, [renamingId, renamingName, updateInterface]);
 
   const handleOpenFolderAfterImport = useCallback((folderId: number) => {
     setSavedInterfaces((prev) => prev.map((item) => (item.id === folderId ? { ...item, isOpen: true } : item)));
@@ -258,7 +256,9 @@ export function useApiTestingInterfaceTree({
         items,
         rootParentId,
         projectId,
-        createInterface: (payload) => api.post<SavedInterface>('/api/standard/interfaces', payload),
+        createInterface: async (payload) => parseSavedInterface(
+          await api.post<unknown>('/api/standard/interfaces', payload),
+        ),
       });
     },
     [projectId],

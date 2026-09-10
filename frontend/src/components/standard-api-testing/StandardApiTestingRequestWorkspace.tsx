@@ -36,11 +36,6 @@ export function StandardApiTestingRequestWorkspace(props: StandardApiTestingRequ
     handleSendRequest,
     handleSaveInterfaceClick,
     handleSaveEnv,
-    mode,
-    setMode,
-    requirement,
-    setRequirement,
-    handleRun,
     runSubTab,
     setRunSubTab,
     queryParams,
@@ -111,11 +106,9 @@ export function StandardApiTestingRequestWorkspace(props: StandardApiTestingRequ
     responseViewMode,
     setResponseViewMode,
     aiAnalysis,
-    testResult,
     handleAnalyzeResponse,
     isAnalyzing,
     scriptTests,
-    renderDashboard,
     onOpenCookieManager,
   } = props;
 
@@ -216,12 +209,6 @@ export function StandardApiTestingRequestWorkspace(props: StandardApiTestingRequ
             headersBulkText={headersBulkText}
             setHeadersBulkText={setHeadersBulkText}
             handleBodyScroll={handleBodyScroll}
-            mode={mode}
-            setMode={setMode}
-            requirement={requirement}
-            setRequirement={setRequirement}
-            handleRun={handleRun}
-            loading={loading}
           />
         </div>
 
@@ -247,8 +234,6 @@ export function StandardApiTestingRequestWorkspace(props: StandardApiTestingRequ
           responseViewMode={responseViewMode}
           setResponseViewMode={setResponseViewMode}
           aiAnalysis={aiAnalysis}
-          testResult={testResult}
-          renderDashboard={renderDashboard}
           handleAnalyzeResponse={handleAnalyzeResponse}
           isAnalyzing={isAnalyzing}
           scriptTests={scriptTests}

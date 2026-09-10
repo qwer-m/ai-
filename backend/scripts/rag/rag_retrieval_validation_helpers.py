@@ -12,10 +12,6 @@ DOC_TYPE_LABELS = {
     "incomplete": "需求文档",
     "test_case": "测试用例",
     "testcase": "测试用例",
-    "supplement": "补充说明",
-    "evaluation_report": "评估报告",
-    "feedback": "反馈文档",
-    "agent_learning": "补充说明",
 }
 
 
@@ -68,12 +64,12 @@ def _default_query_cases() -> list[QueryCase]:
     return [
         QueryCase("销售怎么打卡", "功能类", ("requirement", "test_case")),
         QueryCase("门店员工如何补卡", "功能类", ("requirement", "test_case")),
-        QueryCase("请说明考勤统计口径", "规则类", ("requirement", "supplement")),
+        QueryCase("请说明考勤统计口径", "规则类", ("requirement", "test_case")),
         QueryCase("迟到和缺卡如何判定", "规则类", ("requirement", "test_case")),
         QueryCase("补卡流程怎么走", "流程类", ("requirement", "test_case")),
-        QueryCase("上传需求文档后如何进入评估流程", "流程类", ("requirement", "evaluation_report")),
-        QueryCase("异常打卡的审批链路是怎样的", "流程类", ("requirement", "supplement")),
-        QueryCase("销售打卡和统计报表如何关联", "多跳类", ("requirement", "evaluation_report"), expect_multi_doc=True),
+        QueryCase("上传需求文档后如何进入评估流程", "流程类", ("requirement",)),
+        QueryCase("异常打卡的审批链路是怎样的", "流程类", ("requirement", "test_case")),
+        QueryCase("销售打卡和统计报表如何关联", "多跳类", ("requirement", "test_case"), expect_multi_doc=True),
         QueryCase("补卡规则和考勤统计如何一起生效", "多跳类", ("requirement", "test_case"), expect_multi_doc=True),
         QueryCase("测试用例与需求条款如何一一映射", "多跳类", ("requirement", "test_case"), expect_multi_doc=True),
         QueryCase("火星门店怎么同步银河ERP", "弱相关/无答案类", ("requirement",), expect_no_answer=True),
@@ -127,7 +123,7 @@ def _group_top_docs(chunks: list[dict], top_n: int = 12) -> list[dict]:
     grouped: dict[str, dict] = {}
     for item in (chunks or [])[: max(1, int(top_n))]:
         doc_id = str(item.get("doc_id") or "unknown")
-        score = _safe_float(item.get("final_score") or item.get("rerank_score") or item.get("score"), 0.0)
+        score = _safe_float(item.get("final_score") or item.get("score"), 0.0)
         doc_type = _normalize_doc_type(item.get("doc_type"))
         if doc_id not in grouped:
             grouped[doc_id] = {
@@ -212,7 +208,7 @@ def _detect_chunk_split_ranking_anomaly(reranked_chunks: list[dict], top_k: int)
     for doc_id, rows in grouped.items():
         if len(rows) < 2:
             continue
-        scores = [_safe_float(r.get("final_score") or r.get("rerank_score") or r.get("score"), 0.0) for r in rows]
+        scores = [_safe_float(r.get("final_score") or r.get("score"), 0.0) for r in rows]
         if max(scores) - min(scores) <= 0.06:
             return True, f"doc_id={doc_id} 在 Top{top_k} 内出现 {len(rows)} 个分段，且分数接近。"
     return False, ""

@@ -9,7 +9,6 @@ import { emitFeedback } from '../../utils/feedback';
 
 export function Evaluation({
   projectId,
-  logs,
   onLog,
   view = 'root',
   evalGenerated,
@@ -30,15 +29,11 @@ export function Evaluation({
   setApiEvalExec,
   apiEvalOutput,
   setApiEvalOutput,
-  shouldAutoEval,
-  setShouldAutoEval,
 }: EvaluationProps) {
   const actions = useEvaluationActions({
     projectId,
-    logs,
     onLog,
     view,
-    evalGenerated,
     setEvalGenerated,
     evalModified,
     setEvalModified,
@@ -50,8 +45,6 @@ export function Evaluation({
     apiEvalScript,
     apiEvalExec,
     setApiEvalOutput,
-    shouldAutoEval,
-    setShouldAutoEval,
   });
 
   const showRoot = view === 'root';
@@ -83,10 +76,9 @@ export function Evaluation({
       skipNextDraftPersistRef.current = true;
       if (typeof draft?.evalGenerated === 'string') setEvalGenerated(draft.evalGenerated);
       if (typeof draft?.evalModified === 'string') setEvalModified(draft.evalModified);
-      if (typeof draft?.evalResult === 'string') setEvalResult(draft.evalResult);
-      if (typeof draft?.supplementText === 'string') actions.setSupplementText(draft.supplementText);
-      if (typeof draft?.uploadedCompareFilename === 'string') actions.setUploadedCompareFilename(draft.uploadedCompareFilename);
-      if (typeof draft?.loadedCompareFilename === 'string') actions.setLoadedCompareFilename(draft.loadedCompareFilename);
+      if (draft?.evalResult && typeof draft.evalResult === 'object') setEvalResult(draft.evalResult);
+      if (typeof draft?.uploadedReferenceFilename === 'string') actions.setUploadedReferenceFilename(draft.uploadedReferenceFilename);
+      if (typeof draft?.loadedReferenceFilename === 'string') actions.setLoadedReferenceFilename(draft.loadedReferenceFilename);
     } catch {
       // Ignore malformed local drafts; the current in-memory state remains authoritative.
     }
@@ -105,9 +97,8 @@ export function Evaluation({
           evalGenerated,
           evalModified,
           evalResult,
-          supplementText: actions.supplementText,
-          uploadedCompareFilename: actions.uploadedCompareFilename,
-          loadedCompareFilename: actions.loadedCompareFilename,
+          uploadedReferenceFilename: actions.uploadedReferenceFilename,
+          loadedReferenceFilename: actions.loadedReferenceFilename,
           updatedAt: new Date().toISOString(),
         }),
       );
@@ -119,53 +110,36 @@ export function Evaluation({
     evalGenerated,
     evalModified,
     evalResult,
-    actions.supplementText,
-    actions.uploadedCompareFilename,
-    actions.loadedCompareFilename,
+    actions.uploadedReferenceFilename,
+    actions.loadedReferenceFilename,
   ]);
 
   return (
     <div className="bento-grid align-content-start evaluation-shell workbench-shell">
       <div style={{ display: showRoot ? 'contents' : 'none' }}>
         <EvaluationOverviewPanel
-          diag={actions.latestDiag}
-          qm={actions.latestQm}
+          latestRun={actions.runHistory[0] || null}
           onExportHistory={actions.exportHistory}
         />
       </div>
 
       <div style={{ display: showTestcase ? 'contents' : 'none' }}>
         <TestCaseCoveragePanel
-          projectId={projectId}
           evalGenerated={evalGenerated}
-          setEvalGenerated={setEvalGenerated}
           evalModified={evalModified}
           setEvalModified={setEvalModified}
           evalResult={evalResult}
           loading={actions.loading}
-          genHistory={actions.genHistory}
-          selectedGenerationId={actions.selectedGenerationId}
-          onSelectGenerationId={actions.setSelectedGenerationId}
-          onLoadGenerationById={actions.loadGenerationById}
-          onFileChange={actions.setCompareFile}
-          uploadedCompareFilename={actions.uploadedCompareFilename}
-          compareFile={actions.file}
-          loadedCompareFilename={actions.loadedCompareFilename}
-          onCompare={actions.compareTestCases}
+          runHistory={actions.runHistory}
+          selectedRunId={actions.selectedRunId}
+          onSelectRunId={actions.setSelectedRunId}
+          onLoadRunById={actions.loadRunById}
+          onFileChange={actions.setReferenceFile}
+          uploadedReferenceFilename={actions.uploadedReferenceFilename}
+          loadedReferenceFilename={actions.loadedReferenceFilename}
+          onEvaluate={actions.evaluateTestCases}
           onInvalidateEvaluation={() => setEvalResult(null)}
           history={actions.history}
-          showSupplement={actions.showSupplement}
-          setShowSupplement={actions.setShowSupplement}
-          supplementText={actions.supplementText}
-          setSupplementText={actions.setSupplementText}
-          supplementImages={actions.supplementImages}
-          setSupplementImages={actions.setSupplementImages}
-          savedDocId={actions.savedDocId}
-          lastSavedContent={actions.lastSavedContent}
-          handleSupplementPaste={actions.handleSupplementPaste}
-          handleSupplementFilesChange={actions.handleSupplementFilesChange}
-          onSaveKnowledge={actions.handleSaveKnowledge}
-          savingKnowledge={actions.loading === 'save_knowledge'}
         />
       </div>
 

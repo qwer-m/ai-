@@ -4,13 +4,11 @@ import type { ResponsePanelProps } from './ResponsePanel.types';
 
 type Props = Pick<
   ResponsePanelProps,
-  'aiAnalysis' | 'testResult' | 'renderDashboard' | 'handleAnalyzeResponse' | 'isAnalyzing'
+  'aiAnalysis' | 'handleAnalyzeResponse' | 'isAnalyzing'
 >;
 
 export function ResponsePanelReportTab({
   aiAnalysis,
-  testResult,
-  renderDashboard,
   handleAnalyzeResponse,
   isAnalyzing,
 }: Props) {
@@ -23,17 +21,6 @@ export function ResponsePanelReportTab({
             {aiAnalysis}
           </pre>
         </div>
-      ) : testResult ? (
-        testResult.structured_report ? (
-          renderDashboard(testResult.structured_report)
-        ) : (
-          <div>
-            <h6 className="text-secondary border-bottom pb-2 mb-3">执行结果 (Raw)</h6>
-            <pre className="mb-0 font-monospace small text-dark standard-api-report-pre standard-api-report-pre--raw">
-              {testResult.result || testResult.script || '未生成输出。'}
-            </pre>
-          </div>
-        )
       ) : (
         <div className="d-flex flex-column align-items-center justify-content-center h-100">
           <FaRobot size={48} className="mb-3 text-primary opacity-50" />

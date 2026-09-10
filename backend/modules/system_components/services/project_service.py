@@ -2,20 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from sqlalchemy.orm import Session
 
-from core.db.models import (
+from core.db.model_defs import (
     APIExecution,
-    Evaluation,
     KnowledgeDocument,
     LogEntry,
     Project,
-    ProjectPipelineConfig,
     RecallMetric,
-    TestGeneration,
-    TestGenerationComparison,
     UIErrorOperation,
     UIExecution,
 )
@@ -23,16 +17,10 @@ from modules.system_components.repositories.project_repository import ProjectRep
 
 
 class ProjectService:
-    """Use-case layer for project CRUD and project-level defaults."""
+    """项目增删改查用例层。"""
 
     def __init__(self, db: Session):
         self.repo = ProjectRepository(db)
-
-    def _normalize_agent_defaults(self, raw: Any, fallback_cls) -> dict[str, Any]:
-        try:
-            return fallback_cls.model_validate(raw or {}).model_dump()
-        except Exception:
-            return fallback_cls().model_dump()
 
     def create_project(self, *, payload, user_id: int):
         level = 1
@@ -69,51 +57,6 @@ class ProjectService:
 
     def get_project(self, *, project_id: int, user_id: int):
         return self.repo.get_owned_project(project_id=project_id, user_id=user_id)
-
-    def get_pipeline_agent_defaults(self, *, project_id: int, user_id: int, defaults_cls):
-        project = self.repo.get_owned_project(project_id=project_id, user_id=user_id)
-        if not project:
-            return None
-
-        row = self.repo.get_pipeline_config(project_id=project_id, user_id=user_id)
-        if not row:
-            return {
-                "project_id": project_id,
-                "agent": defaults_cls().model_dump(),
-                "source": "default",
-            }
-
-        return {
-            "project_id": project_id,
-            "agent": self._normalize_agent_defaults(row.agent_defaults, defaults_cls),
-            "source": "saved",
-            "updated_at": row.updated_at,
-        }
-
-    def upsert_pipeline_agent_defaults(self, *, project_id: int, user_id: int, agent_defaults: dict, defaults_cls):
-        project = self.repo.get_owned_project(project_id=project_id, user_id=user_id)
-        if not project:
-            return None
-
-        row = self.repo.get_pipeline_config(project_id=project_id, user_id=user_id)
-        if not row:
-            row = ProjectPipelineConfig(
-                project_id=project_id,
-                user_id=user_id,
-                agent_defaults=agent_defaults,
-            )
-        else:
-            row.agent_defaults = agent_defaults
-
-        self.repo.add(row)
-        self.repo.commit()
-        self.repo.refresh(row)
-        return {
-            "project_id": project_id,
-            "agent": self._normalize_agent_defaults(row.agent_defaults, defaults_cls),
-            "source": "saved",
-            "updated_at": row.updated_at,
-        }
 
     def update_project(self, *, project_id: int, payload, user_id: int):
         row = self.repo.get_owned_project(project_id=project_id, user_id=user_id)
@@ -172,16 +115,13 @@ class ProjectService:
             }
 
         try:
+            self.repo.delete_agent_platform(project_id=project_id)
             for model in (
                 KnowledgeDocument,
                 LogEntry,
-                TestGeneration,
                 UIErrorOperation,
                 UIExecution,
                 APIExecution,
-                Evaluation,
-                ProjectPipelineConfig,
-                TestGenerationComparison,
                 RecallMetric,
             ):
                 self.repo.delete_project_scoped(model, project_id=project_id)

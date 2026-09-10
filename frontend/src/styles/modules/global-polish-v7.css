@@ -48,28 +48,9 @@ body.ui-overhaul-v4 .rag-console .rag-report-subpanel {
   border-radius: var(--fd-card-radius-lg) !important;
 }
 
-body.ui-overhaul-v4 .test-generation-shell,
 body.ui-overhaul-v4 .evaluation-shell,
 body.ui-overhaul-v4 .knowledge-base-shell {
   align-content: start;
-}
-
-body.ui-overhaul-v4 .test-generation-header {
-  border: 1px solid color-mix(in srgb, var(--fd-primary) 20%, var(--fd-border)) !important;
-  background:
-    radial-gradient(760px 220px at 0% 0%, color-mix(in srgb, var(--fd-primary) 14%, transparent), transparent 68%),
-    linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 98%, transparent), color-mix(in srgb, var(--fd-surface-soft) 86%, transparent)) !important;
-}
-
-body.ui-overhaul-v4 .test-generation-result-panel {
-  height: 64vh;
-  min-height: 560px;
-  max-height: 760px;
-}
-
-body.ui-overhaul-v4 .test-generation-result-head {
-  background: color-mix(in srgb, var(--fd-surface-soft) 86%, transparent) !important;
-  border-bottom: 1px solid color-mix(in srgb, var(--fd-border) 92%, transparent);
 }
 
 body.ui-overhaul-v4 .evaluation-testcase-card .alert {
@@ -304,10 +285,6 @@ body.ui-overhaul-v4 .rag-console .rag-candidate-modal .modal-body .form-label {
     row-gap: 10px;
   }
 
-  body.ui-overhaul-v4 .test-generation-result-panel {
-    min-height: 480px;
-    height: 58vh;
-  }
 }
 
 @media (max-width: 768px) {

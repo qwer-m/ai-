@@ -17,7 +17,7 @@
 import type { DashboardNavItem } from './types';
 
 export const dashboardNavItems: DashboardNavItem[] = [
-  { key: 'api-gen', label: '测试用例', icon: <FaFileCode /> },
+  { key: 'agent-generation', label: 'Agent 测试生成', icon: <FaFileCode /> },
   {
     key: 'ui-exec-ui',
     label: 'UI自动化',
@@ -34,7 +34,6 @@ export const dashboardNavItems: DashboardNavItem[] = [
     icon: <FaNetworkWired />,
     children: [
       { key: 'api-standard', label: '标准接口测试', icon: <FaCode /> },
-      { key: 'api-ai', label: '模型调试', icon: <FaRobot /> },
     ],
   },
   {
@@ -61,16 +60,15 @@ export const dashboardNavItems: DashboardNavItem[] = [
   { key: 'proj', label: '项目管理', icon: <FaFolder /> },
 ];
 
-export function getAllDashboardNavKeys(items: DashboardNavItem[]) {
-  return items.flatMap((item) => [item.key, ...(item.children ? item.children.map((child) => child.key) : [])]);
+function getAllDashboardNavKeys(items: DashboardNavItem[]) {
+  return items.flatMap((item) => item.children?.map((child) => child.key) ?? [item.key]);
 }
 
 export function normalizeDashboardActiveTab(saved: string | null, items: DashboardNavItem[]) {
-  if (saved === 'ui-exec-ui') return 'ui-exec-ui-web';
-  if (!saved) return 'api-gen';
+  if (!saved) return 'agent-generation';
 
   const validKeys = getAllDashboardNavKeys(items);
-  return validKeys.includes(saved) ? saved : 'api-gen';
+  return validKeys.includes(saved) ? saved : 'agent-generation';
 }
 
 export function findParentKeyByChild(items: DashboardNavItem[], childKey: string) {

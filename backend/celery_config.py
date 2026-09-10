@@ -67,11 +67,6 @@ celery_app.conf.update(
 
     # Periodic Tasks (Beat)
     beat_schedule={
-        'archive-old-data-every-week': {
-            'task': TaskName.ARCHIVE_OLD_DATA.value,
-            'schedule': crontab(hour=3, minute=0, day_of_week=0), # Run every Sunday at 3 AM
-            'kwargs': {'retention_days': 30},
-        },
         'cleanup-logs-every-hour': {
             'task': TaskName.CLEANUP_LOGS.value,
             'schedule': crontab(minute=0), # Run every hour
@@ -82,10 +77,10 @@ celery_app.conf.update(
             'schedule': crontab(hour=3, minute=30), # Run daily at 03:30
             'kwargs': {'project_id': None, 'user_id': None, 'limit': 5000},
         },
-        'recover-expired-pipeline-runs': {
-            'task': TaskName.RECOVER_EXPIRED_PIPELINE_RUNS.value,
+        'recover-expired-agent-runs': {
+            'task': TaskName.RECOVER_EXPIRED_AGENT_RUNS.value,
             'schedule': crontab(minute='*/5'),
-            'kwargs': {'limit': int(os.getenv('PIPELINE_RUN_RECOVERY_LIMIT', '20'))},
+            'kwargs': {'limit': int(os.getenv('AGENT_RUN_RECOVERY_LIMIT', '20'))},
         },
     },
     timezone='Asia/Shanghai'

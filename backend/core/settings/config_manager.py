@@ -14,7 +14,7 @@
 
 import threading
 from sqlalchemy.orm import Session
-from core.db.models import SystemConfig
+from core.db.model_defs import SystemConfig
 from core.authn.security import config_encryption
 from core.processing.utils import logger
 from datetime import datetime

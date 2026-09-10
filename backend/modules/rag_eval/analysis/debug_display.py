@@ -31,7 +31,7 @@ def resolve_debug_display_fields(
     debug: dict[str, Any],
 ) -> tuple[str, str, str]:
     """
-    Keep legacy behavior for generation, but avoid empty debug UI fields.
+    为当前 RAG 调试页补齐可展示字段，避免空白结果。
 
     - final_context: canonical retrieval context first; fallback to debug chunk preview.
     - llm_output: real model output first; fallback to a structured skip reason.

@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Optional
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from starlette.concurrency import iterate_in_threadpool
 
 from core.authn.auth import get_current_user
 from core.db.database import get_db
-from core.db.models import User
+from core.db.model_defs import User
 from core.processing.utils import logger
 from core.settings.config_manager import config_manager
 from routers.system.config_helpers import (
@@ -20,7 +20,11 @@ from routers.system.config_helpers import (
     resolve_api_key,
     resolve_base_url,
 )
-from routers.system.config_models import ConfigDetectRequest, ConfigQuotaRequest
+from routers.system.config_models import (
+    ConfigDetectRequest,
+    ConfigQuotaRequest,
+    ConfigTestStreamRequest,
+)
 
 router = APIRouter()
 
@@ -58,20 +62,16 @@ async def get_quota(
         return {"supported": False, "message": str(e)}
 
 
-@router.get("/test-stream")
+@router.post("/test-stream")
 async def test_stream(
-    provider: str,
-    model: str,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
-    prompt: str = "Hi",
+    req: ConfigTestStreamRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    provider_name = normalize_provider(provider)
-    active_config = config_manager.get_active_config(db)
-    resolved_api_key = resolve_api_key(provider_name, api_key, active_config)
-    resolved_base_url = resolve_base_url(provider_name, base_url, active_config)
-    resolved_model = model or (active_config.model_name if active_config else "")
+    provider_name = normalize_provider(req.provider)
+    active_config = config_manager.get_active_config(db, current_user.id)
+    resolved_api_key = resolve_api_key(provider_name, req.api_key, active_config)
+    resolved_base_url = resolve_base_url(provider_name, req.base_url, active_config)
 
     async def event_generator():
         try:
@@ -79,25 +79,42 @@ async def test_stream(
                 provider_name,
                 resolved_api_key,
                 resolved_base_url,
-                resolved_model,
+                req.model_name,
             )
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            yield json.dumps({"type": "error", "message": str(e)}, ensure_ascii=False) + "\n"
             return
 
         try:
             iterator = provider_client.generate_stream(
-                [{"role": "user", "content": prompt}],
-                resolved_model,
+                [{"role": "user", "content": req.prompt}],
+                req.model_name,
                 max_tokens=50,
             )
-            for chunk in iterator:
+            received_content = False
+            async for chunk in iterate_in_threadpool(iter(iterator)):
+                if not isinstance(chunk, str):
+                    raise TypeError("模型流响应必须为字符串")
                 if chunk.startswith("Error:") or chunk.startswith("Exception"):
-                    yield f"data: {json.dumps({'error': chunk})}\n\n"
+                    yield json.dumps({"type": "error", "message": chunk}, ensure_ascii=False) + "\n"
                     return
-                yield f"data: {json.dumps({'token': chunk})}\n\n"
-            yield f"data: {json.dumps({'done': True})}\n\n"
+                received_content = received_content or bool(chunk)
+                yield json.dumps({"type": "token", "token": chunk}, ensure_ascii=False) + "\n"
+            if not received_content:
+                yield json.dumps(
+                    {"type": "error", "message": "模型流未返回可显示内容"},
+                    ensure_ascii=False,
+                ) + "\n"
+                return
+            yield json.dumps({"type": "done"}, ensure_ascii=False) + "\n"
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            yield json.dumps({"type": "error", "message": str(e)}, ensure_ascii=False) + "\n"
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+        },
+    )

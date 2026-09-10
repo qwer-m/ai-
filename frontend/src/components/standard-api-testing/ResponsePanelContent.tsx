@@ -19,8 +19,6 @@ type Props = Pick<
   | "sentHeaders"
   | "sentCookies"
   | "aiAnalysis"
-  | "testResult"
-  | "renderDashboard"
   | "handleAnalyzeResponse"
   | "isAnalyzing"
   | "scriptTests"
@@ -40,8 +38,6 @@ export function ResponsePanelContent(props: Props) {
     sentHeaders,
     sentCookies,
     aiAnalysis,
-    testResult,
-    renderDashboard,
     handleAnalyzeResponse,
     isAnalyzing,
     scriptTests,
@@ -67,8 +63,6 @@ export function ResponsePanelContent(props: Props) {
     return (
       <ResponsePanelReportTab
         aiAnalysis={aiAnalysis}
-        testResult={testResult}
-        renderDashboard={renderDashboard}
         handleAnalyzeResponse={handleAnalyzeResponse}
         isAnalyzing={isAnalyzing}
       />

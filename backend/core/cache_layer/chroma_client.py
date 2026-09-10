@@ -1,10 +1,8 @@
 import logging
 import os
-import shutil
 import json
 import ipaddress
 from dataclasses import dataclass
-from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
 from urllib.parse import urlparse
@@ -49,16 +47,16 @@ def _env_int(name: str, default: int, *, minimum: int | None = None, maximum: in
     return value
 
 
-BACKEND_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CHROMA_PATH = BACKEND_ROOT / "chroma_db"
 DEFAULT_EMBED_BATCH_SIZE = _env_int("DASHSCOPE_EMBED_BATCH_SIZE", 25, minimum=1)
 DEFAULT_EMBED_MAX_CHARS = _env_int("DASHSCOPE_EMBED_MAX_CHARS", 2000, minimum=128, maximum=2048)
-_RUNTIME_AUTO_RECOVER = str(os.getenv("CHROMA_RUNTIME_AUTO_RECOVER", "true")).strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
+DEFAULT_HNSW_BATCH_SIZE = _env_int("CHROMA_HNSW_BATCH_SIZE", 100, minimum=2)
+DEFAULT_HNSW_SYNC_THRESHOLD = _env_int(
+    "CHROMA_HNSW_SYNC_THRESHOLD",
+    100000 if os.name == "nt" else 1000,
+    minimum=DEFAULT_HNSW_BATCH_SIZE,
+)
 _HNSW_LOAD_ERROR_SIGNALS = (
     "error loading hnsw index",
     "error creating hnsw segment reader",
@@ -167,20 +165,6 @@ def _is_chroma_store_corrupted(error: Exception) -> bool:
         or "database disk image is malformed" in message
         or any(signal in message for signal in _HNSW_LOAD_ERROR_SIGNALS)
     )
-
-
-def _backup_corrupted_store(path: Path) -> Path | None:
-    """
-    备份损坏目录后重建，避免服务直接不可用。
-
-    设计取舍：优先保证服务可恢复，再保留损坏现场用于排查。
-    """
-    if not path.exists():
-        return None
-
-    backup = path.with_name(f"{path.name}_corrupt_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}")
-    shutil.move(str(path), str(backup))
-    return backup
 
 
 @dataclass(frozen=True)
@@ -394,35 +378,6 @@ class DynamicEmbeddingFunction(EmbeddingFunction):
             raise e
 
 
-class DashScopeEmbeddingFunction(DynamicEmbeddingFunction):
-    """Backward-compatible DashScope embedding wrapper."""
-
-    def __init__(self, api_key: str, model: str | None = None):
-        self.api_key = api_key
-        super().__init__(
-            build_embedding_provider_config(
-                provider="dashscope",
-                api_key=api_key,
-                model=model or str(dashscope.TextEmbedding.Models.text_embedding_v1),
-            )
-        )
-
-    def name(self) -> str:
-        return "dashscope-text-embedding-v1"
-
-    @staticmethod
-    def build_from_config(config: dict) -> "DashScopeEmbeddingFunction":
-        DashScopeEmbeddingFunction.validate_config(config)
-        api_key_env = str((config or {}).get("api_key_env") or "DASHSCOPE_API_KEY")
-        api_key = str(os.getenv(api_key_env) or settings.DASHSCOPE_API_KEY or "")
-        return DashScopeEmbeddingFunction(api_key, model=str((config or {}).get("model") or ""))
-
-    @staticmethod
-    def validate_config(config: dict) -> None:
-        if not isinstance(config, dict):
-            raise ValueError("DashScopeEmbeddingFunction config must be a dict")
-
-
 def _normalize_embedding_provider(raw_provider: str | None) -> str:
     provider = str(raw_provider or "local").strip().lower()
     if provider in {"local", "default", "chroma", "chroma_default"}:
@@ -474,7 +429,7 @@ def select_embedding_function(
         selected_provider = "dashscope" if config.api_key else "local"
     if selected_provider == "dashscope":
         if config.api_key:
-            return DashScopeEmbeddingFunction(config.api_key, model=config.model), "dashscope"
+            return DynamicEmbeddingFunction(config), "dashscope"
         logger.warning("EMBEDDING_PROVIDER=dashscope but DASHSCOPE_API_KEY is empty; falling back to local")
     if selected_provider == "openai_compatible":
         if config.base_url and config.model:
@@ -543,89 +498,32 @@ class ChromaClient:
         self.collection = None
         self.embedding_fn = None
         self.persist_path = _resolve_persist_path(persist_path)
-        self._runtime_recovering = False
-        self._runtime_auto_recover = bool(_RUNTIME_AUTO_RECOVER)
-
         try:
             self._init_client()
             logger.info("ChromaDB initialized at %s", self.persist_path)
         except Exception as e:
             if _is_chroma_store_corrupted(e):
-                try:
-                    backup_path = _backup_corrupted_store(self.persist_path)
-                    logger.error(
-                        "Chroma 持久化目录疑似损坏，已备份为 %s，准备重建。原始错误: %s",
-                        backup_path,
-                        e,
-                    )
-                    self._init_client()
-                    logger.info("ChromaDB recovered at %s", self.persist_path)
-                    return
-                except Exception as recover_error:
-                    logger.error("ChromaDB recover failed: %s", recover_error)
+                logger.error(
+                    "Chroma 持久化目录疑似损坏，已停止自动重置。"
+                    "请从 MySQL 持久化文档执行完整索引重建后再恢复服务。原始错误: %s",
+                    e,
+                )
 
             logger.error("Failed to initialize ChromaDB: %s", e)
 
     def _try_runtime_recover(self, *, operation: str, error: Exception) -> bool:
-        """运行时遇到索引损坏错误时，尝试备份并重建。"""
-        if not self._runtime_auto_recover:
-            return False
-        if self._runtime_recovering:
-            return False
-        if not _is_chroma_store_corrupted(error):
-            return False
-
-        self._runtime_recovering = True
-        try:
-            # 先尝试只重建 collection，避免直接动底层 sqlite 文件导致锁冲突。
-            embedding_fn = getattr(self, "embedding_fn", None)
-            if self.client is not None and embedding_fn is not None:
-                try:
-                    self.client.delete_collection(name="knowledge_base")
-                except Exception:
-                    pass
-                try:
-                    self.collection = self.client.get_or_create_collection(
-                        name="knowledge_base",
-                        embedding_function=embedding_fn,
-                    )
-                    logger.info("ChromaDB runtime recovered by collection reset during %s", operation)
-                    return True
-                except Exception as reset_error:
-                    logger.error("Chroma collection reset failed during %s: %s", operation, reset_error)
-
-            try:
-                backup_path = _backup_corrupted_store(self.persist_path)
-                logger.error(
-                    "Chroma runtime store error during %s; backed up %s, reinitializing. err=%s",
-                    operation,
-                    backup_path,
-                    error,
-                )
-                self._init_client()
-                logger.info("ChromaDB runtime recovered at %s", self.persist_path)
-                return True
-            except PermissionError:
-                fresh_path = self.persist_path.with_name(
-                    f"{self.persist_path.name}_rebuild_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-                )
-                logger.error(
-                    "Chroma backup blocked by file lock during %s; switching to fresh path %s",
-                    operation,
-                    fresh_path,
-                )
-                self.persist_path = fresh_path
-                self._init_client()
-                logger.info("ChromaDB runtime recovered on fresh path %s", self.persist_path)
-                return True
-        except Exception as recover_error:
-            logger.error("ChromaDB runtime recover failed during %s: %s", operation, recover_error)
-            return False
-        finally:
-            self._runtime_recovering = False
+        """损坏时只报告失败，禁止在业务请求内删除或切换活动索引库。"""
+        if _is_chroma_store_corrupted(error):
+            logger.error(
+                "ChromaDB %s 检测到索引损坏，已拒绝自动删除 collection；"
+                "请执行完整重建。err=%s",
+                operation,
+                error,
+            )
+        return False
 
     def _run_with_recover(self, operation: str, func, *, raise_on_error: bool = False, default=None):
-        """执行 Chroma 操作，遇到 HNSW/索引损坏时自动自愈并重试一次。"""
+        """执行 Chroma 操作；损坏时显式失败，不在请求内破坏或重置索引。"""
         try:
             return func()
         except Exception as first_error:
@@ -667,52 +565,46 @@ class ChromaClient:
         self.collection = self.client.get_or_create_collection(
             name="knowledge_base",
             embedding_function=self.embedding_fn,
+            # Windows 下 chroma-hnswlib 1.5.x 的本地快照可能只写 metadata
+            # 而缺少二进制段；提高同步阈值后由 SQLite 日志在启动时重放。
+            metadata={
+                "hnsw:batch_size": DEFAULT_HNSW_BATCH_SIZE,
+                "hnsw:sync_threshold": DEFAULT_HNSW_SYNC_THRESHOLD,
+            },
         )
 
     def add_document(
         self,
         doc_id: str,
-        content: str,
-        metadata: dict | None = None,
-        chunks: list[dict] | None = None,
+        metadata: dict,
+        chunks: list[dict],
         raise_on_error: bool = False,
     ):
         """
         将文档写入向量库。
 
-        分块写入策略：
-        - 若传入 chunks：直接使用业务分块结果（每项可携带 chunk 级 metadata）；
-        - 若未传入 chunks：退回语义分块兜底（向后兼容旧调用）；
-        - metadata 内强制写入 doc_id，便于后续按文档删除。
+        写入已由上游按业务类型生成的分块，metadata 内强制写入 doc_id，
+        便于后续按文档删除。
         """
         if not self.collection:
             return
+        if not chunks:
+            raise ValueError(f"Chroma 写入分块不能为空：doc_id={doc_id}")
 
         def _do_add():
             chunk_payloads: list[tuple[str, dict]] = []
-            if chunks:
-                for item in chunks:
-                    if isinstance(item, dict):
-                        text = str(item.get("chunk_text") or item.get("text") or "").strip()
-                        chunk_meta = item.get("metadata") or {}
-                        if not isinstance(chunk_meta, dict):
-                            chunk_meta = {}
-                    else:
-                        text = str(item or "").strip()
+            for item in chunks:
+                if isinstance(item, dict):
+                    text = str(item.get("chunk_text") or item.get("text") or "").strip()
+                    chunk_meta = item.get("metadata") or {}
+                    if not isinstance(chunk_meta, dict):
                         chunk_meta = {}
-                    if not text:
-                        continue
-                    chunk_payloads.append((text, dict(chunk_meta)))
-            else:
-                max_chars = 2000
-                semantic_chunks = split_semantic_text(
-                    text=content or "",
-                    max_chars=max_chars,
-                    min_chars=max(120, int(max_chars * 0.2)),
-                )
-                if not semantic_chunks and content:
-                    semantic_chunks = [str(content)[:max_chars]]
-                chunk_payloads = [(chunk_text, {}) for chunk_text in semantic_chunks if str(chunk_text or "").strip()]
+                else:
+                    text = str(item or "").strip()
+                    chunk_meta = {}
+                if not text:
+                    continue
+                chunk_payloads.append((text, dict(chunk_meta)))
 
             if not chunk_payloads:
                 return
@@ -738,8 +630,8 @@ class ChromaClient:
 
             ids = [f"{doc_id}_{i}" for i in range(len(chunk_payloads))]
 
-            base_metadata = metadata.copy() if metadata else {}
-            # 兼容双索引：优先保留显式传入的“原文 doc_id”，避免被 summary 索引前缀覆盖。
+            base_metadata = metadata.copy()
+            # 摘要索引沿用原文 doc_id，索引自身仍使用独立前缀。
             base_metadata["doc_id"] = str(base_metadata.get("doc_id") or doc_id)
             base_metadata = _sanitize_metadata(base_metadata)
             chunk_total = len(chunk_payloads)
@@ -753,7 +645,6 @@ class ChromaClient:
                 merged.setdefault("chunk_index", idx)
                 merged.setdefault("chunk_total", chunk_total)
                 merged.setdefault("source_doc_name", merged.get("filename"))
-                # 中文注释：新元数据字段默认允许为空，保证历史调用不报错。
                 merged.setdefault("module", None)
                 merged.setdefault("biz_key", None)
                 merged.setdefault("requirement_id", None)

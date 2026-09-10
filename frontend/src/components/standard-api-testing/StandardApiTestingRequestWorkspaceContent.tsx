@@ -2,7 +2,6 @@ import { KvEditor, parseBulkText, stringifyBulkItems } from "./RequestEditors";
 import { StandardApiTestingRequestBodyTab } from "./StandardApiTestingRequestBodyTab";
 import { StandardApiTestingRequestSettingsTab } from "./StandardApiTestingRequestSettingsTab";
 import { StandardApiTestingRequestWorkspaceAuthTab } from "./StandardApiTestingRequestWorkspaceAuthTab";
-import { StandardApiTestingRequestWorkspaceGenerationTab } from "./StandardApiTestingRequestWorkspaceGenerationTab";
 import { StandardApiTestingRequestWorkspaceScriptsTab } from "./StandardApiTestingRequestWorkspaceScriptsTab";
 import type { StandardApiTestingRequestWorkspaceProps } from "./StandardApiTestingRequestWorkspace.types";
 
@@ -63,12 +62,6 @@ type Props = Pick<
   | "headersBulkText"
   | "setHeadersBulkText"
   | "handleBodyScroll"
-  | "mode"
-  | "setMode"
-  | "requirement"
-  | "setRequirement"
-  | "handleRun"
-  | "loading"
 >;
 
 export function StandardApiTestingRequestWorkspaceContent(props: Props) {
@@ -128,12 +121,6 @@ export function StandardApiTestingRequestWorkspaceContent(props: Props) {
     bodyBulkText,
     setBodyBulkText,
     handleBodyScroll,
-    mode,
-    setMode,
-    requirement,
-    setRequirement,
-    handleRun,
-    loading,
   } = props;
 
   if (runSubTab === "params") {
@@ -245,14 +232,5 @@ export function StandardApiTestingRequestWorkspaceContent(props: Props) {
     );
   }
 
-  return (
-    <StandardApiTestingRequestWorkspaceGenerationTab
-      mode={mode}
-      setMode={setMode}
-      requirement={requirement}
-      setRequirement={setRequirement}
-      handleRun={handleRun}
-      loading={loading}
-    />
-  );
+  return null;
 }

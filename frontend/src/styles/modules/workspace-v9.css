@@ -174,8 +174,7 @@ body.ui-overhaul-v4 .dashboard-health-chip {
 body.ui-overhaul-v4 .workbench-shell .btn,
 body.ui-overhaul-v4 .rag-console .btn,
 body.ui-overhaul-v4 .knowledge-base-shell .btn,
-body.ui-overhaul-v4 .evaluation-shell .btn,
-body.ui-overhaul-v4 .test-generation-shell .btn {
+body.ui-overhaul-v4 .evaluation-shell .btn {
   min-height: 38px;
   border-radius: 11px;
   font-weight: 700;

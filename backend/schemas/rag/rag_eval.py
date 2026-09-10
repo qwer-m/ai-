@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RagEvalRunCreate(BaseModel):
@@ -16,6 +16,8 @@ class RagEvalRunCreate(BaseModel):
 
 class RagEvalRunOut(BaseModel):
     """评测运行响应。"""
+
+    model_config = ConfigDict(from_attributes=True)
 
     id: int
     project_id: int
@@ -33,10 +35,6 @@ class RagEvalRunOut(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
-
-
 class RagEvalRunStatusResponse(BaseModel):
     """运行状态详情。"""
 
@@ -48,6 +46,8 @@ class RagEvalRunStatusResponse(BaseModel):
 
 class RagEvalSampleResultOut(BaseModel):
     """单样本评测结果。"""
+
+    model_config = ConfigDict(from_attributes=True)
 
     id: int
     run_id: int
@@ -76,10 +76,6 @@ class RagEvalSampleResultOut(BaseModel):
     answer_points: list[Any] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     difficulty: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
 
 class RagEvalSamplesPage(BaseModel):
     """样本结果分页。"""

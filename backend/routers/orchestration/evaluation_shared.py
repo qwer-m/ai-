@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import hashlib
-import re
-from datetime import datetime
-
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from core.db.models import Project
+from core.db.model_defs import Project
 from modules.knowledge_base_components.repositories.project_repository import ProjectRepository
 
 
@@ -48,19 +44,3 @@ def get_owned_project(project_id: int, db: Session, user_id: int) -> Project:
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
-
-
-def build_source_key(raw: str) -> str:
-    value = re.sub(r"\s+", " ", (raw or "").strip().lower())
-    if not value:
-        value = "default"
-    return hashlib.sha1(value.encode("utf-8")).hexdigest()[:16]
-
-
-def normalize_source_title(raw: str) -> str:
-    value = (raw or "").strip()
-    return value or "未命名文档"
-
-
-def source_filename(source_key: str) -> str:
-    return f"evaluation_report_{source_key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"

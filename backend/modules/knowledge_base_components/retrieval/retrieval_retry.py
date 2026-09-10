@@ -147,7 +147,7 @@ def calc_low_relevance(
 
     def _effective_score(chunk: dict) -> float:
         # 中文注释：低相关判定优先看融合/重排后的综合分，避免语义分块后仅看向量分导致误杀。
-        for key in ("final_score", "fusion_score", "rerank_score", "score", "vector_score"):
+        for key in ("final_score", "fusion_score", "score", "vector_score"):
             value = chunk.get(key)
             if value is None:
                 continue
@@ -233,7 +233,6 @@ def build_rerank_top(chunks: list[dict], limit: int) -> list[dict]:
                 "bonus_score": float(chunk.get("bonus_score") or 0.0),
                 "final_score": float(
                     chunk.get("final_score")
-                    or chunk.get("rerank_score")
                     or chunk.get("score")
                     or 0.0
                 ),
@@ -267,7 +266,6 @@ def build_final_chunk_debug(chunks: list[dict]) -> list[dict]:
                 "bonus_score": float(chunk.get("bonus_score") or 0.0),
                 "final_score": float(
                     chunk.get("final_score")
-                    or chunk.get("rerank_score")
                     or chunk.get("score")
                     or 0.0
                 ),

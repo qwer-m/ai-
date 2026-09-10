@@ -15,22 +15,12 @@
 import os
 import urllib.parse
 import logging
-from dotenv import load_dotenv
+from .environment import load_environment
 
-# 优先加载后端目录下 .env，其次加载仓库根目录 .env
-_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-load_dotenv(os.path.join(_BACKEND_DIR, ".env"))
-load_dotenv(os.path.join(os.path.dirname(_BACKEND_DIR), ".env"))
+load_environment()
 
 
 _logger = logging.getLogger(__name__)
-
-
-def _env_flag(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _env_int(name: str, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:
@@ -87,7 +77,51 @@ class Config:
     VL_MODEL_NAME = os.getenv("VL_MODEL_NAME", "").strip()
     TURBO_MODEL_NAME = os.getenv("TURBO_MODEL_NAME", "").strip()
     MAX_TOKENS = _env_int("MAX_TOKENS", 10000, minimum=1)  # 最大输出token数
-    
+    # 额度按每个已激活 Agent 实例独立计算；Run 级只累计用量，不共享一份阻断额度。
+    # 当前按需求临时放开单实例 token 上限；仍按 Agent 实例独立记账，可由环境变量覆盖。
+    AGENT_RUN_MAX_REQUESTS = _env_int("AGENT_RUN_MAX_REQUESTS", 80, minimum=1)
+    AGENT_RUN_MAX_INPUT_TOKENS = _env_int(
+        "AGENT_RUN_MAX_INPUT_TOKENS", 2000000, minimum=1
+    )
+    AGENT_RUN_MAX_OUTPUT_TOKENS = _env_int(
+        "AGENT_RUN_MAX_OUTPUT_TOKENS", 800000, minimum=1
+    )
+    AGENT_RUN_MAX_TOTAL_TOKENS = _env_int(
+        "AGENT_RUN_MAX_TOTAL_TOKENS", 2800000, minimum=1
+    )
+    # 上游模型网关在高并发下更容易排队超时；允许部署侧限制映射节点的实际并发。
+    AGENT_MAP_MAX_CONCURRENCY = _env_int(
+        "AGENT_MAP_MAX_CONCURRENCY", 6, minimum=1, maximum=16
+    )
+    # 并发映射发生局部慢请求时保留最小吞吐，避免整个阶段退化为串行。
+    AGENT_MAP_MIN_CONCURRENCY = _env_int(
+        "AGENT_MAP_MIN_CONCURRENCY", 2, minimum=1, maximum=16
+    )
+    # 累计多个上游压力信号后再降一级并发，单个离群请求不应拖慢整个批次。
+    AGENT_MAP_CONCURRENCY_PRESSURE_FAILURES = _env_int(
+        "AGENT_MAP_CONCURRENCY_PRESSURE_FAILURES", 2, minimum=1, maximum=10
+    )
+    # 上游压力降载后，连续成功达到该数量再恢复一级并发，避免立即回冲。
+    AGENT_MAP_CONCURRENCY_RECOVERY_SUCCESSES = _env_int(
+        "AGENT_MAP_CONCURRENCY_RECOVERY_SUCCESSES", 6, minimum=1, maximum=100
+    )
+    # map 首轮请求优先快速失败并换路重试；后续尝试仍使用 Agent 自身完整超时。
+    AGENT_MAP_FIRST_ATTEMPT_TIMEOUT_SECONDS = _env_float(
+        "AGENT_MAP_FIRST_ATTEMPT_TIMEOUT_SECONDS", 120.0, minimum=10.0, maximum=600.0
+    )
+    # 单次真实运行需覆盖分批来源分析、生成和多轮独立终审，保留一小时整轮边界。
+    AGENT_RUN_DEADLINE_SECONDS = _env_int(
+        "AGENT_RUN_DEADLINE_SECONDS", 3600, minimum=60, maximum=3600
+    )
+    # 运行租约只用于识别失联执行器，必须明显短于整轮执行预算。
+    AGENT_RUN_LEASE_SECONDS = _env_int(
+        "AGENT_RUN_LEASE_SECONDS", 120, minimum=30, maximum=600
+    )
+    # 每个需求来源只保留有限数量的终态运行；不同需求文档必须各自保留可复用结果。
+    AGENT_RUN_HISTORY_LIMIT = _env_int(
+        "AGENT_RUN_HISTORY_LIMIT", 1, minimum=1, maximum=20
+    )
+
     # ===========================
     # 数据库配置
     # ===========================
@@ -107,16 +141,6 @@ class Config:
         DATABASE_URL = f"mysql+pymysql://{DB_USER_ENCODED}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
 
     # ===========================
-    # UI自动化配置
-    # ===========================
-    HEADLESS_MODE = True  # 是否启用无头模式（无界面运行浏览器）
-    
-    # ===========================
-    # API测试配置
-    # ===========================
-    DEFAULT_TIMEOUT = 10  # API测试默认超时时间（秒）
-
-    # ===========================
     # Redis配置（用于健康检查）
     # ===========================
     REDIS_URL = os.getenv("REDIS_URL", "").strip()
@@ -128,91 +152,12 @@ class Config:
     # ===========================
     # 安全配置
     # ===========================
-    ENABLE_DIAGNOSTIC_ROUTES = _env_flag("ENABLE_DIAGNOSTIC_ROUTES", IS_DEVELOPMENT)
     SECRET_KEY = os.getenv("SECRET_KEY")
     if not SECRET_KEY:
         if ENV in {"prod", "production"}:
             raise RuntimeError("SECRET_KEY environment variable is required in production")
         SECRET_KEY = "dev-secret-key-change-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days
-
-    # ===========================
-    # Core flow backfill flags
-    # ===========================
-    CORE_FLOW_BACKFILL_ENABLED = _env_flag("CORE_FLOW_BACKFILL_ENABLED", False)
-    CORE_FLOW_BACKFILL_APPLY_TO_FINAL = _env_flag("CORE_FLOW_BACKFILL_APPLY_TO_FINAL", False)
-    CORE_FLOW_BACKFILL_MAX_CANDIDATES = _env_int("CORE_FLOW_BACKFILL_MAX_CANDIDATES", 12, minimum=1)
-    CORE_FLOW_BACKFILL_MIN_FINAL_CASES = _env_int("CORE_FLOW_BACKFILL_MIN_FINAL_CASES", 12, minimum=1)
-    CORE_FLOW_BACKFILL_MAX_FINAL_CASES = _env_int("CORE_FLOW_BACKFILL_MAX_FINAL_CASES", 18, minimum=1)
-    CORE_FLOW_BACKFILL_MIN_COVERAGE_RATIO = _env_float(
-        "CORE_FLOW_BACKFILL_MIN_COVERAGE_RATIO",
-        0.8,
-        minimum=0.0,
-        maximum=1.0,
-    )
-
-    # ===========================
-    # Stream generation coverage shard flags
-    # ===========================
-    GENERATION_STREAM_COVERAGE_SHARDS_ENABLED = _env_flag("GENERATION_STREAM_COVERAGE_SHARDS_ENABLED", False)
-    GENERATION_STREAM_COVERAGE_SHARD_MAX_WORKERS = _env_int(
-        "GENERATION_STREAM_COVERAGE_SHARD_MAX_WORKERS",
-        2,
-        minimum=1,
-        maximum=4,
-    )
-    GENERATION_STREAM_COVERAGE_SHARD_MIN_EXPECTED_COUNT = _env_int(
-        "GENERATION_STREAM_COVERAGE_SHARD_MIN_EXPECTED_COUNT",
-        60,
-        minimum=1,
-        maximum=500,
-    )
-    GENERATION_STREAM_COVERAGE_SHARD_MIN_RULES = _env_int(
-        "GENERATION_STREAM_COVERAGE_SHARD_MIN_RULES",
-        8,
-        minimum=1,
-        maximum=100,
-    )
-    GENERATION_STREAM_COVERAGE_SHARD_DUPLICATE_RATE_ABORT = _env_float(
-        "GENERATION_STREAM_COVERAGE_SHARD_DUPLICATE_RATE_ABORT",
-        0.25,
-        minimum=0.0,
-        maximum=1.0,
-    )
-    GENERATION_STREAM_COVERAGE_SHARD_MIN_UNIQUE_RATIO = _env_float(
-        "GENERATION_STREAM_COVERAGE_SHARD_MIN_UNIQUE_RATIO",
-        0.45,
-        minimum=0.0,
-        maximum=1.0,
-    )
-
-    # ===========================
-    # Execution plan persistence gate
-    # ===========================
-    EXECUTION_PLAN_GATE_MODE = os.getenv("EXECUTION_PLAN_GATE_MODE", "enforce").strip().lower()
-    EXECUTION_PLAN_MIN_MAIN_SMOKE_COUNT = _env_int("EXECUTION_PLAN_MIN_MAIN_SMOKE_COUNT", 6, minimum=1)
-    EXECUTION_PLAN_MIN_P0_COUNT = _env_int("EXECUTION_PLAN_MIN_P0_COUNT", 6, minimum=1)
-    EXECUTION_PLAN_MIN_STATE_FIELD_COVERAGE = _env_float(
-        "EXECUTION_PLAN_MIN_STATE_FIELD_COVERAGE",
-        0.8,
-        minimum=0.0,
-        maximum=1.0,
-    )
-    EXECUTION_PLAN_MAX_WORKFLOW_ID_MISSING_RATE = _env_float(
-        "EXECUTION_PLAN_MAX_WORKFLOW_ID_MISSING_RATE",
-        0.2,
-        minimum=0.0,
-        maximum=1.0,
-    )
-    EXECUTION_PLAN_REJECT_CANDIDATE_DERIVED_BLUEPRINT = _env_flag(
-        "EXECUTION_PLAN_REJECT_CANDIDATE_DERIVED_BLUEPRINT",
-        True,
-    )
-    CASE_QUALITY_ENFORCE_MIN_ACCEPTABLE_FINAL = _env_flag(
-        "CASE_QUALITY_ENFORCE_MIN_ACCEPTABLE_FINAL",
-        False,
-    )
-
 
 # 创建配置实例
 settings = Config()

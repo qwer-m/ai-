@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -12,24 +13,21 @@ from uuid import uuid4
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
-from core.db.models import KnowledgeDocument
-from core.processing.biz_key_extractor import extract_biz_key
-from core.processing.business_chunking import BusinessChunkerDispatcher, Chunk
+from core.db.model_defs import KnowledgeDocument
 from core.processing.file_processing import parse_file_path
 from modules.knowledge_base_components.document.document_index_service import (
     delete_document_indexes,
     is_vector_store_ready,
-    upsert_document_indexes,
+    reindex_document_from_persisted_content,
+)
+from modules.knowledge_base_components.document.document_asset_service import (
+    prepare_document_assets,
 )
 from modules.knowledge_base_components.document.document_ops import INDEXABLE_DOC_TYPES
-from modules.knowledge_base_components.document.document_summary_service import (
-    ensure_document_summary,
-)
 from modules.knowledge_base_components.document.document_task_dispatcher import (
     enqueue_parse_document_task,
 )
 from modules.knowledge_base_components.document.offline_parse_support import (
-    has_injection_flag,
     safe_error_message,
     validate_parsed_content,
 )
@@ -38,45 +36,24 @@ from modules.knowledge_base_components.repositories.knowledge_document_repositor
 )
 
 logger = logging.getLogger(__name__)
-OFFLINE_UPLOAD_DIR = Path(__file__).resolve().parents[2] / "runtime" / "knowledge_uploads"
+BACKEND_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_OFFLINE_UPLOAD_DIR = BACKEND_ROOT / "runtime" / "knowledge_uploads"
 
 
-def _to_chroma_chunk_payloads(
-    chunks: list[Chunk],
-    *,
-    default_module: str | None,
-    default_biz_key: str,
-) -> list[dict]:
-    """Convert chunking output to Chroma add_document payload chunks."""
-    payloads: list[dict] = []
-    for item in chunks:
-        chunk_text = str(getattr(item, "text", "") or "").strip()
-        if not chunk_text:
-            continue
-        module_value = str(getattr(item, "module", "") or "").strip() or default_module
-        biz_key_value = str(getattr(item, "biz_key", "") or "").strip() or default_biz_key
-        requirement_id = str(getattr(item, "requirement_id", "") or "").strip() or None
-        test_case_id = str(getattr(item, "test_case_id", "") or "").strip() or None
+def _resolve_offline_upload_dir() -> Path:
+    """解析离线解析上传目录，相对路径统一以 backend 为基准。"""
+    raw = str(os.getenv("OFFLINE_UPLOAD_DIR") or "").strip()
+    if not raw:
+        return DEFAULT_OFFLINE_UPLOAD_DIR
 
-        related_ids: list[str] = []
-        if requirement_id:
-            related_ids.append(requirement_id)
-        if test_case_id:
-            related_ids.append(test_case_id)
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = BACKEND_ROOT / path
+    return path.resolve()
 
-        payloads.append(
-            {
-                "chunk_text": chunk_text,
-                "metadata": {
-                    "module": module_value,
-                    "biz_key": biz_key_value,
-                    "requirement_id": requirement_id,
-                    "test_case_id": test_case_id,
-                    "related_ids": related_ids,
-                },
-            }
-        )
-    return payloads
+
+# 避免工作目录变化导致文件落到 backend 之外。
+OFFLINE_UPLOAD_DIR = _resolve_offline_upload_dir()
 
 
 def _build_storage_name(filename: str) -> str:
@@ -131,9 +108,7 @@ def create_pending_document_impl(
         retry_count=0,
     )
     repo.add(doc)
-    repo.commit()
-    repo.refresh(doc)
-
+    db.flush()
     module.reindex_project_specific_ids(doc_type, project_id, db)
     repo.refresh(doc)
     return doc
@@ -202,7 +177,7 @@ def parse_document_offline_impl(
     task_id: Optional[str] = None,
     retry_count: int = 0,
 ) -> dict:
-    """Offline parse flow: parse -> summarize -> index -> finalize state."""
+    """离线资产准备流程：解析真实资产、建立可重建索引并完成状态切换。"""
     repo = KnowledgeDocumentRepository(db)
     doc = repo.get_by_id(doc_id)
     if not doc:
@@ -231,45 +206,19 @@ def parse_document_offline_impl(
 
     logger.info("offline parse started doc_id=%s task_id=%s retry=%s", doc_id, task_id, retry_count)
 
-    if has_injection_flag(doc.filename, "runtime_fail", doc_id):
-        raise RuntimeError("offline parse injected failure: runtime_fail")
-    if has_injection_flag(doc.filename, "fail_once", doc_id) and retry_count == 0:
-        raise RuntimeError("offline parse injected failure: fail_once")
+    source_bytes = Path(file_path).read_bytes()
+    content_hash = hashlib.sha256(source_bytes).hexdigest()
+    # 每次上传都是独立文档输入；内容指纹仅用于资产一致性校验，不用于复用或拦截。
 
-    content = parse_file_path(file_path)
-    validate_parsed_content(content)
-
-    content_hash = module.calculate_hash(content)
-    pending_doc = doc
-    cover_doc = repo.find_latest_by_identity(
-        project_id=doc.project_id,
-        user_id=user_id if user_id is not None else doc.user_id,
-        doc_type=doc.doc_type,
-        filename=doc.filename,
-        exclude_doc_id=doc.id,
+    asset_result = prepare_document_assets(
+        document_id=int(doc.id),
+        source_path=file_path,
+        original_filename=str(doc.filename or Path(file_path).name),
     )
-
-    if cover_doc:
-        doc = cover_doc
-    else:
-        existing = repo.find_duplicate_by_hash(
-            project_id=doc.project_id,
-            content_hash=content_hash,
-            exclude_doc_id=doc.id,
-        )
-        if existing and not force:
-            pending_doc.parse_status = "failed"
-            pending_doc.parse_error = f"duplicate document detected: existing file '{existing.filename}'"
-            pending_doc.parsed_at = datetime.utcnow()
-            repo.commit()
-            cleanup_offline_file(file_path)
-            return {
-                "status": "duplicate",
-                "document_id": pending_doc.id,
-                "existing_doc_id": existing.id,
-                "existing_filename": existing.filename,
-            }
-        pending_doc = None
+    content = str(asset_result.get("document_text") or "")
+    if not content.strip():
+        content = parse_file_path(file_path, db=db, user_id=user_id)
+    validate_parsed_content(content)
 
     doc.content = content
     doc.content_hash = content_hash
@@ -283,90 +232,21 @@ def parse_document_offline_impl(
     repo.commit()
     repo.refresh(doc)
 
-    if has_injection_flag(doc.filename, "summary_fail", doc_id):
-        raise RuntimeError("offline parse injected failure: summary_fail")
-    summary = ensure_document_summary(module, doc=doc, db=db, user_id=user_id or doc.user_id)
-
     indexed_raw = False
     indexed_summary = False
 
     if doc.doc_type in INDEXABLE_DOC_TYPES:
         if not is_vector_store_ready():
             raise RuntimeError("vector store is unavailable")
-        if has_injection_flag(doc.filename, "chroma_fail", doc_id):
-            raise RuntimeError("offline parse injected failure: chroma_fail")
-
-        dispatcher = BusinessChunkerDispatcher()
-        raw_chunk_objects = dispatcher.chunk(str(doc.doc_type or ""), content)
-        if not raw_chunk_objects:
-            raw_chunk_objects = [Chunk(text=content)]
-
-        module_hint = next(
-            (str(c.module).strip() for c in raw_chunk_objects if getattr(c, "module", None)),
-            None,
-        )
-        module_hint = module_hint or None
-        doc_biz_key = extract_biz_key(content, module_hint or "")
-
-        raw_chunks = _to_chroma_chunk_payloads(
-            raw_chunk_objects,
-            default_module=module_hint,
-            default_biz_key=doc_biz_key,
-        )
-
-        summary_chunks = None
-        if summary and summary != content:
-            summary_chunk_objects = dispatcher.chunk(str(doc.doc_type or ""), summary)
-            if not summary_chunk_objects:
-                summary_chunk_objects = [Chunk(text=summary, module=module_hint, biz_key=doc_biz_key)]
-            summary_chunks = _to_chroma_chunk_payloads(
-                summary_chunk_objects,
-                default_module=module_hint,
-                default_biz_key=doc_biz_key,
-            )
-
-        indexed_raw, indexed_summary = upsert_document_indexes(
-            doc_id=doc.id,
-            content=content,
-            metadata={
-                "project_id": doc.project_id,
-                "doc_type": doc.doc_type,
-                "filename": doc.filename,
-                "doc_id": doc.id,
-                "user_id": doc.user_id,
-                "module": module_hint,
-                "biz_key": doc_biz_key,
-                "requirement_id": None,
-                "test_case_id": None,
-                "source_doc_name": doc.filename,
-                "is_summary": False,
-            },
-            summary_text=summary,
-            summary_metadata={
-                "project_id": doc.project_id,
-                "doc_type": doc.doc_type,
-                "filename": f"{doc.filename} (Summary)",
-                "doc_id": doc.id,
-                "user_id": doc.user_id,
-                "module": module_hint,
-                "biz_key": doc_biz_key,
-                "requirement_id": None,
-                "test_case_id": None,
-                "source_doc_name": doc.filename,
-                "is_summary": True,
-            },
-            chunks=raw_chunks,
-            summary_chunks=summary_chunks,
-            raise_on_error=True,
-        )
+        index_result = reindex_document_from_persisted_content(doc)
+        indexed_raw = bool(index_result["indexed_raw"])
+        indexed_summary = bool(index_result["indexed_summary"])
 
     try:
         doc.parse_status = "success"
         doc.parse_error = None
         doc.parsed_at = datetime.utcnow()
         doc.retry_count = retry_count
-        if pending_doc is not None:
-            repo.delete(pending_doc)
         repo.commit()
     except Exception:
         repo.rollback()
@@ -377,17 +257,8 @@ def parse_document_offline_impl(
                 logger.error("offline index rollback failed doc_id=%s err=%s", doc_id, rollback_error)
         raise
 
-    if pending_doc is not None:
-        module.reindex_project_specific_ids(pending_doc.doc_type, pending_doc.project_id, db)
-
     cleanup_offline_file(file_path)
     logger.info("offline parse success doc_id=%s task_id=%s", doc_id, task_id)
-    if pending_doc is not None:
-        return {
-            "status": "covered",
-            "document_id": doc.id,
-            "covered_pending_doc_id": pending_doc.id,
-        }
     return {"status": "success", "document_id": doc.id}
 
 

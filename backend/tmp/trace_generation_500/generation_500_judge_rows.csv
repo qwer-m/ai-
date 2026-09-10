@@ -1,3 +1,0 @@
-﻿case_id,module,priority,model_priority,legacy_priority,priority_final,priority_decision_state,priority_decision_source,priority_confidence,priority_conflict_reason,scene,judge_status,reject_reason,hit_confirmed_fact,hit_pending,hit_reuse_risk
-TC-003,作文区-论坛详情,P2,P0,P2,P2,undetermined,conflict_resolved_by_non_blocking_experience_rule,medium,"model=P0,suggested=P2",作文论坛详情-投稿时未勾选展示原文图片，只显示作文标题不显示缩略图,REJECT,semantic_duplicate:TC-002,False,False,False
-TC-052,发帖限制,P2,P2,P2,P2,decided,p2_cap_guard,high,,发帖限制-当天发帖/回帖达到5次后再点击发帖按钮，弹出toast提示,REJECT,semantic_duplicate:TC-050,False,False,False

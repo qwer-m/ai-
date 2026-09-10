@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Optional
 
 import os
@@ -7,20 +8,18 @@ import subprocess
 import tempfile
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from fastapi.security import OAuth2PasswordBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from core.authn.auth import get_current_user
-from core.authn.diagnostic_access import ensure_diagnostic_routes_enabled, validate_outbound_http_url
+from core.authn.auth import get_current_user, oauth2_scheme
+from core.authn.diagnostic_access import validate_outbound_http_url
 from core.db.database import get_db
-from core.db.models import User
+from core.db.model_defs import User
 from modules.automation_components.services.ui_automation_service import UIAutomationService
+from modules.automation_components.services.ui_test_case_import_service import UITestCaseImportService
 from modules.testing.ui_automation import ui_automator
-from schemas.automation.ui_automation import UIRequest
+from schemas.automation.ui_automation import UIRequest, UIScriptConvertRequest
 
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
 router = APIRouter(
     prefix="/ui-automation",
@@ -36,13 +35,23 @@ class DetectRequest(BaseModel):
 class DetectResponse(BaseModel):
     success: bool
     message: str
-    data: dict = {}
+    data: dict = Field(default_factory=dict)
+
+
+def _detect_appium_server() -> str | None:
+    configured = os.environ.get("APPIUM_SERVER_URL", "http://127.0.0.1:4723").rstrip("/")
+    try:
+        response = requests.get(f"{configured}/status", timeout=2)
+        if response.ok:
+            return configured
+    except requests.RequestException:
+        pass
+    return None
 
 
 @router.post("/detect", response_model=DetectResponse)
 async def detect_environment(request: DetectRequest, current_user: User = Depends(get_current_user)):
     _ = current_user
-    ensure_diagnostic_routes_enabled()
     if request.type == "web":
         if not request.target:
             return DetectResponse(success=False, message="请输入目标URL")
@@ -56,17 +65,30 @@ async def detect_environment(request: DetectRequest, current_user: User = Depend
 
     if request.type == "app":
         try:
-            result = subprocess.run(["adb", "devices"], capture_output=True, text=True)
+            result = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=5)
             output = result.stdout.strip().split("\n")
-            devices = [line.split()[0] for line in output[1:] if line.strip() and "device" in line]
+            devices = [
+                columns[0]
+                for line in output[1:]
+                if len(columns := line.split()) >= 2 and columns[1] == "device"
+            ]
             if not devices:
                 return DetectResponse(success=False, message="未检测到连接的 Android 设备或模拟器")
+
+            appium_url = _detect_appium_server()
+            if not appium_url:
+                return DetectResponse(
+                    success=False,
+                    message="Android 设备已连接，但 Appium 服务未启动或地址不可访问",
+                    data={"device_id": devices[0]},
+                )
 
             device_id = devices[0]
             res = subprocess.run(
                 ["adb", "-s", device_id, "shell", "dumpsys", "window"],
                 capture_output=True,
                 text=True,
+                timeout=5,
             )
             focus_line = res.stdout.strip()
             match = re.search(r"u0\s+([^\s/]+)/([^\s]+)}", focus_line)
@@ -77,13 +99,13 @@ async def detect_environment(request: DetectRequest, current_user: User = Depend
                     activity = pkg + activity
                 return DetectResponse(
                     success=True,
-                    message=f"检测到设备 {device_id}，当前应用 {pkg}",
-                    data={"app_id": pkg, "activity": activity, "device_id": device_id},
+                    message=f"设备 {device_id} 与 Appium 均已就绪，当前应用 {pkg}",
+                    data={"app_id": pkg, "activity": activity, "device_id": device_id, "appium_url": appium_url},
                 )
             return DetectResponse(
                 success=True,
-                message=f"检测到设备 {device_id}，但无法获取当前应用信息",
-                data={"device_id": device_id},
+                message=f"设备 {device_id} 与 Appium 均已就绪，但无法获取当前应用信息",
+                data={"device_id": device_id, "appium_url": appium_url},
             )
         except FileNotFoundError:
             return DetectResponse(success=False, message="服务器未安装 ADB 工具")
@@ -91,18 +113,6 @@ async def detect_environment(request: DetectRequest, current_user: User = Depend
             return DetectResponse(success=False, message=f"检测失败: {exc}")
 
     return DetectResponse(success=False, message="未知的自动化类型")
-
-
-@router.get("/app-info")
-def get_current_app_info(
-    device_id: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
-):
-    _ = current_user
-    result = ui_automator.get_current_app_info(device_id)
-    if "error" in result:
-        raise HTTPException(status_code=500, detail=result["error"])
-    return result
 
 
 @router.get("/history")
@@ -131,18 +141,48 @@ def get_ui_automation_detail(
 
 @router.get("/screenshots/{execution_id}/{filename}")
 def get_screenshot(
-    execution_id: str,
+    execution_id: int,
     filename: str,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _ = current_user
     if ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
-
-    file_path = os.path.join(os.getcwd(), "screenshots", execution_id, filename)
-    if not os.path.exists(file_path):
+    status, detail = UIAutomationService(db).get_execution_detail(
+        execution_id=execution_id,
+        user_id=current_user.id,
+    )
+    if status == "not_found" or not detail:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    candidates = [
+        Path(str(path)).resolve()
+        for path in (detail.get("screenshot_paths") or [])
+        if Path(str(path)).name == filename
+    ]
+    file_path = next((path for path in candidates if path.is_file()), None)
+    if not file_path:
         raise HTTPException(status_code=404, detail="Screenshot not found")
-    return FileResponse(file_path)
+    return FileResponse(str(file_path))
+
+
+@router.post("/import-test-cases")
+async def import_ui_test_cases(
+    file: UploadFile = File(...),
+    project_id: int = Form(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    automation_service = UIAutomationService(db)
+    if not automation_service.has_owned_project(project_id=project_id, user_id=current_user.id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        return UITestCaseImportService(db).parse(
+            filename=file.filename or "uploaded_cases",
+            content=await file.read(),
+            user_id=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/ai-locate-element")
@@ -179,21 +219,39 @@ async def ai_locate_element(
                 pass
 
 
-@router.post("/generate")
-def generate_ui_script_only(
+@router.post("/natural-run")
+def run_ui_from_natural_language(
     req: UIRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     token: str = Depends(oauth2_scheme),
 ):
     try:
-        status, result = UIAutomationService(db).generate_script(
+        status, result = UIAutomationService(db).run_natural_language(
             payload=req.model_dump(),
             user_id=current_user.id,
             token=token,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if status == "project_not_found":
+        raise HTTPException(status_code=404, detail="Project not found")
+    return result
+
+
+@router.post("/convert")
+def convert_verified_ui_script(
+    req: UIScriptConvertRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        status, result = UIAutomationService(db).save_script(
+            payload=req.model_dump(),
+            user_id=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if status == "project_not_found":
         raise HTTPException(status_code=404, detail="Project not found")
     return result
@@ -206,43 +264,28 @@ def execute_ui_script_direct(
     url: str = Form(...),
     automation_type: str = Form("web"),
     project_id: int = Form(...),
-    test_case_id: Optional[int] = Form(None),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    token: str = Depends(oauth2_scheme),
-):
-    status, result = UIAutomationService(db).execute_script_direct(
-        payload={
-            "script": script,
-            "task": task,
-            "url": url,
-            "automation_type": automation_type,
-            "project_id": project_id,
-            "test_case_id": test_case_id,
-        },
-        user_id=current_user.id,
-        token=token,
-    )
-    if status == "project_not_found":
-        raise HTTPException(status_code=404, detail="Project not found")
-    return result
-
-
-@router.post("/")
-def run_ui_automation(
-    req: UIRequest,
+    operation_name: Optional[str] = Form(None),
+    operation_steps: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     token: str = Depends(oauth2_scheme),
 ):
     try:
-        status, result = UIAutomationService(db).run_ui_automation(
-            payload=req.model_dump(),
+        status, result = UIAutomationService(db).execute_script_direct(
+            payload={
+                "script": script,
+                "task": task,
+                "url": url,
+                "automation_type": automation_type,
+                "project_id": project_id,
+                "operation_name": operation_name,
+                "operation_steps": operation_steps,
+            },
             user_id=current_user.id,
             token=token,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if status == "project_not_found":
         raise HTTPException(status_code=404, detail="Project not found")
     return result
