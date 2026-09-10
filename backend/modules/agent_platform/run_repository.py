@@ -8,237 +8,33 @@ from sqlalchemy.orm import Session, load_only
 
 from core.db.model_defs import (
     AgentApproval,
-    AgentDefinition,
     AgentNodeRun,
     AgentRun,
     AgentRunEvent,
-    AgentToolBinding,
-    AgentToolDefinition,
     AgentWorkflowDefinition,
     KnowledgeDocument,
     Project,
 )
-from .results import persisted_test_generation_result
-from .sources import SOURCE_ARTIFACT_KEY, SourceSnapshot, historical_source_snapshot
+from .definition_repository import AgentDefinitionRepository
+from .lifecycle import ACTIVE_RUN_STATUSES, TERMINAL_RUN_STATUSES
+from .retention import terminal_run_ids_to_delete
+from .sources import (
+    RunSourceRecord, SourceSnapshot, historical_run_source_key, source_snapshot_columns,
+)
 
 
-def _terminal_run_ids_to_delete(
-    terminal_run_rows: list[tuple[int, Any, str | None, str]],
-    *,
-    keep_run_id: int,
-    limit: int,
-) -> list[int]:
-    keep_row = next(
-        (row for row in terminal_run_rows if int(row[0]) == int(keep_run_id)),
-        None,
-    )
-    if keep_row is None:
-        return []
+class AgentRunRepository:
+    """运行、节点、事件和审批的持久化边界，共享调用方事务。"""
 
-    keep_source_key = keep_row[2]
-    if keep_source_key is None:
-        return []
-    keep_status = str(keep_row[3] or "")
-    scoped_rows = [
-        row
-        for row in terminal_run_rows
-        if (
-            row[2] == keep_source_key
-            and (keep_status == "success" or str(row[3] or "") != "success")
-        )
-    ]
-    keep_ids = {int(keep_run_id)}
-    for run_id, _finished_at, _input_payload, _status in scoped_rows:
-        if len(keep_ids) >= max(1, int(limit)):
-            break
-        keep_ids.add(int(run_id))
-    return [
-        int(run_id)
-        for run_id, _finished_at, _input_payload, _status in scoped_rows
-        if int(run_id) not in keep_ids
-    ]
-
-
-class AgentPlatformRepository:
     def __init__(self, db: Session) -> None:
-        self.db = db
+        self.db: Session = db
+        self._definitions: AgentDefinitionRepository = AgentDefinitionRepository(db)
 
     def lock_run_creation(self, *, project_id: int, user_id: int) -> None:
         """创建与续跑共用项目行锁，跨工作流版本也只能原子地创建一个同源运行。"""
         self.db.query(Project.id).filter(
             Project.id == project_id, Project.user_id == user_id,
         ).with_for_update().one()
-
-    def get_owned_project(self, *, project_id: int, user_id: int) -> Project | None:
-        return (
-            self.db.query(Project)
-            .filter(Project.id == project_id, Project.user_id == user_id)
-            .first()
-        )
-
-    def get_agent(
-        self,
-        *,
-        project_id: int,
-        agent_key: str,
-        enabled_only: bool = True,
-    ) -> AgentDefinition | None:
-        # 项目覆盖优先；没有覆盖时回退到全局内置模板。
-        project_query = self.db.query(AgentDefinition).filter(
-            AgentDefinition.project_id == project_id,
-            AgentDefinition.agent_key == agent_key,
-        )
-        if enabled_only:
-            project_query = project_query.filter(AgentDefinition.enabled.is_(True))
-        project_row = project_query.order_by(AgentDefinition.version.desc()).first()
-        if project_row is not None:
-            return project_row
-
-        global_query = self.db.query(AgentDefinition).filter(
-            AgentDefinition.project_id.is_(None),
-            AgentDefinition.agent_key == agent_key,
-            AgentDefinition.builtin.is_(True),
-        )
-        if enabled_only:
-            global_query = global_query.filter(AgentDefinition.enabled.is_(True))
-        return global_query.order_by(AgentDefinition.version.desc()).first()
-
-    def get_tool(
-        self,
-        *,
-        project_id: int,
-        tool_key: str,
-        enabled_only: bool = True,
-    ) -> AgentToolDefinition | None:
-        query = self.db.query(AgentToolDefinition).filter(
-            AgentToolDefinition.project_id == project_id,
-            AgentToolDefinition.tool_key == tool_key,
-        )
-        if enabled_only:
-            query = query.filter(AgentToolDefinition.enabled.is_(True))
-        return query.first()
-
-    def get_workflow(
-        self,
-        *,
-        project_id: int,
-        workflow_key: str,
-        enabled_only: bool = True,
-    ) -> AgentWorkflowDefinition | None:
-        query = self.db.query(AgentWorkflowDefinition).filter(
-            AgentWorkflowDefinition.project_id == project_id,
-            AgentWorkflowDefinition.workflow_key == workflow_key,
-        )
-        if enabled_only:
-            query = query.filter(AgentWorkflowDefinition.enabled.is_(True))
-        return query.order_by(AgentWorkflowDefinition.version.desc()).first()
-
-    def list_workflow_definition_ids(
-        self,
-        *,
-        project_id: int,
-        workflow_key: str,
-    ) -> list[int]:
-        return [
-            int(row[0])
-            for row in (
-                self.db.query(AgentWorkflowDefinition.id)
-                .filter(
-                    AgentWorkflowDefinition.project_id == project_id,
-                    AgentWorkflowDefinition.workflow_key == workflow_key,
-                )
-                .all()
-            )
-        ]
-
-    def list_agents(self, *, project_id: int) -> list[AgentDefinition]:
-        project_rows = (
-            self.db.query(AgentDefinition)
-            .filter(
-                AgentDefinition.project_id == project_id,
-                AgentDefinition.enabled.is_(True),
-            )
-            .order_by(AgentDefinition.agent_key.asc(), AgentDefinition.version.desc())
-            .all()
-        )
-        overridden_keys = {str(row.agent_key) for row in project_rows}
-        global_rows = (
-            self.db.query(AgentDefinition)
-            .filter(
-                AgentDefinition.project_id.is_(None),
-                AgentDefinition.builtin.is_(True),
-                AgentDefinition.enabled.is_(True),
-                ~AgentDefinition.agent_key.in_(overridden_keys or {""}),
-            )
-            .order_by(AgentDefinition.agent_key.asc(), AgentDefinition.version.desc())
-            .all()
-        )
-        return sorted(
-            [*project_rows, *global_rows],
-            key=lambda row: (str(row.agent_key), -int(row.version or 1)),
-        )
-
-    def list_tools(self, *, project_id: int) -> list[AgentToolDefinition]:
-        return (
-            self.db.query(AgentToolDefinition)
-            .filter(
-                AgentToolDefinition.project_id == project_id,
-                AgentToolDefinition.enabled.is_(True),
-            )
-            .order_by(AgentToolDefinition.tool_key.asc())
-            .all()
-        )
-
-    def list_workflows(self, *, project_id: int) -> list[AgentWorkflowDefinition]:
-        return (
-            self.db.query(AgentWorkflowDefinition)
-            .filter(
-                AgentWorkflowDefinition.project_id == project_id,
-                AgentWorkflowDefinition.enabled.is_(True),
-            )
-            .order_by(
-                AgentWorkflowDefinition.workflow_key.asc(),
-                AgentWorkflowDefinition.version.desc(),
-            )
-            .all()
-        )
-
-    def list_agent_tools(
-        self,
-        agent_definition_id: int,
-        *,
-        project_id: int | None = None,
-    ) -> list[AgentToolDefinition]:
-        definition = self.db.get(AgentDefinition, agent_definition_id)
-        if definition is not None and definition.project_id is None:
-            # 全局模板的工具按当前项目解析，避免全局定义绑定某个项目的工具行。
-            tool_keys = list((definition.runtime_config or {}).get("tool_keys") or [])
-            if not tool_keys or project_id is None:
-                return []
-            return (
-                self.db.query(AgentToolDefinition)
-                .filter(
-                    AgentToolDefinition.project_id == project_id,
-                    AgentToolDefinition.tool_key.in_([str(key) for key in tool_keys]),
-                    AgentToolDefinition.enabled.is_(True),
-                )
-                .order_by(AgentToolDefinition.tool_key.asc())
-                .all()
-            )
-        return (
-            self.db.query(AgentToolDefinition)
-            .join(
-                AgentToolBinding,
-                AgentToolBinding.tool_definition_id == AgentToolDefinition.id,
-            )
-            .filter(
-                AgentToolBinding.agent_definition_id == agent_definition_id,
-                AgentToolBinding.enabled.is_(True),
-                AgentToolDefinition.enabled.is_(True),
-            )
-            .order_by(AgentToolDefinition.tool_key.asc())
-            .all()
-        )
 
     def get_run(self, *, run_id: int) -> AgentRun | None:
         return self.db.query(AgentRun).filter(AgentRun.id == run_id).first()
@@ -282,17 +78,19 @@ class AgentPlatformRepository:
         requirement = str(input_payload.get("requirement") or "").strip()
         return SourceSnapshot.from_text(requirement) if requirement else None
 
-    def _source_run_rows(
-        self, *, project_id: int, user_id: int, workflow_definition_ids: list[int], statuses: set[str],
+    def list_run_sources(
+        self,
+        *,
+        project_id: int,
+        user_id: int,
+        workflow_definition_ids: list[int],
+        statuses: set[str] | frozenset[str],
         for_update: bool = False,
-    ) -> list[tuple[int, Any, str | None, str]]:
+    ) -> list[RunSourceRecord]:
         """三条来源链路共用快照投影，只读取标识和小型来源 JSON，不加载整份运行产物。"""
         query = self.db.query(
             AgentRun.id, AgentRun.finished_at, AgentRun.input_payload, AgentRun.status,
-            AgentRun.run_context["artifacts"][SOURCE_ARTIFACT_KEY],
-            AgentRun.run_context["artifacts"]["requirement_evidence"]["source"],
-            AgentRun.run_context["artifacts"]["test_generation"]["evidence"]["source"],
-            AgentRun.output_payload["artifacts"]["test_generation"]["evidence"]["source"],
+            *source_snapshot_columns(AgentRun),
         ).filter(
             AgentRun.project_id == project_id,
             AgentRun.user_id == user_id,
@@ -306,56 +104,10 @@ class AgentPlatformRepository:
         resolved = []
         for run_id, finished_at, input_payload, status, *sources in rows:
             payload = dict(input_payload or {})
-            snapshot = historical_source_snapshot(payload, *sources)
-            key = snapshot.key if snapshot else None
-            if key is None and payload.get("requirement_doc_id") is None and not str(payload.get("requirement") or "").strip():
-                key = "workflow"
-            resolved.append((int(run_id), finished_at, key, str(status)))
+            resolved.append(RunSourceRecord(
+                int(run_id), finished_at, historical_run_source_key(payload, *sources), str(status),
+            ))
         return resolved
-
-    def get_latest_successful_run_for_source(
-        self,
-        *,
-        project_id: int,
-        user_id: int,
-        workflow_key: str,
-        requirement_doc_id: int,
-    ) -> AgentRun | None:
-        """按文档内容指纹查找最近一次已持久化的成功生成。"""
-
-        target_source = self.resolve_source_snapshot(
-            project_id=project_id, input_payload={"requirement_doc_id": requirement_doc_id},
-        )
-        if target_source is None:
-            return None
-
-        workflow_definition_ids = self.list_workflow_definition_ids(
-            project_id=project_id,
-            workflow_key=workflow_key,
-        )
-        if not workflow_definition_ids:
-            return None
-
-        candidate_rows = self._source_run_rows(
-            project_id=project_id, user_id=user_id,
-            workflow_definition_ids=workflow_definition_ids, statuses={"success"},
-        )
-        if not candidate_rows:
-            return None
-
-        matching_ids = sorted((
-            int(run_id)
-            for run_id, _finished_at, source_key, _status in candidate_rows
-            if source_key == target_source.key
-        ), reverse=True)
-        for run_id in matching_ids:
-            run = self.get_run(run_id=run_id)
-            if run is None:
-                continue
-            artifact = persisted_test_generation_result(run)
-            if isinstance(artifact, dict) and isinstance(artifact.get("test_cases"), list):
-                return run
-        return None
 
     def get_active_run_for_source(
         self,
@@ -367,16 +119,16 @@ class AgentPlatformRepository:
     ) -> AgentRun | None:
         """查找同一来源尚未结束的运行，避免重复请求占满串行队列。"""
 
-        workflow_definition_ids = self.list_workflow_definition_ids(
+        workflow_definition_ids = self._definitions.list_workflow_definition_ids(
             project_id=project_id,
             workflow_key=workflow_key,
         )
         if not workflow_definition_ids:
             return None
-        active_rows = self._source_run_rows(
+        active_rows = self.list_run_sources(
             project_id=project_id, user_id=user_id,
             workflow_definition_ids=workflow_definition_ids,
-            statuses={"pending", "running", "waiting_approval"},
+            statuses=ACTIVE_RUN_STATUSES,
             for_update=True,
         )
         if not active_rows:
@@ -385,9 +137,7 @@ class AgentPlatformRepository:
         target_key = source.key if source else "workflow"
         matching_id = min(
             (
-                int(run_id)
-                for run_id, _finished_at, source_key, _status in active_rows
-                if source_key == target_key
+                row.run_id for row in active_rows if row.source_key == target_key
             ),
             default=None,
         )
@@ -407,7 +157,7 @@ class AgentPlatformRepository:
             AgentRun.user_id == user_id,
         )
         if workflow_key is not None:
-            workflow_definition_ids = self.list_workflow_definition_ids(
+            workflow_definition_ids = self._definitions.list_workflow_definition_ids(
                 project_id=project_id,
                 workflow_key=workflow_key,
             )
@@ -451,20 +201,20 @@ class AgentPlatformRepository:
         workflow_definition_ids = [int(workflow_definition_id)]
         workflow = self.db.get(AgentWorkflowDefinition, workflow_definition_id)
         if workflow is not None:
-            workflow_definition_ids = self.list_workflow_definition_ids(
+            workflow_definition_ids = self._definitions.list_workflow_definition_ids(
                 project_id=project_id,
                 workflow_key=workflow.workflow_key,
             ) or workflow_definition_ids
 
         terminal_run_rows = sorted(
-            self._source_run_rows(
+            self.list_run_sources(
                 project_id=project_id, user_id=user_id,
                 workflow_definition_ids=workflow_definition_ids,
-                statuses={"success", "failed", "cancelled"},
+                statuses=TERMINAL_RUN_STATUSES,
             ),
-            key=lambda row: (row[1] or datetime.min, row[0]), reverse=True,
+            key=lambda row: (row.finished_at or datetime.min, row.run_id), reverse=True,
         )
-        delete_ids = _terminal_run_ids_to_delete(
+        delete_ids = terminal_run_ids_to_delete(
             terminal_run_rows,
             keep_run_id=keep_run_id,
             limit=limit,
@@ -515,7 +265,7 @@ class AgentPlatformRepository:
             .filter(
                 AgentRun.project_id == project_id,
                 AgentRun.user_id == user_id,
-                AgentRun.status.in_({"pending", "running", "waiting_approval"}),
+                AgentRun.status.in_(ACTIVE_RUN_STATUSES),
             )
             .all()
         )
@@ -555,7 +305,7 @@ class AgentPlatformRepository:
         self.db.flush()
         return self.db.query(AgentNodeRun).filter(
             AgentNodeRun.run_id == run_id,
-            AgentNodeRun.status.in_({"pending", "running", "waiting_approval"}),
+            AgentNodeRun.status.in_(ACTIVE_RUN_STATUSES),
         ).update(
             {
                 AgentNodeRun.status: status,
@@ -707,9 +457,3 @@ class AgentPlatformRepository:
             .filter(AgentApproval.id == approval_id, AgentRun.user_id == user_id)
             .first()
         )
-
-    def commit(self) -> None:
-        self.db.commit()
-
-    def refresh(self, value: Any) -> None:
-        self.db.refresh(value)

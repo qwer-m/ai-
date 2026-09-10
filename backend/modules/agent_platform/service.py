@@ -5,16 +5,17 @@ from datetime import datetime
 from typing import Any, Callable
 
 from jsonschema import ValidationError, validate
+from sqlalchemy.orm import Session
 
 from core.db.model_defs import (
     AgentApproval,
     AgentDefinition,
     AgentNodeRun,
     AgentRun,
-    AgentToolBinding,
     AgentWorkflowDefinition,
 )
 from core.settings.config import settings
+from modules.system_components.repositories.project_repository import ProjectRepository
 from .contracts import (
     AgentProgramDefinition,
     AgentDefinitionCreate,
@@ -28,10 +29,14 @@ from .context_compression import (
     context_compression_enabled,
     context_compression_max_tokens,
 )
-from .repository import AgentPlatformRepository
+from .run_repository import AgentRunRepository
+from .definition_repository import AgentDefinitionRepository
 from .lifecycle import ACTIVE_RUN_STATUSES, TERMINAL_RUN_STATUSES, transition_run
 from .results import persisted_test_generation_result
-from .sources import SOURCE_ARTIFACT_KEY, SourceSnapshot, assert_same_source, persisted_source_snapshot
+from .sources import (
+    SOURCE_ARTIFACT_KEY, SourceSnapshot, assert_same_source, persisted_source_snapshot,
+    latest_successful_run_for_source,
+)
 from .retention import prune_terminal_run_history
 from .seed import seed_builtin_definitions
 from .registry import runtime_registry_signature
@@ -221,18 +226,17 @@ def _restored_checkpoint_sdk_state(checkpoint: AgentNodeRun) -> dict[str, Any]:
 class AgentPlatformService:
     def __init__(
         self,
-        db: Any,
+        db: Session,
         worker_starter: Callable[[int], Any] | None = None,
     ) -> None:
-        self.db = db
-        self.repo = AgentPlatformRepository(db)
+        self.db: Session = db
+        self.projects: ProjectRepository = ProjectRepository(db)
+        self.runs: AgentRunRepository = AgentRunRepository(db)
+        self.definitions: AgentDefinitionRepository = AgentDefinitionRepository(db)
         self._start_worker = worker_starter
 
-    def _owned_project(self, *, project_id: int, user_id: int) -> bool:
-        return self.repo.get_owned_project(project_id=project_id, user_id=user_id) is not None
-
     def ensure_builtins(self, *, project_id: int, user_id: int) -> bool:
-        if not self._owned_project(project_id=project_id, user_id=user_id):
+        if self.projects.get_owned_project(project_id=project_id, user_id=user_id) is None:
             return False
         seed_builtin_definitions(db=self.db, project_id=project_id, user_id=user_id)
         return True
@@ -240,10 +244,11 @@ class AgentPlatformService:
     def list_catalog(self, *, project_id: int, user_id: int) -> dict[str, list[Any]] | None:
         if not self.ensure_builtins(project_id=project_id, user_id=user_id):
             return None
+        self.db.commit()
         return {
-            "agents": self.repo.list_agents(project_id=project_id),
-            "tools": self.repo.list_tools(project_id=project_id),
-            "workflows": self.repo.list_workflows(project_id=project_id),
+            "agents": self.definitions.list_agents(project_id=project_id),
+            "tools": self.definitions.list_tools(project_id=project_id),
+            "workflows": self.definitions.list_workflows(project_id=project_id),
         }
 
     def create_agent(
@@ -252,21 +257,17 @@ class AgentPlatformService:
         request: AgentDefinitionCreate,
         user_id: int,
     ) -> tuple[AgentDefinition | None, str]:
-        if not self._owned_project(project_id=request.project_id, user_id=user_id):
+        if self.projects.get_owned_project(project_id=request.project_id, user_id=user_id) is None:
             return None, "project_not_found"
         # 创建项目自定义定义时，只检查该项目已有覆盖，不能把全局模板当成同版本冲突。
-        existing = (
-            self.db.query(AgentDefinition)
-            .filter(
-                AgentDefinition.project_id == request.project_id,
-                AgentDefinition.agent_key == request.agent_key,
-                AgentDefinition.version == request.version,
-            )
-            .first()
+        existing = self.definitions.get_project_agent_version(
+            project_id=request.project_id,
+            agent_key=request.agent_key,
+            version=request.version,
         )
         if existing is not None:
             return None, "version_exists"
-        value = AgentDefinition(
+        value = self.definitions.create_agent(
             user_id=user_id,
             project_id=request.project_id,
             agent_key=request.agent_key,
@@ -277,10 +278,7 @@ class AgentPlatformService:
             output_schema=request.output_schema,
             runtime_config=request.runtime_config,
             version=request.version,
-            enabled=True,
-            builtin=False,
         )
-        self.db.add(value)
         self.db.commit()
         self.db.refresh(value)
         return value, "created"
@@ -291,37 +289,37 @@ class AgentPlatformService:
         request: WorkflowDefinitionCreate,
         user_id: int,
     ) -> tuple[AgentWorkflowDefinition | None, str]:
-        if not self._owned_project(project_id=request.project_id, user_id=user_id):
+        if self.projects.get_owned_project(project_id=request.project_id, user_id=user_id) is None:
             return None, "project_not_found"
         if isinstance(request.definition, WorkflowGraph):
             for node in request.definition.nodes:
                 if node.node_type in {"agent", "agent_network", "agent_map"}:
-                    exists = self.repo.get_agent(
+                    exists = self.definitions.get_agent(
                         project_id=request.project_id,
                         agent_key=node.reference_key,
                     )
                 else:
-                    exists = self.repo.get_tool(
+                    exists = self.definitions.get_tool(
                         project_id=request.project_id,
                         tool_key=node.reference_key,
                     )
                 if exists is None:
                     return None, f"unknown_node_reference:{node.reference_key}"
         elif isinstance(request.definition, AgentProgramDefinition):
-            entry_agent = self.repo.get_agent(
+            entry_agent = self.definitions.get_agent(
                 project_id=request.project_id,
                 agent_key=request.definition.entry_agent_key,
             )
             if entry_agent is None:
                 return None, f"unknown_node_reference:{request.definition.entry_agent_key}"
-        existing = self.repo.get_workflow(
+        existing = self.definitions.get_workflow_version(
             project_id=request.project_id,
             workflow_key=request.workflow_key,
-            enabled_only=False,
+            version=request.version,
         )
-        if existing is not None and existing.version == request.version:
+        if existing is not None:
             return None, "version_exists"
-        value = AgentWorkflowDefinition(
+        value = self.definitions.create_workflow(
             user_id=user_id,
             project_id=request.project_id,
             workflow_key=request.workflow_key,
@@ -329,10 +327,7 @@ class AgentPlatformService:
             description=request.description,
             definition=request.definition.model_dump(),
             version=request.version,
-            enabled=True,
-            builtin=False,
         )
-        self.db.add(value)
         self.db.commit()
         self.db.refresh(value)
         return value, "created"
@@ -345,45 +340,15 @@ class AgentPlatformService:
         tool_key: str,
         user_id: int,
     ) -> str:
-        if not self._owned_project(project_id=project_id, user_id=user_id):
+        if self.projects.get_owned_project(project_id=project_id, user_id=user_id) is None:
             return "project_not_found"
-        agent = self.repo.get_agent(project_id=project_id, agent_key=agent_key)
-        tool = self.repo.get_tool(project_id=project_id, tool_key=tool_key)
+        agent = self.definitions.get_agent(project_id=project_id, agent_key=agent_key)
+        tool = self.definitions.get_tool(project_id=project_id, tool_key=tool_key)
         if agent is None or tool is None:
             return "definition_not_found"
-        if agent.project_id is None:
-            # 首次修改全局模板时创建项目覆盖，之后绑定只影响该项目。
-            agent = AgentDefinition(
-                user_id=user_id,
-                project_id=project_id,
-                agent_key=agent.agent_key,
-                name=agent.name,
-                description=agent.description,
-                instructions=agent.instructions,
-                model=agent.model,
-                output_schema=agent.output_schema,
-                runtime_config=agent.runtime_config,
-                version=agent.version,
-                enabled=True,
-                builtin=False,
-            )
-            self.db.add(agent)
-            self.db.flush()
-        binding = (
-            self.db.query(AgentToolBinding)
-            .filter(
-                AgentToolBinding.agent_definition_id == agent.id,
-                AgentToolBinding.tool_definition_id == tool.id,
-            )
-            .first()
+        self.definitions.bind_tool_to_agent(
+            agent=agent, tool=tool, project_id=project_id, user_id=user_id,
         )
-        if binding is None:
-            binding = AgentToolBinding(
-                agent_definition_id=agent.id,
-                tool_definition_id=tool.id,
-            )
-        binding.enabled = True
-        self.db.add(binding)
         self.db.commit()
         return "bound"
 
@@ -396,7 +361,9 @@ class AgentPlatformService:
     ) -> tuple[AgentRun | None, str]:
         if not self.ensure_builtins(project_id=request.project_id, user_id=user_id):
             return None, "project_not_found"
-        workflow = self.repo.get_workflow(
+        # 同步事务先结束，再获取项目锁，避免与续跑的定义外键锁形成反向等待。
+        self.db.commit()
+        workflow = self.definitions.get_workflow(
             project_id=request.project_id,
             workflow_key=request.workflow_key,
         )
@@ -407,16 +374,16 @@ class AgentPlatformService:
             validate(instance=request.input_payload, schema=execution.input_schema)
         except ValidationError as exc:
             return None, f"invalid_run_input:{exc.message}"
-        self.repo.lock_run_creation(project_id=request.project_id, user_id=user_id)
+        self.runs.lock_run_creation(project_id=request.project_id, user_id=user_id)
         input_payload = _normalize_workflow_input(
             request.workflow_key,
             dict(request.input_payload or {}),
         )
         try:
-            source = self.repo.resolve_source_snapshot(project_id=request.project_id, input_payload=input_payload)
+            source = self.runs.resolve_source_snapshot(project_id=request.project_id, input_payload=input_payload)
         except ValueError as exc:
             return None, f"invalid_run_input:{exc}"
-        active_run = self.repo.get_active_run_for_source(
+        active_run = self.runs.get_active_run_for_source(
             project_id=request.project_id,
             user_id=user_id,
             workflow_key=request.workflow_key,
@@ -456,9 +423,9 @@ class AgentPlatformService:
         limit: int,
         workflow_key: str | None = None,
     ) -> list[AgentRun] | None:
-        if not self._owned_project(project_id=project_id, user_id=user_id):
+        if self.projects.get_owned_project(project_id=project_id, user_id=user_id) is None:
             return None
-        return self.repo.list_runs(
+        return self.runs.list_runs(
             project_id=project_id,
             user_id=user_id,
             limit=limit,
@@ -466,12 +433,12 @@ class AgentPlatformService:
         )
 
     def get_active_run(self, *, project_id: int, user_id: int) -> AgentRun | None:
-        if not self._owned_project(project_id=project_id, user_id=user_id):
+        if self.projects.get_owned_project(project_id=project_id, user_id=user_id) is None:
             return None
-        return self.repo.get_active_run(project_id=project_id, user_id=user_id)
+        return self.runs.get_active_run(project_id=project_id, user_id=user_id)
 
     def get_run(self, *, run_id: int, user_id: int) -> AgentRun | None:
-        return self.repo.get_owned_run(run_id=run_id, user_id=user_id)
+        return self.runs.get_owned_run(run_id=run_id, user_id=user_id)
 
     def get_generation_reuse_candidate(
         self,
@@ -481,22 +448,23 @@ class AgentPlatformService:
         workflow_key: str,
         requirement_doc_id: int,
     ) -> tuple[dict[str, Any] | None, str]:
-        if not self._owned_project(project_id=project_id, user_id=user_id):
+        if self.projects.get_owned_project(project_id=project_id, user_id=user_id) is None:
             return None, "project_not_found"
-        document = self.repo.get_project_document(
+        document = self.runs.get_project_document(
             project_id=project_id,
             document_id=requirement_doc_id,
         )
         if document is None:
             return None, "document_not_found"
-        workflow = self.repo.get_workflow(
+        workflow = self.definitions.get_workflow(
             project_id=project_id,
             workflow_key=workflow_key,
         )
         if workflow is None:
             return None, "workflow_not_found"
         try:
-            run = self.repo.get_latest_successful_run_for_source(
+            run = latest_successful_run_for_source(
+                self.runs,
                 project_id=project_id, user_id=user_id,
                 workflow_key=workflow_key, requirement_doc_id=requirement_doc_id,
             )
@@ -520,7 +488,7 @@ class AgentPlatformService:
         run_id: int,
         user_id: int,
     ) -> tuple[dict[str, Any] | None, str]:
-        run = self.repo.get_owned_run(run_id=run_id, user_id=user_id)
+        run = self.runs.get_owned_run(run_id=run_id, user_id=user_id)
         if run is None:
             return None, "run_not_found"
         artifact = persisted_test_generation_result(run)
@@ -537,7 +505,7 @@ class AgentPlatformService:
         }, "found"
 
     def retry_run(self, *, run_id: int, user_id: int) -> tuple[AgentRun | None, str]:
-        run = self.repo.get_owned_run(run_id=run_id, user_id=user_id)
+        run = self.runs.get_owned_run(run_id=run_id, user_id=user_id)
         if run is None:
             return None, "run_not_found"
         if run.status in ACTIVE_RUN_STATUSES:
@@ -549,7 +517,7 @@ class AgentPlatformService:
             return None, "run_version_mismatch"
         try:
             source = persisted_source_snapshot(run)
-            current_source = self.repo.resolve_source_snapshot(project_id=run.project_id, input_payload=run.input_payload)
+            current_source = self.runs.resolve_source_snapshot(project_id=run.project_id, input_payload=run.input_payload)
             if current_source is not None:
                 if source is None:
                     return None, "run_source_snapshot_missing"
@@ -561,8 +529,8 @@ class AgentPlatformService:
         workflow = self.db.get(AgentWorkflowDefinition, run.workflow_definition_id)
         if workflow is None:
             return None, "workflow_not_found"
-        self.repo.lock_run_creation(project_id=run.project_id, user_id=user_id)
-        active_run = self.repo.get_active_run_for_source(
+        self.runs.lock_run_creation(project_id=run.project_id, user_id=user_id)
+        active_run = self.runs.get_active_run_for_source(
             project_id=run.project_id, user_id=user_id,
             workflow_key=workflow.workflow_key, source=source,
         )
@@ -579,7 +547,7 @@ class AgentPlatformService:
         checkpoints = (
             _restorable_node_runs(
                 execution=execution,
-                node_runs=self.repo.list_node_runs(run_id=run.id),
+                node_runs=self.runs.list_node_runs(run_id=run.id),
             )
             if isinstance(execution, WorkflowGraph)
             else []
@@ -650,12 +618,12 @@ class AgentPlatformService:
             "restored_partial_map_count": partial_map_count,
             "restored_repair_node_count": repair_node_count,
         }
-        self.repo.append_event(
+        self.runs.append_event(
             run_id=run.id,
             event_type="run_retry_spawned",
             payload={"user_id": user_id, "retry_run_id": retry.id, **restored_payload},
         )
-        self.repo.append_event(
+        self.runs.append_event(
             run_id=retry.id,
             event_type="run_created_from_retry",
             payload={"user_id": user_id, "parent_run_id": run.id, **restored_payload},
@@ -666,19 +634,19 @@ class AgentPlatformService:
         return retry, "retried"
 
     def cancel_run(self, *, run_id: int, user_id: int) -> tuple[AgentRun | None, str]:
-        run = self.repo.get_run_for_update(run_id=run_id, user_id=user_id)
+        run = self.runs.get_run_for_update(run_id=run_id, user_id=user_id)
         if run is None:
             return None, "run_not_found"
         if run.status in TERMINAL_RUN_STATUSES:
             return run, "already_finished"
         transition_run(
-            self.repo, run, "cancelled",
+            self.runs, run, "cancelled",
             event_type="run_cancelled",
             payload={"user_id": user_id},
             actor_user_id=user_id,
         )
         self.db.commit()
-        prune_terminal_run_history(self.repo, run)
+        prune_terminal_run_history(self.runs, run)
         return run, "cancelled"
 
     def reset_run_attempt(
@@ -689,7 +657,7 @@ class AgentPlatformService:
     ) -> tuple[AgentRun | None, str]:
         """只重置当前运行链的展示次数，保留运行、节点和事件审计数据。"""
 
-        run = self.repo.get_owned_run(run_id=run_id, user_id=user_id)
+        run = self.runs.get_owned_run(run_id=run_id, user_id=user_id)
         if run is None:
             return None, "run_not_found"
         if run.status in ACTIVE_RUN_STATUSES:
@@ -701,7 +669,7 @@ class AgentPlatformService:
         context["run_attempt"] = 1
         run.run_context = context
         self.db.add(run)
-        self.repo.append_event(
+        self.runs.append_event(
             run_id=run.id,
             event_type="run_attempt_reset",
             payload={
@@ -721,13 +689,13 @@ class AgentPlatformService:
         decision: ApprovalDecision,
         user_id: int,
     ) -> tuple[AgentApproval | None, str]:
-        approval = self.repo.get_owned_approval(
+        approval = self.runs.get_owned_approval(
             approval_id=approval_id,
             user_id=user_id,
         )
         if approval is None:
             return None, "approval_not_found"
-        run = self.repo.get_run_for_update(run_id=approval.run_id, user_id=user_id)
+        run = self.runs.get_run_for_update(run_id=approval.run_id, user_id=user_id)
         if run is None:
             return None, "run_not_found"
         self.db.refresh(approval)
@@ -743,7 +711,7 @@ class AgentPlatformService:
         approval.decided_by_user_id = user_id
         if decision.approved:
             transition_run(
-                self.repo, run, "pending", event_type="approval_approved",
+                self.runs, run, "pending", event_type="approval_approved",
                 payload={"approval_id": approval.id, "user_id": user_id},
                 actor_user_id=user_id, node_run_id=approval.node_run_id,
             )
@@ -753,7 +721,7 @@ class AgentPlatformService:
             self._start_worker(run.id)
             return approval, "approved"
         transition_run(
-            self.repo, run, "failed", event_type="approval_rejected",
+            self.runs, run, "failed", event_type="approval_rejected",
             payload={"approval_id": approval.id, "user_id": user_id},
             error_message=f"审批拒绝: {decision.reason}".strip(),
             actor_user_id=user_id, node_run_id=approval.node_run_id,
@@ -767,5 +735,5 @@ class AgentPlatformService:
         self.db.add(approval)
         self.db.add(run)
         self.db.commit()
-        prune_terminal_run_history(self.repo, run)
+        prune_terminal_run_history(self.runs, run)
         return approval, "rejected"

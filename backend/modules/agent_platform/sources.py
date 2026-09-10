@@ -3,11 +3,33 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime
 import hashlib
-from typing import Any
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+from .results import persisted_test_generation_result
+
+if TYPE_CHECKING:
+    from core.db.model_defs import AgentRun
+    from .run_repository import AgentRunRepository
 
 
 SOURCE_ARTIFACT_KEY = "requirement_source"
+_SOURCE_PATHS = (
+    ("run_context", "artifacts", SOURCE_ARTIFACT_KEY),
+    ("run_context", "artifacts", "requirement_evidence", "source"),
+    ("run_context", "artifacts", "test_generation", "evidence", "source"),
+    ("output_payload", "artifacts", "test_generation", "evidence", "source"),
+)
+
+
+class RunSourceRecord(NamedTuple):
+    """运行来源的轻量投影，不携带生成产物。"""
+
+    run_id: int
+    finished_at: datetime | None
+    source_key: str | None
+    status: str
 
 
 @dataclass(frozen=True)
@@ -79,15 +101,73 @@ def historical_source_snapshot(input_payload: dict[str, Any], *candidates: Any) 
 
 
 def persisted_source_snapshot(run: Any) -> SourceSnapshot | None:
-    artifacts = dict((run.run_context or {}).get("artifacts") or {})
-    output_artifacts = dict((run.output_payload or {}).get("artifacts") or {})
+    candidates = []
+    for field, *path in _SOURCE_PATHS:
+        value = getattr(run, field)
+        for key in path:
+            value = value.get(key) if isinstance(value, dict) else None
+        candidates.append(value)
     return historical_source_snapshot(
-        dict(run.input_payload or {}),
-        artifacts.get(SOURCE_ARTIFACT_KEY),
-        dict(artifacts.get("requirement_evidence") or {}).get("source"),
-        dict(dict(artifacts.get("test_generation") or {}).get("evidence") or {}).get("source"),
-        dict(dict(output_artifacts.get("test_generation") or {}).get("evidence") or {}).get("source"),
+        dict(run.input_payload or {}), *candidates,
     )
+
+
+def source_snapshot_columns(run_model: Any) -> list[Any]:
+    """SQL 投影与内存读取共用来源路径，避免加载完整运行 JSON。"""
+    columns = []
+    for field, *path in _SOURCE_PATHS:
+        column = getattr(run_model, field)
+        for key in path:
+            column = column[key]
+        columns.append(column)
+    return columns
+
+
+def historical_run_source_key(input_payload: dict[str, Any], *candidates: Any) -> str | None:
+    snapshot = historical_source_snapshot(input_payload, *candidates)
+    if snapshot is not None:
+        return snapshot.key
+    if input_payload.get("requirement_doc_id") is None and not str(input_payload.get("requirement") or "").strip():
+        return "workflow"
+    return None
+
+
+def latest_successful_run_for_source(
+    repo: AgentRunRepository,
+    *,
+    project_id: int,
+    user_id: int,
+    workflow_key: str,
+    requirement_doc_id: int,
+) -> AgentRun | None:
+    """按真实来源查找可复用结果，成功状态还必须对应已持久化的用例产物。"""
+    from .definition_repository import AgentDefinitionRepository
+
+    source = repo.resolve_source_snapshot(
+        project_id=project_id, input_payload={"requirement_doc_id": requirement_doc_id},
+    )
+    if source is None:
+        return None
+    workflow_ids = AgentDefinitionRepository(repo.db).list_workflow_definition_ids(
+        project_id=project_id, workflow_key=workflow_key,
+    )
+    if not workflow_ids:
+        return None
+    candidates = repo.list_run_sources(
+        project_id=project_id, user_id=user_id,
+        workflow_definition_ids=workflow_ids, statuses={"success"},
+    )
+    matching_ids = sorted(
+        (row.run_id for row in candidates if row.source_key == source.key), reverse=True,
+    )
+    for run_id in matching_ids:
+        run = repo.get_run(run_id=run_id)
+        if run is None:
+            continue
+        artifact = persisted_test_generation_result(run)
+        if isinstance(artifact, dict) and isinstance(artifact.get("test_cases"), list):
+            return run
+    return None
 
 
 def assert_same_source(expected: SourceSnapshot, actual: SourceSnapshot) -> None:

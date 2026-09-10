@@ -39,8 +39,8 @@ def _service(db: Session) -> AgentPlatformService:
 def _run_payload(service: AgentPlatformService, run) -> dict:
     return serialize_run(
         run,
-        node_runs=service.repo.list_node_runs(run_id=run.id),
-        approvals=service.repo.list_approvals(run_id=run.id),
+        node_runs=service.runs.list_node_runs(run_id=run.id),
+        approvals=service.runs.list_approvals(run_id=run.id),
     )
 
 
@@ -269,7 +269,7 @@ def list_run_events(
     return {
         "items": [
             serialize_event(item)
-            for item in service.repo.list_events(run_id=run.id, limit=limit)
+            for item in service.runs.list_events(run_id=run.id, limit=limit)
         ]
     }
 

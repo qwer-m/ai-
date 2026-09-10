@@ -29,6 +29,9 @@ backend/tmp/review_diagnostics/
 /backend/scripts/rag/reports/
 /tmp/
 /outputs/
+# Agent 仓储重构生成的验证报告
+/output/agent-*.json
+/output/agent-*.md
 /.playwright-mcp/
 
 # IDE

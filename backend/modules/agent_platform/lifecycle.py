@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from core.db.model_defs import AgentRun
 
 if TYPE_CHECKING:
-    from .repository import AgentPlatformRepository
+    from .run_repository import AgentRunRepository
 
 
 TERMINAL_RUN_STATUSES = frozenset({"success", "failed", "cancelled"})
@@ -40,7 +40,7 @@ def renew_run_lease(run: AgentRun, *, now: datetime, lease_seconds: int) -> bool
 
 
 def transition_run(
-    repo: AgentPlatformRepository,
+    repo: AgentRunRepository,
     run: AgentRun,
     target: str,
     *,

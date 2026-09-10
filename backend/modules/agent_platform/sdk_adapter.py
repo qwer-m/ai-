@@ -34,7 +34,7 @@ from modules.knowledge_base_components.document.document_asset_service import (
     load_document_manifest,
 )
 from .registry import ToolExecutionContext, tool_registry
-from .repository import AgentPlatformRepository
+from .definition_repository import AgentDefinitionRepository
 
 
 @dataclass(frozen=True)
@@ -1094,7 +1094,7 @@ def _build_sdk_agent(
     bound_tools = (
         list(direct_tool_definitions)
         if direct_tool_definitions is not None
-        else AgentPlatformRepository(db).list_agent_tools(
+        else AgentDefinitionRepository(db).list_agent_tools(
             agent_definition.id,
             project_id=execution_context.project_id,
         )
@@ -1117,7 +1117,7 @@ def _build_sdk_agent(
         )
     if len(subagent_keys) != len(set(subagent_keys)):
         raise ValueError(f"Agent subagent_keys 存在重复项: {agent_definition.agent_key}")
-    repo = AgentPlatformRepository(db)
+    repo = AgentDefinitionRepository(db)
     for subagent_key in subagent_keys:
         if subagent_key == agent_definition.agent_key:
             raise ValueError(f"Agent 不能把自身注册为工具: {subagent_key}")

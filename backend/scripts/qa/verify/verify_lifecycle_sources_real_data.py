@@ -24,12 +24,13 @@ from core.db.model_defs import (
     AgentWorkflowDefinition, KnowledgeDocument,
 )
 from modules.agent_platform.lifecycle import (
-    InvalidRunTransition, renew_run_lease, transition_run,
+    InvalidRunTransition, TERMINAL_RUN_STATUSES, renew_run_lease, transition_run,
 )
-from modules.agent_platform.repository import AgentPlatformRepository
+from modules.agent_platform.run_repository import AgentRunRepository
 from modules.agent_platform.results import persisted_test_generation_result
 from modules.agent_platform.sources import (
     SOURCE_ARTIFACT_KEY, SourceSnapshot, assert_same_source, persisted_source_snapshot,
+    latest_successful_run_for_source,
 )
 
 
@@ -48,7 +49,7 @@ def copy_record(record: Any) -> Any:
 
 
 @contextmanager
-def isolated_repository(*records: Any) -> Iterator[AgentPlatformRepository]:
+def isolated_repository(*records: Any) -> Iterator[AgentRunRepository]:
     engine = create_engine("sqlite+pysqlite:///:memory:")
     models = (
         AgentWorkflowDefinition, KnowledgeDocument, AgentRun,
@@ -60,7 +61,7 @@ def isolated_repository(*records: Any) -> Iterator[AgentPlatformRepository]:
         with Session(engine, expire_on_commit=False) as db:
             db.add_all([copy_record(record) for record in records])
             db.commit()
-            yield AgentPlatformRepository(db)
+            yield AgentRunRepository(db)
     finally:
         engine.dispose()
 
@@ -96,8 +97,9 @@ def verify_sources(
             pass
         else:
             raise AssertionError("两个真实但不同的来源不能被认为是同一来源")
-    online_repo = AgentPlatformRepository(online)
-    reusable = online_repo.get_latest_successful_run_for_source(
+    online_repo = AgentRunRepository(online)
+    reusable = latest_successful_run_for_source(
+        online_repo,
         project_id=selected.project_id, user_id=selected.user_id,
         workflow_key=workflow.workflow_key, requirement_doc_id=document.id,
     )
@@ -109,7 +111,8 @@ def verify_sources(
     with isolated_repository(selected, document, workflow) as repo:
         copied = repo.get_run(run_id=selected.id)
         assert copied is not None
-        before = repo.get_latest_successful_run_for_source(
+        before = latest_successful_run_for_source(
+            repo,
             project_id=selected.project_id, user_id=selected.user_id,
             workflow_key=workflow.workflow_key, requirement_doc_id=document.id,
         )
@@ -139,12 +142,13 @@ def verify_sources(
         copied.run_context, copied.output_payload = context, output
         repo.db.commit()
         assert persisted_source_snapshot(copied) is None
-        projected = repo._source_run_rows(
+        projected = repo.list_run_sources(
             project_id=selected.project_id, user_id=selected.user_id,
             workflow_definition_ids=[workflow.id], statuses={"success"},
         )
         assert len(projected) == 1 and projected[0][2] is None
-        assert repo.get_latest_successful_run_for_source(
+        assert latest_successful_run_for_source(
+            repo,
             project_id=selected.project_id, user_id=selected.user_id,
             workflow_key=workflow.workflow_key, requirement_doc_id=document.id,
         ) is None
@@ -195,7 +199,7 @@ def verify_lifecycle(source: AgentRun, latest_event: AgentRunEvent | None) -> di
                 payload={"source_run_id": source.id, "from": previous, "to": target}, now=at,
             )
             assert changed
-            repo.commit()
+            repo.db.commit()
             steps.append(f"{previous}->{target}")
             events = repo.db.scalars(select(AgentRunEvent).where(
                 AgentRunEvent.run_id == run.id,
@@ -279,7 +283,7 @@ def verify_approval(online: Session) -> dict[str, Any]:
             repo, copied_run, "cancelled", event_type="verification_approval_closed",
             payload={"source_approval_id": approval.id}, now=at,
         )
-        repo.commit()
+        repo.db.commit()
         assert copied_approval.status == "rejected" and copied_approval.decided_at == at
         assert copied_approval.decision_payload["run_status"] == "cancelled"
         assert copied_approval.request_payload == request_before
@@ -329,7 +333,7 @@ def verify_node_finalization(online: Session, source: AgentRun) -> dict[str, Any
                 assert node is not None
                 assert repo.db.get(AgentNodeRun, node.id) is node
                 assert_node_state(node, index)
-            repo.commit()
+            repo.db.commit()
             with Session(repo.db.get_bind()) as persisted:
                 for index, node in enumerate(loaded_nodes):
                     assert node is not None
@@ -359,18 +363,18 @@ def verify_stale_worker_lease(source: AgentRun) -> dict[str, Any]:
             assert worker_run is not None
             at = datetime.utcnow().replace(microsecond=0)
             inject_running_state(worker_run, at)
-            worker_repo.commit()
+            worker_repo.db.commit()
             old_claim = worker_run.claim_token
             # 另一个真实 ORM 会话结束运行，使工作会话持有已过期的运行对象。
             with Session(worker_repo.db.get_bind()) as control_db:
-                control_repo = AgentPlatformRepository(control_db)
+                control_repo = AgentRunRepository(control_db)
                 current = control_repo.get_run_for_update(run_id=source.id)
                 assert current is not None
                 transition_run(
                     control_repo, current, terminal, event_type="verification_external_finish",
                     payload={"source_run_id": source.id}, now=at,
                 )
-                control_repo.commit()
+                control_repo.db.commit()
             assert worker_run.status == "running" and worker_run.claim_token == old_claim
             try:
                 _renew_progress_lease(worker_repo, worker_run)
@@ -396,9 +400,129 @@ def verify_stale_worker_lease(source: AgentRun) -> dict[str, Any]:
     }
 
 
+def verify_retention(online: Session, history: list[AgentRun]) -> dict[str, Any]:
+    workflows = {
+        workflow_id: online.get(AgentWorkflowDefinition, workflow_id)
+        for workflow_id in {run.workflow_definition_id for run in history}
+    }
+    assert all(workflow is not None for workflow in workflows.values())
+    groups: dict[tuple[int, int, str, str], list[AgentRun]] = {}
+    for run in history:
+        source = persisted_source_snapshot(run)
+        if source is None or run.status not in TERMINAL_RUN_STATUSES:
+            continue
+        workflow = workflows[run.workflow_definition_id]
+        key = (run.project_id, run.user_id, workflow.workflow_key, source.key)
+        groups.setdefault(key, []).append(run)
+    ordered_groups = [
+        (key, sorted(rows, key=lambda run: (run.finished_at or datetime.min, run.id), reverse=True))
+        for key, rows in groups.items()
+    ]
+    selected = next((
+        (key, rows) for key, rows in ordered_groups
+        if len(rows) >= 3 and rows[0].status == "success"
+        and any(run.status == "success" for run in rows[1:])
+    ), None)
+    if selected is None:
+        return {
+            "status": "not_tested",
+            "reason": "真实历史缺少三个同源终态运行，未构造业务内容",
+        }
+    key, same_source = selected
+    keep = same_source[0]
+    same_source_ids = {run.id for run in same_source}
+    different_source_ids = {
+        run.id for other_key, rows in groups.items()
+        if other_key[3] != key[3]
+        for run in rows
+    }
+    # 每个真实运行只取少量真实关联记录，证明清理确实落到节点和事件表。
+    children = [
+        row
+        for run in history
+        for model in (AgentNodeRun, AgentRunEvent)
+        for row in online.scalars(select(model).where(
+            model.run_id == run.id,
+        ).order_by(model.id).limit(1)).all()
+    ]
+    records = [*workflows.values(), *history, *children]
+    business = {
+        run.id: deepcopy((run.input_payload, run.run_context, run.output_payload))
+        for run in history
+    }
+    preserved_success = next(run for run in same_source[1:] if run.status == "success")
+    old_failure = next(run for run in reversed(same_source[1:]) if run.id != preserved_success.id)
+    results = {}
+    for scenario in ("success", "failed"):
+        with isolated_repository(*records) as repo:
+            status_changes = {}
+            if scenario == "failed":
+                # 仅改调度状态：新失败运行应淘汰旧失败记录，同时保留已有成功产物。
+                for original in (keep, old_failure):
+                    copied = repo.get_run(run_id=original.id)
+                    assert copied is not None
+                    copied.status = "failed"
+                    status_changes[original.id] = {"from": original.status, "to": "failed"}
+                repo.db.commit()
+            expected_deleted = {
+                run.id for run in same_source[1:]
+                if scenario == "success" or run.id == old_failure.id or run.status != "success"
+            }
+            deleted = repo.prune_terminal_run_history(
+                project_id=keep.project_id, user_id=keep.user_id,
+                workflow_definition_id=keep.workflow_definition_id,
+                keep_run_id=keep.id, limit=1,
+            )
+            assert set(deleted) == expected_deleted
+            repo.db.commit()
+            deleted_children = {}
+            with Session(repo.db.get_bind()) as persisted:
+                remaining = persisted.scalars(select(AgentRun)).all()
+                remaining_ids = {run.id for run in remaining}
+                assert remaining_ids == {run.id for run in history} - expected_deleted
+                assert keep.id in remaining_ids and different_source_ids <= remaining_ids
+                for run in remaining:
+                    assert (run.input_payload, run.run_context, run.output_payload) == business[run.id]
+                for model in (AgentNodeRun, AgentRunEvent):
+                    copied_children = [row for row in children if isinstance(row, model)]
+                    removed_ids = {row.id for row in copied_children if row.run_id in expected_deleted}
+                    assert removed_ids, f"缺少可验证删除的真实 {model.__tablename__} 记录"
+                    remaining_child_ids = set(persisted.scalars(select(model.id)).all())
+                    assert remaining_child_ids == {row.id for row in copied_children} - removed_ids
+                    deleted_children[model.__tablename__] = sorted(removed_ids)
+                if scenario == "failed":
+                    retained_success = persisted.get(AgentRun, preserved_success.id)
+                    assert retained_success is not None and retained_success.status == "success"
+                    assert persisted_test_generation_result(retained_success) is not None
+            results[scenario] = {
+                "status": "passed", "keep_run_id": keep.id,
+                "injected_status_changes": status_changes,
+                "deleted_run_ids": sorted(deleted), "remaining_run_ids": sorted(remaining_ids),
+                "other_source_run_ids_preserved": sorted(different_source_ids),
+                "deleted_real_child_ids": deleted_children,
+                "business_payload_preserved": "passed",
+                "successful_result_preserved_run_id": preserved_success.id if scenario == "failed" else None,
+            }
+    return {
+        "status": "passed", "source_run_ids": [run.id for run in history],
+        "same_source_run_ids": sorted(same_source_ids), "source_key": key[3],
+        "different_source_scopes": [
+            {"run_id": run.id, "project_id": run.project_id,
+             "workflow_definition_id": run.workflow_definition_id}
+            for run in history if run.id in different_source_ids
+        ],
+        "same_project_workflow_different_source": (
+            "passed" if any(other_key[:3] == key[:3] and other_key[3] != key[3] for other_key in groups)
+            else "not_tested_no_real_records"
+        ),
+        "replays": results, "mysql_row_lock_concurrency": "not_tested_in_sqlite",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", type=int, help="默认选择最近一个有文档来源证据的成功运行")
+    parser.add_argument("--output", type=Path, help="保存结构化验证报告")
     args = parser.parse_args()
     with SessionLocal(autoflush=False) as online:
         online.execute(text("SET TRANSACTION READ ONLY"))
@@ -420,6 +544,7 @@ def main() -> None:
             "node_finalization": verify_node_finalization(online, selected),
             "stale_worker_lease": verify_stale_worker_lease(selected),
             "approval": verify_approval(online),
+            "retention": verify_retention(online, history),
             "online_transaction": "READ ONLY",
             "online_database_writes": 0,
             "model_calls": 0,
@@ -427,7 +552,11 @@ def main() -> None:
         }
         assert not online.new and not online.dirty and not online.deleted
         online.rollback()
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    encoded = json.dumps(report, ensure_ascii=False, indent=2)
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(encoded + "\n", encoding="utf-8")
+    print(encoded)
 
 
 if __name__ == "__main__":

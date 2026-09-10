@@ -9,14 +9,14 @@ from core.db.database import SessionLocal
 from core.db.model_defs import AgentRun
 from core.settings.config import settings
 from .dispatcher import start_agent_run_worker
-from .repository import AgentPlatformRepository
+from .run_repository import AgentRunRepository
 from .lifecycle import transition_run
 from .retention import prune_terminal_run_history
 
 
 def recover_expired_agent_runs(*, limit: int = 20) -> dict[str, Any]:
     db = SessionLocal()
-    repo = AgentPlatformRepository(db)
+    repo = AgentRunRepository(db)
     recovered: list[int] = []
     expired: list[int] = []
     try:

@@ -73,7 +73,7 @@ def test_recovery_orders_only_run_ids_before_loading_large_json_rows(monkeypatch
     repository = _FakeRepository(db)
     dispatched: list[int] = []
     monkeypatch.setattr(recovery, "SessionLocal", lambda: db)
-    monkeypatch.setattr(recovery, "AgentPlatformRepository", lambda current_db: repository)
+    monkeypatch.setattr(recovery, "AgentRunRepository", lambda current_db: repository)
     monkeypatch.setattr(recovery, "start_agent_run_worker", dispatched.append)
 
     result = recovery.recover_expired_agent_runs(limit=20)
@@ -113,7 +113,7 @@ def test_recovery_marks_run_failed_when_global_deadline_has_expired(monkeypatch)
     dispatched: list[int] = []
     pruned_run_ids: list[int] = []
     monkeypatch.setattr(recovery, "SessionLocal", lambda: db)
-    monkeypatch.setattr(recovery, "AgentPlatformRepository", lambda current_db: repository)
+    monkeypatch.setattr(recovery, "AgentRunRepository", lambda current_db: repository)
     monkeypatch.setattr(recovery, "start_agent_run_worker", dispatched.append)
     monkeypatch.setattr(
         recovery,

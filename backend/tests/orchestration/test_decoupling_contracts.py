@@ -281,7 +281,7 @@ def test_evaluation_history_does_not_write_back_to_knowledge_base() -> None:
     assert '"/evaluation/history/{project_id}"' in route_content
     assert '"/evaluation/latest-supplement/{project_id}"' not in route_content
     assert '"/evaluation/save-knowledge"' not in route_content
-    assert "AgentPlatformRepository" in route_content
+    assert "AgentRunRepository" in route_content
     assert "KnowledgeDocument" not in route_content
     assert "knowledge_base" not in route_content
 

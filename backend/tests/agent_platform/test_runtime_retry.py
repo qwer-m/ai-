@@ -682,7 +682,7 @@ def test_standard_agent_postprocessor_runs_once_with_raw_node_input(
 
     node = _agent_node()
     node.input_mapping = {"requirement": "input.requirement"}
-    executed = runtime._execute_node_with_retry(repo, run, node, {})
+    executed = runtime._execute_node_with_retry(repo, run, node, {}, definitions=repo)
 
     assert executed is not None
     assert executed[1] == {"ok": True, "processed_with": raw_input}
@@ -713,6 +713,7 @@ def test_agent_network_node_uses_standard_agent_runtime_inside_dag(
         run,
         _agent_node(node_type="agent_network"),
         {},
+        definitions=repo,
     )
 
     assert executed is not None
@@ -741,7 +742,7 @@ def test_standard_agent_retries_504_as_new_node_attempt(monkeypatch: pytest.Monk
     monkeypatch.setattr(runtime, "run_agent", execute_agent)
     monkeypatch.setattr(runtime.time, "sleep", lambda _: None)
 
-    executed = runtime._execute_node_with_retry(repo, run, _agent_node(), {})
+    executed = runtime._execute_node_with_retry(repo, run, _agent_node(), {}, definitions=repo)
 
     assert executed is not None
     assert executed[1] == {"summary": "处理完成"}
@@ -810,6 +811,7 @@ def test_standard_agent_disables_server_schema_after_capability_error(
         run,
         _agent_node(max_attempts=2),
         {},
+        definitions=repo,
     )
 
     assert executed is not None
@@ -868,6 +870,7 @@ def test_standard_agent_separates_capability_transient_and_content_budgets(
         run,
         _agent_node(max_attempts=2),
         {},
+        definitions=repo,
     )
 
     assert executed is not None
@@ -899,7 +902,7 @@ def test_standard_agent_hard_error_fails_without_retry(monkeypatch: pytest.Monke
     monkeypatch.setattr(runtime, "run_agent", execute_agent)
 
     with pytest.raises(ValueError, match="输出契约错误"):
-        runtime._execute_node_with_retry(repo, run, _agent_node(), {})
+        runtime._execute_node_with_retry(repo, run, _agent_node(), {}, definitions=repo)
 
     assert calls == 1
     assert [(item.attempt, item.status) for item in repo.node_runs] == [(1, "failed")]
@@ -946,7 +949,7 @@ def test_single_agent_instance_quota_blocks_model_call_before_dispatch(monkeypat
     monkeypatch.setattr(runtime, "run_agent", execute_agent)
 
     with pytest.raises(runtime._AgentQuotaExceeded, match="请求次数 2/1"):
-        runtime._execute_node_with_retry(repo, run, _agent_node(), {})
+        runtime._execute_node_with_retry(repo, run, _agent_node(), {}, definitions=repo)
 
     assert calls == 0
     assert run.run_context["usage"]["attempted_requests"] == 1
@@ -1011,7 +1014,7 @@ def test_tool_agent_reserves_all_possible_sdk_turns_within_quota(
 
     monkeypatch.setattr(runtime, "run_agent", execute_agent)
 
-    executed = runtime._execute_node_with_retry(repo, run, _agent_node(), {})
+    executed = runtime._execute_node_with_retry(repo, run, _agent_node(), {}, definitions=repo)
 
     assert calls == 1
     assert executed is not None
@@ -2345,7 +2348,7 @@ def test_parallel_agent_instance_loads_its_own_bound_tools(
     monkeypatch.setattr(runtime, "SessionLocal", lambda: worker_db)
     monkeypatch.setattr(
         runtime,
-        "AgentPlatformRepository",
+        "AgentDefinitionRepository",
         lambda db: SimpleNamespace(
             list_agent_tools=lambda definition_id, *, project_id: bound_tools,
         ),
@@ -3423,7 +3426,7 @@ def test_standard_agent_cancellation_prevents_retry_and_failure_transition(
     monkeypatch.setattr(runtime, "run_agent", execute_agent)
 
     with pytest.raises(runtime._RunCancelled, match="已取消"):
-        runtime._execute_node_with_retry(repo, run, _agent_node(), {})
+        runtime._execute_node_with_retry(repo, run, _agent_node(), {}, definitions=repo)
 
     assert calls == 1
     assert run.status == "cancelled"
@@ -3456,7 +3459,7 @@ def test_standard_agent_refreshes_cancellation_before_model_call(
     monkeypatch.setattr(runtime, "run_agent", execute_agent)
 
     with pytest.raises(runtime._RunCancelled, match="已取消"):
-        runtime._execute_node_with_retry(repo, run, _agent_node(), {})
+        runtime._execute_node_with_retry(repo, run, _agent_node(), {}, definitions=repo)
 
     assert calls == 0
     assert run.status == "cancelled"
@@ -3506,7 +3509,9 @@ def test_agent_map_does_not_enter_node_level_retry(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(runtime, "_execute_node", execute_node)
 
     with pytest.raises(TimeoutError, match="映射项超时"):
-        runtime._execute_node_with_retry(repo, run, _agent_node(node_type="agent_map"), {})
+        runtime._execute_node_with_retry(
+            repo, run, _agent_node(node_type="agent_map"), {}, definitions=repo,
+        )
 
     assert calls == 1
     assert repo.events == []

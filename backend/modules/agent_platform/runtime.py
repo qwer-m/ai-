@@ -39,7 +39,8 @@ from .contracts import (
     parse_execution_definition,
 )
 from .registry import ToolExecutionContext, runtime_registry_signature, tool_registry
-from .repository import AgentPlatformRepository
+from .run_repository import AgentRunRepository
+from .definition_repository import AgentDefinitionRepository
 from .lifecycle import release_run_lease, renew_run_lease, transition_run
 from .retention import prune_terminal_run_history
 from .sources import assert_same_source, persisted_source_snapshot
@@ -181,7 +182,7 @@ def _agent_map_request_timeout_seconds(
 
 
 def _event(
-    repo: AgentPlatformRepository,
+    repo: AgentRunRepository,
     run: AgentRun,
     event_type: str,
     payload: dict[str, Any],
@@ -203,15 +204,15 @@ def _persistent_error_message(exc: Exception, *, max_chars: int = 4000) -> str:
 
 
 def _refresh_run_is_cancelled(
-    repo: AgentPlatformRepository,
+    repo: AgentRunRepository,
     run: AgentRun,
 ) -> bool:
-    repo.refresh(run)
+    repo.db.refresh(run)
     return run.status == "cancelled"
 
 
 def _mark_node_cancelled(
-    repo: AgentPlatformRepository,
+    repo: AgentRunRepository,
     run: AgentRun,
     node_run: AgentNodeRun,
     *,
@@ -235,7 +236,7 @@ def _mark_node_cancelled(
     release_run_lease(run)
     repo.db.add(node_run)
     repo.db.add(run)
-    repo.commit()
+    repo.db.commit()
 
 
 def _renew_run_lease(run_id: int) -> str | None:
@@ -243,7 +244,7 @@ def _renew_run_lease(run_id: int) -> str | None:
 
     heartbeat_db = SessionLocal()
     try:
-        active_run = AgentPlatformRepository(heartbeat_db).get_run_for_update(run_id=run_id)
+        active_run = AgentRunRepository(heartbeat_db).get_run_for_update(run_id=run_id)
         if active_run is None:
             return None
         if active_run.status != "running":
@@ -257,7 +258,7 @@ def _renew_run_lease(run_id: int) -> str | None:
         heartbeat_db.close()
 
 
-def _renew_progress_lease(repo: AgentPlatformRepository, run: AgentRun) -> None:
+def _renew_progress_lease(repo: AgentRunRepository, run: AgentRun) -> None:
     """进度提交只刷新租约字段并持有行锁，避免旧会话续租已取消或重新认领的运行。"""
     claim_token = run.claim_token
     repo.db.refresh(
@@ -329,7 +330,7 @@ def _run_standard_agent(**arguments: Any) -> Any:
 
 
 def _claim_run(
-    repo: AgentPlatformRepository,
+    repo: AgentRunRepository,
     run_id: int,
     task_id: str | None,
 ) -> AgentRun | None:
@@ -358,8 +359,8 @@ def _claim_run(
     run.run_context = run_context
     renew_run_lease(run, now=now, lease_seconds=RUN_LEASE_SECONDS)
     repo.db.add(run)
-    repo.commit()
-    repo.refresh(run)
+    repo.db.commit()
+    repo.db.refresh(run)
     return run
 
 
@@ -402,7 +403,7 @@ def _node_input(
 
 
 def _approval_allows_execution(
-    repo: AgentPlatformRepository,
+    repo: AgentRunRepository,
     run: AgentRun,
     node: WorkflowNode,
     node_run: AgentNodeRun,
@@ -440,7 +441,7 @@ def _approval_allows_execution(
             payload={"approval_id": approval.id, "tool_key": tool.tool_key},
             node_run_id=node_run.id,
         )
-        repo.commit()
+        repo.db.commit()
     return False
 
 
@@ -505,7 +506,7 @@ def _agent_result_cache_input_hash(
 
 def _reusable_agent_node_output(
     *,
-    repo: AgentPlatformRepository,
+    repo: AgentRunRepository,
     run: AgentRun,
     node: WorkflowNode,
     definition: AgentDefinition,
@@ -1087,7 +1088,7 @@ def _validate_agent_instance_quota(
 
 def _reserve_agent_request(
     *,
-    repo: AgentPlatformRepository,
+    repo: AgentRunRepository,
     run: AgentRun,
     node_run: AgentNodeRun,
     definition: Any,
@@ -1135,7 +1136,7 @@ def _reserve_agent_request(
             },
             node_run=node_run,
         )
-        repo.commit()
+        repo.db.commit()
         raise
     usage["attempted_requests"] += 1
     run_context = dict(run.run_context or {})
@@ -1147,13 +1148,13 @@ def _reserve_agent_request(
     )
     run.run_context = run_context
     repo.db.add(run)
-    repo.commit()
+    repo.db.commit()
     return reservation
 
 
 def _record_agent_usage(
     *,
-    repo: AgentPlatformRepository,
+    repo: AgentRunRepository,
     run: AgentRun,
     node_run: AgentNodeRun,
     current: dict[str, int],
@@ -1203,7 +1204,7 @@ def _record_agent_usage(
     )
     run.run_context = run_context
     repo.db.add(run)
-    repo.commit()
+    repo.db.commit()
 
 
 def _is_retryable_agent_error(exc: Exception) -> bool:
@@ -1720,16 +1721,18 @@ def _agent_map_item_label(item_input: dict[str, Any], *, item_index: int) -> str
 
 
 def _execute_node_with_retry(
-    repo: AgentPlatformRepository,
+    repo: AgentRunRepository,
     run: AgentRun,
     node: WorkflowNode,
     dependency_outputs: dict[str, dict[str, Any]],
+    *,
+    definitions: AgentDefinitionRepository,
 ) -> tuple[AgentNodeRun, dict[str, Any]] | None:
     """仅为普通 Agent 节点调度持久化重试，映射节点维持逐项重试语义。"""
 
     while True:
         try:
-            return _execute_node(repo, run, node, dependency_outputs)
+            return _execute_node(repo, run, node, dependency_outputs, definitions=definitions)
         except _RunCancelled:
             raise
         except Exception as exc:
@@ -1821,7 +1824,7 @@ def _execute_node_with_retry(
                     node_run=latest,
                 )
             repo.db.add(latest)
-            repo.commit()
+            repo.db.commit()
             if not can_retry:
                 raise exc
 
@@ -1857,7 +1860,7 @@ async def _run_parallel_agent_instance(
             run_input=deepcopy(execution_context.run_input),
             artifacts=deepcopy(execution_context.artifacts),
         )
-        worker_tools = AgentPlatformRepository(worker_db).list_agent_tools(
+        worker_tools = AgentDefinitionRepository(worker_db).list_agent_tools(
             worker_definition.id,
             project_id=execution_context.project_id,
         )
@@ -1900,7 +1903,7 @@ def _unsafe_parallel_tool_keys(tools: list[Any]) -> list[str]:
 
 async def _execute_agent_map_parallel_async(
     *,
-    repo: AgentPlatformRepository,
+    repo: AgentRunRepository,
     run: AgentRun,
     node: WorkflowNode,
     node_run: AgentNodeRun,
@@ -2120,7 +2123,7 @@ async def _execute_agent_map_parallel_async(
         node_run.sdk_state = current_sdk_state()
         repo.db.add(node_run)
         repo.db.add(run)
-        repo.commit()
+        repo.db.commit()
 
     def adjust_concurrency(*, target: int, reason: str, failure_kind: str = "") -> None:
         """记录实际并发变化，使重试调度与诊断共享同一事实。"""
@@ -2691,7 +2694,7 @@ async def _execute_agent_map_parallel_async(
             ),
         }
         repo.db.add(node_run)
-        repo.commit()
+        repo.db.commit()
         raise fatal_error
     return current_output(), current_sdk_state()
 
@@ -2704,7 +2707,7 @@ def _execute_agent_map_parallel(
 
 def _execute_agent_map(
     *,
-    repo: AgentPlatformRepository,
+    repo: AgentRunRepository,
     run: AgentRun,
     node: WorkflowNode,
     node_run: AgentNodeRun,
@@ -3074,7 +3077,7 @@ def _execute_agent_map(
 
 
 def _persisted_dependency_outputs(
-    repo: AgentPlatformRepository,
+    repo: AgentRunRepository,
     *,
     run_id: int,
 ) -> dict[str, dict[str, Any]]:
@@ -3091,10 +3094,12 @@ def _persisted_dependency_outputs(
 
 
 def _execute_node(
-    repo: AgentPlatformRepository,
+    repo: AgentRunRepository,
     run: AgentRun,
     node: WorkflowNode,
     dependency_outputs: dict[str, dict[str, Any]],
+    *,
+    definitions: AgentDefinitionRepository,
 ) -> tuple[AgentNodeRun, dict[str, Any]] | None:
     _renew_progress_lease(repo, run)
     _ensure_run_deadline(run, node_key=node.node_key)
@@ -3158,7 +3163,7 @@ def _execute_node(
         {"node_key": node.node_key, "node_type": node.node_type, "attempt": attempt},
         node_run=node_run,
     )
-    repo.commit()
+    repo.db.commit()
 
     run_context = deepcopy(run.run_context or {})
     artifacts = deepcopy(run_context.get("artifacts") or {})
@@ -3172,7 +3177,7 @@ def _execute_node(
         artifacts=artifacts,
     )
     if node.node_type in {"agent", "agent_network", "agent_map"}:
-        definition = repo.get_agent(
+        definition = definitions.get_agent(
             project_id=run.project_id,
             agent_key=node.reference_key,
         )
@@ -3227,7 +3232,7 @@ def _execute_node(
             )
             repo.db.add(node_run)
             repo.db.add(run)
-            repo.commit()
+            repo.db.commit()
             return node_run, output
         model_metadata = resolve_agent_model_metadata(
             db=repo.db,
@@ -3239,8 +3244,8 @@ def _execute_node(
             "model": model_metadata,
         }
         repo.db.add(node_run)
-        repo.commit()
-        tools = repo.list_agent_tools(definition.id, project_id=run.project_id)
+        repo.db.commit()
+        tools = definitions.list_agent_tools(definition.id, project_id=run.project_id)
         if node.node_type == "agent_map":
             output, sdk_state = _execute_agent_map(
                 repo=repo,
@@ -3288,7 +3293,7 @@ def _execute_node(
                 **retry_state.checkpoint(),
             }
             repo.db.add(node_run)
-            repo.commit()
+            repo.db.commit()
             reservation = _reserve_agent_request(
                 repo=repo,
                 run=run,
@@ -3354,7 +3359,7 @@ def _execute_node(
                 },
             }
     else:
-        tool = repo.get_tool(
+        tool = definitions.get_tool(
             project_id=run.project_id,
             tool_key=node.reference_key,
         )
@@ -3408,7 +3413,7 @@ def _execute_node(
     )
     repo.db.add(node_run)
     repo.db.add(run)
-    repo.commit()
+    repo.db.commit()
     return node_run, output
 
 
@@ -3420,7 +3425,8 @@ def run_agent_workflow(
 ) -> dict[str, Any]:
     owns_session = db is None
     active_db = db or SessionLocal()
-    repo = AgentPlatformRepository(active_db)
+    repo = AgentRunRepository(active_db)
+    definitions = AgentDefinitionRepository(active_db)
     claimed_token: str | None = None
     try:
         run = _claim_run(repo, run_id, task_id)
@@ -3469,6 +3475,7 @@ def run_agent_workflow(
                     run,
                     node,
                     dependency_outputs,
+                    definitions=definitions,
                 )
                 if executed is None:
                     return {"status": "waiting_approval", "run_id": run.id}
@@ -3484,7 +3491,7 @@ def run_agent_workflow(
             graph = execution
             output_node_key = graph.output_node_key
             for node in graph.execution_order():
-                repo.refresh(run)
+                repo.db.refresh(run)
                 if run.status == "cancelled":
                     return {"status": "cancelled", "run_id": run.id}
                 previous = repo.latest_node_run(run_id=run.id, node_key=node.node_key)
@@ -3496,6 +3503,7 @@ def run_agent_workflow(
                     run,
                     node,
                     dependency_outputs,
+                    definitions=definitions,
                 )
                 if executed is None:
                     return {"status": "waiting_approval", "run_id": run.id}
@@ -3518,7 +3526,7 @@ def run_agent_workflow(
             repo, run, "success", event_type="run_completed",
             payload={"output_node_key": output_node_key}, now=_now(),
         )
-        repo.commit()
+        repo.db.commit()
         prune_terminal_run_history(repo, run)
         return {"status": "success", "run_id": run.id}
     except _RunCancelled:
@@ -3560,7 +3568,7 @@ def run_agent_workflow(
                 node_run_id=latest.id if latest is not None else None,
             )
             repo.db.add(run)
-            repo.commit()
+            repo.db.commit()
             prune_terminal_run_history(repo, run)
         raise
     finally:

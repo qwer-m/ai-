@@ -8,7 +8,7 @@ from modules.orchestration.background_task_governance import (
     submit_background_task,
 )
 from modules.orchestration.task_dispatcher import TaskDispatchResult
-from .repository import AgentPlatformRepository
+from .run_repository import AgentRunRepository
 from .lifecycle import transition_run
 
 
@@ -41,7 +41,7 @@ def start_agent_run_worker(run_id: int) -> TaskDispatchResult:
         )
         db = SessionLocal()
         try:
-            repo = AgentPlatformRepository(db)
+            repo = AgentRunRepository(db)
             run = repo.get_run_for_update(run_id=run_id)
             if run is not None:
                 if _can_record_dispatched_task(run, result.task_id):
@@ -63,7 +63,7 @@ def start_agent_run_worker(run_id: int) -> TaskDispatchResult:
     except Exception as exc:
         db = SessionLocal()
         try:
-            repo = AgentPlatformRepository(db)
+            repo = AgentRunRepository(db)
             run = repo.get_run_for_update(run_id=run_id)
             if run is not None:
                 error_message = f"任务投递失败: {type(exc).__name__}: {exc}"

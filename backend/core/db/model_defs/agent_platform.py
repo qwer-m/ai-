@@ -1,3 +1,5 @@
+from sqlalchemy import Computed
+
 from ._shared import (
     Base,
     Boolean,
@@ -19,10 +21,10 @@ class AgentDefinition(Base):
     __tablename__ = "agent_definitions"
     __table_args__ = (
         UniqueConstraint(
-            "project_id",
+            "project_scope_id",
             "agent_key",
             "version",
-            name="uq_agent_definition_project_key_version",
+            name="uq_agent_definition_scope_key_version",
         ),
     )
 
@@ -30,6 +32,10 @@ class AgentDefinition(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     # NULL 表示全局内置模板；非 NULL 表示项目覆盖定义。
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=True, index=True)
+    # 全局作用域归一为 0，使数据库唯一约束也能覆盖 project_id=NULL 的模板。
+    project_scope_id = Column(
+        Integer, Computed("coalesce(project_id, 0)", persisted=True), nullable=False,
+    )
     agent_key = Column(String(120), nullable=False, index=True)
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=False, default="")

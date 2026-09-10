@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 from core.authn.auth import get_current_user
 from core.db.database import get_db
 from core.db.model_defs import User
-from modules.agent_platform.repository import AgentPlatformRepository
+from modules.agent_platform.run_repository import AgentRunRepository
+from modules.system_components.repositories.project_repository import ProjectRepository
 
 router = APIRouter()
 
@@ -20,10 +21,11 @@ def get_evaluation_history(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    repo = AgentPlatformRepository(db)
-    if repo.get_owned_project(project_id=project_id, user_id=current_user.id) is None:
+    projects = ProjectRepository(db)
+    if projects.get_owned_project(project_id=project_id, user_id=current_user.id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    run_items = repo.list_runs(
+    runs = AgentRunRepository(db)
+    run_items = runs.list_runs(
         project_id=project_id,
         user_id=current_user.id,
         limit=50,

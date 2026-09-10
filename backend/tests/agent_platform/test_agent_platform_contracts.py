@@ -39,11 +39,9 @@ from modules.agent_platform.registry import (
 from modules.agent_platform.document_agent_tools import _public_layout_blocks
 from modules.agent_platform import sdk_adapter
 from modules.agent_platform.runtime import _node_input
-from modules.agent_platform.repository import (
-    AgentPlatformRepository,
-    _terminal_run_ids_to_delete,
-)
-from modules.agent_platform.sources import historical_source_snapshot
+from modules.agent_platform.run_repository import AgentRunRepository
+from modules.agent_platform.retention import terminal_run_ids_to_delete
+from modules.agent_platform.sources import RunSourceRecord, historical_source_snapshot
 from modules.agent_platform.serialization import serialize_node_run, serialize_run_summary
 from modules.agent_platform.service import _initial_run_context, _resolved_execution_limits
 from modules.agent_platform.service import _restorable_node_runs, _restored_checkpoint_sdk_state
@@ -189,7 +187,7 @@ def test_active_run_query_prefers_running_then_oldest_pending() -> None:
     pending_new = SimpleNamespace(id=5, status="pending")
     running = SimpleNamespace(id=4, status="running")
     db = SimpleNamespace(query=lambda _model: Query([pending_new, running, pending_old]))
-    repository = AgentPlatformRepository(db)
+    repository = AgentRunRepository(db)
 
     assert repository.get_active_run(project_id=2, user_id=1) is running
 
@@ -238,7 +236,7 @@ def test_run_history_pruning_does_not_load_large_run_payloads() -> None:
             queried_entities.append(entities)
             return Query(entities)
 
-    repository = AgentPlatformRepository(Database())
+    repository = AgentRunRepository(Database())
 
     deleted_ids = repository.prune_terminal_run_history(
         project_id=2,
@@ -268,13 +266,13 @@ def test_document_run_without_snapshot_cannot_infer_historical_source() -> None:
 def test_successful_regeneration_only_replaces_same_source_runs() -> None:
     finished_at = datetime(2026, 9, 3, 12, 0, 0)
     rows = [
-        (12, finished_at, "document-sha256:same", "success"),
-        (11, finished_at, "document-sha256:other", "success"),
-        (10, finished_at, "document-sha256:same", "success"),
-        (9, finished_at, "document-sha256:same", "failed"),
+        RunSourceRecord(12, finished_at, "document-sha256:same", "success"),
+        RunSourceRecord(11, finished_at, "document-sha256:other", "success"),
+        RunSourceRecord(10, finished_at, "document-sha256:same", "success"),
+        RunSourceRecord(9, finished_at, "document-sha256:same", "failed"),
     ]
 
-    assert _terminal_run_ids_to_delete(
+    assert terminal_run_ids_to_delete(
         rows,
         keep_run_id=12,
         limit=1,
@@ -284,12 +282,12 @@ def test_successful_regeneration_only_replaces_same_source_runs() -> None:
 def test_failed_regeneration_keeps_successful_reusable_result() -> None:
     finished_at = datetime(2026, 9, 3, 12, 0, 0)
     rows = [
-        (13, finished_at, "document-sha256:same", "failed"),
-        (12, finished_at, "document-sha256:same", "success"),
-        (9, finished_at, "document-sha256:same", "failed"),
+        RunSourceRecord(13, finished_at, "document-sha256:same", "failed"),
+        RunSourceRecord(12, finished_at, "document-sha256:same", "success"),
+        RunSourceRecord(9, finished_at, "document-sha256:same", "failed"),
     ]
 
-    assert _terminal_run_ids_to_delete(
+    assert terminal_run_ids_to_delete(
         rows,
         keep_run_id=13,
         limit=1,
