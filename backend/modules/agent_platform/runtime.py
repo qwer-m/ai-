@@ -9,6 +9,7 @@ import inspect
 import json
 import math
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from jsonschema import validate
@@ -78,6 +79,55 @@ _STRUCTURED_OUTPUT_DEGENERATION_REASONS = frozenset(
     }
 )
 _ORIGINAL_RUN_AGENT = run_agent
+
+
+@dataclass(frozen=True)
+class _AgentMapCheckpoint:
+    """统一构造 agent_map 的输出检查点，避免并发与串行路径各自拼装状态。"""
+
+    output_key: str
+    total_count: int
+    model_metadata: dict[str, str]
+
+    def output(self, records: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            self.output_key: records,
+            "completed_count": len(records),
+            "total_count": self.total_count,
+        }
+
+    def state(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        usage: dict[str, int],
+        attempted_requests: int,
+        failure_counts: dict[str, int],
+        last_agent_name: str = "",
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        state = {
+            "last_agent_name": last_agent_name,
+            "model": self.model_metadata,
+            "usage": usage,
+            "attempted_requests": attempted_requests,
+            "failure_counts": failure_counts,
+            "items": items,
+        }
+        if extra:
+            state.update(extra)
+        return state
+
+
+@dataclass(frozen=True)
+class _NodeExecutionSetup:
+    """节点执行前已经确定的恢复、输入和运行上下文。"""
+
+    previous: AgentNodeRun | None
+    node_run: AgentNodeRun
+    node_input: dict[str, Any]
+    attempt: int
+    execution_context: ToolExecutionContext
 
 
 class _RunCancelled(RuntimeError):
@@ -2059,37 +2109,40 @@ async def _execute_agent_map_parallel_async(
             states.append(state)
         return states
 
+    checkpoint = _AgentMapCheckpoint(
+        output_key=config.output_key,
+        total_count=total_count,
+        model_metadata=model_metadata,
+    )
+
     def current_output() -> dict[str, Any]:
-        return {
-            config.output_key: ordered_records(),
-            "completed_count": len(completed_by_index),
-            "total_count": total_count,
-        }
+        return checkpoint.output(ordered_records())
 
     def current_sdk_state() -> dict[str, Any]:
         states = ordered_states()
         successful = [item for item in states if item.get("status") == "success"]
-        return {
-            "last_agent_name": successful[-1].get("last_agent_name", "") if successful else "",
-            "model": model_metadata,
-            "usage": aggregate_usage,
-            "attempted_requests": attempted_requests,
-            "failure_counts": failure_counts,
-            "concurrency_adjustments": concurrency_adjustments,
-            "items": states,
-            "parallelism": {
-                "max_concurrency": max_concurrency,
-                "min_concurrency": min_concurrency,
-                "effective_concurrency": effective_concurrency,
-                "pressure_failures": pressure_failures_since_concurrency_adjustment,
-                "active_instances": len(pending),
-                "retry_waiting_instances": sum(
-                    item.get("status") == "retrying" for item in states
-                ),
-                "completed_instances": len(completed_by_index),
-                "total_instances": total_count,
+        return checkpoint.state(
+            states,
+            usage=aggregate_usage,
+            attempted_requests=attempted_requests,
+            failure_counts=failure_counts,
+            last_agent_name=successful[-1].get("last_agent_name", "") if successful else "",
+            extra={
+                "concurrency_adjustments": concurrency_adjustments,
+                "parallelism": {
+                    "max_concurrency": max_concurrency,
+                    "min_concurrency": min_concurrency,
+                    "effective_concurrency": effective_concurrency,
+                    "pressure_failures": pressure_failures_since_concurrency_adjustment,
+                    "active_instances": len(pending),
+                    "retry_waiting_instances": sum(
+                        item.get("status") == "retrying" for item in states
+                    ),
+                    "completed_instances": len(completed_by_index),
+                    "total_instances": total_count,
+                },
             },
-        }
+        )
 
     def take_ready_index() -> int | None:
         """优先取已到期重试，再取尚未执行项；退避期间不阻塞新任务。"""
@@ -2766,24 +2819,24 @@ def _execute_agent_map(
     item_states = list(previous_state.get("items") or [])
     failed_item_state = deepcopy(dict(previous_state.get("failed_item") or {}))
     total_count = len(raw_items)
+    checkpoint = _AgentMapCheckpoint(
+        output_key=config.output_key,
+        total_count=total_count,
+        model_metadata=model_metadata,
+    )
 
     def current_output() -> dict[str, Any]:
-        return {
-            config.output_key: completed,
-            "completed_count": len(completed),
-            "total_count": total_count,
-        }
+        return checkpoint.output(completed)
 
     def current_sdk_state() -> dict[str, Any]:
-        return {
-            "last_agent_name": item_states[-1]["last_agent_name"] if item_states else "",
-            "model": model_metadata,
-            "usage": aggregate_usage,
-            "attempted_requests": attempted_requests,
-            "failure_counts": failure_counts,
-            "items": item_states,
-            **({"failed_item": failed_item_state} if failed_item_state else {}),
-        }
+        return checkpoint.state(
+            item_states,
+            usage=aggregate_usage,
+            attempted_requests=attempted_requests,
+            failure_counts=failure_counts,
+            last_agent_name=item_states[-1]["last_agent_name"] if item_states else "",
+            extra={"failed_item": failed_item_state} if failed_item_state else None,
+        )
 
     for index in range(len(completed), total_count):
         base_item_input = dict(raw_items[index])
@@ -3093,20 +3146,20 @@ def _persisted_dependency_outputs(
     }
 
 
-def _execute_node(
+def _prepare_node_execution(
     repo: AgentRunRepository,
     run: AgentRun,
     node: WorkflowNode,
     dependency_outputs: dict[str, dict[str, Any]],
-    *,
-    definitions: AgentDefinitionRepository,
-) -> tuple[AgentNodeRun, dict[str, Any]] | None:
+) -> _NodeExecutionSetup:
+    """准备节点执行所需的截止时间、恢复状态、输入和持久化上下文。"""
+
     _renew_progress_lease(repo, run)
     _ensure_run_deadline(run, node_key=node.node_key)
     run_context = deepcopy(run.run_context or {})
     global_deadline = _deadline_value(run_context.get("deadline_at"))
     if global_deadline is None:
-        # 兼容由内部测试或旧任务直接进入节点执行的路径，仍从真实执行时刻开始计时。
+        # 兼容内部测试或旧任务直接进入节点执行的路径。
         global_deadline = _now() + timedelta(
             seconds=int(settings.AGENT_RUN_DEADLINE_SECONDS)
         )
@@ -3123,6 +3176,7 @@ def _execute_node(
         int((global_deadline - _now()).total_seconds()),
     )
     run.run_context = run_context
+
     previous = repo.latest_node_run(run_id=run.id, node_key=node.node_key)
     if previous is not None and previous.status == "waiting_approval":
         node_run = previous
@@ -3155,6 +3209,7 @@ def _execute_node(
             node_run.sdk_state.pop("checkpoint_restore", None)
         repo.db.add(node_run)
         repo.db.flush()
+
     run.current_node_key = node.node_key
     _event(
         repo,
@@ -3165,8 +3220,6 @@ def _execute_node(
     )
     repo.db.commit()
 
-    run_context = deepcopy(run.run_context or {})
-    artifacts = deepcopy(run_context.get("artifacts") or {})
     execution_context = ToolExecutionContext(
         db=repo.db,
         user_id=run.user_id,
@@ -3174,8 +3227,314 @@ def _execute_node(
         run_id=run.id,
         node_key=node.node_key,
         run_input=dict(run.input_payload or {}),
-        artifacts=artifacts,
+        artifacts=deepcopy(run_context.get("artifacts") or {}),
     )
+    return _NodeExecutionSetup(
+        previous=previous,
+        node_run=node_run,
+        node_input=node_input,
+        attempt=attempt,
+        execution_context=execution_context,
+    )
+
+
+def _execute_agent_node(
+    repo: AgentRunRepository,
+    run: AgentRun,
+    node: WorkflowNode,
+    setup: _NodeExecutionSetup,
+    definition: Any,
+    tools: list[Any],
+) -> dict[str, Any]:
+    """执行已解析的 Agent 节点，统一 Agent、Agent Map 两种运行模式。"""
+
+    model_metadata = resolve_agent_model_metadata(
+        db=repo.db,
+        user_id=run.user_id,
+        agent_definition=definition,
+    )
+    setup.node_run.sdk_state = {
+        **dict(setup.node_run.sdk_state or {}),
+        "model": model_metadata,
+    }
+    repo.db.add(setup.node_run)
+    repo.db.commit()
+    if node.node_type == "agent_map":
+        output, sdk_state = _execute_agent_map(
+            repo=repo,
+            run=run,
+            node=node,
+            node_run=setup.node_run,
+            definition=definition,
+            model_metadata=model_metadata,
+            tools=tools,
+            execution_context=setup.execution_context,
+            node_input=setup.node_input,
+            previous=setup.previous,
+        )
+        setup.node_run.sdk_state = sdk_state
+    else:
+        if _refresh_run_is_cancelled(repo, run):
+            _mark_node_cancelled(repo, run, setup.node_run)
+            raise _RunCancelled(f"Agent Run {run.id} 已取消")
+        model_input, projection_diagnostics = _project_agent_map_input(
+            definition=definition,
+            raw_item=setup.node_input,
+        )
+        previous_state = dict(setup.previous.sdk_state or {}) if setup.previous is not None else {}
+        retry_state = RetryAttemptState.restore(previous_state)
+        if bool(
+            dict(getattr(definition, "runtime_config", {}) or {}).get(
+                "disable_server_output_schema"
+            )
+        ):
+            retry_state.server_output_schema_disabled = True
+        retry_feedback, repair_context = _restored_agent_retry_context(
+            previous_state,
+            setup.node_input,
+        )
+        if repair_context is not None:
+            model_input["_platform_repair"] = deepcopy(repair_context)
+        setup.node_run.sdk_state = {
+            **dict(setup.node_run.sdk_state or {}),
+            "retry_feedback": retry_feedback,
+            "repair_context": deepcopy(repair_context),
+            "input_hash": _payload_hash(setup.node_input),
+            "validation_diagnostics": _recent_agent_map_diagnostics(previous_state),
+            **retry_state.checkpoint(),
+        }
+        repo.db.add(setup.node_run)
+        repo.db.commit()
+        reservation = _reserve_agent_request(
+            repo=repo,
+            run=run,
+            node_run=setup.node_run,
+            definition=definition,
+            tools=tools,
+            input_payload=model_input,
+            quota_scope_key=f"{node.node_key}-instance-001",
+        )
+        result = _run_standard_agent(
+            db=repo.db,
+            agent_definition=definition,
+            tool_definitions=tools,
+            execution_context=setup.execution_context,
+            input_payload=model_input,
+            request_timeout_seconds=_request_timeout_seconds(
+                run,
+                definition,
+                node_key=node.node_key,
+            ),
+            retry_feedback=retry_feedback,
+            disable_server_output_schema=retry_state.server_output_schema_disabled,
+            disable_model_thinking=retry_state.model_thinking_disabled,
+            # 投影后的输入只供模型使用；后处理统一使用完整原始输入。
+            skip_output_postprocessor=True,
+        )
+        _record_agent_usage(
+            repo=repo,
+            run=run,
+            node_run=setup.node_run,
+            current=result.usage,
+            reservation=reservation,
+            quota_scope_key=f"{node.node_key}-instance-001",
+        )
+        output = _postprocess_agent_output(
+            agent_definition=definition,
+            execution_context=setup.execution_context,
+            input_payload=setup.node_input,
+            output=_restore_protected_repair_slots(
+                item_output=dict(result.output),
+                repair_context=repair_context,
+            ),
+        )
+        setup.node_run.sdk_state = {
+            "last_agent_name": result.last_agent_name,
+            "model": model_metadata,
+            "usage": result.usage,
+            "tool_calls": result.tool_calls,
+            **retry_state.checkpoint(),
+            "input_projection": projection_diagnostics,
+            "validation_diagnostics": _recent_agent_map_diagnostics(
+                setup.node_run.sdk_state
+            ),
+        }
+    cache_config = _agent_result_cache_config(definition)
+    if cache_config is not None:
+        setup.node_run.sdk_state = {
+            **dict(setup.node_run.sdk_state or {}),
+            "result_cache": {
+                "hit": False,
+                "version": str(cache_config["version"]),
+                "input_hash": _agent_result_cache_input_hash(
+                    definition,
+                    setup.node_input,
+                ),
+            },
+        }
+    return output
+
+
+def _execute_tool_node(
+    repo: AgentRunRepository,
+    run: AgentRun,
+    node: WorkflowNode,
+    setup: _NodeExecutionSetup,
+    definitions: AgentDefinitionRepository,
+) -> dict[str, Any] | None:
+    """解析并执行工具节点，统一输入投影、审批和 Schema 校验。"""
+
+    tool = definitions.get_tool(
+        project_id=run.project_id,
+        tool_key=node.reference_key,
+    )
+    if tool is None:
+        raise LookupError(f"找不到工具定义: {node.reference_key}")
+    setup.node_run.tool_definition_id = tool.id
+    repo.db.flush()
+    if tool.requires_approval and not _approval_allows_execution(
+        repo,
+        run,
+        node,
+        setup.node_run,
+        tool,
+        setup.node_input,
+    ):
+        return None
+    tool_schema = dict(tool.input_schema or {})
+    tool_input = setup.node_input
+    if not node.input_mapping and isinstance(tool_schema.get("properties"), dict):
+        allowed = set(tool_schema["properties"])
+        tool_input = {
+            key: value
+            for key, value in setup.node_input.items()
+            if key in allowed
+        }
+    setup.node_run.input_payload = tool_input
+    validate(instance=tool_input, schema=tool_schema)
+    output = tool_registry.resolve(tool.handler_key)(
+        setup.execution_context,
+        tool_input,
+    )
+    validate(instance=output, schema=dict(tool.output_schema or {}))
+    return output
+
+
+def _complete_node_execution(
+    repo: AgentRunRepository,
+    run: AgentRun,
+    node: WorkflowNode,
+    setup: _NodeExecutionSetup,
+    output: dict[str, Any],
+) -> tuple[AgentNodeRun, dict[str, Any]]:
+    """统一处理节点执行完成后的取消检查、artifact 合并和持久化。"""
+
+    if _refresh_run_is_cancelled(repo, run):
+        _mark_node_cancelled(
+            repo,
+            run,
+            setup.node_run,
+            output_payload=output,
+            sdk_state=dict(setup.node_run.sdk_state or {}),
+        )
+        raise _RunCancelled(f"Agent Run {run.id} 已取消")
+
+    _renew_progress_lease(repo, run)
+    latest_run_context = deepcopy(run.run_context or {})
+    latest_run_context["artifacts"] = setup.execution_context.artifacts
+    run.run_context = latest_run_context
+    setup.node_run.output_payload = output
+    setup.node_run.status = "success"
+    setup.node_run.finished_at = _now()
+    _event(
+        repo,
+        run,
+        "node_completed",
+        {"node_key": node.node_key, "attempt": setup.attempt},
+        node_run=setup.node_run,
+    )
+    repo.db.add(setup.node_run)
+    repo.db.add(run)
+    repo.db.commit()
+    return setup.node_run, output
+
+
+def _try_complete_cached_agent_node(
+    repo: AgentRunRepository,
+    run: AgentRun,
+    node: WorkflowNode,
+    setup: _NodeExecutionSetup,
+    definition: Any,
+) -> tuple[AgentNodeRun, dict[str, Any]] | None:
+    """命中 Agent 结果缓存时完成节点并记录来源证据。"""
+
+    reusable = _reusable_agent_node_output(
+        repo=repo,
+        run=run,
+        node=node,
+        definition=definition,
+        node_input=setup.node_input,
+    )
+    if reusable is None:
+        return None
+    _renew_progress_lease(repo, run)
+    source_node_run, output, cache_version, input_hash = reusable
+    setup.node_run.sdk_state = {
+        "result_cache": {
+            "hit": True,
+            "version": cache_version,
+            "input_hash": input_hash,
+            "source_run_id": int(source_node_run.run_id),
+            "source_node_run_id": int(source_node_run.id),
+            "source_duration_seconds": _node_duration_seconds(source_node_run),
+        }
+    }
+    setup.node_run.output_payload = output
+    setup.node_run.status = "success"
+    setup.node_run.finished_at = _now()
+    _event(
+        repo,
+        run,
+        "node_cache_hit",
+        {
+            "node_key": node.node_key,
+            "cache_version": cache_version,
+            "source_run_id": int(source_node_run.run_id),
+            "source_node_run_id": int(source_node_run.id),
+        },
+        node_run=setup.node_run,
+    )
+    _event(
+        repo,
+        run,
+        "node_completed",
+        {
+            "node_key": node.node_key,
+            "attempt": setup.attempt,
+            "cache_hit": True,
+        },
+        node_run=setup.node_run,
+    )
+    repo.db.add(setup.node_run)
+    repo.db.add(run)
+    repo.db.commit()
+    return setup.node_run, output
+
+
+def _execute_node(
+    repo: AgentRunRepository,
+    run: AgentRun,
+    node: WorkflowNode,
+    dependency_outputs: dict[str, dict[str, Any]],
+    *,
+    definitions: AgentDefinitionRepository,
+) -> tuple[AgentNodeRun, dict[str, Any]] | None:
+    setup = _prepare_node_execution(repo, run, node, dependency_outputs)
+    previous = setup.previous
+    node_run = setup.node_run
+    node_input = setup.node_input
+    attempt = setup.attempt
+    execution_context = setup.execution_context
     if node.node_type in {"agent", "agent_network", "agent_map"}:
         definition = definitions.get_agent(
             project_id=run.project_id,
@@ -3184,237 +3543,188 @@ def _execute_node(
         if definition is None:
             raise LookupError(f"找不到智能体定义: {node.reference_key}")
         node_run.agent_definition_id = definition.id
-        reusable = _reusable_agent_node_output(
+        cached = _try_complete_cached_agent_node(
             repo=repo,
             run=run,
             node=node,
+            setup=setup,
             definition=definition,
-            node_input=node_input,
         )
-        if reusable is not None:
-            _renew_progress_lease(repo, run)
-            source_node_run, output, cache_version, input_hash = reusable
-            node_run.sdk_state = {
-                "result_cache": {
-                    "hit": True,
-                    "version": cache_version,
-                    "input_hash": input_hash,
-                    "source_run_id": int(source_node_run.run_id),
-                    "source_node_run_id": int(source_node_run.id),
-                    "source_duration_seconds": _node_duration_seconds(source_node_run),
-                }
-            }
-            node_run.output_payload = output
-            node_run.status = "success"
-            node_run.finished_at = _now()
-            _event(
-                repo,
-                run,
-                "node_cache_hit",
-                {
-                    "node_key": node.node_key,
-                    "cache_version": cache_version,
-                    "source_run_id": int(source_node_run.run_id),
-                    "source_node_run_id": int(source_node_run.id),
-                },
-                node_run=node_run,
-            )
-            _event(
-                repo,
-                run,
-                "node_completed",
-                {
-                    "node_key": node.node_key,
-                    "attempt": attempt,
-                    "cache_hit": True,
-                },
-                node_run=node_run,
-            )
-            repo.db.add(node_run)
-            repo.db.add(run)
-            repo.db.commit()
-            return node_run, output
-        model_metadata = resolve_agent_model_metadata(
-            db=repo.db,
-            user_id=run.user_id,
-            agent_definition=definition,
-        )
-        node_run.sdk_state = {
-            **dict(node_run.sdk_state or {}),
-            "model": model_metadata,
-        }
-        repo.db.add(node_run)
-        repo.db.commit()
+        if cached is not None:
+            return cached
         tools = definitions.list_agent_tools(definition.id, project_id=run.project_id)
-        if node.node_type == "agent_map":
-            output, sdk_state = _execute_agent_map(
-                repo=repo,
-                run=run,
-                node=node,
-                node_run=node_run,
-                definition=definition,
-                model_metadata=model_metadata,
-                tools=tools,
-                execution_context=execution_context,
-                node_input=node_input,
-                previous=previous,
-            )
-            node_run.sdk_state = sdk_state
-        else:
-            if _refresh_run_is_cancelled(repo, run):
-                _mark_node_cancelled(repo, run, node_run)
-                raise _RunCancelled(f"Agent Run {run.id} 已取消")
-            model_input, projection_diagnostics = _project_agent_map_input(
-                definition=definition,
-                raw_item=node_input,
-            )
-            retry_state = RetryAttemptState.restore(
-                dict(previous.sdk_state or {}) if previous is not None else {},
-            )
-            if bool(
-                dict(getattr(definition, "runtime_config", {}) or {}).get(
-                    "disable_server_output_schema"
-                )
-            ):
-                retry_state.server_output_schema_disabled = True
-            retry_feedback, repair_context = _restored_agent_retry_context(
-                dict(previous.sdk_state or {}) if previous is not None else {}, node_input,
-            )
-            if repair_context is not None:
-                model_input["_platform_repair"] = deepcopy(repair_context)
-            node_run.sdk_state = {
-                **dict(node_run.sdk_state or {}),
-                "retry_feedback": retry_feedback,
-                "repair_context": deepcopy(repair_context),
-                "input_hash": _payload_hash(node_input),
-                "validation_diagnostics": _recent_agent_map_diagnostics(
-                    dict(previous.sdk_state or {}) if previous is not None else {},
-                ),
-                **retry_state.checkpoint(),
-            }
-            repo.db.add(node_run)
-            repo.db.commit()
-            reservation = _reserve_agent_request(
-                repo=repo,
-                run=run,
-                node_run=node_run,
-                definition=definition,
-                tools=tools,
-                input_payload=model_input,
-                quota_scope_key=f"{node.node_key}-instance-001",
-            )
-            result = _run_standard_agent(
-                db=repo.db,
-                agent_definition=definition,
-                tool_definitions=tools,
-                execution_context=execution_context,
-                input_payload=model_input,
-                request_timeout_seconds=_request_timeout_seconds(
-                    run,
-                    definition,
-                    node_key=node.node_key,
-                ),
-                retry_feedback=retry_feedback,
-                disable_server_output_schema=retry_state.server_output_schema_disabled,
-                disable_model_thinking=retry_state.model_thinking_disabled,
-                # 投影后的输入只供模型使用；后处理统一在本层用完整原始输入执行一次。
-                skip_output_postprocessor=True,
-            )
-            _record_agent_usage(
-                repo=repo,
-                run=run,
-                node_run=node_run,
-                current=result.usage,
-                reservation=reservation,
-                quota_scope_key=f"{node.node_key}-instance-001",
-            )
-            output = _postprocess_agent_output(
-                agent_definition=definition,
-                execution_context=execution_context,
-                input_payload=node_input,
-                output=_restore_protected_repair_slots(
-                    item_output=dict(result.output), repair_context=repair_context,
-                ),
-            )
-            node_run.sdk_state = {
-                "last_agent_name": result.last_agent_name,
-                "model": model_metadata,
-                "usage": result.usage,
-                "tool_calls": result.tool_calls,
-                **retry_state.checkpoint(),
-                "input_projection": projection_diagnostics,
-                "validation_diagnostics": _recent_agent_map_diagnostics(node_run.sdk_state),
-            }
-        cache_config = _agent_result_cache_config(definition)
-        if cache_config is not None:
-            node_run.sdk_state = {
-                **dict(node_run.sdk_state or {}),
-                "result_cache": {
-                    "hit": False,
-                    "version": str(cache_config["version"]),
-                    "input_hash": _agent_result_cache_input_hash(
-                        definition,
-                        node_input,
-                    ),
-                },
-            }
-    else:
-        tool = definitions.get_tool(
-            project_id=run.project_id,
-            tool_key=node.reference_key,
+        output = _execute_agent_node(
+            repo=repo,
+            run=run,
+            node=node,
+            setup=setup,
+            definition=definition,
+            tools=tools,
         )
-        if tool is None:
-            raise LookupError(f"找不到工具定义: {node.reference_key}")
-        node_run.tool_definition_id = tool.id
-        repo.db.flush()
-        if tool.requires_approval and not _approval_allows_execution(
+    else:
+        output = _execute_tool_node(
+            repo=repo,
+            run=run,
+            node=node,
+            setup=setup,
+            definitions=definitions,
+        )
+        if output is None:
+            return None
+
+    return _complete_node_execution(repo, run, node, setup, output)
+
+
+def _execute_workflow_nodes(
+    repo: AgentRunRepository,
+    run: AgentRun,
+    execution: AgentProgramDefinition | WorkflowGraph,
+    dependency_outputs: dict[str, dict[str, Any]],
+    *,
+    definitions: AgentDefinitionRepository,
+) -> tuple[str, dict[str, dict[str, Any]]] | None:
+    """执行工作流节点并返回输出节点；等待审批时返回 None。"""
+
+    if isinstance(execution, AgentProgramDefinition):
+        output_node_key = "agent_network"
+        node = WorkflowNode(
+            node_key=output_node_key,
+            node_type="agent_network",
+            reference_key=execution.entry_agent_key,
+            max_attempts=execution.max_attempts,
+            time_budget_seconds=execution.time_budget_seconds,
+        )
+        previous = repo.latest_node_run(run_id=run.id, node_key=node.node_key)
+        if previous is not None and previous.status == "success":
+            dependency_outputs[node.node_key] = dict(previous.output_payload or {})
+        else:
+            executed = _execute_node_with_retry(
+                repo,
+                run,
+                node,
+                dependency_outputs,
+                definitions=definitions,
+            )
+            if executed is None:
+                return None
+            _, output = executed
+            dependency_outputs[node.node_key] = output
+        required_artifact_key = str(execution.required_artifact_key or "").strip()
+        artifacts = dict((run.run_context or {}).get("artifacts") or {})
+        if required_artifact_key and required_artifact_key not in artifacts:
+            raise RuntimeError(
+                f"Agent Program 未持久化必需产物: {required_artifact_key}"
+            )
+        return output_node_key, dependency_outputs
+
+    output_node_key = execution.output_node_key
+    for node in execution.execution_order():
+        repo.db.refresh(run)
+        if run.status == "cancelled":
+            return output_node_key, dependency_outputs
+        previous = repo.latest_node_run(run_id=run.id, node_key=node.node_key)
+        if previous is not None and previous.status == "success":
+            dependency_outputs[node.node_key] = dict(previous.output_payload or {})
+            continue
+        executed = _execute_node_with_retry(
             repo,
             run,
             node,
-            node_run,
-            tool,
-            node_input,
-        ):
-            return None
-        tool_schema = dict(tool.input_schema or {})
-        tool_input = node_input
-        if not node.input_mapping and isinstance(tool_schema.get("properties"), dict):
-            allowed = set(tool_schema["properties"])
-            tool_input = {key: value for key, value in node_input.items() if key in allowed}
-        node_run.input_payload = tool_input
-        validate(instance=tool_input, schema=tool_schema)
-        output = tool_registry.resolve(tool.handler_key)(execution_context, tool_input)
-        validate(instance=output, schema=dict(tool.output_schema or {}))
-
-    if _refresh_run_is_cancelled(repo, run):
-        _mark_node_cancelled(
-            repo,
-            run,
-            node_run,
-            output_payload=output,
-            sdk_state=dict(node_run.sdk_state or {}),
+            dependency_outputs,
+            definitions=definitions,
         )
-        raise _RunCancelled(f"Agent Run {run.id} 已取消")
+        if executed is None:
+            return None
+        _, output = executed
+        dependency_outputs[node.node_key] = output
+    return output_node_key, dependency_outputs
 
-    _renew_progress_lease(repo, run)
-    # Agent 调用期间会实时更新 usage；完成节点时从最新上下文合并，避免旧快照覆盖额度账本。
-    latest_run_context = deepcopy(run.run_context or {})
-    latest_run_context["artifacts"] = execution_context.artifacts
-    run.run_context = latest_run_context
-    node_run.output_payload = output
-    node_run.status = "success"
-    node_run.finished_at = _now()
-    _event(
+
+def _finalize_workflow_success(
+    repo: AgentRunRepository,
+    run: AgentRun,
+    run_id: int,
+    claimed_token: str | None,
+    output_node_key: str,
+    dependency_outputs: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """校验 Run 仍由当前 worker 持有，并持久化工作流成功结果。"""
+
+    current_run = repo.get_run_for_update(run_id=run.id)
+    if current_run is None:
+        return {"status": "not_found", "run_id": run_id}
+    if current_run.status != "running":
+        return {"status": current_run.status, "run_id": current_run.id}
+    if current_run.claim_token != claimed_token:
+        return {"status": "not_claimed", "run_id": current_run.id}
+    current_run.output_payload = {
+        "result": dependency_outputs[output_node_key],
+        "artifacts": dict((current_run.run_context or {}).get("artifacts") or {}),
+    }
+    transition_run(
+        repo,
+        current_run,
+        "success",
+        event_type="run_completed",
+        payload={"output_node_key": output_node_key},
+        now=_now(),
+    )
+    repo.db.commit()
+    prune_terminal_run_history(repo, current_run)
+    return {"status": "success", "run_id": current_run.id}
+
+
+def _handle_workflow_exception(
+    repo: AgentRunRepository,
+    run_id: int,
+    claimed_token: str | None,
+    exc: Exception,
+) -> dict[str, Any]:
+    """将工作流异常转换为节点与 Run 的持久化失败状态。"""
+
+    repo.db.rollback()
+    run = repo.get_run_for_update(run_id=run_id)
+    if run is None:
+        raise exc
+    if run.status == "cancelled":
+        latest = (
+            repo.latest_node_run(run_id=run.id, node_key=run.current_node_key)
+            if run.current_node_key
+            else None
+        )
+        if latest is not None and latest.status == "running":
+            _mark_node_cancelled(repo, run, latest)
+        return {"status": "cancelled", "run_id": run_id}
+    if run.status != "running" or run.claim_token != claimed_token:
+        raise exc
+    latest = (
+        repo.latest_node_run(run_id=run.id, node_key=run.current_node_key)
+        if run.current_node_key
+        else None
+    )
+    if latest is not None and latest.status == "running":
+        latest.status = "failed"
+        latest.error_message = _persistent_error_message(exc)
+        latest.finished_at = _now()
+        repo.db.add(latest)
+    transition_run(
         repo,
         run,
-        "node_completed",
-        {"node_key": node.node_key, "attempt": attempt},
-        node_run=node_run,
+        "failed",
+        event_type="run_failed",
+        error_message=_persistent_error_message(exc),
+        now=_now(),
+        payload={
+            "error_type": type(exc).__name__,
+            "failure_kind": _agent_failure_kind(exc),
+            "message": str(exc)[:1000],
+        },
+        node_run_id=latest.id if latest is not None else None,
     )
-    repo.db.add(node_run)
     repo.db.add(run)
     repo.db.commit()
-    return node_run, output
+    prune_terminal_run_history(repo, run)
+    raise exc
 
 
 def run_agent_workflow(
@@ -3457,120 +3767,32 @@ def run_agent_workflow(
         validate(instance=dict(run.input_payload or {}), schema=execution.input_schema)
         dependency_outputs = _persisted_dependency_outputs(repo, run_id=run.id)
 
-        if isinstance(execution, AgentProgramDefinition):
-            output_node_key = "agent_network"
-            node = WorkflowNode(
-                node_key=output_node_key,
-                node_type="agent_network",
-                reference_key=execution.entry_agent_key,
-                max_attempts=execution.max_attempts,
-                time_budget_seconds=execution.time_budget_seconds,
-            )
-            previous = repo.latest_node_run(run_id=run.id, node_key=node.node_key)
-            if previous is not None and previous.status == "success":
-                dependency_outputs[node.node_key] = dict(previous.output_payload or {})
-            else:
-                executed = _execute_node_with_retry(
-                    repo,
-                    run,
-                    node,
-                    dependency_outputs,
-                    definitions=definitions,
-                )
-                if executed is None:
-                    return {"status": "waiting_approval", "run_id": run.id}
-                _, output = executed
-                dependency_outputs[node.node_key] = output
-            required_artifact_key = str(execution.required_artifact_key or "").strip()
-            artifacts = dict((run.run_context or {}).get("artifacts") or {})
-            if required_artifact_key and required_artifact_key not in artifacts:
-                raise RuntimeError(
-                    f"Agent Program 未持久化必需产物: {required_artifact_key}"
-                )
-        else:
-            graph = execution
-            output_node_key = graph.output_node_key
-            for node in graph.execution_order():
-                repo.db.refresh(run)
-                if run.status == "cancelled":
-                    return {"status": "cancelled", "run_id": run.id}
-                previous = repo.latest_node_run(run_id=run.id, node_key=node.node_key)
-                if previous is not None and previous.status == "success":
-                    dependency_outputs[node.node_key] = dict(previous.output_payload or {})
-                    continue
-                executed = _execute_node_with_retry(
-                    repo,
-                    run,
-                    node,
-                    dependency_outputs,
-                    definitions=definitions,
-                )
-                if executed is None:
-                    return {"status": "waiting_approval", "run_id": run.id}
-                _, output = executed
-                dependency_outputs[node.node_key] = output
-
-        run = repo.get_run_for_update(run_id=run.id)
-        if run is None:
-            return {"status": "not_found", "run_id": run_id}
-        if run.status != "running":
-            return {"status": run.status, "run_id": run.id}
-        if run.claim_token != claimed_token:
-            return {"status": "not_claimed", "run_id": run.id}
-        final_output = dependency_outputs[output_node_key]
-        run.output_payload = {
-            "result": final_output,
-            "artifacts": dict((run.run_context or {}).get("artifacts") or {}),
-        }
-        transition_run(
-            repo, run, "success", event_type="run_completed",
-            payload={"output_node_key": output_node_key}, now=_now(),
+        workflow_result = _execute_workflow_nodes(
+            repo,
+            run,
+            execution,
+            dependency_outputs,
+            definitions=definitions,
         )
-        repo.db.commit()
-        prune_terminal_run_history(repo, run)
-        return {"status": "success", "run_id": run.id}
+        if workflow_result is None:
+            return {"status": "waiting_approval", "run_id": run.id}
+        output_node_key, dependency_outputs = workflow_result
+        if run.status == "cancelled":
+            return {"status": "cancelled", "run_id": run.id}
+
+        return _finalize_workflow_success(
+            repo,
+            run,
+            run_id,
+            claimed_token,
+            output_node_key,
+            dependency_outputs,
+        )
     except _RunCancelled:
         repo.db.rollback()
         return {"status": "cancelled", "run_id": run_id}
     except Exception as exc:
-        repo.db.rollback()
-        run = repo.get_run_for_update(run_id=run_id)
-        if run is not None:
-            if run.status == "cancelled":
-                latest = (
-                    repo.latest_node_run(run_id=run.id, node_key=run.current_node_key)
-                    if run.current_node_key
-                    else None
-                )
-                if latest is not None and latest.status == "running":
-                    _mark_node_cancelled(repo, run, latest)
-                return {"status": "cancelled", "run_id": run.id}
-            if run.status != "running" or run.claim_token != claimed_token:
-                raise
-            latest = (
-                repo.latest_node_run(run_id=run.id, node_key=run.current_node_key)
-                if run.current_node_key
-                else None
-            )
-            if latest is not None and latest.status == "running":
-                latest.status = "failed"
-                latest.error_message = _persistent_error_message(exc)
-                latest.finished_at = _now()
-                repo.db.add(latest)
-            transition_run(
-                repo, run, "failed", event_type="run_failed",
-                error_message=_persistent_error_message(exc), now=_now(),
-                payload={
-                    "error_type": type(exc).__name__,
-                    "failure_kind": _agent_failure_kind(exc),
-                    "message": str(exc)[:1000],
-                },
-                node_run_id=latest.id if latest is not None else None,
-            )
-            repo.db.add(run)
-            repo.db.commit()
-            prune_terminal_run_history(repo, run)
-        raise
+        return _handle_workflow_exception(repo, run_id, claimed_token, exc)
     finally:
         if owns_session:
             active_db.close()

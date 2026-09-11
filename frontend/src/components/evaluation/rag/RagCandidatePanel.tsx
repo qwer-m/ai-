@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
-import { Alert, Badge, Button, Form, Modal, Table } from 'react-bootstrap';
+import { Alert, Badge, Button, Form, Table } from 'react-bootstrap';
 import {
   approveRagEvalCandidate,
   draftRagEvalCandidate,
@@ -8,6 +8,7 @@ import {
   rejectRagEvalCandidate,
   translateError,
 } from '../state/evaluationService';
+import { RagCandidateDraftModal } from './RagCandidateDraftModal';
 
 type Props = {
   onLog: (msg: string) => void;
@@ -152,6 +153,10 @@ export function RagCandidatePanel({ onLog, currentRunId }: Props) {
     }
   };
 
+  const updateDraftField = (field: string, value: string) => {
+    setDraft((current: any) => ({ ...current, [field]: value }));
+  };
+
   return (
     <div className="d-flex flex-column gap-3 rag-report-subpanel">
       {error ? <Alert variant="danger" className="mb-0">{error}</Alert> : null}
@@ -240,25 +245,15 @@ export function RagCandidatePanel({ onLog, currentRunId }: Props) {
         </div>
       </div>
 
-      <Modal show={detailOpen} onHide={() => setDetailOpen(false)} size="lg" className="rag-candidate-modal">
-        <Modal.Header closeButton>
-          <Modal.Title>候选草稿编辑 #{active?.id || '-'}</Modal.Title>
-        </Modal.Header>
-        <Modal.Body className="d-flex flex-column gap-2">
-          <Form.Group><Form.Label>query</Form.Label><Form.Control as="textarea" rows={2} value={draft?.query || ''} readOnly /></Form.Group>
-          <Form.Group><Form.Label>gold_docs (JSON array)</Form.Label><Form.Control as="textarea" rows={3} value={typeof draft?.gold_docs === 'string' ? draft?.gold_docs : JSON.stringify(draft?.gold_docs || [], null, 2)} onChange={(e) => setDraft((v: any) => ({ ...v, gold_docs: e.target.value }))} /></Form.Group>
-          <Form.Group><Form.Label>gold_chunks (JSON array)</Form.Label><Form.Control as="textarea" rows={3} value={typeof draft?.gold_chunks === 'string' ? draft?.gold_chunks : JSON.stringify(draft?.gold_chunks || [], null, 2)} onChange={(e) => setDraft((v: any) => ({ ...v, gold_chunks: e.target.value }))} /></Form.Group>
-          <Form.Group><Form.Label>answer_points (JSON array)</Form.Label><Form.Control as="textarea" rows={3} value={typeof draft?.answer_points === 'string' ? draft?.answer_points : JSON.stringify(draft?.answer_points || [], null, 2)} onChange={(e) => setDraft((v: any) => ({ ...v, answer_points: e.target.value }))} /></Form.Group>
-          <Form.Group><Form.Label>gold_answer</Form.Label><Form.Control as="textarea" rows={3} value={draft?.gold_answer || ''} onChange={(e) => setDraft((v: any) => ({ ...v, gold_answer: e.target.value }))} /></Form.Group>
-          <Form.Group><Form.Label>tags (JSON array)</Form.Label><Form.Control value={typeof draft?.tags === 'string' ? draft?.tags : JSON.stringify(draft?.tags || [])} onChange={(e) => setDraft((v: any) => ({ ...v, tags: e.target.value }))} /></Form.Group>
-          <Form.Group><Form.Label>difficulty</Form.Label><Form.Select value={draft?.difficulty || 'medium'} onChange={(e) => setDraft((v: any) => ({ ...v, difficulty: e.target.value }))}><option value="easy">easy</option><option value="medium">medium</option><option value="hard">hard</option></Form.Select></Form.Group>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="outline-secondary" onClick={() => void saveDraft()}>保存草稿</Button>
-          <Button variant="outline-warning" onClick={() => active && void approve(active, 'challenge')}>批准到 challenge</Button>
-          <Button variant="outline-info" onClick={() => active && void approve(active, 'regression')}>批准到 regression</Button>
-        </Modal.Footer>
-      </Modal>
+      <RagCandidateDraftModal
+        active={active}
+        draft={draft}
+        open={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        onChange={updateDraftField}
+        onSave={() => void saveDraft()}
+        onApprove={(targetType) => active && void approve(active, targetType)}
+      />
     </div>
   );
 }
