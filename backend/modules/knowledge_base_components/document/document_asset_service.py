@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -26,6 +27,7 @@ DEFAULT_DOCUMENT_ASSET_DIR = BACKEND_ROOT / "runtime" / "knowledge_assets"
 MANIFEST_VERSION = 3
 PAGE_TAIL_BAND_START = 0.60
 PAGE_HEAD_BAND_END = 0.40
+_MAX_DOCUMENT_DETAIL_SIDE = 4096
 
 
 _ORDERED_MARKER_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -1103,6 +1105,148 @@ def document_page_image_path(document_id: int, page_number: int) -> Path:
     if asset_dir not in path.parents or not path.is_file():
         raise FileNotFoundError(f"页面图像资产不存在: page_number={int(page_number)}")
     return path
+
+
+def _render_document_image_detail(
+    pdf_page: Any,
+    layout_page: Any,
+    block: dict[str, Any],
+    source_image: dict[str, Any],
+    *,
+    minimum_scale: float,
+) -> dict[str, Any]:
+    """按真实嵌图像素密度重渲染原 PDF 局部，保留区域内文字、遮罩和批注。"""
+
+    page_width, page_height = pdf_page.get_size()
+    if not (
+        math.isclose(page_width, float(layout_page.width), abs_tol=0.001)
+        and math.isclose(page_height, float(layout_page.height), abs_tol=0.001)
+    ):
+        raise ValueError("PDF 渲染页面与版式页面尺寸不一致")
+    original_bbox = {
+        "x0": float(source_image["x0"]),
+        "top": float(source_image["top"]),
+        "x1": float(source_image["x1"]),
+        "bottom": float(source_image["bottom"]),
+    }
+    bbox = _normalized_bbox(
+        **original_bbox,
+        page_width=float(layout_page.width),
+        page_height=float(layout_page.height),
+    )
+    if bbox != block.get("bbox"):
+        raise ValueError(f"图片块区域与原 PDF 不一致: block_id={block.get('block_id')}")
+    left = max(0.0, original_bbox["x0"])
+    top = max(0.0, original_bbox["top"])
+    right = min(page_width, original_bbox["x1"])
+    bottom = min(page_height, original_bbox["bottom"])
+    region_width, region_height = right - left, bottom - top
+    native_size = source_image.get("srcsize")
+    if (
+        not isinstance(native_size, (tuple, list))
+        or len(native_size) != 2
+        or any(not isinstance(value, (int, float)) or value <= 0 for value in native_size)
+        or region_width <= 0
+        or region_height <= 0
+    ):
+        raise ValueError(f"原 PDF 图片尺寸无效: block_id={block.get('block_id')}")
+    image_width = original_bbox["x1"] - original_bbox["x0"]
+    image_height = original_bbox["bottom"] - original_bbox["top"]
+    native_scale = max(float(native_size[0]) / image_width, float(native_size[1]) / image_height)
+    scale = min(
+        max(minimum_scale, native_scale),
+        _MAX_DOCUMENT_DETAIL_SIDE / max(region_width, region_height),
+    )
+    if not math.isfinite(scale) or scale <= 0:
+        raise ValueError(f"原 PDF 图片渲染比例无效: block_id={block.get('block_id')}")
+    crop = (left, page_height - bottom, page_width - right, top)
+    # 中文注释：直接渲染源 PDF 的裁剪区域，不能放大已经丢失字形细节的页面 PNG。
+    bitmap = pdf_page.render(scale=scale, crop=crop, draw_annots=True)
+    try:
+        with bitmap.to_pil() as image:
+            width, height = image.size
+            if max(width, height) > _MAX_DOCUMENT_DETAIL_SIDE:
+                raise ValueError("图片局部渲染结果超出像素上限")
+            output = io.BytesIO()
+            image.save(output, format="PNG")
+            image_bytes = output.getvalue()
+    finally:
+        bitmap.close()
+    return {
+        "block_id": str(block["block_id"]),
+        "bbox": bbox,
+        "image_bytes": image_bytes,
+        "media_type": "image/png",
+        "width": width,
+        "height": height,
+        "sha256": hashlib.sha256(image_bytes).hexdigest(),
+    }
+
+
+def document_page_image_details(
+    document_id: int,
+    page_number: int,
+    block_ids: list[str],
+) -> list[dict[str, Any]]:
+    """按调用方实际声明的图片块读取源分辨率局部图，不修改文档资产或业务数据。"""
+
+    if not isinstance(block_ids, list) or any(
+        not isinstance(block_id, str) or not block_id.strip() for block_id in block_ids
+    ):
+        raise ValueError("图片局部读取的 block_ids 必须是非空字符串数组")
+    if len(block_ids) != len(set(block_ids)):
+        raise ValueError("图片局部读取的 block_ids 不能重复")
+    if not block_ids:
+        return []
+    manifest = load_document_manifest(document_id)
+    page = _manifest_page(manifest, page_number)
+    source_hash = str(manifest.get("source_sha256") or "")
+    blocks = {str(block.get("block_id") or ""): block for block in list(page.get("blocks") or [])}
+    for block_id in block_ids:
+        block = blocks.get(block_id)
+        if block is None or block.get("type") != "image":
+            raise ValueError(f"图片局部读取必须引用当前页真实 image 块: block_id={block_id}")
+        if str(block.get("asset_source_sha256") or "") != source_hash:
+            raise ValueError(f"图片块与文档资产指纹不一致: block_id={block_id}")
+    asset_dir = _document_dir(document_id).resolve()
+    source_path = (asset_dir / str(manifest.get("source_path") or "")).resolve()
+    if asset_dir not in source_path.parents or not source_path.is_file():
+        raise FileNotFoundError("图片局部读取的原文件不存在或超出文档资产目录")
+    source_bytes = source_path.read_bytes()
+    if hashlib.sha256(source_bytes).hexdigest() != source_hash:
+        raise ValueError("图片局部读取的原文件指纹与文档资产不一致")
+    if manifest.get("media_type") != "application/pdf":
+        raise ValueError("图片局部读取只接受有真实 PDF 页面资产的文档")
+    minimum_scale = float(page.get("render_scale") or 0)
+    if not math.isfinite(minimum_scale) or minimum_scale <= 0:
+        raise ValueError("页面资产缺少有效渲染比例")
+    import pypdfium2 as pdfium
+
+    with pdfplumber.open(io.BytesIO(source_bytes)) as layout_pdf, pdfium.PdfDocument(source_bytes) as pdf:
+        page_index = int(page_number) - 1
+        if page_index < 0 or page_index >= len(pdf) or page_index >= len(layout_pdf.pages):
+            raise ValueError("图片局部读取的页码超出原 PDF 范围")
+        layout_page = layout_pdf.pages[page_index]
+        source_images = {
+            f"P{int(page_number):04d}-I{index:04d}": image
+            for index, image in enumerate(list(layout_page.images or []), start=1)
+        }
+        if any(block_id not in source_images for block_id in block_ids):
+            raise ValueError("图片块不存在于原 PDF 的真实页面布局中")
+        pdf_page = pdf[page_index]
+        try:
+            return [
+                _render_document_image_detail(
+                    pdf_page,
+                    layout_page,
+                    blocks[block_id],
+                    source_images[block_id],
+                    minimum_scale=minimum_scale,
+                )
+                for block_id in block_ids
+            ]
+        finally:
+            pdf_page.close()
 
 
 def _query_terms(query: str) -> list[str]:

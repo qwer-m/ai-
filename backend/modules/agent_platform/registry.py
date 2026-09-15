@@ -93,10 +93,12 @@ from .automation_evaluation_workflow import (  # noqa: E402
     BUILTIN_WORKFLOW_SPECS as AUTOMATION_EVALUATION_WORKFLOW_SPECS,
     register_automation_evaluation_tools,
 )
-from .test_generation_workflow import (  # noqa: E402
+from .test_generation_builtin_specs import (  # noqa: E402
     BUILTIN_AGENT_SPECS as TEST_GENERATION_AGENT_SPECS,
     BUILTIN_TOOL_SPECS as TEST_GENERATION_TOOL_SPECS,
     BUILTIN_WORKFLOW_SPECS as TEST_GENERATION_WORKFLOW_SPECS,
+)
+from .test_generation_workflow import (  # noqa: E402
     register_test_generation_tools,
 )
 from .test_case_evaluation_workflow import (  # noqa: E402

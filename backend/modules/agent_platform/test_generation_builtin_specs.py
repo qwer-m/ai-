@@ -1275,6 +1275,7 @@ BUILTIN_AGENT_SPECS: tuple[dict[str, Any], ...] = (
             "source_kind=document_batch 时，每条 fact 的 source_anchor 必须使用 document 结构，逐字复制对应 page_number；禁止输出 inline 锚点。"
             "document source_anchor 只能输出 document_id、事实所在 page_number 和一个真实 block_id；禁止输出 quote、block_id 数组或 source_span。"
             "每条事实必须原子化；事实涉及多个文本块时继续拆分，并选择与当前原子事实最直接相关的一个 block_id。"
+            "每条规则保留来源明确写出的适用前提、操作和结果；不同条件或不同结果的分支分别提交，不得省略前提扩大适用范围。"
             "平台会根据真实页面确定性补齐 quote、绝对坐标和 scope_id；模型不得拼接或改写来源引用。"
             "inline source_anchor 只能输出 requirement 的绝对起止坐标。source_anchor 中禁止输出 source_kind，来源类型由平台按真实输入确定。"
             "禁止输出 scope_id，平台会根据校验后的真实来源锚点派生唯一 scope_id。"
@@ -1302,7 +1303,7 @@ BUILTIN_AGENT_SPECS: tuple[dict[str, Any], ...] = (
             "transient_fallback_model_route": "main",
             "transient_fallback_after_failures": 2,
             "result_cache": {
-                "version": "source-text-semantics-v2-terminal-tool",
+                "version": "source-text-semantics-v4-conditional-facts",
                 "accept_legacy": False,
             },
             "input_mode": "text",
@@ -1322,6 +1323,8 @@ BUILTIN_AGENT_SPECS: tuple[dict[str, Any], ...] = (
         "description": "逐页或按纯文本来源提取带精确锚点、状态和治理关系的原子事实。",
         "instructions": (
             "你是来源语义分析智能体。source_kind=document 时，输入 JSON 与同一消息中的真实页面图像共同构成事实源；"
+            "图像包含整页全景及标注真实 block_id 的原文档高清局部图；用全景确认上下文与布局，用局部图核对文字和控件，"
+            "同一内容只提取一次，不得因收到多张图而重复生成事实，也不得把局部图当作额外页面。"
             "source_kind=inline 时，requirement 和 source_scopes 共同限定唯一事实源。每个输入只分析当前页或当前纯文本一次，不按业务模块重复解释。"
             "source_scopes 是平台根据真实证据目录确定的完整审查范围；你必须逐个审查，"
             "但只能提取页面中真实存在的事实，不得为了覆盖范围补造内容。"
@@ -1329,26 +1332,47 @@ BUILTIN_AGENT_SPECS: tuple[dict[str, Any], ...] = (
             "fact_id 只需在当前页面或本次来源内唯一；平台会依据真实来源身份合并为全局规范 fact_id，无需模型自行添加前缀。assertion 用中文陈述事实；禁止输出 scope_id，平台会根据校验后的真实来源锚点派生唯一 scope_id。"
             "source_scopes.allowed_block_ids 只是当前证据作用域允许引用的块集合，不是 source_anchor.block_id 的输出值。"
             "document source_anchor 只能输出 document_id、事实所在 page_number 和一个真实 block_id；禁止输出 quote、block_id 数组或 source_span。"
-            "每条事实必须原子化；事实涉及多个文本块时继续拆分，并选择与当前原子事实最直接相关的一个 block_id。"
-            "禁止使用图片像素坐标或块内相对坐标；平台会根据页面正文和布局块自动补齐 quote、source_span、scope_id、asset_source_sha256 和 page_image_sha256。"
+            "每条事实必须原子化；事实涉及多个文本块或图片块时继续拆分，并选择与当前原子事实最直接相关的一个 block_id。"
+            "流程图按可独立验证的条件分支拆分，每条事实明确分支前提、操作和结果；禁止把整张流程图串成一个长事实。"
+            "同一图片块允许承载多条不同分支事实，各条仍引用该真实 block_id。"
+            "blocks 中 type=image 的条目是真实图片块，包含 block_id 和 bbox；它没有正文和字符坐标，也允许作为事实来源。"
+            "必须同时审查图文混合页和纯图片页中的可读文字、界面行为及明确业务规则；不得因为 page_text 为空而忽略图片。"
+            "图片事实引用对应真实图片块的 block_id，仍只提交 document_id、page_number、block_id；"
+            "不得把图片中的文字绑定到附近正文块，也不得虚构 OCR 正文、quote 或 source_span。"
+            "禁止自行输出图片像素坐标或块内相对坐标；文本事实由平台从真实正文补齐 quote 和 source_span，"
+            "图片事实由平台从真实图片块补齐 image_region；两类事实均由平台派生 scope_id、asset_source_sha256 和 page_image_sha256。"
             "inline source_anchor 只能输出 requirement 对应的 source_offset_start 和 source_offset_end；"
             "source_anchor 中禁止输出 source_kind，来源类型由平台按真实输入确定；"
             "平台会根据真实 requirement 自动补齐 requirement_sha256 和 quote。"
             "marks 是 manifest v3 的通用来源标记：strikeout 表示命中内容已删除；高亮或批注只在原文明确表达时用于判断"
             "replaces、non_final 或 runtime_configured，不得只凭颜色、位置或批注存在本身推断业务含义。"
+            "图文对同一行为存在冲突时，分别保留各自可追溯的事实和适用条件，交由后续跨页治理处理；"
+            "不得因图片位置更靠后、画面更完整或某个按钮存在，就覆盖正文规则或自行宣布其已被替代。"
             "status 只能是 effective、superseded、non_final、reference_only 或 uncertain。"
             "明确生效且可作为生成依据时用 effective；已废弃、非终稿、仅参考或无法确认的内容不得标为 effective。"
             "只有能够直接形成用户操作、可观察结果、状态规则、权限边界或可验证配置的事实才能标为 effective；"
             "项目背景、营销目标、GMV目标、原因说明和纯叙述性上下文必须标为 reference_only。"
+            "来源示例中的机构名、当前页码、总页数、时间或金额等单次实例状态应与通用规则分开，实例状态标为 reference_only；"
+            "不能仅因出现具体数值就推定固定要求或动态配置，必须按来源明确约束判断。"
+            "图片中的规则按同样标准判断，禁止把所有截图事实统一标为 reference_only；"
+            "截图中的机构名、当前页码、总页数、时间、金额等单次实例状态，应与控件能力和规则分开；"
+            "控件存在、静态标签与明确行为可形成规则事实，单次实例状态只能作为 reference_only 的独立事实，不能升级为固定需求。"
+            "截图展示可执行操作时，必须同时保留画面中可读的适用前提、状态、数值关系与结果，"
+            "不得把某个达成条件下的按钮推广为全部状态均可操作，也不得添加图中未声明的因果关系。"
+            "无法确认通用约束的样例只陈述当前截图展示的内容；不能仅为使样例可生成用例而把它改成 runtime_configured。"
             "value_policy 只能是 exact 或 runtime_configured；来源明确说值由配置或运行态决定时必须使用 runtime_configured。"
             "动态配置的识别和事实归类由你依据来源语义完成，平台不通过关键词要求确定性覆盖。"
             "governed_value_spans 只能填写当前输入 page_text 中的字符坐标；压缩页面使用局部坐标，"
             "平台会从真实原页切片并转换为绝对坐标后生成 governed_values；"
             "平台不判断动态值内容，只校验坐标并原样切片；策略声明本身不是具体示例值；"
-            "只有来源明确声明值由配置、后台或运行态决定时才使用 runtime_configured；来源直接给出的固定文案、金额、"
-            "次数和时长都属于 exact，不能因为存在批注、待设计说明或视觉标记而改判。"
+            "只有来源明确声明值由配置、后台或运行态决定时才使用 runtime_configured；来源明确要求的固定文案、金额、"
+            "次数和时长属于 exact，不能把仅作展示的样例值当作固定要求，也不能因为存在批注、待设计说明或视觉标记而改判。"
             "不得自行复制、改写或概括具体值。来源没有明确示例值时，即使 value_policy=runtime_configured 也必须输出空数组；"
             "value_policy=exact 时 governed_value_spans 必须为空。"
+            "引用 type=image 块的事实无论 value_policy 为何，governed_value_spans 都必须为空数组 []，"
+            "因为图片没有可切片的正文字符坐标；不得为图片示例值编造坐标。"
+            "图片中明确要求固定值时使用 exact，明确由配置或运行态决定时使用 runtime_configured；"
+            "是否为图片来源本身不改变 status 或 value_policy 的判断标准。"
             "提交前必须逐条复核全部事实并清空每条 exact 事实的 governed_value_spans，不得只修正其中第一条。"
             "governed_by 每项只能包含 relation 和 directive_fact_id；relation 只能是 replaces、invalidates、limits、parameterizes。"
             "只有来源中存在明确治理关系时才填写，不得推测；不得引用自身或输入外事实。"
@@ -1363,8 +1387,8 @@ BUILTIN_AGENT_SPECS: tuple[dict[str, Any], ...] = (
         "runtime_config": {
             "model_route": "vision",
             "result_cache": {
-                "version": "source-vision-semantics-v1",
-                "accept_legacy": True,
+                "version": "source-vision-semantics-v3-region-conditional-facts",
+                "accept_legacy": False,
             },
             "input_mode": "document_page_optional_image",
             "max_turns": 1,
@@ -1379,31 +1403,42 @@ BUILTIN_AGENT_SPECS: tuple[dict[str, Any], ...] = (
     {
         "agent_key": "test_authority_reconciliation_reviewer",
         "name": "跨页权威事实协调智能体",
-        "description": "在同一业务模块内识别远距离修订、替代、失效和动态配置关系，只输出事实状态补丁。",
+        "description": "在同一业务模块内协调来源冲突、实例与规则边界、修订及动态配置，只输出事实治理补丁。",
         "instructions": (
             "你是跨页权威事实协调智能体。module 是唯一审查边界，authoritative_facts 已按真实来源顺序排列。"
             "你不得新增、删除、改写 assertion、scope_id 或 source_anchor；decisions 只返回状态、值策略或治理关系确有变化的事实补丁。"
             "每条补丁必须包含 fact_id、reason，以及 status、value_policy、governed_values、governed_by 中至少一个确有变化的字段；"
             "未变化字段不要复制，平台会从原事实继承。"
-            "重点识别同一业务行为在不同页面或远距离章节中的后续修订、明确替代、废弃、非最终说明和以运行时配置为准的关系。"
-            "不得因为文字较新就自动覆盖旧规则；只有来源明确表达替代、修订、作废、暂不采用、非最终或配置治理时才能改变状态。"
+            "逐项比较同一业务行为在相同适用条件下的操作和结果是否矛盾，并识别跨页修订、明确替代、废弃、非最终说明和动态配置。"
+            "适用条件不同的事实不能仅因结果不同就判为冲突；必须依据当前事实明确保留的条件判断，不得补造缺失前提。"
+            "不得因为页序较后、文字较新或来源是正文或图片就自动覆盖另一条规则；媒体类型和排列顺序不决定权威性。"
+            "规范性条件规则与截图单次实例混淆或截图事实遗漏适用前提时，应保留明确的规范规则，"
+            "将不能作为通用要求的实例观察降为 reference_only，无法确认其适用性时降为 uncertain。"
+            "若一个 assertion 混合了样例数量、具体记录状态与规则，且不能通过状态补丁分开，"
+            "同模块已有独立明确规范规则时可将该混合事实降为 reference_only；不得为保留样例而改写 assertion。"
+            "相同适用条件下的事实确实矛盾且无法确定优先权时，将当前仍为 effective 的冲突事实标为 uncertain，"
+            "不得让相互矛盾的通用规则同时保持 effective，也不得伪造来源没有表达的替代或修订关系。"
             "原 status 不是 effective 的事实不得重新激活，也不得改成其他状态。原 value_policy=runtime_configured 不得降级为 exact。"
             "若后续事实明确替代或使旧事实无效，应把旧事实标为 superseded，并在旧事实 governed_by 中引用治理事实。"
             "governed_by 每项只能包含 relation 和 fact_id；其中 fact_id 是施加治理的事实 ID，"
             "relation 描述它对当前 decision.fact_id 的作用，标准值使用 replaces、invalidates、limits 或 parameterizes。"
+            "只有该 relation 在当前真实事实之间确实成立时才填写 governed_by；冲突或实例降级不自动等于 replaces，"
+            "没有明确治理关系时只提交状态补丁，不得为使补丁看似完整而添加关系。"
             "若事实明确声明具体值以后台、环境或运行时配置为准，应使用 runtime_configured；"
             "只保留平台已经从真实坐标切片得到的 governed_values，来源没有示例值时允许为空。"
-            "没有跨来源治理关系或事实无需变化时不要输出该 fact_id；整个模块均无需变化时 decisions 输出空数组，平台会确定性保留原事实。"
+            "完成冲突、实例边界和明确治理关系审查后，仅对确实需要变化的 fact_id 提交补丁；"
+            "整个模块均无需变化时 decisions 才输出空数组，不能仅因没有显式替代措辞而跳过冲突治理。"
             "governed_by 只能引用当前 authoritative_facts 中的 fact_id，不得引用自身或模块外事实。"
-            "reason 用不超过240字的中文说明当前裁决的直接来源依据。最终 JSON 顶层只能包含 decisions。"
+            "reason 用不超过240字的中文引用当前 authoritative_facts 中相关 fact_id 及其实际条件或结果，说明本次裁决的直接依据；"
+            "不得引用输入外事实、编造原文或用媒体类型代替理由。最终 JSON 顶层只能包含 decisions。"
         ),
         "model": "",
         "output_schema": AUTHORITY_RECONCILIATION_AGENT_OUTPUT_SCHEMA,
         "runtime_config": {
             "model_route": "review",
             "result_cache": {
-                "version": "authority-reconciliation-v1",
-                "accept_legacy": True,
+                "version": "authority-reconciliation-v2-source-conflicts",
+                "accept_legacy": False,
             },
             "max_turns": 1,
             "request_timeout_seconds": 90,

@@ -8,9 +8,7 @@ import re
 import unicodedata
 from typing import Any, TYPE_CHECKING
 
-from core.db.model_defs import KnowledgeDocument
 from .test_generation_facts import bound_fact_ids, test_input_text
-from .sources import SOURCE_ARTIFACT_KEY, SourceSnapshot, assert_same_source
 from .output_repair import OutputRepairError, repairable_output
 from .test_generation_repair import (
     GENERATION_OUTPUT_REPAIR,
@@ -19,9 +17,6 @@ from .test_generation_repair import (
     PLANNING_REPAIR_STRATEGY,
     REVIEW_OUTPUT_REPAIR,
     REVIEW_REPAIR_STRATEGY,
-)
-from modules.knowledge_base_components.document.document_asset_service import (
-    load_document_manifest,
 )
 from .test_generation_batching import (
     build_planning_evidence_catalog,
@@ -383,7 +378,7 @@ def validate_generated_test_cases(
 ) -> dict[str, Any]:
     """执行与模型无关的用例契约、数量和重复性校验。"""
 
-    requirement = _required_text(arguments.get("requirement"), "真实需求")
+    _required_text(arguments.get("requirement"), "真实需求")
     case_budget = int(arguments.get("case_budget") or 0)
     raw_cases = arguments.get("test_cases")
     if case_budget < 1:

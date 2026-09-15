@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from copy import deepcopy
 from typing import Any, TYPE_CHECKING
 
@@ -85,13 +86,15 @@ def _required_text(value: Any, field_name: str) -> str:
 
 
 def _requires_visual_analysis(page: dict[str, Any], page_text: str) -> bool:
-    """只把文本不足或非文本区域占主导的页面送入视觉模型。"""
+    """含图片证据的页面必须读图，其余页面按正文和布局占比路由。"""
 
     text_char_count = sum(not char.isspace() for char in page_text)
     non_text_area = 0.0
     for raw_block in list(page.get("blocks") or []):
         if not isinstance(raw_block, dict) or str(raw_block.get("type") or "") == "text_line":
             continue
+        if raw_block.get("type") == "image":
+            return True
         bbox = dict(raw_block.get("bbox") or {})
         non_text_area += float(bbox.get("width") or 0.0) * float(
             bbox.get("height") or 0.0
@@ -100,6 +103,42 @@ def _requires_visual_analysis(page: dict[str, Any], page_text: str) -> bool:
         text_char_count < _MIN_TEXT_CHARS_WITHOUT_VISION
         or non_text_area >= _MAX_NON_TEXT_AREA_WITHOUT_VISION
     )
+
+
+def _image_region(value: Any) -> dict[str, float]:
+    """校验资产提供的归一化图片区域，不从模型文本推测坐标。"""
+
+    if not isinstance(value, dict) or set(value) != {"x", "y", "width", "height"}:
+        raise ValueError("图片区域必须包含 x、y、width、height")
+    if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in value.values()):
+        raise ValueError("图片区域坐标必须为数字")
+    region = {key: float(value[key]) for key in ("x", "y", "width", "height")}
+    if (
+        not all(math.isfinite(v) for v in region.values())
+        or min(region["x"], region["y"]) < 0
+        or min(region["width"], region["height"]) <= 0
+        or region["x"] + region["width"] > 1.000001
+        or region["y"] + region["height"] > 1.000001
+    ):
+        raise ValueError("图片区域超出页面范围")
+    return region
+
+
+def _document_source_scope(item: dict[str, Any]) -> dict[str, Any]:
+    """保留正文坐标和图片区域各自的来源边界。"""
+
+    scope = {
+        "scope_id": str(item.get("evidence_id") or ""),
+        "allowed_block_ids": [str(value) for value in list(item.get("block_ids") or [])],
+    }
+    if "image_region" in item:
+        scope["image_region"] = _image_region(item["image_region"])
+    else:
+        scope["source_span"] = _span(
+            {"start": item.get("source_offset_start"), "end": item.get("source_offset_end")},
+            field_name="source_scope.source_span",
+        )
+    return scope
 
 
 def _batch_text_document_pages(
@@ -499,6 +538,9 @@ def _compressed_page_view(
     cursor = 0
     for block in selected_blocks:
         block_id = str(block.get("block_id") or "")
+        if block.get("type") == "image":
+            model_blocks.append(deepcopy(block))
+            continue
         text = str(block.get("text") or "")
         if not block_id or not text:
             continue
@@ -526,7 +568,7 @@ def _compressed_page_view(
         )
 
     model_scopes: list[dict[str, Any]] = []
-    selected_ids = set(block_map)
+    selected_ids = {str(block["block_id"]) for block in model_blocks}
 
     def local_scope_span(
         scope: dict[str, Any],
@@ -601,9 +643,12 @@ def _compressed_page_view(
                 "scope_id": str(scope.get("evidence_id") or scope.get("scope_id") or ""),
                 "allowed_block_ids": normalized_allowed,
             }
-            projected_span = local_scope_span(scope, normalized_allowed)
-            if projected_span is not None:
-                model_scope["source_span"] = projected_span
+            if "image_region" in scope:
+                model_scope["image_region"] = _image_region(scope["image_region"])
+            else:
+                projected_span = local_scope_span(scope, normalized_allowed)
+                if projected_span is not None:
+                    model_scope["source_span"] = projected_span
             model_scopes.append(model_scope)
     if not model_scopes:
         raise ValueError(
@@ -828,7 +873,7 @@ def _translate_source_semantics_output(
             "governed_value_spans" not in raw_fact
             and "governed_values" in raw_fact
             and "source_kind" in anchor
-            and "quote" in anchor
+            and ("quote" in anchor or "image_region" in anchor)
         )
         if normalized_fact:
             continue
@@ -851,6 +896,15 @@ def _translate_source_semantics_output(
             block_ids = set()
         else:
             block_ids = {str(raw_block_ids)}
+        original_page = dict(source_pages.get(key) or {})
+        image_ids = {
+            str(block["block_id"])
+            for block in list(original_page.get("blocks") or [])
+            if block.get("type") == "image"
+        }
+        if block_ids & image_ids:
+            # 图片没有字符坐标，保留模型原字段交给图片锚点校验，不做正文投影。
+            continue
         block_filter = block_ids or None
         source_span = _translate_model_span(
             anchor.get("source_span"),
@@ -929,6 +983,8 @@ def _hydrate_source_semantics_item(
                 ]
                 hydrated_scope = dict(original_scope)
                 if allowed:
+                    hydrated_scope["allowed_block_ids"] = allowed
+                if allowed and "image_region" not in original_scope:
                     spans = [
                         _span(
                             original_blocks[block_id].get("source_span"),
@@ -936,7 +992,6 @@ def _hydrate_source_semantics_item(
                         )
                         for block_id in allowed
                     ]
-                    hydrated_scope["allowed_block_ids"] = allowed
                     hydrated_scope["source_span"] = {
                         "start": min(span["start"] for span in spans),
                         "end": max(span["end"] for span in spans),
@@ -1281,6 +1336,13 @@ def prepare_source_semantics(
                     raise ValueError(f"页面布局块必须是对象: page_number={page_number}")
                 block = dict(raw_block)
                 block_id = _required_text(block.get("block_id"), "block_id")
+                if block.get("type") == "image":
+                    blocks.append({
+                        "block_id": block_id,
+                        "type": "image",
+                        "bbox": _image_region(block.get("bbox")),
+                    })
+                    continue
                 source_span = block.get("source_span")
                 if source_span is None:
                     continue
@@ -1298,7 +1360,7 @@ def prepare_source_semantics(
                     }
                 )
             if not blocks:
-                raise ValueError(f"页面没有可锚定的正文块: page_number={page_number}")
+                raise ValueError(f"页面没有可锚定的正文或图片块: page_number={page_number}")
             raw_page_scopes = [
                 item
                 for item in catalog_items
@@ -1329,16 +1391,7 @@ def prepare_source_semantics(
                     "marks": _normalized_marks(manifest, page),
                     "strikeout_spans": _strikeout_spans(manifest, page),
                     "source_scopes": [
-                        {
-                            "scope_id": str(item.get("evidence_id") or ""),
-                            "allowed_block_ids": [
-                                str(value) for value in list(item.get("block_ids") or [])
-                            ],
-                            "source_span": {
-                                "start": int(item.get("source_offset_start") or 0),
-                                "end": int(item.get("source_offset_end") or 0),
-                            },
-                        }
+                        _document_source_scope(item)
                         for item in raw_page_scopes
                     ],
                 }
@@ -1347,16 +1400,7 @@ def prepare_source_semantics(
                 # 变化时才保存原页，避免“启用但无删减”的普通页面膨胀运行上下文。
                 model_page_input = deepcopy(raw_page_input)
                 model_page_input["source_scopes"] = [
-                    {
-                        "scope_id": str(item.get("evidence_id") or ""),
-                        "allowed_block_ids": [
-                            str(value) for value in list(item.get("block_ids") or [])
-                        ],
-                        "source_span": {
-                            "start": int(item.get("source_offset_start") or 0),
-                            "end": int(item.get("source_offset_end") or 0),
-                        },
-                    }
+                    _document_source_scope(item)
                     for item in page_scopes
                 ]
                 page_input = _compressed_page_view(
@@ -1556,6 +1600,42 @@ def prepare_source_semantics(
     }
 
 
+def _validated_image_anchor(
+    anchor: dict[str, Any],
+    prepared: dict[str, Any],
+    block_ids: list[str],
+    blocks: dict[str, dict[str, Any]],
+) -> tuple[dict[str, Any], bool, set[str]]:
+    """图片事实只绑定一个可信图片块，并验证其独立证据作用域。"""
+
+    if len(block_ids) != 1 or blocks[block_ids[0]].get("type") != "image":
+        raise ValueError("图片事实必须独立锚定单个图片块，不能混合正文或其他图片")
+    if "quote" in anchor or "source_span" in anchor:
+        raise ValueError("图片事实不能声明正文 quote 或 source_span")
+    block_id = block_ids[0]
+    region = _image_region(blocks[block_id].get("bbox"))
+    if "image_region" in anchor and _image_region(anchor["image_region"]) != region:
+        raise ValueError("图片事实区域与真实布局块不一致")
+    scope_ids = {
+        str(scope["scope_id"])
+        for scope in list(prepared.get("source_scopes") or [])
+        if list(scope.get("allowed_block_ids") or []) == [block_id]
+        and "image_region" in scope
+        and _image_region(scope["image_region"]) == region
+    }
+    if len(scope_ids) != 1:
+        raise ValueError(f"图片事实必须命中唯一图片证据作用域: block_id={block_id}")
+    return ({
+        "source_kind": "document",
+        "document_id": int(prepared["document_id"]),
+        "page_number": int(prepared["page_number"]),
+        "block_id": block_id,
+        "image_region": region,
+        "asset_source_sha256": str(prepared["asset_source_sha256"]),
+        "page_image_sha256": str(prepared["page_image_sha256"]),
+    }, False, scope_ids)
+
+
 def _validated_document_anchor(
     anchor: dict[str, Any],
     prepared: dict[str, Any],
@@ -1590,6 +1670,11 @@ def _validated_document_anchor(
     unknown_blocks = set(block_ids) - set(blocks)
     if unknown_blocks:
         raise ValueError(f"来源事实引用了未知页面块: blocks={sorted(unknown_blocks)}")
+    if any(blocks[block_id].get("type") == "image" for block_id in block_ids):
+        return _validated_image_anchor(anchor, prepared, block_ids, blocks)
+    if "image_region" in anchor:
+        raise ValueError("图片区域只能绑定真实图片块")
+    blocks = {key: block for key, block in blocks.items() if block.get("type") != "image"}
     if block_ids:
         block_order = {block_id: index for index, block_id in enumerate(blocks)}
         block_ids = sorted(block_ids, key=block_order.__getitem__)
@@ -1817,6 +1902,10 @@ def _expanded_anchor_for_governed_values(
 ) -> dict[str, Any]:
     """用紧邻的真实值坐标扩展事实锚点，保证值和来源原文保持同一追踪边界。"""
 
+    if "image_region" in anchor:
+        if fact.get("governed_value_spans"):
+            raise ValueError("图片事实的 governed_value_spans 必须为空，不能伪造字符坐标")
+        return anchor
     value_spans = _governed_value_spans_for_materialization(fact=fact)
     if not value_spans:
         return anchor
@@ -1855,7 +1944,8 @@ def _expanded_anchor_for_governed_values(
             (
                 _span(dict(block.get("source_span") or {}), field_name="block.source_span")
                 for block in list(prepared.get("blocks") or [])
-                if _overlaps(expanded_span, dict(block.get("source_span") or {}))
+                if block.get("type") != "image"
+                and _overlaps(expanded_span, dict(block.get("source_span") or {}))
             ),
             key=lambda item: (item["start"], item["end"]),
         )
@@ -1883,7 +1973,8 @@ def _expanded_anchor_for_governed_values(
     expanded["block_id"] = [
         str(block.get("block_id") or "")
         for block in list(prepared.get("blocks") or [])
-        if _overlaps(expanded_span, dict(block.get("source_span") or {}))
+        if block.get("type") != "image"
+        and _overlaps(expanded_span, dict(block.get("source_span") or {}))
     ]
     return expanded
 
@@ -1952,6 +2043,9 @@ def _fact_namespace(prepared: dict[str, Any]) -> str:
             if str(value) in blocks
         }
         if allowed_block_ids and allowed_block_ids != set(blocks):
+            if any(blocks[block_id].get("type") == "image" for block_id in allowed_block_ids):
+                identity = json.dumps(sorted(allowed_block_ids), ensure_ascii=False)
+                return namespace + "-B" + _sha256_text(identity)[:12]
             spans = [
                 _span(
                     blocks[block_id].get("source_span"),
@@ -2062,6 +2156,10 @@ def _materialize_governed_values(
 ) -> list[str]:
     """只接受来源坐标，由平台从真实正文切片生成受治理示例值。"""
 
+    if "image_region" in normalized_anchor:
+        if fact.get("governed_value_spans") or fact.get("governed_values"):
+            raise ValueError(f"图片事实不能声明正文治理值坐标或切片: fact_id={fact_id}")
+        return []
     materializable_spans = _governed_value_spans_for_materialization(fact=fact)
     if materializable_spans is not None:
         source_kind = str(prepared.get("source_kind") or "")
@@ -2392,6 +2490,9 @@ def _requires_authority_review(facts: list[dict[str, Any]]) -> bool:
     """只有存在明确治理信号时才激活跨来源协调 Agent。"""
 
     for fact in facts:
+        if "image_region" in dict(fact.get("source_anchor") or {}):
+            # 图片可能承载界面实例或原型状态，须与同模块的规范规则核对适用条件。
+            return True
         if str(fact.get("status") or "") != "effective":
             return True
         if list(fact.get("governed_by") or []):
@@ -2470,6 +2571,8 @@ def prepare_authority_reconciliation(
             (
                 str(dict(fact.get("source_anchor") or {}).get("source_kind") or ""),
                 int(dict(fact.get("source_anchor") or {}).get("page_number") or 0),
+                str(dict(fact.get("source_anchor") or {}).get("block_id") or "")
+                if "image_region" in dict(fact.get("source_anchor") or {}) else "",
             )
             for fact in module_facts
         }
@@ -2487,7 +2590,7 @@ def prepare_authority_reconciliation(
                 {
                     "module_index": module_index,
                     "module_name": str(module.get("name") or ""),
-                    "reason": "no_explicit_governance_signal",
+                    "reason": "no_governance_or_visual_source_signal",
                 }
             )
             continue

@@ -1095,6 +1095,19 @@ ORDERED_MARKER_SCHEMA: dict[str, Any] = {
 }
 
 
+IMAGE_REGION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "x": {"type": "number", "minimum": 0, "maximum": 1},
+        "y": {"type": "number", "minimum": 0, "maximum": 1},
+        "width": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "height": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+    },
+    "required": ["x", "y", "width", "height"],
+    "additionalProperties": False,
+}
+
+
 PLANNING_EVIDENCE_ITEM_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -1102,7 +1115,7 @@ PLANNING_EVIDENCE_ITEM_SCHEMA: dict[str, Any] = {
         "document_id": {"type": ["integer", "null"], "minimum": 1},
         "chunk_index": {"type": "integer", "minimum": 0},
         "biz_key": {"type": "string"},
-        "text": {"type": "string", "minLength": 1},
+        "text": {"type": "string"},
         "page_number": {"type": ["integer", "null"], "minimum": 1},
         "block_ids": {
             "type": "array",
@@ -1115,6 +1128,8 @@ PLANNING_EVIDENCE_ITEM_SCHEMA: dict[str, Any] = {
             "minLength": 64,
             "maxLength": 64,
         },
+        "image_region": IMAGE_REGION_SCHEMA,
+        "page_image_sha256": {"type": "string", "minLength": 64, "maxLength": 64},
         "continuation": {
             "type": ["object", "null"],
             "properties": {
@@ -1233,6 +1248,30 @@ PLANNING_EVIDENCE_ITEM_SCHEMA: dict[str, Any] = {
         "continuation",
     ],
     "additionalProperties": False,
+    # 图片证据使用真实页面区域；空文本与零偏移仅表示没有正文坐标。
+    "oneOf": [
+        {
+            "properties": {"text": {"type": "string", "minLength": 1}},
+            "not": {
+                "anyOf": [
+                    {"required": ["image_region"]},
+                    {"required": ["page_image_sha256"]},
+                ]
+            },
+        },
+        {
+            "properties": {
+                "document_id": {"type": "integer", "minimum": 1},
+                "page_number": {"type": "integer", "minimum": 1},
+                "block_ids": {"minItems": 1},
+                "text": {"const": ""},
+                "source_offset_start": {"const": 0},
+                "source_offset_end": {"const": 0},
+                "continuation": {"type": "null"},
+            },
+            "required": ["image_region", "page_image_sha256"],
+        },
+    ],
 }
 
 
@@ -1318,6 +1357,28 @@ SOURCE_ANCHOR_SCHEMA: dict[str, Any] = {
                 "block_id",
                 "source_span",
                 "quote",
+                "asset_source_sha256",
+                "page_image_sha256",
+            ],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "source_kind": {"type": "string", "const": "document"},
+                "document_id": {"type": "integer", "minimum": 1},
+                "page_number": {"type": "integer", "minimum": 1},
+                "block_id": {"type": "string", "minLength": 1},
+                "image_region": IMAGE_REGION_SCHEMA,
+                "asset_source_sha256": {"type": "string", "minLength": 64, "maxLength": 64},
+                "page_image_sha256": {"type": "string", "minLength": 64, "maxLength": 64},
+            },
+            "required": [
+                "source_kind",
+                "document_id",
+                "page_number",
+                "block_id",
+                "image_region",
                 "asset_source_sha256",
                 "page_image_sha256",
             ],
@@ -1594,7 +1655,7 @@ GLOBAL_FINAL_REVIEW_INPUT_SCHEMA: dict[str, Any] = {
 
 
 # 来源分析是模型原始输出边界：页面来源只选择一个真实块，
-# quote、坐标和作用域全部由平台根据真实页面确定性生成。
+# 正文引用、图片区域和作用域全部由平台根据真实页面确定性生成。
 SOURCE_SEMANTICS_AGENT_ANCHOR_SCHEMA: dict[str, Any] = {
     "oneOf": [
         {
@@ -1606,7 +1667,7 @@ SOURCE_SEMANTICS_AGENT_ANCHOR_SCHEMA: dict[str, Any] = {
             },
             "required": ["document_id", "page_number", "block_id"],
             "additionalProperties": False,
-            "description": "只选择一个与原子事实最直接相关的真实 block_id，平台补齐 quote、source_span 和 scope_id。",
+            "description": "只选择一个与原子事实最直接相关的真实 block_id；平台为正文块补齐 quote/source_span，为图片块补齐 image_region，并派生 scope_id。",
         },
         {
             "type": "object",
@@ -1821,34 +1882,38 @@ SOURCE_SEMANTICS_INPUT_SCHEMA: dict[str, Any] = {
         "source_kind": {"type": "string", "enum": ["document", "inline"]},
         "document_id": {"type": "integer", "minimum": 1},
         "page_number": {"type": "integer", "minimum": 1},
-        "page_text": {"type": "string", "minLength": 1},
+        "page_text": {"type": "string"},
         "blocks": {
             "type": "array",
             "minItems": 1,
             "items": {
-                "type": "object",
-                "properties": {
-                    "block_id": {"type": "string", "minLength": 1},
-                    "text": {"type": "string", "minLength": 1},
-                    "source_span": SOURCE_SPAN_SCHEMA,
-                },
-                "required": ["block_id", "text", "source_span"],
-                "additionalProperties": False,
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "block_id": {"type": "string", "minLength": 1},
+                            "text": {"type": "string", "minLength": 1},
+                            "source_span": SOURCE_SPAN_SCHEMA,
+                        },
+                        "required": ["block_id", "text", "source_span"],
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "block_id": {"type": "string", "minLength": 1},
+                            "type": {"type": "string", "const": "image"},
+                            "bbox": IMAGE_REGION_SCHEMA,
+                        },
+                        "required": ["block_id", "type", "bbox"],
+                        "additionalProperties": False,
+                    },
+                ],
             },
         },
         "asset_source_sha256": {"type": "string", "minLength": 64, "maxLength": 64},
         "page_image_sha256": {"type": "string", "minLength": 64, "maxLength": 64},
-        "region": {
-            "type": "object",
-            "properties": {
-                "x": {"type": "number", "minimum": 0, "maximum": 1},
-                "y": {"type": "number", "minimum": 0, "maximum": 1},
-                "width": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
-                "height": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
-            },
-            "required": ["x", "y", "width", "height"],
-            "additionalProperties": False,
-        },
+        "region": IMAGE_REGION_SCHEMA,
         "strikeout_spans": {
             "type": "array",
             "items": {
@@ -1917,9 +1982,23 @@ SOURCE_SEMANTICS_INPUT_SCHEMA: dict[str, Any] = {
                     "source_span": SOURCE_SPAN_SCHEMA,
                     "source_offset_start": {"type": "integer", "minimum": 0},
                     "source_offset_end": {"type": "integer", "minimum": 1},
+                    "image_region": IMAGE_REGION_SCHEMA,
                 },
                 "required": ["scope_id"],
                 "additionalProperties": False,
+                "oneOf": [
+                    {"not": {"required": ["image_region"]}},
+                    {
+                        "required": ["image_region", "allowed_block_ids"],
+                        "not": {
+                            "anyOf": [
+                                {"required": ["source_span"]},
+                                {"required": ["source_offset_start"]},
+                                {"required": ["source_offset_end"]},
+                            ]
+                        },
+                    },
+                ],
             },
         },
         "requirement": {"type": "string", "minLength": 1},
@@ -1984,4 +2063,4 @@ SOURCE_SEMANTICS_INPUT_SCHEMA["oneOf"].append(
 
 
 
-__all__ = ['ACTORS_SCHEMA', 'AUTHORITATIVE_FACT_SCHEMA', 'AUTHORITY_RECONCILIATION_AGENT_OUTPUT_SCHEMA', 'AUTHORITY_RECONCILIATION_DECISION_SCHEMA', 'AUTHORITY_RECONCILIATION_ITEM_SCHEMA', 'AUTHORITY_RECONCILIATION_OUTPUT_SCHEMA', 'BATCH_FINAL_REVIEW_AGENT_OUTPUT_SCHEMA', 'BATCH_FINAL_REVIEW_DIFFERENCE_CATEGORIES', 'BATCH_FINAL_REVIEW_DIFFERENCE_SCHEMA', 'BUSINESS_PLANNING_BATCH_MAX_FACTS', 'BUSINESS_PLANNING_BATCH_MAX_JSON_CHARS', 'BUSINESS_PLAN_DRAFT_SCHEMA', 'CASE_FACT_BINDING_SCHEMA', 'CASE_SCHEMA', 'EVIDENCE_OUTPUT_SCHEMA', 'EVIDENCE_SOURCE_SCHEMA', 'EXECUTION_CHAIN_SELECTION_SCHEMA', 'EXECUTION_PLAN_SCHEMA', 'FACT_DESIGN_ROUTE_SCHEMA', 'FACT_ID_LIST_SCHEMA', 'FINAL_REVIEW_BATCH_INPUT_SCHEMA', 'FINAL_REVIEW_BATCH_META_SCHEMA', 'FINAL_REVIEW_OUTPUT_SCHEMA', 'FINAL_REVIEW_REPAIR_INPUT_SCHEMA', 'FINAL_REVIEW_REPAIR_RESULT_SCHEMA', 'GENERATION_AUDIT_SCHEMA', 'GLOBAL_FINAL_REVIEW_AGENT_OUTPUT_SCHEMA', 'GLOBAL_FINAL_REVIEW_DIFFERENCE_CATEGORIES', 'GLOBAL_FINAL_REVIEW_INPUT_SCHEMA', 'GROUNDING_SCHEMA', 'MERGED_GENERATION_SCHEMA', 'MODEL_GENERATION_CASE_SCHEMA', 'MODEL_GROUNDED_TEXT_SCHEMA', 'MODEL_GROUNDING_SCHEMA', 'MODEL_INLINE_CASE_SCHEMA', 'MODEL_REPAIR_CASE_PATCH_SCHEMA', 'MODEL_REPAIR_CASE_SCHEMA', 'MODEL_REPAIR_PATCH_SCHEMA', 'MODEL_STEP_FACT_BINDINGS_SCHEMA', 'OPTIONAL_FACT_ID_LIST_SCHEMA', 'ORDERED_MARKER_SCHEMA', 'PLANNER_AGENT_OUTPUT_SCHEMA', 'PLANNER_AGENT_SUBMISSION_SCHEMA', 'PLANNER_OUTPUT_SCHEMA', 'PLANNER_TEST_DESIGN_SCHEMA', 'PLANNER_TEST_POINT_SCHEMA', 'PLANNING_EVIDENCE_CATALOG_SCHEMA', 'PLANNING_EVIDENCE_ITEM_SCHEMA', 'PLANNING_ROUTE_REPAIR_AGENT_OUTPUT_SCHEMA', 'PLANNING_ROUTE_REPAIR_OUTPUT_SCHEMA', 'PLANNING_SCOPE_ROUTE_BATCH_SIZE', 'PLANNING_SCOPE_ROUTE_MAX_MODEL_INPUT_CHARS', 'PLANNING_SCOPE_ROUTING_AGENT_OUTPUT_SCHEMA', 'PLANNING_SCOPE_ROUTING_BATCH_OUTPUT_SCHEMA', 'PLANNING_SCOPE_ROUTING_OUTPUT_SCHEMA', 'PLAN_SCHEMA', 'REPAIR_AUTHORITATIVE_FACT_SCHEMA', 'REPAIR_SOURCE_ANCHOR_SCHEMA', 'REVIEW_FACT_SCHEMA', 'RISK_DETAIL_SCHEMA', 'RISK_OR_TEXTS_SCHEMA', 'SCENARIO_DESIGN_GUIDANCE_SCHEMA', 'SOURCE_ANCHOR_SCHEMA', 'SOURCE_SEMANTICS_AGENT_ANCHOR_SCHEMA', 'SOURCE_SEMANTICS_AGENT_FACT_SCHEMA', 'SOURCE_SEMANTICS_AGENT_OUTPUT_SCHEMA', 'SOURCE_SEMANTICS_DOCUMENT_PAGE_SCHEMA', 'SOURCE_SEMANTICS_INPUT_SCHEMA', 'SOURCE_SEMANTICS_NORMALIZED_OUTPUT_SCHEMA', 'SOURCE_SEMANTICS_OUTPUT_SCHEMA', 'SOURCE_SPAN_SCHEMA', 'SYNTHESIS_APPROVAL_OUTPUT_SCHEMA', 'TEST_DESIGN_CATALOG_ITEM_SCHEMA', 'TEST_DESIGN_TECHNIQUES', 'TEXT_OR_TEXTS_SCHEMA']
+__all__ = ['ACTORS_SCHEMA', 'AUTHORITATIVE_FACT_SCHEMA', 'AUTHORITY_RECONCILIATION_AGENT_OUTPUT_SCHEMA', 'AUTHORITY_RECONCILIATION_DECISION_SCHEMA', 'AUTHORITY_RECONCILIATION_ITEM_SCHEMA', 'AUTHORITY_RECONCILIATION_OUTPUT_SCHEMA', 'BATCH_FINAL_REVIEW_AGENT_OUTPUT_SCHEMA', 'BATCH_FINAL_REVIEW_DIFFERENCE_CATEGORIES', 'BATCH_FINAL_REVIEW_DIFFERENCE_SCHEMA', 'BUSINESS_PLANNING_BATCH_MAX_FACTS', 'BUSINESS_PLANNING_BATCH_MAX_JSON_CHARS', 'BUSINESS_PLAN_DRAFT_SCHEMA', 'CASE_FACT_BINDING_SCHEMA', 'CASE_SCHEMA', 'EVIDENCE_OUTPUT_SCHEMA', 'EVIDENCE_SOURCE_SCHEMA', 'EXECUTION_CHAIN_SELECTION_SCHEMA', 'EXECUTION_PLAN_SCHEMA', 'FACT_DESIGN_ROUTE_SCHEMA', 'FACT_ID_LIST_SCHEMA', 'FINAL_REVIEW_BATCH_INPUT_SCHEMA', 'FINAL_REVIEW_BATCH_META_SCHEMA', 'FINAL_REVIEW_OUTPUT_SCHEMA', 'FINAL_REVIEW_REPAIR_INPUT_SCHEMA', 'FINAL_REVIEW_REPAIR_RESULT_SCHEMA', 'GENERATION_AUDIT_SCHEMA', 'GLOBAL_FINAL_REVIEW_AGENT_OUTPUT_SCHEMA', 'GLOBAL_FINAL_REVIEW_DIFFERENCE_CATEGORIES', 'GLOBAL_FINAL_REVIEW_INPUT_SCHEMA', 'GROUNDING_SCHEMA', 'IMAGE_REGION_SCHEMA', 'MERGED_GENERATION_SCHEMA', 'MODEL_GENERATION_CASE_SCHEMA', 'MODEL_GROUNDED_TEXT_SCHEMA', 'MODEL_GROUNDING_SCHEMA', 'MODEL_INLINE_CASE_SCHEMA', 'MODEL_REPAIR_CASE_PATCH_SCHEMA', 'MODEL_REPAIR_CASE_SCHEMA', 'MODEL_REPAIR_PATCH_SCHEMA', 'MODEL_STEP_FACT_BINDINGS_SCHEMA', 'OPTIONAL_FACT_ID_LIST_SCHEMA', 'ORDERED_MARKER_SCHEMA', 'PLANNER_AGENT_OUTPUT_SCHEMA', 'PLANNER_AGENT_SUBMISSION_SCHEMA', 'PLANNER_OUTPUT_SCHEMA', 'PLANNER_TEST_DESIGN_SCHEMA', 'PLANNER_TEST_POINT_SCHEMA', 'PLANNING_EVIDENCE_CATALOG_SCHEMA', 'PLANNING_EVIDENCE_ITEM_SCHEMA', 'PLANNING_ROUTE_REPAIR_AGENT_OUTPUT_SCHEMA', 'PLANNING_ROUTE_REPAIR_OUTPUT_SCHEMA', 'PLANNING_SCOPE_ROUTE_BATCH_SIZE', 'PLANNING_SCOPE_ROUTE_MAX_MODEL_INPUT_CHARS', 'PLANNING_SCOPE_ROUTING_AGENT_OUTPUT_SCHEMA', 'PLANNING_SCOPE_ROUTING_BATCH_OUTPUT_SCHEMA', 'PLANNING_SCOPE_ROUTING_OUTPUT_SCHEMA', 'PLAN_SCHEMA', 'REPAIR_AUTHORITATIVE_FACT_SCHEMA', 'REPAIR_SOURCE_ANCHOR_SCHEMA', 'REVIEW_FACT_SCHEMA', 'RISK_DETAIL_SCHEMA', 'RISK_OR_TEXTS_SCHEMA', 'SCENARIO_DESIGN_GUIDANCE_SCHEMA', 'SOURCE_ANCHOR_SCHEMA', 'SOURCE_SEMANTICS_AGENT_ANCHOR_SCHEMA', 'SOURCE_SEMANTICS_AGENT_FACT_SCHEMA', 'SOURCE_SEMANTICS_AGENT_OUTPUT_SCHEMA', 'SOURCE_SEMANTICS_DOCUMENT_PAGE_SCHEMA', 'SOURCE_SEMANTICS_INPUT_SCHEMA', 'SOURCE_SEMANTICS_NORMALIZED_OUTPUT_SCHEMA', 'SOURCE_SEMANTICS_OUTPUT_SCHEMA', 'SOURCE_SPAN_SCHEMA', 'SYNTHESIS_APPROVAL_OUTPUT_SCHEMA', 'TEST_DESIGN_CATALOG_ITEM_SCHEMA', 'TEST_DESIGN_TECHNIQUES', 'TEXT_OR_TEXTS_SCHEMA']

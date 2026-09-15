@@ -111,9 +111,9 @@ async def evaluate_test_cases(
         db=db,
         project_id=project_id,
         user_id=current_user.id,
-        workflow_kind=WorkflowKind.EVALUATION,
+        kind=WorkflowKind.EVALUATION,
         stage=WorkflowStage.EVALUATE,
-        payload={
+        details={
             "action": "evaluate_test_cases",
             "source_run_id": run_id,
             "evaluation_run_id": evaluation_run.id,

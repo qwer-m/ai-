@@ -1,7 +1,6 @@
 """Development environment one-click startup script."""
 
 import os
-import subprocess
 import sys
 import tempfile
 import time
@@ -24,6 +23,8 @@ try:
         ensure_database_schema,
         ensure_redis_ready,
         kill_process_on_port,
+        start_service_process,
+        stop_service_process,
         wait_for_celery_worker_ready,
         wait_for_backend_ready,
     )
@@ -40,6 +41,8 @@ except ImportError:
         ensure_database_schema,
         ensure_redis_ready,
         kill_process_on_port,
+        start_service_process,
+        stop_service_process,
         wait_for_celery_worker_ready,
         wait_for_backend_ready,
     )
@@ -112,22 +115,13 @@ def main() -> None:
     frontend_process = None
     uvicorn_process = None
 
-    def _stop_process(process: subprocess.Popen | None) -> None:
-        if process is None or process.poll() is not None:
-            return
-        try:
-            process.terminate()
-            process.wait(timeout=8)
-        except Exception:
-            try:
-                process.kill()
-            except Exception:
-                pass
-
     def _stop_all_processes() -> None:
         # 先停前端和调度，再停 worker/API，避免退出过程中继续投递任务。
         for process in (frontend_process, beat_process, celery_process, uvicorn_process):
-            _stop_process(process)
+            try:
+                stop_service_process(process)
+            except Exception as exc:
+                print(f"[ERROR] 服务停止失败: {exc}")
 
     def _start_celery_worker() -> None:
         nonlocal celery_process
@@ -136,7 +130,7 @@ def main() -> None:
             ready_file = os.path.join(ready_dir, "ready.json")
             worker_env = runtime_env.copy()
             worker_env[CELERY_WORKER_READY_FILE_ENV] = ready_file
-            celery_process = subprocess.Popen(celery_cmd, cwd=app_dir, env=worker_env)
+            celery_process = start_service_process(celery_cmd, cwd=app_dir, env=worker_env)
             print("Waiting for Celery worker startup readiness...")
             if not wait_for_celery_worker_ready(celery_process, ready_file=ready_file):
                 raise RuntimeError("Celery worker startup readiness was not confirmed.")
@@ -144,7 +138,7 @@ def main() -> None:
     try:
         # 启动顺序固定为 API -> Worker -> Beat -> Frontend，只有依赖就绪后才对外提供入口。
         print(f"Starting FastAPI Server in {app_dir}...")
-        uvicorn_process = subprocess.Popen(uvicorn_cmd, cwd=app_dir, env=runtime_env.copy())
+        uvicorn_process = start_service_process(uvicorn_cmd, cwd=app_dir, env=runtime_env.copy())
 
         print(f"Waiting for backend health check: http://127.0.0.1:{backend_port}/api/health")
         backend_ready = wait_for_backend_ready(backend_port, timeout_seconds=90)
@@ -157,7 +151,7 @@ def main() -> None:
         print("Celery worker is ready.")
 
         print(f"Starting Celery Beat in {app_dir}...")
-        beat_process = subprocess.Popen(beat_cmd, cwd=app_dir, env=runtime_env.copy())
+        beat_process = start_service_process(beat_cmd, cwd=app_dir, env=runtime_env.copy())
         time.sleep(1)
         if beat_process.poll() is not None:
             raise RuntimeError(f"Celery beat exited during startup (code {beat_process.returncode}).")
@@ -168,7 +162,7 @@ def main() -> None:
             npm_cmd = "npm.cmd" if os.name == "nt" else "npm"
             try:
                 print(f"Using npm cache: {runtime_env['NPM_CONFIG_CACHE']}")
-                frontend_process = subprocess.Popen([npm_cmd, "run", "dev"], cwd=frontend_dir, env=runtime_env.copy())
+                frontend_process = start_service_process([npm_cmd, "run", "dev"], cwd=frontend_dir, env=runtime_env.copy())
             except Exception as e:
                 print(f"Failed to start frontend: {e}")
 
@@ -204,13 +198,13 @@ def main() -> None:
             if beat_process.poll() is not None:
                 print(f"Celery beat stopped (code {beat_process.returncode}). Restarting in 3s...")
                 time.sleep(3)
-                beat_process = subprocess.Popen(beat_cmd, cwd=app_dir, env=runtime_env.copy())
+                beat_process = start_service_process(beat_cmd, cwd=app_dir, env=runtime_env.copy())
                 print("Celery beat restarted.")
 
             if uvicorn_process and uvicorn_process.poll() is not None:
                 print(f"Uvicorn server stopped (code {uvicorn_process.returncode}). Restarting in 3s...")
                 time.sleep(3)
-                uvicorn_process = subprocess.Popen(uvicorn_cmd, cwd=app_dir, env=runtime_env.copy())
+                uvicorn_process = start_service_process(uvicorn_cmd, cwd=app_dir, env=runtime_env.copy())
                 if not wait_for_backend_ready(backend_port, timeout_seconds=90):
                     raise RuntimeError("Uvicorn restart did not pass backend health check.")
                 print("Uvicorn server restarted.")

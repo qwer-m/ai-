@@ -377,8 +377,91 @@ def _document_fragments(
                     f"start={start}, end={end}"
                 )
         fragments.extend(raw_fragments)
-    if not fragments:
-        raise ValueError(f"需求文档没有可用原始证据块: document_id={document_id}")
+    return fragments
+
+
+def _image_evidence_region(value: Any) -> dict[str, float]:
+    """校验真实页面的归一化图片区域，不为缺失坐标构造占位区域。"""
+
+    fields = ("x", "y", "width", "height")
+    if not isinstance(value, dict) or set(value) != set(fields):
+        raise ValueError("图片证据必须包含完整 image_region")
+    if any(
+        not isinstance(value[field], (int, float)) or isinstance(value[field], bool)
+        for field in fields
+    ):
+        raise ValueError("图片证据区域坐标必须是数值")
+    region = {field: float(value[field]) for field in fields}
+    if (
+        any(not math.isfinite(number) for number in region.values())
+        or region["x"] < 0
+        or region["y"] < 0
+        or region["width"] <= 0
+        or region["height"] <= 0
+        or region["x"] + region["width"] > 1.000001
+        or region["y"] + region["height"] > 1.000001
+    ):
+        raise ValueError("图片证据区域必须位于真实页面范围内")
+    return region
+
+
+def _document_image_fragments(
+    manifest: dict[str, Any],
+    *,
+    first_chunk_index: int,
+) -> list[dict[str, Any]]:
+    """直接从页面资产读取图片证据，图片不冒充正文，也不进入文本向量索引。"""
+
+    document_id = int(manifest["document_id"])
+    source_hash = str(manifest.get("source_sha256") or "").strip().lower()
+    if re.fullmatch(r"[0-9a-f]{64}", source_hash) is None:
+        raise ValueError(f"图片证据缺少有效资产指纹: document_id={document_id}")
+    fragments: list[dict[str, Any]] = []
+    seen_blocks: set[tuple[int, str]] = set()
+    pages = sorted(
+        list(manifest.get("pages") or []),
+        key=lambda page: int(page["page_number"]),
+    )
+    for page in pages:
+        page_number = int(page["page_number"])
+        image_blocks = sorted(
+            (
+                block
+                for block in list(page.get("blocks") or [])
+                if block.get("type") == "image"
+            ),
+            key=lambda block: str(block.get("block_id") or ""),
+        )
+        if not image_blocks:
+            continue
+        page_hash = str(page.get("image_sha256") or "").strip().lower()
+        if page_number < 1 or re.fullmatch(r"[0-9a-f]{64}", page_hash) is None:
+            raise ValueError(f"图片证据缺少有效页码或页面指纹: document_id={document_id}")
+        for block in image_blocks:
+            block_id = str(block.get("block_id") or "").strip()
+            identity = (page_number, block_id)
+            if not block_id or identity in seen_blocks:
+                raise ValueError(
+                    f"图片证据块 ID 为空或重复: page_number={page_number}, block_id={block_id}"
+                )
+            if str(block.get("asset_source_sha256") or "").strip().lower() != source_hash:
+                raise ValueError(f"图片证据块与文档资产指纹不一致: block_id={block_id}")
+            seen_blocks.add(identity)
+            fragments.append(
+                {
+                    "document_id": document_id,
+                    "chunk_index": first_chunk_index + len(fragments),
+                    "biz_key": "",
+                    "text": "",
+                    "page_number": page_number,
+                    "block_ids": [block_id],
+                    "source_offset_start": 0,
+                    "source_offset_end": 0,
+                    "asset_source_sha256": source_hash,
+                    "image_region": _image_evidence_region(block.get("bbox")),
+                    "page_image_sha256": page_hash,
+                }
+            )
     return fragments
 
 
@@ -403,7 +486,8 @@ def _evidence_chunk_from_catalog_item(item: dict[str, Any]) -> dict[str, Any]:
             f"evidence_id={item.get('evidence_id')}, fields={missing_fields}"
         )
     text = str(item.get("text") or "").strip()
-    if not text:
+    is_image = "image_region" in item
+    if not text and not is_image:
         raise ValueError(f"证据目录项正文不能为空: evidence_id={item.get('evidence_id')}")
     asset_source_sha256 = str(item.get("asset_source_sha256") or "").strip().lower()
     if len(asset_source_sha256) != 64:
@@ -417,7 +501,7 @@ def _evidence_chunk_from_catalog_item(item: dict[str, Any]) -> dict[str, Any]:
         )
     document_id = item.get("document_id")
     page_number = item.get("page_number")
-    return {
+    result = {
         "document_id": int(document_id) if document_id is not None else None,
         "chunk_index": int(item["chunk_index"]),
         "biz_key": str(item.get("biz_key") or ""),
@@ -428,6 +512,23 @@ def _evidence_chunk_from_catalog_item(item: dict[str, Any]) -> dict[str, Any]:
         "source_offset_end": int(item.get("source_offset_end") or 0),
         "asset_source_sha256": asset_source_sha256,
     }
+    if is_image:
+        page_hash = str(item.get("page_image_sha256") or "").strip().lower()
+        if (
+            item["text"] != ""
+            or item["source_offset_start"] != 0
+            or item["source_offset_end"] != 0
+            or len(block_ids) != 1
+            or not str(block_ids[0]).strip()
+            or document_id is None
+            or page_number is None
+            or int(page_number) < 1
+            or re.fullmatch(r"[0-9a-f]{64}", page_hash) is None
+        ):
+            raise ValueError("图片证据必须关联唯一真实图片块和页面指纹，且不能带伪正文坐标")
+        result["image_region"] = _image_evidence_region(item["image_region"])
+        result["page_image_sha256"] = page_hash
+    return result
 
 
 def _build_evidence_catalog_from_fragments(
@@ -442,8 +543,11 @@ def _build_evidence_catalog_from_fragments(
         key=lambda item: (
             int(item.get("document_id") or 0),
             int(item.get("page_number") or 0),
+            "image_region" in item,
             int(item.get("source_offset_start") or 0),
             int(item.get("source_offset_end") or 0),
+            float(dict(item.get("image_region") or {}).get("y") or 0),
+            float(dict(item.get("image_region") or {}).get("x") or 0),
             int(item.get("chunk_index") or 0),
             str(item.get("biz_key") or ""),
             str(item.get("asset_source_sha256") or ""),
@@ -474,9 +578,11 @@ def _attach_high_confidence_continuations(
 ) -> None:
     """将页级版式候选绑定到相邻的真实证据项，不改写正文。"""
 
-    positions = {id(item): index for index, item in enumerate(catalog)}
+    # 中文注释：跨页续项只比较正文相邻关系，图片证据不能打断真实正文的连续性。
+    text_catalog = [item for item in catalog if "image_region" not in item]
+    positions = {id(item): index for index, item in enumerate(text_catalog)}
     items_by_page: dict[int, list[dict[str, Any]]] = {}
-    for item in catalog:
+    for item in text_catalog:
         page_number = int(item.get("page_number") or 0)
         if page_number > 0:
             items_by_page.setdefault(page_number, []).append(item)
@@ -680,7 +786,6 @@ def build_planning_evidence_catalog(
     """从真实文档分片构建供 Planner 选择的稳定证据目录。"""
 
     document_id = source.get("document_id")
-    manifest = None
     if document_id is None:
         inline_text = str(requirement or "")
         if not inline_text.strip():
@@ -706,17 +811,31 @@ def build_planning_evidence_catalog(
                 }
             ],
         }
-    if document_id is not None:
-        manifest = load_document_manifest(int(document_id))
-        if int(manifest.get("schema_version") or 0) != 3:
-            raise ValueError(
-                "文档页面资产版本不受支持，必须重新解析: "
-                f"document_id={document_id}, schema_version={manifest.get('schema_version')}"
-            )
+    manifest = load_document_manifest(int(document_id))
+    if int(manifest.get("schema_version") or 0) != 3:
+        raise ValueError(
+            "文档页面资产版本不受支持，必须重新解析: "
+            f"document_id={document_id}, schema_version={manifest.get('schema_version')}"
+        )
+    if str(manifest.get("source_sha256") or "").lower() != str(
+        source.get("content_hash") or ""
+    ).lower():
+        raise ValueError(f"文档证据目录与事实源指纹不一致: document_id={document_id}")
+    fragments = _document_fragments(source=source, requirement=requirement)
+    fragments.extend(
+        _document_image_fragments(
+            manifest,
+            first_chunk_index=max(
+                (int(item["chunk_index"]) for item in fragments), default=-1
+            ) + 1,
+        )
+    )
+    if not fragments:
+        raise ValueError(f"需求文档没有可用原始证据块: document_id={document_id}")
     return {
-        "document_id": int(document_id) if document_id is not None else None,
+        "document_id": int(document_id),
         "items": _build_evidence_catalog_from_fragments(
-            _document_fragments(source=source, requirement=requirement),
+            fragments,
             manifest=manifest,
         ),
     }

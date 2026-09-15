@@ -23,7 +23,7 @@ MAX_CONTEXT_COMPRESSION_MAX_TOKENS = 32768
 
 
 def evidence_catalog_fingerprint(evidence_catalog: dict[str, Any]) -> str:
-    """为证据目录生成稳定指纹，避免恢复时复用过期的压缩选择。"""
+    """为完整证据目录生成稳定指纹，包含图片块、真实区域和页面图像身份。"""
 
     items = evidence_catalog.get("items")
     canonical = {
@@ -167,6 +167,12 @@ def compress_evidence_catalog(
     # 独立的全量目录保留，不能用动态扩预算掩盖上下文超限。
     authority_token_estimate = _authority_token_budget(items)
     effective_max_tokens = requested_max_tokens
+    # 中文注释：图片没有可压缩正文；真实图片范围必须始终保留，不能被文本噪音过滤器丢弃。
+    image_evidence_ids = {
+        evidence_ids[index]
+        for index, item in enumerate(items)
+        if "image_region" in item
+    }
     chunks = [
         {
             "chunk_text": str(item.get("text") or ""),
@@ -176,6 +182,7 @@ def compress_evidence_catalog(
             "evidence_id": evidence_ids[index],
         }
         for index, item in enumerate(items)
+        if evidence_ids[index] not in image_evidence_ids
     ]
     compressed = compress_context(
         chunks=chunks,
@@ -188,6 +195,7 @@ def compress_evidence_catalog(
         for chunk in list(compressed.get("selected_chunks") or [])
         if str(chunk.get("evidence_id") or "").strip()
     }
+    candidate_selected_ids.update(image_evidence_ids)
 
     candidate_omitted_ids = [
         evidence_id for evidence_id in evidence_ids if evidence_id not in candidate_selected_ids
@@ -251,7 +259,9 @@ def _compression_stats(
     ]
     raw_chars = sum(len(str(item.get("text") or "")) for item in raw_items)
     selected_chars = sum(len(str(item.get("text") or "")) for item in selected_items)
-    candidate_selected_ids = set(candidate_selected_ids or selected_ids)
+    candidate_selected_ids = set(
+        selected_ids if candidate_selected_ids is None else candidate_selected_ids
+    )
     candidate_selected_items = [
         item for item in raw_items if str(item.get("evidence_id") or "") in candidate_selected_ids
     ]
@@ -283,9 +293,13 @@ def _compression_stats(
         "raw_evidence_ids": list(raw_ids),
         "evidence_catalog_fingerprint": str(catalog_fingerprint or ""),
         "selected_evidence_count": len(selected_items),
+        "selected_evidence_ids": [evidence_id for evidence_id in raw_ids if evidence_id in selected_ids],
         "omitted_evidence_count": len(omitted_ids),
         "omitted_evidence_ids": omitted_ids,
         "candidate_selected_evidence_count": len(candidate_selected_ids),
+        "candidate_selected_evidence_ids": [
+            evidence_id for evidence_id in raw_ids if evidence_id in candidate_selected_ids
+        ],
         "candidate_omitted_evidence_count": len(candidate_omitted_ids),
         "candidate_omitted_evidence_ids": list(dict.fromkeys(candidate_omitted_ids)),
         "forced_authoritative_evidence_ids": list(dict.fromkeys(forced_ids)),

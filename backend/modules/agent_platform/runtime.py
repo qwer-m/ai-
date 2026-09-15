@@ -3530,11 +3530,7 @@ def _execute_node(
     definitions: AgentDefinitionRepository,
 ) -> tuple[AgentNodeRun, dict[str, Any]] | None:
     setup = _prepare_node_execution(repo, run, node, dependency_outputs)
-    previous = setup.previous
     node_run = setup.node_run
-    node_input = setup.node_input
-    attempt = setup.attempt
-    execution_context = setup.execution_context
     if node.node_type in {"agent", "agent_network", "agent_map"}:
         definition = definitions.get_agent(
             project_id=run.project_id,

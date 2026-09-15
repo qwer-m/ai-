@@ -11,7 +11,10 @@ import unicodedata
 from typing import Any, TYPE_CHECKING
 
 from core.db.model_defs import KnowledgeDocument
-from .sources import SourceSnapshot, assert_same_source
+from modules.knowledge_base_components.document.document_asset_service import (
+    load_document_manifest,
+)
+from .sources import SOURCE_ARTIFACT_KEY, SourceSnapshot, assert_same_source
 from .output_repair import OutputRepairError, repairable_output
 from .test_generation_repair import PLANNING_REPAIR_STRATEGY
 from .test_generation_batching import build_planning_evidence_catalog

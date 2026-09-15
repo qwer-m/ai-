@@ -30,6 +30,7 @@ from core.ai.ai_client import get_client_for_user
 from core.ai.providers.openai_compatible_provider import OpenAICompatibleProvider
 from core.db.model_defs import AgentDefinition, AgentToolDefinition, KnowledgeDocument
 from modules.knowledge_base_components.document.document_asset_service import (
+    document_page_image_details,
     document_page_image_path,
     load_document_manifest,
 )
@@ -841,20 +842,40 @@ def _runner_input(
     if region != {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}:
         raise ValueError("当前多模态 Agent 只接受已声明的完整页面图像")
     media_type = mimetypes.guess_type(image_path.name)[0] or "image/png"
-    encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
-    return [
+    page_bytes = image_path.read_bytes()
+    if hashlib.sha256(page_bytes).hexdigest() != str(page_asset["image_sha256"]):
+        raise ValueError("页面图像内容与资产指纹不一致")
+    content = [
+        {"type": "input_text", "text": payload_text},
         {
-            "role": "user",
-            "content": [
-                {"type": "input_text", "text": payload_text},
-                {
-                    "type": "input_image",
-                    "image_url": f"data:{media_type};base64,{encoded}",
-                    "detail": "high",
-                },
-            ],
-        }
+            "type": "input_image",
+            "image_url": f"data:{media_type};base64,{base64.b64encode(page_bytes).decode('ascii')}",
+            "detail": "high",
+        },
     ]
+    image_block_ids = [
+        str(block["block_id"])
+        for block in list(input_payload.get("blocks") or [])
+        if isinstance(block, dict) and block.get("type") == "image"
+    ]
+    # 全景保留图文关系，原 PDF 局部重渲染保留嵌图细字；两者共享可信块锚点。
+    for detail in document_page_image_details(document_id, page_number, image_block_ids):
+        content.append({
+            "type": "input_text",
+            "text": "下图是本页真实图片块的高清局部图，来源锚点为 " + json.dumps({
+                "document_id": document_id,
+                "page_number": page_number,
+                "block_id": detail["block_id"],
+                "image_region": detail["bbox"],
+            }, ensure_ascii=False),
+        })
+        encoded = base64.b64encode(detail["image_bytes"]).decode("ascii")
+        content.append({
+            "type": "input_image",
+            "image_url": f"data:{detail['media_type']};base64,{encoded}",
+            "detail": "high",
+        })
+    return [{"role": "user", "content": content}]
 
 
 def _validate_runtime_config(runtime_config: dict[str, Any], *, has_tools: bool) -> None:
@@ -1408,6 +1429,7 @@ def run_agent(
     retry_feedback: str | None = None,
     disable_server_output_schema: bool = False,
     disable_model_thinking: bool = False,
+    model_route_override: str | None = None,
     skip_output_postprocessor: bool = False,
 ) -> AgentExecutionResult:
     return asyncio.run(
@@ -1421,6 +1443,7 @@ def run_agent(
             retry_feedback=retry_feedback,
             disable_server_output_schema=disable_server_output_schema,
             disable_model_thinking=disable_model_thinking,
+            model_route_override=model_route_override,
             skip_output_postprocessor=skip_output_postprocessor,
         )
     )
