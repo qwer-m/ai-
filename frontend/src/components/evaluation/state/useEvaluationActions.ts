@@ -4,11 +4,11 @@ import {
   evaluateUiRequest,
   fetchAgentRunBundle,
   fetchAgentRunHistory,
-  fetchAgentRunStatus,
   normalizeAutomationEvaluationReport,
   normalizeQualityReport,
-  translateError,
 } from './evaluationService';
+import { translateError } from '../../../utils/api';
+import { getAgentRun } from '../../agent-platform/agentApi';
 import { useEvaluationResources } from './useEvaluationResources';
 import type { EvaluationProps } from './types';
 
@@ -104,8 +104,8 @@ export function useEvaluationActions({
   const waitForEvaluationRun = async (evaluationRunId: number, sourceRunId: number) => {
     for (let attempt = 0; attempt < 240; attempt += 1) {
       await wait(2000);
-      const run = await fetchAgentRunStatus(evaluationRunId);
-      const status = String(run?.status || '');
+      const { run } = await getAgentRun(evaluationRunId);
+      const status = run.status;
       if (status === 'success') {
         const bundle = await fetchAgentRunBundle(sourceRunId);
         const evaluation = bundle.evaluation_artifact?.evaluation;

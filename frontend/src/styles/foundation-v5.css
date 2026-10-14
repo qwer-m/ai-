@@ -76,13 +76,6 @@ body.ui-overhaul-v4 .dashboard-sidebar-surface {
   border-radius: var(--fd-radius-lg);
 }
 
-body.ui-overhaul-v4 .dashboard-topbar-shell {
-  min-height: 72px;
-  height: 72px;
-  padding-top: 14px !important;
-  padding-bottom: 14px !important;
-}
-
 body.ui-overhaul-v4 .dashboard-content-host {
   padding: 22px !important;
 }
@@ -183,9 +176,5 @@ body.ui-overhaul-v4 .dashboard-shell .text-secondary {
 @media (max-width: 992px) {
   body.ui-overhaul-v4 .dashboard-body-layout {
     padding: 10px 10px 0 !important;
-  }
-  body.ui-overhaul-v4 .dashboard-topbar-shell {
-    min-height: 64px;
-    height: auto;
   }
 }

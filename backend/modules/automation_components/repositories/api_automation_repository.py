@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from core.db.model_defs import APIExecution, Project, StandardInterface
+from core.db.model_defs import APIExecution, StandardInterface
 
 
 class APIAutomationRepository:
@@ -13,13 +13,6 @@ class APIAutomationRepository:
 
     def __init__(self, db: Session):
         self.db = db
-
-    def get_owned_project(self, *, project_id: int, user_id: int) -> Project | None:
-        return (
-            self.db.query(Project)
-            .filter(Project.id == project_id, Project.user_id == user_id)
-            .first()
-        )
 
     def list_standard_interfaces(
         self,

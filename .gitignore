@@ -32,6 +32,21 @@ backend/tmp/review_diagnostics/
 # Agent 仓储重构生成的验证报告
 /output/agent-*.json
 /output/agent-*.md
+# 本地运行快照、日志和验证数据库，保留源码与项目配置 JSON
+/output/qa/**/*.json
+/output/qa/**/*.jsonl
+/output/qa/**/*.log
+/output/qa/**/*.sqlite*
+/backend/artifacts/**/*.json
+/backend/artifacts/**/*.jsonl
+/backend/artifacts/**/*.log
+/backend/artifacts/**/*.sqlite*
+# 验证过程下载的工具及临时源码副本
+/output/qa/pdf-tools/
+/output/qa/*-staged/
+/output/qa/*-candidate/
+/output/qa/*.patch
+/output/qa/*-staged.py
 /.playwright-mcp/
 
 # IDE

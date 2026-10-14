@@ -13,7 +13,7 @@ import type {
   ResponseViewMode,
   DetailedCookie,
 } from '../../../standard-api-testing/ResponsePanel.types';
-import { translateError } from '../../../standard-api-testing/utils/requestUi';
+import { translateError } from '../../../../utils/api';
 import {
   buildDebugRequestPayload,
   createRuntimeContext,

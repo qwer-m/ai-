@@ -15,7 +15,9 @@ from modules.knowledge_base_components.document.document_asset_service import (
     load_document_manifest,
 )
 from .sources import SOURCE_ARTIFACT_KEY, SourceSnapshot, assert_same_source
-from .output_repair import OutputRepairError, repairable_output
+from .output_repair import OutputRepairError, OutputValidationError, repairable_output
+from .test_generation_facts import fact_source_context_fields, required_text
+from .action_journal import action_state_hash
 from .test_generation_repair import PLANNING_REPAIR_STRATEGY
 from .test_generation_batching import build_planning_evidence_catalog
 from .context_compression import (
@@ -33,13 +35,6 @@ from .test_generation_schemas import (
 if TYPE_CHECKING:
     from .registry import ToolExecutionContext
 
-def _required_text(value: Any, field_name: str) -> str:
-    text = str(value or "").strip()
-    if not text:
-        raise ValueError(f"{field_name}不能为空")
-    return text
-
-
 def _required_source_text(value: Any, field_name: str) -> str:
     """校验事实源非空，并清理模型不可见控制字符与 OCR 兼容字符。"""
 
@@ -48,10 +43,6 @@ def _required_source_text(value: Any, field_name: str) -> str:
     if not text.strip():
         raise ValueError(f"{field_name}不能为空")
     return text
-
-
-def _identity(value: Any) -> str:
-    return re.sub(r"[\W_]+", "", str(value or "").strip().casefold())
 
 
 def _content_hash(content: str, stored_hash: Any = None) -> str:
@@ -144,7 +135,7 @@ def resolve_requirement_evidence(
             "page_count": int(manifest.get("page_count") or 0),
         }
     else:
-        requirement = _required_text(inline_requirement, "真实需求")
+        requirement = required_text(inline_requirement, "真实需求")
         source = {
             "kind": "inline",
             "document_id": None,
@@ -229,168 +220,173 @@ def _summary_item_text(value: Any) -> str:
     return f"{body}{suffix}"
 
 
-def validate_business_plan_output(
-    context: ToolExecutionContext,
-    arguments: dict[str, Any],
-) -> dict[str, Any]:
-    """校验业务模块、测试点和测试方法的唯一性及完整性。"""
-
-    output = arguments.get("output")
-    if not isinstance(output, dict) or not isinstance(output.get("business_modules"), list):
-        raise ValueError("业务规划缺少 business_modules")
-    input_payload = dict(arguments.get("input_payload") or {})
-    partial_plans = list(input_payload.get("partial_plans") or [])
-    if not partial_plans:
+def _business_plan_source(input_payload: Any) -> tuple[dict[str, dict[str, Any]], dict[str, list[str]], dict[str, int]]:
+    """先校验并编译平台来源；这些错误不能作为模型候选反馈继续执行。"""
+    if not isinstance(input_payload, dict):
+        raise ValueError("业务规划缺少完整平台输入")
+    partial_plans = input_payload.get("partial_plans")
+    if not isinstance(partial_plans, list) or not partial_plans:
         raise ValueError("业务规划缺少已校验的分批规划草案")
-    normalized = deepcopy(output)
-    raw_group_catalog = input_payload.get("coverage_group_catalog")
-    if raw_group_catalog is not None:
-        group_catalog = list(raw_group_catalog or [])
-        coverage_items_by_group_id: dict[str, list[str]] = {}
-        for raw_group in group_catalog:
-            group = dict(raw_group or {})
-            group_id = _required_text(
-                group.get("coverage_group_id"),
-                "coverage_group_id",
-            )
-            if group_id in coverage_items_by_group_id:
-                raise ValueError(f"覆盖语义组目录包含重复ID: {group_id}")
-            coverage_items = [
-                _required_text(value, "coverage_group.coverage_item")
-                for value in list(group.get("coverage_items") or [])
-            ]
-            if not coverage_items:
-                raise ValueError(f"覆盖语义组缺少原子覆盖项: {group_id}")
-            coverage_items_by_group_id[group_id] = coverage_items
-        if not coverage_items_by_group_id:
-            raise ValueError("业务规划缺少覆盖语义组目录")
-        used_group_ids: list[str] = []
-        for module in list(normalized.get("business_modules") or []):
-            for point in list(dict(module).get("test_points") or []):
-                for design in list(dict(point).get("test_designs") or []):
-                    coverage_group_ids = [
-                        _required_text(value, "coverage_group_id")
-                        for value in list(dict(design).get("coverage_items") or [])
-                    ]
-                    unknown_group_ids = set(coverage_group_ids) - set(
-                        coverage_items_by_group_id
-                    )
-                    if unknown_group_ids:
-                        raise ValueError(
-                            "业务规划引用未知覆盖语义组: "
-                            f"{sorted(unknown_group_ids)}"
-                        )
-                    used_group_ids.extend(coverage_group_ids)
-                    design["coverage_items"] = [
-                        coverage_item
-                        for group_id in coverage_group_ids
-                        for coverage_item in coverage_items_by_group_id[group_id]
-                    ]
-        duplicate_group_ids = sorted(
-            group_id
-            for group_id, count in Counter(used_group_ids).items()
-            if count > 1
-        )
-        missing_group_ids = sorted(
-            set(coverage_items_by_group_id) - set(used_group_ids)
-        )
-        if duplicate_group_ids or missing_group_ids:
-            raise ValueError(
-                "业务规划必须且只能承接一次全部覆盖语义组: "
-                f"missing={missing_group_ids[:20]}, duplicate={duplicate_group_ids[:20]}"
-            )
-    planning_metadata = dict(input_payload.get("planning_metadata") or {})
+    drafts = []
+    for index, partial in enumerate(partial_plans):
+        if not isinstance(partial, dict) or not isinstance(partial.get("draft"), dict):
+            raise ValueError(f"分批规划草案结构无效: index={index}")
+        draft = partial["draft"]
+        if not isinstance(draft.get("module_candidates"), list) or any(
+            not isinstance(item, dict) for item in draft["module_candidates"]
+        ):
+            raise ValueError(f"分批规划候选目录结构无效: index={index}")
+        drafts.append(draft)
+    raw_catalog = input_payload.get("coverage_group_catalog")
+    if not isinstance(raw_catalog, list) or not raw_catalog:
+        raise ValueError("业务规划缺少覆盖语义组目录")
+    catalog = {}
+    for group in raw_catalog:
+        if not isinstance(group, dict):
+            raise ValueError("覆盖语义组目录项必须是对象")
+        group_id = required_text(group.get("coverage_group_id"), "coverage_group_id")
+        if group_id in catalog:
+            raise ValueError(f"覆盖语义组目录包含重复ID: {group_id}")
+        raw_items = group.get("coverage_items")
+        if not isinstance(raw_items, list) or not raw_items:
+            raise ValueError(f"覆盖语义组缺少原子覆盖项: {group_id}")
+        catalog[group_id] = {
+            **deepcopy(group), "coverage_group_id": group_id,
+            "coverage_items": [required_text(item, "coverage_group.coverage_item") for item in raw_items],
+        }
+    draft_group_ids = []
+    for draft in drafts:
+        for candidate in draft["module_candidates"]:
+            groups = candidate.get("coverage_topics")
+            if not isinstance(groups, list) or not groups:
+                raise ValueError("分批规划候选缺少平台覆盖语义组引用")
+            draft_group_ids.extend(required_text(value, "draft.coverage_group_id") for value in groups)
+    if len(draft_group_ids) != len(set(draft_group_ids)) or set(draft_group_ids) != set(catalog):
+        raise ValueError("分批规划草案与覆盖语义组目录不一致")
+    planning_metadata = input_payload.get("planning_metadata")
+    if not isinstance(planning_metadata, dict):
+        raise ValueError("业务规划 planning_metadata 必须是对象")
+    metadata = {}
     for field in ("coverage_focus", "risks"):
-        values: list[str] = []
-        metadata_values = planning_metadata.get(field)
-        if metadata_values is not None:
-            candidates = (
-                [metadata_values]
-                if isinstance(metadata_values, str)
-                else list(metadata_values or [])
-            )
-            for candidate in candidates:
-                value = _summary_item_text(candidate)
-                if value and value not in values:
-                    values.append(value)
-        else:
-            for raw_partial in partial_plans:
-                draft = dict(dict(raw_partial or {}).get("draft") or {})
-                raw_value = draft.get(field)
-                candidates = [raw_value] if isinstance(raw_value, str) else list(raw_value or [])
-                for candidate in candidates:
-                    value = _summary_item_text(candidate)
-                    if value and value not in values:
-                        values.append(value)
+        source = planning_metadata.get(field)
+        if not isinstance(source, (str, list)):
+            raise ValueError(f"业务规划元数据字段类型无效: {field}")
+        values = []
+        for candidate in [source] if isinstance(source, str) else source:
+            value = _summary_item_text(candidate)
+            if value and value not in values:
+                values.append(value)
         if not values and field == "coverage_focus":
             raise ValueError(f"分批规划草案缺少可编译字段: {field}")
-        normalized[field] = values
-    planning_limits = dict(input_payload.get("planning_limits") or {})
-    required_limit_keys = {
-        "max_business_modules",
-        "max_test_points",
-        "max_test_designs",
-        "max_coverage_items",
-    }
-    if set(planning_limits) != required_limit_keys or any(
-        not isinstance(planning_limits[key], int) or planning_limits[key] < 1
-        for key in required_limit_keys
+        metadata[field] = values
+    limits = input_payload.get("planning_limits")
+    required_keys = {"max_business_modules", "max_test_points", "max_test_designs", "max_coverage_items"}
+    if not isinstance(limits, dict) or set(limits) != required_keys or any(
+        type(limits[key]) is not int or limits[key] < 1 for key in required_keys
     ):
         raise ValueError("业务规划缺少平台计算的 planning_limits")
+    if type(input_payload.get("case_budget")) is not int or input_payload["case_budget"] < 1:
+        raise ValueError("业务规划来源 case_budget 无效")
+    return catalog, metadata, deepcopy(limits)
+
+
+def _business_plan_candidate_text(value: Any, field: str, path: str) -> str:
+    try:
+        return required_text(value, field)
+    except ValueError as error:
+        raise OutputValidationError(str(error), details={"field": field, "path": path}) from error
+
+
+def _business_plan_candidate_list(value: Any, path: str) -> list[Any]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise OutputValidationError("业务规划候选字段必须是数组", details={"path": path})
+    return value
+
+
+def _validate_business_plan_candidate(
+    output: Any, *, catalog: dict[str, dict[str, Any]],
+    metadata: dict[str, list[str]], limits: dict[str, int],
+) -> dict[str, Any]:
+    """候选错误带原始 CG 归属位置返回；平台不替模型去重、搬移或选择唯一归属。"""
+    if not isinstance(output, dict) or not isinstance(output.get("business_modules"), list):
+        raise OutputValidationError("业务规划缺少 business_modules", details={"path": "$.business_modules"})
+    normalized = deepcopy(output)
     module_names: set[str] = set()
+    group_locations: dict[str, list[dict[str, Any]]] = {}
+    used_group_ids = []
     test_point_count = 0
-    test_design_count = 0
-    design_item_count = 0
-    for module_index, raw_module in enumerate(normalized["business_modules"]):
-        if not isinstance(raw_module, dict):
-            raise ValueError(f"业务规划模块必须是对象: index={module_index}")
-        module = dict(raw_module)
-        module_name = _required_text(module.get("name"), "business_module.name")
+    designs = []
+    for module_index, module in enumerate(normalized["business_modules"]):
+        module_path = f"$.business_modules[{module_index}]"
+        if not isinstance(module, dict):
+            raise OutputValidationError("业务规划模块必须是对象", details={"path": module_path})
+        module_name = _business_plan_candidate_text(module.get("name"), "business_module.name", module_path + ".name")
         if module_name in module_names:
-            raise ValueError(f"业务规划包含重复模块名称: {module_name}")
+            raise OutputValidationError(f"业务规划包含重复模块名称: {module_name}", details={"path": module_path + ".name"})
         module_names.add(module_name)
-        test_points = list(module.get("test_points") or [])
         point_names: set[str] = set()
-        for point_index, raw_point in enumerate(test_points):
+        for point_index, point in enumerate(_business_plan_candidate_list(module.get("test_points"), module_path + ".test_points")):
             test_point_count += 1
-            if not isinstance(raw_point, dict):
-                raise ValueError(
-                    f"业务规划测试点必须是对象: module={module_name}, index={point_index}"
-                )
-            point = dict(raw_point)
-            point_name = _required_text(point.get("name"), "test_point.name")
+            point_path = f"{module_path}.test_points[{point_index}]"
+            if not isinstance(point, dict):
+                raise OutputValidationError("业务规划测试点必须是对象", details={"path": point_path})
+            point_name = _business_plan_candidate_text(point.get("name"), "test_point.name", point_path + ".name")
             if point_name in point_names:
-                raise ValueError(f"业务模块包含重复测试点: module={module_name}, point={point_name}")
+                raise OutputValidationError(f"业务模块包含重复测试点: module={module_name}, point={point_name}", details={"path": point_path + ".name"})
             point_names.add(point_name)
-            for design_index, raw_design in enumerate(list(point.get("test_designs") or [])):
-                test_design_count += 1
-                if not isinstance(raw_design, dict):
-                    raise ValueError(
-                        "测试点的 test_designs 每项必须是对象: "
-                        f"module={module_name}, point={point_name}, index={design_index}"
-                    )
-                design = dict(raw_design)
-                _required_text(design.get("technique"), "test_design.technique")
-                _required_text(design.get("rationale"), "test_design.rationale")
-                for coverage_intent in list(design.get("coverage_items") or []):
-                    _required_text(coverage_intent, "test_design.coverage_item")
-                    design_item_count += 1
-    if design_item_count < 1:
-        raise ValueError("业务规划没有形成任何测试设计覆盖项")
-    actual_counts = {
-        "max_business_modules": len(normalized["business_modules"]),
-        "max_test_points": test_point_count,
-        "max_test_designs": test_design_count,
-        "max_coverage_items": design_item_count,
-    }
-    exceeded = [
-        f"{key}={actual_counts[key]}/{planning_limits[key]}"
-        for key in required_limit_keys
-        if actual_counts[key] > planning_limits[key]
-    ]
+            for design_index, design in enumerate(_business_plan_candidate_list(point.get("test_designs"), point_path + ".test_designs")):
+                design_path = f"{point_path}.test_designs[{design_index}]"
+                if not isinstance(design, dict):
+                    raise OutputValidationError("测试点的 test_designs 每项必须是对象", details={"path": design_path})
+                technique = _business_plan_candidate_text(design.get("technique"), "test_design.technique", design_path + ".technique")
+                _business_plan_candidate_text(design.get("rationale"), "test_design.rationale", design_path + ".rationale")
+                coverage_ids = [_business_plan_candidate_text(item, "coverage_group_id", f"{design_path}.coverage_items[{index}]")
+                                for index, item in enumerate(_business_plan_candidate_list(design.get("coverage_items"), design_path + ".coverage_items"))]
+                location = {"module_index": module_index, "module_name": module_name,
+                            "point_index": point_index, "point_name": point_name,
+                            "design_index": design_index, "technique": technique}
+                designs.append((design, coverage_ids))
+                used_group_ids.extend(coverage_ids)
+                for index, group_id in enumerate(coverage_ids):
+                    group_locations.setdefault(group_id, []).append({
+                        **location, "coverage_item_index": index, "path": f"{design_path}.coverage_items[{index}]",
+                    })
+    duplicates = sorted(group_id for group_id, count in Counter(used_group_ids).items() if count > 1)
+    missing = sorted(set(catalog) - set(used_group_ids))
+    unknown = sorted(set(used_group_ids) - set(catalog))
+    if duplicates or missing or unknown:
+        raise OutputValidationError(
+            (f"业务规划引用未知覆盖语义组: {unknown}; " if unknown else "")
+            + "业务规划必须且只能承接一次全部覆盖语义组: "
+            + f"missing={missing[:20]}, duplicate={duplicates[:20]}",
+            details={"reason": "coverage_group_assignment", "original_group_ids": list(catalog),
+                     "missing_group_ids": missing, "duplicate_group_ids": duplicates, "unknown_group_ids": unknown,
+                     "group_locations": {key: group_locations[key] for key in dict.fromkeys([*duplicates, *unknown])},
+                     "instruction": "依据原始覆盖组语义决定唯一归属；每个 CG ID 在整个输出的所有模块、测试点和测试设计中合计只出现一次。不得改写、丢弃或新造 ID。"},
+        )
+    for design, coverage_ids in designs:
+        design["coverage_items"] = [item for group_id in coverage_ids for item in catalog[group_id]["coverage_items"]]
+    item_count = sum(len(design.get("coverage_items") or []) for design, _ in designs)
+    if item_count < 1:
+        raise OutputValidationError("业务规划没有形成任何测试设计覆盖项")
+    actual_counts = {"max_business_modules": len(normalized["business_modules"]), "max_test_points": test_point_count,
+                     "max_test_designs": len(designs), "max_coverage_items": item_count}
+    exceeded = [f"{key}={actual_counts[key]}/{limits[key]}" for key in limits if actual_counts[key] > limits[key]]
     if exceeded:
-        raise ValueError(f"业务规划超过动态容量: {', '.join(sorted(exceeded))}")
+        raise OutputValidationError(f"业务规划超过动态容量: {', '.join(sorted(exceeded))}",
+                                    details={"actual_counts": actual_counts, "planning_limits": limits})
+    normalized.update(deepcopy(metadata))
     return normalized
+
+
+def validate_business_plan_output(
+    context: ToolExecutionContext, arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """平台来源先硬校验，只有模型候选问题可回到当前专业会话修正。"""
+    catalog, metadata, limits = _business_plan_source(arguments.get("input_payload"))
+    return _validate_business_plan_candidate(arguments.get("output"), catalog=catalog, metadata=metadata, limits=limits)
 
 
 def _serialized_json_chars(value: Any) -> int:
@@ -426,7 +422,7 @@ def _planning_scope_fragments(planning_scopes: list[Any]) -> list[dict[str, Any]
         if not isinstance(raw_scope, dict):
             raise ValueError("业务规划输入的 planning_scopes 每项必须是对象")
         scope = dict(raw_scope)
-        scope_id = _required_text(scope.get("scope_id"), "planning_scope.scope_id")
+        scope_id = required_text(scope.get("scope_id"), "planning_scope.scope_id")
         if scope_id in seen_scope_ids:
             raise ValueError(f"业务规划输入包含重复 scope_id: {scope_id}")
         seen_scope_ids.add(scope_id)
@@ -438,7 +434,7 @@ def _planning_scope_fragments(planning_scopes: list[Any]) -> list[dict[str, Any]
             if not isinstance(raw_fact, dict):
                 raise ValueError(f"业务规划事实必须是对象: scope_id={scope_id}")
             fact = deepcopy(raw_fact)
-            fact_id = _required_text(fact.get("fact_id"), "planning_scope.fact_id")
+            fact_id = required_text(fact.get("fact_id"), "planning_scope.fact_id")
             if fact_id in seen_fact_ids:
                 raise ValueError(f"业务规划输入包含重复 fact_id: {fact_id}")
             seen_fact_ids.add(fact_id)
@@ -463,13 +459,12 @@ def _planning_scope_fragments(planning_scopes: list[Any]) -> list[dict[str, Any]
 def _planning_fact_model_view(fact: dict[str, Any]) -> dict[str, Any]:
     """生成规划/路由模型真正需要的事实投影。
 
-    来源锚点、治理关系和状态字段仍由 source_semantics 及审计链路保留；
-    规划模型只需要稳定 ID 与可读断言，重复传输其余字段会放大长请求。
+    来源坐标仍由审计链路保留；表格首行及所属行是断言的适用条件，不能压掉。
     """
 
-    fact_id = _required_text(fact.get("fact_id"), "planning_scope.fact_id")
+    fact_id = required_text(fact.get("fact_id"), "planning_scope.fact_id")
     assertion = str(fact.get("assertion") or "").strip()
-    return {"fact_id": fact_id, "assertion": assertion}
+    return {"fact_id": fact_id, "assertion": assertion, **fact_source_context_fields(fact)}
 
 
 def prepare_business_plan_batches(
@@ -487,7 +482,7 @@ def prepare_business_plan_batches(
     raw_payload_chars = _serialized_json_chars({"planning_scopes": planning_scopes})
     model_scopes = [
         {
-            "scope_id": _required_text(scope.get("scope_id"), "planning_scope.scope_id"),
+            "scope_id": required_text(scope.get("scope_id"), "planning_scope.scope_id"),
             "facts": [
                 _planning_fact_model_view(dict(fact))
                 for fact in list(scope.get("facts") or [])
@@ -576,41 +571,43 @@ def validate_business_plan_draft_output(
 
     del context
     input_payload = dict(arguments.get("input_payload") or {})
-    output = arguments.get("output")
-    if not isinstance(output, dict):
-        raise ValueError("业务规划批次未返回对象")
-    expected_fact_ids = [
-        _required_text(dict(fact).get("fact_id"), "planning_scope.fact_id")
-        for raw_scope in list(input_payload.get("planning_scopes") or [])
-        for fact in list(dict(raw_scope).get("facts") or [])
-    ]
+    # 平台事实输入损坏必须硬失败，不能要求模型修复它未提供的数据。
+    expected_fact_ids = [fact["fact_id"] for scope in _planning_scope_fragments(
+        list(input_payload.get("planning_scopes") or [])
+    ) for fact in scope["facts"]]
     if not expected_fact_ids or len(expected_fact_ids) != len(set(expected_fact_ids)):
         raise ValueError("业务规划批次事实为空或 fact_id 重复")
+    output = arguments.get("output")
+    if not isinstance(output, dict):
+        raise OutputValidationError("业务规划批次未返回对象")
     candidates = output.get("module_candidates")
     if not isinstance(candidates, list) or not candidates:
-        raise ValueError("业务规划批次缺少 module_candidates")
+        raise OutputValidationError("业务规划批次缺少 module_candidates")
     candidate_names: set[str] = set()
     routed_fact_ids: list[str] = []
     for raw_candidate in candidates:
         if not isinstance(raw_candidate, dict):
-            raise ValueError("业务规划批次 module_candidates 每项必须是对象")
+            raise OutputValidationError("业务规划批次 module_candidates 每项必须是对象")
         candidate = dict(raw_candidate)
-        name = _required_text(candidate.get("name"), "module_candidate.name")
+        name = str(candidate.get("name") or "").strip()
+        if not name:
+            raise OutputValidationError("module_candidate.name 不能为空")
         if name in candidate_names:
-            raise ValueError(f"业务规划批次包含重复模块候选: {name}")
+            raise OutputValidationError(f"业务规划批次包含重复模块候选: {name}")
         candidate_names.add(name)
         fact_ids = list(candidate.get("fact_ids") or [])
         if not fact_ids or len(fact_ids) != len(set(fact_ids)):
-            raise ValueError(f"模块候选 fact_ids 为空或重复: module={name}")
+            raise OutputValidationError(f"模块候选 fact_ids 为空或重复: module={name}")
         routed_fact_ids.extend(str(value) for value in fact_ids)
     expected_set = set(expected_fact_ids)
     routed_set = set(routed_fact_ids)
     if routed_set != expected_set:
         missing = sorted(expected_set - routed_set)
         unknown = sorted(routed_set - expected_set)
-        raise ValueError(
+        raise OutputValidationError(
             "业务规划批次没有完整承接真实事实: "
-            f"missing={missing[:20]}, unknown={unknown[:20]}"
+            f"missing={missing[:20]}, unknown={unknown[:20]}",
+            details={"missing_fact_ids": missing, "unknown_fact_ids": unknown},
         )
     return deepcopy(output)
 
@@ -660,8 +657,8 @@ def prepare_business_plan_consolidation(
             coverage_items: list[str] = []
             for raw_topic in list(candidate.get("coverage_topics") or []):
                 topic = dict(raw_topic or {})
-                _required_text(topic.get("name"), "coverage_topic.name")
-                objective = _required_text(
+                required_text(topic.get("name"), "coverage_topic.name")
+                objective = required_text(
                     topic.get("objective"),
                     "coverage_topic.objective",
                 )
@@ -676,8 +673,8 @@ def prepare_business_plan_consolidation(
                 coverage_group_catalog.append(
                     {
                         "coverage_group_id": group_id,
-                        "name": _required_text(candidate.get("name"), "module_candidate.name"),
-                        "objective": _required_text(
+                        "name": required_text(candidate.get("name"), "module_candidate.name"),
+                        "objective": required_text(
                             candidate.get("objective"),
                             "module_candidate.objective",
                         ),
@@ -761,7 +758,11 @@ def prepare_planning_scope_routes(
             "module_index": index,
             "name": str(module.get("name") or ""),
             "objective": str(module.get("objective") or ""),
-            "test_design_items": _planning_module_design_catalog(module),
+            # 路由依据完整覆盖意图判断事实归属；测试技法和重复的测试点名留在原计划。
+            "test_design_items": [
+                {key: item[key] for key in ("test_design_item_index", "coverage_intent")}
+                for item in _planning_module_design_catalog(module)
+            ],
         }
         for index, module in enumerate(modules)
     ]
@@ -866,6 +867,7 @@ def prepare_planning_scope_routes(
             6,
         ) if raw_batch_payload_chars else 0.0,
         "removed_module_fields": ["test_points"],
+        "removed_design_fields": ["test_point", "technique"],
         "model_fact_fields": ["fact_ref", "fact_id", "assertion"],
     }
     return {
@@ -1263,7 +1265,7 @@ def prepare_planning_route_repairs(
     context: ToolExecutionContext,
     arguments: dict[str, Any],
 ) -> dict[str, Any]:
-    """把全局路由缺口收敛为按模块复核的最小真实事实集。"""
+    """逐模块审查完整覆盖意图；初始相关路由不代表已经充分支持。"""
 
     del context
     state = _collect_planning_scope_route_state(
@@ -1275,7 +1277,49 @@ def prepare_planning_route_repairs(
     facts_by_scope = dict(state["facts_by_scope"])
     evidence_by_module = list(state["evidence_by_module"])
     routes_by_module = list(state["fact_design_routes_by_module"])
-    missing_by_module = _missing_planning_design_indexes(state)
+    selected = arguments.get("design_selections")
+    additional_scopes = arguments.get("additional_scope_ids", [])
+    if (not isinstance(additional_scopes, list)
+            or any(not isinstance(value, str) or value not in facts_by_scope for value in additional_scopes)
+            or len(set(additional_scopes)) != len(additional_scopes)
+            or (additional_scopes and selected is None)):
+        raise ValueError("补充支持证据必须是定向复核中当前来源的有效且不重复 scope_id")
+    additional_scopes = sorted(additional_scopes)
+    if selected is None:
+        missing_by_module = {index: list(range(len(_planning_module_design_catalog(module))))
+                             for index, module in enumerate(modules) if state["facts_by_module"][index]}
+    else:
+        if not isinstance(selected, list) or not selected:
+            raise ValueError("支持复核必须选择当前模块及覆盖意图")
+        missing_by_module = {}
+        for selection_position, selection in enumerate(selected):
+            available_module_indexes = [index for index in range(len(modules)) if state["facts_by_module"][index]]
+            if not isinstance(selection, dict):
+                raise OutputValidationError("支持复核选择必须是模块及意图索引对象", details={
+                    "selection_position": selection_position, "invalid_selection": deepcopy(selection),
+                    "available_module_indexes": available_module_indexes,
+                })
+            index = selection.get("module_index")
+            indexes = selection.get("test_design_item_indexes")
+            if (type(index) is not int or not 0 <= index < len(modules) or index in missing_by_module
+                    or not state["facts_by_module"][index] or not isinstance(indexes, list) or not indexes
+                    or any(type(value) is not int or not 0 <= value < len(_planning_module_design_catalog(modules[index])) for value in indexes)
+                    or len(set(indexes)) != len(indexes)):
+                available_indexes = list(range(len(_planning_module_design_catalog(modules[index])))) if (
+                    type(index) is int and index in available_module_indexes) else []
+                requested_indexes = indexes if isinstance(indexes, list) else []
+                raise OutputValidationError("支持复核选择了无效或重复的模块及覆盖意图", details={
+                    "selection_position": selection_position, "module_index": deepcopy(index),
+                    "requested_test_design_item_indexes": deepcopy(indexes),
+                    "invalid_test_design_item_indexes": [deepcopy(value) for value in requested_indexes
+                        if type(value) is not int or value not in available_indexes],
+                    "duplicate_test_design_item_indexes": sorted({value for value in requested_indexes
+                        if type(value) is int and requested_indexes.count(value) > 1}),
+                    "module_already_selected": type(index) is int and index in missing_by_module,
+                    "available_module_indexes": available_module_indexes,
+                    "available_test_design_item_indexes": available_indexes,
+                })
+            missing_by_module[index] = sorted(indexes)
     items: list[dict[str, Any]] = []
     for module_index, missing_indexes in missing_by_module.items():
         design_catalog = _planning_module_design_catalog(modules[module_index])
@@ -1284,11 +1328,12 @@ def prepare_planning_route_repairs(
             for route in routes_by_module[module_index]
         }
         candidate_facts: list[dict[str, Any]] = []
-        for scope_id in evidence_by_module[module_index]:
+        for scope_id in dict.fromkeys([*evidence_by_module[module_index], *additional_scopes]):
             for fact in facts_by_scope[scope_id]:
                 fact_id = str(fact["fact_id"])
                 candidate_facts.append(
                     {
+                        **deepcopy(fact),
                         "scope_id": scope_id,
                         "fact_id": fact_id,
                         "assertion": str(fact.get("assertion") or ""),
@@ -1311,6 +1356,7 @@ def prepare_planning_route_repairs(
                     deepcopy(design_catalog[index]) for index in missing_indexes
                 ],
                 "candidate_facts": candidate_facts,
+                "additional_scope_ids": list(additional_scopes),
             }
         )
     return {
@@ -1325,29 +1371,42 @@ def _normalize_planning_route_repair(
     prepared: dict[str, Any],
     raw_output: dict[str, Any],
 ) -> dict[str, Any]:
+    expected_module_index = prepared.get("module_index")
+    designs = prepared.get("missing_test_design_items")
+    facts = prepared.get("candidate_facts")
+    if (type(expected_module_index) is not int or expected_module_index < 0
+            or not isinstance(designs, list) or not designs
+            or not isinstance(facts, list) or not facts):
+        raise ValueError("规划路由缺口复核输入缺少有效模块、设计项或事实")
+    design_indexes = [item.get("test_design_item_index") if isinstance(item, dict) else None for item in designs]
+    if (any(type(index) is not int or index < 0 for index in design_indexes)
+            or len(design_indexes) != len(set(design_indexes))):
+        raise ValueError("规划路由缺口复核输入设计索引无效或重复")
+    fact_ids = [required_text(fact.get("fact_id"), "candidate_fact.fact_id") for fact in facts]
+    if len(fact_ids) != len(set(fact_ids)):
+        raise ValueError("规划路由缺口复核输入事实 ID 重复")
+    expected_design_indexes, evidence_fact_ids = set(design_indexes), set(fact_ids)
+    candidate_fact_ids = set(evidence_fact_ids)
+    intent_by_index = {item["test_design_item_index"]: item["coverage_intent"] for item in designs}
+    # 由父领域的当前问题传入真实权威结论；保留原事实供取证，但不得再次把已排除事实批准为支持。
+    unavailable_fact_ids = {fact_id
+        for problem in prepared.get("_planning_feedback", {}).get("downstream_problems", [])
+        if problem.get("origin") == "preparation" and problem.get("payload", {}).get("kind") == "authority_support_gap"
+        for fact_id in problem["payload"]["authority_inactive_fact_ids"]}
+    candidate_fact_ids -= unavailable_fact_ids
     output = deepcopy(raw_output)
-    expected_module_index = int(prepared.get("module_index", -1))
-    if output.get("module_index") != expected_module_index:
-        raise ValueError(
-            f"规划路由缺口复核篡改 module_index: module_index={expected_module_index}"
+    if type(output.get("module_index")) is not int or output["module_index"] != expected_module_index:
+        raise OutputValidationError(
+            f"规划路由缺口复核篡改 module_index: module_index={expected_module_index}",
+            details={"expected_module_index": expected_module_index},
         )
-    expected_design_indexes = {
-        int(item["test_design_item_index"])
-        for item in list(prepared.get("missing_test_design_items") or [])
-        if isinstance(item, dict)
-    }
-    candidate_fact_ids = {
-        str(fact.get("fact_id") or "")
-        for fact in list(prepared.get("candidate_facts") or [])
-        if isinstance(fact, dict)
-    }
     decisions = output.get("decisions")
     if not isinstance(decisions, list) or not decisions:
-        raise ValueError("规划路由缺口复核 decisions 必须是非空数组")
+        raise OutputValidationError("规划路由缺口复核 decisions 必须是非空数组")
     normalized_by_index: dict[int, dict[str, Any]] = {}
     for raw_decision in decisions:
         if not isinstance(raw_decision, dict):
-            raise ValueError("规划路由缺口复核 decision 必须是对象")
+            raise OutputValidationError("规划路由缺口复核 decision 必须是对象")
         decision = dict(raw_decision)
         design_index = decision.get("test_design_item_index")
         if (
@@ -1356,32 +1415,56 @@ def _normalize_planning_route_repair(
             or design_index not in expected_design_indexes
             or design_index in normalized_by_index
         ):
-            raise ValueError("规划路由缺口复核包含未知或重复测试设计项")
-        disposition = str(decision.get("disposition") or "")
+            raise OutputValidationError("规划路由缺口复核包含未知或重复测试设计项",
+                                        details={"expected_design_indexes": sorted(expected_design_indexes)})
         fact_ids = decision.get("fact_ids")
         reason = str(decision.get("reason") or "").strip()
+        gaps = decision.get("support_gaps")
         if (
-            disposition not in {"supported", "unsupported"}
-            or not isinstance(fact_ids, list)
+            not isinstance(fact_ids, list)
+            or any(not isinstance(fact_id, str) for fact_id in fact_ids)
             or len(fact_ids) != len(set(fact_ids))
             or any(str(fact_id) not in candidate_fact_ids for fact_id in fact_ids)
             or not reason
+            or not isinstance(gaps, list)
         ):
-            raise ValueError(
-                f"规划路由缺口复核结论无效: test_design_item_index={design_index}"
+            raise OutputValidationError(
+                f"规划路由缺口复核结论无效: test_design_item_index={design_index}",
+                details={"test_design_item_index": design_index,
+                         "allowed_fact_ids": sorted(candidate_fact_ids)},
             )
-        if disposition == "supported" and not fact_ids:
-            raise ValueError("规划路由缺口复核支持结论必须引用真实 fact_id")
-        if disposition == "unsupported" and fact_ids:
-            raise ValueError("规划路由缺口复核不支持结论不能引用 fact_id")
+        normalized_gaps = []
+        for gap in gaps:
+            if not isinstance(gap, dict):
+                raise OutputValidationError("支持缺口必须逐项说明原意图片段及真实依据")
+            fragment = str(gap.get("coverage_fragment") or "").strip()
+            kind, cited = gap.get("kind"), gap.get("evidence_fact_ids")
+            gap_reason = str(gap.get("reason") or "").strip()
+            if (not fragment or fragment not in intent_by_index[design_index]
+                    or kind not in {"missing_support", "source_conflict"}
+                    or not isinstance(cited, list) or any(not isinstance(value, str) or value not in evidence_fact_ids for value in cited)
+                    or len(set(cited)) != len(cited) or not gap_reason
+                    or (kind == "source_conflict" and not cited)):
+                raise OutputValidationError("支持缺口必须引用原覆盖意图片段；来源冲突须引用承载冲突内容的真实事实",
+                    details={"test_design_item_index": design_index, "coverage_intent": intent_by_index[design_index]})
+            normalized_gaps.append({"coverage_fragment": fragment, "kind": kind,
+                                    "evidence_fact_ids": list(cited), "reason": gap_reason})
+        if not fact_ids and not normalized_gaps:
+            raise OutputValidationError("支持结论既无事实依据也无明确缺口，不能完成复核")
+        disposition = "unsupported" if normalized_gaps else "supported"
+        # 标准化回执可再次验收；其派生标签必须仍与完整支持结构一致。
+        if "disposition" in decision and decision["disposition"] != disposition:
+            raise OutputValidationError("支持回执的派生状态与事实及缺口不一致")
         normalized_by_index[design_index] = {
             "test_design_item_index": design_index,
             "disposition": disposition,
             "fact_ids": [str(fact_id) for fact_id in fact_ids],
             "reason": reason,
+            "support_gaps": normalized_gaps,
         }
     if set(normalized_by_index) != expected_design_indexes:
-        raise ValueError("规划路由缺口复核未逐项审查全部缺失测试设计项")
+        raise OutputValidationError("规划路由缺口复核未逐项审查全部缺失测试设计项",
+                                    details={"missing_design_indexes": sorted(expected_design_indexes - set(normalized_by_index))})
     output["decisions"] = [
         normalized_by_index[index] for index in sorted(normalized_by_index)
     ]
@@ -1401,56 +1484,72 @@ def postprocess_planning_route_repair_item(
     )
 
 
-def _prune_unsupported_planning_design_items(
-    *,
-    modules: list[dict[str, Any]],
-    routes_by_module: list[list[dict[str, Any]]],
-    unsupported_by_module: dict[int, set[int]],
-) -> int:
-    """删除无事实支持的原子覆盖项，并重排同模块内的确定性索引。"""
+def planning_support_request_hash(item: dict[str, Any]) -> str:
+    """同意图及完整证据只能定向复核一次；问法、历史裁决和来源选择标签不构成新证据。"""
+    request = deepcopy(item)
+    request.pop("additional_scope_ids", None)
+    request.get("_planning_feedback", {}).pop("previous_decisions", None)
+    request.get("_planning_feedback", {}).pop("question", None)
+    for fact in request.get("candidate_facts", []):
+        fact.pop("current_test_design_item_indexes", None)
+    return action_state_hash(request)
 
-    removed_count = 0
-    for module_index, unsupported_indexes in unsupported_by_module.items():
-        module = modules[module_index]
-        old_index = 0
-        new_index = 0
-        index_mapping: dict[int, int] = {}
-        retained_points: list[dict[str, Any]] = []
-        for raw_point in list(module.get("test_points") or []):
-            point = deepcopy(dict(raw_point or {}))
-            retained_designs: list[dict[str, Any]] = []
-            for raw_design in list(point.get("test_designs") or []):
-                design = deepcopy(dict(raw_design or {}))
-                retained_coverage: list[Any] = []
-                for coverage_intent in list(design.get("coverage_items") or []):
-                    if old_index in unsupported_indexes:
-                        removed_count += 1
-                    else:
-                        index_mapping[old_index] = new_index
-                        new_index += 1
-                        retained_coverage.append(coverage_intent)
-                    old_index += 1
-                if retained_coverage:
-                    design["coverage_items"] = retained_coverage
-                    retained_designs.append(design)
-            if retained_designs:
-                point["test_designs"] = retained_designs
-                retained_points.append(point)
-        if not retained_points:
-            raise ValueError(
-                "业务模块的全部测试设计项均缺少真实事实支持: "
-                f"module={module.get('name')}"
-            )
-        module["test_points"] = retained_points
-        for route in routes_by_module[module_index]:
-            route["test_design_item_indexes"] = sorted(
-                {
-                    index_mapping[index]
-                    for index in list(route.get("test_design_item_indexes") or [])
-                    if index in index_mapping
-                }
-            )
-    return removed_count
+
+def planning_support_design_hashes(item: dict[str, Any]) -> set[str]:
+    """按意图核对复核身份，改变批次组合不能再次抽取同一证据的裁决。"""
+    return {planning_support_request_hash({**item, "missing_test_design_items": [design]})
+            for design in item["missing_test_design_items"]}
+
+
+def current_planning_support_decisions(
+    context: ToolExecutionContext, arguments: dict[str, Any],
+) -> dict[int, dict[int, dict[str, Any]]]:
+    """保留原始复核回执，按真实顺序投影每个意图的当前支持结论。"""
+    base = {key: arguments[key] for key in ("plan", "prepared_items", "route_records")}
+    prepared = prepare_planning_route_repairs(context, base)["items"]
+    records = arguments.get("repair_records") or []
+    if len(prepared) != len(records):
+        raise ValueError("完整意图支持复核记录数量不一致")
+    decisions: dict[int, dict[int, dict[str, Any]]] = {}
+
+    def accept(item, record):
+        input_hash = action_state_hash(item)
+        if record.get("input_hash") != input_hash:
+            raise ValueError("支持复核回执与完整输入不一致")
+        output = _normalize_planning_route_repair(prepared=item, raw_output=record["output"])
+        current = decisions.setdefault(item["module_index"], {})
+        for decision in output["decisions"]:
+            current[decision["test_design_item_index"]] = {
+                **deepcopy(decision), "review_input_sha256": input_hash,
+            }
+
+    for index, (item, record) in enumerate(zip(prepared, records, strict=True)):
+        if record is None:
+            continue
+        if not isinstance(record, dict) or record.get("item_index") != index:
+            raise ValueError("支持复核回执顺序无效")
+        accept(item, record)
+    seen_requests = set()
+    for record in arguments.get("review_revisions") or []:
+        item = record["input"]
+        selection = [{"module_index": item["module_index"],
+                      "test_design_item_indexes": [value["test_design_item_index"] for value in item["missing_test_design_items"]]}]
+        expected = prepare_planning_route_repairs(context, {**base, "design_selections": selection,
+            "additional_scope_ids": item["additional_scope_ids"]})["items"][0]
+        feedback = item.get("_planning_feedback")
+        previous_decisions = [deepcopy(decisions[item["module_index"]][design["test_design_item_index"]])
+                              for design in item["missing_test_design_items"]]
+        if (not isinstance(feedback, dict) or not isinstance(feedback.get("question"), str)
+                or not feedback["question"].strip()
+                or feedback.get("previous_decisions") != previous_decisions
+                or {key: value for key, value in item.items() if key != "_planning_feedback"} != expected):
+            raise ValueError("定向支持复核没有对应当前规划、完整事实或真实问题输入")
+        request_hashes = planning_support_design_hashes(item)
+        if request_hashes & seen_requests:
+            raise ValueError("不能通过改变意图组合重复抽取相同证据的支持结论")
+        seen_requests.update(request_hashes)
+        accept(item, record)
+    return decisions
 
 
 def merge_planning_scope_routes(
@@ -1472,74 +1571,54 @@ def merge_planning_scope_routes(
     evidence_by_module = state["evidence_by_module"]
     facts_by_module = state["facts_by_module"]
     fact_design_routes_by_module = state["fact_design_routes_by_module"]
-    repair_input = prepare_planning_route_repairs(
-        context,
-        {
-            "plan": arguments.get("plan"),
-            "prepared_items": prepared_items,
-            "route_records": route_records,
-        },
-    )
-    repair_items = list(repair_input["items"])
-    if repair_items and "repair_records" not in arguments:
-        first_gap = repair_items[0]
-        raise ValueError(
-            "规划路由没有承接模块的全部测试设计项: "
-            f"module={first_gap.get('module_name')}, "
-            "missing="
-            f"{[item['test_design_item_index'] for item in first_gap['missing_test_design_items']]}"
-        )
+    repair_input = prepare_planning_route_repairs(context, {
+        "plan": arguments["plan"], "prepared_items": prepared_items, "route_records": route_records,
+    })
     repair_records = list(arguments.get("repair_records") or [])
-    if len(repair_items) != len(repair_records):
-        raise ValueError("规划路由缺口复核结果数量不一致")
+    decisions = current_planning_support_decisions(context, {
+        "plan": arguments["plan"], "prepared_items": prepared_items, "route_records": route_records,
+        "repair_records": repair_records, "review_revisions": arguments.get("review_revisions") or [],
+    })
     repaired_design_item_count = 0
-    unsupported_by_module: dict[int, set[int]] = {}
-    unsupported_decisions: list[dict[str, Any]] = []
-    for item_index, (prepared, record) in enumerate(zip(repair_items, repair_records)):
-        if not isinstance(record, dict) or int(record.get("item_index", item_index)) != item_index:
-            raise ValueError(f"规划路由缺口复核记录顺序不一致: index={item_index}")
-        output = _normalize_planning_route_repair(
-            prepared=prepared,
-            raw_output=dict(record.get("output") or {}),
-        )
-        module_index = int(output["module_index"])
-        for decision in output["decisions"]:
-            design_index = int(decision["test_design_item_index"])
-            if decision["disposition"] == "unsupported":
-                unsupported_by_module.setdefault(module_index, set()).add(design_index)
-                unsupported_decisions.append(
-                    {
-                        "module": str(modules[module_index].get("name") or ""),
-                        "design_index": design_index,
-                        "reason": str(decision["reason"]),
-                    }
-                )
+    unsupported_decisions = []
+    supports_by_module = [[] for _ in modules]
+    for module_index, module in enumerate(modules):
+        if not facts_by_module[module_index]:
+            continue
+        expected_indexes = set(range(len(_planning_module_design_catalog(module))))
+        current = decisions.get(module_index, {})
+        if set(current) != expected_indexes:
+            raise OutputValidationError("规划意图尚未全部完成独立支持审查", details={
+                "module_index": module_index, "pending_design_indexes": sorted(expected_indexes - set(current)),
+            })
+        for design_index, decision in sorted(current.items()):
+            if decision["disposition"] != "supported":
+                unsupported_decisions.append({"module": module["name"], "design_index": design_index,
+                                              "reason": decision["reason"]})
                 continue
             repaired_design_item_count += 1
+            supports_by_module[module_index].append({key: deepcopy(decision[key]) for key in (
+                "test_design_item_index", "fact_ids", "review_input_sha256",
+            )})
+            # 独立审查替换相关性候选边，避免旧的错误绑定混入完整支持集合。
+            for route in fact_design_routes_by_module[module_index]:
+                route["test_design_item_indexes"] = [value for value in route["test_design_item_indexes"] if value != design_index]
             for fact_id in decision["fact_ids"]:
-                scope_id = str(fact_scope_by_id[fact_id])
+                scope_id = fact_scope_by_id[fact_id]
                 if scope_id not in evidence_by_module[module_index]:
                     evidence_by_module[module_index].append(scope_id)
                 if fact_id not in facts_by_module[module_index]:
                     facts_by_module[module_index].append(fact_id)
-                route = next(
-                    (
-                        item for item in fact_design_routes_by_module[module_index]
-                        if item["fact_id"] == fact_id
-                    ),
-                    None,
-                )
+                route = next((value for value in fact_design_routes_by_module[module_index] if value["fact_id"] == fact_id), None)
                 if route is None:
                     route = {"fact_id": fact_id, "test_design_item_indexes": []}
                     fact_design_routes_by_module[module_index].append(route)
-                if design_index not in route["test_design_item_indexes"]:
-                    route["test_design_item_indexes"].append(design_index)
-                    route["test_design_item_indexes"].sort()
-    removed_unsupported_design_item_count = _prune_unsupported_planning_design_items(
-        modules=modules,
-        routes_by_module=fact_design_routes_by_module,
-        unsupported_by_module=unsupported_by_module,
-    )
+                route["test_design_item_indexes"].append(design_index)
+    if unsupported_decisions:
+        raise OutputValidationError(
+            "规划仍含无真实事实支持的覆盖意图，必须回查来源并修正草案和目标后重新规划，不能直接剪掉覆盖项",
+            details={"unsupported_design_items": unsupported_decisions},
+        )
     remaining_gaps = _missing_planning_design_indexes(state)
     if remaining_gaps:
         module_index = next(iter(remaining_gaps))
@@ -1557,6 +1636,7 @@ def merge_planning_scope_routes(
             "evidence_ids": evidence_by_module[index],
             "fact_ids": facts_by_module[index],
             "fact_design_routes": fact_design_routes_by_module[index],
+            "design_supports": supports_by_module[index],
         }
         for index in active_module_indexes
     ]
@@ -1601,13 +1681,7 @@ def merge_planning_scope_routes(
         "initial_gap_design_item_count": int(repair_input["gap_design_item_count"]),
         "route_repair_record_count": len(repair_records),
         "repaired_design_item_count": repaired_design_item_count,
-        "removed_unsupported_design_item_count": removed_unsupported_design_item_count,
-        "unsupported_design_items": unsupported_decisions,
         "unmatched_test_design_fact_count": len(unmatched_test_design_fact_ids),
         "unmatched_test_design_fact_ids": unmatched_test_design_fact_ids,
     }
     return draft_plan
-
-
-
-__all__ = ['_required_text', '_required_source_text', '_identity', '_content_hash', 'submit_source_semantics', 'submit_generation_batch', 'submit_scenario_design_guidance', 'submit_business_plan', 'resolve_requirement_evidence', '_summary_item_text', 'validate_business_plan_output', '_serialized_json_chars', '_business_planning_limits', '_planning_scope_fragments', '_planning_fact_model_view', 'prepare_business_plan_batches', 'validate_business_plan_draft_output', 'prepare_business_plan_consolidation', '_planning_module_design_catalog', 'prepare_planning_scope_routes', '_normalize_planning_scope_route', '_validate_planning_scope_route', '_normalize_planning_scope_route_batch', 'postprocess_planning_scope_routing_item', '_expand_planning_scope_route_batches', '_collect_planning_scope_route_state', '_missing_planning_design_indexes', 'prepare_planning_route_repairs', '_normalize_planning_route_repair', 'postprocess_planning_route_repair_item', '_prune_unsupported_planning_design_items', 'merge_planning_scope_routes']

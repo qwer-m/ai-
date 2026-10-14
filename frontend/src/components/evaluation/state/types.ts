@@ -1,4 +1,6 @@
 ﻿
+import type { RunStatus } from '../../agent-platform/types';
+
 export type EvaluationView = 'root' | 'testcase' | 'ui' | 'api' | 'rag';
 
 export type EvaluationProps = {
@@ -24,14 +26,6 @@ export type EvaluationProps = {
   apiEvalOutput: AutomationEvaluationReport | null;
   setApiEvalOutput: (v: AutomationEvaluationReport | null) => void;
 };
-
-export type AgentRunStatus =
-  | 'pending'
-  | 'running'
-  | 'waiting_approval'
-  | 'success'
-  | 'failed'
-  | 'cancelled';
 
 export type GeneratedTestCase = {
   case_id: string;
@@ -88,47 +82,19 @@ export type QualityReport = {
   summary: string;
 };
 
-export type TestGenerationArtifact = {
-  project_id: number;
-  run_id: number;
-  requirement: string;
-  evidence: {
-    source: {
-      kind: 'inline' | 'knowledge_document';
-      document_id: number | null;
-      filename: string;
-      doc_type: string;
-      content_hash: string;
-    };
-  };
-  case_count: number;
-  test_cases: GeneratedTestCase[];
-};
-
+// 评估页面只保留展示所需的产物投影，运行契约由 Agent 模块维护。
 export type TestEvaluationArtifact = {
-  source_run_id: number;
-  evaluation_run_id: number;
-  project_id: number;
-  requirement: string;
   reference_content: string;
   evaluation: QualityReportPayload;
   upload: {
     filename: string;
-    content_type: string;
-    size: number;
-    ocr: {
-      source: string;
-      ok: boolean;
-      cloud_fallback: boolean;
-      error: string;
-    };
   };
 };
 
 export type EvaluationRunRecord = {
   run_id: number;
   project_id: number;
-  status: AgentRunStatus;
+  status: RunStatus;
   current_node_key: string | null;
   parent_run_id: number | null;
   requirement_text: string;

@@ -4,7 +4,6 @@ import hashlib
 import json
 import math
 import re
-import unicodedata
 from copy import deepcopy
 from typing import Any, TYPE_CHECKING
 
@@ -19,12 +18,14 @@ from .test_generation_facts import (
     binding_index,
     bound_fact_ids,
     derive_test_design_item_ids,
-    index_effective_facts,
     materialize_inline_grounding,
     replace_binding_case_id,
+    source_anchor_spans,
+    text_identity,
+    validate_image_region,
     validate_case_fact_bindings,
 )
-from .output_repair import OutputRepairError, repairable_output
+from .output_repair import OutputRepairError, OutputValidationError, repairable_output
 from .test_generation_repair import GENERATION_REPAIR_STRATEGY
 
 if TYPE_CHECKING:
@@ -45,84 +46,16 @@ def _required_list(value: Any, field_name: str) -> list[Any]:
     return value
 
 
-def _identity(value: Any) -> str:
-    normalized = unicodedata.normalize("NFKC", str(value or ""))
-    return re.sub(r"[\W_]+", "", normalized.strip().casefold())
-
-
 def _text_ngrams(value: Any, *, size: int) -> set[str]:
     """提取与语言分词器无关的字符片段，用于覆盖点和模块的通用匹配。"""
 
-    normalized = _identity(value)
+    normalized = text_identity(value)
     if len(normalized) < size:
         return {normalized} if normalized else set()
     return {
         normalized[index : index + size]
         for index in range(len(normalized) - size + 1)
     }
-
-
-def _coverage_points(raw_focus: Any) -> list[str]:
-    """把规划中的复合覆盖描述拆成可分配的原子覆盖点。"""
-
-    if isinstance(raw_focus, str):
-        focus_items = [raw_focus]
-    else:
-        focus_items = [str(item) for item in (raw_focus or [])]
-
-    points: list[str] = []
-    seen: set[str] = set()
-    for raw_item in focus_items:
-        item = raw_item.strip()
-        if not item:
-            continue
-        label = ""
-        body = item
-        matched = re.match(r"^([^：:\n]{1,24})[：:]\s*(.+)$", item, flags=re.DOTALL)
-        if matched:
-            label = matched.group(1).strip()
-            body = matched.group(2).strip()
-        parts = _split_top_level_items(body)
-        for part in parts or [body]:
-            point = f"{label}：{part}" if label else part
-            identity = _identity(point)
-            if not identity or identity in seen:
-                continue
-            seen.add(identity)
-            points.append(point)
-    return points
-
-
-def _split_top_level_items(value: str) -> list[str]:
-    """仅按括号外标点拆分，避免把枚举内容截成残缺语义。"""
-
-    opening_to_closing = {"(": ")", "（": "）", "[": "]", "【": "】", "{": "}"}
-    closing = set(opening_to_closing.values())
-    separators = {"、", "，", ",", "；", ";", "。", "\n"}
-    stack: list[str] = []
-    parts: list[str] = []
-    buffer: list[str] = []
-    for character in value:
-        if character in opening_to_closing:
-            stack.append(opening_to_closing[character])
-            buffer.append(character)
-            continue
-        if character in closing:
-            if stack and character == stack[-1]:
-                stack.pop()
-            buffer.append(character)
-            continue
-        if character in separators and not stack:
-            part = "".join(buffer).strip()
-            if part:
-                parts.append(part)
-            buffer = []
-            continue
-        buffer.append(character)
-    tail = "".join(buffer).strip()
-    if tail:
-        parts.append(tail)
-    return parts
 
 
 def _coverage_relevance(module: dict[str, Any], point: str) -> int:
@@ -146,17 +79,17 @@ def _coverage_relevance(module: dict[str, Any], point: str) -> int:
             *applicable_coverage,
         ]
     )
-    module_identity = _identity(module_text)
-    point_identity = _identity(point)
+    module_identity = text_identity(module_text)
+    point_identity = text_identity(point)
     if not module_identity or not point_identity:
         return 0
 
-    module_name = _identity(module.get("name"))
+    module_name = text_identity(module.get("name"))
     score = 0
     if module_name and module_name in point_identity:
         score += 100 + len(module_name)
     for name_part in re.split(r"[与和及、/&]+", str(module.get("name") or "")):
-        part_identity = _identity(name_part)
+        part_identity = text_identity(name_part)
         if len(part_identity) >= 2 and part_identity in point_identity:
             score += 40 + len(part_identity)
     if point_identity in module_identity:
@@ -205,15 +138,6 @@ def _allocate_unique_items(
     return allocated
 
 
-def _allocate_coverage_points(
-    modules: list[dict[str, Any]],
-    raw_focus: Any,
-) -> list[list[str]]:
-    """拆分并唯一分配覆盖点，避免跨模块复用全局描述。"""
-
-    return _allocate_unique_items(modules, _coverage_points(raw_focus))
-
-
 def _risk_items(raw_risks: Any) -> list[str]:
     """风险保持规划中的完整语义，不按标点破坏因果描述。"""
 
@@ -225,7 +149,7 @@ def _risk_items(raw_risks: Any) -> list[str]:
     seen: set[str] = set()
     for value in values:
         risk = value.strip()
-        identity = _identity(risk)
+        identity = text_identity(risk)
         if not identity or identity in seen:
             continue
         seen.add(identity)
@@ -243,7 +167,7 @@ def _allocate_risks(
 
 
 def _batch_focus(module: dict[str, Any], coverage_points: list[str]) -> str:
-    """仅使用当前模块自身事实和已分配覆盖点构造批次焦点。"""
+    """用模块背景和当前批次测试点说明范围，不改变事实覆盖契约。"""
 
     parts = [f"模块目标：{str(module.get('objective') or '').strip()}"]
     lifecycle = str(module.get("lifecycle") or "").strip()
@@ -265,11 +189,6 @@ def _flatten_vector_result(result: dict[str, Any]) -> tuple[list[str], list[dict
         [str(item or "").strip() for item in documents],
         [dict(item or {}) for item in metadatas],
     )
-
-
-def _compact_fragment_text(value: Any) -> str:
-    text = unicodedata.normalize("NFKC", str(value or ""))
-    return re.sub(r"[ \t\r\f\v]+", " ", text).strip()
 
 
 def _raw_chunk_fragments(
@@ -380,31 +299,6 @@ def _document_fragments(
     return fragments
 
 
-def _image_evidence_region(value: Any) -> dict[str, float]:
-    """校验真实页面的归一化图片区域，不为缺失坐标构造占位区域。"""
-
-    fields = ("x", "y", "width", "height")
-    if not isinstance(value, dict) or set(value) != set(fields):
-        raise ValueError("图片证据必须包含完整 image_region")
-    if any(
-        not isinstance(value[field], (int, float)) or isinstance(value[field], bool)
-        for field in fields
-    ):
-        raise ValueError("图片证据区域坐标必须是数值")
-    region = {field: float(value[field]) for field in fields}
-    if (
-        any(not math.isfinite(number) for number in region.values())
-        or region["x"] < 0
-        or region["y"] < 0
-        or region["width"] <= 0
-        or region["height"] <= 0
-        or region["x"] + region["width"] > 1.000001
-        or region["y"] + region["height"] > 1.000001
-    ):
-        raise ValueError("图片证据区域必须位于真实页面范围内")
-    return region
-
-
 def _document_image_fragments(
     manifest: dict[str, Any],
     *,
@@ -458,7 +352,7 @@ def _document_image_fragments(
                     "source_offset_start": 0,
                     "source_offset_end": 0,
                     "asset_source_sha256": source_hash,
-                    "image_region": _image_evidence_region(block.get("bbox")),
+                    "image_region": validate_image_region(block.get("bbox")),
                     "page_image_sha256": page_hash,
                 }
             )
@@ -526,7 +420,7 @@ def _evidence_chunk_from_catalog_item(item: dict[str, Any]) -> dict[str, Any]:
             or re.fullmatch(r"[0-9a-f]{64}", page_hash) is None
         ):
             raise ValueError("图片证据必须关联唯一真实图片块和页面指纹，且不能带伪正文坐标")
-        result["image_region"] = _image_evidence_region(item["image_region"])
+        result["image_region"] = validate_image_region(item["image_region"])
         result["page_image_sha256"] = page_hash
     return result
 
@@ -901,12 +795,12 @@ def _fact_source_order(
 
     anchor = dict(fact.get("source_anchor") or {})
     if str(anchor.get("source_kind") or "") == "document":
-        span = dict(anchor.get("source_span") or {})
+        spans = source_anchor_spans(anchor)
         return (
             0,
             int(anchor.get("document_id") or 0),
             int(anchor.get("page_number") or 0),
-            int(span.get("start") or 0),
+            min((span["start"] for span in spans), default=0),
             fallback_index,
         )
     return (1, 0, 0, 0, fallback_index)
@@ -1126,6 +1020,137 @@ def _allocate_module_case_targets(
     return module_targets
 
 
+def generation_layout_from_inputs(inputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """从已准备的真实生成输入还原布局，供协调者局部调整后完整提交。"""
+    modules: dict[int, dict[int, dict[str, Any]]] = {}
+    for item in _required_list(inputs, "generation_inputs"):
+        if not isinstance(item, dict) or not isinstance(item.get("batch"), dict):
+            raise ValueError("generation_inputs 每项必须包含真实 batch")
+        batch = item["batch"]
+        module_index, group_index = batch.get("module_index"), batch.get("module_batch_index")
+        if any(type(value) is not int or value < 0 for value in (module_index, group_index)):
+            raise ValueError("生成输入的模块或批次索引无效")
+        budget = item.get("case_budget")
+        if type(budget) is not int or budget < 1:
+            raise ValueError("生成输入的用例预算无效")
+        contract = item["case_fact_contract"]
+        fact_ids = list(contract["required_fact_ids"])
+        if any(not isinstance(value, str) or not value.strip() for value in fact_ids):
+            raise ValueError("生成输入的事实 ID 无效")
+        groups = modules.setdefault(module_index, {})
+        if group_index in groups:
+            raise ValueError("生成输入包含重复模块批次索引")
+        groups[group_index] = {"fact_ids": fact_ids, "case_budget": budget,
+                               "test_design_item_ids": list(contract["required_test_design_item_ids"])}
+    if sorted(modules) != list(range(len(modules))):
+        raise ValueError("生成输入的有效模块索引不连续")
+    layout = []
+    for module_index, groups in sorted(modules.items()):
+        if sorted(groups) != list(range(len(groups))):
+            raise ValueError("生成输入的模块内批次索引不连续")
+        ordered = [groups[index] for index in range(len(groups))]
+        fact_ids = [value for group in ordered for value in group["fact_ids"]]
+        if len(fact_ids) != len(set(fact_ids)):
+            raise ValueError("生成输入在同一模块内重复分配事实")
+        layout.append({"module_index": module_index, "groups": ordered})
+    return layout
+
+
+def _validate_generation_layout(
+    layout: Any,
+    *,
+    module_facts_by_index: list[list[dict[str, Any]]],
+    design_items_by_module: list[list[dict[str, Any]]],
+    supports_by_module: list[dict[str, list[str]]],
+    case_budget: int,
+    batch_case_limit: int,
+) -> tuple[list[list[list[dict[str, Any]]]], list[list[int]], list[list[list[dict[str, Any]]]]]:
+    """仅校验候选布局；事实内容仍从已验证的当前模块输入取得。"""
+    def reject(message: str, **details: Any) -> None:
+        raise OutputValidationError(message, details={"field": "generation_layout", **details})
+
+    if not isinstance(layout, list) or not layout:
+        reject("generation_layout 必须是完整的非空模块数组")
+    by_module: dict[int, dict[str, Any]] = {}
+    for entry in layout:
+        if not isinstance(entry, dict) or set(entry) != {"module_index", "groups"}:
+            reject("布局模块只能包含 module_index 和 groups")
+        module_index = entry["module_index"]
+        if type(module_index) is not int or not 0 <= module_index < len(module_facts_by_index):
+            reject("布局引用了当前有效模块范围之外的索引", module_index=module_index,
+                   valid_module_indexes=list(range(len(module_facts_by_index))))
+        if module_index in by_module:
+            reject("布局重复提交了同一模块", module_index=module_index)
+        by_module[module_index] = entry
+    missing_modules = sorted(set(range(len(module_facts_by_index))) - set(by_module))
+    if missing_modules:
+        reject("布局没有覆盖全部当前有效模块", missing_module_indexes=missing_modules)
+
+    all_groups, all_budgets, all_designs = [], [], []
+    for module_index, module_facts in enumerate(module_facts_by_index):
+        raw_groups = by_module[module_index]["groups"]
+        if not isinstance(raw_groups, list) or not raw_groups:
+            reject("布局模块的 groups 必须是非空数组", module_index=module_index)
+        facts_by_id = {fact["fact_id"]: fact for fact in module_facts}
+        designs_by_id = {item["test_design_item_id"]: item for item in design_items_by_module[module_index]}
+        seen_designs: set[str] = set()
+        seen: set[str] = set()
+        groups, budgets, designs = [], [], []
+        for group_index, group in enumerate(raw_groups):
+            position = {"module_index": module_index, "group_index": group_index}
+            if not isinstance(group, dict) or set(group) != {"fact_ids", "case_budget", "test_design_item_ids"}:
+                reject("布局分组必须包含 fact_ids、test_design_item_ids 和 case_budget", **position)
+            fact_ids, budget = group["fact_ids"], group["case_budget"]
+            if (not isinstance(fact_ids, list)
+                    or any(not isinstance(value, str) or not value.strip() for value in fact_ids)):
+                reject("布局分组的 fact_ids 必须是事实 ID 数组", **position)
+            design_ids = group["test_design_item_ids"]
+            if (not isinstance(design_ids, list) or any(not isinstance(value, str) for value in design_ids)
+                    or len(set(design_ids)) != len(design_ids) or set(design_ids) - set(designs_by_id)
+                    or seen_designs.intersection(design_ids) or not (fact_ids or design_ids)):
+                reject("布局设计项必须来自当前模块且恰好分配一次，每组至少承接事实或设计项", **position)
+            unknown = sorted(set(fact_ids) - set(facts_by_id))
+            duplicates = sorted({value for value in fact_ids if value in seen or fact_ids.count(value) > 1})
+            if unknown or duplicates:
+                reject("布局事实必须来自当前模块，且在模块内恰好分配一次", **position,
+                       unknown_fact_ids=unknown, duplicate_fact_ids=duplicates,
+                       available_fact_ids=list(facts_by_id))
+            if type(budget) is not int or not 1 <= budget <= batch_case_limit:
+                reject("布局分组用例数超过允许范围", **position,
+                       case_budget=budget, minimum=1, maximum=batch_case_limit)
+            support_ids = {value for design_id in design_ids for value in supports_by_module[module_index][design_id]}
+            selected = [fact for fact in module_facts if fact["fact_id"] in set(fact_ids) | support_ids]
+            # 复用自动分组的同源、字符数、事实数和页数规则，禁止通过显式布局扩张上下文。
+            prepared_groups = _generation_fact_groups(selected)
+            if len(prepared_groups) != 1:
+                reject("布局分组超过既有来源或上下文上限，请拆分当前事实组", **position,
+                       fact_count=len(selected), fact_json_chars=sum(_fact_json_chars(fact) for fact in selected),
+                       source_groups=sorted({_fact_source_group(fact) for fact in selected}),
+                       document_page_count=len({page for fact in selected if (page := _fact_document_page(fact)) is not None}),
+                       limits={"fact_count": GENERATION_MAX_REQUIRED_FACTS_PER_BATCH,
+                               "fact_json_chars": GENERATION_MAX_FACT_JSON_CHARS_PER_BATCH,
+                               "document_pages": GENERATION_MAX_PAGES_PER_BATCH,
+                               "source_group_count": 1})
+            seen.update(fact_ids)
+            seen_designs.update(design_ids)
+            groups.append([facts_by_id[value] for value in fact_ids])
+            designs.append([deepcopy(designs_by_id[value]) for value in design_ids])
+            budgets.append(budget)
+        missing = sorted(set(facts_by_id) - seen)
+        if missing:
+            reject("布局遗漏了当前模块的有效事实", module_index=module_index, missing_fact_ids=missing)
+        if set(designs_by_id) != seen_designs:
+            reject("布局遗漏了当前模块的设计意图", module_index=module_index,
+                   missing_test_design_item_ids=sorted(set(designs_by_id) - seen_designs))
+        all_groups.append(groups)
+        all_budgets.append(budgets)
+        all_designs.append(designs)
+    total = sum(sum(budgets) for budgets in all_budgets)
+    if total != case_budget:
+        reject("布局的总用例数必须保持用户预算", expected_case_budget=case_budget, actual_case_budget=total)
+    return all_groups, all_budgets, all_designs
+
+
 def _generation_batch_source_context(
     *,
     module: dict[str, Any],
@@ -1255,6 +1280,7 @@ def _normalize_fact_design_route_indexes(
 def _project_effective_test_design_context(
     *,
     module: dict[str, Any],
+    planned_module_index: int,
     design_items: list[dict[str, Any]],
     effective_fact_ids: set[str],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
@@ -1269,13 +1295,30 @@ def _project_effective_test_design_context(
     if not effective_fact_ids or not effective_fact_ids.issubset(set(planned_fact_ids)):
         raise ValueError("有效事实集合必须是当前模块规划事实的非空子集")
 
-    active_original_indexes = sorted(
-        {
-            design_index
-            for fact_id in effective_fact_ids
-            for design_index in route_indexes_by_fact_id[fact_id]
-        }
-    )
+    supports = module.get("design_supports")
+    if not isinstance(supports, list) or len(supports) != len(design_items):
+        raise ValueError("规划缺少逐项独立审查的完整支持集合")
+    support_by_index = {}
+    for support in supports:
+        index = support["test_design_item_index"]
+        if type(index) is not int or not 0 <= index < len(design_items) or index in support_by_index:
+            raise ValueError("规划支持集合的意图索引无效或重复")
+        fact_ids = support["fact_ids"]
+        routed = {fact_id for fact_id, indexes in route_indexes_by_fact_id.items() if index in indexes}
+        if not fact_ids or len(set(fact_ids)) != len(fact_ids) or set(fact_ids) != routed:
+            raise ValueError("独立支持集合与规划事实路由不一致")
+        support_by_index[index] = set(fact_ids)
+    partial = [{"module_index": planned_module_index, "module_name": module["name"],
+                "test_design_item_index": index, "test_design_item_id": design_items[index]["test_design_item_id"],
+                "coverage_intent": design_items[index]["coverage_intent"],
+                "support_fact_ids": sorted(support), "inactive_support_fact_ids": sorted(support - effective_fact_ids),
+                "remaining_support_fact_ids": sorted(support & effective_fact_ids)}
+               for index, support in support_by_index.items() if support & effective_fact_ids and not support <= effective_fact_ids]
+    if partial:
+        raise OutputValidationError("权威判断使意图的支持集合不再完整，需要复核支持或修订规划", details={
+            "incomplete_design_supports": partial,
+        })
+    active_original_indexes = sorted(index for index, support in support_by_index.items() if support <= effective_fact_ids)
     original_to_active_index = {
         original_index: active_index
         for active_index, original_index in enumerate(active_original_indexes)
@@ -1290,6 +1333,7 @@ def _project_effective_test_design_context(
             "test_design_item_indexes": [
                 original_to_active_index[index]
                 for index in route_indexes_by_fact_id[fact_id]
+                if index in original_to_active_index
             ],
         }
         for fact_id in planned_fact_ids
@@ -1309,10 +1353,8 @@ def _allocate_test_design_items_to_fact_groups(
     fact_groups: list[list[dict[str, Any]]],
     fact_design_routes: list[dict[str, Any]],
 ) -> list[list[dict[str, Any]]]:
-    """按规划路由 Agent 给出的事实到设计项映射形成批次设计目录。"""
-
+    """每个意图仅分配一次；跨批事实只补充上下文，不复制覆盖义务。"""
     allocated: list[list[dict[str, Any]]] = [[] for _ in fact_groups]
-    allocated_ids: list[set[str]] = [set() for _ in fact_groups]
     grouped_fact_ids = {
         str(fact.get("fact_id") or "")
         for facts in fact_groups
@@ -1324,23 +1366,25 @@ def _allocate_test_design_items_to_fact_groups(
         expected_fact_ids=grouped_fact_ids,
     )
 
-    for group_index, facts in enumerate(fact_groups):
-        for fact in facts:
-            fact_id = str(fact.get("fact_id") or "")
-            for design_index in route_indexes_by_fact_id[fact_id]:
-                item = design_items[design_index]
-                item_id = str(item.get("test_design_item_id") or "")
-                if item_id in allocated_ids[group_index]:
-                    continue
-                allocated[group_index].append(dict(item))
-                allocated_ids[group_index].add(item_id)
-
-    expected_design_ids = {
-        str(item.get("test_design_item_id") or "") for item in design_items
-    }
-    assigned_design_ids = set().union(*allocated_ids)
-    if assigned_design_ids != expected_design_ids:
-        raise ValueError("事实到测试设计项路由没有承接全部规划覆盖项")
+    facts_by_id = {fact["fact_id"]: fact for group in fact_groups for fact in group}
+    contexts = [{fact["fact_id"] for fact in group} for group in fact_groups]
+    for design_index, item in enumerate(design_items):
+        support = {fact_id for fact_id, indexes in route_indexes_by_fact_id.items() if design_index in indexes}
+        if not support or len(_generation_fact_groups([facts_by_id[value] for value in sorted(support)])) != 1:
+            raise OutputValidationError("单个意图的完整支持集合超过批次容量，需要拆解复合意图后重新规划", details={
+                "test_design_item_id": item["test_design_item_id"], "support_fact_ids": sorted(support),
+            })
+        candidates = [index for index, current in enumerate(contexts)
+                      if len(_generation_fact_groups([facts_by_id[value] for value in sorted(current | support)])) == 1]
+        if candidates:
+            index = min(candidates, key=lambda value: (len(support - contexts[value]), len(allocated[value]), value))
+        else:
+            index = len(fact_groups)
+            fact_groups.append([])
+            contexts.append(set())
+            allocated.append([])
+        contexts[index].update(support)
+        allocated[index].append(deepcopy(item))
     return allocated
 
 
@@ -1350,8 +1394,9 @@ def _build_case_fact_contract(
     case_budget: int,
     test_design_items: list[dict[str, Any]],
     fact_design_item_ids: dict[str, list[str]],
+    required_fact_ids: list[str],
 ) -> dict[str, Any]:
-    """依据 Planner 路由编译逐用例覆盖槽位，避免模型自行扫描覆盖全集。"""
+    """保留批次覆盖全集与真实规划路由，用例内的事实组合由 Agent 按语义决定。"""
 
     if not facts or case_budget < 1:
         raise ValueError("事实覆盖契约需要非空事实和正数用例预算")
@@ -1366,60 +1411,11 @@ def _build_case_fact_contract(
         invalid_design_ids = routed_design_ids - available_design_ids
         if invalid_design_ids:
             raise ValueError(
-                "事实槽位引用了批次外测试设计项: "
+                "事实路由引用了批次外测试设计项: "
                 f"fact_id={fact_id}, invalid={sorted(invalid_design_ids)}"
             )
 
     all_fact_ids = [str(fact["fact_id"]) for fact in facts]
-    design_ids_by_slot: list[list[str]] = [[] for _ in target_case_ids]
-    for design_item_id in design_item_ids:
-        target_index = min(
-            range(case_budget),
-            key=lambda index: (len(design_ids_by_slot[index]), index),
-        )
-        design_ids_by_slot[target_index].append(design_item_id)
-
-    fact_ids_by_slot: list[list[str]] = [[] for _ in target_case_ids]
-    if len(all_fact_ids) >= case_budget:
-        base_size, remainder = divmod(len(all_fact_ids), case_budget)
-        target_sizes = [
-            base_size + int(slot_index < remainder)
-            for slot_index in range(case_budget)
-        ]
-        for fact_id in all_fact_ids:
-            routed_design_ids = set(fact_design_item_ids.get(fact_id) or [])
-            available_indexes = [
-                index
-                for index in range(case_budget)
-                if len(fact_ids_by_slot[index]) < target_sizes[index]
-            ]
-            preferred_indexes = [
-                index
-                for index in available_indexes
-                if routed_design_ids.intersection(design_ids_by_slot[index])
-            ]
-            candidate_indexes = preferred_indexes or available_indexes
-            target_index = min(
-                candidate_indexes,
-                key=lambda index: (len(fact_ids_by_slot[index]), index),
-            )
-            fact_ids_by_slot[target_index].append(fact_id)
-    else:
-        # 用例数多于事实数时按设计路由选择最匹配的真实事实并稳定复用。
-        for slot_index in range(case_budget):
-            slot_design_ids = set(design_ids_by_slot[slot_index])
-            matched_fact_id = next(
-                (
-                    fact_id
-                    for fact_id in all_fact_ids
-                    if slot_design_ids.intersection(
-                        fact_design_item_ids.get(fact_id) or []
-                    )
-                ),
-                all_fact_ids[slot_index % len(all_fact_ids)],
-            )
-            fact_ids_by_slot[slot_index].append(matched_fact_id)
-
     for design_item_id in design_item_ids:
         if not any(
             design_item_id in (fact_design_item_ids.get(fact_id) or [])
@@ -1443,17 +1439,10 @@ def _build_case_fact_contract(
 
     return {
         "target_case_ids": target_case_ids,
-        "required_fact_ids": all_fact_ids,
+        "required_fact_ids": list(required_fact_ids),
+        "available_fact_ids": all_fact_ids,
         "required_test_design_item_ids": design_item_ids,
         "fact_design_item_ids": normalized_fact_design_item_ids,
-        "coverage_slots": [
-            {
-                "case_id": case_id,
-                "required_fact_ids": fact_ids_by_slot[index],
-                "required_test_design_item_ids": design_ids_by_slot[index],
-            }
-            for index, case_id in enumerate(target_case_ids)
-        ],
     }
 
 
@@ -1495,6 +1484,7 @@ def prepare_test_case_batches(
     routed_effective_ids: set[str] = set()
     fact_assignment_counts: dict[str, int] = {}
     modules: list[dict[str, Any]] = []
+    planned_module_indexes: list[int] = []
     module_facts_by_index: list[list[dict[str, Any]]] = []
     inactive_modules: list[dict[str, Any]] = []
     for planned_module_index, module in enumerate(planned_modules):
@@ -1518,6 +1508,7 @@ def prepare_test_case_batches(
             fact_id = str(fact["fact_id"])
             fact_assignment_counts[fact_id] = fact_assignment_counts.get(fact_id, 0) + 1
         modules.append(module)
+        planned_module_indexes.append(planned_module_index)
         routed_effective_ids.update(str(fact["fact_id"]) for fact in module_facts)
         module_facts_by_index.append(module_facts)
     if not modules:
@@ -1528,7 +1519,6 @@ def prepare_test_case_batches(
             "业务模块 fact_ids 未完整覆盖 effective facts: "
             f"missing={sorted(missing_effective_ids)}"
         )
-    allocated_focus = _allocate_coverage_points(modules, plan.get("coverage_focus"))
     allocated_risks = _allocate_risks(modules, plan.get("risks"))
     design_items_by_module = _test_design_items_by_module(
         modules=modules,
@@ -1539,17 +1529,23 @@ def prepare_test_case_batches(
     active_design_assignment_counts: dict[str, int] = {
         str(fact["fact_id"]): 0 for fact in effective_facts
     }
+    incomplete_supports = []
     for module_index, module in enumerate(modules):
-        active_design_items, active_routes, inactive_design_ids = (
-            _project_effective_test_design_context(
+        try:
+            active_design_items, active_routes, inactive_design_ids = _project_effective_test_design_context(
                 module=module,
+                planned_module_index=planned_module_indexes[module_index],
                 design_items=design_items_by_module[module_index],
                 effective_fact_ids={
                     str(fact["fact_id"])
                     for fact in module_facts_by_index[module_index]
                 },
             )
-        )
+        except OutputValidationError as error:
+            if not error.details.get("incomplete_design_supports"):
+                raise
+            incomplete_supports.extend(error.details["incomplete_design_supports"])
+            continue
         active_design_items_by_module.append(active_design_items)
         active_fact_design_routes_by_module.append(active_routes)
         inactive_test_design_item_ids.extend(inactive_design_ids)
@@ -1558,6 +1554,10 @@ def prepare_test_case_batches(
             active_design_assignment_counts[fact_id] += len(
                 route["test_design_item_indexes"]
             )
+    if incomplete_supports:
+        raise OutputValidationError("权威判断使意图的支持集合不再完整，需要复核支持或修订规划", details={
+            "incomplete_design_supports": incomplete_supports,
+        })
     unmatched_test_design_fact_ids = [
         fact_id
         for fact_id in effective_by_id
@@ -1567,12 +1567,29 @@ def prepare_test_case_batches(
         _generation_fact_groups(module_facts)
         for module_facts in module_facts_by_index
     ]
-    module_targets = _allocate_module_case_targets(
-        module_facts_by_index=module_facts_by_index,
-        module_fact_groups_by_index=module_fact_groups_by_index,
-        case_budget=case_budget,
-        batch_case_limit=batch_case_limit,
-    )
+    supports_by_module = [{item["test_design_item_id"]: [route["fact_id"] for route in routes
+                           if index in route["test_design_item_indexes"]]
+                           for index, item in enumerate(designs)}
+                          for designs, routes in zip(active_design_items_by_module, active_fact_design_routes_by_module, strict=True)]
+    explicit_layout = "generation_layout" in arguments
+    if explicit_layout:
+        module_fact_groups_by_index, explicit_budgets, module_design_batches = _validate_generation_layout(
+            arguments["generation_layout"], module_facts_by_index=module_facts_by_index,
+            design_items_by_module=active_design_items_by_module, supports_by_module=supports_by_module,
+            case_budget=case_budget, batch_case_limit=batch_case_limit,
+        )
+        module_targets = [sum(budgets) for budgets in explicit_budgets]
+    else:
+        module_design_batches = [_allocate_test_design_items_to_fact_groups(
+            design_items=designs, fact_groups=groups, fact_design_routes=routes,
+        ) for designs, groups, routes in zip(active_design_items_by_module, module_fact_groups_by_index,
+                                             active_fact_design_routes_by_module, strict=True)]
+        module_targets = _allocate_module_case_targets(
+            module_facts_by_index=module_facts_by_index,
+            module_fact_groups_by_index=module_fact_groups_by_index,
+            case_budget=case_budget,
+            batch_case_limit=batch_case_limit,
+        )
 
     items: list[dict[str, Any]] = []
     batch_number = 0
@@ -1582,22 +1599,23 @@ def prepare_test_case_batches(
             continue
         module_facts = module_facts_by_index[module_index]
         fact_groups = module_fact_groups_by_index[module_index]
-        minimum_batch_count = math.ceil(module_target / batch_case_limit)
-        fact_groups = _expand_generation_fact_groups(
-            fact_groups,
-            target_count=max(len(fact_groups), minimum_batch_count),
-        )
-        batch_budgets = _allocate_generation_batch_budgets(
-            fact_groups,
-            case_target=module_target,
-            batch_case_limit=batch_case_limit,
-        )
+        design_items_by_batch = module_design_batches[module_index]
+        if explicit_layout:
+            batch_budgets = explicit_budgets[module_index]
+        else:
+            minimum_batch_count = math.ceil(module_target / batch_case_limit)
+            if len(fact_groups) < minimum_batch_count:
+                fact_groups = _expand_generation_fact_groups([group for group in fact_groups if group], target_count=minimum_batch_count)
+                design_items_by_batch = _allocate_test_design_items_to_fact_groups(
+                    design_items=active_design_items_by_module[module_index], fact_groups=fact_groups,
+                    fact_design_routes=active_fact_design_routes_by_module[module_index],
+                )
+            batch_budgets = _allocate_generation_batch_budgets(
+                fact_groups,
+                case_target=module_target,
+                batch_case_limit=batch_case_limit,
+            )
         module_batch_count = len(fact_groups)
-        design_items_by_batch = _allocate_test_design_items_to_fact_groups(
-            design_items=active_design_items_by_module[module_index],
-            fact_groups=fact_groups,
-            fact_design_routes=active_fact_design_routes_by_module[module_index],
-        )
         module_design_items = active_design_items_by_module[module_index]
         module_fact_design_item_ids = {
             str(route["fact_id"]): [
@@ -1606,11 +1624,6 @@ def prepare_test_case_batches(
             ]
             for route in active_fact_design_routes_by_module[module_index]
         }
-        module_points = allocated_focus[module_index]
-        points_by_batch = [
-            module_points[index::module_batch_count]
-            for index in range(module_batch_count)
-        ]
         module_risks = allocated_risks[module_index]
         risks_by_batch = [
             module_risks[index::module_batch_count]
@@ -1619,9 +1632,15 @@ def prepare_test_case_batches(
         for module_batch_index in range(module_batch_count):
             batch_target = batch_budgets[module_batch_index]
             batch_number += 1
-            batch_points = points_by_batch[module_batch_index]
-            batch_facts = fact_groups[module_batch_index]
+            required_fact_ids = [fact["fact_id"] for fact in fact_groups[module_batch_index]]
             batch_design_items = design_items_by_batch[module_batch_index]
+            support_ids = {value for item in batch_design_items
+                           for value in supports_by_module[module_index][item["test_design_item_id"]]}
+            batch_facts = [fact for fact in module_facts if fact["fact_id"] in set(required_fact_ids) | support_ids]
+            # 范围说明直接来自本批已路由的测试点，不能按索引分摊全局摘要。
+            batch_points = list(dict.fromkeys(
+                str(item["test_point"]) for item in batch_design_items
+            ))
             batch_design_item_ids = {
                 str(item["test_design_item_id"]) for item in batch_design_items
             }
@@ -1643,7 +1662,7 @@ def prepare_test_case_batches(
             batch_business_module = {
                 key: deepcopy(value)
                 for key, value in module.items()
-                if key not in {"fact_design_routes", "test_points"}
+                if key not in {"fact_design_routes", "test_points", "design_supports"}
             }
             batch_business_module["fact_ids"] = [
                 str(fact["fact_id"]) for fact in module_facts
@@ -1683,6 +1702,7 @@ def prepare_test_case_batches(
                         case_budget=batch_target,
                         test_design_items=batch_design_items,
                         fact_design_item_ids=batch_fact_design_item_ids,
+                        required_fact_ids=required_fact_ids,
                     ),
                 }
             )
@@ -1764,6 +1784,7 @@ def postprocess_generation_batch_item(
             case_fact_bindings=output.get("case_fact_bindings"),
             fact_design_item_ids=fact_design_item_ids,
             required_fact_ids=required_fact_ids,
+            available_fact_ids=contract.get("available_fact_ids"),
             required_design_item_ids=required_design_item_ids,
         )
         for case in list(output.get("test_cases") or []):
@@ -1842,7 +1863,8 @@ def _validate_generation_batch_output(
         for fact in list(source_input.get("authoritative_facts") or [])
     ]
     required_fact_ids = contract.get("required_fact_ids")
-    if required_fact_ids != available_fact_ids:
+    if (contract.get("available_fact_ids") != available_fact_ids or not isinstance(required_fact_ids, list)
+            or len(set(required_fact_ids)) != len(required_fact_ids) or not set(required_fact_ids) <= set(available_fact_ids)):
         raise ValueError("事实覆盖契约与当前批次权威事实不一致")
     plan_design_item_ids = [
         str(item.get("test_design_item_id") or "")
@@ -1857,50 +1879,12 @@ def _validate_generation_batch_output(
         and len(required_design_item_ids) == len(set(required_design_item_ids))
     ):
         raise ValueError("测试设计覆盖契约与当前批次规划不一致")
-    raw_coverage_slots = contract.get("coverage_slots")
-    if not isinstance(raw_coverage_slots, list) or len(raw_coverage_slots) != expected_count:
-        raise ValueError("事实覆盖契约的 coverage_slots 与用例预算不一致")
-    coverage_slots: list[dict[str, Any]] = []
-    assigned_fact_ids: set[str] = set()
-    assigned_design_item_ids: set[str] = set()
-    for slot_index, raw_slot in enumerate(raw_coverage_slots):
-        if not isinstance(raw_slot, dict):
-            raise ValueError("coverage_slots 每项必须是对象")
-        slot = dict(raw_slot)
-        case_id = str(slot.get("case_id") or "").strip()
-        if case_id != expected_case_ids[slot_index]:
-            raise ValueError("coverage_slots 必须保持平台确定的 case_id 及顺序")
-        slot_fact_ids = slot.get("required_fact_ids")
-        if (
-            not isinstance(slot_fact_ids, list)
-            or not slot_fact_ids
-            or any(str(value) not in available_fact_ids for value in slot_fact_ids)
-            or len(slot_fact_ids) != len(set(slot_fact_ids))
-        ):
-            raise ValueError(f"coverage_slots 事实分配无效: case_id={case_id}")
-        slot_design_item_ids = slot.get("required_test_design_item_ids")
-        if (
-            not isinstance(slot_design_item_ids, list)
-            or any(str(value) not in required_design_item_ids for value in slot_design_item_ids)
-            or len(slot_design_item_ids) != len(set(slot_design_item_ids))
-        ):
-            raise ValueError(f"coverage_slots 测试设计分配无效: case_id={case_id}")
-        normalized_slot = {
-            "case_id": case_id,
-            "required_fact_ids": [str(value) for value in slot_fact_ids],
-            "required_test_design_item_ids": [
-                str(value) for value in slot_design_item_ids
-            ],
-        }
-        coverage_slots.append(normalized_slot)
-        assigned_fact_ids.update(normalized_slot["required_fact_ids"])
-        assigned_design_item_ids.update(
-            normalized_slot["required_test_design_item_ids"]
-        )
-    if assigned_fact_ids != set(required_fact_ids):
-        raise ValueError("coverage_slots 没有完整承接批次事实覆盖契约")
-    if assigned_design_item_ids != set(required_design_item_ids):
-        raise ValueError("coverage_slots 没有完整承接批次测试设计覆盖契约")
+    derived = derive_test_design_item_ids(case_fact_bindings=bindings,
+        fact_design_item_ids=contract["fact_design_item_ids"], required_fact_ids=required_fact_ids,
+        available_fact_ids=available_fact_ids, required_design_item_ids=required_design_item_ids)
+    for case in test_cases:
+        if case["test_design_item_ids"] != derived[case["case_id"]]:
+            raise ValueError("用例的设计覆盖编号与实际完整支持绑定不一致")
     covered_design_item_ids = {
         design_item_id
         for case in test_cases
@@ -1935,6 +1919,7 @@ def _validate_generation_batch_output(
                 "missing_fact_ids": missing_fact_ids,
                 "missing_test_design_item_ids": missing_design_item_ids,
                 "invalid_test_design_item_ids": invalid_design_item_ids,
+                "candidate_fact_ids_by_case": {key: sorted(value) for key, value in covered_fact_ids_by_case.items()},
                 "case_ids": expected_case_ids if actual_case_ids != expected_case_ids else [],
             },
         )
@@ -1944,6 +1929,21 @@ def _validate_generation_batch_output(
     }
 
 
+
+
+def validate_generation_case_uniqueness(cases, existing_cases=()):
+    """生成提交与最终合并使用同一重复判据，差异在专业会话内即可修正。"""
+    seen = {(text_identity(case.get("module")), text_identity(case.get("title"))): case
+            for case in existing_cases}
+    for case in cases:
+        identity = (text_identity(case.get("module")), text_identity(case.get("title")))
+        if identity in seen:
+            raise OutputValidationError(
+                f"跨批次生成了重复用例: module={case.get('module')}, title={case.get('title')}",
+                details={"conflicting_case": deepcopy(case), "existing_case": deepcopy(seen[identity]),
+                         "instruction": "核对本批事实范围与已有用例的条件和操作，生成有独立覆盖价值的用例；不得仅改标题掩盖语义重复，仍须满足完整覆盖和数量契约。"},
+            )
+        seen[identity] = case
 
 
 def merge_grounded_generation_batches(
@@ -1962,7 +1962,6 @@ def merge_grounded_generation_batches(
 
     merged_cases: list[dict[str, Any]] = []
     merged_bindings: list[dict[str, Any]] = []
-    seen_case_identities: set[tuple[str, str]] = set()
     for item_index, raw_input in enumerate(generation_inputs):
         if not isinstance(raw_input, dict):
             raise ValueError("generation_inputs 每项必须是对象")
@@ -1978,6 +1977,7 @@ def merge_grounded_generation_batches(
             output=dict(output),
         )
         test_cases = normalized_output["test_cases"]
+        validate_generation_case_uniqueness(test_cases, merged_cases)
         bindings = normalized_output["case_fact_bindings"]
         bindings_by_case_id = binding_index(bindings)
         for raw_case in test_cases:
@@ -1985,12 +1985,6 @@ def merge_grounded_generation_batches(
                 raise ValueError("test_cases 每项必须是对象")
             case = dict(raw_case)
             source_case_id = str(case.get("case_id") or "").strip()
-            identity = (_identity(case.get("module")), _identity(case.get("title")))
-            if identity in seen_case_identities:
-                raise ValueError(
-                    f"跨批次生成了重复用例: module={case.get('module')}, title={case.get('title')}"
-                )
-            seen_case_identities.add(identity)
             case_id = f"TC-{len(merged_cases) + 1:03d}"
             case["case_id"] = case_id
             merged_cases.append(case)

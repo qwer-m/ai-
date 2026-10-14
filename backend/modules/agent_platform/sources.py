@@ -138,16 +138,11 @@ def latest_successful_run_for_source(
     project_id: int,
     user_id: int,
     workflow_key: str,
-    requirement_doc_id: int,
+    source: SourceSnapshot,
 ) -> AgentRun | None:
     """按真实来源查找可复用结果，成功状态还必须对应已持久化的用例产物。"""
     from .definition_repository import AgentDefinitionRepository
 
-    source = repo.resolve_source_snapshot(
-        project_id=project_id, input_payload={"requirement_doc_id": requirement_doc_id},
-    )
-    if source is None:
-        return None
     workflow_ids = AgentDefinitionRepository(repo.db).list_workflow_definition_ids(
         project_id=project_id, workflow_key=workflow_key,
     )

@@ -7,6 +7,7 @@ from typing import Any
 from core.processing.workflow import WorkflowKind, WorkflowStage, log_workflow_trace
 from modules.automation_components.repositories.api_automation_repository import APIAutomationRepository
 from modules.orchestration.context_orchestrator import context_orchestrator
+from modules.system_components.repositories.project_repository import ProjectRepository
 from modules.testing.api_testing import api_tester
 
 
@@ -15,10 +16,11 @@ class APIAutomationService:
 
     def __init__(self, db):
         self.repo = APIAutomationRepository(db)
+        self.projects = ProjectRepository(db)
         self._db = db
 
     def has_owned_project(self, *, project_id: int, user_id: int) -> bool:
-        return bool(self.repo.get_owned_project(project_id=project_id, user_id=user_id))
+        return self.projects.get_owned_project(project_id=project_id, user_id=user_id) is not None
 
     def list_standard_interfaces(self, *, project_id: int, user_id: int, limit: int = 12) -> list[dict[str, Any]]:
         rows = self.repo.list_standard_interfaces(project_id=project_id, user_id=user_id, limit=limit)

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, load_only
 
 from core.db.model_defs import (
@@ -12,15 +12,17 @@ from core.db.model_defs import (
     AgentRun,
     AgentRunEvent,
     AgentWorkflowDefinition,
-    KnowledgeDocument,
     Project,
 )
+from modules.knowledge_base_components.repositories.knowledge_document_repository import KnowledgeDocumentRepository
 from .definition_repository import AgentDefinitionRepository
+from .input_snapshots import pack_node_input, restore_node_input
 from .lifecycle import ACTIVE_RUN_STATUSES, TERMINAL_RUN_STATUSES
 from .retention import terminal_run_ids_to_delete
 from .sources import (
     RunSourceRecord, SourceSnapshot, historical_run_source_key, source_snapshot_columns,
 )
+from .usage import interrupt_node_pending_requests
 
 
 class AgentRunRepository:
@@ -29,6 +31,7 @@ class AgentRunRepository:
     def __init__(self, db: Session) -> None:
         self.db: Session = db
         self._definitions: AgentDefinitionRepository = AgentDefinitionRepository(db)
+        self._documents = KnowledgeDocumentRepository(db)
 
     def lock_run_creation(self, *, project_id: int, user_id: int) -> None:
         """创建与续跑共用项目行锁，跨工作流版本也只能原子地创建一个同源运行。"""
@@ -53,25 +56,10 @@ class AgentRunRepository:
             .first()
         )
 
-    def get_project_document(
-        self,
-        *,
-        project_id: int,
-        document_id: int,
-    ) -> KnowledgeDocument | None:
-        return (
-            self.db.query(KnowledgeDocument)
-            .filter(
-                KnowledgeDocument.id == document_id,
-                KnowledgeDocument.project_id == project_id,
-            )
-            .first()
-        )
-
     def resolve_source_snapshot(self, *, project_id: int, input_payload: dict[str, Any]) -> SourceSnapshot | None:
         document_id = input_payload.get("requirement_doc_id")
         if document_id is not None:
-            document = self.get_project_document(project_id=project_id, document_id=int(document_id))
+            document = self._documents.get_project_doc(project_id=project_id, doc_id=int(document_id))
             if document is None:
                 raise ValueError("需求文档不存在或无权访问")
             return SourceSnapshot.from_document(document)
@@ -290,6 +278,20 @@ class AgentRunRepository:
         )
         return sorted(rows, key=lambda item: int(item.id or 0))
 
+    def read_node_input(self, node_run: AgentNodeRun) -> dict[str, Any]:
+        """运行时读取完整输入，引用仍保留在持久化字段中。"""
+        return restore_node_input(node_run, lambda node_id: self.db.get(AgentNodeRun, node_id))
+
+    def write_node_input(self, node_run: AgentNodeRun, payload: dict[str, Any]) -> None:
+        """输入快照只复用本轮已经成功的输出，所有输入写入共用此边界。"""
+        sources = self.db.query(
+            AgentNodeRun.id, AgentNodeRun.run_id, AgentNodeRun.status, AgentNodeRun.output_payload,
+        ).filter(
+            AgentNodeRun.run_id == node_run.run_id,
+            AgentNodeRun.status == "success",
+        ).all()
+        node_run.input_payload = pack_node_input(node_run, payload, sources)
+
     def finalize_unfinished_node_runs(
         self,
         *,
@@ -297,23 +299,35 @@ class AgentRunRepository:
         status: str,
         finished_at: datetime,
         error_message: str,
+        node_run_id: int | None = None,
     ) -> int:
-        """运行终止时批量结束未完成节点，只查询主键，不读取节点大 JSON。"""
+        """在调用方持有 Run 锁的终态事务中收尾预算，再结束未完成节点。"""
         if status not in {"failed", "cancelled"}:
             raise ValueError("未完成节点只能由失败或取消的运行结束")
         # 先保存当前事务的节点检查点，再更新状态，避免稍后的 ORM 刷新覆盖批量终态。
         self.db.flush()
-        return self.db.query(AgentNodeRun).filter(
+        node_ids = self.db.query(AgentNodeRun.id).filter(
             AgentNodeRun.run_id == run_id,
-            AgentNodeRun.status.in_(ACTIVE_RUN_STATUSES),
-        ).update(
-            {
-                AgentNodeRun.status: status,
-                AgentNodeRun.finished_at: finished_at,
-                AgentNodeRun.error_message: error_message,
-            },
-            synchronize_session="fetch",
-        )
+            or_(
+                AgentNodeRun.status.in_(ACTIVE_RUN_STATUSES),
+                # 异常处理器可能已给当前节点设置终态；只收尾调用方明确指定的节点。
+                (AgentNodeRun.id == node_run_id) & (AgentNodeRun.status == status),
+            ),
+        ).order_by(AgentNodeRun.id).all()
+        run = self.db.get(AgentRun, run_id)
+        if run is None:
+            raise LookupError("终止节点对应的运行不存在")
+        for (node_id,) in node_ids:
+            # 只加载当前账本，不排序或读取输入、输出的大 JSON；锁顺序始终为 Run 再 Node。
+            node = self.db.query(AgentNodeRun).options(load_only(AgentNodeRun.sdk_state)).filter(
+                AgentNodeRun.id == node_id,
+            ).populate_existing().with_for_update().one()
+            interrupt_node_pending_requests(run, node)
+            node.status = status
+            node.finished_at = finished_at
+            node.error_message = error_message
+            self.db.add(node)
+        return len(node_ids)
 
     def latest_node_run(self, *, run_id: int, node_key: str) -> AgentNodeRun | None:
         # 只对轻量主键排序，避免历史节点的大 JSON 进入 MySQL filesort。

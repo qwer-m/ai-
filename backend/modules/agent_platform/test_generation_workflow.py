@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-from collections import Counter
 from copy import deepcopy
-import hashlib
-import json
-import re
-import unicodedata
 from typing import Any, TYPE_CHECKING
 
-from .test_generation_facts import bound_fact_ids, test_input_text
-from .output_repair import OutputRepairError, repairable_output
+from .output_repair import OutputValidationError
+from .test_generation_facts import bound_fact_ids, required_text, test_input_text, text_identity
 from .test_generation_repair import (
     GENERATION_OUTPUT_REPAIR,
     GENERATION_REPAIR_STRATEGY,
@@ -19,161 +14,39 @@ from .test_generation_repair import (
     REVIEW_REPAIR_STRATEGY,
 )
 from .test_generation_batching import (
-    build_planning_evidence_catalog,
-    merge_grounded_generation_batches,
     postprocess_generation_batch_item,
     prepare_execution_chain_context,
-    prepare_test_case_batches,
     select_execution_chain,
     validate_execution_chain,
 )
-from .context_compression import (
-    compress_evidence_catalog,
-    context_compression_enabled,
-    context_compression_max_tokens,
-)
 from .test_generation_semantics import (
-    GOVERNANCE_RELATION_ALIASES,
-    merge_authority_reconciliation,
     merge_source_semantics,
     postprocess_authority_reconciliation_item,
     postprocess_source_semantics_item,
-    prepare_authority_reconciliation,
     prepare_source_semantics,
 )
 from .test_generation_review import (
-    GLOBAL_REVIEW_CASE_INDEX_SCHEMA,
-    merge_final_review_batches,
-    merge_final_review_recheck_records,
-    merge_final_review_repairs,
     postprocess_final_review_batch_item,
     postprocess_final_review_repair_item,
     postprocess_global_final_review_output,
-    prepare_final_review_batches,
-    prepare_final_review_rechecks,
-    prepare_final_review_repairs,
-    prepare_global_final_review,
-    prepare_terminal_final_review_repairs,
 )
 
-if TYPE_CHECKING:
-    from .registry import ToolExecutionContext, ToolRegistry
-
-
-# 契约 Schema 已拆分到独立模块，保留原模块导出兼容现有调用方。
-from .test_generation_schemas import (
-    ACTORS_SCHEMA,
-    AUTHORITATIVE_FACT_SCHEMA,
-    AUTHORITY_RECONCILIATION_AGENT_OUTPUT_SCHEMA,
-    AUTHORITY_RECONCILIATION_DECISION_SCHEMA,
-    AUTHORITY_RECONCILIATION_ITEM_SCHEMA,
-    AUTHORITY_RECONCILIATION_OUTPUT_SCHEMA,
-    BATCH_FINAL_REVIEW_AGENT_OUTPUT_SCHEMA,
-    BATCH_FINAL_REVIEW_DIFFERENCE_CATEGORIES,
-    BATCH_FINAL_REVIEW_DIFFERENCE_SCHEMA,
-    BUSINESS_PLANNING_BATCH_MAX_FACTS,
-    BUSINESS_PLANNING_BATCH_MAX_JSON_CHARS,
-    BUSINESS_PLAN_DRAFT_SCHEMA,
-    CASE_FACT_BINDING_SCHEMA,
-    CASE_SCHEMA,
-    EVIDENCE_OUTPUT_SCHEMA,
-    EVIDENCE_SOURCE_SCHEMA,
-    EXECUTION_CHAIN_SELECTION_SCHEMA,
-    EXECUTION_PLAN_SCHEMA,
-    FACT_DESIGN_ROUTE_SCHEMA,
-    FACT_ID_LIST_SCHEMA,
-    FINAL_REVIEW_BATCH_INPUT_SCHEMA,
-    FINAL_REVIEW_BATCH_META_SCHEMA,
-    FINAL_REVIEW_OUTPUT_SCHEMA,
-    FINAL_REVIEW_REPAIR_INPUT_SCHEMA,
-    FINAL_REVIEW_REPAIR_RESULT_SCHEMA,
-    GENERATION_AUDIT_SCHEMA,
-    GLOBAL_FINAL_REVIEW_AGENT_OUTPUT_SCHEMA,
-    GLOBAL_FINAL_REVIEW_DIFFERENCE_CATEGORIES,
-    GLOBAL_FINAL_REVIEW_INPUT_SCHEMA,
-    GROUNDING_SCHEMA,
-    MERGED_GENERATION_SCHEMA,
-    MODEL_GENERATION_CASE_SCHEMA,
-    MODEL_GROUNDED_TEXT_SCHEMA,
-    MODEL_GROUNDING_SCHEMA,
-    MODEL_INLINE_CASE_SCHEMA,
-    MODEL_REPAIR_CASE_PATCH_SCHEMA,
-    MODEL_REPAIR_CASE_SCHEMA,
-    MODEL_REPAIR_PATCH_SCHEMA,
-    MODEL_STEP_FACT_BINDINGS_SCHEMA,
-    OPTIONAL_FACT_ID_LIST_SCHEMA,
-    ORDERED_MARKER_SCHEMA,
-    PLANNER_AGENT_OUTPUT_SCHEMA,
-    PLANNER_AGENT_SUBMISSION_SCHEMA,
-    PLANNER_OUTPUT_SCHEMA,
-    PLANNER_TEST_DESIGN_SCHEMA,
-    PLANNER_TEST_POINT_SCHEMA,
-    PLANNING_EVIDENCE_CATALOG_SCHEMA,
-    PLANNING_EVIDENCE_ITEM_SCHEMA,
-    PLANNING_ROUTE_REPAIR_AGENT_OUTPUT_SCHEMA,
-    PLANNING_ROUTE_REPAIR_OUTPUT_SCHEMA,
-    PLANNING_SCOPE_ROUTE_BATCH_SIZE,
-    PLANNING_SCOPE_ROUTE_MAX_MODEL_INPUT_CHARS,
-    PLANNING_SCOPE_ROUTING_AGENT_OUTPUT_SCHEMA,
-    PLANNING_SCOPE_ROUTING_BATCH_OUTPUT_SCHEMA,
-    PLANNING_SCOPE_ROUTING_OUTPUT_SCHEMA,
-    PLAN_SCHEMA,
-    REPAIR_AUTHORITATIVE_FACT_SCHEMA,
-    REPAIR_SOURCE_ANCHOR_SCHEMA,
-    REVIEW_FACT_SCHEMA,
-    RISK_DETAIL_SCHEMA,
-    RISK_OR_TEXTS_SCHEMA,
-    SCENARIO_DESIGN_GUIDANCE_SCHEMA,
-    SOURCE_ANCHOR_SCHEMA,
-    SOURCE_SEMANTICS_AGENT_ANCHOR_SCHEMA,
-    SOURCE_SEMANTICS_AGENT_FACT_SCHEMA,
-    SOURCE_SEMANTICS_AGENT_OUTPUT_SCHEMA,
-    SOURCE_SEMANTICS_DOCUMENT_PAGE_SCHEMA,
-    SOURCE_SEMANTICS_INPUT_SCHEMA,
-    SOURCE_SEMANTICS_NORMALIZED_OUTPUT_SCHEMA,
-    SOURCE_SEMANTICS_OUTPUT_SCHEMA,
-    SOURCE_SPAN_SCHEMA,
-    SYNTHESIS_APPROVAL_OUTPUT_SCHEMA,
-    TEST_DESIGN_CATALOG_ITEM_SCHEMA,
-    TEST_DESIGN_TECHNIQUES,
-    TEXT_OR_TEXTS_SCHEMA,
-)
-
-# 需求规划与路由逻辑已拆分到独立模块，保留原模块函数导出。
 from .test_generation_planning import (
-    _required_text,
-    _required_source_text,
-    _identity,
-    _content_hash,
     submit_source_semantics,
     submit_generation_batch,
     submit_scenario_design_guidance,
     submit_business_plan,
     resolve_requirement_evidence,
-    _summary_item_text,
     validate_business_plan_output,
-    _serialized_json_chars,
-    _business_planning_limits,
-    _planning_scope_fragments,
-    _planning_fact_model_view,
     prepare_business_plan_batches,
     validate_business_plan_draft_output,
-    prepare_business_plan_consolidation,
-    _planning_module_design_catalog,
-    prepare_planning_scope_routes,
-    _normalize_planning_scope_route,
-    _validate_planning_scope_route,
-    _normalize_planning_scope_route_batch,
     postprocess_planning_scope_routing_item,
-    _expand_planning_scope_route_batches,
-    _collect_planning_scope_route_state,
-    _missing_planning_design_indexes,
-    prepare_planning_route_repairs,
-    _normalize_planning_route_repair,
     postprocess_planning_route_repair_item,
-    _prune_unsupported_planning_design_items,
-    merge_planning_scope_routes,
 )
+
+if TYPE_CHECKING:
+    from .registry import ToolExecutionContext, ToolRegistry
+
 
 def validate_scenario_design_guidance(
     _context: ToolExecutionContext,
@@ -184,7 +57,7 @@ def validate_scenario_design_guidance(
     input_payload = dict(arguments.get("input_payload") or {})
     output = arguments.get("output")
     if not isinstance(output, dict):
-        raise ValueError("场景拆分专业 Agent 输出必须是对象")
+        raise OutputValidationError("场景拆分专业 Agent 输出必须是对象")
     case_budget = int(input_payload.get("case_budget") or 0)
     recommended_case_count = int(output.get("recommended_case_count") or 0)
     scenario_groups = [
@@ -192,15 +65,22 @@ def validate_scenario_design_guidance(
         for item in list(output.get("scenario_groups") or [])
         if isinstance(item, dict)
     ]
-    if case_budget < 1 or recommended_case_count > case_budget:
-        raise ValueError(
+    if case_budget < 1:
+        raise OutputValidationError(
+            "场景拆分输入缺少有效的用例额度，请重新传入原始批次的 case_budget",
+            details={"invalid_input_field": "case_budget", "case_budget": case_budget},
+        )
+    if recommended_case_count > case_budget:
+        raise OutputValidationError(
             "场景拆分建议数量超过当前批次用例额度: "
-            f"recommended={recommended_case_count}, case_budget={case_budget}"
+            f"recommended={recommended_case_count}, case_budget={case_budget}",
+            details={"recommended_case_count": recommended_case_count, "case_budget": case_budget},
         )
     if len(scenario_groups) > case_budget:
-        raise ValueError(
+        raise OutputValidationError(
             "场景拆分分组数量超过当前批次用例额度: "
-            f"groups={len(scenario_groups)}, case_budget={case_budget}"
+            f"groups={len(scenario_groups)}, case_budget={case_budget}",
+            details={"scenario_group_count": len(scenario_groups), "case_budget": case_budget},
         )
 
     allowed_fact_ids = {
@@ -218,7 +98,9 @@ def validate_scenario_design_guidance(
     for group in scenario_groups:
         scenario_key = str(group.get("scenario_key") or "").strip()
         if scenario_key in scenario_keys:
-            raise ValueError(f"场景拆分编号重复: {scenario_key}")
+            raise OutputValidationError(
+                f"场景拆分编号重复: {scenario_key}", details={"duplicate_scenario_key": scenario_key},
+            )
         scenario_keys.add(scenario_key)
         referenced_fact_ids = {
             str(fact_id)
@@ -231,18 +113,20 @@ def validate_scenario_design_guidance(
         }
         unknown_fact_ids = sorted(referenced_fact_ids - allowed_fact_ids)
         if unknown_fact_ids:
-            raise ValueError(
+            raise OutputValidationError(
                 "场景拆分引用了当前批次之外的事实: "
-                + ", ".join(unknown_fact_ids)
+                + ", ".join(unknown_fact_ids),
+                details={"scenario_key": scenario_key, "unknown_fact_ids": unknown_fact_ids},
             )
         design_item_ids = {
             str(item_id) for item_id in list(group.get("test_design_item_ids") or [])
         }
         unknown_design_item_ids = sorted(design_item_ids - allowed_design_item_ids)
         if unknown_design_item_ids:
-            raise ValueError(
+            raise OutputValidationError(
                 "场景拆分引用了当前批次之外的测试设计项: "
-                + ", ".join(unknown_design_item_ids)
+                + ", ".join(unknown_design_item_ids),
+                details={"scenario_key": scenario_key, "unknown_test_design_item_ids": unknown_design_item_ids},
             )
     return dict(output)
 
@@ -260,7 +144,7 @@ def build_generation_audit_summary(
     test_cases = [dict(item) for item in list(generation.get("test_cases") or [])]
     bindings = [dict(item) for item in list(generation.get("case_fact_bindings") or [])]
     effective_fact_ids = {
-        _required_text(fact.get("fact_id"), "fact_id")
+        required_text(fact.get("fact_id"), "fact_id")
         for fact in authoritative_facts
         if str(fact.get("status") or "") == "effective"
     }
@@ -378,7 +262,7 @@ def validate_generated_test_cases(
 ) -> dict[str, Any]:
     """执行与模型无关的用例契约、数量和重复性校验。"""
 
-    _required_text(arguments.get("requirement"), "真实需求")
+    required_text(arguments.get("requirement"), "真实需求")
     case_budget = int(arguments.get("case_budget") or 0)
     raw_cases = arguments.get("test_cases")
     if case_budget < 1:
@@ -399,15 +283,15 @@ def validate_generated_test_cases(
     for index, raw_case in enumerate(raw_cases, start=1):
         if not isinstance(raw_case, dict):
             raise ValueError(f"第 {index} 条用例不是对象")
-        case_id = _required_text(raw_case.get("case_id"), f"第 {index} 条 case_id")
-        title = _required_text(raw_case.get("title"), f"第 {index} 条 title")
-        module = _required_text(raw_case.get("module"), f"第 {index} 条 module")
+        case_id = required_text(raw_case.get("case_id"), f"第 {index} 条 case_id")
+        title = required_text(raw_case.get("title"), f"第 {index} 条 title")
+        module = required_text(raw_case.get("module"), f"第 {index} 条 module")
         test_input = test_input_text(raw_case.get("test_input"))
         priority = str(raw_case.get("priority") or "").strip().upper()
         if priority not in priority_counts:
             raise ValueError(f"第 {index} 条 priority 只能是 P0、P1 或 P2")
 
-        case_identity = (_identity(module), _identity(title))
+        case_identity = (text_identity(module), text_identity(title))
         if case_id in seen_ids:
             raise ValueError(f"用例编号重复: {case_id}")
         if case_identity in seen_cases:
@@ -424,11 +308,11 @@ def validate_generated_test_cases(
                 raise ValueError(f"第 {index} 条用例的第 {step_index} 个步骤不是对象")
             steps.append(
                 {
-                    "action": _required_text(
+                    "action": required_text(
                         raw_step.get("action"),
                         f"第 {index} 条用例的第 {step_index} 个操作",
                     ),
-                    "expected": _required_text(
+                    "expected": required_text(
                         raw_step.get("expected"),
                         f"第 {index} 条用例的第 {step_index} 个预期",
                     ),
@@ -453,18 +337,18 @@ def validate_generated_test_cases(
                 "module": module,
                 "priority": priority,
                 "preconditions": [
-                    _required_text(item, f"第 {index} 条用例前置条件")
+                    required_text(item, f"第 {index} 条用例前置条件")
                     for item in preconditions
                 ],
                 "test_input": test_input,
                 "steps": steps,
                 "tags": [
-                    _required_text(item, f"第 {index} 条用例标签")
+                    required_text(item, f"第 {index} 条用例标签")
                     for item in tags
                 ],
                 "test_design_item_ids": list(
                     dict.fromkeys(
-                        _required_text(item, f"第 {index} 条用例测试设计项")
+                        required_text(item, f"第 {index} 条用例测试设计项")
                         for item in test_design_item_ids
                     )
                 ),
@@ -486,7 +370,7 @@ def persist_generated_test_cases(
 ) -> dict[str, Any]:
     """把校验通过的测试用例固化为 Agent Run 产物。"""
 
-    requirement = _required_text(arguments.get("requirement"), "真实需求")
+    requirement = required_text(arguments.get("requirement"), "真实需求")
     cases = arguments.get("test_cases")
     if not isinstance(cases, list) or not cases:
         raise ValueError("没有可持久化的测试用例")
@@ -529,334 +413,22 @@ def persist_generated_test_cases(
     }
 
 
-VALIDATION_OUTPUT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "status": {"type": "string", "const": "passed"},
-        "validated_count": {"type": "integer", "minimum": 1},
-        "priority_counts": {
-            "type": "object",
-            "properties": {
-                "P0": {"type": "integer", "minimum": 0},
-                "P1": {"type": "integer", "minimum": 0},
-                "P2": {"type": "integer", "minimum": 0},
-            },
-            "required": ["P0", "P1", "P2"],
-            "additionalProperties": False,
-        },
-        "test_cases": {
-            "type": "array",
-            "minItems": 1,
-            "items": CASE_SCHEMA,
-        },
-    },
-    "required": ["status", "validated_count", "priority_counts", "test_cases"],
-    "additionalProperties": False,
-}
-
-
-BATCH_CONTEXT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "batch_id": {"type": "string", "pattern": "^M[0-9]{3}-B[0-9]{3}$"},
-        "batch_number": {"type": "integer", "minimum": 1},
-        "batch_count": {"type": "integer", "minimum": 1},
-        "module_index": {"type": "integer", "minimum": 0},
-        "module_batch_index": {"type": "integer", "minimum": 0},
-        "module_batch_count": {"type": "integer", "minimum": 1},
-        "module_name": {"type": "string", "minLength": 1},
-        "coverage_focus": {"type": "string", "minLength": 1},
-        "source_document_ids": {
-            "type": "array",
-            "uniqueItems": True,
-            "items": {"type": "integer", "minimum": 1},
-        },
-        "source_page_numbers": {
-            "type": "array",
-            "uniqueItems": True,
-            "items": {"type": "integer", "minimum": 1},
-        },
-        "source_scope_ids": {
-            "type": "array",
-            "minItems": 1,
-            "uniqueItems": True,
-            "items": {"type": "string", "minLength": 1},
-        },
-        "semantic_summary": {"type": "string", "minLength": 1},
-        "semantic_keywords": {
-            "type": "array",
-            "minItems": 1,
-            "uniqueItems": True,
-            "items": {"type": "string", "minLength": 1},
-        },
-        "fact_count": {"type": "integer", "minimum": 1},
-        "fact_json_chars": {"type": "integer", "minimum": 1},
-        "required_test_design_item_ids": {
-            "type": "array",
-            "uniqueItems": True,
-            "items": {
-                "type": "string",
-                "pattern": "^TD-[0-9]{3}-[0-9]{3}-[0-9]{3}$",
-            },
-        },
-    },
-    "required": [
-        "batch_id",
-        "batch_number",
-        "batch_count",
-        "module_index",
-        "module_batch_index",
-        "module_batch_count",
-        "module_name",
-        "coverage_focus",
-        "source_document_ids",
-        "source_page_numbers",
-        "source_scope_ids",
-        "semantic_summary",
-        "semantic_keywords",
-        "fact_count",
-        "fact_json_chars",
-        "required_test_design_item_ids",
-    ],
-    "additionalProperties": False,
-}
-
-
-BATCH_BUSINESS_MODULE_SCHEMA = deepcopy(
-    PLAN_SCHEMA["properties"]["business_modules"]["items"]
-)
-for internal_field in ("fact_design_routes", "test_points"):
-    BATCH_BUSINESS_MODULE_SCHEMA["properties"].pop(internal_field)
-    BATCH_BUSINESS_MODULE_SCHEMA["required"].remove(internal_field)
-
-
-BATCH_PLAN_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "requirement_summary": {"type": "string"},
-        "business_module": BATCH_BUSINESS_MODULE_SCHEMA,
-        "coverage_focus": {"type": "string", "minLength": 1},
-        "risks": {
-            "oneOf": [
-                {"type": "string", "minLength": 1},
-                {
-                    "type": "array",
-                    "items": {"type": "string", "minLength": 1},
-                },
-            ]
-        },
-        "test_design_items": {
-            "type": "array",
-            "items": TEST_DESIGN_CATALOG_ITEM_SCHEMA,
-        },
-    },
-    "required": [
-        "requirement_summary",
-        "business_module",
-        "coverage_focus",
-        "risks",
-        "test_design_items",
-    ],
-    "additionalProperties": False,
-}
-
-
-GENERATION_BATCH_ITEM_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "requirement": {"type": "string", "minLength": 1},
-        "plan": BATCH_PLAN_SCHEMA,
-        "case_budget": {"type": "integer", "minimum": 1, "maximum": 20},
-        "batch": BATCH_CONTEXT_SCHEMA,
-        "authoritative_facts": {
-            "type": "array",
-            "minItems": 1,
-            "items": AUTHORITATIVE_FACT_SCHEMA,
-        },
-        "case_fact_contract": {
-            "type": "object",
-            "properties": {
-                "target_case_ids": {
-                    "type": "array",
-                    "minItems": 1,
-                    "uniqueItems": True,
-                    "items": {"type": "string", "pattern": "^TC-[0-9]{3,}$"},
-                },
-                "required_fact_ids": FACT_ID_LIST_SCHEMA,
-                "required_test_design_item_ids": {
-                    "type": "array",
-                    "uniqueItems": True,
-                    "items": {
-                        "type": "string",
-                        "pattern": "^TD-[0-9]{3}-[0-9]{3}-[0-9]{3}$",
-                    },
-                },
-                # 仅供平台后处理确定性派生设计项编号，模型不会被要求回填该表。
-                "fact_design_item_ids": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "array",
-                        "uniqueItems": True,
-                        "items": {
-                            "type": "string",
-                            "pattern": "^TD-[0-9]{3}-[0-9]{3}-[0-9]{3}$",
-                        },
-                    },
-                },
-                "coverage_slots": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "case_id": {
-                                "type": "string",
-                                "pattern": "^TC-[0-9]{3,}$",
-                            },
-                            "required_fact_ids": FACT_ID_LIST_SCHEMA,
-                            "required_test_design_item_ids": {
-                                "type": "array",
-                                "uniqueItems": True,
-                                "items": {
-                                    "type": "string",
-                                    "pattern": "^TD-[0-9]{3}-[0-9]{3}-[0-9]{3}$",
-                                },
-                            },
-                        },
-                        "required": [
-                            "case_id",
-                            "required_fact_ids",
-                            "required_test_design_item_ids",
-                        ],
-                        "additionalProperties": False,
-                    },
-                },
-            },
-            "required": [
-                "target_case_ids",
-                "required_fact_ids",
-                "required_test_design_item_ids",
-                "coverage_slots",
-            ],
-            "additionalProperties": False,
-        },
-    },
-    "required": [
-        "requirement",
-        "plan",
-        "case_budget",
-        "batch",
-        "authoritative_facts",
-        "case_fact_contract",
-    ],
-    "additionalProperties": False,
-}
-
-
-CHAIN_CONTEXT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "plan_summary": {
-            "type": "object",
-            "properties": {
-                "requirement_summary": {"type": "string"},
-                "business_modules": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "name": {"type": "string", "minLength": 1},
-                            "objective": {"type": "string", "minLength": 1},
-                        },
-                        "required": ["name", "objective"],
-                        "additionalProperties": False,
-                    },
-                },
-            },
-            "required": ["requirement_summary", "business_modules"],
-            "additionalProperties": False,
-        },
-        "candidate_chains": {
-            "type": "array",
-            "maxItems": 6,
-            "items": {
-                "type": "object",
-                "properties": {
-                    "candidate_id": {"type": "string", "minLength": 1},
-                    "case_ids": {
-                        "type": "array",
-                        "minItems": 2,
-                        "maxItems": 12,
-                        "uniqueItems": True,
-                        "items": {"type": "string", "minLength": 1},
-                    },
-                    "cases": {
-                        "type": "array",
-                        "minItems": 2,
-                        "maxItems": 12,
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "case_id": {"type": "string", "minLength": 1},
-                                "title": {"type": "string", "minLength": 1},
-                                "module": {"type": "string", "minLength": 1},
-                                "priority": {
-                                    "type": "string",
-                                    "enum": ["P0", "P1", "P2"],
-                                },
-                                "from_state": {"type": "string", "minLength": 1},
-                                "to_state": {"type": "string", "minLength": 1},
-                                "first_action": {"type": "string", "minLength": 1},
-                                "last_action": {"type": "string", "minLength": 1},
-                            },
-                            "required": [
-                                "case_id",
-                                "title",
-                                "module",
-                                "priority",
-                                "from_state",
-                                "to_state",
-                                "first_action",
-                                "last_action",
-                            ],
-                            "additionalProperties": False,
-                        },
-                    },
-                },
-                "required": ["candidate_id", "case_ids", "cases"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    "required": ["plan_summary", "candidate_chains"],
-    "additionalProperties": False,
-}
-
-
-def _map_record_schema(output_schema: dict[str, Any]) -> dict[str, Any]:
-    """描述 agent_map 持久化记录，供工作流工具输入契约复用。"""
-
-    return {
-        "type": "object",
-        "properties": {
-            "item_index": {"type": "integer", "minimum": 0},
-            "input_hash": {"type": "string", "minLength": 1},
-            "output": output_schema,
-        },
-        "required": ["item_index", "output"],
-        "additionalProperties": False,
-    }
-
-
-# 内置定义已拆分到独立规格模块；使用惰性导出避免规格模块反向导入本模块时形成循环依赖。
-def __getattr__(name: str) -> Any:
-    if name in {"BUILTIN_TOOL_SPECS", "BUILTIN_AGENT_SPECS", "BUILTIN_WORKFLOW_SPECS"}:
-        from . import test_generation_builtin_specs
-
-        return getattr(test_generation_builtin_specs, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
 def register_test_generation_tools(registry: ToolRegistry) -> None:
+    from . import test_generation_agent as generation
+    from .test_generation_escalation import report_generation_scope_problem
+
+    for name in (
+        "read_planning_evidence", "reinspect_planning_source", "revise_planning_draft",
+        "rebuild_business_plan", "route_planning_scopes", "review_planning_route_gaps",
+        "accept_generation_plan", "reconcile_generation_authority", "generate_cases",
+        "review_generated_cases", "revise_generation_layout", "inspect_generation_scope",
+        "read_review_evidence", "repair_review_batch", "recheck_review_batch", "review_all_cases", "finish_generation",
+    ):
+        registry.register(f"testing.generation.{name}", getattr(generation, name), state_only=True)
+    for handler in (generation.initialize_generation_state, generation.observe_generation_state,
+                    generation.validate_generation_resolution):
+        registry.register(f"testing.{handler.__name__}", handler)
+    registry.register("testing.report_generation_scope_problem", report_generation_scope_problem, parallel_safe=True)
     registry.register_repair_strategy(GENERATION_REPAIR_STRATEGY, GENERATION_OUTPUT_REPAIR)
     registry.register_repair_strategy(PLANNING_REPAIR_STRATEGY, PLANNING_OUTPUT_REPAIR)
     registry.register_repair_strategy(REVIEW_REPAIR_STRATEGY, REVIEW_OUTPUT_REPAIR)
@@ -908,93 +480,28 @@ def register_test_generation_tools(registry: ToolRegistry) -> None:
         prepare_business_plan_batches,
     )
     registry.register(
-        "testing.prepare_business_plan_consolidation",
-        prepare_business_plan_consolidation,
-    )
-    registry.register(
-        "testing.prepare_planning_scope_routes",
-        prepare_planning_scope_routes,
-    )
-    registry.register(
         "testing.postprocess_planning_scope_routing_item",
         postprocess_planning_scope_routing_item,
-    )
-    registry.register(
-        "testing.prepare_planning_route_repairs",
-        prepare_planning_route_repairs,
     )
     registry.register(
         "testing.postprocess_planning_route_repair_item",
         postprocess_planning_route_repair_item,
     )
     registry.register(
-        "testing.merge_planning_scope_routes",
-        merge_planning_scope_routes,
-    )
-    registry.register(
-        "testing.prepare_authority_reconciliation",
-        prepare_authority_reconciliation,
-    )
-    registry.register(
-        "testing.merge_authority_reconciliation",
-        merge_authority_reconciliation,
-    )
-    registry.register("testing.prepare_test_case_batches", prepare_test_case_batches)
-    registry.register(
         "testing.postprocess_generation_batch_item",
         postprocess_generation_batch_item,
-    )
-    registry.register(
-        "testing.merge_grounded_generation_batches",
-        merge_grounded_generation_batches,
-    )
-    registry.register(
-        "testing.build_generation_audit_summary",
-        build_generation_audit_summary,
-    )
-    registry.register(
-        "testing.prepare_final_review_batches",
-        prepare_final_review_batches,
     )
     registry.register(
         "testing.postprocess_final_review_batch_item",
         postprocess_final_review_batch_item,
     )
     registry.register(
-        "testing.prepare_final_review_repairs",
-        prepare_final_review_repairs,
-    )
-    registry.register(
         "testing.postprocess_final_review_repair_item",
         postprocess_final_review_repair_item,
     )
     registry.register(
-        "testing.merge_final_review_repairs",
-        merge_final_review_repairs,
-    )
-    registry.register(
-        "testing.prepare_final_review_rechecks",
-        prepare_final_review_rechecks,
-    )
-    registry.register(
-        "testing.merge_final_review_batches",
-        merge_final_review_batches,
-    )
-    registry.register(
-        "testing.merge_final_review_recheck_records",
-        merge_final_review_recheck_records,
-    )
-    registry.register(
-        "testing.prepare_global_final_review",
-        prepare_global_final_review,
-    )
-    registry.register(
         "testing.postprocess_global_final_review_output",
         postprocess_global_final_review_output,
-    )
-    registry.register(
-        "testing.prepare_terminal_final_review_repairs",
-        prepare_terminal_final_review_repairs,
     )
     registry.register(
         "testing.approve_synthesized_test_cases",

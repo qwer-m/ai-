@@ -11,20 +11,18 @@ from modules.agent_platform.test_generation_batching import (
     GENERATION_MAX_FACT_JSON_CHARS_PER_BATCH,
     GENERATION_MAX_PAGES_PER_BATCH,
     GENERATION_MAX_REQUIRED_FACTS_PER_BATCH,
-    _allocate_coverage_points,
     _allocate_risks,
     _allocate_test_design_items_to_fact_groups,
     _batch_focus,
     _build_case_fact_contract,
     _build_evidence_catalog_from_fragments,
-    _coverage_points,
     _raw_chunk_fragments,
     build_planning_evidence_catalog,
     merge_grounded_generation_batches,
     postprocess_generation_batch_item,
     prepare_test_case_batches,
 )
-from modules.agent_platform.test_generation_workflow import (
+from modules.agent_platform.test_generation_schemas import (
     BATCH_PLAN_SCHEMA,
     GENERATION_BATCH_ITEM_SCHEMA,
     GROUNDING_SCHEMA,
@@ -275,24 +273,11 @@ def test_design_items_follow_relevant_facts_across_batch_boundaries() -> None:
 
 def _case_fact_contract(case_count: int, *fact_ids: str) -> dict:
     target_case_ids = [f"TC-{index:03d}" for index in range(1, case_count + 1)]
-    facts_by_case = [[] for _ in target_case_ids]
-    for index, fact_id in enumerate(fact_ids):
-        facts_by_case[index % case_count].append(fact_id)
-    for index, assigned in enumerate(facts_by_case):
-        if not assigned:
-            assigned.append(fact_ids[index % len(fact_ids)])
     return {
         "target_case_ids": target_case_ids,
         "required_fact_ids": list(fact_ids),
         "required_test_design_item_ids": [],
-        "coverage_slots": [
-            {
-                "case_id": case_id,
-                "required_fact_ids": facts_by_case[index],
-                "required_test_design_item_ids": [],
-            }
-            for index, case_id in enumerate(target_case_ids)
-        ],
+        "fact_design_item_ids": {fact_id: [] for fact_id in fact_ids},
     }
 
 
@@ -483,13 +468,6 @@ def test_generation_item_postprocessor_derives_design_ids_from_fact_bindings() -
             "required_fact_ids": ["FACT-001"],
             "required_test_design_item_ids": [design_id],
             "fact_design_item_ids": {"FACT-001": [design_id]},
-            "coverage_slots": [
-                {
-                    "case_id": "TC-001",
-                    "required_fact_ids": ["FACT-001"],
-                    "required_test_design_item_ids": [design_id],
-                }
-            ],
         },
     }
 
@@ -536,13 +514,10 @@ def test_generation_item_postprocessor_requires_planned_test_design_coverage() -
         "case_fact_contract": {
             **_case_fact_contract(1, "FACT-001", "FACT-002"),
             "required_test_design_item_ids": ["TD-001-001-001"],
-            "coverage_slots": [
-                {
-                    "case_id": "TC-001",
-                    "required_fact_ids": ["FACT-001", "FACT-002"],
-                    "required_test_design_item_ids": ["TD-001-001-001"],
-                }
-            ],
+            "fact_design_item_ids": {
+                "FACT-001": [],
+                "FACT-002": ["TD-001-001-001"],
+            },
         },
     }
     case = _generated_case("TC-001", "进入课程", module)
@@ -715,75 +690,7 @@ def test_inline_requirement_builds_real_evidence_scope() -> None:
     }
 
 
-def test_coverage_focus_is_split_and_assigned_to_one_related_module() -> None:
-    modules = _business_modules()
-    allocated = _allocate_coverage_points(
-        modules,
-        [
-            "主流程：课程进入与学习全流程、作品投稿至审核发布全流程",
-            "异常路径：审核退回、网络异常",
-        ],
-    )
-
-    assert allocated == [
-        ["主流程：课程进入与学习全流程"],
-        ["主流程：作品投稿至审核发布全流程", "异常路径：审核退回"],
-    ]
-    course_focus = _batch_focus(modules[0], allocated[0])
-    review_focus = _batch_focus(modules[1], allocated[1])
-    assert "作品投稿" not in course_focus
-    assert "课程进入" not in review_focus
-    assert "网络异常" not in course_focus
-    assert "网络异常" not in review_focus
-
-
-def test_coverage_focus_splits_multiple_modules_joined_by_chinese_commas() -> None:
-    modules = _business_modules()
-
-    allocated = _allocate_coverage_points(
-        modules,
-        "主流程：进入课程并完成学习，提交作品进入审核，审核通过后发布作品。",
-    )
-
-    assert allocated == [
-        ["主流程：进入课程并完成学习"],
-        ["主流程：提交作品进入审核", "主流程：审核通过后发布作品"],
-    ]
-
-
-def test_coverage_focus_keeps_parenthesized_enumeration_complete() -> None:
-    points = _coverage_points(
-        "权限约束：访客拦截入口（收藏、下载、历史记录、个人中心）、会员内容禁止访问",
-    )
-
-    assert points == [
-        "权限约束：访客拦截入口（收藏、下载、历史记录、个人中心）",
-        "权限约束：会员内容禁止访问",
-    ]
-    assert all(point.count("（") == point.count("）") for point in points)
-
-    allocated = _allocate_coverage_points(
-        [
-            {
-                "name": "内容记录",
-                "objective": "展示历史记录与个人内容。",
-                "lifecycle": None,
-                "test_points": _test_points("内容记录"),
-                "evidence_ids": ["EV-0001"],
-            },
-            {
-                "name": "访客拦截",
-                "objective": "拦截访客访问并引导登录。",
-                "lifecycle": None,
-                "test_points": _test_points("访客拦截"),
-                "evidence_ids": ["EV-0002"],
-            },
-        ],
-        [points[0]],
-    )
-    assert allocated == [[], [points[0]]]
-
-
+# 批次范围来源由 verify_generation_batch_scope_real_data.py 回放真实批次及历史候选。
 def test_risks_are_assigned_uniquely_and_ambiguous_risk_is_not_injected() -> None:
     modules = _business_modules()
     allocated = _allocate_risks(
@@ -1294,24 +1201,19 @@ def test_prepare_batches_builds_exact_batch_fact_contract() -> None:
         assert contract["required_fact_ids"] == [
             fact["fact_id"] for fact in item["authoritative_facts"]
         ]
-        slots = contract["coverage_slots"]
-        assert [slot["case_id"] for slot in slots] == contract["target_case_ids"]
-        assigned_fact_ids = [
-            fact_id for slot in slots for fact_id in slot["required_fact_ids"]
-        ]
-        assert len(assigned_fact_ids) == len(set(assigned_fact_ids))
-        assert set(assigned_fact_ids) == set(contract["required_fact_ids"])
-        assert max(len(slot["required_fact_ids"]) for slot in slots) - min(
-            len(slot["required_fact_ids"]) for slot in slots
-        ) <= 1
+        assert set(contract) == {
+            "target_case_ids", "required_fact_ids",
+            "required_test_design_item_ids", "fact_design_item_ids",
+        }
+        assert set(contract["fact_design_item_ids"]) == set(contract["required_fact_ids"])
         assert {
             design_item_id
-            for slot in slots
-            for design_item_id in slot["required_test_design_item_ids"]
+            for design_ids in contract["fact_design_item_ids"].values()
+            for design_item_id in design_ids
         } == set(contract["required_test_design_item_ids"])
 
 
-def test_case_fact_contract_groups_facts_by_existing_design_routes() -> None:
+def test_case_fact_contract_preserves_batch_scope_and_existing_design_routes() -> None:
     facts = [
         {"fact_id": fact_id}
         for fact_id in ["F-A1", "F-B1", "F-C1", "F-A2", "F-B2", "F-C2"]
@@ -1336,23 +1238,12 @@ def test_case_fact_contract_groups_facts_by_existing_design_routes() -> None:
         fact_design_item_ids=fact_design_item_ids,
     )
 
-    assert contract["coverage_slots"] == [
-        {
-            "case_id": "TC-001",
-            "required_fact_ids": ["F-A1", "F-A2"],
-            "required_test_design_item_ids": ["TD-001"],
-        },
-        {
-            "case_id": "TC-002",
-            "required_fact_ids": ["F-B1", "F-B2"],
-            "required_test_design_item_ids": ["TD-002"],
-        },
-        {
-            "case_id": "TC-003",
-            "required_fact_ids": ["F-C1", "F-C2"],
-            "required_test_design_item_ids": ["TD-003"],
-        },
-    ]
+    assert contract == {
+        "target_case_ids": ["TC-001", "TC-002", "TC-003"],
+        "required_fact_ids": [fact["fact_id"] for fact in facts],
+        "required_test_design_item_ids": ["TD-001", "TD-002", "TD-003"],
+        "fact_design_item_ids": fact_design_item_ids,
+    }
 
 
 def test_prepare_batches_limits_input_payload_and_output_binding_complexity() -> None:

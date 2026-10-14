@@ -9,6 +9,7 @@ from core.db.model_defs import UITestCase
 from core.processing.workflow import WorkflowKind, WorkflowStage, log_workflow_trace
 from modules.automation_components.repositories.ui_automation_repository import UIAutomationRepository
 from modules.automation_components.services.ui_automation_export_service import UIAutomationExportService
+from modules.system_components.repositories.project_repository import ProjectRepository
 from modules.testing.ui_automation import ui_automator
 
 
@@ -17,11 +18,12 @@ class UIAutomationService:
 
     def __init__(self, db):
         self.repo = UIAutomationRepository(db)
+        self.projects = ProjectRepository(db)
         self._db = db
         self.exporter = UIAutomationExportService()
 
     def has_owned_project(self, *, project_id: int, user_id: int) -> bool:
-        return bool(self.repo.get_owned_project(project_id=project_id, user_id=user_id))
+        return self.projects.get_owned_project(project_id=project_id, user_id=user_id) is not None
 
     @staticmethod
     def _operation(payload: dict[str, Any]) -> dict[str, Any]:
@@ -169,7 +171,7 @@ class UIAutomationService:
     def save_script(self, *, payload: dict[str, Any], user_id: int) -> tuple[str, dict[str, Any] | None]:
         """将已验证成功或模型生成的隐藏脚本固化到桌面项目和用例库。"""
         project_id = int(payload.get("project_id") or 0)
-        project = self.repo.get_owned_project(project_id=project_id, user_id=user_id)
+        project = self.projects.get_owned_project(project_id=project_id, user_id=user_id)
         if not project:
             return "project_not_found", None
         script = str(payload.get("script") or "").strip()
@@ -255,7 +257,7 @@ class UIAutomationService:
         token: str | None = None,
     ) -> tuple[str, dict[str, Any] | None]:
         project_id = int(payload.get("project_id") or 0)
-        project = self.repo.get_owned_project(project_id=project_id, user_id=user_id)
+        project = self.projects.get_owned_project(project_id=project_id, user_id=user_id)
         if not project:
             return "project_not_found", None
         operation = self._operation(payload)

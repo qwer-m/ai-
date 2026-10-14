@@ -203,6 +203,31 @@ function stageStatus(run: AgentRun | null, nodeKeys: readonly string[]): Busines
 }
 
 function mapProgress(nodeRun: AgentNodeRun): string | null {
+  const checkpoint = objectValue(nodeRun.sdk_state.action_checkpoint);
+  const state = objectValue(checkpoint.state);
+  if (nodeRun.node_type === 'agent_network' && Object.keys(state).length > 0) {
+    const records = Array.isArray(state.generation_records) ? state.generation_records : [];
+    const candidates = records.reduce((count, value) => {
+      const cases = objectValue(objectValue(value).output).test_cases;
+      return count + (Array.isArray(cases) ? cases.length : 0);
+    }, 0);
+    const budget = objectValue(checkpoint.budget);
+    const charged = objectValue(budget.charged);
+    const limits = objectValue(budget.limits);
+    const receipts = Object.values(objectValue(checkpoint.receipts)).map(objectValue);
+    const active = receipts.find((receipt) => receipt.status === 'started');
+    const calls = Object.values(objectValue(checkpoint.validated_agent_calls)).map(objectValue);
+    const completed = active ? calls.filter((call) => call.parent_tool_call_id === active.tool_call_id).length : 0;
+    const parts = [`节点第 ${nodeRun.attempt} 次尝试`];
+    if (records.length > 0) {
+      parts.push(`生成 ${records.filter(Boolean).length}/${records.length} 批 · 候选 ${candidates} 条`);
+    }
+    if (active) parts.push(`当前动作已完成 ${completed} 个专业任务`);
+    if (typeof charged.attempted_requests === 'number' && typeof limits.attempted_requests === 'number') {
+      parts.push(`模型请求 ${charged.attempted_requests}/${limits.attempted_requests}`);
+    }
+    return parts.join(' · ');
+  }
   const completed = Number(nodeRun.output_payload.completed_count ?? 0);
   const total = Number(nodeRun.output_payload.total_count ?? 0);
   if (!Number.isFinite(total) || total < 1) return null;

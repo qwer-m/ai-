@@ -17,8 +17,8 @@ import {
   resumeRagEvalRun,
   startRagEvalRun,
   stopRagEvalRun,
-  translateError,
 } from '../state/evaluationService';
+import { translateError } from '../../../utils/api';
 import { RagCandidatePanel } from './RagCandidatePanel';
 import { RagRunComparePanel } from './RagRunComparePanel';
 import type { RagDatasetRow } from './shared/types';

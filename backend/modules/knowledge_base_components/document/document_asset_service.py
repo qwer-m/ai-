@@ -1097,6 +1097,113 @@ def document_page_layout(document_id: int, page_number: int) -> list[dict[str, A
     return [dict(item) for item in list(page.get("blocks") or [])]
 
 
+def _document_source_bytes(document_id: int, manifest: dict[str, Any]) -> bytes:
+    """只读取与当前资产指纹一致的原文件，防止派生布局串入其他修订。"""
+
+    asset_dir = _document_dir(document_id).resolve()
+    source_path = (asset_dir / str(manifest.get("source_path") or "")).resolve()
+    if asset_dir not in source_path.parents or not source_path.is_file():
+        raise FileNotFoundError("原文件不存在或超出文档资产目录")
+    source_bytes = source_path.read_bytes()
+    if hashlib.sha256(source_bytes).hexdigest() != manifest.get("source_sha256"):
+        raise ValueError("原文件指纹与文档资产不一致")
+    return source_bytes
+
+
+def _page_table_layouts(page: Any, blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """将真实表格网格关联到已有文本 run，不猜测业务列名或改写正文。"""
+
+    runs: list[dict[str, Any]] = []
+    for block in blocks:
+        if block.get("type") != "text_line":
+            continue
+        block_start = int(block["source_span"]["start"])
+        for run in block.get("text_runs") or []:
+            span = dict(run["source_span"])
+            text = str(run["text"])
+            start, end = int(span["start"]), int(span["end"])
+            if (
+                start < block_start
+                or end > int(block["source_span"]["end"])
+                or str(block["text"])[start - block_start : end - block_start] != text
+                or run.get("asset_source_sha256") != block.get("asset_source_sha256")
+            ):
+                raise ValueError(f"表格文字与原始布局不一致: run_id={run.get('run_id')}")
+            runs.append({"block_id": str(block["block_id"]), "run": run})
+    result: list[dict[str, Any]] = []
+    tables = sorted(page.find_tables(), key=lambda table: (table.bbox[1], table.bbox[0]))
+    for table_index, table in enumerate(tables, start=1):
+        page_left, page_top, page_right, page_bottom = page.bbox
+        left, top, right, bottom = table.bbox
+        if not (page_left <= left < right <= page_right and page_top <= top < bottom <= page_bottom):
+            # PDF 可保留分页前的整幅绘图路径；页外闭合边框不是本页真实表格，
+            # 不能裁成大单元格后把正文、独立表格和批注混在同一行列关系中。
+            continue
+        divided_rows = [
+            index for index, row in enumerate(table.rows)
+            if sum(cell is not None for cell in row.cells) > 1
+        ]
+        if not divided_rows:
+            # 单列背景框没有列关系，不能把整页提示卡当作表头反复带入分片。
+            continue
+        grid_rows = table.rows[divided_rows[0] : divided_rows[-1] + 1]
+        rows: list[dict[str, Any]] = []
+        for row_index, row in enumerate(grid_rows):
+            cells: list[dict[str, Any]] = []
+            for column_index, cell in enumerate(row.cells):
+                if cell is None:
+                    continue
+                x0, top, x1, bottom = cell
+                segments: list[dict[str, Any]] = []
+                for record in runs:
+                    run = record["run"]
+                    box = run["source_bbox"]
+                    center_x = (float(box["x0"]) + float(box["x1"])) / 2
+                    center_y = (float(box["top"]) + float(box["bottom"])) / 2
+                    if x0 <= center_x < x1 and top <= center_y < bottom:
+                        # 文本 run 跨越网格线时不能凭中心点替它选择业务列。
+                        if float(box["x0"]) < x0 - 1 or float(box["x1"]) > x1 + 1:
+                            raise ValueError(f"表格文本跨越单元格边界: run_id={run.get('run_id')}")
+                        segments.append({
+                            "block_id": record["block_id"],
+                            "text": str(run["text"]),
+                            "original_source_span": dict(run["source_span"]),
+                        })
+                segments.sort(key=lambda segment: int(segment["original_source_span"]["start"]))
+                cells.append({"column_index": column_index, "segments": segments})
+            rows.append({"row_index": row_index, "cells": cells})
+        if any(cell["segments"] for row in rows for cell in row["cells"]):
+            result.append({"table_id": f"P{int(page.page_number):04d}-GRID{table_index:04d}", "rows": rows})
+    return result
+
+
+def document_table_layouts(document_id: int) -> dict[int, list[dict[str, Any]]]:
+    """只读解析同一 PDF 修订的表格，复用现有文本坐标且不重建文档资产。"""
+
+    manifest = load_document_manifest(document_id)
+    if manifest.get("media_type") != "application/pdf":
+        return {}
+    source_bytes = _document_source_bytes(document_id, manifest)
+    result: dict[int, list[dict[str, Any]]] = {}
+    with pdfplumber.open(io.BytesIO(source_bytes)) as pdf:
+        if len(pdf.pages) != int(manifest["page_count"]):
+            raise ValueError("表格原 PDF 页数与资产清单不一致")
+        for page in pdf.pages:
+            recorded_page = _manifest_page(manifest, int(page.page_number))
+            if any(
+                block.get("asset_source_sha256") != manifest["source_sha256"]
+                for block in recorded_page["blocks"]
+            ):
+                raise ValueError("表格页面布局与原 PDF 指纹不一致")
+            if not (
+                math.isclose(float(page.width), float(recorded_page["media_width"]), abs_tol=0.001)
+                and math.isclose(float(page.height), float(recorded_page["media_height"]), abs_tol=0.001)
+            ):
+                raise ValueError("表格原 PDF 页面尺寸与布局资产不一致")
+            result[int(page.page_number)] = _page_table_layouts(page, list(recorded_page["blocks"]))
+    return result
+
+
 def document_page_image_path(document_id: int, page_number: int) -> Path:
     manifest = load_document_manifest(document_id)
     page = _manifest_page(manifest, page_number)
@@ -1208,13 +1315,7 @@ def document_page_image_details(
             raise ValueError(f"图片局部读取必须引用当前页真实 image 块: block_id={block_id}")
         if str(block.get("asset_source_sha256") or "") != source_hash:
             raise ValueError(f"图片块与文档资产指纹不一致: block_id={block_id}")
-    asset_dir = _document_dir(document_id).resolve()
-    source_path = (asset_dir / str(manifest.get("source_path") or "")).resolve()
-    if asset_dir not in source_path.parents or not source_path.is_file():
-        raise FileNotFoundError("图片局部读取的原文件不存在或超出文档资产目录")
-    source_bytes = source_path.read_bytes()
-    if hashlib.sha256(source_bytes).hexdigest() != source_hash:
-        raise ValueError("图片局部读取的原文件指纹与文档资产不一致")
+    source_bytes = _document_source_bytes(document_id, manifest)
     if manifest.get("media_type") != "application/pdf":
         raise ValueError("图片局部读取只接受有真实 PDF 页面资产的文档")
     minimum_scale = float(page.get("render_scale") or 0)

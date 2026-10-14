@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from 'react';
 import { Alert, Tab, Tabs } from 'react-bootstrap';
-import { listRagDatasets, translateError } from '../state/evaluationService';
+import { listRagDatasets } from '../state/evaluationService';
+import { translateError } from '../../../utils/api';
 import { RagBatchEvalPanel } from './RagBatchEvalPanel';
 import { RagDatasetManagerPanel } from './RagDatasetManagerPanel';
 import { RagSingleDebugPanel } from './RagSingleDebugPanel';

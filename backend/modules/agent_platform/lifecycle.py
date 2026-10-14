@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from core.db.model_defs import AgentRun
 
@@ -25,13 +26,41 @@ class InvalidRunTransition(ValueError):
     """已结束或不处于预期阶段的运行不能被迟到操作恢复。"""
 
 
+class RunLeaseLost(RuntimeError):
+    """执行器已失去运行所有权，禁止继续续租或提交作用。"""
+
+
+def new_claim_token() -> str:
+    """每次认领单独生成所有权凭据，不能复用可能重复投递的任务 ID。"""
+
+    return uuid4().hex
+
+
+def assert_run_claim(
+    run: AgentRun, expected_claim_token: str, *, now: datetime,
+) -> None:
+    """调用方须先锁定并刷新 Run；检查结果只在当前事务内有效。"""
+
+    if (
+        not expected_claim_token or run.status != "running"
+        or run.claim_token != expected_claim_token
+        or run.lease_expires_at is None or run.lease_expires_at <= now
+    ):
+        raise RunLeaseLost(f"Agent Run {run.id} 的执行租约已失效")
+
+
 def release_run_lease(run: AgentRun) -> None:
     run.claim_token = None
     run.heartbeat_at = None
     run.lease_expires_at = None
 
 
-def renew_run_lease(run: AgentRun, *, now: datetime, lease_seconds: int) -> bool:
+def renew_run_lease(
+    run: AgentRun, *, now: datetime, lease_seconds: int,
+    expected_claim_token: str | None = None,
+) -> bool:
+    if expected_claim_token is not None:
+        assert_run_claim(run, expected_claim_token, now=now)
     if run.status != "running":
         return False
     run.heartbeat_at = now
@@ -82,6 +111,7 @@ def transition_run(
             status=target,
             finished_at=at,
             error_message=error_message or ("运行已取消，节点终止" if target == "cancelled" else "运行失败，节点终止"),
+            node_run_id=node_run_id,
         )
     repo.db.add(run)
     repo.append_event(

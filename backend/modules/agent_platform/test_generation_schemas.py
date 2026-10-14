@@ -6,8 +6,32 @@
 from copy import deepcopy
 from typing import Any
 
-from .test_generation_review import GLOBAL_REVIEW_CASE_INDEX_SCHEMA
-from .test_generation_semantics import GOVERNANCE_RELATION_ALIASES
+GOVERNANCE_RELATION_ALIASES = {
+    "superseded_by": "replaces",
+    "replaced_by": "replaces",
+    "invalidated_by": "invalidates",
+    "limited_by": "limits",
+    "parameterized_by": "parameterizes",
+}
+
+
+GLOBAL_REVIEW_CASE_INDEX_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "case_id": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1},
+        "module": {"type": "string", "minLength": 1},
+        "priority": {"type": "string", "minLength": 1},
+        "test_input": {"type": "string"},
+        "first_action": {"type": "string"},
+        "last_expected": {"type": "string"},
+    },
+    "additionalProperties": False,
+}
+# 索引投影、工具契约和允许审查的字段使用同一份定义。
+GLOBAL_REVIEW_CASE_INDEX_SCHEMA["required"] = list(
+    GLOBAL_REVIEW_CASE_INDEX_SCHEMA["properties"]
+)
 
 CASE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -418,12 +442,28 @@ PLANNING_ROUTE_REPAIR_OUTPUT_SCHEMA: dict[str, Any] = {
                         "items": {"type": "string", "minLength": 1},
                     },
                     "reason": {"type": "string", "minLength": 1},
+                    "support_gaps": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "coverage_fragment": {"type": "string", "minLength": 1},
+                                "kind": {"type": "string", "enum": ["missing_support", "source_conflict"]},
+                                "evidence_fact_ids": {"type": "array", "uniqueItems": True,
+                                    "items": {"type": "string", "minLength": 1}},
+                                "reason": {"type": "string", "minLength": 1},
+                            },
+                            "required": ["coverage_fragment", "kind", "evidence_fact_ids", "reason"],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
                 "required": [
                     "test_design_item_index",
                     "disposition",
                     "fact_ids",
                     "reason",
+                    "support_gaps",
                 ],
                 "additionalProperties": False,
             },
@@ -437,6 +477,10 @@ PLANNING_ROUTE_REPAIR_OUTPUT_SCHEMA: dict[str, Any] = {
 PLANNING_ROUTE_REPAIR_AGENT_OUTPUT_SCHEMA = deepcopy(
     PLANNING_ROUTE_REPAIR_OUTPUT_SCHEMA
 )
+# 支持状态由真实支持集和明确缺口派生，模型不再独立填写可能与依据矛盾的标签。
+_support_agent_decision_schema = PLANNING_ROUTE_REPAIR_AGENT_OUTPUT_SCHEMA["properties"]["decisions"]["items"]
+_support_agent_decision_schema["properties"].pop("disposition")
+_support_agent_decision_schema["required"].remove("disposition")
 
 
 BATCH_FINAL_REVIEW_DIFFERENCE_CATEGORIES = [
@@ -669,6 +713,16 @@ PLAN_SCHEMA: dict[str, Any] = {
                         "minItems": 1,
                         "items": FACT_DESIGN_ROUTE_SCHEMA,
                     },
+                    "design_supports": {
+                        "type": "array", "minItems": 1,
+                        "items": {"type": "object", "properties": {
+                            "test_design_item_index": {"type": "integer", "minimum": 0},
+                            "fact_ids": {"type": "array", "minItems": 1, "uniqueItems": True,
+                                         "items": {"type": "string", "minLength": 1}},
+                            "review_input_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                        }, "required": ["test_design_item_index", "fact_ids", "review_input_sha256"],
+                        "additionalProperties": False},
+                    },
                 },
                 "required": [
                     "name",
@@ -679,6 +733,7 @@ PLAN_SCHEMA: dict[str, Any] = {
                     "evidence_ids",
                     "fact_ids",
                     "fact_design_routes",
+                    "design_supports",
                 ],
                 "additionalProperties": False,
             },
@@ -901,6 +956,7 @@ MODEL_REPAIR_CASE_PATCH_SCHEMA: dict[str, Any] = {
     "minProperties": 2,
     "additionalProperties": False,
 }
+MODEL_REPAIR_CASE_PATCH_SCHEMA["properties"].pop("test_design_item_ids")
 MODEL_REPAIR_PATCH_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -1108,6 +1164,17 @@ IMAGE_REGION_SCHEMA: dict[str, Any] = {
 }
 
 
+SOURCE_SPAN_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "start": {"type": "integer", "minimum": 0},
+        "end": {"type": "integer", "minimum": 1},
+    },
+    "required": ["start", "end"],
+    "additionalProperties": False,
+}
+
+
 PLANNING_EVIDENCE_ITEM_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -1138,33 +1205,9 @@ PLANNING_EVIDENCE_ITEM_SCHEMA: dict[str, Any] = {
                     "type": "string",
                     "pattern": "^EV-[0-9]{4,}$",
                 },
-                "left_tail_span": {
-                    "type": "object",
-                    "properties": {
-                        "start": {"type": "integer", "minimum": 0},
-                        "end": {"type": "integer", "minimum": 1},
-                    },
-                    "required": ["start", "end"],
-                    "additionalProperties": False,
-                },
-                "left_marker_span": {
-                    "type": "object",
-                    "properties": {
-                        "start": {"type": "integer", "minimum": 0},
-                        "end": {"type": "integer", "minimum": 1},
-                    },
-                    "required": ["start", "end"],
-                    "additionalProperties": False,
-                },
-                "minimum_governing_span": {
-                    "type": "object",
-                    "properties": {
-                        "start": {"type": "integer", "minimum": 0},
-                        "end": {"type": "integer", "minimum": 1},
-                    },
-                    "required": ["start", "end"],
-                    "additionalProperties": False,
-                },
+                "left_tail_span": SOURCE_SPAN_SCHEMA,
+                "left_marker_span": SOURCE_SPAN_SCHEMA,
+                "minimum_governing_span": SOURCE_SPAN_SCHEMA,
                 "right_range": {
                     "type": "object",
                     "properties": {
@@ -1301,16 +1344,30 @@ EVIDENCE_OUTPUT_SCHEMA: dict[str, Any] = {
 }
 
 
-SOURCE_SPAN_SCHEMA: dict[str, Any] = {
+TABLE_CELL_REFERENCE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "start": {"type": "integer", "minimum": 0},
-        "end": {"type": "integer", "minimum": 1},
+        "table_id": {"type": "string", "minLength": 1},
+        "row_index": {"type": "integer", "minimum": 0},
+        "column_index": {"type": "integer", "minimum": 0},
     },
-    "required": ["start", "end"],
+    "required": ["table_id", "row_index", "column_index"],
     "additionalProperties": False,
 }
 
+TABLE_SOURCE_SEGMENTS_SCHEMA: dict[str, Any] = {
+    "type": "array", "minItems": 1,
+    "items": {
+        "type": "object",
+        "properties": {
+            "block_id": {"type": "string", "minLength": 1},
+            "text": {"type": "string", "minLength": 1},
+            "source_span": SOURCE_SPAN_SCHEMA,
+        },
+        "required": ["block_id", "text", "source_span"],
+        "additionalProperties": False,
+    },
+}
 
 SOURCE_ANCHOR_SCHEMA: dict[str, Any] = {
     "oneOf": [
@@ -1387,6 +1444,24 @@ SOURCE_ANCHOR_SCHEMA: dict[str, Any] = {
         {
             "type": "object",
             "properties": {
+                "source_kind": {"type": "string", "const": "document"},
+                "document_id": {"type": "integer", "minimum": 1},
+                "page_number": {"type": "integer", "minimum": 1},
+                "block_id": {"type": "string", "minLength": 1},
+                "table_cell": TABLE_CELL_REFERENCE_SCHEMA,
+                "source_segments": TABLE_SOURCE_SEGMENTS_SCHEMA,
+                "asset_source_sha256": {"type": "string", "minLength": 64, "maxLength": 64},
+                "page_image_sha256": {"type": "string", "minLength": 64, "maxLength": 64},
+            },
+            "required": [
+                "source_kind", "document_id", "page_number", "block_id", "table_cell",
+                "source_segments", "asset_source_sha256", "page_image_sha256",
+            ],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
                 "source_kind": {"type": "string", "const": "inline"},
                 "requirement_sha256": {"type": "string", "minLength": 64, "maxLength": 64},
                 "source_offset_start": {"type": "integer", "minimum": 0},
@@ -1406,6 +1481,45 @@ SOURCE_ANCHOR_SCHEMA: dict[str, Any] = {
 }
 
 
+FACT_SOURCE_CONTEXT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "table_contexts": {
+            "type": "array", "minItems": 1,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "table_id": {"type": "string", "minLength": 1},
+                    "rows": {
+                        "type": "array", "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "row_index": {"type": "integer", "minimum": 0},
+                                "cells": {
+                                    "type": "array", "minItems": 1,
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "column_index": {"type": "integer", "minimum": 0},
+                                            "text": {"type": "string"},
+                                        },
+                                        "required": ["column_index", "text"], "additionalProperties": False,
+                                    },
+                                },
+                            },
+                            "required": ["row_index", "cells"], "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["table_id", "rows"], "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["table_contexts"], "additionalProperties": False,
+}
+
+
 AUTHORITATIVE_FACT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -1413,6 +1527,7 @@ AUTHORITATIVE_FACT_SCHEMA: dict[str, Any] = {
         "assertion": {"type": "string", "minLength": 1},
         "scope_id": {"type": "string", "minLength": 1},
         "source_anchor": SOURCE_ANCHOR_SCHEMA,
+        "source_context": FACT_SOURCE_CONTEXT_SCHEMA,
         "status": {
             "type": "string",
             "enum": [
@@ -1468,6 +1583,7 @@ REVIEW_FACT_SCHEMA: dict[str, Any] = {
     "properties": {
         "fact_id": {"type": "string", "minLength": 1},
         "assertion": {"type": "string", "minLength": 1},
+        "source_context": FACT_SOURCE_CONTEXT_SCHEMA,
         "value_policy": {"type": "string", "enum": ["exact", "runtime_configured"]},
         "governed_values": {
             "type": "array",
@@ -1488,6 +1604,8 @@ REPAIR_SOURCE_ANCHOR_SCHEMA: dict[str, Any] = {
                 "source_kind": {"type": "string", "const": "document"},
                 "document_id": {"type": "integer", "minimum": 1},
                 "page_number": {"type": "integer", "minimum": 1},
+                "table_cell": TABLE_CELL_REFERENCE_SCHEMA,
+                "source_segments": TABLE_SOURCE_SEGMENTS_SCHEMA,
             },
             "required": ["source_kind", "document_id", "page_number"],
             "additionalProperties": False,
@@ -1588,6 +1706,9 @@ FINAL_REVIEW_BATCH_INPUT_SCHEMA: dict[str, Any] = {
 FINAL_REVIEW_REPAIR_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
+        "fact_design_item_ids": {"type": "object", "additionalProperties": {
+            "type": "array", "uniqueItems": True, "items": {"type": "string", "minLength": 1},
+        }},
         "review_batch": FINAL_REVIEW_BATCH_META_SCHEMA,
         "test_cases": {
             "type": "array",
@@ -1604,6 +1725,14 @@ FINAL_REVIEW_REPAIR_INPUT_SCHEMA: dict[str, Any] = {
             "items": TEST_DESIGN_CATALOG_ITEM_SCHEMA,
         },
         "review_result": FINAL_REVIEW_OUTPUT_SCHEMA,
+        "global_review_context": {
+            "type": "object",
+            "properties": {
+                "case_index": {"type": "array", "minItems": 1, "items": GLOBAL_REVIEW_CASE_INDEX_SCHEMA},
+            },
+            "required": ["case_index"],
+            "additionalProperties": False,
+        },
         "repair_requirements": {
             "type": "array",
             "minItems": 1,
@@ -1624,6 +1753,7 @@ FINAL_REVIEW_REPAIR_INPUT_SCHEMA: dict[str, Any] = {
         "repair_cycle": {"type": "integer", "minimum": 1},
     },
     "required": [
+        "fact_design_item_ids",
         "review_batch",
         "test_cases",
         "authoritative_facts",
@@ -1654,8 +1784,8 @@ GLOBAL_FINAL_REVIEW_INPUT_SCHEMA: dict[str, Any] = {
 }
 
 
-# 来源分析是模型原始输出边界：页面来源只选择一个真实块，
-# 正文引用、图片区域和作用域全部由平台根据真实页面确定性生成。
+# 来源分析选择真实块；表格事实还必须选择该块中的唯一单元格。
+# 原页文字片段、图片区域和作用域由平台派生，模型不能自报。
 SOURCE_SEMANTICS_AGENT_ANCHOR_SCHEMA: dict[str, Any] = {
     "oneOf": [
         {
@@ -1664,10 +1794,11 @@ SOURCE_SEMANTICS_AGENT_ANCHOR_SCHEMA: dict[str, Any] = {
                 "document_id": {"type": "integer", "minimum": 1},
                 "page_number": {"type": "integer", "minimum": 1},
                 "block_id": {"type": "string", "minLength": 1},
+                "table_cell": {"oneOf": [TABLE_CELL_REFERENCE_SCHEMA, {"type": "null"}]},
             },
-            "required": ["document_id", "page_number", "block_id"],
+            "required": ["document_id", "page_number", "block_id", "table_cell"],
             "additionalProperties": False,
-            "description": "只选择一个与原子事实最直接相关的真实 block_id；平台为正文块补齐 quote/source_span，为图片块补齐 image_region，并派生 scope_id。",
+            "description": "选择真实 block_id；命中表格文本时必须从 table_contexts 选择包含该块的 table_cell，非表格文本和图片填 null。平台派生真实片段及 scope_id，不得自行补造表格行列。",
         },
         {
             "type": "object",
@@ -1693,6 +1824,8 @@ def _source_semantics_agent_fact_schema() -> dict[str, Any]:
         "minLength": 1,
     }
     schema["properties"].pop("scope_id")
+    # 表格上下文由真实来源锚点派生，禁止模型自报。
+    schema["properties"].pop("source_context")
     schema["properties"].pop("governed_values")
     schema["properties"]["governed_value_spans"] = {
         "type": "array",
@@ -1772,6 +1905,7 @@ SOURCE_SEMANTICS_OUTPUT_SCHEMA: dict[str, Any] = {
                                     "items": {"type": "string", "minLength": 1},
                                 },
                                 "governed_by": AUTHORITATIVE_FACT_SCHEMA["properties"]["governed_by"],
+                                "source_context": FACT_SOURCE_CONTEXT_SCHEMA,
                             },
                             "required": [
                                 "fact_id",
@@ -1883,6 +2017,24 @@ SOURCE_SEMANTICS_INPUT_SCHEMA: dict[str, Any] = {
         "document_id": {"type": "integer", "minimum": 1},
         "page_number": {"type": "integer", "minimum": 1},
         "page_text": {"type": "string"},
+        "table_contexts": {
+            "type": "array",
+            "items": {"type": "object", "properties": {
+                "table_id": {"type": "string", "minLength": 1},
+                "rows": {"type": "array", "items": {"type": "object", "properties": {
+                    "row_index": {"type": "integer", "minimum": 0},
+                    "cells": {"type": "array", "items": {"type": "object", "properties": {
+                        "column_index": {"type": "integer", "minimum": 0},
+                        "segments": {"type": "array", "items": {"type": "object", "properties": {
+                            "block_id": {"type": "string", "minLength": 1},
+                            "text": {"type": "string", "minLength": 1},
+                            "original_source_span": SOURCE_SPAN_SCHEMA,
+                            "source_span": SOURCE_SPAN_SCHEMA,
+                        }, "required": ["block_id", "text", "original_source_span"], "additionalProperties": False}},
+                    }, "required": ["column_index", "segments"], "additionalProperties": False}},
+                }, "required": ["row_index", "cells"], "additionalProperties": False}},
+            }, "required": ["table_id", "rows"], "additionalProperties": False},
+        },
         "blocks": {
             "type": "array",
             "minItems": 1,
@@ -2063,4 +2215,294 @@ SOURCE_SEMANTICS_INPUT_SCHEMA["oneOf"].append(
 
 
 
-__all__ = ['ACTORS_SCHEMA', 'AUTHORITATIVE_FACT_SCHEMA', 'AUTHORITY_RECONCILIATION_AGENT_OUTPUT_SCHEMA', 'AUTHORITY_RECONCILIATION_DECISION_SCHEMA', 'AUTHORITY_RECONCILIATION_ITEM_SCHEMA', 'AUTHORITY_RECONCILIATION_OUTPUT_SCHEMA', 'BATCH_FINAL_REVIEW_AGENT_OUTPUT_SCHEMA', 'BATCH_FINAL_REVIEW_DIFFERENCE_CATEGORIES', 'BATCH_FINAL_REVIEW_DIFFERENCE_SCHEMA', 'BUSINESS_PLANNING_BATCH_MAX_FACTS', 'BUSINESS_PLANNING_BATCH_MAX_JSON_CHARS', 'BUSINESS_PLAN_DRAFT_SCHEMA', 'CASE_FACT_BINDING_SCHEMA', 'CASE_SCHEMA', 'EVIDENCE_OUTPUT_SCHEMA', 'EVIDENCE_SOURCE_SCHEMA', 'EXECUTION_CHAIN_SELECTION_SCHEMA', 'EXECUTION_PLAN_SCHEMA', 'FACT_DESIGN_ROUTE_SCHEMA', 'FACT_ID_LIST_SCHEMA', 'FINAL_REVIEW_BATCH_INPUT_SCHEMA', 'FINAL_REVIEW_BATCH_META_SCHEMA', 'FINAL_REVIEW_OUTPUT_SCHEMA', 'FINAL_REVIEW_REPAIR_INPUT_SCHEMA', 'FINAL_REVIEW_REPAIR_RESULT_SCHEMA', 'GENERATION_AUDIT_SCHEMA', 'GLOBAL_FINAL_REVIEW_AGENT_OUTPUT_SCHEMA', 'GLOBAL_FINAL_REVIEW_DIFFERENCE_CATEGORIES', 'GLOBAL_FINAL_REVIEW_INPUT_SCHEMA', 'GROUNDING_SCHEMA', 'IMAGE_REGION_SCHEMA', 'MERGED_GENERATION_SCHEMA', 'MODEL_GENERATION_CASE_SCHEMA', 'MODEL_GROUNDED_TEXT_SCHEMA', 'MODEL_GROUNDING_SCHEMA', 'MODEL_INLINE_CASE_SCHEMA', 'MODEL_REPAIR_CASE_PATCH_SCHEMA', 'MODEL_REPAIR_CASE_SCHEMA', 'MODEL_REPAIR_PATCH_SCHEMA', 'MODEL_STEP_FACT_BINDINGS_SCHEMA', 'OPTIONAL_FACT_ID_LIST_SCHEMA', 'ORDERED_MARKER_SCHEMA', 'PLANNER_AGENT_OUTPUT_SCHEMA', 'PLANNER_AGENT_SUBMISSION_SCHEMA', 'PLANNER_OUTPUT_SCHEMA', 'PLANNER_TEST_DESIGN_SCHEMA', 'PLANNER_TEST_POINT_SCHEMA', 'PLANNING_EVIDENCE_CATALOG_SCHEMA', 'PLANNING_EVIDENCE_ITEM_SCHEMA', 'PLANNING_ROUTE_REPAIR_AGENT_OUTPUT_SCHEMA', 'PLANNING_ROUTE_REPAIR_OUTPUT_SCHEMA', 'PLANNING_SCOPE_ROUTE_BATCH_SIZE', 'PLANNING_SCOPE_ROUTE_MAX_MODEL_INPUT_CHARS', 'PLANNING_SCOPE_ROUTING_AGENT_OUTPUT_SCHEMA', 'PLANNING_SCOPE_ROUTING_BATCH_OUTPUT_SCHEMA', 'PLANNING_SCOPE_ROUTING_OUTPUT_SCHEMA', 'PLAN_SCHEMA', 'REPAIR_AUTHORITATIVE_FACT_SCHEMA', 'REPAIR_SOURCE_ANCHOR_SCHEMA', 'REVIEW_FACT_SCHEMA', 'RISK_DETAIL_SCHEMA', 'RISK_OR_TEXTS_SCHEMA', 'SCENARIO_DESIGN_GUIDANCE_SCHEMA', 'SOURCE_ANCHOR_SCHEMA', 'SOURCE_SEMANTICS_AGENT_ANCHOR_SCHEMA', 'SOURCE_SEMANTICS_AGENT_FACT_SCHEMA', 'SOURCE_SEMANTICS_AGENT_OUTPUT_SCHEMA', 'SOURCE_SEMANTICS_DOCUMENT_PAGE_SCHEMA', 'SOURCE_SEMANTICS_INPUT_SCHEMA', 'SOURCE_SEMANTICS_NORMALIZED_OUTPUT_SCHEMA', 'SOURCE_SEMANTICS_OUTPUT_SCHEMA', 'SOURCE_SPAN_SCHEMA', 'SYNTHESIS_APPROVAL_OUTPUT_SCHEMA', 'TEST_DESIGN_CATALOG_ITEM_SCHEMA', 'TEST_DESIGN_TECHNIQUES', 'TEXT_OR_TEXTS_SCHEMA']
+VALIDATION_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "string", "const": "passed"},
+        "validated_count": {"type": "integer", "minimum": 1},
+        "priority_counts": {
+            "type": "object",
+            "properties": {
+                "P0": {"type": "integer", "minimum": 0},
+                "P1": {"type": "integer", "minimum": 0},
+                "P2": {"type": "integer", "minimum": 0},
+            },
+            "required": ["P0", "P1", "P2"],
+            "additionalProperties": False,
+        },
+        "test_cases": {
+            "type": "array",
+            "minItems": 1,
+            "items": CASE_SCHEMA,
+        },
+    },
+    "required": ["status", "validated_count", "priority_counts", "test_cases"],
+    "additionalProperties": False,
+}
+
+
+BATCH_CONTEXT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "batch_id": {"type": "string", "pattern": "^M[0-9]{3}-B[0-9]{3}$"},
+        "batch_number": {"type": "integer", "minimum": 1},
+        "batch_count": {"type": "integer", "minimum": 1},
+        "module_index": {"type": "integer", "minimum": 0},
+        "module_batch_index": {"type": "integer", "minimum": 0},
+        "module_batch_count": {"type": "integer", "minimum": 1},
+        "module_name": {"type": "string", "minLength": 1},
+        "coverage_focus": {"type": "string", "minLength": 1},
+        "source_document_ids": {
+            "type": "array",
+            "uniqueItems": True,
+            "items": {"type": "integer", "minimum": 1},
+        },
+        "source_page_numbers": {
+            "type": "array",
+            "uniqueItems": True,
+            "items": {"type": "integer", "minimum": 1},
+        },
+        "source_scope_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": True,
+            "items": {"type": "string", "minLength": 1},
+        },
+        "semantic_summary": {"type": "string", "minLength": 1},
+        "semantic_keywords": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": True,
+            "items": {"type": "string", "minLength": 1},
+        },
+        "fact_count": {"type": "integer", "minimum": 1},
+        "fact_json_chars": {"type": "integer", "minimum": 1},
+        "required_test_design_item_ids": {
+            "type": "array",
+            "uniqueItems": True,
+            "items": {
+                "type": "string",
+                "pattern": "^TD-[0-9]{3}-[0-9]{3}-[0-9]{3}$",
+            },
+        },
+    },
+    "required": [
+        "batch_id",
+        "batch_number",
+        "batch_count",
+        "module_index",
+        "module_batch_index",
+        "module_batch_count",
+        "module_name",
+        "coverage_focus",
+        "source_document_ids",
+        "source_page_numbers",
+        "source_scope_ids",
+        "semantic_summary",
+        "semantic_keywords",
+        "fact_count",
+        "fact_json_chars",
+        "required_test_design_item_ids",
+    ],
+    "additionalProperties": False,
+}
+
+
+BATCH_BUSINESS_MODULE_SCHEMA = deepcopy(
+    PLAN_SCHEMA["properties"]["business_modules"]["items"]
+)
+for internal_field in ("fact_design_routes", "test_points", "design_supports"):
+    BATCH_BUSINESS_MODULE_SCHEMA["properties"].pop(internal_field)
+    BATCH_BUSINESS_MODULE_SCHEMA["required"].remove(internal_field)
+
+
+BATCH_PLAN_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "requirement_summary": {"type": "string"},
+        "business_module": BATCH_BUSINESS_MODULE_SCHEMA,
+        "coverage_focus": {"type": "string", "minLength": 1},
+        "risks": {
+            "oneOf": [
+                {"type": "string", "minLength": 1},
+                {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                },
+            ]
+        },
+        "test_design_items": {
+            "type": "array",
+            "items": TEST_DESIGN_CATALOG_ITEM_SCHEMA,
+        },
+    },
+    "required": [
+        "requirement_summary",
+        "business_module",
+        "coverage_focus",
+        "risks",
+        "test_design_items",
+    ],
+    "additionalProperties": False,
+}
+
+
+GENERATION_BATCH_ITEM_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "requirement": {"type": "string", "minLength": 1},
+        "plan": BATCH_PLAN_SCHEMA,
+        "case_budget": {"type": "integer", "minimum": 1, "maximum": 20},
+        "batch": BATCH_CONTEXT_SCHEMA,
+        "authoritative_facts": {
+            "type": "array",
+            "minItems": 1,
+            "items": AUTHORITATIVE_FACT_SCHEMA,
+        },
+        "case_fact_contract": {
+            "type": "object",
+            "properties": {
+                "target_case_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": True,
+                    "items": {"type": "string", "pattern": "^TC-[0-9]{3,}$"},
+                },
+                "required_fact_ids": {"type": "array", "uniqueItems": True, "items": {"type": "string", "minLength": 1}},
+                "available_fact_ids": FACT_ID_LIST_SCHEMA,
+                "required_test_design_item_ids": {
+                    "type": "array",
+                    "uniqueItems": True,
+                    "items": {
+                        "type": "string",
+                        "pattern": "^TD-[0-9]{3}-[0-9]{3}-[0-9]{3}$",
+                    },
+                },
+                # 仅供平台后处理确定性派生设计项编号，模型不会被要求回填该表。
+                "fact_design_item_ids": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "uniqueItems": True,
+                        "items": {
+                            "type": "string",
+                            "pattern": "^TD-[0-9]{3}-[0-9]{3}-[0-9]{3}$",
+                        },
+                    },
+                },
+            },
+            "required": [
+                "target_case_ids",
+                "required_fact_ids",
+                "required_test_design_item_ids",
+                "fact_design_item_ids",
+                "available_fact_ids",
+            ],
+            "additionalProperties": False,
+        },
+    },
+    "required": [
+        "requirement",
+        "plan",
+        "case_budget",
+        "batch",
+        "authoritative_facts",
+        "case_fact_contract",
+    ],
+    "additionalProperties": False,
+}
+
+
+CHAIN_CONTEXT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "plan_summary": {
+            "type": "object",
+            "properties": {
+                "requirement_summary": {"type": "string"},
+                "business_modules": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "minLength": 1},
+                            "objective": {"type": "string", "minLength": 1},
+                        },
+                        "required": ["name", "objective"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["requirement_summary", "business_modules"],
+            "additionalProperties": False,
+        },
+        "candidate_chains": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "minLength": 1},
+                    "case_ids": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 12,
+                        "uniqueItems": True,
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                    "cases": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 12,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "case_id": {"type": "string", "minLength": 1},
+                                "title": {"type": "string", "minLength": 1},
+                                "module": {"type": "string", "minLength": 1},
+                                "priority": {
+                                    "type": "string",
+                                    "enum": ["P0", "P1", "P2"],
+                                },
+                                "from_state": {"type": "string", "minLength": 1},
+                                "to_state": {"type": "string", "minLength": 1},
+                                "first_action": {"type": "string", "minLength": 1},
+                                "last_action": {"type": "string", "minLength": 1},
+                            },
+                            "required": [
+                                "case_id",
+                                "title",
+                                "module",
+                                "priority",
+                                "from_state",
+                                "to_state",
+                                "first_action",
+                                "last_action",
+                            ],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["candidate_id", "case_ids", "cases"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["plan_summary", "candidate_chains"],
+    "additionalProperties": False,
+}
+
+
+def map_record_schema(output_schema: dict[str, Any]) -> dict[str, Any]:
+    """描述 agent_map 持久化记录，供工作流工具输入契约复用。"""
+
+    return {
+        "type": "object",
+        "properties": {
+            "item_index": {"type": "integer", "minimum": 0},
+            "input_hash": {"type": "string", "minLength": 1},
+            "output": output_schema,
+        },
+        "required": ["item_index", "output"],
+        "additionalProperties": False,
+    }

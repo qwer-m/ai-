@@ -6,8 +6,8 @@ import {
   generateRagEvalCandidates,
   listRagEvalCandidates,
   rejectRagEvalCandidate,
-  translateError,
 } from '../state/evaluationService';
+import { translateError } from '../../../utils/api';
 import { RagCandidateDraftModal } from './RagCandidateDraftModal';
 
 type Props = {

@@ -2,9 +2,7 @@ from pathlib import Path
 from typing import Optional
 
 import os
-import re
 import requests
-import subprocess
 import tempfile
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -17,7 +15,7 @@ from core.db.database import get_db
 from core.db.model_defs import User
 from modules.automation_components.services.ui_automation_service import UIAutomationService
 from modules.automation_components.services.ui_test_case_import_service import UITestCaseImportService
-from modules.testing.ui_automation import ui_automator
+from modules.testing.ui_automation import resolve_android_device_id, ui_automator
 from schemas.automation.ui_automation import UIRequest, UIScriptConvertRequest
 
 
@@ -65,42 +63,22 @@ async def detect_environment(request: DetectRequest, current_user: User = Depend
 
     if request.type == "app":
         try:
-            result = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=5)
-            output = result.stdout.strip().split("\n")
-            devices = [
-                columns[0]
-                for line in output[1:]
-                if len(columns := line.split()) >= 2 and columns[1] == "device"
-            ]
-            if not devices:
-                return DetectResponse(success=False, message="未检测到连接的 Android 设备或模拟器")
-
+            device_id = resolve_android_device_id()
             appium_url = _detect_appium_server()
             if not appium_url:
                 return DetectResponse(
                     success=False,
                     message="Android 设备已连接，但 Appium 服务未启动或地址不可访问",
-                    data={"device_id": devices[0]},
+                    data={"device_id": device_id},
                 )
 
-            device_id = devices[0]
-            res = subprocess.run(
-                ["adb", "-s", device_id, "shell", "dumpsys", "window"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            focus_line = res.stdout.strip()
-            match = re.search(r"u0\s+([^\s/]+)/([^\s]+)}", focus_line)
-            if match:
-                pkg = match.group(1)
-                activity = match.group(2)
-                if activity.startswith("."):
-                    activity = pkg + activity
+            app_info = ui_automator.get_current_app_info(device_id)
+            if "error" not in app_info:
+                pkg = app_info["package"]
                 return DetectResponse(
                     success=True,
                     message=f"设备 {device_id} 与 Appium 均已就绪，当前应用 {pkg}",
-                    data={"app_id": pkg, "activity": activity, "device_id": device_id, "appium_url": appium_url},
+                    data={"app_id": pkg, "activity": app_info["activity"], "device_id": device_id, "appium_url": appium_url},
                 )
             return DetectResponse(
                 success=True,

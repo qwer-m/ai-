@@ -122,13 +122,8 @@ def compress_evidence_catalog(
             "items": items,
         }
     )
-    try:
-        requested_max_tokens = int(max_tokens or DEFAULT_CONTEXT_COMPRESSION_MAX_TOKENS)
-    except (TypeError, ValueError):
-        requested_max_tokens = DEFAULT_CONTEXT_COMPRESSION_MAX_TOKENS
-    requested_max_tokens = max(
-        MIN_CONTEXT_COMPRESSION_MAX_TOKENS,
-        min(MAX_CONTEXT_COMPRESSION_MAX_TOKENS, requested_max_tokens),
+    requested_max_tokens = context_compression_max_tokens(
+        {"context_compression_max_tokens": max_tokens}
     )
 
     if not enabled:

@@ -6,12 +6,9 @@ from typing import Any, Optional
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from core.db.model_defs import KnowledgeDocument, Project
+from core.db.model_defs import KnowledgeDocument
 from modules.knowledge_base_components.repositories.knowledge_document_repository import (
     KnowledgeDocumentRepository,
-)
-from modules.knowledge_base_components.repositories.project_repository import (
-    ProjectRepository,
 )
 
 
@@ -118,10 +115,6 @@ def _serialize_doc(
         "task_id": doc.task_id,
         "retry_count": doc.retry_count,
     }
-
-
-def _get_owned_project(project_id: int, user_id: int, db: Session) -> Optional[Project]:
-    return ProjectRepository(db).get_owned_project(project_id=project_id, user_id=user_id)
 
 
 def _get_owned_doc(

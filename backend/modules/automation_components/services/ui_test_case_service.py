@@ -7,6 +7,7 @@ from typing import Any
 from core.db.model_defs import UITestCase
 from modules.automation_components.repositories.ui_test_case_repository import UITestCaseRepository
 from modules.automation_components.services.ui_automation_export_service import UIAutomationExportService
+from modules.system_components.repositories.project_repository import ProjectRepository
 
 
 class UITestCaseService:
@@ -16,13 +17,14 @@ class UITestCaseService:
 
     def __init__(self, db, exporter: UIAutomationExportService | None = None):
         self.repo = UITestCaseRepository(db)
+        self.projects = ProjectRepository(db)
         self.exporter = exporter or UIAutomationExportService()
 
     def has_owned_project(self, *, project_id: int, user_id: int) -> bool:
-        return bool(self.repo.get_owned_project(project_id=project_id, user_id=user_id))
+        return self.projects.get_owned_project(project_id=project_id, user_id=user_id) is not None
 
     def list_cases(self, *, project_id: int, user_id: int) -> tuple[str, list[dict[str, Any]]]:
-        project = self.repo.get_owned_project(project_id=project_id, user_id=user_id)
+        project = self.projects.get_owned_project(project_id=project_id, user_id=user_id)
         if not project:
             return "project_not_found", []
         rows = self.repo.list_project_cases(project_id=project_id)
@@ -116,7 +118,7 @@ class UITestCaseService:
 
     def create_case(self, *, payload: dict[str, Any], user_id: int) -> tuple[str, UITestCase | None]:
         project_id = int(payload.get("project_id") or 0)
-        project = self.repo.get_owned_project(project_id=project_id, user_id=user_id)
+        project = self.projects.get_owned_project(project_id=project_id, user_id=user_id)
         if not project:
             return "project_not_found", None
         name, node_type = self._validate_name_and_type(payload)
@@ -144,7 +146,7 @@ class UITestCaseService:
         row = self.repo.get_owned_case(item_id=item_id, user_id=user_id)
         if not row:
             return "not_found", None
-        project = self.repo.get_owned_project(project_id=int(row.project_id), user_id=user_id)
+        project = self.projects.get_owned_project(project_id=int(row.project_id), user_id=user_id)
         if not project:
             return "not_found", None
         rows = self.repo.list_project_cases(project_id=int(row.project_id))

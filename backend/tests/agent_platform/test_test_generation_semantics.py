@@ -8,7 +8,7 @@ from jsonschema import ValidationError as JsonSchemaValidationError
 from jsonschema import validate
 
 from modules.agent_platform import test_generation_semantics
-from modules.agent_platform.test_generation_workflow import (
+from modules.agent_platform.test_generation_schemas import (
     AUTHORITY_RECONCILIATION_AGENT_OUTPUT_SCHEMA,
     AUTHORITY_RECONCILIATION_OUTPUT_SCHEMA,
     SOURCE_SEMANTICS_AGENT_OUTPUT_SCHEMA,

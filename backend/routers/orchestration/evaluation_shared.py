@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from core.db.model_defs import Project
-from modules.knowledge_base_components.repositories.project_repository import ProjectRepository
+from modules.system_components.repositories.project_repository import ProjectRepository
 
 
 def is_attachment_ocr_ok(parsed_text: str) -> bool:

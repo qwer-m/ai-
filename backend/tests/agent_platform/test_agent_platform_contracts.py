@@ -44,14 +44,14 @@ from modules.agent_platform.retention import terminal_run_ids_to_delete
 from modules.agent_platform.sources import RunSourceRecord, historical_source_snapshot
 from modules.agent_platform.serialization import serialize_node_run, serialize_run_summary
 from modules.agent_platform.service import _initial_run_context, _resolved_execution_limits
-from modules.agent_platform.service import _restorable_node_runs, _restored_checkpoint_sdk_state
+from modules.agent_platform.service import _restorable_checkpoints, _restored_checkpoint_sdk_state
 from modules.agent_platform.sdk_adapter import (
     StructuredOutputJSONError,
     StructuredOutputValidationError,
     ToolArgumentsJSONError,
     ToolArgumentsValidationError,
     ToolOutputValidationError,
-    _effective_max_turns,
+    effective_max_turns,
     _function_tool,
     _model_settings,
     _normalize_json_encoded_schema_values,
@@ -63,13 +63,14 @@ from modules.agent_platform.sdk_adapter import (
     _tool_use_behavior,
     _validate_runtime_config,
 )
-from modules.agent_platform.test_generation_workflow import (
+from modules.agent_platform.test_generation_schemas import (
     AUTHORITY_RECONCILIATION_AGENT_OUTPUT_SCHEMA,
     AUTHORITY_RECONCILIATION_OUTPUT_SCHEMA,
     BUSINESS_PLANNING_BATCH_MAX_FACTS,
     BUSINESS_PLANNING_BATCH_MAX_JSON_CHARS,
     BUSINESS_PLAN_DRAFT_SCHEMA,
     FINAL_REVIEW_REPAIR_INPUT_SCHEMA,
+    FINAL_REVIEW_REPAIR_RESULT_SCHEMA,
     MODEL_GROUNDING_SCHEMA,
     MODEL_REPAIR_PATCH_SCHEMA,
     PLANNER_AGENT_OUTPUT_SCHEMA,
@@ -82,20 +83,23 @@ from modules.agent_platform.test_generation_workflow import (
     SCENARIO_DESIGN_GUIDANCE_SCHEMA,
     SOURCE_SEMANTICS_INPUT_SCHEMA,
     SOURCE_SEMANTICS_OUTPUT_SCHEMA,
+    MERGED_GENERATION_SCHEMA,
 )
-from modules.agent_platform.test_generation_workflow import MERGED_GENERATION_SCHEMA
-from modules.agent_platform.test_generation_workflow import merge_planning_scope_routes
-from modules.agent_platform.test_generation_workflow import postprocess_planning_route_repair_item
-from modules.agent_platform.test_generation_workflow import postprocess_planning_scope_routing_item
-from modules.agent_platform.test_generation_workflow import prepare_business_plan_batches
-from modules.agent_platform.test_generation_workflow import prepare_business_plan_consolidation
-from modules.agent_platform.test_generation_workflow import prepare_planning_route_repairs
-from modules.agent_platform.test_generation_workflow import prepare_planning_scope_routes
-from modules.agent_platform.test_generation_workflow import validate_business_plan_draft_output
-from modules.agent_platform.test_generation_workflow import validate_business_plan_output
-from modules.agent_platform.test_generation_workflow import validate_scenario_design_guidance
-from modules.agent_platform.test_generation_workflow import _summary_item_text
-from modules.agent_platform.test_generation_workflow import _business_planning_limits
+from modules.agent_platform.test_generation_planning import (
+    merge_planning_scope_routes,
+    postprocess_planning_route_repair_item,
+    postprocess_planning_scope_routing_item,
+    prepare_business_plan_batches,
+    prepare_business_plan_consolidation,
+    prepare_planning_route_repairs,
+    prepare_planning_scope_routes,
+    validate_business_plan_draft_output,
+    _summary_item_text,
+    _business_planning_limits,
+)
+from modules.agent_platform.test_generation_workflow import (
+    validate_scenario_design_guidance,
+)
 
 
 def test_execution_definition_distinguishes_legacy_dag_and_agent_network() -> None:
@@ -413,14 +417,14 @@ def test_sdk_agent_hard_timeout_cancels_blocked_operation(
     monkeypatch.setattr(sdk_adapter, "Runner", SimpleNamespace(run=blocked_run))
 
     with pytest.raises(TimeoutError, match="Agent 调用超过硬超时"):
-        sdk_adapter._run_sdk_agent_sync(
+        asyncio.run(sdk_adapter._run_sdk_agent_async(
             agent=SimpleNamespace(),
             runner_input="{}",
             execution_context=SimpleNamespace(),
             max_turns=1,
             run_config=SimpleNamespace(),
             request_timeout_seconds=0.01,
-        )
+        ))
 
     assert state["cancelled"] is True
 
@@ -541,14 +545,14 @@ def test_sdk_agent_hard_timeout_returns_completed_result(
 
     monkeypatch.setattr(sdk_adapter, "Runner", SimpleNamespace(run=completed_run))
 
-    result = sdk_adapter._run_sdk_agent_sync(
+    result = asyncio.run(sdk_adapter._run_sdk_agent_async(
         agent=SimpleNamespace(),
         runner_input="{}",
         execution_context=SimpleNamespace(),
         max_turns=1,
         run_config=SimpleNamespace(),
         request_timeout_seconds=1,
-    )
+    ))
 
     assert result is expected
 
@@ -574,106 +578,88 @@ def test_runner_input_adds_retry_feedback_without_mutating_business_payload() ->
 
 
 def test_builtin_workflow_is_data_driven_and_references_registered_definitions() -> None:
-    agent_keys = {str(item["agent_key"]) for item in BUILTIN_AGENT_SPECS}
-    tool_keys = {str(item["tool_key"]) for item in BUILTIN_TOOL_SPECS}
-    assert "test_generation_final_reviewer" in agent_keys
-    assert "test_generation_batch_repairer" in agent_keys
-    assert "test_generation_global_reviewer" in agent_keys
-    assert "test_generation_scenario_designer" in agent_keys
-    assert "test_plan_evidence_routing_reviewer" not in agent_keys
-    assert "test_evidence_continuity_auditor" not in agent_keys
+    from modules.agent_platform.sdk_adapter import _model_settings
 
-    generation_spec = next(
-        item for item in BUILTIN_WORKFLOW_SPECS
-        if item["workflow_key"] == "test_generation"
+    from modules.agent_platform.test_generation_escalation import (
+        GENERATION_SCOPE_FEEDBACK_SCHEMA,
+        GENERATION_SCOPE_FEEDBACK_OUTPUT_SCHEMA,
     )
-    generation_agent = next(
-        item for item in BUILTIN_AGENT_SPECS
-        if item["agent_key"] == "test_case_generator"
-    )
-    assert generation_agent["runtime_config"]["model_route"] == "main"
-    assert generation_agent["runtime_config"]["max_turns"] == 4
-    assert generation_agent["runtime_config"]["subagent_keys"] == [
-        "test_generation_scenario_designer"
+
+    agents = {str(item["agent_key"]): item for item in BUILTIN_AGENT_SPECS}
+    tools = {str(item["tool_key"]): item for item in BUILTIN_TOOL_SPECS}
+    agent_keys, tool_keys = set(agents), set(tools)
+    assert len(agents) == len(BUILTIN_AGENT_SPECS)
+    assert len(tools) == len(BUILTIN_TOOL_SPECS)
+    assert {
+        "test_generation_coordinator", "test_generation_final_reviewer",
+        "test_generation_batch_repairer", "test_generation_global_reviewer",
+        "test_generation_scenario_designer",
+    } <= agent_keys
+    assert {
+        "test_generation_planning_coordinator", "test_generation_review_coordinator",
+        "test_plan_evidence_routing_reviewer", "test_evidence_continuity_auditor",
+    }.isdisjoint(agent_keys)
+
+    generation_agent = agents["test_case_generator"]
+    generation_config = generation_agent["runtime_config"]
+    assert generation_config["model_route"] == "review"
+    assert generation_config["max_turns"] == 6
+    assert generation_config["validate_before_submit"] is True
+    assert generation_config["subagent_keys"] == ["test_generation_scenario_designer"]
+    assert generation_config["tool_keys"] == [
+        "submit_generation_batch", "report_generation_scope_problem",
     ]
-    assert generation_agent["runtime_config"]["tool_keys"] == [
-        "submit_generation_batch"
-    ]
-    assert generation_agent["runtime_config"]["stop_at_tool_keys"] == [
-        "submit_generation_batch"
-    ]
-    assert generation_agent["runtime_config"]["force_terminal_tool_choice"] is False
-    assert "必须且只能调用一次 submit_generation_batch" in generation_agent["instructions"]
-    assert "禁止使用 json.dumps 或其他方式将数组二次序列化为字符串" in generation_agent[
-        "instructions"
-    ]
-    assert "每个批次最多调用一次" in generation_agent["instructions"]
-    assert "禁止再次调用专业 Agent" in generation_agent["instructions"]
-    scenario_designer = next(
-        item for item in BUILTIN_AGENT_SPECS
-        if item["agent_key"] == "test_generation_scenario_designer"
-    )
-    assert scenario_designer["runtime_config"]["model_route"] == "main"
-    assert scenario_designer["runtime_config"]["tool_keys"] == [
-        "submit_scenario_design_guidance"
-    ]
-    assert scenario_designer["runtime_config"]["stop_at_tool_keys"] == [
-        "submit_scenario_design_guidance"
-    ]
+    assert generation_config["stop_at_tool_keys"] == generation_config["tool_keys"]
+    assert generation_config["force_terminal_tool_choice"] is False
+    assert generation_agent["output_schema"] is MODEL_GROUNDING_SCHEMA
+    assert tools["submit_generation_batch"]["input_schema"] is MODEL_GROUNDING_SCHEMA
+    assert tools["report_generation_scope_problem"]["input_schema"] is GENERATION_SCOPE_FEEDBACK_SCHEMA
+    assert tools["report_generation_scope_problem"]["output_schema"] is GENERATION_SCOPE_FEEDBACK_OUTPUT_SCHEMA
+    assert generation_config["input_projection"]["case_fact_contract"]["fact_design_item_ids"] is True
+    assert generation_config["input_projection"]["_planning_feedback"] is True
+    assert "报告不是新增事实、已批准结论或增加预算的请求授权" in generation_agent["instructions"]
+    assert "一次候选超量、遗漏事实、绑定错误或结构错误本身不是范围矛盾" in generation_agent["instructions"]
+    assert "禁止使用 json.dumps 或其他方式将数组二次序列化为字符串" in generation_agent["instructions"]
     assert "repair_targets" in generation_agent["instructions"]
     assert "P0 仅用于" in generation_agent["instructions"]
-    business_planner = next(
-        item for item in BUILTIN_AGENT_SPECS
-        if item["agent_key"] == "test_business_planner"
-    )
-    assert business_planner["runtime_config"]["tool_keys"] == [
-        "submit_business_plan"
-    ]
-    assert business_planner["runtime_config"]["stop_at_tool_keys"] == [
-        "submit_business_plan"
-    ]
-    assert "必须且只能调用一次 submit_business_plan" in business_planner["instructions"]
-    route_gap_reviewer = next(
-        item for item in BUILTIN_AGENT_SPECS
-        if item["agent_key"] == "test_planning_route_gap_reviewer"
-    )
-    assert route_gap_reviewer["runtime_config"]["result_cache"] == {
-        "version": "planning-route-gap-review-v1",
-        "accept_legacy": False,
-    }
+    assert tool_registry.resolve(tools["report_generation_scope_problem"]["handler_key"])
+
+    scenario_config = agents["test_generation_scenario_designer"]["runtime_config"]
+    assert scenario_config["model_route"] == "main"
+    assert scenario_config["max_turns"] == 1
+    assert scenario_config["tool_keys"] == ["submit_scenario_design_guidance"]
+    assert scenario_config["stop_at_tool_keys"] == ["submit_scenario_design_guidance"]
+    business_planner = agents["test_business_planner"]
+    assert business_planner["runtime_config"]["tool_keys"] == ["submit_business_plan"]
+    assert business_planner["runtime_config"]["stop_at_tool_keys"] == ["submit_business_plan"]
+    assert business_planner["runtime_config"]["validate_before_submit"] is True
+    assert "只有完整验收通过才完成本次规划" in business_planner["instructions"]
+    assert agents["test_planning_route_gap_reviewer"]["runtime_config"]["result_cache"] == {"enabled": True}
+
+    generation_spec = next(item for item in BUILTIN_WORKFLOW_SPECS if item["workflow_key"] == "test_generation")
     generation_workflow = parse_execution_definition(generation_spec["definition"])
     assert isinstance(generation_workflow, WorkflowGraph)
-    assert generation_workflow.input_schema["properties"]["disable_result_cache"] == {
-        "type": "boolean"
-    }
+    assert generation_workflow.input_schema["properties"]["disable_result_cache"] == {"type": "boolean"}
     assert generation_spec["version"] == 1
     assert generation_workflow.output_node_key == "persist"
     assert [stage.stage_key for stage in generation_workflow.display_stages] == [
-        "planning",
-        "generation",
-        "audit",
-        "review_delivery",
+        "source", "generation", "delivery",
     ]
-    workflow_node_keys = {node.node_key for node in generation_workflow.nodes}
-    assert all(
-        set(stage.node_keys).issubset(workflow_node_keys)
-        for stage in generation_workflow.display_stages
-    )
-
-    assert "test_generation_coordinator" not in agent_keys
-
     nodes = {node.node_key: node for node in generation_workflow.nodes}
-    assert "coordination" not in nodes
+    assert len(nodes) == 14
+    stage_node_keys = [key for stage in generation_workflow.display_stages for key in stage.node_keys]
+    assert len(stage_node_keys) == len(set(stage_node_keys)) == len(nodes)
+    assert set(stage_node_keys) == set(nodes)
+    assert generation_workflow.display_stages[1].node_keys == ["resolve_generation"]
+
     assert nodes["prepare_source_semantics"].depends_on == ["evidence"]
-    assert "coordination" not in nodes["prepare_source_semantics"].input_mapping
-    prepare_source_tool = next(
-        item for item in BUILTIN_TOOL_SPECS
-        if item["tool_key"] == "prepare_source_semantics"
-    )
-    assert prepare_source_tool["input_schema"]["required"] == [
-        "requirement",
-        "evidence_source",
-        "evidence_catalog",
+    assert nodes["prepare_source_semantics"].input_mapping == {
+        "requirement": "dependencies.evidence.requirement",
+        "evidence_source": "dependencies.evidence.source",
+        "evidence_catalog": "dependencies.evidence.evidence_catalog",
+    }
+    assert tools["prepare_source_semantics"]["input_schema"]["required"] == [
+        "requirement", "evidence_source", "evidence_catalog",
     ]
     assert "work_assignments" not in SOURCE_SEMANTICS_INPUT_SCHEMA["properties"]
     assert tool_registry.is_parallel_safe("testing.submit_source_semantics") is True
@@ -681,148 +667,118 @@ def test_builtin_workflow_is_data_driven_and_references_registered_definitions()
     assert nodes["prepare_plan_batches"].reference_key == "prepare_business_plan_batches"
     assert nodes["plan_batches"].reference_key == "test_business_plan_batcher"
     assert nodes["plan_batches"].depends_on == ["prepare_plan_batches"]
-    assert nodes["prepare_plan_consolidation"].reference_key == (
-        "prepare_business_plan_consolidation"
-    )
-    assert nodes["plan"].reference_key == "test_business_planner"
-    assert nodes["plan"].depends_on == ["prepare_plan_consolidation"]
-    assert nodes["plan"].input_mapping == {
-        "partial_plans": "dependencies.prepare_plan_consolidation.partial_plans",
-        "planning_metadata": "dependencies.prepare_plan_consolidation.planning_metadata",
-        "coverage_group_catalog": (
-            "dependencies.prepare_plan_consolidation.coverage_group_catalog"
-        ),
-        "case_budget": "dependencies.prepare_plan_consolidation.case_budget",
-        "planning_limits": "dependencies.prepare_plan_consolidation.planning_limits",
-    }
-    assert nodes["chain_context"].depends_on == ["routed_plan", "validated_cases"]
-    assert nodes["chain_context"].input_mapping["plan"] == "dependencies.routed_plan"
-    assert nodes["final_review_batches"].reference_key == "test_generation_final_reviewer"
-    assert nodes["final_review_repairs"].reference_key == "test_generation_batch_repairer"
-    assert nodes["global_review"].reference_key == "test_generation_global_reviewer"
-    assert nodes["prepare_terminal_final_review_repairs"].reference_key == (
-        "prepare_terminal_final_review_repairs"
-    )
     assert {
-        "source_text",
-        "source_vision",
-        "plan_batches",
-        "plan_routes",
-        "plan_route_repairs",
-        "authority",
-        "generation",
-        "final_review_batches",
-        "final_review_repairs",
-        "final_review_rechecks",
-        "followup_final_review_repairs",
-        "final_review_final_rechecks",
-        "terminal_final_review_repairs",
-        "terminal_final_review_rechecks",
-    } == {
-        node.node_key
-        for node in generation_workflow.nodes
-        if node.node_type == "agent_map"
-    }
-    expected_concurrency = {
-        "source_text": 6,
-        "source_vision": 3,
-        "plan_batches": 6,
-        "plan_routes": 4,
-        "plan_route_repairs": 2,
-    }
-    for key, max_concurrency in expected_concurrency.items():
+        node.node_key for node in generation_workflow.nodes if node.node_type == "agent_map"
+    } == {"source_text", "source_vision", "plan_batches"}
+    for key, concurrency in {"source_text": 6, "source_vision": 3, "plan_batches": 6}.items():
         assert nodes[key].max_attempts == 2
         assert nodes[key].map_config is not None
-        assert nodes[key].map_config.max_concurrency == max_concurrency
-    assert nodes["generation"].max_attempts == 3
-    assert nodes["generation"].map_config is not None
-    assert nodes["generation"].map_config.max_concurrency == 6
+        assert nodes[key].map_config.max_concurrency == concurrency
+    for key, agent_key in [
+        ("source_text", "test_source_text_semantics_analyst"),
+        ("source_vision", "test_source_semantics_analyst"),
+    ]:
+        assert nodes[key].map_config.item_postprocessor == "testing.postprocess_source_semantics_item"
+        config = agents[agent_key]["runtime_config"]
+        assert config["max_turns"] == 1
+        assert config["tool_keys"] == config["stop_at_tool_keys"] == ["submit_source_semantics"]
+
+    autonomous_node = nodes["resolve_generation"]
+    assert autonomous_node.node_type == "agent_network"
+    assert autonomous_node.reference_key == "test_generation_coordinator"
+    assert autonomous_node.max_attempts == 2
+    assert autonomous_node.time_budget_seconds == 7200
+    assert autonomous_node.depends_on == [
+        "evidence", "prepare_source_semantics", "source_text", "source_vision",
+        "source_semantics", "prepare_plan_batches", "plan_batches",
+    ]
+    assert autonomous_node.input_mapping == {
+        "evidence_source": "dependencies.evidence.source",
+        "evidence_catalog": "dependencies.evidence.evidence_catalog",
+        "source_text_inputs": "dependencies.prepare_source_semantics.text_items",
+        "source_text_records": "dependencies.source_text.items",
+        "source_vision_inputs": "dependencies.prepare_source_semantics.vision_items",
+        "source_vision_records": "dependencies.source_vision.items",
+        "planning_inputs": "dependencies.prepare_plan_batches.items",
+        "planning_records": "dependencies.plan_batches.items",
+        "case_budget": "input.case_budget",
+        "batch_case_limit": "input.batch_case_limit",
+    }
+    coordinator_config = agents["test_generation_coordinator"]["runtime_config"]
+    action_keys = {
+        "read_planning_evidence", "reinspect_planning_source", "revise_planning_draft",
+        "rebuild_business_plan", "route_planning_scopes", "review_planning_route_gaps",
+        "accept_generation_plan", "reconcile_generation_authority", "generate_cases",
+        "review_generated_cases", "revise_generation_layout", "inspect_generation_scope",
+        "read_review_evidence", "repair_review_batch", "recheck_review_batch",
+        "review_all_cases", "finish_generation",
+    }
+    assert set(coordinator_config["tool_keys"]) == action_keys
+    assert len(coordinator_config["tool_keys"]) == 17
+    assert coordinator_config["stop_at_tool_keys"] == ["finish_generation"]
+    assert coordinator_config["validate_before_submit"] is True
+    assert coordinator_config["state_initializer"] == "testing.initialize_generation_state"
+    assert coordinator_config["state_observer"] == "testing.observe_generation_state"
+    assert coordinator_config["output_postprocessor"] == "testing.validate_generation_resolution"
+    assert coordinator_config["max_turns"] == 160
+    assert coordinator_config["max_output_tokens"] == 4000
+    assert coordinator_config["request_timeout_seconds"] == 3600
+    assert set(coordinator_config["managed_agent_keys"]) == {
+        "test_source_text_semantics_analyst", "test_source_semantics_analyst",
+        "test_business_plan_batcher", "test_business_planner",
+        "test_planning_scope_router", "test_planning_route_gap_reviewer",
+        "test_authority_reconciliation_reviewer", "test_case_generator",
+        "test_generation_batch_repairer", "test_generation_final_reviewer", "test_generation_global_reviewer",
+    }
+    for key in action_keys:
+        assert tools[key]["handler_key"] == f"testing.generation.{key}"
+        assert tool_registry.is_state_only(tools[key]["handler_key"])
+    for key in ("state_initializer", "state_observer", "output_postprocessor"):
+        assert tool_registry.resolve(coordinator_config[key])
     for key in (
-        "final_review_repairs",
-        "followup_final_review_repairs",
-        "terminal_final_review_repairs",
+        "test_planning_scope_router", "test_planning_route_gap_reviewer",
+        "test_authority_reconciliation_reviewer", "test_generation_final_reviewer",
+        "test_generation_global_reviewer", "test_generation_batch_repairer",
     ):
-        assert nodes[key].max_attempts == 3
-        assert nodes[key].map_config is not None
-        assert nodes[key].map_config.max_concurrency == 3
-    assert nodes["authority"].max_attempts == 2
-    assert nodes["authority"].map_config is not None
-    assert nodes["authority"].map_config.max_concurrency == 2
-    for key in (
-        "final_review_batches",
-        "final_review_rechecks",
-        "final_review_final_rechecks",
-        "terminal_final_review_rechecks",
-    ):
-        assert nodes[key].max_attempts == 2
-        assert nodes[key].map_config is not None
-        assert nodes[key].map_config.max_concurrency == 3
-        assert nodes[key].map_config.item_postprocessor == (
-            "testing.postprocess_final_review_batch_item"
-        )
-    for key in (
-        "final_review_repairs",
-        "followup_final_review_repairs",
-        "terminal_final_review_repairs",
-    ):
-        assert nodes[key].map_config.item_postprocessor == (
-            "testing.postprocess_final_review_repair_item"
-        )
-    assert nodes["source_text"].map_config.item_postprocessor == (
-        "testing.postprocess_source_semantics_item"
-    )
-    assert nodes["source_vision"].map_config.item_postprocessor == (
-        "testing.postprocess_source_semantics_item"
-    )
-    assert nodes["authority"].map_config.item_postprocessor == (
-        "testing.postprocess_authority_reconciliation_item"
-    )
-    assert nodes["generation"].map_config.item_postprocessor == (
-        "testing.postprocess_generation_batch_item"
-    )
-    assert nodes["plan_routes"].map_config.item_postprocessor == (
-        "testing.postprocess_planning_scope_routing_item"
-    )
-    assert nodes["plan_route_repairs"].reference_key == (
-        "test_planning_route_gap_reviewer"
-    )
-    assert nodes["plan_route_repairs"].map_config.item_postprocessor == (
-        "testing.postprocess_planning_route_repair_item"
-    )
-    audit_tool = next(
-        item for item in BUILTIN_TOOL_SPECS
-        if item["tool_key"] == "build_generation_audit_summary"
-    )
-    approval_tool = next(
-        item for item in BUILTIN_TOOL_SPECS
-        if item["tool_key"] == "approve_synthesized_test_cases"
-    )
-    repair_prepare_tool = next(
-        item for item in BUILTIN_TOOL_SPECS
-        if item["tool_key"] == "prepare_final_review_repairs"
-    )
-    assert audit_tool["input_schema"]["properties"]["generation"] is MERGED_GENERATION_SCHEMA
-    assert approval_tool["input_schema"]["properties"]["generation"] is MERGED_GENERATION_SCHEMA
-    assert "minItems" not in repair_prepare_tool["input_schema"]["properties"]["review_inputs"]
-    assert "minItems" not in repair_prepare_tool["input_schema"]["properties"]["review_records"]
-    assert "stabilized_final_review_rechecks" not in nodes
-    assert "final_review" not in nodes
-    assert nodes["preterminal_review_summary"].input_mapping["recheck_records"] == (
-        "dependencies.merged_final_review_rechecks.items"
-    )
-    assert nodes["global_review_input"].input_mapping["generation"] == (
-        "dependencies.final_repaired_cases"
-    )
-    assert "global_review" in nodes["prepare_terminal_final_review_repairs"].depends_on
-    assert nodes["batch_review_summary"].input_mapping["review_records"] == (
-        "dependencies.prepare_terminal_final_review_repairs.review_records"
-    )
-    assert nodes["approved_cases"].input_mapping["generation"] == (
-        "dependencies.terminal_repaired_cases"
-    )
-    assert nodes["approved_cases"].input_mapping["final_review"] == (
-        "dependencies.batch_review_summary"
-    )
+        config = agents[key]["runtime_config"]
+        assert config["tool_keys"] == []
+        assert config["validate_before_submit"] is True
+        assert config["stop_at_tool_keys"] == ["submit_result"]
+        assert _model_settings(config).tool_choice == "required"
+        assert effective_max_turns(config, has_tools=False) == 6
+
+    # 被统一状态行动取代的阶段不再作为另一套公开工具或固定节点保留。
+    assert {
+        "finish_planning", "finish_review", "prepare_authority_reconciliation",
+        "merge_authority_reconciliation", "prepare_test_case_batches",
+        "merge_grounded_generation_batches", "build_generation_audit_summary", "prepare_final_review_batches",
+        "prepare_final_review_repairs", "merge_final_review_recheck_records",
+        "merge_final_review_repairs", "prepare_final_review_rechecks",
+        "merge_final_review_batches", "prepare_global_final_review",
+        "prepare_terminal_final_review_repairs", "prepare_business_plan_consolidation",
+        "prepare_planning_scope_routes", "prepare_planning_route_repairs", "merge_planning_scope_routes",
+    }.isdisjoint(tool_keys)
+    assert {
+        "resolve_planning", "prepare_authority", "authority", "effective_facts",
+        "prepare_generation", "generation", "generated_cases", "audit",
+        "prepare_final_review", "final_review_batches", "resolve_final_review",
+        "prepare_plan_consolidation", "plan", "prepare_plan_routes", "plan_routes",
+        "prepare_plan_route_repairs", "plan_route_repairs", "routed_plan",
+    }.isdisjoint(nodes)
+    assert tools["approve_synthesized_test_cases"]["input_schema"]["properties"]["generation"] is MERGED_GENERATION_SCHEMA
+    assert nodes["approved_cases"].depends_on == ["resolve_generation"]
+    assert nodes["approved_cases"].input_mapping == {
+        "generation": "dependencies.resolve_generation.generation",
+        "audit_summary": "dependencies.resolve_generation.audit_summary",
+        "final_review": "dependencies.resolve_generation.final_review",
+        "case_budget": "input.case_budget",
+    }
+    assert nodes["chain_context"].depends_on == ["resolve_generation", "validated_cases"]
+    assert nodes["chain_context"].input_mapping == {
+        "plan": "dependencies.resolve_generation.plan",
+        "test_cases": "dependencies.validated_cases.test_cases",
+    }
+    assert nodes["persist"].input_mapping["final_review"] == "dependencies.approved_cases.final_review"
 
     for spec in BUILTIN_WORKFLOW_SPECS:
         execution = parse_execution_definition(spec["definition"])
@@ -831,27 +787,23 @@ def test_builtin_workflow_is_data_driven_and_references_registered_definitions()
             continue
         assert execution.execution_order()
         for node in execution.nodes:
-            allowed = (
-                agent_keys
-                if node.node_type in {"agent", "agent_network", "agent_map"}
-                else tool_keys
-            )
+            allowed = agent_keys if node.node_type in {"agent", "agent_network", "agent_map"} else tool_keys
             assert node.reference_key in allowed
             if node.node_type == "tool":
-                tool_spec = next(
-                    item for item in BUILTIN_TOOL_SPECS
-                    if item["tool_key"] == node.reference_key
-                )
-                required_inputs = set(tool_spec["input_schema"].get("required", []))
+                required_inputs = set(tools[node.reference_key]["input_schema"].get("required", []))
                 assert required_inputs <= set(node.input_mapping), (
                     f"工作流 {spec['workflow_key']} 的节点 {node.node_key} "
-                    f"缺少必填工具输入映射: "
-                    f"{sorted(required_inputs - set(node.input_mapping))}"
+                    f"缺少必填工具输入映射: {sorted(required_inputs - set(node.input_mapping))}"
                 )
-
     for agent_spec in BUILTIN_AGENT_SPECS:
-        for subagent_key in agent_spec["runtime_config"].get("subagent_keys", []):
-            assert subagent_key in agent_keys
+        config = agent_spec["runtime_config"]
+        for key in ("subagent_keys", "managed_agent_keys"):
+            assert set(config.get(key, [])) <= agent_keys
+            assert len(config.get(key, [])) == len(set(config.get(key, [])))
+        for key in config.get("tool_keys", []):
+            assert key in tool_keys
+            assert tool_registry.resolve(tools[key]["handler_key"])
+
 
 
 def test_scenario_designer_only_routes_current_batch_facts_and_design_items() -> None:
@@ -925,9 +877,9 @@ def test_global_final_review_contract_accepts_its_own_review_dimensions() -> Non
         item for item in BUILTIN_AGENT_SPECS
         if item["agent_key"] == "test_generation_global_reviewer"
     )
-    terminal_repair_tool = next(
+    global_review_tool = next(
         item for item in BUILTIN_TOOL_SPECS
-        if item["tool_key"] == "prepare_terminal_final_review_repairs"
+        if item["tool_key"] == "review_all_cases"
     )
 
     def difference(category: str) -> dict[str, object]:
@@ -955,19 +907,13 @@ def test_global_final_review_contract_accepts_its_own_review_dimensions() -> Non
             schema=batch_agent["output_schema"],
         )
 
-    assert terminal_repair_tool["input_schema"]["required"] == [
-        "generation_inputs",
-        "generation",
-        "batch_case_limit",
-        "batch_review",
-        "global_review",
-    ]
-    assert terminal_repair_tool["output_schema"]["required"] == [
-        "items",
-        "repair_batch_count",
-        "review_inputs",
-        "review_records",
-    ]
+    assert global_review_tool["input_schema"] == {
+        "type": "object", "properties": {}, "additionalProperties": False,
+    }
+    assert tool_registry.is_state_only("testing.review_all_cases") is True
+    assert global_agent["runtime_config"]["output_postprocessor"] == (
+        "testing.postprocess_global_final_review_output"
+    )
 
 
 def test_node_run_serialization_exposes_actual_agent_definition() -> None:
@@ -1037,12 +983,12 @@ def test_retry_checkpoints_keep_success_nodes_and_partial_agent_map_only() -> No
         ),
     ]
 
-    checkpoints = _restorable_node_runs(
+    checkpoints = _restorable_checkpoints(
         execution=execution,
         node_runs=node_runs,
     )
 
-    assert [item.node_key for item in checkpoints] == ["evidence", "source_text"]
+    assert [item.node_run.node_key for item in checkpoints] == ["evidence", "source_text"]
 
 
 def test_restored_checkpoint_keeps_source_execution_duration() -> None:
@@ -1121,12 +1067,13 @@ def test_planner_and_scope_router_have_separate_contracts() -> None:
     assert "fact_ids" not in module_schema["required"]
     assert "不负责输出证据路由" in planner["instructions"]
     assert "coordination.assignments" not in planner["instructions"]
-    assert planner["version"] == 3
+    assert planner["version"] == 4
+    assert planner["runtime_config"]["max_turns"] == 6
+    assert planner["runtime_config"]["request_timeout_seconds"] == 360
     assert planner["runtime_config"]["model_route"] == "review"
     assert planner["runtime_config"]["max_output_tokens"] == 12000
     assert planner["runtime_config"]["result_cache"] == {
-        "version": "business-plan-v5-coverage-groups",
-        "accept_legacy": False,
+        "enabled": True,
     }
     assert planner["runtime_config"]["output_postprocessor"] == (
         "testing.validate_business_plan_output"
@@ -1140,8 +1087,7 @@ def test_planner_and_scope_router_have_separate_contracts() -> None:
     assert scope_router["runtime_config"]["disable_server_output_schema"] is True
     assert scope_router["version"] == 2
     assert scope_router["runtime_config"]["result_cache"] == {
-        "version": "planning-scope-routes-v4-fact-refs",
-        "accept_legacy": False,
+        "enabled": True,
     }
     assert scope_router["output_schema"] is PLANNING_SCOPE_ROUTING_AGENT_OUTPUT_SCHEMA
     route_assignment_schema = scope_router["output_schema"]["properties"][
@@ -1398,202 +1344,8 @@ def test_business_plan_drafts_require_complete_fact_coverage_and_compact_merge()
     }
 
 
-def test_business_plan_output_enforces_data_driven_planning_limits() -> None:
-    test_points = [
-        {
-            "name": f"测试点 {index + 1}",
-            "objective": "验证真实业务行为",
-            "test_designs": [
-                {
-                    "technique": "场景法",
-                    "rationale": "覆盖主流程",
-                    "coverage_items": [f"覆盖意图 {index + 1}"],
-                }
-            ],
-        }
-        for index in range(9)
-    ]
-    output = {
-        "requirement_summary": "真实需求",
-        "business_modules": [
-            {
-                "name": "课程学习",
-                "objective": "完成课程学习",
-                "actors": ["学生"],
-                "lifecycle": None,
-                "test_points": test_points,
-            }
-        ],
-        "coverage_focus": ["主流程"],
-        "risks": ["服务异常"],
-    }
-    planning_limits = {
-        "max_business_modules": 4,
-        "max_test_points": 8,
-        "max_test_designs": 8,
-        "max_coverage_items": 20,
-    }
-    partial_plans = [
-        {
-            "batch_number": 1,
-            "batch_count": 1,
-            "draft": {
-                "coverage_focus": ["主流程", "异常路径"],
-                "risks": ["服务异常"],
-            },
-        }
-    ]
-
-    with pytest.raises(ValueError, match="超过动态容量"):
-        validate_business_plan_output(
-            SimpleNamespace(),
-            {
-                "input_payload": {
-                    "planning_limits": planning_limits,
-                    "partial_plans": partial_plans,
-                },
-                "output": output,
-            },
-        )
-
-    valid = deepcopy(output)
-    valid["business_modules"][0]["test_points"] = test_points[:8]
-    assert validate_business_plan_output(
-        SimpleNamespace(),
-        {
-            "input_payload": {
-                "planning_limits": planning_limits,
-                "partial_plans": partial_plans,
-            },
-            "output": valid,
-        },
-    ) == {
-        **valid,
-        "coverage_focus": ["主流程", "异常路径"],
-        "risks": ["服务异常"],
-    }
-
-
-def test_business_plan_rejects_over_budget_coverage_without_rewriting_atomic_items() -> None:
-    output = {
-        "requirement_summary": "真实需求",
-        "business_modules": [
-            {
-                "name": "课程学习",
-                "objective": "完成课程学习",
-                "actors": ["学生"],
-                "lifecycle": None,
-                "test_points": [
-                    {
-                        "name": "主流程",
-                        "objective": "验证学习流程",
-                        "test_designs": [
-                            {
-                                "technique": "场景法",
-                                "rationale": "覆盖主流程",
-                                "coverage_items": ["打开课程", "完成学习", "提交结果"],
-                            }
-                        ],
-                    }
-                ],
-            }
-        ],
-    }
-    with pytest.raises(ValueError, match="超过动态容量"):
-        validate_business_plan_output(
-            SimpleNamespace(artifacts={}),
-            {
-            "input_payload": {
-                "planning_limits": {
-                    "max_business_modules": 4,
-                    "max_test_points": 8,
-                    "max_test_designs": 8,
-                    "max_coverage_items": 2,
-                },
-                "partial_plans": [{"draft": {"coverage_focus": ["主流程"]}}],
-            },
-            "output": output,
-            },
-        )
-    assert output["business_modules"][0]["test_points"][0]["test_designs"][0][
-        "coverage_items"
-    ] == ["打开课程", "完成学习", "提交结果"]
-
-
-def test_business_plan_expands_groups_and_rejects_missing_or_duplicate_groups() -> None:
-    input_payload = {
-        "partial_plans": [{"draft": {"module_candidates": [{}]}}],
-        "planning_metadata": {"coverage_focus": ["主流程"], "risks": []},
-        "coverage_group_catalog": [
-            {
-                "coverage_group_id": "CG-0001",
-                "name": "课程学习",
-                "objective": "验证学生学习课程",
-                "coverage_items": ["验证学生可进入课程", "验证学生完成学习"],
-            },
-            {
-                "coverage_group_id": "CG-0002",
-                "name": "提交作文",
-                "objective": "验证学生可提交作文",
-                "coverage_items": ["验证学生可提交作文"],
-            },
-        ],
-        "planning_limits": {
-            "max_business_modules": 2,
-            "max_test_points": 2,
-            "max_test_designs": 2,
-            "max_coverage_items": 3,
-        },
-    }
-    output = {
-        "requirement_summary": "课程学习与作文提交",
-        "business_modules": [
-            {
-                "name": "课程学习",
-                "objective": "完成课程学习并提交作文",
-                "actors": ["学生"],
-                "lifecycle": None,
-                "test_points": [
-                    {
-                        "name": "学习与提交",
-                        "objective": "验证学习和提交主流程",
-                        "test_designs": [
-                            {
-                                "technique": "场景法",
-                                "rationale": "覆盖主流程",
-                                "coverage_items": ["CG-0001", "CG-0002"],
-                            }
-                        ],
-                    }
-                ],
-            }
-        ],
-    }
-
-    normalized = validate_business_plan_output(
-        SimpleNamespace(),
-        {"input_payload": input_payload, "output": output},
-    )
-    assert normalized["business_modules"][0]["test_points"][0]["test_designs"][0][
-        "coverage_items"
-    ] == ["验证学生可进入课程", "验证学生完成学习", "验证学生可提交作文"]
-    assert normalized["coverage_focus"] == ["主流程"]
-    assert normalized["risks"] == []
-    assert output["business_modules"][0]["test_points"][0]["test_designs"][0][
-        "coverage_items"
-    ] == ["CG-0001", "CG-0002"]
-
-    duplicate = deepcopy(output)
-    duplicate["business_modules"][0]["test_points"][0]["test_designs"][0][
-        "coverage_items"
-    ] = ["CG-0001", "CG-0001"]
-    with pytest.raises(ValueError, match="必须且只能承接一次全部覆盖语义组"):
-        validate_business_plan_output(
-            SimpleNamespace(),
-            {"input_payload": input_payload, "output": duplicate},
-        )
-
-
+# 规划候选与来源边界改由 verify_business_plan_feedback_real_data.py 回放真实 Run 28/29。
+# 旧用例缺少正式覆盖组目录及来源绑定，不能用于维持已移除的兼容输入。
 def test_business_planner_compiles_summary_fields_from_validated_batches() -> None:
     planner = next(
         item
@@ -1765,8 +1517,6 @@ def test_scope_routes_merge_fact_level_primary_and_shared_assignments() -> None:
         "initial_gap_design_item_count": 0,
         "route_repair_record_count": 0,
         "repaired_design_item_count": 0,
-        "removed_unsupported_design_item_count": 0,
-        "unsupported_design_items": [],
         "unmatched_test_design_fact_count": 0,
         "unmatched_test_design_fact_ids": [],
     }
@@ -2224,112 +1974,6 @@ def test_scope_route_gap_review_repairs_missing_design_with_real_fact() -> None:
     assert context.artifacts["planning_fact_routes"]["repaired_design_item_count"] == 1
 
 
-def test_scope_route_gap_review_prunes_unsupported_design_and_reindexes_routes() -> None:
-    plan = {
-        "requirement_summary": "真实需求只定义提交和完成。",
-        "business_modules": [
-            {
-                "name": "学习提交",
-                "objective": "验证学习提交闭环",
-                "actors": ["用户"],
-                "lifecycle": None,
-                "test_points": [
-                    {
-                        "name": "提交结果",
-                        "objective": "验证提交与完成",
-                        "test_designs": [
-                            {
-                                "technique": "场景法",
-                                "rationale": "覆盖真实流程",
-                                "coverage_items": [
-                                    "提交内容",
-                                    "来源未定义的自动退款",
-                                    "完成学习",
-                                ],
-                            }
-                        ],
-                    }
-                ],
-            }
-        ],
-        "coverage_focus": ["提交结果"],
-        "risks": [],
-    }
-    prepared = prepare_planning_scope_routes(
-        SimpleNamespace(),
-        {
-            "planning_scopes": [
-                {
-                    "scope_id": "EV-0001",
-                    "facts": [
-                        {
-                            "fact_id": "F-REAL",
-                            "assertion": "用户提交内容后完成学习。",
-                        }
-                    ],
-                }
-            ],
-            "plan": plan,
-        },
-    )
-    route_records = [
-        {
-            "item_index": 0,
-            "output": {
-                "scope_id": "EV-0001",
-                "assignments": [
-                    {
-                        "fact_id": "F-REAL",
-                        "module_routes": [
-                            _module_route(0, design_indexes=[0, 2])
-                        ],
-                    }
-                ],
-            },
-        }
-    ]
-    repair_input = prepare_planning_route_repairs(
-        SimpleNamespace(),
-        {
-            "plan": plan,
-            "prepared_items": prepared["items"],
-            "route_records": route_records,
-        },
-    )
-    repair_output = {
-        "module_index": 0,
-        "decisions": [
-            {
-                "test_design_item_index": 1,
-                "disposition": "unsupported",
-                "fact_ids": [],
-                "reason": "真实事实没有定义退款行为。",
-            }
-        ],
-    }
-    context = SimpleNamespace(artifacts={})
-
-    merged = merge_planning_scope_routes(
-        context,
-        {
-            "plan": plan,
-            "prepared_items": prepared["items"],
-            "route_records": route_records,
-            "repair_records": [{"item_index": 0, "output": repair_output}],
-        },
-    )
-
-    assert merged["business_modules"][0]["test_points"][0]["test_designs"][0][
-        "coverage_items"
-    ] == ["提交内容", "完成学习"]
-    assert merged["business_modules"][0]["fact_design_routes"] == [
-        {"fact_id": "F-REAL", "test_design_item_indexes": [0, 1]}
-    ]
-    route_artifact = context.artifacts["planning_fact_routes"]
-    assert route_artifact["removed_unsupported_design_item_count"] == 1
-    assert route_artifact["unsupported_design_items"][0]["design_index"] == 1
-
-
 def test_scope_route_gap_review_rejects_unknown_fact_and_unsupported_gap() -> None:
     prepared = {
         "module_index": 0,
@@ -2596,8 +2240,7 @@ def test_source_semantics_contract_uses_compact_anchor_and_canonical_merge() -> 
         "submit_source_semantics"
     ]
     assert text_analyst["runtime_config"]["result_cache"] == {
-        "version": "source-text-semantics-v2-terminal-tool",
-        "accept_legacy": False,
+        "enabled": True,
     }
     assert "必须且只能调用一次 submit_source_semantics" in text_analyst["instructions"]
     assert "禁止使用空对象 {}" in text_analyst["instructions"]
@@ -2692,14 +2335,15 @@ def test_planner_separates_business_modules_from_test_points() -> None:
     assert "平台会在严格校验后展开组内全部原子覆盖意图" in planner_instructions
     assert "planning_limits 对应上限" in planner_instructions
     assert "每个测试点只保留最适用的一种测试方法" in planner_instructions
-    assert "必须且只能调用一次 submit_business_plan" in planner_instructions
+    assert "反馈的冲突位置" in planner_instructions
+    assert "只有完整验收通过才完成本次规划" in planner_instructions
 
 
 def test_no_tool_agent_uses_single_sdk_turn_and_keeps_node_retry_boundary() -> None:
-    assert _effective_max_turns({}, has_tools=False) == 1
-    assert _effective_max_turns({"max_turns": 4}, has_tools=True) == 4
+    assert effective_max_turns({}, has_tools=False) == 1
+    assert effective_max_turns({"max_turns": 4}, has_tools=True) == 4
     with pytest.raises(ValueError, match="无工具 Agent"):
-        _effective_max_turns({"max_turns": 4}, has_tools=False)
+        effective_max_turns({"max_turns": 4}, has_tools=False)
 
 
 def test_dynamic_agent_can_call_specialist_before_terminal_submission() -> None:
@@ -2741,10 +2385,8 @@ def test_case_generator_uses_inline_fact_bindings_without_model_owned_indexes() 
     assert "preconditions 每项只能包含 text 和 fact_ids" in generator["instructions"]
     assert "steps 每项固定为 action、expected、fact_bindings 三个字段" in generator["instructions"]
     assert "authoritative_facts 仍是唯一事实源" in generator["instructions"]
-    assert "coverage_slots 按数组顺序提供每条用例的初始事实负载参考" in generator[
-        "instructions"
-    ]
-    assert "允许按业务语义在用例之间重新分配" in generator["instructions"]
+    assert "coverage_slots" not in generator["instructions"]
+    assert "每条用例的事实组合必须依据真实条件、角色和生命周期确定" in generator["instructions"]
     assert "测试设计项编号由平台依据事实路由确定性派生" in generator[
         "instructions"
     ]
@@ -2778,7 +2420,7 @@ def test_case_generator_uses_inline_fact_bindings_without_model_owned_indexes() 
 
     projection = generator["runtime_config"]["input_projection"]
     assert generator["runtime_config"]["input_projection_version"] == (
-        "generation-model-v6-test-input"
+        "generation-model-v8-semantic-case-allocation"
     )
     assert "requirement" not in projection
     assert "fact_ids" not in projection["plan"]["business_module"]
@@ -2786,7 +2428,7 @@ def test_case_generator_uses_inline_fact_bindings_without_model_owned_indexes() 
     assert "batch_number" not in projection["batch"]
     assert projection["case_fact_contract"] == {
         "required_fact_ids": True,
-        "coverage_slots": {"required_fact_ids": True},
+        "fact_design_item_ids": True,
     }
 
 
@@ -2842,17 +2484,8 @@ def test_batch_repairer_can_redistribute_lifecycle_across_fixed_case_slots() -> 
     assert "repair_scope=cohort" in reviewer["instructions"]
 
 
-def test_final_review_repair_merge_accepts_platform_noop_marker() -> None:
-    merge_tool = next(
-        item
-        for item in BUILTIN_TOOL_SPECS
-        if item["tool_key"] == "merge_final_review_repairs"
-    )
-    repair_output_schema = merge_tool["input_schema"]["properties"]["repair_records"][
-        "items"
-    ]["properties"]["output"]
-
-    assert repair_output_schema["properties"]["review_noop"] == {"type": "boolean"}
+def test_final_review_repair_result_keeps_noop_marker_out_of_model_contract() -> None:
+    assert FINAL_REVIEW_REPAIR_RESULT_SCHEMA["properties"]["review_noop"] == {"type": "boolean"}
     assert "review_noop" not in MODEL_GROUNDING_SCHEMA["properties"]
 
 
@@ -3149,7 +2782,7 @@ def test_local_schema_error_exposes_repairable_candidate_without_schema_dump() -
     assert "期望结构=" not in str(captured.value)
 
 
-def test_local_json_parser_repairs_syntax_only_when_schema_remains_valid() -> None:
+def test_local_json_parser_rejects_structural_syntax_even_when_repair_could_match_schema() -> None:
     schema = {
         "type": "object",
         "properties": {
@@ -3170,17 +2803,13 @@ def test_local_json_parser_repairs_syntax_only_when_schema_remains_valid() -> No
         "additionalProperties": False,
     }
 
-    normalized, final_text = _normalize_final_output(
-        '{"authoritative_facts":[{"fact_id":"F-001" "assertion":"展示投稿入口"}]}',
-        schema,
-    )
+    with pytest.raises(StructuredOutputJSONError) as captured:
+        _normalize_final_output(
+            '{"authoritative_facts":[{"fact_id":"F-001" "assertion":"展示投稿入口"}]}',
+            schema,
+        )
 
-    assert normalized == {
-        "authoritative_facts": [
-            {"fact_id": "F-001", "assertion": "展示投稿入口"},
-        ]
-    }
-    assert json.loads(final_text) == normalized
+    assert captured.value.diagnostic["error_kind"] == "invalid_json_syntax"
 
 
 def test_local_json_parser_does_not_accept_repair_that_violates_schema() -> None:
@@ -3385,7 +3014,9 @@ def test_sdk_hidden_retry_is_rejected() -> None:
 def test_builtin_no_tool_agents_declare_their_real_single_turn_limit() -> None:
     for spec in BUILTIN_AGENT_SPECS:
         runtime_config = spec["runtime_config"]
-        if not runtime_config.get("tool_keys") and not runtime_config.get("subagent_keys"):
+        generated_submission = (runtime_config.get("validate_before_submit")
+                                and "submit_result" in runtime_config.get("stop_at_tool_keys", []))
+        if not runtime_config.get("tool_keys") and not runtime_config.get("subagent_keys") and not generated_submission:
             assert spec["runtime_config"]["max_turns"] == 1
 
 
@@ -3591,7 +3222,7 @@ def test_tool_argument_normalizer_decodes_only_schema_declared_structures() -> N
     assert normalized["note"] == value["note"]
 
 
-def test_tool_argument_normalizer_repairs_json_encoded_structure_syntax() -> None:
+def test_tool_argument_normalizer_retains_malformed_encoded_structure_for_schema_feedback() -> None:
     normalized = _normalize_json_encoded_schema_values(
         {
             "test_cases": (
@@ -3609,9 +3240,7 @@ def test_tool_argument_normalizer_repairs_json_encoded_structure_syntax() -> Non
         },
     )
 
-    assert normalized["test_cases"] == [
-        {"title": "复制全文", "expected": '弹出toast提示"复制成功"'}
-    ]
+    assert normalized["test_cases"] == '[{"title":"复制全文","expected":"弹出toast提示"复制成功""}]'
 
 
 def test_function_tool_rejects_invalid_handler_output_as_platform_contract_error(

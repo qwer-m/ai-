@@ -8,6 +8,7 @@ from core.authn.auth import get_current_user
 from core.db.database import get_db
 from core.db.model_defs import User
 from modules.domain.knowledge_base import knowledge_base
+from modules.system_components.repositories.project_repository import ProjectRepository
 from modules.knowledge_base_components.document.index_audit import run_index_consistency_audit
 from modules.knowledge_base_components.repositories.knowledge_document_repository import (
     KnowledgeDocumentRepository,
@@ -33,7 +34,6 @@ from routers.system.common_support import (
     RelationUpdateRequest,
     RetrieveContextRequest,
     _get_owned_doc,
-    _get_owned_project,
     _serialize_doc,
     extract_error_text,
     translate_error_text,
@@ -62,7 +62,7 @@ def list_knowledge(
 
     默认隐藏已关联测试用例（source_doc_id 非空）。
     """
-    project = _get_owned_project(project_id, current_user.id, db)
+    project = ProjectRepository(db).get_owned_project(project_id=project_id, user_id=current_user.id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -109,7 +109,7 @@ async def upload_knowledge(
     current_user: User = Depends(get_current_user),
 ):
     """上传知识库文件并入队离线解析。"""
-    project = _get_owned_project(project_id, current_user.id, db)
+    project = ProjectRepository(db).get_owned_project(project_id=project_id, user_id=current_user.id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -215,7 +215,7 @@ def trigger_index_consistency_audit(
     - 不传：巡检当前用户可见范围（异步任务由 user_id 过滤）。
     """
     if project_id is not None:
-        project = _get_owned_project(project_id, current_user.id, db)
+        project = ProjectRepository(db).get_owned_project(project_id=project_id, user_id=current_user.id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
@@ -247,7 +247,7 @@ def get_index_consistency_report(
     同步获取索引一致性巡检报告（轻量排障入口）。
     """
     if project_id is not None:
-        project = _get_owned_project(project_id, current_user.id, db)
+        project = ProjectRepository(db).get_owned_project(project_id=project_id, user_id=current_user.id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
     return run_index_consistency_audit(
@@ -272,7 +272,7 @@ def retrieve_knowledge_context(
     3. 稳定性收口后，debug 还会返回 attempt_count/attempts/final_status，
        用于定位“首次失败、重试恢复”与“重试后降级为空上下文”的场景。
     """
-    project = _get_owned_project(req.project_id, current_user.id, db)
+    project = ProjectRepository(db).get_owned_project(project_id=req.project_id, user_id=current_user.id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -338,7 +338,7 @@ def move_knowledge(
     current_user: User = Depends(get_current_user),
 ):
     """拖拽调整知识库文档顺序。"""
-    project = _get_owned_project(req.project_id, current_user.id, db)
+    project = ProjectRepository(db).get_owned_project(project_id=req.project_id, user_id=current_user.id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 

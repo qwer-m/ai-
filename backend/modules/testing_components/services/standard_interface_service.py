@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from core.ai.ai_client import get_client_for_user
 from core.db.model_defs import StandardInterface
+from modules.system_components.repositories.project_repository import ProjectRepository
 from modules.testing_components.repositories.standard_interface_repository import (
     StandardInterfaceRepository,
 )
@@ -16,6 +17,7 @@ class StandardInterfaceService:
 
     def __init__(self, db):
         self.repo = StandardInterfaceRepository(db)
+        self.projects = ProjectRepository(db)
         self._db = db
 
     def list_interfaces(self, *, user_id: int, project_id: Optional[int] = None) -> list[StandardInterface]:
@@ -28,7 +30,7 @@ class StandardInterfaceService:
         user_id: int,
     ) -> tuple[Optional[StandardInterface], str]:
         project_id = payload.get("project_id")
-        if project_id and not self.repo.get_owned_project(project_id=project_id, user_id=user_id):
+        if project_id and not self.projects.get_owned_project(project_id=project_id, user_id=user_id):
             return None, "project_not_found"
 
         row = StandardInterface(**payload, user_id=user_id)
@@ -50,7 +52,7 @@ class StandardInterfaceService:
 
         if "project_id" in payload:
             project_id = payload.get("project_id")
-            if project_id and not self.repo.get_owned_project(project_id=project_id, user_id=user_id):
+            if project_id and not self.projects.get_owned_project(project_id=project_id, user_id=user_id):
                 return None, "project_not_found"
 
         for key, value in payload.items():

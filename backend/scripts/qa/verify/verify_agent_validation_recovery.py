@@ -16,15 +16,15 @@ from core.db.database import SessionLocal
 from core.db.model_defs import AgentDefinition, AgentNodeRun, AgentRun, AgentWorkflowDefinition
 from modules.agent_platform.contracts import parse_execution_definition
 from modules.agent_platform.registry import ToolExecutionContext, runtime_registry_signature
+from modules.agent_platform.run_repository import AgentRunRepository
 from modules.agent_platform.runtime import (
     _agent_map_item_retry_feedback,
     _agent_map_output_diagnostic,
     _agent_map_repair_context,
     _payload_hash,
-    _postprocess_agent_map_output,
     _restored_agent_retry_context,
 )
-from modules.agent_platform.sdk_adapter import AgentExecutionResult
+from modules.agent_platform.sdk_adapter import AgentExecutionResult, postprocess_agent_map_output
 from modules.agent_platform.service import _has_restorable_repair_state
 
 
@@ -58,7 +58,7 @@ def main() -> None:
                 if spec.node_type != "agent_map":
                     continue
                 definition = db.get(AgentDefinition, node_run.agent_definition_id)
-                inputs = node_run.input_payload[spec.map_config.items_key]
+                inputs = AgentRunRepository(db).read_node_input(node_run)[spec.map_config.items_key]
                 context = ToolExecutionContext(
                     db=db, user_id=run.user_id, project_id=run.project_id,
                     run_id=run.id, node_key=node_run.node_key,
@@ -71,7 +71,7 @@ def main() -> None:
                     assert isinstance(record["output"], dict)
                     report["stored_records_checked"] += 1
                     if options.revalidate_stored_output:
-                        output = _postprocess_agent_map_output(
+                        output = postprocess_agent_map_output(
                             config=spec.map_config, definition=definition, execution_context=context,
                             item_input=item_input, item_output=deepcopy(record["output"]),
                         )
@@ -99,7 +99,7 @@ def main() -> None:
                             usage=state.get("usage") or {}, tool_calls=state.get("tool_calls") or [],
                         )
                         try:
-                            _postprocess_agent_map_output(
+                            postprocess_agent_map_output(
                                 config=spec.map_config, definition=definition, execution_context=context,
                                 item_input=item_input, item_output=deepcopy(candidate),
                             )

@@ -7,8 +7,8 @@ import {
   getActiveAgentRun,
   getAgentCatalog,
   getAgentRun,
+  getAgentRuns,
   getGenerationReuseCandidate,
-  getLatestAgentRun,
   getRequirementDocumentParseStatus,
   listRequirementDocuments,
   resetAgentRunAttempt,
@@ -231,7 +231,9 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
       // 优先恢复活动运行；没有活动运行时，保留最近一次生成的结果及失败续跑入口。
       const restoredRun = activeRunResponse.run
         ? (await getAgentRun(activeRunResponse.run.id)).run
-        : workflow ? (await getLatestAgentRun(projectId, workflow.workflow_key)).run : null;
+        : workflow
+          ? (await getAgentRuns(projectId, { workflowKey: workflow.workflow_key, limit: 1 }))[0] ?? null
+          : null;
       if (!isCurrentScope(scope)) return;
       setCatalog(catalogResponse);
       if (documentRequestId === documentRequestRef.current) {
