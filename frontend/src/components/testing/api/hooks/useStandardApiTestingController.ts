@@ -1,7 +1,7 @@
 ﻿import { useRef, useState } from 'react';
 import { useInterfaceCrud } from '../../../standard-api-testing/hooks/useInterfaceCrud';
 import { useInterfaceEditor } from '../../../standard-api-testing/hooks/useInterfaceEditor';
-import { translateError } from '../../../standard-api-testing/utils/requestUi';
+import { translateError } from '../../../../utils/api';
 import type { SavedInterface, StandardAPITestingProps } from '../../../standard-api-testing/utils/types';
 import { useApiTestingEnvironment } from './useApiTestingEnvironment';
 import { useApiTestingInterfaceTree } from './useApiTestingInterfaceTree';

@@ -28,7 +28,7 @@ def _can_record_dispatched_task(run: Any, task_id: str) -> bool:
     status = str(getattr(run, "status", "") or "")
     claim_token = str(getattr(run, "claim_token", "") or "")
     return (status == "pending" and not claim_token) or (
-        status == "running" and claim_token == task_id
+        status == "running" and str(getattr(run, "task_id", "") or "") == task_id
     )
 
 

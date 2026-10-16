@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable
 
@@ -15,6 +16,7 @@ from core.db.model_defs import (
     AgentWorkflowDefinition,
 )
 from core.settings.config import settings
+from modules.knowledge_base_components.repositories.knowledge_document_repository import KnowledgeDocumentRepository
 from modules.system_components.repositories.project_repository import ProjectRepository
 from .contracts import (
     AgentProgramDefinition,
@@ -31,6 +33,7 @@ from .context_compression import (
 )
 from .run_repository import AgentRunRepository
 from .definition_repository import AgentDefinitionRepository
+from .input_snapshots import restore_node_input
 from .lifecycle import ACTIVE_RUN_STATUSES, TERMINAL_RUN_STATUSES, transition_run
 from .results import persisted_test_generation_result
 from .sources import (
@@ -133,13 +136,15 @@ def _has_restorable_repair_state(state: Any) -> bool:
     )
 
 
-def _has_restorable_node_repair_state(node: Any, node_run: AgentNodeRun) -> bool:
+def _has_restorable_node_repair_state(
+    node: Any, node_run: AgentNodeRun, *, load_node: Callable[[int], Any | None] | None = None,
+) -> bool:
     state = dict(node_run.sdk_state or {})
     if node.node_type in {"agent", "agent_network"}:
         return _has_restorable_repair_state(state)
     if node.node_type != "agent_map" or node.map_config is None:
         return False
-    raw_items = dict(node_run.input_payload or {}).get(node.map_config.items_key)
+    raw_items = restore_node_input(node_run, load_node).get(node.map_config.items_key)
     if not isinstance(raw_items, list):
         return False
     item_states = state.get("items")
@@ -158,14 +163,25 @@ def _has_restorable_node_repair_state(node: Any, node_run: AgentNodeRun) -> bool
     return False
 
 
-def _restorable_node_runs(
+@dataclass(frozen=True)
+class _RestorableCheckpoint:
+    """恢复计划同时保留修复和部分完成标志，两种情况可以发生在同一节点。"""
+
+    node_run: AgentNodeRun
+    has_repair_state: bool = False
+    has_partial_map_output: bool = False
+    has_action_checkpoint: bool = False
+
+
+def _restorable_checkpoints(
     *,
     execution: WorkflowGraph,
     node_runs: list[AgentNodeRun],
-) -> list[AgentNodeRun]:
+) -> list[_RestorableCheckpoint]:
     """选择可安全迁移到重试 Run 的阶段检查点。"""
 
     node_types = {node.node_key: node.node_type for node in execution.nodes}
+    nodes_by_id = {item.id: item for item in node_runs}
     latest_by_key: dict[str, AgentNodeRun] = {}
     for node_run in node_runs:
         expected_type = node_types.get(str(node_run.node_key))
@@ -178,24 +194,25 @@ def _restorable_node_runs(
         ):
             latest_by_key[str(node_run.node_key)] = node_run
 
-    checkpoints: list[AgentNodeRun] = []
+    checkpoints: list[_RestorableCheckpoint] = []
     for node in execution.execution_order():
         node_run = latest_by_key.get(node.node_key)
         if node_run is None:
             continue
         if node_run.status == "success":
-            checkpoints.append(node_run)
+            checkpoints.append(_RestorableCheckpoint(node_run))
             continue
-        if _has_restorable_node_repair_state(node, node_run):
-            checkpoints.append(node_run)
-            continue
-        if node.node_type != "agent_map":
-            continue
-        output = dict(node_run.output_payload or {})
-        output_key = node.map_config.output_key if node.map_config is not None else "items"
-        completed = output.get(output_key)
-        if isinstance(completed, list) and completed:
-            checkpoints.append(node_run)
+        has_repair_state = _has_restorable_node_repair_state(node, node_run, load_node=nodes_by_id.get)
+        has_partial_map_output = False
+        action_checkpoint = dict(node_run.sdk_state or {}).get("action_checkpoint")
+        has_action_checkpoint = node.node_type == "agent_network" and isinstance(action_checkpoint, dict)
+        if node.node_type == "agent_map" and node.map_config is not None:
+            completed = dict(node_run.output_payload or {}).get(node.map_config.output_key)
+            has_partial_map_output = isinstance(completed, list) and bool(completed)
+        if has_repair_state or has_partial_map_output or has_action_checkpoint:
+            checkpoints.append(_RestorableCheckpoint(
+                node_run, has_repair_state, has_partial_map_output, has_action_checkpoint,
+            ))
     return checkpoints
 
 
@@ -223,6 +240,34 @@ def _restored_checkpoint_sdk_state(checkpoint: AgentNodeRun) -> dict[str, Any]:
     return state
 
 
+def _restore_checkpoint_node(
+    repo: AgentRunRepository, *, checkpoint: AgentNodeRun, run_id: int,
+) -> AgentNodeRun:
+    """继承检查点时先展开父输入，再仅引用本轮已复制的成功输出。"""
+    status = "success" if checkpoint.status == "success" else "failed"
+    restored = AgentNodeRun(
+        run_id=run_id,
+        node_key=checkpoint.node_key,
+        node_type=checkpoint.node_type,
+        agent_definition_id=checkpoint.agent_definition_id,
+        tool_definition_id=checkpoint.tool_definition_id,
+        status=status,
+        # 继承检查点尚未执行，不能消耗新运行的节点重试预算。
+        attempt=0,
+        input_payload={},
+        output_payload=deepcopy(checkpoint.output_payload or {}),
+        sdk_state=_restored_checkpoint_sdk_state(checkpoint),
+        error_message="" if status == "success" else "从父运行恢复执行检查点",
+        started_at=datetime.utcnow(),
+        finished_at=datetime.utcnow(),
+    )
+    repo.write_node_input(restored, repo.read_node_input(checkpoint))
+    repo.db.add(restored)
+    # 后续检查点的引用需要本轮节点主键，逐节点落入当前事务。
+    repo.db.flush()
+    return restored
+
+
 class AgentPlatformService:
     def __init__(
         self,
@@ -231,6 +276,7 @@ class AgentPlatformService:
     ) -> None:
         self.db: Session = db
         self.projects: ProjectRepository = ProjectRepository(db)
+        self.documents = KnowledgeDocumentRepository(db)
         self.runs: AgentRunRepository = AgentRunRepository(db)
         self.definitions: AgentDefinitionRepository = AgentDefinitionRepository(db)
         self._start_worker = worker_starter
@@ -450,9 +496,9 @@ class AgentPlatformService:
     ) -> tuple[dict[str, Any] | None, str]:
         if self.projects.get_owned_project(project_id=project_id, user_id=user_id) is None:
             return None, "project_not_found"
-        document = self.runs.get_project_document(
+        document = self.documents.get_project_doc(
             project_id=project_id,
-            document_id=requirement_doc_id,
+            doc_id=requirement_doc_id,
         )
         if document is None:
             return None, "document_not_found"
@@ -463,10 +509,11 @@ class AgentPlatformService:
         if workflow is None:
             return None, "workflow_not_found"
         try:
+            current_source = SourceSnapshot.from_document(document)
             run = latest_successful_run_for_source(
                 self.runs,
                 project_id=project_id, user_id=user_id,
-                workflow_key=workflow_key, requirement_doc_id=requirement_doc_id,
+                workflow_key=workflow_key, source=current_source,
             )
         except ValueError as exc:
             return None, f"invalid_run_input:{exc}"
@@ -545,7 +592,7 @@ class AgentPlatformService:
             source=source,
         )
         checkpoints = (
-            _restorable_node_runs(
+            _restorable_checkpoints(
                 execution=execution,
                 node_runs=self.runs.list_node_runs(run_id=run.id),
             )
@@ -553,7 +600,7 @@ class AgentPlatformService:
             else []
         )
         successful_output_count = sum(
-            node_run.status == "success" for node_run in checkpoints
+            item.node_run.status == "success" for item in checkpoints
         )
         if checkpoints:
             retry_context["artifacts"] = deepcopy(
@@ -573,50 +620,16 @@ class AgentPlatformService:
         )
         self.db.add(retry)
         self.db.flush()
-        partial_map_count = 0
-        repair_node_count = 0
-        nodes_by_key = (
-            {node.node_key: node for node in execution.nodes}
-            if isinstance(execution, WorkflowGraph)
-            else {}
-        )
-        for checkpoint in checkpoints:
-            restored_status = "success" if checkpoint.status == "success" else "failed"
-            if restored_status == "failed":
-                node = nodes_by_key[checkpoint.node_key]
-                if _has_restorable_node_repair_state(node, checkpoint):
-                    repair_node_count += 1
-                if node.node_type == "agent_map" and node.map_config is not None:
-                    completed = dict(checkpoint.output_payload or {}).get(
-                        node.map_config.output_key
-                    )
-                    partial_map_count += int(isinstance(completed, list) and bool(completed))
-            self.db.add(
-                AgentNodeRun(
-                    run_id=retry.id,
-                    node_key=checkpoint.node_key,
-                    node_type=checkpoint.node_type,
-                    agent_definition_id=checkpoint.agent_definition_id,
-                    tool_definition_id=checkpoint.tool_definition_id,
-                    status=restored_status,
-                    # 继承检查点尚未在本次运行执行，不能消耗新运行的节点重试预算。
-                    attempt=0,
-                    input_payload=deepcopy(checkpoint.input_payload or {}),
-                    output_payload=deepcopy(checkpoint.output_payload or {}),
-                    sdk_state=_restored_checkpoint_sdk_state(checkpoint),
-                    error_message=(
-                        "" if restored_status == "success" else "从父运行恢复执行检查点"
-                    ),
-                    started_at=datetime.utcnow(),
-                    finished_at=datetime.utcnow(),
-                )
-            )
-        self.db.flush()
+        partial_map_count = sum(item.has_partial_map_output for item in checkpoints)
+        repair_node_count = sum(item.has_repair_state for item in checkpoints)
+        for item in checkpoints:
+            _restore_checkpoint_node(self.runs, checkpoint=item.node_run, run_id=retry.id)
         restored_payload = {
             "restored_node_count": len(checkpoints),
             "restored_success_count": successful_output_count,
             "restored_partial_map_count": partial_map_count,
             "restored_repair_node_count": repair_node_count,
+            "restored_action_node_count": sum(item.has_action_checkpoint for item in checkpoints),
         }
         self.runs.append_event(
             run_id=run.id,
@@ -726,12 +739,6 @@ class AgentPlatformService:
             error_message=f"审批拒绝: {decision.reason}".strip(),
             actor_user_id=user_id, node_run_id=approval.node_run_id,
         )
-        node_run = self.db.get(AgentNodeRun, approval.node_run_id)
-        if node_run is not None:
-            node_run.status = "failed"
-            node_run.error_message = run.error_message
-            node_run.finished_at = datetime.utcnow()
-            self.db.add(node_run)
         self.db.add(approval)
         self.db.add(run)
         self.db.commit()

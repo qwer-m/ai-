@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -26,6 +27,7 @@ DEFAULT_DOCUMENT_ASSET_DIR = BACKEND_ROOT / "runtime" / "knowledge_assets"
 MANIFEST_VERSION = 3
 PAGE_TAIL_BAND_START = 0.60
 PAGE_HEAD_BAND_END = 0.40
+_MAX_DOCUMENT_DETAIL_SIDE = 4096
 
 
 _ORDERED_MARKER_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -1095,6 +1097,113 @@ def document_page_layout(document_id: int, page_number: int) -> list[dict[str, A
     return [dict(item) for item in list(page.get("blocks") or [])]
 
 
+def _document_source_bytes(document_id: int, manifest: dict[str, Any]) -> bytes:
+    """只读取与当前资产指纹一致的原文件，防止派生布局串入其他修订。"""
+
+    asset_dir = _document_dir(document_id).resolve()
+    source_path = (asset_dir / str(manifest.get("source_path") or "")).resolve()
+    if asset_dir not in source_path.parents or not source_path.is_file():
+        raise FileNotFoundError("原文件不存在或超出文档资产目录")
+    source_bytes = source_path.read_bytes()
+    if hashlib.sha256(source_bytes).hexdigest() != manifest.get("source_sha256"):
+        raise ValueError("原文件指纹与文档资产不一致")
+    return source_bytes
+
+
+def _page_table_layouts(page: Any, blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """将真实表格网格关联到已有文本 run，不猜测业务列名或改写正文。"""
+
+    runs: list[dict[str, Any]] = []
+    for block in blocks:
+        if block.get("type") != "text_line":
+            continue
+        block_start = int(block["source_span"]["start"])
+        for run in block.get("text_runs") or []:
+            span = dict(run["source_span"])
+            text = str(run["text"])
+            start, end = int(span["start"]), int(span["end"])
+            if (
+                start < block_start
+                or end > int(block["source_span"]["end"])
+                or str(block["text"])[start - block_start : end - block_start] != text
+                or run.get("asset_source_sha256") != block.get("asset_source_sha256")
+            ):
+                raise ValueError(f"表格文字与原始布局不一致: run_id={run.get('run_id')}")
+            runs.append({"block_id": str(block["block_id"]), "run": run})
+    result: list[dict[str, Any]] = []
+    tables = sorted(page.find_tables(), key=lambda table: (table.bbox[1], table.bbox[0]))
+    for table_index, table in enumerate(tables, start=1):
+        page_left, page_top, page_right, page_bottom = page.bbox
+        left, top, right, bottom = table.bbox
+        if not (page_left <= left < right <= page_right and page_top <= top < bottom <= page_bottom):
+            # PDF 可保留分页前的整幅绘图路径；页外闭合边框不是本页真实表格，
+            # 不能裁成大单元格后把正文、独立表格和批注混在同一行列关系中。
+            continue
+        divided_rows = [
+            index for index, row in enumerate(table.rows)
+            if sum(cell is not None for cell in row.cells) > 1
+        ]
+        if not divided_rows:
+            # 单列背景框没有列关系，不能把整页提示卡当作表头反复带入分片。
+            continue
+        grid_rows = table.rows[divided_rows[0] : divided_rows[-1] + 1]
+        rows: list[dict[str, Any]] = []
+        for row_index, row in enumerate(grid_rows):
+            cells: list[dict[str, Any]] = []
+            for column_index, cell in enumerate(row.cells):
+                if cell is None:
+                    continue
+                x0, top, x1, bottom = cell
+                segments: list[dict[str, Any]] = []
+                for record in runs:
+                    run = record["run"]
+                    box = run["source_bbox"]
+                    center_x = (float(box["x0"]) + float(box["x1"])) / 2
+                    center_y = (float(box["top"]) + float(box["bottom"])) / 2
+                    if x0 <= center_x < x1 and top <= center_y < bottom:
+                        # 文本 run 跨越网格线时不能凭中心点替它选择业务列。
+                        if float(box["x0"]) < x0 - 1 or float(box["x1"]) > x1 + 1:
+                            raise ValueError(f"表格文本跨越单元格边界: run_id={run.get('run_id')}")
+                        segments.append({
+                            "block_id": record["block_id"],
+                            "text": str(run["text"]),
+                            "original_source_span": dict(run["source_span"]),
+                        })
+                segments.sort(key=lambda segment: int(segment["original_source_span"]["start"]))
+                cells.append({"column_index": column_index, "segments": segments})
+            rows.append({"row_index": row_index, "cells": cells})
+        if any(cell["segments"] for row in rows for cell in row["cells"]):
+            result.append({"table_id": f"P{int(page.page_number):04d}-GRID{table_index:04d}", "rows": rows})
+    return result
+
+
+def document_table_layouts(document_id: int) -> dict[int, list[dict[str, Any]]]:
+    """只读解析同一 PDF 修订的表格，复用现有文本坐标且不重建文档资产。"""
+
+    manifest = load_document_manifest(document_id)
+    if manifest.get("media_type") != "application/pdf":
+        return {}
+    source_bytes = _document_source_bytes(document_id, manifest)
+    result: dict[int, list[dict[str, Any]]] = {}
+    with pdfplumber.open(io.BytesIO(source_bytes)) as pdf:
+        if len(pdf.pages) != int(manifest["page_count"]):
+            raise ValueError("表格原 PDF 页数与资产清单不一致")
+        for page in pdf.pages:
+            recorded_page = _manifest_page(manifest, int(page.page_number))
+            if any(
+                block.get("asset_source_sha256") != manifest["source_sha256"]
+                for block in recorded_page["blocks"]
+            ):
+                raise ValueError("表格页面布局与原 PDF 指纹不一致")
+            if not (
+                math.isclose(float(page.width), float(recorded_page["media_width"]), abs_tol=0.001)
+                and math.isclose(float(page.height), float(recorded_page["media_height"]), abs_tol=0.001)
+            ):
+                raise ValueError("表格原 PDF 页面尺寸与布局资产不一致")
+            result[int(page.page_number)] = _page_table_layouts(page, list(recorded_page["blocks"]))
+    return result
+
+
 def document_page_image_path(document_id: int, page_number: int) -> Path:
     manifest = load_document_manifest(document_id)
     page = _manifest_page(manifest, page_number)
@@ -1103,6 +1212,142 @@ def document_page_image_path(document_id: int, page_number: int) -> Path:
     if asset_dir not in path.parents or not path.is_file():
         raise FileNotFoundError(f"页面图像资产不存在: page_number={int(page_number)}")
     return path
+
+
+def _render_document_image_detail(
+    pdf_page: Any,
+    layout_page: Any,
+    block: dict[str, Any],
+    source_image: dict[str, Any],
+    *,
+    minimum_scale: float,
+) -> dict[str, Any]:
+    """按真实嵌图像素密度重渲染原 PDF 局部，保留区域内文字、遮罩和批注。"""
+
+    page_width, page_height = pdf_page.get_size()
+    if not (
+        math.isclose(page_width, float(layout_page.width), abs_tol=0.001)
+        and math.isclose(page_height, float(layout_page.height), abs_tol=0.001)
+    ):
+        raise ValueError("PDF 渲染页面与版式页面尺寸不一致")
+    original_bbox = {
+        "x0": float(source_image["x0"]),
+        "top": float(source_image["top"]),
+        "x1": float(source_image["x1"]),
+        "bottom": float(source_image["bottom"]),
+    }
+    bbox = _normalized_bbox(
+        **original_bbox,
+        page_width=float(layout_page.width),
+        page_height=float(layout_page.height),
+    )
+    if bbox != block.get("bbox"):
+        raise ValueError(f"图片块区域与原 PDF 不一致: block_id={block.get('block_id')}")
+    left = max(0.0, original_bbox["x0"])
+    top = max(0.0, original_bbox["top"])
+    right = min(page_width, original_bbox["x1"])
+    bottom = min(page_height, original_bbox["bottom"])
+    region_width, region_height = right - left, bottom - top
+    native_size = source_image.get("srcsize")
+    if (
+        not isinstance(native_size, (tuple, list))
+        or len(native_size) != 2
+        or any(not isinstance(value, (int, float)) or value <= 0 for value in native_size)
+        or region_width <= 0
+        or region_height <= 0
+    ):
+        raise ValueError(f"原 PDF 图片尺寸无效: block_id={block.get('block_id')}")
+    image_width = original_bbox["x1"] - original_bbox["x0"]
+    image_height = original_bbox["bottom"] - original_bbox["top"]
+    native_scale = max(float(native_size[0]) / image_width, float(native_size[1]) / image_height)
+    scale = min(
+        max(minimum_scale, native_scale),
+        _MAX_DOCUMENT_DETAIL_SIDE / max(region_width, region_height),
+    )
+    if not math.isfinite(scale) or scale <= 0:
+        raise ValueError(f"原 PDF 图片渲染比例无效: block_id={block.get('block_id')}")
+    crop = (left, page_height - bottom, page_width - right, top)
+    # 中文注释：直接渲染源 PDF 的裁剪区域，不能放大已经丢失字形细节的页面 PNG。
+    bitmap = pdf_page.render(scale=scale, crop=crop, draw_annots=True)
+    try:
+        with bitmap.to_pil() as image:
+            width, height = image.size
+            if max(width, height) > _MAX_DOCUMENT_DETAIL_SIDE:
+                raise ValueError("图片局部渲染结果超出像素上限")
+            output = io.BytesIO()
+            image.save(output, format="PNG")
+            image_bytes = output.getvalue()
+    finally:
+        bitmap.close()
+    return {
+        "block_id": str(block["block_id"]),
+        "bbox": bbox,
+        "image_bytes": image_bytes,
+        "media_type": "image/png",
+        "width": width,
+        "height": height,
+        "sha256": hashlib.sha256(image_bytes).hexdigest(),
+    }
+
+
+def document_page_image_details(
+    document_id: int,
+    page_number: int,
+    block_ids: list[str],
+) -> list[dict[str, Any]]:
+    """按调用方实际声明的图片块读取源分辨率局部图，不修改文档资产或业务数据。"""
+
+    if not isinstance(block_ids, list) or any(
+        not isinstance(block_id, str) or not block_id.strip() for block_id in block_ids
+    ):
+        raise ValueError("图片局部读取的 block_ids 必须是非空字符串数组")
+    if len(block_ids) != len(set(block_ids)):
+        raise ValueError("图片局部读取的 block_ids 不能重复")
+    if not block_ids:
+        return []
+    manifest = load_document_manifest(document_id)
+    page = _manifest_page(manifest, page_number)
+    source_hash = str(manifest.get("source_sha256") or "")
+    blocks = {str(block.get("block_id") or ""): block for block in list(page.get("blocks") or [])}
+    for block_id in block_ids:
+        block = blocks.get(block_id)
+        if block is None or block.get("type") != "image":
+            raise ValueError(f"图片局部读取必须引用当前页真实 image 块: block_id={block_id}")
+        if str(block.get("asset_source_sha256") or "") != source_hash:
+            raise ValueError(f"图片块与文档资产指纹不一致: block_id={block_id}")
+    source_bytes = _document_source_bytes(document_id, manifest)
+    if manifest.get("media_type") != "application/pdf":
+        raise ValueError("图片局部读取只接受有真实 PDF 页面资产的文档")
+    minimum_scale = float(page.get("render_scale") or 0)
+    if not math.isfinite(minimum_scale) or minimum_scale <= 0:
+        raise ValueError("页面资产缺少有效渲染比例")
+    import pypdfium2 as pdfium
+
+    with pdfplumber.open(io.BytesIO(source_bytes)) as layout_pdf, pdfium.PdfDocument(source_bytes) as pdf:
+        page_index = int(page_number) - 1
+        if page_index < 0 or page_index >= len(pdf) or page_index >= len(layout_pdf.pages):
+            raise ValueError("图片局部读取的页码超出原 PDF 范围")
+        layout_page = layout_pdf.pages[page_index]
+        source_images = {
+            f"P{int(page_number):04d}-I{index:04d}": image
+            for index, image in enumerate(list(layout_page.images or []), start=1)
+        }
+        if any(block_id not in source_images for block_id in block_ids):
+            raise ValueError("图片块不存在于原 PDF 的真实页面布局中")
+        pdf_page = pdf[page_index]
+        try:
+            return [
+                _render_document_image_detail(
+                    pdf_page,
+                    layout_page,
+                    blocks[block_id],
+                    source_images[block_id],
+                    minimum_scale=minimum_scale,
+                )
+                for block_id in block_ids
+            ]
+        finally:
+            pdf_page.close()
 
 
 def _query_terms(query: str) -> list[str]:

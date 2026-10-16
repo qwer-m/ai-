@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import { Alert } from 'react-bootstrap';
-import { listRagDatasetSamples, ragSingleDebugRequest, translateError } from '../state/evaluationService';
+import { listRagDatasetSamples, ragSingleDebugRequest } from '../state/evaluationService';
+import { translateError } from '../../../utils/api';
 import { RagDebugControlsCard } from './console/RagDebugControlsCard';
 import { RagDebugResultBoard } from './console/RagDebugResultBoard';
 import type { RagDatasetRow } from './shared/types';

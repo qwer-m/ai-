@@ -105,14 +105,7 @@ body.ui-overhaul-v4 .dashboard-log-stream-body .text-break {
 }
 
 body.theme-dark.ui-overhaul-v4 .dashboard-log-shell {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--fd-surface) 94%, #0f172a), color-mix(in srgb, var(--fd-surface-soft) 92%, #0b1220));
   box-shadow: 0 -14px 26px rgba(2, 6, 23, 0.42);
-}
-
-body.theme-dark.ui-overhaul-v4 .dashboard-log-header,
-body.theme-dark.ui-overhaul-v4 .dashboard-log-toolbar {
-  border-bottom-color: color-mix(in srgb, var(--fd-border) 95%, transparent) !important;
-  background: color-mix(in srgb, var(--fd-surface-soft) 92%, #0f172a) !important;
 }
 
 body.theme-dark.ui-overhaul-v4 .dashboard-log-tabs .dashboard-log-tab-link {
@@ -124,13 +117,6 @@ body.theme-dark.ui-overhaul-v4 .dashboard-log-tabs .show > .dashboard-log-tab-li
   color: color-mix(in srgb, var(--fd-text) 88%, #b9cae1) !important;
   background: color-mix(in srgb, var(--fd-surface) 90%, #101827) !important;
   border-color: color-mix(in srgb, var(--fd-border) 95%, transparent) color-mix(in srgb, var(--fd-border) 95%, transparent) color-mix(in srgb, var(--fd-surface) 90%, #101827) !important;
-}
-
-body.theme-dark.ui-overhaul-v4 .dashboard-log-stream-body {
-  border-top-color: color-mix(in srgb, var(--fd-border) 95%, transparent);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--fd-surface-soft) 88%, #0b1220), color-mix(in srgb, var(--fd-surface) 92%, #101827)),
-    repeating-linear-gradient(180deg, transparent 0, transparent 28px, rgba(148, 163, 184, 0.05) 28px, rgba(148, 163, 184, 0.05) 29px);
 }
 
 /* Dark mode: pure black canvas. */

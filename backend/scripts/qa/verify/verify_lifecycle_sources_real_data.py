@@ -101,7 +101,7 @@ def verify_sources(
     reusable = latest_successful_run_for_source(
         online_repo,
         project_id=selected.project_id, user_id=selected.user_id,
-        workflow_key=workflow.workflow_key, requirement_doc_id=document.id,
+        workflow_key=workflow.workflow_key, source=current,
     )
     if reusable is not None:
         reused_source = persisted_source_snapshot(reusable)
@@ -114,7 +114,7 @@ def verify_sources(
         before = latest_successful_run_for_source(
             repo,
             project_id=selected.project_id, user_id=selected.user_id,
-            workflow_key=workflow.workflow_key, requirement_doc_id=document.id,
+            workflow_key=workflow.workflow_key, source=current,
         )
         if snapshot.key == current.key:
             assert before is not None and before.id == selected.id
@@ -150,7 +150,7 @@ def verify_sources(
         assert latest_successful_run_for_source(
             repo,
             project_id=selected.project_id, user_id=selected.user_id,
-            workflow_key=workflow.workflow_key, requirement_doc_id=document.id,
+            workflow_key=workflow.workflow_key, source=current,
         ) is None
         assert repo.resolve_source_snapshot(
             project_id=selected.project_id, input_payload=dict(selected.input_payload),

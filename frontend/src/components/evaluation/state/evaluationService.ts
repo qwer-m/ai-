@@ -1,48 +1,18 @@
 import { api } from '../../../utils/api';
+import { getAgentRun, getAgentRuns, parseAgentRunResponse } from '../../agent-platform/agentApi';
+import type { AgentRun } from '../../agent-platform/types';
 import type {
-  AgentRunStatus,
   AutomationEvaluationReport,
   DefectAnalysis,
   EvaluationHistoryPoint,
   EvaluationRunRecord,
+  GeneratedTestCase,
   QualityMetrics,
   QualityReport,
   QualityReportPayload,
   RequirementBaseline,
   TestEvaluationArtifact,
-  TestGenerationArtifact,
 } from './types';
-
-export function getErrorText(error: unknown): string {
-  if (!error) return '';
-  if (typeof error === 'string') return error;
-
-  const e = error as {
-    data?: { error?: unknown; detail?: unknown; message?: unknown };
-    message?: unknown;
-  };
-
-  if (e?.data?.error) return String(e.data.error);
-  if (e?.data?.detail) return String(e.data.detail);
-  if (e?.data?.message) return String(e.data.message);
-  if (e?.message) return String(e.message);
-
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return String(error);
-  }
-}
-
-export async function translateError(error: unknown): Promise<string> {
-  const raw = getErrorText(error);
-  try {
-    const res = await api.post<{ message?: string }>('/api/error/translate', { error: raw });
-    return res?.message ? String(res.message) : raw;
-  } catch {
-    return raw;
-  }
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -62,9 +32,16 @@ function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
+const REPORT_SUMMARY_MAX_LENGTH = 1000;
+
+function isBoundedText(value: unknown, maxLength: number): value is string {
+  // 与后端 JSON Schema 一致，按 Unicode 字符计数，避免扩展汉字或 emoji 被重复计数。
+  return typeof value === 'string' && value.length > 0 && Array.from(value).length <= maxLength;
+}
+
 function isTextList(value: unknown): value is string[] {
   return Array.isArray(value)
-    && value.every((item) => typeof item === 'string' && item.length > 0 && item.length <= 300);
+    && value.every((item) => isBoundedText(item, 300));
 }
 
 function isQualityMetrics(value: unknown): value is QualityMetrics {
@@ -113,9 +90,7 @@ function isRequirementBaseline(value: unknown): value is RequirementBaseline {
     && isNonNegativeInteger(value.modified_coverage_count)
     && isRatio(value.generated_coverage_rate)
     && isRatio(value.modified_coverage_rate)
-    && typeof value.summary === 'string'
-    && value.summary.length > 0
-    && value.summary.length <= 500;
+    && isBoundedText(value.summary, REPORT_SUMMARY_MAX_LENGTH);
 }
 
 function isQualityReportPayload(value: unknown): value is QualityReportPayload {
@@ -125,9 +100,7 @@ function isQualityReportPayload(value: unknown): value is QualityReportPayload {
   return isQualityMetrics(value.metrics)
     && isDefectAnalysis(value.defect_analysis)
     && isRequirementBaseline(value.requirement_baseline)
-    && typeof value.summary === 'string'
-    && value.summary.length > 0
-    && value.summary.length <= 1000;
+    && isBoundedText(value.summary, REPORT_SUMMARY_MAX_LENGTH);
 }
 
 /** 校验 Agent Artifact 中的结构化质量评测结果。 */
@@ -212,69 +185,56 @@ export function normalizeAutomationEvaluationReport(payload: unknown): Automatio
   };
 }
 
-type AgentNodeRunResponse = {
-  id: number;
-  node_key: string;
-  node_type: 'agent' | 'tool';
-  status: AgentRunStatus;
-  attempt: number;
-  input_payload: Record<string, unknown>;
-  output_payload: Record<string, unknown>;
-  sdk_state: Record<string, unknown>;
-  error_message: string;
-  started_at: string | null;
-  finished_at: string | null;
-  created_at: string;
-};
-
-type AgentApprovalResponse = {
-  id: number;
-  run_id: number;
-  node_run_id: number;
-  status: 'pending' | 'approved' | 'rejected';
-  request_payload: Record<string, unknown>;
-  decision_payload: Record<string, unknown>;
-  requested_at: string;
-  decided_at: string | null;
-};
-
-type AgentRunResponse = {
-  id: number;
-  project_id: number;
-  workflow_definition_id: number;
-  status: AgentRunStatus;
-  current_node_key: string | null;
-  input_payload: Record<string, unknown>;
-  run_context: {
-    node_outputs: Record<string, unknown>;
-    artifacts: Record<string, unknown> & {
-      test_generation?: TestGenerationArtifact;
-      test_evaluation?: TestEvaluationArtifact;
-    };
-  };
-  output_payload: Record<string, unknown>;
-  error_message: string;
-  parent_run_id: number | null;
-  task_id: string | null;
-  created_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-  nodes: AgentNodeRunResponse[];
-  approvals: AgentApprovalResponse[];
-};
-
-type AgentRunListResponse = { items: AgentRunResponse[] };
-type AgentRunDetailResponse = { run: AgentRunResponse };
 type EvaluationHistoryResponse = { history: EvaluationHistoryPoint[] };
 
 export async function fetchEvaluationHistory(projectId: number): Promise<EvaluationHistoryResponse> {
   return api.get<EvaluationHistoryResponse>(`/api/evaluation/history/${projectId}`);
 }
 
-function toEvaluationRunRecord(run: AgentRunResponse): EvaluationRunRecord | null {
-  const testGenerationArtifact = run.run_context.artifacts.test_generation;
-  if (!testGenerationArtifact) return null;
-  const evaluationArtifact = run.run_context.artifacts.test_evaluation ?? null;
+function isGeneratedTestCase(value: unknown): value is GeneratedTestCase {
+  if (!isRecord(value)) return false;
+  return typeof value.case_id === 'string'
+    && typeof value.title === 'string'
+    && typeof value.module === 'string'
+    && (value.priority === 'P0' || value.priority === 'P1' || value.priority === 'P2')
+    && Array.isArray(value.preconditions)
+    && value.preconditions.every((item) => typeof item === 'string')
+    && Array.isArray(value.steps)
+    && value.steps.every((step) => isRecord(step)
+      && typeof step.action === 'string' && typeof step.expected === 'string')
+    && Array.isArray(value.tags)
+    && value.tags.every((item) => typeof item === 'string');
+}
+
+function toEvaluationRunRecord(run: AgentRun): EvaluationRunRecord | null {
+  const artifacts = run.run_context.artifacts;
+  if (artifacts === undefined) return null;
+  if (!isRecord(artifacts)) throw new Error(`Run ${run.id} 的产物集合格式无效`);
+  const testGenerationArtifact = artifacts.test_generation;
+  if (testGenerationArtifact === undefined) return null;
+  if (!isRecord(testGenerationArtifact)
+    || typeof testGenerationArtifact.requirement !== 'string'
+    || !isNonNegativeInteger(testGenerationArtifact.case_count)
+    || !Array.isArray(testGenerationArtifact.test_cases)
+    || !testGenerationArtifact.test_cases.every(isGeneratedTestCase)
+    || testGenerationArtifact.case_count !== testGenerationArtifact.test_cases.length
+  ) throw new Error(`Run ${run.id} 的测试用例产物格式无效`);
+
+  let evaluationArtifact: TestEvaluationArtifact | null = null;
+  const evaluation = artifacts.test_evaluation;
+  if (evaluation !== undefined) {
+    if (!isRecord(evaluation)
+      || typeof evaluation.reference_content !== 'string'
+      || !isQualityReportPayload(evaluation.evaluation)
+      || !isRecord(evaluation.upload)
+      || typeof evaluation.upload.filename !== 'string'
+    ) throw new Error(`Run ${run.id} 的质量评估产物格式无效`);
+    evaluationArtifact = {
+      reference_content: evaluation.reference_content,
+      evaluation: evaluation.evaluation,
+      upload: { filename: evaluation.upload.filename },
+    };
+  }
   return {
     run_id: run.id,
     project_id: run.project_id,
@@ -293,14 +253,14 @@ function toEvaluationRunRecord(run: AgentRunResponse): EvaluationRunRecord | nul
 }
 
 export async function fetchAgentRunHistory(projectId: number): Promise<EvaluationRunRecord[]> {
-  const response = await api.get<AgentRunListResponse>(`/api/agents/runs?project_id=${projectId}&limit=200`);
-  return response.items
+  const runs = await getAgentRuns(projectId, { limit: 200 });
+  return runs
     .map(toEvaluationRunRecord)
     .filter((record): record is EvaluationRunRecord => record !== null);
 }
 
 export async function fetchAgentRunBundle(runId: number) {
-  const response = await api.get<AgentRunDetailResponse>(`/api/agents/runs/${runId}`);
+  const response = await getAgentRun(runId);
   const run = toEvaluationRunRecord(response.run);
   const evaluationArtifact = run?.evaluation_artifact ?? null;
   return {
@@ -310,13 +270,11 @@ export async function fetchAgentRunBundle(runId: number) {
   };
 }
 
-export async function fetchAgentRunStatus(runId: number): Promise<AgentRunResponse> {
-  const response = await api.get<AgentRunDetailResponse>(`/api/agents/runs/${runId}`);
-  return response.run;
-}
-
-export async function evaluateTestCasesRequest(formData: FormData): Promise<AgentRunDetailResponse> {
-  return api.upload<AgentRunDetailResponse>('/api/evaluate-test-cases', formData);
+export async function evaluateTestCasesRequest(formData: FormData): Promise<{ run: AgentRun }> {
+  return parseAgentRunResponse(
+    await api.upload<unknown>('/api/evaluate-test-cases', formData),
+    '创建测试用例评估运行响应',
+  );
 }
 
 type AutomationEvaluationResponse = {

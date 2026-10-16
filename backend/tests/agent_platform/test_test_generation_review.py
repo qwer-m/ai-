@@ -13,8 +13,8 @@ from modules.agent_platform.test_generation_review import (
     postprocess_global_final_review_output,
     prepare_final_review_batches,
     prepare_final_review_rechecks,
-    prepare_final_review_repairs,
-    prepare_terminal_final_review_repairs,
+    plan_final_review_repairs,
+    route_final_review_differences,
 )
 
 
@@ -597,7 +597,7 @@ def test_final_review_repair_cannot_drop_existing_effective_fact_coverage() -> N
             "batch_case_limit": 1,
         },
     )
-    repairs = prepare_final_review_repairs(
+    repairs = plan_final_review_repairs(
         context,
         {
             "review_inputs": prepared["items"],
@@ -626,6 +626,7 @@ def test_final_review_repair_cannot_drop_existing_effective_fact_coverage() -> N
             ],
             "generation_inputs": generation_inputs,
         },
+        repair_cycle=1,
     )
 
     repair_input = repairs["items"][0]
@@ -655,18 +656,8 @@ def test_final_review_repair_cannot_drop_existing_effective_fact_coverage() -> N
     )
 
 
-def test_followup_review_repair_receives_incremented_cycle() -> None:
-    context = SimpleNamespace(
-        artifacts={
-            "final_review_repair_cycles": [
-                {
-                    "cycle_number": 1,
-                    "repair_batch_count": 1,
-                    "preserved_batch_count": 0,
-                }
-            ]
-        }
-    )
+def test_review_repair_plan_receives_explicit_cycle() -> None:
+    context = SimpleNamespace(artifacts={})
     fact = _fact("F-001", "提交后进入审核中状态")
     case = _case("TC-001", "投稿审核", "进入审核中状态")
     generation_input = {
@@ -696,16 +687,18 @@ def test_followup_review_repair_receives_incremented_cycle() -> None:
         "audit_summary": {},
     }
 
-    result = prepare_final_review_repairs(
+    result = plan_final_review_repairs(
         context,
         {
             "review_inputs": [review_input],
             "review_records": [_map_record(0, _review(approved=False))],
             "generation_inputs": [generation_input],
         },
+        repair_cycle=2,
     )
 
     assert result["items"][0]["repair_cycle"] == 2
+    assert context.artifacts == {}
 
 
 def test_final_review_repairs_split_located_cases_into_small_batches() -> None:
@@ -759,7 +752,7 @@ def test_final_review_repairs_split_located_cases_into_small_batches() -> None:
         ],
     }
 
-    result = prepare_final_review_repairs(
+    result = plan_final_review_repairs(
         context,
         {
             "review_inputs": [review_input],
@@ -771,6 +764,7 @@ def test_final_review_repairs_split_located_cases_into_small_batches() -> None:
                 }
             ],
         },
+        repair_cycle=1,
     )
 
     assert result["repair_batch_count"] == 5
@@ -831,7 +825,7 @@ def test_final_review_repairs_split_located_cases_into_small_batches() -> None:
         )
         for index in range(5)
     ]
-    followups = prepare_final_review_repairs(
+    followups = plan_final_review_repairs(
         context,
         {
             "review_inputs": rechecks["items"],
@@ -843,6 +837,7 @@ def test_final_review_repairs_split_located_cases_into_small_batches() -> None:
                 }
             ],
         },
+        repair_cycle=2,
     )
     assert [
         item["review_batch"]["batch_id"] for item in followups["items"]
@@ -914,7 +909,7 @@ def test_state_coherence_repair_stays_on_located_case_without_target_id() -> Non
         ],
     }
 
-    result = prepare_final_review_repairs(
+    result = plan_final_review_repairs(
         context,
         {
             "review_inputs": [review_input],
@@ -926,6 +921,7 @@ def test_state_coherence_repair_stays_on_located_case_without_target_id() -> Non
                 }
             ],
         },
+        repair_cycle=1,
     )
 
     assert result["repair_batch_count"] == 1
@@ -990,7 +986,7 @@ def test_cohort_repair_without_target_case_id_stays_on_source_case() -> None:
         ],
     }
 
-    result = prepare_final_review_repairs(
+    result = plan_final_review_repairs(
         context,
         {
             "review_inputs": [review_input],
@@ -1002,6 +998,7 @@ def test_cohort_repair_without_target_case_id_stays_on_source_case() -> None:
                 }
             ],
         },
+        repair_cycle=1,
     )
 
     assert result["repair_batch_count"] == 1
@@ -1063,7 +1060,7 @@ def test_repair_instruction_expands_to_explicit_same_batch_destination_case() ->
         ],
     }
 
-    result = prepare_final_review_repairs(
+    result = plan_final_review_repairs(
         context,
         {
             "review_inputs": [review_input],
@@ -1075,6 +1072,7 @@ def test_repair_instruction_expands_to_explicit_same_batch_destination_case() ->
                 }
             ],
         },
+        repair_cycle=1,
     )
 
     assert result["repair_batch_count"] == 1
@@ -1186,13 +1184,14 @@ def test_final_review_only_rechecks_incrementally_repaired_batches() -> None:
     ]
     assert "source_anchor" not in prepared["items"][0]["review_facts"][0]
 
-    repairs = prepare_final_review_repairs(
+    repairs = plan_final_review_repairs(
         context,
         {
                 "review_inputs": prepared["items"],
                 "review_records": [_map_record(0, _review(approved=False))],
                 "generation_inputs": generation_inputs,
         },
+        repair_cycle=1,
     )
     assert repairs["repair_batch_count"] == 1
     assert repairs["items"][0]["target_case_ids"] == ["TC-001"]
@@ -1439,7 +1438,7 @@ def test_global_review_does_not_repeat_batch_differences() -> None:
     assert only_repeated["differences"] == []
 
 
-def test_global_review_difference_is_routed_into_terminal_repair() -> None:
+def test_global_review_difference_routes_to_original_review_batch() -> None:
     context = SimpleNamespace(artifacts={})
     fact = _fact("F-001", "未开通课程时提示购买")
     case = _case("TC-001", "未开通课程提示", "进入课程首页")
@@ -1453,39 +1452,51 @@ def test_global_review_difference_is_routed_into_terminal_repair() -> None:
         }
     ]
 
-    result = prepare_terminal_final_review_repairs(
+    generation = {
+        "test_cases": [case],
+        "case_fact_bindings": [binding],
+        "batch_count": 1,
+        "case_count": 1,
+    }
+    prepared = prepare_final_review_batches(
         context,
         {
             "generation_inputs": generation_inputs,
-            "generation": {
-                "test_cases": [case],
-                "case_fact_bindings": [binding],
-                "batch_count": 1,
-                "case_count": 1,
-            },
+            "generation": generation,
             "batch_case_limit": 1,
-            "batch_review": _review(approved=True),
-            "global_review": {
-                "phase": "final_review",
-                "approved": False,
-                "summary": "最终预期无法闭环",
-                "differences": [
-                    {
-                        "case_id": "TC-001",
-                        "category": "executability",
-                        "field_path": "last_expected",
-                        "detail": "最终预期没有体现未开通状态",
-                        "related_fact_ids": [],
-                        "repair_instruction": "按未开通课程状态修正最终预期",
-                    }
-                ],
-            },
         },
+    )
+    records = route_final_review_differences(
+        generation=generation,
+        review_inputs=prepared["items"],
+        batch_review=_review(approved=True),
+        global_review={
+            "phase": "final_review",
+            "approved": False,
+            "summary": "最终预期无法闭环",
+            "differences": [
+                {
+                    "case_id": "TC-001",
+                    "category": "executability",
+                    "field_path": "last_expected",
+                    "detail": "最终预期没有体现未开通状态",
+                    "related_fact_ids": [],
+                    "repair_instruction": "按未开通课程状态修正最终预期",
+                }
+            ],
+        },
+    )
+    result = plan_final_review_repairs(
+        context,
+        {"review_inputs": prepared["items"], "review_records": records,
+         "generation_inputs": generation_inputs},
+        repair_cycle=1,
     )
 
     assert result["repair_batch_count"] == 1
-    assert len(result["review_inputs"]) == len(result["review_records"]) == 1
+    assert len(prepared["items"]) == len(records) == 1
     repair = result["items"][0]
+    assert repair["review_batch"]["batch_id"] == prepared["items"][0]["review_batch"]["batch_id"]
     assert repair["target_case_ids"] == ["TC-001"]
     assert repair["review_result"]["differences"][0]["field_path"] == (
         "steps[0].expected"

@@ -12,14 +12,18 @@ from modules.knowledge_base_components.document.document_asset_service import (
     load_document_manifest,
 )
 from modules.agent_platform.registry import ToolExecutionContext, tool_registry
-from modules.agent_platform.test_generation_workflow import (
+from modules.agent_platform.test_generation_schemas import (
     CASE_SCHEMA,
     EVIDENCE_OUTPUT_SCHEMA,
     PLAN_SCHEMA,
     PLANNER_OUTPUT_SCHEMA,
+)
+from modules.agent_platform.test_generation_workflow import (
     persist_generated_test_cases,
-    resolve_requirement_evidence,
     validate_generated_test_cases,
+)
+from modules.agent_platform.test_generation_planning import (
+    resolve_requirement_evidence,
 )
 
 
@@ -333,18 +337,16 @@ def test_native_persistence_writes_run_artifact_only() -> None:
 def test_registry_contains_only_native_platform_tools() -> None:
     expected_testing_tools = {
         "testing.build_generation_audit_summary",
-        "testing.merge_final_review_batches",
-        "testing.merge_final_review_repairs",
         "testing.merge_grounded_generation_batches",
         "testing.persist_automation_evaluation",
         "testing.persist_test_case_evaluation",
         "testing.persist_test_cases",
         "testing.prepare_execution_chain",
         "testing.prepare_final_review_batches",
-        "testing.prepare_final_review_rechecks",
-        "testing.prepare_final_review_repairs",
-        "testing.prepare_global_final_review",
-        "testing.prepare_terminal_final_review_repairs",
+        "testing.repair_review_batch",
+        "testing.recheck_review_batch",
+        "testing.review_all_cases",
+        "testing.finish_review",
         "testing.prepare_test_case_batches",
         "testing.resolve_requirement_evidence",
         "testing.select_execution_chain",
@@ -356,6 +358,11 @@ def test_registry_contains_only_native_platform_tools() -> None:
         "testing.validate_test_cases",
     }
     assert expected_testing_tools.issubset(set(tool_registry.keys()))
+    assert {
+        "testing.merge_final_review_batches", "testing.merge_final_review_repairs",
+        "testing.prepare_final_review_rechecks", "testing.prepare_global_final_review",
+        "testing.prepare_terminal_final_review_repairs",
+    }.isdisjoint(tool_registry.keys())
 
 
 def test_requirement_evidence_reads_real_requirement_document_only() -> None:

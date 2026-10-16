@@ -1,26 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from collections.abc import Mapping
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
-
-
-AgentRunStatus = Literal[
-    "pending",
-    "running",
-    "waiting_approval",
-    "success",
-    "failed",
-    "cancelled",
-]
-NodeRunStatus = Literal[
-    "pending",
-    "running",
-    "waiting_approval",
-    "success",
-    "failed",
-    "cancelled",
-]
+from pydantic import BaseModel, BeforeValidator, Field, TypeAdapter, model_validator
 
 
 class AgentMapConfig(BaseModel):
@@ -71,14 +54,18 @@ class WorkflowGraph(BaseModel):
 
     @model_validator(mode="after")
     def validate_graph(self) -> "WorkflowGraph":
-        keys = [node.node_key for node in self.nodes]
-        if len(keys) != len(set(keys)):
+        self.execution_order()
+        return self
+
+    def execution_order(self) -> list[WorkflowNode]:
+        """校验当前图结构，按节点声明顺序逐层返回执行节点。"""
+        key_set = {node.node_key for node in self.nodes}
+        if len(self.nodes) != len(key_set):
             raise ValueError("工作流节点键不能重复")
-        key_set = set(keys)
         if self.output_node_key not in key_set:
             raise ValueError("输出节点不存在")
-        stage_keys = [stage.stage_key for stage in self.display_stages]
-        if len(stage_keys) != len(set(stage_keys)):
+        stage_keys = {stage.stage_key for stage in self.display_stages}
+        if len(self.display_stages) != len(stage_keys):
             raise ValueError("工作流展示阶段键不能重复")
         for stage in self.display_stages:
             unknown_stage_nodes = set(stage.node_keys) - key_set
@@ -87,57 +74,38 @@ class WorkflowGraph(BaseModel):
                     f"展示阶段 {stage.stage_key} 引用了不存在的节点: "
                     f"{sorted(unknown_stage_nodes)}"
                 )
+        dependencies = {node.node_key: set(node.depends_on) for node in self.nodes}
         for node in self.nodes:
-            unknown = set(node.depends_on) - key_set
+            unknown = dependencies[node.node_key] - key_set
             if unknown:
                 raise ValueError(
                     f"节点 {node.node_key} 引用了不存在的依赖: {sorted(unknown)}"
                 )
-            if node.node_key in node.depends_on:
+            if node.node_key in dependencies[node.node_key]:
                 raise ValueError(f"节点 {node.node_key} 不能依赖自身")
 
-        visiting: set[str] = set()
-        visited: set[str] = set()
-        dependencies = {node.node_key: node.depends_on for node in self.nodes}
-
-        def visit(node_key: str) -> None:
-            if node_key in visited:
-                return
-            if node_key in visiting:
-                raise ValueError("工作流不能包含循环依赖")
-            visiting.add(node_key)
-            for dependency in dependencies[node_key]:
-                visit(dependency)
-            visiting.remove(node_key)
-            visited.add(node_key)
-
-        for key in keys:
-            visit(key)
-        return self
-
-    def execution_order(self) -> list[WorkflowNode]:
-        indexed = {node.node_key: node for node in self.nodes}
         ordered: list[WorkflowNode] = []
         emitted: set[str] = set()
-        while len(ordered) < len(self.nodes):
+        pending = list(self.nodes)
+        while pending:
             ready = [
                 node
-                for node in self.nodes
-                if node.node_key not in emitted
-                and set(node.depends_on).issubset(emitted)
+                for node in pending
+                if dependencies[node.node_key].issubset(emitted)
             ]
             if not ready:
-                raise ValueError("工作流没有可执行节点")
-            for node in ready:
-                ordered.append(indexed[node.node_key])
-                emitted.add(node.node_key)
+                raise ValueError("工作流不能包含循环依赖")
+            # 同一轮就绪节点一起输出，避免新就绪节点插入当前层并改变既有顺序。
+            ordered.extend(ready)
+            emitted.update(node.node_key for node in ready)
+            pending = [node for node in pending if node.node_key not in emitted]
         return ordered
 
 
 class AgentProgramDefinition(BaseModel):
     """兼容顶层动态执行；新流程优先在 DAG 中使用 agent_network 节点。"""
 
-    execution_mode: Literal["agent_network"] = "agent_network"
+    execution_mode: Literal["agent_network"]
     entry_agent_key: str = Field(min_length=1, max_length=120)
     input_schema: dict[str, Any] = Field(default_factory=dict)
     max_attempts: int = Field(default=2, ge=1, le=5)
@@ -149,19 +117,30 @@ class AgentProgramDefinition(BaseModel):
     )
 
 
-ExecutionDefinition = WorkflowGraph | AgentProgramDefinition
+def _normalize_execution_mode(value: Any) -> Any:
+    """历史定义缺少模式时按 DAG 处理，所有入口共用同一判别规则。"""
+    if not isinstance(value, Mapping):
+        return value
+    mode = value.get("execution_mode", "dag")
+    if mode not in ("dag", "agent_network"):
+        raise ValueError(f"未知的工作流执行模式: {mode}")
+    if "execution_mode" not in value:
+        return {**value, "execution_mode": mode}
+    return value
+
+
+ExecutionDefinition = Annotated[
+    WorkflowGraph | AgentProgramDefinition,
+    Field(discriminator="execution_mode"),
+    BeforeValidator(_normalize_execution_mode),
+]
+_EXECUTION_DEFINITION_ADAPTER = TypeAdapter(ExecutionDefinition)
 
 
 def parse_execution_definition(value: Any) -> ExecutionDefinition:
     """按显式执行模式解析定义，兼容未声明模式的历史 DAG。"""
 
-    raw = dict(value or {})
-    execution_mode = raw.get("execution_mode")
-    if execution_mode == "agent_network":
-        return AgentProgramDefinition.model_validate(raw)
-    if execution_mode not in (None, "dag"):
-        raise ValueError(f"未知的工作流执行模式: {execution_mode}")
-    return WorkflowGraph.model_validate(raw)
+    return _EXECUTION_DEFINITION_ADAPTER.validate_python(value)
 
 
 class AgentDefinitionCreate(BaseModel):
@@ -186,7 +165,7 @@ class WorkflowDefinitionCreate(BaseModel):
 
 
 class AgentRunExecutionLimits(BaseModel):
-    """兼容旧客户端的用量配置结构；当前仅记录，不再阻断 Agent 调用。"""
+    """单个 Agent 实例的执行额度；服务层按平台上限收敛，运行时阻断超额调用。"""
 
     max_requests: int | None = Field(default=None, ge=1)
     max_input_tokens: int | None = Field(default=None, ge=1)

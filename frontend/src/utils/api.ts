@@ -59,6 +59,13 @@ function extractErrorMessage(data: unknown, statusText?: string): string {
   }
 }
 
+export function getErrorText(error: unknown): string {
+  // APIError 已在请求边界解析响应，展示层直接保留归一化后的信息。
+  if (error instanceof Error) return error.message;
+  if (error === undefined || error === null) return '';
+  return extractErrorMessage(error);
+}
+
 function getAuthToken(): string | null {
   const token = localStorage.getItem('token');
   return token?.trim() || null;
@@ -165,3 +172,14 @@ export const api = {
     }).then((response) => response.blob());
   },
 };
+
+export async function translateError(error: unknown): Promise<string> {
+  const raw = getErrorText(error);
+  try {
+    const response = await api.post<{ message?: string }>('/api/error/translate', { error: raw });
+    return typeof response.message === 'string' && response.message ? response.message : raw;
+  } catch {
+    // 翻译服务不可用时保留原始错误，避免丢失业务失败原因。
+    return raw;
+  }
+}

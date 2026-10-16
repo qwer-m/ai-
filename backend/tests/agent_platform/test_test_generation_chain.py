@@ -10,7 +10,7 @@ from modules.agent_platform.test_generation_batching import (
     prepare_execution_chain_context,
     validate_execution_chain,
 )
-from modules.agent_platform.test_generation_workflow import (
+from modules.agent_platform.test_generation_schemas import (
     CHAIN_CONTEXT_SCHEMA,
     EXECUTION_CHAIN_SELECTION_SCHEMA,
     EXECUTION_PLAN_SCHEMA,

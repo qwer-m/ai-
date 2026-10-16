@@ -79,7 +79,8 @@ class Config:
     MAX_TOKENS = _env_int("MAX_TOKENS", 10000, minimum=1)  # 最大输出token数
     # 额度按每个已激活 Agent 实例独立计算；Run 级只累计用量，不共享一份阻断额度。
     # 当前按需求临时放开单实例 token 上限；仍按 Agent 实例独立记账，可由环境变量覆盖。
-    AGENT_RUN_MAX_REQUESTS = _env_int("AGENT_RUN_MAX_REQUESTS", 80, minimum=1)
+    # 统一协调阶段的父子请求合计使用此上限；各专业会话仍受自身轮次约束，Token 上限不增加。
+    AGENT_RUN_MAX_REQUESTS = _env_int("AGENT_RUN_MAX_REQUESTS", 160, minimum=1)
     AGENT_RUN_MAX_INPUT_TOKENS = _env_int(
         "AGENT_RUN_MAX_INPUT_TOKENS", 2000000, minimum=1
     )

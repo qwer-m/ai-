@@ -6,8 +6,8 @@ import {
   exportRagDataset,
   importRagDataset,
   listRagDatasets,
-  translateError,
 } from '../state/evaluationService';
+import { translateError } from '../../../utils/api';
 import type { RagDatasetRow, RagDatasetType } from './shared/types';
 
 type Props = {

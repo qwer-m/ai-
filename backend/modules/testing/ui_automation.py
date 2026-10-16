@@ -54,8 +54,6 @@ def resolve_android_device_id() -> str:
         or os.environ.get("APPIUM_DEVICE_ID")
         or ""
     ).strip()
-    if configured:
-        return configured
     adb = os.environ.get("ADB_PATH", "adb")
     result = subprocess.run(
         [adb, "devices"],
@@ -66,15 +64,21 @@ def resolve_android_device_id() -> str:
         timeout=15,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"ADB device detection failed: {result.stderr.strip()}")
+        raise RuntimeError(f"ADB 设备检测失败：{result.stderr.strip()}")
     devices = []
     for line in result.stdout.splitlines()[1:]:
         parts = line.strip().split()
         if len(parts) >= 2 and parts[1] == "device":
             devices.append(parts[0])
+    if configured:
+        if configured not in devices:
+            raise RuntimeError(f"指定的 Android 设备 {configured} 未在线，请检查设备连接和授权")
+        return configured
+    if not devices:
+        raise RuntimeError("未检测到在线 Android 设备或模拟器，请检查设备连接和授权")
     if len(devices) != 1:
         raise RuntimeError(
-            f"UI automation requires exactly one online Android device or ANDROID_DEVICE_ID; found {devices}"
+            f"检测到多台 Android 设备，请设置 ANDROID_DEVICE_ID 或 APPIUM_DEVICE_ID：{', '.join(devices)}"
         )
     return devices[0]
 
@@ -292,41 +296,46 @@ def validate_page_object_model(script: str, automation_type: str | None = None) 
 
 
 class UIAutomationModule:
-    def get_current_app_info(self, device_id: str = None) -> dict:
+    def get_current_app_info(self, device_id: str | None = None) -> dict:
+        """读取所选真实设备的前台应用，供环境检测和执行结果共同使用。"""
         try:
-            cmd = ["adb"]
-            if device_id:
-                cmd.extend(["-s", device_id])
-            cmd.extend(["shell", "dumpsys", "window", "displays"])
-
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
-            output = result.stdout
-
-            match = re.search(r"mCurrentFocus=Window\{.*?\s+([a-zA-Z0-9_.]+)/([a-zA-Z0-9_.]+)\}", output)
-            if not match:
-                match = re.search(r"mFocusedApp=.*ActivityRecord\{.*?\s+([a-zA-Z0-9_.]+)/([a-zA-Z0-9_.]+)", output)
-
-            if match:
-                package = match.group(1)
-                activity = match.group(2)
-                return {"package": package, "activity": activity, "full_activity": f"{package}/{activity}"}
-
-            cmd = ["adb"]
-            if device_id:
-                cmd.extend(["-s", device_id])
-            cmd.extend(["shell", "dumpsys", "activity", "activities"])
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
-            output = result.stdout
-
-            match = re.search(r"mResumedActivity: ActivityRecord\{.*?\s+([a-zA-Z0-9_.]+)/([a-zA-Z0-9_.]+)", output)
-            if match:
-                package = match.group(1)
-                activity = match.group(2)
-                return {"package": package, "activity": activity, "full_activity": f"{package}/{activity}"}
-
-            return {"error": "Could not determine current app info"}
-        except Exception as e:
-            return {"error": f"Failed to get app info: {str(e)}"}
+            selected_device = device_id or resolve_android_device_id()
+            adb = os.environ.get("ADB_PATH", "adb")
+            probes = (
+                (
+                    ["window", "displays"],
+                    (
+                        r"mCurrentFocus=Window\{.*?\s+([a-zA-Z0-9_.]+)/([a-zA-Z0-9_.$]+)\}",
+                        r"mFocusedApp=.*ActivityRecord\{.*?\s+([a-zA-Z0-9_.]+)/([a-zA-Z0-9_.$]+)",
+                    ),
+                ),
+                (
+                    ["activity", "activities"],
+                    (r"mResumedActivity:\s*ActivityRecord\{.*?\s+([a-zA-Z0-9_.]+)/([a-zA-Z0-9_.$]+)",),
+                ),
+            )
+            for arguments, patterns in probes:
+                result = subprocess.run(
+                    [adb, "-s", selected_device, "shell", "dumpsys", *arguments],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=15,
+                )
+                if result.returncode != 0:
+                    raise RuntimeError(result.stderr.strip() or "ADB 未返回前台应用信息")
+                # 优先读取实际焦点窗口，再读取应用焦点，避免依赖 dumpsys 的字段顺序。
+                for pattern in patterns:
+                    match = re.search(pattern, result.stdout)
+                    if match:
+                        package, activity = match.groups()
+                        if activity.startswith("."):
+                            activity = package + activity
+                        return {"package": package, "activity": activity, "full_activity": f"{package}/{activity}"}
+            return {"error": "无法识别设备当前的前台应用"}
+        except Exception as exc:
+            return {"error": f"获取前台应用失败：{exc}"}
 
     def generate_ui_script(
         self,

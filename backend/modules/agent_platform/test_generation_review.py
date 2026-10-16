@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 import json
 import re
 from copy import deepcopy
@@ -8,12 +9,16 @@ from typing import Any, TYPE_CHECKING
 from .test_generation_facts import (
     binding_index,
     bound_fact_ids,
+    derive_test_design_item_ids,
+    fact_source_context_fields,
     materialize_inline_grounding,
+    required_text,
     test_input_text,
     validate_case_fact_bindings,
 )
-from .output_repair import OutputRepairError, repairable_output
+from .output_repair import OutputRepairError, OutputValidationError, repairable_output
 from .test_generation_repair import REVIEW_REPAIR_STRATEGY
+from .test_generation_schemas import GLOBAL_REVIEW_CASE_INDEX_SCHEMA
 
 if TYPE_CHECKING:
     from .registry import ToolExecutionContext
@@ -23,23 +28,6 @@ REVIEW_MAX_CASES_PER_BATCH = 10
 REVIEW_MAX_JSON_CHARS_PER_BATCH = 70000
 REPAIR_MAX_CASES_PER_BATCH = 1
 STATE_COHERENCE_REPAIR_CATEGORIES = {"state_coherence"}
-GLOBAL_REVIEW_CASE_INDEX_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "case_id": {"type": "string", "minLength": 1},
-        "title": {"type": "string", "minLength": 1},
-        "module": {"type": "string", "minLength": 1},
-        "priority": {"type": "string", "minLength": 1},
-        "test_input": {"type": "string"},
-        "first_action": {"type": "string"},
-        "last_expected": {"type": "string"},
-    },
-    "additionalProperties": False,
-}
-# 索引投影、工具契约和允许审查的字段使用同一份定义。
-GLOBAL_REVIEW_CASE_INDEX_SCHEMA["required"] = list(
-    GLOBAL_REVIEW_CASE_INDEX_SCHEMA["properties"]
-)
 GLOBAL_REVIEW_VISIBLE_FIELD_PATHS = set(
     GLOBAL_REVIEW_CASE_INDEX_SCHEMA["properties"]
 ) - {"case_id"}
@@ -49,13 +37,6 @@ def _required_list(value: Any, field_name: str) -> list[Any]:
     if not isinstance(value, list):
         raise ValueError(f"{field_name}必须是数组")
     return value
-
-
-def _required_text(value: Any, field_name: str) -> str:
-    text = str(value or "").strip()
-    if not text:
-        raise ValueError(f"{field_name}不能为空")
-    return text
 
 
 def _difference_identity(difference: dict[str, Any]) -> tuple[str, str, str]:
@@ -92,7 +73,7 @@ def _case_business_signature(case: dict[str, Any]) -> str:
 
 def _difference_fact_ids(
     *,
-    source_input: dict[str, Any],
+    bindings_by_case_id: dict[str, dict[str, Any]],
     case_id: str | None,
     field_path: str | None,
 ) -> list[str]:
@@ -100,8 +81,7 @@ def _difference_fact_ids(
 
     if not case_id:
         return []
-    bindings = binding_index(source_input.get("case_fact_bindings"))
-    binding = bindings.get(case_id)
+    binding = bindings_by_case_id.get(case_id)
     if binding is None:
         raise ValueError(f"终审批次缺少用例事实绑定: case_id={case_id}")
     path = str(field_path or "").strip()
@@ -137,28 +117,20 @@ def _difference_fact_ids(
     return sorted(bound_fact_ids(binding))
 
 
-def _has_repeated_fact_obligation(
+def _repeated_fact_ids(
     *,
     source_input: dict[str, Any],
-    related_fact_ids: list[str],
-) -> bool:
-    """重复问题必须能落到至少两个字段槽位中的同一事实语义。"""
+) -> set[str]:
+    """按批次一次统计跨字段槽位重复出现的事实语义，供所有差异复用。"""
 
     assertions_by_id = {
-        _required_text(dict(fact).get("fact_id"), "fact_id"): _required_text(
+        required_text(dict(fact).get("fact_id"), "fact_id"): required_text(
             dict(fact).get("assertion"),
             "assertion",
         )
         for fact in list(source_input.get("review_facts") or [])
     }
-    target_assertions = {
-        assertions_by_id[fact_id]
-        for fact_id in related_fact_ids
-        if fact_id in assertions_by_id
-    }
-    if not target_assertions:
-        return False
-    occurrence_counts = {assertion: 0 for assertion in target_assertions}
+    occurrence_counts: Counter[str] = Counter()
     for raw_binding in list(source_input.get("case_fact_bindings") or []):
         binding = dict(raw_binding)
         slots = [
@@ -178,9 +150,12 @@ def _has_repeated_fact_obligation(
                 for fact_id in slot_fact_ids
                 if fact_id in assertions_by_id
             }
-            for assertion in target_assertions & slot_assertions:
-                occurrence_counts[assertion] += 1
-    return any(count >= 2 for count in occurrence_counts.values())
+            occurrence_counts.update(slot_assertions)
+    return {
+        fact_id
+        for fact_id, assertion in assertions_by_id.items()
+        if occurrence_counts[assertion] >= 2
+    }
 
 
 def _mentioned_fact_ids(*, text: str, known_fact_ids: set[str]) -> set[str]:
@@ -207,6 +182,10 @@ def _fact_coverage_key(fact: dict[str, Any]) -> tuple[Any, ...]:
             int(anchor.get("document_id") or 0),
             int(anchor.get("page_number") or 0),
         )
+        if "table_cell" in anchor:
+            cell = anchor["table_cell"]
+            # 相同摘要不能抹去不同行列的适用条件；同一单元格的重复提取仍可归并。
+            source_identity += ((cell["table_id"], cell["row_index"], cell["column_index"]),)
     else:
         source_identity = (
             source_kind,
@@ -250,7 +229,7 @@ def _deduplicate_facts(raw_facts: list[Any]) -> list[dict[str, Any]]:
         if not isinstance(raw_fact, dict):
             raise ValueError("authoritative_facts每项必须是对象")
         fact = dict(raw_fact)
-        fact_id = _required_text(fact.get("fact_id"), "fact_id")
+        fact_id = required_text(fact.get("fact_id"), "fact_id")
         if fact_id in seen:
             continue
         seen.add(fact_id)
@@ -259,15 +238,16 @@ def _deduplicate_facts(raw_facts: list[Any]) -> list[dict[str, Any]]:
 
 
 def _review_facts(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """终审只读取标准化业务事实，不暴露 quote、页码和坐标。"""
+    """终审读取业务摘要及其真实表格上下文，不传输冗余坐标。"""
 
     return [
         {
-            "fact_id": _required_text(fact.get("fact_id"), "fact_id"),
-            "assertion": _required_text(fact.get("assertion"), "assertion"),
-            "value_policy": _required_text(fact.get("value_policy"), "value_policy"),
+            "fact_id": required_text(fact.get("fact_id"), "fact_id"),
+            "assertion": required_text(fact.get("assertion"), "assertion"),
+            **fact_source_context_fields(fact),
+            "value_policy": required_text(fact.get("value_policy"), "value_policy"),
             "governed_values": [
-                _required_text(value, "governed_value")
+                required_text(value, "governed_value")
                 for value in list(fact.get("governed_values") or [])
             ],
         }
@@ -276,7 +256,7 @@ def _review_facts(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _repair_facts(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """修复模型只读取业务事实，来源锚点保留平台校验需要的最小身份。"""
+    """修复保留原表对业务摘要的限定，来源锚点仅携带平台校验所需身份。"""
 
     compact: list[dict[str, Any]] = []
     for fact in facts:
@@ -290,17 +270,21 @@ def _repair_facts(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "page_number": int(anchor.get("page_number") or 0),
                 }
             )
+            for field in ("table_cell", "source_segments"):
+                if field in anchor:
+                    compact_anchor[field] = deepcopy(anchor[field])
         else:
             compact_anchor["requirement_sha256"] = str(
                 anchor.get("requirement_sha256") or ""
             )
         compact.append(
             {
-                "fact_id": _required_text(fact.get("fact_id"), "fact_id"),
+                "fact_id": required_text(fact.get("fact_id"), "fact_id"),
                 "scope_id": str(fact.get("scope_id") or ""),
-                "assertion": _required_text(fact.get("assertion"), "assertion"),
-                "status": _required_text(fact.get("status"), "status"),
-                "value_policy": _required_text(
+                "assertion": required_text(fact.get("assertion"), "assertion"),
+                **fact_source_context_fields(fact),
+                "status": required_text(fact.get("status"), "status"),
+                "value_policy": required_text(
                     fact.get("value_policy"), "value_policy"
                 ),
                 "governed_values": list(fact.get("governed_values") or []),
@@ -336,7 +320,7 @@ def _deduplicate_design_items(raw_items: list[Any]) -> list[dict[str, Any]]:
         if not isinstance(raw_item, dict):
             raise ValueError("test_design_items每项必须是对象")
         item = dict(raw_item)
-        item_id = _required_text(item.get("test_design_item_id"), "test_design_item_id")
+        item_id = required_text(item.get("test_design_item_id"), "test_design_item_id")
         if item_id in seen:
             continue
         seen.add(item_id)
@@ -368,7 +352,7 @@ def _batch_audit(
     )
     invalid = sorted(covered_fact_ids - effective_fact_ids)
     required_design_item_ids = {
-        _required_text(item.get("test_design_item_id"), "test_design_item_id")
+        required_text(item.get("test_design_item_id"), "test_design_item_id")
         for item in test_design_items
     }
     covered_design_item_ids = {
@@ -490,11 +474,11 @@ def prepare_final_review_batches(
         if len(source_cases) != case_count:
             raise ValueError("生成包预算与合并用例顺序不一致")
         source_bindings = [
-            deepcopy(bindings_by_case_id[_required_text(case.get("case_id"), "case_id")])
+            deepcopy(bindings_by_case_id[required_text(case.get("case_id"), "case_id")])
             for case in source_cases
         ]
         batch = dict(source_input.get("batch") or {})
-        module_name = _required_text(batch.get("module_name"), "batch.module_name")
+        module_name = required_text(batch.get("module_name"), "batch.module_name")
         test_design_items = _deduplicate_design_items(
             list(dict(source_input.get("plan") or {}).get("test_design_items") or [])
         )
@@ -581,39 +565,55 @@ def prepare_final_review_batches(
 def postprocess_final_review_batch_item(
     context: ToolExecutionContext,
     arguments: dict[str, Any],
+    *, cross_batch_difference_keys: frozenset[tuple[str, str, str]] = frozenset(),
 ) -> dict[str, Any]:
     source_input = dict(arguments.get("item_input") or {})
-    output = dict(arguments.get("item_output") or {})
+    raw_output = arguments.get("item_output")
+    if not isinstance(raw_output, dict):
+        raise OutputValidationError("终审批次输出必须是对象", details={"field": "item_output"})
+    output = dict(raw_output)
     if output.get("phase") not in {None, "final_review"}:
-        raise ValueError("终审批次phase必须为final_review")
+        raise OutputValidationError("终审批次phase必须为final_review", details={"field": "phase"})
     approved = output.get("approved")
     if not isinstance(approved, bool):
-        raise ValueError("终审批次approved必须为布尔值")
-    differences = _required_list(output.get("differences"), "differences")
+        raise OutputValidationError("终审批次approved必须为布尔值", details={"field": "approved"})
+    differences = output.get("differences")
+    if not isinstance(differences, list):
+        raise OutputValidationError("终审differences必须是数组", details={"field": "differences"})
     case_ids = {
-        _required_text(dict(case).get("case_id"), "case_id")
+        required_text(dict(case).get("case_id"), "case_id")
         for case in list(source_input.get("test_cases") or [])
     }
     fact_ids = {
-        _required_text(dict(fact).get("fact_id"), "fact_id")
+        required_text(dict(fact).get("fact_id"), "fact_id")
         for fact in list(source_input.get("review_facts") or [])
     }
     normalized_differences: list[dict[str, Any]] = []
     discarded_duplicate_count = 0
+    bindings_by_case_id: dict[str, dict[str, Any]] | None = None
+    repeated_fact_ids: set[str] | None = None
     for raw_difference in differences:
         if not isinstance(raw_difference, dict):
-            raise ValueError("终审difference必须是对象")
+            raise OutputValidationError("终审difference必须是对象", details={"field": "differences"})
         difference = dict(raw_difference)
         case_id = difference.get("case_id")
         if case_id is not None and str(case_id) not in case_ids:
-            raise ValueError(f"终审difference引用批次外用例: case_id={case_id}")
-        field_path = (
-            None
-            if difference.get("field_path") is None
-            else _required_text(difference.get("field_path"), "difference.field_path")
-        )
+            raise OutputValidationError(
+                f"终审difference引用批次外用例: case_id={case_id}",
+                details={"field": "difference.case_id", "allowed_case_ids": sorted(case_ids)},
+            )
+        try:
+            field_path = (
+                None
+                if difference.get("field_path") is None
+                else required_text(difference.get("field_path"), "difference.field_path")
+            )
+        except ValueError as error:
+            raise OutputValidationError(str(error), details={"field": "difference.field_path"}) from error
+        if case_id is not None and bindings_by_case_id is None:
+            bindings_by_case_id = binding_index(source_input.get("case_fact_bindings"))
         related = _difference_fact_ids(
-            source_input=source_input,
+            bindings_by_case_id=bindings_by_case_id or {},
             case_id=None if case_id is None else str(case_id),
             field_path=field_path,
         )
@@ -631,24 +631,26 @@ def postprocess_final_review_batch_item(
         # 终审建议可以引用本批次内尚未绑定到当前字段的事实；
         # 修复阶段会依据 related_fact_ids 补齐字段内容和绑定。
         related = sorted({*related, *mentioned_fact_ids})
-        if (
-            difference.get("category") == "semantic_duplicate"
-            and not _has_repeated_fact_obligation(
-                source_input=source_input,
-                related_fact_ids=related,
-            )
-        ):
-            discarded_duplicate_count += 1
-            continue
+        # 已经由全局审查定位的跨批差异，不能因当前小批次没有重复事实而被删掉。
+        if (difference.get("category") == "semantic_duplicate"
+                and _difference_identity(difference) not in cross_batch_difference_keys):
+            if repeated_fact_ids is None:
+                repeated_fact_ids = _repeated_fact_ids(source_input=source_input)
+            if not repeated_fact_ids.intersection(related):
+                discarded_duplicate_count += 1
+                continue
         difference["field_path"] = field_path
         difference["related_fact_ids"] = related
-        difference["repair_instruction"] = _required_text(
-            difference.get("repair_instruction"),
-            "difference.repair_instruction",
-        )
+        try:
+            difference["repair_instruction"] = required_text(
+                difference.get("repair_instruction"),
+                "difference.repair_instruction",
+            )
+        except ValueError as error:
+            raise OutputValidationError(str(error), details={"field": "difference.repair_instruction"}) from error
         normalized_differences.append(difference)
     if approved and normalized_differences:
-        raise ValueError("终审通过时不得返回差异")
+        raise OutputValidationError("终审通过时不得返回差异", details={"field": "approved"})
     if not normalized_differences:
         approved = True
     summary = str(output.get("summary") or "").strip()
@@ -677,6 +679,7 @@ def _map_output(
     source_input: dict[str, Any],
     records: list[Any],
     context: ToolExecutionContext,
+    cross_batch_difference_keys: frozenset[tuple[str, str, str]] = frozenset(),
 ) -> dict[str, Any]:
     if item_index >= len(records):
         raise ValueError(f"映射结果缺少输入项: item_index={item_index}")
@@ -689,6 +692,7 @@ def _map_output(
     return postprocess_final_review_batch_item(
         context,
         {"item_input": source_input, "item_output": output},
+        cross_batch_difference_keys=cross_batch_difference_keys,
     )
 
 
@@ -700,7 +704,7 @@ def _index_generation_inputs(
         if not isinstance(raw_generation_input, dict):
             raise ValueError("generation_inputs每项必须是对象")
         generation_input = dict(raw_generation_input)
-        batch_id = _required_text(
+        batch_id = required_text(
             dict(generation_input.get("batch") or {}).get("batch_id"),
             "generation_batch_id",
         )
@@ -752,7 +756,7 @@ def _inline_repair_cases(
     inline_cases: list[dict[str, Any]] = []
     for raw_case in test_cases:
         case = deepcopy(raw_case)
-        case_id = _required_text(case.get("case_id"), "case_id")
+        case_id = required_text(case.get("case_id"), "case_id")
         binding = bindings_by_id.get(case_id)
         if binding is None:
             raise ValueError(f"修复输入缺少用例事实绑定: case_id={case_id}")
@@ -776,18 +780,18 @@ def _inline_repair_cases(
         }
         case["preconditions"] = [
             {
-                "text": _required_text(value, f"{case_id}.preconditions[{index}]"),
+                "text": required_text(value, f"{case_id}.preconditions[{index}]"),
                 "fact_ids": list(precondition_bindings[index].get("fact_ids") or []),
             }
             for index, value in enumerate(preconditions)
         ]
         case["steps"] = [
             {
-                "action": _required_text(
+                "action": required_text(
                     dict(value).get("action"),
                     f"{case_id}.steps[{index}].action",
                 ),
-                "expected": _required_text(
+                "expected": required_text(
                     dict(value).get("expected"),
                     f"{case_id}.steps[{index}].expected",
                 ),
@@ -806,10 +810,14 @@ def _inline_repair_cases(
     return inline_cases
 
 
-def prepare_final_review_repairs(
+def plan_final_review_repairs(
     context: ToolExecutionContext,
     arguments: dict[str, Any],
+    *,
+    repair_cycle: int = 1,
+    cross_batch_difference_keys: frozenset[tuple[str, str, str]] = frozenset(),
 ) -> dict[str, Any]:
+    """按当前差异生成修复任务；规划本身不推进轮次、不写运行产物。"""
     review_inputs = _required_list(arguments.get("review_inputs"), "review_inputs")
     review_records = _required_list(arguments.get("review_records"), "review_records")
     generation_inputs = _required_list(
@@ -818,8 +826,6 @@ def prepare_final_review_repairs(
     )
     if len(review_inputs) != len(review_records):
         raise ValueError("终审输入与结果数量不一致")
-    cycles = list(context.artifacts.get("final_review_repair_cycles") or [])
-    repair_cycle = len(cycles) + 1
     generation_by_batch_id = _index_generation_inputs(generation_inputs)
     items: list[dict[str, Any]] = []
     source_repair_batch_count = 0
@@ -830,6 +836,7 @@ def prepare_final_review_repairs(
             source_input=source_input,
             records=review_records,
             context=context,
+            cross_batch_difference_keys=cross_batch_difference_keys,
         )
         batch_audit = dict(source_input.get("audit_summary") or {})
         uncovered_fact_ids = [
@@ -840,12 +847,12 @@ def prepare_final_review_repairs(
         source_repair_batch_count += 1
         differences = [dict(item) for item in list(review.get("differences") or [])]
         batch_case_ids = [
-            _required_text(case.get("case_id"), "case_id")
+            required_text(case.get("case_id"), "case_id")
             for case in list(source_input.get("test_cases") or [])
         ]
         bindings_by_id = binding_index(source_input.get("case_fact_bindings"))
         difference_case_ids = {
-            _required_text(difference.get("case_id"), "difference.case_id")
+            required_text(difference.get("case_id"), "difference.case_id")
             for difference in differences
         }
         unknown_case_ids = difference_case_ids - set(batch_case_ids)
@@ -883,11 +890,11 @@ def prepare_final_review_repairs(
         if not target_case_ids:
             raise ValueError("终审未通过但没有可定位的修复用例")
         cases_by_id = {
-            _required_text(dict(case).get("case_id"), "case_id"): dict(case)
+            required_text(dict(case).get("case_id"), "case_id"): dict(case)
             for case in list(source_input.get("test_cases") or [])
         }
         generation_batch_ids = [
-            _required_text(value, "review_batch.generation_batch_id")
+            required_text(value, "review_batch.generation_batch_id")
             for value in list(
                 dict(source_input.get("review_batch") or {}).get("generation_batch_ids")
                 or []
@@ -945,7 +952,7 @@ def prepare_final_review_repairs(
                 }
             )
             requirements = [
-                _required_text(
+                required_text(
                     difference.get("repair_instruction"),
                     "difference.repair_instruction",
                 )
@@ -1001,6 +1008,15 @@ def prepare_final_review_repairs(
                 if str(item.get("test_design_item_id") or "")
                 in target_design_item_ids
             ]
+            # 支持关系继承已验收生成输入；修复不能自行移动编号来掩盖支持集合缺失。
+            support_routes = {fact["fact_id"]: [] for fact in target_authoritative_facts}
+            for batch_id in generation_batch_ids:
+                for fact_id, design_ids in generation_by_batch_id[batch_id]["case_fact_contract"]["fact_design_item_ids"].items():
+                    selected_ids = [value for value in design_ids if value in target_design_item_ids]
+                    if selected_ids and fact_id not in support_routes:
+                        raise ValueError("修复事实输入遗漏当前用例已覆盖意图的支持事实")
+                    if fact_id in support_routes:
+                        support_routes[fact_id] = list(dict.fromkeys([*support_routes[fact_id], *selected_ids]))
             requirements.append(
                 "修复后必须继续覆盖 required_fact_ids 中的全部有效事实；"
                 "删除或合并步骤时，应将其承载的事实改写到语义匹配的步骤，"
@@ -1008,7 +1024,7 @@ def prepare_final_review_repairs(
             )
             repair_batch = deepcopy(source_input.get("review_batch") or {})
             if len(repair_case_groups) > 1:
-                original_batch_id = _required_text(
+                original_batch_id = required_text(
                     repair_batch.get("batch_id"),
                     "review_batch.batch_id",
                 )
@@ -1032,6 +1048,7 @@ def prepare_final_review_repairs(
                     "review_result": repair_review,
                     "repair_requirements": requirements,
                     "required_fact_ids": required_fact_ids,
+                    "fact_design_item_ids": support_routes,
                     "target_case_ids": list(target_group),
                     "target_case_count": len(target_group),
                     "repair_cycle": repair_cycle,
@@ -1043,29 +1060,25 @@ def prepare_final_review_repairs(
         "preserved_batch_count": len(review_inputs) - source_repair_batch_count,
         "max_cases_per_repair_batch": REPAIR_MAX_CASES_PER_BATCH,
     }
-    cycles.append({"cycle_number": repair_cycle, **plan})
-    context.artifacts["final_review_repair_cycles"] = cycles
-    context.artifacts["final_review_repair_plan"] = plan
-    return {"items": items, "repair_batch_count": len(items)}
+    return {"items": items, **plan}
 
 
-@repairable_output(REVIEW_REPAIR_STRATEGY)
 def postprocess_final_review_repair_item(
     context: ToolExecutionContext,
     arguments: dict[str, Any],
 ) -> dict[str, Any]:
+    # 原始范围和用例属于平台输入；损坏时直接失败，不能要求模型消耗额度修复来源。
     source_input = dict(arguments.get("item_input") or {})
-    raw_output = dict(arguments.get("item_output") or {})
     original_cases = [dict(item) for item in list(source_input.get("test_cases") or [])]
-    expected_case_ids = [_required_text(case.get("case_id"), "case_id") for case in original_cases]
+    expected_case_ids = [required_text(case.get("case_id"), "case_id") for case in original_cases]
     target_case_ids = [
-        _required_text(value, "target_case_ids")
+        required_text(value, "target_case_ids")
         for value in _required_list(source_input.get("target_case_ids"), "target_case_ids")
     ]
     target_case_count = int(source_input.get("target_case_count") or 0)
     if target_case_ids != expected_case_ids or target_case_count != len(expected_case_ids):
         raise ValueError("修复输入的目标用例契约与原批次不一致")
-    module_names = {_required_text(case.get("module"), "module") for case in original_cases}
+    module_names = {required_text(case.get("module"), "module") for case in original_cases}
     if len(module_names) != 1:
         raise ValueError("修复批次必须只包含一个业务模块")
     original_raw_cases = source_input.get("test_cases")
@@ -1093,6 +1106,24 @@ def postprocess_final_review_repair_item(
         test_cases=[dict(case) for case in original_output["test_cases"]],
         bindings=[dict(binding) for binding in original_output["case_fact_bindings"]],
     )
+    return _postprocess_final_review_repair_candidate(
+        source_input=source_input,
+        item_output=arguments.get("item_output"),
+        original_output=original_output,
+        original_inline_cases=original_inline_cases,
+    )
+
+
+@repairable_output(REVIEW_REPAIR_STRATEGY)
+def _postprocess_final_review_repair_candidate(
+    *, source_input: dict[str, Any], item_output: Any,
+    original_output: dict[str, Any], original_inline_cases: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """仅候选补丁及其结果错误进入既有修复策略；原始输入已经独立校验。"""
+    raw_output = dict(item_output or {})
+    original_cases = original_output["test_cases"]
+    expected_case_ids = [case["case_id"] for case in original_cases]
+    module_name = original_cases[0]["module"]
     patches = _required_list(raw_output.get("case_patches"), "case_patches")
     if len(patches) > len(expected_case_ids):
         raise ValueError("修复补丁数量不能超过目标用例数量")
@@ -1108,7 +1139,6 @@ def postprocess_final_review_repair_item(
         "test_input",
         "steps",
         "tags",
-        "test_design_item_ids",
     }
     patched_ids: set[str] = set()
     for raw_patch in patches:
@@ -1118,7 +1148,7 @@ def postprocess_final_review_repair_item(
         unknown_fields = set(patch) - allowed_fields
         if unknown_fields:
             raise ValueError(f"修复补丁包含不允许字段: {sorted(unknown_fields)}")
-        case_id = _required_text(patch.pop("case_id", None), "case_patch.case_id")
+        case_id = required_text(patch.pop("case_id", None), "case_patch.case_id")
         if case_id not in patched_by_id or case_id in patched_ids:
             raise ValueError(f"修复补丁引用未知或重复用例: case_id={case_id}")
         if not patch:
@@ -1128,7 +1158,7 @@ def postprocess_final_review_repair_item(
     output = materialize_inline_grounding(
         raw_cases=[patched_by_id[case_id] for case_id in expected_case_ids],
         case_ids=expected_case_ids,
-        module_name=next(iter(module_names)),
+        module_name=module_name,
         fallback_tags_by_case_id={
             case_id: list(case.get("tags") or [])
             for case_id, case in zip(expected_case_ids, original_cases, strict=True)
@@ -1143,7 +1173,7 @@ def postprocess_final_review_repair_item(
         signatures: dict[str, str] = {}
         duplicate_pairs: list[str] = []
         for case in list(output.get("test_cases") or []):
-            case_id = _required_text(dict(case).get("case_id"), "case_id")
+            case_id = required_text(dict(case).get("case_id"), "case_id")
             signature = _case_business_signature(dict(case))
             previous_case_id = signatures.get(signature)
             if previous_case_id is not None:
@@ -1174,8 +1204,8 @@ def _validate_final_review_repair_output(
 
     original_cases = [dict(item) for item in list(source_input.get("test_cases") or [])]
     repaired_cases = [dict(item) for item in _required_list(output.get("test_cases"), "test_cases")]
-    expected_case_ids = [_required_text(case.get("case_id"), "case_id") for case in original_cases]
-    actual_case_ids = [_required_text(case.get("case_id"), "case_id") for case in repaired_cases]
+    expected_case_ids = [required_text(case.get("case_id"), "case_id") for case in original_cases]
+    actual_case_ids = [required_text(case.get("case_id"), "case_id") for case in repaired_cases]
     if actual_case_ids != expected_case_ids:
         raise ValueError(
             "修复批次必须保持原case_id及顺序: "
@@ -1186,7 +1216,7 @@ def _validate_final_review_repair_output(
         design_item_ids = repaired.get("test_design_item_ids")
         if not isinstance(design_item_ids, list):
             raise ValueError("修复用例的 test_design_item_ids 必须是数组")
-    module_names = {_required_text(case.get("module"), "module") for case in original_cases}
+    module_names = {required_text(case.get("module"), "module") for case in original_cases}
     if len(module_names) != 1:
         raise ValueError("修复批次必须只包含一个业务模块")
     bindings = validate_case_fact_bindings(
@@ -1201,6 +1231,12 @@ def _validate_final_review_repair_output(
         str(fact.get("fact_id") or ""): dict(fact)
         for fact in list(source_input.get("authoritative_facts") or [])
     }
+    design_ids = [item["test_design_item_id"] for item in source_input["test_design_items"]]
+    derived = derive_test_design_item_ids(case_fact_bindings=bindings,
+        fact_design_item_ids=source_input["fact_design_item_ids"], required_fact_ids=list(required),
+        available_fact_ids=list(facts_by_id), required_design_item_ids=design_ids)
+    for case in repaired_cases:
+        case["test_design_item_ids"] = derived[case["case_id"]]
     covered_keys = {
         _fact_coverage_key(facts_by_id[fact_id])
         for fact_id in covered
@@ -1259,7 +1295,7 @@ def _validate_final_review_repair_output(
             details={"missing_fact_ids": missing},
         )
     required_design_item_ids = {
-        _required_text(item.get("test_design_item_id"), "test_design_item_id")
+        required_text(item.get("test_design_item_id"), "test_design_item_id")
         for item in list(source_input.get("test_design_items") or [])
     }
     covered_design_item_ids = {
@@ -1297,7 +1333,7 @@ def merge_final_review_repairs(
     repair_records = _required_list(arguments.get("repair_records"), "repair_records")
     if len(repair_inputs) != len(repair_records):
         raise ValueError("修复输入与结果数量不一致")
-    cases_by_id = {_required_text(case.get("case_id"), "case_id"): case for case in test_cases}
+    cases_by_id = {required_text(case.get("case_id"), "case_id"): case for case in test_cases}
     bindings_by_id = binding_index(bindings)
     repaired_ids: set[str] = set()
     noop_case_ids: set[str] = set()
@@ -1317,13 +1353,13 @@ def merge_final_review_repairs(
             )
         normalized_bindings = binding_index(normalized["case_fact_bindings"])
         for case in normalized["test_cases"]:
-            case_id = _required_text(case.get("case_id"), "case_id")
+            case_id = required_text(case.get("case_id"), "case_id")
             if case_id not in cases_by_id or case_id in repaired_ids:
                 raise ValueError(f"修复结果引用未知或重复用例: case_id={case_id}")
             cases_by_id[case_id] = dict(case)
             bindings_by_id[case_id] = dict(normalized_bindings[case_id])
             repaired_ids.add(case_id)
-    ordered_ids = [_required_text(case.get("case_id"), "case_id") for case in test_cases]
+    ordered_ids = [required_text(case.get("case_id"), "case_id") for case in test_cases]
     result = {
         "test_cases": [cases_by_id[case_id] for case_id in ordered_ids],
         "case_fact_bindings": [bindings_by_id[case_id] for case_id in ordered_ids],
@@ -1349,7 +1385,7 @@ def prepare_final_review_rechecks(
     repair_inputs = _required_list(arguments.get("repair_inputs"), "repair_inputs")
     generation = dict(arguments.get("generation") or {})
     cases_by_id = {
-        _required_text(dict(case).get("case_id"), "case_id"): dict(case)
+        required_text(dict(case).get("case_id"), "case_id"): dict(case)
         for case in list(generation.get("test_cases") or [])
     }
     bindings_by_id = binding_index(generation.get("case_fact_bindings"))
@@ -1386,6 +1422,36 @@ def prepare_final_review_rechecks(
     return {"items": items, "recheck_batch_count": len(items)}
 
 
+def refresh_final_review_input(
+    source_input: dict[str, Any],
+    *,
+    generation: dict[str, Any],
+    generation_inputs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """更新同一审查范围中的用例和绑定，保留原始事实与设计项边界。"""
+
+    item = deepcopy(source_input)
+    case_ids = [required_text(case.get("case_id"), "case_id") for case in item["test_cases"]]
+    cases_by_id = {
+        required_text(case.get("case_id"), "case_id"): case
+        for case in generation["test_cases"]
+    }
+    bindings_by_id = binding_index(generation["case_fact_bindings"])
+    source_by_id = _index_generation_inputs(generation_inputs)
+    batch_ids = item["review_batch"]["generation_batch_ids"]
+    facts = _deduplicate_facts([
+        fact for batch_id in batch_ids for fact in source_by_id[batch_id]["authoritative_facts"]
+    ])
+    item["test_cases"] = [deepcopy(cases_by_id[case_id]) for case_id in case_ids]
+    item["case_fact_bindings"] = [deepcopy(bindings_by_id[case_id]) for case_id in case_ids]
+    item["audit_summary"] = _batch_audit(
+        test_cases=item["test_cases"], bindings=item["case_fact_bindings"],
+        facts=facts, test_design_items=item["test_design_items"],
+    )
+    item["review_facts"] = _review_facts(facts)
+    return item
+
+
 def merge_final_review_recheck_records(
     context: ToolExecutionContext,
     arguments: dict[str, Any],
@@ -1408,7 +1474,7 @@ def merge_final_review_recheck_records(
         raise ValueError("替换复审输入与结果数量不一致")
 
     baseline_batch_ids = [
-        _required_text(
+        required_text(
             dict(dict(item).get("review_batch") or {}).get("batch_id"),
             "baseline.review_batch.batch_id",
         )
@@ -1426,7 +1492,7 @@ def merge_final_review_recheck_records(
         strict=True,
     ):
         case_ids = {
-            _required_text(dict(case).get("case_id"), "case_id")
+            required_text(dict(case).get("case_id"), "case_id")
             for case in list(dict(raw_input).get("test_cases") or [])
         }
         baseline_case_ids_by_batch[batch_id] = case_ids
@@ -1443,14 +1509,21 @@ def merge_final_review_recheck_records(
     replaced_case_ids: set[str] = set()
     for index, raw_input in enumerate(replacement_inputs):
         source_input = dict(raw_input)
-        batch_id = _required_text(
+        batch_id = required_text(
             dict(source_input.get("review_batch") or {}).get("batch_id"),
             "replacement.review_batch.batch_id",
         )
         record = replacement_records[index]
         if not isinstance(record, dict) or int(record.get("item_index", -1)) != index:
             raise ValueError(f"替换复审结果顺序错误: item_index={index}")
-        if batch_id in baseline_batch_id_set:
+        case_ids = {
+            required_text(dict(case).get("case_id"), "case_id")
+            for case in list(source_input.get("test_cases") or [])
+        }
+        if not case_ids:
+            raise ValueError(f"替换复审子批次缺少用例: batch_id={batch_id}")
+        # 单个修复子范围可能沿用父批次 ID；只有用例集合相同才能替换整批结论。
+        if batch_id in baseline_batch_id_set and case_ids == baseline_case_ids_by_batch[batch_id]:
             if batch_id in replacement_by_batch_id:
                 raise ValueError(f"替换复审包含重复批次: batch_id={batch_id}")
             if batch_id in replacement_children_by_batch_id:
@@ -1458,12 +1531,6 @@ def merge_final_review_recheck_records(
             replacement_by_batch_id[batch_id] = dict(record)
             continue
 
-        case_ids = {
-            _required_text(dict(case).get("case_id"), "case_id")
-            for case in list(source_input.get("test_cases") or [])
-        }
-        if not case_ids:
-            raise ValueError(f"替换复审子批次缺少用例: batch_id={batch_id}")
         parent_batch_ids = {
             baseline_batch_by_case_id.get(case_id) for case_id in case_ids
         }
@@ -1478,6 +1545,8 @@ def merge_final_review_recheck_records(
             )
         replaced_case_ids.update(case_ids)
         parent_batch_id = str(next(iter(parent_batch_ids)))
+        if batch_id in baseline_batch_id_set and batch_id != parent_batch_id:
+            raise ValueError(f"替换复审批次 ID 与用例所属基线批次不一致: batch_id={batch_id}")
         if parent_batch_id in replacement_by_batch_id:
             raise ValueError(
                 f"替换复审同时包含父批次和子批次: batch_id={parent_batch_id}"
@@ -1592,11 +1661,11 @@ def merge_final_review_batches(
     parent_batch_by_case_id: dict[str, str] = {}
     for index, raw_input in enumerate(review_inputs):
         source_input = dict(raw_input)
-        batch_id = _required_text(dict(source_input.get("review_batch") or {}).get("batch_id"), "batch_id")
+        batch_id = required_text(dict(source_input.get("review_batch") or {}).get("batch_id"), "batch_id")
         if batch_id in results_by_batch_id:
             raise ValueError(f"初审输入包含重复batch_id: batch_id={batch_id}")
         case_ids = {
-            _required_text(dict(case).get("case_id"), "case_id")
+            required_text(dict(case).get("case_id"), "case_id")
             for case in list(source_input.get("test_cases") or [])
         }
         if not case_ids:
@@ -1616,12 +1685,12 @@ def merge_final_review_batches(
     rechecked_case_ids: set[str] = set()
     for index, raw_input in enumerate(recheck_inputs):
         source_input = dict(raw_input)
-        child_batch_id = _required_text(
+        child_batch_id = required_text(
             dict(source_input.get("review_batch") or {}).get("batch_id"),
             "batch_id",
         )
         case_ids = {
-            _required_text(dict(case).get("case_id"), "case_id")
+            required_text(dict(case).get("case_id"), "case_id")
             for case in list(source_input.get("test_cases") or [])
         }
         if not case_ids:
@@ -1749,7 +1818,7 @@ def prepare_global_final_review(
             {
                 field: summary_fields[field]
                 if field in summary_fields
-                else _required_text(case.get(field), field)
+                else required_text(case.get(field), field)
                 for field in GLOBAL_REVIEW_CASE_INDEX_SCHEMA["properties"]
             }
         )
@@ -1764,17 +1833,28 @@ def postprocess_global_final_review_output(
     context: ToolExecutionContext,
     arguments: dict[str, Any],
 ) -> dict[str, Any]:
+    def output_text(value: Any, field: str) -> str:
+        try:
+            return required_text(value, field)
+        except ValueError as error:
+            raise OutputValidationError(str(error), details={"field": field}) from error
+
     input_payload = dict(arguments.get("input_payload") or {})
-    output = dict(arguments.get("output") or {})
+    raw_output = arguments.get("output")
+    if not isinstance(raw_output, dict):
+        raise OutputValidationError("全局终审输出必须是对象", details={"field": "output"})
+    output = dict(raw_output)
     if output.get("phase") not in {None, "final_review"} or not isinstance(
         output.get("approved"), bool
     ):
-        raise ValueError("全局终审阶段或通过状态无效")
+        raise OutputValidationError("全局终审阶段或通过状态无效", details={"field": "approved"})
     case_ids = {
-        _required_text(dict(item).get("case_id"), "case_id")
+        required_text(dict(item).get("case_id"), "case_id")
         for item in list(input_payload.get("case_index") or [])
     }
-    differences = _required_list(output.get("differences"), "differences")
+    differences = output.get("differences")
+    if not isinstance(differences, list):
+        raise OutputValidationError("全局终审differences必须是数组", details={"field": "differences"})
     batch_difference_keys = {
         _difference_identity(dict(difference))
         for difference in list(
@@ -1785,35 +1865,40 @@ def postprocess_global_final_review_output(
     normalized_differences: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for raw_difference in differences:
+        if not isinstance(raw_difference, dict):
+            raise OutputValidationError("全局终审difference必须是对象", details={"field": "differences"})
         difference = dict(raw_difference)
-        case_id = _required_text(difference.get("case_id"), "difference.case_id")
+        case_id = output_text(difference.get("case_id"), "difference.case_id")
         if case_id not in case_ids:
-            raise ValueError(f"全局终审引用未知用例: case_id={case_id}")
+            raise OutputValidationError(f"全局终审引用未知用例: case_id={case_id}",
+                                        details={"field": "difference.case_id", "allowed_case_ids": sorted(case_ids)})
         difference["case_id"] = case_id
         if list(difference.get("related_fact_ids") or []):
-            raise ValueError("全局终审未读取事实正文，不得输出related_fact_ids")
+            raise OutputValidationError("全局终审未读取事实正文，不得输出related_fact_ids",
+                                        details={"field": "difference.related_fact_ids"})
         identity = _difference_identity(difference)
         if identity in batch_difference_keys or identity in seen:
             continue
         field_path = difference.get("field_path")
         if field_path is not None:
-            field_path = _required_text(field_path, "difference.field_path")
+            field_path = output_text(field_path, "difference.field_path")
             if field_path not in GLOBAL_REVIEW_VISIBLE_FIELD_PATHS:
-                raise ValueError(
+                raise OutputValidationError(
                     "全局终审引用了输入中不可见的字段: "
-                    f"field_path={field_path}"
+                    f"field_path={field_path}", details={"field": "difference.field_path",
+                                                        "allowed_fields": sorted(GLOBAL_REVIEW_VISIBLE_FIELD_PATHS)},
                 )
         difference["field_path"] = field_path
-        _required_text(
+        output_text(
             difference.get("repair_instruction"),
             "difference.repair_instruction",
         )
         seen.add(identity)
         normalized_differences.append(difference)
     if output["approved"] is True and differences:
-        raise ValueError("全局终审通过时不得返回差异")
+        raise OutputValidationError("全局终审通过时不得返回差异", details={"field": "approved"})
     if output["approved"] is False and not differences:
-        raise ValueError("全局终审不通过时必须返回差异")
+        raise OutputValidationError("全局终审不通过时必须返回差异", details={"field": "differences"})
     approved = not normalized_differences
     summary = str(output.get("summary") or "").strip()
     if not summary or approved != output["approved"] or len(normalized_differences) != len(differences):
@@ -1831,34 +1916,18 @@ def postprocess_global_final_review_output(
     }
 
 
-def prepare_terminal_final_review_repairs(
-    context: ToolExecutionContext,
-    arguments: dict[str, Any],
-) -> dict[str, Any]:
-    """把批次复审和全局审查差异统一路由到最后一轮增量修复。"""
+def route_final_review_differences(
+    *, generation: dict[str, Any], review_inputs: list[dict[str, Any]],
+    batch_review: dict[str, Any], global_review: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """沿已有批次范围路由真实审查差异，不重新分批或推进修复轮次。"""
 
-    generation_inputs = _required_list(
-        arguments.get("generation_inputs"),
-        "generation_inputs",
-    )
-    generation = dict(arguments.get("generation") or {})
-    batch_review = dict(arguments.get("batch_review") or {})
-    global_review = dict(arguments.get("global_review") or {})
     for name, review in (("batch_review", batch_review), ("global_review", global_review)):
         if review.get("phase") != "final_review" or not isinstance(review.get("approved"), bool):
             raise ValueError(f"{name}终审结果无效")
 
-    prepared = prepare_final_review_batches(
-        context,
-        {
-            "generation_inputs": generation_inputs,
-            "generation": generation,
-            "batch_case_limit": arguments.get("batch_case_limit"),
-        },
-    )
-    review_inputs = [dict(item) for item in list(prepared["items"])]
     cases_by_id = {
-        _required_text(dict(case).get("case_id"), "case_id"): dict(case)
+        required_text(dict(case).get("case_id"), "case_id"): dict(case)
         for case in list(generation.get("test_cases") or [])
     }
     differences_by_case_id: dict[str, list[dict[str, Any]]] = {}
@@ -1878,7 +1947,7 @@ def prepare_terminal_final_review_repairs(
             if difference.get("category") == "deterministic_audit":
                 continue
             raise ValueError("终审差异缺少可路由的case_id")
-        case_id = _required_text(case_id, "difference.case_id")
+        case_id = required_text(case_id, "difference.case_id")
         case = cases_by_id.get(case_id)
         if case is None:
             raise ValueError(f"终审差异引用未知用例: case_id={case_id}")
@@ -1901,7 +1970,7 @@ def prepare_terminal_final_review_repairs(
     review_records: list[dict[str, Any]] = []
     for item_index, review_input in enumerate(review_inputs):
         item_case_ids = {
-            _required_text(dict(case).get("case_id"), "case_id")
+            required_text(dict(case).get("case_id"), "case_id")
             for case in list(review_input.get("test_cases") or [])
         }
         item_differences = [
@@ -1930,17 +1999,4 @@ def prepare_terminal_final_review_repairs(
     unrouted_case_ids = set(differences_by_case_id) - routed_case_ids
     if unrouted_case_ids:
         raise ValueError(f"终审差异无法映射到修复批次: case_ids={sorted(unrouted_case_ids)}")
-
-    repairs = prepare_final_review_repairs(
-        context,
-        {
-            "review_inputs": review_inputs,
-            "review_records": review_records,
-            "generation_inputs": generation_inputs,
-        },
-    )
-    return {
-        **repairs,
-        "review_inputs": review_inputs,
-        "review_records": review_records,
-    }
+    return review_records

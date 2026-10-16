@@ -283,137 +283,8 @@ def test_node_duration_seconds_uses_source_node_timestamps() -> None:
     assert runtime._node_duration_seconds(node_run) == 195
 
 
-def test_reusable_agent_node_output_requires_exact_input_and_cache_version() -> None:
-    run = _run()
-    node = _agent_node(node_type="agent_map")
-    node_input = {"items": [{"page_number": 1, "text": "真实正文"}]}
-    candidate = AgentNodeRun(
-        id=88,
-        run_id=28,
-        node_key=node.node_key,
-        node_type=node.node_type,
-        agent_definition_id=9,
-        status="success",
-        input_payload=node_input,
-        output_payload={"items": [{"output": {"fact_id": "F-001"}}]},
-        sdk_state={"result_cache": {"version": "source-semantics-v1"}},
-    )
-
-    class CandidateDB:
-        def get(self, model: Any, candidate_id: int) -> AgentNodeRun | None:
-            assert model is AgentNodeRun
-            return candidate if candidate_id == candidate.id else None
-
-    class CandidateRepository:
-        db = CandidateDB()
-
-        def list_reusable_node_run_ids(self, **_: Any) -> list[int]:
-            return [candidate.id]
-
-    definition = SimpleNamespace(
-        id=9,
-        agent_key="source_analyst",
-        runtime_config={
-            "result_cache": {"version": "source-semantics-v1"}
-        },
-    )
-
-    reusable = runtime._reusable_agent_node_output(
-        repo=CandidateRepository(),
-        run=run,
-        node=node,
-        definition=definition,
-        node_input=node_input,
-    )
-
-    assert reusable is not None
-    assert reusable[0].id == 88
-    assert reusable[1] == candidate.output_payload
-    assert reusable[2] == "source-semantics-v1"
-    assert reusable[3] == runtime._payload_hash(node_input)
-
-    run.input_payload = {"disable_result_cache": True}
-    assert runtime._reusable_agent_node_output(
-        repo=CandidateRepository(),
-        run=run,
-        node=node,
-        definition=definition,
-        node_input=node_input,
-    ) is None
-    run.input_payload = {}
-
-    definition.runtime_config["result_cache"]["version"] = "source-semantics-v2"
-    assert runtime._reusable_agent_node_output(
-        repo=CandidateRepository(),
-        run=run,
-        node=node,
-        definition=definition,
-        node_input=node_input,
-    ) is None
-
-    definition.runtime_config["result_cache"]["version"] = "source-semantics-v1"
-    assert runtime._reusable_agent_node_output(
-        repo=CandidateRepository(),
-        run=run,
-        node=node,
-        definition=definition,
-        node_input={"items": [{"page_number": 2, "text": "其他正文"}]},
-    ) is None
 
 
-def test_result_cache_identity_includes_input_projection_contract() -> None:
-    run = _run()
-    node = _agent_node(node_type="agent_map")
-    node_input = {"items": [{"id": "F-001", "text": "真实正文"}]}
-    definition = SimpleNamespace(
-        id=9,
-        agent_key="source_analyst",
-        runtime_config={
-            "input_projection_version": "projection-v1",
-            "input_projection": {"items": ["id"]},
-            "result_cache": {"version": "source-semantics-v2"},
-        },
-    )
-    candidate = AgentNodeRun(
-        id=90,
-        run_id=28,
-        node_key=node.node_key,
-        node_type=node.node_type,
-        agent_definition_id=9,
-        status="success",
-        input_payload=node_input,
-        output_payload={"items": [{"output": {"fact_id": "F-001"}}]},
-        sdk_state={
-            "result_cache": {
-                "version": "source-semantics-v2",
-                "input_hash": runtime._agent_result_cache_input_hash(
-                    definition,
-                    node_input,
-                ),
-            }
-        },
-    )
-    repo = SimpleNamespace(
-        db=SimpleNamespace(get=lambda _model, _id: candidate),
-        list_reusable_node_run_ids=lambda **_: [candidate.id],
-    )
-
-    assert runtime._reusable_agent_node_output(
-        repo=repo,
-        run=run,
-        node=node,
-        definition=definition,
-        node_input=node_input,
-    ) is not None
-
-    definition.runtime_config["input_projection"] = {"items": ["id", "text"]}
-    assert runtime._reusable_agent_node_output(
-        repo=repo,
-        run=run,
-        node=node,
-        definition=definition,
-        node_input=node_input,
-    ) is None
 
 
 def test_planning_route_repair_targets_only_invalid_scope() -> None:
@@ -455,10 +326,7 @@ def test_planning_route_repair_targets_only_invalid_scope() -> None:
     )
 
     assert context["route_repair_targets"] == [{"scope_id": "EV-0002"}]
-    assert context["protected_scope_ids"] == ["EV-0001"]
-    assert context["protected_collections"] == [{
-        "field": "routes", "identity_key": "scope_id", "protected_ids": ["EV-0001"],
-    }]
+    assert not any(key.startswith("protected_") for key in context)
 
 
 def test_agent_map_input_projection_keeps_raw_item_separate() -> None:
@@ -523,8 +391,10 @@ def test_agent_map_postprocessor_receives_raw_item_after_model_projection(
         "model_text": "只供模型使用的正文",
         "source_anchor": {"document_id": 239, "page_number": 1},
         "case_fact_contract": {
+            "target_case_ids": ["TC-001"],
+            "required_fact_ids": ["F-001"],
+            "required_test_design_item_ids": ["TD-001-001-001"],
             "fact_design_item_ids": {"F-001": ["TD-001-001-001"]},
-            "coverage_slots": [{"case_id": "TC-001"}],
         },
     }
     node_run = AgentNodeRun(
@@ -554,7 +424,7 @@ def test_agent_map_postprocessor_receives_raw_item_after_model_projection(
         return dict(arguments["item_output"])
 
     monkeypatch.setattr(runtime, "_run_parallel_agent_instance", execute_instance)
-    monkeypatch.setattr(runtime, "_postprocess_agent_map_output", postprocess)
+    monkeypatch.setattr(runtime, "postprocess_agent_map_output", postprocess)
 
     output, _ = runtime._execute_agent_map(
         repo=repo,
@@ -589,57 +459,6 @@ def test_agent_map_postprocessor_receives_raw_item_after_model_projection(
     assert output["items"][0]["output"] == {"ok": True}
 
 
-def test_reusable_agent_node_output_rejects_legacy_without_explicit_permission() -> None:
-    run = _run()
-    node = _agent_node()
-    node_input = {"requirement": "真实需求"}
-    candidate = AgentNodeRun(
-        id=89,
-        run_id=28,
-        node_key=node.node_key,
-        node_type=node.node_type,
-        agent_definition_id=9,
-        status="success",
-        input_payload=node_input,
-        output_payload={"summary": "历史规划"},
-        sdk_state={},
-    )
-
-    repo = SimpleNamespace(
-        db=SimpleNamespace(get=lambda _model, _id: candidate),
-        list_reusable_node_run_ids=lambda **_: [candidate.id],
-    )
-    definition = SimpleNamespace(
-        id=9,
-        agent_key="business_planner",
-        runtime_config={"result_cache": {"version": "business-plan-v1"}},
-    )
-
-    assert runtime._reusable_agent_node_output(
-        repo=repo,
-        run=run,
-        node=node,
-        definition=definition,
-        node_input=node_input,
-    ) is None
-
-    definition.runtime_config["result_cache"]["accept_legacy"] = True
-    assert runtime._reusable_agent_node_output(
-        repo=repo,
-        run=run,
-        node=node,
-        definition=definition,
-        node_input=node_input,
-    ) is not None
-
-    definition.runtime_config["result_cache"]["version"] = "business-plan-v2"
-    assert runtime._reusable_agent_node_output(
-        repo=repo,
-        run=run,
-        node=node,
-        definition=definition,
-        node_input=node_input,
-    ) is None
 
 
 def test_standard_agent_postprocessor_runs_once_with_raw_node_input(
@@ -664,7 +483,7 @@ def test_standard_agent_postprocessor_runs_once_with_raw_node_input(
     repo.get_agent = lambda **_: definition
     calls: list[dict[str, Any]] = []
 
-    def execute_agent(**arguments: Any) -> AgentExecutionResult:
+    async def execute_agent(**arguments: Any) -> AgentExecutionResult:
         assert arguments["skip_output_postprocessor"] is True
         return AgentExecutionResult(
             output={"ok": True},
@@ -677,7 +496,7 @@ def test_standard_agent_postprocessor_runs_once_with_raw_node_input(
         calls.append(arguments)
         return {"ok": True, "processed_with": arguments["input_payload"]}
 
-    monkeypatch.setattr(runtime, "run_agent", execute_agent)
+    monkeypatch.setattr(runtime, "run_agent_async", execute_agent)
     monkeypatch.setattr(runtime.tool_registry, "resolve", lambda _key: postprocess)
 
     node = _agent_node()
@@ -697,7 +516,7 @@ def test_agent_network_node_uses_standard_agent_runtime_inside_dag(
     repo = _FakeRepository(run)
     received_node_types: list[str] = []
 
-    def execute_agent(**_: Any) -> AgentExecutionResult:
+    async def execute_agent(**_: Any) -> AgentExecutionResult:
         received_node_types.append(repo.node_runs[-1].node_type)
         return AgentExecutionResult(
             output={"test_cases": [{"title": "真实生成结果"}]},
@@ -706,7 +525,7 @@ def test_agent_network_node_uses_standard_agent_runtime_inside_dag(
             usage={"requests": 1, "input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
         )
 
-    monkeypatch.setattr(runtime, "run_agent", execute_agent)
+    monkeypatch.setattr(runtime, "run_agent_async", execute_agent)
 
     executed = runtime._execute_node_with_retry(
         repo,
@@ -727,7 +546,7 @@ def test_standard_agent_retries_504_as_new_node_attempt(monkeypatch: pytest.Monk
     repo = _FakeRepository(run)
     calls = 0
 
-    def execute_agent(**_: Any) -> AgentExecutionResult:
+    async def execute_agent(**_: Any) -> AgentExecutionResult:
         nonlocal calls
         calls += 1
         if calls == 1:
@@ -739,7 +558,7 @@ def test_standard_agent_retries_504_as_new_node_attempt(monkeypatch: pytest.Monk
             usage={"requests": 1, "input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
         )
 
-    monkeypatch.setattr(runtime, "run_agent", execute_agent)
+    monkeypatch.setattr(runtime, "run_agent_async", execute_agent)
     monkeypatch.setattr(runtime.time, "sleep", lambda _: None)
 
     executed = runtime._execute_node_with_retry(repo, run, _agent_node(), {}, definitions=repo)
@@ -789,7 +608,7 @@ def test_standard_agent_disables_server_schema_after_capability_error(
 
     received_feedback: list[str | None] = []
 
-    def execute_agent(**arguments: Any) -> AgentExecutionResult:
+    async def execute_agent(**arguments: Any) -> AgentExecutionResult:
         received_modes.append(bool(arguments.get("disable_server_output_schema")))
         received_feedback.append(arguments.get("retry_feedback"))
         if len(received_modes) == 1:
@@ -803,7 +622,7 @@ def test_standard_agent_disables_server_schema_after_capability_error(
             usage={"requests": 1, "input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
         )
 
-    monkeypatch.setattr(runtime, "run_agent", execute_agent)
+    monkeypatch.setattr(runtime, "run_agent_async", execute_agent)
     monkeypatch.setattr(runtime.time, "sleep", lambda _: None)
 
     executed = runtime._execute_node_with_retry(
@@ -838,7 +657,7 @@ def test_standard_agent_separates_capability_transient_and_content_budgets(
     received_modes: list[tuple[bool, bool]] = []
     received_feedback: list[str | None] = []
 
-    def execute_agent(**arguments: Any) -> AgentExecutionResult:
+    async def execute_agent(**arguments: Any) -> AgentExecutionResult:
         received_modes.append(
             (
                 bool(arguments.get("disable_server_output_schema")),
@@ -862,7 +681,7 @@ def test_standard_agent_separates_capability_transient_and_content_budgets(
             usage={"requests": 1, "input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
         )
 
-    monkeypatch.setattr(runtime, "run_agent", execute_agent)
+    monkeypatch.setattr(runtime, "run_agent_async", execute_agent)
     monkeypatch.setattr(runtime.time, "sleep", lambda _: None)
 
     executed = runtime._execute_node_with_retry(
@@ -894,12 +713,12 @@ def test_standard_agent_hard_error_fails_without_retry(monkeypatch: pytest.Monke
     repo = _FakeRepository(run)
     calls = 0
 
-    def execute_agent(**_: Any) -> AgentExecutionResult:
+    async def execute_agent(**_: Any) -> AgentExecutionResult:
         nonlocal calls
         calls += 1
         raise ValueError("输出契约错误")
 
-    monkeypatch.setattr(runtime, "run_agent", execute_agent)
+    monkeypatch.setattr(runtime, "run_agent_async", execute_agent)
 
     with pytest.raises(ValueError, match="输出契约错误"):
         runtime._execute_node_with_retry(repo, run, _agent_node(), {}, definitions=repo)
@@ -936,7 +755,7 @@ def test_single_agent_instance_quota_blocks_model_call_before_dispatch(monkeypat
     repo = _FakeRepository(run)
     calls = 0
 
-    def execute_agent(**_: Any) -> AgentExecutionResult:
+    async def execute_agent(**_: Any) -> AgentExecutionResult:
         nonlocal calls
         calls += 1
         return AgentExecutionResult(
@@ -946,7 +765,7 @@ def test_single_agent_instance_quota_blocks_model_call_before_dispatch(monkeypat
             usage={"requests": 1, "input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
         )
 
-    monkeypatch.setattr(runtime, "run_agent", execute_agent)
+    monkeypatch.setattr(runtime, "run_agent_async", execute_agent)
 
     with pytest.raises(runtime._AgentQuotaExceeded, match="请求次数 2/1"):
         runtime._execute_node_with_retry(repo, run, _agent_node(), {}, definitions=repo)
@@ -1002,7 +821,7 @@ def test_tool_agent_reserves_all_possible_sdk_turns_within_quota(
     ]
     calls = 0
 
-    def execute_agent(**_: Any) -> AgentExecutionResult:
+    async def execute_agent(**_: Any) -> AgentExecutionResult:
         nonlocal calls
         calls += 1
         return AgentExecutionResult(
@@ -1012,7 +831,7 @@ def test_tool_agent_reserves_all_possible_sdk_turns_within_quota(
             usage={"requests": 2, "input_tokens": 30, "output_tokens": 10, "total_tokens": 40},
         )
 
-    monkeypatch.setattr(runtime, "run_agent", execute_agent)
+    monkeypatch.setattr(runtime, "run_agent_async", execute_agent)
 
     executed = runtime._execute_node_with_retry(repo, run, _agent_node(), {}, definitions=repo)
 
@@ -1312,7 +1131,7 @@ def test_parallel_agent_map_stops_repeating_identical_invalid_output(
         raise error
 
     monkeypatch.setattr(runtime, "_run_parallel_agent_instance", execute_instance)
-    monkeypatch.setattr(runtime, "_postprocess_agent_map_output", postprocess)
+    monkeypatch.setattr(runtime, "postprocess_agent_map_output", postprocess)
     monkeypatch.setattr(runtime, "_agent_map_retry_delay", lambda **_: 0.0)
 
     with pytest.raises(ModelBehaviorError, match="完全相同"):
@@ -1489,7 +1308,7 @@ def test_structured_output_retry_feedback_deduplicates_required_fields() -> None
     assert "其余 1 个结构错误未展开" in feedback
 
 
-def test_generation_repair_context_targets_only_structured_contract_differences() -> None:
+def test_generation_repair_context_keeps_missing_facts_at_batch_scope() -> None:
     candidate = {
         "test_cases": [
             {"title": "用例一"},
@@ -1499,23 +1318,12 @@ def test_generation_repair_context_targets_only_structured_contract_differences(
     }
     item_input = {
         "case_fact_contract": {
-            "coverage_slots": [
-                {
-                    "case_id": "TC-001",
-                    "required_fact_ids": ["F-001"],
-                    "required_test_design_item_ids": ["TD-001"],
-                },
-                {
-                    "case_id": "TC-002",
-                    "required_fact_ids": ["F-002"],
-                    "required_test_design_item_ids": ["TD-002"],
-                },
-                {
-                    "case_id": "TC-003",
-                    "required_fact_ids": ["F-003"],
-                    "required_test_design_item_ids": ["TD-003"],
-                },
-            ]
+            "target_case_ids": ["TC-001", "TC-002", "TC-003"],
+            "required_fact_ids": ["F-001", "F-002", "F-003"],
+            "required_test_design_item_ids": ["TD-001", "TD-002", "TD-003"],
+            "fact_design_item_ids": {
+                "F-001": ["TD-001"], "F-002": ["TD-002"], "F-003": ["TD-003"],
+            },
         }
     }
 
@@ -1531,54 +1339,15 @@ def test_generation_repair_context_targets_only_structured_contract_differences(
 
     assert repair is not None
     assert repair["mode"] == "minimal_patch"
-    assert repair["repair_targets"] == [
-        {
-            "case_id": "TC-002",
-            "test_cases_array_index": 1,
-            "missing_fact_ids": ["F-002"],
-            "missing_test_design_item_ids": [],
-        }
-    ]
-    assert repair["protected_case_ids"] == ["TC-001", "TC-003"]
-    assert "只能修改这些槽位" in repair["instruction"]
-    assert repair["candidate_output"] == candidate
-
-
-def test_generation_repair_restores_every_protected_case_slot() -> None:
-    candidate = {
-        "test_cases": [
-            {"title": "保留用例一", "steps": [{"action": "原动作一"}]},
-            {"title": "待修用例", "steps": [{"action": "原动作二"}]},
-            {"title": "保留用例三", "steps": [{"action": "原动作三"}]},
-        ]
+    assert repair["repair_targets"] == []
+    assert repair["batch_coverage_gaps"] == {
+        "missing_fact_ids": ["F-002"], "missing_test_design_item_ids": [],
     }
-    repaired = runtime._restore_protected_repair_slots(
-        item_output={
-            "test_cases": [
-                {"title": "错误改写一", "steps": []},
-                {"title": "已修用例", "steps": [{"action": "修复动作"}]},
-                {"title": "错误改写三", "steps": []},
-            ]
-        },
-        repair_context={
-            "mode": "minimal_patch",
-            "candidate_output": candidate,
-            "repair_targets": [
-                {
-                    "case_id": "TC-002",
-                    "test_cases_array_index": 1,
-                }
-            ],
-            "protected_case_ids": ["TC-001", "TC-003"],
-            "protected_collections": [{"field": "test_cases", "protected_indexes": [0, 2]}],
-        },
-    )
-
-    assert repaired["test_cases"] == [
-        candidate["test_cases"][0],
-        {"title": "已修用例", "steps": [{"action": "修复动作"}]},
-        candidate["test_cases"][2],
-    ]
+    assert repair["candidate_fact_ids_by_case"] == {
+        "TC-001": [], "TC-002": [], "TC-003": [],
+    }
+    assert not any(key.startswith("protected_") for key in repair)
+    assert repair["candidate_output"] == candidate
 
 
 def test_container_type_damage_uses_full_regeneration_without_candidate() -> None:
@@ -1863,7 +1632,7 @@ def test_agent_map_runs_independent_instances_concurrently(
     active = 0
     peak = 0
 
-    def execute_instance(**arguments: Any) -> AgentExecutionResult:
+    async def execute_instance(**arguments: Any) -> AgentExecutionResult:
         nonlocal active, peak
         instance_id = str(arguments["instance_id"])
         assert run.run_context["agent_instance_quota_usage"][instance_id][
@@ -1872,7 +1641,7 @@ def test_agent_map_runs_independent_instances_concurrently(
         with lock:
             active += 1
             peak = max(peak, active)
-        time.sleep(0.04)
+        await asyncio.sleep(0.04)
         with lock:
             active -= 1
         page = int(arguments["item_input"]["page"])
@@ -2430,7 +2199,7 @@ def test_parallel_agent_map_passes_validation_error_to_item_retry(
     received_feedback: list[str | None] = []
     received_inputs: list[dict[str, Any]] = []
 
-    def execute_instance(**arguments: Any) -> AgentExecutionResult:
+    async def execute_instance(**arguments: Any) -> AgentExecutionResult:
         received_feedback.append(arguments.get("retry_feedback"))
         received_inputs.append(dict(arguments["item_input"]))
         attempt = len(received_feedback)
@@ -2449,7 +2218,7 @@ def test_parallel_agent_map_passes_validation_error_to_item_retry(
         return dict(arguments["item_output"])
 
     monkeypatch.setattr(runtime, "_run_parallel_agent_instance", execute_instance)
-    monkeypatch.setattr(runtime, "_postprocess_agent_map_output", postprocess)
+    monkeypatch.setattr(runtime, "postprocess_agent_map_output", postprocess)
     monkeypatch.setattr(runtime, "_agent_map_retry_delay", lambda **_: 0.0)
 
     output, sdk_state = runtime._execute_agent_map(
@@ -2673,7 +2442,7 @@ def test_parallel_agent_map_gives_distinct_content_failures_separate_retry_budge
         return dict(arguments["item_output"])
 
     monkeypatch.setattr(runtime, "_run_parallel_agent_instance", execute_instance)
-    monkeypatch.setattr(runtime, "_postprocess_agent_map_output", postprocess)
+    monkeypatch.setattr(runtime, "postprocess_agent_map_output", postprocess)
     monkeypatch.setattr(runtime, "_agent_map_retry_delay", lambda **_: 0.0)
 
     output, sdk_state = runtime._execute_agent_map(
@@ -3035,7 +2804,7 @@ def test_parallel_agent_map_disables_server_schema_only_after_capability_error(
     repo.node_runs.append(node_run)
     received_modes: dict[str, list[bool]] = {"EV-0001": [], "EV-0002": []}
 
-    def execute_instance(**arguments: Any) -> AgentExecutionResult:
+    async def execute_instance(**arguments: Any) -> AgentExecutionResult:
         scope_id = str(arguments["item_input"]["scope_id"])
         received_modes[scope_id].append(bool(arguments.get("disable_server_output_schema")))
         if scope_id == "EV-0001" and len(received_modes[scope_id]) == 1:
@@ -3108,7 +2877,7 @@ def test_parallel_agent_map_keeps_content_retry_after_transient_budget(
     repo.node_runs.append(node_run)
     page7_attempts: list[str | None] = []
 
-    def execute_instance(**arguments: Any) -> AgentExecutionResult:
+    async def execute_instance(**arguments: Any) -> AgentExecutionResult:
         page_number = int(arguments["item_input"]["page_number"])
         if page_number == 7:
             page7_attempts.append(arguments.get("retry_feedback"))
@@ -3226,7 +2995,7 @@ def test_parallel_agent_map_resumes_from_persisted_items(
     repo.node_runs.extend([previous, node_run])
     executed_pages: list[int] = []
 
-    def execute_instance(**arguments: Any) -> AgentExecutionResult:
+    async def execute_instance(**arguments: Any) -> AgentExecutionResult:
         page = int(arguments["item_input"]["page"])
         executed_pages.append(page)
         return AgentExecutionResult(
@@ -3265,211 +3034,12 @@ def test_parallel_agent_map_resumes_from_persisted_items(
     assert sdk_state["parallelism"]["completed_instances"] == 3
 
 
-def test_agent_map_stops_before_next_item_after_run_is_cancelled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    run = _run()
-    repo = _FakeRepository(run)
-    node = WorkflowNode.model_validate(
-        {
-            "node_key": "generate",
-            "node_type": "agent_map",
-            "reference_key": "generator",
-            "max_attempts": 3,
-            "map_config": {"items_key": "items", "output_key": "items"},
-        }
-    )
-    node_run = AgentNodeRun(
-        id=1,
-        run_id=run.id,
-        node_key=node.node_key,
-        node_type=node.node_type,
-        status="running",
-        attempt=1,
-        input_payload={"items": [{"batch": 1}, {"batch": 2}]},
-    )
-    repo.node_runs.append(node_run)
-    calls = 0
-
-    def execute_agent(**_: Any) -> AgentExecutionResult:
-        nonlocal calls
-        calls += 1
-        run.status = "cancelled"
-        return AgentExecutionResult(
-            output={"test_cases": [{"case_id": "TC-001"}]},
-            final_text='{"test_cases":[{"case_id":"TC-001"}]}',
-            last_agent_name="真实调用智能体",
-            usage={"requests": 1, "input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
-        )
-
-    monkeypatch.setattr(runtime, "run_agent", execute_agent)
-
-    with pytest.raises(runtime._RunCancelled, match="已取消"):
-        runtime._execute_agent_map(
-            repo=repo,
-            run=run,
-            node=node,
-            node_run=node_run,
-            definition=SimpleNamespace(name="真实调用智能体", runtime_config={}),
-            model_metadata={"name": "test-model", "route": "main", "source": "测试模型路由"},
-            tools=[],
-            execution_context=ToolExecutionContext(
-                db=None,
-                user_id=1,
-                project_id=2,
-                run_id=run.id,
-                node_key=node.node_key,
-                run_input={},
-                artifacts={},
-            ),
-            node_input={"items": [{"batch": 1}, {"batch": 2}]},
-            previous=None,
-        )
-
-    assert calls == 1
-    assert node_run.status == "cancelled"
-    assert node_run.output_payload["completed_count"] == 1
-    assert node_run.output_payload["total_count"] == 2
-    assert len(node_run.output_payload["items"]) == 1
-    assert [item["event_type"] for item in repo.events] == [
-        "map_item_started",
-        "node_cancelled",
-    ]
-    assert not any(
-        item["event_type"] == "map_item_started"
-        and item["payload"]["item_index"] == 1
-        for item in repo.events
-    )
 
 
-def test_agent_map_refreshes_cancellation_before_item_retry(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    run = _run()
-    repo = _FakeRepository(run)
-    node = WorkflowNode.model_validate(
-        {
-            "node_key": "generate",
-            "node_type": "agent_map",
-            "reference_key": "generator",
-            "max_attempts": 3,
-            "map_config": {"items_key": "items", "output_key": "items"},
-        }
-    )
-    node_run = AgentNodeRun(
-        id=1,
-        run_id=run.id,
-        node_key=node.node_key,
-        node_type=node.node_type,
-        status="running",
-        attempt=1,
-        input_payload={"items": [{"batch": 1}]},
-    )
-    repo.node_runs.append(node_run)
-    calls = 0
-
-    def execute_agent(**_: Any) -> AgentExecutionResult:
-        nonlocal calls
-        calls += 1
-        run.status = "cancelled"
-        raise TimeoutError("取消期间映射项超时")
-
-    monkeypatch.setattr(runtime, "run_agent", execute_agent)
-    monkeypatch.setattr(runtime.time, "sleep", lambda _: None)
-
-    with pytest.raises(runtime._RunCancelled, match="已取消"):
-        runtime._execute_agent_map(
-            repo=repo,
-            run=run,
-            node=node,
-            node_run=node_run,
-            definition=SimpleNamespace(name="真实调用智能体"),
-            model_metadata={"name": "test-model", "route": "main", "source": "测试模型路由"},
-            tools=[],
-            execution_context=ToolExecutionContext(
-                db=None,
-                user_id=1,
-                project_id=2,
-                run_id=run.id,
-                node_key=node.node_key,
-                run_input={},
-                artifacts={},
-            ),
-            node_input={"items": [{"batch": 1}]},
-            previous=None,
-        )
-
-    assert calls == 1
-    assert node_run.status == "cancelled"
-    assert node_run.output_payload == {
-        "items": [],
-        "completed_count": 0,
-        "total_count": 1,
-    }
-    assert sum(item["event_type"] == "map_item_started" for item in repo.events) == 1
-    assert repo.events[-1]["event_type"] == "node_cancelled"
 
 
-def test_standard_agent_cancellation_prevents_retry_and_failure_transition(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    run = _run()
-    repo = _FakeRepository(run)
-    calls = 0
-
-    def execute_agent(**_: Any) -> AgentExecutionResult:
-        nonlocal calls
-        calls += 1
-        run.status = "cancelled"
-        raise TimeoutError("取消期间上游超时")
-
-    monkeypatch.setattr(runtime, "run_agent", execute_agent)
-
-    with pytest.raises(runtime._RunCancelled, match="已取消"):
-        runtime._execute_node_with_retry(repo, run, _agent_node(), {}, definitions=repo)
-
-    assert calls == 1
-    assert run.status == "cancelled"
-    assert [(item.attempt, item.status) for item in repo.node_runs] == [
-        (1, "cancelled")
-    ]
-    assert [item["event_type"] for item in repo.events] == [
-        "node_started",
-        "node_cancelled",
-    ]
 
 
-def test_standard_agent_refreshes_cancellation_before_model_call(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    run = _run()
-    repo = _FakeRepository(run)
-    calls = 0
-
-    def list_agent_tools(_: int, *, project_id: int | None = None) -> list[Any]:
-        run.status = "cancelled"
-        return []
-
-    def execute_agent(**_: Any) -> AgentExecutionResult:
-        nonlocal calls
-        calls += 1
-        raise AssertionError("取消后不应调用模型")
-
-    monkeypatch.setattr(repo, "list_agent_tools", list_agent_tools)
-    monkeypatch.setattr(runtime, "run_agent", execute_agent)
-
-    with pytest.raises(runtime._RunCancelled, match="已取消"):
-        runtime._execute_node_with_retry(repo, run, _agent_node(), {}, definitions=repo)
-
-    assert calls == 0
-    assert run.status == "cancelled"
-    assert [(item.attempt, item.status) for item in repo.node_runs] == [
-        (1, "cancelled")
-    ]
-    assert [item["event_type"] for item in repo.events] == [
-        "node_started",
-        "node_cancelled",
-    ]
 
 
 def test_standard_agent_cancels_inflight_async_sdk_operation(

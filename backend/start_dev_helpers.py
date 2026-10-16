@@ -5,6 +5,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -13,6 +14,90 @@ from celery.signals import worker_ready
 
 
 CELERY_WORKER_READY_FILE_ENV = "AI_TEST_PLATFORM_WORKER_READY_FILE"
+_SERVICE_OUTPUT_THREADS: dict[int, threading.Thread] = {}
+
+
+def start_service_process(
+    command: list[str],
+    *,
+    cwd: str,
+    env: dict[str, str],
+) -> subprocess.Popen:
+    """Windows 服务使用独立隐藏控制台，避免 API 热重载的 Ctrl+C 波及其他服务。"""
+
+    if os.name != "nt":
+        return subprocess.Popen(command, cwd=cwd, env=env)
+    startup_info = subprocess.STARTUPINFO()
+    startup_info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startup_info.wShowWindow = subprocess.SW_HIDE
+    child_env = dict(env)
+    child_env["PYTHONUNBUFFERED"] = "1"
+    child_env["PYTHONIOENCODING"] = "utf-8"
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=child_env,
+        creationflags=subprocess.CREATE_NEW_CONSOLE,
+        startupinfo=startup_info,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+    def forward_output() -> None:
+        # 独立控制台不能直接复用父控制台句柄，使用管道保留现有汇总日志。
+        assert process.stdout is not None
+        try:
+            with process.stdout:
+                while chunk := process.stdout.read1(65536):
+                    stream = getattr(sys.stdout, "buffer", None)
+                    if stream is not None:
+                        stream.write(chunk)
+                        stream.flush()
+                    else:
+                        sys.stdout.write(chunk.decode("utf-8", errors="replace"))
+                        sys.stdout.flush()
+        finally:
+            _SERVICE_OUTPUT_THREADS.pop(process.pid, None)
+
+    output_thread = threading.Thread(
+        target=forward_output,
+        name=f"service-output-{process.pid}",
+        daemon=True,
+    )
+    _SERVICE_OUTPUT_THREADS[process.pid] = output_thread
+    output_thread.start()
+    return process
+
+
+def stop_service_process(process: subprocess.Popen | None, *, timeout_seconds: int = 8) -> None:
+    """按启动时保存的 PID 停止服务；Windows 同时清理解释器和服务子进程。"""
+
+    if process is None:
+        return
+    output_thread = _SERVICE_OUTPUT_THREADS.get(process.pid)
+    if process.poll() is None:
+        if os.name == "nt":
+            result = subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                capture_output=True,
+                timeout=timeout_seconds,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if result.returncode != 0 and process.poll() is None:
+                raise RuntimeError(
+                    f"服务进程树停止失败: pid={process.pid}, "
+                    f"{_decode_command_output(result.stderr or result.stdout).strip()}"
+                )
+        else:
+            process.terminate()
+        try:
+            process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=timeout_seconds)
+    if output_thread is not None:
+        output_thread.join(timeout=timeout_seconds)
 
 
 @worker_ready.connect(weak=False)

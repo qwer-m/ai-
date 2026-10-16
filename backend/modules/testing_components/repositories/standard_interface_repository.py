@@ -6,7 +6,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from core.db.model_defs import Project, StandardInterface
+from core.db.model_defs import StandardInterface
 
 
 class StandardInterfaceRepository:
@@ -20,13 +20,6 @@ class StandardInterfaceRepository:
         if project_id:
             query = query.filter(StandardInterface.project_id == project_id)
         return query.all()
-
-    def get_owned_project(self, *, project_id: int, user_id: int) -> Optional[Project]:
-        return (
-            self.db.query(Project)
-            .filter(Project.id == project_id, Project.user_id == user_id)
-            .first()
-        )
 
     def get_owned_interface(self, *, interface_id: int, user_id: int) -> Optional[StandardInterface]:
         return (

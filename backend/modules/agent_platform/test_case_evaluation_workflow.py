@@ -8,6 +8,10 @@ if TYPE_CHECKING:
     from .registry import ToolExecutionContext, ToolRegistry
 
 
+# 同一份评审摘要会写入总评和需求基线，两处沿用证据输出的同一契约。
+REPORT_SUMMARY_SCHEMA: dict[str, Any] = {"type": "string", "minLength": 1, "maxLength": 1000}
+
+
 TEXT_LIST_SCHEMA: dict[str, Any] = {
     "type": "array",
     "maxItems": 30,
@@ -17,79 +21,6 @@ TEXT_LIST_SCHEMA: dict[str, Any] = {
 REQUIREMENT_POINT_LIST_SCHEMA: dict[str, Any] = {
     **TEXT_LIST_SCHEMA,
     "minItems": 1,
-}
-
-METRICS_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "precision": {"type": "number", "minimum": 0, "maximum": 1},
-        "recall": {"type": "number", "minimum": 0, "maximum": 1},
-        "f1_score": {"type": "number", "minimum": 0, "maximum": 1},
-        "semantic_similarity": {"type": "number", "minimum": 0, "maximum": 1},
-    },
-    "required": ["precision", "recall", "f1_score", "semantic_similarity"],
-    "additionalProperties": False,
-}
-
-DEFECT_ANALYSIS_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "missing_points": TEXT_LIST_SCHEMA,
-        "hallucinations": TEXT_LIST_SCHEMA,
-        "modifications": TEXT_LIST_SCHEMA,
-    },
-    "required": ["missing_points", "hallucinations", "modifications"],
-    "additionalProperties": False,
-}
-
-REQUIREMENT_BASELINE_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "requirement_points": TEXT_LIST_SCHEMA,
-        "ai_requirement_gaps": TEXT_LIST_SCHEMA,
-        "human_requirement_gaps": TEXT_LIST_SCHEMA,
-        "ai_unanchored_points": TEXT_LIST_SCHEMA,
-        "human_added_value": TEXT_LIST_SCHEMA,
-        "both_missing_points": TEXT_LIST_SCHEMA,
-        "covered_by_both": TEXT_LIST_SCHEMA,
-        "generated_coverage_count": {"type": "integer", "minimum": 0},
-        "modified_coverage_count": {"type": "integer", "minimum": 0},
-        "generated_coverage_rate": {"type": "number", "minimum": 0, "maximum": 1},
-        "modified_coverage_rate": {"type": "number", "minimum": 0, "maximum": 1},
-        "summary": {"type": "string", "minLength": 1, "maxLength": 500},
-    },
-    "required": [
-        "requirement_points",
-        "ai_requirement_gaps",
-        "human_requirement_gaps",
-        "ai_unanchored_points",
-        "human_added_value",
-        "both_missing_points",
-        "covered_by_both",
-        "generated_coverage_count",
-        "modified_coverage_count",
-        "generated_coverage_rate",
-        "modified_coverage_rate",
-        "summary",
-    ],
-    "additionalProperties": False,
-}
-
-TEST_CASE_EVALUATION_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "metrics": METRICS_SCHEMA,
-        "defect_analysis": DEFECT_ANALYSIS_SCHEMA,
-        "requirement_baseline": REQUIREMENT_BASELINE_SCHEMA,
-        "summary": {"type": "string", "minLength": 1, "maxLength": 1000},
-    },
-    "required": [
-        "metrics",
-        "defect_analysis",
-        "requirement_baseline",
-        "summary",
-    ],
-    "additionalProperties": False,
 }
 
 EVALUATION_EVIDENCE_SCHEMA: dict[str, Any] = {
@@ -105,7 +36,7 @@ EVALUATION_EVIDENCE_SCHEMA: dict[str, Any] = {
         "recall": {"type": "number", "minimum": 0, "maximum": 1},
         "f1_score": {"type": "number", "minimum": 0, "maximum": 1},
         "semantic_similarity": {"type": "number", "minimum": 0, "maximum": 1},
-        "summary": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "summary": REPORT_SUMMARY_SCHEMA,
     },
     "required": [
         "requirement_points",

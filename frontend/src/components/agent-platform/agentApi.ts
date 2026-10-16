@@ -313,9 +313,16 @@ function parseCatalog(value: unknown): AgentCatalog {
   };
 }
 
-function parseRunEnvelope(value: unknown, path: string): { run: AgentRun } {
+export function parseAgentRunResponse(value: unknown, path: string): { run: AgentRun } {
   const object = readObject(value, path);
   return { run: parseAgentRun(object.run, `${path}.run`) };
+}
+
+function parseRunListEnvelope(value: unknown): AgentRun[] {
+  const object = readObject(value, 'Agent 运行列表响应');
+  return readArray(object.items, 'Agent 运行列表响应.items').map((item, index) =>
+    parseAgentRun(item, `Agent 运行列表响应.items[${index}]`),
+  );
 }
 
 function parseOptionalRunEnvelope(value: unknown, path: string): { run: AgentRun | null } {
@@ -350,7 +357,7 @@ export const getAgentCatalog = async (projectId: number): Promise<AgentCatalog> 
   parseCatalog(await api.get<unknown>(`/api/agents/catalog?project_id=${projectId}`));
 
 export const getAgentRun = async (runId: number): Promise<{ run: AgentRun }> =>
-  parseRunEnvelope(await api.get<unknown>(`/api/agents/runs/${runId}`), 'Agent 运行详情响应');
+  parseAgentRunResponse(await api.get<unknown>(`/api/agents/runs/${runId}`), 'Agent 运行详情响应');
 
 export const exportAgentRunTestCases = async (runId: number): Promise<Blob> =>
   api.getBlob(`/api/agents/runs/${runId}/test-cases.xlsx`);
@@ -361,19 +368,13 @@ export const getActiveAgentRun = async (projectId: number): Promise<{ run: Agent
     '当前 Agent 运行响应',
   );
 
-export const getLatestAgentRun = async (
+export const getAgentRuns = async (
   projectId: number,
-  workflowKey: string,
-): Promise<{ run: AgentRun | null }> => {
-  const response = readObject(
-    await api.get<unknown>(`/api/agents/runs?project_id=${projectId}`
-      + `&workflow_key=${encodeURIComponent(workflowKey)}&limit=1`),
-    '最近 Agent 运行响应',
-  );
-  const items = readArray(response.items, '最近 Agent 运行响应.items');
-  return {
-    run: items.length > 0 ? parseAgentRun(items[0], '最近 Agent 运行响应.items[0]') : null,
-  };
+  options: { limit: number; workflowKey?: string },
+): Promise<AgentRun[]> => {
+  const params = new URLSearchParams({ project_id: String(projectId), limit: String(options.limit) });
+  if (options.workflowKey) params.set('workflow_key', options.workflowKey);
+  return parseRunListEnvelope(await api.get<unknown>(`/api/agents/runs?${params.toString()}`));
 };
 
 export const getGenerationReuseCandidate = async (
@@ -417,7 +418,7 @@ export const cancelAgentRun = async (runId: number): Promise<{ run: AgentRun; st
 };
 
 export const retryAgentRun = async (runId: number): Promise<{ run: AgentRun }> =>
-  parseRunEnvelope(
+  parseAgentRunResponse(
     await api.post<unknown>(`/api/agents/runs/${runId}/retry`, {}),
     '继续 Agent 运行响应',
   );
