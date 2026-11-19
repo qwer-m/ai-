@@ -8,8 +8,10 @@ from typing import Any, Callable
 from jsonschema import ValidationError, validate
 from sqlalchemy.orm import Session
 
+from core.ai.ai_client import get_client_for_user
 from core.db.model_defs import (
     AgentApproval,
+    AgentContextRecord,
     AgentDefinition,
     AgentNodeRun,
     AgentRun,
@@ -25,24 +27,30 @@ from .contracts import (
     ApprovalDecision,
     WorkflowDefinitionCreate,
     WorkflowGraph,
+    WorkflowNode,
     parse_execution_definition,
-)
-from .context_compression import (
-    context_compression_enabled,
-    context_compression_max_tokens,
 )
 from .run_repository import AgentRunRepository
 from .definition_repository import AgentDefinitionRepository
 from .input_snapshots import restore_node_input
 from .lifecycle import ACTIVE_RUN_STATUSES, TERMINAL_RUN_STATUSES, transition_run
 from .results import persisted_test_generation_result
+from .serialization import summarize_run_evaluation
 from .sources import (
     SOURCE_ARTIFACT_KEY, SourceSnapshot, assert_same_source, persisted_source_snapshot,
     latest_successful_run_for_source,
 )
-from .retention import prune_terminal_run_history
 from .seed import seed_builtin_definitions
 from .registry import runtime_registry_signature
+from .dispatcher import prepare_agent_run_dispatch
+from .run_contract import (
+    attempt_id,
+    execution_attempt_number,
+    build_execution_contract,
+    CHECKPOINT_SCHEMA_VERSION,
+    input_payload_hash,
+    new_logical_task_id,
+)
 
 
 def _resolved_execution_limits(request: AgentRunCreate) -> dict[str, int]:
@@ -55,6 +63,10 @@ def _resolved_execution_limits(request: AgentRunCreate) -> dict[str, int]:
         "max_output_tokens": int(settings.AGENT_RUN_MAX_OUTPUT_TOKENS),
         "max_total_tokens": int(settings.AGENT_RUN_MAX_TOTAL_TOKENS),
     }
+    if request.workflow_key == "test_generation":
+        from .test_generation_schemas import GENERATION_EXECUTION_LIMITS
+        platform_limits = {key: min(value, GENERATION_EXECUTION_LIMITS[key])
+                           for key, value in platform_limits.items()}
     if requested is None:
         return platform_limits
     values = requested.model_dump()
@@ -69,17 +81,29 @@ def _resolved_execution_limits(request: AgentRunCreate) -> dict[str, int]:
 def _initial_run_context(
     *,
     execution_limits: dict[str, int],
+    input_payload: dict[str, Any] | None = None,
     run_attempt: int = 1,
     source: SourceSnapshot | None = None,
+    logical_task_id: str | None = None,
+    execution_contract: dict[str, Any] | None = None,
+    stop_on_failure: bool = False,
 ) -> dict[str, Any]:
-    """创建全新的运行上下文，禁止重用旧节点输出和旧尝试状态。"""
+    """创建只包含当前运行契约和资源配额的全新运行上下文。"""
 
     if run_attempt < 1:
         raise ValueError("运行执行次数必须从 1 开始")
-    return {
+    task_id = str(logical_task_id or new_logical_task_id())
+    context = {
+        # run_attempt 保存真实尝试序号；界面重置只修改展示基线。
+        "logical_task_id": task_id,
+        "attempt_id": attempt_id(task_id, run_attempt),
         "run_attempt": run_attempt,
+        "attempt_display_offset": 0,
+        "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
+        "execution_contract": deepcopy(execution_contract or {}),
         "artifacts": {SOURCE_ARTIFACT_KEY: source.to_dict()} if source is not None else {},
         "execution_limits": dict(execution_limits),
+        "execution_policy": {"stop_on_failure": stop_on_failure},
         "quota_mode": "per_agent_instance",
         "agent_instance_quota_usage": {},
         "usage": {
@@ -91,27 +115,20 @@ def _initial_run_context(
         },
         "runtime_registry_signature": runtime_registry_signature(),
     }
+    if input_payload is not None:
+        context["input_hash"] = input_payload_hash(input_payload)
+    return context
 
 
 def _normalize_workflow_input(
     workflow_key: str,
     input_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """在输入边界归一化旧客户端字段，内部仅使用正式字段。"""
+    """保留当前公开输入，不自动注入已退役的生成阶段配置。"""
 
     normalized = dict(input_payload or {})
     if str(workflow_key or "").strip() != "test_generation":
         return normalized
-    legacy_compression = normalized.pop("compress", None)
-    if normalized.get("enable_context_compression") is None and legacy_compression is not None:
-        normalized["enable_context_compression"] = legacy_compression
-    normalized["enable_context_compression"] = context_compression_enabled(
-        normalized,
-        default=True,
-    )
-    normalized["context_compression_max_tokens"] = context_compression_max_tokens(
-        normalized,
-    )
     return normalized
 
 
@@ -144,9 +161,19 @@ def _has_restorable_node_repair_state(
         return _has_restorable_repair_state(state)
     if node.node_type != "agent_map" or node.map_config is None:
         return False
-    raw_items = restore_node_input(node_run, load_node).get(node.map_config.items_key)
-    if not isinstance(raw_items, list):
-        return False
+    from .checkpoint_storage import INPUT_MARKER
+
+    if (node_run.input_payload or {}).get(INPUT_MARKER) == 1:
+        # 此处只选择恢复候选，不为控制路径展开输入；实际执行仍逐项校验冻结输入哈希。
+        total = dict(state.get("parallelism") or {}).get("total_instances")
+        if type(total) is not int or total < 0:
+            return False
+        raw_items = None
+    else:
+        raw_items = restore_node_input(node_run, load_node).get(node.map_config.items_key)
+        if not isinstance(raw_items, list):
+            return False
+        total = len(raw_items)
     item_states = state.get("items")
     candidates = list(item_states) if isinstance(item_states, list) else []
     candidates.append(state.get("failed_item"))
@@ -156,8 +183,8 @@ def _has_restorable_node_repair_state(
         index = candidate.get("item_index")
         if (
             type(index) is int
-            and 0 <= index < len(raw_items)
-            and isinstance(raw_items[index], dict)
+            and 0 <= index < total
+            and (raw_items is None or isinstance(raw_items[index], dict))
         ):
             return True
     return False
@@ -171,6 +198,29 @@ class _RestorableCheckpoint:
     has_repair_state: bool = False
     has_partial_map_output: bool = False
     has_action_checkpoint: bool = False
+
+
+def _checkpoint_execution(
+    execution: WorkflowGraph | AgentProgramDefinition,
+) -> WorkflowGraph:
+    """把顶层 AgentProgram 投影为实际运行时的单个 agent_network 节点。"""
+
+    if isinstance(execution, WorkflowGraph):
+        return execution
+    return WorkflowGraph(
+        execution_mode="dag",
+        nodes=[
+            WorkflowNode(
+                node_key="agent_network",
+                node_type="agent_network",
+                reference_key=execution.entry_agent_key,
+                max_attempts=execution.max_attempts,
+                time_budget_seconds=execution.time_budget_seconds,
+            )
+        ],
+        output_node_key="agent_network",
+        input_schema=deepcopy(execution.input_schema),
+    )
 
 
 def _restorable_checkpoints(
@@ -216,10 +266,12 @@ def _restorable_checkpoints(
     return checkpoints
 
 
-def _restored_checkpoint_sdk_state(checkpoint: AgentNodeRun) -> dict[str, Any]:
+def _restored_checkpoint_sdk_state(checkpoint: AgentNodeRun, *, destination_run_id: int | None = None) -> dict[str, Any]:
     """保留父运行检查点的真实执行信息，供当前运行区分“复用”与“重新执行”。"""
 
-    state = deepcopy(checkpoint.sdk_state or {})
+    from .retry_policy import restorable_sdk_state
+
+    state = restorable_sdk_state(checkpoint, destination_run_id=destination_run_id)
     duration_seconds = None
     if checkpoint.started_at is not None and checkpoint.finished_at is not None:
         duration_seconds = max(
@@ -243,7 +295,7 @@ def _restored_checkpoint_sdk_state(checkpoint: AgentNodeRun) -> dict[str, Any]:
 def _restore_checkpoint_node(
     repo: AgentRunRepository, *, checkpoint: AgentNodeRun, run_id: int,
 ) -> AgentNodeRun:
-    """继承检查点时先展开父输入，再仅引用本轮已复制的成功输出。"""
+    """紧凑输入直接继承不可变引用；旧普通节点仍沿既有输出引用恢复边界。"""
     status = "success" if checkpoint.status == "success" else "failed"
     restored = AgentNodeRun(
         run_id=run_id,
@@ -256,12 +308,18 @@ def _restore_checkpoint_node(
         attempt=0,
         input_payload={},
         output_payload=deepcopy(checkpoint.output_payload or {}),
-        sdk_state=_restored_checkpoint_sdk_state(checkpoint),
+        sdk_state=_restored_checkpoint_sdk_state(checkpoint, destination_run_id=run_id),
         error_message="" if status == "success" else "从父运行恢复执行检查点",
         started_at=datetime.utcnow(),
         finished_at=datetime.utcnow(),
     )
-    repo.write_node_input(restored, repo.read_node_input(checkpoint))
+    from .checkpoint_storage import INPUT_MARKER
+
+    if (checkpoint.input_payload or {}).get(INPUT_MARKER) == 1:
+        # 内容寻址引用不含 Run 身份，读取时由新节点的租户与冻结输入验证所有权。
+        restored.input_payload = deepcopy(checkpoint.input_payload)
+    else:
+        repo.write_node_input(restored, repo.read_node_input(checkpoint))
     repo.db.add(restored)
     # 后续检查点的引用需要本轮节点主键，逐节点落入当前事务。
     repo.db.flush()
@@ -429,6 +487,13 @@ class AgentPlatformService:
             source = self.runs.resolve_source_snapshot(project_id=request.project_id, input_payload=input_payload)
         except ValueError as exc:
             return None, f"invalid_run_input:{exc}"
+        execution_contract = build_execution_contract(
+            workflow=workflow,
+            execution=execution,
+            definitions=self.definitions,
+            runtime_registry_signature=runtime_registry_signature(),
+            model_client=get_client_for_user(user_id, self.db),
+        )
         active_run = self.runs.get_active_run_for_source(
             project_id=request.project_id,
             user_id=user_id,
@@ -447,16 +512,21 @@ class AgentPlatformService:
             input_payload=input_payload,
             run_context=_initial_run_context(
                 execution_limits=_resolved_execution_limits(request),
+                input_payload=input_payload,
                 source=source,
+                execution_contract=execution_contract,
+                stop_on_failure=request.stop_on_failure,
             ),
             output_payload={},
         )
         self.db.add(run)
-        self.db.commit()
-        self.db.refresh(run)
         if dispatch:
             if self._start_worker is None:
                 raise RuntimeError("Agent Run 未配置后台执行器")
+            prepare_agent_run_dispatch(self.db, run, reason="created")
+        self.db.commit()
+        self.db.refresh(run)
+        if dispatch:
             self._start_worker(run.id)
         self.db.refresh(run)
         return run, "created"
@@ -478,13 +548,50 @@ class AgentPlatformService:
             workflow_key=workflow_key,
         )
 
-    def get_active_run(self, *, project_id: int, user_id: int) -> AgentRun | None:
+    def get_active_run(
+        self,
+        *,
+        project_id: int,
+        user_id: int,
+        workflow_key: str,
+    ) -> AgentRun | None:
         if self.projects.get_owned_project(project_id=project_id, user_id=user_id) is None:
             return None
-        return self.runs.get_active_run(project_id=project_id, user_id=user_id)
+        return self.runs.get_active_run(
+            project_id=project_id,
+            user_id=user_id,
+            workflow_key=workflow_key,
+        )
 
     def get_run(self, *, run_id: int, user_id: int) -> AgentRun | None:
         return self.runs.get_owned_run(run_id=run_id, user_id=user_id)
+
+    def get_run_summary(self, *, run_id: int, user_id: int) -> AgentRun | None:
+        return self.runs.get_owned_run_summary(run_id=run_id, user_id=user_id)
+
+    def get_run_evaluation_summary(
+        self,
+        *,
+        run_id: int,
+        user_id: int,
+    ) -> tuple[AgentRun, dict[str, Any]] | None:
+        """读取运行轨迹并生成执行/业务评估分层摘要。"""
+
+        run = self.runs.get_owned_run_metrics(run_id=run_id, user_id=user_id)
+        if run is None:
+            return None
+        context_feedback = self.db.query(AgentContextRecord).filter(
+            AgentContextRecord.origin_run_id == run.id,
+            AgentContextRecord.source_kind == "validated_feedback",
+        ).order_by(AgentContextRecord.id.asc()).all()
+        return run, summarize_run_evaluation(
+            run,
+            node_runs=self.runs.list_node_runs(run_id=run.id),
+            events=self.runs.list_event_summaries(run_id=run.id, limit=2000),
+            approvals=self.runs.list_approvals(run_id=run.id),
+            event_total=self.runs.count_events(run_id=run.id),
+            context_feedback=context_feedback,
+        )
 
     def get_generation_reuse_candidate(
         self,
@@ -538,6 +645,8 @@ class AgentPlatformService:
         run = self.runs.get_owned_run(run_id=run_id, user_id=user_id)
         if run is None:
             return None, "run_not_found"
+        if run.status != "success":
+            return None, "run_result_not_found"
         artifact = persisted_test_generation_result(run)
         raw_cases = artifact.get("test_cases") if artifact is not None else None
         if not isinstance(raw_cases, list) or not raw_cases:
@@ -583,22 +692,76 @@ class AgentPlatformService:
         )
         if active_run is not None:
             return None, "run_source_already_active"
-        execution = parse_execution_definition(workflow.definition)
-        execution_limits = dict((run.run_context or {}).get("execution_limits") or {})
-        parent_attempt = int(dict(run.run_context or {}).get("run_attempt") or 1)
+        parent_context = dict(run.run_context or {})
+        execution_limits = dict(parent_context.get("execution_limits") or {})
+        try:
+            parent_attempt = execution_attempt_number(parent_context)
+        except ValueError:
+            return None, "run_contract_invalid"
+        logical_task_id = str(parent_context.get("logical_task_id") or "").strip()
+        if not logical_task_id:
+            return None, "run_contract_missing"
+        # 较旧分支也可被重试；在已持有的项目创建锁内按整个逻辑任务分配下一编号。
+        historical_attempt_ids = self.db.query(
+            AgentRun.run_context["attempt_id"].as_string(),
+        ).filter(
+            AgentRun.user_id == user_id,
+            AgentRun.project_id == run.project_id,
+            AgentRun.run_context["logical_task_id"].as_string() == logical_task_id,
+        ).all()
+        try:
+            parent_attempt = max(
+                [parent_attempt, *(execution_attempt_number({"logical_task_id": logical_task_id, "attempt_id": identity})
+                                   for (identity,) in historical_attempt_ids)],
+            )
+        except ValueError:
+            return None, "run_contract_invalid"
+        execution_contract = deepcopy(parent_context.get("execution_contract"))
+        if not isinstance(execution_contract, dict) or not execution_contract.get("hash"):
+            return None, "run_contract_missing"
+        contract_workflow = (
+            execution_contract.get("workflow")
+            if isinstance(execution_contract, dict)
+            else None
+        )
+        contract_definition = (
+            contract_workflow.get("definition")
+            if isinstance(contract_workflow, dict)
+            else None
+        )
+        if not isinstance(contract_definition, dict):
+            return None, "run_contract_missing"
+        try:
+            execution = parse_execution_definition(contract_definition)
+        except ValueError:
+            return None, "run_contract_invalid"
         retry_context = _initial_run_context(
             execution_limits=execution_limits,
+            input_payload=dict(run.input_payload or {}),
             run_attempt=max(1, parent_attempt) + 1,
             source=source,
+            logical_task_id=logical_task_id,
+            execution_contract=execution_contract,
+            stop_on_failure=bool(parent_context.get("execution_policy", {}).get("stop_on_failure")),
         )
-        checkpoints = (
-            _restorable_checkpoints(
-                execution=execution,
-                node_runs=self.runs.list_node_runs(run_id=run.id),
-            )
-            if isinstance(execution, WorkflowGraph)
-            else []
+        retry_context["attempt_display_offset"] = int(parent_context.get("attempt_display_offset") or 0)
+        checkpoints = _restorable_checkpoints(
+            execution=_checkpoint_execution(execution),
+            node_runs=self.runs.list_node_runs(run_id=run.id),
         )
+        from .checkpoint_storage import compact_checkpoint
+
+        try:
+            for item in checkpoints:
+                if (item.node_run.sdk_state or {}).get("action_checkpoint") is not None:
+                    compact_checkpoint(item.node_run)
+        except ValueError:
+            return None, "run_checkpoint_version_mismatch"
+        # 续跑继承原预算；已明确耗尽的检查点不能创建注定失败的新任务。
+        if any(item.node_run.status != "success" and
+               (item.node_run.sdk_state or {}).get("retry_exhausted") is True
+               for item in checkpoints):
+            return None, "run_retry_budget_exhausted"
         successful_output_count = sum(
             item.node_run.status == "success" for item in checkpoints
         )
@@ -641,6 +804,7 @@ class AgentPlatformService:
             event_type="run_created_from_retry",
             payload={"user_id": user_id, "parent_run_id": run.id, **restored_payload},
         )
+        prepare_agent_run_dispatch(self.db, retry, reason="retried")
         self.db.commit()
         self.db.refresh(retry)
         self._start_worker(retry.id)
@@ -659,7 +823,6 @@ class AgentPlatformService:
             actor_user_id=user_id,
         )
         self.db.commit()
-        prune_terminal_run_history(self.runs, run)
         return run, "cancelled"
 
     def reset_run_attempt(
@@ -670,16 +833,20 @@ class AgentPlatformService:
     ) -> tuple[AgentRun | None, str]:
         """只重置当前运行链的展示次数，保留运行、节点和事件审计数据。"""
 
-        run = self.runs.get_owned_run(run_id=run_id, user_id=user_id)
+        run = self.runs.get_run_for_update(run_id=run_id, user_id=user_id)
         if run is None:
             return None, "run_not_found"
         if run.status in ACTIVE_RUN_STATUSES:
             return None, "run_attempt_reset_forbidden"
         context = deepcopy(dict(run.run_context or {}))
-        previous_attempt = max(1, int(context.get("run_attempt") or 1))
+        try:
+            real_attempt = execution_attempt_number(context)
+        except ValueError:
+            return None, "run_contract_invalid"
+        previous_attempt = max(1, real_attempt - int(context.get("attempt_display_offset") or 0))
         if previous_attempt == 1:
             return run, "already_reset"
-        context["run_attempt"] = 1
+        context["attempt_display_offset"] = real_attempt - 1
         run.run_context = context
         self.db.add(run)
         self.runs.append_event(
@@ -718,9 +885,17 @@ class AgentPlatformService:
             return approval, "already_decided"
         if decision.approved and self._start_worker is None:
             raise RuntimeError("Agent Run 未配置后台执行器")
+        decided_at = datetime.utcnow()
+        if (approval.request_payload or {}).get("kind") == "source_conflicts":
+            if not decision.approved:
+                raise ValueError("待明确事项需逐项填写后完成；放弃运行请使用取消任务")
+            from .conflict_confirmation import apply_conflict_decision
+            node = self.db.get(AgentNodeRun, approval.node_run_id)
+            apply_conflict_decision(approval, node, run, decision.conflict_answers, now=decided_at)
+            self.db.add(node)
         approval.status = "approved" if decision.approved else "rejected"
-        approval.decision_payload = {"reason": decision.reason}
-        approval.decided_at = datetime.utcnow()
+        approval.decision_payload = {"reason": decision.reason, "conflict_answers": decision.conflict_answers}
+        approval.decided_at = decided_at
         approval.decided_by_user_id = user_id
         if decision.approved:
             transition_run(
@@ -730,6 +905,7 @@ class AgentPlatformService:
             )
             self.db.add(approval)
             self.db.add(run)
+            prepare_agent_run_dispatch(self.db, run, reason="approval_approved", new_cycle=True)
             self.db.commit()
             self._start_worker(run.id)
             return approval, "approved"
@@ -742,5 +918,4 @@ class AgentPlatformService:
         self.db.add(approval)
         self.db.add(run)
         self.db.commit()
-        prune_terminal_run_history(self.runs, run)
         return approval, "rejected"

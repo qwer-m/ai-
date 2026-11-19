@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getApiRequestErrorText } from '../../utils/api';
 import {
   cancelAgentRun,
   createAgentRun,
@@ -7,6 +8,8 @@ import {
   getActiveAgentRun,
   getAgentCatalog,
   getAgentRun,
+  getAgentRunEvents,
+  getAgentRunSummary,
   getAgentRuns,
   getGenerationReuseCandidate,
   getRequirementDocumentParseStatus,
@@ -18,6 +21,8 @@ import {
 import type {
   AgentCatalog,
   AgentRun,
+  AgentRunEvent,
+  GenerationRunInput,
   GenerationReuseCandidate,
   RequirementDocumentOption,
 } from './types';
@@ -30,10 +35,8 @@ import {
 const TEST_GENERATION_WORKFLOW_KEY = 'test_generation';
 const ACTIVE_RUN_STATUSES: AgentRun['status'][] = ['pending', 'running', 'waiting_approval'];
 
-function runContextCompression(run: AgentRun | null): boolean {
-  const compression = run?.input_payload.enable_context_compression;
-  return typeof compression === 'boolean' ? compression : true;
-}
+type WorkspaceRead = 'workspace' | 'documentList' | 'documentStatus' | 'activeRun'
+  | 'runDetail' | 'runSummary' | 'runEvents';
 
 function latestRequirementDocumentId(documents: RequirementDocumentOption[]): number | null {
   return documents.reduce<number | null>(
@@ -60,11 +63,10 @@ type Options = {
 export function useAgentWorkspace({ projectId, onLog }: Options) {
   const [catalog, setCatalog] = useState<AgentCatalog>({ agents: [], tools: [], workflows: [] });
   const [activeRun, setActiveRun] = useState<AgentRun | null>(null);
+  const [runEvents, setRunEvents] = useState<AgentRunEvent[]>([]);
   const [requirementDocuments, setRequirementDocuments] = useState<RequirementDocumentOption[]>([]);
   const [requirementDocId, setRequirementDocId] = useState<number | null>(null);
   const [caseBudget, setCaseBudget] = useState(20);
-  // 新建 Run 默认启用上下文压缩；历史 Run 有明确配置时恢复其实际值。
-  const [enableContextCompression, setEnableContextCompression] = useState(true);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -74,6 +76,7 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
   const [reuseCandidate, setReuseCandidate] = useState<GenerationReuseCandidate | null>(null);
   const [showReusePrompt, setShowReusePrompt] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [readErrors, setReadErrors] = useState<Partial<Record<WorkspaceRead, string | null>>>({});
   const projectIdRef = useRef(projectId);
   const workspaceRequestRef = useRef(0);
   const documentRequestRef = useRef(0);
@@ -82,6 +85,8 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
   const activeRunRef = useRef(activeRun);
   const runVersionRef = useRef(0);
   const runRequestRef = useRef(0);
+  const eventCursorRef = useRef(0);
+  const eventRequestRef = useRef(0);
   const submissionRef = useRef<WorkspaceRequestScope | null>(null);
   const runMutationRef = useRef<WorkspaceRequestScope | null>(null);
   const uploadRequestRef = useRef<WorkspaceRequestScope | null>(null);
@@ -105,16 +110,29 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
     captureScope({ run: true, selection: true }),
   ), [captureScope]);
 
+  const setReadError = useCallback((source: WorkspaceRead, reason: unknown) => {
+    // 各读取链路独立恢复，轮询成功只清理同一个读取来源的旧提示。
+    const message = reason === null ? null : getApiRequestErrorText(reason);
+    setReadErrors((current) => (current[source] ?? null) === message
+      ? current
+      : { ...current, [source]: message });
+  }, []);
+
   const selectRequirementDocument = useCallback((documentId: number | null) => {
+    if (requirementDocIdRef.current !== documentId) setReadError('documentStatus', null);
     requirementDocIdRef.current = documentId;
     setRequirementDocId(documentId);
-  }, []);
+  }, [setReadError]);
 
   const commitRun = useCallback((scope: WorkspaceRequestScope, run: AgentRun | null) => {
     if (!isCurrentScope(scope) || (run && run.project_id !== scope.projectId)) return false;
     if ((activeRunRef.current?.id ?? null) !== (run?.id ?? null)) {
       runVersionRef.current += 1;
       runRequestRef.current += 1;
+      eventCursorRef.current = 0;
+      eventRequestRef.current += 1;
+      setRunEvents([]);
+      setReadErrors((current) => ({ ...current, runDetail: null, runSummary: null, runEvents: null }));
     }
     activeRunRef.current = run;
     setActiveRun(run);
@@ -162,6 +180,7 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
     try {
       const response = await listRequirementDocuments(scope.projectId);
       if (!isCurrentScope(scope) || requestId !== documentRequestRef.current) return;
+      setReadError('documentList', null);
       setRequirementDocuments((current) => mergeSelectedDocument(
         response,
         current,
@@ -170,10 +189,10 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
       return response;
     } catch (reason) {
       if (isCurrentScope(scope) && requestId === documentRequestRef.current) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setReadError('documentList', reason);
       }
     }
-  }, [captureScope, isCurrentScope]);
+  }, [captureScope, isCurrentScope, setReadError]);
 
   const openRun = useCallback(async (scope: WorkspaceRequestScope, runId: number) => {
     if (!isCurrentScope(scope)) return null;
@@ -181,15 +200,15 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
     try {
       const runResponse = await getAgentRun(runId);
       if (requestId !== runRequestRef.current || !commitRun(scope, runResponse.run)) return null;
-      setEnableContextCompression(runContextCompression(runResponse.run));
+      setReadError('runDetail', null);
       return runResponse.run;
     } catch (reason) {
       if (requestId === runRequestRef.current && isCurrentScope(scope)) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setReadError('runDetail', reason);
       }
       return null;
     }
-  }, [commitRun, isCurrentScope]);
+  }, [commitRun, isCurrentScope, setReadError]);
 
   const loadWorkspace = useCallback(async () => {
     workspaceRequestRef.current += 1;
@@ -206,11 +225,11 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
     setUploading(false);
     setExporting(false);
     setError(null);
+    setReadErrors({});
     commitRun(scope, null);
     selectRequirementDocument(null);
     setCatalog({ agents: [], tools: [], workflows: [] });
     setRequirementDocuments([]);
-    setEnableContextCompression(true);
     setReuseCandidate(null);
     setShowReusePrompt(false);
     if (!projectId) {
@@ -222,7 +241,7 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
       const [catalogResponse, documentResponse, activeRunResponse] = await Promise.all([
         getAgentCatalog(projectId),
         listRequirementDocuments(projectId),
-        getActiveAgentRun(projectId),
+        getActiveAgentRun(projectId, TEST_GENERATION_WORKFLOW_KEY),
       ]);
       if (!isCurrentScope(scope)) return;
       const workflow = catalogResponse.workflows.find(
@@ -252,18 +271,17 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
       if (restoredRun && Number.isInteger(restoredCaseBudget) && restoredCaseBudget > 0) {
         setCaseBudget(restoredCaseBudget);
       }
-      setEnableContextCompression(runContextCompression(restoredRun));
       if (!workflow) {
         throw new Error('当前项目未配置测试用例生成工作流，请先完成系统初始化');
       }
     } catch (reason) {
       if (isCurrentScope(scope)) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setReadError('workspace', reason);
       }
     } finally {
       if (isCurrentScope(scope)) setLoading(false);
     }
-  }, [captureScope, commitRun, isCurrentScope, projectId, selectRequirementDocument]);
+  }, [captureScope, commitRun, isCurrentScope, projectId, selectRequirementDocument, setReadError]);
 
   useEffect(() => {
     void loadWorkspace();
@@ -292,6 +310,7 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
         if (stopped || !isCurrentScope(scope)
           || requirementDocIdRef.current !== documentId
           || requestId !== documentRequestRef.current) return;
+        setReadError('documentStatus', null);
         setRequirementDocuments((current) => current.map((document) =>
           document.id === documentId
             ? { ...document, parse_status: response.parse_status, parse_error: response.parse_error }
@@ -302,8 +321,9 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
           void refreshRequirementDocuments();
         }
       } catch (reason) {
-        if (!stopped && isCurrentScope(scope) && requestId === documentRequestRef.current) {
-          setError(reason instanceof Error ? reason.message : String(reason));
+        if (!stopped && isCurrentScope(scope) && requirementDocIdRef.current === documentId
+          && requestId === documentRequestRef.current) {
+          setReadError('documentStatus', reason);
         }
       } finally {
         if (keepPolling && !stopped && isCurrentScope(scope)
@@ -317,18 +337,35 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
       stopped = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [captureScope, isCurrentScope, projectId, refreshRequirementDocuments, requirementDocId, selectedParseStatus, uploading]);
+  }, [captureScope, isCurrentScope, projectId, refreshRequirementDocuments, requirementDocId, selectedParseStatus, setReadError, uploading]);
 
   useEffect(() => {
-    if (!activeRun || activeRun.project_id !== projectId || !['pending', 'running'].includes(activeRun.status)) return;
+    if (!activeRun || activeRun.project_id !== projectId
+      || !['pending', 'running', 'waiting_approval'].includes(activeRun.status)) return;
     const runId = activeRun.id;
     const scope = captureScope({ run: true });
     let stopped = false;
     let timer: number | undefined;
+    let summaryPollCount = 0;
     const poll = async () => {
       if (stopped || !isCurrentScope(scope)) return;
       if (!runMutationRef.current || !isCurrentScope(runMutationRef.current)) {
-        await openRun(scope, runId);
+        try {
+          const summary = (await getAgentRunSummary(runId)).run;
+          if (stopped || !isCurrentScope(scope)) return;
+          setReadError('runSummary', null);
+          summaryPollCount += 1;
+          const statusChanged = summary.status !== activeRun.status
+            || summary.current_node_key !== activeRun.current_node_key;
+          const refreshDetails = statusChanged || summaryPollCount % 5 === 0;
+          if (refreshDetails && isCurrentScope(scope)) {
+            await openRun(scope, runId);
+          }
+        } catch (reason) {
+          if (!stopped && isCurrentScope(scope)) {
+            setReadError('runSummary', reason);
+          }
+        }
       }
       if (!stopped && isCurrentScope(scope)) timer = window.setTimeout(() => void poll(), 2000);
     };
@@ -337,7 +374,62 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
       stopped = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [activeRun?.id, activeRun?.status, captureScope, isCurrentScope, openRun, projectId]);
+  }, [activeRun?.id, activeRun?.status, activeRun?.current_node_key, captureScope, isCurrentScope, openRun, projectId, setReadError]);
+
+  // 事件是独立的增量读模型；运行详情只按需刷新，轨迹通过 sequence 游标持续补齐。
+  useEffect(() => {
+    if (!activeRun || activeRun.project_id !== projectId) return;
+    const runId = activeRun.id;
+    const runStatus = activeRun.status;
+    const scope = captureScope({ run: true });
+    const requestId = ++eventRequestRef.current;
+    let stopped = false;
+    let timer: number | undefined;
+    const isCurrent = () => !stopped && requestId === eventRequestRef.current
+      && isCurrentScope(scope) && activeRunRef.current?.status === runStatus;
+    const loadEvents = async () => {
+      if (!isCurrent()) return;
+      try {
+        let hasMore = true;
+        // 每次只发出一个请求；终态也必须读到末页，避免长运行只展示最早的一页。
+        while (hasMore && isCurrent()) {
+          const afterSequence = eventCursorRef.current;
+          const page = await getAgentRunEvents(runId, afterSequence);
+          if (!isCurrent()) return;
+          if (page.after_sequence !== afterSequence
+            || page.items.some((item) => item.run_id !== runId)
+            || page.next_sequence < afterSequence
+            || (page.has_more && page.next_sequence <= afterSequence)) {
+            throw new Error('Agent 运行轨迹游标未推进，无法继续读取');
+          }
+          if (page.items.length > 0) {
+            setRunEvents((current) => {
+              if (!isCurrent()) return current;
+              const bySequence = new Map(current.map((item) => [item.sequence, item]));
+              page.items.forEach((item) => bySequence.set(item.sequence, item));
+              return Array.from(bySequence.values()).sort((left, right) => left.sequence - right.sequence);
+            });
+          }
+          eventCursorRef.current = page.next_sequence;
+          hasMore = page.has_more;
+        }
+        if (isCurrent()) setReadError('runEvents', null);
+      } catch (reason) {
+        if (isCurrent()) {
+          setReadError('runEvents', reason);
+        }
+      } finally {
+        if (isCurrent() && ACTIVE_RUN_STATUSES.includes(runStatus)) {
+          timer = window.setTimeout(() => void loadEvents(), 2000);
+        }
+      }
+    };
+    void loadEvents();
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [activeRun?.id, activeRun?.project_id, activeRun?.status, captureScope, isCurrentScope, projectId, setReadError]);
 
   useEffect(() => {
     if (!projectId || !activeRun || activeRun.project_id !== projectId
@@ -345,22 +437,23 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
     const scope = captureScope({ run: true });
     const requestId = runRequestRef.current;
     let stopped = false;
-    void getActiveAgentRun(projectId).then(async (response) => {
+    void getActiveAgentRun(projectId, TEST_GENERATION_WORKFLOW_KEY).then(async (response) => {
+      if (stopped || !isCurrentScope(scope) || requestId !== runRequestRef.current) return;
+      setReadError('activeRun', null);
       const replacement = response.run;
-      if (!stopped && isCurrentScope(scope) && requestId === runRequestRef.current
-        && !runMutationRef.current && replacement && replacement.id !== activeRun.id
+      if (!runMutationRef.current && replacement && replacement.id !== activeRun.id
         && commitRun(scope, replacement)) {
         await openRun(scope, replacement.id);
       }
     }).catch((reason) => {
       if (!stopped && isCurrentScope(scope) && requestId === runRequestRef.current) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setReadError('activeRun', reason);
       }
     });
     return () => {
       stopped = true;
     };
-  }, [activeRun?.id, activeRun?.status, captureScope, commitRun, isCurrentScope, openRun, projectId]);
+  }, [activeRun?.id, activeRun?.status, captureScope, commitRun, isCurrentScope, openRun, projectId, setReadError]);
 
   const createAndOpenRun = async (scope: WorkspaceRequestScope, disableResultCache: boolean) => {
     if (!scope.projectId || !requirementDocId || !isCurrentScope(scope)) return;
@@ -371,10 +464,9 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
         requirement: '',
         requirement_doc_id: requirementDocId,
         case_budget: Math.max(1, Math.min(200, Number(caseBudget) || 20)),
-        batch_case_limit: 5,
-        enable_context_compression: enableContextCompression,
+        batch_case_limit: 20,
         ...(disableResultCache ? { disable_result_cache: true } : {}),
-      },
+      } satisfies GenerationRunInput,
     });
     if (!commitRun(scope, response.run)) return;
     onLog(response.status === 'already_active'
@@ -415,7 +507,7 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
       }
       await createAndOpenRun(scope, false);
     } catch (reason) {
-      if (isCurrentScope(scope)) setError(reason instanceof Error ? reason.message : String(reason));
+      if (isCurrentScope(scope)) setError(getApiRequestErrorText(reason));
     } finally {
       finishSubmission(scope);
     }
@@ -434,7 +526,7 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
       onLog(`已复用 Run #${candidate.run_id} 的 ${candidate.case_count} 条测试用例`);
       setReuseCandidate(null);
     } catch (reason) {
-      if (isCurrentScope(scope)) setError(reason instanceof Error ? reason.message : String(reason));
+      if (isCurrentScope(scope)) setError(getApiRequestErrorText(reason));
     } finally {
       finishSubmission(scope);
     }
@@ -462,13 +554,12 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
     documentRequestRef.current += 1;
     selectRequirementDocument(sourceDocumentId);
     setCaseBudget(sourceCaseBudget);
-    setEnableContextCompression(runContextCompression(sourceRun));
     try {
       const response = await retryAgentRun(sourceRun.id);
       if (!commitRun(scope, response.run)) return;
       onLog(`已继续 Run #${sourceRun.id} 的未完成任务，新运行为 Run #${response.run.id}，沿用原运行参数`);
     } catch (reason) {
-      if (isCurrentScope(scope)) setError(reason instanceof Error ? reason.message : String(reason));
+      if (isCurrentScope(scope)) setError(getApiRequestErrorText(reason));
     } finally {
       finishSubmission(scope);
     }
@@ -485,7 +576,7 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
       if (!isCurrentScope(scope)) return;
       setReuseCandidate(null);
     } catch (reason) {
-      if (isCurrentScope(scope)) setError(reason instanceof Error ? reason.message : String(reason));
+      if (isCurrentScope(scope)) setError(getApiRequestErrorText(reason));
     } finally {
       finishSubmission(scope);
     }
@@ -522,7 +613,7 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
       });
       onLog(`需求文档“${response.filename}”已上传，正在准备页面资产`);
     } catch (reason) {
-      if (isCurrentScope(scope)) setError(reason instanceof Error ? reason.message : String(reason));
+      if (isCurrentScope(scope)) setError(getApiRequestErrorText(reason));
     } finally {
       if (releaseWorkspaceRequest(scope, uploadRequestRef, captureScope())) setUploading(false);
     }
@@ -539,7 +630,7 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
       onLog('已取消本次 Agent 生成');
       await openRun(scope, activeRun.id);
     } catch (reason) {
-      if (isCurrentScope(scope)) setError(reason instanceof Error ? reason.message : String(reason));
+      if (isCurrentScope(scope)) setError(getApiRequestErrorText(reason));
     } finally {
       releaseWorkspaceRequest(scope, runMutationRef, captureScope());
     }
@@ -556,25 +647,27 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
       if (!commitRun(scope, response.run)) return;
       onLog(response.status === 'already_reset' ? '本次运行次数已经是 1' : '已重置本次运行次数');
     } catch (reason) {
-      if (isCurrentScope(scope)) setError(reason instanceof Error ? reason.message : String(reason));
+      if (isCurrentScope(scope)) setError(getApiRequestErrorText(reason));
     } finally {
       if (releaseWorkspaceRequest(scope, runMutationRef, captureScope())) setResettingAttempt(false);
     }
   };
 
-  const decideApproval = async (approvalId: number, approved: boolean) => {
-    if (!activeRun || activeRun.project_id !== projectId) return;
+  const decideApproval = async (approvalId: number, approved: boolean, answers: Record<string, string> = {}) => {
+    if (!activeRun || activeRun.project_id !== projectId) return false;
     const scope = captureScope({ run: true });
-    if (!beginRunMutation(scope)) return;
+    if (!beginRunMutation(scope)) return false;
     setError(null);
     try {
-      await decideAgentApproval(approvalId, approved);
-      if (!isCurrentScope(scope)) return;
+      await decideAgentApproval(approvalId, approved, '', answers);
+      if (!isCurrentScope(scope)) return false;
       const run = await openRun(scope, activeRun.id);
-      if (!run || !isCurrentScope(scope)) return;
+      if (!run || !isCurrentScope(scope)) return false;
       onLog(`审批 #${approvalId} 已${approved ? '通过' : '拒绝'}`);
+      return true;
     } catch (reason) {
-      if (isCurrentScope(scope)) setError(reason instanceof Error ? reason.message : String(reason));
+      if (isCurrentScope(scope)) setError(getApiRequestErrorText(reason));
+      return false;
     } finally {
       releaseWorkspaceRequest(scope, runMutationRef, captureScope());
     }
@@ -603,7 +696,7 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
       window.URL.revokeObjectURL(url);
       onLog(`已导出 Run #${activeRun.id} 的 Excel 测试用例`);
     } catch (reason) {
-      if (isCurrentScope(scope)) setError(reason instanceof Error ? reason.message : String(reason));
+      if (isCurrentScope(scope)) setError(getApiRequestErrorText(reason));
     } finally {
       if (releaseWorkspaceRequest(scope, exportRequestRef, captureScope())) setExporting(false);
     }
@@ -612,11 +705,11 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
   return {
     catalog,
     activeRun,
+    runEvents,
     requirementDocuments,
     selectedWorkflow,
     requirementDocId,
     caseBudget,
-    enableContextCompression,
     loading,
     submitting,
     retrying,
@@ -625,9 +718,8 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
     exporting,
     reuseCandidate,
     showReusePrompt,
-    error,
+    error: error || Object.values(readErrors).filter(Boolean).join('；') || null,
     setCaseBudget,
-    setEnableContextCompression,
     refreshRequirementDocuments,
     uploadRequirement,
     runWorkflow,

@@ -66,8 +66,8 @@ export function useKnowledgeBaseState({
     () => sessionStorage.getItem(sessionKey(projectId, "end")) || "",
   );
 
-  const prevProjectId = useRef(projectId);
   const prevFilters = useRef({ searchTerm, filterDocType, startDate, endDate });
+  const latestRequest = useRef(0);
 
   useEffect(() => {
     if (!projectId) return;
@@ -77,15 +77,6 @@ export function useKnowledgeBaseState({
     sessionStorage.setItem(sessionKey(projectId, "end"), endDate);
   }, [projectId, searchTerm, filterDocType, startDate, endDate]);
 
-  useEffect(() => {
-    if (!projectId) return;
-    const savedPage = sessionStorage.getItem(sessionKey(projectId, "page"));
-    if (savedPage) {
-      const p = parseInt(savedPage);
-      if (p !== page) setPage(p);
-    }
-  }, [projectId, page]);
-
   const doFetchList = async (
     pid: number,
     p: number,
@@ -94,6 +85,7 @@ export function useKnowledgeBaseState({
     start: string,
     end: string,
   ): Promise<KnowledgeListResponse | null> => {
+    const request = ++latestRequest.current;
     setLoading(true);
     try {
       const data = await fetchKnowledgeList({
@@ -104,6 +96,8 @@ export function useKnowledgeBaseState({
         start,
         end,
       });
+      // 初始列表、搜索和翻页共享同一读模型，只有最后一次请求能提交结果。
+      if (request !== latestRequest.current) return null;
 
       const pagination = data?.pagination ?? {};
       const resolvedTotalPages = Math.max(1, Number(pagination.total_pages || 1));
@@ -126,10 +120,10 @@ export function useKnowledgeBaseState({
       }
       return data;
     } catch (e) {
-      onLog(`Failed to fetch list: ${e}`);
+      if (request === latestRequest.current) onLog(`获取文档列表失败：${e}`);
       return null;
     } finally {
-      setLoading(false);
+      if (request === latestRequest.current) setLoading(false);
     }
   };
 
@@ -141,6 +135,7 @@ export function useKnowledgeBaseState({
   useEffect(() => {
     if (!projectId) {
       setDocs([]);
+      setLoading(false);
       return;
     }
 
@@ -149,42 +144,13 @@ export function useKnowledgeBaseState({
       filterDocType !== prevFilters.current.filterDocType ||
       startDate !== prevFilters.current.startDate ||
       endDate !== prevFilters.current.endDate;
-    const projectChanged = projectId !== prevProjectId.current;
-
-    if (filtersChanged) {
-      fetchList(1);
-    } else if (projectChanged) {
-      const pId = projectId;
-      const savedSearch = sessionStorage.getItem(sessionKey(pId, "search")) || "";
-      const savedType = sessionStorage.getItem(sessionKey(pId, "type")) || "";
-      const savedStart = sessionStorage.getItem(sessionKey(pId, "start")) || "";
-      const savedEnd = sessionStorage.getItem(sessionKey(pId, "end")) || "";
-      const savedPage = sessionStorage.getItem(sessionKey(pId, "page"));
-
-      setSearchTerm(savedSearch);
-      setFilterDocType(savedType);
-      setStartDate(savedStart);
-      setEndDate(savedEnd);
-
-      const targetPage = savedPage ? parseInt(savedPage) : 1;
-      doFetchList(pId, targetPage, savedSearch, savedType, savedStart, savedEnd);
-
-      prevFilters.current = {
-        searchTerm: savedSearch,
-        filterDocType: savedType,
-        startDate: savedStart,
-        endDate: savedEnd,
-      };
-    } else {
-      const savedPage = sessionStorage.getItem(sessionKey(projectId, "page"));
-      const targetPage = savedPage ? parseInt(savedPage) : 1;
-      fetchList(targetPage);
-    }
-
-    prevProjectId.current = projectId;
-    if (!projectChanged) {
-      prevFilters.current = { searchTerm, filterDocType, startDate, endDate };
-    }
+    prevFilters.current = { searchTerm, filterDocType, startDate, endDate };
+    // 项目切换由工作台 key 重建独立状态；筛选改变才回到第一页。
+    fetchList(filtersChanged ? 1 : page);
+    return () => {
+      // 离开页面或改变查询后，旧响应不得覆盖新范围或提前结束加载状态。
+      latestRequest.current += 1;
+    };
   }, [projectId, searchTerm, filterDocType, startDate, endDate]);
 
   return {

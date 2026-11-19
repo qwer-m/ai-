@@ -115,7 +115,11 @@ def reusable_agent_node_output(
             continue
         cache = dict((candidate.sdk_state or {}).get("result_cache") or {})
         # 无自动指纹和原始复验依据的旧结果自然失效，禁止版本兼容放行。
-        if cache.get("semantic_hash") != semantic_hash or cache.get("input_hash") != input_hash:
+        if cache.get("semantic_hash") != semantic_hash:
+            rejections.append({"source_node_run_id": candidate.id, "reason": "semantic_identity_mismatch"})
+            continue
+        if cache.get("input_hash") != input_hash:
+            rejections.append({"source_node_run_id": candidate.id, "reason": "input_identity_mismatch"})
             continue
         try:
             source_input = repo.read_node_input(candidate)

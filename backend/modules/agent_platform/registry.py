@@ -12,6 +12,7 @@ from typing import Any, Awaitable, Callable
 from sqlalchemy.orm import Session
 
 from .output_repair import OutputRepairStrategy
+from .retry_policy import model_transport_failure_kind
 
 
 @dataclass
@@ -32,14 +33,27 @@ class ToolExecutionContext:
     restoring_action: bool = False
     invoke_agent: Callable[..., Awaitable[dict[str, Any]]] | None = None
     agent_concurrency: int = 1
+    confirmed_conflicts: dict[str, Any] = field(default_factory=dict)
+    context_provider: Any = None
+    stop_on_failure: bool = False
+    _request_failures: list[BaseException] = field(default_factory=list, repr=False)
+
+    def record_failure(self, error: BaseException) -> None:
+        """严格运行共享首错闩锁；子上下文复制引用，不能重新发放请求准入。"""
+        if self.stop_on_failure and not self._request_failures:
+            self._request_failures.append(error)
+
+    def require_request_allowed(self) -> None:
+        if self.stop_on_failure and self._request_failures:
+            raise self._request_failures[0]
 
     async def invoke_agents(self, *, agent_key: str, inputs: list[dict[str, Any]],
-                            item_postprocessor: str,
+                            item_postprocessor: str | None = None,
                             candidate_validators: list[Callable | None] | None = None,
                             alternate_output_validators: list[dict[str, Callable] | None] | None = None,
                             return_subtree_failures: bool = False) -> list[Any]:
         """并发等待独立专家；状态验收、回执和数据库操作仍在同一事件循环串行完成。"""
-        from .autonomous_budget import AgentSubtreeRequestBudgetExceeded
+        from .autonomous_budget import AgentExecutionBudgetExceeded, AgentSubtreeRequestBudgetExceeded
 
         if self.invoke_agent is None or not 1 <= self.agent_concurrency <= 16:
             raise ValueError("专业批次缺少调用入口或有效并发额度")
@@ -47,10 +61,22 @@ class ToolExecutionContext:
         candidates = candidate_validators if candidate_validators is not None else [None] * len(inputs)
         if len(validators) != len(inputs) or len(candidates) != len(inputs):
             raise ValueError("专业批次的验收契约必须与完整输入逐项对应")
-        semaphore = asyncio.Semaphore(self.agent_concurrency)
+        semaphore = asyncio.Semaphore(1 if self.stop_on_failure else self.agent_concurrency)
 
-        async def invoke(item, alternative, candidate):
+        class _SubtreeCancelled(Exception):
+            """把子 Agent 主动取消从 TaskGroup 的正常取消语义中提升出来。"""
+
+        budget_failure: AgentExecutionBudgetExceeded | None = None
+        not_started_indexes: set[int] = set()
+
+        async def invoke(item, alternative, candidate, position):
+            nonlocal budget_failure
             async with semaphore:
+                # 全局预算已确定拒绝后，不再启动本批排队中的专业会话。
+                if budget_failure is not None:
+                    not_started_indexes.add(position)
+                    return budget_failure
+                self.require_request_allowed()
                 try:
                     return await self.invoke_agent(
                         agent_key=agent_key, input_payload=item, item_postprocessor=item_postprocessor,
@@ -58,25 +84,78 @@ class ToolExecutionContext:
                         **({"validate_candidate": candidate} if candidate is not None else {}),
                     )
                 except AgentSubtreeRequestBudgetExceeded as error:
+                    if self.stop_on_failure:
+                        self.record_failure(error)
+                        raise
                     # 局部失败不取消其他已经准入的独立任务，成功回执由 SDK 原入口保存。
                     return error
+                except AgentExecutionBudgetExceeded as error:
+                    if self.stop_on_failure:
+                        self.record_failure(error)
+                        raise
+                    # 拒绝新增请求不取消已经付费的兄弟；让真实响应及验收回执收敛。
+                    if budget_failure is None:
+                        budget_failure = error
+                    return error
+                except asyncio.CancelledError as error:
+                    self.record_failure(error)
+                    # TaskGroup 会把 CancelledError 当作正常收敛并吞掉；子 Agent
+                    # 自身取消必须回到上层重规划链，不能变成一个 None 结果。
+                    raise _SubtreeCancelled() from error
+                except Exception as error:
+                    if self.stop_on_failure:
+                        self.record_failure(error)
+                        raise
+                    if model_transport_failure_kind(error) is None:
+                        raise
+                    # 上游暂态故障只终止当前请求，其他独立任务继续保存完整验收回执。
+                    # 整批收敛后仍抛出原故障，由原节点预算决定是否续跑。
+                    return error
 
-        tasks = [asyncio.create_task(invoke(item, alternative, candidate))
-                 for item, alternative, candidate in zip(inputs, validators, candidates, strict=True)]
+        # 使用结构化并发保证父调用结束时所有子任务都已收敛；TaskGroup
+        # 会在任一未处理异常时取消兄弟任务，避免脱离请求生命周期的后台协程。
+        outputs: list[Any] = [None] * len(inputs)
         try:
-            outputs = await asyncio.gather(*tasks)
-        except BaseException:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            async with asyncio.TaskGroup() as group:
+                for index, (item, alternative, candidate) in enumerate(
+                    zip(inputs, validators, candidates, strict=True)
+                ):
+                    async def collect(
+                        position: int,
+                        current: dict[str, Any],
+                        alternate: dict[str, Callable] | None,
+                        validator: Callable | None,
+                    ) -> None:
+                        outputs[position] = await invoke(current, alternate, validator, position)
+
+                    group.create_task(collect(index, item, alternative, candidate))
+        except BaseExceptionGroup as error_group:
+            # 保持原有调用契约：单个子任务失败时向上游抛出原异常，
+            # 不把结构化并发容器暴露给重试与诊断链。
+            def flatten(error: BaseException) -> list[BaseException]:
+                if isinstance(error, BaseExceptionGroup):
+                    return [child for item in error.exceptions for child in flatten(item)]
+                return [error]
+
+            errors = flatten(error_group)
+            ordinary = [error for error in errors if not isinstance(error, _SubtreeCancelled)]
+            if ordinary:
+                raise ordinary[0]
+            if errors:
+                raise asyncio.CancelledError()
             raise
         failures = [index for index, output in enumerate(outputs) if isinstance(output, Exception)]
-        if failures and not return_subtree_failures:
-            error = outputs[failures[0]]
+        transport_failures = [
+            index for index in failures if model_transport_failure_kind(outputs[index]) is not None
+        ]
+        if budget_failure is not None or transport_failures or (failures and not return_subtree_failures):
+            # 全局预算拒绝不能作为领域成功返回；仅在已准入兄弟完成后交回运行时。
+            error = budget_failure if budget_failure is not None else outputs[(transport_failures or failures)[0]]
             error.diagnostic = {
                 **dict(getattr(error, "diagnostic", None) or {}),
-                "batch_progress": {"total_count": len(inputs), "failed_indexes": failures,
+                "batch_progress": {"total_count": len(inputs),
+                                   "failed_indexes": [i for i in failures if i not in not_started_indexes],
+                                   "not_started_indexes": sorted(not_started_indexes),
                                    "validated_indexes": [i for i in range(len(inputs)) if i not in failures]},
             }
             raise error
@@ -91,6 +170,7 @@ class ToolRegistry:
         self._handlers: dict[str, ToolHandler] = {}
         self._parallel_safe_handlers: set[str] = set()
         self._state_only_handlers: set[str] = set()
+        self._cache_safe_handlers: set[str] = set()
         self._repair_strategies: dict[str, OutputRepairStrategy] = {}
 
     def register(
@@ -100,6 +180,7 @@ class ToolRegistry:
         *,
         parallel_safe: bool = False,
         state_only: bool = False,
+        cache_safe: bool = False,
     ) -> None:
         key = str(handler_key or "").strip()
         if not key:
@@ -111,6 +192,16 @@ class ToolRegistry:
             self._parallel_safe_handlers.add(key)
         if state_only:
             self._state_only_handlers.add(key)
+        if cache_safe:
+            self._cache_safe_handlers.add(key)
+
+    def is_cache_safe(self, handler_key: str) -> bool:
+        """纯计算声明来自可信注册代码，不能由用户配置自行授予。"""
+        self.resolve(handler_key)
+        return handler_key in self._cache_safe_handlers
+
+    def cache_safe_keys(self) -> list[str]:
+        return sorted(self._cache_safe_handlers)
 
     def is_state_only(self, handler_key: str) -> bool:
         """仅声明为无外部副作用的领域状态动作，才允许在中断后重新计算。"""
@@ -181,6 +272,10 @@ from .document_agent_tools import (  # noqa: E402
     BUILTIN_TOOL_SPECS as DOCUMENT_AGENT_TOOL_SPECS,
     register_document_agent_tools,
 )
+from .context_agent_tools import (  # noqa: E402
+    BUILTIN_TOOL_SPECS as CONTEXT_AGENT_TOOL_SPECS,
+    register_context_tools,
+)
 
 BUILTIN_AGENT_SPECS = (
     *TEST_GENERATION_AGENT_SPECS,
@@ -189,6 +284,7 @@ BUILTIN_AGENT_SPECS = (
 )
 BUILTIN_TOOL_SPECS = (
     *DOCUMENT_AGENT_TOOL_SPECS,
+    *CONTEXT_AGENT_TOOL_SPECS,
     *TEST_GENERATION_TOOL_SPECS,
     *AUTOMATION_EVALUATION_TOOL_SPECS,
     *TEST_CASE_EVALUATION_TOOL_SPECS,
@@ -200,6 +296,7 @@ BUILTIN_WORKFLOW_SPECS = (
 )
 
 register_document_agent_tools(tool_registry)
+register_context_tools(tool_registry)
 register_test_generation_tools(tool_registry)
 register_automation_evaluation_tools(tool_registry)
 register_test_case_evaluation_tools(tool_registry)
@@ -256,6 +353,7 @@ def runtime_registry_signature() -> str:
         },
         "parallel_safe_handlers": tool_registry.parallel_safe_keys(),
         "state_only_handlers": tool_registry.state_only_keys(),
+        "cache_safe_handlers": tool_registry.cache_safe_keys(),
         "repair_strategies": {
             key: {
                 name: _callable_identity(getattr(tool_registry.resolve_repair_strategy(key), name))

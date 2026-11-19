@@ -6,7 +6,6 @@ from collections.abc import Callable, Mapping
 import asyncio
 from copy import deepcopy
 import json
-import math
 from threading import Lock
 from typing import Any
 
@@ -15,6 +14,8 @@ from agents.agent_output import AgentOutputSchema, AgentOutputSchemaBase
 from agents.items import ModelResponse
 from agents.tool import FunctionTool
 from agents.usage import Usage
+
+from .token_counting import estimate_json_tokens, input_protocol_reservation, input_token_estimate
 
 
 _BUDGET_KEYS = ("attempted_requests", "input_tokens", "output_tokens", "total_tokens")
@@ -70,22 +71,6 @@ def _context_bytes(envelope: dict[str, Any]) -> int:
                           separators=(",", ":"), default=_json_value).encode("utf-8"))
 
 
-def _context_token_upper_bound(envelope: dict[str, Any]) -> int:
-    """按文本内容估算保守 token 上界，避免把 UTF-8 多字节长度当成 token 数。"""
-    serialized = json.dumps(
-        envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
-        default=_json_value,
-    )
-    ascii_bytes = sum(1 for character in serialized if ord(character) < 128)
-    non_ascii_characters = len(serialized) - ascii_bytes
-    # ASCII 文本按约 4 字节/token，中文等非 ASCII 字符按 2 token/字符，
-    # 两项相加保留 JSON 标点、字段名和中英文混合内容的余量。
-    return max(
-        1,
-        math.ceil(ascii_bytes / 4) + non_ascii_characters * 2,
-    )
-
-
 def model_request_context_bytes(
     *, agent: Agent[Any], system_prompt: str | None, input_items: list[Any],
 ) -> int:
@@ -93,47 +78,36 @@ def model_request_context_bytes(
     return _context_bytes(_model_request_envelope(agent=agent, system_prompt=system_prompt, input_items=input_items))
 
 
-def input_protocol_reservation(image_count: int = 0) -> int:
-    """复用既有文本 8192、单图 32768 的预留口径，按实际图片数量累加。"""
-    if type(image_count) is not int or image_count < 0:
-        raise ValueError("图片预留数量必须是非负整数")
-    return 8192 + image_count * (32768 - 8192)
-
-
-def _input_budget_view(value: Any) -> tuple[Any, int]:
-    if isinstance(value, list):
-        views = [_input_budget_view(item) for item in value]
-        return [item for item, _ in views], sum(count for _, count in views)
-    if isinstance(value, dict):
-        if value.get("type") == "input_image":
-            # 仅处理 SDK 明示的图片内容；文本或工具输出字符串中的 URL 仍原样计量。
-            return {key: item for key, item in value.items() if key not in {"image_url", "file_id"}}, 1
-        views = {key: _input_budget_view(item) for key, item in value.items()}
-        return {key: item for key, (item, _) in views.items()}, sum(count for _, count in views.values())
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value, 0
-    return _input_budget_view(_json_value(value))
+def model_request_input_estimate(
+    *, agent: Agent[Any], system_prompt: str | None, input_items: list[Any],
+) -> dict[str, Any]:
+    """完整文本契约经过 BPE 分词后附声明余量；不是服务商精确输入计数。"""
+    envelope = _model_request_envelope(agent=agent, system_prompt=system_prompt, input_items=input_items)
+    return input_token_estimate(envelope, agent.model)
 
 
 def model_request_input_reservation(
     *, agent: Agent[Any], system_prompt: str | None, input_items: list[Any],
 ) -> int:
-    """文本按字节保守预留，图片按视觉额度预留，禁止把 Base64 编码逐字当作 Token。"""
-    envelope = _model_request_envelope(agent=agent, system_prompt=system_prompt, input_items=input_items)
-    envelope["input"], image_count = _input_budget_view(input_items)
-    return _context_token_upper_bound(envelope) + input_protocol_reservation(image_count)
+    return model_request_input_estimate(
+        agent=agent, system_prompt=system_prompt, input_items=input_items,
+    )["reserved_input_tokens"]
 
 
 def model_request_reservation(
     *, agent: Agent[Any], system_prompt: str | None, input_items: list[Any],
 ) -> dict[str, int]:
-    """沿用原保守预算口径，同时纳入本轮新增的工具观察。"""
-    output_limit = agent.model_settings.max_tokens
-    if output_limit is None or output_limit <= 0:
-        raise ValueError("自主 Agent 必须向模型明确发送正整数 max_tokens")
+    """输入按本地分词加协议余量预留，输出按真实发送的 max_tokens 预留。"""
     input_tokens = model_request_input_reservation(
         agent=agent, system_prompt=system_prompt, input_items=input_items,
     )
+    return _request_reservation(agent, input_tokens)
+
+
+def _request_reservation(agent: Agent[Any], input_tokens: int) -> dict[str, int]:
+    output_limit = agent.model_settings.max_tokens
+    if output_limit is None or output_limit <= 0:
+        raise ValueError("自主 Agent 必须向模型明确发送正整数 max_tokens")
     return {
         "attempted_requests": 1,
         "input_tokens": input_tokens,
@@ -209,8 +183,14 @@ class AutonomousBudgetHooks(RunHooks[Any]):
         # 旧进程中未收到回执的请求继续占用原额度，不能恢复旧 Python 上下文对象或退款。
         self._interrupted = counts["interrupted_requests"] + counts["pending_requests"]
         self._reported = reported
+        # 历史账本没有分词配置就保持缺省，不为旧请求虚构本地估计依据。
+        self._input_estimators = deepcopy((checkpoint or {}).get("input_estimator", {}))
+        if not isinstance(self._input_estimators, dict):
+            raise ValueError("自主预算检查点的分词估计依据必须是对象")
         self._on_change = on_change
         self._lock = Lock()
+        # 只等待当前事件循环内的真实结算；未知请求的预留不属于可释放容量。
+        self._capacity_changed = asyncio.Event()
         self._require_budget(self._charged)
 
     def _persist(self) -> None:
@@ -225,25 +205,59 @@ class AutonomousBudgetHooks(RunHooks[Any]):
         if exceeded:
             raise AgentExecutionBudgetExceeded("本轮父子 Agent 共享预算耗尽: " + ", ".join(exceeded))
 
+    def _notify_capacity_changed(self) -> None:
+        # 替换通知世代再唤醒，避免结算恰好发生在登记等待与 await 之间时丢通知。
+        with self._lock:
+            previous = self._capacity_changed
+            self._capacity_changed = asyncio.Event()
+        previous.set()
+
+    async def _reserve_request(
+        self, context: RunContextWrapper[Any], reservation: dict[str, int],
+        *, before_admission: Callable[[], None] | None = None,
+    ) -> None:
+        while True:
+            # 预算等待后必须重新核对请求权限及执行权；检查失败不记一次尝试。
+            if before_admission is not None:
+                before_admission()
+            with self._lock:
+                if context in self._pending:
+                    raise RuntimeError("同一模型上下文存在尚未结算的请求")
+                self._require_budget(self._charged)
+                self._require_budget(reservation)
+                projected = {name: self._charged[name] + reservation[name] for name in _BUDGET_KEYS}
+                if any(projected[name] > self._limits[name] for name in _BUDGET_KEYS):
+                    # 次数是累计消耗，结算不能补回；没有在途请求也没有容量可等待。
+                    if (not self._pending
+                            or projected["attempted_requests"] > self._limits["attempted_requests"]):
+                        self._require_budget(projected)
+                    changed = self._capacity_changed
+                else:
+                    self._charged = projected
+                    self._pending[context] = reservation
+                    changed = None
+            if changed is None:
+                # 发送之前持久预留；失败时仍不允许模型请求继续。
+                self._persist()
+                return
+            # 不持同步锁等待；现有硬超时、取消及失租监督会取消此等待。
+            await changed.wait()
+
     async def on_llm_start(
         self,
         context: RunContextWrapper[Any],
         agent: Agent[Any],
         system_prompt: str | None,
         input_items: list[Any],
+        *, before_admission: Callable[[], None] | None = None,
     ) -> None:
-        reservation = model_request_reservation(
+        estimate = model_request_input_estimate(
             agent=agent, system_prompt=system_prompt, input_items=input_items,
         )
+        reservation = _request_reservation(agent, estimate["reserved_input_tokens"])
         with self._lock:
-            if context in self._pending:
-                raise RuntimeError("同一模型上下文存在尚未结算的请求")
-            projected = {name: self._charged[name] + reservation[name] for name in _BUDGET_KEYS}
-            self._require_budget(projected)
-            self._charged = projected
-            self._pending[context] = reservation
-        # 在发送请求前保存预留；持久化失败时不得继续请求模型。
-        self._persist()
+            self._input_estimators[estimate["model"]] = estimate
+        await self._reserve_request(context, reservation, before_admission=before_admission)
 
     def settle_request(self, context: RunContextWrapper[Any], usage: Usage | None) -> None:
         """仅按当前响应的增量结算；共享 context.usage 已含子调用，不能重复累加。"""
@@ -273,6 +287,7 @@ class AutonomousBudgetHooks(RunHooks[Any]):
             }
             self._completed += 1
         self._persist()
+        self._notify_capacity_changed()
         self._require_budget(self._charged)
 
     def interrupt_requests(self, *, execution_context: Any) -> None:
@@ -284,6 +299,8 @@ class AutonomousBudgetHooks(RunHooks[Any]):
             self._interrupted += len(contexts)
         if contexts:
             self._persist()
+            # 未知用量仍占额度，但等待者须知道已没有这批在途响应可等待。
+            self._notify_capacity_changed()
 
     async def on_llm_end(
         self,
@@ -291,7 +308,7 @@ class AutonomousBudgetHooks(RunHooks[Any]):
         agent: Agent[Any],
         response: ModelResponse,
     ) -> None:
-        self.settle_request(context, response.usage)
+        self.settle_request(context, None if getattr(response, "usage_reported", True) is False else response.usage)
 
     def observe(self) -> dict[str, Any]:
         """读取根与专业 Agent 共用的即时余额；观察不预留、不结算，也不重置额度。"""
@@ -311,14 +328,14 @@ class AutonomousBudgetHooks(RunHooks[Any]):
         }
 
     def scoped_requests(self, max_requests: int) -> ScopedRequestBudgetHooks:
-        """专业会话另设局部请求数，Token 和阶段总请求仍只在当前账本计费。"""
+        """专业会话另设局部请求数，Token 和阶段总请求仍只在当前共享预算计量。"""
         return ScopedRequestBudgetHooks(self, max_requests=max_requests)
 
     def snapshot(self) -> dict[str, Any]:
         """诊断只包含额度，不携带模型输入、工具内容或认证信息。"""
 
         with self._lock:
-            return {
+            snapshot = {
                 "limits": dict(self._limits),
                 "charged": dict(self._charged),
                 "pending_requests": len(self._pending),
@@ -327,6 +344,9 @@ class AutonomousBudgetHooks(RunHooks[Any]):
                 "reported_usage": dict(self._reported),
                 "request_scope": "sdk_model_calls",
             }
+            if self._input_estimators:
+                snapshot["input_estimator"] = deepcopy(self._input_estimators)
+            return snapshot
 
 
 class ScopedRequestBudgetHooks(RunHooks[Any]):
@@ -343,6 +363,7 @@ class ScopedRequestBudgetHooks(RunHooks[Any]):
     async def on_llm_start(
         self, context: RunContextWrapper[Any], agent: Agent[Any],
         system_prompt: str | None, input_items: list[Any],
+        *, before_admission: Callable[[], None] | None = None,
     ) -> None:
         async with self._start_lock:
             if self._attempted_requests >= self._limit:
@@ -350,7 +371,9 @@ class ScopedRequestBudgetHooks(RunHooks[Any]):
                     f"专业会话及咨询子树请求预算耗尽: attempted_requests={self._attempted_requests}/{self._limit}"
                 )
             # 父级准入先成功才记局部次数；局部拒绝也不能占用阶段额度。
-            await self._parent.on_llm_start(context, agent, system_prompt, input_items)
+            await self._parent.on_llm_start(
+                context, agent, system_prompt, input_items, before_admission=before_admission,
+            )
             self._attempted_requests += 1
 
     def settle_request(self, context: RunContextWrapper[Any], usage: Usage | None) -> None:
@@ -362,7 +385,7 @@ class ScopedRequestBudgetHooks(RunHooks[Any]):
     async def on_llm_end(
         self, context: RunContextWrapper[Any], agent: Agent[Any], response: ModelResponse,
     ) -> None:
-        self.settle_request(context, response.usage)
+        self.settle_request(context, None if getattr(response, "usage_reported", True) is False else response.usage)
 
     def scoped_requests(self, max_requests: int) -> ScopedRequestBudgetHooks:
         return ScopedRequestBudgetHooks(self, max_requests=max_requests)

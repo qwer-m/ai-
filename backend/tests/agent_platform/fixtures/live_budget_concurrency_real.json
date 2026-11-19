@@ -1,0 +1,596 @@
+{
+  "schema_version": 1,
+  "provenance": [
+    {
+      "path": "output\\qa\\2026-11-12-single-agent-live\\round-03\\recovery-verification.json",
+      "sha256": "5ca2a714b89261ddb55a38a4a21402053a9e8979a29c4e91e3ad8bd75d8e4ef5"
+    },
+    {
+      "path": "output\\qa\\2026-11-12-single-agent-live\\pre-fix-snapshot.json",
+      "sha256": "54dc26b4aa1d1f87f9c4946ced6af6c20d1c07d1d56bef37b8d0091295f22585"
+    },
+    {
+      "path": "output\\qa\\2026-11-12-single-agent-live\\round-04\\final-snapshot.json",
+      "sha256": "00af13e8ab57a77e68495c659863f0d69583b33697e3631900dd9e4493ff1487"
+    }
+  ],
+  "description": "真实Run49/51/52持久记录的最小投影；只用于隔离预算和并发协议回放，不等同线上重新执行。",
+  "run51": {
+    "identity": {
+      "run_id": 51,
+      "old_node_id": 393,
+      "new_node_id": 394,
+      "old_attempt": 1,
+      "new_attempt": 2,
+      "old_task_id": "c9919f07-9ec2-402c-abb4-3a538e5a5951",
+      "new_task_id": "60ed934e-39d9-4a08-b21c-56c07ee18b96",
+      "old_claim_sha256": "f1c99caf023dff5afb0a1c4414f936d68f8609647b9115225eb5631a824835cf",
+      "new_claim_sha256": "223a08dbebd0dad3d6d74270889ef5edb8efc6a0f5159142c0122ff7e7e41bda",
+      "logical_task_id": "task-348a746865f848b5babdac47caafda9b",
+      "logical_attempt_id": "task-348a746865f848b5babdac47caafda9b/attempt-1",
+      "source": {
+        "kind": "knowledge_document",
+        "doc_type": "requirement",
+        "filename": "同步优学 · 产品需求文档.pdf",
+        "document_id": 287,
+        "content_hash": "3e9659e0c2fb3d4f4c30774b3212109969e528e5a2ea4d776dd418226fb7b1d3"
+      },
+      "state_hash": "a2589a39b47e52a2e1e52a864b886c9f01d9bf120be30427f4c1d55479840845",
+      "action": {
+        "status": "started",
+        "tool_key": "review_planning_route_gaps",
+        "tool_call_id": "call_30fd0d289c5e4515a3bc9357f445a79f",
+        "started_sequence": 7
+      }
+    },
+    "initial": {
+      "limits": {
+        "input_tokens": 2000000,
+        "total_tokens": 2800000,
+        "output_tokens": 800000,
+        "attempted_requests": 160
+      },
+      "charged": {
+        "input_tokens": 1594246,
+        "total_tokens": 1751748,
+        "output_tokens": 157502,
+        "attempted_requests": 89
+      },
+      "request_scope": "sdk_model_calls",
+      "reported_usage": {
+        "requests": 83,
+        "input_tokens": 918896,
+        "total_tokens": 980398,
+        "output_tokens": 61502
+      },
+      "pending_requests": 0,
+      "completed_requests": 83,
+      "interrupted_requests": 6
+    },
+    "final": {
+      "limits": {
+        "input_tokens": 2000000,
+        "total_tokens": 2800000,
+        "output_tokens": 800000,
+        "attempted_requests": 160
+      },
+      "charged": {
+        "input_tokens": 1953061,
+        "total_tokens": 2158563,
+        "output_tokens": 205502,
+        "attempted_requests": 92
+      },
+      "request_scope": "sdk_model_calls",
+      "reported_usage": {
+        "requests": 83,
+        "input_tokens": 918896,
+        "total_tokens": 980398,
+        "output_tokens": 61502
+      },
+      "pending_requests": 0,
+      "completed_requests": 83,
+      "interrupted_requests": 9
+    },
+    "unknown_budget": {
+      "this_kill_retained": {
+        "attempted_requests": 6,
+        "input_tokens": 675350,
+        "output_tokens": 96000,
+        "total_tokens": 771350
+      },
+      "final_retained_unknown": {
+        "attempted_requests": 9,
+        "input_tokens": 1034165,
+        "output_tokens": 144000,
+        "total_tokens": 1178165
+      },
+      "additional_unknown_after_new_admission": {
+        "attempted_requests": 3,
+        "input_tokens": 358815,
+        "output_tokens": 48000,
+        "total_tokens": 406815
+      },
+      "no_response_usage_added_after_recovery": true,
+      "interpretation": "强停时6个真实在途请求的预留完整保留并转interrupted。恢复先命中18个已验收专业结果，随后新准入3个专业请求；下一次准入将使input达到2072563>2000000，门禁拒绝，已准入3个请求随TaskGroup收敛未得响应，额外预留也不退款。最终interrupted=9。此预算失败与取权/状态/专业缓存恢复分别评价，不改限额、不重置账本。"
+    },
+    "new_requests": [
+      {
+        "model": {
+          "name": "gpt-6.1-sol",
+          "route": "review"
+        },
+        "run_id": 51,
+        "status": "ended_without_model_response",
+        "batch_id": null,
+        "node_key": "agent_network",
+        "sequence": 1,
+        "agent_key": "test_planning_route_gap_reviewer",
+        "agent_name": "业务规划路由缺口复核智能体",
+        "input_hash": "7cff69568886b985189e41c7d5aa6ed12be9bbdba266c9e009df10b4f134bd49",
+        "started_at": "2026-11-12T03:12:00.366173+00:00",
+        "action_tool": "review_planning_route_gaps",
+        "finished_at": "2026-11-12T03:12:01.252862+00:00",
+        "node_run_id": 394,
+        "action_call_id": "call_30fd0d289c5e4515a3bc9357f445a79f",
+        "model_settings": {
+          "tool_choice": "required",
+          "thinking_type": null,
+          "reasoning_effort": "low"
+        },
+        "elapsed_seconds": 0.885,
+        "exception_chain": [
+          {
+            "error_type": "CancelledError"
+          }
+        ],
+        "agent_definition_id": 428,
+        "sdk_input_item_count": 1,
+        "reserved_input_tokens": 119696,
+        "measured_context_bytes": 111504,
+        "reserved_output_tokens": 16000,
+        "request_timeout_seconds": 300.0,
+        "session_timeout_seconds": 1800.0,
+        "context_measurement_scope": "sdk_context_json_not_http_wire"
+      },
+      {
+        "model": {
+          "name": "gpt-6.1-sol",
+          "route": "review"
+        },
+        "run_id": 51,
+        "status": "ended_without_model_response",
+        "batch_id": null,
+        "node_key": "agent_network",
+        "sequence": 2,
+        "agent_key": "test_planning_route_gap_reviewer",
+        "agent_name": "业务规划路由缺口复核智能体",
+        "input_hash": "02187da238f393f7baa131ce831eb513c4225db1a6eff25b75dae6c2d7e2396c",
+        "started_at": "2026-11-12T03:12:00.388267+00:00",
+        "action_tool": "review_planning_route_gaps",
+        "finished_at": "2026-11-12T03:12:01.259372+00:00",
+        "node_run_id": 394,
+        "action_call_id": "call_30fd0d289c5e4515a3bc9357f445a79f",
+        "model_settings": {
+          "tool_choice": "required",
+          "thinking_type": null,
+          "reasoning_effort": "low"
+        },
+        "elapsed_seconds": 0.871,
+        "exception_chain": [
+          {
+            "error_type": "CancelledError"
+          }
+        ],
+        "agent_definition_id": 428,
+        "sdk_input_item_count": 1,
+        "reserved_input_tokens": 119652,
+        "measured_context_bytes": 111460,
+        "reserved_output_tokens": 16000,
+        "request_timeout_seconds": 300.0,
+        "session_timeout_seconds": 1800.0,
+        "context_measurement_scope": "sdk_context_json_not_http_wire"
+      },
+      {
+        "model": {
+          "name": "gpt-6.1-sol",
+          "route": "review"
+        },
+        "run_id": 51,
+        "status": "ended_without_model_response",
+        "batch_id": null,
+        "node_key": "agent_network",
+        "sequence": 3,
+        "agent_key": "test_planning_route_gap_reviewer",
+        "agent_name": "业务规划路由缺口复核智能体",
+        "input_hash": "b99a86e14e255854949df80cc535dc7113e29a64373d4434a55122212270eafd",
+        "started_at": "2026-11-12T03:12:00.408864+00:00",
+        "action_tool": "review_planning_route_gaps",
+        "finished_at": "2026-11-12T03:12:01.266373+00:00",
+        "node_run_id": 394,
+        "action_call_id": "call_30fd0d289c5e4515a3bc9357f445a79f",
+        "model_settings": {
+          "tool_choice": "required",
+          "thinking_type": null,
+          "reasoning_effort": "low"
+        },
+        "elapsed_seconds": 0.856,
+        "exception_chain": [
+          {
+            "error_type": "CancelledError"
+          }
+        ],
+        "agent_definition_id": 428,
+        "sdk_input_item_count": 1,
+        "reserved_input_tokens": 119467,
+        "measured_context_bytes": 111275,
+        "reserved_output_tokens": 16000,
+        "request_timeout_seconds": 300.0,
+        "session_timeout_seconds": 1800.0,
+        "context_measurement_scope": "sdk_context_json_not_http_wire"
+      }
+    ]
+  },
+  "known_response": {
+    "model": {
+      "name": "gpt-6.1-terra",
+      "route": "vision"
+    },
+    "usage": {
+      "requests": 1,
+      "input_tokens": 10552,
+      "total_tokens": 12624,
+      "output_tokens": 2072
+    },
+    "run_id": 49,
+    "status": "response_received",
+    "batch_id": null,
+    "node_key": "agent_network",
+    "sequence": 18,
+    "agent_key": "test_source_semantics_analyst",
+    "agent_name": "来源语义分析智能体",
+    "input_hash": "9137f22242b79586e2ea61c8484a21b400ec13c470d5caa244893581c3d7a72f",
+    "started_at": "2026-11-12T02:27:15.820048+00:00",
+    "action_tool": "analyze_source",
+    "finished_at": "2026-11-12T02:27:56.004287+00:00",
+    "node_run_id": 390,
+    "token_usage": {
+      "input_tokens": 10552,
+      "total_tokens": 12624,
+      "output_tokens": 2072,
+      "reasoning_tokens": null,
+      "cached_input_tokens": null,
+      "uncached_input_tokens": null
+    },
+    "action_call_id": "call_0945db0c3c5342c5a7fec520edfc59aa",
+    "model_settings": {
+      "tool_choice": "required",
+      "thinking_type": null,
+      "reasoning_effort": "low"
+    },
+    "elapsed_seconds": 40.18,
+    "agent_definition_id": 426,
+    "sdk_input_item_count": 1,
+    "reserved_input_tokens": 152990,
+    "measured_context_bytes": 1089331,
+    "reserved_output_tokens": 15000,
+    "request_timeout_seconds": 180.0,
+    "session_timeout_seconds": 180.0,
+    "context_measurement_scope": "sdk_context_json_not_http_wire",
+    "sdk_response_output_bytes": 8567,
+    "sdk_response_reasoning_item_count": 0
+  },
+  "run52": {
+    "identity": {
+      "id": 52,
+      "user_id": 1,
+      "project_id": 8,
+      "task_id": "ec8b81ad-8cfc-407d-8615-72e1613b6816",
+      "input_payload": {
+        "case_budget": 70,
+        "requirement": "",
+        "batch_case_limit": 5,
+        "requirement_doc_id": 287,
+        "disable_result_cache": true,
+        "enable_context_compression": true,
+        "context_compression_max_tokens": 1800
+      }
+    },
+    "before_last_action": {
+      "limits": {
+        "input_tokens": 2000000,
+        "total_tokens": 2800000,
+        "output_tokens": 800000,
+        "attempted_requests": 160
+      },
+      "charged": {
+        "input_tokens": 1685033,
+        "total_tokens": 1769189,
+        "output_tokens": 84156,
+        "attempted_requests": 123
+      },
+      "request_scope": "sdk_model_calls",
+      "reported_usage": {
+        "requests": 123,
+        "input_tokens": 1685033,
+        "total_tokens": 1769189,
+        "output_tokens": 84156
+      },
+      "pending_requests": 0,
+      "completed_requests": 123,
+      "interrupted_requests": 0
+    },
+    "final": {
+      "limits": {
+        "input_tokens": 2000000,
+        "total_tokens": 2800000,
+        "output_tokens": 800000,
+        "attempted_requests": 160
+      },
+      "charged": {
+        "input_tokens": 1973231,
+        "total_tokens": 2105387,
+        "output_tokens": 132156,
+        "attempted_requests": 126
+      },
+      "request_scope": "sdk_model_calls",
+      "reported_usage": {
+        "requests": 123,
+        "input_tokens": 1685033,
+        "total_tokens": 1769189,
+        "output_tokens": 84156
+      },
+      "pending_requests": 0,
+      "completed_requests": 123,
+      "interrupted_requests": 3
+    },
+    "last_requests": [
+      {
+        "model": {
+          "name": "gpt-6.1-sol",
+          "route": "review"
+        },
+        "run_id": 52,
+        "status": "ended_without_model_response",
+        "batch_id": null,
+        "node_key": "agent_network",
+        "sequence": 124,
+        "agent_key": "test_planning_route_gap_reviewer",
+        "agent_name": "业务规划路由缺口复核智能体",
+        "input_hash": "7754270cb18223958ca6c828b204ba1fd2d4660f6680ddac891acbd55a002f73",
+        "started_at": "2026-11-12T03:36:32.782380+00:00",
+        "action_tool": "review_planning_route_gaps",
+        "finished_at": "2026-11-12T03:36:32.870364+00:00",
+        "node_run_id": 395,
+        "action_call_id": "call_79accfcd7aeb4bc8b8fccc31e270b7b9",
+        "model_settings": {
+          "tool_choice": "required",
+          "thinking_type": null,
+          "reasoning_effort": "low"
+        },
+        "elapsed_seconds": 0.087,
+        "exception_chain": [
+          {
+            "error_type": "CancelledError"
+          }
+        ],
+        "agent_definition_id": 428,
+        "sdk_input_item_count": 1,
+        "reserved_input_tokens": 113470,
+        "measured_context_bytes": 105278,
+        "reserved_output_tokens": 16000,
+        "request_timeout_seconds": 300.0,
+        "session_timeout_seconds": 1800.0,
+        "context_measurement_scope": "sdk_context_json_not_http_wire"
+      },
+      {
+        "model": {
+          "name": "gpt-6.1-sol",
+          "route": "review"
+        },
+        "run_id": 52,
+        "status": "ended_without_model_response",
+        "batch_id": null,
+        "node_key": "agent_network",
+        "sequence": 125,
+        "agent_key": "test_planning_route_gap_reviewer",
+        "agent_name": "业务规划路由缺口复核智能体",
+        "input_hash": "d2b77a1e36a1e307c4c0ea65c882c0acd1aedc0a2a507b4c9dc447265e802637",
+        "started_at": "2026-11-12T03:36:32.810470+00:00",
+        "action_tool": "review_planning_route_gaps",
+        "finished_at": "2026-11-12T03:36:32.880935+00:00",
+        "node_run_id": 395,
+        "action_call_id": "call_79accfcd7aeb4bc8b8fccc31e270b7b9",
+        "model_settings": {
+          "tool_choice": "required",
+          "thinking_type": null,
+          "reasoning_effort": "low"
+        },
+        "elapsed_seconds": 0.069,
+        "exception_chain": [
+          {
+            "error_type": "CancelledError"
+          }
+        ],
+        "agent_definition_id": 428,
+        "sdk_input_item_count": 1,
+        "reserved_input_tokens": 113355,
+        "measured_context_bytes": 105163,
+        "reserved_output_tokens": 16000,
+        "request_timeout_seconds": 300.0,
+        "session_timeout_seconds": 1800.0,
+        "context_measurement_scope": "sdk_context_json_not_http_wire"
+      },
+      {
+        "model": {
+          "name": "gpt-6.1-sol",
+          "route": "review"
+        },
+        "run_id": 52,
+        "status": "ended_without_model_response",
+        "batch_id": null,
+        "node_key": "agent_network",
+        "sequence": 126,
+        "agent_key": "test_planning_route_gap_reviewer",
+        "agent_name": "业务规划路由缺口复核智能体",
+        "input_hash": "95b969d3c317efc48925734b0ab7a874ebf0572bd80660c9e6409101751b7d38",
+        "started_at": "2026-11-12T03:36:32.842939+00:00",
+        "action_tool": "review_planning_route_gaps",
+        "finished_at": "2026-11-12T03:36:32.892550+00:00",
+        "node_run_id": 395,
+        "action_call_id": "call_79accfcd7aeb4bc8b8fccc31e270b7b9",
+        "model_settings": {
+          "tool_choice": "required",
+          "thinking_type": null,
+          "reasoning_effort": "low"
+        },
+        "elapsed_seconds": 0.049,
+        "exception_chain": [
+          {
+            "error_type": "CancelledError"
+          }
+        ],
+        "agent_definition_id": 428,
+        "sdk_input_item_count": 1,
+        "reserved_input_tokens": 61373,
+        "measured_context_bytes": 53181,
+        "reserved_output_tokens": 16000,
+        "request_timeout_seconds": 300.0,
+        "session_timeout_seconds": 1800.0,
+        "context_measurement_scope": "sdk_context_json_not_http_wire"
+      }
+    ],
+    "projected_rejected_input": 2024809,
+    "error_message": "AgentExecutionBudgetExceeded: 本轮父子 Agent 共享预算耗尽: input_tokens=2024809/2000000",
+    "validated_calls": [
+      {
+        "identity": {
+          "agent_key": "test_planning_route_gap_reviewer",
+          "input_hash": "7ab14dd130803edd58a2a576a9439bee7b2cd29f3a71a6563e85ac8b7605869c",
+          "contract_hash": "222889ddc7b71245a75731bdfbdd92a13880d92648a286d8eef881af581066a4",
+          "execution_semantic_hash": "97cf26ce83781b6872202f7cce3b2664a92bd3ac22379707b173e4b631875f42"
+        },
+        "output": {
+          "decisions": [
+            {
+              "reason": "入口与课程切换的顶部栏原文明示左侧返回、中间课程标题、右侧切换课程及打印，并去掉单词本，与覆盖目标一致。",
+              "fact_ids": [
+                "DOC287-P0001-f14",
+                "DOC287-P0001-f18",
+                "DOC287-P0001-f15",
+                "DOC287-P0001-f16",
+                "DOC287-P0001-f17"
+              ],
+              "disposition": "supported",
+              "support_gaps": [],
+              "test_design_item_index": 3
+            },
+            {
+              "reason": "原表“环节/说明”中学前自测行的页面定位明确说明答题页是学习会话主页面、承载一次学习完整流程；意图概括验证此定位，未增加其他页面或行为。",
+              "fact_ids": [
+                "DOC287-P0004-f8"
+              ],
+              "disposition": "supported",
+              "support_gaps": [],
+              "test_design_item_index": 4
+            },
+            {
+              "reason": "原表学前自测行“说明”单元格的答题页定位明确规定左侧学习路径、右侧当前环节答题内容，意图验证该布局，未扩大为其他页面的通用要求。",
+              "fact_ids": [
+                "DOC287-P0004-f9"
+              ],
+              "disposition": "supported",
+              "support_gaps": [],
+              "test_design_item_index": 5
+            }
+          ],
+          "module_index": 0
+        }
+      },
+      {
+        "identity": {
+          "agent_key": "test_planning_route_gap_reviewer",
+          "input_hash": "90d6283b66a43c3238c28bfb4261f353658429886d53c158d4042a33541f7b8a",
+          "contract_hash": "222889ddc7b71245a75731bdfbdd92a13880d92648a286d8eef881af581066a4",
+          "execution_semantic_hash": "97cf26ce83781b6872202f7cce3b2664a92bd3ac22379707b173e4b631875f42"
+        },
+        "output": {
+          "decisions": [
+            {
+              "reason": "该事实仅记录学前自测截图所列八个环节；意图明确只核对截图展示、不将其推广为固定路径规则，与视觉来源范围一致。",
+              "fact_ids": [
+                "DOC287-P0004-f13"
+              ],
+              "disposition": "supported",
+              "support_gaps": [],
+              "test_design_item_index": 6
+            },
+            {
+              "reason": "两项截图观察分别支持示例中的单词、音标、释义选择提示及选项，以及顶部返回和右上角打印按钮；意图限定于示例画面，未断言全局展示或打印行为。",
+              "fact_ids": [
+                "DOC287-P0004-f14",
+                "DOC287-P0004-f12"
+              ],
+              "disposition": "supported",
+              "support_gaps": [],
+              "test_design_item_index": 7
+            },
+            {
+              "reason": "原表P0004-GRID0003的“环节/说明”表头下，学前自测行说明单元格明确规定：顶部返回按钮返回单词清单页，自动保存当前学习进度，下次从中断处继续。意图概括验证该返回与续学规则，未增加其他退出方式或保存粒度。",
+              "fact_ids": [
+                "DOC287-P0004-f10"
+              ],
+              "disposition": "supported",
+              "support_gaps": [],
+              "test_design_item_index": 8
+            }
+          ],
+          "module_index": 0
+        }
+      },
+      {
+        "identity": {
+          "agent_key": "test_planning_route_gap_reviewer",
+          "input_hash": "8aa32487f2a9f47fc70d077e9c702d1dc0cfc3e3a6be20a6fdfeb15795d5856a",
+          "contract_hash": "222889ddc7b71245a75731bdfbdd92a13880d92648a286d8eef881af581066a4",
+          "execution_semantic_hash": "97cf26ce83781b6872202f7cce3b2664a92bd3ac22379707b173e4b631875f42"
+        },
+        "output": {
+          "decisions": [
+            {
+              "reason": "智能学案说明明确为可打印的PDF试卷，做完后扫码对答案；变更记录明确学后自测采用PDF形式，与覆盖目标一致。",
+              "fact_ids": [
+                "DOC287-P0005-23",
+                "DOC287-P0013-f18"
+              ],
+              "disposition": "supported",
+              "support_gaps": [],
+              "test_design_item_index": 15
+            },
+            {
+              "reason": "变更记录确定产品名称为同步优学，并明确列出目标中的八个学习环节，支持名称及环节体系核对。",
+              "fact_ids": [
+                "DOC287-P0013-f15",
+                "DOC287-P0013-f16"
+              ],
+              "disposition": "supported",
+              "support_gaps": [],
+              "test_design_item_index": 16
+            },
+            {
+              "reason": "2026.10.30变更记录明确原在线答题形式改为PDF展示、纸质练习合并原整篇训练内容及学后自测为PDF形式；目标概括验证这些形式调整，未扩展到所有学练环节。",
+              "fact_ids": [
+                "DOC287-P0013-f9",
+                "DOC287-P0013-f10",
+                "DOC287-P0013-f18"
+              ],
+              "disposition": "supported",
+              "support_gaps": [],
+              "test_design_item_index": 17
+            }
+          ],
+          "module_index": 0
+        }
+      }
+    ]
+  }
+}

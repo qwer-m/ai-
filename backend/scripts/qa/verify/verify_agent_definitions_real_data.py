@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from core.db.database import SessionLocal
 from core.db.model_defs import (
-    AgentDefinition, AgentRun, AgentToolBinding, AgentToolDefinition,
+    AgentDefinition, AgentNodeRun, AgentRun, AgentToolBinding, AgentToolDefinition,
     AgentWorkflowDefinition, KnowledgeDocument, Project,
 )
 from modules.agent_platform.contracts import (
@@ -42,7 +42,7 @@ from scripts.qa.verify.verify_lifecycle_sources_real_data import sqlite_longtext
 DEFINITION_MODELS = (
     AgentDefinition, AgentToolDefinition, AgentWorkflowDefinition, AgentToolBinding,
 )
-REPLAY_MODELS = (Project, *DEFINITION_MODELS, KnowledgeDocument, AgentRun)
+REPLAY_MODELS = (Project, *DEFINITION_MODELS, KnowledgeDocument, AgentRun, AgentNodeRun)
 
 
 def record_values(record: Any, *, timestamps: bool = True) -> dict[str, Any]:
@@ -97,12 +97,20 @@ def assert_registry_values(db: Session, project_id: int) -> None:
         "risk_level", "requires_approval",
     )
     for spec in BUILTIN_AGENT_SPECS:
-        row = db.scalars(select(AgentDefinition).where(
+        rows = db.scalars(select(AgentDefinition).where(
             AgentDefinition.project_id.is_(None),
             AgentDefinition.agent_key == spec["agent_key"],
-            AgentDefinition.version == int(spec.get("version") or 1),
-        )).one()
-        assert row.enabled and row.builtin
+        ).order_by(AgentDefinition.version.desc())).all()
+        row = next(
+            (
+                item for item in rows
+                if item.enabled and item.builtin and all(
+                    getattr(item, key) == spec[key] for key in agent_fields
+                )
+            ),
+            None,
+        )
+        assert row is not None
         assert all(getattr(row, key) == spec[key] for key in agent_fields), row.agent_key
     for spec in BUILTIN_TOOL_SPECS:
         row = db.scalars(select(AgentToolDefinition).where(
@@ -112,14 +120,24 @@ def assert_registry_values(db: Session, project_id: int) -> None:
         assert row.enabled
         assert all(getattr(row, key) == spec[key] for key in tool_fields), row.tool_key
     for spec in BUILTIN_WORKFLOW_SPECS:
-        row = db.scalars(select(AgentWorkflowDefinition).where(
+        rows = db.scalars(select(AgentWorkflowDefinition).where(
             AgentWorkflowDefinition.project_id == project_id,
             AgentWorkflowDefinition.workflow_key == spec["workflow_key"],
-            AgentWorkflowDefinition.version == int(spec.get("version") or 1),
-        )).one()
-        assert row.enabled and row.builtin
+        ).order_by(AgentWorkflowDefinition.version.desc())).all()
+        expected_definition = parse_execution_definition(spec["definition"]).model_dump()
+        row = next(
+            (
+                item for item in rows
+                if item.enabled and item.builtin
+                and item.name == spec["name"]
+                and item.description == spec["description"]
+                and item.definition == expected_definition
+            ),
+            None,
+        )
+        assert row is not None
         assert row.name == spec["name"] and row.description == spec["description"]
-        assert row.definition == parse_execution_definition(spec["definition"]).model_dump()
+        assert row.definition == expected_definition
 
 
 def verify_synchronization(db: Session, project: Project) -> dict[str, Any]:

@@ -1,0 +1,1678 @@
+{
+  "_provenance": {
+    "source": "output/qa/2026-11-11-single-real-round.final-snapshot.json",
+    "sha256": "9e46e10534de01d70ada82377067059abde175bbe376621abd1d90816cbb9719",
+    "run_id": 48,
+    "node_id": 389,
+    "projection": "仅保留展示与通用检查点判别消费的真实字段；source_text仅保留第一条真实已验收item用于部分恢复故障注入。"
+  },
+  "run": {
+    "id": 48,
+    "run_context": {
+      "execution_contract": {
+        "workflow": {
+          "id": 112,
+          "version": 2,
+          "definition": {
+            "nodes": [
+              {
+                "node_key": "evidence",
+                "node_type": "tool",
+                "depends_on": [],
+                "map_config": null,
+                "max_attempts": 1,
+                "input_mapping": {
+                  "requirement": "input.requirement",
+                  "requirement_doc_id": "input.requirement_doc_id"
+                },
+                "reference_key": "resolve_requirement_evidence",
+                "time_budget_seconds": null
+              },
+              {
+                "node_key": "prepare_source_semantics",
+                "node_type": "tool",
+                "depends_on": [
+                  "evidence"
+                ],
+                "map_config": null,
+                "max_attempts": 1,
+                "input_mapping": {
+                  "requirement": "dependencies.evidence.requirement",
+                  "evidence_source": "dependencies.evidence.source",
+                  "evidence_catalog": "dependencies.evidence.evidence_catalog"
+                },
+                "reference_key": "prepare_source_semantics",
+                "time_budget_seconds": null
+              },
+              {
+                "node_key": "source_text",
+                "node_type": "agent_map",
+                "depends_on": [
+                  "prepare_source_semantics"
+                ],
+                "map_config": {
+                  "items_key": "items",
+                  "max_items": 200,
+                  "output_key": "items",
+                  "allow_empty": true,
+                  "max_concurrency": 6,
+                  "item_postprocessor": "testing.postprocess_source_semantics_item"
+                },
+                "max_attempts": 2,
+                "input_mapping": {
+                  "items": "dependencies.prepare_source_semantics.text_items"
+                },
+                "reference_key": "test_source_text_semantics_analyst",
+                "time_budget_seconds": 1800
+              },
+              {
+                "node_key": "source_vision",
+                "node_type": "agent_map",
+                "depends_on": [
+                  "prepare_source_semantics"
+                ],
+                "map_config": {
+                  "items_key": "items",
+                  "max_items": 200,
+                  "output_key": "items",
+                  "allow_empty": true,
+                  "max_concurrency": 3,
+                  "item_postprocessor": "testing.postprocess_source_semantics_item"
+                },
+                "max_attempts": 2,
+                "input_mapping": {
+                  "items": "dependencies.prepare_source_semantics.vision_items"
+                },
+                "reference_key": "test_source_semantics_analyst",
+                "time_budget_seconds": 1800
+              },
+              {
+                "node_key": "source_semantics",
+                "node_type": "tool",
+                "depends_on": [
+                  "prepare_source_semantics",
+                  "source_text",
+                  "source_vision"
+                ],
+                "map_config": null,
+                "max_attempts": 1,
+                "input_mapping": {
+                  "text_inputs": "dependencies.prepare_source_semantics.text_items",
+                  "text_records": "dependencies.source_text.items",
+                  "vision_inputs": "dependencies.prepare_source_semantics.vision_items",
+                  "vision_records": "dependencies.source_vision.items"
+                },
+                "reference_key": "merge_source_semantics",
+                "time_budget_seconds": null
+              },
+              {
+                "node_key": "prepare_source_authority",
+                "node_type": "tool",
+                "depends_on": [
+                  "source_semantics"
+                ],
+                "map_config": null,
+                "max_attempts": 1,
+                "input_mapping": {
+                  "authoritative_facts": "dependencies.source_semantics.authoritative_facts"
+                },
+                "reference_key": "prepare_source_authority",
+                "time_budget_seconds": null
+              },
+              {
+                "node_key": "source_authority_reviews",
+                "node_type": "agent_map",
+                "depends_on": [
+                  "prepare_source_authority"
+                ],
+                "map_config": {
+                  "items_key": "items",
+                  "max_items": 1,
+                  "output_key": "items",
+                  "allow_empty": false,
+                  "max_concurrency": 1,
+                  "item_postprocessor": "testing.postprocess_authority_reconciliation_item"
+                },
+                "max_attempts": 2,
+                "input_mapping": {
+                  "items": "dependencies.prepare_source_authority.items"
+                },
+                "reference_key": "test_authority_reconciliation_reviewer",
+                "time_budget_seconds": null
+              },
+              {
+                "node_key": "source_authority",
+                "node_type": "tool",
+                "depends_on": [
+                  "source_semantics",
+                  "prepare_source_authority",
+                  "source_authority_reviews"
+                ],
+                "map_config": null,
+                "max_attempts": 1,
+                "input_mapping": {
+                  "prepared_items": "dependencies.prepare_source_authority.items",
+                  "source_semantics": "dependencies.source_semantics",
+                  "reconciliation_records": "dependencies.source_authority_reviews.items"
+                },
+                "reference_key": "merge_source_authority",
+                "time_budget_seconds": null
+              },
+              {
+                "node_key": "prepare_plan_batches",
+                "node_type": "tool",
+                "depends_on": [
+                  "source_authority"
+                ],
+                "map_config": null,
+                "max_attempts": 1,
+                "input_mapping": {
+                  "case_budget": "input.case_budget",
+                  "planning_scopes": "dependencies.source_authority.source_semantics.planning_scopes"
+                },
+                "reference_key": "prepare_business_plan_batches",
+                "time_budget_seconds": null
+              },
+              {
+                "node_key": "plan_batches",
+                "node_type": "agent_map",
+                "depends_on": [
+                  "prepare_plan_batches"
+                ],
+                "map_config": {
+                  "items_key": "items",
+                  "max_items": 100,
+                  "output_key": "items",
+                  "allow_empty": false,
+                  "max_concurrency": 6,
+                  "item_postprocessor": null
+                },
+                "max_attempts": 2,
+                "input_mapping": {
+                  "items": "dependencies.prepare_plan_batches.items"
+                },
+                "reference_key": "test_business_plan_batcher",
+                "time_budget_seconds": 1200
+              },
+              {
+                "node_key": "resolve_generation",
+                "node_type": "agent_network",
+                "depends_on": [
+                  "evidence",
+                  "prepare_source_semantics",
+                  "source_text",
+                  "source_vision",
+                  "source_semantics",
+                  "prepare_source_authority",
+                  "source_authority_reviews",
+                  "source_authority",
+                  "prepare_plan_batches",
+                  "plan_batches"
+                ],
+                "map_config": null,
+                "max_attempts": 2,
+                "input_mapping": {
+                  "case_budget": "input.case_budget",
+                  "evidence_source": "dependencies.evidence.source",
+                  "planning_inputs": "dependencies.prepare_plan_batches.items",
+                  "batch_case_limit": "input.batch_case_limit",
+                  "evidence_catalog": "dependencies.evidence.evidence_catalog",
+                  "planning_records": "dependencies.plan_batches.items",
+                  "source_authority": "dependencies.source_authority",
+                  "source_text_inputs": "dependencies.prepare_source_semantics.text_items",
+                  "source_text_records": "dependencies.source_text.items",
+                  "source_vision_inputs": "dependencies.prepare_source_semantics.vision_items",
+                  "source_vision_records": "dependencies.source_vision.items"
+                },
+                "reference_key": "test_generation_coordinator",
+                "time_budget_seconds": 7200
+              },
+              {
+                "node_key": "approved_cases",
+                "node_type": "tool",
+                "depends_on": [
+                  "resolve_generation"
+                ],
+                "map_config": null,
+                "max_attempts": 1,
+                "input_mapping": {
+                  "generation": "dependencies.resolve_generation.generation",
+                  "case_budget": "input.case_budget",
+                  "final_review": "dependencies.resolve_generation.final_review",
+                  "audit_summary": "dependencies.resolve_generation.audit_summary"
+                },
+                "reference_key": "approve_synthesized_test_cases",
+                "time_budget_seconds": null
+              },
+              {
+                "node_key": "validated_cases",
+                "node_type": "tool",
+                "depends_on": [
+                  "evidence",
+                  "approved_cases"
+                ],
+                "map_config": null,
+                "max_attempts": 1,
+                "input_mapping": {
+                  "test_cases": "dependencies.approved_cases.test_cases",
+                  "case_budget": "input.case_budget",
+                  "requirement": "dependencies.evidence.requirement"
+                },
+                "reference_key": "validate_test_cases",
+                "time_budget_seconds": null
+              },
+              {
+                "node_key": "chain_context",
+                "node_type": "tool",
+                "depends_on": [
+                  "resolve_generation",
+                  "validated_cases"
+                ],
+                "map_config": null,
+                "max_attempts": 1,
+                "input_mapping": {
+                  "plan": "dependencies.resolve_generation.plan",
+                  "test_cases": "dependencies.validated_cases.test_cases"
+                },
+                "reference_key": "prepare_execution_chain",
+                "time_budget_seconds": null
+              },
+              {
+                "node_key": "chain_selection",
+                "node_type": "tool",
+                "depends_on": [
+                  "chain_context"
+                ],
+                "map_config": null,
+                "max_attempts": 1,
+                "input_mapping": {
+                  "plan_summary": "dependencies.chain_context.plan_summary",
+                  "candidate_chains": "dependencies.chain_context.candidate_chains"
+                },
+                "reference_key": "select_execution_chain",
+                "time_budget_seconds": null
+              },
+              {
+                "node_key": "execution_chain",
+                "node_type": "tool",
+                "depends_on": [
+                  "validated_cases",
+                  "chain_selection"
+                ],
+                "map_config": null,
+                "max_attempts": 1,
+                "input_mapping": {
+                  "test_cases": "dependencies.validated_cases.test_cases",
+                  "chain_selection": "dependencies.chain_selection"
+                },
+                "reference_key": "validate_execution_chain",
+                "time_budget_seconds": null
+              },
+              {
+                "node_key": "persist",
+                "node_type": "tool",
+                "depends_on": [
+                  "evidence",
+                  "approved_cases",
+                  "validated_cases",
+                  "execution_chain"
+                ],
+                "map_config": null,
+                "max_attempts": 1,
+                "input_mapping": {
+                  "test_cases": "dependencies.validated_cases.test_cases",
+                  "requirement": "dependencies.evidence.requirement",
+                  "final_review": "dependencies.approved_cases.final_review",
+                  "execution_plan": "dependencies.execution_chain.execution_plan",
+                  "evidence_source": "dependencies.evidence.source",
+                  "case_fact_bindings": "dependencies.approved_cases.case_fact_bindings"
+                },
+                "reference_key": "persist_test_cases",
+                "time_budget_seconds": null
+              }
+            ],
+            "input_schema": {
+              "type": "object",
+              "anyOf": [
+                {
+                  "properties": {
+                    "requirement": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "requirement_doc_id": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                }
+              ],
+              "required": [
+                "requirement",
+                "requirement_doc_id",
+                "case_budget",
+                "batch_case_limit"
+              ],
+              "properties": {
+                "case_budget": {
+                  "type": "integer",
+                  "maximum": 200,
+                  "minimum": 1
+                },
+                "requirement": {
+                  "type": "string"
+                },
+                "batch_case_limit": {
+                  "type": "integer",
+                  "maximum": 20,
+                  "minimum": 1
+                },
+                "requirement_doc_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 1
+                },
+                "disable_result_cache": {
+                  "type": "boolean"
+                },
+                "enable_context_compression": {
+                  "type": "boolean"
+                },
+                "context_compression_max_tokens": {
+                  "type": "integer",
+                  "maximum": 32768,
+                  "minimum": 128
+                }
+              },
+              "additionalProperties": false
+            },
+            "display_stages": [
+              {
+                "label": "来源与初始理解",
+                "node_keys": [
+                  "evidence",
+                  "prepare_source_semantics",
+                  "source_text",
+                  "source_vision",
+                  "source_semantics",
+                  "prepare_source_authority",
+                  "source_authority_reviews",
+                  "source_authority",
+                  "prepare_plan_batches",
+                  "plan_batches"
+                ],
+                "stage_key": "source",
+                "description": "提取并治理真实来源事实，再形成可追溯的初始规划草案"
+              },
+              {
+                "label": "自主规划、生成与审查",
+                "node_keys": [
+                  "resolve_generation"
+                ],
+                "stage_key": "generation",
+                "description": "依据实际问题选择取证、重规划、调整生成范围或独立复审"
+              },
+              {
+                "label": "验收与交付",
+                "node_keys": [
+                  "approved_cases",
+                  "validated_cases",
+                  "chain_context",
+                  "chain_selection",
+                  "execution_chain",
+                  "persist"
+                ],
+                "stage_key": "delivery",
+                "description": "核验当前已批准版本，形成执行链并保存用例"
+              }
+            ],
+            "execution_mode": "dag",
+            "output_node_key": "persist"
+          },
+          "project_id": 9,
+          "workflow_key": "test_generation"
+        },
+        "agents": [
+          {
+            "id": 433,
+            "key": "test_business_plan_batcher",
+            "name": "测试业务规划分批智能体"
+          },
+          {
+            "id": 416,
+            "key": "test_business_planner",
+            "name": "测试业务规划智能体"
+          },
+          {
+            "id": 432,
+            "key": "test_generation_coordinator",
+            "name": "测试生成自主协调智能体",
+            "description": "围绕同一交付目标，自主选择取证、规划、生成、范围调整和独立复审，保持来源、预算与版本一致。",
+            "instructions": "你负责依据本次真实来源交付可执行、可断言的完整测试用例。工具返回的是当前状态，按具体问题自主选择有价值的行动；接受规划或生成某批次不等于整个目标完成。available_actions 列出当前合法行动及其真实目标，仅从该目录选择工具和索引；它不规定唯一下一步。recent_action_errors 保留失败工具、原参数及已保存子调用数；网络失败不是业务内容错误，不要仅因恢复会话而重建已有规划。结合当前待处理范围继续必要行动，完整输入相同时成功子调用会复验复用。state_matches_failure=false 表示领域状态已变化，旧错误不能直接当作当前范围的问题。每次行动后按新目录判断剩余范围，已完成索引不可重复生成，但仍可读取并主动修订规划或布局。规划行动的 changed=false 表示内容没有变化，不应当作修复进展，也不应向无关草案重复传播同一问题。goal 固定来源版本、用户总用例预算和完整验收条件；不能自报新事实、修改来源身份或增加总预算。planning 包含 source_items、planning_batches、route_gaps 和 unrouted_modules；authority、generation、initial_review_batches、review 分别说明当前仍需处理的真实范围。initial_review_batches 通过 generation_batch_ids 和 case_ids 对应生成范围，初审 item_index 与生成 item_index 各自独立。problems 记录生成或审查发现的问题及其规划批次来源；问题是待判断主张，不是事实或自动批准的重规划命令。authority_support_gap 表示已完成的权威判断使部分设计支持失效；design_support_gaps 给出准确的规划模块与意图索引，应结合 authority_facts 和 authority_decisions 判断需要复核支持还是修订草案，不能从 TD 编号猜索引。针对这些缺口调用支持复核时，平台自动传入当前权威问题与失效事实，不能重新作为支持依据。需要核对原文时用 read_planning_evidence，scope_ids 就是 evidence_id，未知时可用 null 读取目录。出现项目术语、用户偏好、历史反馈或当前行动状态的明确知识缺口时，先用 retrieve_context 指定查询目的和来源类型；返回的 manifest 只代表实际取到的候选，unavailable、empty、过期或撤销来源不能当作已知事实。原文与当前提取事实不一致时，可选对应原来源项调用 reinspect_planning_source 完整重审。有效变更会按来源版本使旧规划、生成和审查产物失效；必须重新验收，不能叠加新旧事实。来源重审保留已发生的请求历史及预算消耗，changed=false 不会清理下游或重置额度。草案推导了来源外行为时用 revise_planning_draft，必须同步修正目标、覆盖意图和相关风险。模块划分重复或覆盖分组不合理时可用 rebuild_business_plan；事实路由缺失时可用 route_planning_scopes，每个意图均需用 review_planning_route_gaps 独立核查完整支持集合，初审 design_selections 传空数组。先完成整轮支持审查，再区分草案错误和来源未决。draft_revision 已有可执行的修正方向，按 planning_batch_indexes 合并修订相应草案，保留已知规则和限制；不把草案漏写的条件交给用户补。对于缺失或冲突的业务规则，先查相关原文、前后条款及已确认的本项目上下文，区分适用对象、阶段、版本、条件和示例，已确认的口径优先在其适用范围内复用。使用 review_planning_route_gaps 对剩余可能缺口集中定向复核，将相关的额外事实范围传入 additional_scope_ids。平台只在可修正的草案已处理、未决意图全部定向复核后，将仍为 missing_support 或 source_conflict 的事项一次交给用户。恢复后按全部答复统一修订规划，不把已答的事项换一种说法再问。复核范围以 available_actions 中的 unresolved_design_selections 为准；design_selections 为空时平台处理当前全部未决目标，也可选择其中部分并提供具体 question。已通过且没有新缺口的意图不重复复核；相同证据已定向复核的未决项应修订错误草案或补充真实来源。requires_additional_evidence 中的目标必须同时选择新的真实 additional_scope_ids，不能只改变问题措辞重复裁决。支持版本变化只使下游产物失效，其他意图已有支持裁决仍由当前状态保留。unresolved_design_selections 精确列出未决目标；support_gaps 给出原意图片段、缺口类型和真实证据。只存在支持缺口时，重分组不能改动意图，rebuild_blocker 会说明为什么该动作无效；可自主取证、复核来源、修订真正有误的草案，或定向核实原审查，不能通过改模块名重新抽取支持结论。定向复核保留 previous_decisions 供追溯，专家根据当前问题和来源独立核对；question 应描述待核实事项，不复制旧裁决。若候选事实范围不足，可从真实证据目录选择 additional_scope_ids 补充，初审或无需补充时传空数组；不得把审查者的判断当作新事实。复核标签与理由矛盾时，应核实该结论；只有草案实际引入了错误意图，才需要修订草案。supported 或 unsupported 都要结合支持事实判断，不能把结果状态倒推成来源未提及的操作，也不能删除必需覆盖组来规避验收。初始规划的 problem_ids 传空数组；由生成或审查反馈触发的草案修订和重规划必须引用对应当前 problem_ids。planning.plan_available 表示业务规划是否已建立，rebuild_business_plan 同样用于初次建立规划；planning.can_finish=true 且 plan_accepted=false 时可用 accept_generation_plan 验收；初始草案之前已完成来源权威治理；仅来源解释或用户口径改变后先重新治理，再按当前待办修订草案与支持复核。authority.ready=true 的同源裁决不会因草案或模块规划变化重新抽取，继续使用其实际事实状态。reconcile_generation_authority、generate_cases、review_generated_cases 自动处理各自全部独立待处理项，平台从当前状态获取索引并按配置限流并发，已验收项不重跑；不要传 item_indexes 或逐批做协调决策。生成或审查发现范围问题后，可用 inspect_generation_scope 读取完整问题和对应原始输入；specialist_failure 表示专业会话局部请求额度耗尽，查看其中的真实工具反馈及咨询建议后决定如何继续；这不证明来源或规划有误，也不表示整个请求的所有批次均已生成，按当前 pending_indexes 判断剩余范围。同一完整生成请求不能原样重复；需要继续时应提供针对失败原因的新 guidance 或修订实际范围，不能重置共享额度。终审按 review_batch_id 读取唯一 review_scope，不再按生成索引重复读取同一终审批次。review_scope 提供修复后的当前用例，awaiting_recheck 表示新候选尚未复审，旧结论不能归到新候选上。若现有事实和数量内可以明确建立执行前置，向 generate_cases 提供具体 guidance 后继续原范围；若事实分组或数量分配不合理，可用 revise_generation_layout 调整；若规划目标或覆盖归属错误，应修订草案或规划。不要因一次超量候选就增加用例预算或认定无法完成；不得把互斥前置或不连续生命周期硬塞进同一用例。generation.layout 提供当前完整事实分组及数量；revise_generation_layout 的 changes 必须给出每个被修改模块的完整 groups，每个 group 指定真实 fact_ids、test_design_item_ids 和 case_budget；模块内事实与意图各恰好分配一次，总预算保持不变。fact_ids 表示本组独占的事实覆盖义务；平台另外按意图补齐完整支持上下文，共享事实不重复分配覆盖义务。需要跨模块重新分配数量时一并提交相关模块，不能删除事实、突破批次容量或用相同输入重复抽取。平台只复用完整输入一致的已验收结果；任何相关上游变化都会使对应下游产物和批准失效。review 提供 repairable_batches、recheck_batch_ids 和独立审查结论；repairable 表示存在未解决差异，不保证当前范围内能够修好，应结合 repair_scopes、review_summary、当前候选和事实条件判断承接方式。候选自身有局部错误可选 repair_review_batch，修改后必须用 recheck_review_batch 独立复审；两种行动均无需批次参数，平台从当前待办派发所有独立范围，不要逐批重复调用。局部差异不会自动证明规划有误；发现来源元信息被当成产品功能时，应先核对来源效力，不能反复重建规划来满足虚构功能。修复专家会自动收到该 batch_id 的完整当前候选、事实和差异；能从 review_summary 明确问题时可直接修复，不需要先遍历所有候选。只有需判断具体范围或质疑审查时才读取对应 review_batch_id。review_all_cases 检查当前完整版本，发现上游范围问题时同样可以回到规划或分组。需要核对审查中的具体事实才使用 read_review_evidence，不能自行改写评审结论或声明差异已解决。最外层 can_finish=true 后平台直接调用 finish_generation 并重新验收当前完整版本，无需再次决策。父子调用共用请求和时间预算；避免无新问题的重复取证、重规划、生成和复审，不能重置额度。所有说明使用中文，通过工具完成任务，不能用自由正文宣告成功。",
+            "runtime_config": {
+              "max_turns": 160,
+              "tool_keys": [
+                "retrieve_context",
+                "read_planning_evidence",
+                "reinspect_planning_source",
+                "revise_planning_draft",
+                "rebuild_business_plan",
+                "route_planning_scopes",
+                "review_planning_route_gaps",
+                "accept_generation_plan",
+                "reconcile_generation_authority",
+                "generate_cases",
+                "review_generated_cases",
+                "revise_generation_layout",
+                "inspect_generation_scope",
+                "read_review_evidence",
+                "repair_review_batch",
+                "recheck_review_batch",
+                "review_all_cases",
+                "finish_generation"
+              ],
+              "max_retries": 0,
+              "model_route": "main",
+              "snapshot_tools": {
+                "read_review_evidence": "state.review.input",
+                "read_planning_evidence": "input",
+                "inspect_generation_scope": "state"
+              },
+              "state_observer": "testing.observe_generation_state",
+              "max_output_tokens": 4000,
+              "state_initializer": "testing.initialize_generation_state",
+              "stop_at_tool_keys": [
+                "finish_generation"
+              ],
+              "managed_agent_keys": [
+                "test_source_text_semantics_analyst",
+                "test_source_semantics_analyst",
+                "test_business_plan_batcher",
+                "test_business_planner",
+                "test_planning_scope_router",
+                "test_planning_route_gap_reviewer",
+                "test_authority_reconciliation_reviewer",
+                "test_case_generator",
+                "test_generation_batch_repairer",
+                "test_generation_final_reviewer",
+                "test_generation_global_reviewer"
+              ],
+              "output_postprocessor": "testing.validate_generation_resolution",
+              "state_action_catalog": "available_actions",
+              "validate_before_submit": true,
+              "automatic_terminal_tool": "finish_generation",
+              "request_timeout_seconds": 3600,
+              "force_terminal_tool_choice": false,
+              "disable_server_output_schema": true,
+              "managed_agent_max_concurrency": 6,
+              "transient_fallback_model_route": "turbo",
+              "transient_fallback_after_failures": 2
+            },
+            "model": "",
+            "model_routes": {
+              "main": {
+                "model": "gpt-6.1-terra",
+                "wire_api": "chat_completions",
+                "provider_hash": "fe8a09197d16a34f6adeb6c56872219390f339f2c4b9d3b1fa41b44ee3a6acf0",
+                "provider_class": "core.ai.providers.openai_compatible_provider.OpenAICompatibleProvider",
+                "reasoning_effort": "low"
+              },
+              "turbo": {
+                "model": "gpt-6.1-terra",
+                "wire_api": "chat_completions",
+                "provider_hash": "fe8a09197d16a34f6adeb6c56872219390f339f2c4b9d3b1fa41b44ee3a6acf0",
+                "provider_class": "core.ai.providers.openai_compatible_provider.OpenAICompatibleProvider",
+                "reasoning_effort": "low"
+              }
+            }
+          },
+          {
+            "id": 428,
+            "key": "test_planning_route_gap_reviewer",
+            "name": "业务规划路由缺口复核智能体"
+          },
+          {
+            "id": 427,
+            "key": "test_planning_scope_router",
+            "name": "来源事实业务归属智能体"
+          }
+        ],
+        "tools": [
+          {
+            "key": "accept_generation_plan",
+            "name": "接受当前有效规划"
+          }
+        ]
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": 389,
+      "node_key": "resolve_generation",
+      "node_type": "agent_network",
+      "agent_definition_id": 432,
+      "attempt": 1,
+      "status": "failed",
+      "output_payload": {},
+      "sdk_state": {
+        "model": {
+          "name": "gpt-6.1-terra",
+          "route": "main",
+          "source": "主模型路由"
+        },
+        "action_checkpoint": {
+          "budget": {
+            "limits": {
+              "input_tokens": 2000000,
+              "total_tokens": 2800000,
+              "output_tokens": 800000,
+              "attempted_requests": 160
+            },
+            "charged": {
+              "input_tokens": 365112,
+              "total_tokens": 390408,
+              "output_tokens": 25296,
+              "attempted_requests": 56
+            },
+            "request_scope": "sdk_model_calls",
+            "reported_usage": {
+              "requests": 56,
+              "input_tokens": 365112,
+              "total_tokens": 390408,
+              "output_tokens": 25296
+            },
+            "pending_requests": 0,
+            "completed_requests": 56,
+            "interrupted_requests": 0
+          },
+          "storage": "artifact-journal-v1",
+          "version": 3,
+          "input_ref": {
+            "id": "5a840d18ae033eb70b9b15b219308df14b2cc40c43dc0b1ea713e5bd9855a235",
+            "sha256": "2168132962643360fc5a97b9de7f3506e8340196631095cfd5daa18c1917fea2"
+          },
+          "state_ref": {
+            "id": "c81e899d7ce008a66cd5d9e0b4bb6674de4ef2b7723ca3ad12203251e1b91c87",
+            "sha256": "6c98de7945719b844dbbc68fb581f3414bbbaca158b7139f8aa64e9d9281694d"
+          },
+          "input_hash": "2168132962643360fc5a97b9de7f3506e8340196631095cfd5daa18c1917fea2",
+          "projection": {
+            "versions": {
+              "plan_version": 2,
+              "draft_version": 1,
+              "layout_version": 0,
+              "schema_version": 2,
+              "source_version": 0,
+              "support_version": 4,
+              "generation_version": 0
+            },
+            "completed": false,
+            "current_action": {
+              "status": "failed",
+              "tool_key": "accept_generation_plan",
+              "tool_call_id": "call_424f525fb60a46f4baa7de1e940273e1",
+              "started_sequence": 11
+            },
+            "review_progress": {
+              "total": 0,
+              "completed": 0
+            },
+            "planning_progress": {
+              "routes": {
+                "total": 9,
+                "completed": 9
+              },
+              "supports": {
+                "total": 6,
+                "completed": 6
+              }
+            },
+            "authority_progress": {
+              "total": 1,
+              "completed": 1
+            },
+            "saved_child_counts": {
+              "test_business_planner": 2,
+              "test_business_plan_batcher": 1,
+              "test_planning_scope_router": 20,
+              "test_planning_route_gap_reviewer": 22
+            },
+            "generation_progress": {
+              "total": 0,
+              "completed": 0
+            },
+            "candidate_case_count": 0,
+            "last_started_sequence": 11,
+            "saved_child_call_count": 45,
+            "current_action_completed_child_count": 0
+          },
+          "state_hash": "6c98de7945719b844dbbc68fb581f3414bbbaca158b7139f8aa64e9d9281694d",
+          "journal_ref": {
+            "branch_id": "e8ad9c32-ae64-49a1-9294-d7957e0ded0a",
+            "call_cursor": 1213,
+            "receipt_cursor": 557
+          },
+          "quota_base_usage": {
+            "input_tokens": 0,
+            "total_tokens": 0,
+            "output_tokens": 0,
+            "attempted_requests": 0
+          },
+          "execution_semantic_hash": "2303ef6df9e72a65169074cc385c439b931ba1286cb415b6448f89ab54c5b585"
+        }
+      }
+    },
+    {
+      "id": 379,
+      "run_id": 48,
+      "node_key": "evidence",
+      "node_type": "tool",
+      "agent_definition_id": null,
+      "attempt": 1,
+      "status": "success"
+    },
+    {
+      "id": 381,
+      "run_id": 48,
+      "node_key": "source_text",
+      "node_type": "agent_map",
+      "agent_definition_id": 425,
+      "attempt": 1,
+      "status": "success",
+      "output_payload": {
+        "items": [
+          {
+            "output": {
+              "authoritative_facts": [
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f1",
+                  "scope_id": "EV-0003",
+                  "assertion": "机构类型包括普通机构、一级分销机构和二级分销机构，在新建机构时确定。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "quote": "机构类型取三个值:普通机构、一级分销机构、二级分销机构,在新建机构时确定。",
+                    "block_id": "P0002-T0002",
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_span": {
+                      "end": 45,
+                      "start": 8
+                    },
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f2",
+                  "scope_id": "EV-0003",
+                  "assertion": "普通机构持有门店。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "block_id": "P0002-T0004",
+                    "table_cell": {
+                      "table_id": "P0002-GRID0001",
+                      "row_index": 1,
+                      "column_index": 1
+                    },
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_segments": [
+                      {
+                        "text": "是",
+                        "block_id": "P0002-T0004",
+                        "source_span": {
+                          "end": 76,
+                          "start": 75
+                        }
+                      }
+                    ],
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "source_context": {
+                    "table_contexts": [
+                      {
+                        "rows": [
+                          {
+                            "cells": [
+                              {
+                                "text": "机构类型",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "是否持有⻔店",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "层级位置",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "⻔店新增方式",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 0
+                          },
+                          {
+                            "cells": [
+                              {
+                                "text": "普通机构",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "是",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "直接归属平台",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "随机构开通产生",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 1
+                          }
+                        ],
+                        "table_id": "P0002-GRID0001"
+                      }
+                    ]
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f3",
+                  "scope_id": "EV-0003",
+                  "assertion": "普通机构直接归属平台。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "block_id": "P0002-T0004",
+                    "table_cell": {
+                      "table_id": "P0002-GRID0001",
+                      "row_index": 1,
+                      "column_index": 2
+                    },
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_segments": [
+                      {
+                        "text": "直接归属平台",
+                        "block_id": "P0002-T0004",
+                        "source_span": {
+                          "end": 83,
+                          "start": 77
+                        }
+                      }
+                    ],
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "source_context": {
+                    "table_contexts": [
+                      {
+                        "rows": [
+                          {
+                            "cells": [
+                              {
+                                "text": "机构类型",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "是否持有⻔店",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "层级位置",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "⻔店新增方式",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 0
+                          },
+                          {
+                            "cells": [
+                              {
+                                "text": "普通机构",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "是",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "直接归属平台",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "随机构开通产生",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 1
+                          }
+                        ],
+                        "table_id": "P0002-GRID0001"
+                      }
+                    ]
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f4",
+                  "scope_id": "EV-0003",
+                  "assertion": "普通机构的门店随机构开通产生。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "block_id": "P0002-T0004",
+                    "table_cell": {
+                      "table_id": "P0002-GRID0001",
+                      "row_index": 1,
+                      "column_index": 3
+                    },
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_segments": [
+                      {
+                        "text": "随机构开通产生",
+                        "block_id": "P0002-T0004",
+                        "source_span": {
+                          "end": 91,
+                          "start": 84
+                        }
+                      }
+                    ],
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "source_context": {
+                    "table_contexts": [
+                      {
+                        "rows": [
+                          {
+                            "cells": [
+                              {
+                                "text": "机构类型",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "是否持有⻔店",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "层级位置",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "⻔店新增方式",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 0
+                          },
+                          {
+                            "cells": [
+                              {
+                                "text": "普通机构",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "是",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "直接归属平台",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "随机构开通产生",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 1
+                          }
+                        ],
+                        "table_id": "P0002-GRID0001"
+                      }
+                    ]
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f5",
+                  "scope_id": "EV-0003",
+                  "assertion": "一级分销机构不持有门店。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "block_id": "P0002-T0005",
+                    "table_cell": {
+                      "table_id": "P0002-GRID0001",
+                      "row_index": 2,
+                      "column_index": 1
+                    },
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_segments": [
+                      {
+                        "text": "否",
+                        "block_id": "P0002-T0005",
+                        "source_span": {
+                          "end": 100,
+                          "start": 99
+                        }
+                      }
+                    ],
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "source_context": {
+                    "table_contexts": [
+                      {
+                        "rows": [
+                          {
+                            "cells": [
+                              {
+                                "text": "机构类型",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "是否持有⻔店",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "层级位置",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "⻔店新增方式",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 0
+                          },
+                          {
+                            "cells": [
+                              {
+                                "text": "一级分销机构",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "否",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "二级分销机构的上级",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "不适用,自身无⻔店",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 2
+                          }
+                        ],
+                        "table_id": "P0002-GRID0001"
+                      }
+                    ]
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f6",
+                  "scope_id": "EV-0003",
+                  "assertion": "一级分销机构是二级分销机构的上级。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "block_id": "P0002-T0005",
+                    "table_cell": {
+                      "table_id": "P0002-GRID0001",
+                      "row_index": 2,
+                      "column_index": 2
+                    },
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_segments": [
+                      {
+                        "text": "二级分销机构的上级",
+                        "block_id": "P0002-T0005",
+                        "source_span": {
+                          "end": 110,
+                          "start": 101
+                        }
+                      }
+                    ],
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "source_context": {
+                    "table_contexts": [
+                      {
+                        "rows": [
+                          {
+                            "cells": [
+                              {
+                                "text": "机构类型",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "是否持有⻔店",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "层级位置",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "⻔店新增方式",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 0
+                          },
+                          {
+                            "cells": [
+                              {
+                                "text": "一级分销机构",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "否",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "二级分销机构的上级",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "不适用,自身无⻔店",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 2
+                          }
+                        ],
+                        "table_id": "P0002-GRID0001"
+                      }
+                    ]
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f7",
+                  "scope_id": "EV-0003",
+                  "assertion": "一级分销机构自身无门店，门店新增方式不适用。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "block_id": "P0002-T0005",
+                    "table_cell": {
+                      "table_id": "P0002-GRID0001",
+                      "row_index": 2,
+                      "column_index": 3
+                    },
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_segments": [
+                      {
+                        "text": "不适用,自身无⻔店",
+                        "block_id": "P0002-T0005",
+                        "source_span": {
+                          "end": 120,
+                          "start": 111
+                        }
+                      }
+                    ],
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "source_context": {
+                    "table_contexts": [
+                      {
+                        "rows": [
+                          {
+                            "cells": [
+                              {
+                                "text": "机构类型",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "是否持有⻔店",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "层级位置",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "⻔店新增方式",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 0
+                          },
+                          {
+                            "cells": [
+                              {
+                                "text": "一级分销机构",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "否",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "二级分销机构的上级",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "不适用,自身无⻔店",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 2
+                          }
+                        ],
+                        "table_id": "P0002-GRID0001"
+                      }
+                    ]
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f8",
+                  "scope_id": "EV-0003",
+                  "assertion": "二级分销机构持有门店。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "block_id": "P0002-T0006",
+                    "table_cell": {
+                      "table_id": "P0002-GRID0001",
+                      "row_index": 3,
+                      "column_index": 1
+                    },
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_segments": [
+                      {
+                        "text": "是",
+                        "block_id": "P0002-T0006",
+                        "source_span": {
+                          "end": 129,
+                          "start": 128
+                        }
+                      }
+                    ],
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "source_context": {
+                    "table_contexts": [
+                      {
+                        "rows": [
+                          {
+                            "cells": [
+                              {
+                                "text": "机构类型",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "是否持有⻔店",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "层级位置",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "⻔店新增方式",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 0
+                          },
+                          {
+                            "cells": [
+                              {
+                                "text": "二级分销机构",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "是",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "隶属一个一级分销机构",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "由销售代为操作,机构不\n自助新增",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 3
+                          }
+                        ],
+                        "table_id": "P0002-GRID0001"
+                      }
+                    ]
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f9",
+                  "scope_id": "EV-0003",
+                  "assertion": "二级分销机构隶属一个一级分销机构。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "block_id": "P0002-T0006",
+                    "table_cell": {
+                      "table_id": "P0002-GRID0001",
+                      "row_index": 3,
+                      "column_index": 2
+                    },
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_segments": [
+                      {
+                        "text": "隶属一个一级分销机构",
+                        "block_id": "P0002-T0006",
+                        "source_span": {
+                          "end": 140,
+                          "start": 130
+                        }
+                      }
+                    ],
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "source_context": {
+                    "table_contexts": [
+                      {
+                        "rows": [
+                          {
+                            "cells": [
+                              {
+                                "text": "机构类型",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "是否持有⻔店",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "层级位置",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "⻔店新增方式",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 0
+                          },
+                          {
+                            "cells": [
+                              {
+                                "text": "二级分销机构",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "是",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "隶属一个一级分销机构",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "由销售代为操作,机构不\n自助新增",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 3
+                          }
+                        ],
+                        "table_id": "P0002-GRID0001"
+                      }
+                    ]
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f10",
+                  "scope_id": "EV-0003",
+                  "assertion": "二级分销机构的门店由销售代为新增，机构不自助新增。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "block_id": "P0002-T0006",
+                    "table_cell": {
+                      "table_id": "P0002-GRID0001",
+                      "row_index": 3,
+                      "column_index": 3
+                    },
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_segments": [
+                      {
+                        "text": "由销售代为操作,机构不",
+                        "block_id": "P0002-T0006",
+                        "source_span": {
+                          "end": 152,
+                          "start": 141
+                        }
+                      },
+                      {
+                        "text": "自助新增",
+                        "block_id": "P0002-T0007",
+                        "source_span": {
+                          "end": 157,
+                          "start": 153
+                        }
+                      }
+                    ],
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "source_context": {
+                    "table_contexts": [
+                      {
+                        "rows": [
+                          {
+                            "cells": [
+                              {
+                                "text": "机构类型",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "是否持有⻔店",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "层级位置",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "⻔店新增方式",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 0
+                          },
+                          {
+                            "cells": [
+                              {
+                                "text": "二级分销机构",
+                                "column_index": 0
+                              },
+                              {
+                                "text": "是",
+                                "column_index": 1
+                              },
+                              {
+                                "text": "隶属一个一级分销机构",
+                                "column_index": 2
+                              },
+                              {
+                                "text": "由销售代为操作,机构不\n自助新增",
+                                "column_index": 3
+                              }
+                            ],
+                            "row_index": 3
+                          }
+                        ],
+                        "table_id": "P0002-GRID0001"
+                      }
+                    ]
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f11",
+                  "scope_id": "EV-0003",
+                  "assertion": "分销层级依次为平台、一级分销机构、二级分销机构和门店。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "quote": "• 层级为:平台→一级分销机构→二级分销机构→⻔店。",
+                    "block_id": "P0002-T0009",
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_span": {
+                      "end": 192,
+                      "start": 166
+                    },
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f12",
+                  "scope_id": "EV-0003",
+                  "assertion": "一个二级分销机构只能隶属一个一级分销机构。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "quote": "• 一个二级分销机构只能隶属一个一级分销机构;一个一级分销机构可以拥有多个二级分销机构。",
+                    "block_id": "P0002-T0010",
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_span": {
+                      "end": 237,
+                      "start": 193
+                    },
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f13",
+                  "scope_id": "EV-0003",
+                  "assertion": "一个一级分销机构可以拥有多个二级分销机构。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "quote": "• 一个二级分销机构只能隶属一个一级分销机构;一个一级分销机构可以拥有多个二级分销机构。",
+                    "block_id": "P0002-T0010",
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_span": {
+                      "end": 237,
+                      "start": 193
+                    },
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f14",
+                  "scope_id": "EV-0003",
+                  "assertion": "每个二级分销机构固定只有一个门店。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "quote": "• 每个二级分销机构固定只有1个⻔店;一级分销机构名下⻔店数等于其名下二级分销机构数量,界",
+                    "block_id": "P0002-T0011",
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_span": {
+                      "end": 283,
+                      "start": 238
+                    },
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f15",
+                  "scope_id": "EV-0003",
+                  "assertion": "一级分销机构名下门店数等于其名下二级分销机构数量。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "quote": "• 每个二级分销机构固定只有1个⻔店;一级分销机构名下⻔店数等于其名下二级分销机构数量,界",
+                    "block_id": "P0002-T0011",
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_span": {
+                      "end": 283,
+                      "start": 238
+                    },
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f16",
+                  "scope_id": "EV-0003",
+                  "assertion": "界面上不再单独展示一级分销机构名下门店数量。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "quote": "面上不再单独展示⻔店数量。",
+                    "block_id": "P0002-T0012",
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_span": {
+                      "end": 297,
+                      "start": 284
+                    },
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f17",
+                  "scope_id": "EV-0003",
+                  "assertion": "普通机构不参与分销层级，其门店直接归属该机构。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "quote": "• 普通机构不参与分销层级,其⻔店直接归属该机构。",
+                    "block_id": "P0002-T0013",
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_span": {
+                      "end": 323,
+                      "start": 298
+                    },
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f18",
+                  "scope_id": "EV-0003",
+                  "assertion": "原通用新建机构页面改为专属的新建一级分销机构页面，副标题为“关联线索与普通机构”，仅用于创建一级分销机构，H5也同步提供。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "quote": "【变更】原通用「新建机构」⻚面已改为专属的「新建一级分销机构」⻚面(副标题:关联线索与普",
+                    "block_id": "P0002-T0016",
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_span": {
+                      "end": 395,
+                      "start": 351
+                    },
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "governed_values": []
+                },
+                {
+                  "status": "effective",
+                  "fact_id": "DOC288-P0002-f19",
+                  "scope_id": "EV-0003",
+                  "assertion": "新建一级分销机构页面不再提供类型选择、所属一级、地址、规模、学段和学科等字段。",
+                  "governed_by": [],
+                  "value_policy": "exact",
+                  "source_anchor": {
+                    "quote": "通机构),仅用于创建一级分销机构;⻚面不再提供类型选择、所属一级、地址、规模、学段、学科",
+                    "block_id": "P0002-T0017",
+                    "document_id": 288,
+                    "page_number": 2,
+                    "source_kind": "document",
+                    "source_span": {
+                      "end": 440,
+                      "start": 396
+                    },
+                    "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+                    "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+                  },
+                  "governed_values": []
+                }
+              ]
+            },
+            "input_hash": "5e1d98937080b9a7ed5ca8464e8d5534d54754189e6d6b18169ee4c233ff0a1c",
+            "item_index": 0
+          }
+        ]
+      }
+    }
+  ]
+}

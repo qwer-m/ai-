@@ -32,13 +32,16 @@ def test_qwen35_text_generate_routes_to_multimodal(monkeypatch):
     provider = DashScopeProvider(api_key="sk-test")
     calls = {"multi": 0, "gen": 0, "messages": None}
 
-    def _fake_multi(*, model, messages):
+    def _fake_multi(*, model, messages, api_key, max_tokens):
+        assert api_key == provider.api_key
+        assert max_tokens == provider._max_output_tokens_default
         calls["multi"] += 1
         calls["messages"] = messages
         assert model == "qwen3.5-plus"
         return _multimodal_ok("mm ok")
 
     def _fake_generation(**kwargs):
+        assert kwargs["api_key"] == provider.api_key
         calls["gen"] += 1
         return _generation_ok("gen ok")
 
@@ -64,11 +67,14 @@ def test_non_multimodal_model_still_uses_generation(monkeypatch):
     provider = DashScopeProvider(api_key="sk-test")
     calls = {"multi": 0, "gen": 0}
 
-    def _fake_multi(*, model, messages):
+    def _fake_multi(*, model, messages, api_key, max_tokens):
+        assert api_key == provider.api_key
+        assert max_tokens == provider._max_output_tokens_default
         calls["multi"] += 1
         return _multimodal_ok("mm")
 
     def _fake_generation(**kwargs):
+        assert kwargs["api_key"] == provider.api_key
         calls["gen"] += 1
         return _generation_ok("gen ok")
 
@@ -86,11 +92,14 @@ def test_qwen35_stream_routes_to_multimodal_once(monkeypatch):
     provider = DashScopeProvider(api_key="sk-test")
     calls = {"multi": 0, "gen": 0}
 
-    def _fake_multi(*, model, messages):
+    def _fake_multi(*, model, messages, api_key, max_tokens):
+        assert api_key == provider.api_key
+        assert max_tokens == provider._max_output_tokens_default
         calls["multi"] += 1
         return _multimodal_ok("stream ok")
 
     def _fake_generation(**kwargs):
+        assert kwargs["api_key"] == provider.api_key
         calls["gen"] += 1
         return []
 
@@ -108,11 +117,14 @@ def test_test_connection_routes_multimodal_models(monkeypatch):
     provider = DashScopeProvider(api_key="sk-test")
     calls = {"multi": 0, "gen": 0}
 
-    def _fake_multi(*, model, messages):
+    def _fake_multi(*, model, messages, api_key, max_tokens):
+        assert api_key == provider.api_key
+        assert max_tokens == provider._max_output_tokens_default
         calls["multi"] += 1
         return _multimodal_ok("pong")
 
     def _fake_generation(**kwargs):
+        assert kwargs["api_key"] == provider.api_key
         calls["gen"] += 1
         return _generation_ok("should not be called")
 
@@ -127,11 +139,12 @@ def test_test_connection_routes_multimodal_models(monkeypatch):
     assert calls["gen"] == 0
 
 
-def test_text_then_multimodal_detection_fallback(monkeypatch):
+def test_text_route_failure_does_not_retry_with_multimodal(monkeypatch):
     provider = DashScopeProvider(api_key="sk-test")
     calls = {"multi": 0, "gen": 0}
 
     def _fake_generation(**kwargs):
+        assert kwargs["api_key"] == provider.api_key
         calls["gen"] += 1
         return _Obj(
             status_code=400,
@@ -140,20 +153,22 @@ def test_text_then_multimodal_detection_fallback(monkeypatch):
             message="url error, please check url!",
         )
 
-    def _fake_multi(*, model, messages):
+    def _fake_multi(*, model, messages, api_key, max_tokens):
+        assert api_key == provider.api_key
+        assert max_tokens == provider._max_output_tokens_default
         calls["multi"] += 1
-        return _multimodal_ok("fallback ok")
+        raise AssertionError("文本路由失败后不应发起第二次多模态请求")
 
     monkeypatch.setattr("core.ai.providers.dashscope_provider.dashscope.Generation.call", _fake_generation)
     monkeypatch.setattr("core.ai.providers.dashscope_provider.dashscope.MultiModalConversation.call", _fake_multi)
 
-    details = provider.test_connection_text_then_multimodal("unknown-model")
+    details = provider.test_connection(model="unknown-model")
 
-    assert details.get("success") is True
-    assert details.get("sample_response") == "fallback ok"
-    assert details.get("model_info", {}).get("mode") == "multimodal_text"
+    assert details.get("success") is False
+    assert details.get("error", {}).get("code") == "InvalidParameter"
+    assert details.get("error", {}).get("message") == "url error, please check url!"
     assert calls["gen"] == 1
-    assert calls["multi"] == 1
+    assert calls["multi"] == 0
 
 
 def test_dashscope_validation_requires_explicit_model(monkeypatch):
@@ -161,10 +176,13 @@ def test_dashscope_validation_requires_explicit_model(monkeypatch):
     calls = {"multi": 0, "gen": 0}
 
     def _fake_generation(**kwargs):
+        assert kwargs["api_key"] == provider.api_key
         calls["gen"] += 1
         return _generation_ok("unexpected")
 
-    def _fake_multi(*, model, messages):
+    def _fake_multi(*, model, messages, api_key, max_tokens):
+        assert api_key == provider.api_key
+        assert max_tokens == provider._max_output_tokens_default
         calls["multi"] += 1
         return _multimodal_ok("unexpected")
 
@@ -174,10 +192,16 @@ def test_dashscope_validation_requires_explicit_model(monkeypatch):
     monkeypatch.setattr("core.ai.providers.dashscope_provider.dashscope.MultiModalConversation.call", _fake_multi)
 
     details = provider.test_connection(model="")
-    text_details = provider.test_connection_text_then_multimodal("")
 
     assert details.get("success") is False
-    assert text_details.get("success") is False
     assert details.get("error", {}).get("message") == "model_name is required"
-    assert text_details.get("error", {}).get("message") == "model_name is required"
     assert calls == {"multi": 0, "gen": 0}
+
+
+def test_provider_construction_does_not_replace_sdk_global_credentials():
+    import dashscope
+
+    original_key = dashscope.api_key
+    provider = DashScopeProvider(api_key="sk-test")
+    assert provider.api_key == "sk-test"
+    assert dashscope.api_key == original_key

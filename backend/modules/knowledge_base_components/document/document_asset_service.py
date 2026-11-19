@@ -1177,10 +1177,18 @@ def _page_table_layouts(page: Any, blocks: list[dict[str, Any]]) -> list[dict[st
     return result
 
 
-def document_table_layouts(document_id: int) -> dict[int, list[dict[str, Any]]]:
-    """只读解析同一 PDF 修订的表格，复用现有文本坐标且不重建文档资产。"""
+def document_table_layouts(
+    document_id: int,
+    *,
+    manifest: dict[str, Any] | None = None,
+) -> dict[int, list[dict[str, Any]]]:
+    """只读解析同一 PDF 修订的表格，复用现有文本坐标且不重建文档资产。
 
-    manifest = load_document_manifest(document_id)
+    调用方已经读取过清单时可直接传入该清单，避免同一次语义准备重新读取
+    文件系统中的另一份清单，保证页面文本、布局和表格解析使用同一版本。
+    """
+
+    manifest = manifest if manifest is not None else load_document_manifest(document_id)
     if manifest.get("media_type") != "application/pdf":
         return {}
     source_bytes = _document_source_bytes(document_id, manifest)

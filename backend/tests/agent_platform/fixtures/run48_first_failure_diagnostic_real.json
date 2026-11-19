@@ -1,0 +1,75 @@
+{
+  "source_snapshot": "2026-11-11-single-real-round.final-snapshot.json",
+  "source_snapshot_sha256": "9e46e10534de01d70ada82377067059abde175bbe376621abd1d90816cbb9719",
+  "source_run_id": 48,
+  "source_node_id": 389,
+  "user_id": 1,
+  "project_id": 9,
+  "node_key": "resolve_generation",
+  "receipt": {
+    "status": "failed",
+    "tool_key": "accept_generation_plan",
+    "error_hash": "0b0f9a3d578101665f2942cea28ce0e82aee15ea7c73691ea669ebef47d05dc0",
+    "error_type": "OutputValidationError",
+    "tool_call_id": "call_424f525fb60a46f4baa7de1e940273e1",
+    "arguments_hash": "33a19b98316b943f4eb5ccfe22dd6d4a9758292d06072588263f083ee5af497d",
+    "pre_state_hash": "6c98de7945719b844dbbc68fb581f3414bbbaca158b7139f8aa64e9d9281694d",
+    "started_run_id": 48,
+    "post_state_hash": "6c98de7945719b844dbbc68fb581f3414bbbaca158b7139f8aa64e9d9281694d",
+    "started_sequence": 11,
+    "started_event_sequence": 134,
+    "arguments": {
+      "arguments_json": "{}"
+    },
+    "error": {
+      "message": "单个意图的完整支持集合超过批次容量，需要拆解复合意图后重新规划",
+      "error_type": "OutputValidationError",
+      "recoverable": false
+    }
+  },
+  "sdk_error_message": "Error running tool accept_generation_plan: 单个意图的完整支持集合超过批次容量，需要拆解复合意图后重新规划",
+  "exception_chain": [
+    {
+      "error_type": "UserError"
+    },
+    {
+      "error_type": "OutputValidationError"
+    }
+  ],
+  "stop_on_failure": true,
+  "max_tool_calls": 160,
+  "terminal_tool_keys": [
+    "finish_generation"
+  ],
+  "support_provenance": {
+    "module_index": 2,
+    "design_index": 7,
+    "design": {
+      "test_design_item_id": "TD-003-003-001",
+      "module_index": 2,
+      "module_name": "机构创建缴费与合作方案",
+      "test_point": "缴费入口精简范围",
+      "technique": "等价类",
+      "rationale": "以保留与移除两类入口验证入口集合。",
+      "coverage_intent": "验证缴费类型入口精简为两类，移除新增门店缴费、城市/区域新增门店、门店续费及新版升级代理入口。"
+    },
+    "review_decision": {
+      "reason": "修订说明明确缴费入口精简为两类，移除类型章节明确指定四个入口被移除，共同支持覆盖。",
+      "fact_ids": [
+        "DOC288-P0001-f1",
+        "DOC288-P0007-S0-E553-F288-009"
+      ],
+      "disposition": "supported",
+      "support_gaps": [],
+      "test_design_item_index": 7
+    }
+  },
+  "reconstructed_validation_details": {
+    "test_design_item_id": "TD-003-003-001",
+    "support_fact_ids": [
+      "DOC288-P0001-f1",
+      "DOC288-P0007-S0-E553-F288-009"
+    ]
+  },
+  "evidence_note": "原严格失败回执丢失details；此最小诊断差异按同一实际规划设计与已验收支持决定确定性重建，不新增事实/答案或模型输出。只用于异常和诊断协议回放，不声称当前分批算法仍应报错。"
+}

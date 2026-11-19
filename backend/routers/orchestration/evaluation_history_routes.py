@@ -29,6 +29,7 @@ def get_evaluation_history(
         project_id=project_id,
         user_id=current_user.id,
         limit=50,
+        workflow_key="test_case_evaluation",
     )
 
     history: list[dict[str, Any]] = []
@@ -36,6 +37,8 @@ def get_evaluation_history(
     for item in run_items:
         artifact = (item.run_context or {}).get("artifacts", {}).get("test_evaluation")
         if not isinstance(artifact, dict):
+            continue
+        if artifact.get("evaluation_run_id") != item.id:
             continue
         evaluation = artifact.get("evaluation") if isinstance(artifact.get("evaluation"), dict) else {}
         metrics = evaluation.get("metrics") if isinstance(evaluation.get("metrics"), dict) else {}
@@ -48,7 +51,7 @@ def get_evaluation_history(
                 "precision": metrics.get("precision"),
                 "recall": metrics.get("recall"),
                 "f1_score": metrics.get("f1_score"),
-                "semantic_similarity": metrics.get("semantic_similarity"),
+                "coverage_jaccard": metrics.get("coverage_jaccard"),
             }
         )
     history.sort(key=lambda x: x["created_at"] or datetime.min, reverse=True)

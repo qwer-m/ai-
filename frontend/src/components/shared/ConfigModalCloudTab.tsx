@@ -1,7 +1,13 @@
 ﻿import { Form, InputGroup } from 'react-bootstrap';
+import { ConfigModelInput } from './ConfigModelInput';
+import type { ModelRoute, ReasoningCapabilities, ReasoningEffort, ReasoningSelections } from './ConfigModal.types';
 import { QuotaRing } from './ConfigModalQuotaRing';
 
 type Props = {
+  pending: boolean;
+  reasoning: ReasoningCapabilities;
+  efforts: ReasoningSelections;
+  onEffortChange: (route: ModelRoute, value?: ReasoningEffort) => void;
   provider: string;
   apiKey: string;
   baseUrl: string;
@@ -11,8 +17,10 @@ type Props = {
   reviewModel: string;
   turboProvider: string;
   turboApiKey: string;
+  turboBaseUrl: string;
   reviewProvider: string;
   reviewApiKey: string;
+  reviewBaseUrl: string;
   vlProvider: string;
   vlApiKey: string;
   vlBaseUrl: string;
@@ -25,8 +33,10 @@ type Props = {
   onReviewModelChange: (value: string) => void;
   onTurboProviderChange: (value: string) => void;
   onTurboApiKeyChange: (value: string) => void;
+  onTurboBaseUrlChange: (value: string) => void;
   onReviewProviderChange: (value: string) => void;
   onReviewApiKeyChange: (value: string) => void;
+  onReviewBaseUrlChange: (value: string) => void;
   onVlProviderChange: (value: string) => void;
   onVlApiKeyChange: (value: string) => void;
   onVlBaseUrlChange: (value: string) => void;
@@ -34,6 +44,7 @@ type Props = {
 };
 
 export function CloudTab({
+  pending, reasoning, efforts, onEffortChange,
   provider,
   apiKey,
   baseUrl,
@@ -43,8 +54,10 @@ export function CloudTab({
   reviewModel,
   turboProvider,
   turboApiKey,
+  turboBaseUrl,
   reviewProvider,
   reviewApiKey,
+  reviewBaseUrl,
   vlProvider,
   vlApiKey,
   vlBaseUrl,
@@ -57,8 +70,10 @@ export function CloudTab({
   onReviewModelChange,
   onTurboProviderChange,
   onTurboApiKeyChange,
+  onTurboBaseUrlChange,
   onReviewProviderChange,
   onReviewApiKeyChange,
+  onReviewBaseUrlChange,
   onVlProviderChange,
   onVlApiKeyChange,
   onVlBaseUrlChange,
@@ -71,7 +86,7 @@ export function CloudTab({
 
   return (
     <Form className="config-cloud-form" onChange={onDirty}>
-      <div className="config-model-grid">
+      <fieldset disabled={pending} className="config-model-grid">
         <section className="config-model-card">
           <div className="config-model-card__header">
             <h6>文本模型</h6>
@@ -107,20 +122,11 @@ export function CloudTab({
               />
             </Form.Group>
           )}
-          <Form.Group className="config-field config-field--model">
-            <Form.Label>模型名称</Form.Label>
-            <div className="config-model-input-wrap">
-              <Form.Control
-                type="text"
-                value={model}
-                onChange={(e) => onModelChange(e.target.value)}
-                list="cloud-models"
-                className="config-model-input"
-              />
+          <ConfigModelInput route="main" label="文本模型" model={model}
+            effort={efforts.main} capability={reasoning.main}
+            onModelChange={onModelChange} onEffortChange={(value) => onEffortChange('main', value)}>
               <QuotaRing provider={provider} apiKey={apiKey} baseUrl={baseUrl} model={model} />
-            </div>
-            <datalist id="cloud-models" />
-          </Form.Group>
+            </ConfigModelInput>
         </section>
 
         <section className="config-model-card">
@@ -155,17 +161,13 @@ export function CloudTab({
               />
             </InputGroup>
           </Form.Group>
-          <Form.Group className="config-field config-field--model">
-            <Form.Label>模型名称</Form.Label>
-            <Form.Control
-              type="text"
-              value={turboModel}
-              onChange={(e) => onTurboModelChange(e.target.value)}
-              placeholder="e.g. qwen-turbo"
-              list="turbo-models"
-            />
-            <datalist id="turbo-models" />
-          </Form.Group>
+          <ConfigModelInput route="turbo" label="压缩模型" model={turboModel}
+            effort={efforts.turbo} capability={reasoning.turbo}
+            onModelChange={onTurboModelChange} onEffortChange={(value) => onEffortChange('turbo', value)} />
+          {!turboFollowMain && turboProvider === 'openai' && <Form.Group className="config-field" controlId="config-turbo-endpoint">
+            <Form.Label>服务地址</Form.Label>
+            <Form.Control type="url" value={turboBaseUrl} onChange={(event) => onTurboBaseUrlChange(event.target.value)} />
+          </Form.Group>}
         </section>
 
         <section className="config-model-card">
@@ -200,17 +202,13 @@ export function CloudTab({
               />
             </InputGroup>
           </Form.Group>
-          <Form.Group className="config-field config-field--model">
-            <Form.Label>模型名称</Form.Label>
-            <Form.Control
-              type="text"
-              value={reviewModel}
-              onChange={(e) => onReviewModelChange(e.target.value)}
-              placeholder="e.g. deepseek-chat"
-              list="review-models"
-            />
-            <datalist id="review-models" />
-          </Form.Group>
+          <ConfigModelInput route="review" label="审查模型" model={reviewModel}
+            effort={efforts.review} capability={reasoning.review}
+            onModelChange={onReviewModelChange} onEffortChange={(value) => onEffortChange('review', value)} />
+          {!reviewFollowMain && reviewProvider === 'openai' && <Form.Group className="config-field" controlId="config-review-endpoint">
+            <Form.Label>服务地址</Form.Label>
+            <Form.Control type="url" value={reviewBaseUrl} onChange={(event) => onReviewBaseUrlChange(event.target.value)} />
+          </Form.Group>}
         </section>
 
         <section className="config-model-card">
@@ -259,19 +257,11 @@ export function CloudTab({
               <Form.Text>同一网关仅切换视觉模型时，可沿用主模型 Base URL。</Form.Text>
             </Form.Group>
           )}
-          <Form.Group className="config-field config-field--model">
-            <Form.Label>模型名称</Form.Label>
-            <Form.Control
-              type="text"
-              value={vlModel}
-              onChange={(e) => onVlModelChange(e.target.value)}
-              placeholder="e.g. doubao-seed-2-0-pro-260215"
-              list="vl-models"
-            />
-            <datalist id="vl-models" />
-          </Form.Group>
+          <ConfigModelInput route="vision" label="图像模型" model={vlModel}
+            effort={efforts.vision} capability={reasoning.vision}
+            onModelChange={onVlModelChange} onEffortChange={(value) => onEffortChange('vision', value)} />
         </section>
-      </div>
+      </fieldset>
 
       <Form.Text className="config-secret-tip">
         密钥将通过强加密存储在数据库中，绝不明文传输。

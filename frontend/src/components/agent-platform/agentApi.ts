@@ -1,10 +1,15 @@
-import { api } from '../../utils/api';
+import { api } from '../../utils/api.ts';
+import { readArray, readBoolean, readNullableNumber, readNullableString, readNumber, readObject, readString } from './jsonContract.ts';
+import { parseExecutionDefinition } from './executionDefinition.ts';
+import { parseGenerationProjection } from './runPresentation.ts';
 import type {
   AgentApproval,
   AgentCatalog,
   AgentDefinition,
   AgentNodeRun,
   AgentRun,
+  AgentRunEvent,
+  AgentRunEventPage,
   AgentRunExecutionLimits,
   AgentTool,
   AgentWorkflow,
@@ -13,11 +18,7 @@ import type {
   RequirementDocumentParseStatus,
   RequirementDocumentUpload,
   RunStatus,
-  WorkflowNode,
-  WorkflowDisplayStage,
 } from './types';
-
-type JsonObject = Record<string, unknown>;
 
 const RUN_STATUSES: readonly RunStatus[] = [
   'pending',
@@ -28,62 +29,12 @@ const RUN_STATUSES: readonly RunStatus[] = [
   'cancelled',
 ];
 
-function readObject(value: unknown, path: string): JsonObject {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(`${path} 应为对象`);
-  }
-  return value as JsonObject;
-}
-
-function readArray(value: unknown, path: string): unknown[] {
-  if (!Array.isArray(value)) throw new Error(`${path} 应为数组`);
-  return value;
-}
-
-function readString(value: unknown, path: string): string {
-  if (typeof value !== 'string') throw new Error(`${path} 应为字符串`);
-  return value;
-}
-
-function readNullableString(value: unknown, path: string): string | null {
-  if (value === null) return null;
-  return readString(value, path);
-}
-
-function readNumber(value: unknown, path: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${path} 应为有效数字`);
-  }
-  return value;
-}
-
-function readNullableNumber(value: unknown, path: string): number | null {
-  if (value === null) return null;
-  return readNumber(value, path);
-}
-
-function readBoolean(value: unknown, path: string): boolean {
-  if (typeof value !== 'boolean') throw new Error(`${path} 应为布尔值`);
-  return value;
-}
-
 function readRunStatus(value: unknown, path: string): RunStatus {
   const status = readString(value, path);
   if (!RUN_STATUSES.includes(status as RunStatus)) {
     throw new Error(`${path} 包含未知运行状态: ${status}`);
   }
   return status as RunStatus;
-}
-
-function readStringArray(value: unknown, path: string): string[] {
-  return readArray(value, path).map((item, index) => readString(item, `${path}[${index}]`));
-}
-
-function readStringMap(value: unknown, path: string): Record<string, string> {
-  const object = readObject(value, path);
-  return Object.fromEntries(
-    Object.entries(object).map(([key, item]) => [key, readString(item, `${path}.${key}`)]),
-  );
 }
 
 function parseAgentDefinition(value: unknown, path: string): AgentDefinition {
@@ -125,89 +76,9 @@ function parseAgentTool(value: unknown, path: string): AgentTool {
   };
 }
 
-function parseWorkflowNode(value: unknown, path: string): WorkflowNode {
-  const object = readObject(value, path);
-  const nodeType = readString(object.node_type, `${path}.node_type`);
-  if (nodeType !== 'agent' && nodeType !== 'agent_network'
-    && nodeType !== 'agent_map' && nodeType !== 'tool') {
-    throw new Error(`${path}.node_type 包含未知节点类型: ${nodeType}`);
-  }
-  return {
-    node_key: readString(object.node_key, `${path}.node_key`),
-    node_type: nodeType,
-    reference_key: readString(object.reference_key, `${path}.reference_key`),
-    depends_on: readStringArray(object.depends_on, `${path}.depends_on`),
-    max_attempts: readNumber(object.max_attempts, `${path}.max_attempts`),
-    time_budget_seconds: object.time_budget_seconds == null
-      ? null
-      : readNumber(object.time_budget_seconds, `${path}.time_budget_seconds`),
-    input_mapping: readStringMap(object.input_mapping, `${path}.input_mapping`),
-    map_config: object.map_config == null
-      ? null
-      : readObject(object.map_config, `${path}.map_config`),
-  };
-}
-
-function parseWorkflowDisplayStage(value: unknown, path: string): WorkflowDisplayStage {
-  const object = readObject(value, path);
-  return {
-    stage_key: readString(object.stage_key, `${path}.stage_key`),
-    label: readString(object.label, `${path}.label`),
-    description: readString(object.description, `${path}.description`),
-    node_keys: readStringArray(object.node_keys, `${path}.node_keys`),
-  };
-}
-
 function parseAgentWorkflow(value: unknown, path: string): AgentWorkflow {
   const object = readObject(value, path);
-  const definition = readObject(object.definition, `${path}.definition`);
-  const executionMode = definition.execution_mode == null
-    ? 'dag'
-    : readString(definition.execution_mode, `${path}.definition.execution_mode`);
-  if (executionMode !== 'dag' && executionMode !== 'agent_network') {
-    throw new Error(`${path}.definition.execution_mode 包含未知执行模式: ${executionMode}`);
-  }
-  const parsedDefinition = executionMode === 'agent_network'
-    ? {
-        execution_mode: 'agent_network' as const,
-        entry_agent_key: readString(
-          definition.entry_agent_key,
-          `${path}.definition.entry_agent_key`,
-        ),
-        input_schema: readObject(definition.input_schema, `${path}.definition.input_schema`),
-        max_attempts: readNumber(definition.max_attempts, `${path}.definition.max_attempts`),
-        time_budget_seconds: definition.time_budget_seconds == null
-          ? null
-          : readNumber(
-              definition.time_budget_seconds,
-              `${path}.definition.time_budget_seconds`,
-            ),
-        required_artifact_key: definition.required_artifact_key == null
-          ? null
-          : readString(
-              definition.required_artifact_key,
-              `${path}.definition.required_artifact_key`,
-            ),
-      }
-    : {
-        execution_mode: 'dag' as const,
-        nodes: readArray(definition.nodes, `${path}.definition.nodes`).map((node, index) =>
-          parseWorkflowNode(node, `${path}.definition.nodes[${index}]`),
-        ),
-        output_node_key: readString(
-          definition.output_node_key,
-          `${path}.definition.output_node_key`,
-        ),
-        input_schema: readObject(definition.input_schema, `${path}.definition.input_schema`),
-        display_stages: definition.display_stages == null
-          ? []
-          : readArray(definition.display_stages, `${path}.definition.display_stages`).map(
-              (stage, index) => parseWorkflowDisplayStage(
-                stage,
-                `${path}.definition.display_stages[${index}]`,
-              ),
-            ),
-      };
+  const parsedDefinition = parseExecutionDefinition(object.definition, `${path}.definition`);
   return {
     id: readNumber(object.id, `${path}.id`),
     project_id: readNumber(object.project_id, `${path}.project_id`),
@@ -223,12 +94,17 @@ function parseAgentWorkflow(value: unknown, path: string): AgentWorkflow {
   };
 }
 
-function parseAgentNodeRun(value: unknown, path: string): AgentNodeRun {
+export function parseAgentNodeRun(value: unknown, path: string): AgentNodeRun {
   const object = readObject(value, path);
   const nodeType = readString(object.node_type, `${path}.node_type`);
   if (nodeType !== 'agent' && nodeType !== 'agent_network'
     && nodeType !== 'agent_map' && nodeType !== 'tool') {
     throw new Error(`${path}.node_type 包含未知节点类型: ${nodeType}`);
+  }
+  const sdkState = readObject(object.sdk_state, `${path}.sdk_state`);
+  if (nodeType === 'agent_network' && sdkState.action_checkpoint !== undefined) {
+    const checkpoint = readObject(sdkState.action_checkpoint, `${path}.sdk_state.action_checkpoint`);
+    parseGenerationProjection(checkpoint.projection, `${path}.sdk_state.action_checkpoint.projection`);
   }
   return {
     id: readNumber(object.id, `${path}.id`),
@@ -241,8 +117,9 @@ function parseAgentNodeRun(value: unknown, path: string): AgentNodeRun {
     status: readRunStatus(object.status, `${path}.status`),
     attempt: readNumber(object.attempt, `${path}.attempt`),
     input_payload: readObject(object.input_payload, `${path}.input_payload`),
+    input_payload_is_reference: readBoolean(object.input_payload_is_reference, `${path}.input_payload_is_reference`),
     output_payload: readObject(object.output_payload, `${path}.output_payload`),
-    sdk_state: readObject(object.sdk_state, `${path}.sdk_state`),
+    sdk_state: sdkState,
     error_message: readString(object.error_message, `${path}.error_message`),
     started_at: readNullableString(object.started_at, `${path}.started_at`),
     finished_at: readNullableString(object.finished_at, `${path}.finished_at`),
@@ -268,11 +145,35 @@ function parseAgentApproval(value: unknown, path: string): AgentApproval {
   };
 }
 
+function parseAgentRunEvent(value: unknown, path: string): AgentRunEvent {
+  const object = readObject(value, path);
+  return {
+    id: readNumber(object.id, `${path}.id`),
+    run_id: readNumber(object.run_id, `${path}.run_id`),
+    node_run_id: readNullableNumber(object.node_run_id, `${path}.node_run_id`),
+    sequence: readNumber(object.sequence, `${path}.sequence`),
+    event_type: readString(object.event_type, `${path}.event_type`),
+    payload: readObject(object.payload, `${path}.payload`),
+    created_at: readString(object.created_at, `${path}.created_at`),
+  };
+}
+
 function parseAgentRun(value: unknown, path: string): AgentRun {
   const object = readObject(value, path);
   return {
     id: readNumber(object.id, `${path}.id`),
     run_attempt: readNumber(object.run_attempt, `${path}.run_attempt`),
+    input_hash: readNullableString(object.input_hash, `${path}.input_hash`),
+    logical_task_id: readNullableString(object.logical_task_id, `${path}.logical_task_id`),
+    attempt_id: readNullableString(object.attempt_id, `${path}.attempt_id`),
+    checkpoint_schema_version: readNullableNumber(
+      object.checkpoint_schema_version,
+      `${path}.checkpoint_schema_version`,
+    ),
+    execution_contract_hash: readNullableString(
+      object.execution_contract_hash,
+      `${path}.execution_contract_hash`,
+    ),
     project_id: readNumber(object.project_id, `${path}.project_id`),
     workflow_definition_id: readNumber(object.workflow_definition_id, `${path}.workflow_definition_id`),
     status: readRunStatus(object.status, `${path}.status`),
@@ -359,14 +260,49 @@ export const getAgentCatalog = async (projectId: number): Promise<AgentCatalog> 
 export const getAgentRun = async (runId: number): Promise<{ run: AgentRun }> =>
   parseAgentRunResponse(await api.get<unknown>(`/api/agents/runs/${runId}`), 'Agent 运行详情响应');
 
+export const getAgentRunSummary = async (runId: number): Promise<{ run: AgentRun }> =>
+  parseAgentRunResponse(
+    await api.get<unknown>(`/api/agents/runs/${runId}/summary`),
+    'Agent 运行摘要响应',
+  );
+
+export const getAgentRunEvents = async (
+  runId: number,
+  afterSequence = 0,
+  limit = 200,
+): Promise<AgentRunEventPage> => {
+  const params = new URLSearchParams({
+    after_sequence: String(Math.max(0, afterSequence)),
+    limit: String(Math.max(1, Math.min(2000, limit))),
+  });
+  const response = readObject(
+    await api.get<unknown>(`/api/agents/runs/${runId}/events?${params.toString()}`),
+    'Agent 运行轨迹响应',
+  );
+  return {
+    items: readArray(response.items, 'Agent 运行轨迹响应.items').map((item, index) =>
+      parseAgentRunEvent(item, `Agent 运行轨迹响应.items[${index}]`),
+    ),
+    after_sequence: readNumber(response.after_sequence, 'Agent 运行轨迹响应.after_sequence'),
+    next_sequence: readNumber(response.next_sequence, 'Agent 运行轨迹响应.next_sequence'),
+    has_more: readBoolean(response.has_more, 'Agent 运行轨迹响应.has_more'),
+  };
+};
+
 export const exportAgentRunTestCases = async (runId: number): Promise<Blob> =>
   api.getBlob(`/api/agents/runs/${runId}/test-cases.xlsx`);
 
-export const getActiveAgentRun = async (projectId: number): Promise<{ run: AgentRun | null }> =>
-  parseOptionalRunEnvelope(
-    await api.get<unknown>(`/api/agents/runs/active?project_id=${projectId}`),
+export const getActiveAgentRun = async (
+  projectId: number,
+  workflowKey: string,
+): Promise<{ run: AgentRun | null }> => {
+  const params = new URLSearchParams({ project_id: String(projectId) });
+  params.set('workflow_key', workflowKey);
+  return parseOptionalRunEnvelope(
+    await api.get<unknown>(`/api/agents/runs/active?${params.toString()}`),
     '当前 Agent 运行响应',
   );
+};
 
 export const getAgentRuns = async (
   projectId: number,
@@ -440,9 +376,10 @@ export const decideAgentApproval = async (
   approvalId: number,
   approved: boolean,
   reason = '',
+  conflictAnswers: Record<string, string> = {},
 ): Promise<{ approval_id: number; status: string }> => {
   const response = readObject(
-    await api.post<unknown>(`/api/agents/approvals/${approvalId}/decision`, { approved, reason }),
+    await api.post<unknown>(`/api/agents/approvals/${approvalId}/decision`, { approved, reason, conflict_answers: conflictAnswers }),
     'Agent 审批响应',
   );
   return {

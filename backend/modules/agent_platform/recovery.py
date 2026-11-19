@@ -6,12 +6,11 @@ from typing import Any
 from sqlalchemy import select
 
 from core.db.database import SessionLocal
-from core.db.model_defs import AgentRun
+from core.db.model_defs import AgentRun, AgentRunDispatch
 from core.settings.config import settings
-from .dispatcher import start_agent_run_worker
+from .dispatcher import start_agent_run_worker, prepare_agent_run_dispatch, recover_pending_agent_dispatches
 from .run_repository import AgentRunRepository
 from .lifecycle import transition_run
-from .retention import prune_terminal_run_history
 
 
 def recover_expired_agent_runs(*, limit: int = 20) -> dict[str, Any]:
@@ -26,6 +25,11 @@ def recover_expired_agent_runs(*, limit: int = 20) -> dict[str, Any]:
             select(AgentRun.id)
             .where(
                 AgentRun.status == "running",
+                # 部署不回填旧运行的调度授权，也不自动启动无显式意图的 QA 任务。
+                select(AgentRunDispatch.id).where(
+                    AgentRunDispatch.run_id == AgentRun.id,
+                    AgentRunDispatch.task_id == AgentRun.task_id,
+                ).exists(),
                 (
                     (AgentRun.lease_expires_at.is_not(None) & (AgentRun.lease_expires_at < now))
                     | (
@@ -51,6 +55,14 @@ def recover_expired_agent_runs(*, limit: int = 20) -> dict[str, Any]:
                 db.rollback()
                 continue
             run_context = dict(run.run_context or {})
+            if run_context.get("execution_policy", {}).get("stop_on_failure"):
+                # 首次失败即停的运行不得被租约恢复隐式执行第二次。
+                transition_run(repo, run, "failed", now=now,
+                    error_message="执行租约已失效，按本次运行策略停止并保留诊断，不自动续跑",
+                    event_type="run_recovery_stopped", payload={"reason": "stop_on_failure"})
+                db.commit()
+                expired.append(run.id)
+                continue
             raw_deadline = str(run_context.get("deadline_at") or "").strip()
             deadline = datetime.fromisoformat(raw_deadline) if raw_deadline else None
             if deadline is not None and deadline <= now:
@@ -63,22 +75,31 @@ def recover_expired_agent_runs(*, limit: int = 20) -> dict[str, Any]:
                 )
                 db.add(run)
                 db.commit()
-                prune_terminal_run_history(repo, run)
                 expired.append(run.id)
                 continue
+            # 接管只结束失权执行器的未完成尝试，保留检查点与已消耗预算供新尝试继续。
+            repo.finalize_unfinished_node_runs(
+                run_id=run.id,
+                status="failed",
+                finished_at=now,
+                error_message="执行租约已过期，本次节点尝试中断并交由恢复器接管",
+            )
             transition_run(
                 repo, run, "pending", now=now,
                 event_type="run_recovered",
                 payload={"reason": "expired_lease"},
             )
             db.add(run)
+            prepare_agent_run_dispatch(db, run, reason="expired_lease", new_cycle=True)
             db.commit()
             start_agent_run_worker(run.id)
             recovered.append(run.id)
+        pending_recovered = recover_pending_agent_dispatches(limit=limit)
         return {
             "status": "completed",
             "recovered_run_ids": recovered,
             "expired_run_ids": expired,
+            "pending_dispatched_run_ids": pending_recovered,
         }
     finally:
         db.close()

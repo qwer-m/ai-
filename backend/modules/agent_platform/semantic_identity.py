@@ -14,8 +14,9 @@ from core.db.model_defs import AgentDefinition, AgentToolDefinition
 
 from .contracts import WorkflowNode
 from .definition_repository import AgentDefinitionRepository
-from .registry import runtime_registry_signature, tool_registry
-from .sdk_adapter import _resolved_agent_model, _subagent_keys, _validate_runtime_config
+from .registry import tool_registry
+from .sdk_adapter import _resolved_agent_model, _subagent_keys, _validate_runtime_config, run_agent_async
+from .semantic_sources import callable_source_manifest, source_dependency_manifest
 
 
 def _hash_contract(value: Any) -> str:
@@ -38,13 +39,14 @@ def _sdk_dependency_versions() -> dict[str, str]:
     }
 
 
-def _handler_contract(handler_key: str) -> dict[str, str] | None:
+def _handler_contract(handler_key: str) -> dict[str, Any] | None:
     if not handler_key:
         return None
     handler = tool_registry.resolve(handler_key)
     return {
         "key": handler_key,
         "callable": f"{handler.__module__}.{handler.__qualname__}",
+        "source_dependencies": callable_source_manifest([handler]),
     }
 
 
@@ -59,6 +61,7 @@ def _tool_contract(tool: AgentToolDefinition) -> dict[str, Any]:
         "requires_approval": bool(tool.requires_approval),
         "enabled": bool(tool.enabled),
         "handler": _handler_contract(str(tool.handler_key)),
+        "cache_safe": tool_registry.is_cache_safe(str(tool.handler_key)),
     }
 
 
@@ -80,6 +83,8 @@ def _model_contract(client: Any, definition: AgentDefinition) -> list[dict[str, 
             "model": model,
             # 沿用 AIClient 的公开路由身份，包含完整端点和协议而不读取 api_key。
             "provider_hash": client._provider_cache_identity(provider),
+            "reasoning_effort": str(getattr(provider, "reasoning_effort", None) or "")
+            if model == provider.model else "",
         })
     return models
 
@@ -103,8 +108,8 @@ def agent_execution_semantic_hash(
     """
 
     repo = AgentDefinitionRepository(db) if definition_snapshots is None else None
-    if definition_snapshots is not None and client is None:
-        raise ValueError("实际构建的 Agent 快照必须同时提供实际模型客户端")
+    # 节点开始前的缓存检查还没有进入 SDK 请求，因此没有可复用的请求客户端；
+    # 此处按同一用户和数据库会话解析公开路由身份，定义本身仍严格使用快照。
     resolved_client = client if client is not None else get_client_for_user(user_id, db)
 
     def captured_definition(key: str) -> tuple[AgentDefinition, list[AgentToolDefinition]]:
@@ -125,7 +130,7 @@ def agent_execution_semantic_hash(
     ) -> dict[str, Any]:
         runtime_config = dict(agent.runtime_config or {})
         # 缓存开关和候选数量属于复用策略，不属于生成结果的语义契约。
-        runtime_config.pop("result_cache", None)
+        cache_policy = runtime_config.pop("result_cache", None)
         managed_keys = runtime_config.get("managed_agent_keys") or []
         if managed_keys and not allow_managed:
             raise ValueError(f"专业 Agent 禁止再建立托管协调层: {agent.agent_key}")
@@ -134,6 +139,15 @@ def agent_execution_semantic_hash(
         ):
             raise ValueError(f"Agent managed_agent_keys 必须是非空名称数组: {agent.agent_key}")
         subagent_keys = [*_subagent_keys(runtime_config), *(key.strip() for key in managed_keys)]
+        if isinstance(cache_policy, dict) and cache_policy.get("enabled", True):
+            if subagent_keys or runtime_config.get("state_initializer"):
+                raise ValueError("持久协调或嵌套会话不能作为纯计算产物缓存")
+            if any(tool.requires_approval or not tool_registry.is_cache_safe(tool.handler_key)
+                   for tool in bound_tools):
+                raise ValueError("结果缓存绑定了未声明纯计算的工具处理器")
+            processor = str(runtime_config.get("output_postprocessor") or "").strip()
+            if processor and not tool_registry.is_cache_safe(processor):
+                raise ValueError("结果缓存后处理器未声明纯计算")
         if subagent_keys and not allow_subagents:
             raise ValueError(f"专业 Agent 禁止继续嵌套子 Agent: {agent.agent_key}")
         if len(subagent_keys) != len(set(subagent_keys)):
@@ -172,13 +186,21 @@ def agent_execution_semantic_hash(
             ),
             "state_handlers": {
                 key: _handler_contract(str(runtime_config.get(key) or "").strip())
-                for key in ("state_initializer", "state_observer")
+                for key in ("state_initializer", "state_observer", "managed_artifacts_provider", "model_material_provider")
             },
         }
 
     item_postprocessor = node.map_config.item_postprocessor if node.map_config is not None else None
+    if item_postprocessor and not tool_registry.is_cache_safe(item_postprocessor):
+        cache_policy = dict(definition.runtime_config or {}).get("result_cache")
+        if isinstance(cache_policy, dict) and cache_policy.get("enabled", True):
+            raise ValueError("结果缓存逐项验收器未声明纯计算")
     return _hash_contract({
-        "runtime_signature": runtime_registry_signature(),
+        "artifact_identity_version": 2,
+        "execution_sources": {
+            **callable_source_manifest([run_agent_async]),
+            **source_dependency_manifest([("modules.agent_platform.runtime", "_project_agent_map_input")]),
+        },
         "sdk_dependencies": _sdk_dependency_versions(),
         "node": node.model_dump(mode="json"),
         "agent": agent_contract(definition, tools, allow_subagents=True, allow_managed=True),

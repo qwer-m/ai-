@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   fetchEvaluationHistory,
   fetchAgentRunHistory,
@@ -83,7 +83,7 @@ export function useEvaluationResources({
         item.precision !== null
         || item.recall !== null
         || item.f1_score !== null
-        || item.semantic_similarity !== null,
+        || item.coverage_jaccard !== null,
     )
   );
 
@@ -91,16 +91,20 @@ export function useEvaluationResources({
   const [file, setFile] = useState<File | null>(null);
   const [uploadedReferenceFilename, setUploadedReferenceFilename] = useState('');
   const [loadedReferenceFilename, setLoadedReferenceFilename] = useState('');
+  const [baselineText, setBaselineText] = useState('');
   const [history, setHistory] = useState<EvaluationHistoryPoint[]>([]);
   const [runHistory, setRunHistory] = useState<EvaluationRunRecord[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [toastMsg, setToastMsg] = useState<ToastMessage | null>(null);
+  const fileRevision = useRef(0);
 
   const [uiEvalJourney, setUiEvalJourney] = useState('');
   const [apiEvalSpec, setApiEvalSpec] = useState('');
 
   useEffect(() => {
     let cancelled = false;
+    const revision = ++fileRevision.current;
+    setBaselineText('');
     setHistory([]);
     setRunHistory([]);
     setSelectedRunId(null);
@@ -109,7 +113,7 @@ export function useEvaluationResources({
     setLoadedReferenceFilename('');
     void loadEvaluationDraftFile(projectId)
       .then((storedFile) => {
-        if (cancelled || !storedFile) return;
+        if (cancelled || revision !== fileRevision.current || !storedFile) return;
         setFile(storedFile);
         setUploadedReferenceFilename(storedFile.name || '');
       })
@@ -120,6 +124,7 @@ export function useEvaluationResources({
   }, [projectId]);
 
   const setPersistentFile = (nextFile: File | null) => {
+    fileRevision.current += 1;
     setFile(nextFile);
     void saveEvaluationDraftFile(projectId, nextFile).catch(() => {});
   };
@@ -129,24 +134,29 @@ export function useEvaluationResources({
    */
   useEffect(() => {
     if (!projectId) return;
+    let cancelled = false;
 
     void fetchEvaluationHistory(projectId)
       .then((res) => {
+        if (cancelled) return;
         setHistory(normalizeHistory(res.history));
       })
       .catch(() => {
-        setHistory([]);
+        if (!cancelled) setHistory([]);
       });
+    return () => { cancelled = true; };
   }, [projectId, evalResult]);
 
   useEffect(() => {
     if (!projectId || (view !== 'root' && view !== 'testcase')) return;
+    let cancelled = false;
 
     void fetchAgentRunHistory(projectId)
-      .then(setRunHistory)
+      .then((rows) => { if (!cancelled) setRunHistory(rows); })
       .catch(() => {
-        setRunHistory([]);
+        if (!cancelled) setRunHistory([]);
       });
+    return () => { cancelled = true; };
   }, [projectId, view]);
 
   return {
@@ -164,6 +174,8 @@ export function useEvaluationResources({
     setRunHistory,
     selectedRunId,
     setSelectedRunId,
+    baselineText,
+    setBaselineText,
     toastMsg,
     setToastMsg,
     uiEvalJourney,

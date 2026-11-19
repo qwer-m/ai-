@@ -74,8 +74,8 @@ export function TestCaseEvaluationReport({
                 hoverBorderWidth: 4,
               },
               {
-                label: '相似度',
-                data: history.length > 0 ? history.map((h) => h.semantic_similarity) : [metrics.semantic_similarity],
+                label: '覆盖交并比',
+                data: history.length > 0 ? history.map((h) => h.coverage_jaccard) : [metrics.coverage_jaccard],
                 borderColor: '#fd7e14',
                 tension: 0.1,
                 pointRadius: 3,
@@ -135,9 +135,9 @@ export function TestCaseEvaluationReport({
         </div>
         <div className="p-2 bg-white border rounded flex-fill evaluation-report-kpi">
           <div className="fw-bold text-primary">
-            {typeof metrics.semantic_similarity === 'number' ? metrics.semantic_similarity.toFixed(2) : '-'}
+            {typeof metrics.coverage_jaccard === 'number' ? metrics.coverage_jaccard.toFixed(2) : '-'}
           </div>
-          <div className="x-small text-muted">语义相似度</div>
+          <div className="x-small text-muted">覆盖交并比</div>
         </div>
       </div>
 
@@ -165,8 +165,20 @@ export function TestCaseEvaluationReport({
           </div>
           {requirementBaseline.summary ? <div className="small text-secondary mb-2">{requirementBaseline.summary}</div> : null}
           {requirementPoints.length ? (
-            <div className="small text-muted mb-2">识别需求点：{requirementPoints.length} 个</div>
+            <div className="small text-muted mb-2">计分 {requirementPoints.length} 组，共 {requirementBaseline.groups.length} 组</div>
           ) : null}
+          <details className="mb-2">
+            <summary>逐组覆盖依据（含跳过项）</summary>
+            <p className="small">仅完整覆盖计入集合。以人工稿为对照，精准率和召回率分别按双方交集占生成稿、人工稿完整组的比例计算。</p>
+            {requirementBaseline.groups.map((group) => {
+              const labels: Record<string, string> = { full: '完整', partial: '部分', missing: '缺失' };
+              return <div className="border-top py-1 small" key={group.point}>
+                <strong>{group.point}</strong> · {group.excluded ? 'SKIP，排除计分' :
+                  `生成稿 ${labels[group.agent]} / 人工稿 ${labels[group.manual]}`}
+                <div>{[...group.case_ids, ...group.manual_refs].join('、')} {group.reason}</div>
+              </div>;
+            })}
+          </details>
           {humanAddedValue.length ? (
             <div className="mb-2 evaluation-report-defect-group">
               <span className="badge bg-success text-white me-2">人工增益</span>

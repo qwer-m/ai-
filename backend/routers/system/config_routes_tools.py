@@ -89,7 +89,8 @@ async def test_stream(
             iterator = provider_client.generate_stream(
                 [{"role": "user", "content": req.prompt}],
                 req.model_name,
-                max_tokens=50,
+                max_tokens=256,
+                reasoning_effort=req.reasoning_effort,
             )
             received_content = False
             async for chunk in iterate_in_threadpool(iter(iterator)):

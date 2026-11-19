@@ -41,10 +41,10 @@ export type GeneratedTestCase = {
 };
 
 export type QualityMetrics = {
-  precision: number;
-  recall: number;
-  f1_score: number;
-  semantic_similarity: number;
+  precision: number | null;
+  recall: number | null;
+  f1_score: number | null;
+  coverage_jaccard: number | null;
 };
 
 export type DefectAnalysis = {
@@ -54,6 +54,10 @@ export type DefectAnalysis = {
 };
 
 export type RequirementBaseline = {
+  groups: Array<{
+    point: string; agent: string; manual: string; case_ids: string[]; manual_refs: string[];
+    reason: string; difference: string; excluded: boolean;
+  }>;
   requirement_points: string[];
   ai_requirement_gaps: string[];
   human_requirement_gaps: string[];
@@ -63,8 +67,8 @@ export type RequirementBaseline = {
   covered_by_both: string[];
   generated_coverage_count: number;
   modified_coverage_count: number;
-  generated_coverage_rate: number;
-  modified_coverage_rate: number;
+  generated_coverage_rate: number | null;
+  modified_coverage_rate: number | null;
   summary: string;
 };
 
@@ -84,6 +88,8 @@ export type QualityReport = {
 
 // 评估页面只保留展示所需的产物投影，运行契约由 Agent 模块维护。
 export type TestEvaluationArtifact = {
+  source_run_id: number;
+  evaluation_run_id: number;
   reference_content: string;
   evaluation: QualityReportPayload;
   upload: {
@@ -115,7 +121,7 @@ export type EvaluationHistoryPoint = {
   precision: number | null;
   recall: number | null;
   f1_score: number | null;
-  semantic_similarity: number | null;
+  coverage_jaccard: number | null;
 };
 
 export type LoadingType = 'eval' | 'ui' | 'api' | null;

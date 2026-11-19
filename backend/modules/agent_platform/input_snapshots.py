@@ -112,6 +112,13 @@ def restore_node_input(
     snapshot = node_run.input_payload or {}
     if not isinstance(snapshot, dict):
         raise ValueError("节点输入必须是 JSON 对象")
+    if "__agent_artifact_input__" in snapshot:
+        from sqlalchemy.orm import object_session
+        from .checkpoint_storage import hydrate_node_input
+        db = object_session(node_run)
+        if db is None:
+            raise ValueError("产物输入读取需要明确的所属数据库会话，不能猜测租户")
+        return hydrate_node_input(db, node_run)
     if snapshot.get(_MARKER) != _CONTRACT:
         return deepcopy(snapshot)
     if set(snapshot) != {_MARKER, "run_id", "sha256", "inline", "references"}:

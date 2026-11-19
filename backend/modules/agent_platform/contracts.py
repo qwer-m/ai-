@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, Field, TypeAdapter, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 
 class AgentMapConfig(BaseModel):
@@ -46,7 +45,9 @@ class WorkflowDisplayStage(BaseModel):
 
 
 class WorkflowGraph(BaseModel):
-    execution_mode: Literal["dag"] = "dag"
+    model_config = ConfigDict(extra="forbid")
+
+    execution_mode: Literal["dag"]
     nodes: list[WorkflowNode] = Field(min_length=1)
     output_node_key: str = Field(min_length=1, max_length=160)
     input_schema: dict[str, Any] = Field(default_factory=dict)
@@ -103,7 +104,9 @@ class WorkflowGraph(BaseModel):
 
 
 class AgentProgramDefinition(BaseModel):
-    """兼容顶层动态执行；新流程优先在 DAG 中使用 agent_network 节点。"""
+    """当前阶段的顶层单主 Agent 执行定义。"""
+
+    model_config = ConfigDict(extra="forbid")
 
     execution_mode: Literal["agent_network"]
     entry_agent_key: str = Field(min_length=1, max_length=120)
@@ -117,28 +120,15 @@ class AgentProgramDefinition(BaseModel):
     )
 
 
-def _normalize_execution_mode(value: Any) -> Any:
-    """历史定义缺少模式时按 DAG 处理，所有入口共用同一判别规则。"""
-    if not isinstance(value, Mapping):
-        return value
-    mode = value.get("execution_mode", "dag")
-    if mode not in ("dag", "agent_network"):
-        raise ValueError(f"未知的工作流执行模式: {mode}")
-    if "execution_mode" not in value:
-        return {**value, "execution_mode": mode}
-    return value
-
-
 ExecutionDefinition = Annotated[
     WorkflowGraph | AgentProgramDefinition,
     Field(discriminator="execution_mode"),
-    BeforeValidator(_normalize_execution_mode),
 ]
 _EXECUTION_DEFINITION_ADAPTER = TypeAdapter(ExecutionDefinition)
 
 
 def parse_execution_definition(value: Any) -> ExecutionDefinition:
-    """按显式执行模式解析定义，兼容未声明模式的历史 DAG。"""
+    """按显式执行模式解析当前工作流定义。"""
 
     return _EXECUTION_DEFINITION_ADAPTER.validate_python(value)
 
@@ -178,6 +168,7 @@ class AgentRunCreate(BaseModel):
     workflow_key: str = Field(min_length=1, max_length=120)
     input_payload: dict[str, Any] = Field(default_factory=dict)
     execution_limits: AgentRunExecutionLimits | None = None
+    stop_on_failure: bool = Field(default=False, strict=True)
 
 
 class AgentToolBindingRequest(BaseModel):
@@ -189,3 +180,4 @@ class AgentToolBindingRequest(BaseModel):
 class ApprovalDecision(BaseModel):
     approved: bool
     reason: str = Field(default="", max_length=1000)
+    conflict_answers: dict[str, str] = Field(default_factory=dict)

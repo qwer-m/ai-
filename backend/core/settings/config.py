@@ -118,10 +118,13 @@ class Config:
     AGENT_RUN_LEASE_SECONDS = _env_int(
         "AGENT_RUN_LEASE_SECONDS", 120, minimum=30, maximum=600
     )
-    # 每个需求来源只保留有限数量的终态运行；不同需求文档必须各自保留可复用结果。
-    AGENT_RUN_HISTORY_LIMIT = _env_int(
-        "AGENT_RUN_HISTORY_LIMIT", 1, minimum=1, maximum=20
-    )
+    # 投递只重发同一稳定任务身份，次数与等待均有界；不自动启动无投递意图的 QA 运行。
+    AGENT_RUN_DISPATCH_MAX_ATTEMPTS = _env_int("AGENT_RUN_DISPATCH_MAX_ATTEMPTS", 5, minimum=1, maximum=20)
+    AGENT_RUN_DISPATCH_PUBLISH_LEASE_SECONDS = _env_int("AGENT_RUN_DISPATCH_PUBLISH_LEASE_SECONDS", 30, minimum=5, maximum=300)
+    AGENT_RUN_DISPATCH_CLAIM_GRACE_SECONDS = _env_int("AGENT_RUN_DISPATCH_CLAIM_GRACE_SECONDS", 120, minimum=10, maximum=3600)
+    AGENT_RUN_DISPATCH_RETRY_BASE_SECONDS = _env_int("AGENT_RUN_DISPATCH_RETRY_BASE_SECONDS", 5, minimum=1, maximum=60)
+    AGENT_RUN_DISPATCH_RETRY_MAX_SECONDS = _env_int("AGENT_RUN_DISPATCH_RETRY_MAX_SECONDS", 60, minimum=1, maximum=600)
+    # 界面按查询条数展示；运行证据不再由终态回调物理删除。
 
     # ===========================
     # 数据库配置

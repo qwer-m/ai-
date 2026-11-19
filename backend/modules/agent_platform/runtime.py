@@ -8,28 +8,26 @@ import hashlib
 import json
 import math
 import time
+from threading import Event, Thread
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 from jsonschema import validate
 from jsonschema.validators import validator_for
 from agents.exceptions import MaxTurnsExceeded, ModelBehaviorError
-from openai import (
-    APIConnectionError,
-    APITimeoutError,
-    BadRequestError,
-    InternalServerError,
-    RateLimitError,
-)
+from openai import BadRequestError
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.orm import Session
 
+from core.ai.ai_client import get_client_for_user
 from core.db.database import SessionLocal
 from core.db.model_defs import (
     AgentApproval,
     AgentDefinition,
     AgentNodeRun,
     AgentRun,
+    AgentToolDefinition,
 )
 from core.settings.config import settings
 from .contracts import (
@@ -44,21 +42,26 @@ from .definition_repository import AgentDefinitionRepository
 from .lifecycle import (
     RunLeaseLost, assert_run_claim, new_claim_token, renew_run_lease, transition_run,
 )
-from .retention import prune_terminal_run_history
 from .result_cache import payload_hash as _payload_hash, result_cache_config, reusable_agent_node_output
 from .semantic_identity import agent_execution_semantic_hash
 from .sources import assert_same_source, persisted_source_snapshot
-from .output_repair import OutputRepairError, build_output_repair_guidance
+from .output_repair import OutputRepairError, OutputValidationError, build_output_repair_guidance
 from .autonomous_budget import AgentExecutionBudgetExceeded, AutonomousBudgetHooks, input_protocol_reservation
 from .action_journal import AgentActionJournal
 from .usage import action_budget_usage, initialize_action_usage, run_usage as _run_usage, sync_action_usage
 from .autonomous_tools import AutonomousToolLimitError
-from .request_diagnostics import safe_transport_message
+from .conflict_confirmation import ConflictConfirmationRequired
+from .request_diagnostics import safe_transport_message, validation_error_details
+from .run_contract import model_route_snapshot
+from .model_input_projection import project_input_value
 from .retry_policy import (
     CONCURRENCY_PRESSURE_FAILURE_KINDS as _CONCURRENCY_PRESSURE_FAILURE_KINDS,
     MODEL_ROUTE_HEALTH_FAILURE_KINDS as _MODEL_ROUTE_HEALTH_FAILURE_KINDS,
+    AdaptiveConcurrency,
     RetryAttemptState,
     RetryDecision,
+    restorable_sdk_state,
+    model_transport_failure_kind,
 )
 from .sdk_adapter import (
     AgentOutputContract,
@@ -319,10 +322,38 @@ def _renew_progress_lease(repo: AgentRunRepository, run: AgentRun) -> None:
 def _current_run_status(run_id: int) -> str | None:
     status_db = SessionLocal()
     try:
-        active_run = status_db.get(AgentRun, run_id)
-        return str(active_run.status) if active_run is not None else None
+        status = status_db.query(AgentRun.status).filter(AgentRun.id == run_id).scalar()
+        return str(status) if status is not None else None
     finally:
         status_db.close()
+
+
+class _RunLeaseHeartbeat:
+    """独立线程只续租执行权，避免事件循环中的本地校验阻塞心跳。"""
+
+    def __init__(self, run_id: int, claim_token: str) -> None:
+        self.failure: Exception | None = None
+        self._stop = Event()
+        self._thread = Thread(target=self._run, args=(run_id, claim_token), daemon=True)
+
+    def _run(self, run_id: int, claim_token: str) -> None:
+        while not self._stop.wait(RUN_HEARTBEAT_SECONDS):
+            try:
+                status = _renew_run_lease(run_id, claim_token)
+                if status == "cancelled":
+                    raise _RunCancelled(f"Agent Run {run_id} 已取消")
+                if status != "running":
+                    raise RunLeaseLost(f"Agent Run {run_id} 续租失败: status={status}")
+            except Exception as error:
+                self.failure = error
+                return
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def close(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=1.0)
 
 
 async def _run_standard_agent_async(**arguments: Any) -> Any:
@@ -330,7 +361,8 @@ async def _run_standard_agent_async(**arguments: Any) -> Any:
     task = asyncio.get_running_loop().create_task(operation)
     run_id = int(arguments["execution_context"].run_id)
     claim_token = arguments["execution_context"].claim_token
-    last_heartbeat_at = time.monotonic()
+    heartbeat = _RunLeaseHeartbeat(run_id, claim_token)
+    heartbeat.start()
     try:
         while True:
             done, _ = await asyncio.wait(
@@ -338,6 +370,8 @@ async def _run_standard_agent_async(**arguments: Any) -> Any:
                 timeout=1.0,
                 return_when=asyncio.FIRST_COMPLETED,
             )
+            if heartbeat.failure is not None:
+                raise heartbeat.failure
             if done:
                 return task.result()
             status = await asyncio.to_thread(_current_run_status, run_id)
@@ -349,18 +383,8 @@ async def _run_standard_agent_async(**arguments: Any) -> Any:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
                 raise RuntimeError(f"Agent Run {run_id} 续租失败: status={status}")
-            if time.monotonic() - last_heartbeat_at >= RUN_HEARTBEAT_SECONDS:
-                status = await asyncio.to_thread(_renew_run_lease, run_id, claim_token)
-                if status == "cancelled":
-                    task.cancel()
-                    await asyncio.gather(task, return_exceptions=True)
-                    raise _RunCancelled(f"Agent Run {run_id} 已取消")
-                if status != "running":
-                    task.cancel()
-                    await asyncio.gather(task, return_exceptions=True)
-                    raise RuntimeError(f"Agent Run {run_id} 续租失败: status={status}")
-                last_heartbeat_at = time.monotonic()
     finally:
+        heartbeat.close()
         if not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
@@ -377,6 +401,9 @@ def _claim_run(
 ) -> AgentRun | None:
     run = repo.get_run_for_update(run_id=run_id)
     if run is None or run.status not in {"pending", "running"}:
+        return None
+    if task_id and run.task_id and task_id != run.task_id:
+        # 投递代际在待认领和失租接管时都必须一致；旧消息不能靠等待租约过期获得执行权。
         return None
     now = _now()
     if (
@@ -395,8 +422,10 @@ def _claim_run(
     if deadline_at is None:
         deadline_at = now + timedelta(seconds=int(settings.AGENT_RUN_DEADLINE_SECONDS))
     run_context["deadline_at"] = deadline_at.isoformat()
-    run_context["stage_deadline_at"] = deadline_at.isoformat()
-    run_context["remaining_seconds"] = max(0, int((deadline_at - now).total_seconds()))
+    stage_deadline = _deadline_value(run_context.get("stage_deadline_at"))
+    stage_deadline = min(deadline_at, stage_deadline) if stage_deadline is not None else deadline_at
+    run_context["stage_deadline_at"] = stage_deadline.isoformat()
+    run_context["remaining_seconds"] = max(0, int((stage_deadline - now).total_seconds()))
     run.run_context = run_context
     renew_run_lease(run, now=now, lease_seconds=RUN_LEASE_SECONDS)
     repo.db.add(run)
@@ -410,6 +439,13 @@ def _node_input(
     node: WorkflowNode,
     dependency_outputs: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
+    definition = (_execution_contract(run).get("workflow") or {}).get("definition") or {}
+    if definition.get("execution_mode") == "agent_network":
+        # 顶层主 Agent 的领域输入只包含用户任务；执行身份由 ToolExecutionContext 提供。
+        if node.node_type != "agent_network" or node.depends_on or node.input_mapping:
+            raise ValueError("顶层 AgentProgram 不能混入 DAG 依赖或输入映射")
+        return deepcopy(run.input_payload or {})
+
     if node.input_mapping:
         sources = {
             "input": dict(run.input_payload or {}),
@@ -604,6 +640,7 @@ def _agent_map_repair_context(
             "candidate_output 是上一版未通过校验的完整结构化结果。"
             "候选尚未被验证为正确事实；validation_feedback 只列出已发现的问题，并非全部错误。"
             "优先修复已知差异，同时依据原始输入复核其余内容，发现其他错误也必须修正。"
+            "候选结果已经存在时不得从头重写整批输出；应在原候选基础上做最小必要修复，保留未受影响的正确内容。"
             f"{targeted_instruction}"
             "最终仍返回原输出契约要求的完整 JSON，不得输出本修复上下文。"
         ),
@@ -756,40 +793,6 @@ def _payload_size_diagnostics(value: Any) -> dict[str, int]:
     }
 
 
-def _project_input_value(value: Any, spec: Any) -> Any:
-    """按 Agent 定义中的字段白名单生成模型视图。
-
-    规范使用三种形式：``True`` 保留原值、字符串列表选择对象字段、字典
-    递归选择嵌套字段。列表值会对每个元素应用同一子规范，原始输入不会被
-    就地修改。
-    """
-
-    if spec is True or spec is None:
-        return deepcopy(value)
-    if isinstance(spec, list):
-        field_names = [str(field).strip() for field in spec]
-        if any(not field for field in field_names):
-            raise ValueError("Agent input_projection 字段名不能为空")
-        if isinstance(value, list):
-            return [_project_input_value(item, spec) for item in value]
-        if isinstance(value, dict):
-            return {
-                field: deepcopy(value[field])
-                for field in field_names
-                if field in value
-            }
-        return deepcopy(value)
-    if isinstance(spec, dict):
-        if isinstance(value, list):
-            return [_project_input_value(item, spec) for item in value]
-        if isinstance(value, dict):
-            return {
-                str(field): _project_input_value(value[field], child_spec)
-                for field, child_spec in spec.items()
-                if str(field) in value
-            }
-        return deepcopy(value)
-    raise ValueError("Agent input_projection 只能使用字段列表、对象或 true")
 
 
 def _project_agent_map_input(
@@ -812,7 +815,7 @@ def _project_agent_map_input(
         }
     if not isinstance(projection, dict):
         raise ValueError("Agent runtime_config.input_projection 必须是对象")
-    projected = _project_input_value(raw_payload, projection)
+    projected = project_input_value(raw_payload, projection)
     if not isinstance(projected, dict):
         raise ValueError("Agent input_projection 必须生成对象输入")
     model_diagnostics = _payload_size_diagnostics(projected)
@@ -907,7 +910,7 @@ def _agent_request_reservation(
 
 
 def _autonomous_request_reservation(
-    *, run: AgentRun, definition: Any, tools: list[Any], quota_usage: dict[str, int],
+    *, run: AgentRun, quota_usage: dict[str, int],
 ) -> dict[str, int]:
     """持久协调阶段共享本实例剩余额度；实际父子请求仍逐次计量和准入。"""
     limits = dict(dict(run.run_context or {}).get("execution_limits") or {})
@@ -920,10 +923,7 @@ def _autonomous_request_reservation(
     remaining = {key: limits[field] - quota_usage[key] for key, field in fields.items()}
     if any(value <= 0 for value in remaining.values()):
         raise _AgentQuotaExceeded("持久协调阶段的实例执行额度已耗尽，不能申请新的共享预算")
-    remaining["attempted_requests"] = min(
-        remaining["attempted_requests"],
-        effective_max_turns(dict(definition.runtime_config or {}), has_tools=bool(tools)),
-    )
+    # 主会话轮次由 SDK 单独约束；父子共享额度只服从本次 Run 的冻结限额。
     return remaining
 
 
@@ -933,7 +933,7 @@ def _agent_input_token_upper_bound(
     tools: list[Any],
     input_payload: dict[str, Any],
 ) -> int:
-    """用 UTF-8 字节数形成保守上界，避免下一次调用跨过 input/total 配额。"""
+    """用文本分词和独立图片预留预判容量；逐请求准入使用实际模型编码配置。"""
 
     tool_payloads = [
         {
@@ -952,20 +952,23 @@ def _agent_input_token_upper_bound(
         "tools": tool_payloads,
         "input": input_payload,
     }
-    encoded = json.dumps(
-        envelope,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
     input_mode = str(envelope["runtime_config"].get("input_mode") or "")
     # SDK 会追加完整页图及实际图片块的高清局部图，与会话内准入共用视觉预留口径。
     image_count = 0
     if "image" in input_mode and input_payload.get("source_kind") != "inline":
         image_count = 1 + sum(isinstance(block, dict) and block.get("type") == "image"
                               for block in input_payload.get("blocks", []))
-    return len(encoded) + input_protocol_reservation(image_count)
+    elif input_mode == "document_evidence":
+        pages = input_payload.get("image_pages")
+        if not isinstance(pages, list):
+            raise ValueError("原始证据输入缺少 image_pages 数组")
+        image_count = sum(1 + sum(isinstance(block, dict) and block.get("type") == "image"
+                                  for block in page.get("blocks", [])) for page in pages)
+    from .autonomous_budget import estimate_json_tokens
+
+    # 此处仅做会话容量预判；实际逐请求准入由SDK按真实模型的编码配置计量。
+    text_tokens = estimate_json_tokens(envelope)
+    return text_tokens + input_protocol_reservation(image_count, text_tokens=text_tokens)
 
 
 def _agent_output_token_reservation(definition: Any) -> int:
@@ -1025,7 +1028,8 @@ def _reserve_agent_request(
                 or any(type(value) is not int or value < 0 for value in base_usage.values())):
             raise ValueError("自主行动共享预算的历史消费基线无效")
         reserved_usage = {key: base_usage[key] + reservation[key] for key in reservation}
-        if dict(node_run.sdk_state or {}).get("action_usage_recorded"):
+        if (dict(node_run.sdk_state or {}).get("action_usage_recorded")
+                and dict((node_run.sdk_state or {}).get("action_usage") or {}).get("run_id") == run.id):
             repo.db.commit()
             return reservation
         baseline = action_budget_usage(saved_budget)
@@ -1047,14 +1051,14 @@ def _reserve_agent_request(
             run.run_context = run_context
             repo.db.add(run)
         elif quota_usage != reserved_usage:
-            raise RuntimeError("自主行动预留与当前实例账本不一致，禁止重复收费或重置预算")
+            raise RuntimeError("自主行动预留与当前实例账本不一致，禁止重复计入用量或重置预算")
         repo.db.commit()
         return reservation
     if dict(getattr(definition, "runtime_config", {}) or {}).get("state_initializer"):
         if not checkpoint:
             raise ValueError("持久协调阶段必须先初始化行动检查点，不能以普通请求重新申请预算")
         reservation = _autonomous_request_reservation(
-            run=run, definition=definition, tools=tools, quota_usage=quota_usage,
+            run=run, quota_usage=quota_usage,
         )
     else:
         reservation = _agent_request_reservation(
@@ -1186,6 +1190,9 @@ def _record_agent_usage(
 
 
 def _is_retryable_agent_error(exc: Exception) -> bool:
+    from .autonomous_tools import AgentNoProgressError
+    if any(isinstance(error,AgentNoProgressError) for error in _exception_chain(exc)):
+        return False
     if any(isinstance(error, _AUTONOMOUS_BUDGET_ERRORS) for error in _exception_chain(exc)):
         return False
     if isinstance(exc, _RunDeadlineExceeded):
@@ -1194,23 +1201,12 @@ def _is_retryable_agent_error(exc: Exception) -> bool:
         return True
     if _model_behavior_error(exc) is not None:
         return True
-    if isinstance(
-        exc,
-        (
-            TimeoutError,
-            ConnectionError,
-            APITimeoutError,
-            APIConnectionError,
-            RateLimitError,
-            InternalServerError,
-        ),
-    ):
+    if model_transport_failure_kind(exc) is not None:
         return True
     if isinstance(exc, BadRequestError):
         message = str(exc).lower()
         return "400001" in message or "try again" in message
-    status_code = getattr(exc, "status_code", None)
-    return isinstance(status_code, int) and (status_code == 429 or status_code >= 500)
+    return False
 
 
 def _is_server_output_schema_unsupported(exc: Exception) -> bool:
@@ -1227,7 +1223,7 @@ def _is_server_output_schema_unsupported(exc: Exception) -> bool:
     )
 
 
-def _exception_chain(exc: Exception) -> tuple[BaseException, ...]:
+def _exception_chain(exc: BaseException) -> tuple[BaseException, ...]:
     """返回异常及其 cause/context，识别 SDK 对业务异常的外层包装。"""
 
     chain: list[BaseException] = []
@@ -1251,17 +1247,22 @@ def _model_behavior_error(exc: Exception) -> ModelBehaviorError | None:
     )
 
 
-def _agent_error_diagnostic(exc: Exception) -> dict[str, Any] | None:
+def _agent_error_diagnostic(exc: BaseException) -> dict[str, Any] | None:
     """提取异常提供的限长结构化诊断信息。"""
 
+    diagnostic = None
     for current in _exception_chain(exc):
-        diagnostic = getattr(current, "diagnostic", None)
-        if isinstance(diagnostic, dict):
-            return deepcopy(diagnostic)
-    return None
+        value = getattr(current, "diagnostic", None)
+        if isinstance(value, dict):
+            diagnostic = deepcopy(value)
+            break
+    details = validation_error_details(exc)
+    if details is not None:
+        return {**(diagnostic or {}), "details": details}
+    return diagnostic
 
 
-def _failed_agent_tool_calls(exc: Exception) -> list[dict[str, Any]]:
+def _failed_agent_tool_calls(exc: BaseException) -> list[dict[str, Any]]:
     """失败候选只写入实例状态，事件保留摘要，避免重复存储完整工具正文。"""
 
     for current in _exception_chain(exc):
@@ -1271,9 +1272,35 @@ def _failed_agent_tool_calls(exc: Exception) -> list[dict[str, Any]]:
     return []
 
 
+def _append_execution_observations(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    """同一节点人工恢复时保留前段观测；新节点不继承的边界由恢复入口负责。"""
+    values = {}
+    for key in ("model_requests", "tool_calls", "tool_observations"):
+        if isinstance(current.get(key), list):
+            recorded = previous.get(key, [])
+            if not isinstance(recorded, list):
+                raise ValueError("已保存的执行观测必须是数组")
+            values[key] = deepcopy([*recorded, *current[key]])
+    return values
+
+
+def _set_execution_observations(node_run: AgentNodeRun, exc: BaseException) -> None:
+    """追加本段已附带的观测，保留检查点、计量游标和其他控制字段。"""
+    state = dict(node_run.sdk_state or {})
+    diagnostic = _agent_error_diagnostic(exc) or {}
+    observations = {key: diagnostic[key] for key in ("model_requests", "tool_observations")
+                    if isinstance(diagnostic.get(key), list)}
+    if any(isinstance(getattr(error, "tool_calls", None), list) for error in _exception_chain(exc)):
+        observations["tool_calls"] = _failed_agent_tool_calls(exc)
+    node_run.sdk_state = {**state, **_append_execution_observations(state, observations)}
+
+
 def _agent_failure_kind(exc: Exception) -> str:
     """将失败归入稳定类别，供事件统计和模型质量治理使用。"""
 
+    from .autonomous_tools import AgentNoProgressError
+    if any(isinstance(error,AgentNoProgressError) for error in _exception_chain(exc)):
+        return "no_progress"
     if any(isinstance(error, _AUTONOMOUS_BUDGET_ERRORS) for error in _exception_chain(exc)):
         return "agent_budget_exhausted"
     model_error = _model_behavior_error(exc)
@@ -1285,15 +1312,14 @@ def _agent_failure_kind(exc: Exception) -> str:
         ),
         None,
     )
+    validation_error = next((current for current in _exception_chain(exc)
+                             if isinstance(current, OutputValidationError)), None)
     message = str(model_error or exc)
     if isinstance(exc, _RunDeadlineExceeded):
         return "run_deadline"
-    if isinstance(exc, (TimeoutError, APITimeoutError)):
-        return "timeout"
-    if isinstance(exc, (ConnectionError, APIConnectionError)):
-        return "connection"
-    if isinstance(exc, RateLimitError):
-        return "rate_limit"
+    transport_kind = model_transport_failure_kind(exc)
+    if transport_kind in {"timeout", "connection", "rate_limit"}:
+        return transport_kind
     if _is_server_output_schema_unsupported(exc):
         return "server_schema_unsupported"
     if isinstance(exc, BadRequestError):
@@ -1316,6 +1342,8 @@ def _agent_failure_kind(exc: Exception) -> str:
             "agent_map 单项结果校验失败: postprocessor="
         ):
             return "postprocess_validation"
+        if validation_error is not None:
+            return "output_validation"
         if "结构化输出正文为空" in message:
             return "empty_output"
         if "不是合法 JSON" in message or "Invalid JSON when parsing" in message:
@@ -1325,12 +1353,7 @@ def _agent_failure_kind(exc: Exception) -> str:
         if "契约校验失败" in message or "结果校验失败" in message:
             return "output_validation"
         return "model_behavior"
-    status_code = getattr(exc, "status_code", None)
-    if status_code == 429:
-        return "rate_limit"
-    if isinstance(status_code, int) and status_code >= 500:
-        return "upstream_server"
-    return "unknown"
+    return "output_validation" if validation_error is not None else transport_kind or "unknown"
 
 
 def _is_concurrency_pressure_failure(failure_kind: str) -> bool:
@@ -1591,13 +1614,36 @@ def _agent_map_item_retry_feedback(
 
 def _agent_retry_decision(
     state: RetryAttemptState, *, exc: Exception, configured_max_attempts: int,
+    stop_on_failure: bool = False,
 ) -> RetryDecision:
     return state.record_failure(
         failure_kind=_agent_failure_kind(exc),
         retryable=_is_retryable_agent_error(exc),
         is_content_error=_model_behavior_error(exc) is not None,
         configured_max_attempts=configured_max_attempts,
+        stop_on_failure=stop_on_failure,
     )
+
+
+def _accepted_retry_progress(repo: AgentRunRepository, node_run: AgentNodeRun) -> str:
+    """只用已提交领域状态和已验收专业结果定位恢复范围，不把失败日志或分支当进展。"""
+    from .action_journal import action_state_hash
+    from .checkpoint_storage import compact_checkpoint, call_records, store_for_node
+
+    checkpoint = compact_checkpoint(node_run)
+    if checkpoint is None:
+        raise ValueError("持久Agent恢复进度缺少已提交检查点")
+    store = store_for_node(repo.db, node_run)
+    accepted = {}
+    for key, record in call_records(repo.db, node_run, checkpoint).items():
+        if AgentActionJournal._validated_call_key(checkpoint, record["identity"]) != key or record["status"] != "validated":
+            raise ValueError("恢复进度引用了未经完整身份验证的专业结果")
+        for field in ("raw_output", "output"):
+            digest = record[field + "_hash"]
+            if not isinstance(digest, str) or len(digest) != 64 or record[field + "_ref"] != store._ref(digest):
+                raise ValueError("恢复进度的专业结果引用与完整内容摘要不一致")
+        accepted[key] = {field: record[field] for field in ("identity", "raw_output_hash", "output_hash")}
+    return action_state_hash({"state_hash": checkpoint["state_hash"], "validated_calls": accepted})
 
 
 def _agent_failure_recovery(
@@ -1715,8 +1761,11 @@ def _execute_node_with_retry(
             latest_sdk_state = dict(latest.sdk_state or {})
             retry_state = RetryAttemptState.restore(latest_sdk_state)
             retry_state.attempt = latest.attempt
+            if node.node_type == "agent_network" and latest_sdk_state.get("action_checkpoint") is not None:
+                retry_state.observe_progress(_accepted_retry_progress(repo, latest))
             decision = _agent_retry_decision(
                 retry_state, exc=exc, configured_max_attempts=node.max_attempts,
+                stop_on_failure=bool((run.run_context or {}).get("execution_policy", {}).get("stop_on_failure")),
             )
             exc, can_retry, retry_feedback, repair_context, diagnostics = _agent_failure_recovery(
                 decision=decision,
@@ -1740,10 +1789,8 @@ def _execute_node_with_retry(
             error_diagnostic = _agent_error_diagnostic(exc)
             if error_diagnostic:
                 latest_sdk_state["error_diagnostic"] = error_diagnostic
-            failed_tool_calls = _failed_agent_tool_calls(exc)
-            if failed_tool_calls:
-                latest_sdk_state["tool_calls"] = failed_tool_calls
             latest.sdk_state = latest_sdk_state
+            _set_execution_observations(latest, exc)
             latest.error_message = _persistent_error_message(exc)
             failed_event_payload = {
                 "node_key": node.node_key,
@@ -1797,16 +1844,33 @@ async def _run_parallel_agent_instance(
     cache_node: WorkflowNode | None = None,
     retry_feedback: str | None = None,
     disable_server_output_schema: bool = False,
-    disable_model_thinking: bool = False,
     model_route_override: str | None = None,
+    captured_definitions: dict[str, tuple[Any, list[Any]]] | None = None,
 ) -> Any:
     """使用独立数据库会话和 SDK 上下文执行一个并发 Agent 实例。"""
 
     worker_db = SessionLocal()
     try:
-        worker_definition = worker_db.get(AgentDefinition, definition_id)
-        if worker_definition is None or not worker_definition.enabled:
-            raise LookupError(f"并发 Agent 定义不可用: definition_id={definition_id}")
+        captured = None
+        if captured_definitions is not None:
+            captured = next(
+                (
+                    item for item in captured_definitions.values()
+                    if int(getattr(item[0], "id", 0) or 0) == definition_id
+                ),
+                None,
+            )
+            if captured is None:
+                raise LookupError(f"运行契约缺少并发 Agent 快照: definition_id={definition_id}")
+            worker_definition, worker_tools = deepcopy(captured)
+        else:
+            worker_definition = worker_db.get(AgentDefinition, definition_id)
+            if worker_definition is None or not worker_definition.enabled:
+                raise LookupError(f"并发 Agent 定义不可用: definition_id={definition_id}")
+            worker_tools = AgentDefinitionRepository(worker_db).list_agent_tools(
+                worker_definition.id,
+                project_id=execution_context.project_id,
+            )
         worker_context = ToolExecutionContext(
             db=worker_db,
             user_id=execution_context.user_id,
@@ -1816,10 +1880,8 @@ async def _run_parallel_agent_instance(
             run_input=deepcopy(execution_context.run_input),
             artifacts=deepcopy(execution_context.artifacts),
             claim_token=execution_context.claim_token,
-        )
-        worker_tools = AgentDefinitionRepository(worker_db).list_agent_tools(
-            worker_definition.id,
-            project_id=execution_context.project_id,
+            stop_on_failure=execution_context.stop_on_failure,
+            _request_failures=execution_context._request_failures,
         )
         return await run_agent_async(
             db=worker_db,
@@ -1830,12 +1892,12 @@ async def _run_parallel_agent_instance(
             request_timeout_seconds=request_timeout_seconds,
             retry_feedback=retry_feedback,
             disable_server_output_schema=disable_server_output_schema,
-            disable_model_thinking=disable_model_thinking,
             model_route_override=model_route_override,
             skip_output_postprocessor=True,
             cache_node=cache_node,
             output_contract=output_contract,
             request_budget=request_budget,
+            captured_definitions=captured_definitions,
         )
     finally:
         worker_db.close()
@@ -1865,6 +1927,7 @@ async def _execute_agent_map_parallel_async(
     execution_context: ToolExecutionContext,
     raw_items: list[dict[str, Any]],
     previous: AgentNodeRun | None,
+    captured_definitions: dict[str, tuple[Any, list[Any]]] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """并发启动多个独立 Agent 实例，并在主会话中有序归并结果。"""
 
@@ -1913,28 +1976,25 @@ async def _execute_agent_map_parallel_async(
         int(settings.AGENT_MAP_MAX_CONCURRENCY),
         max(1, total_count),
     )
+    if execution_context.stop_on_failure:
+        max_concurrency = 1
     min_concurrency = min(
         max_concurrency,
         max(1, int(settings.AGENT_MAP_MIN_CONCURRENCY)),
     )
     previous_parallelism = dict(previous_state.get("parallelism") or {})
-    effective_concurrency = min(
-        max_concurrency,
-        max(
-            min_concurrency,
-            int(previous_parallelism.get("effective_concurrency") or max_concurrency),
-        ),
+    concurrency = AdaptiveConcurrency.restore(
+        max_concurrency=max_concurrency, min_concurrency=min_concurrency,
+        pressure_threshold=int(settings.AGENT_MAP_CONCURRENCY_PRESSURE_FAILURES),
+        recovery_successes=int(settings.AGENT_MAP_CONCURRENCY_RECOVERY_SUCCESSES),
+        checkpoint=previous_parallelism,
     )
+    effective_concurrency = concurrency.effective_concurrency
     concurrency_adjustments = [
         dict(item)
         for item in list(previous_state.get("concurrency_adjustments") or [])[-20:]
         if isinstance(item, dict)
     ]
-    successful_since_concurrency_adjustment = 0
-    pressure_failures_since_concurrency_adjustment = max(
-        0,
-        int(previous_parallelism.get("pressure_failures") or 0),
-    )
     pending: dict[
         asyncio.Task[Any],
         tuple[int, int, dict[str, int], str, dict[str, Any]],
@@ -2035,7 +2095,8 @@ async def _execute_agent_map_parallel_async(
                     "max_concurrency": max_concurrency,
                     "min_concurrency": min_concurrency,
                     "effective_concurrency": effective_concurrency,
-                    "pressure_failures": pressure_failures_since_concurrency_adjustment,
+                    "pressure_failures": concurrency.pressure_failures,
+                    "successful_since_adjustment": concurrency.successful_since_adjustment,
                     "active_instances": len(pending),
                     "retry_waiting_instances": sum(
                         item.get("status") == "retrying" for item in states
@@ -2076,37 +2137,15 @@ async def _execute_agent_map_parallel_async(
         repo.db.add(run)
         repo.db.commit()
 
-    def adjust_concurrency(*, target: int, reason: str, failure_kind: str = "") -> None:
-        """记录实际并发变化，使重试调度与诊断共享同一事实。"""
-
-        nonlocal effective_concurrency, successful_since_concurrency_adjustment
-        nonlocal pressure_failures_since_concurrency_adjustment
-        normalized_target = min(max_concurrency, max(min_concurrency, int(target)))
-        if normalized_target == effective_concurrency:
-            return
-        previous_concurrency = effective_concurrency
-        effective_concurrency = normalized_target
-        successful_since_concurrency_adjustment = 0
-        pressure_failures_since_concurrency_adjustment = 0
-        adjustment = {
-            "from": previous_concurrency,
-            "to": effective_concurrency,
-            "reason": reason,
-            "failure_kind": failure_kind,
-            "completed_instances": len(completed_by_index),
-        }
+    def publish_concurrency_adjustment(adjustment: dict[str, Any]) -> None:
+        """共享纯策略决定上限，原 Runtime 仍负责诊断、调度和持久化。"""
+        nonlocal effective_concurrency
+        effective_concurrency = concurrency.effective_concurrency
+        adjustment = {**adjustment, "completed_instances": len(completed_by_index)}
         concurrency_adjustments.append(adjustment)
         del concurrency_adjustments[:-20]
-        _event(
-            repo,
-            run,
-            "map_concurrency_adjusted",
-            {
-                "node_key": node.node_key,
-                **adjustment,
-            },
-            node_run=node_run,
-        )
+        _event(repo, run, "map_concurrency_adjusted",
+               {"node_key": node.node_key, **adjustment}, node_run=node_run)
 
     async def cancel_pending_instances(*, reason: str) -> None:
         """取消正在执行和等待重试的实例，并同步持久化实例终态。"""
@@ -2334,8 +2373,8 @@ async def _execute_agent_map_parallel_async(
                         cache_node=node if result_cache_config(definition) is not None and not dict(run.input_payload or {}).get("disable_result_cache") else None,
                         retry_feedback=retry_feedback_by_index.get(index),
                         disable_server_output_schema=retry_states_by_index[index].server_output_schema_disabled,
-                        disable_model_thinking=retry_states_by_index[index].model_thinking_disabled,
                         model_route_override=fallback_route_by_index.get(index),
+                        captured_definitions=captured_definitions,
                     )
                 )
                 pending[task] = (
@@ -2459,26 +2498,14 @@ async def _execute_agent_map_parallel_async(
                         },
                         node_run=node_run,
                     )
-                    successful_since_concurrency_adjustment += 1
-                    pressure_failures_since_concurrency_adjustment = max(
-                        0,
-                        pressure_failures_since_concurrency_adjustment - 1,
-                    )
-                    recovery_successes = int(
-                        settings.AGENT_MAP_CONCURRENCY_RECOVERY_SUCCESSES
-                    )
-                    if (
-                        effective_concurrency < max_concurrency
-                        and successful_since_concurrency_adjustment >= recovery_successes
-                    ):
-                        adjust_concurrency(
-                            target=effective_concurrency + 1,
-                            reason="success_recovery",
-                        )
+                    adjustment = concurrency.record_success()
+                    if adjustment is not None:
+                        publish_concurrency_adjustment(adjustment)
                 except Exception as exc:
                     retry_state = retry_states_by_index[index]
                     decision = _agent_retry_decision(
                         retry_state, exc=exc, configured_max_attempts=node.max_attempts,
+                        stop_on_failure=bool((run.run_context or {}).get("execution_policy", {}).get("stop_on_failure")),
                     )
                     failure_kind = decision.failure_kind
                     failure_counts[failure_kind] = failure_counts.get(failure_kind, 0) + 1
@@ -2490,19 +2517,9 @@ async def _execute_agent_map_parallel_async(
                         ):
                             fallback_route_by_index[index] = transient_fallback_route
                     if retryable and _is_concurrency_pressure_failure(failure_kind):
-                        pressure_failures_since_concurrency_adjustment += 1
-                        pressure_threshold = int(
-                            settings.AGENT_MAP_CONCURRENCY_PRESSURE_FAILURES
-                        )
-                        if (
-                            pressure_failures_since_concurrency_adjustment
-                            >= pressure_threshold
-                        ):
-                            adjust_concurrency(
-                                target=effective_concurrency - 1,
-                                reason="upstream_pressure",
-                                failure_kind=failure_kind,
-                            )
+                        adjustment = concurrency.record_failure(failure_kind, retryable=retryable)
+                        if adjustment is not None:
+                            publish_concurrency_adjustment(adjustment)
                     error_diagnostic = _agent_error_diagnostic(exc)
                     failed_tool_calls = _failed_agent_tool_calls(exc)
                     attempt_limit = decision.attempt_limit
@@ -2673,6 +2690,7 @@ def _execute_agent_map(
     execution_context: ToolExecutionContext,
     node_input: dict[str, Any],
     previous: AgentNodeRun | None,
+    captured_definitions: dict[str, tuple[Any, list[Any]]] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     config = node.map_config
     if config is None:
@@ -2701,6 +2719,7 @@ def _execute_agent_map(
             execution_context=execution_context,
             raw_items=raw_items,
             previous=previous,
+            captured_definitions=captured_definitions,
         )
         return output, sdk_state
 
@@ -2832,12 +2851,12 @@ def _execute_agent_map(
                     request_timeout_seconds=request_timeout,
                     retry_feedback=retry_feedback,
                     disable_server_output_schema=retry_state.server_output_schema_disabled,
-                    disable_model_thinking=retry_state.model_thinking_disabled,
                     model_route_override=model_route_override,
                     skip_output_postprocessor=True,
                     output_contract=AgentOutputContract(deepcopy(base_item_input), config),
                     request_budget=reservation,
                     cache_node=node if result_cache_config(definition) is not None and not dict(run.input_payload or {}).get("disable_result_cache") else None,
+                    captured_definitions=captured_definitions,
                 )
                 aggregate_usage = _sum_usage(aggregate_usage, result.usage)
                 _record_agent_usage(
@@ -2860,6 +2879,7 @@ def _execute_agent_map(
             except Exception as exc:
                 decision = _agent_retry_decision(
                     retry_state, exc=exc, configured_max_attempts=node.max_attempts,
+                    stop_on_failure=bool((run.run_context or {}).get("execution_policy", {}).get("stop_on_failure")),
                 )
                 failure_kind = decision.failure_kind
                 failure_counts[failure_kind] = failure_counts.get(failure_kind, 0) + 1
@@ -3020,6 +3040,23 @@ def _persisted_dependency_outputs(
     }
 
 
+def _node_stage_deadline(run, node, previous, *, first_started_at, now):
+    """同阶段沿用最早执行起点，阶段切换重新分配但始终服从运行总期限。"""
+    context = dict(run.run_context or {})
+    global_deadline = _deadline_value(context.get("deadline_at"))
+    if global_deadline is None:
+        raise RuntimeError(f"运行契约缺少 deadline_at，不能执行节点 {node.node_key}")
+    stage_deadline = global_deadline
+    if node.time_budget_seconds is not None:
+        wait_seconds = float((previous.sdk_state or {}).get("confirmation_wait_seconds", 0)) if previous else 0
+        stage_deadline = min(global_deadline,
+            (first_started_at or now) + timedelta(seconds=node.time_budget_seconds + wait_seconds))
+    active_deadline = _deadline_value(context.get("stage_deadline_at"))
+    if run.current_node_key == node.node_key and active_deadline is not None:
+        stage_deadline = min(stage_deadline, active_deadline)
+    return stage_deadline
+
+
 def _prepare_node_execution(
     repo: AgentRunRepository,
     run: AgentRun,
@@ -3029,35 +3066,25 @@ def _prepare_node_execution(
     """准备节点执行所需的截止时间、恢复状态、输入和持久化上下文。"""
 
     _renew_progress_lease(repo, run)
-    _ensure_run_deadline(run, node_key=node.node_key)
     run_context = deepcopy(run.run_context or {})
-    global_deadline = _deadline_value(run_context.get("deadline_at"))
-    if global_deadline is None:
-        # 兼容内部测试或旧任务直接进入节点执行的路径。
-        global_deadline = _now() + timedelta(
-            seconds=int(settings.AGENT_RUN_DEADLINE_SECONDS)
-        )
-        run_context["deadline_at"] = global_deadline.isoformat()
-    stage_deadline = global_deadline
-    if node.time_budget_seconds is not None:
-        stage_deadline = min(
-            global_deadline,
-            _now() + timedelta(seconds=node.time_budget_seconds),
-        )
+    previous = repo.latest_node_run(run_id=run.id, node_key=node.node_key)
+    stage_deadline = _node_stage_deadline(run, node, previous,
+        first_started_at=repo.first_node_started_at(run_id=run.id, node_key=node.node_key), now=_now())
     run_context["stage_deadline_at"] = stage_deadline.isoformat()
     run_context["remaining_seconds"] = max(
         0,
-        int((global_deadline - _now()).total_seconds()),
+        int((stage_deadline - _now()).total_seconds()),
     )
     run.run_context = run_context
+    _ensure_run_deadline(run, node_key=node.node_key)
 
-    previous = repo.latest_node_run(run_id=run.id, node_key=node.node_key)
     if previous is not None and previous.status == "waiting_approval":
         node_run = previous
         attempt = previous.attempt
         node_input = repo.read_node_input(previous)
         node_run.status = "running"
         node_run.error_message = ""
+        node_run.finished_at = None
     else:
         attempt = repo.next_node_attempt(run_id=run.id, node_key=node.node_key)
         previous_sdk_state = dict(previous.sdk_state or {}) if previous is not None else {}
@@ -3081,8 +3108,7 @@ def _prepare_node_execution(
             node.node_type == "agent_map" or previous_sdk_state.get("action_checkpoint")
         ):
             node_run.output_payload = deepcopy(previous.output_payload or {})
-            node_run.sdk_state = deepcopy(previous.sdk_state or {})
-            node_run.sdk_state.pop("checkpoint_restore", None)
+            node_run.sdk_state = restorable_sdk_state(previous, destination_run_id=run.id)
         repo.write_node_input(node_run, node_input)
         repo.db.add(node_run)
         repo.db.flush()
@@ -3106,6 +3132,7 @@ def _prepare_node_execution(
         run_input=dict(run.input_payload or {}),
         artifacts=deepcopy(run_context.get("artifacts") or {}),
         claim_token=getattr(run, "_execution_claim_token", run.claim_token) or "",
+        stop_on_failure=bool(run_context.get("execution_policy", {}).get("stop_on_failure")),
     )
     return _NodeExecutionSetup(
         previous=previous,
@@ -3124,6 +3151,7 @@ def _execute_agent_node(
     definition: Any,
     tools: list[Any],
     cache_semantic_hash: str | None,
+    captured_definitions: dict[str, tuple[Any, list[Any]]] | None = None,
 ) -> dict[str, Any]:
     """执行已解析的 Agent 节点，统一 Agent、Agent Map 两种运行模式。"""
 
@@ -3150,6 +3178,7 @@ def _execute_agent_node(
             execution_context=setup.execution_context,
             node_input=setup.node_input,
             previous=setup.previous,
+            captured_definitions=captured_definitions,
         )
         setup.node_run.sdk_state = sdk_state
     else:
@@ -3194,8 +3223,8 @@ def _execute_agent_node(
                 expected_claim_token=context.claim_token,
             )
             context.action_journal = journal
-            saved = journal.load()
-            context.action_state = deepcopy(saved["state"]) if saved is not None else {}
+            saved = journal.load_state()
+            context.action_state = saved if saved is not None else {}
             state = tool_registry.resolve(str(runtime_config["state_initializer"]))(context, context.action_input)
             journal.init(state=state, input_hash=_payload_hash(setup.node_input))
             model_input = tool_registry.resolve(str(runtime_config["state_observer"]))(context, {})
@@ -3220,15 +3249,17 @@ def _execute_agent_node(
                 definition,
                 node_key=node.node_key,
             ),
+            **({"session_timeout_seconds": _ensure_run_deadline(run, node_key=node.node_key)}
+               if runtime_config.get("state_initializer") else {}),
             retry_feedback=retry_feedback,
             disable_server_output_schema=retry_state.server_output_schema_disabled,
-            disable_model_thinking=retry_state.model_thinking_disabled,
             # 投影后的输入只供模型使用；后处理统一使用完整原始输入。
             skip_output_postprocessor=True,
             cache_node=node if cache_semantic_hash is not None else None,
             output_contract=AgentOutputContract(deepcopy(setup.node_input)),
             request_budget=reservation,
             execution_node=node,
+            captured_definitions=captured_definitions,
         )
         _record_agent_usage(
             repo=repo,
@@ -3251,9 +3282,10 @@ def _execute_agent_node(
             "last_agent_name": result.last_agent_name,
             "model": model_metadata,
             "usage": result.usage,
-            "tool_calls": result.tool_calls,
-            "tool_observations": result.tool_observations,
-            "model_requests": result.model_requests,
+            **_append_execution_observations(dict(setup.node_run.sdk_state or {}), {
+                "tool_calls": result.tool_calls, "tool_observations": result.tool_observations,
+                "model_requests": result.model_requests,
+            }),
             "budget_usage": result.budget_usage,
             **retry_state.checkpoint(),
             "input_projection": projection_diagnostics,
@@ -3303,7 +3335,13 @@ def _execute_tool_node(
 ) -> dict[str, Any] | None:
     """解析并执行工具节点，统一输入投影、审批和 Schema 校验。"""
 
-    tool = definitions.get_tool(
+    tool = _contract_definition(
+        repo,
+        run,
+        node.reference_key,
+        definition_type=AgentToolDefinition,
+        collection_key="tools",
+    ) or definitions.get_tool(
         project_id=run.project_id,
         tool_key=node.reference_key,
     )
@@ -3421,19 +3459,30 @@ def _execute_node(
     setup = _prepare_node_execution(repo, run, node, dependency_outputs)
     node_run = setup.node_run
     if node.node_type in {"agent", "agent_network", "agent_map"}:
-        definition = definitions.get_agent(
+        definition = _contract_definition(
+            repo,
+            run,
+            node.reference_key,
+            definition_type=AgentDefinition,
+            collection_key="agents",
+        ) or definitions.get_agent(
             project_id=run.project_id,
             agent_key=node.reference_key,
         )
         if definition is None:
             raise LookupError(f"找不到智能体定义: {node.reference_key}")
         node_run.agent_definition_id = definition.id
-        tools = definitions.list_agent_tools(definition.id, project_id=run.project_id)
+        _assert_model_route_snapshot(repo, run, definition)
+        tools = _contract_agent_tools(repo, run, definition)
+        if tools is None:
+            tools = definitions.list_agent_tools(definition.id, project_id=run.project_id)
+        captured_definitions = _contract_definition_snapshots(repo, run)
         cache_semantic_hash = None
         if result_cache_config(definition) is not None and not dict(run.input_payload or {}).get("disable_result_cache"):
             cache_semantic_hash = agent_execution_semantic_hash(
                 db=repo.db, user_id=run.user_id, project_id=run.project_id,
                 node=node, definition=definition, tools=tools,
+                definition_snapshots=captured_definitions,
             )
             cached = _try_complete_cached_agent_node(
                 repo=repo, run=run, node=node, setup=setup,
@@ -3449,6 +3498,7 @@ def _execute_node(
             definition=definition,
             tools=tools,
             cache_semantic_hash=cache_semantic_hash,
+            captured_definitions=captured_definitions,
         )
     else:
         output = _execute_tool_node(
@@ -3462,6 +3512,197 @@ def _execute_node(
             return None
 
     return _complete_node_execution(repo, run, node, setup, output)
+
+
+def _execution_contract(run: AgentRun) -> dict[str, Any]:
+    value = (run.run_context or {}).get("execution_contract")
+    return value if isinstance(value,dict) else {}
+
+
+def _assert_execution_contract(run: AgentRun) -> None:
+    """工作流入口统一验证版本，内部投影函数不反复执行同一契约检查。"""
+    from .run_contract import CONTRACT_SCHEMA_VERSION
+    value = _execution_contract(run)
+    if value.get("schema_version") != CONTRACT_SCHEMA_VERSION:
+        raise RuntimeError("运行执行契约版本已过期；禁止自动补写或混用旧运行，请显式创建新版本任务")
+    for agent in value.get("agents",[]):
+        routes=agent.get("model_routes") or {}
+        if not routes or any("reasoning_effort" not in route for route in routes.values()):
+            raise RuntimeError("运行模型路由缺少完整思考模式快照，禁止静默使用当前配置")
+
+
+def _contract_definition(
+    repo: AgentRunRepository,
+    run: AgentRun,
+    reference_key: str,
+    *,
+    definition_type: Any,
+    collection_key: str,
+) -> Any | None:
+    """优先按运行快照中的定义 id 读取，避免历史运行被当前 catalog 替换。"""
+
+    for snapshot in _execution_contract(run).get(collection_key, []) or []:
+        if not isinstance(snapshot, dict) or str(snapshot.get("key")) != str(reference_key):
+            continue
+        definition_id = snapshot.get("id")
+        if type(definition_id) is int and definition_id > 0:
+            return _snapshot_definition_object(snapshot, definition_type)
+    return None
+
+
+def _snapshot_definition_object(snapshot: dict[str, Any], definition_type: Any) -> Any:
+    """把运行契约中的定义字段投影为执行器需要的最小对象。"""
+
+    key = str(snapshot.get("key") or "")
+    common = {
+        "id": int(snapshot["id"]),
+        "project_id": snapshot.get("project_id"),
+        "name": str(snapshot.get("name") or ""),
+        "description": str(snapshot.get("description") or ""),
+        "version": snapshot.get("version"),
+        "enabled": True,
+        "builtin": True,
+    }
+    if definition_type is AgentDefinition:
+        common.update({
+            "agent_key": key,
+            "instructions": str(snapshot.get("instructions") or ""),
+            "model": str(snapshot.get("model") or ""),
+            "model_routes": deepcopy(snapshot.get("model_routes") or {}),
+            "output_schema": deepcopy(snapshot.get("output_schema") or {}),
+            "runtime_config": deepcopy(snapshot.get("runtime_config") or {}),
+        })
+    else:
+        common.update({
+            "tool_key": key,
+            "handler_key": str(snapshot.get("handler_key") or ""),
+            "input_schema": deepcopy(snapshot.get("input_schema") or {}),
+            "output_schema": deepcopy(snapshot.get("output_schema") or {}),
+            "risk_level": str(snapshot.get("risk_level") or ""),
+            "requires_approval": bool(snapshot.get("requires_approval", False)),
+        })
+    return SimpleNamespace(**common)
+
+
+def _contract_agent_tools(
+    repo: AgentRunRepository,
+    run: AgentRun,
+    definition: AgentDefinition,
+) -> list[AgentToolDefinition] | None:
+    for snapshot in _execution_contract(run).get("agents", []) or []:
+        if not isinstance(snapshot, dict) or int(snapshot.get("id") or 0) != int(definition.id):
+            continue
+        tool_ids = snapshot.get("tool_ids")
+        if not isinstance(tool_ids, list):
+            return None
+        tool_snapshots = {
+            int(item.get("id")): item
+            for item in (_execution_contract(run).get("tools", []) or [])
+            if isinstance(item, dict) and type(item.get("id")) is int
+        }
+        tools = []
+        for tool_id in tool_ids:
+            if type(tool_id) is not int or tool_id < 1:
+                return None
+            snapshot = tool_snapshots.get(tool_id)
+            if snapshot is None:
+                return None
+            tools.append(_snapshot_definition_object(snapshot, AgentToolDefinition))
+        return tools
+    return None
+
+
+def _contract_definition_snapshots(
+    repo: AgentRunRepository,
+    run: AgentRun,
+) -> dict[str, tuple[Any, list[Any]]] | None:
+    """把运行契约中的 Agent 与工具投影成 SDK 可复用的完整定义闭包。"""
+
+    contract = _execution_contract(run)
+    snapshots = contract.get("agents")
+    if not isinstance(snapshots, list):
+        return None
+    captured: dict[str, tuple[Any, list[Any]]] = {}
+    for snapshot in snapshots:
+        if not isinstance(snapshot, dict) or type(snapshot.get("id")) is not int:
+            continue
+        definition = _snapshot_definition_object(snapshot, AgentDefinition)
+        tools = _contract_agent_tools(repo, run, definition)
+        if tools is None:
+            raise ValueError(f"运行契约缺少 Agent 工具快照: {definition.agent_key}")
+        captured[str(definition.agent_key)] = (definition, tools)
+    return captured or None
+
+
+def _assert_model_route_snapshot(
+    repo: AgentRunRepository,
+    run: AgentRun,
+    definition: Any,
+) -> None:
+    """恢复旧 Run 时拒绝静默切换到另一 Provider 或协议。"""
+
+    expected = dict(getattr(definition, "model_routes", {}) or {})
+    if not expected:
+        return
+    actual = model_route_snapshot(
+        get_client_for_user(run.user_id, repo.db),
+        definition,
+    )
+    for route, expected_identity in expected.items():
+        if actual.get(route) != expected_identity:
+            raise RuntimeError(
+                f"Agent {getattr(definition, 'agent_key', '')} 的模型路由契约已变化: {route}"
+            )
+
+
+def _revalidate_program_checkpoint(repo, run, node, definition_key):
+    """成功的持久主节点恢复时仍核验终止回执，不预留额度或重新调用模型。"""
+    from . import checkpoint_storage as storage
+
+    definition = _contract_definition(
+        repo, run, definition_key, definition_type=AgentDefinition, collection_key="agents",
+    )
+    if definition is None:
+        raise ValueError("主 Agent 的冻结执行定义不存在")
+    config = dict(definition.runtime_config or {})
+    if not config.get("state_initializer"):
+        return deepcopy(node.output_payload or {})
+    checkpoint = storage.compact_checkpoint(node)
+    if checkpoint is None:
+        raise ValueError("成功的持久主节点缺少动作检查点，不能直接复用输出")
+    state = storage.hydrate_checkpoint_state(repo.db, node, checkpoint=checkpoint)
+    terminals = set(config.get("stop_at_tool_keys") or [])
+    records = storage.receipt_records(repo.db, node, checkpoint)
+    terminal = next((record for record in sorted(records.values(),
+        key=lambda value: value["started_sequence"], reverse=True)
+        if record["status"] == "completed" and record["tool_key"] in terminals
+        and record.get("post_state_hash") == checkpoint["state_hash"]), None)
+    if terminal is None:
+        raise ValueError("成功的持久主节点缺少对应当前状态的终止回执")
+    receipt = storage.unpack_record(storage.store_for_node(repo.db, node), terminal, ("result",))
+    raw_output = receipt["result"]["output"]
+    if isinstance(raw_output, str):
+        from .serialization import strict_json_loads
+        raw_output = strict_json_loads(raw_output)
+    node_input = repo.read_node_input(node)
+    context = ToolExecutionContext(
+        db=repo.db, user_id=run.user_id, project_id=run.project_id, run_id=run.id,
+        node_key=node.node_key, run_input=deepcopy(run.input_payload), action_input=deepcopy(node_input),
+        action_state=state, artifacts=deepcopy((run.run_context or {}).get("artifacts") or {}),
+        confirmed_conflicts=deepcopy(state.get("conflict_confirmations", {})),
+    )
+    output = AgentOutputContract(deepcopy(node_input)).validate(definition, context, raw_output)
+    current = repo.get_run_for_update(run_id=run.id)
+    token = getattr(run, "_execution_claim_token", run.claim_token)
+    assert_run_claim(current, token, now=_now())
+    current.run_context = {**dict(current.run_context or {}), "artifacts": deepcopy(context.artifacts)}
+    current.current_node_key = node.node_key
+    node.output_payload = deepcopy(output)
+    _event(repo, current, "node_checkpoint_revalidated",
+           {"node_key": node.node_key, "model_requests_sent": 0}, node_run=node)
+    repo.db.add(node)
+    repo.db.commit()
+    return output
 
 
 def _execute_workflow_nodes(
@@ -3485,7 +3726,9 @@ def _execute_workflow_nodes(
         )
         previous = repo.latest_node_run(run_id=run.id, node_key=node.node_key)
         if previous is not None and previous.status == "success":
-            dependency_outputs[node.node_key] = dict(previous.output_payload or {})
+            dependency_outputs[node.node_key] = _revalidate_program_checkpoint(
+                repo, run, previous, execution.entry_agent_key,
+            )
         else:
             executed = _execute_node_with_retry(
                 repo,
@@ -3559,7 +3802,6 @@ def _finalize_workflow_success(
         now=_now(),
     )
     repo.db.commit()
-    prune_terminal_run_history(repo, current_run)
     return {"status": "success", "run_id": current_run.id}
 
 
@@ -3572,6 +3814,9 @@ def _handle_workflow_exception(
     """将工作流异常转换为节点与 Run 的持久化失败状态。"""
 
     repo.db.rollback()
+    if isinstance(exc, RunLeaseLost):
+        # 失权执行器不能再次写 Run，也不能把执行权迁移伪装成模型失败。
+        return {"status": "lease_lost", "run_id": run_id}
     run = repo.get_run_for_update(run_id=run_id)
     if run is None:
         raise exc
@@ -3612,7 +3857,6 @@ def _handle_workflow_exception(
     )
     repo.db.add(run)
     repo.db.commit()
-    prune_terminal_run_history(repo, run)
     raise exc
 
 
@@ -3632,6 +3876,7 @@ def run_agent_workflow(
         if run is None:
             return {"status": "not_claimed", "run_id": run_id}
         claimed_token = run.claim_token
+        _assert_execution_contract(run)
         expected_signature = str(
             (run.run_context or {}).get("runtime_registry_signature") or ""
         )
@@ -3650,9 +3895,16 @@ def run_agent_workflow(
         from core.db.model_defs import AgentWorkflowDefinition
 
         workflow = repo.db.get(AgentWorkflowDefinition, run.workflow_definition_id)
-        if workflow is None or not workflow.enabled:
+        contract_workflow = (_execution_contract(run).get("workflow") or {})
+        contract_definition = contract_workflow.get("definition")
+        if workflow is None:
             raise LookupError("运行引用的工作流不存在或已停用")
-        execution = parse_execution_definition(workflow.definition)
+        contract_workflow_id = contract_workflow.get("id")
+        if contract_workflow_id is not None and int(contract_workflow_id) != int(workflow.id):
+            raise RuntimeError("Agent 运行执行契约引用了不同的工作流")
+        if not isinstance(contract_definition, dict):
+            raise RuntimeError("运行执行契约缺少 workflow definition，不能回读当前工作流")
+        execution = parse_execution_definition(contract_definition)
         validate(instance=dict(run.input_payload or {}), schema=execution.input_schema)
         dependency_outputs = _persisted_dependency_outputs(repo, run_id=run.id)
 
@@ -3677,6 +3929,28 @@ def run_agent_workflow(
             output_node_key,
             dependency_outputs,
         )
+    except ConflictConfirmationRequired as pause:
+        repo.db.rollback()
+        current = repo.get_run_for_update(run_id=run_id)
+        assert_run_claim(current, claimed_token, now=_now())
+        node_run = repo.latest_node_run(run_id=run_id, node_key=current.current_node_key)
+        checkpoint = (node_run.sdk_state or {})["action_checkpoint"]
+        approval = AgentApproval(
+            run_id=run_id, node_run_id=node_run.id, status="pending",
+            request_payload={"kind": "source_conflicts", "items": pause.items,
+                             "state_hash": checkpoint["state_hash"], "paused_at": _now().isoformat()},
+        )
+        repo.db.add(approval)
+        repo.db.flush()
+        _set_execution_observations(node_run, pause)
+        node_run.status = "waiting_approval"
+        node_run.finished_at = _now()
+        repo.db.add(node_run)
+        transition_run(repo, current, "waiting_approval", event_type="conflicts_requested",
+                       payload={"approval_id": approval.id, "count": len(pause.items)},
+                       node_run_id=node_run.id, now=_now())
+        repo.db.commit()
+        return {"status": "waiting_approval", "run_id": run_id}
     except _RunCancelled:
         repo.db.rollback()
         return {"status": "cancelled", "run_id": run_id}

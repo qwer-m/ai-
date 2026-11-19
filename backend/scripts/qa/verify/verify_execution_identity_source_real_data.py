@@ -64,18 +64,18 @@ def verify(run_id: int) -> dict:
     }
     registry_hash = digest(contract)
     assert registry_hash == registry.runtime_registry_signature(), "注册契约未纳入同一源码摘要"
-    planning_path = BACKEND_ROOT / "modules/agent_platform/test_generation_planning.py"
-    planning_text = planning_path.read_text(encoding="utf-8-sig")
-    tree = ast.parse(planning_text)
+    generation_path = BACKEND_ROOT / "modules/agent_platform/test_generation_agent.py"
+    generation_text = generation_path.read_text(encoding="utf-8-sig")
+    tree = ast.parse(generation_text)
     functions = {item.name: item for item in tree.body if isinstance(item, ast.FunctionDef)}
-    public = functions["validate_business_plan_output"]
+    public = functions["initialize_generation_state"]
     private_name = next(
         call.func.id for call in ast.walk(public)
         if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
         and call.func.id.startswith("_") and call.func.id in functions
     )
     helper = functions[private_name]
-    original_public = ast.get_source_segment(planning_text, public)
+    original_public = ast.get_source_segment(generation_text, public)
     with TemporaryDirectory(prefix="agent-execution-identity-") as temporary:
         snapshot = Path(temporary)
         for relative, _ in manifest:
@@ -83,8 +83,8 @@ def verify(run_id: int) -> dict:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes((BACKEND_ROOT / relative).read_bytes())
         assert digest([(name, text_digest(snapshot / name)) for name, _ in manifest]) == source_hash
-        changed = snapshot / planning_path.relative_to(BACKEND_ROOT)
-        lines = planning_text.splitlines(keepends=True)
+        changed = snapshot / generation_path.relative_to(BACKEND_ROOT)
+        lines = generation_text.splitlines(keepends=True)
         lines.insert(helper.body[0].lineno - 1, "    # 仅临时验证副本：私有实现源码发生变化。\n")
         changed.write_text("".join(lines), encoding="utf-8", newline="\n")
         changed_text = changed.read_text(encoding="utf-8")
@@ -93,7 +93,7 @@ def verify(run_id: int) -> dict:
         assert ast.get_source_segment(changed_text, changed_public) == original_public
         changed_manifest = [(name, text_digest(snapshot / name)) for name, _ in manifest]
         changed_files = [name for (name, before), (_, after) in zip(manifest, changed_manifest) if before != after]
-        assert changed_files == [planning_path.relative_to(BACKEND_ROOT).as_posix()]
+        assert changed_files == [generation_path.relative_to(BACKEND_ROOT).as_posix()]
         changed_source_hash = digest(changed_manifest)
         changed_registry_hash = digest({**contract, "execution_source_signature": changed_source_hash})
         assert changed_source_hash != source_hash and changed_registry_hash != registry_hash

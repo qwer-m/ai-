@@ -4,8 +4,10 @@ import type {
   EvaluationRunRecord,
   LoadingType,
   QualityReport,
+  TestEvaluationArtifact,
 } from './state/types';
 import { TestCaseEvaluationReport } from './TestCaseEvaluationReport';
+import { TestCaseFeedbackPanel } from './TestCaseFeedbackPanel';
 
 type Props = {
   evalGenerated: string;
@@ -14,6 +16,8 @@ type Props = {
   evalResult: QualityReport | null;
   loading: LoadingType;
   runHistory: EvaluationRunRecord[];
+  baselineText: string;
+  onBaselineChange: (text: string) => void;
   selectedRunId: number | null;
   onSelectRunId: (id: number | null) => void;
   onLoadRunById: (id: number) => void;
@@ -21,8 +25,10 @@ type Props = {
   uploadedReferenceFilename: string;
   loadedReferenceFilename: string;
   onEvaluate: () => void;
-  onInvalidateEvaluation: () => void;
   history: EvaluationHistoryPoint[];
+  projectId: number | null;
+  verifiedEvaluation: TestEvaluationArtifact | null;
+  sourceLoaded: boolean;
 };
 
 export function TestCaseCoveragePanel({
@@ -32,6 +38,7 @@ export function TestCaseCoveragePanel({
   evalResult,
   loading,
   runHistory,
+  baselineText, onBaselineChange,
   selectedRunId,
   onSelectRunId,
   onLoadRunById,
@@ -39,10 +46,12 @@ export function TestCaseCoveragePanel({
   uploadedReferenceFilename,
   loadedReferenceFilename,
   onEvaluate,
-  onInvalidateEvaluation,
   history,
+  projectId,
+  verifiedEvaluation,
+  sourceLoaded,
 }: Props) {
-  const evaluateDisabled = loading === 'eval';
+  const evaluateDisabled = loading === 'eval' || !sourceLoaded;
   const evaluateLabel = loading === 'eval'
     ? '评测中...'
     : '开始评估质量（含召回率/精准率/缺陷分析）';
@@ -53,7 +62,7 @@ export function TestCaseCoveragePanel({
         <div className="mb-3">
           <Row className="mb-3">
             <Col md={6}>
-              <Form.Group className="ui-section-card p-3 h-100">
+              <Form.Group controlId="evaluation-generated-cases" className="ui-section-card p-3 h-100">
                 <Form.Label className="small text-muted">生成的测试用例</Form.Label>
                 <Form.Control
                   as="textarea"
@@ -65,17 +74,15 @@ export function TestCaseCoveragePanel({
               </Form.Group>
             </Col>
             <Col md={6}>
-              <Form.Group className="ui-section-card p-3 h-100">
+              <Form.Group controlId="evaluation-reference-text" className="ui-section-card p-3 h-100">
                 <Form.Label className="small text-muted">用户修改后的测试用例</Form.Label>
                 <Form.Control
                   as="textarea"
                   rows={10}
                   className="input-pro bg-light"
                   value={evalModified}
-                  onChange={(e) => {
-                    setEvalModified(e.target.value);
-                    onInvalidateEvaluation();
-                  }}
+                  disabled={loading === 'eval'}
+                  onChange={(e) => setEvalModified(e.target.value)}
                   placeholder="可以直接输入文本..."
                 />
               </Form.Group>
@@ -84,7 +91,7 @@ export function TestCaseCoveragePanel({
 
           <Row className="align-items-end">
             <Col md={6}>
-              <Form.Group className="ui-section-card p-3 h-100">
+              <Form.Group controlId="evaluation-source-run" className="ui-section-card p-3 h-100">
                 <Form.Label className="small text-muted">从历史加载</Form.Label>
                 <Form.Select
                   size="sm"
@@ -92,8 +99,8 @@ export function TestCaseCoveragePanel({
                   value={selectedRunId ? String(selectedRunId) : ''}
                   onChange={(e) => {
                     const id = Number(e.target.value);
-                    onSelectRunId(id || null);
                     if (id) onLoadRunById(id);
+                    else onSelectRunId(null);
                   }}
                 >
                   <option value="">-- 选择历史记录 --</option>
@@ -111,19 +118,22 @@ export function TestCaseCoveragePanel({
               </Form.Group>
             </Col>
             <Col md={6}>
-              <Form.Group className="ui-section-card p-3 h-100">
-                <Form.Label className="small text-muted">或上传文件 (Excel, CSV, PNG)</Form.Label>
+              <Form.Group controlId="evaluation-reference-file" className="ui-section-card p-3 h-100">
+                <Form.Label className="small text-muted">或上传人工用例文件</Form.Label>
                 <Form.Control
                   type="file"
                   size="sm"
-                  accept=".xlsx,.xls,.csv,.png"
                   className="input-pro"
+                  disabled={loading === 'eval'}
+                  key={uploadedReferenceFilename || 'no-reference-file'}
                   onChange={(e) => {
                     const target = e.target as HTMLInputElement;
                     onFileChange(target.files && target.files.length > 0 ? target.files[0] : null);
-                    onInvalidateEvaluation();
                   }}
                 />
+                <div className="small text-muted mt-1">
+                  支持后端已配置的文本、表格、PDF 和图片解析；文件与上方文本互斥。
+                </div>
                 {uploadedReferenceFilename ? (
                   <div className="small text-muted mt-1">
                     当前上传文件：{uploadedReferenceFilename}
@@ -137,15 +147,27 @@ export function TestCaseCoveragePanel({
               </Form.Group>
             </Col>
           </Row>
+          <Form.Group controlId="evaluation-baseline-groups">
+            <Form.Label className="small">正文核对清单（可选，每行一组）</Form.Label>
+            <Form.Control as="textarea" rows={2} value={baselineText} disabled={loading === 'eval'}
+              placeholder="留空时由评审核对完整正文并分组"
+              onChange={e => onBaselineChange(e.target.value)} />
+          </Form.Group>
         </div>
 
       </div>
 
       <div className="evaluation-testcase-action-row d-flex flex-column flex-md-row flex-wrap gap-2">
-        <Button className="btn-pro-primary flex-fill panel-card-primary-action" disabled={evaluateDisabled} onClick={onEvaluate}>
+        <Button className="btn-pro-primary flex-fill panel-card-primary-action" disabled={evaluateDisabled}
+          aria-describedby="evaluation-submit-help" onClick={onEvaluate}>
           {evaluateLabel}
         </Button>
       </div>
+      <p className="small text-muted mb-0" id="evaluation-submit-help" role="status">
+        {loading === 'eval' ? '评测正在执行，请等待结果。'
+          : !sourceLoaded ? '请先从历史记录加载当前项目的生成用例。'
+            : '填写人工定稿用例或上传文件后进行对比；输入文本与上传文件互斥。'}
+      </p>
 
       {evalResult ? (
         <div className="evaluation-testcase-report-wrap">
@@ -153,6 +175,18 @@ export function TestCaseCoveragePanel({
             evalResult={evalResult}
             history={history}
           />
+          {verifiedEvaluation && projectId ? (
+            <TestCaseFeedbackPanel
+              key={`${projectId}-${verifiedEvaluation.source_run_id}-${verifiedEvaluation.evaluation_run_id}`}
+              projectId={projectId}
+              sourceRunId={verifiedEvaluation.source_run_id}
+              evaluationRunId={verifiedEvaluation.evaluation_run_id}
+            />
+          ) : (
+            <p className="small text-muted mt-3" role="status">
+              当前报告仅为本地展示草稿。请从服务器加载对应生成记录后再确认项目反馈。
+            </p>
+          )}
         </div>
       ) : null}
     </div>

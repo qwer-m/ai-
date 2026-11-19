@@ -89,8 +89,7 @@ def rewrite_query(question: str, max_queries: int = 2) -> List[str]:
     1. 第一项始终是原始 query（兜底）。
     2. 默认最多返回 2 条（原始 + 1 条改写），减少小语料噪音。
 
-    兼容性说明：
-    - 接口签名保持不变；旧调用方若不传参，仍能拿到“原始 query + 改写”。
+    当前检索策略始终保留原始 query，并按 max_queries 截断改写候选。
     """
     normalized = _normalize_text(question)
     if not normalized:

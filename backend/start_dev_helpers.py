@@ -273,13 +273,32 @@ def cleanup_project_service_processes(
     snapshot = _windows_process_snapshot()
     if not snapshot:
         return []
-    excluded = {int(pid) for pid in (exclude_pids or set()) if int(pid) > 0}
+    excluded = {os.getpid(), *(int(pid) for pid in (exclude_pids or set()) if int(pid) > 0)}
     normalized_root = os.path.normcase(os.path.abspath(root_dir)).replace("/", "\\").rstrip("\\")
     processes = {int(item["pid"]): item for item in snapshot}
     parent_map: dict[int, list[int]] = {}
     for item in snapshot:
         pid = int(item["pid"])
         parent_map.setdefault(int(item["parent_pid"]), []).append(pid)
+
+    # Windows venv 的包装进程也是本次启动器；只排除真实解释器 PID，
+    # taskkill /T 仍会从其父包装进程杀回当前启动器。保护整条祖先链，
+    # 同时保护当前启动器已拥有的子进程，禁止清理树跨过调用方边界。
+    protected = set(excluded)
+    for pid in excluded:
+        visited: set[int] = set()
+        parent_pid = int(processes.get(pid, {}).get("parent_pid") or 0)
+        while parent_pid and parent_pid not in visited:
+            visited.add(parent_pid)
+            protected.add(parent_pid)
+            parent_pid = int(processes.get(parent_pid, {}).get("parent_pid") or 0)
+    pending = list(excluded)
+    while pending:
+        parent_pid = pending.pop()
+        for child_pid in parent_map.get(parent_pid, []):
+            if child_pid not in protected:
+                protected.add(child_pid)
+                pending.append(child_pid)
 
     def normalized_command(item: dict[str, object]) -> str:
         return os.path.normcase(str(item.get("command_line") or "")).replace("/", "\\")
@@ -330,6 +349,7 @@ def cleanup_project_service_processes(
             parent_pid = int(parent.get("parent_pid") or 0)
 
     # 找到启动器根进程后，纳入其命令行不含项目路径的全局 Python 子进程。
+    root_pids.difference_update(protected)
     targets = set(root_pids)
     pending = list(root_pids)
     while pending:
@@ -338,7 +358,7 @@ def cleanup_project_service_processes(
             if child_pid not in targets:
                 targets.add(child_pid)
                 pending.append(child_pid)
-    targets.difference_update(excluded)
+    targets.difference_update(protected)
     if not targets:
         return []
 

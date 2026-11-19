@@ -8,12 +8,15 @@ import json
 import mimetypes
 import re
 from collections.abc import Callable
+from contextvars import ContextVar
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
 from jsonschema import ValidationError, validate
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
 from agents import (
     Agent,
@@ -25,16 +28,19 @@ from agents import (
     Runner,
     ToolsToFinalOutputResult,
 )
-from agents.exceptions import ModelBehaviorError, UserError
+from agents.exceptions import MaxTurnsExceeded, ModelBehaviorError, UserError
 from agents.strict_schema import ensure_strict_json_schema
 from agents.model_settings import ModelRetrySettings
 from agents.models.interface import Model
 from agents.run_config import CallModelData, ModelInputData, ToolExecutionConfig
 from agents.tool_context import ToolContext
+from agents.tool import ToolOutputImage, ToolOutputText
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, create_model
 
 from core.ai.ai_client import get_client_for_user
 from core.ai.providers.openai_compatible_provider import OpenAICompatibleProvider
+from core.ai.usage import normalized_usage
+from core.settings.config import settings
 from core.db.model_defs import AgentDefinition, AgentToolDefinition, KnowledgeDocument
 from modules.knowledge_base_components.document.document_asset_service import (
     document_page_image_details,
@@ -42,14 +48,15 @@ from modules.knowledge_base_components.document.document_asset_service import (
     load_document_manifest,
 )
 from .registry import ToolExecutionContext, tool_registry
+from .retry_policy import AdaptiveConcurrency, CONCURRENCY_PRESSURE_FAILURE_KINDS, model_transport_failure_kind
 from .contracts import AgentMapConfig, WorkflowNode
 from .definition_repository import AgentDefinitionRepository
 from .autonomous_tools import AutonomousToolLoop
 from .autonomous_budget import AgentSubtreeRequestBudgetExceeded
-from .action_journal import interrupted_transport_action, ordered_action_receipts
 from .output_repair import OutputRepairError, OutputValidationError, build_output_repair_guidance
 from .request_diagnostics import (
     ModelRequestDiagnostics, ObservedRunHooks, safe_exception_evidence, unwrap_sdk_execution_error,
+    validation_error_details,
 )
 from .serialization import DuplicateJSONKeyError, strict_json_loads
 
@@ -625,12 +632,223 @@ def resolve_agent_model_metadata(
     }
 
 
+class _SDKClientPool:
+    """父调用及托管子调用共用连接池；只在所属事件循环结束前统一关闭。"""
+
+    def __init__(self, allocated_clients: list[AsyncOpenAI] | None = None) -> None:
+        self._allocated_clients = allocated_clients if allocated_clients is not None else []
+        self._entries: list[tuple[str, str, dict[str, Any], AsyncOpenAI]] = []
+
+    def client_for(
+        self, provider: OpenAICompatibleProvider, *, request_timeout_seconds: float | None,
+    ) -> AsyncOpenAI:
+        timeout = provider._http_timeout(request_timeout_seconds)
+        http_options = provider._http_client_kwargs(timeout=timeout)
+        for base_url, api_key, options, client in self._entries:
+            if base_url == provider.base_url and api_key == provider.api_key and options == http_options:
+                return client
+        client = AsyncOpenAI(
+            api_key=provider.api_key,
+            base_url=provider.base_url,
+            timeout=timeout,
+            http_client=DefaultAsyncHttpxClient(**http_options),
+            # 重试由平台节点/映射项显式管理，避免 SDK 隐式重复整段长输出。
+            max_retries=0,
+        )
+        self._entries.append((provider.base_url, provider.api_key, http_options, client))
+        self._allocated_clients.append(client)
+        return client
+
+    async def close(self) -> None:
+        await asyncio.gather(
+            *(client.close() for client in self._allocated_clients), return_exceptions=True,
+        )
+
+
+_raw_provider_usage = ContextVar("sdk_raw_provider_usage", default=None)
+_stream_usage_session = ContextVar("sdk_stream_usage_session", default=None)
+_stream_usage_request = ContextVar("sdk_stream_usage_request", default=None)
+
+
+def _stream_output_identity(output) -> str:
+    """绑定完整输出及工具调用编号，不能把前后两轮用量按模型名串账。"""
+    content = [item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in output]
+    return hashlib.sha256(json.dumps(
+        content, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
+
+
+@dataclass
+class _StreamUsageReceipt:
+    model: str
+    raw_usage: dict[str, Any] | None = None
+    output_identity: str | None = None
+
+
+class _StreamUsageSession:
+    """父会话创建共享对象，SDK 子任务和结束钩子共同读写同一份回执。"""
+
+    def __init__(self) -> None:
+        self.active: _StreamUsageReceipt | None = None
+        self.pending: _StreamUsageReceipt | None = None
+
+    def begin(self, model: str) -> _StreamUsageReceipt:
+        if self.active is not None or self.pending is not None:
+            raise RuntimeError("流式用量会话存在未结算请求，禁止并发或覆盖回执")
+        self.active = _StreamUsageReceipt(model=model)
+        return self.active
+
+    def complete(self, receipt: _StreamUsageReceipt, output) -> None:
+        if self.active is not receipt or self.pending is not None:
+            raise RuntimeError("流式用量回执重复完成或不属于当前请求")
+        receipt.output_identity = _stream_output_identity(output)
+        self.pending = receipt
+
+    def consume(self, model: str, output) -> dict[str, Any]:
+        receipt = self.pending
+        identity = _stream_output_identity(output)
+        if receipt is None or receipt.model != model or receipt.output_identity != identity:
+            raise RuntimeError("流式用量回执与真实模型输出不一致，拒绝结算")
+        self.pending = None
+        usage = normalized_usage(receipt.raw_usage)
+        return {"usage": receipt.raw_usage, "usage_reported": all(
+            usage[key] is not None for key in ("input_tokens", "output_tokens", "total_tokens")
+        ), "output_identity": identity}
+
+
+def _resolve_stream_provider_usage(agent, response):
+    session = _stream_usage_session.get()
+    if session is None:
+        return None
+    model = getattr(agent.model, "model", agent.model)
+    return session.consume(str(model), response.output)
+
+
+class _UsageObservedStream:
+    """透明转发供应商流，只在原始 chunk 上保留实际报告的用量。"""
+
+    def __init__(self, stream, receipt: _StreamUsageReceipt) -> None:
+        self._stream, self._receipt = stream, receipt
+        self._iterator = stream.__aiter__()
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        chunk = await self._iterator.__anext__()
+        usage = getattr(chunk, "usage", None)
+        if usage is None:
+            usage = getattr(getattr(chunk, "response", None), "usage", None)
+        if usage is not None:
+            self._receipt.raw_usage = deepcopy(
+                usage.model_dump(mode="json") if hasattr(usage, "model_dump") else dict(usage)
+            )
+        return chunk
+
+    def __getattr__(self, name):
+        # SDK 的 close/aclose、request_id 等生命周期接口继续指向真实上游流。
+        return getattr(self._stream, name)
+
+
+class _ProviderUsageModel:
+    """在 SDK 归一化响应前保留原生用量；并发请求上下文互不覆盖。"""
+
+    async def get_response(self, *args, **kwargs):
+        token = _raw_provider_usage.set(None)
+        try:
+            response = await super().get_response(*args, **kwargs)
+            response.provider_usage = _raw_provider_usage.get()
+            return response
+        finally:
+            _raw_provider_usage.reset(token)
+
+    async def stream_response(self, *args, **kwargs):
+        session = _stream_usage_session.get()
+        if session is None:
+            raise RuntimeError("流式模型请求必须绑定当前 Runner 的用量会话")
+        receipt = session.begin(str(self.model))
+        token = _stream_usage_request.set(receipt)
+        output_items = []
+        try:
+            async for event in super().stream_response(*args, **kwargs):
+                if event.type == "response.output_item.done":
+                    output_items.append(event.item)
+                elif event.type == "response.completed":
+                    # 与 SDK 对终态空 output 的处理一致，结束钩子才能精确匹配。
+                    session.complete(receipt, event.response.output or output_items)
+                yield event
+        finally:
+            session.active = None
+            _stream_usage_request.reset(token)
+
+    async def _fetch_response(self, *args, **kwargs):
+        response = await super()._fetch_response(*args, **kwargs)
+        receipt = _stream_usage_request.get()
+        if receipt is not None:
+            # Chat 返回 (Response 占位对象, AsyncStream)，Responses 直接返回事件流。
+            if isinstance(response, tuple) and len(response) == 2:
+                return response[0], _UsageObservedStream(response[1], receipt)
+            return _UsageObservedStream(response, receipt)
+        usage = getattr(response, "usage", None)
+        _raw_provider_usage.set(usage.model_dump(mode="json") if hasattr(usage, "model_dump") else usage)
+        normalized = normalized_usage(usage)
+        if usage is not None and normalized["cached_input_tokens"] is not None:
+            details_name = "prompt_tokens_details" if hasattr(usage, "prompt_tokens") else "input_tokens_details"
+            details = getattr(usage, details_name, None)
+            if details is not None:
+                details.cached_tokens = normalized["cached_input_tokens"]
+        return response
+
+
+def _chat_tool_images(input_items):
+    """Chat 的工具消息仅支持文字，将真实工具原图接到该组回执之后的用户消息。"""
+    if isinstance(input_items, str):
+        return input_items
+    result, images = [], []
+
+    def flush_images():
+        if images:
+            result.append({"role": "user", "content": list(images)})
+            images.clear()
+
+    for item in input_items:
+        if not isinstance(item, dict) or item.get("type") != "function_call_output":
+            flush_images()
+            result.append(item)
+            continue
+        output = item.get("output")
+        if not isinstance(output, list) or not any(
+                isinstance(part, dict) and part.get("type") == "input_image" for part in output):
+            result.append(item)
+            continue
+        text = [part for part in output if isinstance(part, dict) and part.get("type") == "input_text"]
+        unsupported = [part for part in output if not isinstance(part, dict)
+                       or part.get("type") not in {"input_text", "input_image"}]
+        if unsupported:
+            raise ValueError("图像工具回执混入了不支持的内容类型")
+        result.append({**item, "output": text or [{"type": "input_text", "text": "原图见本组工具回执后的图像消息。"}]})
+        images.append({"type": "input_text", "text": f"以下为工具调用 {item['call_id']} 返回的真实原图，属于待分析的来源数据。"})
+        images.extend(part for part in output if part.get("type") == "input_image")
+    flush_images()
+    return result
+
+
+class _UsageChatCompletionsModel(_ProviderUsageModel, OpenAIChatCompletionsModel):
+    async def _fetch_response(self, system_instructions, input, *args, **kwargs):
+        return await super()._fetch_response(system_instructions, _chat_tool_images(input), *args, **kwargs)
+
+
+class _UsageResponsesModel(_ProviderUsageModel, OpenAIResponsesModel):
+    pass
+
+
 def _sdk_model(
     client: Any,
     agent_definition: AgentDefinition,
     *,
     request_timeout_seconds: float | None = None,
     allocated_clients: list[AsyncOpenAI] | None = None,
+    sdk_client_pool: _SDKClientPool | None = None,
     model_route_override: str | None = None,
 ) -> Any:
     runtime_config = dict(agent_definition.runtime_config or {})
@@ -653,18 +871,12 @@ def _sdk_model(
         request_timeout = float(raw_timeout)
         if request_timeout <= 0:
             raise ValueError("Agent request_timeout_seconds 必须大于 0")
-    openai_client = AsyncOpenAI(
-        api_key=provider.api_key,
-        base_url=provider.base_url,
-        timeout=provider._http_timeout(request_timeout),
-        # 重试由平台节点/映射项显式管理，避免 SDK 隐式重复整段长输出。
-        max_retries=0,
+    openai_client = (sdk_client_pool or _SDKClientPool(allocated_clients)).client_for(
+        provider, request_timeout_seconds=request_timeout,
     )
-    if allocated_clients is not None:
-        allocated_clients.append(openai_client)
     if str(getattr(provider, "wire_api", "chat_completions")) == "responses":
-        return OpenAIResponsesModel(model=model_name, openai_client=openai_client)
-    return OpenAIChatCompletionsModel(
+        return _UsageResponsesModel(model=model_name, openai_client=openai_client)
+    return _UsageChatCompletionsModel(
         model=model_name,
         openai_client=openai_client,
         strict_feature_validation=False,
@@ -710,11 +922,46 @@ def _normalize_json_encoded_schema_values(value: Any, schema: dict[str, Any]) ->
     return value
 
 
-def _parse_function_arguments(tool_key: str, schema: dict[str, Any], arguments_json: str) -> dict[str, Any]:
+def _tool_arguments_json(arguments_json: str) -> tuple[Any, list[dict[str, Any]]]:
+    """仅合并 JSON 类型与完整值均相同的重复字段，不用后值覆盖存在冲突的前值。"""
+    class ObjectPairs(list):
+        pass
+
+    duplicates = []
+
+    def identity(value: Any) -> str:
+        # JSON 文本区分 true/1/1.0，也递归保留数组、对象内部的值类型。
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    def materialize(value: Any, path: str) -> Any:
+        if isinstance(value, ObjectPairs):
+            result = {}
+            for key, raw in value:
+                pointer = path + "/" + key.replace("~", "~0").replace("/", "~1")
+                item = materialize(raw, pointer)
+                if key in result:
+                    if identity(result[key]) != identity(item):
+                        raise DuplicateJSONKeyError(key)
+                    duplicates.append({"path": pointer, "removed_occurrences": 1,
+                        "value_sha256": hashlib.sha256(identity(item).encode("utf-8")).hexdigest()})
+                else:
+                    result[key] = item
+            return result
+        if isinstance(value, list):
+            return [materialize(item, path + f"/{index}") for index, item in enumerate(value)]
+        return value
+
+    return materialize(json.loads(arguments_json, object_pairs_hook=ObjectPairs), ""), duplicates
+
+
+def _parse_function_arguments(
+    tool_key: str, schema: dict[str, Any], arguments_json: str,
+    *, normalization_audit: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """领域工具和模型提交工具共享同一参数解析边界。"""
     raw_arguments = arguments_json or "{}"
     try:
-        arguments = strict_json_loads(raw_arguments)
+        arguments, duplicates = _tool_arguments_json(raw_arguments)
         arguments = _normalize_json_encoded_schema_values(arguments, schema)
     except (json.JSONDecodeError, DuplicateJSONKeyError) as exc:
         raise ToolArgumentsJSONError(
@@ -728,11 +975,35 @@ def _parse_function_arguments(tool_key: str, schema: dict[str, Any], arguments_j
         ) from exc
     if not isinstance(arguments, dict):
         raise ValueError("工具输入 Schema 必须约束参数为 JSON 对象")
+    if duplicates and normalization_audit is not None:
+        encoded = json.dumps(arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        normalization_audit.update({"kind": "identical_duplicate_fields", "duplicate_fields": duplicates,
+            "original_arguments_sha256": hashlib.sha256(raw_arguments.encode("utf-8")).hexdigest(),
+            "normalized_arguments_sha256": hashlib.sha256(encoded.encode("utf-8")).hexdigest()})
     return arguments
 
 
 def _strict_schema_preserves_contract(schema: dict[str, Any]) -> bool:
-    """仅当 SDK 严格化不改变验收含义时启用，禁止把补丁可选字段改成必填。"""
+    """仅对服务端可表达且不改变验收含义的 Schema 启用严格生成。"""
+    def has_unique_items(value: Any) -> bool:
+        if not isinstance(value, dict):
+            return False
+        if value.get("uniqueItems") is True:
+            return True
+        # 只遍历 Schema 节点，避免把属性名或枚举数据误当成约束关键字。
+        for key in ("properties", "$defs", "definitions", "patternProperties"):
+            if any(has_unique_items(child) for child in (value.get(key) or {}).values()):
+                return True
+        for key in ("items", "additionalProperties", "contains", "not", "if", "then", "else"):
+            if has_unique_items(value.get(key)):
+                return True
+        return any(has_unique_items(child) for key in ("anyOf", "oneOf", "allOf", "prefixItems")
+                   for child in (value.get(key) or []))
+
+    # SDK 的严格化函数不会检查 uniqueItems 的服务端支持性；此约束保留给
+    # _parse_function_arguments 的完整 JSON Schema 校验，不能删除或在失败后重试降级。
+    if has_unique_items(schema):
+        return False
     def canonical(value, key=None):
         if isinstance(value, dict):
             return {name: canonical(item, name) for name, item in value.items()}
@@ -757,11 +1028,14 @@ def _output_submission_tool(
         raise ValueError("会话内提交必须声明对象型输出契约")
 
     async def invoke(context: Any, arguments_json: str) -> str:
-        output = _parse_function_arguments("submit_result", schema, arguments_json)
+        normalization_audit = {}
+        output = _parse_function_arguments("submit_result", schema, arguments_json,
+                                           normalization_audit=normalization_audit)
         execution_context.executed_tools.append("submit_result")
         execution_context.tool_calls.append({
             "tool_key": "submit_result", "tool_call_id": context.tool_call_id,
             "arguments": deepcopy(output), "result": deepcopy(output),
+            **({"argument_normalization": normalization_audit} if normalization_audit else {}),
         })
         return json.dumps(output, ensure_ascii=False, separators=(",", ":"))
 
@@ -779,11 +1053,15 @@ def _function_tool(
     *,
     state_input_filter: _PersistentStateInputFilter | None = None,
 ) -> FunctionTool:
+    if definition.requires_approval:
+        raise ValueError("动态工具尚未接入平台审批，禁止绑定需要审批的工具；请使用已有审批工具节点")
     handler = tool_registry.resolve(definition.handler_key)
 
     async def invoke(_tool_context: Any, arguments_json: str) -> str:
+        normalization_audit = {}
         arguments = _parse_function_arguments(
             definition.tool_key, dict(definition.input_schema or {}), arguments_json,
+            normalization_audit=normalization_audit,
         )
         result = handler(execution_context, arguments)
         if inspect.isawaitable(result):
@@ -807,6 +1085,7 @@ def _function_tool(
                 "tool_key": definition.tool_key,
                 "tool_call_id": getattr(_tool_context, "tool_call_id", None),
                 "arguments": arguments,
+                **({"argument_normalization": normalization_audit} if normalization_audit else {}),
                 "result": result,
             }
         )
@@ -817,7 +1096,7 @@ def _function_tool(
         description=definition.description or definition.name,
         params_json_schema=dict(definition.input_schema or {}),
         on_invoke_tool=invoke,
-        strict_json_schema=True,
+        strict_json_schema=_strict_schema_preserves_contract(dict(definition.input_schema or {})),
         needs_approval=False,
         # 已授权工具保持稳定注册；过期行动由当前状态校验返回可修正反馈，
         # 避免 SDK 在领域校验前以 tool not found 直接终止整轮。
@@ -934,6 +1213,26 @@ def _runner_input(
     input_mode = str(runtime_config.get("input_mode") or "text").strip().lower()
     if input_mode == "text":
         return payload_text
+    if input_mode == "document_evidence":
+        pages = input_payload.get("image_pages")
+        if not isinstance(pages, list):
+            raise ValueError("原始证据输入必须声明 image_pages 数组")
+        if not pages:
+            return payload_text
+        content = [{"type": "input_text", "text": payload_text}]
+        seen = set()
+        for page in pages:
+            _validate_frozen_image_source(execution_context, page)
+            identity = (page["document_id"], page["page_number"])
+            if identity in seen:
+                raise ValueError("原始证据输入重复装载同一页面")
+            seen.add(identity)
+            rendered = _runner_input(
+                execution_context=execution_context, input_payload=page,
+                runtime_config={"input_mode": "document_page_image"},
+            )
+            content.extend(rendered[0]["content"])
+        return [{"role": "user", "content": content}]
     if input_mode == "document_page_optional_image" and str(
         input_payload.get("source_kind") or ""
     ) == "inline":
@@ -1020,9 +1319,75 @@ def _runner_input(
     return [{"role": "user", "content": content}]
 
 
+def _validate_frozen_image_source(context, descriptor):
+    """工具图像和审查图像均绑定本次冻结来源，不能切换为其他同项目文档。"""
+    from core.db.model_defs import AgentRun
+    from .sources import persisted_source_snapshot
+
+    if not isinstance(descriptor, dict):
+        raise ValueError("原图描述必须是对象")
+    run = context.db.get(AgentRun, context.run_id)
+    if run is None or (run.user_id, run.project_id) != (context.user_id, context.project_id):
+        raise ValueError("原图所属运行或租户无效")
+    source = persisted_source_snapshot(run)
+    if (source is None or source.kind != "knowledge_document"
+            or source.document_id != descriptor.get("document_id")
+            or source.content_hash != descriptor.get("asset_source_sha256")):
+        raise ValueError("原图不属于本次冻结的需求来源")
+
+
+def _render_image_tool_result(tool, definition, execution_context):
+    """行动日志仅存图像指纹；交给 SDK 时才读取并发送真实图像像素。"""
+    renderer = (definition.output_schema or {}).get("x-result-renderer")
+    if renderer is None:
+        return tool
+    if renderer != "document_page_image":
+        raise ValueError(f"不支持的工具结果展示协议: {renderer}")
+    invoke = tool.on_invoke_tool
+
+    async def render(context, arguments):
+        result = await invoke(context, arguments)
+        payload = strict_json_loads(result)
+        descriptor = payload.get("page_image") if isinstance(payload, dict) else None
+        # 工具被领域校验拒绝时仍返回原始反馈，不伪造可见图像。
+        if descriptor is None:
+            return result
+        _validate_frozen_image_source(execution_context, descriptor)
+        rendered = _runner_input(
+            execution_context=execution_context, input_payload=descriptor,
+            runtime_config={"input_mode": "document_page_image"},
+        )
+        outputs = [ToolOutputText(text=result)]
+        for part in rendered[0]["content"]:
+            if part["type"] == "input_image":
+                outputs.append(ToolOutputImage(image_url=part["image_url"], detail=part["detail"]))
+            elif part["type"] == "input_text":
+                outputs.append(ToolOutputText(text=part["text"]))
+        return outputs
+
+    return replace(tool, on_invoke_tool=render)
+
+
 def _validate_runtime_config(runtime_config: dict[str, Any], *, has_tools: bool) -> None:
+    if "stream_response" in runtime_config and type(runtime_config["stream_response"]) is not bool:
+        raise ValueError("Agent stream_response 必须是布尔值")
+    if runtime_config.get("confirmation_context_mode", "system") not in {"system", "domain_input"}:
+        raise ValueError("人工口径只能由平台系统材料或明确的领域输入单份提供")
     if int(runtime_config.get("max_retries", 0) or 0) != 0:
         raise ValueError("Agent 禁止 SDK 隐式重试，请使用工作流节点的 max_attempts")
+    artifacts_provider = runtime_config.get("managed_artifacts_provider")
+    if artifacts_provider is not None:
+        if (not isinstance(artifacts_provider, str) or not artifacts_provider.strip()
+                or artifacts_provider != artifacts_provider.strip()
+                or not runtime_config.get("state_initializer") or not runtime_config.get("managed_agent_keys")):
+            raise ValueError("专业产物投影必须绑定到具有持久状态和受管专业能力的 Agent")
+        tool_registry.resolve(artifacts_provider)
+    material_provider = runtime_config.get("model_material_provider")
+    if material_provider is not None:
+        if (not isinstance(material_provider, str) or not material_provider.strip()
+                or material_provider != material_provider.strip() or not runtime_config.get("state_initializer")):
+            raise ValueError("初始模型材料必须由持久Agent的明确处理器提供")
+        tool_registry.resolve(material_provider)
     catalog_key = runtime_config.get("state_action_catalog")
     if catalog_key is not None:
         if not isinstance(catalog_key, str) or not catalog_key.strip() or catalog_key != catalog_key.strip():
@@ -1067,6 +1432,7 @@ def _validate_runtime_config(runtime_config: dict[str, Any], *, has_tools: bool)
         "text",
         "document_page_image",
         "document_page_optional_image",
+        "document_evidence",
     }:
         raise ValueError(f"不支持的 Agent input_mode: {input_mode}")
     if input_mode in {"document_page_image", "document_page_optional_image"}:
@@ -1129,7 +1495,8 @@ def _model_settings(
     runtime_config: dict[str, Any],
     *,
     use_json_object_output: bool = False,
-    disable_model_thinking: bool = False,
+    reasoning_effort: str | None = None,
+    wire_api: str = "chat_completions",
 ) -> ModelSettings:
     raw_max_output_tokens = runtime_config.get("max_output_tokens")
     max_output_tokens = None
@@ -1144,6 +1511,9 @@ def _model_settings(
         # 默认串行执行工具，避免多个真实模型请求在同一轮突发撞向上游网关。
         "parallel_tool_calls": bool(runtime_config.get("parallel_tool_calls", False)),
     }
+    if runtime_config.get("stream_response", False):
+        # 自定义网关默认不返回流式用量；明确请求原生 usage，缺失时仍按未知保留预算。
+        settings_kwargs["include_usage"] = True
     stop_at_tool_keys = _stop_at_tool_keys(runtime_config)
     if "tool_choice" in runtime_config:
         tool_choice = runtime_config["tool_choice"]
@@ -1176,11 +1546,17 @@ def _model_settings(
         extra_args = dict(settings_kwargs.get("extra_args") or {})
         extra_args["response_format"] = {"type": "json_object"}
         settings_kwargs["extra_args"] = extra_args
-    if disable_model_thinking:
-        # 部分推理模型会把输出额度全部消耗在 reasoning，导致结构化正文为空。
-        extra_body = dict(settings_kwargs.get("extra_body") or {})
-        extra_body["thinking"] = {"type": "disabled"}
-        settings_kwargs["extra_body"] = extra_body
+    # 思考配置由模型路由统一提供，旧 Agent 定义不能覆盖用户保存的级别。
+    for key in ("extra_body", "extra_args"):
+        extra = dict(settings_kwargs.get(key) or {})
+        for field in ("thinking", "reasoning_effort", "reasoning"):
+            extra.pop(field, None)
+        settings_kwargs[key] = extra or None
+    if reasoning_effort:
+        from core.ai.reasoning import reasoning_parameters
+        key = "extra_body" if wire_api == "responses" else "extra_args"
+        settings_kwargs[key] = {**(settings_kwargs.get(key) or {}),
+                                **reasoning_parameters(reasoning_effort, wire_api)}
     return ModelSettings(**settings_kwargs)
 
 
@@ -1334,6 +1710,15 @@ def _agent_consultation_question(options: Any, *, tool_key: str) -> str:
     return raw_params["input"]
 
 
+def _feedback_tool_names(runtime_config, tools, subagent_keys, *, persistent):
+    """模型可修正候选参数；状态确定的自动行动失败直接走运行错误链。"""
+    feedback = set(_stop_at_tool_keys(runtime_config) or []) | set(subagent_keys)
+    if persistent:
+        feedback.update(tool.name for tool in tools)
+    feedback.difference_update(runtime_config.get("automatic_action_tools", []))
+    return feedback
+
+
 def _build_sdk_agent(
     *,
     db: Any,
@@ -1344,11 +1729,11 @@ def _build_sdk_agent(
     model_input_payload: dict[str, Any] | None = None,
     request_timeout_seconds: float | None = None,
     disable_server_output_schema: bool = False,
-    disable_model_thinking: bool = False,
     model_route_override: str | None = None,
     allow_subagents: bool,
     direct_tool_definitions: list[AgentToolDefinition] | None = None,
     allocated_clients: list[AsyncOpenAI] | None = None,
+    sdk_client_pool: _SDKClientPool | None = None,
     definition_snapshots: dict[str, tuple[AgentDefinition, list[AgentToolDefinition]]] | None = None,
     autonomous_loop: AutonomousToolLoop | None = None,
     budget_hooks: Any = None,
@@ -1356,6 +1741,7 @@ def _build_sdk_agent(
     budget_observer: Callable[[], dict[str, Any]] | None = None,
     state_input_filter: _PersistentStateInputFilter | None = None,
 ) -> tuple[Agent[Any], bool]:
+    sdk_client_pool = sdk_client_pool or _SDKClientPool(allocated_clients)
     if definition_snapshots is not None:
         # SDK 与指纹使用同一份定义，不能在请求执行后再查询已变化的配置。
         agent_definition = deepcopy(agent_definition)
@@ -1386,10 +1772,16 @@ def _build_sdk_agent(
             raise ValueError("专业 Agent 的提交工具与已绑定工具重名")
         direct_tools.append(_output_submission_tool(agent_definition, execution_context))
     if execution_context.action_journal is not None:
-        if autonomous_loop is None or not all(
-            tool_registry.is_state_only(definition.handler_key) for definition in bound_tools
-        ):
-            raise ValueError("持久自主节点只能绑定声明无外部副作用的领域状态工具")
+        non_state_only_handlers = [
+            definition.handler_key for definition in bound_tools
+            if not tool_registry.is_state_only(definition.handler_key)
+        ]
+        if autonomous_loop is None or non_state_only_handlers:
+            detail = (
+                f"；未声明 state_only 的处理器: {', '.join(sorted(set(non_state_only_handlers)))}"
+                if non_state_only_handlers else ""
+            )
+            raise ValueError(f"持久自主节点只能绑定声明无外部副作用的领域状态工具{detail}")
         if _subagent_keys(runtime_config):
             raise ValueError("持久自主节点必须通过领域状态工具构造专业 Agent 输入")
     # 动态协作能力优先呈现，确定性提交工具最后呈现；最终是否调用专业
@@ -1429,6 +1821,7 @@ def _build_sdk_agent(
             allow_subagents=False,
             direct_tool_definitions=captured[1] if captured is not None else None,
             allocated_clients=allocated_clients,
+            sdk_client_pool=sdk_client_pool,
             definition_snapshots=definition_snapshots,
             budget_hooks=budget_hooks,
             request_diagnostics=request_diagnostics,
@@ -1528,18 +1921,19 @@ def _build_sdk_agent(
         available_tool_names={str(getattr(tool, "name", "") or "") for tool in tools},
     )
     if autonomous_loop is not None:
-        feedback_tools = set(_stop_at_tool_keys(runtime_config) or []) | set(subagent_keys)
-        if execution_context.action_journal is not None:
-            feedback_tools.update(tool.name for tool in tools)
+        # 无参数的必需行动已由状态确定，失败不能交回模型重复选择同一意图。
+        # 正常审查的需修稿结果仍是观察；传输异常继续走节点原有恢复链。
+        feedback_tools = _feedback_tool_names(runtime_config, tools, subagent_keys,
+            persistent=execution_context.action_journal is not None)
         tools = [
             autonomous_loop.wrap_tool(tool, allow_feedback=tool.name in feedback_tools)
             for tool in tools
         ]
         tool_use_behavior = autonomous_loop.tool_use_behavior
-        if runtime_config.get("automatic_terminal_tool"):
+        if runtime_config.get("automatic_terminal_tool") or runtime_config.get("automatic_action_tools"):
             if state_input_filter is None or execution_context.action_journal is None:
-                raise ValueError("自动完成只允许使用带行动日志和合法行动目录的持久节点")
-            state_input_filter.validate_terminal_tool(tools)
+                raise ValueError("平台确定性行动只允许使用带行动日志和合法行动目录的持久节点")
+            state_input_filter.validate_platform_actions(tools)
 
             async def complete_ready_state(context, results):
                 outcome = autonomous_loop.tool_use_behavior(context, results)
@@ -1552,7 +1946,16 @@ def _build_sdk_agent(
                 return outcome
 
             tool_use_behavior = complete_ready_state
+    # 图像展示位于日志包装之外，恢复时也从同一可信描述重新读取原图。
+    image_definitions = {definition.tool_key: definition for definition in bound_tools
+                         if (definition.output_schema or {}).get("x-result-renderer") is not None}
+    tools = [_render_image_tool_result(tool, image_definitions[tool.name], execution_context)
+             if tool.name in image_definitions else tool for tool in tools]
     instructions = str(agent_definition.instructions or "")
+    from .conflict_confirmation import confirmation_instructions
+    if (not runtime_config.get("model_material_provider")
+            and runtime_config.get("confirmation_context_mode") != "domain_input"):
+        instructions += confirmation_instructions(getattr(execution_context, "confirmed_conflicts", {}))
     if include_output_submission:
         instructions += (
             "\n\n" + _submission_object_protocol(agent_definition.output_schema) + "不通过自由正文结束。"
@@ -1565,36 +1968,54 @@ def _build_sdk_agent(
             f"{instructions}\n\n"
             "仅返回符合既定输出契约的 JSON 对象，不要使用 Markdown 代码块或添加额外说明。"
         )
-    def current_instructions(_context: Any, _agent: Any) -> str:
-        # SDK 每次请求重新读取；当前请求尚未预留，父子模型请求共用同一余额。
-        return instructions + "\n\n" + (
-            "当前共享预算（本次请求预留前）："
-            + json.dumps(budget_observer(), ensure_ascii=False, separators=(",", ":"))
-            + "。本次模型请求本身消耗额度；调用专业 Agent 还会消耗同一额度。"
-            "按剩余额度选择必要行动，避免重复读取或无变化重试；实际准入由运行时按上下文计量。"
-        )
+    if budget_observer is not None and state_input_filter is not None:
+        state_input_filter.bind_budget_observer(budget_observer)
 
+    reasoning_provider, reasoning_model, _ = _resolved_agent_model(
+        client, agent_definition, model_route_override=model_route_override,
+    )
+    selected_reasoning_effort = (
+        getattr(reasoning_provider, "reasoning_effort", None)
+        if reasoning_model == reasoning_provider.model else None
+    )
+    model_settings = _model_settings(
+        runtime_config,
+        # 工具型 Agent 由工具参数 Schema 约束结构；同时发送
+        # response_format=json_object 会让部分兼容网关忽略工具选择。
+        use_json_object_output=_should_use_json_object_output(
+            disable_server_output_schema=disable_server_output_schema,
+            has_tools=has_tools,
+        ),
+        reasoning_effort=selected_reasoning_effort,
+        wire_api=getattr(reasoning_provider, "wire_api", "chat_completions"),
+    )
+    if execution_context.stop_on_failure:
+        model_settings = replace(model_settings, parallel_tool_calls=False)
+    named_tool = None
+    if (
+        has_tools
+        and model_settings.tool_choice not in (None, "auto", "none")
+        and selected_reasoning_effort != "none"
+        and isinstance(reasoning_provider, OpenAICompatibleProvider)
+        and urlsplit(reasoning_provider.base_url).hostname == "api.deepseek.com"
+    ):
+        # DeepSeek 的思考模式允许自行选工具。终止工具及业务验收仍由平台约束。
+        if model_settings.tool_choice != "required":
+            named_tool = model_settings.tool_choice
+        model_settings = replace(model_settings, tool_choice="auto")
     agent = Agent(
         name=agent_definition.name,
-        instructions=current_instructions if budget_observer is not None else instructions,
+        instructions=instructions,
         model=_sdk_model(
             client,
             agent_definition,
             request_timeout_seconds=request_timeout_seconds,
             allocated_clients=allocated_clients,
+            sdk_client_pool=sdk_client_pool,
             model_route_override=model_route_override,
         ),
         tools=tools,
-        model_settings=_model_settings(
-            runtime_config,
-            # 工具型 Agent 由工具参数 Schema 约束结构；同时发送
-            # response_format=json_object 会让部分兼容网关忽略工具选择。
-            use_json_object_output=_should_use_json_object_output(
-                disable_server_output_schema=disable_server_output_schema,
-                has_tools=has_tools,
-            ),
-            disable_model_thinking=disable_model_thinking,
-        ),
+        model_settings=model_settings,
         output_type=_sdk_output_type(
             agent_definition,
             has_tools=has_tools,
@@ -1603,8 +2024,9 @@ def _build_sdk_agent(
         tool_use_behavior=tool_use_behavior,
         reset_tool_choice=autonomous_loop is None,
     )
-    if state_input_filter is not None and runtime_config.get("state_action_catalog"):
-        agent.model = _ActionCatalogModel(agent.model, state_input_filter)
+    action_filter = state_input_filter if runtime_config.get("state_action_catalog") else None
+    if action_filter is not None or named_tool is not None:
+        agent.model = _ActionCatalogModel(agent.model, action_filter, named_tool=named_tool)
     if request_diagnostics is not None:
         _, model_name, model_route = _resolved_agent_model(
             client, agent_definition, model_route_override=model_route_override,
@@ -1627,18 +2049,64 @@ async def _run_sdk_agent_async(
     run_config: RunConfig,
     request_timeout_seconds: float | None,
     hooks: Any = None,
+    submission_loop: AutonomousToolLoop | None = None,
+    stream_response: bool = False,
 ) -> Any:
-    operation = Runner.run(
-        agent,
-        runner_input,
-        context=execution_context,
-        max_turns=max_turns,
-        run_config=run_config,
-        hooks=hooks,
-    )
-    if request_timeout_seconds is None:
-        return await operation
+    async def run_until_submission():
+        from .conflict_confirmation import require_conflict_confirmation
+
+        current_input = runner_input
+        current_context = execution_context
+        remaining_turns = max_turns
+        protocol_correction_available = True
+        while True:
+            execution_context.require_request_allowed()
+            require_conflict_confirmation(execution_context.action_state)
+            previous_call_count = len(execution_context.tool_calls) if submission_loop is not None else 0
+            run_kwargs = dict(context=current_context, max_turns=remaining_turns, run_config=run_config, hooks=hooks)
+            if stream_response:
+                result = Runner.run_streamed(agent, current_input, **run_kwargs)
+                # 必须完整消费，终态事件之后 SDK 仍需执行工具、用量钩子和提交验收。
+                async for _ in result.stream_events():
+                    pass
+            else:
+                result = await Runner.run(agent, current_input, **run_kwargs)
+            # 流式 SDK 可能只转交 Exception，领域暂停属于 BaseException 控制流。
+            # 以真实已提交状态在 SDK 外重抛，不能把暂停误判为未提交再花一轮纠正。
+            require_conflict_confirmation(execution_context.action_state)
+            if submission_loop is None or submission_loop.has_submission or result.interruptions:
+                return result
+            if execution_context.stop_on_failure:
+                raise ModelBehaviorError("严格运行未完成有效终止提交，已停止协议纠正和再次模型调用")
+            if len(execution_context.tool_calls) == previous_call_count:
+                if not protocol_correction_available:
+                    from .autonomous_tools import AgentNoProgressError
+                    raise AgentNoProgressError("模型连续返回正文，未执行有效动作或完成提交；已停止无进展调用")
+                protocol_correction_available = False
+            else:
+                protocol_correction_available = True
+            # tool_choice=auto 允许模型返回正文，但正文不能代表领域验收。
+            # 继续原会话并给出协议反馈，工具历史、思考内容及已记录用量均由 SDK 保留。
+            used_turns = len(result.raw_responses)
+            if used_turns < 1:
+                raise ModelBehaviorError("SDK 未产生模型响应，无法继续未完成的提交")
+            remaining_turns -= used_turns
+            if remaining_turns <= 0:
+                raise MaxTurnsExceeded(f"Agent 已耗尽 {max_turns} 轮模型调用，尚未完成有效提交")
+            current_input = [*result.to_input_list(), {
+                "role": "user",
+                "content": "平台尚未收到通过完整验收的提交，刚才的正文不能结束任务。"
+                           "请根据最新状态和已注册的可用工具继续工作；"
+                           "满足提交条件后调用对应终止工具，只有完整验收通过才能结束。",
+            }]
+            current_context = result.context_wrapper
+
+    # 在 Runner 创建后台任务前设置共享对象，不能靠子任务重置后的 ContextVar 标量传用量。
+    token = _stream_usage_session.set(_StreamUsageSession() if stream_response else None)
     try:
+        operation = run_until_submission()
+        if request_timeout_seconds is None:
+            return await operation
         return await asyncio.wait_for(
             operation,
             timeout=float(request_timeout_seconds),
@@ -1647,35 +2115,107 @@ async def _run_sdk_agent_async(
         raise TimeoutError(
             f"Agent 调用超过硬超时 {float(request_timeout_seconds):g} 秒"
         ) from exc
+    finally:
+        _stream_usage_session.reset(token)
 
 
 def _current_action_errors(context: ToolExecutionContext) -> list[dict[str, Any]]:
-    from .action_journal import project_action_failures
+    from .action_journal import action_state_hash
 
     if context.action_journal is None:
         return []
-    return project_action_failures(context.action_journal.load(), state=context.action_state)
+    return context.action_journal.failure_projection(state_hash=action_state_hash(context.action_state))
 
 
 class _ActionCatalogModel(Model):
     """只向模型发送当前合法行动；SDK 的工具注册表保持完整以处理历史调用。"""
 
-    def __init__(self, model: Model, state_filter: _PersistentStateInputFilter) -> None:
+    def __init__(
+        self, model: Model, state_filter: _PersistentStateInputFilter | None,
+        *, named_tool: str | None = None,
+    ) -> None:
         self._model = model
         self._state_filter = state_filter
+        self._named_tool = named_tool
+
+    @property
+    def model(self) -> str:
+        """目录只筛选行动，预算和诊断必须看到底层真实模型身份。"""
+        return self._model.model
 
     def _request(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        allowed = self._state_filter.available_tool_names()
-        tools = [tool for tool in kwargs["tools"] if tool.name in allowed]
-        if {tool.name for tool in tools} != allowed:
-            raise ValueError("当前行动目录与实际注册工具不一致")
-        return {**kwargs, "tools": tools}
+        tools = kwargs["tools"]
+        scopes = None
+        if self._state_filter is not None:
+            scopes = self._state_filter.observe()[self._state_filter._catalog_key]
+            allowed = set(scopes)
+            if not allowed.issubset({tool.name for tool in tools}):
+                raise ValueError("当前行动目录与实际注册工具不一致")
+            # SDK 注册表继续处理历史调用；传输给模型的协议仅包含本轮合法行动。
+            tools = [tool for tool in tools if tool.name in allowed]
+        # SDK 重置 tool_choice 后，后续轮次可以照常使用当前行动目录。
+        if self._named_tool is not None and kwargs["model_settings"].tool_choice == "auto":
+            tools = [tool for tool in tools if tool.name == self._named_tool]
+            if not tools:
+                raise ValueError(f"指定工具不在当前行动目录中: {self._named_tool}")
+        projected = []
+        for tool in tools:
+            if not isinstance(tool, FunctionTool):
+                projected.append(tool)
+                continue
+            schema = self._project_tool_schema(tool.params_json_schema, None if scopes is None else scopes[tool.name])
+            # 只替换本次传输对象，真实注册表及其参数验收仍保留原始契约。
+            projected.append(replace(tool, params_json_schema=schema,
+                strict_json_schema=tool.strict_json_schema and _strict_schema_preserves_contract(schema))
+                if schema != tool.params_json_schema else tool)
+        return {**kwargs, "tools": projected}
+
+    @staticmethod
+    def _project_tool_schema(schema: dict[str, Any], scope: dict[str, Any] | None) -> dict[str, Any]:
+        """按显式注解把当前行动容量投影到模型协议，不向服务端发送内部注解。"""
+        result = deepcopy(schema)
+
+        def project(node):
+            if not isinstance(node, dict):
+                return
+            if "x-state-max-items" in node:
+                key = node.pop("x-state-max-items")
+                if node.get("type") != "array" or not isinstance(key, str) or not key:
+                    raise ValueError("动态数组容量注解必须绑定当前行动范围字段")
+                if scope is not None:
+                    maximum = scope.get(key)
+                    if type(maximum) is not int or maximum < 0:
+                        raise ValueError(f"当前行动缺少有效数组容量: {key}")
+                    static = node.get("maxItems")
+                    node["maxItems"] = min(static, maximum) if static is not None else maximum
+            for name in ("properties", "$defs", "definitions", "patternProperties"):
+                for child in (node.get(name) or {}).values():
+                    project(child)
+            for name in ("items", "additionalProperties", "contains", "not", "if", "then", "else"):
+                project(node.get(name))
+            for name in ("anyOf", "oneOf", "allOf", "prefixItems"):
+                for child in node.get(name) or []:
+                    project(child)
+
+        project(result)
+        return result
 
     async def get_response(self, **kwargs):
         return await self._model.get_response(**self._request(kwargs))
 
-    async def stream_response(self, **kwargs):
-        async for event in self._model.stream_response(**self._request(kwargs)):
+    async def stream_response(
+        self, system_instructions, input, model_settings, tools, output_schema,
+        handoffs, tracing, *, previous_response_id, conversation_id, prompt,
+    ):
+        # SDK 流式入口使用位置参数，行动筛选仍通过同一份请求字段完成。
+        request = self._request({
+            "system_instructions": system_instructions, "input": input,
+            "model_settings": model_settings, "tools": tools, "output_schema": output_schema,
+            "handoffs": handoffs, "tracing": tracing,
+            "previous_response_id": previous_response_id, "conversation_id": conversation_id,
+            "prompt": prompt,
+        })
+        async for event in self._model.stream_response(**request):
             yield event
 
     def get_retry_advice(self, request):
@@ -1700,7 +2240,35 @@ class _PersistentStateInputFilter:
         self._observations: dict[str, dict[str, str]] = {}
         self._snapshot_tools = dict(runtime_config.get("snapshot_tools") or {})
         self._snapshots: dict[str, dict[str, Any]] = {}
+        self._committed_tools = set(runtime_config.get("committed_action_tools") or [])
+        if not self._committed_tools <= set(runtime_config.get("tool_keys") or []):
+            raise ValueError("已提交行动的上下文策略只能引用实际绑定工具")
+        self._resolved_failure_scopes = dict(runtime_config.get("resolved_failure_scopes") or {})
+        if (not set(self._resolved_failure_scopes) <= self._committed_tools
+                or any(not isinstance(scope, dict) or set(scope) != {"items", "id", "version"}
+                       or any(not isinstance(value, str) or not value for value in scope.values())
+                       for scope in self._resolved_failure_scopes.values())):
+            raise ValueError("失败替换范围必须显式声明已绑定写入工具的条目、稳定编号及版本字段")
+        self._superseded_proposal_tools = set(runtime_config.get("superseded_proposal_tools") or [])
+        # 持久节点构建时还会逐一校验绑定处理器的 state_only 声明，禁止外部副作用工具进入。
+        if (not self._superseded_proposal_tools <= self._committed_tools
+                or self._superseded_proposal_tools and not runtime_config.get("state_initializer")):
+            raise ValueError("被拒提案替换只能声明持久状态节点中已绑定的状态写入工具")
         self._catalog_key = runtime_config.get("state_action_catalog")
+        self._budget_observer = None
+        self._observation_cache_key: str | None = None
+        self._observation_cache: dict[str, Any] | None = None
+        self._initial_material = None
+        material_provider = runtime_config.get("model_material_provider")
+        if material_provider:
+            before = self._observation_identity()
+            material = tool_registry.resolve(str(material_provider))(context, {})
+            if not isinstance(material, dict) or self._observation_identity() != before:
+                raise ValueError("初始模型材料必须是纯读取的对象，不得改变业务状态")
+            self._initial_material = deepcopy(material)
+
+    def bind_budget_observer(self, observer):
+        self._budget_observer = observer
     def _validate_action_catalog(self, observation: dict[str, Any]) -> None:
         if self._catalog_key is None:
             return
@@ -1710,37 +2278,98 @@ class _PersistentStateInputFilter:
                 or not set(catalog).issubset(self._runtime_config.get("tool_keys") or [])):
             raise ValueError("当前行动目录缺失或包含未绑定的工具及无效目标范围")
 
+    def _observation_identity(self) -> str:
+        from .action_journal import action_state_hash
+
+        context = self._context
+        # 原始状态、输入、产物及已确认口径的完整内容决定观察；不能用对象地址或领域摘要代替。
+        return action_state_hash({
+            "scope": {"user_id": context.user_id, "project_id": context.project_id,
+                      "run_id": context.run_id, "node_key": context.node_key},
+            "run_input": context.run_input, "action_input": context.action_input,
+            "action_state": context.action_state, "artifacts": context.artifacts,
+            "confirmed_conflicts": context.confirmed_conflicts,
+        })
+
     def observe(self) -> dict[str, Any]:
+        identity = self._observation_identity()
+        if identity == self._observation_cache_key and self._observation_cache is not None:
+            return deepcopy(self._observation_cache)
+        # 首次及任何完整输入变化均执行原观察器的来源和领域校验；校验失败不能命中旧缓存。
         observation = self._observer(self._context, {})
         if not isinstance(observation, dict):
             raise TypeError("持久 Agent 的状态观察必须是对象")
         self._validate_action_catalog(observation)
+        if self._observation_identity() != identity:
+            raise ValueError("状态观察器不得修改其输入、领域状态、产物或已确认口径")
+        self._observation_cache_key = identity
+        self._observation_cache = deepcopy(observation)
         return observation
 
     def available_tool_names(self) -> set[str]:
         return set(self.observe()[self._catalog_key])
 
-    def validate_terminal_tool(self, tools: list[Any]) -> None:
+    def validate_platform_actions(self, tools: list[Any]) -> None:
         key = self._runtime_config.get("automatic_terminal_tool")
-        tool = next((item for item in tools if item.name == key), None)
-        if (not self._catalog_key or key not in (_stop_at_tool_keys(self._runtime_config) or [])
-                or tool is None or tool.params_json_schema.get("properties")
-                or tool.params_json_schema.get("required")):
-            raise ValueError("自动完成必须引用合法行动目录中已绑定且无业务参数的终止工具")
+        automatic = self._runtime_config.get("automatic_action_tools", [])
+        if (not isinstance(automatic, list) or len(set(automatic)) != len(automatic)
+                or any(not isinstance(name, str) or not name for name in automatic)
+                or key in automatic):
+            raise ValueError("平台确定性行动必须显式声明唯一的非终止工具集合")
+        if key and key not in (_stop_at_tool_keys(self._runtime_config) or []):
+            raise ValueError("自动完成必须引用已声明的终止工具")
+        for name in [*automatic, *([key] if key else [])]:
+            tool = next((item for item in tools if item.name == name), None)
+            if (not self._catalog_key or tool is None or tool.params_json_schema.get("properties")
+                    or tool.params_json_schema.get("required")
+                    or name not in self._runtime_config.get("tool_keys", [])):
+                raise ValueError("平台确定性行动必须引用合法目录中已绑定且无业务参数的工具")
 
     async def complete_if_ready(self, tools: list[Any], loop: AutonomousToolLoop) -> bool:
-        """验收条件已成立时直接调用原终止工具，仍经过行动日志和完整提交校验。"""
+        """必需审查与完成条件由状态决定；原工具照常记账、落日志及验收。"""
+        from .action_journal import action_state_hash
+        from .conflict_confirmation import require_conflict_confirmation
+
+        # 新工具产生的待人工事项应立即走原暂停链，不能先消耗下一次模型准入预算。
+        require_conflict_confirmation(self._context.action_state)
+        observation = self.observe()
+        automatic = observation.get("automatic_action")
+        if automatic is not None:
+            if (not isinstance(automatic, str)
+                    or automatic not in self._runtime_config.get("automatic_action_tools", [])
+                    or automatic not in observation[self._catalog_key]):
+                raise ValueError("状态要求的平台行动不在本次明确授权的合法工具中")
+            call_id = "platform_action_" + action_state_hash([automatic, self._context.action_state])
+            journal = self._context.action_journal
+            prior = journal.receipt_by_id(call_id) if journal is not None else None
+            if prior is not None and prior["status"] == "failed":
+                from .autonomous_tools import AgentNoProgressError
+                # 传输恢复已在进入此处前沿原回执重试；仍未改变的失败状态不能再准入模型。
+                raise AgentNoProgressError("同一状态的必需自动行动已有失败回执，停止重复选择",
+                    diagnostic={"tool_key": automatic, "previous_tool_call_id": call_id,
+                                "domain_sha256": action_state_hash(self._context.action_state)})
+            tool = next(item for item in tools if item.name == automatic)
+            await tool.on_invoke_tool(ToolContext(
+                context=self._context, tool_name=automatic, tool_call_id=call_id, tool_arguments="{}",
+            ), "{}")
+            require_conflict_confirmation(self._context.action_state)
         key = self._runtime_config.get("automatic_terminal_tool")
         if not key or key not in self.available_tool_names():
             return False
-        from .action_journal import action_state_hash
 
         tool = next(item for item in tools if item.name == key)
         call_id = "platform_finish_" + action_state_hash([key, self._context.action_state])
         await tool.on_invoke_tool(ToolContext(
             context=self._context, tool_name=key, tool_call_id=call_id, tool_arguments="{}",
         ), "{}")
-        return any(item["tool_call_id"] == call_id and item["status"] == "accepted" for item in loop.events)
+        accepted = any(item["tool_call_id"] == call_id and item["status"] == "accepted" for item in loop.events)
+        if not accepted:
+            from .autonomous_tools import AgentNoProgressError
+            # 终止工具保留自身校验反馈和原始失败回执，平台自动调用不能因此再交回主模型。
+            raise AgentNoProgressError("状态确定的自动完成未通过验收，停止无进展调用",
+                diagnostic={"tool_key": key, "tool_call_id": call_id,
+                            "domain_sha256": action_state_hash(self._context.action_state)})
+        return True
 
     def bind_initial_input(self, input_text: str, observation: dict[str, Any]) -> None:
         if not isinstance(input_text, str):
@@ -1786,24 +2415,197 @@ class _PersistentStateInputFilter:
                 "arguments": deepcopy(arguments),
             }
 
+    def _compact_resolved_failures(self, items):
+        """真实成功推进后压缩被拒提案；其未应用的正文不代表当前待决业务事项。"""
+        from .action_journal import action_state_hash
+
+        enabled = set(self._resolved_failure_scopes) | self._superseded_proposal_tools
+        if not enabled:
+            return items
+        journal = self._context.action_journal
+        if journal is None:
+            raise ValueError("失败行动的上下文替换必须有真实持久日志")
+        outputs, records, seen = {}, [], set()
+        for item in items:
+            if item.get("type") == "function_call_output":
+                outputs.setdefault(item["call_id"], []).append(item)
+        for item in items:
+            if item.get("type") != "function_call" or item.get("name") not in enabled:
+                continue
+            if item["call_id"] in seen:
+                raise ValueError("失败替换的工具调用身份与不可变配对不唯一")
+            seen.add(item["call_id"])
+            receipt = journal.receipt_by_id(item["call_id"], include_payloads=False)
+            if receipt is None or receipt["status"] not in {"completed", "failed"}:
+                continue
+            paired = outputs.get(item["call_id"], [])
+            if (len(paired) != 1 or receipt["tool_key"] != item["name"]
+                    or receipt["arguments_hash"] != action_state_hash({"arguments_json": item["arguments"]})):
+                raise ValueError("失败替换的行动参数或工具配对与不可变回执不一致")
+            identity = None
+            scope = self._resolved_failure_scopes.get(item["name"])
+            if scope is not None:
+                arguments = strict_json_loads(item["arguments"])
+                if not isinstance(arguments, dict):
+                    continue
+                rows, version = arguments.get(scope["items"]), arguments.get(scope["version"])
+                if (not isinstance(rows, list) or not rows or type(version) is not int or version < 0
+                        or any(not isinstance(row, dict) or not isinstance(row.get(scope["id"]), str)
+                               or not row[scope["id"]] for row in rows)):
+                    continue
+                identifiers = {row[scope["id"]] for row in rows}
+                if len(identifiers) != len(rows):
+                    continue
+                # 未声明的其他参数必须相同，避免把删除范围或其他业务选项误判为已处理。
+                options = {key: value for key, value in arguments.items()
+                           if key not in {scope["items"], scope["version"]}}
+                identity = (version, identifiers, options)
+            output = paired[0]["output"]
+            if receipt["status"] == "completed":
+                if receipt["result_ref"]["sha256"] != action_state_hash({"output": output}):
+                    raise ValueError("失败替换依据的成功结果与不可变回执不一致")
+                error = None
+            else:
+                error = journal.receipt_by_id(item["call_id"])["error"]
+                if (error.get("recoverable") is not True
+                        or not receipt.get("pre_state_hash")
+                        or receipt["pre_state_hash"] != receipt.get("post_state_hash")):
+                    continue
+                feedback = strict_json_loads(output)
+                if (receipt["error_ref"]["sha256"] != action_state_hash(error)
+                        or not isinstance(feedback, dict) or feedback.get("status") != "rejected"
+                        or not isinstance(error.get("feedback"), dict)
+                        or feedback.get("feedback") != error["feedback"]):
+                    raise ValueError("失败行动的历史反馈与不可变错误回执不一致")
+            records.append((receipt, identity, error))
+        compacted = {}
+        for receipt, identity, error in records:
+            if error is None:
+                continue
+            proposal = receipt["tool_key"] in self._superseded_proposal_tools
+            success = next((later for later, later_identity, later_error in records
+                            if later_error is None and later["tool_key"] == receipt["tool_key"]
+                            and later["started_sequence"] > receipt["started_sequence"]
+                            and (later["pre_state_hash"] == receipt["pre_state_hash"]
+                                 and later.get("post_state_hash")
+                                 and later["post_state_hash"] != later["pre_state_hash"] if proposal else
+                                 identity is not None and later_identity is not None
+                                 and identity[0] == later_identity[0] and identity[1] <= later_identity[1]
+                                 and identity[2] == later_identity[2])), None)
+            if success is not None:
+                compacted[receipt["tool_call_id"]] = {
+                    "tool_call_id": receipt["tool_call_id"], "tool_key": receipt["tool_key"],
+                    "arguments_hash": receipt["arguments_hash"], "error_hash": receipt["error_ref"]["sha256"],
+                    "error": deepcopy(error),
+                    **({"status": "rejected_proposal_not_applied", "continued_by": success["tool_call_id"],
+                        "continuation_post_state_hash": success["post_state_hash"]} if proposal else {
+                        "status": "resolved_rejection", "resolved_by": success["tool_call_id"],
+                        "resolved_post_state_hash": success["post_state_hash"]}),
+                }
+        result, pending = [], []
+
+        def flush():
+            if pending:
+                result.append({"role": "user", "content": "历史拒绝回执（被拒提案未应用；完整参数和错误保留在行动日志；当前状态与业务待决事项以current_state为准）：\n"
+                               + json.dumps(pending, ensure_ascii=False, separators=(",", ":"))})
+                pending.clear()
+
+        for item in items:
+            kind, call_id = item.get("type"), item.get("call_id")
+            if kind == "function_call" and call_id in compacted:
+                continue
+            if kind == "function_call_output" and call_id in compacted:
+                pending.append(compacted[call_id])
+                continue
+            if kind != "function_call_output":
+                flush()
+            result.append(item)
+        flush()
+        return result
+
+    def _compact_committed_actions(self, items):
+        """已落盘写入仅向模型保留回执，完整参数和正文继续保存在不可变行动日志。"""
+        from .action_journal import action_state_hash
+
+        if not self._committed_tools:
+            return items
+        journal = self._context.action_journal
+        if journal is None:
+            raise ValueError("已提交行动的上下文替换必须有真实持久日志")
+        outputs = {item["call_id"]: item for item in items
+                   if item.get("type") == "function_call_output"}
+        compacted = {}
+        for item in items:
+            if item.get("type") != "function_call" or item.get("name") not in self._committed_tools:
+                continue
+            call_id = item["call_id"]
+            receipt = journal.receipt_by_id(call_id, include_payloads=False)
+            if receipt is None or receipt["status"] != "completed":
+                continue
+            output = outputs.get(call_id)
+            if output is None:
+                raise ValueError("已提交行动缺少对应工具回执")
+            if (receipt["tool_key"] != item["name"]
+                    or receipt["arguments_hash"] != action_state_hash({"arguments_json": item["arguments"]})
+                    or receipt["result_ref"]["sha256"] != action_state_hash({"output": output["output"]})):
+                raise ValueError("已提交行动的历史参数或结果与不可变回执不一致")
+            compacted[call_id] = {"tool_call_id": call_id, "tool_key": item["name"],
+                "arguments_hash": receipt["arguments_hash"], "post_state_hash": receipt["post_state_hash"],
+                "result": strict_json_loads(output["output"]),
+                "status": "committed", "content_location": "正文已保存；需要详情时按当前编号读取，不重新生成。"}
+        result, pending = [], []
+
+        def flush():
+            if pending:
+                result.append({"role": "user", "content": "已持久化行动回执（平台数据，不是新增业务规则）：\n"
+                               + json.dumps(pending, ensure_ascii=False, separators=(",", ":"))})
+                pending.clear()
+
+        for item in items:
+            kind, call_id = item.get("type"), item.get("call_id")
+            if kind == "function_call" and call_id in compacted:
+                continue
+            if kind == "function_call_output" and call_id in compacted:
+                pending.append(compacted[call_id])
+                continue
+            if kind != "function_call_output":
+                flush()
+            result.append(item)
+        flush()
+        return result
+
     def __call__(self, data: CallModelData[Any]) -> ModelInputData:
         from .action_journal import action_state_hash
+        from .conflict_confirmation import require_conflict_confirmation
 
         if data.context is not self._context or self._initial_input is None:
             raise ValueError("状态输入过滤器只能用于其绑定的持久父会话")
+        # 输入过滤先于 on_llm_start 和预算准入，所有领域工具写出的暂停都在此阻断。
+        require_conflict_confirmation(self._context.action_state)
         observation = self.observe()
         errors = _current_action_errors(self._context)
         if errors:
             observation["recent_action_errors"] = errors
-        current_input = _runner_input(
-            execution_context=self._context, input_payload=observation,
-            runtime_config=self._runtime_config, retry_feedback=self._retry_feedback,
-        )
         filtered = deepcopy(data.model_data.input)
         if (not filtered or filtered[0].get("role") != "user"
                 or filtered[0].get("content") != self._initial_input):
             raise ValueError("持久父会话缺少可核对的原始状态观察输入")
-        filtered[0]["content"] = current_input
+        # 原始任务是稳定前缀；初始状态不是另一份长期有效的状态，当前观察只放一次。
+        initial = {
+            "task_input": self._context.action_input,
+            "task_input_sha256": action_state_hash(self._context.action_input),
+            "state_location": "当前状态与合法行动以本轮末尾current_state为准；initial_material是已提供的真实原文与批准。",
+        }
+        if self._initial_material is not None:
+            initial["initial_material"] = self._initial_material
+            initial["initial_material_sha256"] = action_state_hash(self._initial_material)
+        filtered[0] = {"role": "user", "content": json.dumps(initial, ensure_ascii=False, separators=(",", ":"))}
+        # 直接编码结构化状态，避免先序列化JSON再把整份JSON作为字符串重复转义。
+        current_observation = {"current_state": observation}
+        if self._retry_feedback:
+            current_observation["retry_feedback"] = self._retry_feedback
+        if self._budget_observer is not None:
+            current_observation["shared_budget"] = self._budget_observer()
         version_hashes = {scope: self._snapshot_version(scope) for scope in self._snapshot_tools.values()}
         # 相同版本和内容仅保留最后一次完整读取，原始审计记录不变。
         latest_snapshots = {}
@@ -1844,7 +2646,11 @@ class _PersistentStateInputFilter:
                 replacement = {**record, "status": "duplicate_snapshot", "current_tool_call_id": latest_call,
                     "state_snapshot": "相同版本的完整内容已保留在后续读取回执中，无需再次取证。"}
             item["output"] = json.dumps(replacement, ensure_ascii=False, separators=(",", ":"))
-        # 调用配对及顺序保留；未声明的原文取证、范围问题与拒绝反馈不参与快照替换。
+        filtered = self._compact_resolved_failures(filtered)
+        filtered = self._compact_committed_actions(filtered)
+        # 其余调用配对及顺序保留；未声明取证和拒绝反馈不参与写入回执替换。
+        filtered.append({"role":"user","content":"以下是本轮唯一有效的当前状态；历史回执仅供追溯，不能覆盖此版本。\n"
+            +json.dumps(current_observation,ensure_ascii=False,separators=(",", ":"))})
         return ModelInputData(input=filtered, instructions=data.model_data.instructions)
 
 
@@ -1888,6 +2694,74 @@ def _revalidate_managed_agent_call(
     return output
 
 
+class _ManagedSessionConcurrency:
+    """仅对新的受管专家会话限流；嵌套咨询与回执重放不重复占许可。"""
+
+    def __init__(self, *, policy: AdaptiveConcurrency, on_change: Callable) -> None:
+        self.policy = policy
+        self._on_change = on_change
+        self._condition = asyncio.Condition()
+        self._active = 0
+
+    @asynccontextmanager
+    async def session(self):
+        async with self._condition:
+            await self._condition.wait_for(lambda: self._active < self.policy.effective_concurrency)
+            self._active += 1
+        try:
+            yield
+        except Exception as error:
+            kind = model_transport_failure_kind(error)
+            if kind is not None:
+                async with self._condition:
+                    adjustment = self.policy.record_failure(kind)
+                    self._on_change(self.policy.snapshot(), adjustment)
+            raise
+        else:
+            async with self._condition:
+                adjustment = self.policy.record_success()
+                self._on_change(self.policy.snapshot(), adjustment)
+        finally:
+            async with self._condition:
+                self._active -= 1
+                self._condition.notify_all()
+
+
+def _managed_session_scope(client: Any, definition: AgentDefinition) -> dict[str, str]:
+    """用真实模型与 provider 指纹关联压力，不按 Agent 名称或路由别名建隔离副本。"""
+    provider, model_name, _ = _resolved_agent_model(client, definition)
+    provider_identity = getattr(client, "_provider_cache_identity", None)
+    if not callable(provider_identity):
+        raise ValueError("受管会话并发作用域缺少真实 provider 指纹")
+    provider_hash = str(provider_identity(provider))
+    if not provider_hash:
+        raise ValueError("受管会话并发作用域的 provider 指纹为空")
+    return {"provider_hash": provider_hash, "model": model_name,
+            "provider_class": f"{type(provider).__module__}.{type(provider).__qualname__}",
+            "wire_api": str(getattr(provider, "wire_api", "") or "")}
+
+
+def _attach_execution_observations(error: BaseException, *, model_requests,
+                                   tool_calls, tool_observations=None) -> None:
+    """暂停与普通异常共享真实观测附件，不分类失败或结算预算。"""
+    error.tool_calls = deepcopy(tool_calls)
+    error.diagnostic = {**dict(getattr(error, "diagnostic", None) or {}),
+                        "model_requests": deepcopy(model_requests),
+                        **({"tool_observations": deepcopy(tool_observations)}
+                           if tool_observations is not None else {})}
+
+
+def _execution_session_timeout(*, request_timeout_seconds, session_timeout_seconds, managed_max_turns):
+    """会话服从执行期限；单次HTTP超时只约束一次请求，不截断整个持久循环。"""
+    if session_timeout_seconds is not None:
+        if session_timeout_seconds <= 0:
+            raise ValueError("Agent会话执行期限必须大于0")
+        return float(session_timeout_seconds)
+    if request_timeout_seconds is None:
+        return None
+    return request_timeout_seconds * (managed_max_turns or 1)
+
+
 async def run_agent_async(
     *,
     db: Any,
@@ -1896,9 +2770,9 @@ async def run_agent_async(
     execution_context: ToolExecutionContext,
     input_payload: dict[str, Any],
     request_timeout_seconds: float | None = None,
+    session_timeout_seconds: float | None = None,
     retry_feedback: str | None = None,
     disable_server_output_schema: bool = False,
-    disable_model_thinking: bool = False,
     model_route_override: str | None = None,
     skip_output_postprocessor: bool = False,
     cache_node: WorkflowNode | None = None,
@@ -1907,15 +2781,14 @@ async def run_agent_async(
     shared_budget_hooks: Any = None,
     execution_node: WorkflowNode | None = None,
     model_client: Any = None,
+    sdk_client_pool: _SDKClientPool | None = None,
     request_diagnostics: ModelRequestDiagnostics | None = None,
     require_validated_submission: bool = False,
     captured_definitions: dict[str, tuple[AgentDefinition, list[AgentToolDefinition]]] | None = None,
 ) -> AgentExecutionResult:
     tool_call_start = len(execution_context.tool_calls)
     journal = execution_context.action_journal
-    request_diagnostics = request_diagnostics or ModelRequestDiagnostics(
-        journal=journal, max_records=(request_budget or {}).get("attempted_requests", 100),
-    )
+    request_diagnostics = request_diagnostics or ModelRequestDiagnostics(journal=journal)
     client = model_client if model_client is not None else get_client_for_user(execution_context.user_id, db)
     if journal is not None:
         # 一个行动阶段固定真实定义与客户端，ORM 提交或配置修改不能改变正在执行的契约。
@@ -1957,6 +2830,8 @@ async def run_agent_async(
         runtime_config["max_turns"] = managed_max_turns
         agent_definition.runtime_config = runtime_config
     allocated_clients: list[AsyncOpenAI] = []
+    owns_sdk_client_pool = sdk_client_pool is None
+    sdk_client_pool = sdk_client_pool or _SDKClientPool(allocated_clients)
     definition_snapshots = (
         deepcopy(captured_definitions) if captured_definitions is not None
         else {} if cache_node is not None or journal is not None else None
@@ -1967,9 +2842,21 @@ async def run_agent_async(
     if managed_max_turns is not None:
         # 主专业 Agent 与其 as_tool 咨询共用局部次数，不能借父级更大预算突破原会话上限。
         budget_hooks = shared_budget_hooks.scoped_requests(managed_max_turns)
+    session_timeout_seconds = _execution_session_timeout(
+        request_timeout_seconds=request_timeout_seconds,
+        session_timeout_seconds=session_timeout_seconds,
+        managed_max_turns=managed_max_turns,
+    )
     if runtime_config.get("state_initializer") and journal is None:
         raise ValueError("持久自主 Agent 必须由带行动日志的运行时执行")
-    checkpoint = journal.load() if journal is not None else None
+    checkpoint = journal.metadata() if journal is not None else None
+    if checkpoint is not None:
+        from .action_journal import ActionStateConflict, action_state_hash
+        from .conflict_confirmation import require_conflict_confirmation
+        if action_state_hash(execution_context.action_state) != checkpoint["state_hash"]:
+            raise ActionStateConflict("SDK 恢复的领域状态与持久检查点版本不一致")
+        require_conflict_confirmation(execution_context.action_state)
+        execution_context.confirmed_conflicts = deepcopy(execution_context.action_state.get("conflict_confirmations", {}))
     if journal is not None and (checkpoint is None or not runtime_config.get("validate_before_submit")):
         raise ValueError("持久自主节点必须预先初始化行动检查点并启用完整验收")
     if runtime_config.get("validate_before_submit"):
@@ -1987,7 +2874,7 @@ async def run_agent_async(
             validate_submission=lambda output: output_contract.validate(
                 agent_definition, execution_context, output,
             ),
-            recoverable_errors=(
+            recoverable_errors=() if execution_context.stop_on_failure else (
                 ToolArgumentsJSONError, ToolArgumentsValidationError,
                 StructuredOutputJSONError, StructuredOutputValidationError, OutputValidationError,
             ) + ((AgentSubtreeRequestBudgetExceeded,) if journal is not None else ()),
@@ -2002,7 +2889,8 @@ async def run_agent_async(
         managed_concurrency = runtime_config.get("managed_agent_max_concurrency", 1)
         if type(managed_concurrency) is not int or not 1 <= managed_concurrency <= 16:
             raise ValueError("托管专业 Agent 的并发数必须是 1 到 16 的整数")
-        execution_context.agent_concurrency = managed_concurrency
+        execution_context.agent_concurrency = (1 if execution_context.stop_on_failure
+            else min(managed_concurrency, int(settings.AGENT_MAP_MAX_CONCURRENCY)))
         if len(set(managed_keys)) != len(managed_keys) or agent_definition.agent_key in managed_keys:
             raise ValueError("持久自主节点的专业能力不能重复或引用自身")
         definitions = AgentDefinitionRepository(db)
@@ -2038,6 +2926,26 @@ async def run_agent_async(
                         nested, definitions.list_agent_tools(nested.id, project_id=execution_context.project_id),
                     ))
         allowed_agents = frozenset(managed_keys)
+        session_gates: dict[str, _ManagedSessionConcurrency] = {}
+
+        def managed_session_gate(child):
+            from .action_journal import action_state_hash
+
+            scope = _managed_session_scope(client, child)
+            scope_key = action_state_hash(scope)
+            if scope_key not in session_gates:
+                policy = AdaptiveConcurrency.restore(
+                    max_concurrency=execution_context.agent_concurrency,
+                    min_concurrency=min(execution_context.agent_concurrency, int(settings.AGENT_MAP_MIN_CONCURRENCY)),
+                    pressure_threshold=int(settings.AGENT_MAP_CONCURRENCY_PRESSURE_FAILURES),
+                    recovery_successes=int(settings.AGENT_MAP_CONCURRENCY_RECOVERY_SUCCESSES),
+                    checkpoint=journal.managed_parallelism(scope_key=scope_key, scope=scope),
+                )
+                def persist(snapshot, adjustment):
+                    journal.save_managed_parallelism(scope_key=scope_key, scope=scope,
+                                                    policy=snapshot, adjustment=adjustment)
+                session_gates[scope_key] = _ManagedSessionConcurrency(policy=policy, on_change=persist)
+            return session_gates[scope_key]
 
         async def invoke_agent(
             *, agent_key: str, input_payload: dict[str, Any], item_postprocessor: str | None = None,
@@ -2048,10 +2956,23 @@ async def run_agent_async(
             if agent_key not in allowed_agents:
                 raise ValueError(f"当前自主节点没有被授予专业能力: {agent_key}")
             child, child_tools = definition_snapshots[agent_key]
+            child_config = dict(child.runtime_config or {})
+            if (execution_context.confirmed_conflicts
+                    and child_config.get("confirmation_context_mode") != "domain_input"):
+                input_payload = {**deepcopy(input_payload),
+                                 "_user_confirmations": deepcopy(execution_context.confirmed_conflicts)}
+            artifacts_handler = runtime_config.get("managed_artifacts_provider")
+            child_artifacts = (
+                tool_registry.resolve(str(artifacts_handler))(execution_context, {})
+                if artifacts_handler else execution_context.artifacts
+            )
+            if not isinstance(child_artifacts, dict):
+                raise ValueError("受管专业能力的产物投影必须返回对象")
             child_context = replace(
-                execution_context, artifacts=deepcopy(execution_context.artifacts),
+                execution_context, artifacts=deepcopy(child_artifacts),
                 executed_tools=[], tool_calls=[], action_journal=None, action_state={},
                 action_input={}, invoke_agent=None, restoring_action=False,
+                context_provider=None,
             )
             contract = AgentOutputContract(
                 deepcopy(input_payload),
@@ -2059,11 +2980,10 @@ async def run_agent_async(
                 candidate_validator=validate_candidate,
                 alternate_output_validators=alternate_output_validators,
             )
-            child_config = dict(child.runtime_config or {})
             from .action_journal import action_state_hash
 
             identity = {"agent_key": agent_key, "input_hash": action_state_hash(input_payload)}
-            saved_checkpoint = journal.load()
+            saved_checkpoint = journal.metadata()
             receipt_identity = _managed_agent_call_identity(
                 execution_semantic_hash=saved_checkpoint.get("execution_semantic_hash"),
                 agent_key=agent_key, contract=contract,
@@ -2080,11 +3000,14 @@ async def run_agent_async(
                     "result_type": saved_call["result_type"],
                 })
                 return output
-            prior_error = next((
-                item["error"] for item in reversed(ordered_action_receipts(saved_checkpoint))
-                if item["status"] == "failed" and item.get("error", {}).get("agent_input_identity") == identity
-                and item["error"].get("recoverable")
-            ), None)
+            prior_error = None
+            for header in reversed(journal.receipts()):
+                if header["status"] != "failed":
+                    continue
+                error = journal.receipt_by_id(header["tool_call_id"])["error"]
+                if error.get("agent_input_identity") == identity and error.get("recoverable"):
+                    prior_error = error
+                    break
             child_feedback = json.dumps(prior_error["feedback"], ensure_ascii=False) if prior_error else None
             call_summary = {
                 "tool_key": f"agent:{agent_key}", "input_hash": identity["input_hash"],
@@ -2098,24 +3021,27 @@ async def run_agent_async(
                     definition=child, raw_item=input_payload,
                 )
                 call_summary["input_projection"] = projection_diagnostics
-                child_result = await run_agent_async(
-                    db=db, agent_definition=child, tool_definitions=child_tools,
-                    execution_context=child_context, input_payload=child_model_input,
-                    request_timeout_seconds=float(child_config.get("request_timeout_seconds") or 180),
-                    disable_server_output_schema=bool(child_config.get("disable_server_output_schema")),
-                    skip_output_postprocessor=True, output_contract=contract, retry_feedback=child_feedback,
-                    request_budget=request_budget, shared_budget_hooks=budget_hooks, model_client=client,
-                    request_diagnostics=request_diagnostics,
-                    require_validated_submission=True,
-                    captured_definitions=definition_snapshots,
-                )
-                output = (
-                    child_result.validated_output if child_result.validated_output is not None
-                    else contract.validate(child, child_context, child_result.output)
-                )
-                journal.save_validated_agent_call(
-                    identity=receipt_identity, raw_output=child_result.output, output=output,
-                )
+                # 只准入新会话；上方回执命中已返回，嵌套咨询不重复取得本许可。
+                async with managed_session_gate(child).session():
+                    child_result = await run_agent_async(
+                        db=db, agent_definition=child, tool_definitions=child_tools,
+                        execution_context=child_context, input_payload=child_model_input,
+                        request_timeout_seconds=float(child_config.get("request_timeout_seconds") or 180),
+                        disable_server_output_schema=bool(child_config.get("disable_server_output_schema")),
+                        skip_output_postprocessor=True, output_contract=contract, retry_feedback=child_feedback,
+                        request_budget=request_budget, shared_budget_hooks=budget_hooks, model_client=client,
+                        sdk_client_pool=sdk_client_pool,
+                        request_diagnostics=request_diagnostics,
+                        require_validated_submission=True,
+                        captured_definitions=definition_snapshots,
+                    )
+                    output = (
+                        child_result.validated_output if child_result.validated_output is not None
+                        else contract.validate(child, child_context, child_result.output)
+                    )
+                    journal.save_validated_agent_call(
+                        identity=receipt_identity, raw_output=child_result.output, output=output,
+                    )
             except Exception as error:
                 if autonomous_loop.feedback_for_error(error) is not None:
                     error.agent_input_identity = identity
@@ -2145,19 +3071,20 @@ async def run_agent_async(
             model_input_payload=input_payload,
             request_timeout_seconds=request_timeout_seconds,
             disable_server_output_schema=disable_server_output_schema,
-            disable_model_thinking=disable_model_thinking,
             model_route_override=model_route_override,
             allow_subagents=True,
             direct_tool_definitions=tool_definitions,
             allocated_clients=allocated_clients,
+            sdk_client_pool=sdk_client_pool,
             definition_snapshots=definition_snapshots,
             autonomous_loop=autonomous_loop,
-            budget_hooks=ObservedRunHooks(request_diagnostics, budget_hooks),
+            budget_hooks=ObservedRunHooks(request_diagnostics, budget_hooks, stream_usage_resolver=_resolve_stream_provider_usage),
             request_diagnostics=request_diagnostics,
             budget_observer=budget_hooks.observe if budget_hooks is not None else None,
             state_input_filter=state_input_filter,
         )
         request_diagnostics.register_agent(agent, {
+            "session_timeout_seconds": session_timeout_seconds,
             "input_hash": hashlib.sha256(json.dumps(
                 input_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
             ).encode("utf-8")).hexdigest(),
@@ -2178,20 +3105,32 @@ async def run_agent_async(
                 node=execution_node, definition=agent_definition, tools=tool_definitions,
                 client=client, definition_snapshots=definition_snapshots,
             ))
+            if action_state_hash(execution_context.action_state) != checkpoint["state_hash"]:
+                raise ActionStateConflict("SDK 绑定执行身份时领域状态已变化")
         restored_submission = False
         if journal is not None:
             tools_by_name = {tool.name: tool for tool in agent.tools}
-            receipts = ordered_action_receipts(checkpoint)
+            receipts = journal.receipts()
             terminal = set(_stop_at_tool_keys(runtime_config) or [])
             # 已经提交的状态直接复验；未完成动作按模型原来的选择继续计算。
             completed_submission = next((
                 item for item in reversed(receipts)
                 if item["status"] == "completed" and item["tool_key"] in terminal
+                and item.get("post_state_hash") == checkpoint["state_hash"]
             ), None)
             pending = [completed_submission] if completed_submission is not None else [
                 item for item in receipts if item["status"] == "started"
             ]
-            transport_retry = interrupted_transport_action(checkpoint) if not pending else None
+            # 只展开真正需要恢复的单条回执；已验证的专业输出按身份单独读取。
+            last = receipts[-1] if receipts else None
+            transport_retry = None
+            if not pending and last is not None and last["status"] == "failed":
+                candidate = journal.receipt_by_id(last["tool_call_id"])
+                if execution_context.stop_on_failure:
+                    raise ModelBehaviorError("严格运行已有失败动作，禁止自动恢复或再次发送模型请求")
+                if (candidate.get("error", {}).get("transport_failure_kind") in CONCURRENCY_PRESSURE_FAILURE_KINDS
+                        and candidate["pre_state_hash"] == checkpoint["state_hash"]):
+                    transport_retry = candidate
             if transport_retry is not None:
                 # 网络失败没有改变业务意图。新回执使用原参数，SDK 按完整执行身份复验并
                 # 复用已成功的专业结果；原失败回执和已消耗预算仍然保留。
@@ -2202,6 +3141,8 @@ async def run_agent_async(
             execution_context.restoring_action = transport_retry is None
             try:
                 for receipt in pending:
+                    if receipt is not transport_retry:
+                        receipt = journal.receipt_by_id(receipt["tool_call_id"])
                     arguments_json = receipt["arguments"]["arguments_json"]
                     await tools_by_name[receipt["tool_key"]].on_invoke_tool(
                         ToolContext(
@@ -2209,7 +3150,7 @@ async def run_agent_async(
                             tool_call_id=receipt["tool_call_id"], tool_arguments=arguments_json,
                         ), arguments_json,
                     )
-                restored_submission = completed_submission is not None or any(
+                restored_submission = any(
                     item["status"] == "accepted" for item in autonomous_loop.events
                 )
             finally:
@@ -2243,8 +3184,10 @@ async def run_agent_async(
                 tool_execution=ToolExecutionConfig(max_function_tool_concurrency=1),
                 call_model_input_filter=state_input_filter,
             ),
-            request_timeout_seconds=request_timeout_seconds,
-            hooks=ObservedRunHooks(request_diagnostics, budget_hooks),
+            request_timeout_seconds=session_timeout_seconds,
+            hooks=ObservedRunHooks(request_diagnostics, budget_hooks, stream_usage_resolver=_resolve_stream_provider_usage),
+            submission_loop=autonomous_loop,
+            stream_response=bool(runtime_config.get("stream_response", False)),
         )
         if result is not None and result.interruptions:
             raise RuntimeError("SDK 内部工具审批尚未映射到平台审批节点")
@@ -2254,6 +3197,13 @@ async def run_agent_async(
             accepted.raw_output if accepted is not None
             else _terminal_tool_result(runtime_config, tool_calls)
         )
+        if (
+            terminal_tool_result is None
+            and runtime_config.get("tool_choice") == "required"
+            and agent.model_settings.tool_choice == "auto"
+            and not any(item.type == "function_call" for item in result.raw_responses[0].output)
+        ):
+            raise ModelBehaviorError("智能体未按要求调用工具")
         if accepted is not None:
             # 终止工具已按调用方授权的完整契约验收，范围反馈不能再被普通用例 Schema 拒绝。
             output = deepcopy(accepted.raw_output)
@@ -2294,6 +3244,14 @@ async def run_agent_async(
             model_requests=request_diagnostics.requests,
         )
     except BaseException as exc:
+        from .conflict_confirmation import ConflictConfirmationRequired
+        if isinstance(exc, ConflictConfirmationRequired):
+            # 人工暂停是 BaseException 控制流，必须在通用早退前保留本阶段观测。
+            _attach_execution_observations(exc, model_requests=request_diagnostics.requests,
+                tool_calls=execution_context.tool_calls[tool_call_start:],
+                tool_observations=autonomous_loop.events if autonomous_loop is not None else None)
+            raise
+        execution_context.record_failure(exc)
         if budget_hooks is not None:
             # 请求已确定结束但未收到用量时保留全部预留，状态不能继续伪装成正在等待。
             budget_hooks.interrupt_requests(execution_context=execution_context)
@@ -2302,26 +3260,24 @@ async def run_agent_async(
             raise
         original_error = exc
         exc = unwrap_sdk_execution_error(exc, local_max_turns=managed_max_turns)
+        details = validation_error_details(original_error)
         exc.diagnostic = {
             **dict(getattr(exc, "diagnostic", None) or {}),
             **dict(getattr(original_error, "diagnostic", None) or {}),
             "exception_chain": safe_exception_evidence(original_error),
             "failed_model_requests": request_diagnostics.failure_evidence(),
             "model_requests": request_diagnostics.requests,
+            **({"details": details} if details is not None else {}),
         }
         if autonomous_loop is not None:
             # 预算耗尽和平台异常也必须保留此前的真实行动，不能只记录成功轮次。
-            exc.tool_calls = deepcopy(execution_context.tool_calls[tool_call_start:])
-            exc.diagnostic = {
-                **dict(getattr(exc, "diagnostic", None) or {}),
-                "tool_observations": autonomous_loop.events,
-                "budget_usage": budget_hooks.snapshot() if budget_hooks is not None else {},
-            }
+            _attach_execution_observations(exc, model_requests=request_diagnostics.requests,
+                tool_calls=execution_context.tool_calls[tool_call_start:],
+                tool_observations=autonomous_loop.events)
+            exc.diagnostic["budget_usage"] = budget_hooks.snapshot() if budget_hooks is not None else {}
         if exc is not original_error:
             raise exc from None
         raise
     finally:
-        await asyncio.gather(
-            *(openai_client.close() for openai_client in allocated_clients),
-            return_exceptions=True,
-        )
+        if owns_sdk_client_pool:
+            await sdk_client_pool.close()

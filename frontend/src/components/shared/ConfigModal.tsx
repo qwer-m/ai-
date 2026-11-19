@@ -4,7 +4,7 @@ import { FaStop } from 'react-icons/fa';
 import { api } from '../../utils/api';
 import { CloudTab } from './ConfigModalCloudTab';
 import { LocalTab } from './ConfigModalLocalTab';
-import type { DetectedService } from './ConfigModal.types';
+import type { DetectedService, ModelRoute, ReasoningEffort, ReasoningCapabilities, ReasoningSelections } from './ConfigModal.types';
 import { translateConfigError } from './ConfigModal.utils';
 import './ConfigModal.css';
 
@@ -34,6 +34,7 @@ type MessageState = {
 } | null;
 
 type CurrentConfigResponse = {
+  reasoning?: ReasoningCapabilities;
   active?: boolean;
   provider: string;
   model_name: string;
@@ -44,9 +45,11 @@ type CurrentConfigResponse = {
   base_url?: string;
   turbo_follow_main?: boolean;
   turbo_provider?: string;
+  turbo_base_url?: string;
   has_turbo_api_key?: boolean;
   review_follow_main?: boolean;
   review_provider?: string;
+  review_base_url?: string;
   has_review_api_key?: boolean;
   vl_follow_main?: boolean;
   vl_provider?: string;
@@ -77,16 +80,20 @@ type ValidationCheck = {
 
 type ValidationResponse = {
   valid: boolean;
+  validation_token?: string | null;
   error?: string;
   details?: {
     checks?: ValidationCheck[];
+    reasoning?: ReasoningCapabilities;
     latency?: number;
+    reused?: boolean;
     ocr_auto_detected?: boolean;
     ocr_auto_detected_path?: string;
   };
 };
 
 type SaveConfigResponse = {
+  details?: ValidationResponse['details'];
   status: string;
   error?: string;
   tesseract_path?: string;
@@ -95,6 +102,11 @@ type SaveConfigResponse = {
 };
 
 type ConfigPayload = {
+  validation_token?: string;
+  reasoning_effort?: ReasoningEffort;
+  turbo_reasoning_effort?: ReasoningEffort;
+  review_reasoning_effort?: ReasoningEffort;
+  vl_reasoning_effort?: ReasoningEffort;
   provider: string;
   model_name: string;
   api_key?: string;
@@ -103,9 +115,11 @@ type ConfigPayload = {
   turbo_model_name?: string;
   review_model_name?: string;
   turbo_provider?: string;
+  turbo_base_url?: string;
   turbo_api_key?: string;
   turbo_follow_main?: boolean;
   review_provider?: string;
+  review_base_url?: string;
   review_api_key?: string;
   review_follow_main?: boolean;
   vl_provider?: string;
@@ -142,12 +156,17 @@ const parseTestStreamEvent = (line: string): TestStreamEvent => {
 
 export function ConfigModal({ show, onHide, initialError }: Props) {
   const [tab, setTab] = useState('cloud');
+  const [reasoning, setReasoning] = useState<ReasoningCapabilities>({});
+  const [efforts, setEfforts] = useState<ReasoningSelections>({});
+  const [validationToken, setValidationToken] = useState<string | undefined>();
 
   const [apiKey, setApiKey] = useState('');
   const [modelName, setModelName] = useState('');
   const [vlModelName, setVlModelName] = useState('');
   const [turboModelName, setTurboModelName] = useState('');
   const [reviewModelName, setReviewModelName] = useState('');
+  const [turboBaseUrl, setTurboBaseUrl] = useState('');
+  const [reviewBaseUrl, setReviewBaseUrl] = useState('');
 
   const [turboProvider, setTurboProvider] = useState('follow_main');
   const [turboApiKey, setTurboApiKey] = useState('');
@@ -227,6 +246,8 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
         }
 
         if (CLOUD_PROVIDERS.includes(res.provider)) {
+          setReasoning(res.reasoning ?? {});
+          setEfforts(Object.fromEntries(Object.entries(res.reasoning ?? {}).filter(([, cap]) => cap.effort).map(([route, cap]) => [route, cap.effort])));
           setTab('cloud');
           setProvider(res.provider);
           setModelName(res.model_name);
@@ -242,8 +263,10 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
 
           setTurboProvider(res.turbo_follow_main ? 'follow_main' : res.turbo_provider || 'follow_main');
           setTurboApiKey(res.has_turbo_api_key ? '******' : '');
+          setTurboBaseUrl(res.turbo_base_url || '');
           setReviewProvider(res.review_follow_main ? 'follow_main' : res.review_provider || 'follow_main');
           setReviewApiKey(res.has_review_api_key ? '******' : '');
+          setReviewBaseUrl(res.review_base_url || '');
           setVlProvider(res.vl_follow_main ? 'follow_main' : res.vl_provider || 'follow_main');
           setVlApiKey(res.has_vl_api_key ? '******' : '');
           setVlBaseUrl(res.vl_base_url || '');
@@ -282,7 +305,24 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
     };
   }, [show, initialError]);
 
-  const markDirty = () => setDirty(true);
+  const applyCapabilities = (capabilities?: ReasoningCapabilities) => {
+    if (!capabilities) return;
+    setReasoning(capabilities);
+  };
+  const changeModelConfig = (setter: (value: string) => void, routes: ModelRoute[] = ['main', 'turbo', 'review', 'vision']) => (value: string) => {
+    setter(value);
+    // 地址、凭据或模型变化后，旧能力与旧选择都不能用于新的请求。
+    setReasoning((previous) => Object.fromEntries(Object.entries(previous).filter(([route]) => !routes.includes(route as ModelRoute))));
+    setEfforts((previous) => Object.fromEntries(Object.entries(previous).filter(([route]) => !routes.includes(route as ModelRoute))));
+    setDirty(true);
+    testStreamAbortRef.current?.abort();
+    setStreamState('idle');
+    setStreamOutput('');
+  };
+  const markDirty = () => {
+    setDirty(true);
+    setValidationToken(undefined);
+  };
   const handleCloudBaseUrlChange = (value: string) => {
     setCloudBaseUrl(value);
     if (provider === 'openai') {
@@ -317,6 +357,14 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
       setVlBaseUrl(effectiveCloudBaseUrl || lastOpenaiBaseUrl || DEFAULT_OPENAI_BASE_URL);
     }
     markDirty();
+  };
+
+  const changeIndependentProvider = (value: string, route: 'turbo' | 'review') => {
+    const base = value === provider ? effectiveCloudBaseUrl
+      : value === 'openai' ? DEFAULT_OPENAI_BASE_URL
+      : resolveCloudBaseUrl(value, '');
+    if (route === 'turbo') { setTurboProvider(value); setTurboBaseUrl(base); }
+    else { setReviewProvider(value); setReviewBaseUrl(base); }
   };
 
   const targetApiKeyMissing = (targetProvider: string, targetApiKey: string): boolean => {
@@ -388,6 +436,7 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          reasoning_effort: payload.reasoning_effort,
           provider: payload.provider,
           model_name: payload.model_name,
           api_key: payload.api_key || undefined,
@@ -466,6 +515,46 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
     setStreamState('cancelled');
   };
 
+  const buildPayload = (): ConfigPayload => {
+    return tab === 'cloud'
+        ? {
+            validation_token: validationToken,
+            reasoning_effort: efforts.main,
+            turbo_reasoning_effort: efforts.turbo,
+            review_reasoning_effort: efforts.review,
+            vl_reasoning_effort: efforts.vision,
+            provider,
+            api_key: apiKey === '******' ? undefined : apiKey,
+            base_url: effectiveCloudBaseUrl,
+            model_name: modelName,
+            vl_model_name: vlModelName,
+            turbo_model_name: turboModelName,
+            review_model_name: reviewModelName,
+            turbo_provider: turboProvider === 'follow_main' ? provider : turboProvider,
+            turbo_base_url: turboProvider === 'follow_main' ? undefined : turboBaseUrl.trim(),
+            turbo_api_key: turboProvider === 'follow_main' || turboApiKey === '******' ? undefined : turboApiKey,
+            turbo_follow_main: turboProvider === 'follow_main',
+            review_provider: reviewProvider === 'follow_main' ? provider : reviewProvider,
+            review_base_url: reviewProvider === 'follow_main' ? undefined : reviewBaseUrl.trim(),
+            review_api_key: reviewProvider === 'follow_main' || reviewApiKey === '******' ? undefined : reviewApiKey,
+            review_follow_main: reviewProvider === 'follow_main',
+            vl_provider: vlProvider === 'follow_main' ? provider : vlProvider,
+            vl_api_key: vlProvider === 'follow_main' || vlApiKey === '******' ? undefined : vlApiKey,
+            vl_base_url: vlProvider === 'follow_main' ? undefined : vlBaseUrl.trim(),
+            vl_follow_main: vlProvider === 'follow_main',
+            tesseract_path: tesseractPath.trim(),
+            tesseract_manual_override: tesseractManualOverride,
+          }
+        : {
+            validation_token: validationToken,
+            provider: 'local',
+            base_url: localBaseUrl,
+            model_name: localModelName,
+            tesseract_path: tesseractPath.trim(),
+            tesseract_manual_override: tesseractManualOverride,
+          };
+  };
+
   const validateConnection = async () => {
     setPending(true);
     setMessage(null);
@@ -490,39 +579,11 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
       }
     }
 
-    const payload =
-      tab === 'cloud'
-        ? {
-            provider,
-            api_key: apiKey === '******' ? '' : apiKey,
-            base_url: effectiveCloudBaseUrl,
-            model_name: modelName,
-            vl_model_name: vlModelName,
-            turbo_model_name: turboModelName,
-            review_model_name: reviewModelName,
-            turbo_provider: turboProvider === 'follow_main' ? provider : turboProvider,
-            turbo_api_key: turboProvider === 'follow_main' || turboApiKey === '******' ? undefined : turboApiKey,
-            turbo_follow_main: turboProvider === 'follow_main',
-            review_provider: reviewProvider === 'follow_main' ? provider : reviewProvider,
-            review_api_key: reviewProvider === 'follow_main' || reviewApiKey === '******' ? undefined : reviewApiKey,
-            review_follow_main: reviewProvider === 'follow_main',
-            vl_provider: vlProvider === 'follow_main' ? provider : vlProvider,
-            vl_api_key: vlProvider === 'follow_main' || vlApiKey === '******' ? undefined : vlApiKey,
-            vl_base_url: vlProvider === 'follow_main' ? undefined : vlBaseUrl.trim(),
-            vl_follow_main: vlProvider === 'follow_main',
-            tesseract_path: tesseractPath.trim(),
-            tesseract_manual_override: tesseractManualOverride,
-          }
-        : {
-            provider: 'local',
-            base_url: localBaseUrl,
-            model_name: localModelName,
-            tesseract_path: tesseractPath.trim(),
-            tesseract_manual_override: tesseractManualOverride,
-          };
+    const payload = buildPayload();
 
     try {
       const res = await api.post<ValidationResponse>('/api/config/validate', payload);
+      applyCapabilities(res.details?.reasoning);
       const checks = Array.isArray(res?.details?.checks) ? res.details.checks : [];
 
       if (res?.details?.ocr_auto_detected && res?.details?.ocr_auto_detected_path) {
@@ -535,14 +596,17 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
       }
 
       if (res.valid) {
+        setValidationToken(res.validation_token ?? undefined);
         const profile = tab === 'cloud' ? `${provider}/${modelName || '(未填写模型)'}` : `local/${localModelName || '(未填写模型)'}`;
         const checksText = checks.length > 0 ? `，通过项：${checks.map((x) => `${x.label}:${x.model}`).join(' / ')}` : '';
         setMessage({
           type: 'success',
-          text: `验证通过 (${profile})，总耗时 ${res.details?.latency}ms${checksText}`,
+          text: `${res.details?.reused ? '复用有效验证记录' : '所选请求接入验证通过'} (${profile})${checksText}；保存不会再次调用模型。`,
         });
-        void runTestStream(payload);
+        setStreamOutput(checks.map((item) => `${item.label} / ${item.model}：${item.success ? '请求已接受' : '失败'}`).join('\n'));
+        setStreamState('done');
       } else {
+        setValidationToken(undefined);
         const failedChecks = checks.filter((x) => !x.success);
         const suffix =
           failedChecks.length > 0
@@ -584,38 +648,10 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
     }
 
     try {
-      const payload =
-        tab === 'cloud'
-          ? {
-              provider,
-              api_key: apiKey === '******' ? undefined : apiKey,
-              base_url: effectiveCloudBaseUrl,
-              model_name: modelName,
-              vl_model_name: vlModelName,
-              turbo_model_name: turboModelName,
-              review_model_name: reviewModelName,
-              turbo_provider: turboProvider === 'follow_main' ? provider : turboProvider,
-              turbo_api_key: turboProvider === 'follow_main' || turboApiKey === '******' ? undefined : turboApiKey,
-              turbo_follow_main: turboProvider === 'follow_main',
-              review_provider: reviewProvider === 'follow_main' ? provider : reviewProvider,
-              review_api_key: reviewProvider === 'follow_main' || reviewApiKey === '******' ? undefined : reviewApiKey,
-              review_follow_main: reviewProvider === 'follow_main',
-              vl_provider: vlProvider === 'follow_main' ? provider : vlProvider,
-              vl_api_key: vlProvider === 'follow_main' || vlApiKey === '******' ? undefined : vlApiKey,
-              vl_base_url: vlProvider === 'follow_main' ? undefined : vlBaseUrl.trim(),
-              vl_follow_main: vlProvider === 'follow_main',
-              tesseract_path: tesseractPath.trim(),
-              tesseract_manual_override: tesseractManualOverride,
-            }
-          : {
-              provider: 'local',
-              base_url: localBaseUrl,
-              model_name: localModelName,
-              tesseract_path: tesseractPath.trim(),
-              tesseract_manual_override: tesseractManualOverride,
-            };
+      const payload = buildPayload();
 
       const res = await api.post<SaveConfigResponse>('/api/config/save', payload);
+      applyCapabilities(res.details?.reasoning);
       if (res.status === 'success') {
         if (res.tesseract_path) {
           setTesseractPath(res.tesseract_path);
@@ -665,6 +701,11 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
           <Tabs activeKey={tab} onSelect={(key) => setTab(key || 'cloud')} className="config-modal-tabs mb-3">
           <Tab eventKey="cloud" title="云端模型 (Cloud)">
             <CloudTab
+              pending={pending} reasoning={reasoning} efforts={efforts}
+              onEffortChange={(route, value) => {
+                setEfforts((previous) => ({ ...previous, [route]: value }));
+                markDirty();
+              }}
               provider={provider}
               apiKey={apiKey}
               baseUrl={effectiveCloudBaseUrl}
@@ -674,25 +715,29 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
               reviewModel={reviewModelName}
               turboProvider={turboProvider}
               turboApiKey={turboApiKey}
+              turboBaseUrl={turboBaseUrl}
               reviewProvider={reviewProvider}
               reviewApiKey={reviewApiKey}
+              reviewBaseUrl={reviewBaseUrl}
               vlProvider={vlProvider}
               vlApiKey={vlApiKey}
               vlBaseUrl={vlBaseUrl}
-              onProviderChange={handleCloudProviderChange}
-              onApiKeyChange={setApiKey}
-              onBaseUrlChange={handleCloudBaseUrlChange}
-              onModelChange={setModelName}
-              onVlModelChange={setVlModelName}
-              onTurboModelChange={setTurboModelName}
-              onReviewModelChange={setReviewModelName}
-              onTurboProviderChange={setTurboProvider}
-              onTurboApiKeyChange={setTurboApiKey}
-              onReviewProviderChange={setReviewProvider}
-              onReviewApiKeyChange={setReviewApiKey}
-              onVlProviderChange={handleVlProviderChange}
-              onVlApiKeyChange={setVlApiKey}
-              onVlBaseUrlChange={setVlBaseUrl}
+              onProviderChange={changeModelConfig(handleCloudProviderChange)}
+              onApiKeyChange={changeModelConfig(setApiKey)}
+              onBaseUrlChange={changeModelConfig(handleCloudBaseUrlChange)}
+              onModelChange={changeModelConfig(setModelName, ['main'])}
+              onVlModelChange={changeModelConfig(setVlModelName, ['vision'])}
+              onTurboModelChange={changeModelConfig(setTurboModelName, ['turbo'])}
+              onReviewModelChange={changeModelConfig(setReviewModelName, ['review'])}
+              onTurboProviderChange={changeModelConfig((value) => changeIndependentProvider(value, 'turbo'), ['turbo'])}
+              onTurboApiKeyChange={changeModelConfig(setTurboApiKey, ['turbo'])}
+              onTurboBaseUrlChange={changeModelConfig(setTurboBaseUrl, ['turbo'])}
+              onReviewProviderChange={changeModelConfig((value) => changeIndependentProvider(value, 'review'), ['review'])}
+              onReviewApiKeyChange={changeModelConfig(setReviewApiKey, ['review'])}
+              onReviewBaseUrlChange={changeModelConfig(setReviewBaseUrl, ['review'])}
+              onVlProviderChange={changeModelConfig(handleVlProviderChange, ['vision'])}
+              onVlApiKeyChange={changeModelConfig(setVlApiKey, ['vision'])}
+              onVlBaseUrlChange={changeModelConfig(setVlBaseUrl, ['vision'])}
               onDirty={markDirty}
             />
           </Tab>
@@ -723,6 +768,11 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
             <div className="config-preview-card__header d-flex justify-content-between align-items-center mb-2">
               <strong>连接测试预览</strong>
               <div className="d-flex align-items-center gap-2">
+                <Button type="button" size="sm" variant="outline-secondary"
+                  disabled={pending || streamState === 'running' || !validationToken}
+                  onClick={() => void runTestStream(buildPayload())}>
+                  单独测试流式输出
+                </Button>
                 {streamState === 'running' && <Spinner size="sm" animation="grow" variant="primary" />}
                 {streamState === 'running' && (
                   <Button
@@ -742,7 +792,7 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
               </div>
             </div>
             <div className="config-preview-card__content config-stream-output font-monospace">
-              {streamOutput || <span className="text-muted fst-italic">点击“验证连接”开始测试...</span>}
+              {streamOutput || <span className="text-muted fst-italic">验证只检查所选配置；测试流式输出会单独调用模型。</span>}
             </div>
           </section>
 
@@ -785,7 +835,7 @@ export function ConfigModal({ show, onHide, initialError }: Props) {
           取消
         </Button>
         <Button variant="info" onClick={validateConnection} disabled={pending} className="config-modal-btn config-modal-btn--info">
-          验证连接
+          验证所选配置
         </Button>
         <Button variant="primary" onClick={saveConfig} disabled={pending} className="config-modal-btn config-modal-btn--primary">
           {pending ? '保存中...' : '应用并保存'}
